@@ -20,7 +20,7 @@ jobs:
         with:
           server: 153.92.220.112
           port: 21
-          protocol: ftp
+          protocol: ftps
           username: u630423897.maboximmo.fr
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
