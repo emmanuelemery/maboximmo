@@ -1,0 +1,202 @@
+/*
+ * theme-rh.css
+ * Rôle     : Thème module Ressources Humaines
+ * Dépend   : tokens.css
+ * Date     : 2026-04-03
+ */
+
+[data-theme-module="rh"],
+.theme-rh {
+  --brand-50:  #F0F9FF;
+  --brand-100: #E0F2FE;
+  --brand-200: #BAE6FD;
+  --brand-300: #7DD3FC;
+  --brand-400: #38BDF8;
+  --brand-500: #0EA5E9;
+  --brand-600: #0284C7;
+  --brand-700: #0369A1;
+  --brand-800: #075985;
+  --brand-900: #0C4A6E;
+
+  --brand-primary:        var(--brand-500);
+  --brand-primary-hover:  var(--brand-600);
+  --brand-primary-active: var(--brand-700);
+  --brand-primary-light:  var(--brand-50);
+  --brand-primary-text:   #ffffff;
+
+  --brand-sidebar-bg:   var(--brand-900);
+  --brand-sidebar-text: var(--brand-100);
+  --brand-topbar-bg:    #ffffff;
+
+  --shadow-focus: 0 0 0 3px rgba(14,165,233,0.35);
+}
+
+/* Dark mode RH */
+[data-theme-module="rh"][data-theme="dark"],
+.theme-rh[data-theme="dark"] {
+  --brand-sidebar-bg:   #071E2E;
+  --brand-topbar-bg:    var(--bg-secondary);
+  --shadow-focus: 0 0 0 3px rgba(14,165,233,0.5);
+}
+
+/* ── Composants spécifiques RH ── */
+
+/* Badge statut congé */
+.conge-badge-pending  { background: var(--warning-bg); color: var(--warning-text); border: 1px solid var(--warning-border); }
+.conge-badge-approved { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-border); }
+.conge-badge-rejected { background: var(--danger-bg);  color: var(--danger-text);  border: 1px solid var(--danger-border); }
+.conge-badge-draft    { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-medium); }
+
+/* Calendrier congés */
+.conge-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  font-size: var(--text-xs);
+}
+.conge-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  font-weight: var(--font-medium);
+  position: relative;
+}
+.conge-day:hover { background: var(--bg-tertiary); }
+.conge-day.today {
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+  font-weight: var(--font-bold);
+}
+.conge-day.conge {
+  background: var(--brand-200);
+  color: var(--brand-800);
+}
+.conge-day.weekend { color: var(--text-tertiary); }
+.conge-day.other-month { opacity: 0.3; }
+
+/* IK — indemnité kilométrique */
+.ik-map-container {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+}
+.ik-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+.ik-metric {
+  text-align: center;
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+}
+.ik-metric-value {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--brand-primary);
+}
+.ik-metric-label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+/* Entretien — sections */
+.entretien-section {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+}
+.entretien-section-header {
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.entretien-section-title {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+}
+.entretien-section-body {
+  padding: var(--space-5);
+}
+
+/* Score entretien */
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-2);
+}
+.score-btn {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-medium);
+  cursor: pointer;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-lg);
+  transition: all var(--transition-base);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+.score-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.score-btn.selected {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #fff;
+}
+
+/* Profil collaborateur */
+.profil-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  margin-bottom: var(--space-5);
+}
+.profil-avatar-zone { position: relative; }
+.profil-avatar-edit {
+  position: absolute;
+  bottom: 0; right: 0;
+  background: var(--brand-primary);
+  color: #fff;
+  border: 2px solid var(--bg-primary);
+  border-radius: 50%;
+  width: 28px; height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+}
+.profil-info { flex: 1; }
+.profil-name {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+}
+.profil-role {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+.profil-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

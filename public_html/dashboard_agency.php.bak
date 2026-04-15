@@ -1,0 +1,1407 @@
+<?php
+// dashboard_agency.php — My Box Agency
+// Adapté de trubox/dashboard.php · Code couleur MaBoxImmo2026
+// ─────────────────────────────────────────────────────────────
+require_once __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/auth.php';
+require_login();
+
+if (!function_exists('e')) {
+  function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+}
+
+$username = e($_SESSION['username'] ?? 'Utilisateur');
+$role     = e($_SESSION['role']     ?? 'collaborateur');
+$q        = trim((string)($_GET['q'] ?? ''));
+$active   = 'dashboard';
+?>
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>My Box Agency — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ═══════════════════════════════
+       TOKENS — palette MaBoxImmo2026
+    ═══════════════════════════════ */
+    :root {
+      --bg: var(--bg-secondary);
+      --bg-soft:   #232f3f;
+      --sidebar:   #1f2835;
+      --ink:       #d0e4ff;
+      --muted:     #7a91a8;
+      --accent:    #66d9ff;   /* cyan    */
+      --accent-2:  #ffd479;   /* gold    */
+      --accent-3:  #7cf5d6;   /* teal    */
+      --card: #ffffff;
+      --stroke:    rgba(255,255,255,0.15);
+      --glow:      0 20px 60px rgba(102,217,255,0.18);
+      --glow-gold: 0 20px 50px rgba(255,212,121,0.20);
+      --r-lg:      22px;
+      --r-md:      16px;
+      --r-sm:      10px;
+      --sidebar-w: 250px;
+      --topbar-h:  64px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: "Manrope", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ════════════════════════════
+       SIDEBAR
+    ════════════════════════════ */
+    .mbi-sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: var(--sidebar-w);
+      background: var(--sidebar);
+      border-right: 1px solid var(--stroke);
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      overflow-y: auto;
+    }
+
+    .mbi-sidebar-head {
+      padding: 22px 20px 16px;
+      border-bottom: 1px solid var(--stroke);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .mbi-logo-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #66d9ff, #1c4dff);
+      box-shadow: var(--glow);
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+      font-weight: 800;
+      color: #07121b;
+      flex-shrink: 0;
+    }
+
+    .mbi-sidebar-brand {
+      line-height: 1.2;
+    }
+    .mbi-sidebar-brand strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .mbi-sidebar-brand span {
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .mbi-sidebar-section {
+      padding: 14px 14px 4px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .mbi-nav {
+      padding: 6px 10px;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .mbi-nav li a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: var(--r-sm);
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--muted);
+      transition: all 0.18s ease;
+    }
+
+    .mbi-nav li a:hover {
+      background: rgba(255,255,255,0.05);
+      color: var(--ink);
+    }
+
+    .mbi-nav li a.active {
+      background: linear-gradient(135deg, rgba(102,217,255,0.15), rgba(28,77,255,0.10));
+      color: var(--accent);
+      border: 1px solid rgba(102,217,255,0.18);
+    }
+
+    .mbi-nav li a .nav-icon {
+      font-size: 16px;
+      width: 20px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .mbi-nav li a .nav-badge {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(102,217,255,0.15);
+      color: var(--accent);
+    }
+
+    .mbi-sidebar-foot {
+      margin-top: auto;
+      padding: 14px 10px;
+      border-top: 1px solid var(--stroke);
+    }
+
+    .mbi-user-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: var(--r-sm);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--stroke);
+    }
+
+    .mbi-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-2), #ff8c00);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: #1a1200;
+      flex-shrink: 0;
+    }
+
+    .mbi-user-info strong {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 130px;
+    }
+    .mbi-user-info span {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: capitalize;
+    }
+
+    /* ════════════════════════════
+       MAIN ZONE
+    ════════════════════════════ */
+    .mbi-main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    /* Aurora background */
+    .mbi-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .mbi-blob {
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(90px);
+      opacity: 0.45;
+    }
+    .mbi-blob--1 {
+      width: 700px; height: 400px;
+      top: -150px; right: -100px;
+      background: radial-gradient(ellipse, rgba(102,217,255,0.30), transparent 65%);
+      animation: floatBlob 16s ease-in-out infinite;
+    }
+    .mbi-blob--2 {
+      width: 600px; height: 350px;
+      bottom: -100px; left: 100px;
+      background: radial-gradient(ellipse, rgba(124,245,214,0.22), transparent 65%);
+      animation: floatBlob 20s ease-in-out infinite reverse;
+    }
+    .mbi-blob--3 {
+      width: 500px; height: 300px;
+      top: 40%; right: 10%;
+      background: radial-gradient(ellipse, rgba(255,212,121,0.14), transparent 65%);
+      animation: floatBlob 24s ease-in-out infinite 4s;
+    }
+    .mbi-noise {
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
+      pointer-events: none;
+      mix-blend-mode: soft-light;
+    }
+    @keyframes floatBlob {
+      0%,100% { transform: translateY(0) scale(1); }
+      50%      { transform: translateY(18px) scale(1.04); }
+    }
+
+    /* ════════════════════════════
+       TOPBAR
+    ════════════════════════════ */
+    .mbi-topbar {
+      position: sticky;
+      top: 0;
+      height: var(--topbar-h);
+      background: rgba(7,17,27,0.82);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--stroke);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 24px;
+      z-index: 50;
+    }
+
+    .mbi-topbar-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .mbi-topbar-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+
+    .mbi-search {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--stroke);
+      border-radius: 999px;
+      padding: 7px 14px;
+      width: 240px;
+      transition: 0.2s;
+    }
+    .mbi-search:focus-within {
+      border-color: rgba(102,217,255,0.35);
+      box-shadow: 0 0 0 3px rgba(102,217,255,0.10);
+    }
+    .mbi-search input {
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--ink);
+      font-size: 13px;
+      width: 100%;
+      font-family: inherit;
+    }
+    .mbi-search input::placeholder { color: var(--muted); }
+    .mbi-search-icon { color: var(--muted); font-size: 14px; flex-shrink: 0; }
+
+    .mbi-topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 14px;
+    }
+
+    .mbi-icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--stroke);
+      display: grid;
+      place-items: center;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 0.18s;
+      color: var(--muted);
+      position: relative;
+    }
+    .mbi-icon-btn:hover { background: rgba(255,255,255,0.10); color: var(--ink); }
+
+    .mbi-notif-dot {
+      position: absolute;
+      top: 6px; right: 7px;
+      width: 7px; height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+      border: 1.5px solid var(--bg);
+    }
+
+    .mbi-topbar-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-2), #ff8c00);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: #1a1200;
+      cursor: pointer;
+    }
+
+    /* ════════════════════════════
+       CONTENU
+    ════════════════════════════ */
+    .mbi-container {
+      padding: 28px 28px 60px;
+      position: relative;
+      z-index: 1;
+      flex: 1;
+    }
+
+    /* Stats row */
+    .mbi-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .mbi-stat {
+      background: var(--card);
+      border: 1px solid var(--stroke);
+      border-radius: var(--r-md);
+      padding: 18px 20px;
+      backdrop-filter: blur(12px);
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .mbi-stat:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--glow);
+    }
+    .mbi-stat::before {
+      content:"";
+      position:absolute;
+      inset:0;
+      background: radial-gradient(circle at 0% 0%, rgba(102,217,255,0.10), transparent 60%);
+      pointer-events:none;
+    }
+    .mbi-stat.gold::before { background: radial-gradient(circle at 0% 0%, rgba(255,212,121,0.14), transparent 60%); }
+    .mbi-stat.teal::before { background: radial-gradient(circle at 0% 0%, rgba(124,245,214,0.14), transparent 60%); }
+    .mbi-stat.rose::before { background: radial-gradient(circle at 0% 0%, rgba(255,100,130,0.12), transparent 60%); }
+
+    .mbi-stat-icon {
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+    .mbi-stat-val {
+      font-size: 28px;
+      font-weight: 800;
+      font-family: "Playfair Display", serif;
+      color: var(--ink);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .mbi-stat.cyan  .mbi-stat-val { color: var(--accent); }
+    .mbi-stat.gold  .mbi-stat-val { color: var(--accent-2); }
+    .mbi-stat.teal  .mbi-stat-val { color: var(--accent-3); }
+    .mbi-stat.rose  .mbi-stat-val { color: #ff7ea0; }
+
+    .mbi-stat-label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .mbi-stat-trend {
+      position: absolute;
+      top: 14px; right: 14px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(124,245,214,0.12);
+      color: var(--accent-3);
+    }
+    .mbi-stat-trend.down {
+      background: rgba(255,100,130,0.10);
+      color: #ff7ea0;
+    }
+
+    /* Grid cards */
+    .mbi-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .mbi-grid-2-1 {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .mbi-card {
+      background: var(--card);
+      border: 1px solid var(--stroke);
+      border-radius: var(--r-lg);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+      position: relative;
+    }
+    .mbi-card::after {
+      content:"";
+      position:absolute;
+      inset:0;
+      background: radial-gradient(circle at 100% 0%, rgba(102,217,255,0.07), transparent 50%);
+      pointer-events:none;
+    }
+
+    .mbi-card-head {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--stroke);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .mbi-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .mbi-card-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .mbi-card-action {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(102,217,255,0.10);
+      border: 1px solid rgba(102,217,255,0.18);
+      white-space: nowrap;
+      cursor: pointer;
+      transition: 0.18s;
+    }
+    .mbi-card-action:hover { background: rgba(102,217,255,0.20); }
+
+    .mbi-card-body { padding: 18px 20px; }
+
+    /* Acces rapide */
+    .mbi-access-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .mbi-access-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: var(--r-sm);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--stroke);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+    .mbi-access-item:hover {
+      background: rgba(102,217,255,0.08);
+      border-color: rgba(102,217,255,0.20);
+      color: var(--accent);
+    }
+    .mbi-access-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .mbi-access-icon.cyan { background: rgba(102,217,255,0.15); color: var(--accent); }
+    .mbi-access-icon.gold { background: rgba(255,212,121,0.15); color: var(--accent-2); }
+    .mbi-access-icon.teal { background: rgba(124,245,214,0.15); color: var(--accent-3); }
+    .mbi-access-icon.rose { background: rgba(255,100,130,0.12); color: #ff7ea0; }
+
+    /* Pill tags */
+    .mbi-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .mbi-pill.info  { background: rgba(102,217,255,0.12); color: var(--accent); border: 1px solid rgba(102,217,255,0.20); }
+    .mbi-pill.warn  { background: rgba(255,212,121,0.12); color: var(--accent-2); border: 1px solid rgba(255,212,121,0.22); }
+    .mbi-pill.ok    { background: rgba(124,245,214,0.12); color: var(--accent-3); border: 1px solid rgba(124,245,214,0.20); }
+    .mbi-pill.alert { background: rgba(255,100,130,0.10); color: #ff7ea0; border: 1px solid rgba(255,100,130,0.18); }
+
+    /* Liste biens */
+    .mbi-list { display: grid; gap: 8px; }
+    .mbi-list-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: var(--r-sm);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--stroke);
+      transition: 0.18s;
+    }
+    .mbi-list-row:hover { background: rgba(255,255,255,0.06); }
+
+    .mbi-list-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(102,217,255,0.20), rgba(28,77,255,0.20));
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .mbi-list-info { flex: 1; min-width: 0; }
+    .mbi-list-info strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mbi-list-info span { font-size: 11px; color: var(--muted); }
+    .mbi-list-price {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent-2);
+      white-space: nowrap;
+    }
+
+    /* Agenda items */
+    .mbi-agenda { display: grid; gap: 8px; }
+    .mbi-agenda-item {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .mbi-agenda-time {
+      flex-shrink: 0;
+      width: 48px;
+      text-align: center;
+      padding: 6px 4px;
+      border-radius: 8px;
+      background: rgba(102,217,255,0.10);
+      border: 1px solid rgba(102,217,255,0.16);
+    }
+    .mbi-agenda-time .t-h { font-size: 14px; font-weight: 800; color: var(--accent); line-height: 1; }
+    .mbi-agenda-time .t-m { font-size: 10px; color: var(--muted); }
+    .mbi-agenda-desc strong { display: block; font-size: 13px; font-weight: 600; color: var(--ink); }
+    .mbi-agenda-desc span   { font-size: 11px; color: var(--muted); }
+
+    /* Empty state */
+    .mbi-empty {
+      text-align: center;
+      padding: 28px 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .mbi-empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.5; }
+
+    /* Section header */
+    .mbi-section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mbi-section-label::after {
+      content:"";
+      flex:1;
+      height:1px;
+      background: var(--stroke);
+    }
+
+    /* Divider */
+    .mbi-divider { height: 1px; background: var(--stroke); margin: 14px 0; }
+
+    /* Chart placeholder */
+    .mbi-chart-placeholder {
+      height: 140px;
+      background: linear-gradient(135deg, rgba(102,217,255,0.06), rgba(124,245,214,0.04));
+      border-radius: var(--r-sm);
+      border: 1px solid var(--stroke);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .mbi-chart-placeholder .bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 5px;
+      height: 60px;
+    }
+    .mbi-chart-placeholder .bar {
+      width: 14px;
+      border-radius: 4px 4px 0 0;
+      background: linear-gradient(to top, rgba(102,217,255,0.5), rgba(102,217,255,0.15));
+    }
+
+    /* ════════════════════════════
+       WELCOME BAND
+    ════════════════════════════ */
+    .mbi-welcome-band {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      background: linear-gradient(135deg, rgba(102,217,255,0.10) 0%, rgba(124,245,214,0.06) 100%);
+      border: 1px solid rgba(102,217,255,0.15);
+      border-radius: var(--r-lg);
+      padding: 24px 28px;
+      margin-bottom: 28px;
+    }
+
+    .mbi-welcome-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .mbi-welcome-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 6px;
+      letter-spacing: -0.3px;
+    }
+
+    .mbi-welcome-sub {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .mbi-welcome-right {
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .mbi-welcome-btn {
+      padding: 10px 20px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.18s;
+      white-space: nowrap;
+    }
+
+    .mbi-welcome-btn.primary {
+      background: var(--accent);
+      color: #07121b;
+      border: none;
+    }
+
+    .mbi-welcome-btn.primary:hover { opacity: 0.88; }
+
+    .mbi-welcome-btn.ghost {
+      background: rgba(255,255,255,0.07);
+      color: var(--ink);
+      border: 1px solid var(--stroke);
+    }
+
+    .mbi-welcome-btn.ghost:hover { background: rgba(255,255,255,0.12); }
+
+    /* ════════════════════════════
+       TOOLS GRID
+    ════════════════════════════ */
+    .mbi-tools-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .mbi-tool-card {
+      background: var(--card);
+      border: 1px solid var(--stroke);
+      border-radius: var(--r-md);
+      padding: 20px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mbi-tool-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 0% 0%, rgba(102,217,255,0.05), transparent 60%);
+      pointer-events: none;
+    }
+
+    .mbi-tool-card:hover {
+      border-color: rgba(102,217,255,0.25);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+      transform: translateY(-2px);
+    }
+
+    .mbi-tool-card.featured {
+      grid-column: span 2;
+      background: linear-gradient(135deg, rgba(102,217,255,0.12) 0%, rgba(28,77,255,0.08) 100%);
+      border-color: rgba(102,217,255,0.22);
+      flex-direction: row;
+      align-items: flex-start;
+    }
+
+    .mbi-tool-icon-wrap {
+      width: 44px;
+      height: 44px;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    .mbi-tool-icon-wrap.cyan  { background: rgba(102,217,255,0.15); }
+    .mbi-tool-icon-wrap.gold  { background: rgba(255,212,121,0.15); }
+    .mbi-tool-icon-wrap.teal  { background: rgba(124,245,214,0.15); }
+    .mbi-tool-icon-wrap.rose  { background: rgba(255,100,130,0.12); }
+
+    .mbi-tool-content { flex: 1; min-width: 0; }
+
+    .mbi-tool-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+
+    .mbi-tool-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 10px;
+    }
+
+    .mbi-tool-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .mbi-tool-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .mbi-tool-btn {
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: 0.18s;
+      cursor: pointer;
+    }
+
+    .mbi-tool-btn.primary {
+      background: rgba(102,217,255,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(102,217,255,0.22);
+    }
+
+    .mbi-tool-btn.primary:hover { background: rgba(102,217,255,0.25); }
+
+    .mbi-tool-btn.ghost {
+      background: rgba(255,255,255,0.05);
+      color: var(--muted);
+      border: 1px solid var(--stroke);
+    }
+
+    .mbi-tool-btn.ghost:hover { background: rgba(255,255,255,0.10); color: var(--ink); }
+
+    /* ════════════════════════════
+       RESPONSIVE
+    ════════════════════════════ */
+    @media (max-width: 1100px) {
+      .mbi-stats { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 1200px) {
+      .mbi-tools-grid { grid-template-columns: repeat(3, 1fr); }
+      .mbi-tool-card.featured { grid-column: span 1; flex-direction: column; }
+      .mbi-stats { grid-template-columns: repeat(3, 1fr) !important; }
+    }
+    @media (max-width: 900px) {
+      .mbi-sidebar { transform: translateX(-100%); }
+      .mbi-main { margin-left: 0; }
+      .mbi-grid-3, .mbi-grid-2-1 { grid-template-columns: 1fr; }
+      .mbi-tools-grid { grid-template-columns: repeat(2, 1fr); }
+      .mbi-welcome-band { flex-direction: column; align-items: flex-start; }
+      .mbi-stats { grid-template-columns: repeat(2, 1fr) !important; }
+    }
+    @media (max-width: 600px) {
+      .mbi-tools-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
+
+<!-- User info footer (kept for dashboard_agency styling) -->
+<div class="mbi-sidebar-foot">
+  <div class="mbi-user-pill">
+    <div class="mbi-avatar"><?= strtoupper(substr($username, 0, 1)) ?></div>
+    <div class="mbi-user-info">
+      <strong><?= $username ?></strong>
+      <span><?= $role ?></span>
+    </div>
+  </div>
+</div>
+
+<!-- ░░ MAIN ░░ -->
+<main class="mbi-main">
+
+  <!-- Background effects -->
+  <div class="mbi-bg" aria-hidden="true">
+    <div class="mbi-blob mbi-blob--1"></div>
+    <div class="mbi-blob mbi-blob--2"></div>
+    <div class="mbi-blob mbi-blob--3"></div>
+    <div class="mbi-noise"></div>
+  </div>
+
+  <!-- TOPBAR -->
+  <header class="mbi-topbar">
+    <div>
+      <div class="mbi-topbar-title">Dashboard
+        <span class="mbi-topbar-sub">My Box Agency</span>
+      </div>
+    </div>
+
+    <form method="get" class="mbi-search" role="search">
+      <span class="mbi-search-icon">🔍</span>
+      <input type="text" name="q" placeholder="Rechercher un bien, un contact…"
+             value="<?= e($q) ?>" autocomplete="off">
+    </form>
+
+    <div class="mbi-topbar-actions">
+      <div class="mbi-icon-btn" title="Ajouter">＋</div>
+      <div class="mbi-icon-btn" title="Notifications">
+        🔔<span class="mbi-notif-dot"></span>
+      </div>
+      <div class="mbi-topbar-avatar" title="Mon compte">
+        <?= strtoupper(substr($username, 0, 1)) ?>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENT -->
+  <div class="mbi-container">
+
+    <!-- ══════════════════════════════════════════
+         BANDEAU BIENVENUE
+    ══════════════════════════════════════════ -->
+    <div class="mbi-welcome-band">
+      <div class="mbi-welcome-left">
+        <div class="mbi-welcome-eyebrow">My Box Agency</div>
+        <h1 class="mbi-welcome-title">Bonjour, <?= $username ?> 👋</h1>
+        <p class="mbi-welcome-sub">Votre espace agence — annonces, mandats, outils métiers et diffusion multi-portails.</p>
+      </div>
+      <div class="mbi-welcome-right">
+        <a href="bien_ajouter.php" class="mbi-welcome-btn primary">＋ Ajouter un bien</a>
+        <a href="bien_diffusion.php" class="mbi-welcome-btn ghost">📡 Diffuser</a>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         KPIs — 6 CHIFFRES CLÉS
+    ══════════════════════════════════════════ -->
+    <div class="mbi-section-label">Vue d'ensemble</div>
+    <div class="mbi-stats" style="grid-template-columns:repeat(6,1fr);">
+      <div class="mbi-stat cyan">
+        <div class="mbi-stat-icon">🏠</div>
+        <div class="mbi-stat-val">24</div>
+        <div class="mbi-stat-label">Biens actifs</div>
+        <div class="mbi-stat-trend">+3 ce mois</div>
+      </div>
+      <div class="mbi-stat gold">
+        <div class="mbi-stat-icon">📡</div>
+        <div class="mbi-stat-val">18</div>
+        <div class="mbi-stat-label">Annonces diffusées</div>
+        <div class="mbi-stat-trend">+2</div>
+      </div>
+      <div class="mbi-stat teal">
+        <div class="mbi-stat-icon">👁️</div>
+        <div class="mbi-stat-val">1 204</div>
+        <div class="mbi-stat-label">Vues ce mois</div>
+        <div class="mbi-stat-trend">+18%</div>
+      </div>
+      <div class="mbi-stat rose">
+        <div class="mbi-stat-icon">📩</div>
+        <div class="mbi-stat-val">37</div>
+        <div class="mbi-stat-label">Leads reçus</div>
+        <div class="mbi-stat-trend">+7</div>
+      </div>
+      <div class="mbi-stat gold">
+        <div class="mbi-stat-icon">📋</div>
+        <div class="mbi-stat-val">8</div>
+        <div class="mbi-stat-label">Mandats actifs</div>
+        <div class="mbi-stat-trend">+1</div>
+      </div>
+      <div class="mbi-stat cyan">
+        <div class="mbi-stat-icon">💶</div>
+        <div class="mbi-stat-val">3</div>
+        <div class="mbi-stat-label">Transactions</div>
+        <div class="mbi-stat-trend down">en cours</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         OUTILS MÉTIERS — GRANDE GRILLE
+    ══════════════════════════════════════════ -->
+    <div class="mbi-section-label">Outils métiers</div>
+    <div class="mbi-tools-grid">
+
+      <!-- ANNONCES & DIFFUSION -->
+      <div class="mbi-tool-card featured">
+        <div class="mbi-tool-icon-wrap cyan">📡</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Diffusion multi-portails</div>
+          <div class="mbi-tool-desc">Publiez vos annonces sur MaBoxImmo et vos portails partenaires en un clic.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill ok" style="font-size:10px;">18 actives</span>
+            <span class="mbi-pill warn" style="font-size:10px;">2 en attente</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="bien_diffusion.php" class="mbi-tool-btn primary">Gérer la diffusion</a>
+          <a href="bien_annonces.php" class="mbi-tool-btn ghost">Mes annonces</a>
+        </div>
+      </div>
+
+      <!-- IMMEUBLES -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap gold">🏢</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Immeubles & Biens</div>
+          <div class="mbi-tool-desc">Gérez votre portefeuille de biens, immeubles et lots.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill info" style="font-size:10px;">24 biens</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="bien_liste.php" class="mbi-tool-btn primary">Voir les biens</a>
+          <a href="bien_ajouter.php" class="mbi-tool-btn ghost">＋ Ajouter</a>
+        </div>
+      </div>
+
+      <!-- MANDATS -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap teal">📝</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Mandats</div>
+          <div class="mbi-tool-desc">Suivez vos mandats exclusifs, simples et co-exclusifs avec alertes d'expiration.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill ok" style="font-size:10px;">6 actifs</span>
+            <span class="mbi-pill alert" style="font-size:10px;">1 expiré</span>
+            <span class="mbi-pill warn" style="font-size:10px;">1 à renouveler</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="agency_mandats.php" class="mbi-tool-btn primary">Gérer les mandats</a>
+          <a href="agency_mandats.php?new=1" class="mbi-tool-btn ghost">＋ Nouveau</a>
+        </div>
+      </div>
+
+      <!-- TÂCHES -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap rose">✅</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Tâches</div>
+          <div class="mbi-tool-desc">Organisez votre activité quotidienne, suivis, relances et rappels.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill warn" style="font-size:10px;">5 en cours</span>
+            <span class="mbi-pill alert" style="font-size:10px;">2 urgentes</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="agency_tasks.php" class="mbi-tool-btn primary">Mes tâches</a>
+          <a href="agency_tasks.php?new=1" class="mbi-tool-btn ghost">＋ Créer</a>
+        </div>
+      </div>
+
+      <!-- FACTURES -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap gold">💰</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Factures & Honoraires</div>
+          <div class="mbi-tool-desc">Générez et suivez vos factures d'honoraires, relances et règlements.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill ok" style="font-size:10px;">3 payées</span>
+            <span class="mbi-pill warn" style="font-size:10px;">2 en attente</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="agency_invoices.php" class="mbi-tool-btn primary">Voir les factures</a>
+          <a href="agency_invoices.php?new=1" class="mbi-tool-btn ghost">＋ Créer</a>
+        </div>
+      </div>
+
+      <!-- RÉUNIONS -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap cyan">📅</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Réunions & Agenda</div>
+          <div class="mbi-tool-desc">Planifiez visites, rendez-vous clients, estimations et réunions d'équipe.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill info" style="font-size:10px;">5 cette semaine</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="agency_meetings.php" class="mbi-tool-btn primary">Calendrier</a>
+          <a href="agency_meetings.php?new=1" class="mbi-tool-btn ghost">＋ Planifier</a>
+        </div>
+      </div>
+
+      <!-- CONTRATS -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap teal">📋</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">Contrats</div>
+          <div class="mbi-tool-desc">Compromis, actes de vente, baux et contrats de gestion locative.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill info" style="font-size:10px;">4 en cours</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="agency_contracts.php" class="mbi-tool-btn primary">Voir les contrats</a>
+          <a href="agency_contracts.php?new=1" class="mbi-tool-btn ghost">＋ Nouveau</a>
+        </div>
+      </div>
+
+      <!-- CONTACTS / CRM -->
+      <div class="mbi-tool-card">
+        <div class="mbi-tool-icon-wrap rose">👥</div>
+        <div class="mbi-tool-content">
+          <div class="mbi-tool-name">CRM Contacts</div>
+          <div class="mbi-tool-desc">Acheteurs, vendeurs, locataires — suivez chaque prospect et client.</div>
+          <div class="mbi-tool-tags">
+            <span class="mbi-pill info" style="font-size:10px;">142 contacts</span>
+            <span class="mbi-pill warn" style="font-size:10px;">8 à relancer</span>
+          </div>
+        </div>
+        <div class="mbi-tool-actions">
+          <a href="agency_contacts.php" class="mbi-tool-btn primary">CRM</a>
+          <a href="agency_contacts.php?new=1" class="mbi-tool-btn ghost">＋ Ajouter</a>
+        </div>
+      </div>
+
+    </div><!-- /tools-grid -->
+
+    <!-- ══════════════════════════════════════════
+         LIGNE INFÉRIEURE : annonces + agenda + mandats
+    ══════════════════════════════════════════ -->
+    <div class="mbi-grid-3" style="margin-top:0;">
+
+      <!-- ANNONCES RÉCENTES -->
+      <div class="mbi-card">
+        <div class="mbi-card-head">
+          <div>
+            <div class="mbi-card-title">Annonces récentes</div>
+            <div class="mbi-card-sub">Derniers biens mis en ligne</div>
+          </div>
+          <a href="bien_annonces.php" class="mbi-card-action">Voir tout</a>
+        </div>
+        <div class="mbi-card-body">
+          <div class="mbi-list">
+            <div class="mbi-list-row">
+              <div class="mbi-list-thumb">🏢</div>
+              <div class="mbi-list-info">
+                <strong>Appt T3 · Lyon 6e</strong>
+                <span>92 m² · <span class="mbi-pill ok" style="padding:1px 6px;font-size:9px;">En ligne</span></span>
+              </div>
+              <div class="mbi-list-price">465 000 €</div>
+            </div>
+            <div class="mbi-list-row">
+              <div class="mbi-list-thumb">🏡</div>
+              <div class="mbi-list-info">
+                <strong>Maison · Nantes</strong>
+                <span>180 m² · <span class="mbi-pill ok" style="padding:1px 6px;font-size:9px;">En ligne</span></span>
+              </div>
+              <div class="mbi-list-price">795 000 €</div>
+            </div>
+            <div class="mbi-list-row">
+              <div class="mbi-list-thumb">🏖️</div>
+              <div class="mbi-list-info">
+                <strong>Villa · Cannes</strong>
+                <span>260 m² · <span class="mbi-pill warn" style="padding:1px 6px;font-size:9px;">Brouillon</span></span>
+              </div>
+              <div class="mbi-list-price">1 450 000 €</div>
+            </div>
+            <div class="mbi-list-row">
+              <div class="mbi-list-thumb">🏠</div>
+              <div class="mbi-list-info">
+                <strong>Studio · Paris 11e</strong>
+                <span>28 m² · <span class="mbi-pill alert" style="padding:1px 6px;font-size:9px;">Vendu</span></span>
+              </div>
+              <div class="mbi-list-price">195 000 €</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENDA DU JOUR -->
+      <div class="mbi-card">
+        <div class="mbi-card-head">
+          <div>
+            <div class="mbi-card-title">Agenda du jour</div>
+            <div class="mbi-card-sub"><?= date('l d F Y') ?></div>
+          </div>
+          <a href="agency_meetings.php" class="mbi-card-action">Calendrier</a>
+        </div>
+        <div class="mbi-card-body">
+          <div class="mbi-agenda">
+            <div class="mbi-agenda-item">
+              <div class="mbi-agenda-time">
+                <div class="t-h">09</div>
+                <div class="t-m">h30</div>
+              </div>
+              <div class="mbi-agenda-desc">
+                <strong>Visite — Lyon 6e</strong>
+                <span>M. Dupont · Appt T3</span>
+              </div>
+            </div>
+            <div class="mbi-divider"></div>
+            <div class="mbi-agenda-item">
+              <div class="mbi-agenda-time">
+                <div class="t-h">11</div>
+                <div class="t-m">h00</div>
+              </div>
+              <div class="mbi-agenda-desc">
+                <strong>Signature mandat</strong>
+                <span>Mme Martin · Nantes</span>
+              </div>
+            </div>
+            <div class="mbi-divider"></div>
+            <div class="mbi-agenda-item">
+              <div class="mbi-agenda-time">
+                <div class="t-h">14</div>
+                <div class="t-m">h30</div>
+              </div>
+              <div class="mbi-agenda-desc">
+                <strong>Estimation bien</strong>
+                <span>Prospect · Paris 11e</span>
+              </div>
+            </div>
+            <div class="mbi-divider"></div>
+            <div class="mbi-agenda-item">
+              <div class="mbi-agenda-time" style="background:rgba(255,212,121,0.10);border-color:rgba(255,212,121,0.20);">
+                <div class="t-h" style="color:var(--accent-2);">16</div>
+                <div class="t-m">h00</div>
+              </div>
+              <div class="mbi-agenda-desc">
+                <strong>Appel client</strong>
+                <span>M. Bernard · Suivi dossier</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MANDATS — ALERTES -->
+      <div class="mbi-card">
+        <div class="mbi-card-head">
+          <div>
+            <div class="mbi-card-title">Alertes mandats</div>
+            <div class="mbi-card-sub">Expirations à surveiller</div>
+          </div>
+          <a href="agency_mandats.php" class="mbi-card-action">Voir tout</a>
+        </div>
+        <div class="mbi-card-body">
+          <div class="mbi-list">
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Villa Cannes</strong>
+                <span class="mbi-pill ok">Actif</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Expire dans 42 jours</span>
+            </div>
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Appt Lyon 6e</strong>
+                <span class="mbi-pill warn">À renouveler</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Expire dans 8 jours</span>
+            </div>
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Maison Nantes</strong>
+                <span class="mbi-pill ok">Actif</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Expire dans 61 jours</span>
+            </div>
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Studio Paris 11e</strong>
+                <span class="mbi-pill alert">Expiré</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Depuis 3 jours</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /grid-3 -->
+
+    <!-- ══════════════════════════════════════════
+         LIGNE BASSE : performance + tâches urgentes
+    ══════════════════════════════════════════ -->
+    <div class="mbi-grid-2-1">
+
+      <!-- PERFORMANCE DIFFUSION -->
+      <div class="mbi-card">
+        <div class="mbi-card-head">
+          <div>
+            <div class="mbi-card-title">Performance de diffusion</div>
+            <div class="mbi-card-sub">Vues · Leads · Contacts ce mois</div>
+          </div>
+          <a href="agency_stats.php" class="mbi-card-action">Statistiques détaillées</a>
+        </div>
+        <div class="mbi-card-body">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+            <div style="text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:var(--accent);">1 204</div>
+              <div style="font-size:11px;color:var(--muted);">Vues</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:var(--accent-2);">37</div>
+              <div style="font-size:11px;color:var(--muted);">Leads</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:var(--accent-3);">3,1%</div>
+              <div style="font-size:11px;color:var(--muted);">Taux conversion</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:22px;font-weight:800;color:#ff7ea0;">18</div>
+              <div style="font-size:11px;color:var(--muted);">Portails actifs</div>
+            </div>
+          </div>
+          <div class="mbi-chart-placeholder">
+            <div class="bars">
+              <?php
+              $heights = [30,45,38,55,42,70,58,65,48,72,60,80];
+              foreach ($heights as $h): ?>
+                <div class="bar" style="height:<?= $h ?>px;"></div>
+              <?php endforeach; ?>
+            </div>
+            <span>Activité des 12 dernières semaines</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TÂCHES URGENTES -->
+      <div class="mbi-card">
+        <div class="mbi-card-head">
+          <div>
+            <div class="mbi-card-title">Tâches urgentes</div>
+            <div class="mbi-card-sub">À traiter aujourd'hui</div>
+          </div>
+          <a href="agency_tasks.php" class="mbi-card-action">Toutes les tâches</a>
+        </div>
+        <div class="mbi-card-body">
+          <div class="mbi-list">
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Renouveler mandat Lyon</strong>
+                <span class="mbi-pill alert">Urgent</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Échéance : aujourd'hui</span>
+            </div>
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Envoyer offre M. Dupont</strong>
+                <span class="mbi-pill warn">Cette semaine</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Dossier Appt T3 · Lyon</span>
+            </div>
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Mise à jour photos villa</strong>
+                <span class="mbi-pill info">Normal</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Cannes · 8 photos à ajouter</span>
+            </div>
+            <div class="mbi-list-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                <strong style="font-size:13px;">Relancer prospect Nantes</strong>
+                <span class="mbi-pill warn">Cette semaine</span>
+              </div>
+              <span style="font-size:11px;color:var(--muted);">Mme Martin · sans réponse 5j</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /grid-2-1 -->
+
+  </div><!-- /container -->
+</main>
+
+</body>
+</html>

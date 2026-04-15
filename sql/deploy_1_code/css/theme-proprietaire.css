@@ -1,0 +1,180 @@
+/*
+ * theme-proprietaire.css
+ * Rôle     : Thème module Propriétaire
+ * Dépend   : tokens.css
+ * Date     : 2026-04-03
+ */
+
+[data-theme-module="proprietaire"],
+.theme-proprietaire {
+  --brand-50:  #F5F3FF;
+  --brand-100: #EDE9FE;
+  --brand-200: #DDD6FE;
+  --brand-300: #C4B5FD;
+  --brand-400: #A78BFA;
+  --brand-500: #8B5CF6;
+  --brand-600: #7C3AED;
+  --brand-700: #6D28D9;
+  --brand-800: #5B21B6;
+  --brand-900: #4C1D95;
+
+  --brand-primary:        var(--brand-500);
+  --brand-primary-hover:  var(--brand-600);
+  --brand-primary-active: var(--brand-700);
+  --brand-primary-light:  var(--brand-50);
+  --brand-primary-text:   #ffffff;
+
+  --brand-sidebar-bg:   var(--brand-900);
+  --brand-sidebar-text: var(--brand-100);
+  --brand-topbar-bg:    #ffffff;
+
+  --shadow-focus: 0 0 0 3px rgba(139,92,246,0.35);
+}
+
+[data-theme-module="proprietaire"][data-theme="dark"],
+.theme-proprietaire[data-theme="dark"] {
+  --brand-sidebar-bg:   #1A0A40;
+  --brand-topbar-bg:    var(--bg-secondary);
+  --shadow-focus: 0 0 0 3px rgba(139,92,246,0.5);
+}
+
+/* ── Composants spécifiques Propriétaire ── */
+
+/* Portefeuille de biens */
+.portfolio-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+.portfolio-metric {
+  text-align: center;
+  padding: var(--space-5);
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+}
+.portfolio-metric-value {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-bold);
+  color: var(--brand-primary);
+}
+.portfolio-metric-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-2);
+}
+
+/* Revenus locatifs */
+.revenu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-light);
+}
+.revenu-item:last-child { border-bottom: none; }
+.revenu-bien {
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+}
+.revenu-locataire {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.revenu-amount {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--success-text);
+}
+.revenu-amount.impaye { color: var(--danger-text); }
+
+/* Documents propriétaire */
+.doc-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+}
+.doc-item:hover {
+  border-color: var(--brand-primary);
+  box-shadow: var(--shadow-sm);
+}
+.doc-icon {
+  width: 36px; height: 36px;
+  background: var(--brand-primary-light);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-primary);
+  flex-shrink: 0;
+  font-size: var(--text-lg);
+}
+.doc-info { flex: 1; min-width: 0; }
+.doc-name {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-meta { font-size: var(--text-xs); color: var(--text-secondary); }
+.doc-actions { flex-shrink: 0; }
+
+/* Quittances */
+.quittance-card {
+  border-left: 4px solid var(--brand-primary);
+}
+.quittance-month {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  text-transform: capitalize;
+}
+.quittance-status-paid   { color: var(--success-text); }
+.quittance-status-unpaid { color: var(--danger-text); }
+.quittance-status-late   { color: var(--warning-text); }
+
+/* Mini carte bien */
+.mini-bien {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-base);
+}
+.mini-bien:hover { box-shadow: var(--shadow-md); border-color: var(--brand-200); }
+.mini-bien-thumb {
+  width: 80px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+}
+.mini-bien-info { flex: 1; min-width: 0; }
+.mini-bien-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-bien-addr {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.mini-bien-price {
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+  color: var(--brand-primary);
+  margin-top: var(--space-1);
+}

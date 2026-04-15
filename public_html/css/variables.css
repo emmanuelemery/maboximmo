@@ -1,0 +1,146 @@
+/**
+ * ============================================================
+ * MABOXIMMO - VARIABLES COULEURS & DESIGN
+ * Généré par Design System · 2026-03-28
+ * ============================================================
+ */
+
+:root {
+  /* ========== COULEURS PRIMAIRES ========== */
+  --color-primary:          #343d4b;
+  --color-primary-light:    #7a9e7f;
+  --color-primary-lighter:  #525a66;
+  --color-primary-dark:     #5a7d5e;
+  --color-primary-darker:   #2c3440;
+
+  --color-secondary:        #2d5f6b;
+  --color-secondary-light:  #3d7f8b;
+  --color-secondary-lighter:#4d7781;
+  --color-secondary-dark:   #1d4f5b;
+  --color-secondary-darker: #26515b;
+
+  /* ========== COULEURS NEUTRES ========== */
+  --color-white:        #fffbf8;
+  --color-white-alt:    #faf6f3;
+  --color-white-light:  #f5f1ee;
+
+  --color-beige:        #f4e8d8;
+  --color-beige-light:  #faf6f0;
+  --color-beige-lighter:#f5e9da;
+
+  --color-gray-dark:    #6b6b6b;
+  --color-gray-medium:  #757575;
+  --color-gray-light:   #b0b0b0;
+  --color-gray-lighter: #d9d9d9;
+  --color-gray-lightest:#e5e5e5;
+
+  /* ========== COULEURS FONCTIONNELLES ========== */
+  --color-success:       #10b981;
+  --color-success-light: #40c79a;
+  --color-success-dark:  #0ea774;
+
+  --color-warning:       #f59e0b;
+  --color-warning-light: #f7b13c;
+  --color-warning-dark:  #dd8e0a;
+
+  --color-danger:        #ef4444;
+  --color-danger-light:  #f26969;
+  --color-danger-dark:   #d73d3d;
+
+  --color-info:          #0ea5e9;
+  --color-info-light:    #3eb7ed;
+  --color-info-dark:     #0d95d2;
+
+  /* ========== FONDS ========== */
+  --bg-primary:      var(--color-white);
+  --bg-secondary:    var(--color-white-alt);
+  --bg-section-alt:  var(--color-beige-light);
+  --bg-hover:        var(--color-beige);
+
+  /* ========== TEXTES ========== */
+  --text-primary:    var(--color-gray-dark);
+  --text-secondary:  var(--color-gray-medium);
+  --text-light:      var(--color-gray-light);
+  --text-on-dark:    var(--color-white);
+  --text-on-primary: var(--color-secondary-dark);
+
+  /* ========== BORDURES ========== */
+  --border-light:    var(--color-gray-lightest);
+  --border-medium:   var(--color-gray-lighter);
+  --border-dark:     var(--color-gray-light);
+  --border-primary:  var(--color-primary);
+
+  /* ========== OMBRES ========== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+
+  /* ========== ESPACEMENTS ========== */
+  --spacing-xs:  4px;
+  --spacing-sm:  8px;
+  --spacing-md:  16px;
+  --spacing-lg:  24px;
+  --spacing-xl:  32px;
+  --spacing-2xl: 48px;
+
+  /* ========== TYPOGRAPHIE ========== */
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-serif: 'Georgia', 'Garamond', serif;
+
+  --font-size-sm:  12px;
+  --font-size-base:14px;
+  --font-size-md:  16px;
+  --font-size-lg:  18px;
+  --font-size-xl:  24px;
+  --font-size-2xl: 30px;
+  --font-size-3xl: 36px;
+
+  --font-weight-light:    300;
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --line-height-tight:   1.2;
+  --line-height-normal:  1.5;
+  --line-height-relaxed: 1.75;
+
+  /* ========== BORDER RADIUS ========== */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-full: 9999px;
+
+  /* ========== TRANSITIONS ========== */
+  --transition-fast:   150ms ease-in-out;
+  --transition-normal: 250ms ease-in-out;
+  --transition-slow:   300ms ease-in-out;
+
+  /* ========== Z-INDEX ========== */
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-modal:    1000;
+  --z-popover:  1100;
+  --z-tooltip:  1200;
+
+  /* ========== LAYOUT ========== */
+  --sidebar-width:      200px;
+  --header-height:      70px;
+  --container-max-width:1200px;
+}
+
+/* ========== THÈME DARK — MODULES ========== */
+:root {
+  --dark-bg:      #1a2a3a;
+  --dark-bg-soft: #232f3f;
+  --dark-sidebar: #2a3a4a;
+  --dark-ink:     #d0e4ff;
+  --dark-muted:   #7a91a8;
+  --dark-accent:  #66d9ff;
+  --dark-accent-2:#ffd479;
+  --dark-accent-3:#7cf5d6;
+  --dark-stroke:  rgba(255, 255, 255, 0.15);
+}

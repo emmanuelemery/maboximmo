@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<client>
+  <annonce>
+    <reference>LYON7-001</reference>
+    <titre><![CDATA[Appartement T3 72 m2 style haussmannien - Lyon 7eme Jean Mace]]></titre>
+    <texte><![CDATA[A deux pas de la place Jean Mace et de la gare Jean Mace, dans un bel immeuble en pierre de taille de 1930, magnifique appartement de type 3 de 72 m2 situe au 3eme etage avec ascenseur.
+
+L'appartement a conserve son cachet d'origine avec ses parquets en pointe de Hongrie, ses moulures au plafond et ses cheminees en marbre. Il se compose d'une entree, d'un double sejour-salon de 30 m2 traversant, d'une cuisine equipee independante, de deux chambres, d'une salle de bains et d'un WC separe.
+
+Fenetres en double vitrage bois recent. Chauffage collectif au gaz. Cave en sous-sol. Tres belle copropriete bien entretenue de 24 lots principaux, charges mensuelles 165 euros comprenant le chauffage et l'eau froide.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>02/04/2026</date_saisie>
+    <mandat_numero>LYON7-M-2026-0201</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-001-01.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-001-02.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-001-03.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-001-04.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-001-05.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1100</code_type>
+      <libelle_type>Appartement</libelle_type>
+      <code_postal>69007</code_postal>
+      <ville>Lyon</ville>
+      <pays>FRA</pays>
+      <adresse>Rue de Marseille</adresse>
+      <surface>72</surface>
+      <surface_habitable>72</surface_habitable>
+      <surface_sejour>30</surface_sejour>
+      <nb_pieces_logement>3</nb_pieces_logement>
+      <nombre_de_chambres>2</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>1</nb_wc>
+      <etage>3</etage>
+      <annee_construction>1930</annee_construction>
+      <exposition>Est-Ouest</exposition>
+      <chauffage_type>collectif</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <cheminee>O</cheminee>
+      <ascenseur>O</ascenseur>
+      <interphone>O</interphone>
+      <digicode>O</digicode>
+      <double_vitrage>O</double_vitrage>
+      <cave>O</cave>
+      <copropriete>O</copropriete>
+      <alur_nb_lots>24</alur_nb_lots>
+      <charges_copropriete_annuelle>1980</charges_copropriete_annuelle>
+      <alur_syndic_en_procedure>N</alur_syndic_en_procedure>
+      <diagnostiques>
+        <dpe_etiquette_conso>C</dpe_etiquette_conso>
+        <dpe_valeur_conso>165</dpe_valeur_conso>
+        <dpe_etiquette_ges>B</dpe_etiquette_ges>
+        <dpe_valeur_ges>18</dpe_valeur_ges>
+        <dpe_date_realisation>12/10/2023</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>1040</montant_depenses_energies_min>
+        <montant_depenses_energies_max>1410</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>435000</prix>
+      <prix_hors_honoraires>416268</prix_hors_honoraires>
+      <honoraires_negociation>18732</honoraires_negociation>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <alur_pourcentage_honoraires_ttc>4.50</alur_pourcentage_honoraires_ttc>
+      <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+
+  <annonce>
+    <reference>LYON7-002</reference>
+    <titre><![CDATA[Appartement T2 45 m2 lumineux - Lyon 7eme Guillotiere]]></titre>
+    <texte><![CDATA[Dans le quartier dynamique de la Guillotiere, a deux pas des commerces et du metro D Guillotiere, agreable appartement T2 de 45 m2 situe au 4eme etage avec ascenseur d'un immeuble de 1975.
+
+Il se compose d'une entree, d'un sejour lumineux de 18 m2 expose sud, d'une cuisine separee equipee, d'une chambre de 12 m2 avec placards et d'une salle de bains avec WC.
+
+Chauffage individuel electrique, double vitrage, interphone, digicode. Cave. Fibre optique. Copropriete calme et bien entretenue.
+
+Disponible immediatement.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>09/04/2026</date_saisie>
+    <mandat_numero>LYON7-L-2026-0145</mandat_numero>
+    <mandat_type>simple</mandat_type>
+    <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-002-01.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-002-02.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/lyon_07/lyon7-002-03.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1100</code_type>
+      <libelle_type>Appartement</libelle_type>
+      <code_postal>69007</code_postal>
+      <ville>Lyon</ville>
+      <pays>FRA</pays>
+      <adresse>Grande rue de la Guillotiere</adresse>
+      <surface>45</surface>
+      <surface_habitable>45</surface_habitable>
+      <surface_sejour>18</surface_sejour>
+      <nb_pieces_logement>2</nb_pieces_logement>
+      <nombre_de_chambres>1</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>1</nb_wc>
+      <etage>4</etage>
+      <annee_construction>1975</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>electricite</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <ascenseur>O</ascenseur>
+      <interphone>O</interphone>
+      <digicode>O</digicode>
+      <double_vitrage>O</double_vitrage>
+      <cave>O</cave>
+      <fibre_optique>O</fibre_optique>
+      <copropriete>O</copropriete>
+      <alur_nb_lots>18</alur_nb_lots>
+      <charges_copropriete_annuelle>1080</charges_copropriete_annuelle>
+      <alur_syndic_en_procedure>N</alur_syndic_en_procedure>
+      <diagnostiques>
+        <dpe_etiquette_conso>D</dpe_etiquette_conso>
+        <dpe_valeur_conso>215</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>18</dpe_valeur_ges>
+        <dpe_date_realisation>05/01/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>680</montant_depenses_energies_min>
+        <montant_depenses_energies_max>920</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>L</type>
+      <loyer_mensuel>780</loyer_mensuel>
+      <loyer_est_cc>N</loyer_est_cc>
+      <loyer_mensuel_cc>840</loyer_mensuel_cc>
+      <charges_locatives>60</charges_locatives>
+      <modalite_recuperation_charges_locatives>provision annuelle</modalite_recuperation_charges_locatives>
+      <depot_garantie>780</depot_garantie>
+      <honoraires_location>540</honoraires_location>
+      <honoraires_etat_des_lieux>135</honoraires_etat_des_lieux>
+      <duree_du_bail>36</duree_du_bail>
+      <disponible_immediatement>O</disponible_immediatement>
+      <zone_encadrement_loyer>O</zone_encadrement_loyer>
+      <loyer_de_base>780</loyer_de_base>
+      <loyer_reference_majore>18.50</loyer_reference_majore>
+      <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+</client>

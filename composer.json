@@ -1,0 +1,7 @@
+{
+    "name": "maboximmo/app",
+    "description": "MaBoxImmo",
+    "require": {
+        "smalot/pdfparser": "^2.12"
+    }
+}

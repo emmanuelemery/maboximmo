@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /dev.php
+Disallow: /dev_organisation.php
+Disallow: /bien_ajouter.php
+Disallow: /login.php
+
+Sitemap: /sitemap.php

@@ -1,0 +1,48 @@
+User-agent: *
+
+# Pages publiques autorisées (tout le reste est bloqué ci-dessous)
+Allow: /default.php
+Allow: /accueil.php
+Allow: /bien_recherche.php
+Allow: /agence_portail.php
+Allow: /annonce_nouvelle.php
+Allow: /maboximmo_homepage.php
+Allow: /css/
+Allow: /js/
+Allow: /images/
+
+# Admin / Back-office
+Disallow: /admin/
+Disallow: /api/
+Disallow: /inc/
+Disallow: /config/
+Disallow: /scripts/
+Disallow: /bin/
+Disallow: /sql/
+Disallow: /uploads/
+Disallow: /_archive/
+
+# RH
+Disallow: /rh_
+Disallow: /rh-
+
+# Gestion / Agency back-office
+Disallow: /agency_
+Disallow: /gestion/
+
+# Auth
+Disallow: /login.php
+Disallow: /login_agency.php
+Disallow: /access_choice.php
+Disallow: /logout.php
+
+# Dev / outils
+Disallow: /dev.php
+Disallow: /dev_organisation.php
+Disallow: /bien_ajouter.php
+Disallow: /bien_intake.php
+Disallow: /bien_liste.php
+Disallow: /init_conges.php
+Disallow: /sync_users.php
+
+Sitemap: /sitemap.php

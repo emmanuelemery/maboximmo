@@ -1,0 +1,253 @@
+{
+  "_meta": {
+    "project": "Agence Emery / MaBoxImmo 2026",
+    "date": "2026-04-11",
+    "mapping_file": "public_html/config/ubiflow_mapping.php",
+    "exporter_file": "public_html/api/flux/ubiflow.php",
+    "validator_file": "public_html/inc/ubiflow_validator.php"
+  },
+
+  "reference": {
+    "source_maboximmo": "annonces.reference_annonce (fallback annonces.id)",
+    "type_source": "varchar",
+    "transformation": "trim",
+    "statut": "OK",
+    "remarque": "Fallback sur id si reference_annonce est NULL"
+  },
+  "texte": {
+    "source_maboximmo": "annonces.description",
+    "type_source": "text",
+    "transformation": "trim + normalize newlines + STRIP_HTML (manquant)",
+    "statut": "A_TRANSFORMER",
+    "remarque": "BLOQUANT #1 : ubi_str() ne strippe pas les balises HTML. Ajouter strip_tags()+html_entity_decode() dans config/ubiflow_mapping.php:117"
+  },
+  "titre": {
+    "source_maboximmo": "annonces.titre",
+    "type_source": "varchar(255)",
+    "transformation": "trim",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "date_saisie": {
+    "source_maboximmo": "annonces.date_creation",
+    "type_source": "datetime",
+    "transformation": "ubi_date() -> jj/mm/aaaa",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "photos": {
+    "source_maboximmo": "annonces_photos.url_photo",
+    "type_source": "varchar url",
+    "transformation": "ORDER BY principale DESC, ordre_affichage ASC",
+    "statut": "OK",
+    "remarque": "Incoherence a surveiller : validator compte depuis biens_photos, exporter lit annonces_photos (BLOQUANT #5)"
+  },
+
+  "code_type": {
+    "source_maboximmo": "types_bien.code",
+    "type_source": "varchar (enum applicatif)",
+    "transformation": "UBIFLOW_CODE_TYPE[code] -> 1100/1200/1300/1500/2100-2400/3100-3200",
+    "statut": "A_TRANSFORMER",
+    "remarque": "BLOQUANT #2 : fallback 0 si type inconnu -> ignore par Ubiflow. Exclure la ligne et logguer au lieu de renvoyer 0"
+  },
+  "libelle_type": {
+    "source_maboximmo": "types_bien.libelle",
+    "type_source": "varchar",
+    "transformation": "trim",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "code_postal": {
+    "source_maboximmo": "biens.code_postal",
+    "type_source": "varchar(10)",
+    "transformation": "trim",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "ville": {
+    "source_maboximmo": "biens.ville",
+    "type_source": "varchar(120)",
+    "transformation": "trim",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "pays": {
+    "source_maboximmo": "(hardcode)",
+    "type_source": "const",
+    "transformation": "force a 'FRA'",
+    "statut": "OK",
+    "remarque": "Devrait lire biens.pays avec fallback FRA"
+  },
+  "surface": {
+    "source_maboximmo": "biens.surface_habitable (fallback biens.surface_totale)",
+    "type_source": "decimal(8,2)",
+    "transformation": "ubi_num() - entier si pas de decimale, sinon 2 decimales",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "nb_pieces_logement": {
+    "source_maboximmo": "biens.nb_pieces",
+    "type_source": "tinyint",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": "Validator impose present seulement pour appartement/maison"
+  },
+
+  "type": {
+    "source_maboximmo": "annonces.type_transaction",
+    "type_source": "varchar (enum applicatif)",
+    "transformation": "UBIFLOW_PRESTATION_TYPE[code] -> V/L/S/F/B/W/G",
+    "statut": "OK",
+    "remarque": "Defaut V si transaction inconnue - envisager exception plutot"
+  },
+  "prix": {
+    "source_maboximmo": "annonces.prix",
+    "type_source": "decimal(12,2)",
+    "transformation": "ubi_num() - 0 ignore",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "loyer_mensuel": {
+    "source_maboximmo": "annonces.loyer",
+    "type_source": "decimal(12,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "prix_hors_honoraires": {
+    "source_maboximmo": "annonces.prix_net_vendeur",
+    "type_source": "decimal(12,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": "Colonne presente, alimentation cote saisie a verifier"
+  },
+  "honoraires_payeurs": {
+    "source_maboximmo": "annonces.honoraires_charge_acquereur / honoraires_charge_vendeur",
+    "type_source": "tinyint(1) x2",
+    "transformation": "deriver : acquereur si charge_acquereur=1 sinon vendeur",
+    "statut": "MANQUANT",
+    "remarque": "BLOQUANT #4 : balise non generee par build_ubiflow_annonce(). A ajouter dans le tableau prestation"
+  },
+  "alur_pourcentage_honoraires_ttc": {
+    "source_maboximmo": "annonces.alur_pourcentage_honoraires_ttc",
+    "type_source": "decimal(5,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "charges_locatives": {
+    "source_maboximmo": "annonces.charges",
+    "type_source": "decimal(10,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "honoraires_location": {
+    "source_maboximmo": "annonces.honoraires",
+    "type_source": "decimal(10,2)",
+    "transformation": "ubi_num()",
+    "statut": "A_TRANSFORMER",
+    "remarque": "Meme colonne source que honoraires_negociation (vente) - a conditionner selon type_transaction"
+  },
+  "depot_garantie": {
+    "source_maboximmo": "annonces.depot_garantie",
+    "type_source": "decimal(10,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": ""
+  },
+
+  "dpe_etiquette_conso": {
+    "source_maboximmo": "biens.dpe_classe",
+    "type_source": "enum A-G",
+    "transformation": "trim + uppercase",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "dpe_valeur_conso": {
+    "source_maboximmo": "dpe_diags.conso_energie_primaire (fallback biens.dpe_valeur_conso_primaire, biens.dpe_valeur)",
+    "type_source": "decimal(10,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "dpe_etiquette_ges": {
+    "source_maboximmo": "biens.ges_classe",
+    "type_source": "enum A-G",
+    "transformation": "trim + uppercase",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "dpe_valeur_ges": {
+    "source_maboximmo": "biens.ges_valeur",
+    "type_source": "decimal(10,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "dpe_date_realisation": {
+    "source_maboximmo": "dpe_diags.date_diagnostic (fallback biens.dpe_date_realisation)",
+    "type_source": "date",
+    "transformation": "ubi_date()",
+    "statut": "OK",
+    "remarque": "Distingue DPE 2011/2021"
+  },
+  "montant_depenses_energies_min": {
+    "source_maboximmo": "dpe_diags.montant_depenses_min (fallback biens.montant_estime_depenses_min)",
+    "type_source": "decimal(12,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": "Obligatoire depuis 01/2022"
+  },
+  "montant_depenses_energies_max": {
+    "source_maboximmo": "dpe_diags.montant_depenses_max (fallback biens.montant_estime_depenses_max)",
+    "type_source": "decimal(12,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": "Obligatoire depuis 01/2022"
+  },
+
+  "copropriete": {
+    "source_maboximmo": "biens.bien_en_copropriete",
+    "type_source": "tinyint(1)",
+    "transformation": "ubi_bool() -> O/N",
+    "statut": "OK",
+    "remarque": ""
+  },
+  "alur_nb_lots": {
+    "source_maboximmo": "biens.copro_nb_lots",
+    "type_source": "int",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": "Validator : requis si copropriete=1"
+  },
+  "charges_copropriete_annuelle": {
+    "source_maboximmo": "biens.copro_quote_part_charges",
+    "type_source": "decimal(10,2)",
+    "transformation": "ubi_num()",
+    "statut": "OK",
+    "remarque": "Montant annuel attendu par Ubiflow (pas mensuel)"
+  },
+  "alur_syndic_en_procedure": {
+    "source_maboximmo": "biens.copro_procedure",
+    "type_source": "tinyint(1)",
+    "transformation": "ubi_bool()",
+    "statut": "OK",
+    "remarque": ""
+  },
+
+  "zone_georisque": {
+    "source_maboximmo": "biens.zone_georisque",
+    "type_source": "tinyint(1)",
+    "transformation": "ubi_bool()",
+    "statut": "OK",
+    "remarque": "Obligatoire depuis 01/01/2023"
+  },
+  "obligation_debroussaillement": {
+    "source_maboximmo": "biens.obligation_debroussaillement",
+    "type_source": "tinyint(1)",
+    "transformation": "ubi_bool()",
+    "statut": "OK",
+    "remarque": "Obligatoire depuis 01/01/2025"
+  }
+}

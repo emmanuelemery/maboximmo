@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MaBoxImmo — Création d'un bien</title>
+<style>
+:root{
+  --bg:#0f1923; --surface:#16222e; --card:#1c2d3e; --card2:#213346;
+  --border:rgba(255,255,255,.09); --ink:#e8f1ff; --muted:#7a91a8; --faint:#2d4055;
+  --accent:#4f9eff; --accent2:#66d9ff; --green:#2ec77a; --amber:#f5a623;
+  --red:#ff5c5c; --purple:#b07dff; --r:10px; --shadow:0 6px 24px rgba(0,0,0,.4);
+}
+[data-theme="light"]{
+  --bg:#edf1f7; --surface:#fff; --card:#fff; --card2:#f4f7fc;
+  --border:rgba(0,0,0,.09); --ink:#1a2840; --muted:#637080; --faint:#d0dcea;
+  --accent:#2b6fe8; --accent2:#0fa8d2; --green:#17a257; --amber:#d48a0f;
+  --red:#d44040; --purple:#7640d4; --shadow:0 4px 16px rgba(0,0,0,.1);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:15px;line-height:1.5;}
+button,input,select,textarea{font:inherit;color:inherit;}
+button{cursor:pointer;border:none;background:none;}
+
+/* ══ SIDEBAR ══════════════════════════════════════════════ */
+.app-wrap{display:flex;min-height:100vh;}
+
+.sidebar{
+  width:58px; flex-shrink:0;
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;
+  padding:12px 0; gap:4px;
+  position:sticky;top:0;height:100vh;overflow:hidden;
+  transition:width .22s ease;z-index:200;
+}
+.sidebar:hover{width:210px;}
+.sidebar-logo{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;flex-shrink:0;margin-bottom:8px;
+}
+.sb-item{
+  display:flex;align-items:center;gap:11px;
+  width:100%;padding:10px 11px;border-radius:8px;
+  font-size:14px;font-weight:600;color:var(--muted);
+  cursor:pointer;transition:.15s ease;white-space:nowrap;overflow:hidden;
+}
+.sb-item:hover{background:rgba(255,255,255,.06);color:var(--ink);}
+.sb-item.active{background:rgba(79,158,255,.14);color:var(--accent);}
+.sb-icon{font-size:19px;flex-shrink:0;width:36px;text-align:center;}
+.sb-label{opacity:0;transition:opacity .18s .05s;font-size:13px;}
+.sidebar:hover .sb-label{opacity:1;}
+.sb-sep{width:32px;height:1px;background:var(--border);margin:6px 0;flex-shrink:0;transition:width .22s;}
+.sidebar:hover .sb-sep{width:186px;}
+
+/* ══ MAIN ═════════════════════════════════════════════════ */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+
+/* ── Topbar ─── */
+.topbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 18px;background:var(--surface);
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:100;
+}
+.back-btn{display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:13px;font-weight:600;transition:.15s;}
+.back-btn:hover{border-color:var(--accent);color:var(--accent);}
+.page-title{font-size:17px;font-weight:800;flex:1;letter-spacing:-.3px;}
+
+.prog-wrap{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);}
+.prog-label{font-size:13px;color:var(--muted);white-space:nowrap;}
+.prog-bar{width:100px;height:6px;background:var(--faint);border-radius:99px;overflow:hidden;}
+.prog-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .4s;}
+.prog-pct{font-size:14px;font-weight:800;color:var(--accent2);width:30px;}
+
+.mode-toggle{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.mode-btn{padding:6px 13px;font-size:13px;font-weight:600;color:var(--muted);transition:.15s;}
+.mode-btn.on{background:var(--accent);color:#fff;}
+
+.btn-import{display:flex;align-items:center;gap:6px;padding:8px 15px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;transition:.15s;box-shadow:0 3px 12px rgba(79,158,255,.3);}
+.btn-import:hover{transform:translateY(-1px);box-shadow:0 5px 18px rgba(79,158,255,.4);}
+.btn-save{padding:8px 18px;border-radius:9px;background:var(--green);color:#fff;font-weight:700;font-size:13px;}
+.btn-theme{padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:16px;}
+
+/* ── Onglets ─── */
+.tabs-wrap{display:flex;gap:2px;padding:0 18px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;}
+.tabs-wrap::-webkit-scrollbar{display:none;}
+.tab{padding:11px 16px;font-size:14px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:6px;transition:.15s;}
+.tab:hover{color:var(--ink);}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--faint);}
+.dot.ok{background:var(--green);}
+.dot.warn{background:var(--amber);}
+.dot.act{background:var(--accent);}
+
+/* ── Layout 2 col ─── */
+.layout{display:grid;grid-template-columns:1fr 360px;align-items:start;}
+.left-col{padding:16px 18px;border-right:1px solid var(--border);overflow-y:auto;}
+.right-col{padding:14px 16px;position:sticky;top:95px;height:calc(100vh - 95px);overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+
+/* ══ SECTIONS ═════════════════════════════════════════════ */
+.section{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;}
+.section:focus-within{border-color:rgba(79,158,255,.3);}
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+.sec-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px;}
+.badge{font-size:11px;padding:3px 8px;border-radius:99px;font-weight:700;}
+.b-ok{background:rgba(46,199,122,.12);color:var(--green);border:1px solid rgba(46,199,122,.2);}
+.b-warn{background:rgba(245,166,35,.12);color:var(--amber);border:1px solid rgba(245,166,35,.2);}
+.b-err{background:rgba(255,92,92,.12);color:var(--red);border:1px solid rgba(255,92,92,.2);}
+
+/* ══ TYPE BIEN ════════════════════════════════════════════ */
+.type-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;}
+.tc{
+  position:relative;border:2px solid var(--border);background:var(--card2);
+  border-radius:11px;padding:12px 8px;cursor:pointer;transition:.15s;
+  display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;min-height:82px;justify-content:center;
+}
+.tc:hover{border-color:var(--accent);transform:translateY(-1px);}
+.tc.sel{border-color:var(--accent);background:rgba(79,158,255,.1);box-shadow:0 0 0 3px rgba(79,158,255,.12);}
+.tc-icon{font-size:24px;line-height:1;}
+.tc-label{font-size:13px;font-weight:700;}
+.tc-help{position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:50%;background:var(--card);border:1px solid var(--border);font-size:9px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:center;}
+
+/* ══ OFFRE ════════════════════════════════════════════════ */
+.offre-row{display:flex;gap:8px;}
+.oc{flex:1;border:2px solid var(--border);background:var(--card2);border-radius:10px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:9px;font-weight:700;font-size:14px;transition:.15s;}
+.oc:hover{border-color:var(--accent);}
+.oc.sel{border-color:var(--accent);background:rgba(79,158,255,.1);}
+.oc-icon{font-size:20px;}
+.oc-sub{font-size:11px;color:var(--muted);font-weight:400;}
+
+/* ══ CHAMPS ═══════════════════════════════════════════════ */
+.fg{display:grid;gap:10px;}
+.g2{grid-template-columns:repeat(2,1fr);}
+.g3{grid-template-columns:repeat(3,1fr);}
+.g4{grid-template-columns:repeat(4,1fr);}
+.ga{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));}
+.s2{grid-column:span 2;}
+.s3{grid-column:span 3;}
+.s4{grid-column:span 4;}
+
+.f{display:flex;flex-direction:column;gap:4px;}
+.f label{font-size:13px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:4px;}
+.f label .req{color:var(--red);}
+.f input,.f select,.f textarea{
+  padding:9px 12px;border-radius:8px;border:1px solid var(--border);
+  background:var(--card2);color:var(--ink);font-size:14px;
+  transition:border-color .15s,box-shadow .15s;outline:none;
+}
+.f input:focus,.f select:focus,.f textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,158,255,.1);}
+.f.ok input,.f.ok select{border-color:rgba(46,199,122,.35);}
+.f.err input{border-color:var(--red);}
+.f .hint{font-size:11px;color:var(--muted);}
+.f .vmsg{font-size:11px;margin-top:2px;}
+.f.ok .vmsg{color:var(--green);}
+.f.err .vmsg{color:var(--red);}
+.f textarea{resize:vertical;min-height:90px;}
+
+.iu{display:flex;}
+.iu input{border-radius:8px 0 0 8px;flex:1;}
+.unit{padding:0 11px;background:var(--card);border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;display:flex;align-items:center;font-size:13px;color:var(--muted);font-weight:600;white-space:nowrap;}
+
+/* ══ CHIPS ════════════════════════════════════════════════ */
+.chip-group{display:flex;flex-wrap:wrap;gap:7px;}
+.chip{display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:99px;border:1px solid var(--border);background:var(--card2);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;user-select:none;}
+.chip:hover{border-color:var(--accent);}
+.chip.on{background:rgba(79,158,255,.12);border-color:var(--accent);color:var(--accent);}
+.chip .ci{font-size:15px;}
+.sub-label{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 7px;}
+
+/* ══ IA BAR ═══════════════════════════════════════════════ */
+.ia-bar{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:8px;}
+.ia-btn{display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:99px;border:1px solid var(--border);background:var(--card2);font-size:13px;font-weight:600;color:var(--muted);transition:.15s;}
+.ia-btn:hover{border-color:var(--purple);color:var(--purple);}
+.ia-btn.pri{background:rgba(176,125,255,.1);border-color:rgba(176,125,255,.3);color:var(--purple);}
+
+/* SEO preview */
+.seo-box{background:var(--card2);border-radius:10px;padding:12px 14px;border:1px solid var(--border);margin-top:8px;}
+.seo-url{font-size:12px;color:var(--green);margin-bottom:2px;}
+.seo-title{font-size:15px;color:var(--accent);font-weight:600;margin-bottom:3px;line-height:1.3;}
+.seo-desc{font-size:13px;color:var(--muted);line-height:1.5;}
+
+/* ══ DROITE — APERÇU ══════════════════════════════════════ */
+.pcard{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);}
+.phero{min-height:140px;background:linear-gradient(160deg,#1e3a5a,#0f2436,#1a3a2a);display:flex;align-items:flex-end;padding:14px;position:relative;}
+.phero-badge{position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;background:rgba(79,158,255,.85);color:#fff;}
+.phero-label{background:rgba(0,0,0,.5);backdrop-filter:blur(8px);border-radius:8px;padding:8px 12px;}
+.phero-type{font-size:11px;color:rgba(255,255,255,.6);font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+.phero-title{font-size:16px;font-weight:800;color:#fff;line-height:1.2;margin-top:2px;}
+.pbody{padding:14px;}
+.pkpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px;}
+.kbox{background:var(--card2);border-radius:10px;padding:10px 12px;border:1px solid var(--border);}
+.kval{font-size:18px;font-weight:800;color:var(--ink);line-height:1;}
+.kval span{font-size:12px;font-weight:500;color:var(--muted);}
+.klbl{font-size:11px;color:var(--muted);margin-top:2px;}
+.pchips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:11px;}
+.pch{font-size:12px;padding:4px 9px;border-radius:99px;background:var(--card2);border:1px solid var(--border);color:var(--muted);}
+.pch.g{background:rgba(46,199,122,.09);border-color:rgba(46,199,122,.22);color:var(--green);}
+.pdesc{font-size:13px;color:var(--muted);line-height:1.55;background:var(--card2);border-radius:9px;padding:10px 12px;border:1px solid var(--border);}
+
+/* Score */
+.scard{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
+.scard-title{font-size:14px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;}
+.si{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.si-icon{font-size:13px;width:18px;text-align:center;}
+.si-name{flex:1;font-size:13px;color:var(--muted);}
+.si-bar{width:72px;height:5px;background:var(--faint);border-radius:99px;overflow:hidden;}
+.si-fill{height:100%;border-radius:99px;}
+.si-fill.ok{background:var(--green);}
+.si-fill.warn{background:var(--amber);}
+.si-fill.no{background:var(--red);}
+
+/* Suggestions */
+.sugg-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
+.sugg-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:9px;}
+.sugg{display:flex;gap:8px;padding:9px 10px;background:var(--card2);border:1px solid var(--border);border-radius:9px;margin-bottom:7px;cursor:pointer;transition:.15s;}
+.sugg:last-child{margin-bottom:0;}
+.sugg:hover{border-color:var(--accent);}
+.sugg-ico{font-size:16px;flex-shrink:0;margin-top:1px;}
+.sugg-txt{font-size:13px;color:var(--muted);line-height:1.4;}
+.sugg-txt strong{color:var(--ink);}
+
+/* Photos mini */
+.photo-drop{border:2px dashed var(--border);border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:.15s;background:var(--card2);}
+.photo-drop:hover{border-color:var(--accent);}
+.photo-thumbs{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
+.pthumb{width:68px;height:52px;border-radius:8px;border:1px solid var(--border);background:var(--card);display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;overflow:hidden;position:relative;}
+.pthumb.add{border-style:dashed;color:var(--faint);font-size:22px;}
+
+/* ══ BOTTOM BAR ═══════════════════════════════════════════ */
+.bottom-bar{
+  position:sticky;bottom:0;z-index:50;
+  padding:11px 18px;background:var(--surface);border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+.bbtn{padding:9px 18px;border-radius:9px;font-size:14px;font-weight:700;transition:.15s;}
+.bbtn.ghost{border:1px solid var(--border);background:var(--card);}
+.bbtn.ghost:hover{border-color:var(--accent);}
+.bbtn.outline{border:1px solid var(--border);background:transparent;}
+.bbtn.primary{background:var(--accent);color:#fff;box-shadow:0 3px 12px rgba(79,158,255,.3);}
+.bbtn.primary:hover{background:var(--accent2);}
+.bbtn.success{background:var(--green);color:#fff;}
+.bbtn.success:hover{filter:brightness(1.08);}
+.pb-space{height:62px;}
+
+/* ══ OVERLAY IMPORT ═══════════════════════════════════════ */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center;}
+.overlay.show{display:flex;}
+.ovl-panel{background:var(--card);border:1px solid var(--border);border-radius:18px;width:min(740px,95vw);max-height:88vh;overflow-y:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+.ovl-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.ovl-title{font-size:18px;font-weight:800;}
+.ovl-close{width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--card2);font-size:16px;display:flex;align-items:center;justify-content:center;}
+.drop-zone{border:2px dashed var(--border);border-radius:14px;padding:32px;text-align:center;cursor:pointer;transition:.15s;}
+.drop-zone:hover{border-color:var(--accent);background:rgba(79,158,255,.03);}
+.itbl{width:100%;border-collapse:collapse;margin-top:14px;}
+.itbl th{text-align:left;font-size:12px;color:var(--muted);font-weight:700;padding:7px 10px;border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.4px;}
+.itbl td{padding:9px 10px;border-bottom:1px solid var(--border);font-size:13px;}
+.itbl tr:last-child td{border-bottom:none;}
+.sp{display:inline-block;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:700;}
+.sp.hi{background:rgba(46,199,122,.15);color:var(--green);}
+.sp.md{background:rgba(245,166,35,.15);color:var(--amber);}
+.sp.lo{background:rgba(255,92,92,.15);color:var(--red);}
+
+/* Divers */
+.divider{height:1px;background:var(--border);margin:12px 0;}
+.annot{display:inline-flex;align-items:center;font-size:11px;color:var(--amber);font-weight:600;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.2);border-radius:99px;padding:2px 8px;margin-left:7px;vertical-align:middle;}
+.draft-pill{font-size:12px;color:var(--green);background:rgba(46,199,122,.1);border:1px solid rgba(46,199,122,.2);border-radius:99px;padding:4px 10px;white-space:nowrap;}
+</style>
+</head>
+<body>
+<div class="app-wrap">
+
+<!-- ══════════════ SIDEBAR (icon-only, expand au survol) ══════════════ -->
+<nav class="sidebar">
+  <div class="sidebar-logo">🏠</div>
+  <div class="sb-item active"><span class="sb-icon">➕</span><span class="sb-label">Créer un bien</span></div>
+  <div class="sb-item"><span class="sb-icon">🏘️</span><span class="sb-label">Mes biens</span></div>
+  <div class="sb-item"><span class="sb-icon">📋</span><span class="sb-label">Mandats</span></div>
+  <div class="sb-item"><span class="sb-icon">👥</span><span class="sb-label">Propriétaires</span></div>
+  <div class="sb-item"><span class="sb-icon">🔔</span><span class="sb-label">Alertes</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item"><span class="sb-icon">📊</span><span class="sb-label">Statistiques</span></div>
+  <div class="sb-item"><span class="sb-icon">📄</span><span class="sb-label">Imports PDF</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item"><span class="sb-icon">⚙️</span><span class="sb-label">Paramètres</span></div>
+  <div class="sb-item"><span class="sb-icon">🚪</span><span class="sb-label">Déconnexion</span></div>
+</nav>
+
+<!-- ══════════════ MAIN ══════════════ -->
+<div class="main">
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <button class="back-btn">← Biens</button>
+  <div class="page-title">🏠 Nouveau bien</div>
+
+  <div class="prog-wrap">
+    <span class="prog-label">SEO</span>
+    <div class="prog-bar"><div class="prog-fill" style="width:68%"></div></div>
+    <span class="prog-pct">68%</span>
+  </div>
+
+  <span class="draft-pill">✓ Brouillon sauvegardé</span>
+
+  <div class="mode-toggle">
+    <button class="mode-btn" onclick="setMode('fast',this)">⚡ Rapide</button>
+    <button class="mode-btn on" onclick="setMode('pro',this)">🛠 Pro</button>
+  </div>
+
+  <button class="btn-import" onclick="document.getElementById('ovl').classList.add('show')">📄 Import PDF</button>
+  <button class="btn-theme" onclick="toggleTheme()">☀️</button>
+  <button class="btn-save">💾 Sauvegarder</button>
+</header>
+
+<!-- ONGLETS -->
+<nav class="tabs-wrap">
+  <button class="tab active"><span class="dot act"></span> Identification</button>
+  <button class="tab"><span class="dot ok"></span> Localisation</button>
+  <button class="tab"><span class="dot warn"></span> Financier</button>
+  <button class="tab"><span class="dot"></span> Caractéristiques</button>
+  <button class="tab"><span class="dot"></span> Photos <span class="annot">0</span></button>
+  <button class="tab"><span class="dot"></span> Annonce & SEO</button>
+  <button class="tab"><span class="dot"></span> Documents</button>
+</nav>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+<!-- ════ GAUCHE — FORMULAIRE ════ -->
+<div class="left-col">
+
+  <!-- 1. TYPE DE BIEN -->
+  <div class="section">
+    <div class="sec-head">
+      <div class="sec-title">🏗️ Type de bien <span class="annot">Filtre le formulaire</span></div>
+      <span class="badge b-ok">✓ Appartement</span>
+    </div>
+    <div class="type-grid">
+      <div class="tc sel" onclick="selType(this)"><button class="tc-help" onclick="event.stopPropagation()">?</button><div class="tc-icon">🏢</div><div class="tc-label">Appartement</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🏠</div><div class="tc-label">Maison</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🌳</div><div class="tc-label">Terrain</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🏬</div><div class="tc-label">Local comm.</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🚗</div><div class="tc-label">Parking</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🏡</div><div class="tc-label">Villa</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🏦</div><div class="tc-label">Immeuble</div></div>
+      <div class="tc" onclick="selType(this)"><div class="tc-icon">🛋️</div><div class="tc-label">Loft</div></div>
+    </div>
+  </div>
+
+  <!-- 2. OFFRE -->
+  <div class="section">
+    <div class="sec-head">
+      <div class="sec-title">💼 Type d'offre</div>
+      <span class="badge b-ok">✓ Vente</span>
+    </div>
+    <div class="offre-row">
+      <div class="oc sel" onclick="selOffre(this)"><span class="oc-icon">🤝</span><div><div>Vente</div><div class="oc-sub">Cession définitive</div></div></div>
+      <div class="oc" onclick="selOffre(this)"><span class="oc-icon">🔑</span><div><div>Location</div><div class="oc-sub">Bail résidentiel / comm.</div></div></div>
+      <div class="oc" onclick="selOffre(this)"><span class="oc-icon">🔁</span><div><div>Viager</div><div class="oc-sub">Occupé / libre</div></div></div>
+    </div>
+  </div>
+
+  <!-- 3. ESSENTIELS -->
+  <div class="section">
+    <div class="sec-head">
+      <div class="sec-title">📌 Champs essentiels <span class="annot">Toujours visibles</span></div>
+      <span class="badge b-warn">⚠ 1 manquant</span>
+    </div>
+    <div class="fg g2">
+      <div class="f ok s2">
+        <label>Désignation commerciale <span class="req">*</span> <span style="font-size:11px;font-weight:400;color:var(--muted);">50–80 car.</span></label>
+        <input type="text" id="desig" value="Appartement T3 lumineux avec balcon, vue dégagée — centre-ville" oninput="sync()">
+        <div class="vmsg" id="desig-msg">✓ 62 caractères — longueur idéale</div>
+      </div>
+      <div class="f ok">
+        <label>📐 Surface hab. <span class="req">*</span></label>
+        <div class="iu"><input type="number" value="65" id="surf" oninput="sync()"><span class="unit">m²</span></div>
+      </div>
+      <div class="f ok">
+        <label>💰 Prix de vente <span class="req">*</span></label>
+        <div class="iu"><input type="number" value="210000" id="prix" oninput="sync()"><span class="unit">€</span></div>
+        <div class="hint" style="color:var(--green);">→ 3 230 €/m² · dans la moyenne</div>
+      </div>
+      <div class="f">
+        <label>🏷️ Référence</label>
+        <input type="text" placeholder="AG-2025-042">
+      </div>
+      <div class="f ok">
+        <label>📍 Adresse <span class="req">*</span></label>
+        <input type="text" value="15 avenue Pasteur">
+      </div>
+      <div class="f ok">
+        <label>🏙️ Ville <span class="req">*</span></label>
+        <input type="text" value="Chamalières" id="ville" oninput="sync()">
+      </div>
+      <div class="f ok">
+        <label>📮 Code postal <span class="req">*</span></label>
+        <input type="text" value="63400">
+      </div>
+      <div class="f">
+        <label>🗺️ Quartier</label>
+        <input type="text" placeholder="Auto via Google Maps">
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. CARACTÉRISTIQUES -->
+  <div class="section">
+    <div class="sec-head">
+      <div class="sec-title">🔢 Caractéristiques <span class="annot">Selon type</span></div>
+    </div>
+    <!-- Chiffres en grille dense 4 colonnes -->
+    <div class="fg g4" style="margin-bottom:12px;">
+      <div class="f"><label>🛏️ Pièces</label><input type="number" value="3"></div>
+      <div class="f"><label>🛌 Chambres</label><input type="number" value="2"></div>
+      <div class="f"><label>🚿 SDB</label><input type="number" value="1"></div>
+      <div class="f"><label>🚽 WC</label><input type="number" value="1"></div>
+      <div class="f"><label>🏢 Étage</label><input type="number" value="3"></div>
+      <div class="f"><label>🏗️ Nb étages</label><input type="number" value="5"></div>
+      <div class="f"><label>📅 Année</label><input type="number" value="1978"></div>
+      <div class="f"><label>📐 Carrez</label><div class="iu"><input type="number" value="62.4"><span class="unit">m²</span></div></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="sub-label">🌿 Dépendances</div>
+    <div class="chip-group" style="margin-bottom:10px;">
+      <label class="chip on"><span class="ci">🌿</span> Jardin</label>
+      <label class="chip on"><span class="ci">🪟</span> Balcon</label>
+      <label class="chip"><span class="ci">🏡</span> Terrasse</label>
+      <label class="chip"><span class="ci">🚗</span> Garage</label>
+      <label class="chip on"><span class="ci">📦</span> Cave</label>
+      <label class="chip"><span class="ci">🏊</span> Piscine</label>
+      <label class="chip"><span class="ci">🅿️</span> Parking</label>
+    </div>
+
+    <div class="sub-label">🌄 Vues</div>
+    <div class="chip-group" style="margin-bottom:10px;">
+      <label class="chip on"><span class="ci">☀️</span> Dégagée</label>
+      <label class="chip"><span class="ci">🌄</span> Panoramique</label>
+      <label class="chip"><span class="ci">🌳</span> Verdure</label>
+      <label class="chip"><span class="ci">🏔️</span> Montagne</label>
+      <label class="chip"><span class="ci">🌊</span> Mer</label>
+    </div>
+
+    <div class="sub-label">⚙️ Confort & équipements</div>
+    <div class="chip-group" style="margin-bottom:10px;">
+      <label class="chip on"><span class="ci">🛗</span> Ascenseur</label>
+      <label class="chip on"><span class="ci">🏙️</span> Centre-ville</label>
+      <label class="chip on"><span class="ci">🔇</span> Calme</label>
+      <label class="chip"><span class="ci">🔨</span> Rénové</label>
+      <label class="chip"><span class="ci">🛋️</span> Meublé</label>
+      <label class="chip on"><span class="ci">🪵</span> Parquet</label>
+      <label class="chip"><span class="ci">🍳</span> Cuisine équipée</label>
+      <label class="chip on"><span class="ci">🔲</span> Double vitrage</label>
+    </div>
+
+    <div class="sub-label">🔥 Chauffage · Énergie</div>
+    <div class="chip-group">
+      <label class="chip on"><span class="ci">🔥</span> Radiateurs</label>
+      <label class="chip"><span class="ci">♨️</span> Sol chauffant</label>
+      <label class="chip"><span class="ci">🌬️</span> PAC</label>
+      <label class="chip on"><span class="ci">⚡</span> Électricité</label>
+      <label class="chip"><span class="ci">🔥</span> Gaz</label>
+      <label class="chip"><span class="ci">🌿</span> Bois</label>
+    </div>
+  </div>
+
+  <!-- 5. PHOTOS -->
+  <div class="section">
+    <div class="sec-head">
+      <div class="sec-title">🖼️ Photos</div>
+      <span class="badge b-warn">0 photo · min 5 recommandées</span>
+    </div>
+    <div class="photo-drop" onclick="alert('Explorateur…')">
+      <div style="font-size:28px;margin-bottom:5px;">📸</div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:3px;">Glissez vos photos ici</div>
+      <div style="font-size:13px;color:var(--muted);">JPG · PNG · WEBP — max 10 Mo — 1ère photo = visuel principal</div>
+    </div>
+    <div class="photo-thumbs">
+      <div class="pthumb" style="background:linear-gradient(135deg,#2a4a6a,#1a3040);"><span style="font-size:10px;color:#fff;position:absolute;bottom:3px;left:4px;">1</span></div>
+      <div class="pthumb" style="background:linear-gradient(135deg,#3a3060,#1a2040);"><span style="font-size:10px;color:#fff;position:absolute;bottom:3px;left:4px;">2</span></div>
+      <div class="pthumb add">+</div>
+    </div>
+  </div>
+
+  <!-- 6. DESCRIPTIF -->
+  <div class="section">
+    <div class="sec-head">
+      <div class="sec-title">📝 Description <span class="annot">Optionnelle</span></div>
+    </div>
+    <div class="ia-bar">
+      <button class="ia-btn pri">✨ Générer avec l'IA</button>
+      <button class="ia-btn">🔁 Réécrire courte</button>
+      <button class="ia-btn">🎯 Optimiser SEO</button>
+      <button class="ia-btn">🌍 Traduire EN/DE</button>
+    </div>
+    <div class="f">
+      <textarea>Bel appartement T3 de 65 m² situé en plein centre de Chamalières, au 3ème étage avec ascenseur. Lumineux et calme, il dispose d'un balcon avec vue dégagée. Parquet dans les pièces à vivre. Cave incluse.</textarea>
+    </div>
+    <div style="font-size:12px;font-weight:700;color:var(--muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.5px;">🔍 Aperçu Google</div>
+    <div class="seo-box">
+      <div class="seo-url">maboximmo.fr › biens › appartement-t3-chamalieres</div>
+      <div class="seo-title">Appartement T3 lumineux avec balcon, vue dégagée — centre-ville</div>
+      <div class="seo-desc">Bel appartement T3 de 65 m² situé en plein centre de Chamalières, au 3ème étage avec ascenseur. Lumineux et calme, il dispose d'un balcon…</div>
+    </div>
+  </div>
+
+  <div class="pb-space"></div>
+</div><!-- /left-col -->
+
+<!-- ════ DROITE — APERÇU ════ -->
+<div class="right-col">
+
+  <!-- Aperçu annonce -->
+  <div class="pcard">
+    <div class="phero">
+      <span class="phero-badge">🤝 Vente</span>
+      <div class="phero-label">
+        <div class="phero-type">Appartement · <span id="p-ville">Chamalières</span> 63400</div>
+        <div class="phero-title" id="p-title">T3 lumineux — centre-ville</div>
+      </div>
+    </div>
+    <div class="pbody">
+      <div class="pkpis">
+        <div class="kbox"><div class="kval" id="p-prix">210 000 <span>€</span></div><div class="klbl">Prix de vente</div></div>
+        <div class="kbox"><div class="kval" id="p-surf">65 <span>m²</span></div><div class="klbl">Surface hab.</div></div>
+        <div class="kbox"><div class="kval">3 <span>pièces</span></div><div class="klbl">dont 2 chambres</div></div>
+        <div class="kbox"><div class="kval">3<span>ème</span></div><div class="klbl">étage / 5</div></div>
+      </div>
+      <div class="pchips">
+        <span class="pch g">🪟 Balcon</span><span class="pch g">📦 Cave</span>
+        <span class="pch g">🛗 Ascenseur</span><span class="pch">🔇 Calme</span>
+        <span class="pch">☀️ Vue dégagée</span><span class="pch">🪵 Parquet</span>
+      </div>
+      <div class="pdesc">Bel appartement T3 de 65 m² situé en plein centre de Chamalières, au 3ème étage avec ascenseur…</div>
+    </div>
+  </div>
+
+  <!-- Score -->
+  <div class="scard">
+    <div class="scard-title">📊 Complétude &nbsp;<span style="margin-left:auto;font-size:20px;font-weight:800;color:var(--accent2);">68%</span></div>
+    <div class="si"><span class="si-icon">✅</span><span class="si-name">Type & offre</span><div class="si-bar"><div class="si-fill ok" style="width:100%"></div></div></div>
+    <div class="si"><span class="si-icon">✅</span><span class="si-name">Localisation</span><div class="si-bar"><div class="si-fill ok" style="width:100%"></div></div></div>
+    <div class="si"><span class="si-icon">✅</span><span class="si-name">Prix & surface</span><div class="si-bar"><div class="si-fill ok" style="width:100%"></div></div></div>
+    <div class="si"><span class="si-icon">✅</span><span class="si-name">Désignation SEO</span><div class="si-bar"><div class="si-fill ok" style="width:100%"></div></div></div>
+    <div class="si"><span class="si-icon">⚠️</span><span class="si-name">Photos</span><div class="si-bar"><div class="si-fill no" style="width:0%"></div></div></div>
+    <div class="si"><span class="si-icon">⚠️</span><span class="si-name">Description</span><div class="si-bar"><div class="si-fill warn" style="width:55%"></div></div></div>
+    <div class="si"><span class="si-icon">❌</span><span class="si-name">DPE / GES</span><div class="si-bar"><div class="si-fill no" style="width:0%"></div></div></div>
+    <div class="divider"></div>
+    <div style="font-size:12px;color:var(--muted);">Seuil de publication : <strong style="color:var(--amber)">80%</strong>. Ajoutez des photos (+15 pts) et le DPE (+8 pts).</div>
+  </div>
+
+  <!-- Suggestions -->
+  <div class="sugg-card">
+    <div class="sugg-title">🧠 Suggestions</div>
+    <div class="sugg"><div class="sugg-ico">📸</div><div class="sugg-txt"><strong>Ajoutez 5+ photos</strong> — les biens avec photos reçoivent ×3 plus de contacts et se vendent 40% plus vite.</div></div>
+    <div class="sugg"><div class="sugg-ico">⚡</div><div class="sugg-txt"><strong>DPE manquant</strong> — obligatoire légalement pour publier. Onglet "Caractéristiques".</div></div>
+    <div class="sugg"><div class="sugg-ico">💰</div><div class="sugg-txt"><strong>3 230 €/m²</strong> — dans la moyenne de Chamalières (3 100–3 400 €). Bon positionnement.</div></div>
+  </div>
+
+</div><!-- /right-col -->
+</div><!-- /layout -->
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar">
+  <div style="display:flex;gap:8px;">
+    <button class="bbtn ghost">🗑️ Supprimer</button>
+    <button class="bbtn outline">📋 Dupliquer</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="bbtn ghost">💾 Brouillon</button>
+    <button class="bbtn primary">📝 Enregistrer</button>
+    <button class="bbtn success">✅ Créer & publier</button>
+  </div>
+</div>
+
+</div><!-- /main -->
+</div><!-- /app-wrap -->
+
+<!-- OVERLAY IMPORT PDF -->
+<div class="overlay" id="ovl" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="ovl-panel">
+    <div class="ovl-head">
+      <div class="ovl-title">📄 Import de fiches PDF <span style="font-size:11px;background:rgba(176,125,255,.15);color:var(--purple);padding:2px 8px;border-radius:99px;font-weight:700;margin-left:8px;">IA</span></div>
+      <button class="ovl-close" onclick="document.getElementById('ovl').classList.remove('show')">✕</button>
+    </div>
+    <div class="drop-zone" onclick="alert('Explorateur…')">
+      <div style="font-size:40px;margin-bottom:10px;">📂</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:5px;">Glissez vos fiches PDF ici</div>
+      <div style="font-size:13px;color:var(--muted);">ou cliquez pour sélectionner · PDF · max 20 Mo · multi-fichiers OK</div>
+    </div>
+    <table class="itbl">
+      <thead><tr><th>Fichier</th><th>Score IA</th><th>Statut</th><th>Détecté</th><th>Actions</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>FICHE_HEKTOR_450.pdf</td>
+          <td><span class="sp hi">92%</span></td>
+          <td style="color:var(--green);">✅ Prêt</td>
+          <td>Parking · Vente · 21 000 €</td>
+          <td><button class="bbtn primary" style="padding:5px 11px;font-size:12px;">⚡ Créer</button></td>
+        </tr>
+        <tr>
+          <td>FICHE_APPART_T3.pdf</td>
+          <td><span class="sp md">65%</span></td>
+          <td style="color:var(--amber);">⚠️ Incomplet</td>
+          <td>Appartement · prix manquant</td>
+          <td><button class="bbtn ghost" style="padding:5px 11px;font-size:12px;border-color:var(--amber);color:var(--amber);">🔍 Vérifier</button></td>
+        </tr>
+        <tr>
+          <td>SCAN_TERRAIN.pdf</td>
+          <td><span class="sp lo">28%</span></td>
+          <td style="color:var(--red);">❌ Erreur</td>
+          <td>Non détecté — PDF scanné ?</td>
+          <td><button class="bbtn ghost" style="padding:5px 11px;font-size:12px;border-color:var(--red);color:var(--red);">❌ Corriger</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:12px;font-size:13px;color:var(--muted);">💡 Score ≥ 80% → création directe possible. En dessous → vérification recommandée.</div>
+  </div>
+</div>
+
+<script>
+function toggleTheme(){
+  const h=document.documentElement;
+  const dark=h.dataset.theme==='dark';
+  h.dataset.theme=dark?'light':'dark';
+  document.querySelector('.btn-theme').textContent=dark?'🌙':'☀️';
+}
+function selType(el){document.querySelectorAll('.tc').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');}
+function selOffre(el){document.querySelectorAll('.oc').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');}
+function setMode(m,btn){
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+}
+function sync(){
+  const d=document.getElementById('desig')?.value||'';
+  const p=parseInt(document.getElementById('prix')?.value||0);
+  const s=document.getElementById('surf')?.value||'';
+  const v=document.getElementById('ville')?.value||'';
+  const n=d.length;
+  const msg=document.getElementById('desig-msg');
+  if(msg) msg.textContent=n===0?'⚠ Obligatoire':n<50?`⚠ ${n} car. — minimum 50`:n<=80?`✓ ${n} car. — longueur idéale`:`⚠ ${n} car. — trop long (max 80)`;
+  const t=document.getElementById('p-title');
+  if(t) t.textContent=d.length>44?d.slice(0,44)+'…':d;
+  const pp=document.getElementById('p-prix');
+  if(pp) pp.innerHTML=p.toLocaleString('fr-FR')+' <span>€</span>';
+  const ps=document.getElementById('p-surf');
+  if(ps) ps.innerHTML=s+' <span>m²</span>';
+  const pv=document.getElementById('p-ville');
+  if(pv) pv.textContent=v;
+}
+sync();
+</script>
+</body>
+</html>

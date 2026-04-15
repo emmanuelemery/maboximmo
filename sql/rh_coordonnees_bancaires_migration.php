@@ -1,0 +1,11 @@
+<?php
+require_once __DIR__ . '/../public_html/inc/bootstrap.php';
+$pdo = $GLOBALS['pdo'];
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS rh_coordonnees_bancaires (\n  id INT UNSIGNED NOT NULL AUTO_INCREMENT,\n  id_user INT UNSIGNED NOT NULL,\n  iban VARCHAR(34) DEFAULT NULL,\n  bic VARCHAR(11) DEFAULT NULL,\n  created_at DATETIME DEFAULT current_timestamp(),\n  updated_at DATETIME DEFAULT current_timestamp() ON UPDATE current_timestamp(),\n  created_by INT UNSIGNED DEFAULT NULL,\n  updated_by INT UNSIGNED DEFAULT NULL,\n  PRIMARY KEY (id),\n  UNIQUE KEY uk_rh_cb_user (id_user),\n  KEY idx_rh_cb_iban (iban),\n  CONSTRAINT fk_rh_cb_user FOREIGN KEY (id_user) REFERENCES users(id) ON DELETE CASCADE,\n  CONSTRAINT fk_rh_cb_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,\n  CONSTRAINT fk_rh_cb_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS rh_coordonnees_bancaires_hist (\n  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n  rib_id INT UNSIGNED NOT NULL,\n  id_user INT UNSIGNED NOT NULL,\n  action ENUM('create','update','delete') NOT NULL,\n  changed_by INT UNSIGNED DEFAULT NULL,\n  changed_at DATETIME DEFAULT current_timestamp(),\n  changed_fields JSON DEFAULT NULL,\n  old_values JSON DEFAULT NULL,\n  new_values JSON DEFAULT NULL,\n  PRIMARY KEY (id),\n  KEY idx_rh_cb_hist_user (id_user),\n  KEY idx_rh_cb_hist_changed (changed_at),\n  CONSTRAINT fk_rh_cb_hist_rib FOREIGN KEY (rib_id) REFERENCES rh_coordonnees_bancaires(id) ON DELETE CASCADE,\n  CONSTRAINT fk_rh_cb_hist_user FOREIGN KEY (id_user) REFERENCES users(id) ON DELETE CASCADE,\n  CONSTRAINT fk_rh_cb_hist_changed_by FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+$pdo->exec("\n    INSERT INTO rh_coordonnees_bancaires (id_user, iban, bic, created_at, updated_at)\n    SELECT u.id, u.iban, u.bic, NOW(), NOW()\n    FROM users u\n    LEFT JOIN rh_coordonnees_bancaires r ON r.id_user = u.id\n    WHERE r.id IS NULL\n      AND (u.iban IS NOT NULL OR u.bic IS NOT NULL)\n");
+
+echo "Migration coordonnees bancaires OK.\n";

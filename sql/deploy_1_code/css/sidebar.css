@@ -1,0 +1,178 @@
+/*
+ * sidebar.css
+ * Rôle     : Styles unifiés pour toutes les sidebars MaBoxImmo (RH + Agency)
+ * Utilisé  : inc/rh_sidebar.php, inc/sidebar_agency.php
+ * Editable : Super Admin via design-system.php
+ * Date     : 2026-04-09
+ */
+
+/* ═══════════════════════════════════════════════════════
+   SIDEBAR — fond bleu-gris clair, texte sombre
+═══════════════════════════════════════════════════════ */
+.mbi-sidebar {
+    position: fixed; left: 0; top: 0;
+    width: 220px; height: 100vh;
+    background: #ffffff;
+    box-shadow: none;
+    border-right: 1px solid #d4d0ca;
+    overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column;
+    z-index: 200;
+    scrollbar-width: thin;
+    scrollbar-color: #b8c8a8 transparent;
+    font-family: 'Sora', 'DM Sans', sans-serif !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+    box-sizing: border-box;
+}
+.mbi-sidebar *, .mbi-sidebar *::before, .mbi-sidebar *::after {
+    box-sizing: border-box;
+}
+.mbi-sidebar::-webkit-scrollbar { width: 4px; }
+.mbi-sidebar::-webkit-scrollbar-thumb { background: #b8c8a8; border-radius: 4px; }
+
+/* ── Brand ── */
+.mbi-sidebar .sb-brand {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid #d4d0ca;
+    display: flex; align-items: center; gap: 10px;
+    text-decoration: none !important; flex-shrink: 0;
+}
+.mbi-sidebar .sb-brand-logo {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: #36577d;
+    box-shadow: 3px 3px 8px #c2c6d0, -3px -3px 8px #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px !important; flex-shrink: 0;
+}
+.mbi-sidebar .sb-brand-text strong {
+    display: block; font-size: 16px !important; font-weight: 800;
+    color: #1a1816;
+    font-family: 'Sora', 'DM Sans', sans-serif !important;
+}
+.mbi-sidebar .sb-brand-text span {
+    font-size: 10px !important; color: #a8a49e;
+    font-weight: 500; letter-spacing: .3px;
+    font-family: 'Sora', 'DM Sans', sans-serif !important;
+}
+
+/* ── Section header ── */
+.mbi-sidebar .sb-section {
+    padding: 5px 12px 4px 18px;
+    margin: 6px 8px 2px;
+    font-size: 11px !important; font-weight: 800 !important;
+    letter-spacing: .8px; text-transform: uppercase;
+    border-radius: 7px;
+    position: relative;
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'Sora', 'DM Sans', sans-serif !important;
+}
+.mbi-sidebar .sb-section::before {
+    content: '';
+    position: absolute; left: 0; top: 50%;
+    transform: translateY(-50%);
+    width: 4px; height: 20px; border-radius: 3px;
+    background: currentColor;
+}
+
+/* Couleurs par groupe — palette harmonieuse bleu pétrole / vert kaki / amande */
+.mbi-sidebar .sb-group.nav     .sb-section { color:#2f587d; background:rgba(47,88,125,.08);  }
+.mbi-sidebar .sb-group.info    .sb-section { color:#4a6038; background:rgba(74,96,56,.08);   }
+.mbi-sidebar .sb-group.agency  .sb-section { color:#3a7a6a; background:rgba(58,122,106,.08); }
+.mbi-sidebar .sb-group.mgmt    .sb-section { color:#7a6830; background:rgba(122,104,48,.08); }
+.mbi-sidebar .sb-group.admin   .sb-section { color:#8a5040; background:rgba(138,80,64,.08);  }
+.mbi-sidebar .sb-group.super   .sb-section { color:#5a6878; background:rgba(90,104,120,.08); }
+.mbi-sidebar .sb-group.account .sb-section { color:#6a7060; background:rgba(106,112,96,.06); }
+
+.mbi-sidebar .sb-section.section-active { filter: brightness(.9) saturate(1.2); }
+
+/* ── Nav list ── */
+.mbi-sidebar .sb-nav { list-style: none; padding: 0 8px; margin: 0; }
+.mbi-sidebar .sb-nav li { margin: 0; }
+.mbi-sidebar .sb-nav a {
+    display: flex; align-items: center; gap: 9px;
+    padding: 5px 10px; border-radius: 8px;
+    font-size: 13px !important; font-weight: 500 !important;
+    color: #6a6660;
+    text-decoration: none !important;
+    transition: color .14s, background .14s, padding-left .14s;
+    position: relative;
+    font-family: 'Sora', 'DM Sans', sans-serif !important;
+}
+.mbi-sidebar .sb-nav a .sb-icon  {
+    font-size: 13px !important; flex-shrink: 0;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 2px 2px 5px rgba(180,185,175,0.5), -2px -2px 5px #fff;
+}
+.mbi-sidebar .sb-nav a .sb-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px !important; }
+.mbi-sidebar .sb-nav a .sb-sub   { font-size: 9px !important; color: #a8a49e; display: block; margin-top: 1px; }
+
+/* ── Locked services ── */
+.mbi-sidebar .sb-nav a.sb-locked { color: #c2c6d0 !important; cursor: pointer; }
+.mbi-sidebar .sb-nav a.sb-locked:hover { background: rgba(0,0,0,.04) !important; padding-left: 10px !important; box-shadow: none !important; }
+
+/* ── Hover par groupe ── */
+.mbi-sidebar .sb-group.nav     .sb-nav a:hover { background:rgba(47,88,125,.1);   color:#2f587d; padding-left:14px; }
+.mbi-sidebar .sb-group.info    .sb-nav a:hover { background:rgba(74,96,56,.1);    color:#4a6038; padding-left:14px; }
+.mbi-sidebar .sb-group.agency  .sb-nav a:hover { background:rgba(58,122,106,.1);  color:#3a7a6a; padding-left:14px; }
+.mbi-sidebar .sb-group.mgmt    .sb-nav a:hover { background:rgba(122,104,48,.1);  color:#7a6830; padding-left:14px; }
+.mbi-sidebar .sb-group.admin   .sb-nav a:hover { background:rgba(138,80,64,.1);   color:#8a5040; padding-left:14px; }
+.mbi-sidebar .sb-group.super   .sb-nav a:hover { background:rgba(90,104,120,.1);  color:#5a6878; padding-left:14px; }
+.mbi-sidebar .sb-group.account .sb-nav a:hover { background:rgba(106,112,96,.08); color:#6a7060; padding-left:14px; }
+
+/* ── Active par groupe ── */
+.mbi-sidebar .sb-nav a.active { font-weight: 700 !important; padding-left: 14px; }
+.mbi-sidebar .sb-group.nav     .sb-nav a.active { background:rgba(47,88,125,.15);  color:#2f587d; box-shadow:inset 3px 0 0 #2f587d; }
+.mbi-sidebar .sb-group.info    .sb-nav a.active { background:rgba(74,96,56,.15);   color:#4a6038; box-shadow:inset 3px 0 0 #4a6038; }
+.mbi-sidebar .sb-group.agency  .sb-nav a.active { background:rgba(58,122,106,.15); color:#3a7a6a; box-shadow:inset 3px 0 0 #3a7a6a; }
+.mbi-sidebar .sb-group.mgmt    .sb-nav a.active { background:rgba(122,104,48,.15); color:#7a6830; box-shadow:inset 3px 0 0 #7a6830; }
+.mbi-sidebar .sb-group.admin   .sb-nav a.active { background:rgba(138,80,64,.15);  color:#8a5040; box-shadow:inset 3px 0 0 #8a5040; }
+.mbi-sidebar .sb-group.super   .sb-nav a.active { background:rgba(90,104,120,.15); color:#5a6878; box-shadow:inset 3px 0 0 #5a6878; }
+.mbi-sidebar .sb-group.account .sb-nav a.active { background:rgba(106,112,96,.12); color:#6a7060; box-shadow:inset 3px 0 0 #6a7060; }
+
+/* ── Badge ── */
+.mbi-sidebar .sb-badge {
+    font-size: 9px !important; font-weight: 800; padding: 2px 7px;
+    border-radius: 8px; margin-left: auto; flex-shrink: 0; letter-spacing: .5px;
+}
+.mbi-sidebar .sb-badge.mgr { background:rgba(122,104,48,.12);  color:#7a6830; border:1px solid rgba(122,104,48,.2); }
+.mbi-sidebar .sb-badge.adm { background:rgba(138,80,64,.12);  color:#8a5040; border:1px solid rgba(138,80,64,.2); }
+.mbi-sidebar .sb-badge.sup { background:rgba(90,104,120,.12); color:#5a6878; border:1px solid rgba(90,104,120,.2); }
+
+/* ── Divider ── */
+.mbi-sidebar .sb-divider { height: 1px; background: #d4d0ca; margin: 3px 16px; }
+
+/* Bouton thème supprimé — mode clair uniquement */
+
+/* ═══════════════════════════════════════════════════════
+   LAYOUT — contenu principal à droite de la sidebar
+═══════════════════════════════════════════════════════ */
+.sb-content,
+.agency-content,
+.mbi-main {
+    margin-left: 220px !important;
+    min-height: 100vh;
+}
+
+/* Topbar : sticky dans le flux, pas fixed */
+.sb-content .topbar,
+.agency-content .agency-topbar,
+.mbi-main .mbi-topbar {
+    position: sticky !important;
+    top: 0;
+    left: auto !important;
+    right: auto !important;
+    z-index: 100;
+}
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+    .mbi-sidebar { transform: translateX(-100%); transition: transform .25s; }
+    .mbi-sidebar.sb-open { transform: translateX(0); }
+    .sb-content, .agency-content, .mbi-main { margin-left: 0 !important; }
+}

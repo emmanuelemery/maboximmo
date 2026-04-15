@@ -1,0 +1,296 @@
+/*
+ * tokens.css
+ * Rôle     : Design tokens globaux — source unique de vérité
+ * Dépend   : rien
+ * Date     : 2026-04-03
+ */
+
+/* ─────────────────────────────────────────────
+   COULEURS PRIMAIRES (overridables par société)
+───────────────────────────────────────────── */
+:root {
+  --brand-50:  #eef3f8;
+  --brand-100: #d6e4f0;
+  --brand-200: #b0cce2;
+  --brand-300: #7aadc8;
+  --brand-400: #528eb0;
+  --brand-500: #36577d;
+  --brand-600: #2b4466;
+  --brand-700: #213450;
+  --brand-800: #17253a;
+  --brand-900: #0e1825;
+
+  --brand-primary:        var(--brand-500);
+  --brand-primary-hover:  var(--brand-600);
+  --brand-primary-active: var(--brand-700);
+  --brand-primary-light:  var(--brand-50);
+  --brand-primary-text:   #ffffff;
+
+  /* Accent vert olive */
+  --accent-green:       #7a9060;
+  --accent-green-light: #eef4e8;
+  --accent-red:         #cc5c58;
+  --accent-red-light:   #fdf0ef;
+
+  /* Surcharges société (injectées via PHP en tête de page) */
+  --brand-font-sans:      inherit;
+  --brand-radius-base:    4px;
+  --brand-sidebar-bg:     #cdd4e4;   /* bleu-gris, légèrement plus foncé que --bg-primary */
+  --brand-sidebar-text:   #36577d;
+  --brand-topbar-bg:      #e4e8f0;
+}
+
+/* ─────────────────────────────────────────────
+   NEUTRES — palette beige chaud neumorphique
+───────────────────────────────────────────── */
+:root {
+  --gray-50:  #f8f6f3;
+  --gray-100: #eef1f6;
+  --gray-200: #e4e8f0;
+  --gray-300: #d8d4ce;
+  --gray-400: #c2c6d0;
+  --gray-500: #a8a49e;
+  --gray-600: #8a8680;
+  --gray-700: #6a6660;
+  --gray-800: #3a3830;
+  --gray-900: #1a1816;
+}
+
+/* ─────────────────────────────────────────────
+   SÉMANTIQUES
+───────────────────────────────────────────── */
+:root {
+  /* Success */
+  --success-bg:     #F0FDF4;
+  --success-border: #BBF7D0;
+  --success-text:   #166534;
+  --success-icon:   #22C55E;
+
+  /* Warning */
+  --warning-bg:     #FFFBEB;
+  --warning-border: #FDE68A;
+  --warning-text:   #92400E;
+  --warning-icon:   #F59E0B;
+
+  /* Danger */
+  --danger-bg:      #FEF2F2;
+  --danger-border:  #FECACA;
+  --danger-text:    #991B1B;
+  --danger-icon:    #EF4444;
+
+  /* Info */
+  --info-bg:        #EFF6FF;
+  --info-border:    #BFDBFE;
+  --info-text:      #1E40AF;
+  --info-icon:      #3B82F6;
+}
+
+/* ─────────────────────────────────────────────
+   SURFACES & TEXTE (light mode — BLANC)
+   Mis à jour Phase 3 : fond blanc pur au lieu de gris bleuté.
+   Toutes les pages héritent de ces valeurs automatiquement.
+───────────────────────────────────────────── */
+:root {
+  --bg-primary:   #ffffff;
+  --bg-secondary: #f7f8fa;
+  --bg-tertiary:  #f0f1f3;
+
+  --text-primary:   #1a1816;
+  --text-secondary: #6a6660;
+  --text-tertiary:  #8a8680;
+  --text-disabled:  #c2c6d0;
+  --text-inverse:   #ffffff;
+
+  --border-light:  #e4e6ec;
+  --border-medium: #d4d7de;
+  --border-strong: #c2c6d0;
+
+  /* ── Couleurs d'accent (palette MaBoxImmo) ── */
+  --color-petrol:      #2f587d;  /* bleu pétrole — titres, liens actifs */
+  --color-petrol-mid:  #4878a6;  /* bleu pétrole moyen — boutons, accents */
+  --color-petrol-light:#e8f0f8;  /* bleu pétrole clair — hover, badges */
+  --color-kaki:        #4a6038;  /* vert kaki — succès, validé */
+  --color-kaki-light:  #e8efe0;  /* vert kaki clair — badges succès */
+  --color-terre:       #8a5040;  /* terre cuite — erreur, alerte */
+  --color-terre-light: #f0e2da;  /* terre cuite clair — badges erreur */
+  --color-ocre:        #c97b2e;  /* ocre — warning, en attente */
+  --color-ocre-light:  #fef8f0;  /* ocre clair — badges warning */
+
+  /* ── Tokens neumorphiques (blanc) ── */
+  --shadow-dark:    #d4d7de;
+  --shadow-light:   #ffffff;
+  --btn-save-from:  #4878a6;
+  --btn-save-to:    #2f587d;
+  --neu-bg:         #ffffff;
+  --neu-shadow-out: 6px 6px 14px var(--shadow-dark), -6px -6px 14px var(--shadow-light);
+  --neu-shadow-in:  inset 5px 5px 12px var(--shadow-dark), inset -5px -5px 12px var(--shadow-light);
+  --neu-shadow-sm:  4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+  --neu-shadow-lg:  8px 8px 18px var(--shadow-dark), -8px -8px 18px var(--shadow-light);
+}
+
+/* ─────────────────────────────────────────────
+   TYPOGRAPHIE
+───────────────────────────────────────────── */
+:root {
+  --font-sans: var(--brand-font-sans, 'Sora', -apple-system, BlinkMacSystemFont,
+               'Segoe UI', Helvetica, Arial, sans-serif);
+  --font-mono: 'DM Mono', 'JetBrains Mono', 'Fira Code',
+               ui-monospace, monospace;
+
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   19px;
+  --text-xl:   21px;
+  --text-2xl:  25px;
+  --text-3xl:  31px;
+  --text-4xl:  37px;
+
+  --font-normal:   400;
+  --font-medium:   500;
+  --font-semibold: 600;
+  --font-bold:     700;
+
+  --leading-tight:   1.25;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.75;
+}
+
+/* ─────────────────────────────────────────────
+   SPACING (base 4px)
+───────────────────────────────────────────── */
+:root {
+  --space-0:  0px;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+}
+
+/* ─────────────────────────────────────────────
+   BORDER RADIUS
+───────────────────────────────────────────── */
+:root {
+  --radius-none: 0px;
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  24px;
+  --radius-full: 9999px;
+  --radius-base: var(--brand-radius-base, var(--radius-md));
+}
+
+/* ─────────────────────────────────────────────
+   SHADOWS — neumorphiques
+───────────────────────────────────────────── */
+:root {
+  --shadow-xs:    3px 3px 8px var(--shadow-dark), -3px -3px 8px var(--shadow-light);
+  --shadow-sm:    var(--neu-shadow-sm);
+  --shadow-md:    var(--neu-shadow-out);
+  --shadow-lg:    var(--neu-shadow-lg);
+  --shadow-xl:    10px 10px 24px #b8b4ae, -10px -10px 24px var(--shadow-light);
+  --shadow-inner: var(--neu-shadow-in);
+  --shadow-focus: 0 0 0 3px rgba(54,87,125,0.30);
+}
+
+/* ─────────────────────────────────────────────
+   TRANSITIONS
+───────────────────────────────────────────── */
+:root {
+  --transition-fast:   100ms ease-out;
+  --transition-base:   200ms ease-out;
+  --transition-slow:   300ms ease-out;
+  --transition-slower: 500ms ease-out;
+}
+
+/* ─────────────────────────────────────────────
+   Z-INDEX
+───────────────────────────────────────────── */
+:root {
+  --z-below:    -1;
+  --z-base:      0;
+  --z-raised:   10;
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-overlay:  300;
+  --z-modal:    400;
+  --z-toast:    500;
+  --z-tooltip:  600;
+}
+
+/* ─────────────────────────────────────────────
+   LAYOUT
+───────────────────────────────────────────── */
+:root {
+  --sidebar-width:       260px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height:       56px;
+  --content-max-width:   1280px;
+}
+
+/* ─────────────────────────────────────────────
+   DARK MODE
+───────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root { --dark: 1; }
+}
+.dark { --dark: 1; }
+
+:root[style*="dark"],
+.dark,
+[data-theme="dark"] {
+  --bg-primary:   #325680;
+  --bg-secondary: #2B4D74;
+  --bg-tertiary:  #254468;
+
+  --text-primary:   #F4F7FC;
+  --text-secondary: #BDD0E8;
+  --text-tertiary:  #8AAAC8;
+  --text-disabled:  #5A7A98;
+
+  --border-light:  #3D6490;
+  --border-medium: #4A739F;
+  --border-strong: #5A83AE;
+
+  --neu-bg:         #2B4D74;
+  --neu-shadow-out: 6px 6px 14px #1e3a5a, -6px -6px 14px #3870a6;
+  --neu-shadow-in:  inset 5px 5px 12px #1e3a5a, inset -5px -5px 12px #3870a6;
+  --neu-shadow-sm:  4px 4px 10px #1e3a5a, -4px -4px 10px #3870a6;
+  --neu-shadow-lg:  8px 8px 18px #1a3354, -8px -8px 18px #3c6ea8;
+
+  --success-bg:     #052E16;
+  --success-border: #14532D;
+  --success-text:   #86EFAC;
+
+  --warning-bg:     #1C1400;
+  --warning-border: #713F12;
+  --warning-text:   #FDE68A;
+
+  --danger-bg:      #1C0A0A;
+  --danger-border:  #7F1D1D;
+  --danger-text:    #FCA5A5;
+
+  --info-bg:        #0A1628;
+  --info-border:    #1E3A5F;
+  --info-text:      #93C5FD;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.4), 0 4px 6px rgba(0,0,0,0.3);
+  --shadow-xl: 0 20px 25px rgba(0,0,0,0.5), 0 10px 10px rgba(0,0,0,0.4);
+  --shadow-focus: 0 0 0 3px rgba(99,102,241,0.5);
+
+  --brand-sidebar-bg:   #0F1117;
+  --brand-topbar-bg:    #161B27;
+}

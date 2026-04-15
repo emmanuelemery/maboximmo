@@ -1,0 +1,395 @@
+/*
+ * theme-white.css — Design System MaBoxImmo (blanc neumorphique)
+ * ═══════════════════════════════════════════════════════════════
+ * Source unique pour le style "white mode" de toute la plateforme.
+ * Inclus automatiquement par layout_maboximmo.php.
+ *
+ * Palette :
+ *   Bleu pétrole  #2f587d / #4878a6  → titres, boutons, liens actifs
+ *   Vert kaki     #4a6038 / #7a9060  → succès, validé, check
+ *   Terre cuite   #8a5040            → erreur, danger, ancien
+ *   Ocre          #c97b2e            → warning, en attente
+ *   Amande        #b8c8a8            → accents décoratifs
+ *
+ * Neumorphisme : ombres #d4d7de / #ffffff sur fond #ffffff
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   1. BODY & BACKGROUND
+   ═══════════════════════════════════════════════════════════════ */
+body {
+    background: #f7f8fa;
+    color: #1a1816;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   2. CARDS — blanc neumorphique
+   ═══════════════════════════════════════════════════════════════ */
+.mbi-card,
+.form-section,
+.rub-card,
+.task-card,
+.mini-card,
+.ag-form-card,
+.hp-intro,
+.hp-table-card,
+.hp-plan-card,
+.hp-validate,
+.teaser-card,
+.rhdx-card,
+.pp-card,
+.dp-card {
+    background: #ffffff;
+    border: 1px solid #e4e6ec;
+    border-radius: 16px;
+    box-shadow: 4px 4px 12px #d4d7de, -4px -4px 12px #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   3. BOUTONS — 3 variantes avec couleurs d'accent
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Bouton primaire (bleu pétrole) */
+.btn-primary,
+.ph-btn.primary,
+.task-btn.primary,
+.ag-btn.primary,
+.dp-btn:not(.back),
+.hp-btn:not(.back) {
+    background: #4878a6;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-family: 'Sora', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+    transition: all .15s;
+}
+.btn-primary:hover,
+.ph-btn.primary:hover,
+.task-btn.primary:hover {
+    background: #2f587d;
+    transform: translateY(-1px);
+}
+
+/* Bouton succès (vert kaki) */
+.btn-success,
+.task-btn.success,
+.ag-btn.success {
+    background: #4a6038;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-family: 'Sora', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+}
+.btn-success:hover,
+.task-btn.success:hover {
+    background: #3a4c2a;
+}
+
+/* Bouton neutre / secondaire (blanc neumorphique) */
+.btn-secondary,
+.task-btn:not(.primary):not(.success):not(.disabled),
+.ag-btn:not(.primary):not(.success),
+.hp-btn.back,
+.dp-btn.back,
+.teaser-btn {
+    background: #ffffff;
+    color: #6a6660;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-family: 'Sora', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+    text-decoration: none;
+}
+.btn-secondary:hover,
+.task-btn:not(.primary):not(.success):not(.disabled):hover {
+    color: #2f587d;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   4. BADGES / STATUTS — pastilles colorées
+   ═══════════════════════════════════════════════════════════════ */
+.badge-success,
+.task-status.done,
+.hp-badge.valide {
+    background: #e8efe0;
+    color: #4a6038;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.badge-warning,
+.task-status.active,
+.hp-badge.attente {
+    background: #e8f0f8;
+    color: #2f587d;
+}
+
+.badge-danger,
+.task-status.locked,
+.hp-badge.refuse {
+    background: #f0e2da;
+    color: #8a5040;
+}
+
+.badge-info {
+    background: #e8f0f8;
+    color: #4878a6;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   5. SECTION TITLES — barre accent + texte kaki
+   ═══════════════════════════════════════════════════════════════ */
+.form-section-title,
+.section-header .sec-txt {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #4a6038;
+}
+.form-section-title {
+    padding-left: 10px;
+    border-left: 3px solid #4878a6;
+    margin-bottom: 16px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   6. INPUTS / SELECTS / TEXTAREAS — blanc inset
+   ═══════════════════════════════════════════════════════════════ */
+.form-control,
+.mbi-input,
+.ag-field input,
+.ag-field textarea,
+.pp-field input,
+.pp-field select,
+.dp-field input,
+.dp-field select {
+    background: #ffffff;
+    border: 1px solid #d4d7de;
+    border-radius: 7px;
+    padding: 8px 12px;
+    color: #1a1816;
+    font-family: 'Sora', sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+}
+.form-control:focus,
+.mbi-input:focus,
+.ag-field input:focus,
+.pp-field input:focus {
+    border-color: #4878a6;
+    box-shadow: 0 0 0 2px rgba(72,120,166,0.15);
+}
+.form-control[readonly] {
+    background: #f7f8fa;
+    color: #8a8680;
+    cursor: not-allowed;
+}
+select.form-control option {
+    background: #ffffff;
+    color: #1a1816;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   7. TABLES — blanches avec en-têtes kaki
+   ═══════════════════════════════════════════════════════════════ */
+.mbi-table-wrap,
+.hp-table-card,
+.user-list-table {
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 4px 4px 12px #d4d7de, -4px -4px 12px #fff;
+    overflow: hidden;
+}
+.mbi-table thead th,
+.hp-table thead th,
+.user-list-table thead th {
+    background: #f7f8fa;
+    color: #4a6038;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    border-bottom: 1px solid #e4e6ec;
+}
+.mbi-table tbody tr:hover td,
+.hp-table tbody tr:hover td,
+.user-list-table tr:hover {
+    background: rgba(72,120,166,0.04);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   8. ONGLETS — pills neumorphiques
+   ═══════════════════════════════════════════════════════════════ */
+.tabs-bar {
+    display: flex;
+    gap: 6px;
+    padding: 5px;
+    background: #f0f1f3;
+    border-radius: 12px;
+    overflow-x: auto;
+    box-shadow: inset 2px 2px 5px #d4d7de, inset -2px -2px 5px #fff;
+    margin-bottom: 20px;
+}
+.tab-btn {
+    padding: 10px 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #8a8680;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Sora', sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .2s;
+    text-decoration: none;
+}
+.tab-btn:hover {
+    color: #2f587d;
+    background: rgba(255,255,255,0.6);
+}
+.tab-btn.active {
+    color: #2f587d;
+    background: #ffffff;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+    font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   9. ICÔNES D'ACCENT — pastilles colorées pour les icônes
+   ═══════════════════════════════════════════════════════════════ */
+.ico-petrol {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, #4878a6, #2f587d);
+    color: #fff; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+}
+.ico-kaki {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, #7a9060, #4a6038);
+    color: #fff; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+}
+.ico-terre {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, #a86048, #8a5040);
+    color: #fff; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+}
+.ico-ocre {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, #d49040, #c97b2e);
+    color: #fff; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 2px 2px 6px #d4d7de, -2px -2px 6px #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   10. BARRES DE PROGRESSION
+   ═══════════════════════════════════════════════════════════════ */
+.progress-bar-wrap,
+.task-progress,
+.completion-bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 6px;
+    background: #e4e6ec;
+    box-shadow: inset 2px 2px 4px #d4d7de, inset -2px -2px 4px #fff;
+    overflow: hidden;
+}
+.progress-bar-fill,
+.task-progress-bar,
+.completion-fill {
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #4878a6, #4a6038);
+    transition: width .35s;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   11. FLASH MESSAGES — succès / erreur
+   ═══════════════════════════════════════════════════════════════ */
+.flash-ok,
+.toast-saved {
+    padding: 12px 16px;
+    background: #e8efe0;
+    color: #4a6038;
+    border: 1px solid rgba(74,96,56,0.3);
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+.flash-err {
+    padding: 12px 16px;
+    background: #f0e2da;
+    color: #8a5040;
+    border: 1px solid rgba(138,80,64,0.3);
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   12. AUTOSAVE INDICATOR
+   ═══════════════════════════════════════════════════════════════ */
+.autosave-indicator {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: #8a8680;
+    padding: 4px 12px;
+    border-radius: 6px;
+    background: #f7f8fa;
+    position: fixed;
+    top: 62px;
+    right: 20px;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity .2s;
+}
+.autosave-indicator.saving { opacity: 1; color: #c97b2e; }
+.autosave-indicator.saved  { opacity: 1; color: #4a6038; }
+.autosave-indicator.error  { opacity: 1; color: #8a5040; }
+
+/* ═══════════════════════════════════════════════════════════════
+   13. LIENS — bleu pétrole
+   ═══════════════════════════════════════════════════════════════ */
+a {
+    color: #4878a6;
+    text-decoration: none;
+}
+a:hover {
+    color: #2f587d;
+    text-decoration: underline;
+}

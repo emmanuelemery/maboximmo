@@ -1,0 +1,75 @@
+=== MaBoxImmo Leave Management Module (Congés) ===
+Created: 2026-03-26
+
+TWO NEW PHP FILES CREATED:
+
+1. public_html/rh_conges.php
+   - Calendar view page for leave management
+   - Dark theme matching rh_salaires.php and rh_user.php
+   - Color vars: --bg:#1a2a3a, --accent:#66d9ff, --sidebar-w:250px
+   - Features:
+     * Monthly calendar grid display (7 columns: Mon-Sun)
+     * Filter row: month select, year select, society/agency (admin only)
+     * Holiday display for French public holidays
+     * Leave badges showing employee initials + motif
+     * Modal detail view on badge click
+     * Sidebar sections: Principal, Gestion RH, Congés (with Calendrier/Validation/Historique), Administration (admin only)
+     * Role-based filtering:
+       - Admins: see all or filtered by society/agency
+       - Managers: see only their agency leaves
+       - Collaborateurs: see own leaves only
+   - SQL: Uses prepared statements for SQL injection prevention
+   - Queries the conges table with status != 'archivé'
+
+2. public_html/rh_conges_validation.php
+   - Approval/rejection workflow page
+   - Same dark theme and sidebar as rh_conges.php
+   - Features:
+     * Table with columns: Employee, Dates, Motif, Request Date, Actions
+     * Shows only 'en_attente' status records
+     * Action buttons:
+       - Approve (green) - updates: statut='validé', date_validation=NOW(), id_validateur=current_user_id()
+       - Reject (red) - opens modal for rejection reason, updates: statut='refusé', date_validation=NOW(), id_validateur=current_user_id(), commentaire=reason
+     * Access control:
+       - Admin (role_id=1): see all pending leaves
+       - Manager (role_id=2): see only their agency's pending leaves
+       - Others: denied access
+     * AJAX POST endpoints for approve/reject actions
+     * Notifications on success/error
+     * Auto-refresh after action
+
+SECURITY FEATURES:
+- Prepared statements for all SQL queries
+- Role-based access control
+- HTML entity escaping with h() function
+- JSON Content-Type header for AJAX responses
+- Agency-level permissions for managers
+- User ID tracking for validations
+
+DATABASE TABLES USED:
+- conges (id, id_user, date_demande, date_debut, date_fin, demi_journee_debut, demi_journee_fin, motif, motif_detail, statut, date_validation, id_validateur, commentaire, couleur, created_at, updated_at)
+- users (id, prenom, nom, couleur_conges, id_agence, id_role, id_societe)
+- societes (id, nom, actif)
+- agences (id, nom_agence)
+
+MOTIF ENUM VALUES:
+- absence_injustifiee_deduite
+- absence_justifiee_non_deduite
+- absence_justifiee_deduite_heures
+- maladie_justifiee_non_deduite
+- maladie_non_justifiee_deduite
+- maladie_justifiee_deduite
+- rtt
+- conges_payes (default)
+- autre_legal_non_deduit
+- autre_legal_deduit
+
+FRENCH PUBLIC HOLIDAYS SUPPORTED:
+01-01: Jour de l'an
+05-01: Fête du Travail
+05-08: Fête de la Victoire
+07-14: Fête nationale
+08-15: Assomption
+11-01: Toussaint
+11-11: Armistice
+12-25: Noël

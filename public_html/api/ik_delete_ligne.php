@@ -1,0 +1,37 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/../inc/bootstrap.php';
+require_once __DIR__ . '/../inc/auth.php';
+require_once __DIR__ . '/../inc/rh_helpers.php';
+require_login();
+
+header('Content-Type: application/json; charset=utf-8');
+
+$pdo    = $GLOBALS['pdo'] ?? null;
+$userId = current_user_id();
+
+if (!$pdo) { echo json_encode(['ok' => false, 'error' => 'DB indisponible']); exit; }
+
+$data    = json_decode(file_get_contents('php://input'), true) ?: [];
+$idLigne = (int)($data['id'] ?? 0);
+
+if (!$idLigne) { echo json_encode(['ok' => false, 'error' => 'ID manquant']); exit; }
+
+// Vérifier accès : la ligne doit appartenir à une session de cet utilisateur
+$stmt = $pdo->prepare("
+    SELECT s.mois_paie FROM rh_ik_lignes l
+    JOIN rh_ik_sessions s ON s.id = l.id_session
+    WHERE l.id = ? AND s.id_user = ?
+");
+$stmt->execute([$idLigne, $userId]);
+$row = $stmt->fetch(PDO::FETCH_ASSOC);
+if (!$row) {
+    echo json_encode(['ok' => false, 'error' => 'Accès refusé']); exit;
+}
+if (rh_is_salary_month_closed($pdo, $row['mois_paie'] ?? '')) {
+    echo json_encode(['ok' => false, 'error' => 'Mois de paie clôturé']); exit;
+}
+
+$del = $pdo->prepare("DELETE FROM rh_ik_lignes WHERE id = ?");
+$del->execute([$idLigne]);
+echo json_encode(['ok' => true]);

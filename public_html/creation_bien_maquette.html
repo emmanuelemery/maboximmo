@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maquette création d’un bien</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: rgba(255,255,255,0.88);
+      --panel-strong: #ffffff;
+      --text: #1f2a37;
+      --muted: #6b7280;
+      --line: #dde5ef;
+      --accent: #4f7cff;
+      --accent-soft: rgba(79, 124, 255, 0.12);
+      --success: #18a957;
+      --warning: #d98c00;
+      --danger: #d54444;
+      --shadow: 0 10px 30px rgba(30, 41, 59, 0.08);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body.dark {
+      --bg: #111827;
+      --panel: rgba(17, 24, 39, 0.86);
+      --panel-strong: #182231;
+      --text: #f3f4f6;
+      --muted: #9aa7b7;
+      --line: #2b3a4d;
+      --accent: #79a5ff;
+      --accent-soft: rgba(121, 165, 255, 0.14);
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(79,124,255,0.12), transparent 26%),
+        radial-gradient(circle at top right, rgba(24,169,87,0.08), transparent 20%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100%;
+    }
+
+    .page {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .back-btn,
+    .action-btn,
+    .ghost-btn,
+    .tab,
+    .import-btn,
+    .small-btn {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 14px;
+      cursor: pointer;
+      transition: 0.2s ease;
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+      font-weight: 600;
+    }
+
+    .back-btn:hover,
+    .action-btn:hover,
+    .ghost-btn:hover,
+    .tab:hover,
+    .import-btn:hover,
+    .small-btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+    }
+
+    .title-wrap h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .progress-card,
+    .summary-pill {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .progress-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .progress-bar {
+      width: 220px;
+      max-width: 100%;
+      height: 10px;
+      background: var(--accent-soft);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.03);
+    }
+
+    .progress-fill {
+      width: 68%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #7ac1ff);
+      border-radius: 999px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.45fr 0.92fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .left-panel {
+      padding: 18px;
+      position: relative;
+    }
+
+    .right-panel {
+      padding: 18px;
+      position: sticky;
+      top: 20px;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: linear-gradient(to bottom, var(--bg) 60%, transparent);
+      padding-bottom: 12px;
+    }
+
+    .tab.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .section {
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .section-text {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .grid-2,
+    .grid-3 {
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .field input,
+    .field textarea,
+    .field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      border-radius: 14px;
+      padding: 12px 13px;
+      font: inherit;
+      outline: none;
+    }
+
+    .field input:focus,
+    .field textarea:focus,
+    .field select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+
+    .field textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 12px;
+    }
+
+    .mini-card {
+      position: relative;
+      min-height: 118px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.55));
+      border-radius: 18px;
+      padding: 14px 12px 12px;
+      cursor: pointer;
+      transition: 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    body.dark .mini-card {
+      background: linear-gradient(180deg, rgba(24,34,49,0.92), rgba(24,34,49,0.76));
+    }
+
+    .mini-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent);
+      box-shadow: 0 14px 26px rgba(31, 41, 55, 0.10);
+    }
+
+    .mini-card.active {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, var(--accent-soft), rgba(255,255,255,0.75));
+      box-shadow: 0 14px 26px rgba(79,124,255,0.18);
+    }
+
+    body.dark .mini-card.active {
+      background: linear-gradient(180deg, rgba(121,165,255,0.18), rgba(24,34,49,0.88));
+    }
+
+    .mini-icon {
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .mini-label {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .help-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .tooltip {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 38px;
+      background: var(--panel-strong);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 11px;
+      font-size: 12px;
+      line-height: 1.45;
+      box-shadow: var(--shadow);
+      display: none;
+      z-index: 3;
+      text-align: left;
+    }
+
+    .mini-card.show-tip .tooltip { display: block; }
+
+    .kpi-row,
+    .badges,
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill,
+    .badge,
+    .tiny-badge {
+      border-radius: 999px;
+      padding: 8px 11px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+    }
+
+    .badge.success, .tiny-badge.success { color: var(--success); background: rgba(24,169,87,0.10); border-color: rgba(24,169,87,0.18); }
+    .badge.warn, .tiny-badge.warn { color: var(--warning); background: rgba(217,140,0,0.10); border-color: rgba(217,140,0,0.18); }
+    .badge.danger, .tiny-badge.danger { color: var(--danger); background: rgba(213,68,68,0.10); border-color: rgba(213,68,68,0.18); }
+
+    .alert-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .alert-item {
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      border-radius: 16px;
+      padding: 12px 13px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .alert-item p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .preview-title {
+      font-size: 22px;
+      margin: 0 0 6px;
+    }
+
+    .preview-subtitle {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .preview-card {
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      border-radius: 22px;
+      overflow: hidden;
+    }
+
+    .preview-hero {
+      min-height: 180px;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,0.06), rgba(0,0,0,0.12)),
+        radial-gradient(circle at top left, rgba(79,124,255,0.28), transparent 40%),
+        linear-gradient(135deg, #d9e8ff, #f3f8ff 55%, #cfe6d7);
+      display: flex;
+      align-items: flex-end;
+      padding: 18px;
+      color: #10233d;
+    }
+
+    .preview-body { padding: 18px; }
+
+    .preview-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .meta-box {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      background: transparent;
+    }
+
+    .meta-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .meta-value {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .sticky-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 4;
+      background: linear-gradient(to top, var(--bg) 60%, transparent);
+      padding-top: 10px;
+      margin-top: 8px;
+    }
+
+    .action-bar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .action-left, .action-right {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .action-btn.primary,
+    .import-btn.primary {
+      background: linear-gradient(135deg, var(--accent), #6cc4ff);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .floating-import {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.42);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      z-index: 30;
+    }
+
+    .floating-import.open { display: flex; }
+
+    .modal {
+      width: min(1100px, 100%);
+      max-height: 90vh;
+      overflow: auto;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+      padding: 20px;
+    }
+
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+
+    .dropzone {
+      border: 2px dashed var(--line);
+      border-radius: 22px;
+      padding: 28px;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(79,124,255,0.05), rgba(79,124,255,0.02));
+      margin-bottom: 16px;
+    }
+
+    .import-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+    }
+
+    .import-table th,
+    .import-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 14px;
+      vertical-align: top;
+    }
+
+    .import-table th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      background: rgba(79,124,255,0.05);
+    }
+
+    .score {
+      font-weight: 800;
+      color: var(--accent);
+    }
+
+    .muted { color: var(--muted); }
+
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      .right-panel { position: static; }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 720px) {
+      .page { padding: 14px; }
+      .grid-2, .grid-3, .preview-meta { grid-template-columns: 1fr; }
+      .mini-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .progress-bar { width: 100%; }
+      .modal { padding: 14px; }
+      .import-table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="back-btn">← Retour</button>
+        <div class="title-wrap">
+          <h1>🏠 Nouveau bien</h1>
+          <div class="subtitle">Maquette HTML de test sans base de données — import intelligent, mini-cards et aperçu en direct.</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="progress-card">
+          <div class="progress-title">Progression de la fiche</div>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+        <button class="import-btn primary" id="openImport">📄 Vous avez une fiche à télécharger ?</button>
+        <button class="ghost-btn" id="toggleTheme">🌙 Mode sombre</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <main class="panel left-panel">
+        <div class="tabs">
+          <button class="tab active">Bien</button>
+          <button class="tab">Localisation</button>
+          <button class="tab">Financier</button>
+          <button class="tab">Caractéristiques</button>
+          <button class="tab">Photos</button>
+          <button class="tab">Documents</button>
+        </div>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Champs essentiels à compléter</h2>
+              <div class="section-text">Tout ce qui est utile pour créer vite un bien propre sans parcourir toute la fiche.</div>
+            </div>
+            <div class="badges">
+              <span class="badge success">4 champs préremplis</span>
+              <span class="badge warn">3 à vérifier</span>
+              <span class="badge danger">2 obligatoires manquants</span>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label>Adresse</label>
+              <input value="15 avenue Pasteur" />
+            </div>
+            <div class="field">
+              <label>Ville</label>
+              <input value="Chamalières" />
+            </div>
+            <div class="field">
+              <label>Code postal</label>
+              <input value="63400" />
+            </div>
+            <div class="field">
+              <label>Secteur</label>
+              <input value="Centre Ville" />
+            </div>
+            <div class="field">
+              <label>Surface principale</label>
+              <input value="16" />
+            </div>
+            <div class="field">
+              <label>Prix / Loyer</label>
+              <input placeholder="Champ obligatoire à compléter" />
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Type de bien</h2>
+              <div class="section-text">Préférer des mini-cards aux listes déroulantes longues pour accélérer la saisie.</div>
+            </div>
+            <span class="tiny-badge warn">Suggestion détectée : Box / parking couvert</span>
+          </div>
+          <div class="mini-grid" data-group="type-bien" data-single="true">
+            <div class="mini-card" data-label="Appartement">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Logement situé dans un immeuble collectif, adapté à la vie urbaine.</div>
+              <div class="mini-icon">🏢</div>
+              <div class="mini-label">Appartement</div>
+            </div>
+            <div class="mini-card" data-label="Maison">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Habitation individuelle avec accès privatif, souvent avec extérieur.</div>
+              <div class="mini-icon">🏠</div>
+              <div class="mini-label">Maison</div>
+            </div>
+            <div class="mini-card active" data-label="Parking / Box">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Espace de stationnement couvert ou box fermé en sous-sol ou en extérieur.</div>
+              <div class="mini-icon">🚗</div>
+              <div class="mini-label">Parking / Box</div>
+            </div>
+            <div class="mini-card" data-label="Local commercial">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Espace destiné à une activité commerciale avec accueil du public.</div>
+              <div class="mini-icon">🏬</div>
+              <div class="mini-label">Local commercial</div>
+            </div>
+            <div class="mini-card" data-label="Terrain">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Parcelle constructible ou non, destinée à un projet immobilier.</div>
+              <div class="mini-icon">🌿</div>
+              <div class="mini-label">Terrain</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Type d’offre</h2>
+              <div class="section-text">Sélection rapide, visuelle, sans rechargement.</div>
+            </div>
+            <span class="tiny-badge success">Détection fiable : Vente</span>
+          </div>
+          <div class="mini-grid" data-group="type-offre" data-single="true">
+            <div class="mini-card active" data-label="Vente">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Le bien est proposé à l’acquisition avec prix de vente.</div>
+              <div class="mini-icon">💰</div>
+              <div class="mini-label">Vente</div>
+            </div>
+            <div class="mini-card" data-label="Location">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Le bien est proposé à la location avec loyer, charges et dépôt de garantie.</div>
+              <div class="mini-icon">📅</div>
+              <div class="mini-label">Location</div>
+            </div>
+            <div class="mini-card" data-label="Viager">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Vente avec bouquet et/ou rente, selon les modalités du viager.</div>
+              <div class="mini-icon">🔁</div>
+              <div class="mini-label">Viager</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Caractéristiques essentielles</h2>
+              <div class="section-text">Les champs affichés s’adaptent selon le type de bien pour éviter le bruit visuel.</div>
+            </div>
+          </div>
+          <div class="grid-3">
+            <div class="field">
+              <label>Référence dossier</label>
+              <input value="450" />
+            </div>
+            <div class="field">
+              <label>Mandat</label>
+              <input value="450" />
+            </div>
+            <div class="field">
+              <label>Résidence / copropriété</label>
+              <input value="Résidence Saint Patrick" />
+            </div>
+            <div class="field">
+              <label>Taxe foncière</label>
+              <input value="197 €" />
+            </div>
+            <div class="field">
+              <label>Propriétaire</label>
+              <input value="M. Moulin Fabrice" />
+            </div>
+            <div class="field">
+              <label>Téléphone</label>
+              <input value="06 13 24 15 32" />
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Dépendances & extérieurs</h2>
+              <div class="section-text">Les cartes restent compactes, lisibles et agréables à cliquer.</div>
+            </div>
+            <span class="tiny-badge success">2 éléments détectés</span>
+          </div>
+          <div class="mini-grid" data-group="dependances">
+            <div class="mini-card active" data-label="Box fermé">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Espace de stationnement fermé, plus sécurisé qu’une simple place.</div>
+              <div class="mini-icon">🔐</div>
+              <div class="mini-label">Box fermé</div>
+            </div>
+            <div class="mini-card active" data-label="Sous-sol">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Emplacement situé en sous-sol, généralement accessible par rampe sécurisée.</div>
+              <div class="mini-icon">⬇️</div>
+              <div class="mini-label">Sous-sol</div>
+            </div>
+            <div class="mini-card" data-label="Cave">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Espace de stockage en sous-sol.</div>
+              <div class="mini-icon">📦</div>
+              <div class="mini-label">Cave</div>
+            </div>
+            <div class="mini-card" data-label="Vitrine">
+              <button class="help-btn">?</button>
+              <div class="tooltip">Façade vitrée destinée à mettre en valeur une activité commerciale.</div>
+              <div class="mini-icon">🪟</div>
+              <div class="mini-label">Vitrine</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Descriptif</h2>
+              <div class="section-text">Après import, on conserve le texte source, une version nettoyée et une suggestion commerciale.</div>
+            </div>
+            <div class="pill-row">
+              <button class="small-btn">✨ Améliorer le texte</button>
+              <button class="small-btn">🪄 Version annonce</button>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label>Texte source / OCR</label>
+              <textarea>Au coeur de CHAMALIERES, à moins de 300 mètres de la place du marché, accédez à la propriété d'un stationnement sécurisé, couvert, pour garer votre véhicule. Résidence SAINT PATRICK, box en sous-sol accessible par télécommande. Faibles charges.</textarea>
+            </div>
+            <div class="field">
+              <label>Description commerciale suggérée</label>
+              <textarea>En plein centre de Chamalières, à quelques minutes à pied de la place du marché, découvrez ce box fermé en sous-sol au sein de la résidence Saint Patrick. Sécurisé et accessible par télécommande, il constitue une solution idéale pour stationner sereinement ou compléter un investissement locatif. Faibles charges annuelles.</textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Champs détectés grâce au descriptif</h2>
+              <div class="section-text">L’utilisateur comprend immédiatement ce qui a été déduit du texte libre.</div>
+            </div>
+          </div>
+          <div class="alert-list">
+            <div class="alert-item">
+              <div>
+                <span class="tiny-badge success">Confiance élevée</span>
+                <p>Le terme <strong>box en sous-sol</strong> suggère clairement un stationnement couvert fermé.</p>
+              </div>
+            </div>
+            <div class="alert-item">
+              <div>
+                <span class="tiny-badge warn">Confiance moyenne</span>
+                <p>Le texte mentionne <strong>faibles charges</strong> mais aucun montant précis n’est renseigné.</p>
+              </div>
+            </div>
+            <div class="alert-item">
+              <div>
+                <span class="tiny-badge warn">À vérifier</span>
+                <p>Incohérence possible : la fiche technique peut indiquer <strong>Garage / Box = 0</strong> alors que le descriptif parle d’un box.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="sticky-actions">
+          <div class="action-bar">
+            <div class="action-left">
+              <button class="ghost-btn">💾 Enregistrer brouillon</button>
+              <button class="ghost-btn">👁️ Prévisualiser</button>
+            </div>
+            <div class="action-right">
+              <button class="action-btn">Créer et dupliquer</button>
+              <button class="action-btn primary">✔️ Créer le bien</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="panel right-panel">
+        <div class="section" style="margin-bottom: 14px;">
+          <h2 class="preview-title">Aperçu du bien</h2>
+          <p class="preview-subtitle">Tout est mis à jour à mesure de la saisie pour rassurer l’utilisateur.</p>
+          <div class="preview-card">
+            <div class="preview-hero">
+              <div>
+                <div class="tiny-badge success" style="background: rgba(255,255,255,0.9); color:#215a32; border-color: rgba(255,255,255,0.9);">Produit rare</div>
+                <h3 style="margin: 12px 0 0; font-size: 28px;">Box fermé — Centre-ville</h3>
+              </div>
+            </div>
+            <div class="preview-body">
+              <div class="preview-meta">
+                <div class="meta-box">
+                  <div class="meta-label">Localisation</div>
+                  <div class="meta-value">Chamalières · 63400</div>
+                </div>
+                <div class="meta-box">
+                  <div class="meta-label">Surface</div>
+                  <div class="meta-value">16 m²</div>
+                </div>
+                <div class="meta-box">
+                  <div class="meta-label">Prix</div>
+                  <div class="meta-value">21 000 €</div>
+                </div>
+                <div class="meta-box">
+                  <div class="meta-label">Offre</div>
+                  <div class="meta-value">Vente</div>
+                </div>
+              </div>
+              <div class="kpi-row" style="margin-bottom: 14px;">
+                <span class="pill">🔐 Box fermé</span>
+                <span class="pill">⬇️ Sous-sol</span>
+                <span class="pill">📍 Centre-ville</span>
+                <span class="pill">🏢 Résidence Saint Patrick</span>
+              </div>
+              <div class="field" style="margin-top: 0;">
+                <label>Description courte</label>
+                <textarea>Box fermé en sous-sol sécurisé, à deux pas du marché de Chamalières. Accès par télécommande, faibles charges, idéal pour stationner facilement en centre-ville.</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section" style="margin-bottom: 14px;">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Résumé import intelligent</h2>
+              <div class="section-text">Ce bloc synthétise le niveau de confiance pour accélérer la validation.</div>
+            </div>
+          </div>
+          <div class="alert-list">
+            <div class="alert-item">
+              <div>
+                <span class="tiny-badge success">92%</span>
+                <p>Score global élevé — fiche presque prête à créer.</p>
+              </div>
+            </div>
+            <div class="alert-item">
+              <div>
+                <span class="tiny-badge danger">Obligatoire</span>
+                <p>Le prix ou le loyer final reste à confirmer dans la fiche de création.</p>
+              </div>
+            </div>
+            <div class="alert-item">
+              <div>
+                <span class="tiny-badge warn">À vérifier</span>
+                <p>Confirmer si le bien doit être classé en “parking”, “garage” ou “box”.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Conseils UX intégrés</h2>
+              <div class="section-text">Quelques principes visibles directement dans la maquette.</div>
+            </div>
+          </div>
+          <div class="kpi-row">
+            <span class="pill">Voir &gt; lire</span>
+            <span class="pill">Choisir &gt; écrire</span>
+            <span class="pill">Corriger &gt; ressaisir</span>
+            <span class="pill">Onglets &gt; longs menus</span>
+            <span class="pill">Mini-cards &gt; listes</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="floating-import" id="importModal">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 style="margin: 0 0 6px;">📄 Import intelligent de fiches</h2>
+          <div class="muted">Version de démonstration HTML : faux multi-import, sans OCR réel ni base de données.</div>
+        </div>
+        <button class="ghost-btn" id="closeImport">Fermer ✕</button>
+      </div>
+
+      <div class="dropzone">
+        <div style="font-size: 44px; margin-bottom: 12px;">📂</div>
+        <strong>Glisser-déposer vos PDF ici</strong>
+        <div class="muted" style="margin: 8px 0 12px;">ou cliquer pour sélectionner plusieurs fichiers</div>
+        <button class="import-btn">Sélectionner des fichiers</button>
+      </div>
+
+      <table class="import-table">
+        <thead>
+          <tr>
+            <th>Fichier</th>
+            <th>Score</th>
+            <th>Type détecté</th>
+            <th>Ville</th>
+            <th>Champs manquants</th>
+            <th>Alertes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>FICHE BIEN HEKTOR.pdf</strong><br><span class="muted">Statut : analysé</span></td>
+            <td><span class="score">92%</span></td>
+            <td>Box / Parking couvert</td>
+            <td>Chamalières</td>
+            <td><span class="tiny-badge danger">2</span></td>
+            <td><span class="tiny-badge warn">1 incohérence</span></td>
+            <td>
+              <div class="pill-row">
+                <button class="small-btn">Vérifier</button>
+                <button class="small-btn">Créer</button>
+                <button class="small-btn">Ignorer</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>archive_box_riom.pdf</strong><br><span class="muted">Statut : prêt</span></td>
+            <td><span class="score">88%</span></td>
+            <td>Garage</td>
+            <td>Riom</td>
+            <td><span class="tiny-badge warn">1</span></td>
+            <td><span class="tiny-badge success">Aucune</span></td>
+            <td>
+              <div class="pill-row">
+                <button class="small-btn">Vérifier</button>
+                <button class="small-btn">Créer</button>
+                <button class="small-btn">Ignorer</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>lot_location_centre.pdf</strong><br><span class="muted">Statut : incomplet</span></td>
+            <td><span class="score">54%</span></td>
+            <td>Appartement</td>
+            <td>Clermont-Ferrand</td>
+            <td><span class="tiny-badge danger">4</span></td>
+            <td><span class="tiny-badge warn">3 alertes</span></td>
+            <td>
+              <div class="pill-row">
+                <button class="small-btn">Vérifier</button>
+                <button class="small-btn">Créer</button>
+                <button class="small-btn">Ignorer</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.mini-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('help-btn')) return;
+        const group = card.parentElement.dataset.group;
+        const single = card.parentElement.dataset.single === 'true';
+        if (single) {
+          document.querySelectorAll(`[data-group="${group}"] .mini-card`).forEach(c => c.classList.remove('active'));
+          card.classList.add('active');
+        } else {
+          card.classList.toggle('active');
+        }
+      });
+    });
+
+    document.querySelectorAll('.help-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const card = btn.closest('.mini-card');
+        const isOpen = card.classList.contains('show-tip');
+        document.querySelectorAll('.mini-card').forEach(c => c.classList.remove('show-tip'));
+        if (!isOpen) card.classList.add('show-tip');
+      });
+    });
+
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.mini-card').forEach(c => c.classList.remove('show-tip'));
+    });
+
+    const toggleTheme = document.getElementById('toggleTheme');
+    toggleTheme.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      toggleTheme.textContent = document.body.classList.contains('dark') ? '☀️ Mode clair' : '🌙 Mode sombre';
+    });
+
+    const modal = document.getElementById('importModal');
+    document.getElementById('openImport').addEventListener('click', () => modal.classList.add('open'));
+    document.getElementById('closeImport').addEventListener('click', () => modal.classList.remove('open'));
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.remove('open');
+    });
+  </script>
+</body>
+</html>

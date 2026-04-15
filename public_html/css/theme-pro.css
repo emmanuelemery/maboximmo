@@ -1,0 +1,256 @@
+/* ============================================
+   THEME PRO - Styles communs pour module Pro
+   ============================================ */
+
+:root {
+  --bg: #1a2a3a;
+  --bg-soft: #232f3f;
+  --sidebar: #1f2835;
+  --ink: #d0e4ff;
+  --muted: #7a91a8;
+  --accent: #ffd479;
+  --accent-2: #ff9aab;
+  --accent-3: #7cf5d6;
+  --stroke: rgba(255, 255, 255, 0.15);
+  --sidebar-w: 250px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Manrope", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ============================================
+   SIDEBAR
+   ============================================ */
+.mbi-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: var(--sidebar-w);
+  height: 100vh;
+  background: var(--sidebar);
+  border-right: 1px solid var(--stroke);
+  overflow-y: auto;
+  padding: 12px 0;
+}
+
+.mbi-sidebar-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--stroke);
+  margin-bottom: 12px;
+}
+
+.mbi-sidebar-brand strong {
+  font-size: 14px;
+  display: block;
+  color: var(--ink);
+}
+
+.mbi-sidebar-brand span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mbi-sidebar-section {
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin: 16px 8px 10px;
+  background: rgba(255, 212, 121, 0.08);
+  border-left: 3px solid rgba(255, 212, 121, 0.4);
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.mbi-nav {
+  list-style: none;
+}
+
+.mbi-nav li a {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 15px;
+  transition: all 0.2s;
+}
+
+.mbi-nav li a:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mbi-nav li a.active {
+  color: var(--accent);
+  background: rgba(255, 212, 121, 0.1);
+}
+
+/* ============================================
+   MAIN LAYOUT
+   ============================================ */
+.mbi-main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.mbi-topbar {
+  height: 64px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--stroke);
+  display: flex;
+  align-items: center;
+  padding: 0 30px;
+  justify-content: space-between;
+}
+
+.mbi-topbar h1 {
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.mbi-content {
+  flex: 1;
+  padding: 30px;
+  overflow-y: auto;
+}
+
+/* ============================================
+   NAVIGATION CARDS
+   ============================================ */
+.nav-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.nav-card {
+  background: rgba(35, 47, 63, 0.9);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-decoration: none;
+}
+
+.nav-card:hover {
+  border-color: var(--accent);
+  background: rgba(255, 212, 121, 0.12);
+  transform: translateY(-2px);
+}
+
+.nav-card-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.nav-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.nav-card-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* ============================================
+   SUMMARY CARDS
+   ============================================ */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.summary-card {
+  background: rgba(35, 47, 63, 0.9);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-card.accent {
+  border-color: var(--accent);
+  background: rgba(255, 212, 121, 0.08);
+}
+
+.summary-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.summary-card-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.summary-card-meta {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 900px) {
+  .mbi-sidebar {
+    transform: translateX(-100%);
+  }
+
+  .mbi-main {
+    margin-left: 0;
+  }
+
+  .nav-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .nav-cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<annonces version="4.05" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" date_generation="2026-04-10T16:43:50+02:00">
+  <annonce>
+    <AGENCE>
+      <NOM>LYON 07</NOM>
+      <SIRET>666</SIRET>
+      <ADRESSE>19 Bd Yves Farge69007 LYON</ADRESSE>
+      <CP></CP>
+      <VILLE></VILLE>
+      <TEL></TEL>
+      <EMAIL></EMAIL>
+    </AGENCE>
+    <MANDAT>
+      <NUMERO>MD-000001</NUMERO>
+      <ACTION>1</ACTION>
+      <DATE_DEBUT>2026-03-23</DATE_DEBUT>
+    </MANDAT>
+    <BIEN>
+      <REFERENCE>1070</REFERENCE>
+      <TYPE>3</TYPE>
+      <TYPE_LIBELLE>Terrain</TYPE_LIBELLE>
+      <TITRE>Terrain à BRON</TITRE>
+      <SURFACE></SURFACE>
+      <SURFACE_TERRAIN></SURFACE_TERRAIN>
+      <NB_PIECES></NB_PIECES>
+      <NB_CHAMBRES></NB_CHAMBRES>
+      <ETAGE></ETAGE>
+      <ANNEE_CONSTRUCTION></ANNEE_CONSTRUCTION>
+      <DPE></DPE>
+      <GES></GES>
+      <DPE_VALEUR></DPE_VALEUR>
+      <GES_VALEUR></GES_VALEUR>
+      <DESCRIPTIF>Description à compléter &#8212; échantillon technique.</DESCRIPTIF>
+    </BIEN>
+    <LIEU>
+      <PAYS>FRA</PAYS>
+      <CP>69500</CP>
+      <VILLE>BRON</VILLE>
+      <LATITUDE></LATITUDE>
+      <LONGITUDE></LONGITUDE>
+    </LIEU>
+    <PRIX>
+      <VALEUR>175000</VALEUR>
+      <DEVISE>EUR</DEVISE>
+      <HONORAIRES_INCLUS>oui</HONORAIRES_INCLUS>
+      <HONORAIRES_CHARGE>acquereur</HONORAIRES_CHARGE>
+    </PRIX>
+    <PHOTOS>
+      <PHOTO>
+        <ORDRE>1</ORDRE>
+        <URL>https://www.maboximmo.com/uploads/annonces/1/SAMPLE/terrain-bron-1-01.jpg</URL>
+      </PHOTO>
+      <PHOTO>
+        <ORDRE>2</ORDRE>
+        <URL>https://www.maboximmo.com/uploads/annonces/1/SAMPLE/terrain-bron-1-02.jpg</URL>
+      </PHOTO>
+      <PHOTO>
+        <ORDRE>3</ORDRE>
+        <URL>https://www.maboximmo.com/uploads/annonces/1/SAMPLE/terrain-bron-1-03.jpg</URL>
+      </PHOTO>
+    </PHOTOS>
+  </annonce>
+  <annonce>
+    <AGENCE>
+      <NOM>LYON 07</NOM>
+      <SIRET>666</SIRET>
+      <ADRESSE>19 Bd Yves Farge69007 LYON</ADRESSE>
+      <CP></CP>
+      <VILLE></VILLE>
+      <TEL></TEL>
+      <EMAIL></EMAIL>
+    </AGENCE>
+    <MANDAT>
+      <NUMERO>MD-000002</NUMERO>
+      <ACTION>1</ACTION>
+      <DATE_DEBUT>2026-03-23</DATE_DEBUT>
+    </MANDAT>
+    <BIEN>
+      <REFERENCE>1020</REFERENCE>
+      <TYPE>3</TYPE>
+      <TYPE_LIBELLE>Terrain</TYPE_LIBELLE>
+      <TITRE>Terrain à SAINT-GERVAIS-LES-BAINS</TITRE>
+      <SURFACE></SURFACE>
+      <SURFACE_TERRAIN></SURFACE_TERRAIN>
+      <NB_PIECES></NB_PIECES>
+      <NB_CHAMBRES></NB_CHAMBRES>
+      <ETAGE></ETAGE>
+      <ANNEE_CONSTRUCTION></ANNEE_CONSTRUCTION>
+      <DPE></DPE>
+      <GES></GES>
+      <DPE_VALEUR></DPE_VALEUR>
+      <GES_VALEUR></GES_VALEUR>
+      <DESCRIPTIF>Description à compléter &#8212; échantillon technique.</DESCRIPTIF>
+    </BIEN>
+    <LIEU>
+      <PAYS>FRA</PAYS>
+      <CP>74170</CP>
+      <VILLE>SAINT-GERVAIS-LES-BAINS</VILLE>
+      <LATITUDE></LATITUDE>
+      <LONGITUDE></LONGITUDE>
+    </LIEU>
+    <PRIX>
+      <VALEUR>200000</VALEUR>
+      <DEVISE>EUR</DEVISE>
+      <HONORAIRES_INCLUS>oui</HONORAIRES_INCLUS>
+      <HONORAIRES_CHARGE>acquereur</HONORAIRES_CHARGE>
+    </PRIX>
+    <PHOTOS>
+      <PHOTO>
+        <ORDRE>1</ORDRE>
+        <URL>https://www.maboximmo.com/uploads/annonces/1/SAMPLE/terrain-saint-gervais-les-bains-2-01.jpg</URL>
+      </PHOTO>
+      <PHOTO>
+        <ORDRE>2</ORDRE>
+        <URL>https://www.maboximmo.com/uploads/annonces/1/SAMPLE/terrain-saint-gervais-les-bains-2-02.jpg</URL>
+      </PHOTO>
+      <PHOTO>
+        <ORDRE>3</ORDRE>
+        <URL>https://www.maboximmo.com/uploads/annonces/1/SAMPLE/terrain-saint-gervais-les-bains-2-03.jpg</URL>
+      </PHOTO>
+    </PHOTOS>
+  </annonce>
+</annonces>

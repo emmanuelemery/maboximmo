@@ -1,0 +1,123 @@
+═══════════════════════════════════════════════════════════════════════
+  DEMANDE DE VALIDATION DE FLUX XML UBIFLOW
+  Groupe Emery — 5 agences immobilières
+═══════════════════════════════════════════════════════════════════════
+
+Bonjour l'équipe Ubiflow,
+
+Vous trouverez dans cette archive les 5 fichiers XML de test correspondant
+aux 5 agences du groupe Emery pour lesquelles nous souhaitons mettre en
+place la diffusion automatique vers LeBonCoin, SeLoger, Bien'ici, etc.
+
+Merci de bien vouloir valider le format, le mapping et la conformité de
+ces flux afin que vous puissiez ensuite nous transmettre les accès FTP
+dédiés à chaque agence.
+
+
+─── 1. LES 5 FLUX À VALIDER ──────────────────────────────────────────
+
+┌─────────────────────────────────┬──────────┬──────┬──────────────────┐
+│ Fichier                         │ Société  │ CP   │ Ville            │
+├─────────────────────────────────┼──────────┼──────┼──────────────────┤
+│ regie_emery_chaponost.xml       │ Régie    │69630 │ CHAPONOST        │
+│ regie_emery_lyon_07.xml         │ Régie    │69007 │ LYON 7ème        │
+│ regie_emery_vienne.xml          │ Régie    │38200 │ VIENNE           │
+│ emery_immo_riom.xml             │ Emery I. │63200 │ RIOM             │
+│ emery_immo_chamalieres.xml      │ Emery I. │63400 │ CHAMALIÈRES      │
+└─────────────────────────────────┴──────────┴──────┴──────────────────┘
+
+Chaque fichier contient 2 annonces fictives représentatives (1 vente +
+1 location dans la plupart des cas) pour vous permettre de valider le
+mapping des champs.
+
+
+─── 2. LOGINS FTP SOUHAITÉS ───────────────────────────────────────────
+
+Nous souhaitons utiliser les identifiants FTP suivants, correspondant
+exactement au nom des fichiers XML (sans l'extension) :
+
+  - regie_emery_chaponost
+  - regie_emery_lyon_07
+  - regie_emery_vienne
+  - emery_immo_riom
+  - emery_immo_chamalieres
+
+Si une autre convention est préférée de votre côté, merci de nous
+l'indiquer — nous nous adapterons.
+
+
+─── 3. CARACTÉRISTIQUES TECHNIQUES DU FLUX ────────────────────────────
+
+  • Encodage          : UTF-8 (déclaré en minuscules dans l'en-tête)
+  • Format balises    : minuscules, sans accent
+  • Booléens          : O / N (jamais true/false ni 1/0)
+  • Dates             : jj/mm/aaaa (sans horodatage)
+  • CDATA             : appliqué sur tout champ texte libre
+  • Mode fichier      : Annule/Remplace — toutes les annonces actives
+                        sont incluses dans chaque flux
+  • Statuts exportés  : publiee, active, en_ligne uniquement
+                        (jamais brouillon)
+
+Points de conformité spécifiques incluant :
+
+  ✓ Mention Géorisques obligatoire dans chaque <texte>
+    ("Les informations sur les risques auxquels ce bien est exposé
+     sont disponibles sur le site Géorisques : www.georisques.gouv.fr")
+
+  ✓ <honoraires_payeurs> (acquereur/vendeur/acquereur et vendeur)
+    — obligation ALUR
+
+  ✓ <alur_pourcentage_honoraires_ttc> pour les ventes
+
+  ✓ <url_tarifs_publics> (barème honoraires) — obligation arrêté
+    10/01/2017
+
+  ✓ DPE complet : étiquette conso, valeur conso, étiquette GES,
+    valeur GES, date de réalisation, version, fourchette dépenses
+    énergies min/max, date indice prix
+
+  ✓ <zone_georisque> et <obligation_debroussaillement>
+
+  ✓ Copropriété : <copropriete>, <alur_nb_lots>,
+    <charges_copropriete_annuelle>, <alur_syndic_en_procedure>
+
+  ✓ Location : <modalite_recuperation_charges_locatives> (sans "s"),
+    <depot_garantie>, <honoraires_location>,
+    <honoraires_etat_des_lieux>, <duree_du_bail>,
+    <zone_encadrement_loyer>
+
+  ✓ Minimum 3 photos par annonce (URLs HTTPS fictives dans ce test —
+    elles seront remplacées par les vraies URLs en production)
+
+
+─── 4. WORKFLOW DE DIFFUSION PRÉVU ────────────────────────────────────
+
+Une fois que vous aurez validé ces fichiers et transmis les accès FTP,
+notre système :
+
+  1. Génère automatiquement les 5 XML chaque jour à 19h00
+  2. Les emballe dans des ZIP [login_ftp].zip (format 32 bits)
+  3. Dépose chaque ZIP sur ftp.ubiflow.net via FTP passif
+  4. Trace chaque dépôt dans une table de log avec horodatage,
+     MD5, nombre d'annonces, statut
+  5. Application de garde anti-doublons : si un ZIP a exactement
+     le même MD5 qu'un dépôt réussi des 24 dernières heures, le
+     nouveau dépôt est automatiquement ignoré pour éviter la
+     surcharge inutile
+
+
+─── 5. CONTACT ────────────────────────────────────────────────────────
+
+Pour toute question technique sur le format ou le mapping, merci de
+nous contacter. Nous adapterons les flux à vos recommandations dans
+les plus brefs délais.
+
+Dans l'attente de votre retour et de la transmission des accès FTP,
+
+Cordialement,
+L'équipe technique Régie Emery / Emery Immobilier
+
+─────────────────────────────────────────────────────────────────────
+Généré le : 2026-04-11
+Contact Ubiflow : flux@ubiflow.net
+─────────────────────────────────────────────────────────────────────

@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================
+  FLUX D'EXPORT ANNONCES - MaBoxImmo
+  ============================================================
+  Développeur    : TRUFOX Conseils
+  Email          : contact@trufox.fr
+  Téléphone      : 07 50 95 56 00
+  ============================================================
+  Format         : XML v1.0 - Standard immobilier FR
+  Fréquence MAJ  : toutes les heures (recommandé)
+  Endpoint       : https://www.maboximmo.com/api/flux/export_annonces.xml
+  Charset        : UTF-8
+  ============================================================
+  CHANGELOG :
+  v1.0 - 2026-04-01 - Version initiale (structure de flux)
+  ============================================================
+-->
+<flux xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      version="1.0"
+      date_generation="[DATE_ISO8601]"
+      agence_id="[ID_AGENCE]"
+      nb_annonces="[TOTAL]">
+
+  <!-- ======================================================
+       AGENCE
+  ====================================================== -->
+  <agence>
+    <id>[ID_AGENCE]</id>
+    <nom>[NOM_AGENCE]</nom>
+    <adresse>[ADRESSE]</adresse>
+    <code_postal>[CP]</code_postal>
+    <ville>[VILLE]</ville>
+    <telephone>[TEL]</telephone>
+    <email>[EMAIL]</email>
+    <site_web>https://www.maboximmo.com</site_web>
+    <logo_url>[URL_LOGO]</logo_url>
+  </agence>
+
+  <!-- ======================================================
+       ANNONCES
+  ====================================================== -->
+  <annonces>
+
+    <annonce id="[ID_ANNONCE]" ref_interne="[REF_BIEN]" date_creation="[DATE_ISO8601]" date_modification="[DATE_ISO8601]">
+
+      <!-- === IDENTIFICATION === -->
+      <reference>[REF]</reference>
+      <statut>[actif|vendu|loué|sous_compromis|sous_offre]</statut>
+      <type_transaction>[vente|location|location_saisonniere|viager]</type_transaction>
+      <mandat_type>[exclusif|simple|co-exclusif]</mandat_type>
+
+      <!-- === BIEN === -->
+      <bien>
+        <type_bien>[appartement|maison|terrain|local_commercial|bureau|garage|immeuble|parking|chambre|villa|loft]</type_bien>
+        <sous_type>[T1|T2|T3|T4|T5+|studio|duplex|triplex]</sous_type>
+        <designation>[TITRE_BIEN]</designation>
+      </bien>
+
+      <!-- === LOCALISATION === -->
+      <localisation>
+        <pays>FR</pays>
+        <region>[REGION]</region>
+        <departement>[DEP_NOM]</departement>
+        <code_departement>[01-99]</code_departement>
+        <ville>[VILLE]</ville>
+        <code_postal>[CP]</code_postal>
+        <arrondissement>[ex: 69003 pour Lyon 3e]</arrondissement>
+        <quartier>[QUARTIER]</quartier>
+        <adresse_affichee>[RUE si mandat exclusif, vide sinon]</adresse_affichee>
+        <latitude>[GPS_LAT]</latitude>
+        <longitude>[GPS_LON]</longitude>
+        <precision_gps>[exacte|approximative|ville]</precision_gps>
+      </localisation>
+
+      <!-- === PRIX === -->
+      <prix>
+        <valeur>[MONTANT]</valeur>
+        <devise>EUR</devise>
+        <type>[FAI|HNI|HC|CC]</type>
+        <!-- FAI = Frais Agence Inclus | HNI = Hors Négociation Inclus | HC = Hors Charges | CC = Charges Comprises -->
+        <honoraires_acheteur>[OUI|NON]</honoraires_acheteur>
+        <honoraires_montant>[MONTANT si applicable]</honoraires_montant>
+        <honoraires_pourcentage>[% si applicable]</honoraires_pourcentage>
+        <prix_loyer_cc>[MONTANT si location CC]</prix_loyer_cc>
+        <charges_mensuelles>[MONTANT]</charges_mensuelles>
+        <depot_garantie>[MONTANT si location]</depot_garantie>
+      </prix>
+
+      <!-- === SURFACES & PIÈCES === -->
+      <surfaces>
+        <surface_habitable unit="m2">[SURFACE]</surface_habitable>
+        <surface_terrain unit="m2">[SURFACE si applicable]</surface_terrain>
+        <surface_carrez unit="m2">[SURFACE si applicable]</surface_carrez>
+        <surface_sejour unit="m2">[SURFACE]</surface_sejour>
+        <nb_pieces>[NB]</nb_pieces>
+        <nb_chambres>[NB]</nb_chambres>
+        <nb_salles_bain>[NB]</nb_salles_bain>
+        <nb_salles_eau>[NB]</nb_salles_eau>
+        <nb_wc>[NB]</nb_wc>
+        <nb_niveaux>[NB]</nb_niveaux>
+        <etage>[NB]</etage>
+        <nb_etages_immeuble>[NB]</nb_etages_immeuble>
+      </surfaces>
+
+      <!-- === CARACTÉRISTIQUES === -->
+      <caracteristiques>
+        <construction>
+          <annee_construction>[ANNEE]</annee_construction>
+          <etat>[neuf|excellent|bon|moyen|a_renover|en_construction|sur_plan]</etat>
+          <type_construction>[pierre|brique|parpaing|bois|beton]</type_construction>
+          <exposition>[N|S|E|O|NE|NO|SE|SO]</exposition>
+        </construction>
+        <equipements>
+          <ascenseur>[OUI|NON]</ascenseur>
+          <parking>[OUI|NON]</parking>
+          <nb_parking>[NB]</nb_parking>
+          <garage>[OUI|NON]</garage>
+          <cave>[OUI|NON]</cave>
+          <balcon>[OUI|NON]</balcon>
+          <terrasse>[OUI|NON]</terrasse>
+          <jardin>[OUI|NON]</jardin>
+          <piscine>[OUI|NON]</piscine>
+          <digicode>[OUI|NON]</digicode>
+          <gardien>[OUI|NON]</gardien>
+          <interphone>[OUI|NON]</interphone>
+          <fibre>[OUI|NON]</fibre>
+        </equipements>
+        <chauffage>
+          <type>[individuel|collectif]</type>
+          <energie>[gaz|electrique|fuel|pompe_chaleur|bois|solaire|geothermie]</energie>
+        </chauffage>
+        <eau_chaude>
+          <energie>[gaz|electrique|solaire]</energie>
+        </eau_chaude>
+        <copropriete>
+          <est_copropriete>[OUI|NON]</est_copropriete>
+          <nb_lots>[NB]</nb_lots>
+          <charges_annuelles>[MONTANT]</charges_annuelles>
+          <procedure_en_cours>[OUI|NON]</procedure_en_cours>
+        </copropriete>
+      </caracteristiques>
+
+      <!-- === DPE / DIAGNOSTICS === -->
+      <diagnostics>
+        <dpe>
+          <classe_energie>[A|B|C|D|E|F|G|VI]</classe_energie>
+          <valeur_conso unit="kWhEP/m2/an">[VALEUR]</valeur_conso>
+          <classe_ges>[A|B|C|D|E|F|G|VI]</classe_ges>
+          <valeur_ges unit="kgCO2/m2/an">[VALEUR]</valeur_ges>
+          <date_validite>[DATE]</date_validite>
+          <version_dpe>[2021|ancien]</version_dpe>
+        </dpe>
+        <electricite>
+          <conforme>[OUI|NON|NON_SOUMIS]</conforme>
+        </electricite>
+        <amiante>[OUI|NON|NON_SOUMIS]</amiante>
+        <plomb>[OUI|NON|NON_SOUMIS]</plomb>
+        <termites>[OUI|NON|NON_SOUMIS]</termites>
+        <risques_naturels>
+          <zone_inondable>[OUI|NON]</zone_inondable>
+          <zone_sismique>[0|1|2|3|4|5]</zone_sismique>
+          <loi_carrez_applicable>[OUI|NON]</loi_carrez_applicable>
+        </risques_naturels>
+      </diagnostics>
+
+      <!-- === TEXTES === -->
+      <textes>
+        <titre><![CDATA[TITRE_ANNONCE]]></titre>
+        <description><![CDATA[DESCRIPTION_COMPLÈTE]]></description>
+        <description_courte max="160"><![CDATA[ACCROCHE_COURTE]]></description_courte>
+      </textes>
+
+      <!-- === MÉDIAS === -->
+      <medias>
+        <photos nb_total="[NB]">
+          <photo ordre="1" principale="OUI">
+            <url>[URL_FULL]</url>
+            <url_miniature>[URL_THUMB]</url_miniature>
+            <legende><![CDATA[LEGENDE]]></legende>
+          </photo>
+          <photo ordre="2" principale="NON">
+            <url>[URL_FULL]</url>
+            <url_miniature>[URL_THUMB]</url_miniature>
+          </photo>
+        </photos>
+        <visites_virtuelles>
+          <visite_virtuelle type="[matterport|youtube|url]">
+            <url>[URL]</url>
+          </visite_virtuelle>
+        </visites_virtuelles>
+        <plans>
+          <plan type="image">
+            <url>[URL]</url>
+          </plan>
+        </plans>
+      </medias>
+
+      <!-- === CONTACT === -->
+      <contact>
+        <id_agence>[ID_AGENCE]</id_agence>
+        <nom_agence>[NOM_AGENCE]</nom_agence>
+        <nom_negociateur>[NOM PRÉNOM]</nom_negociateur>
+        <telephone>[TEL]</telephone>
+        <telephone_mobile>[TEL_MOBILE]</telephone_mobile>
+        <email>[EMAIL]</email>
+        <url_annonce>https://www.maboximmo.com/annonce/[SLUG]</url_annonce>
+      </contact>
+
+      <!-- === SEO / TECHNIQUE === -->
+      <meta>
+        <slug>[slug-annonce]</slug>
+        <url_canonique>https://www.maboximmo.com/annonce/[SLUG]</url_canonique>
+        <date_mise_en_ligne>[ISO8601]</date_mise_en_ligne>
+        <date_derniere_maj>[ISO8601]</date_derniere_maj>
+        <disponible_portails>[OUI|NON]</disponible_portails>
+      </meta>
+
+    </annonce>
+
+  </annonces>
+
+</flux>

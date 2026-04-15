@@ -1,0 +1,525 @@
+/*
+ * theme-syndic.css
+ * Rôle     : Thème module Syndic de copropriété — palette Bleu-Gris Clair
+ * Dépend   : tokens.css
+ * Date     : 2026-04-09
+ */
+
+[data-theme-module="syndic"],
+.theme-syndic {
+  /* ── Palette Bleu-Gris Clair ── */
+  --brand-50:  #f0f4f9;
+  --brand-100: #dce8f2;
+  --brand-200: #b8d0e6;
+  --brand-300: #8eb4d3;
+  --brand-400: #6898bf;
+  --brand-500: #4878a6;   /* Bleu-gris principal */
+  --brand-600: #355f88;
+  --brand-700: #25486a;
+  --brand-800: #18324e;
+  --brand-900: #0e1f32;
+
+  --brand-primary:        var(--brand-500);
+  --brand-primary-hover:  var(--brand-600);
+  --brand-primary-active: var(--brand-700);
+  --brand-primary-light:  var(--brand-50);
+  --brand-primary-text:   #ffffff;
+
+  --brand-sidebar-bg:   var(--brand-900);
+  --brand-sidebar-text: var(--brand-100);
+  --brand-topbar-bg:    #ffffff;
+
+  --shadow-focus: 0 0 0 3px rgba(72,120,166,0.35);
+
+  /* ── Couleurs spécifiques Syndic ── */
+  --syndic-blue:        #4878a6;
+  --syndic-blue-light:  #8eb4d3;
+  --syndic-blue-dark:   #25486a;
+  --syndic-slate:       #5a7a9a;
+  --syndic-muted:       #7a9ab8;
+}
+
+[data-theme-module="syndic"][data-theme="dark"],
+.theme-syndic[data-theme="dark"] {
+  --brand-sidebar-bg:   #0c1824;
+  --brand-topbar-bg:    var(--bg-secondary);
+  --shadow-focus: 0 0 0 3px rgba(72,120,166,0.5);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Composants spécifiques Syndic
+══════════════════════════════════════════════════════════════ */
+
+/* ── Gradient section-title (bleu au lieu de kaki) ── */
+.sb-section-title,
+.sec-txt-syndic {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #8eb4d3 0%, #4878a6 40%, #25486a 70%, #6898bf 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── sec-head override pour Syndic (lignes bleues) ── */
+.theme-syndic .line-l,
+body.theme-syndic .line-l {
+  height: 1.5px;
+  width: 28px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, transparent 0%, #25486a 40%, #8eb4d3 100%);
+  border-radius: 2px;
+}
+.theme-syndic .line-r,
+body.theme-syndic .line-r {
+  height: 1.5px;
+  flex: 1;
+  background: linear-gradient(90deg, #8eb4d3 0%, #4878a6 30%, #25486a 55%, transparent 100%);
+  border-radius: 2px;
+}
+
+/* ── Badge de type immeuble ── */
+.imm-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.imm-type-badge.sdc     { background: #dce8f2; color: #25486a; }
+.imm-type-badge.maison  { background: #e8f4e8; color: #2a5a2a; }
+.imm-type-badge.local   { background: #fef5db; color: #7a4e0a; }
+.imm-type-badge.garage  { background: #f0f0f0; color: #4a4a4a; }
+.imm-type-badge.autre   { background: #f5eeff; color: #5a3a7a; }
+
+/* ── Card immeuble (liste) ── */
+.imm-card {
+  background: var(--bg-primary, #e8e4de);
+  border-radius: 16px;
+  box-shadow: 6px 6px 14px #c4c0ba, -6px -6px 14px #ffffff;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.12s;
+  text-decoration: none;
+  color: inherit;
+}
+.imm-card:hover {
+  box-shadow: 8px 8px 18px #bbb7b0, -8px -8px 18px #ffffff;
+  transform: translateY(-2px);
+}
+.imm-card:active {
+  box-shadow: inset 4px 4px 10px #c4c0ba, inset -4px -4px 10px #ffffff;
+  transform: none;
+}
+
+.imm-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.imm-card-ref {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--syndic-blue, #4878a6);
+  text-transform: uppercase;
+}
+.imm-card-nom {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a1816;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+.imm-card-adresse {
+  font-size: 11px;
+  color: #8a8680;
+  margin-top: 2px;
+}
+.imm-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.imm-meta-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: #6a6660;
+}
+.imm-meta-chip strong {
+  color: #1a1816;
+  font-size: 12px;
+}
+.imm-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid rgba(196,192,186,0.4);
+}
+.imm-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Bouton icon rond (btn-icon) ── */
+.btn-icon {
+  width: 30px; height: 30px;
+  border-radius: 10px;
+  background: var(--bg-primary, #e8e4de);
+  box-shadow: 3px 3px 7px #c4c0ba, -3px -3px 8px #ffffff;
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+  color: #3a3830;
+  transition: box-shadow 0.12s;
+  flex-shrink: 0;
+}
+.btn-icon:hover { box-shadow: 4px 4px 10px #c4c0ba, -4px -4px 10px #ffffff; }
+.btn-icon:active { box-shadow: inset 2px 2px 5px #c4c0ba, inset -2px -2px 5px #ffffff; }
+.btn-icon.primary { background: #4878a6; color: #fff; box-shadow: 3px 3px 7px #c4c0ba, -3px -3px 8px #ffffff; }
+.btn-icon.success { background: #4a6038; color: #fff; }
+.btn-icon.danger  { background: #cc5c58; color: #fff; }
+
+/* ── KPI mini-card Syndic ── */
+.syndic-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.syndic-kpi {
+  background: var(--bg-primary, #e8e4de);
+  border-radius: 14px;
+  box-shadow: 5px 5px 12px #c4c0ba, -5px -5px 12px #ffffff;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.syndic-kpi-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #a8a49e;
+}
+.syndic-kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--syndic-blue, #4878a6);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.syndic-kpi-sub {
+  font-size: 11px;
+  color: #8a8680;
+}
+
+/* ── Table immeubles ── */
+.imm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.imm-table th {
+  padding: 8px 10px;
+  text-align: left;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--syndic-blue, #4878a6);
+  border-bottom: 2px solid rgba(196,192,186,0.5);
+  background: #dedad4;
+  white-space: nowrap;
+}
+.imm-table th a {
+  color: inherit;
+  text-decoration: none;
+}
+.imm-table th a:hover { color: #25486a; }
+.imm-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(196,192,186,0.35);
+  vertical-align: middle;
+}
+.imm-table tr:hover td { background: rgba(72,120,166,0.04); }
+.imm-table .td-ref {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--syndic-blue, #4878a6);
+  letter-spacing: 0.08em;
+}
+.imm-table .td-nom {
+  font-weight: 600;
+  color: #1a1816;
+}
+.imm-table .td-num {
+  text-align: right;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
+.imm-table .td-actions {
+  white-space: nowrap;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+/* ── Fiche immeuble — sections ── */
+.fiche-section {
+  background: var(--bg-primary, #e8e4de);
+  border-radius: 14px;
+  box-shadow: 5px 5px 12px #c4c0ba, -5px -5px 12px #ffffff;
+  padding: 18px 22px;
+  margin-bottom: 16px;
+}
+.fiche-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.fiche-row:last-child { margin-bottom: 0; }
+
+.fiche-field label {
+  display: block;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #a8a49e;
+  margin-bottom: 5px;
+}
+.fiche-field input,
+.fiche-field textarea,
+.fiche-field select {
+  width: 100%;
+  background: var(--bg-primary, #e8e4de);
+  box-shadow: inset 3px 3px 6px #c4c0ba, inset -3px -3px 8px #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-family: 'Sora', sans-serif;
+  font-size: 12px;
+  color: #1a1816;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.fiche-field input:focus,
+.fiche-field textarea:focus,
+.fiche-field select:focus {
+  box-shadow: inset 3px 3px 6px #c4c0ba, inset -3px -3px 8px #ffffff,
+              0 0 0 2px rgba(72,120,166,0.3);
+}
+.fiche-field input[readonly] {
+  color: #8a8680;
+  cursor: not-allowed;
+}
+
+/* ── Tableau honoraires 2025-2030 ── */
+.hono-table-wrap { overflow-x: auto; margin-top: 8px; }
+.hono-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  min-width: 640px;
+}
+.hono-table th {
+  padding: 6px 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--syndic-blue, #4878a6);
+  border-bottom: 1px solid rgba(196,192,186,0.5);
+  text-align: center;
+  background: rgba(72,120,166,0.05);
+}
+.hono-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(196,192,186,0.3);
+  text-align: center;
+  vertical-align: middle;
+}
+.hono-table input[type=text] {
+  width: 90px;
+  text-align: right;
+  background: var(--bg-primary, #e8e4de);
+  box-shadow: inset 2px 2px 5px #c4c0ba, inset -2px -2px 5px #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: #1a1816;
+  outline: none;
+  box-sizing: border-box;
+}
+.hono-table input[type=text]:focus {
+  box-shadow: inset 2px 2px 5px #c4c0ba, inset -2px -2px 5px #ffffff,
+              0 0 0 2px rgba(72,120,166,0.3);
+}
+.hono-table input.readonly-val {
+  color: #8a8680;
+  cursor: not-allowed;
+  box-shadow: inset 1px 1px 3px #c4c0ba, inset -1px -1px 3px #f0ede8;
+}
+.evo-chip {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  background: #f0f0f0;
+  color: #6a6660;
+  white-space: nowrap;
+}
+.evo-chip.pos { background: #e0f0e8; color: #1a6035; }
+.evo-chip.neg { background: #fce8e6; color: #a03020; }
+
+/* ── Navigation immeuble (prev/next) ── */
+.imm-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.imm-nav-btn {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: var(--bg-primary, #e8e4de);
+  box-shadow: 4px 4px 10px #c4c0ba, -4px -4px 10px #ffffff;
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--syndic-blue, #4878a6);
+  font-size: 14px;
+  transition: box-shadow 0.12s;
+}
+.imm-nav-btn:hover { box-shadow: 5px 5px 12px #bbb7b0, -5px -5px 12px #ffffff; }
+.imm-nav-btn:active { box-shadow: inset 3px 3px 7px #c4c0ba, inset -3px -3px 8px #ffffff; }
+.imm-nav-btn.disabled { opacity: 0.35; pointer-events: none; }
+.imm-nav-pos {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: #8a8680;
+  letter-spacing: 0.06em;
+}
+
+/* ── Registre copropriété ── */
+.registre-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(196,192,186,0.35);
+  transition: background 0.12s;
+}
+.registre-item:hover { background: rgba(72,120,166,0.04); }
+.registre-item:last-child { border-bottom: none; }
+.registre-icon {
+  width: 36px; height: 36px;
+  background: #dce8f2;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--syndic-blue, #4878a6);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.registre-info { flex: 1; min-width: 0; }
+.registre-title {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1a1816;
+}
+.registre-meta { font-size: 11px; color: #8a8680; }
+
+/* ── AG card ── */
+.ag-card {
+  border-left: 4px solid var(--syndic-blue, #4878a6);
+}
+.ag-date {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--syndic-blue, #4878a6);
+}
+.ag-details {
+  font-size: 12px;
+  color: #8a8680;
+  margin-top: 4px;
+}
+
+/* ── Lot badge ── */
+.lot-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px; height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: #dce8f2;
+  color: #25486a;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ── Timeline syndic ── */
+.syndic-timeline { position: relative; padding-left: 28px; }
+.syndic-timeline::before {
+  content: '';
+  position: absolute;
+  left: 10px; top: 0; bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #4878a6, transparent);
+}
+.syndic-event { position: relative; padding-bottom: 16px; }
+.syndic-event::before {
+  content: '';
+  position: absolute;
+  left: -18px; top: 4px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--syndic-blue, #4878a6);
+  border: 2px solid #e8e4de;
+  box-shadow: 0 0 0 2px var(--syndic-blue, #4878a6);
+}
+.syndic-event-date { font-size: 10px; color: #a8a49e; margin-bottom: 2px; font-family: 'DM Mono', monospace; }
+.syndic-event-title { font-size: 13px; font-weight: 600; }
+.syndic-event-desc { font-size: 12px; color: #6a6660; }
+
+/* ── Charges ── */
+.charges-table .amount-positive { color: #1a6035; font-weight: 600; }
+.charges-table .amount-negative { color: #a03020; font-weight: 600; }

@@ -1,0 +1,35 @@
+/**
+ * Variables RH — MaBoxImmo
+ * Accent : #66d9ff
+ * Modifié le : 02/04/2026 17:27:14
+ */
+
+/* ── Thème sombre ── */
+:root {
+  --svc-bg: #f0ece4;
+  --svc-bg-soft: #ffffff;
+  --svc-sidebar: #f8f6f2;
+  --svc-ink: #2d3a2e;
+  --svc-muted: #7a8a7b;
+  --svc-accent: #6b8e6f;
+  --svc-accent-2: #c97b2e;
+  --svc-accent-3: #2d5f6b;
+  --svc-danger: #ef4444;
+  --svc-success: #10b981;
+  --svc-warning: #f59e0b;
+}
+
+/* ── Thème clair ── */
+[data-theme="light"] {
+  --svc-bg: #f0ece4;
+  --svc-bg-soft: #ffffff;
+  --svc-sidebar: #f8f6f2;
+  --svc-ink: #2d3a2e;
+  --svc-muted: #7a8a7b;
+  --svc-accent: #6b8e6f;
+  --svc-accent-2: #c97b2e;
+  --svc-accent-3: #2d5f6b;
+  --svc-danger: #c0392b;
+  --svc-success: #2d7a4a;
+  --svc-warning: #b06a10;
+}

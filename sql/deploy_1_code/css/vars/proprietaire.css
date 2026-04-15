@@ -1,0 +1,34 @@
+/**
+ * Variables Propriétaire — MaBoxImmo
+ * Accent : Émeraude #26de81
+ */
+
+/* ── Thème sombre ── */
+:root {
+  --svc-bg:          #121e1a;
+  --svc-bg-soft:     #1a2a24;
+  --svc-sidebar:     #1f332c;
+  --svc-ink:         #ccf5e4;
+  --svc-muted:       #6a9e84;
+  --svc-accent:      #26de81;
+  --svc-accent-2:    #ffd479;
+  --svc-accent-3:    #5ef7b0;
+  --svc-danger:      #ff6b7a;
+  --svc-success:     #26de81;
+  --svc-warning:     #ffd479;
+}
+
+/* ── Thème clair ── */
+[data-theme="light"] {
+  --svc-bg:          #edfaf4;
+  --svc-bg-soft:     #ffffff;
+  --svc-sidebar:     #f0fdf6;
+  --svc-ink:         #0f2e20;
+  --svc-muted:       #4a7a5e;
+  --svc-accent:      #27ae60;
+  --svc-accent-2:    #c97b2e;
+  --svc-accent-3:    #1e8449;
+  --svc-danger:      #c0392b;
+  --svc-success:     #1e8449;
+  --svc-warning:     #b06a10;
+}

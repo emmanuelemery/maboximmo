@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<client>
+  <annonce>
+    <reference>CHAP-001</reference>
+    <titre><![CDATA[Maison familiale 5 pieces 120 m2 avec jardin - Chaponost]]></titre>
+    <texte><![CDATA[Dans un quartier calme et residentiel de Chaponost, venez decouvrir cette belle maison individuelle de 120 m2 habitables edifiee sur un terrain clos et arbore de 680 m2.
+
+Au rez-de-chaussee : entree avec placards, vaste sejour-salon de 38 m2 avec cheminee ouvrant sur une terrasse plein sud, cuisine equipee independante, WC separe et cellier.
+
+A l'etage : palier desservant quatre chambres dont une suite parentale avec salle d'eau privative, une salle de bains familiale et un WC. Combles amenageables possibles.
+
+Garage attenant double avec porte motorisee, chauffage individuel gaz recent (2021), double vitrage PVC, volets roulants electriques. Jardin entierement cloture avec portail automatique.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>05/04/2026</date_saisie>
+    <mandat_numero>CHAP-M-2026-0147</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-001-01.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-001-02.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-001-03.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-001-04.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1200</code_type>
+      <libelle_type>Maison</libelle_type>
+      <code_postal>69630</code_postal>
+      <ville>Chaponost</ville>
+      <pays>FRA</pays>
+      <adresse>Chemin de la Chatagne</adresse>
+      <surface>120</surface>
+      <surface_habitable>120</surface_habitable>
+      <surface_sejour>38</surface_sejour>
+      <surface_terrain>680</surface_terrain>
+      <surface_terrasse>22</surface_terrasse>
+      <surface_jardin>650</surface_jardin>
+      <nb_pieces_logement>5</nb_pieces_logement>
+      <nombre_de_chambres>4</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_salles_d_eau>1</nb_salles_d_eau>
+      <nb_wc>2</nb_wc>
+      <nombre_niveaux>2</nombre_niveaux>
+      <annee_construction>1998</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <cheminee>O</cheminee>
+      <terrasse>O</terrasse>
+      <avec_jardin>O</avec_jardin>
+      <garage>O</garage>
+      <double_vitrage>O</double_vitrage>
+      <copropriete>N</copropriete>
+      <diagnostiques>
+        <dpe_etiquette_conso>C</dpe_etiquette_conso>
+        <dpe_valeur_conso>155</dpe_valeur_conso>
+        <dpe_etiquette_ges>B</dpe_etiquette_ges>
+        <dpe_valeur_ges>15</dpe_valeur_ges>
+        <dpe_date_realisation>10/11/2023</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>1340</montant_depenses_energies_min>
+        <montant_depenses_energies_max>1820</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>495000</prix>
+      <prix_hors_honoraires>475961</prix_hors_honoraires>
+      <honoraires_negociation>19039</honoraires_negociation>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <alur_pourcentage_honoraires_ttc>4.00</alur_pourcentage_honoraires_ttc>
+      <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+
+  <annonce>
+    <reference>CHAP-002</reference>
+    <titre><![CDATA[Appartement T3 68 m2 avec balcon - Chaponost centre]]></titre>
+    <texte><![CDATA[Dans le centre de Chaponost, a deux pas des commerces et des transports, agreable appartement T3 de 68 m2 situe au 2eme etage avec ascenseur d'une residence recente et bien entretenue de 2010.
+
+L'appartement se compose d'une entree, d'un sejour lumineux de 24 m2 ouvrant sur un balcon expose sud, d'une cuisine equipee, de deux chambres avec placards et d'une salle de bains avec baignoire. WC separe.
+
+Emplacement de parking en sous-sol inclus. Cave. Chauffage individuel au gaz. Double vitrage. Fibre optique. Charges mensuelles incluant l'eau froide et l'entretien des parties communes.
+
+Disponible a partir du 1er juin 2026.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>08/04/2026</date_saisie>
+    <mandat_numero>CHAP-L-2026-0089</mandat_numero>
+    <mandat_type>simple</mandat_type>
+    <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-002-01.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-002-02.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/chaponost/chap-002-03.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1100</code_type>
+      <libelle_type>Appartement</libelle_type>
+      <code_postal>69630</code_postal>
+      <ville>Chaponost</ville>
+      <pays>FRA</pays>
+      <adresse>Avenue Paul Doumer</adresse>
+      <surface>68</surface>
+      <surface_habitable>68</surface_habitable>
+      <surface_sejour>24</surface_sejour>
+      <surface_balcon>6</surface_balcon>
+      <nb_pieces_logement>3</nb_pieces_logement>
+      <nombre_de_chambres>2</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>1</nb_wc>
+      <etage>2</etage>
+      <annee_construction>2010</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <ascenseur>O</ascenseur>
+      <interphone>O</interphone>
+      <digicode>O</digicode>
+      <balcon>O</balcon>
+      <cave>O</cave>
+      <nb_parkings>1</nb_parkings>
+      <fibre_optique>O</fibre_optique>
+      <copropriete>O</copropriete>
+      <alur_nb_lots>32</alur_nb_lots>
+      <charges_copropriete_annuelle>1440</charges_copropriete_annuelle>
+      <alur_syndic_en_procedure>N</alur_syndic_en_procedure>
+      <diagnostiques>
+        <dpe_etiquette_conso>D</dpe_etiquette_conso>
+        <dpe_valeur_conso>185</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>22</dpe_valeur_ges>
+        <dpe_date_realisation>18/03/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>920</montant_depenses_energies_min>
+        <montant_depenses_energies_max>1260</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>L</type>
+      <loyer_mensuel>950</loyer_mensuel>
+      <loyer_est_cc>N</loyer_est_cc>
+      <loyer_mensuel_cc>1030</loyer_mensuel_cc>
+      <charges_locatives>80</charges_locatives>
+      <modalite_recuperation_charges_locatives>provision annuelle</modalite_recuperation_charges_locatives>
+      <depot_garantie>1900</depot_garantie>
+      <honoraires_location>816</honoraires_location>
+      <honoraires_etat_des_lieux>204</honoraires_etat_des_lieux>
+      <duree_du_bail>36</duree_du_bail>
+      <date_disponibilite>01/06/2026</date_disponibilite>
+      <disponible_immediatement>N</disponible_immediatement>
+      <zone_encadrement_loyer>N</zone_encadrement_loyer>
+      <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+</client>

@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<client>
+  <annonce>
+    <reference>RIOM-001</reference>
+    <titre><![CDATA[Maison 4 pieces 95 m2 avec jardin et garage - Riom quartier calme]]></titre>
+    <texte><![CDATA[Dans un quartier residentiel recherche de Riom, proche des ecoles et des commerces de proximite, venez decouvrir cette plaisante maison individuelle de 95 m2 habitables sur un terrain clos de 520 m2.
+
+Elle se compose au rez-de-chaussee d'une entree, d'un sejour-salon de 28 m2 ouvrant sur la terrasse, d'une cuisine equipee independante, d'un WC separe et d'un cellier.
+
+A l'etage : trois chambres, une salle de bains et un second WC.
+
+Garage attenant avec porte motorisee, chauffage individuel au gaz, double vitrage. Jardin cloture et arbore ideal pour les enfants. Quartier calme proche des axes routiers (A71, A89).
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>04/04/2026</date_saisie>
+    <mandat_numero>RIOM-M-2026-0034</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.emery-immo.fr/riom/riom-001-01.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/riom/riom-001-02.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/riom/riom-001-03.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/riom/riom-001-04.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1200</code_type>
+      <libelle_type>Maison</libelle_type>
+      <code_postal>63200</code_postal>
+      <ville>Riom</ville>
+      <pays>FRA</pays>
+      <adresse>Rue des Acacias</adresse>
+      <surface>95</surface>
+      <surface_habitable>95</surface_habitable>
+      <surface_sejour>28</surface_sejour>
+      <surface_terrain>520</surface_terrain>
+      <surface_terrasse>15</surface_terrasse>
+      <surface_jardin>460</surface_jardin>
+      <nb_pieces_logement>4</nb_pieces_logement>
+      <nombre_de_chambres>3</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>2</nb_wc>
+      <nombre_niveaux>2</nombre_niveaux>
+      <annee_construction>1992</annee_construction>
+      <exposition>Sud-Est</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <terrasse>O</terrasse>
+      <avec_jardin>O</avec_jardin>
+      <garage>O</garage>
+      <double_vitrage>O</double_vitrage>
+      <copropriete>N</copropriete>
+      <diagnostiques>
+        <dpe_etiquette_conso>C</dpe_etiquette_conso>
+        <dpe_valeur_conso>172</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>28</dpe_valeur_ges>
+        <dpe_date_realisation>20/11/2023</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>1180</montant_depenses_energies_min>
+        <montant_depenses_energies_max>1620</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>225000</prix>
+      <prix_hors_honoraires>215311</prix_hors_honoraires>
+      <honoraires_negociation>9689</honoraires_negociation>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <alur_pourcentage_honoraires_ttc>4.50</alur_pourcentage_honoraires_ttc>
+      <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+
+  <annonce>
+    <reference>RIOM-002</reference>
+    <titre><![CDATA[Terrain a batir 850 m2 constructible et viabilise - Riom]]></titre>
+    <texte><![CDATA[Rare a la vente : beau terrain plat et constructible de 850 m2 situe dans une zone residentielle calme de Riom. Terrain viabilise (eau, electricite, assainissement collectif en limite de propriete).
+
+CU positif, libre constructeur, aucune servitude. Forme rectangulaire reguliere facilitant l'implantation. Expose sud-ouest pour une excellente luminosite.
+
+Secteur recherche a proximite des ecoles, des commerces et des axes routiers. Ideal pour la construction d'une maison individuelle contemporaine.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>06/04/2026</date_saisie>
+    <mandat_numero>RIOM-T-2026-0012</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.emery-immo.fr/riom/riom-002-01.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/riom/riom-002-02.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/riom/riom-002-03.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1300</code_type>
+      <libelle_type>Terrain</libelle_type>
+      <code_postal>63200</code_postal>
+      <ville>Riom</ville>
+      <pays>FRA</pays>
+      <adresse>Chemin des Vignes</adresse>
+      <surface>850</surface>
+      <surface_terrain>850</surface_terrain>
+      <exposition>Sud-Ouest</exposition>
+      <copropriete>N</copropriete>
+      <diagnostiques>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>89000</prix>
+      <prix_hors_honoraires>85167</prix_hors_honoraires>
+      <honoraires_negociation>3833</honoraires_negociation>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <alur_pourcentage_honoraires_ttc>4.50</alur_pourcentage_honoraires_ttc>
+      <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+</client>

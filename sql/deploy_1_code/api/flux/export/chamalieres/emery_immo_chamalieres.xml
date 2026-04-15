@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<client>
+  <annonce>
+    <reference>CHAM-001</reference>
+    <titre><![CDATA[Appartement T2 52 m2 avec balcon - Chamalieres residence de standing]]></titre>
+    <texte><![CDATA[Dans une residence de standing de 2015 au calme, proche du centre de Chamalieres et des axes de transports, bel appartement T2 de 52 m2 situe au 2eme etage avec ascenseur.
+
+Il se compose d'une entree, d'un sejour lumineux de 22 m2 expose sud ouvrant sur un balcon de 7 m2 avec vue degagee, d'une cuisine equipee ouverte sur le sejour, d'une chambre de 13 m2 avec dressing, d'une salle de bains recente et d'un WC separe.
+
+Emplacement de parking en sous-sol inclus. Cave. Residence securisee avec digicode et interphone. Chauffage individuel au gaz. Excellentes prestations et faibles charges.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>01/04/2026</date_saisie>
+    <mandat_numero>CHAM-V-2026-0078</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-001-01.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-001-02.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-001-03.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-001-04.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1100</code_type>
+      <libelle_type>Appartement</libelle_type>
+      <code_postal>63400</code_postal>
+      <ville>Chamalieres</ville>
+      <pays>FRA</pays>
+      <adresse>Avenue de Royat</adresse>
+      <surface>52</surface>
+      <surface_habitable>52</surface_habitable>
+      <surface_sejour>22</surface_sejour>
+      <surface_balcon>7</surface_balcon>
+      <nb_pieces_logement>2</nb_pieces_logement>
+      <nombre_de_chambres>1</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>1</nb_wc>
+      <etage>2</etage>
+      <annee_construction>2015</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <ascenseur>O</ascenseur>
+      <interphone>O</interphone>
+      <digicode>O</digicode>
+      <balcon>O</balcon>
+      <cave>O</cave>
+      <nb_parkings>1</nb_parkings>
+      <double_vitrage>O</double_vitrage>
+      <fibre_optique>O</fibre_optique>
+      <copropriete>O</copropriete>
+      <alur_nb_lots>28</alur_nb_lots>
+      <charges_copropriete_annuelle>1320</charges_copropriete_annuelle>
+      <alur_syndic_en_procedure>N</alur_syndic_en_procedure>
+      <diagnostiques>
+        <dpe_etiquette_conso>D</dpe_etiquette_conso>
+        <dpe_valeur_conso>192</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>25</dpe_valeur_ges>
+        <dpe_date_realisation>28/02/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>720</montant_depenses_energies_min>
+        <montant_depenses_energies_max>980</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>195000</prix>
+      <prix_hors_honoraires>186603</prix_hors_honoraires>
+      <honoraires_negociation>8397</honoraires_negociation>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <alur_pourcentage_honoraires_ttc>4.50</alur_pourcentage_honoraires_ttc>
+      <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+
+  <annonce>
+    <reference>CHAM-002</reference>
+    <titre><![CDATA[Maison 4 pieces 110 m2 avec jardin - Chamalieres quartier residentiel]]></titre>
+    <texte><![CDATA[Dans un quartier residentiel calme de Chamalieres, proche des ecoles, commerces et transports, agreable maison individuelle de 110 m2 habitables sur un terrain clos et arbore de 380 m2.
+
+Au rez-de-chaussee : entree, sejour-salon double de 32 m2 avec baies vitrees donnant sur le jardin, cuisine equipee independante, WC separe, buanderie.
+
+A l'etage : trois chambres de 12, 13 et 14 m2, une salle de bains avec baignoire et douche separee, un WC.
+
+Chauffage individuel au gaz, double vitrage, volets roulants electriques. Terrasse couverte de 15 m2. Jardin entierement cloture avec portail.
+
+Loyer 1350 euros hors charges + 150 euros de charges (provision annuelle). Depot de garantie 2 mois. Honoraires locataire 1320 euros dont 300 euros d'etat des lieux.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>07/04/2026</date_saisie>
+    <mandat_numero>CHAM-L-2026-0095</mandat_numero>
+    <mandat_type>simple</mandat_type>
+    <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-002-01.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-002-02.jpg</photo>
+      <photo>https://cdn.emery-immo.fr/chamalieres/cham-002-03.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1200</code_type>
+      <libelle_type>Maison</libelle_type>
+      <code_postal>63400</code_postal>
+      <ville>Chamalieres</ville>
+      <pays>FRA</pays>
+      <adresse>Rue de la Liberation</adresse>
+      <surface>110</surface>
+      <surface_habitable>110</surface_habitable>
+      <surface_sejour>32</surface_sejour>
+      <surface_terrain>380</surface_terrain>
+      <surface_terrasse>15</surface_terrasse>
+      <surface_jardin>350</surface_jardin>
+      <nb_pieces_logement>4</nb_pieces_logement>
+      <nombre_de_chambres>3</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>2</nb_wc>
+      <nombre_niveaux>2</nombre_niveaux>
+      <annee_construction>1985</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <terrasse>O</terrasse>
+      <avec_jardin>O</avec_jardin>
+      <double_vitrage>O</double_vitrage>
+      <volets_roulants>O</volets_roulants>
+      <copropriete>N</copropriete>
+      <diagnostiques>
+        <dpe_etiquette_conso>D</dpe_etiquette_conso>
+        <dpe_valeur_conso>205</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>32</dpe_valeur_ges>
+        <dpe_date_realisation>15/03/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>1580</montant_depenses_energies_min>
+        <montant_depenses_energies_max>2140</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>L</type>
+      <loyer_mensuel>1350</loyer_mensuel>
+      <loyer_est_cc>N</loyer_est_cc>
+      <loyer_mensuel_cc>1500</loyer_mensuel_cc>
+      <charges_locatives>150</charges_locatives>
+      <modalite_recuperation_charges_locatives>provision annuelle</modalite_recuperation_charges_locatives>
+      <depot_garantie>2700</depot_garantie>
+      <honoraires_location>1320</honoraires_location>
+      <honoraires_etat_des_lieux>300</honoraires_etat_des_lieux>
+      <duree_du_bail>36</duree_du_bail>
+      <date_disponibilite>01/06/2026</date_disponibilite>
+      <disponible_immediatement>N</disponible_immediatement>
+      <zone_encadrement_loyer>N</zone_encadrement_loyer>
+      <url_tarifs_publics>https://emery-immo.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+</client>

@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<client>
+  <annonce>
+    <reference>AE-001</reference>
+    <titre><![CDATA[Appartement T3 lumineux - Lyon 6eme - dernier etage]]></titre>
+    <texte><![CDATA[Au coeur du 6eme arrondissement de Lyon, a deux pas du parc de la Tete d'Or, venez decouvrir ce bel appartement T3 de 68 m2 situe au 3eme etage avec ascenseur d'un immeuble en pierre de taille de 1975.
+
+Il se compose d'une entree avec placards, d'un sejour de 24 m2 tres lumineux exposition Sud-Ouest ouvrant sur un balcon, d'une cuisine equipee separee, de deux chambres avec rangements, d'une salle de bains et d'un WC independant.
+
+Copropriete bien entretenue de 24 lots, charges mensuelles 180 euros incluant chauffage collectif, eau froide et entretien des parties communes. Cave en sous-sol. Possibilite de louer un parking dans la residence.
+
+Honoraires a la charge de l'acquereur : 4,5% TTC du prix net vendeur.]]></texte>
+    <date_saisie>05/04/2026</date_saisie>
+    <mandat_numero>M-2026-0147</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <date_mandat>28/03/2026</date_mandat>
+    <mandat_echeance>28/06/2026</mandat_echeance>
+    <url_tarifs_publics>https://agence-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.agence-emery.fr/photos/ae-001-01.jpg</photo>
+      <photo>https://cdn.agence-emery.fr/photos/ae-001-02.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1100</code_type>
+      <libelle_type>Appartement</libelle_type>
+      <code_postal>69006</code_postal>
+      <ville>Lyon</ville>
+      <pays>FRA</pays>
+      <adresse>Rue Vendome</adresse>
+      <surface>68</surface>
+      <surface_habitable>68</surface_habitable>
+      <surface_sejour>24</surface_sejour>
+      <surface_balcon>6</surface_balcon>
+      <nb_pieces_logement>3</nb_pieces_logement>
+      <nombre_de_chambres>2</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>1</nb_wc>
+      <etage>3</etage>
+      <annee_construction>1975</annee_construction>
+      <exposition>Sud-Ouest</exposition>
+      <chauffage_type>collectif</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <ascenseur>O</ascenseur>
+      <interphone>O</interphone>
+      <digicode>O</digicode>
+      <balcon>O</balcon>
+      <cave>O</cave>
+      <copropriete>O</copropriete>
+      <alur_nb_lots>24</alur_nb_lots>
+      <charges_copropriete_annuelle>2160</charges_copropriete_annuelle>
+      <alur_syndic_en_procedure>N</alur_syndic_en_procedure>
+      <diagnostiques>
+        <dpe_etiquette_conso>C</dpe_etiquette_conso>
+        <dpe_valeur_conso>145</dpe_valeur_conso>
+        <dpe_etiquette_ges>B</dpe_etiquette_ges>
+        <dpe_valeur_ges>12</dpe_valeur_ges>
+        <dpe_date_realisation>15/09/2023</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>820</montant_depenses_energies_min>
+        <montant_depenses_energies_max>1180</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+        <erp_date_realisation>20/03/2026</erp_date_realisation>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>320000</prix>
+      <prix_hors_honoraires>306220</prix_hors_honoraires>
+      <honoraires_negociation>13780</honoraires_negociation>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <alur_pourcentage_honoraires_ttc>4.50</alur_pourcentage_honoraires_ttc>
+    </prestation>
+  </annonce>
+
+  <annonce>
+    <reference>AE-002</reference>
+    <titre><![CDATA[Maison familiale 5 pieces avec jardin - Caluire-et-Cuire]]></titre>
+    <texte><![CDATA[Dans un quartier residentiel recherche de Caluire-et-Cuire, au calme et proche des ecoles, decouvrez cette agreable maison individuelle de 110 m2 habitables sur un terrain clos et arbore de 450 m2.
+
+Au rez-de-chaussee : entree, vaste sejour-salon de 32 m2 avec cheminee ouvrant sur la terrasse, cuisine equipee independante, WC et cellier.
+
+A l'etage : palier desservant trois chambres dont une suite parentale avec salle d'eau privative, une salle de bains et un WC separe.
+
+La maison dispose d'un garage attenant, d'un chauffage individuel au gaz et d'une isolation renovee en 2019. Jardin expose Sud avec terrasse.
+
+Loyer 1450 euros hors charges + 120 euros de charges (provision annuelle). Depot de garantie 2 mois. Honoraires locataire 1100 euros TTC dont 220 euros d'etat des lieux.
+
+Disponible au 15/05/2026.]]></texte>
+    <date_saisie>08/04/2026</date_saisie>
+    <mandat_numero>M-2026-0152</mandat_numero>
+    <mandat_type>simple</mandat_type>
+    <date_mandat>02/04/2026</date_mandat>
+    <url_tarifs_publics>https://agence-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.agence-emery.fr/photos/ae-002-01.jpg</photo>
+      <photo>https://cdn.agence-emery.fr/photos/ae-002-02.jpg</photo>
+      <photo>https://cdn.agence-emery.fr/photos/ae-002-03.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1200</code_type>
+      <libelle_type>Maison</libelle_type>
+      <code_postal>69300</code_postal>
+      <ville>Caluire-et-Cuire</ville>
+      <pays>FRA</pays>
+      <adresse>Chemin de Crepieux</adresse>
+      <surface>110</surface>
+      <surface_habitable>110</surface_habitable>
+      <surface_sejour>32</surface_sejour>
+      <surface_terrain>450</surface_terrain>
+      <surface_terrasse>18</surface_terrasse>
+      <surface_jardin>432</surface_jardin>
+      <nb_pieces_logement>5</nb_pieces_logement>
+      <nombre_de_chambres>3</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_salles_d_eau>1</nb_salles_d_eau>
+      <nb_wc>2</nb_wc>
+      <nombre_niveaux>2</nombre_niveaux>
+      <annee_construction>1988</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <cheminee>O</cheminee>
+      <terrasse>O</terrasse>
+      <avec_jardin>O</avec_jardin>
+      <garage>O</garage>
+      <copropriete>N</copropriete>
+      <diagnostiques>
+        <dpe_etiquette_conso>D</dpe_etiquette_conso>
+        <dpe_valeur_conso>195</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>28</dpe_valeur_ges>
+        <dpe_date_realisation>10/02/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>1480</montant_depenses_energies_min>
+        <montant_depenses_energies_max>2010</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+        <erp_date_realisation>25/03/2026</erp_date_realisation>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>L</type>
+      <loyer_mensuel>1450</loyer_mensuel>
+      <loyer_est_cc>N</loyer_est_cc>
+      <charges_locatives>120</charges_locatives>
+      <modalites_recuperation_charges_locatives>provision annuelle</modalites_recuperation_charges_locatives>
+      <depot_garantie>2900</depot_garantie>
+      <honoraires_location>1100</honoraires_location>
+      <honoraires_etat_des_lieux>220</honoraires_etat_des_lieux>
+      <duree_du_bail>36</duree_du_bail>
+      <date_disponibilite>15/05/2026</date_disponibilite>
+      <disponible_immediatement>N</disponible_immediatement>
+      <zone_encadrement_loyer>N</zone_encadrement_loyer>
+    </prestation>
+  </annonce>
+</client>

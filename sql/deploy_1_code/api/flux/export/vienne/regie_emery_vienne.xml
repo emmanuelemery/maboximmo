@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<client>
+  <annonce>
+    <reference>VIEN-001</reference>
+    <titre><![CDATA[Maison de caractere 6 pieces 160 m2 en pierre - Vienne centre historique]]></titre>
+    <texte><![CDATA[Au coeur du centre historique de Vienne, venez decouvrir cette belle maison de caractere en pierre de 160 m2 habitables, edifiee au 19eme siecle et entierement renovee en 2019 en conservant les elements d'epoque.
+
+Au rez-de-chaussee : entree avec vestiaire, vaste sejour-salon de 42 m2 avec cheminee en pierre, cuisine equipee contemporaine, WC separe, buanderie.
+
+Au 1er etage : trois chambres dont une suite parentale avec dressing, une salle de bains familiale, un WC separe.
+
+Au 2eme etage : une quatrieme chambre sous combles et un grand bureau pouvant servir de cinquieme chambre.
+
+Cour privative arboree de 85 m2 a l'arriere. Cave voutee en sous-sol. Chauffage gaz individuel recent.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>03/04/2026</date_saisie>
+    <mandat_numero>VIEN-M-2026-0056</mandat_numero>
+    <mandat_type>exclusif</mandat_type>
+    <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-001-01.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-001-02.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-001-03.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-001-04.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-001-05.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1200</code_type>
+      <libelle_type>Maison</libelle_type>
+      <code_postal>38200</code_postal>
+      <ville>Vienne</ville>
+      <pays>FRA</pays>
+      <adresse>Rue des Clercs</adresse>
+      <surface>160</surface>
+      <surface_habitable>160</surface_habitable>
+      <surface_sejour>42</surface_sejour>
+      <surface_terrain>245</surface_terrain>
+      <surface_cave>28</surface_cave>
+      <nb_pieces_logement>6</nb_pieces_logement>
+      <nombre_de_chambres>4</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>2</nb_wc>
+      <nombre_niveaux>3</nombre_niveaux>
+      <annee_construction>1880</annee_construction>
+      <exposition>Est</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <cheminee>O</cheminee>
+      <cave>O</cave>
+      <avec_jardin>O</avec_jardin>
+      <double_vitrage>O</double_vitrage>
+      <copropriete>N</copropriete>
+      <diagnostiques>
+        <dpe_etiquette_conso>E</dpe_etiquette_conso>
+        <dpe_valeur_conso>285</dpe_valeur_conso>
+        <dpe_etiquette_ges>D</dpe_etiquette_ges>
+        <dpe_valeur_ges>45</dpe_valeur_ges>
+        <dpe_date_realisation>22/01/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>2680</montant_depenses_energies_min>
+        <montant_depenses_energies_max>3620</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>V</type>
+      <prix>435000</prix>
+      <prix_hors_honoraires>416268</prix_hors_honoraires>
+      <honoraires_negociation>18732</honoraires_negociation>
+      <honoraires_payeurs>acquereur</honoraires_payeurs>
+      <honoraires_charge_acquereur>O</honoraires_charge_acquereur>
+      <honoraires_charge_vendeur>N</honoraires_charge_vendeur>
+      <alur_pourcentage_honoraires_ttc>4.50</alur_pourcentage_honoraires_ttc>
+      <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+
+  <annonce>
+    <reference>VIEN-002</reference>
+    <titre><![CDATA[Appartement T2 52 m2 avec balcon - Vienne gare]]></titre>
+    <texte><![CDATA[A 5 minutes a pied de la gare de Vienne et du centre-ville, agreable appartement T2 de 52 m2 situe au 2eme etage avec ascenseur d'une residence de 1995.
+
+Il se compose d'une entree, d'un sejour lumineux de 22 m2 expose sud ouvrant sur un balcon, d'une cuisine separee equipee, d'une chambre de 13 m2 avec placards et d'une salle de bains avec WC.
+
+Place de parking en sous-sol incluse. Cave. Chauffage individuel au gaz. Double vitrage. Fibre optique. Copropriete bien entretenue.
+
+Disponible au 1er juillet 2026.
+
+Les informations sur les risques auxquels ce bien est expose sont disponibles sur le site Georisques : www.georisques.gouv.fr]]></texte>
+    <date_saisie>07/04/2026</date_saisie>
+    <mandat_numero>VIEN-L-2026-0078</mandat_numero>
+    <mandat_type>simple</mandat_type>
+    <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    <photos>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-002-01.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-002-02.jpg</photo>
+      <photo>https://cdn.regie-emery.fr/vienne/vien-002-03.jpg</photo>
+    </photos>
+    <bien>
+      <code_type>1100</code_type>
+      <libelle_type>Appartement</libelle_type>
+      <code_postal>38200</code_postal>
+      <ville>Vienne</ville>
+      <pays>FRA</pays>
+      <adresse>Avenue General Leclerc</adresse>
+      <surface>52</surface>
+      <surface_habitable>52</surface_habitable>
+      <surface_sejour>22</surface_sejour>
+      <surface_balcon>6</surface_balcon>
+      <nb_pieces_logement>2</nb_pieces_logement>
+      <nombre_de_chambres>1</nombre_de_chambres>
+      <nb_salles_de_bain>1</nb_salles_de_bain>
+      <nb_wc>1</nb_wc>
+      <etage>2</etage>
+      <annee_construction>1995</annee_construction>
+      <exposition>Sud</exposition>
+      <chauffage_type>individuel</chauffage_type>
+      <chauffage_energie>gaz</chauffage_energie>
+      <cuisine_equipee>O</cuisine_equipee>
+      <ascenseur>O</ascenseur>
+      <interphone>O</interphone>
+      <digicode>O</digicode>
+      <balcon>O</balcon>
+      <cave>O</cave>
+      <nb_parkings>1</nb_parkings>
+      <fibre_optique>O</fibre_optique>
+      <copropriete>O</copropriete>
+      <alur_nb_lots>28</alur_nb_lots>
+      <charges_copropriete_annuelle>1320</charges_copropriete_annuelle>
+      <alur_syndic_en_procedure>N</alur_syndic_en_procedure>
+      <diagnostiques>
+        <dpe_etiquette_conso>D</dpe_etiquette_conso>
+        <dpe_valeur_conso>195</dpe_valeur_conso>
+        <dpe_etiquette_ges>C</dpe_etiquette_ges>
+        <dpe_valeur_ges>24</dpe_valeur_ges>
+        <dpe_date_realisation>12/02/2024</dpe_date_realisation>
+        <dpe_version>2021</dpe_version>
+        <dpe_vierge>N</dpe_vierge>
+        <montant_depenses_energies_min>760</montant_depenses_energies_min>
+        <montant_depenses_energies_max>1030</montant_depenses_energies_max>
+        <date_indice_prix_energies>01/01/2023</date_indice_prix_energies>
+        <zone_georisque>N</zone_georisque>
+        <obligation_debroussaillement>N</obligation_debroussaillement>
+      </diagnostiques>
+    </bien>
+    <prestation>
+      <type>L</type>
+      <loyer_mensuel>720</loyer_mensuel>
+      <loyer_est_cc>N</loyer_est_cc>
+      <loyer_mensuel_cc>800</loyer_mensuel_cc>
+      <charges_locatives>80</charges_locatives>
+      <modalite_recuperation_charges_locatives>provision annuelle</modalite_recuperation_charges_locatives>
+      <depot_garantie>1440</depot_garantie>
+      <honoraires_location>624</honoraires_location>
+      <honoraires_etat_des_lieux>156</honoraires_etat_des_lieux>
+      <duree_du_bail>36</duree_du_bail>
+      <date_disponibilite>01/07/2026</date_disponibilite>
+      <disponible_immediatement>N</disponible_immediatement>
+      <zone_encadrement_loyer>N</zone_encadrement_loyer>
+      <url_tarifs_publics>https://regie-emery.fr/baremes-honoraires</url_tarifs_publics>
+    </prestation>
+  </annonce>
+</client>

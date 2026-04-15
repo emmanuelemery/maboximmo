@@ -1,0 +1,62 @@
+# ══════════════════════════════════════════════════════════════════════
+# MaBoxImmo — .htaccess sécurité
+# ══════════════════════════════════════════════════════════════════════
+
+# ── Page d'accueil par défaut ────────────────────────────────────────
+DirectoryIndex default.php index.php
+
+# ── Protection des fichiers de configuration ─────────────────────────
+# Empêche le téléchargement direct des fichiers sensibles via URL.
+<FilesMatch "\.(env|sql|log|bak|sh|md)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── Protection du dossier config/ ────────────────────────────────────
+# Les fichiers PHP dans config/ sont inclus par require_once, pas servis
+# directement. On bloque tout accès HTTP direct.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^config/ - [F,L]
+</IfModule>
+
+# ── Protection des uploads sensibles ─────────────────────────────────
+# Empêche l'exécution de scripts PHP dans le dossier uploads/
+# (un fichier .php uploadé par erreur ne sera pas exécuté).
+<IfModule mod_rewrite.c>
+    RewriteRule ^uploads/.*\.php$ - [F,L]
+</IfModule>
+
+# ── Headers de sécurité (doublon Apache si les headers PHP sont ignorés)
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+</IfModule>
+
+# ── Page d'erreur 404 personnalisée ──────────────────────────────────
+ErrorDocument 404 /MaBoxImmo2026/public_html/404.php
+
+# ── Cache navigateur (assets statiques) ──────────────────────────────
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg                "access plus 1 month"
+    ExpiresByType image/png                 "access plus 1 month"
+    ExpiresByType image/webp                "access plus 1 month"
+    ExpiresByType image/svg+xml             "access plus 1 month"
+    ExpiresByType text/css                  "access plus 1 week"
+    ExpiresByType application/javascript    "access plus 1 week"
+    ExpiresByType application/x-javascript  "access plus 1 week"
+    ExpiresByType font/woff2                "access plus 1 month"
+    ExpiresByType font/woff                 "access plus 1 month"
+</IfModule>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js|png|jpg|jpeg|webp|svg|woff2?|ttf)$">
+        Header set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+</IfModule>
+
+# ── Empêcher le listing de répertoire ────────────────────────────────
+Options -Indexes

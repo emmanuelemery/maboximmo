@@ -1,0 +1,34 @@
+/**
+ * Variables Syndic — MaBoxImmo
+ * Accent : Violet #a55eea
+ */
+
+/* ── Thème sombre ── */
+:root {
+  --svc-bg:          #1a1628;
+  --svc-bg-soft:     #231e36;
+  --svc-sidebar:     #2c2642;
+  --svc-ink:         #e8d8ff;
+  --svc-muted:       #8a7aaa;
+  --svc-accent:      #a55eea;
+  --svc-accent-2:    #ffd479;
+  --svc-accent-3:    #c49bff;
+  --svc-danger:      #ff6b7a;
+  --svc-success:     #7cf5d6;
+  --svc-warning:     #ffd479;
+}
+
+/* ── Thème clair ── */
+[data-theme="light"] {
+  --svc-bg:          #f5f0ff;
+  --svc-bg-soft:     #ffffff;
+  --svc-sidebar:     #f8f4ff;
+  --svc-ink:         #2a1a3e;
+  --svc-muted:       #7a6a8e;
+  --svc-accent:      #8e44ad;
+  --svc-accent-2:    #c97b2e;
+  --svc-accent-3:    #6c3483;
+  --svc-danger:      #c0392b;
+  --svc-success:     #2d7a4a;
+  --svc-warning:     #b06a10;
+}

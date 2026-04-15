@@ -1,0 +1,36 @@
+# ══════════════════════════════════════════════════════════════════════
+# MaBoxImmo — .htaccess sécurité
+# ══════════════════════════════════════════════════════════════════════
+
+# ── Protection des fichiers de configuration ─────────────────────────
+# Empêche le téléchargement direct des fichiers sensibles via URL.
+<FilesMatch "\.(env|sql|log|bak|sh|md)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── Protection du dossier config/ ────────────────────────────────────
+# Les fichiers PHP dans config/ sont inclus par require_once, pas servis
+# directement. On bloque tout accès HTTP direct.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^config/ - [F,L]
+</IfModule>
+
+# ── Protection des uploads sensibles ─────────────────────────────────
+# Empêche l'exécution de scripts PHP dans le dossier uploads/
+# (un fichier .php uploadé par erreur ne sera pas exécuté).
+<IfModule mod_rewrite.c>
+    RewriteRule ^uploads/.*\.php$ - [F,L]
+</IfModule>
+
+# ── Headers de sécurité (doublon Apache si les headers PHP sont ignorés)
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+</IfModule>
+
+# ── Empêcher le listing de répertoire ────────────────────────────────
+Options -Indexes

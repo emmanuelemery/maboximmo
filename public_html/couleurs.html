@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Tokens CSS — Référence visuelle</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #eef1f6; color: #1a1816; padding: 40px; }
+  h1 { color: #36577d; margin-bottom: 8px; }
+  h2 { color: #36577d; margin: 32px 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #c2c6d0; padding-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; max-width: 860px; background: #e4e8f0; border-radius: 12px; overflow: hidden; box-shadow: 6px 6px 14px #c2c6d0, -6px -6px 14px #ffffff; margin-bottom: 8px; }
+  th { background: #d8dce8; padding: 10px 14px; text-align: left; font-size: 12px; color: #36577d; font-weight: 700; }
+  td { padding: 9px 14px; font-size: 13px; border-top: 1px solid #d0d4dc; vertical-align: middle; }
+  .swatch { display: inline-block; width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.12); vertical-align: middle; margin-right: 8px; box-shadow: 2px 2px 4px #c2c6d0, -2px -2px 4px #ffffff; }
+  .swatch-gradient { display: inline-block; width: 60px; height: 22px; border-radius: 6px; border: 2px solid rgba(0,0,0,0.12); vertical-align: middle; margin-right: 8px; }
+  .shadow-preview { display: inline-block; width: 60px; height: 22px; border-radius: 8px; background: #e4e8f0; vertical-align: middle; margin-right: 8px; }
+  code { background: #d8dce8; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: #36577d; }
+  .val { color: #8a8680; font-size: 12px; font-family: monospace; }
+  .neu-demo { display:inline-block; width:40px; height:20px; border-radius:6px; vertical-align:middle; margin-right:8px; background:#e4e8f0; }
+</style>
+</head>
+<body>
+
+<h1>Tokens CSS — Référence visuelle</h1>
+<p style="color:#6a6660;font-size:13px;">Modifie uniquement <code>tokens.css</code> pour changer tout le site.</p>
+
+<h2>Surfaces & Fonds</h2>
+<table>
+  <tr><th>Variable</th><th>Couleur</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--bg-secondary</code></td><td><span class="swatch" style="background:#eef1f6"></span></td><td class="val">#eef1f6</td><td>Fond de page principal</td></tr>
+  <tr><td><code>--bg-primary</code></td><td><span class="swatch" style="background:#e4e8f0"></span></td><td class="val">#e4e8f0</td><td>Cards, mini-cards, boutons relief</td></tr>
+  <tr><td><code>--bg-tertiary</code></td><td><span class="swatch" style="background:#dedad4"></span></td><td class="val">#dedad4</td><td>Sidebar, fond alternatif</td></tr>
+</table>
+
+<h2>Palette de marque — Bleu</h2>
+<table>
+  <tr><th>Variable</th><th>Couleur</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--brand-900</code></td><td><span class="swatch" style="background:#0e1825"></span></td><td class="val">#0e1825</td><td>Bleu très foncé</td></tr>
+  <tr><td><code>--brand-700</code></td><td><span class="swatch" style="background:#213450"></span></td><td class="val">#213450</td><td>Active / pressed</td></tr>
+  <tr><td><code>--brand-600</code></td><td><span class="swatch" style="background:#2b4466"></span></td><td class="val">#2b4466</td><td>Hover boutons brand</td></tr>
+  <tr><td><code>--brand-500</code> ★</td><td><span class="swatch" style="background:#36577d"></span></td><td class="val">#36577d</td><td><strong>Couleur principale</strong> (textes, icônes)</td></tr>
+  <tr><td><code>--brand-400</code></td><td><span class="swatch" style="background:#528eb0"></span></td><td class="val">#528eb0</td><td>—</td></tr>
+  <tr><td><code>--brand-300</code></td><td><span class="swatch" style="background:#7aadc8"></span></td><td class="val">#7aadc8</td><td>Bleu intermédiaire (traits, accents)</td></tr>
+  <tr><td><code>--brand-200</code></td><td><span class="swatch" style="background:#b0cce2"></span></td><td class="val">#b0cce2</td><td>Bleu clair</td></tr>
+  <tr><td><code>--brand-100</code></td><td><span class="swatch" style="background:#d6e4f0"></span></td><td class="val">#d6e4f0</td><td>Bleu très clair</td></tr>
+  <tr><td><code>--brand-50</code></td><td><span class="swatch" style="background:#eef3f8;border:1px solid #c2c6d0"></span></td><td class="val">#eef3f8</td><td>Bleu quasi-blanc</td></tr>
+</table>
+
+<h2>Ombres Neumorphiques</h2>
+<table>
+  <tr><th>Variable</th><th>Aperçu</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--shadow-dark</code></td><td><span class="swatch" style="background:#c2c6d0"></span></td><td class="val">#c2c6d0</td><td>Ombre foncée (bas-droite)</td></tr>
+  <tr><td><code>--shadow-light</code></td><td><span class="swatch" style="background:#ffffff;border:1px solid #c2c6d0"></span></td><td class="val">#ffffff</td><td>Ombre claire (haut-gauche)</td></tr>
+  <tr><td><code>--neu-shadow-out</code></td><td><span class="neu-demo" style="box-shadow:6px 6px 14px #c2c6d0,-6px -6px 14px #ffffff"></span></td><td class="val">6px relief sortant</td><td>Boutons, cards en relief</td></tr>
+  <tr><td><code>--neu-shadow-in</code></td><td><span class="neu-demo" style="box-shadow:inset 5px 5px 12px #c2c6d0,inset -5px -5px 12px #ffffff"></span></td><td class="val">5px enfoncé</td><td>Inputs, champs de saisie</td></tr>
+  <tr><td><code>--neu-shadow-sm</code></td><td><span class="neu-demo" style="box-shadow:4px 4px 10px #c2c6d0,-4px -4px 10px #ffffff"></span></td><td class="val">4px petit relief</td><td>Petits boutons, badges</td></tr>
+  <tr><td><code>--neu-shadow-lg</code></td><td><span class="neu-demo" style="box-shadow:8px 8px 18px #c2c6d0,-8px -8px 18px #ffffff"></span></td><td class="val">8px grand relief</td><td>Grandes cards, modales</td></tr>
+</table>
+
+<h2>Bouton Enregistrer (Gradient orange)</h2>
+<table>
+  <tr><th>Variable</th><th>Couleur</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--btn-save-from</code></td><td><span class="swatch" style="background:#f97316"></span></td><td class="val">#f97316</td><td>Dégradé gauche</td></tr>
+  <tr><td><code>--btn-save-to</code></td><td><span class="swatch" style="background:#fb923c"></span></td><td class="val">#fb923c</td><td>Dégradé droite</td></tr>
+  <tr><td colspan="1"><em>Aperçu bouton</em></td><td colspan="3"><span style="display:inline-block;padding:8px 20px;border-radius:8px;background:linear-gradient(135deg,#f97316,#fb923c);color:#fff;font-size:13px;font-weight:600;box-shadow:3px 3px 8px #c2c6d0,-3px -3px 8px #ffffff">Enregistrer</span></td></tr>
+</table>
+
+<h2>Accents</h2>
+<table>
+  <tr><th>Variable</th><th>Couleur</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--accent-green</code></td><td><span class="swatch" style="background:#7a9060"></span></td><td class="val">#7a9060</td><td>Vert olive (badges positifs, nature)</td></tr>
+  <tr><td><code>--accent-green-light</code></td><td><span class="swatch" style="background:#eef4e8"></span></td><td class="val">#eef4e8</td><td>Fond vert clair</td></tr>
+  <tr><td><code>--accent-red</code></td><td><span class="swatch" style="background:#cc5c58"></span></td><td class="val">#cc5c58</td><td>Rouge (toggle ON, alertes)</td></tr>
+  <tr><td><code>--accent-red-light</code></td><td><span class="swatch" style="background:#fdf0ef"></span></td><td class="val">#fdf0ef</td><td>Fond rouge clair</td></tr>
+</table>
+
+<h2>Textes</h2>
+<table>
+  <tr><th>Variable</th><th>Couleur</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--text-primary</code></td><td><span class="swatch" style="background:#1a1816"></span></td><td class="val">#1a1816</td><td>Texte principal</td></tr>
+  <tr><td><code>--text-secondary</code></td><td><span class="swatch" style="background:#6a6660"></span></td><td class="val">#6a6660</td><td>Labels, texte secondaire</td></tr>
+  <tr><td><code>--text-tertiary</code></td><td><span class="swatch" style="background:#a8a49e"></span></td><td class="val">#a8a49e</td><td>Placeholders, désactivé clair</td></tr>
+  <tr><td><code>--text-disabled</code></td><td><span class="swatch" style="background:#c2c6d0"></span></td><td class="val">#c2c6d0</td><td>Texte désactivé</td></tr>
+  <tr><td><code>--text-inverse</code></td><td><span class="swatch" style="background:#ffffff;border:1px solid #c2c6d0"></span></td><td class="val">#ffffff</td><td>Texte sur fond foncé</td></tr>
+</table>
+
+<h2>Sidebar & Topbar</h2>
+<table>
+  <tr><th>Variable</th><th>Couleur</th><th>Valeur</th><th>Utilisation</th></tr>
+  <tr><td><code>--brand-sidebar-bg</code></td><td><span class="swatch" style="background:#dedad4"></span></td><td class="val">#dedad4</td><td>Fond de la sidebar</td></tr>
+  <tr><td><code>--brand-sidebar-text</code></td><td><span class="swatch" style="background:#36577d"></span></td><td class="val">#36577d</td><td>Texte/icônes sidebar</td></tr>
+  <tr><td><code>--brand-topbar-bg</code></td><td><span class="swatch" style="background:#e4e8f0"></span></td><td class="val">#e4e8f0</td><td>Fond de la topbar</td></tr>
+</table>
+
+<h2>Alertes sémantiques</h2>
+<table>
+  <tr><th>Type</th><th>Background</th><th>Bordure</th><th>Texte</th><th>Icône</th></tr>
+  <tr>
+    <td><strong>Succès</strong></td>
+    <td><span class="swatch" style="background:#F0FDF4"></span><span class="val">#F0FDF4</span></td>
+    <td><span class="swatch" style="background:#BBF7D0"></span><span class="val">#BBF7D0</span></td>
+    <td><span class="swatch" style="background:#166534"></span><span class="val">#166534</span></td>
+    <td><span class="swatch" style="background:#22C55E"></span><span class="val">#22C55E</span></td>
+  </tr>
+  <tr>
+    <td><strong>Warning</strong></td>
+    <td><span class="swatch" style="background:#FFFBEB"></span><span class="val">#FFFBEB</span></td>
+    <td><span class="swatch" style="background:#FDE68A"></span><span class="val">#FDE68A</span></td>
+    <td><span class="swatch" style="background:#92400E"></span><span class="val">#92400E</span></td>
+    <td><span class="swatch" style="background:#F59E0B"></span><span class="val">#F59E0B</span></td>
+  </tr>
+  <tr>
+    <td><strong>Danger</strong></td>
+    <td><span class="swatch" style="background:#FEF2F2"></span><span class="val">#FEF2F2</span></td>
+    <td><span class="swatch" style="background:#FECACA"></span><span class="val">#FECACA</span></td>
+    <td><span class="swatch" style="background:#991B1B"></span><span class="val">#991B1B</span></td>
+    <td><span class="swatch" style="background:#EF4444"></span><span class="val">#EF4444</span></td>
+  </tr>
+  <tr>
+    <td><strong>Info</strong></td>
+    <td><span class="swatch" style="background:#EFF6FF"></span><span class="val">#EFF6FF</span></td>
+    <td><span class="swatch" style="background:#BFDBFE"></span><span class="val">#BFDBFE</span></td>
+    <td><span class="swatch" style="background:#1E40AF"></span><span class="val">#1E40AF</span></td>
+    <td><span class="swatch" style="background:#3B82F6"></span><span class="val">#3B82F6</span></td>
+  </tr>
+</table>
+
+<p style="margin-top:40px;font-size:12px;color:#a8a49e;">Fichier à modifier : <code>public_html/css/tokens.css</code></p>
+
+</body>
+</html>
