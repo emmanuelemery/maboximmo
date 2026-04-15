@@ -18,13 +18,13 @@ jobs:
       - name: Déploiement FTP vers public_html/dev
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: 153.92.220.112
+          server: ftp.maboximmo.fr
           port: 21
-          protocol: ftps
-          username: u630423897.maboximmo.fr
+          protocol: ftp
+          username: u630423897.maboximmo
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
-          server-dir: /public_html/dev/
+          server-dir: /domains/maboximmo.fr/public_html/dev/
           exclude: |
             **/.git*
             **/.git*/**
