@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -14,14 +15,14 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      - name: Déploiement FTP vers public_html_dev
+      - name: Déploiement FTP vers public_html/dev
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: maboximmo.fr
           username: u630423897.maboximmo.fr
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
-          server-dir: /public_html_dev/
+          server-dir: /public_html/dev/
           exclude: |
             **/.git*
             **/.git*/**
