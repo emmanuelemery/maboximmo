@@ -24,7 +24,7 @@ jobs:
           username: u630423897.maboximmo
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
-          server-dir: /domains/maboximmo.fr/public_html/dev/
+          server-dir: /dev/
           exclude: |
             **/.git*
             **/.git*/**
