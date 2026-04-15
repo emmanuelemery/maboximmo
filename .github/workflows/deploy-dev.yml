@@ -1,0 +1,34 @@
+name: Deploy → Dev (dev.maboximmo.fr)
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    name: Upload sur Hostinger — Dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Déploiement FTP vers public_html_dev
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: maboximmo.fr
+          username: u630423897.maboximmo.fr
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./public_html/
+          server-dir: /public_html_dev/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.DS_Store
+            **/uploads/**
+            **/tcpdf_cache/**
+            **/config/smtp_local.php
+            **/config/ubiflow_credentials.local.php
+            **/db_config.php
