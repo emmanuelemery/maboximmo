@@ -51,6 +51,10 @@
                 badge.className = 'places-immeuble-badge';
             }
         }
+
+        try {
+            input.dispatchEvent(new CustomEvent('places:filled', { detail: data }));
+        } catch (e) {}
     }
 
     function initForInput(input) {
@@ -391,3 +395,4 @@
         window.initPlacesAutocomplete();
     });
 })();
+

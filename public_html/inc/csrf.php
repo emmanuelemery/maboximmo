@@ -49,6 +49,7 @@ function verify_csrf_any(string $form = 'default'): void
         $clientToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     }
 
+
     if (!$sessionToken || !$clientToken || !hash_equals((string)$sessionToken, (string)$clientToken)) {
         http_response_code(419);
         header('Content-Type: application/json');
