@@ -2251,6 +2251,28 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       color: var(--muted); margin-bottom: 6px;
       text-transform: uppercase; letter-spacing: .6px;
     }
+    .ba-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .ba-label-row label { margin-bottom: 0; }
+    .ba-btn-mini {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--bg);
+      border: none;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      box-shadow: var(--neu-out);
+      cursor: pointer;
+      transition: box-shadow .18s, color .18s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .ba-btn-mini:hover { box-shadow: var(--neu-in); color: var(--ink); }
     .ba-field input[type="text"],
     .ba-field input[type="number"],
     .ba-field input[type="date"],
@@ -3321,16 +3343,19 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           <div class="ba-card-body">
             <div class="ba-grid cols-1" style="margin-bottom:16px;">
               <div class="ba-field">
-                <label>Recherche d'adresse</label>
+                <div class="ba-label-row">
+                  <label for="immeuble_recherche">Recherche d'adresse</label>
+                  <button type="button" class="ba-btn-mini" id="immeuble_find_google_btn" style="display:none;">🔎 Trouver sur Google</button>
+                </div>
                 <input
                   type="text"
                   id="immeuble_recherche"
                   name="immeuble_recherche"
                   placeholder="Ex: 10 rue de la Paix, Paris"
                   data-places-input
-                  data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
-                  data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
-                  data-places-geocode-endpoint="<?= h(app_url('/api/geocode_address.php')) ?>"
+                  data-places-endpoint="api/places_autocomplete.php"
+                  data-places-details-endpoint="api/places_details.php"
+                  data-places-geocode-endpoint="api/geocode_address.php"
                   data-places-street1="immeuble_adresse_1"
                   data-places-street2="immeuble_adresse_2"
                   data-places-postal="immeuble_code_postal"
@@ -5872,6 +5897,70 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
   })();
 
+  // ── Adresse : bouton Trouver sur Google visible uniquement si l'adresse n'est pas Google ──
+  (function() {
+    const btn = document.getElementById('immeuble_find_google_btn');
+    if (!btn) return;
+
+    const searchInput = document.getElementById('immeuble_recherche');
+    const placeIdEl   = document.getElementById('immeuble_google_place_id');
+    const formattedEl = document.getElementById('immeuble_adresse_formatee');
+    const immeubleIdEl= document.getElementById('immeuble_id');
+
+    const addr1El  = document.getElementById('immeuble_adresse_1');
+    const postalEl = document.getElementById('immeuble_code_postal');
+    const cityEl   = document.getElementById('immeuble_ville');
+    const badgeEl  = document.getElementById('immeuble_badge');
+    const latEl    = document.getElementById('immeuble_latitude');
+    const lngEl    = document.getElementById('immeuble_longitude');
+
+    function isGoogleAddress() {
+      return !!(placeIdEl && (placeIdEl.value || '').trim());
+    }
+    function hasAddress() {
+      const a1  = (addr1El && addr1El.value ? addr1El.value : '').trim();
+      const fmt = (formattedEl && formattedEl.value ? formattedEl.value : '').trim();
+      return (a1 || fmt).length > 0;
+    }
+    function updateBtn() {
+      btn.style.display = (!isGoogleAddress() && hasAddress()) ? '' : 'none';
+    }
+    function buildQuery() {
+      const parts = [];
+      const a1 = (addr1El && addr1El.value ? addr1El.value : '').trim();
+      const cp = (postalEl && postalEl.value ? postalEl.value : '').trim();
+      const ville = (cityEl && cityEl.value ? cityEl.value : '').trim();
+      if (a1) parts.push(a1);
+      const tail = [cp, ville].filter(Boolean).join(' ');
+      if (tail) parts.push(tail);
+      return parts.join(', ');
+    }
+
+    btn.addEventListener('click', () => {
+      // Permet de changer d'immeuble/adresse en mode édition
+      if (immeubleIdEl) immeubleIdEl.value = '';
+      if (placeIdEl) placeIdEl.value = '';
+      if (formattedEl) formattedEl.value = '';
+      if (latEl) latEl.value = '';
+      if (lngEl) lngEl.value = '';
+      if (badgeEl) { badgeEl.textContent = ''; badgeEl.className = 'places-immeuble-badge'; }
+
+      if (!searchInput) return;
+      const q = buildQuery();
+      if (q) searchInput.value = q;
+      searchInput.focus();
+      searchInput.dispatchEvent(new Event('input'));
+      updateBtn();
+    });
+
+    if (searchInput) {
+      searchInput.addEventListener('places:filled', updateBtn);
+      searchInput.addEventListener('blur', () => setTimeout(updateBtn, 0));
+    }
+
+    updateBtn();
+  })();
+
   // ── SEO IA génération ──
   window.bienGenerateSEO = async function() {
     var desc = document.getElementById('ba-desc-main')?.value || '';
@@ -7509,3 +7598,4 @@ document.addEventListener('DOMContentLoaded', function () {
 <?php endif; ?>
 </body>
 </html>
+

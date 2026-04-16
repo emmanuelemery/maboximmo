@@ -454,8 +454,8 @@ async function deleteDoc(docId, btn) {
     btn.disabled = true;
     try {
         const r = await fetch('api/delete_user_doc.php', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ doc_id: docId, csrf_token: CSRF }),
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+            body: JSON.stringify({ doc_id: docId }),
         });
         const j = await r.json();
         if (j.success) {

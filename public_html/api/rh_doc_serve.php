@@ -15,7 +15,7 @@ $agenceScope   = can_manage_salaires_agence();
 
 if ($docId <= 0) { http_response_code(400); exit('Invalid document ID'); }
 
-$stmt = $pdo->prepare("SELECT * FROM salaires_documents WHERE id = ?");
+$stmt = $pdo->prepare("SELECT * FROM rh_documents WHERE id = ?");
 $stmt->execute([$docId]);
 $doc = $stmt->fetch(PDO::FETCH_ASSOC);
 
