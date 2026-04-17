@@ -3413,7 +3413,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div><!-- /ba-card identification -->
 
         <div class="ba-panel-footer">
-          <span></span>
+          <button type="button" class="ba-btn-ghost ba-nav-prev" onclick="navPrev()">← Précédent</button>
           <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
@@ -5424,11 +5424,26 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       const btn = panel?.querySelector(`.ba-subtab[data-sub="${step.sub}"]`);
       if (btn) activateSubtab(btn);
     }
+    updateNavPrevVisibility();
   }
   function navPrev() { goToStep(getCurrentStepIndex() - 1); }
   function navNext() { goToStep(getCurrentStepIndex() + 1); }
   window.navPrev = navPrev;
   window.navNext = navNext;
+
+  // Cache le bouton Précédent de l'onglet Identification quand on est sur le
+  // tout premier sous-onglet (ident-main) — il n'y a rien avant.
+  function updateNavPrevVisibility() {
+    const btn = document.querySelector('[data-tab-panel="identification"] .ba-nav-prev');
+    if (!btn) return;
+    btn.style.visibility = getCurrentStepIndex() === 0 ? 'hidden' : '';
+  }
+  // État initial au chargement
+  document.addEventListener('DOMContentLoaded', updateNavPrevVisibility);
+  // Aussi sur clic sur les sous-onglets d'Identification (cf. listener existant plus bas)
+  document.querySelectorAll('[data-tab-panel="identification"] .ba-subtab').forEach(b => {
+    b.addEventListener('click', () => setTimeout(updateNavPrevVisibility, 0));
+  });
 
   // ── TAB SWITCHING (avec auto-save) ──
   let __currentTab = null;
