@@ -32,6 +32,20 @@ function require_login(): void
         exit;
     }
     $_SESSION['last_activity'] = $now;
+
+    // Forcer le changement de mot de passe si nécessaire
+    $currentScript = basename($_SERVER['SCRIPT_NAME'] ?? '');
+    if ($currentScript !== 'change_password.php' && $currentScript !== 'login.php') {
+        $pdo = $GLOBALS['pdo'] ?? null;
+        if ($pdo) {
+            $stmtFpc = $pdo->prepare("SELECT force_password_change FROM users WHERE id = ? LIMIT 1");
+            $stmtFpc->execute([$_SESSION['user_id']]);
+            if ((int)$stmtFpc->fetchColumn() === 1) {
+                header('Location: ' . app_url('/change_password.php'));
+                exit;
+            }
+        }
+    }
 }
 
 function current_user_id(): int

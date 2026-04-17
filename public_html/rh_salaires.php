@@ -453,14 +453,28 @@ $user_agence_default  = !empty($userInfo['id_agence'])  ? (string)$userInfo['id_
 
 // Collaborateur sans gestion_salaires : forcer sur sa propre société/agence (pas de navigation)
 $isSimpleCollab = ($roleId === 3 && $agenceScope === 0);
+// Manager (role 2) sans gestion_salaires : aucun droit de voir d'autres salaires
+// → même traitement que simple collab (ne voit que son propre salaire)
+if ($roleId === 2 && $agenceScope === 0) {
+    $isSimpleCollab = true;
+}
 if ($isSimpleCollab) {
     $societe_sel = $user_societe_default;
     $agence_sel  = $user_agence_default;
 }
 
-// Appliquer défaut si aucun filtre GET explicite
-if (!$isSimpleCollab && !isset($_GET['societe']) && $roleId !== 1) { $societe_sel = $user_societe_default; }
-if (!$isSimpleCollab && !isset($_GET['agence'])  && $agenceScope === 0 && $roleId !== 1) { $agence_sel = $user_agence_default; }
+// ── Sécurité : seul l'admin peut basculer de société / voir "toutes"
+// Pour tous les autres (y compris gestion_salaires=1), on force
+// systématiquement la société sur celle de l'utilisateur, peu importe
+// les paramètres GET. Empêche ?societe=toutes ou ?societe=X d'exposer
+// des salaires d'autres sociétés (cas Géraldine : agenceScope forcera
+// aussi son agence).
+if ($roleId !== 1) {
+    $societe_sel = $user_societe_default;
+    if ($societe_sel === 'toutes' && !empty($userInfo['id_societe'])) {
+        $societe_sel = (string)$userInfo['id_societe'];
+    }
+}
 // Admin : défaut sur sa propre société uniquement si aucun GET
 if (!isset($_GET['societe']) && $roleId === 1 && $user_societe_default !== 'toutes') {
     $societe_sel = $user_societe_default;

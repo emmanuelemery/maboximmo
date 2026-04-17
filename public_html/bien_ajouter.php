@@ -172,6 +172,27 @@ if (is_post()) {
 
     // ── Identification ──
     $proprietaireId  = post('id_proprietaire', '') !== '' ? (int)post('id_proprietaire') : null;
+
+    // Création propriétaire à la volée si champs remplis et pas de sélection
+    if (!$proprietaireId) {
+        $pNom = $str('proprio_nom');
+        if ($pNom !== '') {
+            $stmtNewP = $pdo->prepare("
+                INSERT INTO proprietaires (nom, prenom, societe, telephone, email, adresse_1, actif, date_creation, date_modification)
+                VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+            ");
+            $stmtNewP->execute([
+                $pNom,
+                $str('proprio_prenom') ?: null,
+                $str('proprio_societe') ?: null,
+                $str('proprio_telephone') ?: null,
+                $str('proprio_email') ?: null,
+                $str('proprio_adresse') ?: null,
+            ]);
+            $proprietaireId = (int)$pdo->lastInsertId() ?: null;
+        }
+    }
+
     $typeBienCode    = $str('type_bien', 'appartement');
     $referenceBien   = $str('reference_bien');
     $designation     = $str('designation');
@@ -459,15 +480,24 @@ if (is_post()) {
             }
 
             // ── Gestion immeuble ──
-            // En mode édition, si le bien a déjà un id_immeuble et que
-            // l'adresse n'a pas été touchée, on conserve l'existant.
+            // En mode édition, si le bien a déjà un id_immeuble, on le réutilise
+            // MAIS on met à jour son adresse si l'utilisateur l'a modifiée (sinon
+            // le bien garderait l'ancienne adresse pointée par l'immeuble).
             $immeubleId = $immeubleIdPosted > 0 ? $immeubleIdPosted : 0;
+            $reusingExistingImmeuble = false;
             if ($immeubleId <= 0 && $isEditing && !empty($bienLoaded['id_immeuble'])) {
                 $immeubleId = (int)$bienLoaded['id_immeuble'];
+                $reusingExistingImmeuble = true;
             }
             $adresseCle = $normalizeKey($adresse1, $adresse2, $codePostal, $ville);
 
-            if ($immeubleId <= 0 && $adresse1 !== '') {
+            // Détecte si la colonne adresse_cle existe dans immeubles
+            // (Hostinger peut ne pas avoir la migration sync_phase1_structure_remote)
+            try {
+                $_immHasAdresseCle = (bool)$pdo->query("SHOW COLUMNS FROM immeubles LIKE 'adresse_cle'")->fetchColumn();
+            } catch (Throwable) { $_immHasAdresseCle = false; }
+
+            if ($immeubleId <= 0 && $adresse1 !== '' && $_immHasAdresseCle) {
                 // Tente de retrouver un immeuble existant via la clé d'adresse
                 $stmtImmeuble = $pdo->prepare("
                     SELECT id FROM immeubles WHERE adresse_cle = :cle LIMIT 1
@@ -478,25 +508,47 @@ if (is_post()) {
 
             if ($immeubleId <= 0 && $adresse1 !== '') {
                 // Crée un nouvel immeuble UNIQUEMENT si l'adresse minimale est fournie
-                $stmtInsertImmeuble = $pdo->prepare("
-                    INSERT INTO immeubles
-                        (id_societe, id_agence, adresse_1, adresse_2, adresse_cle, code_postal, ville, pays, latitude, longitude)
-                    VALUES
-                        (:id_societe, :id_agence, :adresse_1, :adresse_2, :adresse_cle, :code_postal, :ville, :pays, :latitude, :longitude)
-                ");
-                $stmtInsertImmeuble->execute([
+                $immCols = ['id_societe','id_agence','adresse_1','adresse_2','code_postal','ville','pays','latitude','longitude'];
+                $immVals = [
                     ':id_societe' => $_SESSION['id_societe'] ?? null,
                     ':id_agence'  => $_SESSION['id_agence']  ?? null,
                     ':adresse_1'  => $adresse1,
                     ':adresse_2'  => $adresse2 !== '' ? $adresse2 : null,
-                    ':adresse_cle'=> $adresseCle,
                     ':code_postal'=> $codePostal !== '' ? $codePostal : null,
                     ':ville'      => $ville !== '' ? $ville : null,
                     ':pays'       => $pays !== '' ? $pays : 'France',
                     ':latitude'   => $latitude !== '' ? $latitude : null,
                     ':longitude'  => $longitude !== '' ? $longitude : null,
-                ]);
+                ];
+                if ($_immHasAdresseCle) {
+                    $immCols[] = 'adresse_cle';
+                    $immVals[':adresse_cle'] = $adresseCle;
+                }
+                $colList = '`' . implode('`,`', $immCols) . '`';
+                $phList  = implode(',', array_map(fn($c) => ':' . $c, $immCols));
+                $pdo->prepare("INSERT INTO immeubles ($colList) VALUES ($phList)")->execute($immVals);
                 $immeubleId = (int)$pdo->lastInsertId();
+            } elseif ($reusingExistingImmeuble && $immeubleId > 0 && $adresse1 !== '') {
+                // L'utilisateur a pu modifier l'adresse du bien en édition :
+                // on met à jour l'immeuble lié pour refléter la nouvelle adresse.
+                $updSql = "UPDATE immeubles SET
+                        adresse_1 = :adresse_1, adresse_2 = :adresse_2,
+                        code_postal = :code_postal, ville = :ville, pays = :pays,
+                        latitude = :latitude, longitude = :longitude"
+                    . ($_immHasAdresseCle ? ", adresse_cle = :adresse_cle" : "")
+                    . " WHERE id = :id";
+                $updParams = [
+                    ':adresse_1'   => $adresse1,
+                    ':adresse_2'   => $adresse2 !== '' ? $adresse2 : null,
+                    ':code_postal' => $codePostal !== '' ? $codePostal : null,
+                    ':ville'       => $ville !== '' ? $ville : null,
+                    ':pays'        => $pays !== '' ? $pays : 'France',
+                    ':latitude'    => $latitude !== '' ? $latitude : null,
+                    ':longitude'   => $longitude !== '' ? $longitude : null,
+                    ':id'          => $immeubleId,
+                ];
+                if ($_immHasAdresseCle) $updParams[':adresse_cle'] = $adresseCle;
+                $pdo->prepare($updSql)->execute($updParams);
             }
             // Si on n'a toujours pas d'immeuble (brouillon sans adresse), on
             // accepte id_immeuble = NULL. Le bien reste sauvegardable.
@@ -837,7 +889,7 @@ if (is_post()) {
 
             // ── Liaisons chauffage & énergie (junction tables) ──
             if (!empty($chauffageIds)) {
-                $stmtBTC = $pdo->prepare("INSERT IGNORE INTO bien_types_chauffage (id_bien, id_societe_type_chauffage) VALUES (?,?)");
+                $stmtBTC = $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?,?)");
                 foreach ($chauffageIds as $tcId) {
                     if ($tcId > 0) $stmtBTC->execute([$bienId, $tcId]);
                 }
@@ -1255,15 +1307,33 @@ try {
     $sqlP = "SELECT id, type_personne, civilite, nom, prenom, societe, email, telephone, ville
              FROM proprietaires WHERE actif = 1";
     $paramsP = [];
-    if (!empty($_SESSION['id_agence'])) {
-        $sqlP .= " AND (id_agence = ? OR id_agence IS NULL)";
-        $paramsP[] = (int)$_SESSION['id_agence'];
+    if (!empty($_SESSION['id_societe']) && (int)($_SESSION['id_role'] ?? 0) !== 1) {
+        $sqlP .= " AND (id_societe = ? OR id_societe IS NULL)";
+        $paramsP[] = (int)$_SESSION['id_societe'];
     }
     $sqlP .= " ORDER BY nom, prenom";
     $stmtP = $pdo->prepare($sqlP);
     $stmtP->execute($paramsP);
     $proprietairesList = $stmtP->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable) { $proprietairesList = []; }
+
+// Pré-remplir les champs proprio depuis le propriétaire associé
+if ($isEditing && !empty($bienLoaded['id_proprietaire']) && empty($_POST['proprio_nom'])) {
+    $pId = (int)$bienLoaded['id_proprietaire'];
+    try {
+        $stmtPro = $pdo->prepare("SELECT nom, prenom, societe, telephone, email, adresse_1 FROM proprietaires WHERE id = ?");
+        $stmtPro->execute([$pId]);
+        $pro = $stmtPro->fetch(PDO::FETCH_ASSOC);
+        if ($pro) {
+            $_POST['proprio_nom']       = $pro['nom'] ?? '';
+            $_POST['proprio_prenom']    = $pro['prenom'] ?? '';
+            $_POST['proprio_societe']   = $pro['societe'] ?? '';
+            $_POST['proprio_telephone'] = $pro['telephone'] ?? '';
+            $_POST['proprio_email']     = $pro['email'] ?? '';
+            $_POST['proprio_adresse']   = $pro['adresse_1'] ?? '';
+        }
+    } catch (Throwable) {}
+}
 
 // Mandat éventuellement déjà associé au bien
 $mandatExistant = null;
@@ -1332,6 +1402,24 @@ $_chauffFallback    = empty($socChauffages);
 $_energFallback     = empty($socEnergies);
 $_typeBienFallback  = empty($socTypesBien);
 $_vueFallback       = empty($socVues);
+
+// Charger les IDs de vues/chauffages/énergies existants en mode édition
+$_loadedVueIds = $_loadedChauffIds = $_loadedEnergieIds = [];
+if ($isEditing && $editingBienId > 0 && $pdo) {
+    try {
+        $s = $pdo->prepare("SELECT id_societe_vue FROM bien_vues WHERE id_bien = ?");
+        $s->execute([$editingBienId]);
+        $_loadedVueIds = $s->fetchAll(PDO::FETCH_COLUMN);
+
+        $s = $pdo->prepare("SELECT id_societe_chauffage FROM bien_chauffages WHERE id_bien = ?");
+        $s->execute([$editingBienId]);
+        $_loadedChauffIds = $s->fetchAll(PDO::FETCH_COLUMN);
+
+        $s = $pdo->prepare("SELECT id_societe_energie FROM bien_energies WHERE id_bien = ?");
+        $s->execute([$editingBienId]);
+        $_loadedEnergieIds = $s->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable) {}
+}
 
 $username = htmlspecialchars((string)($_SESSION['username'] ?? 'Utilisateur'), ENT_QUOTES, 'UTF-8');
 $role     = htmlspecialchars((string)($_SESSION['role']     ?? 'collaborateur'), ENT_QUOTES, 'UTF-8');
@@ -1435,11 +1523,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       align-items: flex-start;
       justify-content: space-between;
       gap: 20px;
-      position: sticky;
-      top: var(--topbar-h);
-      z-index: 50;
       background: var(--bg);
-      box-shadow: 0 4px 10px -8px rgba(0,0,0,.18);
     }
     .page-head-info { flex: 1; min-width: 0; }
     .page-head-actions {
@@ -1451,24 +1535,22 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
     .ph-save-btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      padding: 9px 14px; border-radius: 10;
-      background: linear-gradient(135deg, #f97316, #ea580c);
-      color: #fff; font-size: 13px; font-weight: 700;
-      border: none; cursor: pointer; font-family: inherit;
-      box-shadow: 0 4px 12px rgba(249,115,22,0.35);
-      transition: all .15s;
+      padding: 8px 18px; border-radius: 8px;
+      background: var(--card); color: var(--accent);
+      font-size: 12px; font-weight: 600;
+      border: 1.5px solid var(--accent); cursor: pointer; font-family: inherit;
+      box-shadow: none; transition: all .15s;
       white-space: nowrap;
     }
-    .ph-save-btn:hover { opacity: .9; transform: translateY(-1px); }
+    .ph-save-btn:hover { background: var(--accent); color: #fff; }
     .ph-save-btn.secondary {
-      background: #fff;
-      color: #4a5562;
-      border: 1px solid #d4d0ca;
-      box-shadow: 0 2px 6px rgba(0,0,0,.06);
+      background: var(--card); color: var(--accent);
+      border-color: var(--stroke);
     }
+    .ph-save-btn.secondary:hover { background: var(--bg); }
     .ph-save-btn.success {
-      background: linear-gradient(135deg, #16a34a, #15803d);
-      box-shadow: 0 4px 12px rgba(22,163,74,0.35);
+      background: #16a34a; color: #fff;
+      border-color: #16a34a;
     }
     .page-head-label {
       font-family: 'DM Mono', monospace;
@@ -1750,6 +1832,17 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     .ba-mc-bool .mc-label { color: #333 !important; }
     .ba-mc-bool .mc-icon span { filter: none !important; }
     .ba-mc-bool.is-selected .mc-label { color: var(--mc-accent, #4878a6) !important; }
+    /* Renforce la visibilité des mini-cards non sélectionnées (page bg trop clair) */
+    .ba-card-body .mc-card:not(.is-selected) {
+      background: #fff;
+      border: 1.5px solid #d4d7de;
+      box-shadow: 3px 3px 8px rgba(180,185,195,.35), -3px -3px 8px #fff;
+    }
+    .ba-card-body .mc-card:not(.is-selected):hover {
+      border-color: #4878a6;
+      background: rgba(72,120,166,0.04);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.10);
+    }
 
     /* ── Sous-onglets (dans une card) ── */
     .ba-subtabs { display:flex; gap:4px; flex-wrap:wrap; }
@@ -2165,7 +2258,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     /* ── TABS NAV (sticky sous la topbar) ── */
     .ba-tabs-wrap {
       position: sticky;
-      top: calc(var(--topbar-h) + 78px); /* sous le page-head sticky */
+      top: calc(var(--topbar-h) + 48px); /* sous la tabs-bar sticky */
       z-index: 40;
       background: var(--bg);
       margin-bottom: 18px;
@@ -2251,6 +2344,28 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       color: var(--muted); margin-bottom: 6px;
       text-transform: uppercase; letter-spacing: .6px;
     }
+    .ba-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .ba-label-row label { margin-bottom: 0; }
+    .ba-btn-mini {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--bg);
+      border: none;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      box-shadow: var(--neu-out);
+      cursor: pointer;
+      transition: box-shadow .18s, color .18s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .ba-btn-mini:hover { box-shadow: var(--neu-in); color: var(--ink); }
     .ba-field input[type="text"],
     .ba-field input[type="number"],
     .ba-field input[type="date"],
@@ -2818,6 +2933,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     <div class="page-head-info">
       <div class="page-head-label">Gestion des biens</div>
       <h1 class="page-head-title"><?= h($pageTitle) ?></h1>
+      <div style="margin:8px 0 4px;position:relative;max-width:360px;">
+        <input type="text" id="ba-field-search" placeholder="Rechercher un champ..." style="width:100%;padding:7px 12px 7px 32px;border:1px solid var(--stroke);border-radius:8px;font-size:13px;background:#fff;">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.5;">🔍</span>
+      </div>
       <div class="page-head-sub">
         <?php if ($isDraft): ?>
           📝 Brouillon en cours d'édition — vous pouvez sauvegarder à tout moment
@@ -2864,31 +2983,33 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     </div>
     <?php endif; ?>
 
-    <!-- ── Boutons d'action sticky (toujours visibles) ── -->
-    <?php if ($isEditing): ?>
-    <div class="page-head-actions">
-      <?php if ($isDraft): ?>
-        <button type="button" id="btn-save-ajax" class="ph-save-btn secondary" title="Sauvegarde sans recharger la page">
-          💾 Sauvegarder
-        </button>
-        <button type="submit" form="bien-create-form" class="ph-save-btn success"
-                onclick="document.getElementById('_validate_now').value='1';"
-                title="Valide le bien et le passe en statut actif">
-          ✅ Valider et activer
-        </button>
+    <!-- Boutons déplacés dans la barre d'onglets -->
+  </div>
+
+  <!-- ── TABS BAR (sticky, outside form) ── -->
+  <div class="ba-tabs-bar" style="position:sticky;top:var(--topbar-h);z-index:45;background:var(--bg);box-shadow:0 4px 10px -8px rgba(0,0,0,.18);padding:0 28px;display:flex;align-items:center;gap:12px;">
+    <nav class="ba-tabs" role="tablist" style="flex:1;min-width:0;">
+      <button type="button" class="ba-tab active" data-tab="identification">🏠 Identification</button>
+      <button type="button" class="ba-tab" data-tab="caracteristiques">📐 Caractéristiques</button>
+      <button type="button" class="ba-tab" data-tab="prix">💶 Prix</button>
+      <button type="button" class="ba-tab" data-tab="dpe">⚡ Diag & DPE</button>
+      <button type="button" class="ba-tab" data-tab="photos">📸 Photos <span class="ba-tab-count" id="ba-tab-count-photos" style="display:none;"></span></button>
+      <button type="button" class="ba-tab" data-tab="description">✏️ Description</button>
+      <button type="button" class="ba-tab" data-tab="annonce">📡 Annonce</button>
+      <button type="button" class="ba-tab" data-tab="conformite">✅ Conformité</button>
+    </nav>
+    <div class="ba-tabs-actions" style="display:flex;gap:8px;flex-shrink:0;margin-left:auto;padding:8px 0;">
+      <?php if ($isEditing): ?>
+        <?php if ($isDraft): ?>
+          <button type="button" id="btn-save-ajax" class="ph-save-btn secondary">💾 Sauvegarder</button>
+          <button type="submit" form="bien-create-form" class="ph-save-btn success" onclick="document.getElementById('_validate_now').value='1';">✅ Valider et activer</button>
+        <?php else: ?>
+          <button type="button" id="btn-save-ajax" class="ph-save-btn">💾 Mettre à jour</button>
+        <?php endif; ?>
       <?php else: ?>
-        <button type="button" id="btn-save-ajax" class="ph-save-btn" title="Sauvegarde sans recharger la page">
-          💾 Mettre à jour
-        </button>
+        <button type="submit" form="bien-create-form" class="ph-save-btn success">💾 Enregistrer le bien</button>
       <?php endif; ?>
     </div>
-    <?php else: ?>
-    <div class="page-head-actions">
-      <button type="submit" form="bien-create-form" class="ph-save-btn">
-        💾 Enregistrer le bien
-      </button>
-    </div>
-    <?php endif; ?>
   </div>
 
   <div class="mbi-container">
@@ -2916,20 +3037,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       <?php /* Bandeau de conformité déplacé en page-head (mini-card à droite du titre) */ ?>
 
       <?= csrf_field('ajouter_bien') ?>
-
-      <!-- ── TABS (full width, au-dessus du layout 2 colonnes) ── -->
-      <div class="ba-tabs-wrap">
-        <nav class="ba-tabs" role="tablist">
-          <button type="button" class="ba-tab active" data-tab="identification">🏠 Identification</button>
-          <button type="button" class="ba-tab" data-tab="caracteristiques">📐 Caractéristiques</button>
-          <button type="button" class="ba-tab" data-tab="prix">💶 Prix</button>
-          <button type="button" class="ba-tab" data-tab="dpe">⚡ Diag & DPE</button>
-          <button type="button" class="ba-tab" data-tab="photos">📸 Photos <span class="ba-tab-count" id="ba-tab-count-photos" style="display:none;"></span></button>
-          <button type="button" class="ba-tab" data-tab="description">✏️ Description</button>
-          <button type="button" class="ba-tab" data-tab="annonce">📡 Annonce</button>
-          <button type="button" class="ba-tab" data-tab="conformite">✅ Conformité</button>
-        </nav>
-      </div>
 
       <div class="ba-layout">
         <div class="ba-form-col">
@@ -3307,7 +3414,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
 
         <div class="ba-panel-footer">
           <span></span>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('caracteristiques')">Suivant →</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3321,16 +3428,19 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           <div class="ba-card-body">
             <div class="ba-grid cols-1" style="margin-bottom:16px;">
               <div class="ba-field">
-                <label>Recherche d'adresse</label>
+                <div class="ba-label-row">
+                  <label for="immeuble_recherche">Recherche d'adresse</label>
+                  <button type="button" class="ba-btn-mini" id="immeuble_find_google_btn" style="display:none;">🔎 Trouver sur Google</button>
+                </div>
                 <input
                   type="text"
                   id="immeuble_recherche"
                   name="immeuble_recherche"
                   placeholder="Ex: 10 rue de la Paix, Paris"
                   data-places-input
-                  data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
-                  data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
-                  data-places-geocode-endpoint="<?= h(app_url('/api/geocode_address.php')) ?>"
+                  data-places-endpoint="api/places_autocomplete.php"
+                  data-places-details-endpoint="api/places_details.php"
+                  data-places-geocode-endpoint="api/geocode_address.php"
                   data-places-street1="immeuble_adresse_1"
                   data-places-street2="immeuble_adresse_2"
                   data-places-postal="immeuble_code_postal"
@@ -3446,7 +3556,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             ' . (!$_vueFallback ? '
             <div class="mc-grid" id="mc-vues" data-mc-mode="select" data-mc-multiple="true" data-mc-field="vue_ids" style="--mc-min:90px;">
               ' . implode('', array_map(fn($sv) => '
-              <div class="mc-card' . ((string)post('vue','') === $sv['code'] ? ' is-selected' : '') . '"
+              <div class="mc-card' . (in_array((string)$sv['id'], array_map('strval', $_loadedVueIds), true) ? ' is-selected' : '') . '"
                    data-mc-value="' . (int)$sv['id'] . '"
                    data-mc-label="' . h($sv['label']) . '"
                    data-mc-desc="' . h($sv['description'] ?? '') . '"
@@ -3487,14 +3597,14 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             <label>Adresse visible au public</label>
             <div class="ba-chips">
               <label class="ba-chip"><input type="radio" name="adresse_visible_public" value="1" ' . (post('adresse_visible_public','') === '1' ? 'checked' : '') . '> Oui</label>
-              <label class="ba-chip"><input type="radio" name="adresse_visible_public" value="0" ' . (post('adresse_visible_public','') === '0' ? 'checked' : '') . '> Non</label>
+              <label class="ba-chip"><input type="radio" name="adresse_visible_public" value="0" ' . (in_array(post('adresse_visible_public',''), ['0',''], true) && $isEditing ? 'checked' : '') . '> Non</label>
             </div>
           </div>
         </div>') ?>
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('identification')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('caracteristiques')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3639,7 +3749,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <?php if (!$_chauffFallback): ?>
                 <div class="mc-grid" id="mc-chauffage" data-mc-mode="select" data-mc-multiple="true" style="--mc-min:110px;">
                   <?php foreach ($socChauffages as $c): ?>
-                  <div class="mc-card" data-mc-value="<?= (int)$c['id'] ?>" data-mc-label="<?= h($c['label']) ?>" data-mc-desc="<?= h($c['description'] ?? '') ?>" data-ch-code="<?= h($c['code']) ?>">
+                  <div class="mc-card<?= in_array((int)$c['id'], $_loadedChauffIds) ? ' is-selected' : '' ?>" data-mc-value="<?= (int)$c['id'] ?>" data-mc-label="<?= h($c['label']) ?>" data-mc-desc="<?= h($c['description'] ?? '') ?>" data-ch-code="<?= h($c['code']) ?>">
                     <div class="mc-icon"><?= !empty($c['icone']) && !str_starts_with($c['icone'], 'fa-') ? '<span style="font-size:18px">' . $c['icone'] . '</span>' : '🔥' ?></div>
                     <div class="mc-label"><?= h($c['label']) ?></div>
                   </div>
@@ -3702,7 +3812,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <div class="mc-grid" id="mc-energie" data-mc-mode="select" data-mc-multiple="true"
                      data-lien='<?= json_encode($socChauffEnLiens, JSON_HEX_APOS) ?>'>
                   <?php foreach ($socEnergies as $e): ?>
-                  <div class="mc-card" data-mc-value="<?= (int)$e['id'] ?>" data-mc-label="<?= h($e['label']) ?>" data-mc-desc="<?= h($e['description'] ?? '') ?>">
+                  <div class="mc-card<?= in_array((int)$e['id'], $_loadedEnergieIds) ? ' is-selected' : '' ?>" data-mc-value="<?= (int)$e['id'] ?>" data-mc-label="<?= h($e['label']) ?>" data-mc-desc="<?= h($e['description'] ?? '') ?>">
                     <div class="mc-icon"><?= !empty($e['icone']) && !str_starts_with($e['icone'], 'fa-') ? '<span style="font-size:18px">' . $e['icone'] . '</span>' : '⚡' ?></div>
                     <div class="mc-label"><?= h($e['label']) ?></div>
                   </div>
@@ -3728,8 +3838,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div><!-- /ba-card-body -->
         </div><!-- /ba-card -->
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('identification')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('annonce')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3804,7 +3914,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             <div class="ba-grid cols-2">
               <div class="ba-field">
                 <label>Référence interne</label>
-                <input type="text" name="reference_bien" value="<?= h((string)post('reference_bien', '')) ?>" placeholder="Ex: AG-2024-042">
+                <div style="display:flex;gap:6px;">
+                  <input type="text" name="reference_bien" id="reference_bien" value="<?= h((string)post('reference_bien', '')) ?>" placeholder="Auto-générée" style="flex:1;">
+                  <button type="button" onclick="generateRef()" title="Générer automatiquement" style="padding:6px 10px;border:1px solid var(--stroke);border-radius:8px;background:var(--card);cursor:pointer;font-size:12px;white-space:nowrap;">⚡ Auto</button>
+                </div>
               </div>
               <div class="ba-field">
                 <label>Commercial</label>
@@ -3869,7 +3982,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                   <label>Meublé</label>
                   <div class="ba-chips">
                     <label class="ba-chip"><input type="radio" name="loyer_meuble" value="1" <?= post('loyer_meuble','') === '1' ? 'checked' : '' ?>> Oui</label>
-                    <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= post('loyer_meuble','') === '0' ? 'checked' : '' ?>> Non</label>
+                    <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                   </div>
                 </div>
               </div><!-- /colonne droite disponibilité -->
@@ -3932,8 +4045,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div><!-- /ba-card annonce -->
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('description')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('photos')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3990,8 +4103,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         </div>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('annonce')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('prix')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4004,140 +4117,83 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               <div class="ba-card-sub">Loyer, vente, encadrement et copropriété.</div>
             </div>
             <div class="ba-subtabs" id="prixSubtabs">
-              <button type="button" class="ba-subtab active" data-sub="prix-loyer">🔑 Loyer & Vente</button>
-              <button type="button" class="ba-subtab" data-sub="prix-complement">➕ Complément loyer</button>
-              <button type="button" class="ba-subtab" data-sub="prix-encadrement">🏦 Encadrement</button>
+              <button type="button" class="ba-subtab active" data-sub="prix-loyer">🔑 Location & Vente</button>
+              <button type="button" class="ba-subtab" data-sub="prix-encadrement">🏦 Encadrement & Complément</button>
+              <button type="button" class="ba-subtab" data-sub="prix-locprec">🕒 Locataire précédent</button>
               <button type="button" class="ba-subtab" data-sub="prix-copro">🏢 Copropriété</button>
             </div>
           </div>
           <div class="ba-card-body">
 
-          <!-- ═══ SOUS-ONGLET 1 : Loyer & Vente ═══ -->
+
+          <!-- ═══ SOUS-ONGLET 1 : Location & Vente (2 colonnes alignées) ═══ -->
           <div class="ba-subpanel active" data-sub-panel="prix-loyer">
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
-              <!-- Location -->
-              <div id="ba-card-location">
-                <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;border-bottom:2px solid var(--stroke);padding-bottom:6px;">🔑 Location</div>
-                <div class="ba-field">
-                  <label>Loyer HC (€/mois) <span style="color:#c05000;">*</span></label>
-                  <input type="number" name="loyer_hc" value="<?= h((string)post('loyer_hc','')) ?>" placeholder="Loyer hors charges">
-                </div>
-                <div class="ba-field">
-                  <label>Charges (€/mois)</label>
-                  <input type="number" name="charges" value="<?= h((string)post('charges','')) ?>">
-                </div>
-                <div class="ba-field">
-                  <label>Dépôt de garantie (€)</label>
-                  <input type="number" name="depot_garantie" value="<?= h((string)post('depot_garantie','')) ?>">
-                </div>
-                <div class="ba-field">
-                  <label>Zone de location</label>
-                  <select name="zone_tendue" id="zone_tendue" onchange="calcHonoraires()">
-                    <option value="">— Sélectionner —</option>
-                    <option value="non_tendue" <?= post('zone_tendue','') === 'non_tendue' ? 'selected' : '' ?>>Zone non tendue (8,07 €/m²)</option>
-                    <option value="tendue" <?= post('zone_tendue','') === 'tendue' ? 'selected' : '' ?>>Zone tendue (10,09 €/m²)</option>
-                    <option value="tres_tendue" <?= post('zone_tendue','') === 'tres_tendue' ? 'selected' : '' ?>>Zone très tendue — Paris (12,10 €/m²)</option>
-                  </select>
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires locataire (€) <span id="hono-loc-hint" style="font-weight:400;color:#888;font-size:11px;"></span></label>
-                  <input type="number" step="0.01" name="honoraires_locataire" id="honoraires_locataire" value="<?= h((string)post('honoraires_locataire','')) ?>">
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires état des lieux (€) <span id="hono-edl-hint2" style="font-weight:400;color:#888;font-size:11px;"></span></label>
-                  <input type="number" step="0.01" name="honoraires_etat_des_lieux" id="honoraires_etat_des_lieux" value="<?= h((string)post('honoraires_etat_des_lieux','')) ?>">
-                </div>
-                <div class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;">
-                  <label style="color:#6a4ca8;font-weight:700;">🎯 Estimation agence location</label>
-                  <input type="number" step="0.01" name="estimation_agence_location" value="<?= h((string)post('estimation_agence_location','')) ?>" placeholder="Valeur conseillée">
-                </div>
-              </div>
-              <!-- Vente -->
-              <div id="ba-card-vente">
-                <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;border-bottom:2px solid var(--stroke);padding-bottom:6px;">🤝 Vente</div>
-                <div class="ba-field">
-                  <label>Prix de vente (€) <span style="color:#c05000;">*</span></label>
-                  <input type="number" name="prix_vente_estime" value="<?= h((string)post('prix_vente_estime','')) ?>" placeholder="Prix pratiqué">
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires inclus</label>
-                  <select name="honoraires_inclus">
-                    <option value="oui" <?= post('honoraires_inclus','oui') === 'oui' ? 'selected' : '' ?>>Oui (FAI)</option>
-                    <option value="non" <?= post('honoraires_inclus','') === 'non' ? 'selected' : '' ?>>Non (HD)</option>
-                  </select>
-                </div>
-                <div class="ba-field">
-                  <label>Détail honoraires</label>
-                  <input type="text" name="honoraires_detail" value="<?= h((string)post('honoraires_detail','')) ?>" placeholder="Ex: 3% charge acheteur">
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires mandat (€)</label>
-                  <input type="number" step="0.01" name="mandats_honoraires" value="<?= h((string)post('mandats_honoraires', $mandatExistant['honoraires'] ?? '')) ?>">
-                </div>
-                <div class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;">
-                  <label style="color:#6a4ca8;font-weight:700;">🎯 Estimation agence vente</label>
-                  <input type="number" step="0.01" name="estimation_agence_vente" value="<?= h((string)post('estimation_agence_vente','')) ?>" placeholder="Valeur conseillée">
-                </div>
-                <div class="ba-field"><label style="color:#6a4ca8;">📅 Date estimation</label><input type="date" name="estimation_agence_date" value="<?= h((string)post('estimation_agence_date','')) ?>"></div>
-                <div class="ba-field"><label style="color:#6a4ca8;">📝 Notes estimation</label><input type="text" name="estimation_agence_notes" value="<?= h((string)post('estimation_agence_notes','')) ?>" placeholder="Comparaison, marge…"></div>
-                <!-- Honoraires ALUR -->
-                <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--stroke);">
-                  <div style="font-weight:700;font-size:11px;color:#b67c00;margin-bottom:8px;">💰 Honoraires ALUR</div>
-                  <div class="mc-grid" data-mc-mode="custom" style="--mc-min:80px;margin-bottom:8px;">
-                    <?= boolMcCard('honoraires_charge_acquereur','💰','Charge acquéreur') ?>
-                    <?= boolMcCard('honoraires_charge_vendeur','💰','Charge vendeur') ?>
-                  </div>
-                  <div class="ba-field"><label>% TTC acquéreur</label><input type="number" step="0.01" name="alur_pourcentage_honoraires_ttc" value="<?= h((string)post('alur_pourcentage_honoraires_ttc','')) ?>" placeholder="5.00"></div>
-                  <div class="ba-field"><label>% vendeur</label><input type="number" step="0.01" name="pourcentage_honoraires_vendeur" value="<?= h((string)post('pourcentage_honoraires_vendeur','')) ?>"></div>
-                  <div class="ba-field"><label>Honoraires cumulés (€)</label><input type="number" step="0.01" name="honoraires_negociation_cumules" value="<?= h((string)post('honoraires_negociation_cumules','')) ?>"></div>
-                  <?php
-                    $defaultTarifsUrl2 = '';
-                    if (function_exists('app_url')) {
-                      $idSocT2 = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : 0;
-                      $defaultTarifsUrl2 = app_url('/tarifs.php' . ($idSocT2 > 0 ? '?societe=' . $idSocT2 : ''));
-                      if (!preg_match('#^https?://#', $defaultTarifsUrl2) && !empty($_SERVER['HTTP_HOST'])) {
-                        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-                        $defaultTarifsUrl2 = $scheme . '://' . $_SERVER['HTTP_HOST'] . $defaultTarifsUrl2;
-                      }
-                    }
-                  ?>
-                  <div class="ba-field"><label>URL barème honoraires</label><input type="url" name="url_tarifs_publics" value="<?= h((string)post('url_tarifs_publics', $defaultTarifsUrl2)) ?>" placeholder="https://…/tarifs"></div>
-                </div>
-              </div>
-              <!-- Locataire précédent -->
-              <div>
-                <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;border-bottom:2px solid var(--stroke);padding-bottom:6px;">🕒 Locataire précédent</div>
-                <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px;margin-bottom:10px;">
-                  <?= boolMcCard('ancien_loyer_communique','📋','Communiquer infos') ?>
-                </div>
-                <div class="ba-field"><label>Dernier loyer HC (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_montant" value="<?= h((string)post('ancien_loyer_montant','')) ?>"></div>
-                <div class="ba-field"><label>Charges (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_charges" value="<?= h((string)post('ancien_loyer_charges','')) ?>"></div>
-                <div class="ba-field"><label>Dernière révision</label><input type="date" name="ancien_loyer_date_revision" value="<?= h((string)post('ancien_loyer_date_revision','')) ?>"></div>
-                <div class="ba-field"><label>Date sortie</label><input type="date" name="ancien_locataire_date_sortie" value="<?= h((string)post('ancien_locataire_date_sortie','')) ?>"></div>
-              </div>
-            </div>
+            <table style="width:100%;border-collapse:separate;border-spacing:16px 0;">
+              <thead>
+                <tr>
+                  <th style="text-align:left;font-size:12px;font-weight:700;color:#36577d;text-transform:uppercase;letter-spacing:.5px;padding-bottom:12px;border-bottom:2px solid #36577d;width:50%;">🔑 Location</th>
+                  <th style="text-align:left;font-size:12px;font-weight:700;color:#b67c00;text-transform:uppercase;letter-spacing:.5px;padding-bottom:12px;border-bottom:2px solid #f0d68a;width:50%;">🤝 Vente</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="ba-field"><label>Loyer HC (€/mois) <span style="color:#c05000;">*</span> <span style="font-weight:400;color:#888;font-size:10px;">(= majoré + complément)</span></label><input type="number" name="loyer_hc" id="loyer_hc" value="<?= h((string)post('loyer_hc','')) ?>" placeholder="Calculé auto"></td>
+                  <td class="ba-field"><label>Prix de vente (€) <span style="color:#c05000;">*</span></label><input type="number" name="prix_vente_estime" id="prix_vente_estime" value="<?= h((string)post('prix_vente_estime','')) ?>" placeholder="Prix pratiqué"></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Charges (€/mois)</label><input type="number" name="charges_locatives" value="<?= h((string)post('charges_locatives','')) ?>"></td>
+                  <td class="ba-field"><label>Honoraires inclus</label><select name="honoraires_inclus"><option value="oui" <?= post('honoraires_inclus','oui') === 'oui' ? 'selected' : '' ?>>Oui (FAI)</option><option value="non" <?= post('honoraires_inclus','') === 'non' ? 'selected' : '' ?>>Non (HD)</option></select></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Dépôt de garantie (€)</label><input type="number" name="depot_garantie" value="<?= h((string)post('depot_garantie','')) ?>"></td>
+                  <td class="ba-field"><label>Détail honoraires</label><input type="text" name="honoraires_detail" value="<?= h((string)post('honoraires_detail','')) ?>" placeholder="Ex: 3% charge acheteur"></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Zone de location</label><select name="zone_tendue" id="zone_tendue" onchange="calcHonoraires(true)"><option value="">—</option><option value="non_tendue" <?= post('zone_tendue','') === 'non_tendue' ? 'selected' : '' ?>>Non tendue (8,07 €/m²)</option><option value="tendue" <?= post('zone_tendue','') === 'tendue' ? 'selected' : '' ?>>Tendue (10,09 €/m²)</option><option value="tres_tendue" <?= post('zone_tendue','') === 'tres_tendue' ? 'selected' : '' ?>>Très tendue (12,10 €/m²)</option></select></td>
+                  <td class="ba-field"><label>Honoraires mandat (€)</label><input type="number" step="0.01" name="mandats_honoraires" value="<?= h((string)post('mandats_honoraires', $mandatExistant['honoraires'] ?? '')) ?>"></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Honoraires locataire (€) <span id="hono-loc-hint" style="font-weight:400;color:#888;font-size:11px;"></span></label><input type="number" step="0.01" name="honoraires_locataire" id="honoraires_locataire" value="<?= h((string)post('honoraires_locataire','')) ?>"></td>
+                  <td class="ba-field"><label>% TTC acquéreur</label><input type="number" step="0.01" name="alur_pourcentage_honoraires_ttc" id="alur_pct_acq" value="<?= h((string)post('alur_pourcentage_honoraires_ttc','')) ?>" placeholder="5.00"><div class="ba-hint" id="alur-pct-hint" style="font-size:10px;color:#888;"></div></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Honoraires EDL (€) <span id="hono-edl-hint2" style="font-weight:400;color:#888;font-size:11px;"></span></label><input type="number" step="0.01" name="honoraires_etat_des_lieux" id="honoraires_etat_des_lieux" value="<?= h((string)post('honoraires_etat_des_lieux','')) ?>"></td>
+                  <td class="ba-field"><label>% vendeur</label><input type="number" step="0.01" name="pourcentage_honoraires_vendeur" id="alur_pct_vend" value="<?= h((string)post('pourcentage_honoraires_vendeur','')) ?>"></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td class="ba-field"><label>Honoraires cumulés (€)</label><input type="number" step="0.01" name="honoraires_negociation_cumules" id="hono_cumules" value="<?= h((string)post('honoraires_negociation_cumules','')) ?>"><div class="ba-hint" id="hono-cumul-hint" style="font-size:10px;color:#888;"></div></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td><div class="mc-grid" data-mc-mode="custom" style="--mc-min:80px;margin:8px 0;"><?= boolMcCard('honoraires_charge_acquereur','💰','Charge acquéreur') ?><?= boolMcCard('honoraires_charge_vendeur','💰','Charge vendeur') ?></div></td>
+                </tr>
+                <tr><td colspan="2" style="padding-top:14px;border-top:1px dashed var(--stroke);"><div style="font-weight:700;font-size:11px;color:#6a4ca8;margin-bottom:4px;">🎯 Estimations agence</div></td></tr>
+                <tr>
+                  <td class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;"><label style="color:#6a4ca8;">Estimation location</label><input type="number" step="0.01" name="estimation_agence_location" value="<?= h((string)post('estimation_agence_location','')) ?>" placeholder="Valeur conseillée"></td>
+                  <td class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;"><label style="color:#6a4ca8;">Estimation vente</label><input type="number" step="0.01" name="estimation_agence_vente" value="<?= h((string)post('estimation_agence_vente','')) ?>" placeholder="Valeur conseillée"></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td class="ba-field"><label style="color:#6a4ca8;">📅 Date / 📝 Notes</label><div style="display:flex;gap:8px;"><input type="date" name="estimation_agence_date" value="<?= h((string)post('estimation_agence_date','')) ?>" style="flex:1;"><input type="text" name="estimation_agence_notes" value="<?= h((string)post('estimation_agence_notes','')) ?>" placeholder="Notes..." style="flex:2;"></div></td>
+                </tr>
+              </tbody>
+            </table>
+            <?php
+              $defaultTarifsUrl2 = '';
+              if (function_exists('app_url')) {
+                $idSocT2 = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : 0;
+                $defaultTarifsUrl2 = app_url('/tarifs.php' . ($idSocT2 > 0 ? '?societe=' . $idSocT2 : ''));
+                if (!preg_match('#^https?://#', $defaultTarifsUrl2) && !empty($_SERVER['HTTP_HOST'])) {
+                  $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                  $defaultTarifsUrl2 = $scheme . '://' . $_SERVER['HTTP_HOST'] . $defaultTarifsUrl2;
+                }
+              }
+            ?>
+            <div class="ba-field" style="max-width:50%;margin-top:8px;padding:0 16px;"><label>URL barème honoraires</label><input type="url" name="url_tarifs_publics" value="<?= h((string)post('url_tarifs_publics', $defaultTarifsUrl2)) ?>" placeholder="https://…/tarifs"></div>
           </div>
 
-          <!-- ═══ SOUS-ONGLET 3 : Complément de loyer ═══ -->
-          <div class="ba-subpanel" data-sub-panel="prix-complement" style="display:none;">
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>Complément total (€/mois)</label>
-                <input type="number" step="0.01" name="complement_loyer" id="cpl-loyer-total" value="<?= h((string)post('complement_loyer','')) ?>">
-                <div class="ba-hint">Calculé automatiquement depuis les lignes ci-dessous.</div>
-              </div>
-            </div>
-            <div id="cpl-loyer-lignes" style="margin-top:14px;">
-              <div class="cpl-row" style="display:grid;grid-template-columns:1fr 140px 40px;gap:8px;align-items:center;margin-bottom:8px;">
-                <input type="text" name="cpl_libelle[]" placeholder="Ex : vue dégagée sur jardin" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
-                <input type="number" step="0.01" name="cpl_montant[]" placeholder="€/mois" class="cpl-mt" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
-                <button type="button" class="cpl-del" style="background:none;border:none;color:#c0392b;font-size:18px;cursor:pointer;">✕</button>
-              </div>
-            </div>
-            <button type="button" id="cpl-add-row" style="margin-top:8px;padding:8px 14px;border:1px dashed var(--stroke);border-radius:8px;background:none;color:var(--accent);cursor:pointer;font-family:inherit;">＋ Ajouter une justification</button>
-          </div>
-
-          <!-- ═══ SOUS-ONGLET 4 : Encadrement & fiscalité ═══ -->
+          <!-- ═══ SOUS-ONGLET 2 : Encadrement & Complément ═══ -->
           <div class="ba-subpanel" data-sub-panel="prix-encadrement" style="display:none;">
             <div id="encadrement-banner" style="display:none;background:#f0f7ff;border:1px solid #b3d4fc;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;line-height:1.5;"></div>
             <div style="display:flex;gap:8px;margin-bottom:14px;">
@@ -4149,25 +4205,60 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               <?= boolMcCard('loyer_est_cc','💶','Loyer CC affiché') ?>
             </div>
             <div class="ba-grid cols-2">
-              <div class="ba-field ba-col-full"><label>Zone d'encadrement</label><input type="text" name="enc_zone" value="<?= h((string)post('enc_zone','')) ?>" placeholder="Ex : Paris 11e"></div>
+              <div class="ba-field ba-col-full"><label>Zone d'encadrement</label><input type="text" name="enc_zone" value="<?= h((string)post('enc_zone','')) ?>" placeholder="Ex : Lyon 3e"></div>
               <div class="ba-field"><label>Loyer de base HC (€/mois)</label><input type="number" step="0.01" name="loyer_de_base" value="<?= h((string)post('loyer_de_base','')) ?>"></div>
               <div class="ba-field"><label>Loyer référence majoré (€/mois)</label><input type="number" step="0.01" name="loyer_reference_majore" value="<?= h((string)post('loyer_reference_majore','')) ?>"></div>
               <div class="ba-field"><label>Loyer référence (€/m²)</label><input type="number" step="0.01" name="enc_loyer_ref" value="<?= h((string)post('enc_loyer_ref','')) ?>"></div>
               <div class="ba-field"><label>Loyer majoré (€/m²)</label><input type="number" step="0.01" name="enc_loyer_max" value="<?= h((string)post('enc_loyer_max','')) ?>"></div>
               <div class="ba-field"><label>Loyer minoré (€/m²)</label><input type="number" step="0.01" name="enc_loyer_min" value="<?= h((string)post('enc_loyer_min','')) ?>"></div>
-              <div class="ba-field"><label>Complément (€/mois)</label><input type="number" step="0.01" name="enc_complement" value="<?= h((string)post('enc_complement','')) ?>"></div>
-              <div class="ba-field"><label>Modalités récup. charges</label>
-                <select name="modalite_recuperation_charges_locatives">
-                  <option value="">—</option>
-                  <option value="forfait" <?= post('modalite_recuperation_charges_locatives','') === 'forfait' ? 'selected' : '' ?>>Forfait</option>
-                  <option value="provision annuelle" <?= post('modalite_recuperation_charges_locatives','') === 'provision annuelle' ? 'selected' : '' ?>>Provision annuelle</option>
-                  <option value="remboursement sur justificatifs" <?= post('modalite_recuperation_charges_locatives','') === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Sur justificatifs</option>
-                </select>
+              <div class="ba-field"><label>Complément encadrement (€/mois)</label><input type="number" step="0.01" name="enc_complement" value="<?= h((string)post('enc_complement','')) ?>"></div>
+              <div class="ba-field"><label>Modalités récup. charges</label><select name="modalite_recuperation_charges_locatives"><option value="">—</option><option value="forfait" <?= post('modalite_recuperation_charges_locatives','') === 'forfait' ? 'selected' : '' ?>>Forfait</option><option value="provision annuelle" <?= post('modalite_recuperation_charges_locatives','') === 'provision annuelle' ? 'selected' : '' ?>>Provision annuelle</option><option value="remboursement sur justificatifs" <?= post('modalite_recuperation_charges_locatives','') === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Sur justificatifs</option></select></div>
+            </div>
+            <!-- Complément de loyer -->
+            <div style="margin-top:24px;padding-top:18px;border-top:2px solid var(--stroke);">
+              <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">➕ Complément de loyer</div>
+              <div class="ba-field" style="max-width:300px;">
+                <label>Complément total (€/mois)</label>
+                <input type="number" step="0.01" name="complement_loyer" id="cpl-loyer-total" value="<?= h((string)post('complement_loyer','')) ?>">
+                <div class="ba-hint">Calculé depuis les lignes ci-dessous. Loyer HC = majoré + total complément.</div>
               </div>
-              <div class="ba-field"><label>Taxe foncière (€/an)</label><input type="number" name="taxe_fonciere" value="<?= h((string)post('taxe_fonciere','')) ?>"></div>
-              <div class="ba-field"><label>Taxe habitation (€/an)</label><input type="number" name="taxe_habitation" value="<?= h((string)post('taxe_habitation','')) ?>"></div>
-              <div class="ba-field"><label>Rentabilité brute (%)</label><input type="number" step="0.01" name="rentabilite_brute_estimee" value="<?= h((string)post('rentabilite_brute_estimee','')) ?>"></div>
-              <div class="ba-field"><label>Montant travaux (€)</label><input type="number" name="montant_travaux_estime" value="<?= h((string)post('montant_travaux_estime','')) ?>"></div>
+              <div id="cpl-loyer-lignes" style="margin-top:14px;"><?php
+                $cplLignes = [];
+                if ($isEditing && $annonceIdLoaded > 0) { try { $stmtCplLoad = $pdo->prepare("SELECT libelle, montant FROM annonces_complement_loyer_lignes WHERE id_annonce = ? ORDER BY ordre ASC"); $stmtCplLoad->execute([$annonceIdLoaded]); $cplLignes = $stmtCplLoad->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable) {} }
+                if (empty($cplLignes)) $cplLignes = [['libelle' => '', 'montant' => '']];
+                foreach ($cplLignes as $cpl): ?>
+                <div class="cpl-row" style="display:grid;grid-template-columns:1fr 140px 40px;gap:8px;align-items:center;margin-bottom:8px;">
+                  <input type="text" name="cpl_libelle[]" value="<?= h((string)($cpl['libelle'] ?? '')) ?>" placeholder="Ex : vue dégagée sur jardin" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
+                  <input type="number" step="0.01" name="cpl_montant[]" value="<?= h((string)($cpl['montant'] ?? '')) ?>" placeholder="€/mois" class="cpl-mt" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
+                  <button type="button" class="cpl-del" style="background:none;border:none;color:#c0392b;font-size:18px;cursor:pointer;">✕</button>
+                </div><?php endforeach; ?>
+              </div>
+              <button type="button" id="cpl-add-row" style="margin-top:8px;padding:8px 14px;border:1px dashed var(--stroke);border-radius:8px;background:none;color:var(--accent);cursor:pointer;font-family:inherit;">＋ Ajouter une justification</button>
+            </div>
+            <!-- Taxes & rentabilité -->
+            <div style="margin-top:24px;padding-top:18px;border-top:2px solid var(--stroke);">
+              <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">📊 Fiscalité & Rentabilité</div>
+              <div class="ba-grid cols-2">
+                <div class="ba-field"><label>Taxe foncière (€/an)</label><input type="number" name="taxe_fonciere" value="<?= h((string)post('taxe_fonciere','')) ?>"></div>
+                <div class="ba-field"><label>Taxe habitation (€/an)</label><input type="number" name="taxe_habitation" value="<?= h((string)post('taxe_habitation','')) ?>"></div>
+                <div class="ba-field"><label>Rentabilité brute (%)</label><input type="number" step="0.01" name="rentabilite_brute_estimee" value="<?= h((string)post('rentabilite_brute_estimee','')) ?>"></div>
+                <div class="ba-field"><label>Montant travaux (€)</label><input type="number" name="montant_travaux_estime" value="<?= h((string)post('montant_travaux_estime','')) ?>"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══ SOUS-ONGLET 3 : Locataire précédent ═══ -->
+          <div class="ba-subpanel" data-sub-panel="prix-locprec" style="display:none;">
+            <div style="max-width:500px;">
+              <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px;margin-bottom:14px;">
+                <?= boolMcCard('ancien_loyer_communique','📋','Communiquer infos ancien locataire') ?>
+              </div>
+              <div class="ba-grid cols-2">
+                <div class="ba-field"><label>Dernier loyer HC (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_montant" value="<?= h((string)post('ancien_loyer_montant','')) ?>"></div>
+                <div class="ba-field"><label>Charges (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_charges" value="<?= h((string)post('ancien_loyer_charges','')) ?>"></div>
+                <div class="ba-field"><label>Dernière révision</label><input type="date" name="ancien_loyer_date_revision" value="<?= h((string)post('ancien_loyer_date_revision','')) ?>"></div>
+                <div class="ba-field"><label>Date sortie</label><input type="date" name="ancien_locataire_date_sortie" value="<?= h((string)post('ancien_locataire_date_sortie','')) ?>"></div>
+              </div>
             </div>
           </div>
 
@@ -4214,7 +4305,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           function recalc(){
             let s = 0;
             wrap.querySelectorAll('.cpl-mt').forEach(i => { s += parseFloat(i.value || '0') || 0; });
-            if (total && (!total.dataset.touched || total.value === '')) total.value = s.toFixed(2);
+            if (total) {
+              total.value = s.toFixed(2);
+              total.dispatchEvent(new Event('input', { bubbles: true }));
+            }
           }
           function bindRow(row){
             row.querySelector('.cpl-del')?.addEventListener('click', () => { row.remove(); recalc(); });
@@ -4232,13 +4326,13 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             wrap.appendChild(row);
             bindRow(row);
           });
-          if (total) total.addEventListener('input', () => { total.dataset.touched = '1'; });
+          recalc();
         })();
         </script>
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('annonce')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('dpe')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4484,8 +4578,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div><!-- /ba-card diag -->
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('prix')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('description')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4629,8 +4723,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         </div>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('dpe')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('disponibilite')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4650,14 +4744,14 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <label>Meublé</label>
                 <div class="ba-chips">
                   <label class="ba-chip"><input type="radio" name="loyer_meuble" value="1" <?= post('loyer_meuble','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= post('loyer_meuble','') === '0' ? 'checked' : '' ?>> Non</label>
+                  <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                 </div>
               </div>
               <div class="ba-field">
                 <label>Animaux acceptés</label>
                 <div class="ba-chips">
                   <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="1" <?= post('animaux_acceptes','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= post('animaux_acceptes','') === '0' ? 'checked' : '' ?>> Non</label>
+                  <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= in_array(post('animaux_acceptes',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                 </div>
               </div>
               <div class="ba-field">
@@ -4697,8 +4791,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         ') ?>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('description')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('diffusion')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4730,10 +4824,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <label>Date de signature</label>
                 <input type="date" name="date_mandat" value="<?= h((string)post('date_mandat','')) ?>">
               </div>
-              <div class="ba-field">
-                <label>Date d'échéance</label>
-                <input type="date" name="mandat_echeance" value="<?= h((string)post('mandat_echeance','')) ?>">
-              </div>
               <div class="ba-field ba-col-full">
                 <label>URL du barème d'honoraires (obligation arrêté 10/01/2017)</label>
                 <?php
@@ -4757,56 +4847,9 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               </div>
             </div>
 
-            <!-- ── Honoraires ALUR ── -->
-            <div class="ba-section-label">💰 Honoraires ALUR (vente)</div>
-            <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px" style="margin-bottom:14px">
-              <?= boolMcCard('honoraires_charge_acquereur','💰','Charge acquéreur') ?>
-              <?= boolMcCard('honoraires_charge_vendeur','💰','Charge vendeur') ?>
-            </div>
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>% TTC honoraires acquéreur (sur prix HH)</label>
-                <input type="number" step="0.01" name="alur_pourcentage_honoraires_ttc" value="<?= h((string)post('alur_pourcentage_honoraires_ttc','')) ?>" placeholder="5.00">
-                <div class="ba-hint">Obligatoire si honoraires à charge acquéreur.</div>
-              </div>
-              <div class="ba-field">
-                <label>% honoraires vendeur</label>
-                <input type="number" step="0.01" name="pourcentage_honoraires_vendeur" value="<?= h((string)post('pourcentage_honoraires_vendeur','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Honoraires cumulés (acq+vendeur, €)</label>
-                <input type="number" step="0.01" name="honoraires_negociation_cumules" value="<?= h((string)post('honoraires_negociation_cumules','')) ?>">
-              </div>
-            </div>
-
-            <!-- ── Encadrement loyers (Paris/Lille) ── -->
-            <div class="ba-section-label">🏙 Encadrement des loyers (Paris, Lille…)</div>
-            <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px" style="margin-bottom:14px">
-              <?= boolMcCard('zone_encadrement_loyer','📍','Zone encadrée') ?>
-              <?= boolMcCard('loyer_est_cc','💶','Loyer CC affiché') ?>
-            </div>
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>Loyer de base (€/mois HC)</label>
-                <input type="number" step="0.01" name="loyer_de_base" value="<?= h((string)post('loyer_de_base','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Loyer de référence majoré (€/mois)</label>
-                <input type="number" step="0.01" name="loyer_reference_majore" value="<?= h((string)post('loyer_reference_majore','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Complément de loyer (€/mois)</label>
-                <input type="number" step="0.01" name="complement_loyer" value="<?= h((string)post('complement_loyer','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Modalités récup. charges</label>
-                <select name="modalite_recuperation_charges_locatives">
-                  <option value="">—</option>
-                  <option value="forfait" <?= post('modalite_recuperation_charges_locatives','') === 'forfait' ? 'selected' : '' ?>>Forfait</option>
-                  <option value="provision annuelle" <?= post('modalite_recuperation_charges_locatives','') === 'provision annuelle' ? 'selected' : '' ?>>Provision annuelle</option>
-                  <option value="remboursement sur justificatifs" <?= post('modalite_recuperation_charges_locatives','') === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Remboursement sur justificatifs</option>
-                </select>
-              </div>
+            <!-- ── Honoraires ALUR & Encadrement → onglet Prix ── -->
+            <div style="padding:16px;background:#f0f7ff;border:1px solid #b3d4fc;border-radius:10px;margin-top:8px;">
+              <p style="margin:0;font-size:13px;color:#1e40af;">Les honoraires ALUR et l'encadrement des loyers sont configurables dans l'onglet <a href="#prix" onclick="switchTab('prix');return false;" style="font-weight:700;color:#2563eb;text-decoration:underline;">💶 Prix</a>.</p>
             </div>
 
           </div>
@@ -4815,7 +4858,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         <?php /* ── Blocs ERP et ALUR-copro déplacés dans DPE et Prix ── */ ?>
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('disponibilite')">← Précédent</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
           <?php if ($isDraft): ?>
             <button type="submit" class="ba-btn-ghost" title="Sauvegarde sans changer le statut — vous pourrez revenir plus tard">💾 Sauvegarder le brouillon</button>
             <button type="submit" class="ba-btn-primary" onclick="document.getElementById('_validate_now').value='1';" title="Valide le bien et le passe en statut actif">✅ Valider et activer</button>
@@ -4839,7 +4882,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         </div>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('annonce')">← Précédent</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
           <?php if ($isDraft): ?>
             <button type="submit" class="ba-btn-ghost">💾 Sauvegarder le brouillon</button>
             <button type="submit" class="ba-btn-primary" onclick="document.getElementById('_validate_now').value='1';">✅ Valider et activer</button>
@@ -5122,7 +5165,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     if (this.value.length === 5) autoDetectZoneTendue();
   });
 
-  function calcHonoraires() {
+  // force=true (changement utilisateur de surface/zone) → écrase TOUJOURS la valeur,
+  // sauf si l'utilisateur a explicitement typé dans honoraires (dataset.autoCalc === '0').
+  // force=false (init page) → remplit uniquement si vide (préserve les valeurs DB).
+  function calcHonoraires(force) {
     const surface = parseFloat(document.querySelector('[name="surface_habitable"]')?.value) || 0;
     const zone    = document.getElementById('zone_tendue')?.value || '';
     const honoLoc = document.getElementById('honoraires_locataire');
@@ -5130,13 +5176,20 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     const hintLoc = document.getElementById('hono-loc-hint');
     const hintEdl = document.getElementById('hono-edl-hint2');
 
+    function canWrite(el) {
+      if (!el) return false;
+      if (force) return el.dataset.autoCalc !== '0'; // force sauf si typé manuellement
+      return !el.value || el.dataset.autoCalc === '1';
+    }
+
     if (surface > 0 && zone && TARIFS_ZONE[zone]) {
       const tarif  = TARIFS_ZONE[zone];
       const montant = Math.round(surface * tarif * 100) / 100;
       if (hintLoc) hintLoc.textContent = '(' + surface + ' m² × ' + tarif + ' €/m² = ' + montant.toFixed(2) + ' €)';
-      if (honoLoc && (!honoLoc.value || honoLoc.dataset.autoCalc === '1')) {
+      if (canWrite(honoLoc)) {
         honoLoc.value = montant.toFixed(2);
         honoLoc.dataset.autoCalc = '1';
+        honoLoc.dispatchEvent(new Event('change', { bubbles: true }));
       }
     } else {
       if (hintLoc) hintLoc.textContent = '';
@@ -5145,9 +5198,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     if (surface > 0) {
       const montantEdl = Math.round(surface * TARIF_EDL * 100) / 100;
       if (hintEdl) hintEdl.textContent = '(' + surface + ' m² × ' + TARIF_EDL + ' €/m² = ' + montantEdl.toFixed(2) + ' €)';
-      if (honoEdl && (!honoEdl.value || honoEdl.dataset.autoCalc === '1')) {
+      if (canWrite(honoEdl)) {
         honoEdl.value = montantEdl.toFixed(2);
         honoEdl.dataset.autoCalc = '1';
+        honoEdl.dispatchEvent(new Event('change', { bubbles: true }));
       }
     } else {
       if (hintEdl) hintEdl.textContent = '';
@@ -5155,10 +5209,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
   }
   window.calcHonoraires = calcHonoraires;
 
-  // Déclencher le calcul quand surface ou zone change
-  document.querySelector('[name="surface_habitable"]')?.addEventListener('input', calcHonoraires);
-  document.getElementById('zone_tendue')?.addEventListener('change', calcHonoraires);
-  // Marquer comme saisie manuelle si l'utilisateur modifie directement
+  // Changement utilisateur de surface ou zone → recalcul forcé
+  document.querySelector('[name="surface_habitable"]')?.addEventListener('input', () => calcHonoraires(true));
+  document.getElementById('zone_tendue')?.addEventListener('change', () => calcHonoraires(true));
+  // Marquer comme saisie manuelle si l'utilisateur modifie directement honoraires
   document.getElementById('honoraires_locataire')?.addEventListener('input', function() { this.dataset.autoCalc = '0'; });
   document.getElementById('honoraires_etat_des_lieux')?.addEventListener('input', function() { this.dataset.autoCalc = '0'; });
 
@@ -5314,39 +5368,164 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
   }
 
+  // ── Prevent Enter from submitting form ──
+  document.getElementById('bien-create-form')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.type !== 'submit') {
+      e.preventDefault();
+    }
+  });
+
+  // ── NAV STEPS (onglets + sous-onglets séquentiels) ──
+  const NAV_STEPS = [
+    { tab: 'identification', sub: 'ident-main',     label: 'Identification' },
+    { tab: 'identification', sub: 'ident-adresse',  label: 'Adresse' },
+    { tab: 'identification', sub: 'ident-env',      label: 'Environnement' },
+    { tab: 'identification', sub: 'ident-proprio',  label: 'Propriétaire' },
+    { tab: 'caracteristiques', sub: 'carac-main',     label: 'Caractéristiques' },
+    { tab: 'caracteristiques', sub: 'carac-surfaces',  label: 'Surfaces' },
+    { tab: 'caracteristiques', sub: 'carac-pieces',    label: 'Pièces & Équipements' },
+    { tab: 'caracteristiques', sub: 'carac-chauffage', label: 'Chauffage & Énergie' },
+    { tab: 'prix',           sub: 'prix-loyer',       label: 'Location & Vente' },
+    { tab: 'prix',           sub: 'prix-encadrement',  label: 'Encadrement & Complément' },
+    { tab: 'prix',           sub: 'prix-locprec',      label: 'Locataire précédent' },
+    { tab: 'prix',           sub: 'prix-copro',        label: 'Copropriété' },
+    { tab: 'dpe',            sub: 'dpe-main',          label: 'DPE' },
+    { tab: 'dpe',            sub: 'dpe-docs',          label: 'Documents diag' },
+    { tab: 'dpe',            sub: 'dpe-erp',           label: 'ERP / Géorisques' },
+    { tab: 'photos',         sub: null,                label: 'Photos' },
+    { tab: 'description',    sub: 'desc-texte',        label: 'Description' },
+    { tab: 'description',    sub: 'desc-photos',       label: 'Analyse photos' },
+    { tab: 'description',    sub: 'desc-seo',          label: 'SEO & commentaires' },
+    { tab: 'annonce',        sub: 'ann-main',          label: 'Annonce' },
+    { tab: 'annonce',        sub: 'ann-details',       label: 'Détails annonce' },
+    { tab: 'annonce',        sub: 'ann-photos',        label: 'Photos annonce' },
+    { tab: 'annonce',        sub: 'ann-diffusion',     label: 'Diffusion' },
+    { tab: 'conformite',     sub: null,                label: 'Conformité' },
+  ];
+  function getCurrentStepIndex() {
+    const tab = __currentTab || 'identification';
+    const panel = document.querySelector(`[data-tab-panel="${tab}"]`);
+    const activeSub = panel?.querySelector('.ba-subtab.active');
+    const sub = activeSub?.dataset?.sub || null;
+    for (let i = 0; i < NAV_STEPS.length; i++) {
+      if (NAV_STEPS[i].tab === tab && (NAV_STEPS[i].sub === sub || (!NAV_STEPS[i].sub && !sub))) return i;
+    }
+    return NAV_STEPS.findIndex(s => s.tab === tab);
+  }
+  function goToStep(index) {
+    if (index < 0 || index >= NAV_STEPS.length) return;
+    // Sauvegarde avant de changer de pas (inclut changement de sous-onglet
+    // dans le même tab, ce que switchTab ne fait pas tout seul).
+    autoSave();
+    const step = NAV_STEPS[index];
+    switchTab(step.tab);
+    if (step.sub) {
+      const panel = document.querySelector(`[data-tab-panel="${step.tab}"]`);
+      const btn = panel?.querySelector(`.ba-subtab[data-sub="${step.sub}"]`);
+      if (btn) activateSubtab(btn);
+    }
+  }
+  function navPrev() { goToStep(getCurrentStepIndex() - 1); }
+  function navNext() { goToStep(getCurrentStepIndex() + 1); }
+  window.navPrev = navPrev;
+  window.navNext = navNext;
+
   // ── TAB SWITCHING (avec auto-save) ──
   let __currentTab = null;
+  let __restoringState = false; // true pendant restore → évite scrollTo(0)
   function switchTab(id) {
-    // Auto-save quand on quitte un onglet (pas au chargement initial)
-    if (__currentTab && __currentTab !== id) {
+    // Auto-save quand on quitte un onglet (pas au chargement initial ni en restore)
+    if (__currentTab && __currentTab !== id && !__restoringState) {
       autoSave();
     }
     __currentTab = id;
     document.querySelectorAll('.ba-panel').forEach(p => p.classList.toggle('active', p.dataset.tabPanel === id));
     document.querySelectorAll('.ba-tab').forEach(b  => b.classList.toggle('active', b.dataset.tab === id));
     history.replaceState(null, '', '#' + id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!__restoringState) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
   window.switchTab = switchTab;
 
   document.querySelectorAll('.ba-tab').forEach(btn =>
     btn.addEventListener('click', () => switchTab(btn.dataset.tab))
   );
-  const init = window.location.hash ? window.location.hash.slice(1) : 'identification';
-  switchTab(init);
+
+  // ── Restauration complète tab + sous-tab + scroll via sessionStorage ──
+  // Prioritaire sur le hash URL : sessionStorage permet de persister la
+  // position exacte (onglet + sous-onglet + scroll) entre refreshs.
+  (function() {
+    const KEY = 'ba_state_' + window.location.pathname + window.location.search;
+
+    // Sauvegarde à chaque beforeunload (refresh, fermeture, navigation)
+    window.addEventListener('beforeunload', function() {
+      try {
+        const panel = document.querySelector('.ba-panel.active');
+        const subActive = panel?.querySelector('.ba-subtab.active');
+        sessionStorage.setItem(KEY, JSON.stringify({
+          scroll: window.scrollY,
+          tab: __currentTab || '',
+          sub: subActive?.dataset?.sub || '',
+        }));
+      } catch (_) {}
+    });
+
+    // Lecture : sessionStorage > hash URL > défaut
+    let initialTab = 'identification';
+    let initialSub = '';
+    let initialScroll = null;
+    try {
+      const raw = sessionStorage.getItem(KEY);
+      if (raw) {
+        const st = JSON.parse(raw);
+        if (st.tab) initialTab = st.tab;
+        if (st.sub) initialSub = st.sub;
+        if (typeof st.scroll === 'number') initialScroll = st.scroll;
+      }
+    } catch (_) {}
+    // Le hash a priorité si présent (ex : clic lien externe vers #photos)
+    if (window.location.hash) {
+      initialTab = window.location.hash.slice(1);
+      initialSub = '';
+      initialScroll = null;
+    }
+
+    __restoringState = true;
+    switchTab(initialTab);
+    if (initialSub) {
+      const panel = document.querySelector('[data-tab-panel="' + initialTab + '"]');
+      const btn = panel?.querySelector('.ba-subtab[data-sub="' + initialSub + '"]');
+      if (btn) activateSubtab(btn);
+    }
+    // Restore scroll après que le DOM ait rendu l'onglet visible
+    if (initialScroll !== null) {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, initialScroll);
+        // 2e tick : certaines images/fonts modifient la hauteur totale
+        requestAnimationFrame(() => { window.scrollTo(0, initialScroll); });
+      });
+    }
+    __restoringState = false;
+  })();
 
   // ── SOUS-ONGLETS (subtabs, avec auto-save) ──
+  function activateSubtab(btn) {
+    var container = btn.closest('.ba-card') || btn.closest('.ba-panel');
+    var target = btn.dataset.sub;
+    container.querySelectorAll('.ba-subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === target));
+    container.querySelectorAll('.ba-subpanel').forEach(p => {
+      p.style.display = p.dataset.subPanel === target ? '' : 'none';
+      if (p.dataset.subPanel === target) p.classList.add('active');
+      else p.classList.remove('active');
+    });
+  }
+  window.activateSubtab = activateSubtab;
+
   document.querySelectorAll('.ba-subtab').forEach(btn => {
     btn.addEventListener('click', function() {
       autoSave();
-      var container = this.closest('.ba-card') || this.closest('.ba-panel');
-      var target = this.dataset.sub;
-      container.querySelectorAll('.ba-subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === target));
-      container.querySelectorAll('.ba-subpanel').forEach(p => {
-        p.style.display = p.dataset.subPanel === target ? '' : 'none';
-        if (p.dataset.subPanel === target) p.classList.add('active');
-        else p.classList.remove('active');
-      });
+      activateSubtab(this);
     });
   });
 
@@ -5450,7 +5629,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       'etage': { tab:'caracteristiques', sub:'carac-main' },
       'annonce_prix_vente': { tab:'annonce', sub:'ann-main' },
       'annonce_loyer': { tab:'annonce', sub:'ann-main' },
-      'charges': { tab:'prix', sub:'prix-loyer' },
+      'charges_locatives': { tab:'prix', sub:'prix-loyer' },
       'depot_garantie': { tab:'prix', sub:'prix-loyer' },
       'honoraires_inclus': { tab:'prix', sub:'prix-loyer' },
       'mandats_honoraires': { tab:'prix', sub:'prix-loyer' },
@@ -5761,6 +5940,193 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     });
   });
 
+  // ── CALCUL AUTOMATIQUE HONORAIRES TRANSACTION (% ↔ montant) ──
+  (function() {
+    const prixEl = document.getElementById('prix_vente_estime');
+    const pctAcq = document.getElementById('alur_pct_acq');
+    const pctVend = document.getElementById('alur_pct_vend');
+    const cumul = document.getElementById('hono_cumules');
+    const hintPct = document.getElementById('alur-pct-hint');
+    const hintCumul = document.getElementById('hono-cumul-hint');
+    let lastChanged = '';
+    function calcFromPct() {
+      const prix = parseFloat(prixEl?.value) || 0;
+      const pct = parseFloat(pctAcq?.value) || 0;
+      const pctV = parseFloat(pctVend?.value) || 0;
+      if (prix > 0 && (pct > 0 || pctV > 0)) {
+        const montant = Math.round(prix * (pct + pctV) / 100 * 100) / 100;
+        if (cumul && lastChanged !== 'montant') cumul.value = montant.toFixed(2);
+        if (hintPct) hintPct.textContent = pct > 0 ? '= ' + (prix * pct / 100).toFixed(0) + ' € sur ' + prix.toFixed(0) + ' €' : '';
+        if (hintCumul) hintCumul.textContent = '(' + (pct + pctV).toFixed(2) + '% de ' + prix.toFixed(0) + ' €)';
+      }
+    }
+    function calcFromMontant() {
+      const prix = parseFloat(prixEl?.value) || 0;
+      const montant = parseFloat(cumul?.value) || 0;
+      if (prix > 0 && montant > 0) {
+        const pct = Math.round(montant / prix * 100 * 100) / 100;
+        if (pctAcq && lastChanged !== 'pct') pctAcq.value = pct.toFixed(2);
+        if (hintCumul) hintCumul.textContent = '(' + pct.toFixed(2) + '% de ' + prix.toFixed(0) + ' €)';
+      }
+    }
+    pctAcq?.addEventListener('input', () => { lastChanged = 'pct'; calcFromPct(); });
+    pctVend?.addEventListener('input', () => { lastChanged = 'pct'; calcFromPct(); });
+    cumul?.addEventListener('input', () => { lastChanged = 'montant'; calcFromMontant(); });
+    prixEl?.addEventListener('input', () => { if (lastChanged === 'montant') calcFromMontant(); else calcFromPct(); });
+    if (parseFloat(pctAcq?.value) > 0) { lastChanged = 'pct'; calcFromPct(); }
+    else if (parseFloat(cumul?.value) > 0) { lastChanged = 'montant'; calcFromMontant(); }
+  })();
+
+  // ── CALCUL AUTOMATIQUE LOYER HC = Loyer référence majoré + Complément total ──
+  (function() {
+    const loyerHc = document.getElementById('loyer_hc');
+    if (!loyerHc) return;
+    function calcLoyerHc() {
+      let refMaj = 0;
+      document.querySelectorAll('[name="loyer_reference_majore"]').forEach(el => {
+        const v = parseFloat(el.value); if (v > 0) refMaj = v;
+      });
+      const compl = parseFloat(document.getElementById('cpl-loyer-total')?.value) || 0;
+      if (refMaj > 0) {
+        loyerHc.value = (refMaj + compl).toFixed(2);
+        loyerHc.dataset.autoLoyer = '1';
+      }
+    }
+    window.calcLoyerHc = calcLoyerHc;
+    document.querySelectorAll('[name="loyer_reference_majore"]').forEach(el => {
+      el.addEventListener('input', calcLoyerHc);
+      el.addEventListener('change', calcLoyerHc);
+    });
+    document.getElementById('cpl-loyer-total')?.addEventListener('input', calcLoyerHc);
+    document.getElementById('cpl-loyer-total')?.addEventListener('change', calcLoyerHc);
+    loyerHc.addEventListener('input', function() {
+      if (document.activeElement === this) this.dataset.autoLoyer = '0';
+    });
+    calcLoyerHc();
+  })();
+
+  // ── PRÉVENTION ENTER SUBMIT + NAVIGATION INTELLIGENTE ──
+  document.getElementById('bien-create-form')?.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA' || e.target.type === 'submit') return;
+    e.preventDefault();
+    if (e.target.classList.contains('cpl-mt')) {
+      document.getElementById('cpl-add-row')?.click();
+      setTimeout(() => {
+        const rows = document.querySelectorAll('#cpl-loyer-lignes .cpl-row');
+        const last = rows[rows.length - 1];
+        if (last) last.querySelector('input[name="cpl_libelle[]"]')?.focus();
+      }, 50);
+      return;
+    }
+    if (e.target.name === 'cpl_libelle[]') {
+      const row = e.target.closest('.cpl-row');
+      const montant = row?.querySelector('.cpl-mt');
+      if (montant) { montant.focus(); return; }
+    }
+    const inputs = [...this.querySelectorAll('input:not([type=hidden]):not([type=button]),select,textarea')]
+      .filter(el => !el.disabled && el.offsetParent !== null && !el.closest('.cpl-del'));
+    const idx = inputs.indexOf(e.target);
+    if (idx >= 0 && idx < inputs.length - 1) inputs[idx + 1].focus();
+  });
+
+  // ── GÉNÉRATION RÉFÉRENCE AUTOMATIQUE ──
+  const __refData = {
+    codeAgence: '<?php
+      $__agId = (int)($_SESSION['id_agence'] ?? 0);
+      $__cag = '';
+      if ($__agId > 0) { $__s = $pdo->prepare("SELECT code_agence FROM agences WHERE id = ?"); $__s->execute([$__agId]); $__cag = $__s->fetchColumn() ?: ''; }
+      echo h($__cag);
+    ?>',
+    commercials: <?= json_encode(array_map(fn($c) => ['id' => (int)$c['id'], 'initials' => mb_strtoupper(mb_substr($c['prenom'] ?? '', 0, 1) . mb_substr($c['nom'] ?? '', 0, 1))], $commercials)) ?>,
+  };
+  const __typeAbbrev = {appartement:'APP',maison:'MAI',villa:'VIL',loft:'LOF',bureau:'BUR',local_commercial:'LOC',local_activite:'ACT',boutique:'BOU',terrain:'TER',parking:'PRK',garage:'GAR',box:'BOX',chambre:'CHB',immeuble:'IMM',entrepot:'ENT',chateau:'CHA',programme_neuf:'PGN',fonds_commerce:'FDC',droit_bail:'DRB',atelier:'ATE'};
+  function generateRef() {
+    const codAg = __refData.codeAgence || 'AG';
+    const comSel = document.querySelector('[name="annonce_commercial_id"]');
+    let initials = 'XX';
+    if (comSel && comSel.value) {
+      const found = __refData.commercials.find(c => c.id === parseInt(comSel.value));
+      if (found) initials = found.initials;
+    }
+    const typeEl = document.querySelector('[name="type_bien"]');
+    const typeAbr = __typeAbbrev[typeEl?.value] || (typeEl?.value || 'BIN').substring(0,3).toUpperCase();
+    const pieces = document.querySelector('[name="nb_pieces"]')?.value || '0';
+    const transaction = document.querySelector('[name="annonce_transaction"]')?.value || '';
+    let prix = '';
+    if (transaction === 'location') prix = document.querySelector('[name="loyer_hc"]')?.value || '';
+    else if (transaction === 'vente') prix = document.querySelector('[name="prix_vente_estime"]')?.value || '';
+    if (prix) prix = Math.round(parseFloat(prix));
+    const ref = [codAg, initials, typeAbr, pieces + 'P', prix || ''].filter(Boolean).join('-');
+    const refEl = document.getElementById('reference_bien');
+    if (refEl) { refEl.value = ref; refEl.dispatchEvent(new Event('input', {bubbles: true})); }
+    const extEl = document.querySelector('[name="reference_externe"]');
+    if (extEl) { extEl.value = ref; extEl.dispatchEvent(new Event('input', {bubbles: true})); }
+  }
+  window.generateRef = generateRef;
+  ['annonce_commercial_id','type_bien','nb_pieces','loyer_hc','prix_vente_estime','annonce_transaction'].forEach(name => {
+    document.querySelector(`[name="${name}"]`)?.addEventListener('change', () => {
+      const refEl = document.getElementById('reference_bien');
+      if (refEl && (!refEl.value || refEl.dataset.autoRef === '1')) { generateRef(); refEl.dataset.autoRef = '1'; }
+    });
+  });
+  document.getElementById('reference_bien')?.addEventListener('input', function() { if (document.activeElement === this) this.dataset.autoRef = '0'; });
+
+  // ── RECHERCHE DE CHAMPS ──
+  (function() {
+    const input = document.getElementById('ba-field-search');
+    if (!input) return;
+    const resultsDiv = document.createElement('div');
+    resultsDiv.id = 'ba-search-results';
+    resultsDiv.style.cssText = 'display:none;position:absolute;top:100%;left:0;width:100%;max-height:280px;overflow-y:auto;background:#fff;border:1px solid var(--stroke);border-radius:0 0 10px 10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:999;';
+    input.parentElement.appendChild(resultsDiv);
+    const index = [];
+    document.querySelectorAll('.ba-field > label, .ba-field label').forEach(lbl => {
+      const text = lbl.textContent.trim();
+      if (!text || text.length < 2) return;
+      const field = lbl.closest('.ba-field')?.querySelector('input,select,textarea');
+      const panel = lbl.closest('[data-tab-panel]');
+      const subPanel = lbl.closest('[data-sub-panel]');
+      const tabId = panel?.dataset?.tabPanel || '';
+      const subId = subPanel?.dataset?.subPanel || '';
+      const step = NAV_STEPS.find(s => s.tab === tabId && (s.sub === subId || (!subId && !s.sub)));
+      index.push({ text, lower: text.toLowerCase(), field, tabId, subId, stepLabel: step?.label || tabId, el: lbl });
+    });
+    let debounce;
+    input.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => search(input.value.trim()), 150); });
+    input.addEventListener('focus', () => { if (input.value.trim()) search(input.value.trim()); });
+    document.addEventListener('click', (e) => { if (!e.target.closest('#ba-field-search') && !e.target.closest('#ba-search-results')) resultsDiv.style.display = 'none'; });
+    function search(q) {
+      if (q.length < 2) { resultsDiv.style.display = 'none'; return; }
+      const lower = q.toLowerCase();
+      const matches = index.filter(i => i.lower.includes(lower)).slice(0, 15);
+      if (!matches.length) { resultsDiv.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#888;">Aucun résultat</div>'; resultsDiv.style.display = ''; return; }
+      resultsDiv.innerHTML = matches.map((m, i) =>
+        '<div data-idx="'+i+'" style="padding:8px 14px;font-size:12px;cursor:pointer;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;">' +
+        '<span style="font-weight:600;color:#1a1a2e;">'+m.text+'</span>' +
+        '<span style="font-size:10px;color:#888;background:#f5f5f5;padding:2px 8px;border-radius:10px;">'+m.stepLabel+'</span></div>'
+      ).join('');
+      resultsDiv.style.display = '';
+      resultsDiv.querySelectorAll('[data-idx]').forEach((el, i) => {
+        el.addEventListener('click', () => goToField(matches[i]));
+        el.addEventListener('mouseenter', () => el.style.background = '#f8f8f8');
+        el.addEventListener('mouseleave', () => el.style.background = '');
+      });
+    }
+    function goToField(item) {
+      resultsDiv.style.display = 'none'; input.value = '';
+      if (item.tabId) { switchTab(item.tabId);
+        if (item.subId) { const panel = document.querySelector('[data-tab-panel="'+item.tabId+'"]'); const btn = panel?.querySelector('.ba-subtab[data-sub="'+item.subId+'"]'); if (btn) activateSubtab(btn); }
+      }
+      setTimeout(() => {
+        const target = item.field || item.el;
+        if (target) { target.scrollIntoView({ behavior:'smooth', block:'center' });
+          if (item.field) { item.field.focus(); item.field.style.boxShadow = '0 0 0 3px rgba(249,115,22,.4)'; setTimeout(() => item.field.style.boxShadow = '', 2000); }
+          else { target.style.background = 'rgba(249,115,22,.1)'; setTimeout(() => target.style.background = '', 2000); }
+        }
+      }, 200);
+    }
+  })();
+
   // ── Bouton sauvegarde AJAX (réutilise autoSave global) ──
   (function() {
     const btn = document.getElementById('btn-save-ajax');
@@ -5870,6 +6236,70 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         envSlot.appendChild(detCard);
       }
     }
+  })();
+
+  // ── Adresse : bouton Trouver sur Google visible uniquement si l'adresse n'est pas Google ──
+  (function() {
+    const btn = document.getElementById('immeuble_find_google_btn');
+    if (!btn) return;
+
+    const searchInput = document.getElementById('immeuble_recherche');
+    const placeIdEl   = document.getElementById('immeuble_google_place_id');
+    const formattedEl = document.getElementById('immeuble_adresse_formatee');
+    const immeubleIdEl= document.getElementById('immeuble_id');
+
+    const addr1El  = document.getElementById('immeuble_adresse_1');
+    const postalEl = document.getElementById('immeuble_code_postal');
+    const cityEl   = document.getElementById('immeuble_ville');
+    const badgeEl  = document.getElementById('immeuble_badge');
+    const latEl    = document.getElementById('immeuble_latitude');
+    const lngEl    = document.getElementById('immeuble_longitude');
+
+    function isGoogleAddress() {
+      return !!(placeIdEl && (placeIdEl.value || '').trim());
+    }
+    function hasAddress() {
+      const a1  = (addr1El && addr1El.value ? addr1El.value : '').trim();
+      const fmt = (formattedEl && formattedEl.value ? formattedEl.value : '').trim();
+      return (a1 || fmt).length > 0;
+    }
+    function updateBtn() {
+      btn.style.display = (!isGoogleAddress() && hasAddress()) ? '' : 'none';
+    }
+    function buildQuery() {
+      const parts = [];
+      const a1 = (addr1El && addr1El.value ? addr1El.value : '').trim();
+      const cp = (postalEl && postalEl.value ? postalEl.value : '').trim();
+      const ville = (cityEl && cityEl.value ? cityEl.value : '').trim();
+      if (a1) parts.push(a1);
+      const tail = [cp, ville].filter(Boolean).join(' ');
+      if (tail) parts.push(tail);
+      return parts.join(', ');
+    }
+
+    btn.addEventListener('click', () => {
+      // Permet de changer d'immeuble/adresse en mode édition
+      if (immeubleIdEl) immeubleIdEl.value = '';
+      if (placeIdEl) placeIdEl.value = '';
+      if (formattedEl) formattedEl.value = '';
+      if (latEl) latEl.value = '';
+      if (lngEl) lngEl.value = '';
+      if (badgeEl) { badgeEl.textContent = ''; badgeEl.className = 'places-immeuble-badge'; }
+
+      if (!searchInput) return;
+      const q = buildQuery();
+      if (q) searchInput.value = q;
+      searchInput.focus();
+      searchInput.dispatchEvent(new Event('input'));
+      updateBtn();
+    });
+
+    if (searchInput) {
+      searchInput.addEventListener('places:filled', updateBtn);
+      searchInput.addEventListener('blur', () => setTimeout(updateBtn, 0));
+    }
+
+    updateBtn();
   })();
 
   // ── SEO IA génération ──
@@ -6283,7 +6713,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
 
     // ═══ 5. PRIX — LOCATION ═══
     { key: 'annonce_loyer',       label: 'Loyer mensuel (€)', section: 'Prix', when: isLocation },
-    { key: 'charges',             label: 'Charges mensuelles (€)', section: 'Prix', when: isLocation },
+    { key: 'charges_locatives',   label: 'Charges mensuelles (€)', section: 'Prix', when: isLocation },
     { key: 'depot_garantie',      label: 'Dépôt de garantie (€)', section: 'Prix', when: isLocation },
     { key: 'honoraires_locataire', label: 'Honoraires locataire (€)', section: 'Prix', when: isLocation },
     { key: 'honoraires_etat_des_lieux', label: 'Honoraires état des lieux (€)', section: 'Prix', when: isLocation },
@@ -7509,3 +7939,4 @@ document.addEventListener('DOMContentLoaded', function () {
 <?php endif; ?>
 </body>
 </html>
+
