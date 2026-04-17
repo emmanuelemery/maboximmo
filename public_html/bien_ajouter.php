@@ -5500,40 +5500,15 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
   // ── Restauration complète tab + sous-tab + scroll via sessionStorage ──
   // Persiste la position exacte (onglet + sous-onglet + scroll) entre refreshs.
   // Le hash URL ne prévaut que s'il pointe vers un tab différent de celui
-  // enregistré (ex : lien externe vers #photos) — sinon sessionStorage gagne,
-  // sinon le scroll serait perdu à chaque refresh car switchTab met à jour
-  // le hash en permanence via history.replaceState.
+  // enregistré (ex : lien externe vers #photos) — sinon sessionStorage gagne.
   (function() {
+    // Désactive la restauration scroll native du navigateur : on gère nous-mêmes.
+    // Sans ça, Firefox/Chrome peuvent sauter en haut/bas avant qu'on switche d'onglet.
+    try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (_) {}
+
     const KEY = 'ba_state_' + window.location.pathname + window.location.search;
 
-    function saveState() {
-      try {
-        const panel = document.querySelector('.ba-panel.active');
-        const subActive = panel?.querySelector('.ba-subtab.active');
-        sessionStorage.setItem(KEY, JSON.stringify({
-          scroll: window.scrollY,
-          tab: __currentTab || '',
-          sub: subActive?.dataset?.sub || '',
-        }));
-      } catch (_) {}
-    }
-
-    // Sauvegarde fréquente : scroll throttlé, beforeunload, pagehide, visibilitychange.
-    // (beforeunload seul est peu fiable sur mobile/certains navigateurs.)
-    let __scrollTimer = null;
-    window.addEventListener('scroll', function() {
-      if (__restoringState) return;
-      if (__scrollTimer) return;
-      __scrollTimer = setTimeout(() => { saveState(); __scrollTimer = null; }, 200);
-    }, { passive: true });
-    window.addEventListener('beforeunload', saveState);
-    window.addEventListener('pagehide', saveState);
-    document.addEventListener('visibilitychange', function() {
-      if (document.visibilityState === 'hidden') saveState();
-    });
-    window.__baSaveUiState = saveState; // exposé pour clics tab/sous-onglet
-
-    // Lecture : sessionStorage > hash URL > défaut
+    // ── 1. LECTURE de l'état AVANT d'installer les listeners (évite toute race)
     let initialTab = 'identification';
     let initialSub = '';
     let initialScroll = null;
@@ -5550,8 +5525,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
 
     // Hash URL : ne prévaut que s'il cible un autre onglet que celui mémorisé
-    // (cas d'un lien externe). Sinon c'est juste le hash laissé par la nav
-    // précédente → on garde sessionStorage.
     if (window.location.hash) {
       const hashTab = window.location.hash.slice(1);
       if (hashTab && hashTab !== initialTab) {
@@ -5561,6 +5534,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       }
     }
 
+    // ── 2. APPLIQUE l'état avant que quoi que ce soit d'autre ne tourne
     __restoringState = true;
     switchTab(initialTab);
     if (initialSub) {
@@ -5568,19 +5542,50 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       const btn = panel?.querySelector('.ba-subtab[data-sub="' + initialSub + '"]');
       if (btn) activateSubtab(btn);
     }
-    // Restore scroll après que le DOM ait rendu l'onglet visible
+    // Scroll : plusieurs ticks car images/fonts peuvent modifier la hauteur
     if (initialScroll !== null) {
+      const restoreScroll = () => window.scrollTo(0, initialScroll);
+      restoreScroll();
       requestAnimationFrame(() => {
-        window.scrollTo(0, initialScroll);
-        // 2e tick : certaines images/fonts modifient la hauteur totale
+        restoreScroll();
         requestAnimationFrame(() => {
-          window.scrollTo(0, initialScroll);
-          __restoringState = false;
+          restoreScroll();
+          // Une dernière passe après le load complet (images)
+          window.addEventListener('load', restoreScroll, { once: true });
+          setTimeout(() => { __restoringState = false; }, 100);
         });
       });
     } else {
       __restoringState = false;
     }
+
+    // ── 3. INSTALLE les listeners de sauvegarde
+    function saveState() {
+      // N'écrit que si on a un onglet réel — évite de stomper l'état au démarrage
+      if (!__currentTab) return;
+      try {
+        const panel = document.querySelector('.ba-panel.active');
+        const subActive = panel?.querySelector('.ba-subtab.active');
+        sessionStorage.setItem(KEY, JSON.stringify({
+          scroll: window.scrollY,
+          tab: __currentTab,
+          sub: subActive?.dataset?.sub || '',
+        }));
+      } catch (_) {}
+    }
+
+    let __scrollTimer = null;
+    window.addEventListener('scroll', function() {
+      if (__restoringState) return;
+      if (__scrollTimer) return;
+      __scrollTimer = setTimeout(() => { saveState(); __scrollTimer = null; }, 200);
+    }, { passive: true });
+    window.addEventListener('beforeunload', saveState);
+    window.addEventListener('pagehide', saveState);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') saveState();
+    });
+    window.__baSaveUiState = saveState; // exposé pour clics tab/sous-onglet
   })();
 
   // ── SOUS-ONGLETS (subtabs, avec auto-save) ──
@@ -5621,13 +5626,78 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       status.innerHTML = html;
     }
 
+    // Stocke les champs extraits pour application après validation utilisateur.
+    // Clé = nom du champ, valeur = { newValue, currentValue, fileName }
+    let extractedFields = {};
+
+    function renderValidatePanel() {
+      const names = Object.keys(extractedFields);
+      if (!names.length) return '';
+      const rows = names.map(n => {
+        const { newValue, currentValue } = extractedFields[n];
+        const changed = String(currentValue ?? '') !== String(newValue ?? '');
+        return '<tr style="border-bottom:1px solid #e5e7eb;">'
+          + '<td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#475569;">' + n + '</td>'
+          + '<td style="padding:4px 8px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + (currentValue || '—') + '</td>'
+          + '<td style="padding:4px 8px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#64748b') + ';">' + (newValue || '—') + '</td>'
+          + '</tr>';
+      }).join('');
+      return '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+        + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+        + '<thead><tr style="background:#f1f5f9;"><th style="padding:6px 8px;text-align:left;">Champ</th><th style="padding:6px 8px;text-align:left;">Actuel</th><th style="padding:6px 8px;text-align:left;">Extrait</th></tr></thead>'
+        + '<tbody>' + rows + '</tbody></table>'
+        + '<div style="padding:10px;background:#f8fafc;display:flex;gap:8px;justify-content:flex-end;">'
+        + '<button type="button" id="diag-upload-cancel" style="padding:6px 12px;border-radius:6px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">Annuler</button>'
+        + '<button type="button" id="diag-upload-validate" style="padding:6px 12px;border-radius:6px;background:#0ea5e9;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider & remplacer</button>'
+        + '</div></div>';
+    }
+
+    function bindValidateButtons() {
+      const validateBtn = document.getElementById('diag-upload-validate');
+      const cancelBtn = document.getElementById('diag-upload-cancel');
+      if (validateBtn) {
+        validateBtn.addEventListener('click', () => {
+          const apply = window.__baApplyDpeValue;
+          let applied = 0;
+          Object.entries(extractedFields).forEach(([name, info]) => {
+            if (typeof apply === 'function') {
+              if (apply(name, info.newValue)) applied++;
+            } else {
+              // Fallback : remplace directement la valeur
+              const el = document.querySelector('[name="' + name + '"]');
+              if (el) {
+                el.value = info.newValue;
+                try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+                applied++;
+              }
+            }
+          });
+          extractedFields = {};
+          showStatus('✅ <strong>' + applied + ' champ(s)</strong> appliqué(s) — <a href="javascript:location.reload()" style="color:inherit;font-weight:700;">Recharger pour voir la liste des documents</a>', 'success');
+        });
+      }
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          extractedFields = {};
+          status.style.display = 'none';
+        });
+      }
+    }
+
     if (uploadBtn && uploadInput) {
+      // Auto-upload dès sélection : plus naturel que d'obliger à cliquer le bouton.
+      uploadInput.addEventListener('change', () => {
+        if (uploadInput.files.length) uploadBtn.click();
+      });
+
       uploadBtn.addEventListener('click', async () => {
         const files = uploadInput.files;
         if (!files.length) { alert('Sélectionnez un ou plusieurs PDF.'); return; }
         uploadBtn.disabled = true;
         uploadBtn.textContent = '⏳ Analyse…';
+        extractedFields = {};
         let ok = 0, err = 0;
+        const DPE_FIELDS = ['dpe_classe','ges_classe','dpe_valeur','ges_valeur','dpe_date_realisation','dpe_version','dpe_reference_certificat','altitude','dpe_valeur_conso_primaire','dpe_valeur_conso_finale','montant_estime_depenses_min','montant_estime_depenses_max','date_indice_prix_energies','numero_ademe','type_diag','date_diagnostic'];
 
         for (const file of files) {
           showStatus('⏳ Analyse de <strong>' + file.name + '</strong>…', 'loading');
@@ -5640,19 +5710,31 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             const data = await resp.json();
             if (!data.ok) throw new Error(data.error || 'Échec');
 
-            // Remplir les champs DPE si extraits
+            // Collecte les champs extraits (sans les appliquer) pour validation utilisateur
             const f = data.fields || {};
-            if (f.dpe_valeur) { const el = document.getElementById('dpe_valeur_input'); if (el && !el.value) { el.value = f.dpe_valeur; el.dispatchEvent(new Event('input')); } }
-            if (f.ges_valeur) { const el = document.getElementById('ges_valeur_input'); if (el && !el.value) { el.value = f.ges_valeur; el.dispatchEvent(new Event('input')); } }
-            ['dpe_date_realisation','dpe_version','dpe_reference_certificat','altitude','dpe_valeur_conso_primaire','dpe_valeur_conso_finale','montant_estime_depenses_min','montant_estime_depenses_max','date_indice_prix_energies'].forEach(name => {
-              if (!f[name]) return;
-              const el = document.querySelector('[name="' + name + '"]');
-              if (el && !el.value) el.value = f[name];
+            DPE_FIELDS.forEach(name => {
+              if (f[name] === undefined || f[name] === null || f[name] === '') return;
+              const el = document.querySelector('[name="' + name + '"]') || document.getElementById(name);
+              const currentValue = el ? (el.value || '') : '';
+              extractedFields[name] = { newValue: f[name], currentValue, fileName: file.name };
             });
             ok++;
           } catch (e) { err++; }
         }
-        showStatus('✅ ' + ok + ' document(s) analysé(s)' + (err ? ', ' + err + ' en erreur' : '') + ' — <a href="javascript:location.reload()" style="color:inherit;font-weight:700;">Recharger pour voir la liste</a>', ok ? 'success' : 'error');
+
+        const nbExtracted = Object.keys(extractedFields).length;
+        if (nbExtracted > 0) {
+          showStatus(
+            '📋 <strong>' + ok + ' document(s) analysé(s)</strong>' + (err ? ', ' + err + ' en erreur' : '')
+            + ' — <strong>' + nbExtracted + ' champ(s) extraits</strong>. Vérifiez et validez pour remplacer les valeurs du formulaire.'
+            + renderValidatePanel(),
+            ok ? 'success' : 'error'
+          );
+          bindValidateButtons();
+        } else {
+          showStatus('⚠️ ' + ok + ' document(s) analysé(s) mais aucun champ DPE exploitable n\'a été extrait' + (err ? ' (' + err + ' en erreur)' : '') + '.', err ? 'error' : 'loading');
+        }
+
         uploadBtn.disabled = false;
         uploadBtn.textContent = '⚡ Analyser & ajouter';
         uploadInput.value = '';
@@ -5874,19 +5956,34 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     syncGes();
   })();
 
-  // ── IMPORT MANDAT PDF ──
+  // ── IMPORT MANDAT PDF — détection propriétaire existant + validation ──
   (function() {
     const trigger = document.getElementById('mandat-pdf-trigger');
     const input   = document.getElementById('mandat-pdf-input');
     const status  = document.getElementById('mandat-import-status');
+    const proprioSelect = document.getElementById('ba-proprietaire-select');
     if (!trigger || !input || !status) return;
+
+    // Liste des propriétaires exposée côté JS pour le matching
+    const proprietaires = <?= json_encode(array_map(function($p) {
+      return [
+        'id' => (int)$p['id'],
+        'nom' => (string)($p['nom'] ?? ''),
+        'prenom' => (string)($p['prenom'] ?? ''),
+        'societe' => (string)($p['societe'] ?? ''),
+        'email' => (string)($p['email'] ?? ''),
+        'telephone' => (string)($p['telephone'] ?? ''),
+        'ville' => (string)($p['ville'] ?? ''),
+      ];
+    }, $proprietairesList), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 
     trigger.addEventListener('click', () => input.click());
 
-    function showStatus(text, type) {
+    function showStatus(html, type) {
       const colors = {
         loading: { bg: '#f0f9ff', border: '#0ea5e9', color: '#0369a1' },
         success: { bg: '#f0fdf4', border: '#16a34a', color: '#14532d' },
+        warning: { bg: '#fffbeb', border: '#f59e0b', color: '#92400e' },
         error:   { bg: '#fef2f2', border: '#dc2626', color: '#991b1b' },
       };
       const c = colors[type] || colors.loading;
@@ -5894,20 +5991,159 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       status.style.background = c.bg;
       status.style.borderLeft = '4px solid ' + c.border;
       status.style.color = c.color;
-      status.innerHTML = text;
+      status.innerHTML = html;
     }
 
-    function setVal(id, val) {
-      const el = document.getElementById(id);
-      if (el && val && !el.value) el.value = val;
+    function norm(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
+
+    // Score de correspondance entre proprio extrait et proprietaire en base
+    function matchScore(extracted, p) {
+      let score = 0;
+      const en = norm(extracted.proprio_nom), ep = norm(extracted.proprio_prenom);
+      const ee = norm(extracted.proprio_email), et = norm(extracted.proprio_telephone).replace(/[^0-9+]/g, '');
+      const es = norm(extracted.proprio_societe);
+      const pn = norm(p.nom), pp = norm(p.prenom), ps = norm(p.societe);
+      const pe = norm(p.email), pt = norm(p.telephone).replace(/[^0-9+]/g, '');
+      if (ee && pe && ee === pe) score += 70;
+      if (et && pt && (et === pt || et.endsWith(pt) || pt.endsWith(et))) score += 50;
+      if (en && pn && en === pn) score += 30;
+      if (ep && pp && ep === pp) score += 15;
+      if (es && ps && es === ps) score += 30;
+      return score;
+    }
+
+    function bestMatch(extracted) {
+      if (!Array.isArray(proprietaires) || !proprietaires.length) return null;
+      let best = null, bestScore = 0;
+      for (const p of proprietaires) {
+        const s = matchScore(extracted, p);
+        if (s > bestScore) { bestScore = s; best = p; }
+      }
+      return bestScore >= 30 ? { p: best, score: bestScore } : null;
+    }
+
+    function proprioLabel(p) {
+      if (!p) return '';
+      if (p.societe) return p.societe + (p.nom ? ' (' + (p.prenom || '') + ' ' + p.nom + ')' : '');
+      return ((p.prenom || '') + ' ' + (p.nom || '')).trim();
+    }
+
+    // Helper : force l'écriture d'une valeur + dispatch d'événements
+    function setVal(nameOrId, val) {
+      if (val === null || val === undefined || val === '') return false;
+      const el = document.getElementById(nameOrId) || document.querySelector('[name="' + nameOrId + '"]');
+      if (!el) return false;
+      el.value = val;
+      try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+      try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      return true;
     }
     function setSelect(name, val) {
-      if (!val) return;
+      if (!val) return false;
       const el = document.querySelector('select[name="' + name + '"]');
-      if (!el) return;
+      if (!el) return false;
       for (const opt of el.options) {
-        if (opt.value === val) { opt.selected = true; return; }
+        if (opt.value === val) {
+          el.value = val;
+          try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+          return true;
+        }
       }
+      return false;
+    }
+
+    function fillMandatFields(f) {
+      let n = 0;
+      if (f.numero_mandat && setVal('mandats_numero', f.numero_mandat)) n++;
+      if (setSelect('mandats_type', f.type_mandat)) n++;
+      const nature = f.nature_mandat || (f.exclusif ? 'exclusif' : '');
+      if (setSelect('mandats_nature', nature)) n++;
+      if (f.date_signature && setVal('mandats_date_signature', f.date_signature)) n++;
+      if (f.date_debut && setVal('mandats_date_debut', f.date_debut)) n++;
+      if (f.date_fin && setVal('mandats_date_fin', f.date_fin)) n++;
+      if (f.honoraires && setVal('mandats_honoraires', f.honoraires)) n++;
+      return n;
+    }
+
+    function fillProprioFields(f) {
+      let n = 0;
+      if (setVal('proprio_nom', f.proprio_nom)) n++;
+      if (setVal('proprio_prenom', f.proprio_prenom)) n++;
+      if (setVal('proprio_societe', f.proprio_societe)) n++;
+      if (setVal('proprio_telephone', f.proprio_telephone)) n++;
+      if (setVal('proprio_email', f.proprio_email)) n++;
+      const adr = [f.proprio_adresse_1, f.proprio_code_postal, f.proprio_ville].filter(Boolean).join(', ');
+      if (adr && setVal('proprio_adresse', adr)) n++;
+      return n;
+    }
+
+    function clearProprioFields() {
+      ['proprio_nom','proprio_prenom','proprio_societe','proprio_telephone','proprio_email','proprio_adresse'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.value = ''; try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {} }
+      });
+    }
+
+    function renderChoicePanel(extracted, match) {
+      const extractedLabel = [extracted.proprio_prenom, extracted.proprio_nom].filter(Boolean).join(' ')
+        || extracted.proprio_societe || '(non renseigné)';
+      const extractedMeta = [extracted.proprio_email, extracted.proprio_telephone].filter(Boolean).join(' • ');
+
+      let matchBlock = '';
+      if (match) {
+        matchBlock = ''
+          + '<div style="margin-top:10px;padding:12px;background:#fff;border:1px solid #16a34a;border-radius:8px;">'
+          + '<div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:4px;">🎯 Correspondance trouvée (score ' + match.score + ')</div>'
+          + '<div style="font-size:13px;font-weight:700;color:#0f172a;">' + proprioLabel(match.p) + '</div>'
+          + '<div style="font-size:11px;color:#64748b;margin-top:2px;">'
+            + [match.p.email, match.p.telephone, match.p.ville].filter(Boolean).join(' • ')
+          + '</div>'
+          + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
+          + '<button type="button" data-mandat-action="use-existing" style="padding:6px 12px;border-radius:6px;background:#16a34a;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Utiliser ce propriétaire &amp; remplir le mandat</button>'
+          + '<button type="button" data-mandat-action="create-new" style="padding:6px 12px;border-radius:6px;background:#fff;color:#0369a1;border:1px solid #0ea5e9;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">+ Créer un nouveau propriétaire</button>'
+          + '</div></div>';
+      } else {
+        matchBlock = ''
+          + '<div style="margin-top:10px;padding:12px;background:#fff;border:1px solid #f59e0b;border-radius:8px;">'
+          + '<div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;">⚠️ Aucun propriétaire correspondant trouvé</div>'
+          + '<div style="font-size:11px;color:#64748b;margin-bottom:8px;">Créez un nouveau propriétaire avec les infos extraites du mandat.</div>'
+          + '<button type="button" data-mandat-action="create-new" style="padding:6px 12px;border-radius:6px;background:#0ea5e9;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">+ Créer le propriétaire &amp; remplir le mandat</button>'
+          + '</div>';
+      }
+
+      return ''
+        + '<div>'
+        + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">📄 Mandat analysé</div>'
+        + '<div style="font-size:11px;color:#475569;">Propriétaire extrait : <strong>' + extractedLabel + '</strong>' + (extractedMeta ? ' — ' + extractedMeta : '') + '</div>'
+        + matchBlock
+        + '</div>';
+    }
+
+    function onUseExisting(match, f) {
+      if (proprioSelect) {
+        proprioSelect.value = String(match.p.id);
+        try { proprioSelect.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      }
+      clearProprioFields(); // on utilise le proprio existant → pas de création à la volée
+      const n = fillMandatFields(f);
+      showStatus('✅ Propriétaire <strong>' + proprioLabel(match.p) + '</strong> sélectionné. <strong>' + n + ' champ(s)</strong> mandat remplis.', 'success');
+    }
+
+    function onCreateNew(f) {
+      if (proprioSelect) {
+        proprioSelect.value = '';
+        try { proprioSelect.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      }
+      const nProprio = fillProprioFields(f);
+      const nMandat = fillMandatFields(f);
+      showStatus('✅ Nouveau propriétaire à créer — <strong>' + nProprio + '</strong> champ(s) propriétaire + <strong>' + nMandat + '</strong> champ(s) mandat remplis. Il sera créé à l\'enregistrement.', 'success');
+    }
+
+    function bindChoiceButtons(extracted, match) {
+      const useExistingBtn = status.querySelector('[data-mandat-action="use-existing"]');
+      const createNewBtn = status.querySelector('[data-mandat-action="create-new"]');
+      if (useExistingBtn && match) useExistingBtn.addEventListener('click', () => onUseExisting(match, extracted));
+      if (createNewBtn) createNewBtn.addEventListener('click', () => onCreateNew(extracted));
     }
 
     input.addEventListener('change', async () => {
@@ -5932,62 +6168,18 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           method: 'POST', body: fd, credentials: 'same-origin'
         });
         const data = await resp.json();
-
         if (!data.ok) throw new Error(data.error || 'Analyse échouée');
 
         const f = data.fields || {};
-        let filled = 0;
-
-        // Propriétaire
-        setVal('proprio_nom', f.proprio_nom); if (f.proprio_nom) filled++;
-        setVal('proprio_prenom', f.proprio_prenom); if (f.proprio_prenom) filled++;
-        setVal('proprio_societe', f.proprio_societe); if (f.proprio_societe) filled++;
-        setVal('proprio_telephone', f.proprio_telephone); if (f.proprio_telephone) filled++;
-        setVal('proprio_email', f.proprio_email); if (f.proprio_email) filled++;
-        setVal('proprio_adresse', [f.proprio_adresse_1, f.proprio_code_postal, f.proprio_ville].filter(Boolean).join(', '));
-        if (f.proprio_adresse_1) filled++;
-
-        // Mandat
-        if (f.numero_mandat) { setVal('mandats_numero', f.numero_mandat); filled++; }
-        // Note: mandats_numero n'a pas d'id, on utilise name
-        const numEl = document.querySelector('input[name="mandats_numero"]');
-        if (numEl && f.numero_mandat && !numEl.value) numEl.value = f.numero_mandat;
-
-        setSelect('mandats_type', f.type_mandat);
-        if (f.type_mandat) filled++;
-
-        const nature = f.nature_mandat || (f.exclusif ? 'exclusif' : '');
-        if (nature) { setSelect('mandats_nature', nature); filled++; }
-
-        const dateFields = {
-          'mandats_date_signature': f.date_signature,
-          'mandats_date_debut': f.date_debut,
-          'mandats_date_fin': f.date_fin,
-        };
-        for (const [name, val] of Object.entries(dateFields)) {
-          if (!val) continue;
-          const el = document.querySelector('input[name="' + name + '"]');
-          if (el && !el.value) { el.value = val; filled++; }
-        }
-
-        // Honoraires → champ dans Prix
-        if (f.honoraires) {
-          const hEl = document.querySelector('input[name="mandats_honoraires"]');
-          if (hEl && !hEl.value) { hEl.value = f.honoraires; filled++; }
-        }
-
-        const resume = data.resume || data.doc_titre || '';
-        showStatus(
-          '✅ <strong>' + filled + ' champ(s)</strong> rempli(s) depuis le mandat'
-          + (resume ? '<br><em style="font-size:11px;opacity:.8;">' + resume + '</em>' : ''),
-          'success'
-        );
+        const match = bestMatch(f);
+        showStatus(renderChoicePanel(f, match), match ? 'success' : 'warning');
+        bindChoiceButtons(f, match);
 
       } catch (e) {
         showStatus('❌ ' + (e.message || 'Erreur inconnue'), 'error');
       } finally {
         trigger.disabled = false;
-        trigger.innerHTML = '📄 Importer un mandat PDF';
+        trigger.innerHTML = '📄 Importer mandat PDF';
       }
     });
   })();
@@ -6019,38 +6211,141 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
   // ── CALCUL AUTOMATIQUE HONORAIRES TRANSACTION (% ↔ montant) ──
   (function() {
     const prixEl = document.getElementById('prix_vente_estime');
+    const inclusSel = document.querySelector('select[name="honoraires_inclus"]');
     const pctAcq = document.getElementById('alur_pct_acq');
     const pctVend = document.getElementById('alur_pct_vend');
     const cumul = document.getElementById('hono_cumules');
+    const detailEl = document.querySelector('input[name="honoraires_detail"]');
     const hintPct = document.getElementById('alur-pct-hint');
     const hintCumul = document.getElementById('hono-cumul-hint');
-    let lastChanged = '';
-    function calcFromPct() {
-      const prix = parseFloat(prixEl?.value) || 0;
-      const pct = parseFloat(pctAcq?.value) || 0;
-      const pctV = parseFloat(pctVend?.value) || 0;
-      if (prix > 0 && (pct > 0 || pctV > 0)) {
-        const montant = Math.round(prix * (pct + pctV) / 100 * 100) / 100;
-        if (cumul && lastChanged !== 'montant') cumul.value = montant.toFixed(2);
-        if (hintPct) hintPct.textContent = pct > 0 ? '= ' + (prix * pct / 100).toFixed(0) + ' € sur ' + prix.toFixed(0) + ' €' : '';
-        if (hintCumul) hintCumul.textContent = '(' + (pct + pctV).toFixed(2) + '% de ' + prix.toFixed(0) + ' €)';
+    const chargeAcqEl = document.querySelector('input[name="honoraires_charge_acquereur"]');
+    const chargeVendEl = document.querySelector('input[name="honoraires_charge_vendeur"]');
+
+    function num(v) {
+      const n = parseFloat(String(v ?? '').replace(',', '.'));
+      return Number.isFinite(n) ? n : 0;
+    }
+    function round2(n) { return Math.round(n * 100) / 100; }
+    function setIfDifferent(el, next) {
+      if (!el) return;
+      if (String(el.value ?? '') !== String(next ?? '')) {
+        el.value = next ?? '';
+        // Dispatch pour réveiller l'autosave et autres handlers dépendants
+        try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
       }
     }
-    function calcFromMontant() {
-      const prix = parseFloat(prixEl?.value) || 0;
-      const montant = parseFloat(cumul?.value) || 0;
-      if (prix > 0 && montant > 0) {
-        const pct = Math.round(montant / prix * 100 * 100) / 100;
-        if (pctAcq && lastChanged !== 'pct') pctAcq.value = pct.toFixed(2);
-        if (hintCumul) hintCumul.textContent = '(' + pct.toFixed(2) + '% de ' + prix.toFixed(0) + ' €)';
+    function isOn(el) { return !!el && String(el.value) === '1'; }
+
+    function computeFromPct(prixAffiche, totalPct, inclus) {
+      if (!(prixAffiche > 0) || !(totalPct > 0)) return null;
+      if (inclus === 'oui') {
+        const hh = prixAffiche / (1 + totalPct / 100);
+        const fees = prixAffiche - hh;
+        return { hh, fai: prixAffiche, fees, totalPct };
+      }
+      const hh = prixAffiche;
+      const fees = hh * totalPct / 100;
+      return { hh, fai: hh + fees, fees, totalPct };
+    }
+
+    function computeFromFees(prixAffiche, fees, inclus) {
+      if (!(prixAffiche > 0) || !(fees > 0)) return null;
+      if (inclus === 'oui') {
+        const hh = prixAffiche - fees;
+        if (!(hh > 0)) return null;
+        const totalPct = fees / hh * 100;
+        return { hh, fai: prixAffiche, fees, totalPct };
+      }
+      const hh = prixAffiche;
+      const totalPct = fees / hh * 100;
+      return { hh, fai: hh + fees, fees, totalPct };
+    }
+
+    function updateDetailIfEmpty() {
+      if (!detailEl || String(detailEl.value || '').trim() !== '') return;
+      const a = num(pctAcq?.value);
+      const v = num(pctVend?.value);
+      const parts = [];
+      const hasChargeFlag = isOn(chargeAcqEl) || isOn(chargeVendEl);
+      if (isOn(chargeAcqEl) && a > 0) parts.push(a.toFixed(2).replace('.', ',') + '% TTC charge acquéreur');
+      if (isOn(chargeVendEl) && v > 0) parts.push(v.toFixed(2).replace('.', ',') + '% TTC charge vendeur');
+      if (!parts.length && !hasChargeFlag) {
+        const total = a + v;
+        if (total > 0) parts.push(total.toFixed(2).replace('.', ',') + '% TTC');
+      }
+      if (parts.length) detailEl.value = parts.join(' + ');
+    }
+
+    function renderHints(res) {
+      if (!res) return;
+      const pctA = num(pctAcq?.value);
+      const pctV = num(pctVend?.value);
+      const total = pctA + pctV;
+      if (hintPct) {
+        let txt = '';
+        if (pctA > 0) txt += 'Acquéreur: ' + round2(res.hh * pctA / 100).toFixed(0) + ' €';
+        if (pctV > 0) txt += (txt ? ' • ' : '') + 'Vendeur: ' + round2(res.hh * pctV / 100).toFixed(0) + ' €';
+        hintPct.textContent = txt;
+      }
+      if (hintCumul) {
+        const baseLabel = (inclusSel?.value === 'oui') ? 'HH' : 'Prix';
+        hintCumul.textContent =
+          baseLabel + ': ' + round2(res.hh).toFixed(0) + ' €'
+          + ' • FAI: ' + round2(res.fai).toFixed(0) + ' €'
+          + ' • Honoraires: ' + round2(res.fees).toFixed(0) + ' €'
+          + (total > 0 ? ' (' + total.toFixed(2) + '%)' : '');
       }
     }
-    pctAcq?.addEventListener('input', () => { lastChanged = 'pct'; calcFromPct(); });
-    pctVend?.addEventListener('input', () => { lastChanged = 'pct'; calcFromPct(); });
-    cumul?.addEventListener('input', () => { lastChanged = 'montant'; calcFromMontant(); });
-    prixEl?.addEventListener('input', () => { if (lastChanged === 'montant') calcFromMontant(); else calcFromPct(); });
-    if (parseFloat(pctAcq?.value) > 0) { lastChanged = 'pct'; calcFromPct(); }
-    else if (parseFloat(cumul?.value) > 0) { lastChanged = 'montant'; calcFromMontant(); }
+
+    let lastChanged = ''; // 'pct' | 'fees'
+    function recalc() {
+      const prix = num(prixEl?.value);
+      const inclus = inclusSel?.value === 'oui' ? 'oui' : 'non';
+      const pctA = num(pctAcq?.value);
+      const pctV = num(pctVend?.value);
+      const fees = num(cumul?.value);
+      const totalPct = pctA + pctV;
+
+      if (lastChanged === 'fees') {
+        const res = computeFromFees(prix, fees, inclus);
+        if (!res) return;
+        const newTotalPct = round2(res.totalPct);
+        const fixedVend = num(pctVend?.value);
+        if (pctAcq) {
+          // Conserve pct vendeur si déjà saisi, sinon tout dans acquéreur
+          const next = fixedVend > 0 ? Math.max(0, newTotalPct - fixedVend) : newTotalPct;
+          setIfDifferent(pctAcq, next.toFixed(2));
+        }
+        renderHints(res);
+        updateDetailIfEmpty();
+        return;
+      }
+
+      const res = computeFromPct(prix, totalPct, inclus);
+      if (!res) return;
+      if (cumul) setIfDifferent(cumul, round2(res.fees).toFixed(2));
+      // Auto-remplit aussi « Honoraires mandat » si vide (= mêmes fees sur vente classique)
+      const mandatHonoEl = document.querySelector('input[name="mandats_honoraires"]');
+      if (mandatHonoEl && String(mandatHonoEl.value || '').trim() === '' && res.fees > 0) {
+        setIfDifferent(mandatHonoEl, round2(res.fees).toFixed(2));
+      }
+      renderHints(res);
+      updateDetailIfEmpty();
+    }
+
+    pctAcq?.addEventListener('input', () => { lastChanged = 'pct'; recalc(); });
+    pctVend?.addEventListener('input', () => { lastChanged = 'pct'; recalc(); });
+    cumul?.addEventListener('input', () => { lastChanged = 'fees'; recalc(); });
+    prixEl?.addEventListener('input', () => recalc());
+    inclusSel?.addEventListener('change', () => recalc());
+    // Toggle mini-cards (hidden inputs) : click sur la carte → recalc (délai car minicard.js bascule après)
+    document.querySelectorAll('[data-field="honoraires_charge_acquereur"],[data-field="honoraires_charge_vendeur"]').forEach(card => {
+      card.addEventListener('click', () => setTimeout(() => { updateDetailIfEmpty(); recalc(); }, 0));
+    });
+
+    if (num(cumul?.value) > 0) lastChanged = 'fees';
+    else if (num(pctAcq?.value) > 0 || num(pctVend?.value) > 0) lastChanged = 'pct';
+    recalc();
   })();
 
   // ── CALCUL AUTOMATIQUE LOYER HC = Loyer référence majoré + Complément total ──
@@ -6930,6 +7225,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
 
     // Helper : applique une valeur à un champ form (input/select/hidden + DPE buttons + type-card)
+    // Exposé à window pour réutilisation par le petit upload dans l'onglet Documents.
     function applyValue(name, value) {
       if (value === null || value === '' || value === undefined) return false;
 
@@ -6966,6 +7262,9 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         for (const el of els) el.checked = (el.value == value);
       } else {
         first.value = value;
+        // Déclenche input pour calculs dépendants (honoraires, loyer HC, etc.)
+        try { first.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+        try { first.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
       }
       // Effet visuel : highlight vert
       first.style.transition = 'background .3s';
@@ -6973,6 +7272,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       setTimeout(() => { first.style.background = ''; }, 1500);
       return true;
     }
+    // Expose pour le petit upload Diag
+    window.__baApplyDpeValue = applyValue;
 
     trigger.addEventListener('click', () => input.click());
 
@@ -7413,10 +7714,12 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             }
             refreshInputFromQueue();
             renderGrid();
+            if (typeof window.__baRenderPhotoRecap === 'function') window.__baRenderPhotoRecap();
           }).catch(() => {
             const idx = existing.findIndex(p => p.id === tempId);
             if (idx >= 0) existing.splice(idx, 1);
             renderGrid();
+            if (typeof window.__baRenderPhotoRecap === 'function') window.__baRenderPhotoRecap();
           });
         });
       } else {
@@ -7545,6 +7848,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             existing[idx].description_ia = r.description;
           }
           renderGrid();
+          if (typeof window.__baRenderPhotoRecap === 'function') window.__baRenderPhotoRecap();
         } else {
           throw new Error(r.error || 'Échec');
         }
@@ -7553,6 +7857,87 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = prev || '🔎'; }
       }
     };
+
+    // ════════════════════════════════════════════════════════
+    // RECAP PHOTOS dans l'onglet Description > Analyse photos
+    // Rendu dynamique depuis `existing` avec actions par photo
+    // ════════════════════════════════════════════════════════
+    function escHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    window.__baRenderPhotoRecap = function () {
+      const recap = document.getElementById('ba-photo-recap');
+      if (!recap) return;
+
+      const total = existing.length;
+      const analysed = existing.filter(p => !!p.description_ia).length;
+      const notAnalysed = total - analysed;
+
+      if (total === 0) {
+        recap.innerHTML = '<div class="ba-photo-recap-empty" style="text-align:center;padding:20px;color:#888;">'
+          + 'Aucune photo uploadée. Ajoutez des photos dans l\'onglet <strong>📸 Photos</strong>.'
+          + '</div>';
+        return;
+      }
+
+      const headerActions = bienIdForAnalyze > 0
+        ? '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+          + (notAnalysed > 0 ? '<button type="button" data-recap-action="analyze" style="padding:6px 12px;border-radius:6px;background:#6a4ca8;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🔎 Analyser ' + notAnalysed + ' non analysée(s)</button>' : '')
+          + '<button type="button" data-recap-action="force" style="padding:6px 12px;border-radius:6px;background:#fff;color:#6a4ca8;border:1px solid #6a4ca8;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;" title="Relance l\'analyse même sur les photos déjà analysées">↻ Tout réanalyser</button>'
+          + '</div>'
+        : '<div style="font-size:11px;color:#94a3b8;">Sauvegardez le bien pour activer l\'analyse IA.</div>';
+
+      const header = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:linear-gradient(180deg,rgba(106,76,168,0.06),var(--card));border:1px solid rgba(106,76,168,0.18);border-radius:10px;">'
+        + '<div style="flex:1;min-width:180px;font-size:12px;">'
+        + '<strong style="color:#6a4ca8;">🤖 Analyses Vision</strong><br>'
+        + '<span style="color:#64748b;">' + total + ' photo(s) • <strong>' + analysed + '</strong> analysée(s) • ' + notAnalysed + ' en attente</span>'
+        + '</div>' + headerActions + '</div>';
+
+      const items = existing.map(p => {
+        const has = !!p.description_ia;
+        const uploading = !!p._uploading;
+        const cat = p.categorie ? '<div style="font-weight:700;color:#4878a6;font-size:10px;text-transform:uppercase;margin-bottom:3px;">' + escHtml(String(p.categorie).replace(/_/g, ' ')) + '</div>' : '';
+        const body = uploading
+          ? '<div style="font-size:11px;color:#94a3b8;font-style:italic;">⏳ Upload en cours…</div>'
+          : (has
+              ? cat + '<div style="font-size:12px;line-height:1.4;color:#334155;">' + escHtml(p.description_ia) + '</div>'
+              : '<div style="font-size:11px;color:#94a3b8;font-style:italic;">— Pas encore analysée —</div>');
+        const btn = (!uploading && bienIdForAnalyze > 0 && typeof p.id === 'number')
+          ? '<button type="button" data-recap-analyze="' + p.id + '" title="' + (has ? 'Relancer l\'analyse' : 'Analyser cette photo') + '" style="align-self:flex-start;padding:4px 8px;border-radius:5px;background:' + (has ? '#fff' : '#6a4ca8') + ';color:' + (has ? '#6a4ca8' : '#fff') + ';border:1px solid #6a4ca8;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">' + (has ? '↻' : '🔎') + '</button>'
+          : '';
+        return '<div style="display:flex;gap:10px;padding:10px;background:#fff;border-radius:10px;border:1px solid #eee;">'
+          + (p.url
+              ? '<img src="' + escHtml(p.url) + '" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex-shrink:0;">'
+              : '<div style="width:72px;height:72px;background:#f1f5f9;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">📷</div>')
+          + '<div style="flex:1;min-width:0;">' + body + '</div>'
+          + btn
+          + '</div>';
+      }).join('');
+
+      recap.innerHTML = header
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' + items + '</div>'
+        + '<div class="ba-hint" style="margin-top:10px;">Analyses fournies à ChatGPT pour le descriptif.</div>';
+
+      // Bind des boutons batch
+      const btnAnalyze = recap.querySelector('[data-recap-action="analyze"]');
+      const btnForce = recap.querySelector('[data-recap-action="force"]');
+      if (btnAnalyze) btnAnalyze.addEventListener('click', () => analyzePhotos({ force: false }));
+      if (btnForce) btnForce.addEventListener('click', () => analyzePhotos({ force: true }));
+
+      // Bind des boutons par photo
+      recap.querySelectorAll('[data-recap-analyze]').forEach(b => {
+        b.addEventListener('click', () => {
+          const id = parseInt(b.getAttribute('data-recap-analyze'), 10);
+          if (id > 0) window.__baAnalyzeSinglePhoto(id, b);
+        });
+      });
+    };
+
+    // Rendu initial (remplace le rendu PHP statique par le rendu JS interactif)
+    window.__baRenderPhotoRecap();
   })();
 
   // ════════════════════════════════════════════════════════
