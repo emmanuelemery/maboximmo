@@ -28,8 +28,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Vous ne pouvez pas réutiliser le mot de passe provisoire.';
     } else {
         $hash = password_hash($newPwd, PASSWORD_BCRYPT);
-        $stmt = $pdo->prepare("UPDATE users SET mot_de_passe = ?, force_password_change = 0 WHERE id = ?");
-        $stmt->execute([$hash, $userId]);
+        // Compat : met à jour force_password_change seulement si la colonne existe
+        $hasFpcCol = false;
+        try {
+            $hasFpcCol = (bool)$pdo->query("SHOW COLUMNS FROM users LIKE 'force_password_change'")->fetchColumn();
+        } catch (Throwable) { $hasFpcCol = false; }
+        $sql = $hasFpcCol
+            ? "UPDATE users SET mot_de_passe = ?, force_password_change = 0 WHERE id = ?"
+            : "UPDATE users SET mot_de_passe = ? WHERE id = ?";
+        $pdo->prepare($sql)->execute([$hash, $userId]);
         $success = true;
     }
 }

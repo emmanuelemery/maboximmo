@@ -7,6 +7,22 @@ if (session_status() === PHP_SESSION_NONE) {
 
 define('SESSION_TIMEOUT', 8 * 3600); // 8 heures
 
+/**
+ * Vrai si la colonne users.force_password_change existe (résultat cache).
+ * Permet au code de tourner sur une BDD où la migration n'a pas encore été jouée.
+ */
+function users_has_force_password_change(PDO $pdo): bool
+{
+    static $has = null;
+    if ($has !== null) return $has;
+    try {
+        $has = (bool)$pdo->query("SHOW COLUMNS FROM users LIKE 'force_password_change'")->fetchColumn();
+    } catch (Throwable) {
+        $has = false;
+    }
+    return $has;
+}
+
 function require_login(): void
 {
     // Construit le paramètre ?next= pour revenir sur la même page après login
@@ -34,16 +50,20 @@ function require_login(): void
     $_SESSION['last_activity'] = $now;
 
     // Forcer le changement de mot de passe si nécessaire
+    // Compat : la colonne force_password_change peut ne pas exister sur les
+    // BDDs sans la migration (Hostinger dev/prod tant que le SQL n'est pas joué).
     $currentScript = basename($_SERVER['SCRIPT_NAME'] ?? '');
     if ($currentScript !== 'change_password.php' && $currentScript !== 'login.php') {
         $pdo = $GLOBALS['pdo'] ?? null;
-        if ($pdo) {
-            $stmtFpc = $pdo->prepare("SELECT force_password_change FROM users WHERE id = ? LIMIT 1");
-            $stmtFpc->execute([$_SESSION['user_id']]);
-            if ((int)$stmtFpc->fetchColumn() === 1) {
-                header('Location: ' . app_url('/change_password.php'));
-                exit;
-            }
+        if ($pdo && users_has_force_password_change($pdo)) {
+            try {
+                $stmtFpc = $pdo->prepare("SELECT force_password_change FROM users WHERE id = ? LIMIT 1");
+                $stmtFpc->execute([$_SESSION['user_id']]);
+                if ((int)$stmtFpc->fetchColumn() === 1) {
+                    header('Location: ' . app_url('/change_password.php'));
+                    exit;
+                }
+            } catch (Throwable) { /* no-op : colonne absente ou autre erreur, on laisse passer */ }
         }
     }
 }
