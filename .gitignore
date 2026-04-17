@@ -3,12 +3,13 @@
 # ═══════════════════════════════════════════════
 
 # ── Credentials & configuration locale ──
-public_html/config/db.php
+# config/db.php = logique pure (pas de credentials) → versionné
 public_html/config/smtp.php
 public_html/config/smtp_local.php
 public_html/config/ubiflow_credentials.local.php
 public_html/config/registres.php
 db_config.php
+db_config_dev.php
 .env
 .env.local
 .env.*.local
@@ -43,7 +44,7 @@ public_html__backup*/
 *.rar
 
 # ── Config avec credentials dans sous-dossiers ──
-**/config/db.php
+# config/db.php exclu volontairement — fichier de logique, pas de credentials
 **/config/smtp.php
 **/config/smtp_local.php
 **/config/registres.php
