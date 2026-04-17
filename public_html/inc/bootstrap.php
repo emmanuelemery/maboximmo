@@ -16,10 +16,15 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
 
 /**
  * MODE APPLICATION
- * true  = développement local (XAMPP) — affiche les erreurs à l'écran
- * false = production (Hostinger)      — masque les erreurs aux visiteurs
+ * - localhost / 127.0.0.1 / dev.maboximmo.fr → affiche les erreurs (dev)
+ * - maboximmo.fr                             → masque les erreurs (prod)
  */
-const APP_DEBUG = false;
+$_host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
+define('APP_DEBUG', (
+    str_contains($_host, 'localhost') ||
+    str_contains($_host, '127.0.0.1') ||
+    str_contains($_host, 'dev.maboximmo')
+));
 
 if (APP_DEBUG) {
     ini_set('display_errors', '1');
