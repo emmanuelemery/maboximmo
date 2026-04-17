@@ -5375,6 +5375,33 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
   });
 
+  // ── Auto-save sur modification de champ (debounce 1.5s) ──
+  // Évite de devoir cliquer "Mettre à jour" manuellement. autoSave() gère
+  // déjà __autoSaving et __isEditing, donc sûr à appeler.
+  (function() {
+    const form = document.getElementById('bien-create-form');
+    if (!form) return;
+    let __fieldTimer = null;
+    const DEBOUNCE_MS = 1500;
+
+    function schedule() {
+      if (!__isEditing) return;
+      if (__fieldTimer) clearTimeout(__fieldTimer);
+      __fieldTimer = setTimeout(() => { __fieldTimer = null; autoSave(); }, DEBOUNCE_MS);
+    }
+
+    // `input` couvre texte, number, textarea, select-one ; `change` couvre
+    // checkbox, radio, select, date. File inputs ignorés (autoSave les filtre déjà).
+    form.addEventListener('input', function(e) {
+      if (e.target && e.target.type === 'file') return;
+      schedule();
+    });
+    form.addEventListener('change', function(e) {
+      if (e.target && e.target.type === 'file') return;
+      schedule();
+    });
+  })();
+
   // ── NAV STEPS (onglets + sous-onglets séquentiels) ──
   const NAV_STEPS = [
     { tab: 'identification', sub: 'ident-main',     label: 'Identification' },
