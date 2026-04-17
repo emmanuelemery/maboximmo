@@ -5464,17 +5464,22 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
   window.switchTab = switchTab;
 
   document.querySelectorAll('.ba-tab').forEach(btn =>
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab))
+    btn.addEventListener('click', () => {
+      switchTab(btn.dataset.tab);
+      if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState();
+    })
   );
 
   // ── Restauration complète tab + sous-tab + scroll via sessionStorage ──
-  // Prioritaire sur le hash URL : sessionStorage permet de persister la
-  // position exacte (onglet + sous-onglet + scroll) entre refreshs.
+  // Persiste la position exacte (onglet + sous-onglet + scroll) entre refreshs.
+  // Le hash URL ne prévaut que s'il pointe vers un tab différent de celui
+  // enregistré (ex : lien externe vers #photos) — sinon sessionStorage gagne,
+  // sinon le scroll serait perdu à chaque refresh car switchTab met à jour
+  // le hash en permanence via history.replaceState.
   (function() {
     const KEY = 'ba_state_' + window.location.pathname + window.location.search;
 
-    // Sauvegarde à chaque beforeunload (refresh, fermeture, navigation)
-    window.addEventListener('beforeunload', function() {
+    function saveState() {
       try {
         const panel = document.querySelector('.ba-panel.active');
         const subActive = panel?.querySelector('.ba-subtab.active');
@@ -5484,26 +5489,49 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           sub: subActive?.dataset?.sub || '',
         }));
       } catch (_) {}
+    }
+
+    // Sauvegarde fréquente : scroll throttlé, beforeunload, pagehide, visibilitychange.
+    // (beforeunload seul est peu fiable sur mobile/certains navigateurs.)
+    let __scrollTimer = null;
+    window.addEventListener('scroll', function() {
+      if (__restoringState) return;
+      if (__scrollTimer) return;
+      __scrollTimer = setTimeout(() => { saveState(); __scrollTimer = null; }, 200);
+    }, { passive: true });
+    window.addEventListener('beforeunload', saveState);
+    window.addEventListener('pagehide', saveState);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') saveState();
     });
+    window.__baSaveUiState = saveState; // exposé pour clics tab/sous-onglet
 
     // Lecture : sessionStorage > hash URL > défaut
     let initialTab = 'identification';
     let initialSub = '';
     let initialScroll = null;
+    let saved = null;
     try {
       const raw = sessionStorage.getItem(KEY);
-      if (raw) {
-        const st = JSON.parse(raw);
-        if (st.tab) initialTab = st.tab;
-        if (st.sub) initialSub = st.sub;
-        if (typeof st.scroll === 'number') initialScroll = st.scroll;
-      }
+      if (raw) saved = JSON.parse(raw);
     } catch (_) {}
-    // Le hash a priorité si présent (ex : clic lien externe vers #photos)
+
+    if (saved) {
+      if (saved.tab) initialTab = saved.tab;
+      if (saved.sub) initialSub = saved.sub;
+      if (typeof saved.scroll === 'number') initialScroll = saved.scroll;
+    }
+
+    // Hash URL : ne prévaut que s'il cible un autre onglet que celui mémorisé
+    // (cas d'un lien externe). Sinon c'est juste le hash laissé par la nav
+    // précédente → on garde sessionStorage.
     if (window.location.hash) {
-      initialTab = window.location.hash.slice(1);
-      initialSub = '';
-      initialScroll = null;
+      const hashTab = window.location.hash.slice(1);
+      if (hashTab && hashTab !== initialTab) {
+        initialTab = hashTab;
+        initialSub = '';
+        initialScroll = null;
+      }
     }
 
     __restoringState = true;
@@ -5518,10 +5546,14 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       requestAnimationFrame(() => {
         window.scrollTo(0, initialScroll);
         // 2e tick : certaines images/fonts modifient la hauteur totale
-        requestAnimationFrame(() => { window.scrollTo(0, initialScroll); });
+        requestAnimationFrame(() => {
+          window.scrollTo(0, initialScroll);
+          __restoringState = false;
+        });
       });
+    } else {
+      __restoringState = false;
     }
-    __restoringState = false;
   })();
 
   // ── SOUS-ONGLETS (subtabs, avec auto-save) ──
@@ -5541,6 +5573,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     btn.addEventListener('click', function() {
       autoSave();
       activateSubtab(this);
+      // Persiste l'état UI (onglet / sous-onglet / scroll) pour refresh
+      if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState();
     });
   });
 
