@@ -3,6 +3,7 @@
 // Inclusion : include 'sidebar_bailleur.php';
 
 $current_page = $current_page ?? ($_GET['page'] ?? 'dashboard');
+$current_script = basename($_SERVER['PHP_SELF'] ?? '');
 
 $bailleur_modules = [
   'biens'      => ['label' => 'Biens locatifs',      'color' => '#4e6e90', 'icon' => 'home'],
@@ -10,6 +11,13 @@ $bailleur_modules = [
   'loyers'     => ['label' => 'Loyers & Quittances',  'color' => '#4e7270', 'icon' => 'dollar'],
   'baux'       => ['label' => 'Contrats & Baux',      'color' => '#4e7460', 'icon' => 'file'],
   'travaux'    => ['label' => 'Travaux & Entretien',  'color' => '#4e7650', 'icon' => 'wrench'],
+];
+
+$bailleur_utilitaires = [
+  'arbitrage'      => ['label' => 'Arbitrage patrimonial', 'href' => 'arbitrage_biens.php',      'color' => '#36577d', 'icon' => 'briefcase'],
+  'plan_tresorerie'=> ['label' => 'Plan trésorerie 15 M€', 'href' => 'plan_tresorerie.php',      'color' => '#4a6038', 'icon' => 'dollar'],
+  'upload_crg'     => ['label' => 'Import CRG',            'href' => 'gestion/upload_crg.php',   'color' => '#5a6e8a', 'icon' => 'file'],
+  'crg_audit'      => ['label' => 'Audit CRG',             'href' => 'bailleur_crg_audit.php',   'color' => '#b8922a', 'icon' => 'monitor'],
 ];
 
 $icons = [
@@ -342,6 +350,32 @@ function svg_icon(string $path, string $stroke = '#8a8680', string $size = '15px
   <?php foreach ($bailleur_modules as $key => $mod): ?>
   <a href="?page=<?= $key ?>"
      class="sb-rh <?= ($current_page === $key) ? 'active' : '' ?>"
+     style="--rh-color: <?= $mod['color'] ?>;">
+    <div class="sb-rh-bar"></div>
+    <div class="sb-rh-ico">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <?= $icons[$mod['icon']] ?>
+      </svg>
+    </div>
+    <span class="sb-rh-lbl"><?= htmlspecialchars($mod['label']) ?></span>
+    <div class="sb-mtog">
+      <div class="sb-mthumb"></div>
+    </div>
+  </a>
+  <?php endforeach; ?>
+
+  <div class="sb-divider"></div>
+
+  <!-- UTILITAIRES -->
+  <div class="sb-section">Utilitaires</div>
+
+  <?php foreach ($bailleur_utilitaires as $key => $mod):
+      $href = function_exists('app_url') ? app_url('/' . ltrim($mod['href'], '/')) : $mod['href'];
+      $isActive = ($current_page === $key) || ($current_script === basename((string)$mod['href']));
+  ?>
+  <a href="<?= htmlspecialchars($href) ?>"
+     class="sb-rh <?= $isActive ? 'active' : '' ?>"
      style="--rh-color: <?= $mod['color'] ?>;">
     <div class="sb-rh-bar"></div>
     <div class="sb-rh-ico">

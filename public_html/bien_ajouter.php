@@ -172,6 +172,27 @@ if (is_post()) {
 
     // ── Identification ──
     $proprietaireId  = post('id_proprietaire', '') !== '' ? (int)post('id_proprietaire') : null;
+
+    // Création propriétaire à la volée si champs remplis et pas de sélection
+    if (!$proprietaireId) {
+        $pNom = $str('proprio_nom');
+        if ($pNom !== '') {
+            $stmtNewP = $pdo->prepare("
+                INSERT INTO proprietaires (nom, prenom, societe, telephone, email, adresse_1, actif, date_creation, date_modification)
+                VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+            ");
+            $stmtNewP->execute([
+                $pNom,
+                $str('proprio_prenom') ?: null,
+                $str('proprio_societe') ?: null,
+                $str('proprio_telephone') ?: null,
+                $str('proprio_email') ?: null,
+                $str('proprio_adresse') ?: null,
+            ]);
+            $proprietaireId = (int)$pdo->lastInsertId() ?: null;
+        }
+    }
+
     $typeBienCode    = $str('type_bien', 'appartement');
     $referenceBien   = $str('reference_bien');
     $designation     = $str('designation');
@@ -459,15 +480,24 @@ if (is_post()) {
             }
 
             // ── Gestion immeuble ──
-            // En mode édition, si le bien a déjà un id_immeuble et que
-            // l'adresse n'a pas été touchée, on conserve l'existant.
+            // En mode édition, si le bien a déjà un id_immeuble, on le réutilise
+            // MAIS on met à jour son adresse si l'utilisateur l'a modifiée (sinon
+            // le bien garderait l'ancienne adresse pointée par l'immeuble).
             $immeubleId = $immeubleIdPosted > 0 ? $immeubleIdPosted : 0;
+            $reusingExistingImmeuble = false;
             if ($immeubleId <= 0 && $isEditing && !empty($bienLoaded['id_immeuble'])) {
                 $immeubleId = (int)$bienLoaded['id_immeuble'];
+                $reusingExistingImmeuble = true;
             }
             $adresseCle = $normalizeKey($adresse1, $adresse2, $codePostal, $ville);
 
-            if ($immeubleId <= 0 && $adresse1 !== '') {
+            // Détecte si la colonne adresse_cle existe dans immeubles
+            // (Hostinger peut ne pas avoir la migration sync_phase1_structure_remote)
+            try {
+                $_immHasAdresseCle = (bool)$pdo->query("SHOW COLUMNS FROM immeubles LIKE 'adresse_cle'")->fetchColumn();
+            } catch (Throwable) { $_immHasAdresseCle = false; }
+
+            if ($immeubleId <= 0 && $adresse1 !== '' && $_immHasAdresseCle) {
                 // Tente de retrouver un immeuble existant via la clé d'adresse
                 $stmtImmeuble = $pdo->prepare("
                     SELECT id FROM immeubles WHERE adresse_cle = :cle LIMIT 1
@@ -478,25 +508,47 @@ if (is_post()) {
 
             if ($immeubleId <= 0 && $adresse1 !== '') {
                 // Crée un nouvel immeuble UNIQUEMENT si l'adresse minimale est fournie
-                $stmtInsertImmeuble = $pdo->prepare("
-                    INSERT INTO immeubles
-                        (id_societe, id_agence, adresse_1, adresse_2, adresse_cle, code_postal, ville, pays, latitude, longitude)
-                    VALUES
-                        (:id_societe, :id_agence, :adresse_1, :adresse_2, :adresse_cle, :code_postal, :ville, :pays, :latitude, :longitude)
-                ");
-                $stmtInsertImmeuble->execute([
+                $immCols = ['id_societe','id_agence','adresse_1','adresse_2','code_postal','ville','pays','latitude','longitude'];
+                $immVals = [
                     ':id_societe' => $_SESSION['id_societe'] ?? null,
                     ':id_agence'  => $_SESSION['id_agence']  ?? null,
                     ':adresse_1'  => $adresse1,
                     ':adresse_2'  => $adresse2 !== '' ? $adresse2 : null,
-                    ':adresse_cle'=> $adresseCle,
                     ':code_postal'=> $codePostal !== '' ? $codePostal : null,
                     ':ville'      => $ville !== '' ? $ville : null,
                     ':pays'       => $pays !== '' ? $pays : 'France',
                     ':latitude'   => $latitude !== '' ? $latitude : null,
                     ':longitude'  => $longitude !== '' ? $longitude : null,
-                ]);
+                ];
+                if ($_immHasAdresseCle) {
+                    $immCols[] = 'adresse_cle';
+                    $immVals[':adresse_cle'] = $adresseCle;
+                }
+                $colList = '`' . implode('`,`', $immCols) . '`';
+                $phList  = implode(',', array_map(fn($c) => ':' . $c, $immCols));
+                $pdo->prepare("INSERT INTO immeubles ($colList) VALUES ($phList)")->execute($immVals);
                 $immeubleId = (int)$pdo->lastInsertId();
+            } elseif ($reusingExistingImmeuble && $immeubleId > 0 && $adresse1 !== '') {
+                // L'utilisateur a pu modifier l'adresse du bien en édition :
+                // on met à jour l'immeuble lié pour refléter la nouvelle adresse.
+                $updSql = "UPDATE immeubles SET
+                        adresse_1 = :adresse_1, adresse_2 = :adresse_2,
+                        code_postal = :code_postal, ville = :ville, pays = :pays,
+                        latitude = :latitude, longitude = :longitude"
+                    . ($_immHasAdresseCle ? ", adresse_cle = :adresse_cle" : "")
+                    . " WHERE id = :id";
+                $updParams = [
+                    ':adresse_1'   => $adresse1,
+                    ':adresse_2'   => $adresse2 !== '' ? $adresse2 : null,
+                    ':code_postal' => $codePostal !== '' ? $codePostal : null,
+                    ':ville'       => $ville !== '' ? $ville : null,
+                    ':pays'        => $pays !== '' ? $pays : 'France',
+                    ':latitude'    => $latitude !== '' ? $latitude : null,
+                    ':longitude'   => $longitude !== '' ? $longitude : null,
+                    ':id'          => $immeubleId,
+                ];
+                if ($_immHasAdresseCle) $updParams[':adresse_cle'] = $adresseCle;
+                $pdo->prepare($updSql)->execute($updParams);
             }
             // Si on n'a toujours pas d'immeuble (brouillon sans adresse), on
             // accepte id_immeuble = NULL. Le bien reste sauvegardable.
@@ -837,7 +889,7 @@ if (is_post()) {
 
             // ── Liaisons chauffage & énergie (junction tables) ──
             if (!empty($chauffageIds)) {
-                $stmtBTC = $pdo->prepare("INSERT IGNORE INTO bien_types_chauffage (id_bien, id_societe_type_chauffage) VALUES (?,?)");
+                $stmtBTC = $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?,?)");
                 foreach ($chauffageIds as $tcId) {
                     if ($tcId > 0) $stmtBTC->execute([$bienId, $tcId]);
                 }
@@ -1255,15 +1307,33 @@ try {
     $sqlP = "SELECT id, type_personne, civilite, nom, prenom, societe, email, telephone, ville
              FROM proprietaires WHERE actif = 1";
     $paramsP = [];
-    if (!empty($_SESSION['id_agence'])) {
-        $sqlP .= " AND (id_agence = ? OR id_agence IS NULL)";
-        $paramsP[] = (int)$_SESSION['id_agence'];
+    if (!empty($_SESSION['id_societe']) && (int)($_SESSION['id_role'] ?? 0) !== 1) {
+        $sqlP .= " AND (id_societe = ? OR id_societe IS NULL)";
+        $paramsP[] = (int)$_SESSION['id_societe'];
     }
     $sqlP .= " ORDER BY nom, prenom";
     $stmtP = $pdo->prepare($sqlP);
     $stmtP->execute($paramsP);
     $proprietairesList = $stmtP->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable) { $proprietairesList = []; }
+
+// Pré-remplir les champs proprio depuis le propriétaire associé
+if ($isEditing && !empty($bienLoaded['id_proprietaire']) && empty($_POST['proprio_nom'])) {
+    $pId = (int)$bienLoaded['id_proprietaire'];
+    try {
+        $stmtPro = $pdo->prepare("SELECT nom, prenom, societe, telephone, email, adresse_1 FROM proprietaires WHERE id = ?");
+        $stmtPro->execute([$pId]);
+        $pro = $stmtPro->fetch(PDO::FETCH_ASSOC);
+        if ($pro) {
+            $_POST['proprio_nom']       = $pro['nom'] ?? '';
+            $_POST['proprio_prenom']    = $pro['prenom'] ?? '';
+            $_POST['proprio_societe']   = $pro['societe'] ?? '';
+            $_POST['proprio_telephone'] = $pro['telephone'] ?? '';
+            $_POST['proprio_email']     = $pro['email'] ?? '';
+            $_POST['proprio_adresse']   = $pro['adresse_1'] ?? '';
+        }
+    } catch (Throwable) {}
+}
 
 // Mandat éventuellement déjà associé au bien
 $mandatExistant = null;
@@ -1332,6 +1402,24 @@ $_chauffFallback    = empty($socChauffages);
 $_energFallback     = empty($socEnergies);
 $_typeBienFallback  = empty($socTypesBien);
 $_vueFallback       = empty($socVues);
+
+// Charger les IDs de vues/chauffages/énergies existants en mode édition
+$_loadedVueIds = $_loadedChauffIds = $_loadedEnergieIds = [];
+if ($isEditing && $editingBienId > 0 && $pdo) {
+    try {
+        $s = $pdo->prepare("SELECT id_societe_vue FROM bien_vues WHERE id_bien = ?");
+        $s->execute([$editingBienId]);
+        $_loadedVueIds = $s->fetchAll(PDO::FETCH_COLUMN);
+
+        $s = $pdo->prepare("SELECT id_societe_chauffage FROM bien_chauffages WHERE id_bien = ?");
+        $s->execute([$editingBienId]);
+        $_loadedChauffIds = $s->fetchAll(PDO::FETCH_COLUMN);
+
+        $s = $pdo->prepare("SELECT id_societe_energie FROM bien_energies WHERE id_bien = ?");
+        $s->execute([$editingBienId]);
+        $_loadedEnergieIds = $s->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable) {}
+}
 
 $username = htmlspecialchars((string)($_SESSION['username'] ?? 'Utilisateur'), ENT_QUOTES, 'UTF-8');
 $role     = htmlspecialchars((string)($_SESSION['role']     ?? 'collaborateur'), ENT_QUOTES, 'UTF-8');
@@ -1435,11 +1523,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       align-items: flex-start;
       justify-content: space-between;
       gap: 20px;
-      position: sticky;
-      top: var(--topbar-h);
-      z-index: 50;
       background: var(--bg);
-      box-shadow: 0 4px 10px -8px rgba(0,0,0,.18);
     }
     .page-head-info { flex: 1; min-width: 0; }
     .page-head-actions {
@@ -1451,24 +1535,22 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
     .ph-save-btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      padding: 9px 14px; border-radius: 10;
-      background: linear-gradient(135deg, #f97316, #ea580c);
-      color: #fff; font-size: 13px; font-weight: 700;
-      border: none; cursor: pointer; font-family: inherit;
-      box-shadow: 0 4px 12px rgba(249,115,22,0.35);
-      transition: all .15s;
+      padding: 8px 18px; border-radius: 8px;
+      background: var(--card); color: var(--accent);
+      font-size: 12px; font-weight: 600;
+      border: 1.5px solid var(--accent); cursor: pointer; font-family: inherit;
+      box-shadow: none; transition: all .15s;
       white-space: nowrap;
     }
-    .ph-save-btn:hover { opacity: .9; transform: translateY(-1px); }
+    .ph-save-btn:hover { background: var(--accent); color: #fff; }
     .ph-save-btn.secondary {
-      background: #fff;
-      color: #4a5562;
-      border: 1px solid #d4d0ca;
-      box-shadow: 0 2px 6px rgba(0,0,0,.06);
+      background: var(--card); color: var(--accent);
+      border-color: var(--stroke);
     }
+    .ph-save-btn.secondary:hover { background: var(--bg); }
     .ph-save-btn.success {
-      background: linear-gradient(135deg, #16a34a, #15803d);
-      box-shadow: 0 4px 12px rgba(22,163,74,0.35);
+      background: #16a34a; color: #fff;
+      border-color: #16a34a;
     }
     .page-head-label {
       font-family: 'DM Mono', monospace;
@@ -1750,6 +1832,17 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     .ba-mc-bool .mc-label { color: #333 !important; }
     .ba-mc-bool .mc-icon span { filter: none !important; }
     .ba-mc-bool.is-selected .mc-label { color: var(--mc-accent, #4878a6) !important; }
+    /* Renforce la visibilité des mini-cards non sélectionnées (page bg trop clair) */
+    .ba-card-body .mc-card:not(.is-selected) {
+      background: #fff;
+      border: 1.5px solid #d4d7de;
+      box-shadow: 3px 3px 8px rgba(180,185,195,.35), -3px -3px 8px #fff;
+    }
+    .ba-card-body .mc-card:not(.is-selected):hover {
+      border-color: #4878a6;
+      background: rgba(72,120,166,0.04);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.10);
+    }
 
     /* ── Sous-onglets (dans une card) ── */
     .ba-subtabs { display:flex; gap:4px; flex-wrap:wrap; }
@@ -2165,7 +2258,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     /* ── TABS NAV (sticky sous la topbar) ── */
     .ba-tabs-wrap {
       position: sticky;
-      top: calc(var(--topbar-h) + 78px); /* sous le page-head sticky */
+      top: calc(var(--topbar-h) + 48px); /* sous la tabs-bar sticky */
       z-index: 40;
       background: var(--bg);
       margin-bottom: 18px;
@@ -2840,6 +2933,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     <div class="page-head-info">
       <div class="page-head-label">Gestion des biens</div>
       <h1 class="page-head-title"><?= h($pageTitle) ?></h1>
+      <div style="margin:8px 0 4px;position:relative;max-width:360px;">
+        <input type="text" id="ba-field-search" placeholder="Rechercher un champ..." style="width:100%;padding:7px 12px 7px 32px;border:1px solid var(--stroke);border-radius:8px;font-size:13px;background:#fff;">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.5;">🔍</span>
+      </div>
       <div class="page-head-sub">
         <?php if ($isDraft): ?>
           📝 Brouillon en cours d'édition — vous pouvez sauvegarder à tout moment
@@ -2886,31 +2983,33 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     </div>
     <?php endif; ?>
 
-    <!-- ── Boutons d'action sticky (toujours visibles) ── -->
-    <?php if ($isEditing): ?>
-    <div class="page-head-actions">
-      <?php if ($isDraft): ?>
-        <button type="button" id="btn-save-ajax" class="ph-save-btn secondary" title="Sauvegarde sans recharger la page">
-          💾 Sauvegarder
-        </button>
-        <button type="submit" form="bien-create-form" class="ph-save-btn success"
-                onclick="document.getElementById('_validate_now').value='1';"
-                title="Valide le bien et le passe en statut actif">
-          ✅ Valider et activer
-        </button>
+    <!-- Boutons déplacés dans la barre d'onglets -->
+  </div>
+
+  <!-- ── TABS BAR (sticky, outside form) ── -->
+  <div class="ba-tabs-bar" style="position:sticky;top:var(--topbar-h);z-index:45;background:var(--bg);box-shadow:0 4px 10px -8px rgba(0,0,0,.18);padding:0 28px;display:flex;align-items:center;gap:12px;">
+    <nav class="ba-tabs" role="tablist" style="flex:1;min-width:0;">
+      <button type="button" class="ba-tab active" data-tab="identification">🏠 Identification</button>
+      <button type="button" class="ba-tab" data-tab="caracteristiques">📐 Caractéristiques</button>
+      <button type="button" class="ba-tab" data-tab="prix">💶 Prix</button>
+      <button type="button" class="ba-tab" data-tab="dpe">⚡ Diag & DPE</button>
+      <button type="button" class="ba-tab" data-tab="photos">📸 Photos <span class="ba-tab-count" id="ba-tab-count-photos" style="display:none;"></span></button>
+      <button type="button" class="ba-tab" data-tab="description">✏️ Description</button>
+      <button type="button" class="ba-tab" data-tab="annonce">📡 Annonce</button>
+      <button type="button" class="ba-tab" data-tab="conformite">✅ Conformité</button>
+    </nav>
+    <div class="ba-tabs-actions" style="display:flex;gap:8px;flex-shrink:0;margin-left:auto;padding:8px 0;">
+      <?php if ($isEditing): ?>
+        <?php if ($isDraft): ?>
+          <button type="button" id="btn-save-ajax" class="ph-save-btn secondary">💾 Sauvegarder</button>
+          <button type="submit" form="bien-create-form" class="ph-save-btn success" onclick="document.getElementById('_validate_now').value='1';">✅ Valider et activer</button>
+        <?php else: ?>
+          <button type="button" id="btn-save-ajax" class="ph-save-btn">💾 Mettre à jour</button>
+        <?php endif; ?>
       <?php else: ?>
-        <button type="button" id="btn-save-ajax" class="ph-save-btn" title="Sauvegarde sans recharger la page">
-          💾 Mettre à jour
-        </button>
+        <button type="submit" form="bien-create-form" class="ph-save-btn success">💾 Enregistrer le bien</button>
       <?php endif; ?>
     </div>
-    <?php else: ?>
-    <div class="page-head-actions">
-      <button type="submit" form="bien-create-form" class="ph-save-btn">
-        💾 Enregistrer le bien
-      </button>
-    </div>
-    <?php endif; ?>
   </div>
 
   <div class="mbi-container">
@@ -2938,20 +3037,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       <?php /* Bandeau de conformité déplacé en page-head (mini-card à droite du titre) */ ?>
 
       <?= csrf_field('ajouter_bien') ?>
-
-      <!-- ── TABS (full width, au-dessus du layout 2 colonnes) ── -->
-      <div class="ba-tabs-wrap">
-        <nav class="ba-tabs" role="tablist">
-          <button type="button" class="ba-tab active" data-tab="identification">🏠 Identification</button>
-          <button type="button" class="ba-tab" data-tab="caracteristiques">📐 Caractéristiques</button>
-          <button type="button" class="ba-tab" data-tab="prix">💶 Prix</button>
-          <button type="button" class="ba-tab" data-tab="dpe">⚡ Diag & DPE</button>
-          <button type="button" class="ba-tab" data-tab="photos">📸 Photos <span class="ba-tab-count" id="ba-tab-count-photos" style="display:none;"></span></button>
-          <button type="button" class="ba-tab" data-tab="description">✏️ Description</button>
-          <button type="button" class="ba-tab" data-tab="annonce">📡 Annonce</button>
-          <button type="button" class="ba-tab" data-tab="conformite">✅ Conformité</button>
-        </nav>
-      </div>
 
       <div class="ba-layout">
         <div class="ba-form-col">
@@ -3328,8 +3413,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div><!-- /ba-card identification -->
 
         <div class="ba-panel-footer">
-          <span></span>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('caracteristiques')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost ba-nav-prev" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3471,7 +3556,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             ' . (!$_vueFallback ? '
             <div class="mc-grid" id="mc-vues" data-mc-mode="select" data-mc-multiple="true" data-mc-field="vue_ids" style="--mc-min:90px;">
               ' . implode('', array_map(fn($sv) => '
-              <div class="mc-card' . ((string)post('vue','') === $sv['code'] ? ' is-selected' : '') . '"
+              <div class="mc-card' . (in_array((string)$sv['id'], array_map('strval', $_loadedVueIds), true) ? ' is-selected' : '') . '"
                    data-mc-value="' . (int)$sv['id'] . '"
                    data-mc-label="' . h($sv['label']) . '"
                    data-mc-desc="' . h($sv['description'] ?? '') . '"
@@ -3512,14 +3597,14 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             <label>Adresse visible au public</label>
             <div class="ba-chips">
               <label class="ba-chip"><input type="radio" name="adresse_visible_public" value="1" ' . (post('adresse_visible_public','') === '1' ? 'checked' : '') . '> Oui</label>
-              <label class="ba-chip"><input type="radio" name="adresse_visible_public" value="0" ' . (post('adresse_visible_public','') === '0' ? 'checked' : '') . '> Non</label>
+              <label class="ba-chip"><input type="radio" name="adresse_visible_public" value="0" ' . (in_array(post('adresse_visible_public',''), ['0',''], true) && $isEditing ? 'checked' : '') . '> Non</label>
             </div>
           </div>
         </div>') ?>
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('identification')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('caracteristiques')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3664,7 +3749,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <?php if (!$_chauffFallback): ?>
                 <div class="mc-grid" id="mc-chauffage" data-mc-mode="select" data-mc-multiple="true" style="--mc-min:110px;">
                   <?php foreach ($socChauffages as $c): ?>
-                  <div class="mc-card" data-mc-value="<?= (int)$c['id'] ?>" data-mc-label="<?= h($c['label']) ?>" data-mc-desc="<?= h($c['description'] ?? '') ?>" data-ch-code="<?= h($c['code']) ?>">
+                  <div class="mc-card<?= in_array((int)$c['id'], $_loadedChauffIds) ? ' is-selected' : '' ?>" data-mc-value="<?= (int)$c['id'] ?>" data-mc-label="<?= h($c['label']) ?>" data-mc-desc="<?= h($c['description'] ?? '') ?>" data-ch-code="<?= h($c['code']) ?>">
                     <div class="mc-icon"><?= !empty($c['icone']) && !str_starts_with($c['icone'], 'fa-') ? '<span style="font-size:18px">' . $c['icone'] . '</span>' : '🔥' ?></div>
                     <div class="mc-label"><?= h($c['label']) ?></div>
                   </div>
@@ -3727,7 +3812,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <div class="mc-grid" id="mc-energie" data-mc-mode="select" data-mc-multiple="true"
                      data-lien='<?= json_encode($socChauffEnLiens, JSON_HEX_APOS) ?>'>
                   <?php foreach ($socEnergies as $e): ?>
-                  <div class="mc-card" data-mc-value="<?= (int)$e['id'] ?>" data-mc-label="<?= h($e['label']) ?>" data-mc-desc="<?= h($e['description'] ?? '') ?>">
+                  <div class="mc-card<?= in_array((int)$e['id'], $_loadedEnergieIds) ? ' is-selected' : '' ?>" data-mc-value="<?= (int)$e['id'] ?>" data-mc-label="<?= h($e['label']) ?>" data-mc-desc="<?= h($e['description'] ?? '') ?>">
                     <div class="mc-icon"><?= !empty($e['icone']) && !str_starts_with($e['icone'], 'fa-') ? '<span style="font-size:18px">' . $e['icone'] . '</span>' : '⚡' ?></div>
                     <div class="mc-label"><?= h($e['label']) ?></div>
                   </div>
@@ -3753,8 +3838,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div><!-- /ba-card-body -->
         </div><!-- /ba-card -->
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('identification')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('annonce')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -3829,7 +3914,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             <div class="ba-grid cols-2">
               <div class="ba-field">
                 <label>Référence interne</label>
-                <input type="text" name="reference_bien" value="<?= h((string)post('reference_bien', '')) ?>" placeholder="Ex: AG-2024-042">
+                <div style="display:flex;gap:6px;">
+                  <input type="text" name="reference_bien" id="reference_bien" value="<?= h((string)post('reference_bien', '')) ?>" placeholder="Auto-générée" style="flex:1;">
+                  <button type="button" onclick="generateRef()" title="Générer automatiquement" style="padding:6px 10px;border:1px solid var(--stroke);border-radius:8px;background:var(--card);cursor:pointer;font-size:12px;white-space:nowrap;">⚡ Auto</button>
+                </div>
               </div>
               <div class="ba-field">
                 <label>Commercial</label>
@@ -3894,7 +3982,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                   <label>Meublé</label>
                   <div class="ba-chips">
                     <label class="ba-chip"><input type="radio" name="loyer_meuble" value="1" <?= post('loyer_meuble','') === '1' ? 'checked' : '' ?>> Oui</label>
-                    <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= post('loyer_meuble','') === '0' ? 'checked' : '' ?>> Non</label>
+                    <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                   </div>
                 </div>
               </div><!-- /colonne droite disponibilité -->
@@ -3957,8 +4045,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div><!-- /ba-card annonce -->
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('description')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('photos')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4015,8 +4103,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         </div>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('annonce')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('prix')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4029,140 +4117,83 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               <div class="ba-card-sub">Loyer, vente, encadrement et copropriété.</div>
             </div>
             <div class="ba-subtabs" id="prixSubtabs">
-              <button type="button" class="ba-subtab active" data-sub="prix-loyer">🔑 Loyer & Vente</button>
-              <button type="button" class="ba-subtab" data-sub="prix-complement">➕ Complément loyer</button>
-              <button type="button" class="ba-subtab" data-sub="prix-encadrement">🏦 Encadrement</button>
+              <button type="button" class="ba-subtab active" data-sub="prix-loyer">🔑 Location & Vente</button>
+              <button type="button" class="ba-subtab" data-sub="prix-encadrement">🏦 Encadrement & Complément</button>
+              <button type="button" class="ba-subtab" data-sub="prix-locprec">🕒 Locataire précédent</button>
               <button type="button" class="ba-subtab" data-sub="prix-copro">🏢 Copropriété</button>
             </div>
           </div>
           <div class="ba-card-body">
 
-          <!-- ═══ SOUS-ONGLET 1 : Loyer & Vente ═══ -->
+
+          <!-- ═══ SOUS-ONGLET 1 : Location & Vente (2 colonnes alignées) ═══ -->
           <div class="ba-subpanel active" data-sub-panel="prix-loyer">
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
-              <!-- Location -->
-              <div id="ba-card-location">
-                <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;border-bottom:2px solid var(--stroke);padding-bottom:6px;">🔑 Location</div>
-                <div class="ba-field">
-                  <label>Loyer HC (€/mois) <span style="color:#c05000;">*</span></label>
-                  <input type="number" name="loyer_hc" value="<?= h((string)post('loyer_hc','')) ?>" placeholder="Loyer hors charges">
-                </div>
-                <div class="ba-field">
-                  <label>Charges (€/mois)</label>
-                  <input type="number" name="charges" value="<?= h((string)post('charges','')) ?>">
-                </div>
-                <div class="ba-field">
-                  <label>Dépôt de garantie (€)</label>
-                  <input type="number" name="depot_garantie" value="<?= h((string)post('depot_garantie','')) ?>">
-                </div>
-                <div class="ba-field">
-                  <label>Zone de location</label>
-                  <select name="zone_tendue" id="zone_tendue" onchange="calcHonoraires()">
-                    <option value="">— Sélectionner —</option>
-                    <option value="non_tendue" <?= post('zone_tendue','') === 'non_tendue' ? 'selected' : '' ?>>Zone non tendue (8,07 €/m²)</option>
-                    <option value="tendue" <?= post('zone_tendue','') === 'tendue' ? 'selected' : '' ?>>Zone tendue (10,09 €/m²)</option>
-                    <option value="tres_tendue" <?= post('zone_tendue','') === 'tres_tendue' ? 'selected' : '' ?>>Zone très tendue — Paris (12,10 €/m²)</option>
-                  </select>
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires locataire (€) <span id="hono-loc-hint" style="font-weight:400;color:#888;font-size:11px;"></span></label>
-                  <input type="number" step="0.01" name="honoraires_locataire" id="honoraires_locataire" value="<?= h((string)post('honoraires_locataire','')) ?>">
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires état des lieux (€) <span id="hono-edl-hint2" style="font-weight:400;color:#888;font-size:11px;"></span></label>
-                  <input type="number" step="0.01" name="honoraires_etat_des_lieux" id="honoraires_etat_des_lieux" value="<?= h((string)post('honoraires_etat_des_lieux','')) ?>">
-                </div>
-                <div class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;">
-                  <label style="color:#6a4ca8;font-weight:700;">🎯 Estimation agence location</label>
-                  <input type="number" step="0.01" name="estimation_agence_location" value="<?= h((string)post('estimation_agence_location','')) ?>" placeholder="Valeur conseillée">
-                </div>
-              </div>
-              <!-- Vente -->
-              <div id="ba-card-vente">
-                <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;border-bottom:2px solid var(--stroke);padding-bottom:6px;">🤝 Vente</div>
-                <div class="ba-field">
-                  <label>Prix de vente (€) <span style="color:#c05000;">*</span></label>
-                  <input type="number" name="prix_vente_estime" value="<?= h((string)post('prix_vente_estime','')) ?>" placeholder="Prix pratiqué">
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires inclus</label>
-                  <select name="honoraires_inclus">
-                    <option value="oui" <?= post('honoraires_inclus','oui') === 'oui' ? 'selected' : '' ?>>Oui (FAI)</option>
-                    <option value="non" <?= post('honoraires_inclus','') === 'non' ? 'selected' : '' ?>>Non (HD)</option>
-                  </select>
-                </div>
-                <div class="ba-field">
-                  <label>Détail honoraires</label>
-                  <input type="text" name="honoraires_detail" value="<?= h((string)post('honoraires_detail','')) ?>" placeholder="Ex: 3% charge acheteur">
-                </div>
-                <div class="ba-field">
-                  <label>Honoraires mandat (€)</label>
-                  <input type="number" step="0.01" name="mandats_honoraires" value="<?= h((string)post('mandats_honoraires', $mandatExistant['honoraires'] ?? '')) ?>">
-                </div>
-                <div class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;">
-                  <label style="color:#6a4ca8;font-weight:700;">🎯 Estimation agence vente</label>
-                  <input type="number" step="0.01" name="estimation_agence_vente" value="<?= h((string)post('estimation_agence_vente','')) ?>" placeholder="Valeur conseillée">
-                </div>
-                <div class="ba-field"><label style="color:#6a4ca8;">📅 Date estimation</label><input type="date" name="estimation_agence_date" value="<?= h((string)post('estimation_agence_date','')) ?>"></div>
-                <div class="ba-field"><label style="color:#6a4ca8;">📝 Notes estimation</label><input type="text" name="estimation_agence_notes" value="<?= h((string)post('estimation_agence_notes','')) ?>" placeholder="Comparaison, marge…"></div>
-                <!-- Honoraires ALUR -->
-                <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--stroke);">
-                  <div style="font-weight:700;font-size:11px;color:#b67c00;margin-bottom:8px;">💰 Honoraires ALUR</div>
-                  <div class="mc-grid" data-mc-mode="custom" style="--mc-min:80px;margin-bottom:8px;">
-                    <?= boolMcCard('honoraires_charge_acquereur','💰','Charge acquéreur') ?>
-                    <?= boolMcCard('honoraires_charge_vendeur','💰','Charge vendeur') ?>
-                  </div>
-                  <div class="ba-field"><label>% TTC acquéreur</label><input type="number" step="0.01" name="alur_pourcentage_honoraires_ttc" value="<?= h((string)post('alur_pourcentage_honoraires_ttc','')) ?>" placeholder="5.00"></div>
-                  <div class="ba-field"><label>% vendeur</label><input type="number" step="0.01" name="pourcentage_honoraires_vendeur" value="<?= h((string)post('pourcentage_honoraires_vendeur','')) ?>"></div>
-                  <div class="ba-field"><label>Honoraires cumulés (€)</label><input type="number" step="0.01" name="honoraires_negociation_cumules" value="<?= h((string)post('honoraires_negociation_cumules','')) ?>"></div>
-                  <?php
-                    $defaultTarifsUrl2 = '';
-                    if (function_exists('app_url')) {
-                      $idSocT2 = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : 0;
-                      $defaultTarifsUrl2 = app_url('/tarifs.php' . ($idSocT2 > 0 ? '?societe=' . $idSocT2 : ''));
-                      if (!preg_match('#^https?://#', $defaultTarifsUrl2) && !empty($_SERVER['HTTP_HOST'])) {
-                        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-                        $defaultTarifsUrl2 = $scheme . '://' . $_SERVER['HTTP_HOST'] . $defaultTarifsUrl2;
-                      }
-                    }
-                  ?>
-                  <div class="ba-field"><label>URL barème honoraires</label><input type="url" name="url_tarifs_publics" value="<?= h((string)post('url_tarifs_publics', $defaultTarifsUrl2)) ?>" placeholder="https://…/tarifs"></div>
-                </div>
-              </div>
-              <!-- Locataire précédent -->
-              <div>
-                <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;border-bottom:2px solid var(--stroke);padding-bottom:6px;">🕒 Locataire précédent</div>
-                <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px;margin-bottom:10px;">
-                  <?= boolMcCard('ancien_loyer_communique','📋','Communiquer infos') ?>
-                </div>
-                <div class="ba-field"><label>Dernier loyer HC (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_montant" value="<?= h((string)post('ancien_loyer_montant','')) ?>"></div>
-                <div class="ba-field"><label>Charges (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_charges" value="<?= h((string)post('ancien_loyer_charges','')) ?>"></div>
-                <div class="ba-field"><label>Dernière révision</label><input type="date" name="ancien_loyer_date_revision" value="<?= h((string)post('ancien_loyer_date_revision','')) ?>"></div>
-                <div class="ba-field"><label>Date sortie</label><input type="date" name="ancien_locataire_date_sortie" value="<?= h((string)post('ancien_locataire_date_sortie','')) ?>"></div>
-              </div>
-            </div>
+            <table style="width:100%;border-collapse:separate;border-spacing:16px 0;">
+              <thead>
+                <tr>
+                  <th style="text-align:left;font-size:12px;font-weight:700;color:#36577d;text-transform:uppercase;letter-spacing:.5px;padding-bottom:12px;border-bottom:2px solid #36577d;width:50%;">🔑 Location</th>
+                  <th style="text-align:left;font-size:12px;font-weight:700;color:#b67c00;text-transform:uppercase;letter-spacing:.5px;padding-bottom:12px;border-bottom:2px solid #f0d68a;width:50%;">🤝 Vente</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="ba-field"><label>Loyer HC (€/mois) <span style="color:#c05000;">*</span> <span style="font-weight:400;color:#888;font-size:10px;">(= majoré + complément)</span></label><input type="number" name="loyer_hc" id="loyer_hc" value="<?= h((string)post('loyer_hc','')) ?>" placeholder="Calculé auto"></td>
+                  <td class="ba-field"><label>Prix de vente (€) <span style="color:#c05000;">*</span></label><input type="number" name="prix_vente_estime" id="prix_vente_estime" value="<?= h((string)post('prix_vente_estime','')) ?>" placeholder="Prix pratiqué"></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Charges (€/mois)</label><input type="number" name="charges_locatives" value="<?= h((string)post('charges_locatives','')) ?>"></td>
+                  <td class="ba-field"><label>Honoraires inclus</label><select name="honoraires_inclus"><option value="oui" <?= post('honoraires_inclus','oui') === 'oui' ? 'selected' : '' ?>>Oui (FAI)</option><option value="non" <?= post('honoraires_inclus','') === 'non' ? 'selected' : '' ?>>Non (HD)</option></select></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Dépôt de garantie (€)</label><input type="number" name="depot_garantie" value="<?= h((string)post('depot_garantie','')) ?>"></td>
+                  <td class="ba-field"><label>Détail honoraires</label><input type="text" name="honoraires_detail" value="<?= h((string)post('honoraires_detail','')) ?>" placeholder="Ex: 3% charge acheteur"></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Zone de location</label><select name="zone_tendue" id="zone_tendue" onchange="calcHonoraires(true)"><option value="">—</option><option value="non_tendue" <?= post('zone_tendue','') === 'non_tendue' ? 'selected' : '' ?>>Non tendue (8,07 €/m²)</option><option value="tendue" <?= post('zone_tendue','') === 'tendue' ? 'selected' : '' ?>>Tendue (10,09 €/m²)</option><option value="tres_tendue" <?= post('zone_tendue','') === 'tres_tendue' ? 'selected' : '' ?>>Très tendue (12,10 €/m²)</option></select></td>
+                  <td class="ba-field"><label>Honoraires mandat (€)</label><input type="number" step="0.01" name="mandats_honoraires" value="<?= h((string)post('mandats_honoraires', $mandatExistant['honoraires'] ?? '')) ?>"></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Honoraires locataire (€) <span id="hono-loc-hint" style="font-weight:400;color:#888;font-size:11px;"></span></label><input type="number" step="0.01" name="honoraires_locataire" id="honoraires_locataire" value="<?= h((string)post('honoraires_locataire','')) ?>"></td>
+                  <td class="ba-field"><label>% TTC acquéreur</label><input type="number" step="0.01" name="alur_pourcentage_honoraires_ttc" id="alur_pct_acq" value="<?= h((string)post('alur_pourcentage_honoraires_ttc','')) ?>" placeholder="5.00"><div class="ba-hint" id="alur-pct-hint" style="font-size:10px;color:#888;"></div></td>
+                </tr>
+                <tr>
+                  <td class="ba-field"><label>Honoraires EDL (€) <span id="hono-edl-hint2" style="font-weight:400;color:#888;font-size:11px;"></span></label><input type="number" step="0.01" name="honoraires_etat_des_lieux" id="honoraires_etat_des_lieux" value="<?= h((string)post('honoraires_etat_des_lieux','')) ?>"></td>
+                  <td class="ba-field"><label>% vendeur</label><input type="number" step="0.01" name="pourcentage_honoraires_vendeur" id="alur_pct_vend" value="<?= h((string)post('pourcentage_honoraires_vendeur','')) ?>"></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td class="ba-field"><label>Honoraires cumulés (€)</label><input type="number" step="0.01" name="honoraires_negociation_cumules" id="hono_cumules" value="<?= h((string)post('honoraires_negociation_cumules','')) ?>"><div class="ba-hint" id="hono-cumul-hint" style="font-size:10px;color:#888;"></div></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td><div class="mc-grid" data-mc-mode="custom" style="--mc-min:80px;margin:8px 0;"><?= boolMcCard('honoraires_charge_acquereur','💰','Charge acquéreur') ?><?= boolMcCard('honoraires_charge_vendeur','💰','Charge vendeur') ?></div></td>
+                </tr>
+                <tr><td colspan="2" style="padding-top:14px;border-top:1px dashed var(--stroke);"><div style="font-weight:700;font-size:11px;color:#6a4ca8;margin-bottom:4px;">🎯 Estimations agence</div></td></tr>
+                <tr>
+                  <td class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;"><label style="color:#6a4ca8;">Estimation location</label><input type="number" step="0.01" name="estimation_agence_location" value="<?= h((string)post('estimation_agence_location','')) ?>" placeholder="Valeur conseillée"></td>
+                  <td class="ba-field" style="border-left:3px solid #6a4ca8;padding-left:12px;"><label style="color:#6a4ca8;">Estimation vente</label><input type="number" step="0.01" name="estimation_agence_vente" value="<?= h((string)post('estimation_agence_vente','')) ?>" placeholder="Valeur conseillée"></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td class="ba-field"><label style="color:#6a4ca8;">📅 Date / 📝 Notes</label><div style="display:flex;gap:8px;"><input type="date" name="estimation_agence_date" value="<?= h((string)post('estimation_agence_date','')) ?>" style="flex:1;"><input type="text" name="estimation_agence_notes" value="<?= h((string)post('estimation_agence_notes','')) ?>" placeholder="Notes..." style="flex:2;"></div></td>
+                </tr>
+              </tbody>
+            </table>
+            <?php
+              $defaultTarifsUrl2 = '';
+              if (function_exists('app_url')) {
+                $idSocT2 = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : 0;
+                $defaultTarifsUrl2 = app_url('/tarifs.php' . ($idSocT2 > 0 ? '?societe=' . $idSocT2 : ''));
+                if (!preg_match('#^https?://#', $defaultTarifsUrl2) && !empty($_SERVER['HTTP_HOST'])) {
+                  $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                  $defaultTarifsUrl2 = $scheme . '://' . $_SERVER['HTTP_HOST'] . $defaultTarifsUrl2;
+                }
+              }
+            ?>
+            <div class="ba-field" style="max-width:50%;margin-top:8px;padding:0 16px;"><label>URL barème honoraires</label><input type="url" name="url_tarifs_publics" value="<?= h((string)post('url_tarifs_publics', $defaultTarifsUrl2)) ?>" placeholder="https://…/tarifs"></div>
           </div>
 
-          <!-- ═══ SOUS-ONGLET 3 : Complément de loyer ═══ -->
-          <div class="ba-subpanel" data-sub-panel="prix-complement" style="display:none;">
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>Complément total (€/mois)</label>
-                <input type="number" step="0.01" name="complement_loyer" id="cpl-loyer-total" value="<?= h((string)post('complement_loyer','')) ?>">
-                <div class="ba-hint">Calculé automatiquement depuis les lignes ci-dessous.</div>
-              </div>
-            </div>
-            <div id="cpl-loyer-lignes" style="margin-top:14px;">
-              <div class="cpl-row" style="display:grid;grid-template-columns:1fr 140px 40px;gap:8px;align-items:center;margin-bottom:8px;">
-                <input type="text" name="cpl_libelle[]" placeholder="Ex : vue dégagée sur jardin" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
-                <input type="number" step="0.01" name="cpl_montant[]" placeholder="€/mois" class="cpl-mt" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
-                <button type="button" class="cpl-del" style="background:none;border:none;color:#c0392b;font-size:18px;cursor:pointer;">✕</button>
-              </div>
-            </div>
-            <button type="button" id="cpl-add-row" style="margin-top:8px;padding:8px 14px;border:1px dashed var(--stroke);border-radius:8px;background:none;color:var(--accent);cursor:pointer;font-family:inherit;">＋ Ajouter une justification</button>
-          </div>
-
-          <!-- ═══ SOUS-ONGLET 4 : Encadrement & fiscalité ═══ -->
+          <!-- ═══ SOUS-ONGLET 2 : Encadrement & Complément ═══ -->
           <div class="ba-subpanel" data-sub-panel="prix-encadrement" style="display:none;">
             <div id="encadrement-banner" style="display:none;background:#f0f7ff;border:1px solid #b3d4fc;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;line-height:1.5;"></div>
             <div style="display:flex;gap:8px;margin-bottom:14px;">
@@ -4174,25 +4205,60 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               <?= boolMcCard('loyer_est_cc','💶','Loyer CC affiché') ?>
             </div>
             <div class="ba-grid cols-2">
-              <div class="ba-field ba-col-full"><label>Zone d'encadrement</label><input type="text" name="enc_zone" value="<?= h((string)post('enc_zone','')) ?>" placeholder="Ex : Paris 11e"></div>
+              <div class="ba-field ba-col-full"><label>Zone d'encadrement</label><input type="text" name="enc_zone" value="<?= h((string)post('enc_zone','')) ?>" placeholder="Ex : Lyon 3e"></div>
               <div class="ba-field"><label>Loyer de base HC (€/mois)</label><input type="number" step="0.01" name="loyer_de_base" value="<?= h((string)post('loyer_de_base','')) ?>"></div>
               <div class="ba-field"><label>Loyer référence majoré (€/mois)</label><input type="number" step="0.01" name="loyer_reference_majore" value="<?= h((string)post('loyer_reference_majore','')) ?>"></div>
               <div class="ba-field"><label>Loyer référence (€/m²)</label><input type="number" step="0.01" name="enc_loyer_ref" value="<?= h((string)post('enc_loyer_ref','')) ?>"></div>
               <div class="ba-field"><label>Loyer majoré (€/m²)</label><input type="number" step="0.01" name="enc_loyer_max" value="<?= h((string)post('enc_loyer_max','')) ?>"></div>
               <div class="ba-field"><label>Loyer minoré (€/m²)</label><input type="number" step="0.01" name="enc_loyer_min" value="<?= h((string)post('enc_loyer_min','')) ?>"></div>
-              <div class="ba-field"><label>Complément (€/mois)</label><input type="number" step="0.01" name="enc_complement" value="<?= h((string)post('enc_complement','')) ?>"></div>
-              <div class="ba-field"><label>Modalités récup. charges</label>
-                <select name="modalite_recuperation_charges_locatives">
-                  <option value="">—</option>
-                  <option value="forfait" <?= post('modalite_recuperation_charges_locatives','') === 'forfait' ? 'selected' : '' ?>>Forfait</option>
-                  <option value="provision annuelle" <?= post('modalite_recuperation_charges_locatives','') === 'provision annuelle' ? 'selected' : '' ?>>Provision annuelle</option>
-                  <option value="remboursement sur justificatifs" <?= post('modalite_recuperation_charges_locatives','') === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Sur justificatifs</option>
-                </select>
+              <div class="ba-field"><label>Complément encadrement (€/mois)</label><input type="number" step="0.01" name="enc_complement" value="<?= h((string)post('enc_complement','')) ?>"></div>
+              <div class="ba-field"><label>Modalités récup. charges</label><select name="modalite_recuperation_charges_locatives"><option value="">—</option><option value="forfait" <?= post('modalite_recuperation_charges_locatives','') === 'forfait' ? 'selected' : '' ?>>Forfait</option><option value="provision annuelle" <?= post('modalite_recuperation_charges_locatives','') === 'provision annuelle' ? 'selected' : '' ?>>Provision annuelle</option><option value="remboursement sur justificatifs" <?= post('modalite_recuperation_charges_locatives','') === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Sur justificatifs</option></select></div>
+            </div>
+            <!-- Complément de loyer -->
+            <div style="margin-top:24px;padding-top:18px;border-top:2px solid var(--stroke);">
+              <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">➕ Complément de loyer</div>
+              <div class="ba-field" style="max-width:300px;">
+                <label>Complément total (€/mois)</label>
+                <input type="number" step="0.01" name="complement_loyer" id="cpl-loyer-total" value="<?= h((string)post('complement_loyer','')) ?>">
+                <div class="ba-hint">Calculé depuis les lignes ci-dessous. Loyer HC = majoré + total complément.</div>
               </div>
-              <div class="ba-field"><label>Taxe foncière (€/an)</label><input type="number" name="taxe_fonciere" value="<?= h((string)post('taxe_fonciere','')) ?>"></div>
-              <div class="ba-field"><label>Taxe habitation (€/an)</label><input type="number" name="taxe_habitation" value="<?= h((string)post('taxe_habitation','')) ?>"></div>
-              <div class="ba-field"><label>Rentabilité brute (%)</label><input type="number" step="0.01" name="rentabilite_brute_estimee" value="<?= h((string)post('rentabilite_brute_estimee','')) ?>"></div>
-              <div class="ba-field"><label>Montant travaux (€)</label><input type="number" name="montant_travaux_estime" value="<?= h((string)post('montant_travaux_estime','')) ?>"></div>
+              <div id="cpl-loyer-lignes" style="margin-top:14px;"><?php
+                $cplLignes = [];
+                if ($isEditing && $annonceIdLoaded > 0) { try { $stmtCplLoad = $pdo->prepare("SELECT libelle, montant FROM annonces_complement_loyer_lignes WHERE id_annonce = ? ORDER BY ordre ASC"); $stmtCplLoad->execute([$annonceIdLoaded]); $cplLignes = $stmtCplLoad->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable) {} }
+                if (empty($cplLignes)) $cplLignes = [['libelle' => '', 'montant' => '']];
+                foreach ($cplLignes as $cpl): ?>
+                <div class="cpl-row" style="display:grid;grid-template-columns:1fr 140px 40px;gap:8px;align-items:center;margin-bottom:8px;">
+                  <input type="text" name="cpl_libelle[]" value="<?= h((string)($cpl['libelle'] ?? '')) ?>" placeholder="Ex : vue dégagée sur jardin" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
+                  <input type="number" step="0.01" name="cpl_montant[]" value="<?= h((string)($cpl['montant'] ?? '')) ?>" placeholder="€/mois" class="cpl-mt" style="padding:8px;border:1px solid var(--stroke);border-radius:8px;">
+                  <button type="button" class="cpl-del" style="background:none;border:none;color:#c0392b;font-size:18px;cursor:pointer;">✕</button>
+                </div><?php endforeach; ?>
+              </div>
+              <button type="button" id="cpl-add-row" style="margin-top:8px;padding:8px 14px;border:1px dashed var(--stroke);border-radius:8px;background:none;color:var(--accent);cursor:pointer;font-family:inherit;">＋ Ajouter une justification</button>
+            </div>
+            <!-- Taxes & rentabilité -->
+            <div style="margin-top:24px;padding-top:18px;border-top:2px solid var(--stroke);">
+              <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">📊 Fiscalité & Rentabilité</div>
+              <div class="ba-grid cols-2">
+                <div class="ba-field"><label>Taxe foncière (€/an)</label><input type="number" name="taxe_fonciere" value="<?= h((string)post('taxe_fonciere','')) ?>"></div>
+                <div class="ba-field"><label>Taxe habitation (€/an)</label><input type="number" name="taxe_habitation" value="<?= h((string)post('taxe_habitation','')) ?>"></div>
+                <div class="ba-field"><label>Rentabilité brute (%)</label><input type="number" step="0.01" name="rentabilite_brute_estimee" value="<?= h((string)post('rentabilite_brute_estimee','')) ?>"></div>
+                <div class="ba-field"><label>Montant travaux (€)</label><input type="number" name="montant_travaux_estime" value="<?= h((string)post('montant_travaux_estime','')) ?>"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══ SOUS-ONGLET 3 : Locataire précédent ═══ -->
+          <div class="ba-subpanel" data-sub-panel="prix-locprec" style="display:none;">
+            <div style="max-width:500px;">
+              <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px;margin-bottom:14px;">
+                <?= boolMcCard('ancien_loyer_communique','📋','Communiquer infos ancien locataire') ?>
+              </div>
+              <div class="ba-grid cols-2">
+                <div class="ba-field"><label>Dernier loyer HC (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_montant" value="<?= h((string)post('ancien_loyer_montant','')) ?>"></div>
+                <div class="ba-field"><label>Charges (€/mois)</label><input type="number" step="0.01" name="ancien_loyer_charges" value="<?= h((string)post('ancien_loyer_charges','')) ?>"></div>
+                <div class="ba-field"><label>Dernière révision</label><input type="date" name="ancien_loyer_date_revision" value="<?= h((string)post('ancien_loyer_date_revision','')) ?>"></div>
+                <div class="ba-field"><label>Date sortie</label><input type="date" name="ancien_locataire_date_sortie" value="<?= h((string)post('ancien_locataire_date_sortie','')) ?>"></div>
+              </div>
             </div>
           </div>
 
@@ -4239,7 +4305,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           function recalc(){
             let s = 0;
             wrap.querySelectorAll('.cpl-mt').forEach(i => { s += parseFloat(i.value || '0') || 0; });
-            if (total && (!total.dataset.touched || total.value === '')) total.value = s.toFixed(2);
+            if (total) {
+              total.value = s.toFixed(2);
+              total.dispatchEvent(new Event('input', { bubbles: true }));
+            }
           }
           function bindRow(row){
             row.querySelector('.cpl-del')?.addEventListener('click', () => { row.remove(); recalc(); });
@@ -4257,13 +4326,13 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             wrap.appendChild(row);
             bindRow(row);
           });
-          if (total) total.addEventListener('input', () => { total.dataset.touched = '1'; });
+          recalc();
         })();
         </script>
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('annonce')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('dpe')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4509,8 +4578,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div><!-- /ba-card diag -->
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('prix')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('description')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4654,8 +4723,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         </div>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('dpe')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('disponibilite')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4675,14 +4744,14 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <label>Meublé</label>
                 <div class="ba-chips">
                   <label class="ba-chip"><input type="radio" name="loyer_meuble" value="1" <?= post('loyer_meuble','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= post('loyer_meuble','') === '0' ? 'checked' : '' ?>> Non</label>
+                  <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                 </div>
               </div>
               <div class="ba-field">
                 <label>Animaux acceptés</label>
                 <div class="ba-chips">
                   <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="1" <?= post('animaux_acceptes','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= post('animaux_acceptes','') === '0' ? 'checked' : '' ?>> Non</label>
+                  <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= in_array(post('animaux_acceptes',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                 </div>
               </div>
               <div class="ba-field">
@@ -4722,8 +4791,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         ') ?>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('description')">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="switchTab('diffusion')">Suivant →</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
         </div>
       </div>
 
@@ -4755,10 +4824,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <label>Date de signature</label>
                 <input type="date" name="date_mandat" value="<?= h((string)post('date_mandat','')) ?>">
               </div>
-              <div class="ba-field">
-                <label>Date d'échéance</label>
-                <input type="date" name="mandat_echeance" value="<?= h((string)post('mandat_echeance','')) ?>">
-              </div>
               <div class="ba-field ba-col-full">
                 <label>URL du barème d'honoraires (obligation arrêté 10/01/2017)</label>
                 <?php
@@ -4782,56 +4847,9 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               </div>
             </div>
 
-            <!-- ── Honoraires ALUR ── -->
-            <div class="ba-section-label">💰 Honoraires ALUR (vente)</div>
-            <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px" style="margin-bottom:14px">
-              <?= boolMcCard('honoraires_charge_acquereur','💰','Charge acquéreur') ?>
-              <?= boolMcCard('honoraires_charge_vendeur','💰','Charge vendeur') ?>
-            </div>
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>% TTC honoraires acquéreur (sur prix HH)</label>
-                <input type="number" step="0.01" name="alur_pourcentage_honoraires_ttc" value="<?= h((string)post('alur_pourcentage_honoraires_ttc','')) ?>" placeholder="5.00">
-                <div class="ba-hint">Obligatoire si honoraires à charge acquéreur.</div>
-              </div>
-              <div class="ba-field">
-                <label>% honoraires vendeur</label>
-                <input type="number" step="0.01" name="pourcentage_honoraires_vendeur" value="<?= h((string)post('pourcentage_honoraires_vendeur','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Honoraires cumulés (acq+vendeur, €)</label>
-                <input type="number" step="0.01" name="honoraires_negociation_cumules" value="<?= h((string)post('honoraires_negociation_cumules','')) ?>">
-              </div>
-            </div>
-
-            <!-- ── Encadrement loyers (Paris/Lille) ── -->
-            <div class="ba-section-label">🏙 Encadrement des loyers (Paris, Lille…)</div>
-            <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px" style="margin-bottom:14px">
-              <?= boolMcCard('zone_encadrement_loyer','📍','Zone encadrée') ?>
-              <?= boolMcCard('loyer_est_cc','💶','Loyer CC affiché') ?>
-            </div>
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>Loyer de base (€/mois HC)</label>
-                <input type="number" step="0.01" name="loyer_de_base" value="<?= h((string)post('loyer_de_base','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Loyer de référence majoré (€/mois)</label>
-                <input type="number" step="0.01" name="loyer_reference_majore" value="<?= h((string)post('loyer_reference_majore','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Complément de loyer (€/mois)</label>
-                <input type="number" step="0.01" name="complement_loyer" value="<?= h((string)post('complement_loyer','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Modalités récup. charges</label>
-                <select name="modalite_recuperation_charges_locatives">
-                  <option value="">—</option>
-                  <option value="forfait" <?= post('modalite_recuperation_charges_locatives','') === 'forfait' ? 'selected' : '' ?>>Forfait</option>
-                  <option value="provision annuelle" <?= post('modalite_recuperation_charges_locatives','') === 'provision annuelle' ? 'selected' : '' ?>>Provision annuelle</option>
-                  <option value="remboursement sur justificatifs" <?= post('modalite_recuperation_charges_locatives','') === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Remboursement sur justificatifs</option>
-                </select>
-              </div>
+            <!-- ── Honoraires ALUR & Encadrement → onglet Prix ── -->
+            <div style="padding:16px;background:#f0f7ff;border:1px solid #b3d4fc;border-radius:10px;margin-top:8px;">
+              <p style="margin:0;font-size:13px;color:#1e40af;">Les honoraires ALUR et l'encadrement des loyers sont configurables dans l'onglet <a href="#prix" onclick="switchTab('prix');return false;" style="font-weight:700;color:#2563eb;text-decoration:underline;">💶 Prix</a>.</p>
             </div>
 
           </div>
@@ -4840,7 +4858,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         <?php /* ── Blocs ERP et ALUR-copro déplacés dans DPE et Prix ── */ ?>
 
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('disponibilite')">← Précédent</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
           <?php if ($isDraft): ?>
             <button type="submit" class="ba-btn-ghost" title="Sauvegarde sans changer le statut — vous pourrez revenir plus tard">💾 Sauvegarder le brouillon</button>
             <button type="submit" class="ba-btn-primary" onclick="document.getElementById('_validate_now').value='1';" title="Valide le bien et le passe en statut actif">✅ Valider et activer</button>
@@ -4864,7 +4882,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
         </div>
         <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="switchTab('annonce')">← Précédent</button>
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
           <?php if ($isDraft): ?>
             <button type="submit" class="ba-btn-ghost">💾 Sauvegarder le brouillon</button>
             <button type="submit" class="ba-btn-primary" onclick="document.getElementById('_validate_now').value='1';">✅ Valider et activer</button>
@@ -5147,7 +5165,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     if (this.value.length === 5) autoDetectZoneTendue();
   });
 
-  function calcHonoraires() {
+  // force=true (changement utilisateur de surface/zone) → écrase TOUJOURS la valeur,
+  // sauf si l'utilisateur a explicitement typé dans honoraires (dataset.autoCalc === '0').
+  // force=false (init page) → remplit uniquement si vide (préserve les valeurs DB).
+  function calcHonoraires(force) {
     const surface = parseFloat(document.querySelector('[name="surface_habitable"]')?.value) || 0;
     const zone    = document.getElementById('zone_tendue')?.value || '';
     const honoLoc = document.getElementById('honoraires_locataire');
@@ -5155,13 +5176,20 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     const hintLoc = document.getElementById('hono-loc-hint');
     const hintEdl = document.getElementById('hono-edl-hint2');
 
+    function canWrite(el) {
+      if (!el) return false;
+      if (force) return el.dataset.autoCalc !== '0'; // force sauf si typé manuellement
+      return !el.value || el.dataset.autoCalc === '1';
+    }
+
     if (surface > 0 && zone && TARIFS_ZONE[zone]) {
       const tarif  = TARIFS_ZONE[zone];
       const montant = Math.round(surface * tarif * 100) / 100;
       if (hintLoc) hintLoc.textContent = '(' + surface + ' m² × ' + tarif + ' €/m² = ' + montant.toFixed(2) + ' €)';
-      if (honoLoc && (!honoLoc.value || honoLoc.dataset.autoCalc === '1')) {
+      if (canWrite(honoLoc)) {
         honoLoc.value = montant.toFixed(2);
         honoLoc.dataset.autoCalc = '1';
+        honoLoc.dispatchEvent(new Event('change', { bubbles: true }));
       }
     } else {
       if (hintLoc) hintLoc.textContent = '';
@@ -5170,9 +5198,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     if (surface > 0) {
       const montantEdl = Math.round(surface * TARIF_EDL * 100) / 100;
       if (hintEdl) hintEdl.textContent = '(' + surface + ' m² × ' + TARIF_EDL + ' €/m² = ' + montantEdl.toFixed(2) + ' €)';
-      if (honoEdl && (!honoEdl.value || honoEdl.dataset.autoCalc === '1')) {
+      if (canWrite(honoEdl)) {
         honoEdl.value = montantEdl.toFixed(2);
         honoEdl.dataset.autoCalc = '1';
+        honoEdl.dispatchEvent(new Event('change', { bubbles: true }));
       }
     } else {
       if (hintEdl) hintEdl.textContent = '';
@@ -5180,10 +5209,10 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
   }
   window.calcHonoraires = calcHonoraires;
 
-  // Déclencher le calcul quand surface ou zone change
-  document.querySelector('[name="surface_habitable"]')?.addEventListener('input', calcHonoraires);
-  document.getElementById('zone_tendue')?.addEventListener('change', calcHonoraires);
-  // Marquer comme saisie manuelle si l'utilisateur modifie directement
+  // Changement utilisateur de surface ou zone → recalcul forcé
+  document.querySelector('[name="surface_habitable"]')?.addEventListener('input', () => calcHonoraires(true));
+  document.getElementById('zone_tendue')?.addEventListener('change', () => calcHonoraires(true));
+  // Marquer comme saisie manuelle si l'utilisateur modifie directement honoraires
   document.getElementById('honoraires_locataire')?.addEventListener('input', function() { this.dataset.autoCalc = '0'; });
   document.getElementById('honoraires_etat_des_lieux')?.addEventListener('input', function() { this.dataset.autoCalc = '0'; });
 
@@ -5339,39 +5368,245 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
   }
 
+  // ── Prevent Enter from submitting form ──
+  document.getElementById('bien-create-form')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.type !== 'submit') {
+      e.preventDefault();
+    }
+  });
+
+  // ── Auto-save sur modification de champ (debounce 1.5s) ──
+  // Évite de devoir cliquer "Mettre à jour" manuellement. autoSave() gère
+  // déjà __autoSaving et __isEditing, donc sûr à appeler.
+  (function() {
+    const form = document.getElementById('bien-create-form');
+    if (!form) return;
+    let __fieldTimer = null;
+    const DEBOUNCE_MS = 1500;
+
+    function schedule() {
+      if (!__isEditing) return;
+      if (__fieldTimer) clearTimeout(__fieldTimer);
+      __fieldTimer = setTimeout(() => { __fieldTimer = null; autoSave(); }, DEBOUNCE_MS);
+    }
+
+    // `input` couvre texte, number, textarea, select-one ; `change` couvre
+    // checkbox, radio, select, date. File inputs ignorés (autoSave les filtre déjà).
+    form.addEventListener('input', function(e) {
+      if (e.target && e.target.type === 'file') return;
+      schedule();
+    });
+    form.addEventListener('change', function(e) {
+      if (e.target && e.target.type === 'file') return;
+      schedule();
+    });
+  })();
+
+  // ── NAV STEPS (onglets + sous-onglets séquentiels) ──
+  const NAV_STEPS = [
+    { tab: 'identification', sub: 'ident-main',     label: 'Identification' },
+    { tab: 'identification', sub: 'ident-adresse',  label: 'Adresse' },
+    { tab: 'identification', sub: 'ident-env',      label: 'Environnement' },
+    { tab: 'identification', sub: 'ident-proprio',  label: 'Propriétaire' },
+    { tab: 'caracteristiques', sub: 'carac-main',     label: 'Caractéristiques' },
+    { tab: 'caracteristiques', sub: 'carac-surfaces',  label: 'Surfaces' },
+    { tab: 'caracteristiques', sub: 'carac-pieces',    label: 'Pièces & Équipements' },
+    { tab: 'caracteristiques', sub: 'carac-chauffage', label: 'Chauffage & Énergie' },
+    { tab: 'prix',           sub: 'prix-loyer',       label: 'Location & Vente' },
+    { tab: 'prix',           sub: 'prix-encadrement',  label: 'Encadrement & Complément' },
+    { tab: 'prix',           sub: 'prix-locprec',      label: 'Locataire précédent' },
+    { tab: 'prix',           sub: 'prix-copro',        label: 'Copropriété' },
+    { tab: 'dpe',            sub: 'dpe-main',          label: 'DPE' },
+    { tab: 'dpe',            sub: 'dpe-docs',          label: 'Documents diag' },
+    { tab: 'dpe',            sub: 'dpe-erp',           label: 'ERP / Géorisques' },
+    { tab: 'photos',         sub: null,                label: 'Photos' },
+    { tab: 'description',    sub: 'desc-texte',        label: 'Description' },
+    { tab: 'description',    sub: 'desc-photos',       label: 'Analyse photos' },
+    { tab: 'description',    sub: 'desc-seo',          label: 'SEO & commentaires' },
+    { tab: 'annonce',        sub: 'ann-main',          label: 'Annonce' },
+    { tab: 'annonce',        sub: 'ann-details',       label: 'Détails annonce' },
+    { tab: 'annonce',        sub: 'ann-photos',        label: 'Photos annonce' },
+    { tab: 'annonce',        sub: 'ann-diffusion',     label: 'Diffusion' },
+    { tab: 'conformite',     sub: null,                label: 'Conformité' },
+  ];
+  function getCurrentStepIndex() {
+    const tab = __currentTab || 'identification';
+    const panel = document.querySelector(`[data-tab-panel="${tab}"]`);
+    const activeSub = panel?.querySelector('.ba-subtab.active');
+    const sub = activeSub?.dataset?.sub || null;
+    for (let i = 0; i < NAV_STEPS.length; i++) {
+      if (NAV_STEPS[i].tab === tab && (NAV_STEPS[i].sub === sub || (!NAV_STEPS[i].sub && !sub))) return i;
+    }
+    return NAV_STEPS.findIndex(s => s.tab === tab);
+  }
+  function goToStep(index) {
+    if (index < 0 || index >= NAV_STEPS.length) return;
+    // Sauvegarde avant de changer de pas (inclut changement de sous-onglet
+    // dans le même tab, ce que switchTab ne fait pas tout seul).
+    autoSave();
+    const step = NAV_STEPS[index];
+    switchTab(step.tab);
+    if (step.sub) {
+      const panel = document.querySelector(`[data-tab-panel="${step.tab}"]`);
+      const btn = panel?.querySelector(`.ba-subtab[data-sub="${step.sub}"]`);
+      if (btn) activateSubtab(btn);
+    }
+    updateNavPrevVisibility();
+  }
+  function navPrev() { goToStep(getCurrentStepIndex() - 1); }
+  function navNext() { goToStep(getCurrentStepIndex() + 1); }
+  window.navPrev = navPrev;
+  window.navNext = navNext;
+
+  // Cache le bouton Précédent de l'onglet Identification quand on est sur le
+  // tout premier sous-onglet (ident-main) — il n'y a rien avant.
+  function updateNavPrevVisibility() {
+    const btn = document.querySelector('[data-tab-panel="identification"] .ba-nav-prev');
+    if (!btn) return;
+    btn.style.visibility = getCurrentStepIndex() === 0 ? 'hidden' : '';
+  }
+  // État initial au chargement
+  document.addEventListener('DOMContentLoaded', updateNavPrevVisibility);
+  // Aussi sur clic sur les sous-onglets d'Identification (cf. listener existant plus bas)
+  document.querySelectorAll('[data-tab-panel="identification"] .ba-subtab').forEach(b => {
+    b.addEventListener('click', () => setTimeout(updateNavPrevVisibility, 0));
+  });
+
   // ── TAB SWITCHING (avec auto-save) ──
   let __currentTab = null;
+  let __restoringState = false; // true pendant restore → évite scrollTo(0)
   function switchTab(id) {
-    // Auto-save quand on quitte un onglet (pas au chargement initial)
-    if (__currentTab && __currentTab !== id) {
+    // Auto-save quand on quitte un onglet (pas au chargement initial ni en restore)
+    if (__currentTab && __currentTab !== id && !__restoringState) {
       autoSave();
     }
     __currentTab = id;
     document.querySelectorAll('.ba-panel').forEach(p => p.classList.toggle('active', p.dataset.tabPanel === id));
     document.querySelectorAll('.ba-tab').forEach(b  => b.classList.toggle('active', b.dataset.tab === id));
     history.replaceState(null, '', '#' + id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!__restoringState) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
   window.switchTab = switchTab;
 
   document.querySelectorAll('.ba-tab').forEach(btn =>
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab))
+    btn.addEventListener('click', () => {
+      switchTab(btn.dataset.tab);
+      if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState();
+    })
   );
-  const init = window.location.hash ? window.location.hash.slice(1) : 'identification';
-  switchTab(init);
+
+  // ── Restauration complète tab + sous-tab + scroll via sessionStorage ──
+  // Persiste la position exacte (onglet + sous-onglet + scroll) entre refreshs.
+  // Le hash URL ne prévaut que s'il pointe vers un tab différent de celui
+  // enregistré (ex : lien externe vers #photos) — sinon sessionStorage gagne.
+  (function() {
+    // Désactive la restauration scroll native du navigateur : on gère nous-mêmes.
+    // Sans ça, Firefox/Chrome peuvent sauter en haut/bas avant qu'on switche d'onglet.
+    try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (_) {}
+
+    const KEY = 'ba_state_' + window.location.pathname + window.location.search;
+
+    // ── 1. LECTURE de l'état AVANT d'installer les listeners (évite toute race)
+    let initialTab = 'identification';
+    let initialSub = '';
+    let initialScroll = null;
+    let saved = null;
+    try {
+      const raw = sessionStorage.getItem(KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch (_) {}
+
+    if (saved) {
+      if (saved.tab) initialTab = saved.tab;
+      if (saved.sub) initialSub = saved.sub;
+      if (typeof saved.scroll === 'number') initialScroll = saved.scroll;
+    }
+
+    // Hash URL : ne prévaut que s'il cible un autre onglet que celui mémorisé
+    if (window.location.hash) {
+      const hashTab = window.location.hash.slice(1);
+      if (hashTab && hashTab !== initialTab) {
+        initialTab = hashTab;
+        initialSub = '';
+        initialScroll = null;
+      }
+    }
+
+    // ── 2. APPLIQUE l'état avant que quoi que ce soit d'autre ne tourne
+    __restoringState = true;
+    switchTab(initialTab);
+    if (initialSub) {
+      const panel = document.querySelector('[data-tab-panel="' + initialTab + '"]');
+      const btn = panel?.querySelector('.ba-subtab[data-sub="' + initialSub + '"]');
+      if (btn) activateSubtab(btn);
+    }
+    // Scroll : plusieurs ticks car images/fonts peuvent modifier la hauteur
+    if (initialScroll !== null) {
+      const restoreScroll = () => window.scrollTo(0, initialScroll);
+      restoreScroll();
+      requestAnimationFrame(() => {
+        restoreScroll();
+        requestAnimationFrame(() => {
+          restoreScroll();
+          // Une dernière passe après le load complet (images)
+          window.addEventListener('load', restoreScroll, { once: true });
+          setTimeout(() => { __restoringState = false; }, 100);
+        });
+      });
+    } else {
+      __restoringState = false;
+    }
+
+    // ── 3. INSTALLE les listeners de sauvegarde
+    function saveState() {
+      // N'écrit que si on a un onglet réel — évite de stomper l'état au démarrage
+      if (!__currentTab) return;
+      try {
+        const panel = document.querySelector('.ba-panel.active');
+        const subActive = panel?.querySelector('.ba-subtab.active');
+        sessionStorage.setItem(KEY, JSON.stringify({
+          scroll: window.scrollY,
+          tab: __currentTab,
+          sub: subActive?.dataset?.sub || '',
+        }));
+      } catch (_) {}
+    }
+
+    let __scrollTimer = null;
+    window.addEventListener('scroll', function() {
+      if (__restoringState) return;
+      if (__scrollTimer) return;
+      __scrollTimer = setTimeout(() => { saveState(); __scrollTimer = null; }, 200);
+    }, { passive: true });
+    window.addEventListener('beforeunload', saveState);
+    window.addEventListener('pagehide', saveState);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') saveState();
+    });
+    window.__baSaveUiState = saveState; // exposé pour clics tab/sous-onglet
+  })();
 
   // ── SOUS-ONGLETS (subtabs, avec auto-save) ──
+  function activateSubtab(btn) {
+    var container = btn.closest('.ba-card') || btn.closest('.ba-panel');
+    var target = btn.dataset.sub;
+    container.querySelectorAll('.ba-subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === target));
+    container.querySelectorAll('.ba-subpanel').forEach(p => {
+      p.style.display = p.dataset.subPanel === target ? '' : 'none';
+      if (p.dataset.subPanel === target) p.classList.add('active');
+      else p.classList.remove('active');
+    });
+  }
+  window.activateSubtab = activateSubtab;
+
   document.querySelectorAll('.ba-subtab').forEach(btn => {
     btn.addEventListener('click', function() {
       autoSave();
-      var container = this.closest('.ba-card') || this.closest('.ba-panel');
-      var target = this.dataset.sub;
-      container.querySelectorAll('.ba-subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === target));
-      container.querySelectorAll('.ba-subpanel').forEach(p => {
-        p.style.display = p.dataset.subPanel === target ? '' : 'none';
-        if (p.dataset.subPanel === target) p.classList.add('active');
-        else p.classList.remove('active');
-      });
+      activateSubtab(this);
+      // Persiste l'état UI (onglet / sous-onglet / scroll) pour refresh
+      if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState();
     });
   });
 
@@ -5391,13 +5626,78 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       status.innerHTML = html;
     }
 
+    // Stocke les champs extraits pour application après validation utilisateur.
+    // Clé = nom du champ, valeur = { newValue, currentValue, fileName }
+    let extractedFields = {};
+
+    function renderValidatePanel() {
+      const names = Object.keys(extractedFields);
+      if (!names.length) return '';
+      const rows = names.map(n => {
+        const { newValue, currentValue } = extractedFields[n];
+        const changed = String(currentValue ?? '') !== String(newValue ?? '');
+        return '<tr style="border-bottom:1px solid #e5e7eb;">'
+          + '<td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#475569;">' + n + '</td>'
+          + '<td style="padding:4px 8px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + (currentValue || '—') + '</td>'
+          + '<td style="padding:4px 8px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#64748b') + ';">' + (newValue || '—') + '</td>'
+          + '</tr>';
+      }).join('');
+      return '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+        + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+        + '<thead><tr style="background:#f1f5f9;"><th style="padding:6px 8px;text-align:left;">Champ</th><th style="padding:6px 8px;text-align:left;">Actuel</th><th style="padding:6px 8px;text-align:left;">Extrait</th></tr></thead>'
+        + '<tbody>' + rows + '</tbody></table>'
+        + '<div style="padding:10px;background:#f8fafc;display:flex;gap:8px;justify-content:flex-end;">'
+        + '<button type="button" id="diag-upload-cancel" style="padding:6px 12px;border-radius:6px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">Annuler</button>'
+        + '<button type="button" id="diag-upload-validate" style="padding:6px 12px;border-radius:6px;background:#0ea5e9;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider & remplacer</button>'
+        + '</div></div>';
+    }
+
+    function bindValidateButtons() {
+      const validateBtn = document.getElementById('diag-upload-validate');
+      const cancelBtn = document.getElementById('diag-upload-cancel');
+      if (validateBtn) {
+        validateBtn.addEventListener('click', () => {
+          const apply = window.__baApplyDpeValue;
+          let applied = 0;
+          Object.entries(extractedFields).forEach(([name, info]) => {
+            if (typeof apply === 'function') {
+              if (apply(name, info.newValue)) applied++;
+            } else {
+              // Fallback : remplace directement la valeur
+              const el = document.querySelector('[name="' + name + '"]');
+              if (el) {
+                el.value = info.newValue;
+                try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+                applied++;
+              }
+            }
+          });
+          extractedFields = {};
+          showStatus('✅ <strong>' + applied + ' champ(s)</strong> appliqué(s) — <a href="javascript:location.reload()" style="color:inherit;font-weight:700;">Recharger pour voir la liste des documents</a>', 'success');
+        });
+      }
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          extractedFields = {};
+          status.style.display = 'none';
+        });
+      }
+    }
+
     if (uploadBtn && uploadInput) {
+      // Auto-upload dès sélection : plus naturel que d'obliger à cliquer le bouton.
+      uploadInput.addEventListener('change', () => {
+        if (uploadInput.files.length) uploadBtn.click();
+      });
+
       uploadBtn.addEventListener('click', async () => {
         const files = uploadInput.files;
         if (!files.length) { alert('Sélectionnez un ou plusieurs PDF.'); return; }
         uploadBtn.disabled = true;
         uploadBtn.textContent = '⏳ Analyse…';
+        extractedFields = {};
         let ok = 0, err = 0;
+        const DPE_FIELDS = ['dpe_classe','ges_classe','dpe_valeur','ges_valeur','dpe_date_realisation','dpe_version','dpe_reference_certificat','altitude','dpe_valeur_conso_primaire','dpe_valeur_conso_finale','montant_estime_depenses_min','montant_estime_depenses_max','date_indice_prix_energies','numero_ademe','type_diag','date_diagnostic'];
 
         for (const file of files) {
           showStatus('⏳ Analyse de <strong>' + file.name + '</strong>…', 'loading');
@@ -5410,19 +5710,31 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             const data = await resp.json();
             if (!data.ok) throw new Error(data.error || 'Échec');
 
-            // Remplir les champs DPE si extraits
+            // Collecte les champs extraits (sans les appliquer) pour validation utilisateur
             const f = data.fields || {};
-            if (f.dpe_valeur) { const el = document.getElementById('dpe_valeur_input'); if (el && !el.value) { el.value = f.dpe_valeur; el.dispatchEvent(new Event('input')); } }
-            if (f.ges_valeur) { const el = document.getElementById('ges_valeur_input'); if (el && !el.value) { el.value = f.ges_valeur; el.dispatchEvent(new Event('input')); } }
-            ['dpe_date_realisation','dpe_version','dpe_reference_certificat','altitude','dpe_valeur_conso_primaire','dpe_valeur_conso_finale','montant_estime_depenses_min','montant_estime_depenses_max','date_indice_prix_energies'].forEach(name => {
-              if (!f[name]) return;
-              const el = document.querySelector('[name="' + name + '"]');
-              if (el && !el.value) el.value = f[name];
+            DPE_FIELDS.forEach(name => {
+              if (f[name] === undefined || f[name] === null || f[name] === '') return;
+              const el = document.querySelector('[name="' + name + '"]') || document.getElementById(name);
+              const currentValue = el ? (el.value || '') : '';
+              extractedFields[name] = { newValue: f[name], currentValue, fileName: file.name };
             });
             ok++;
           } catch (e) { err++; }
         }
-        showStatus('✅ ' + ok + ' document(s) analysé(s)' + (err ? ', ' + err + ' en erreur' : '') + ' — <a href="javascript:location.reload()" style="color:inherit;font-weight:700;">Recharger pour voir la liste</a>', ok ? 'success' : 'error');
+
+        const nbExtracted = Object.keys(extractedFields).length;
+        if (nbExtracted > 0) {
+          showStatus(
+            '📋 <strong>' + ok + ' document(s) analysé(s)</strong>' + (err ? ', ' + err + ' en erreur' : '')
+            + ' — <strong>' + nbExtracted + ' champ(s) extraits</strong>. Vérifiez et validez pour remplacer les valeurs du formulaire.'
+            + renderValidatePanel(),
+            ok ? 'success' : 'error'
+          );
+          bindValidateButtons();
+        } else {
+          showStatus('⚠️ ' + ok + ' document(s) analysé(s) mais aucun champ DPE exploitable n\'a été extrait' + (err ? ' (' + err + ' en erreur)' : '') + '.', err ? 'error' : 'loading');
+        }
+
         uploadBtn.disabled = false;
         uploadBtn.textContent = '⚡ Analyser & ajouter';
         uploadInput.value = '';
@@ -5475,7 +5787,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       'etage': { tab:'caracteristiques', sub:'carac-main' },
       'annonce_prix_vente': { tab:'annonce', sub:'ann-main' },
       'annonce_loyer': { tab:'annonce', sub:'ann-main' },
-      'charges': { tab:'prix', sub:'prix-loyer' },
+      'charges_locatives': { tab:'prix', sub:'prix-loyer' },
       'depot_garantie': { tab:'prix', sub:'prix-loyer' },
       'honoraires_inclus': { tab:'prix', sub:'prix-loyer' },
       'mandats_honoraires': { tab:'prix', sub:'prix-loyer' },
@@ -5644,19 +5956,34 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     syncGes();
   })();
 
-  // ── IMPORT MANDAT PDF ──
+  // ── IMPORT MANDAT PDF — détection propriétaire existant + validation ──
   (function() {
     const trigger = document.getElementById('mandat-pdf-trigger');
     const input   = document.getElementById('mandat-pdf-input');
     const status  = document.getElementById('mandat-import-status');
+    const proprioSelect = document.getElementById('ba-proprietaire-select');
     if (!trigger || !input || !status) return;
+
+    // Liste des propriétaires exposée côté JS pour le matching
+    const proprietaires = <?= json_encode(array_map(function($p) {
+      return [
+        'id' => (int)$p['id'],
+        'nom' => (string)($p['nom'] ?? ''),
+        'prenom' => (string)($p['prenom'] ?? ''),
+        'societe' => (string)($p['societe'] ?? ''),
+        'email' => (string)($p['email'] ?? ''),
+        'telephone' => (string)($p['telephone'] ?? ''),
+        'ville' => (string)($p['ville'] ?? ''),
+      ];
+    }, $proprietairesList), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 
     trigger.addEventListener('click', () => input.click());
 
-    function showStatus(text, type) {
+    function showStatus(html, type) {
       const colors = {
         loading: { bg: '#f0f9ff', border: '#0ea5e9', color: '#0369a1' },
         success: { bg: '#f0fdf4', border: '#16a34a', color: '#14532d' },
+        warning: { bg: '#fffbeb', border: '#f59e0b', color: '#92400e' },
         error:   { bg: '#fef2f2', border: '#dc2626', color: '#991b1b' },
       };
       const c = colors[type] || colors.loading;
@@ -5664,20 +5991,159 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       status.style.background = c.bg;
       status.style.borderLeft = '4px solid ' + c.border;
       status.style.color = c.color;
-      status.innerHTML = text;
+      status.innerHTML = html;
     }
 
-    function setVal(id, val) {
-      const el = document.getElementById(id);
-      if (el && val && !el.value) el.value = val;
+    function norm(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
+
+    // Score de correspondance entre proprio extrait et proprietaire en base
+    function matchScore(extracted, p) {
+      let score = 0;
+      const en = norm(extracted.proprio_nom), ep = norm(extracted.proprio_prenom);
+      const ee = norm(extracted.proprio_email), et = norm(extracted.proprio_telephone).replace(/[^0-9+]/g, '');
+      const es = norm(extracted.proprio_societe);
+      const pn = norm(p.nom), pp = norm(p.prenom), ps = norm(p.societe);
+      const pe = norm(p.email), pt = norm(p.telephone).replace(/[^0-9+]/g, '');
+      if (ee && pe && ee === pe) score += 70;
+      if (et && pt && (et === pt || et.endsWith(pt) || pt.endsWith(et))) score += 50;
+      if (en && pn && en === pn) score += 30;
+      if (ep && pp && ep === pp) score += 15;
+      if (es && ps && es === ps) score += 30;
+      return score;
+    }
+
+    function bestMatch(extracted) {
+      if (!Array.isArray(proprietaires) || !proprietaires.length) return null;
+      let best = null, bestScore = 0;
+      for (const p of proprietaires) {
+        const s = matchScore(extracted, p);
+        if (s > bestScore) { bestScore = s; best = p; }
+      }
+      return bestScore >= 30 ? { p: best, score: bestScore } : null;
+    }
+
+    function proprioLabel(p) {
+      if (!p) return '';
+      if (p.societe) return p.societe + (p.nom ? ' (' + (p.prenom || '') + ' ' + p.nom + ')' : '');
+      return ((p.prenom || '') + ' ' + (p.nom || '')).trim();
+    }
+
+    // Helper : force l'écriture d'une valeur + dispatch d'événements
+    function setVal(nameOrId, val) {
+      if (val === null || val === undefined || val === '') return false;
+      const el = document.getElementById(nameOrId) || document.querySelector('[name="' + nameOrId + '"]');
+      if (!el) return false;
+      el.value = val;
+      try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+      try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      return true;
     }
     function setSelect(name, val) {
-      if (!val) return;
+      if (!val) return false;
       const el = document.querySelector('select[name="' + name + '"]');
-      if (!el) return;
+      if (!el) return false;
       for (const opt of el.options) {
-        if (opt.value === val) { opt.selected = true; return; }
+        if (opt.value === val) {
+          el.value = val;
+          try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+          return true;
+        }
       }
+      return false;
+    }
+
+    function fillMandatFields(f) {
+      let n = 0;
+      if (f.numero_mandat && setVal('mandats_numero', f.numero_mandat)) n++;
+      if (setSelect('mandats_type', f.type_mandat)) n++;
+      const nature = f.nature_mandat || (f.exclusif ? 'exclusif' : '');
+      if (setSelect('mandats_nature', nature)) n++;
+      if (f.date_signature && setVal('mandats_date_signature', f.date_signature)) n++;
+      if (f.date_debut && setVal('mandats_date_debut', f.date_debut)) n++;
+      if (f.date_fin && setVal('mandats_date_fin', f.date_fin)) n++;
+      if (f.honoraires && setVal('mandats_honoraires', f.honoraires)) n++;
+      return n;
+    }
+
+    function fillProprioFields(f) {
+      let n = 0;
+      if (setVal('proprio_nom', f.proprio_nom)) n++;
+      if (setVal('proprio_prenom', f.proprio_prenom)) n++;
+      if (setVal('proprio_societe', f.proprio_societe)) n++;
+      if (setVal('proprio_telephone', f.proprio_telephone)) n++;
+      if (setVal('proprio_email', f.proprio_email)) n++;
+      const adr = [f.proprio_adresse_1, f.proprio_code_postal, f.proprio_ville].filter(Boolean).join(', ');
+      if (adr && setVal('proprio_adresse', adr)) n++;
+      return n;
+    }
+
+    function clearProprioFields() {
+      ['proprio_nom','proprio_prenom','proprio_societe','proprio_telephone','proprio_email','proprio_adresse'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.value = ''; try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {} }
+      });
+    }
+
+    function renderChoicePanel(extracted, match) {
+      const extractedLabel = [extracted.proprio_prenom, extracted.proprio_nom].filter(Boolean).join(' ')
+        || extracted.proprio_societe || '(non renseigné)';
+      const extractedMeta = [extracted.proprio_email, extracted.proprio_telephone].filter(Boolean).join(' • ');
+
+      let matchBlock = '';
+      if (match) {
+        matchBlock = ''
+          + '<div style="margin-top:10px;padding:12px;background:#fff;border:1px solid #16a34a;border-radius:8px;">'
+          + '<div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:4px;">🎯 Correspondance trouvée (score ' + match.score + ')</div>'
+          + '<div style="font-size:13px;font-weight:700;color:#0f172a;">' + proprioLabel(match.p) + '</div>'
+          + '<div style="font-size:11px;color:#64748b;margin-top:2px;">'
+            + [match.p.email, match.p.telephone, match.p.ville].filter(Boolean).join(' • ')
+          + '</div>'
+          + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
+          + '<button type="button" data-mandat-action="use-existing" style="padding:6px 12px;border-radius:6px;background:#16a34a;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Utiliser ce propriétaire &amp; remplir le mandat</button>'
+          + '<button type="button" data-mandat-action="create-new" style="padding:6px 12px;border-radius:6px;background:#fff;color:#0369a1;border:1px solid #0ea5e9;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">+ Créer un nouveau propriétaire</button>'
+          + '</div></div>';
+      } else {
+        matchBlock = ''
+          + '<div style="margin-top:10px;padding:12px;background:#fff;border:1px solid #f59e0b;border-radius:8px;">'
+          + '<div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;">⚠️ Aucun propriétaire correspondant trouvé</div>'
+          + '<div style="font-size:11px;color:#64748b;margin-bottom:8px;">Créez un nouveau propriétaire avec les infos extraites du mandat.</div>'
+          + '<button type="button" data-mandat-action="create-new" style="padding:6px 12px;border-radius:6px;background:#0ea5e9;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">+ Créer le propriétaire &amp; remplir le mandat</button>'
+          + '</div>';
+      }
+
+      return ''
+        + '<div>'
+        + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">📄 Mandat analysé</div>'
+        + '<div style="font-size:11px;color:#475569;">Propriétaire extrait : <strong>' + extractedLabel + '</strong>' + (extractedMeta ? ' — ' + extractedMeta : '') + '</div>'
+        + matchBlock
+        + '</div>';
+    }
+
+    function onUseExisting(match, f) {
+      if (proprioSelect) {
+        proprioSelect.value = String(match.p.id);
+        try { proprioSelect.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      }
+      clearProprioFields(); // on utilise le proprio existant → pas de création à la volée
+      const n = fillMandatFields(f);
+      showStatus('✅ Propriétaire <strong>' + proprioLabel(match.p) + '</strong> sélectionné. <strong>' + n + ' champ(s)</strong> mandat remplis.', 'success');
+    }
+
+    function onCreateNew(f) {
+      if (proprioSelect) {
+        proprioSelect.value = '';
+        try { proprioSelect.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      }
+      const nProprio = fillProprioFields(f);
+      const nMandat = fillMandatFields(f);
+      showStatus('✅ Nouveau propriétaire à créer — <strong>' + nProprio + '</strong> champ(s) propriétaire + <strong>' + nMandat + '</strong> champ(s) mandat remplis. Il sera créé à l\'enregistrement.', 'success');
+    }
+
+    function bindChoiceButtons(extracted, match) {
+      const useExistingBtn = status.querySelector('[data-mandat-action="use-existing"]');
+      const createNewBtn = status.querySelector('[data-mandat-action="create-new"]');
+      if (useExistingBtn && match) useExistingBtn.addEventListener('click', () => onUseExisting(match, extracted));
+      if (createNewBtn) createNewBtn.addEventListener('click', () => onCreateNew(extracted));
     }
 
     input.addEventListener('change', async () => {
@@ -5702,62 +6168,18 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           method: 'POST', body: fd, credentials: 'same-origin'
         });
         const data = await resp.json();
-
         if (!data.ok) throw new Error(data.error || 'Analyse échouée');
 
         const f = data.fields || {};
-        let filled = 0;
-
-        // Propriétaire
-        setVal('proprio_nom', f.proprio_nom); if (f.proprio_nom) filled++;
-        setVal('proprio_prenom', f.proprio_prenom); if (f.proprio_prenom) filled++;
-        setVal('proprio_societe', f.proprio_societe); if (f.proprio_societe) filled++;
-        setVal('proprio_telephone', f.proprio_telephone); if (f.proprio_telephone) filled++;
-        setVal('proprio_email', f.proprio_email); if (f.proprio_email) filled++;
-        setVal('proprio_adresse', [f.proprio_adresse_1, f.proprio_code_postal, f.proprio_ville].filter(Boolean).join(', '));
-        if (f.proprio_adresse_1) filled++;
-
-        // Mandat
-        if (f.numero_mandat) { setVal('mandats_numero', f.numero_mandat); filled++; }
-        // Note: mandats_numero n'a pas d'id, on utilise name
-        const numEl = document.querySelector('input[name="mandats_numero"]');
-        if (numEl && f.numero_mandat && !numEl.value) numEl.value = f.numero_mandat;
-
-        setSelect('mandats_type', f.type_mandat);
-        if (f.type_mandat) filled++;
-
-        const nature = f.nature_mandat || (f.exclusif ? 'exclusif' : '');
-        if (nature) { setSelect('mandats_nature', nature); filled++; }
-
-        const dateFields = {
-          'mandats_date_signature': f.date_signature,
-          'mandats_date_debut': f.date_debut,
-          'mandats_date_fin': f.date_fin,
-        };
-        for (const [name, val] of Object.entries(dateFields)) {
-          if (!val) continue;
-          const el = document.querySelector('input[name="' + name + '"]');
-          if (el && !el.value) { el.value = val; filled++; }
-        }
-
-        // Honoraires → champ dans Prix
-        if (f.honoraires) {
-          const hEl = document.querySelector('input[name="mandats_honoraires"]');
-          if (hEl && !hEl.value) { hEl.value = f.honoraires; filled++; }
-        }
-
-        const resume = data.resume || data.doc_titre || '';
-        showStatus(
-          '✅ <strong>' + filled + ' champ(s)</strong> rempli(s) depuis le mandat'
-          + (resume ? '<br><em style="font-size:11px;opacity:.8;">' + resume + '</em>' : ''),
-          'success'
-        );
+        const match = bestMatch(f);
+        showStatus(renderChoicePanel(f, match), match ? 'success' : 'warning');
+        bindChoiceButtons(f, match);
 
       } catch (e) {
         showStatus('❌ ' + (e.message || 'Erreur inconnue'), 'error');
       } finally {
         trigger.disabled = false;
-        trigger.innerHTML = '📄 Importer un mandat PDF';
+        trigger.innerHTML = '📄 Importer mandat PDF';
       }
     });
   })();
@@ -5785,6 +6207,296 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); card.click(); }
     });
   });
+
+  // ── CALCUL AUTOMATIQUE HONORAIRES TRANSACTION (% ↔ montant) ──
+  (function() {
+    const prixEl = document.getElementById('prix_vente_estime');
+    const inclusSel = document.querySelector('select[name="honoraires_inclus"]');
+    const pctAcq = document.getElementById('alur_pct_acq');
+    const pctVend = document.getElementById('alur_pct_vend');
+    const cumul = document.getElementById('hono_cumules');
+    const detailEl = document.querySelector('input[name="honoraires_detail"]');
+    const hintPct = document.getElementById('alur-pct-hint');
+    const hintCumul = document.getElementById('hono-cumul-hint');
+    const chargeAcqEl = document.querySelector('input[name="honoraires_charge_acquereur"]');
+    const chargeVendEl = document.querySelector('input[name="honoraires_charge_vendeur"]');
+
+    function num(v) {
+      const n = parseFloat(String(v ?? '').replace(',', '.'));
+      return Number.isFinite(n) ? n : 0;
+    }
+    function round2(n) { return Math.round(n * 100) / 100; }
+    function setIfDifferent(el, next) {
+      if (!el) return;
+      if (String(el.value ?? '') !== String(next ?? '')) {
+        el.value = next ?? '';
+        // Dispatch pour réveiller l'autosave et autres handlers dépendants
+        try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      }
+    }
+    function isOn(el) { return !!el && String(el.value) === '1'; }
+
+    function computeFromPct(prixAffiche, totalPct, inclus) {
+      if (!(prixAffiche > 0) || !(totalPct > 0)) return null;
+      if (inclus === 'oui') {
+        const hh = prixAffiche / (1 + totalPct / 100);
+        const fees = prixAffiche - hh;
+        return { hh, fai: prixAffiche, fees, totalPct };
+      }
+      const hh = prixAffiche;
+      const fees = hh * totalPct / 100;
+      return { hh, fai: hh + fees, fees, totalPct };
+    }
+
+    function computeFromFees(prixAffiche, fees, inclus) {
+      if (!(prixAffiche > 0) || !(fees > 0)) return null;
+      if (inclus === 'oui') {
+        const hh = prixAffiche - fees;
+        if (!(hh > 0)) return null;
+        const totalPct = fees / hh * 100;
+        return { hh, fai: prixAffiche, fees, totalPct };
+      }
+      const hh = prixAffiche;
+      const totalPct = fees / hh * 100;
+      return { hh, fai: hh + fees, fees, totalPct };
+    }
+
+    function updateDetailIfEmpty() {
+      if (!detailEl || String(detailEl.value || '').trim() !== '') return;
+      const a = num(pctAcq?.value);
+      const v = num(pctVend?.value);
+      const parts = [];
+      const hasChargeFlag = isOn(chargeAcqEl) || isOn(chargeVendEl);
+      if (isOn(chargeAcqEl) && a > 0) parts.push(a.toFixed(2).replace('.', ',') + '% TTC charge acquéreur');
+      if (isOn(chargeVendEl) && v > 0) parts.push(v.toFixed(2).replace('.', ',') + '% TTC charge vendeur');
+      if (!parts.length && !hasChargeFlag) {
+        const total = a + v;
+        if (total > 0) parts.push(total.toFixed(2).replace('.', ',') + '% TTC');
+      }
+      if (parts.length) detailEl.value = parts.join(' + ');
+    }
+
+    function renderHints(res) {
+      if (!res) return;
+      const pctA = num(pctAcq?.value);
+      const pctV = num(pctVend?.value);
+      const total = pctA + pctV;
+      if (hintPct) {
+        let txt = '';
+        if (pctA > 0) txt += 'Acquéreur: ' + round2(res.hh * pctA / 100).toFixed(0) + ' €';
+        if (pctV > 0) txt += (txt ? ' • ' : '') + 'Vendeur: ' + round2(res.hh * pctV / 100).toFixed(0) + ' €';
+        hintPct.textContent = txt;
+      }
+      if (hintCumul) {
+        const baseLabel = (inclusSel?.value === 'oui') ? 'HH' : 'Prix';
+        hintCumul.textContent =
+          baseLabel + ': ' + round2(res.hh).toFixed(0) + ' €'
+          + ' • FAI: ' + round2(res.fai).toFixed(0) + ' €'
+          + ' • Honoraires: ' + round2(res.fees).toFixed(0) + ' €'
+          + (total > 0 ? ' (' + total.toFixed(2) + '%)' : '');
+      }
+    }
+
+    let lastChanged = ''; // 'pct' | 'fees'
+    function recalc() {
+      const prix = num(prixEl?.value);
+      const inclus = inclusSel?.value === 'oui' ? 'oui' : 'non';
+      const pctA = num(pctAcq?.value);
+      const pctV = num(pctVend?.value);
+      const fees = num(cumul?.value);
+      const totalPct = pctA + pctV;
+
+      if (lastChanged === 'fees') {
+        const res = computeFromFees(prix, fees, inclus);
+        if (!res) return;
+        const newTotalPct = round2(res.totalPct);
+        const fixedVend = num(pctVend?.value);
+        if (pctAcq) {
+          // Conserve pct vendeur si déjà saisi, sinon tout dans acquéreur
+          const next = fixedVend > 0 ? Math.max(0, newTotalPct - fixedVend) : newTotalPct;
+          setIfDifferent(pctAcq, next.toFixed(2));
+        }
+        renderHints(res);
+        updateDetailIfEmpty();
+        return;
+      }
+
+      const res = computeFromPct(prix, totalPct, inclus);
+      if (!res) return;
+      if (cumul) setIfDifferent(cumul, round2(res.fees).toFixed(2));
+      // Auto-remplit aussi « Honoraires mandat » si vide (= mêmes fees sur vente classique)
+      const mandatHonoEl = document.querySelector('input[name="mandats_honoraires"]');
+      if (mandatHonoEl && String(mandatHonoEl.value || '').trim() === '' && res.fees > 0) {
+        setIfDifferent(mandatHonoEl, round2(res.fees).toFixed(2));
+      }
+      renderHints(res);
+      updateDetailIfEmpty();
+    }
+
+    pctAcq?.addEventListener('input', () => { lastChanged = 'pct'; recalc(); });
+    pctVend?.addEventListener('input', () => { lastChanged = 'pct'; recalc(); });
+    cumul?.addEventListener('input', () => { lastChanged = 'fees'; recalc(); });
+    prixEl?.addEventListener('input', () => recalc());
+    inclusSel?.addEventListener('change', () => recalc());
+    // Toggle mini-cards (hidden inputs) : click sur la carte → recalc (délai car minicard.js bascule après)
+    document.querySelectorAll('[data-field="honoraires_charge_acquereur"],[data-field="honoraires_charge_vendeur"]').forEach(card => {
+      card.addEventListener('click', () => setTimeout(() => { updateDetailIfEmpty(); recalc(); }, 0));
+    });
+
+    if (num(cumul?.value) > 0) lastChanged = 'fees';
+    else if (num(pctAcq?.value) > 0 || num(pctVend?.value) > 0) lastChanged = 'pct';
+    recalc();
+  })();
+
+  // ── CALCUL AUTOMATIQUE LOYER HC = Loyer référence majoré + Complément total ──
+  (function() {
+    const loyerHc = document.getElementById('loyer_hc');
+    if (!loyerHc) return;
+    function calcLoyerHc() {
+      let refMaj = 0;
+      document.querySelectorAll('[name="loyer_reference_majore"]').forEach(el => {
+        const v = parseFloat(el.value); if (v > 0) refMaj = v;
+      });
+      const compl = parseFloat(document.getElementById('cpl-loyer-total')?.value) || 0;
+      if (refMaj > 0) {
+        loyerHc.value = (refMaj + compl).toFixed(2);
+        loyerHc.dataset.autoLoyer = '1';
+      }
+    }
+    window.calcLoyerHc = calcLoyerHc;
+    document.querySelectorAll('[name="loyer_reference_majore"]').forEach(el => {
+      el.addEventListener('input', calcLoyerHc);
+      el.addEventListener('change', calcLoyerHc);
+    });
+    document.getElementById('cpl-loyer-total')?.addEventListener('input', calcLoyerHc);
+    document.getElementById('cpl-loyer-total')?.addEventListener('change', calcLoyerHc);
+    loyerHc.addEventListener('input', function() {
+      if (document.activeElement === this) this.dataset.autoLoyer = '0';
+    });
+    calcLoyerHc();
+  })();
+
+  // ── PRÉVENTION ENTER SUBMIT + NAVIGATION INTELLIGENTE ──
+  document.getElementById('bien-create-form')?.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA' || e.target.type === 'submit') return;
+    e.preventDefault();
+    if (e.target.classList.contains('cpl-mt')) {
+      document.getElementById('cpl-add-row')?.click();
+      setTimeout(() => {
+        const rows = document.querySelectorAll('#cpl-loyer-lignes .cpl-row');
+        const last = rows[rows.length - 1];
+        if (last) last.querySelector('input[name="cpl_libelle[]"]')?.focus();
+      }, 50);
+      return;
+    }
+    if (e.target.name === 'cpl_libelle[]') {
+      const row = e.target.closest('.cpl-row');
+      const montant = row?.querySelector('.cpl-mt');
+      if (montant) { montant.focus(); return; }
+    }
+    const inputs = [...this.querySelectorAll('input:not([type=hidden]):not([type=button]),select,textarea')]
+      .filter(el => !el.disabled && el.offsetParent !== null && !el.closest('.cpl-del'));
+    const idx = inputs.indexOf(e.target);
+    if (idx >= 0 && idx < inputs.length - 1) inputs[idx + 1].focus();
+  });
+
+  // ── GÉNÉRATION RÉFÉRENCE AUTOMATIQUE ──
+  const __refData = {
+    codeAgence: '<?php
+      $__agId = (int)($_SESSION['id_agence'] ?? 0);
+      $__cag = '';
+      if ($__agId > 0) { $__s = $pdo->prepare("SELECT code_agence FROM agences WHERE id = ?"); $__s->execute([$__agId]); $__cag = $__s->fetchColumn() ?: ''; }
+      echo h($__cag);
+    ?>',
+    commercials: <?= json_encode(array_map(fn($c) => ['id' => (int)$c['id'], 'initials' => mb_strtoupper(mb_substr($c['prenom'] ?? '', 0, 1) . mb_substr($c['nom'] ?? '', 0, 1))], $commercials)) ?>,
+  };
+  const __typeAbbrev = {appartement:'APP',maison:'MAI',villa:'VIL',loft:'LOF',bureau:'BUR',local_commercial:'LOC',local_activite:'ACT',boutique:'BOU',terrain:'TER',parking:'PRK',garage:'GAR',box:'BOX',chambre:'CHB',immeuble:'IMM',entrepot:'ENT',chateau:'CHA',programme_neuf:'PGN',fonds_commerce:'FDC',droit_bail:'DRB',atelier:'ATE'};
+  function generateRef() {
+    const codAg = __refData.codeAgence || 'AG';
+    const comSel = document.querySelector('[name="annonce_commercial_id"]');
+    let initials = 'XX';
+    if (comSel && comSel.value) {
+      const found = __refData.commercials.find(c => c.id === parseInt(comSel.value));
+      if (found) initials = found.initials;
+    }
+    const typeEl = document.querySelector('[name="type_bien"]');
+    const typeAbr = __typeAbbrev[typeEl?.value] || (typeEl?.value || 'BIN').substring(0,3).toUpperCase();
+    const pieces = document.querySelector('[name="nb_pieces"]')?.value || '0';
+    const transaction = document.querySelector('[name="annonce_transaction"]')?.value || '';
+    let prix = '';
+    if (transaction === 'location') prix = document.querySelector('[name="loyer_hc"]')?.value || '';
+    else if (transaction === 'vente') prix = document.querySelector('[name="prix_vente_estime"]')?.value || '';
+    if (prix) prix = Math.round(parseFloat(prix));
+    const ref = [codAg, initials, typeAbr, pieces + 'P', prix || ''].filter(Boolean).join('-');
+    const refEl = document.getElementById('reference_bien');
+    if (refEl) { refEl.value = ref; refEl.dispatchEvent(new Event('input', {bubbles: true})); }
+    const extEl = document.querySelector('[name="reference_externe"]');
+    if (extEl) { extEl.value = ref; extEl.dispatchEvent(new Event('input', {bubbles: true})); }
+  }
+  window.generateRef = generateRef;
+  ['annonce_commercial_id','type_bien','nb_pieces','loyer_hc','prix_vente_estime','annonce_transaction'].forEach(name => {
+    document.querySelector(`[name="${name}"]`)?.addEventListener('change', () => {
+      const refEl = document.getElementById('reference_bien');
+      if (refEl && (!refEl.value || refEl.dataset.autoRef === '1')) { generateRef(); refEl.dataset.autoRef = '1'; }
+    });
+  });
+  document.getElementById('reference_bien')?.addEventListener('input', function() { if (document.activeElement === this) this.dataset.autoRef = '0'; });
+
+  // ── RECHERCHE DE CHAMPS ──
+  (function() {
+    const input = document.getElementById('ba-field-search');
+    if (!input) return;
+    const resultsDiv = document.createElement('div');
+    resultsDiv.id = 'ba-search-results';
+    resultsDiv.style.cssText = 'display:none;position:absolute;top:100%;left:0;width:100%;max-height:280px;overflow-y:auto;background:#fff;border:1px solid var(--stroke);border-radius:0 0 10px 10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:999;';
+    input.parentElement.appendChild(resultsDiv);
+    const index = [];
+    document.querySelectorAll('.ba-field > label, .ba-field label').forEach(lbl => {
+      const text = lbl.textContent.trim();
+      if (!text || text.length < 2) return;
+      const field = lbl.closest('.ba-field')?.querySelector('input,select,textarea');
+      const panel = lbl.closest('[data-tab-panel]');
+      const subPanel = lbl.closest('[data-sub-panel]');
+      const tabId = panel?.dataset?.tabPanel || '';
+      const subId = subPanel?.dataset?.subPanel || '';
+      const step = NAV_STEPS.find(s => s.tab === tabId && (s.sub === subId || (!subId && !s.sub)));
+      index.push({ text, lower: text.toLowerCase(), field, tabId, subId, stepLabel: step?.label || tabId, el: lbl });
+    });
+    let debounce;
+    input.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => search(input.value.trim()), 150); });
+    input.addEventListener('focus', () => { if (input.value.trim()) search(input.value.trim()); });
+    document.addEventListener('click', (e) => { if (!e.target.closest('#ba-field-search') && !e.target.closest('#ba-search-results')) resultsDiv.style.display = 'none'; });
+    function search(q) {
+      if (q.length < 2) { resultsDiv.style.display = 'none'; return; }
+      const lower = q.toLowerCase();
+      const matches = index.filter(i => i.lower.includes(lower)).slice(0, 15);
+      if (!matches.length) { resultsDiv.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#888;">Aucun résultat</div>'; resultsDiv.style.display = ''; return; }
+      resultsDiv.innerHTML = matches.map((m, i) =>
+        '<div data-idx="'+i+'" style="padding:8px 14px;font-size:12px;cursor:pointer;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;">' +
+        '<span style="font-weight:600;color:#1a1a2e;">'+m.text+'</span>' +
+        '<span style="font-size:10px;color:#888;background:#f5f5f5;padding:2px 8px;border-radius:10px;">'+m.stepLabel+'</span></div>'
+      ).join('');
+      resultsDiv.style.display = '';
+      resultsDiv.querySelectorAll('[data-idx]').forEach((el, i) => {
+        el.addEventListener('click', () => goToField(matches[i]));
+        el.addEventListener('mouseenter', () => el.style.background = '#f8f8f8');
+        el.addEventListener('mouseleave', () => el.style.background = '');
+      });
+    }
+    function goToField(item) {
+      resultsDiv.style.display = 'none'; input.value = '';
+      if (item.tabId) { switchTab(item.tabId);
+        if (item.subId) { const panel = document.querySelector('[data-tab-panel="'+item.tabId+'"]'); const btn = panel?.querySelector('.ba-subtab[data-sub="'+item.subId+'"]'); if (btn) activateSubtab(btn); }
+      }
+      setTimeout(() => {
+        const target = item.field || item.el;
+        if (target) { target.scrollIntoView({ behavior:'smooth', block:'center' });
+          if (item.field) { item.field.focus(); item.field.style.boxShadow = '0 0 0 3px rgba(249,115,22,.4)'; setTimeout(() => item.field.style.boxShadow = '', 2000); }
+          else { target.style.background = 'rgba(249,115,22,.1)'; setTimeout(() => target.style.background = '', 2000); }
+        }
+      }, 200);
+    }
+  })();
 
   // ── Bouton sauvegarde AJAX (réutilise autoSave global) ──
   (function() {
@@ -6372,7 +7084,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
 
     // ═══ 5. PRIX — LOCATION ═══
     { key: 'annonce_loyer',       label: 'Loyer mensuel (€)', section: 'Prix', when: isLocation },
-    { key: 'charges',             label: 'Charges mensuelles (€)', section: 'Prix', when: isLocation },
+    { key: 'charges_locatives',   label: 'Charges mensuelles (€)', section: 'Prix', when: isLocation },
     { key: 'depot_garantie',      label: 'Dépôt de garantie (€)', section: 'Prix', when: isLocation },
     { key: 'honoraires_locataire', label: 'Honoraires locataire (€)', section: 'Prix', when: isLocation },
     { key: 'honoraires_etat_des_lieux', label: 'Honoraires état des lieux (€)', section: 'Prix', when: isLocation },
@@ -6513,6 +7225,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     }
 
     // Helper : applique une valeur à un champ form (input/select/hidden + DPE buttons + type-card)
+    // Exposé à window pour réutilisation par le petit upload dans l'onglet Documents.
     function applyValue(name, value) {
       if (value === null || value === '' || value === undefined) return false;
 
@@ -6549,6 +7262,9 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         for (const el of els) el.checked = (el.value == value);
       } else {
         first.value = value;
+        // Déclenche input pour calculs dépendants (honoraires, loyer HC, etc.)
+        try { first.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+        try { first.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
       }
       // Effet visuel : highlight vert
       first.style.transition = 'background .3s';
@@ -6556,6 +7272,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       setTimeout(() => { first.style.background = ''; }, 1500);
       return true;
     }
+    // Expose pour le petit upload Diag
+    window.__baApplyDpeValue = applyValue;
 
     trigger.addEventListener('click', () => input.click());
 
@@ -6996,10 +7714,12 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             }
             refreshInputFromQueue();
             renderGrid();
+            if (typeof window.__baRenderPhotoRecap === 'function') window.__baRenderPhotoRecap();
           }).catch(() => {
             const idx = existing.findIndex(p => p.id === tempId);
             if (idx >= 0) existing.splice(idx, 1);
             renderGrid();
+            if (typeof window.__baRenderPhotoRecap === 'function') window.__baRenderPhotoRecap();
           });
         });
       } else {
@@ -7128,6 +7848,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             existing[idx].description_ia = r.description;
           }
           renderGrid();
+          if (typeof window.__baRenderPhotoRecap === 'function') window.__baRenderPhotoRecap();
         } else {
           throw new Error(r.error || 'Échec');
         }
@@ -7136,6 +7857,87 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = prev || '🔎'; }
       }
     };
+
+    // ════════════════════════════════════════════════════════
+    // RECAP PHOTOS dans l'onglet Description > Analyse photos
+    // Rendu dynamique depuis `existing` avec actions par photo
+    // ════════════════════════════════════════════════════════
+    function escHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    window.__baRenderPhotoRecap = function () {
+      const recap = document.getElementById('ba-photo-recap');
+      if (!recap) return;
+
+      const total = existing.length;
+      const analysed = existing.filter(p => !!p.description_ia).length;
+      const notAnalysed = total - analysed;
+
+      if (total === 0) {
+        recap.innerHTML = '<div class="ba-photo-recap-empty" style="text-align:center;padding:20px;color:#888;">'
+          + 'Aucune photo uploadée. Ajoutez des photos dans l\'onglet <strong>📸 Photos</strong>.'
+          + '</div>';
+        return;
+      }
+
+      const headerActions = bienIdForAnalyze > 0
+        ? '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+          + (notAnalysed > 0 ? '<button type="button" data-recap-action="analyze" style="padding:6px 12px;border-radius:6px;background:#6a4ca8;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🔎 Analyser ' + notAnalysed + ' non analysée(s)</button>' : '')
+          + '<button type="button" data-recap-action="force" style="padding:6px 12px;border-radius:6px;background:#fff;color:#6a4ca8;border:1px solid #6a4ca8;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;" title="Relance l\'analyse même sur les photos déjà analysées">↻ Tout réanalyser</button>'
+          + '</div>'
+        : '<div style="font-size:11px;color:#94a3b8;">Sauvegardez le bien pour activer l\'analyse IA.</div>';
+
+      const header = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:linear-gradient(180deg,rgba(106,76,168,0.06),var(--card));border:1px solid rgba(106,76,168,0.18);border-radius:10px;">'
+        + '<div style="flex:1;min-width:180px;font-size:12px;">'
+        + '<strong style="color:#6a4ca8;">🤖 Analyses Vision</strong><br>'
+        + '<span style="color:#64748b;">' + total + ' photo(s) • <strong>' + analysed + '</strong> analysée(s) • ' + notAnalysed + ' en attente</span>'
+        + '</div>' + headerActions + '</div>';
+
+      const items = existing.map(p => {
+        const has = !!p.description_ia;
+        const uploading = !!p._uploading;
+        const cat = p.categorie ? '<div style="font-weight:700;color:#4878a6;font-size:10px;text-transform:uppercase;margin-bottom:3px;">' + escHtml(String(p.categorie).replace(/_/g, ' ')) + '</div>' : '';
+        const body = uploading
+          ? '<div style="font-size:11px;color:#94a3b8;font-style:italic;">⏳ Upload en cours…</div>'
+          : (has
+              ? cat + '<div style="font-size:12px;line-height:1.4;color:#334155;">' + escHtml(p.description_ia) + '</div>'
+              : '<div style="font-size:11px;color:#94a3b8;font-style:italic;">— Pas encore analysée —</div>');
+        const btn = (!uploading && bienIdForAnalyze > 0 && typeof p.id === 'number')
+          ? '<button type="button" data-recap-analyze="' + p.id + '" title="' + (has ? 'Relancer l\'analyse' : 'Analyser cette photo') + '" style="align-self:flex-start;padding:4px 8px;border-radius:5px;background:' + (has ? '#fff' : '#6a4ca8') + ';color:' + (has ? '#6a4ca8' : '#fff') + ';border:1px solid #6a4ca8;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">' + (has ? '↻' : '🔎') + '</button>'
+          : '';
+        return '<div style="display:flex;gap:10px;padding:10px;background:#fff;border-radius:10px;border:1px solid #eee;">'
+          + (p.url
+              ? '<img src="' + escHtml(p.url) + '" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:8px;flex-shrink:0;">'
+              : '<div style="width:72px;height:72px;background:#f1f5f9;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">📷</div>')
+          + '<div style="flex:1;min-width:0;">' + body + '</div>'
+          + btn
+          + '</div>';
+      }).join('');
+
+      recap.innerHTML = header
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' + items + '</div>'
+        + '<div class="ba-hint" style="margin-top:10px;">Analyses fournies à ChatGPT pour le descriptif.</div>';
+
+      // Bind des boutons batch
+      const btnAnalyze = recap.querySelector('[data-recap-action="analyze"]');
+      const btnForce = recap.querySelector('[data-recap-action="force"]');
+      if (btnAnalyze) btnAnalyze.addEventListener('click', () => analyzePhotos({ force: false }));
+      if (btnForce) btnForce.addEventListener('click', () => analyzePhotos({ force: true }));
+
+      // Bind des boutons par photo
+      recap.querySelectorAll('[data-recap-analyze]').forEach(b => {
+        b.addEventListener('click', () => {
+          const id = parseInt(b.getAttribute('data-recap-analyze'), 10);
+          if (id > 0) window.__baAnalyzeSinglePhoto(id, b);
+        });
+      });
+    };
+
+    // Rendu initial (remplace le rendu PHP statique par le rendu JS interactif)
+    window.__baRenderPhotoRecap();
   })();
 
   // ════════════════════════════════════════════════════════

@@ -244,10 +244,19 @@ function renderDocZone(string $categorie, string $icon, string $label, array $do
   </div>
   <div class="doc-list" id="doclist-<?= h($categorie) ?>">
     <?php foreach ($catDocs as $doc):
-        // Compatible rh_documents (filename) et rh_user_documents (nom_fichier)
+        // rh_documents unifiée : filename + file_path officiels
         $nomFichier  = $doc['filename'] ?? $doc['nom_fichier'] ?? '';
         $nomOriginal = $doc['original_name'] ?? $doc['nom_original'] ?? $nomFichier;
-        $url         = $doc['_url'] ?? ('./uploads/rh_docs/' . (int)$userId . '/' . $nomFichier);
+        $filePath = (string)($doc['file_path'] ?? '');
+        if ($filePath !== '') {
+            if (preg_match('#(/uploads/[^\s]+)#', str_replace('\\', '/', $filePath), $m)) {
+                $url = '.' . $m[1];
+            } else {
+                $url = $filePath;
+            }
+        } else {
+            $url = $doc['_url'] ?? ('./uploads/rh_docs/' . (int)$userId . '/' . $nomFichier);
+        }
         $ext         = strtolower(pathinfo($nomFichier, PATHINFO_EXTENSION));
         $fileIcon    = $ext === 'pdf' ? '📄' : '🖼️';
         $sizeBytes   = (int)($doc['taille'] ?? $doc['file_size'] ?? 0);

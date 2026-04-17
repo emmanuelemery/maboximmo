@@ -30,8 +30,25 @@ function safe_next_url(?string $next): ?string {
 
 $nextUrl = safe_next_url($_GET['next'] ?? $_POST['next'] ?? null);
 
-// Si déjà connecté, rediriger vers next= si fourni, sinon landing
+// Détecte si la colonne force_password_change existe (compat BDD pré-migration)
+$hasFpcCol = false;
+try {
+    $hasFpcCol = (bool)$pdo->query("SHOW COLUMNS FROM users LIKE 'force_password_change'")->fetchColumn();
+} catch (Throwable) { $hasFpcCol = false; }
+
+// Si déjà connecté, rediriger
 if (!empty($_SESSION['user_id'])) {
+    // Vérifier si changement de mot de passe obligatoire
+    if ($hasFpcCol) {
+        try {
+            $stmtFpc = $pdo->prepare("SELECT force_password_change FROM users WHERE id = ? LIMIT 1");
+            $stmtFpc->execute([$_SESSION['user_id']]);
+            if ((int)$stmtFpc->fetchColumn() === 1) {
+                header('Location: change_password.php');
+                exit;
+            }
+        } catch (Throwable) { /* no-op */ }
+    }
     header('Location: ' . ($nextUrl ?? 'landing.php'));
     exit;
 }
@@ -72,8 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Email et mot de passe requis.';
     } else {
         try {
+            $selFpc = $hasFpcCol ? ', force_password_change' : '';
             $stmt = $pdo->prepare("
-                SELECT id, username, mot_de_passe, email, actif, id_role, id_societe, id_agence, prenom, nom, super_admin, user_conges_validated_at
+                SELECT id, username, mot_de_passe, email, actif, id_role, id_societe, id_agence, prenom, nom, super_admin, user_conges_validated_at{$selFpc}
                 FROM users WHERE email = :email AND actif = 1 LIMIT 1
             ");
             $stmt->execute([':email' => $email]);
@@ -104,6 +122,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // Audit trail RGPD — login réussi
                     AuditLog::log($pdo, 'LOGIN', 'users', (int)$user['id'], [], ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']);
+
+                    // Changement de mot de passe obligatoire
+                    if (!empty($user['force_password_change'])) {
+                        header('Location: change_password.php');
+                        exit;
+                    }
 
                     // Destination par défaut selon le rôle
                     $defaultDest = match ((int)$user['id_role']) {

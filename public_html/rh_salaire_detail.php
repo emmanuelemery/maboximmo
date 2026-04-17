@@ -124,15 +124,21 @@ if ($idUser <= 0) {
     die('id_user manquant');
 }
 
-// Sécurité : role 3 ne peut voir que sa propre fiche
-if ($roleId === 3 && $idUser !== current_user_id()) {
-    deny_access('Accès refusé.');
-}
-// Role 2 : uniquement les users de son agence
-if ($roleId === 2 && $agenceScope === 0) {
-    $chk = $pdo->prepare("SELECT id FROM users WHERE id = ? AND id_agence = (SELECT id_agence FROM users WHERE id = ?)");
-    $chk->execute([$idUser, current_user_id()]);
-    if (!$chk->fetch()) deny_access('Accès refusé.');
+// Sécurité stricte : chaque user ne voit que son propre salaire,
+// sauf admin (role 1) et sauf users avec gestion_salaires=1 (agenceScope>0)
+// qui peuvent voir les salaires de leur agence uniquement.
+$isSelf = ($idUser === current_user_id());
+if ($roleId !== 1 && !$isSelf) {
+    if ($agenceScope > 0) {
+        // User avec gestion_salaires (ex : Géraldine Chaponost)
+        // → target user doit appartenir à la même agence
+        $chk = $pdo->prepare("SELECT id FROM users WHERE id = ? AND id_agence = ?");
+        $chk->execute([$idUser, $agenceScope]);
+        if (!$chk->fetch()) deny_access('Accès refusé : ce salarié n\'appartient pas à votre agence.');
+    } else {
+        // Aucun droit : on ne voit que son propre salaire
+        deny_access('Accès refusé : vous ne pouvez consulter que votre propre fiche.');
+    }
 }
 
 $idUserLegacy = rh_user_salary_id($pdo, $idUser);

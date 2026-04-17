@@ -351,8 +351,13 @@ $layout_extra_css = <<<'EXTRACSS'
     .section-header{display:flex;justify-content:space-between;align-items:center}
     .upload-btn{padding:4px 8px;background:rgba(72,120,166,0.1);border:1px solid rgba(72,120,166,0.25);color:var(--accent);border-radius:4px;cursor:pointer;font-size:10px;font-weight:600}
     .upload-btn:hover{background:rgba(72,120,166,0.2)}
-    .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
+    /* Modal : décalée de la largeur sidebar (220px) pour être centrée
+       sur la zone contenu visible, pas sur le viewport entier. */
+    .modal{display:none;position:fixed;top:0;left:220px;width:calc(100% - 220px);height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
     .modal.show{display:flex}
+    @media (max-width: 768px) {
+        .modal{left:0;width:100%}
+    }
     .modal-content{background:var(--bg-soft);border:1px solid var(--stroke);border-radius:12px;padding:20px;max-width:400px;width:90%}
     .modal-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:16px}
     .modal-close{position:absolute;top:10px;right:10px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px}
