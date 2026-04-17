@@ -68,6 +68,8 @@ $data = [
     'exposition'              => $str('exposition'),
     'vue'                     => $str('vue'),
     'nuisances'               => $str('nuisances'),
+    'acces_transports'        => $str('acces_transports') ?: null,
+    'distance_commerces'      => $str('distance_commerces') ?: null,
     'altitude'                => $int('altitude'),
 
     // ── Surfaces ──
@@ -156,10 +158,12 @@ $data = [
 
     // ── Prix / Loyers (table biens) ──
     'loyer_hc'                => $flt('loyer_hc'),
-    'charges_locatives'       => $flt('charges'),
+    'charges_locatives'       => $flt('charges_locatives'),
     'depot_garantie'          => $flt('depot_garantie'),
     'loyer_meuble'            => $flt('loyer_meuble'),
     'honoraires_locataire'    => $flt('honoraires_locataire'),
+    'honoraires_inclus'       => $str('honoraires_inclus') ?: null,
+    'honoraires_detail'       => $str('honoraires_detail') ?: null,
     'zone_tendue'             => $str('zone_tendue'),
     'prix_vente_estime'       => $flt('prix_vente_estime'),
     'rentabilite_brute_estimee' => $flt('rentabilite_brute_estimee'),
@@ -208,14 +212,98 @@ if ($typeBienCode !== '') {
     }
 }
 
-// id_proprietaire
+// id_proprietaire — soit sélectionné, soit création à la volée
 $proprioId = $int('id_proprietaire');
 if ($proprioId !== null && $proprioId > 0) {
     $data['id_proprietaire'] = $proprioId;
+} else {
+    // Création propriétaire à la volée si champs remplis
+    $pNom    = $str('proprio_nom');
+    $pPrenom = $str('proprio_prenom');
+    if ($pNom !== '') {
+        $stmtNewP = $pdo->prepare("
+            INSERT INTO proprietaires (nom, prenom, societe, telephone, email, adresse_1, actif, date_creation, date_modification)
+            VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+        ");
+        $stmtNewP->execute([
+            $pNom,
+            $pPrenom ?: null,
+            $str('proprio_societe') ?: null,
+            $str('proprio_telephone') ?: null,
+            $str('proprio_email') ?: null,
+            $str('proprio_adresse') ?: null,
+        ]);
+        $newProprioId = (int)$pdo->lastInsertId();
+        if ($newProprioId > 0) {
+            $data['id_proprietaire'] = $newProprioId;
+        }
+    }
+}
+
+// ── Mandats (table séparée) ──
+$mandatNumero   = $str('mandats_numero');
+$mandatType     = $str('mandats_type');
+$mandatNature   = $str('mandats_nature');
+$mandatDateSig  = $str('mandats_date_signature');
+$mandatDateDeb  = $str('mandats_date_debut');
+$mandatDateFin  = $str('mandats_date_fin');
+$mandatHono     = $flt('mandats_honoraires');
+
+// Sauvegarder si au moins un champ mandat est rempli
+if ($mandatType !== '' || $mandatNumero !== '' || $mandatDateSig !== '') {
+    $stmtMandatExist = $pdo->prepare("SELECT id FROM mandats WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
+    $stmtMandatExist->execute([$bienId]);
+    $mandatId = (int)$stmtMandatExist->fetchColumn();
+
+    if ($mandatId > 0) {
+        $pdo->prepare("
+            UPDATE mandats SET numero_mandat=?, type_mandat=?, nature_mandat=?,
+                   date_signature=?, date_debut=?, date_fin=?, honoraires=?,
+                   exclusif=?, date_modification=NOW()
+            WHERE id=?
+        ")->execute([
+            $mandatNumero ?: null, $mandatType ?: null, $mandatNature ?: null,
+            $mandatDateSig ?: null, $mandatDateDeb ?: null, $mandatDateFin ?: null, $mandatHono,
+            $mandatType === 'exclusif' ? 1 : 0,
+            $mandatId,
+        ]);
+    } else {
+        $pdo->prepare("
+            INSERT INTO mandats (id_bien, numero_mandat, type_mandat, nature_mandat,
+                   date_signature, date_debut, date_fin, honoraires,
+                   exclusif, statut, date_creation, date_modification)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'actif', NOW(), NOW())
+        ")->execute([
+            $bienId,
+            $mandatNumero ?: null, $mandatType ?: null, $mandatNature ?: null,
+            $mandatDateSig ?: null, $mandatDateDeb ?: null, $mandatDateFin ?: null, $mandatHono,
+            $mandatType === 'exclusif' ? 1 : 0,
+        ]);
+    }
+}
+
+// ── Mini-cards relation tables (vue, chauffage, énergie) ──
+$vueIds      = isset($_POST['vue_ids']) && is_array($_POST['vue_ids']) ? array_map('intval', $_POST['vue_ids']) : [];
+$chauffIds   = isset($_POST['chauffage_ids']) && is_array($_POST['chauffage_ids']) ? array_map('intval', $_POST['chauffage_ids']) : [];
+$energieIds  = isset($_POST['energie_ids']) && is_array($_POST['energie_ids']) ? array_map('intval', $_POST['energie_ids']) : [];
+
+$mcTables = [
+    'bien_vues'     => ['id_societe_vue',      $vueIds],
+    'bien_chauffages' => ['id_societe_chauffage', $chauffIds],
+    'bien_energies' => ['id_societe_energie',  $energieIds],
+];
+foreach ($mcTables as $table => [$fkCol, $ids]) {
+    if (!empty($ids)) {
+        $pdo->prepare("DELETE FROM `{$table}` WHERE id_bien = ?")->execute([$bienId]);
+        $stmtMc = $pdo->prepare("INSERT IGNORE INTO `{$table}` (id_bien, `{$fkCol}`) VALUES (?, ?)");
+        foreach ($ids as $mcId) {
+            if ($mcId > 0) $stmtMc->execute([$bienId, $mcId]);
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════
-// Address fields — also update immeuble
+// Address fields — create/update immeuble and link to bien
 // ══════════════════════════════════════════════════════════════
 $adresse1    = $str('adresse_1');
 $adresse2    = $str('adresse_2');
@@ -225,25 +313,67 @@ $pays        = $str('pays', 'France');
 $latitude    = $str('latitude');
 $longitude   = $str('longitude');
 
-// Update immeuble if bien has one and address changed
+// Détecte si la colonne adresse_cle existe dans immeubles
+// (Hostinger sans migration sync_phase1_structure_remote.sql → la colonne
+// n'existe pas, le SQL planterait silencieusement en transaction).
+static $_immHasAdresseCle = null;
+if ($_immHasAdresseCle === null) {
+    try {
+        $_immHasAdresseCle = (bool)$pdo->query("SHOW COLUMNS FROM immeubles LIKE 'adresse_cle'")->fetchColumn();
+    } catch (Throwable) { $_immHasAdresseCle = false; }
+}
+$adresseCle = mb_strtolower(trim("$adresse1 $adresse2 $codePostal $ville"));
+
 if ($adresse1 !== '') {
     $stmtImm = $pdo->prepare("SELECT id_immeuble FROM biens WHERE id = ?");
     $stmtImm->execute([$bienId]);
     $immId = (int)$stmtImm->fetchColumn();
 
     if ($immId > 0) {
-        $pdo->prepare("
-            UPDATE immeubles SET
+        // Immeuble déjà lié : on met à jour son adresse
+        $updSql = "UPDATE immeubles SET
                 adresse_1 = ?, adresse_2 = ?, code_postal = ?, ville = ?, pays = ?,
-                latitude = ?, longitude = ?,
-                adresse_cle = ?
-            WHERE id = ?
-        ")->execute([
+                latitude = ?, longitude = ?"
+            . ($_immHasAdresseCle ? ", adresse_cle = ?" : "")
+            . " WHERE id = ?";
+        $updParams = [
             $adresse1, $adresse2 ?: null, $codePostal ?: null, $ville ?: null, $pays,
             $latitude ?: null, $longitude ?: null,
-            mb_strtolower(trim("$adresse1 $adresse2 $codePostal $ville")),
-            $immId,
-        ]);
+        ];
+        if ($_immHasAdresseCle) $updParams[] = $adresseCle;
+        $updParams[] = $immId;
+        $pdo->prepare($updSql)->execute($updParams);
+    } else {
+        // Bien sans immeuble (brouillon) : on cherche par adresse_cle puis on
+        // crée un nouvel immeuble et on le lie au bien. Sans ça, l'adresse
+        // saisie est perdue à chaque autosave (problème signalé par l'user).
+        if ($_immHasAdresseCle) {
+            $stmtFind = $pdo->prepare("SELECT id FROM immeubles WHERE adresse_cle = ? LIMIT 1");
+            $stmtFind->execute([$adresseCle]);
+            $immId = (int)$stmtFind->fetchColumn();
+        }
+        if ($immId <= 0) {
+            $cols = ['id_societe','id_agence','adresse_1','adresse_2','code_postal','ville','pays','latitude','longitude'];
+            $vals = [
+                $societeId ?: null,
+                (int)($_SESSION['id_agence'] ?? 0) ?: null,
+                $adresse1,
+                $adresse2 ?: null,
+                $codePostal ?: null,
+                $ville ?: null,
+                $pays,
+                $latitude ?: null,
+                $longitude ?: null,
+            ];
+            if ($_immHasAdresseCle) { $cols[] = 'adresse_cle'; $vals[] = $adresseCle; }
+            $placeholders = implode(',', array_fill(0, count($cols), '?'));
+            $pdo->prepare("INSERT INTO immeubles (`" . implode('`,`', $cols) . "`) VALUES ($placeholders)")
+                ->execute($vals);
+            $immId = (int)$pdo->lastInsertId();
+        }
+        if ($immId > 0) {
+            $data['id_immeuble'] = $immId;
+        }
     }
 }
 
@@ -328,6 +458,23 @@ try {
         $annParams[':a_id'] = $annonceId;
         $pdo->prepare("UPDATE annonces SET " . implode(', ', $annSets) . ", date_modification = NOW() WHERE id = :a_id")
             ->execute($annParams);
+
+        // ── Lignes de complément de loyer ──
+        $cplLibelles = isset($_POST['cpl_libelle']) && is_array($_POST['cpl_libelle']) ? $_POST['cpl_libelle'] : [];
+        $cplMontants = isset($_POST['cpl_montant']) && is_array($_POST['cpl_montant']) ? $_POST['cpl_montant'] : [];
+        if (!empty($cplLibelles)) {
+            $pdo->prepare("DELETE FROM annonces_complement_loyer_lignes WHERE id_annonce = ?")->execute([$annonceId]);
+            $stmtCpl = $pdo->prepare("
+                INSERT INTO annonces_complement_loyer_lignes (id_annonce, libelle, montant, ordre, date_creation)
+                VALUES (?, ?, ?, ?, NOW())
+            ");
+            foreach ($cplLibelles as $i => $lib) {
+                $lib = trim((string)$lib);
+                if ($lib === '') continue;
+                $mt = isset($cplMontants[$i]) ? (float)$cplMontants[$i] : 0;
+                $stmtCpl->execute([$annonceId, $lib, $mt, $i + 1]);
+            }
+        }
     }
 
     echo json_encode([

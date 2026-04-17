@@ -118,7 +118,8 @@ try {
     }
 
     // ─── 2. Stockage physique ──────────────────────────────────────
-    $uploadBaseDir = dirname(__DIR__) . '/uploads/user_docs/' . $userId . '/';
+    // Convention unifiée : TOUS les docs RH (manuels ou IA) dans /uploads/rh_docs/<user_id>/
+    $uploadBaseDir = dirname(__DIR__) . '/uploads/rh_docs/' . $userId . '/';
     if (!is_dir($uploadBaseDir)) {
         @mkdir($uploadBaseDir, 0755, true);
     }
@@ -131,24 +132,39 @@ try {
     }
 
     // ─── 3. Création ligne en base (analysis_status = 'analyzing') ─
+    // Fusion rh_user_documents → rh_documents : on écrit directement dans la
+    // table unifiée rh_documents avec les colonnes IA (analysis_*).
     $hintType  = (string)($_POST['hint_type'] ?? '');
     $categorie = (string)($_POST['categorie'] ?? 'autre');
 
+    // Récupère id_societe / id_agence du user pour garder la cohérence
+    $stmtUser = $pdo->prepare("SELECT id_societe, id_agence FROM users WHERE id = ? LIMIT 1");
+    $stmtUser->execute([$userId]);
+    $userMeta = $stmtUser->fetch(PDO::FETCH_ASSOC) ?: ['id_societe' => null, 'id_agence' => null];
+
+    $relPath = '/uploads/rh_docs/' . $userId . '/' . $hashName;
+
     $stmt = $pdo->prepare("
-        INSERT INTO rh_user_documents
-            (user_id, categorie, nom_fichier, nom_original, taille, mime_type, uploaded_by,
-             type_document, analysis_status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'analyzing', NOW())
+        INSERT INTO rh_documents
+            (id_user, id_societe, id_agence, categorie, type_document, label,
+             filename, original_name, file_path, taille, mime_type,
+             uploaded_by, upload_date, actif, version,
+             analysis_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1, 1, 'analyzing')
     ");
     $stmt->execute([
         $userId,
+        $userMeta['id_societe'],
+        $userMeta['id_agence'],
         $categorie,
+        $hintType ?: null,
+        $file['name'],          // label = nom original par défaut
         $hashName,
         $file['name'],
+        $relPath,
         (int)$file['size'],
         $realMime,
         $userId,
-        $hintType ?: null,
     ]);
     $docId = (int)$pdo->lastInsertId();
 
@@ -184,14 +200,14 @@ try {
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
 
         $stmt = $pdo->prepare("
-            UPDATE rh_user_documents
+            UPDATE rh_documents
             SET type_document   = ?,
                 analysis_status = 'analyzed',
                 analysis_score  = ?,
                 analysis_engine = ?,
                 extracted_data  = ?,
                 analyzed_at     = NOW()
-            WHERE id = ? AND user_id = ?
+            WHERE id = ? AND id_user = ?
         ");
         $stmt->execute([
             $result['doc_type'] ?? null,
@@ -204,12 +220,12 @@ try {
     } else {
         // Pipeline a échoué — on garde le fichier mais on marque failed
         $stmt = $pdo->prepare("
-            UPDATE rh_user_documents
+            UPDATE rh_documents
             SET analysis_status = 'failed',
                 analysis_error  = ?,
                 analyzed_at     = NOW(),
                 type_document   = ?
-            WHERE id = ? AND user_id = ?
+            WHERE id = ? AND id_user = ?
         ");
         $stmt->execute([
             mb_substr((string)($result['error'] ?? 'Erreur inconnue'), 0, 500),

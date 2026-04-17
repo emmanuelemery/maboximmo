@@ -239,10 +239,22 @@ function renderDocZone(string $categorie, string $icon, string $label, array $do
   </div>
   <div class="doc-list" id="doclist-<?= h($categorie) ?>">
     <?php foreach ($catDocs as $doc):
-        // Compatible rh_documents (filename) et rh_user_documents (nom_fichier)
+        // rh_documents unifiée : filename + file_path officiels
         $nomFichier  = $doc['filename'] ?? $doc['nom_fichier'] ?? '';
         $nomOriginal = $doc['original_name'] ?? $doc['nom_original'] ?? $nomFichier;
-        $url         = $doc['_url'] ?? ('./uploads/rh_docs/' . (int)$userId . '/' . $nomFichier);
+        // Priorité à file_path si défini (migration rh_user_documents → rh_documents),
+        // sinon fallback sur la convention historique /uploads/rh_docs/<user_id>/
+        $filePath = (string)($doc['file_path'] ?? '');
+        if ($filePath !== '') {
+            // Normalise en URL relative : retire chemin absolu Windows, garde depuis /uploads/
+            if (preg_match('#(/uploads/[^\s]+)#', str_replace('\\', '/', $filePath), $m)) {
+                $url = '.' . $m[1];
+            } else {
+                $url = $filePath;
+            }
+        } else {
+            $url = $doc['_url'] ?? ('./uploads/rh_docs/' . (int)$userId . '/' . $nomFichier);
+        }
         $ext         = strtolower(pathinfo($nomFichier, PATHINFO_EXTENSION));
         $fileIcon    = $ext === 'pdf' ? '📄' : '🖼️';
         $sizeBytes   = (int)($doc['taille'] ?? $doc['file_size'] ?? 0);
