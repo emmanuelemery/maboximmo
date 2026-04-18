@@ -188,8 +188,8 @@ ob_start();
                     <div style="font-size:9px;text-transform:uppercase"><?= date('M', $ts) ?></div>
                 </div>
                 <div class="ag-info">
-                    <div class="ag-nom"><?= htmlspecialchars($ag['nom']) ?></div>
-                    <div class="ag-sub"><?= htmlspecialchars($ag['ville']) ?> · <?= (int)$ag['nb_lots'] ?> lots · J-<?= $days ?></div>
+                    <div class="ag-nom"><?= htmlspecialchars((string)($ag['nom'] ?? '')) ?></div>
+                    <div class="ag-sub"><?= htmlspecialchars((string)($ag['ville'] ?? '')) ?> · <?= (int)$ag['nb_lots'] ?> lots · J-<?= $days ?></div>
                 </div>
             </a>
             <?php endforeach; ?>
@@ -217,7 +217,7 @@ ob_start();
                     Ces immeubles n'ont pas de fiche d'informations
                     <div class="alert-links">
                         <?php foreach ($sans_fiche as $sf): ?>
-                        <a href="agency_immeuble_fiche.php?id=<?= $sf['id'] ?>" class="alert-link"><?= htmlspecialchars($sf['reference'] ?: $sf['nom']) ?></a>
+                        <a href="agency_immeuble_fiche.php?id=<?= $sf['id'] ?>" class="alert-link"><?= htmlspecialchars((string)(($sf['reference'] ?? '') ?: ($sf['nom'] ?? ''))) ?></a>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -236,8 +236,8 @@ ob_start();
                 <?php foreach ($recents as $r): ?>
                 <a href="agency_immeuble_fiche.php?id=<?= $r['id'] ?>" class="recent-row">
                     <div class="recent-dot"></div>
-                    <div class="recent-nom"><?= htmlspecialchars($r['nom']) ?></div>
-                    <div class="recent-meta"><?= htmlspecialchars($r['ville']) ?> · <?= (int)$r['nb_lots'] ?> lots</div>
+                    <div class="recent-nom"><?= htmlspecialchars((string)($r['nom'] ?? '')) ?></div>
+                    <div class="recent-meta"><?= htmlspecialchars((string)($r['ville'] ?? '')) ?> · <?= (int)$r['nb_lots'] ?> lots</div>
                 </a>
                 <?php endforeach; ?>
                 <div style="margin-top:10px;text-align:right">
