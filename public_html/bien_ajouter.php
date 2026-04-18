@@ -3985,6 +3985,20 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                     <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
                   </div>
                 </div>
+                <div class="ba-field" style="margin-top:10px;">
+                  <label>Animaux acceptés</label>
+                  <div class="ba-chips">
+                    <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="1" <?= post('animaux_acceptes','') === '1' ? 'checked' : '' ?>> Oui</label>
+                    <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= in_array(post('animaux_acceptes',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
+                  </div>
+                </div>
+                <div class="ba-field" style="margin-top:10px;">
+                  <label>Fumeur accepté</label>
+                  <div class="ba-chips">
+                    <label class="ba-chip"><input type="radio" name="fumeur_accepte" value="1" <?= post('fumeur_accepte','') === '1' ? 'checked' : '' ?>> Oui</label>
+                    <label class="ba-chip"><input type="radio" name="fumeur_accepte" value="0" <?= post('fumeur_accepte','') === '0' ? 'checked' : '' ?>> Non</label>
+                  </div>
+                </div>
               </div><!-- /colonne droite disponibilité -->
             </div>
           </div><!-- /sous-onglet ann-main -->
@@ -4728,73 +4742,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div>
       </div>
 
-      <!-- ════ ONGLET 8 — DISPONIBILITÉ ════ -->
-      <div class="ba-panel" data-tab-panel="disponibilite" style="display:none !important;">
-        <div class="ba-card">
-          <div class="ba-card-head">
-            <div class="ba-card-title">Disponibilité & Options</div>
-          </div>
-          <div class="ba-card-body">
-            <div class="ba-grid cols-2">
-              <div class="ba-field">
-                <label>Date de disponibilité</label>
-                <input type="date" name="disponibilite_date" value="<?= h((string)post('disponibilite_date','')) ?>">
-              </div>
-              <div class="ba-field">
-                <label>Meublé</label>
-                <div class="ba-chips">
-                  <label class="ba-chip"><input type="radio" name="loyer_meuble" value="1" <?= post('loyer_meuble','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
-                </div>
-              </div>
-              <div class="ba-field">
-                <label>Animaux acceptés</label>
-                <div class="ba-chips">
-                  <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="1" <?= post('animaux_acceptes','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= in_array(post('animaux_acceptes',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
-                </div>
-              </div>
-              <div class="ba-field">
-                <label>Fumeur accepté</label>
-                <div class="ba-chips">
-                  <label class="ba-chip"><input type="radio" name="fumeur_accepte" value="1" <?= post('fumeur_accepte','') === '1' ? 'checked' : '' ?>> Oui</label>
-                  <label class="ba-chip"><input type="radio" name="fumeur_accepte" value="0" <?= post('fumeur_accepte','') === '0' ? 'checked' : '' ?>> Non</label>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <?= moreBtn('dispo-details') ?>
-        <?= detailsCard('dispo-details', '🔑 Occupation & gestion locative', '
-          <div class="ba-grid cols-2">
-            <div class="ba-field">
-              <label>Disponibilité bien</label>
-              <select name="disponibilite_bien">
-                <option value="">—</option>
-                <option value="libre" ' . (post('disponibilite_bien','') === 'libre' ? 'selected' : '') . '>Libre</option>
-                <option value="occupe" ' . (post('disponibilite_bien','') === 'occupe' ? 'selected' : '') . '>Occupé</option>
-                <option value="a_liberer" ' . (post('disponibilite_bien','') === 'a_liberer' ? 'selected' : '') . '>À libérer</option>
-              </select>
-            </div>
-            <div class="ba-field">
-              <label>Occupation du bien</label>
-              <select name="occupation_bien">
-                <option value="">—</option>
-                <option value="vide" ' . (post('occupation_bien','') === 'vide' ? 'selected' : '') . '>Vide</option>
-                <option value="meuble" ' . (post('occupation_bien','') === 'meuble' ? 'selected' : '') . '>Meublé</option>
-                <option value="en_cours" ' . (post('occupation_bien','') === 'en_cours' ? 'selected' : '') . '>Bail en cours</option>
-              </select>
-            </div>
-          </div>
-          <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px" style="margin-top:14px">
-            ' . boolMcCard('louable_immediatement','🔑','Louable immédiatement') . '
-          </div>
-        ') ?>
-        <div class="ba-panel-footer">
-          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
-          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
-        </div>
-      </div>
 
       <!-- ════ ONGLET 9 — DIFFUSION / CONFORMITÉ UBIFLOW ════ -->
       <div class="ba-panel" data-tab-panel="diffusion" style="display:none !important;">
@@ -6718,10 +6665,72 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     // Prix : affiche uniquement la colonne pertinente
     if (cLoc) cLoc.style.display = type === 'vente'    ? 'none' : '';
     if (cVen) cVen.style.display = type === 'location' ? 'none' : '';
+    // Recopie la valeur du Prix principal dans le champ Annonce correspondant
+    syncAnnoncePriceFromMain();
     // Refresh conformité
     if (typeof confMiniSync === 'function') setTimeout(confMiniSync, 50);
   }
   syncTransaction();
+
+  // ── ANNONCE PRICE MIRROR ──
+  // Le loyer / prix de vente affichés dans l'onglet Annonce sont la reprise
+  // du Prix principal (Loyer HC pour la location, Prix de vente pour la vente).
+  // Édition bidirectionnelle : modifier Prix met à jour Annonce, et inversement,
+  // pour éviter la double saisie et garder les deux vues cohérentes.
+  function syncAnnoncePriceFromMain() {
+    const loyerHc = document.getElementById('loyer_hc');
+    const prixV   = document.getElementById('prix_vente_estime');
+    const annL    = document.querySelector('[name="annonce_loyer"]');
+    const annP    = document.querySelector('[name="annonce_prix_vente"]');
+    if (annL && loyerHc && String(annL.value ?? '') !== String(loyerHc.value ?? '')) {
+      annL.value = loyerHc.value || '';
+    }
+    if (annP && prixV && String(annP.value ?? '') !== String(prixV.value ?? '')) {
+      annP.value = prixV.value || '';
+    }
+  }
+  (function bindAnnoncePriceMirror() {
+    const loyerHc = document.getElementById('loyer_hc');
+    const prixV   = document.getElementById('prix_vente_estime');
+    const annL    = document.querySelector('[name="annonce_loyer"]');
+    const annP    = document.querySelector('[name="annonce_prix_vente"]');
+    // Prix → Annonce (écrit aussi change pour l'autosave)
+    if (loyerHc && annL) {
+      loyerHc.addEventListener('input', () => {
+        if (annL.value !== loyerHc.value) {
+          annL.value = loyerHc.value || '';
+          try { annL.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+        }
+      });
+    }
+    if (prixV && annP) {
+      prixV.addEventListener('input', () => {
+        if (annP.value !== prixV.value) {
+          annP.value = prixV.value || '';
+          try { annP.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+        }
+      });
+    }
+    // Annonce → Prix (permet aussi la saisie depuis l'onglet Annonce)
+    if (annL && loyerHc) {
+      annL.addEventListener('input', () => {
+        if (loyerHc.value !== annL.value) {
+          loyerHc.value = annL.value || '';
+          try { loyerHc.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+        }
+      });
+    }
+    if (annP && prixV) {
+      annP.addEventListener('input', () => {
+        if (prixV.value !== annP.value) {
+          prixV.value = annP.value || '';
+          try { prixV.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+        }
+      });
+    }
+    // Init : si un champ Annonce est vide mais le Prix principal est rempli, recopie
+    syncAnnoncePriceFromMain();
+  })();
 
   // ── TOGGLE DÉTAILS (mode sous-onglets : 1 seul ouvert par panel) ──
   window.toggleDetails = function (id, btn) {
