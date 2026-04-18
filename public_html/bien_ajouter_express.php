@@ -393,21 +393,21 @@ require_once __DIR__ . '/inc/header.php';
         <div class="exp-chip" data-val="vis_a_vis">🏢 Vis-à-vis</div>
       </div>
 
-      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Distance transports</label>
-      <div class="exp-chips" data-env="dist_transports" data-multi="0" style="margin-bottom:12px;">
-        <div class="exp-chip" data-val="immediat">🚇 Immédiat (&lt;2min)</div>
-        <div class="exp-chip" data-val="proche">🚶 Proche (2-5min)</div>
-        <div class="exp-chip" data-val="moyen">🚶‍♂️ Moyen (5-10min)</div>
-        <div class="exp-chip" data-val="eloigne">🚗 Éloigné (&gt;10min)</div>
-        <div class="exp-chip" data-val="voiture">🚙 Voiture requise</div>
+      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">🚋 Accès aux transports en commun <span style="text-transform:none;font-weight:400;color:#94a3b8;">(temps à pied)</span></label>
+      <div class="exp-chips" data-env="acces_transports" data-multi="0" style="margin-bottom:12px;">
+        <div class="exp-chip" data-val="moins_5">⚡ &lt; 5 min</div>
+        <div class="exp-chip" data-val="moins_10">🚶 &lt; 10 min</div>
+        <div class="exp-chip" data-val="moins_15">🚶 &lt; 15 min</div>
+        <div class="exp-chip" data-val="plus_20">🚶 &gt; 20 min</div>
       </div>
 
-      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Distance commerces</label>
-      <div class="exp-chips" data-env="dist_commerces" data-multi="0" style="margin-bottom:12px;">
-        <div class="exp-chip" data-val="immediat">🛒 Immédiat (&lt;2min)</div>
-        <div class="exp-chip" data-val="proche">🛍️ Proche (2-5min)</div>
-        <div class="exp-chip" data-val="moyen">🏪 Moyen (5-10min)</div>
-        <div class="exp-chip" data-val="eloigne">🛣️ Éloigné (&gt;10min)</div>
+      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">🛒 Accès aux commerces <span style="text-transform:none;font-weight:400;color:#94a3b8;">(distance au centre-ville)</span></label>
+      <div class="exp-chips" data-env="distance_commerces" data-multi="0" style="margin-bottom:12px;">
+        <div class="exp-chip" data-val="moins_200">🏃 &lt; 200 m</div>
+        <div class="exp-chip" data-val="moins_400">🚶 &lt; 400 m</div>
+        <div class="exp-chip" data-val="moins_600">🚶 &lt; 600 m</div>
+        <div class="exp-chip" data-val="moins_800">🚶 &lt; 800 m</div>
+        <div class="exp-chip" data-val="plus_1200">🚗 &gt; 1,2 km</div>
       </div>
 
       <div class="exp-field" style="position:relative;">
@@ -497,7 +497,7 @@ require_once __DIR__ . '/inc/header.php';
     id_bien: 0,
     id_proprietaire: 0,
     ref: '',
-    env: { exposition: '', vue: [], ambiance: [], nuisances: [], dist_transports: '', dist_commerces: '' },
+    env: { exposition: '', vue: [], ambiance: [], nuisances: [], acces_transports: '', distance_commerces: '' },
     generated: null,
     photos: [],
   };
