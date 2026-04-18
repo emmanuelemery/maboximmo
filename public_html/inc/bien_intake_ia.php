@@ -78,13 +78,34 @@ function detectBienIntakeDocType(string $text): string
 
 /**
  * Point d'entrée principal — DISPATCHER.
- * Détecte le type de document et délègue au module spécialisé.
- * Retombe sur l'extraction générique (code historique) si le type est inconnu.
+ *
+ * @param string      $text       Texte extrait du document à analyser
+ * @param string|null $forceType  Si fourni (bail|mandat|titre|diag|fiche|divers),
+ *                                bypasse la détection regex et route direct
+ *                                vers le module spécialisé demandé. Sinon,
+ *                                détection auto via detectBienIntakeDocType().
+ *
+ * Règle site (cf. memory/feedback_upload_documents_types.md) : l'UI doit TOUJOURS
+ * passer le type explicite choisi par l'utilisateur. La détection auto sert
+ * uniquement de fallback quand le type est inconnu.
  */
-function analyseBienIntakeIA(string $text): array
+function analyseBienIntakeIA(string $text, ?string $forceType = null): array
 {
-    // ─── 1. Détection rapide du type (regex, pas d'IA) ─────────
-    $docType = detectBienIntakeDocType($text);
+    // ─── 1. Type : forcé par l'appelant OU détection auto ─────
+    $validForced = ['bail', 'mandat', 'titre', 'diag', 'fiche', 'divers'];
+    if ($forceType !== null) {
+        $forceType = strtolower(trim($forceType));
+        if (in_array($forceType, $validForced, true)) {
+            $docType = $forceType;
+        } elseif ($forceType === 'auto' || $forceType === '') {
+            $docType = detectBienIntakeDocType($text);
+        } else {
+            // Type invalide → on fallback sur auto pour éviter d'échouer bêtement
+            $docType = detectBienIntakeDocType($text);
+        }
+    } else {
+        $docType = detectBienIntakeDocType($text);
+    }
 
     // ─── 2. Route vers le module spécialisé ────────────────────
     switch ($docType) {
@@ -121,9 +142,25 @@ function analyseBienIntakeIA(string $text): array
             $r['router']   = 'titre';
             return $r;
 
+        case 'divers':
+            // Module divers (résumé IA + chat) — sera créé à l'Étape 3.
+            // En attendant, fallback sur extraction générique avec tag divers.
+            if (file_exists(__DIR__ . '/bien_intake_divers.php')) {
+                require_once __DIR__ . '/bien_intake_divers.php';
+                $r = analyseDiversIA($text);
+                $r['router'] = 'divers';
+                return $r;
+            }
+            $r = analyseBienIntakeIAGeneric($text);
+            $r['doc_type'] = 'divers';
+            $r['router']   = 'divers_fallback';
+            return $r;
+
         default:
             // Fallback : extraction générique ci-dessous
-            return analyseBienIntakeIAGeneric($text);
+            $r = analyseBienIntakeIAGeneric($text);
+            $r['router'] = 'generic';
+            return $r;
     }
 }
 

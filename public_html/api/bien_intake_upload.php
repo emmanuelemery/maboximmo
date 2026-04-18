@@ -100,6 +100,16 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 verify_csrf_any('ajouter_bien');
 
+// ─── Type forcé par l'UI (onglets de choix de type) ──────────────
+// Règle site : l'utilisateur DOIT indiquer le type avant l'upload pour
+// garantir le bon module d'extraction (cf. memory/feedback_upload_documents_types.md)
+// Si absent ou 'auto' → détection regex (fallback)
+$forceType = isset($_POST['force_type']) ? trim((string)$_POST['force_type']) : null;
+$validForceTypes = ['bail', 'mandat', 'titre', 'diag', 'fiche', 'divers', 'auto'];
+if ($forceType !== null && !in_array(strtolower($forceType), $validForceTypes, true)) {
+    $forceType = null; // silencieusement ignoré si invalide
+}
+
 if (empty($_FILES['fichier']) || $_FILES['fichier']['error'] !== UPLOAD_ERR_OK) {
     exit(json_encode(['ok' => false, 'error' => 'Aucun fichier reçu']));
 }
@@ -152,7 +162,7 @@ try {
 
     if (!$isProbablyScanned) {
         // ── (4a) Analyse texte rapide (chemin classique) ──────
-        $iaResult = analyseBienIntakeIA($texteSource);
+        $iaResult = analyseBienIntakeIA($texteSource, $forceType);
         // Si l'IA n'a quasiment rien trouvé, on bascule en OCR
         if (!$iaResult['ok'] || ($iaResult['count'] ?? 0) < 3) {
             $isProbablyScanned = true;
@@ -167,7 +177,7 @@ try {
             if (empty($images)) {
                 throw new RuntimeException('Aucune image générée par pdftoppm');
             }
-            $iaResult = BienIntakeOCR::analyseImagesIA($images);
+            $iaResult = BienIntakeOCR::analyseImagesIA($images, $forceType);
             BienIntakeOCR::cleanupTmpDir($tmpOcrDir);
             $usedOcr = true;
         } catch (Throwable $ocrEx) {
@@ -813,6 +823,7 @@ try {
         'bail_id'    => $bailId,
         'acte_id'    => $acteId,
         'doc_type'   => $docType,
+        'force_type' => $forceType,  // type explicite demandé par l'UI (ou null si auto)
         'doc_titre'  => $docTitre,
         'resume'     => $resume,
         'fields'     => $fields,
