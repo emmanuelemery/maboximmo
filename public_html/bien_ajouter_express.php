@@ -73,23 +73,22 @@ require_once __DIR__ . '/inc/header.php';
 <link rel="stylesheet" href="<?= h(asset_url('/css/tokens.css')) ?>">
 
 <style>
-  /* ─── Variables charte V2 MaBoxImmo (alignées sur bien_ajouter.php) ─── */
+  /* ─── Variables charte V2 MaBoxImmo (référencent tokens.css) ─── */
   :root {
-    --bg:        #f0ede8;
-    --card:      #e8e4de;
-    --ink:       #1a1816;
-    --muted:     #8a8680;
-    --accent:    #36577d;
+    --bg:        var(--bg-secondary, #f7f8fa);
+    --card:      var(--bg-primary, #ffffff);
+    --ink:       var(--text-primary, #1a1816);
+    --muted:     var(--text-secondary, #6a6660);
+    --accent:    var(--brand-primary, #36577d);
     --accent-2:  #f59e0b;
     --accent-3:  #7a9060;
-    --stroke:    #d4d0ca;
-    --shadow-dark:  #c4c0ba;
-    --shadow-light: #ffffff;
+    --stroke:    var(--border-light, #e4e6ec);
+    /* --shadow-dark et --shadow-light déjà définis par tokens.css */
     --sidebar-w: 220px;
     --topbar-h:  56px;
     --conf-w:    320px;
-    --neu-out: 6px 6px 14px var(--shadow-dark), -6px -6px 14px var(--shadow-light);
-    --neu-in:  inset 4px 4px 10px var(--shadow-dark), inset -4px -4px 10px var(--shadow-light);
+    --neu-out: 6px 6px 14px var(--shadow-dark, #d4d7de), -6px -6px 14px var(--shadow-light, #ffffff);
+    --neu-in:  inset 4px 4px 10px var(--shadow-dark, #d4d7de), inset -4px -4px 10px var(--shadow-light, #ffffff);
   }
   body {
     font-family: 'Sora', system-ui, sans-serif;
