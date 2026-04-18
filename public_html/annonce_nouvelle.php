@@ -780,12 +780,10 @@ body.mode-fast .pro-only{display:none !important;}
 
 <!-- ONGLETS (navigation interne dans la page) -->
 <nav class="tabs-wrap">
-  <button type="button" class="tab active" data-tab="identification" onclick="goTab(this)"><span class="dot act" id="dot-identification"></span> 1. Identification</button>
-  <button type="button" class="tab" data-tab="localisation" onclick="goTab(this)"><span class="dot" id="dot-localisation"></span> 2. Localisation</button>
-  <button type="button" class="tab" data-tab="financier" onclick="goTab(this)"><span class="dot" id="dot-financier"></span> 3. Financier</button>
-  <button type="button" class="tab" data-tab="caracteristiques" onclick="goTab(this)"><span class="dot" id="dot-caracteristiques"></span> 4. Caractéristiques</button>
-  <button type="button" class="tab" data-tab="photos" onclick="goTab(this)"><span class="dot" id="dot-photos"></span> 5. Photos</button>
-  <button type="button" class="tab" data-tab="seo" onclick="goTab(this)"><span class="dot" id="dot-seo"></span> 6. Annonce &amp; SEO</button>
+  <button type="button" class="tab active" data-tab="bien"    onclick="goTab(this)"><span class="dot act" id="dot-bien"></span> 1. Bien</button>
+  <button type="button" class="tab"        data-tab="financier" onclick="goTab(this)"><span class="dot" id="dot-financier"></span> 2. Financier</button>
+  <button type="button" class="tab"        data-tab="photos"    onclick="goTab(this)"><span class="dot" id="dot-photos"></span> 3. Photos</button>
+  <button type="button" class="tab"        data-tab="seo"       onclick="goTab(this)"><span class="dot" id="dot-seo"></span> 4. Annonce &amp; SEO</button>
 </nav>
 
 <?php if (!empty($_GET['saved'])): ?>
@@ -900,13 +898,112 @@ body.mode-fast .pro-only{display:none !important;}
 
 <div class="layout">
 
-<!-- ════ GAUCHE — FORMULAIRE (6 panels) ════ -->
+<!-- ════ GAUCHE — FORMULAIRE ════ -->
+<!-- Depuis la refonte : seuls les onglets propres à l'annonce sont visibles
+     (Financier / Photos / SEO). Les infos du BIEN sont affichées en résumé
+     dans le nouveau panel "Bien" (lecture seule + lien vers bien_detail.php).
+     Les anciens panels Identification / Localisation / Caractéristiques sont
+     conservés masqués (display:none) pour ne pas casser le form submit :
+     leurs hidden/inputs alimentent encore l'endpoint POST actuel. -->
 <div class="left-col">
 
   <!-- ═══════════════════════════════════════════════════════
-       PANEL 1 — IDENTIFICATION
+       PANEL 1 — BIEN (résumé, lecture seule)
        ═══════════════════════════════════════════════════════ -->
-  <div class="tab-panel active" data-panel="identification">
+  <div class="tab-panel active" data-panel="bien">
+    <div class="section">
+      <div class="sec-head">
+        <div class="sec-title">🏠 Bien concerné par cette annonce</div>
+        <?php if ($preselectedBienId > 0): ?>
+          <span class="badge b-ok">#<?= (int)$preselectedBienId ?></span>
+        <?php else: ?>
+          <span class="badge b-warn">Aucun bien lié</span>
+        <?php endif; ?>
+      </div>
+
+      <?php if ($preselectedBienId > 0 && $preselectedBien): ?>
+        <?php
+          $ref  = (string)($preselectedBien['reference_bien'] ?? '');
+          $adr  = trim((string)($preselectedBien['adresse_1'] ?? ''));
+          $cp   = (string)($preselectedBien['code_postal'] ?? '');
+          $vil  = (string)($preselectedBien['ville'] ?? '');
+          $surf = (float)($preselectedBien['surface_habitable'] ?? 0);
+          $nbp  = (int)($preselectedBien['nb_pieces'] ?? 0);
+          $nbch = (int)($preselectedBien['nb_chambres'] ?? 0);
+          $dpec = (string)($preselectedBien['dpe_classe'] ?? '');
+          $gesc = (string)($preselectedBien['ges_classe'] ?? '');
+          $ann  = (int)($preselectedBien['annee_construction'] ?? 0);
+          $eta  = (string)($preselectedBien['etage'] ?? '');
+        ?>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:14px;margin-bottom:16px;">
+          <?php if ($ref): ?>
+            <div><div class="bsum-label">Référence</div><div class="bsum-val"><code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-family:'DM Mono',monospace;font-size:12px;"><?= h($ref) ?></code></div></div>
+          <?php endif; ?>
+          <?php if ($adr): ?>
+            <div><div class="bsum-label">Adresse</div><div class="bsum-val"><?= h($adr) ?><?php if ($cp || $vil): ?><br><span style="color:var(--muted);font-size:12px;"><?= h(trim($cp . ' ' . $vil)) ?></span><?php endif; ?></div></div>
+          <?php endif; ?>
+          <?php if ($surf > 0): ?>
+            <div><div class="bsum-label">Surface habitable</div><div class="bsum-val"><?= number_format($surf, 2, ',', ' ') ?> m²</div></div>
+          <?php endif; ?>
+          <?php if ($nbp > 0): ?>
+            <div><div class="bsum-label">Pièces / Chambres</div><div class="bsum-val"><?= $nbp ?> pièces<?= $nbch > 0 ? ' · ' . $nbch . ' chambre' . ($nbch > 1 ? 's' : '') : '' ?></div></div>
+          <?php endif; ?>
+          <?php if ($dpec || $gesc): ?>
+            <div><div class="bsum-label">DPE / GES</div><div class="bsum-val"><?= $dpec ? 'DPE ' . h($dpec) : '' ?><?= ($dpec && $gesc) ? ' · ' : '' ?><?= $gesc ? 'GES ' . h($gesc) : '' ?></div></div>
+          <?php endif; ?>
+          <?php if ($ann > 0): ?>
+            <div><div class="bsum-label">Année de construction</div><div class="bsum-val"><?= $ann ?></div></div>
+          <?php endif; ?>
+          <?php if ($eta !== ''): ?>
+            <div><div class="bsum-label">Étage</div><div class="bsum-val"><?= h($eta) ?></div></div>
+          <?php endif; ?>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+          <a href="<?= h(app_url('/bien_detail.php?edit=' . (int)$preselectedBienId)) ?>" target="_blank" rel="noopener"
+             style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:8px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:13px;font-weight:700;">
+            ✏️ Modifier le bien (ouvre bien_detail dans un nouvel onglet)
+          </a>
+          <a href="<?= h(app_url('/bien_liste.php')) ?>"
+             style="display:inline-flex;align-items:center;gap:6px;padding:10px 14px;border-radius:8px;background:#fff;color:#36577d;text-decoration:none;font-size:12px;font-weight:600;border:1px solid #d4d7de;">
+            📋 Choisir un autre bien
+          </a>
+        </div>
+
+        <div style="margin-top:12px;padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:11px;color:#0369a1;">
+          ℹ️ Cet onglet présente les informations du bien en lecture seule. Pour modifier l'adresse, le type, la surface ou les caractéristiques, cliquez sur « Modifier le bien ».
+          Les onglets ci-dessus (<strong>Financier · Photos · Annonce &amp; SEO</strong>) concernent uniquement cette annonce.
+        </div>
+      <?php else: ?>
+        <div style="padding:20px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;text-align:center;">
+          <div style="font-size:14px;color:#991b1b;font-weight:700;margin-bottom:8px;">⚠️ Aucun bien sélectionné pour cette annonce</div>
+          <div style="font-size:12px;color:#991b1b;margin-bottom:12px;">Une annonce doit être rattachée à un bien existant.</div>
+          <a href="<?= h(app_url('/bien_liste.php')) ?>" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#dc2626;color:#fff;text-decoration:none;font-size:12px;font-weight:700;">
+            📋 Sélectionner un bien
+          </a>
+        </div>
+      <?php endif; ?>
+    </div>
+
+    <div class="panel-nav">
+      <span></span>
+      <button type="button" class="nav-btn next" onclick="goTabByName('financier')">Financier →</button>
+    </div>
+  </div><!-- /panel bien -->
+
+  <style>
+    .bsum-label { font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px; }
+    .bsum-val   { font-size:14px;color:var(--fg);font-weight:600; }
+  </style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PANELS CACHÉS (inputs conservés pour compatibilité submit)
+       Ces 3 panels ne sont plus visibles via les onglets mais
+       leurs inputs alimentent toujours le POST de l'annonce.
+       Pour modifier ces champs, l'utilisateur passe par
+       bien_detail.php (bouton ci-dessus).
+       ═══════════════════════════════════════════════════════ -->
+  <div class="tab-panel" data-panel="identification" style="display:none !important;">
 
     <div class="section">
       <div class="sec-head">
@@ -978,9 +1075,9 @@ body.mode-fast .pro-only{display:none !important;}
 
 
   <!-- ═══════════════════════════════════════════════════════
-       PANEL 2 — LOCALISATION
+       PANEL 2 — LOCALISATION (caché — voir onglet BIEN)
        ═══════════════════════════════════════════════════════ -->
-  <div class="tab-panel" data-panel="localisation">
+  <div class="tab-panel" data-panel="localisation" style="display:none !important;">
 
     <!-- Recherche Google Places -->
     <div class="section" style="border-color:rgba(45,95,107,.25);background:linear-gradient(180deg,rgba(45,95,107,.03),var(--card));">
@@ -1213,7 +1310,7 @@ body.mode-fast .pro-only{display:none !important;}
   <!-- ═══════════════════════════════════════════════════════
        PANEL 4 — CARACTÉRISTIQUES
        ═══════════════════════════════════════════════════════ -->
-  <div class="tab-panel" data-panel="caracteristiques">
+  <div class="tab-panel" data-panel="caracteristiques" style="display:none !important;">
 
     <div class="section">
       <div class="sec-head">
