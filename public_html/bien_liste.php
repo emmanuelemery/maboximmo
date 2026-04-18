@@ -729,9 +729,9 @@ function photoPrincipaleUrl(array $bien): ?string {
                 'titre'   => $b['designation'] ?: (($b['type_libelle'] ?? '') . ' — ' . ($b['ville'] ?? '')),
                 'adresse' => trim(($b['adresse_1'] ?? '') . ', ' . ($b['code_postal'] ?? '') . ' ' . ($b['ville'] ?? ''), ', '),
                 'photo'   => photoPrincipaleUrl($b),
-                'urlEdit'     => app_url('/bien_ajouter.php?edit=' . (int)$b['id']),
-                'urlAnnonces' => app_url('/bien_ajouter.php?edit=' . (int)$b['id']) . '#annonce',
-                'urlDiffuser' => app_url('/bien_ajouter.php?edit=' . (int)$b['id']) . '#diffusion',
+                'urlEdit'     => app_url('/bien_detail.php?edit=' . (int)$b['id']),
+                'urlAnnonces' => app_url('/annonce_nouvelle.php?id_bien=' . (int)$b['id']),
+                'urlDiffuser' => app_url('/annonce_nouvelle.php?id_bien=' . (int)$b['id']),
             ];
         }
       ?>
