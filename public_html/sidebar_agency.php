@@ -28,6 +28,9 @@ if (!isset($current_page)) {
         'registre'   => 'registres',
     ];
     $current_page = $rubrique_map[$rubrique] ?? 'dashboard';
+    // Détection pages admin
+    if ($basename === 'admin_dashboard')  $current_page = 'admin';
+    if ($basename === 'admin_migrations') $current_page = 'admin_migrations';
 }
 
 $sb_role_id  = function_exists('current_role_id') ? (int)current_role_id() : (int)($_SESSION['role_id'] ?? 0);
@@ -130,6 +133,24 @@ function sbSI(string $pg, string $cur, string $href, string $label, string $svg)
             <svg viewBox="0 0 24 24" fill="none" stroke="#9ab078" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             <span class="sb-item-lbl">Accueil</span>
         </a>
+
+        <?php if ($sb_role_id === 1 || $sb_role_id === 7): ?>
+        <div class="sb-sep" style="margin:8px 0 4px"></div>
+        <span class="sb-lbl" style="color:#b07068;letter-spacing:0.14em;">Super Admin</span>
+        <a href="admin_dashboard.php" class="sb-item <?= $current_page === 'admin' ? 'active' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+            <span class="sb-item-lbl" style="color:<?= $current_page === 'admin' ? '#a85858;font-weight:700' : '#b07068' ?>;">Administration</span>
+        </a>
+        <a href="admin/admin_migrations.php" class="sb-item <?= $current_page === 'admin_migrations' ? 'active' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_migrations' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <span class="sb-item-lbl" style="color:<?= $current_page === 'admin_migrations' ? '#a85858;font-weight:700' : '#b07068' ?>;">Migrations BDD</span>
+        </a>
+        <?php endif; ?>
     </div>
 
     <div class="sb-sep"></div>
