@@ -288,6 +288,35 @@ require_once __DIR__ . '/inc/header.php';
   .exp-nodpe { text-align: center; margin-top: 8px; font-size: 11px; color: #94a3b8; }
   .exp-nodpe a { color: #64748b; text-decoration: underline; cursor: pointer; }
 
+  /* Onglets de choix du type de document (step 1) */
+  .exp-doc-tab {
+    padding: 10px 14px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background .15s, color .15s;
+  }
+  .exp-doc-tab:hover { background: #f1f5f9; color: #334155; }
+  .exp-doc-tab.active {
+    background: #fff;
+    color: #0369a1;
+    border-color: #e5e7eb;
+    border-bottom: 2px solid #fff;
+    margin-bottom: -2px;
+    font-weight: 700;
+    box-shadow: 0 -2px 0 0 #0ea5e9 inset;
+  }
+
   .exp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .exp-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 999px;
               background: #fff; border: 1px solid #e5e7eb; cursor: pointer; user-select: none;
@@ -375,13 +404,23 @@ require_once __DIR__ . '/inc/header.php';
     <!-- STEP 1 : DPE import -->
     <div class="exp-step" id="step-dpe">
       <div class="num">1</div>
-      <h2>Importer le DPE</h2>
-      <div class="hint">Pré-remplit automatiquement <strong>~80% des informations</strong> (surface, pièces, DPE/GES, adresse, année).</div>
+      <h2>Importer un document</h2>
+      <div class="hint">Choisissez le type avant d'uploader pour une extraction IA optimale. Le <strong>DIAG</strong> pré-remplit ~80% des informations et crée automatiquement le brouillon.</div>
+
+      <!-- Onglets de choix du type de document (règle site : type explicite avant upload) -->
+      <div id="exp-doc-type-tabs" style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 6px;border-bottom:2px solid #e5e7eb;">
+        <button type="button" class="exp-doc-tab active" data-type="diag" title="DPE, plomb, amiante, électricité, gaz, termites, ERP, mesurage">📊 Diagnostic</button>
+        <button type="button" class="exp-doc-tab"        data-type="bail" title="Habitation, commercial, pro, civil, terrain, parking, meublé">📝 Bail</button>
+        <button type="button" class="exp-doc-tab"        data-type="mandat" title="Vente, gestion, location, recherche">📋 Mandat</button>
+        <button type="button" class="exp-doc-tab"        data-type="titre" title="Acte de propriété, notification mutation">🏛️ Acte</button>
+        <button type="button" class="exp-doc-tab"        data-type="fiche" title="Hektor, Périclès, Apimo, Poliris, Netty, ICI">🏢 Fiche</button>
+        <button type="button" class="exp-doc-tab"        data-type="divers" title="Autre document — résumé IA + chat (bientôt)">📎 Divers</button>
+      </div>
 
       <div class="exp-dpe-drop" id="exp-dpe-drop">
-        <div class="icon">📄</div>
-        <div class="title">Glissez le DPE ici ou cliquez pour parcourir</div>
-        <div class="sub">PDF uniquement — max 20 Mo</div>
+        <div class="icon" id="exp-dpe-icon">📊</div>
+        <div class="title" id="exp-dpe-title">Glissez votre PDF <strong>Diagnostic</strong> ici ou cliquez pour parcourir</div>
+        <div class="sub">PDF uniquement — max 20 Mo — analyse IA automatique</div>
         <input type="file" id="exp-dpe-input" accept="application/pdf" style="display:none;">
       </div>
       <div class="exp-dpe-status" id="exp-dpe-status"></div>
@@ -632,17 +671,6 @@ require_once __DIR__ . '/inc/header.php';
         <label>Argument phare (1 phrase)</label>
         <input type="text" name="argument_phare" id="exp-arg" placeholder="ex: terrasse plein sud, vue mer">
       </div>
-    </div>
-
-    <!-- STEP 6 : Autres documents (bail, mandat, acte, fiche, divers) -->
-    <!-- Visible après création du brouillon uniquement (state.id_bien > 0). -->
-    <div class="exp-step locked" id="step-docs" style="display:none;">
-      <div class="num">6</div>
-      <h2>📎 Autres documents <span style="font-size:11px;color:#64748b;font-weight:400;">— optionnel</span></h2>
-      <div class="hint">Ajoutez bail, mandat, acte de propriété, fiche commerciale ou document divers avec extraction IA automatique. Choisissez le type via les onglets.</div>
-      <link rel="stylesheet" href="<?= h(app_url('/assets/css/document_uploader.css')) ?>">
-      <div id="exp-docs-uploader-container" style="margin-top:14px;"></div>
-      <script src="<?= h(app_url('/assets/js/document_uploader.js')) ?>"></script>
     </div>
 
     <!-- STEP FINAL : Validation du bien -->
@@ -1032,26 +1060,111 @@ require_once __DIR__ . '/inc/header.php';
     proprio_code_postal: 'CP bailleur', proprio_ville: 'Ville bailleur',
   };
 
+  // Type de document actuellement sélectionné via les onglets (défaut: diag).
+  // Modifie le endpoint et le flow d'extraction utilisés.
+  let expCurrentDocType = 'diag';
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Onglets de choix du type de document (règle site : type explicite)
+  // Met à jour la dropzone + la variable expCurrentDocType
+  // ═══════════════════════════════════════════════════════════════════════
+  const DOC_TYPE_META = {
+    diag:   { icon: '📊', label: 'Diagnostic' },
+    bail:   { icon: '📝', label: 'Bail' },
+    mandat: { icon: '📋', label: 'Mandat' },
+    titre:  { icon: '🏛️', label: 'Acte' },
+    fiche:  { icon: '🏢', label: 'Fiche commerciale' },
+    divers: { icon: '📎', label: 'Document divers' },
+  };
+  document.querySelectorAll('.exp-doc-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.exp-doc-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      expCurrentDocType = btn.dataset.type;
+      const meta = DOC_TYPE_META[expCurrentDocType] || { icon: '📄', label: expCurrentDocType };
+      $('exp-dpe-icon').textContent  = meta.icon;
+      $('exp-dpe-title').innerHTML   = 'Glissez votre PDF <strong>' + meta.label + '</strong> ici ou cliquez pour parcourir';
+    });
+  });
+
   async function uploadDpe() {
     const file = dpeInput.files[0];
     if (!file) return;
     const status = $('exp-dpe-status');
+    const type   = expCurrentDocType;
+    const meta   = DOC_TYPE_META[type] || { icon: '📄', label: type };
     status.style.display = 'block';
     status.style.background = '#f0f9ff'; status.style.color = '#0369a1';
-    status.innerHTML = '⏳ Analyse du DPE en cours (15-30s)…';
+    status.innerHTML = '⏳ Analyse du ' + meta.label + ' en cours (15-30s)…';
 
+    // ─── TYPE DIAG : flow optimisé existant (extraction + tableau de
+    // validation avec impératifs/bonus + auto-recherche bailleur +
+    // pré-remplissage form + création brouillon automatique) ──
+    if (type === 'diag') {
+      const fd = new FormData();
+      fd.append('fichier', file);
+      fd.append('csrf_token', CSRF);
+      try {
+        const r = await fetch('<?= h(app_url('/api/dpe_import_upload.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Échec analyse');
+        renderDpeValidationTable(j, status);
+      } catch (e) {
+        status.style.background = '#fef2f2'; status.style.color = '#991b1b';
+        status.innerHTML = '❌ ' + e.message;
+      }
+      return;
+    }
+
+    // ─── AUTRES TYPES (bail/mandat/titre/fiche/divers) : upload simple
+    // vers bien_intake_upload.php avec force_type + affichage basique.
+    // Requiert qu'un brouillon soit créé si on veut attacher — sinon
+    // l'endpoint crée un brouillon à la volée (id_bien null). ──
     const fd = new FormData();
     fd.append('fichier', file);
     fd.append('csrf_token', CSRF);
+    fd.append('force_type', type);
+    if (state.id_bien) fd.append('id_bien', state.id_bien);
     try {
-      const r = await fetch('<?= h(app_url('/api/dpe_import_upload.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
+      const r = await fetch('<?= h(app_url('/api/bien_intake_upload.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Échec analyse');
 
-      renderDpeValidationTable(j, status);
+      if (j.bien_id && !state.id_bien) {
+        state.id_bien = j.bien_id;
+        $('exp-id-bien').value = j.bien_id;
+      }
+
+      const pdfUrl = j.fichier || j.fichier_relatif || '';
+      const nbFields = Object.keys(j.fields || {}).length;
+      let methodBadge = '';
+      if (j.method === 'ocr_vision' || j.used_ocr) {
+        methodBadge = '<span style="padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;margin-left:6px;">📸 OCR Vision</span>';
+      } else if (j.method === 'regex+ia') {
+        methodBadge = '<span style="padding:2px 8px;border-radius:99px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;margin-left:6px;">🧠 Texte + IA</span>';
+      }
+
+      status.style.background = '#f0fdf4'; status.style.color = '#14532d';
+      status.innerHTML =
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+        + '<strong>✅ ' + meta.label + ' analysé</strong>' + methodBadge
+        + '<span style="font-size:11px;color:#475569;">· ' + nbFields + ' champ(s) extrait(s)</span>'
+        + (pdfUrl ? '<a href="' + pdfUrl + '" target="_blank" rel="noopener" style="margin-left:auto;padding:5px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:700;">🔍 Voir le PDF</a>' : '')
+        + '</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:#475569;">'
+        + 'Document enregistré sur le bien. Vous pouvez continuer et uploader d\'autres documents ou passer aux étapes suivantes.'
+        + '</div>';
+
+      // Déverrouille les steps suivantes (utile si premier upload n'est pas DIAG)
+      markDone('step-dpe');
+      show('step-bien'); show('step-bailleur'); show('step-photos'); show('step-env'); show('step-validate');
+      confUpdate();
     } catch (e) {
       status.style.background = '#fef2f2'; status.style.color = '#991b1b';
       status.innerHTML = '❌ ' + e.message;
+    } finally {
+      // Reset le file input pour permettre un nouvel upload du même type
+      dpeInput.value = '';
     }
   }
 
@@ -1653,31 +1766,8 @@ require_once __DIR__ . '/inc/header.php';
   });
   $('exp-quartier').addEventListener('blur', () => setTimeout(() => { $('exp-quartier-suggest').style.display = 'none'; }, 150));
 
-  // ─── Initialisation du composant DocumentUploader (après création brouillon) ──
-  // N'est appelé qu'une fois — idBien persiste dans state.id_bien, le composant
-  // lie tous les uploads suivants au bon bien.
-  let expDocsUploader = null;
-  function initExpressDocsUploader(idBien) {
-    if (expDocsUploader !== null || !idBien) return;
-    const container = document.getElementById('exp-docs-uploader-container');
-    const step = document.getElementById('step-docs');
-    if (!container || typeof window.DocumentUploader !== 'function') return;
-    step.style.display = '';       // affiche la step
-    step.classList.remove('locked');
-    expDocsUploader = new window.DocumentUploader('exp-docs-uploader-container', {
-      context: 'bien',
-      idContexte: idBien,
-      endpoint: '<?= h(app_url('/api/bien_intake_upload.php')) ?>',
-      csrfToken: CSRF,
-      availableTypes: ['bail','mandat','titre','fiche','divers'], // DPE deja traite en step 1
-      defaultType: 'bail',
-      showValidationTable: true,
-      onSuccess: (data) => {
-        // Feedback visuel discret, pas de reload (reste sur le flow Express)
-        console.log('[Express] Document annexe uploadé', data.doc_type, data.document_id || data.bien_id);
-      },
-    });
-  }
+  // Step 6 redondante retirée : la step 1 gère désormais tous les types
+  // de documents via les onglets (expCurrentDocType).
 
   // ─── Création brouillon dès qu'on a assez d'infos ──
   let draftCreating = false;
@@ -1702,9 +1792,6 @@ require_once __DIR__ . '/inc/header.php';
         $('exp-edit-detailed').style.display = 'inline-block';
         if (j.id_proprietaire) { state.id_proprietaire = j.id_proprietaire; $('exp-id-proprietaire').value = j.id_proprietaire; }
         markDone('step-ref'); markDone('step-bailleur');
-        // Une fois le brouillon créé, on débloque la step d'upload d'autres documents
-        // (bail, mandat, acte, fiche, divers) avec choix de type explicite.
-        initExpressDocsUploader(j.id_bien);
       } else {
         alert('Erreur création brouillon : ' + (j.error || 'inconnue'));
       }

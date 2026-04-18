@@ -3113,6 +3113,46 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     <!-- Boutons déplacés dans la barre d'onglets -->
   </div>
 
+  <!-- ═══ BANNIÈRE UPLOAD DOCUMENT (visible en permanence, au-dessus des onglets) ═══ -->
+  <!-- Règle site (memory/feedback_upload_documents_types.md) : type explicite -->
+  <link rel="stylesheet" href="<?= h(app_url('/assets/css/document_uploader.css')) ?>">
+  <div style="padding:14px 28px 0;">
+    <div style="background:linear-gradient(180deg,rgba(14,165,233,0.06),#fff);border:1px solid #bae6fd;border-radius:12px;padding:14px 16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;font-size:14px;color:#0f172a;">📥 Importer un document</div>
+          <div style="font-size:11px;color:#475569;">Choisissez le type avant d'uploader — extraction IA optimale selon le module spécialisé.</div>
+        </div>
+      </div>
+      <div id="ba-top-uploader-container"></div>
+    </div>
+  </div>
+  <script src="<?= h(app_url('/assets/js/document_uploader.js')) ?>"></script>
+  <script>
+    (function() {
+      const bienIdForBanner = <?= (int)$editingBienId ?: 0 ?>;
+      if (typeof window.DocumentUploader !== 'function') return;
+      new window.DocumentUploader('ba-top-uploader-container', {
+        context: 'bien',
+        idContexte: bienIdForBanner || null,
+        endpoint: '<?= h(app_url('/api/bien_intake_upload.php')) ?>',
+        csrfToken: '<?= csrf_token('ajouter_bien') ?>',
+        availableTypes: ['diag','bail','mandat','titre','fiche','divers'],
+        defaultType: 'diag',
+        showValidationTable: true,
+        applyValueFn: (name, value) => (typeof window.__baApplyDpeValue === 'function')
+          ? window.__baApplyDpeValue(name, value)
+          : false,
+        onSuccess: (data) => {
+          if (data.bien_id && !bienIdForBanner) {
+            // Premier upload a créé un brouillon : on recharge avec l'id
+            setTimeout(() => location.href = 'bien_ajouter.php?edit=' + data.bien_id, 1500);
+          }
+        },
+      });
+    })();
+  </script>
+
   <!-- ── TABS BAR (sticky, outside form) ── -->
   <div class="ba-tabs-bar" style="position:sticky;top:var(--topbar-h);z-index:45;background:var(--bg);box-shadow:0 4px 10px -8px rgba(0,0,0,.18);padding:0 28px;display:flex;align-items:center;gap:12px;">
     <nav class="ba-tabs" role="tablist" style="flex:1;min-width:0;">
