@@ -44,9 +44,15 @@ function detectBienIntakeDocType(string $text): string
         if (str_contains($head, $kw)) $score['bail'] += 3;
     }
 
-    // FICHE commerciale
-    foreach (['fiche commerciale', 'descriptif commercial', 'à vendre', 'a vendre',
-              'à louer', 'a louer', 'honoraires de vente'] as $kw) {
+    // FICHE commerciale (Hektor, Périclès, Apimo, Poliris, Netty, ICI…)
+    foreach (['fiche commerciale', 'fiche privée', 'fiche privee', 'descriptif commercial',
+              'n° de dossier', 'n° de mandat', 'mandat et disponibilite', 'mandat et disponibilité',
+              'informations financieres', 'informations financières', 'secteur et commodites',
+              'secteur et commodités', 'prix vente public', 'prix net vendeur',
+              'adresse du bien', 'description parking', 'description appartement'] as $kw) {
+        if (str_contains($head, $kw)) $score['fiche'] += 3;
+    }
+    foreach (['à vendre', 'a vendre', 'à louer', 'a louer', 'honoraires de vente'] as $kw) {
         if (str_contains($head, $kw)) $score['fiche'] += 2;
     }
 
@@ -87,8 +93,13 @@ function analyseBienIntakeIA(string $text): array
             $r['router']   = 'mandat';
             return $r;
 
+        case 'fiche':
+            require_once __DIR__ . '/bien_intake_fiche.php';
+            $r = analyseFicheIA($text);
+            $r['router']   = 'fiche';
+            return $r;
+
         // case 'bail':   → inc/bien_intake_bail.php   (à créer)
-        // case 'fiche':  → inc/bien_intake_fiche.php  (à créer)
         // case 'titre':  → inc/bien_intake_titre.php  (à créer)
 
         default:
