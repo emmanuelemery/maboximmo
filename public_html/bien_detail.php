@@ -5985,6 +5985,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         const origLabel = uploadBtn.innerHTML;
         uploadBtn.innerHTML = '⏳ Analyse…';
         let ok = 0, err = 0;
+        // Accumule TOUS les champs extraits des documents (appliqués à la fin)
+        const allExtractedFields = {};
 
         for (const file of files) {
           showStatus('⏳ Analyse de <strong>' + file.name + '</strong>…', 'loading');
@@ -5996,6 +5998,13 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             const resp = await fetch('<?= h(app_url("/api/bien_intake_upload.php")) ?>', { method: 'POST', body: fd, credentials: 'same-origin' });
             const data = await resp.json();
             if (!data.ok) throw new Error(data.error || 'Échec');
+            // Collecte les champs extraits (priorité au dernier doc si conflit)
+            const extracted = data.fields || {};
+            Object.entries(extracted).forEach(([k, v]) => {
+              if (v !== null && v !== '' && !k.startsWith('_')) {
+                allExtractedFields[k] = v;
+              }
+            });
             ok++;
           } catch (e) {
             err++;
@@ -6006,19 +6015,41 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         uploadBtn.disabled = false;
         uploadBtn.innerHTML = origLabel;
         uploadInput.value = '';
+
+        // ── Applique les champs extraits au formulaire ──
+        // Utilise window.__baApplyDpeValue (exposé par l'IIFE du DPE import) qui gère :
+        //   - classes DPE/GES (boutons + hidden)
+        //   - type_bien (cartes cliquables)
+        //   - autres inputs : value + dispatchEvent input/change (→ autosave)
+        let appliedCount = 0;
+        if (typeof window.__baApplyDpeValue === 'function') {
+          Object.entries(allExtractedFields).forEach(([name, value]) => {
+            if (window.__baApplyDpeValue(name, value)) appliedCount++;
+          });
+        }
+
         showStatus(
-          '✅ <strong>' + ok + '</strong> document(s) importé(s)' + (err ? ', ' + err + ' en erreur' : '')
-          + ' — actualisation automatique…',
+          '✅ <strong>' + ok + '</strong> document(s) importé(s) · <strong>' + appliedCount + '</strong> champ(s) remplis automatiquement'
+          + (err ? ' · ' + err + ' en erreur' : '')
+          + ' — sauvegarde + actualisation…',
           ok ? 'success' : 'error'
         );
-        // Rechargement automatique si au moins un upload a réussi, avec préservation de l'onglet Documents
+
         if (ok > 0) {
+          // Autosave explicite pour persister les champs avant reload
+          try {
+            if (typeof autoSave === 'function') {
+              await autoSave();
+            } else if (typeof window.__baAutoSave === 'function') {
+              await window.__baAutoSave();
+            }
+          } catch (_) {}
           setTimeout(() => {
             try { if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState(); } catch (_) {}
             const url = new URL(window.location.href);
             url.hash = '#documents';
             window.location.href = url.toString();
-          }, 900);
+          }, 1100);
         }
       });
     }
