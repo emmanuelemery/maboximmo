@@ -181,20 +181,16 @@ require_once __DIR__ . '/inc/header.php';
     <input type="hidden" name="id_proprietaire" id="exp-id-proprietaire" value="">
     <input type="hidden" name="dpe_applied" id="exp-dpe-applied" value="0">
 
-    <!-- STEP 1 : Référence preview -->
-    <div class="exp-step" id="step-ref">
+    <!-- STEP 1 : Référence (caché — générée en back-end, visible sur les autres pages) -->
+    <div class="exp-step" id="step-ref" style="display:none;">
       <div class="num">1</div>
       <h2>Référence interne</h2>
-      <div class="hint">Format configuré pour votre agence : <code><?= h($refPattern) ?></code>. La référence sera générée automatiquement à la création.</div>
-      <div class="exp-field">
-        <label>Référence qui sera assignée</label>
-        <input type="text" id="exp-ref-preview" value="(sera générée automatiquement)" readonly style="color:#64748b;background:#f1f5f9;font-family:monospace;">
-      </div>
+      <input type="text" id="exp-ref-preview" value="" readonly>
     </div>
 
-    <!-- STEP 2 : DPE import -->
+    <!-- STEP 1 : DPE import -->
     <div class="exp-step" id="step-dpe">
-      <div class="num">2</div>
+      <div class="num">1</div>
       <h2>Importer le DPE</h2>
       <div class="hint">Pré-remplit automatiquement <strong>~80% des informations</strong> (surface, pièces, DPE/GES, adresse, année).</div>
 
@@ -210,9 +206,9 @@ require_once __DIR__ . '/inc/header.php';
       </div>
     </div>
 
-    <!-- STEP 3 : Bien -->
+    <!-- STEP 2 : Bien -->
     <div class="exp-step locked" id="step-bien">
-      <div class="num">3</div>
+      <div class="num">2</div>
       <h2>Informations du bien</h2>
       <div class="hint">Les champs <span class="req">*</span> sont nécessaires à la création.</div>
 
@@ -309,9 +305,9 @@ require_once __DIR__ . '/inc/header.php';
       <div id="exp-dup-bien" style="display:none;margin-top:10px;padding:12px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:8px;font-size:12px;"></div>
     </div>
 
-    <!-- STEP 4 : Bailleur -->
+    <!-- STEP 3 : Bailleur -->
     <div class="exp-step locked" id="step-bailleur">
-      <div class="num">4</div>
+      <div class="num">3</div>
       <h2>Bailleur <span style="font-size:12px;color:#dc2626;font-weight:400;">(obligatoire)</span></h2>
       <div class="hint">🔎 Recherche unifiée — tapez nom, email, téléphone ou société. Les résultats s'affichent en direct.</div>
 
@@ -348,9 +344,9 @@ require_once __DIR__ . '/inc/header.php';
       <div id="exp-pro-status" style="font-size:11px;color:#64748b;margin-top:4px;"></div>
     </div>
 
-    <!-- STEP 5 : Photos -->
+    <!-- STEP 4 : Photos -->
     <div class="exp-step locked" id="step-photos">
-      <div class="num">5</div>
+      <div class="num">4</div>
       <h2>Photos <span style="font-size:11px;color:#64748b;font-weight:400;">— <span id="exp-photo-count">0</span> chargée(s)</span></h2>
       <div class="hint">Analyse IA automatique en arrière-plan (catégorie + description pour le SEO). Cliquez ✕ pour supprimer.</div>
 
@@ -366,9 +362,9 @@ require_once __DIR__ . '/inc/header.php';
       </div>
     </div>
 
-    <!-- STEP 6 : Environnement -->
+    <!-- STEP 5 : Environnement -->
     <div class="exp-step locked" id="step-env">
-      <div class="num">6</div>
+      <div class="num">5</div>
       <h2>Environnement</h2>
       <div class="hint">Sélection rapide — pas de saisie libre.</div>
 
@@ -439,9 +435,9 @@ require_once __DIR__ . '/inc/header.php';
       </div>
     </div>
 
-    <!-- STEP 7 : Note IA + Générer annonce -->
+    <!-- STEP 6 : Note IA + Générer annonce -->
     <div class="exp-step locked" id="step-ia">
-      <div class="num">7</div>
+      <div class="num">6</div>
       <h2>Générer l'annonce</h2>
       <div class="hint">Note optionnelle pour guider l'IA (ton, focus, mentions spécifiques).</div>
       <div class="exp-field">
@@ -451,18 +447,18 @@ require_once __DIR__ . '/inc/header.php';
       <button type="button" id="exp-generate-btn" class="exp-btn" disabled>✨ Générer l'annonce (SEO + LBC)</button>
     </div>
 
-    <!-- STEP 8 : Preview annonce -->
+    <!-- STEP 7 : Preview annonce -->
     <div class="exp-step locked" id="step-preview">
-      <div class="num">8</div>
+      <div class="num">7</div>
       <h2>Preview & édition de l'annonce</h2>
       <div class="hint">Tout est éditable. Clic ↻ pour régénérer avec ou sans modifier la note.</div>
       <div id="exp-ia-output"></div>
       <div style="margin-top:10px;"><button type="button" id="exp-regen-btn" class="exp-btn-ghost">↻ Régénérer</button></div>
     </div>
 
-    <!-- STEP 9 : Valider -->
+    <!-- STEP 8 : Valider -->
     <div class="exp-step locked" id="step-valider">
-      <div class="num">9</div>
+      <div class="num">8</div>
       <h2>Validation finale</h2>
       <div class="hint">Un brouillon a été créé automatiquement. La validation publie l'annonce.</div>
       <div id="exp-conformity-panel" style="font-size:12px;"></div>
