@@ -68,11 +68,47 @@ require_once __DIR__ . '/inc/header.php';
 <?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
 
 <style>
-  :root { --sidebar-w: 220px; }
+  :root { --sidebar-w: 220px; --conf-w: 320px; }
   body.app-layout { margin: 0; }
-  .exp-main { margin-left: var(--sidebar-w); min-height: 100vh; background: #f8fafc; }
+  .exp-main { margin-left: var(--sidebar-w); margin-right: var(--conf-w); min-height: 100vh; background: #f8fafc; }
+  @media (max-width: 1200px) { .exp-main { margin-right: 0; } .exp-conf-panel { display: none; } }
   @media (max-width: 900px) { .exp-main { margin-left: 0; } }
-  .exp-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 120px; }
+  .exp-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px 40px; }
+
+  /* Panneau conformité à droite */
+  .exp-conf-panel {
+    position: fixed; top: 0; right: 0; width: var(--conf-w); height: 100vh;
+    background: #fff; border-left: 1px solid #e5e7eb; padding: 24px 20px;
+    overflow-y: auto; box-shadow: -2px 0 12px rgba(0,0,0,.04);
+    display: flex; flex-direction: column;
+  }
+  .exp-conf-title { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 12px; }
+  .exp-conf-score-wrap { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+  .exp-conf-score { font-size: 32px; font-weight: 800; color: #16a34a; line-height: 1; }
+  .exp-conf-score.warn { color: #f59e0b; } .exp-conf-score.bad { color: #dc2626; }
+  .exp-conf-sub { font-size: 11px; color: #64748b; }
+  .exp-conf-bar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 8px 0 16px; }
+  .exp-conf-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #16a34a, #22c55e); transition: width .3s; }
+  .exp-conf-bar.warn > span { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+  .exp-conf-bar.bad  > span { background: linear-gradient(90deg, #dc2626, #ef4444); }
+  .exp-conf-status { padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+  .exp-conf-status.actif    { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+  .exp-conf-status.brouillon{ background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+  .exp-conf-section { margin-bottom: 16px; }
+  .exp-conf-section-title { font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .exp-conf-item { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; font-size: 12px; }
+  .exp-conf-item .ico { font-size: 14px; flex-shrink: 0; line-height: 1.2; }
+  .exp-conf-item.ok { color: #166534; }
+  .exp-conf-item.ko { color: #94a3b8; }
+  .exp-conf-item.ko.required { color: #991b1b; font-weight: 600; }
+  .exp-conf-actions { margin-top: auto; padding-top: 14px; border-top: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 8px; }
+  .exp-btn-final { padding: 12px 14px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
+  .exp-btn-final:disabled { opacity: .5; cursor: not-allowed; }
+  .exp-btn-final.primary { background: #16a34a; color: #fff; }
+  .exp-btn-final.primary:hover:not(:disabled) { background: #15803d; }
+  .exp-btn-final.primary.warn { background: #f59e0b; }
+  .exp-btn-final.secondary { background: #0ea5e9; color: #fff; }
+  .exp-btn-final.secondary:hover:not(:disabled) { background: #0284c7; }
   .exp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .exp-head h1 { margin: 0; font-size: 22px; color: #0f172a; }
   .exp-head .sub { color: #64748b; font-size: 12px; margin-top: 2px; }
@@ -456,27 +492,55 @@ require_once __DIR__ . '/inc/header.php';
       <div style="margin-top:10px;"><button type="button" id="exp-regen-btn" class="exp-btn-ghost">↻ Régénérer</button></div>
     </div>
 
-    <!-- STEP 8 : Valider -->
-    <div class="exp-step locked" id="step-valider">
-      <div class="num">8</div>
-      <h2>Validation finale</h2>
-      <div class="hint">Un brouillon a été créé automatiquement. La validation publie l'annonce.</div>
-      <div id="exp-conformity-panel" style="font-size:12px;"></div>
-      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button type="button" id="exp-publish-btn" class="exp-btn" disabled>💾 Valider & publier</button>
-        <a href="bien_ajouter.php" id="exp-edit-detailed" class="exp-btn-ghost" style="display:none;text-decoration:none;">Passer en mode détaillé</a>
-      </div>
+    <!-- Validation finale : voir le panneau à droite -->
+    <div class="exp-step" id="step-valider" style="background:linear-gradient(180deg,#f0fdf4,#fff);border-color:#86efac;">
+      <div class="num" style="background:#16a34a;">✓</div>
+      <h2 style="color:#166534;">Terminé ?</h2>
+      <div class="hint">Le panneau de complétude à droite vous indique en permanence l'état du bien. Validez quand vous êtes prêt(e).</div>
+      <a href="bien_ajouter.php" id="exp-edit-detailed" style="display:none;font-size:12px;color:#0369a1;text-decoration:none;">🏛️ Passer en mode détaillé →</a>
     </div>
   </form>
 </div>
 
-<!-- Footer conformité permanent -->
-<div class="exp-footer">
-  <div class="exp-conf">
-    <div class="score" id="exp-score">0%</div>
-    <div><strong>Conformité portails</strong><br><span id="exp-score-detail" style="font-size:11px;">Commencez par importer un DPE ou remplir les champs</span></div>
+<!-- Panneau conformité permanent à droite -->
+<aside class="exp-conf-panel" id="exp-conf-panel">
+  <h3 class="exp-conf-title">🎯 Complétude du bien</h3>
+
+  <div class="exp-conf-score-wrap">
+    <span class="exp-conf-score" id="exp-score">0%</span>
+    <span class="exp-conf-sub">de complétude</span>
   </div>
-</div>
+  <div class="exp-conf-bar" id="exp-conf-bar"><span style="width:0%"></span></div>
+
+  <div class="exp-conf-status brouillon" id="exp-conf-status">
+    📝 Restera en brouillon
+  </div>
+
+  <div class="exp-conf-section">
+    <div class="exp-conf-section-title">🔒 Obligatoires pour actif</div>
+    <div id="exp-req-list"></div>
+  </div>
+
+  <div class="exp-conf-section">
+    <div class="exp-conf-section-title">⚖️ Conformité légale (diffusion)</div>
+    <div id="exp-legal-list"></div>
+  </div>
+
+  <div class="exp-conf-section">
+    <div class="exp-conf-section-title">📡 Recommandé portails</div>
+    <div id="exp-lbc-list"></div>
+  </div>
+
+  <div class="exp-conf-actions">
+    <button type="button" id="exp-btn-save-only" class="exp-btn-final primary">
+      💾 Valider le bien
+    </button>
+    <button type="button" id="exp-btn-save-annonce" class="exp-btn-final secondary" disabled>
+      ✨ Valider &amp; créer annonce
+    </button>
+    <a href="<?= h(app_url('/bien_liste.php')) ?>" style="text-align:center;font-size:11px;color:#94a3b8;text-decoration:none;margin-top:4px;">← Retour sans enregistrer</a>
+  </div>
+</aside>
 
 <!-- Modal warning pas de DPE -->
 <div class="exp-modal-back" id="exp-modal-nodpe" style="display:none;">
@@ -526,45 +590,86 @@ require_once __DIR__ . '/inc/header.php';
     'lille': ['Vieux-Lille','Centre','Wazemmes','Moulins','Saint-Maurice Pellevoisin','Vauban-Esquermes','Fives','Bois-Blancs','Lille-Sud','Faubourg de Béthune'],
   };
 
-  // ─── Conformité (simple) ──
+  // ─── Conformité (3 sections : obligations actif / légale / portails) ──
+  // Champs OBLIGATOIRES pour que le bien passe en 'actif'
+  const REQ_MANDATORY = [
+    { id: 'exp-type-bien',   name: 'Type de bien',     section: 'bien' },
+    { id: 'exp-adresse',     name: 'Adresse postale',  section: 'bien' },
+    { id: 'exp-surface',     name: 'Surface',          section: 'bien' },
+    { id: 'exp-pro-nom',     name: 'Bailleur',         or: 'exp-id-proprietaire' },
+  ];
+  // Conformité légale (pour diffusion publique / portails)
+  const REQ_LEGAL = [
+    { id: 'exp-dpe-cl',      name: 'Classe DPE' },
+    { id: 'exp-ges-cl',      name: 'Classe GES' },
+    { id: 'exp-annee',       name: 'Année construction' },
+    { id: 'exp-cp',          name: 'Code postal' },
+    { id: 'exp-ville',       name: 'Ville' },
+    { id: 'exp-transaction', name: 'Transaction' },
+  ];
+  // Recommandé portails (SEO / LBC)
+  const REQ_LBC = [
+    { id: 'exp-nbp',         name: 'Nombre de pièces' },
+    { id: 'exp-prix',        name: 'Prix / Loyer' },
+    { id: 'exp-etage',       name: 'Étage' },
+  ];
+
   function confUpdate() {
-    const reqs = [
-      { id: 'exp-type-bien',  name: 'Type' },
-      { id: 'exp-transaction', name: 'Transaction' },
-      { id: 'exp-adresse',    name: 'Adresse' },
-      { id: 'exp-cp',         name: 'Code postal' },
-      { id: 'exp-ville',      name: 'Ville' },
-      { id: 'exp-surface',    name: 'Surface' },
-      { id: 'exp-nbp',        name: 'Pièces' },
-      { id: 'exp-prix',       name: 'Prix/Loyer' },
-      { id: 'exp-pro-nom',    name: 'Bailleur (nom)', or: 'exp-id-proprietaire' },
-      { id: 'exp-dpe-cl',     name: 'DPE classe' },
-    ];
-    let ok = 0;
-    const missing = [];
-    reqs.forEach(r => {
+    const checkOne = r => {
       const el = $(r.id);
       const orEl = r.or ? $(r.or) : null;
-      const v = (el && el.value.trim() !== '') || (orEl && orEl.value !== '');
-      if (v) ok++; else missing.push(r.name);
-      if (el) {
-        const wrap = el.closest('.exp-field');
-        if (wrap) wrap.classList.toggle('required-empty', !v);
-      }
-    });
-    const score = Math.round(ok / reqs.length * 100);
-    $('exp-score').textContent = score + '%';
-    $('exp-score').className = 'score ' + (score >= 100 ? '' : score >= 70 ? 'warn' : 'bad');
-    $('exp-score-detail').textContent = missing.length ? 'Manque : ' + missing.slice(0, 3).join(', ') + (missing.length > 3 ? '…' : '') : '✅ Prêt à publier';
-    $('exp-publish-btn').disabled = missing.length > 0 || !state.id_bien;
-    // Si pas DPE → label alt
-    if (missing.includes('DPE classe')) {
-      $('exp-publish-btn').textContent = '💾 Valider (annonce provisoire)';
-      $('exp-publish-btn').classList.add('warn');
+      return (el && el.value.trim() !== '') || (orEl && orEl.value !== '');
+    };
+    const reqOk   = REQ_MANDATORY.filter(checkOne).length;
+    const legalOk = REQ_LEGAL.filter(checkOne).length;
+    const lbcOk   = REQ_LBC.filter(checkOne).length;
+    const photosOk = state.photos.length > 0 ? 1 : 0;
+
+    const totalFields = REQ_MANDATORY.length + REQ_LEGAL.length + REQ_LBC.length + 1;
+    const okFields    = reqOk + legalOk + lbcOk + photosOk;
+    const score = Math.round(okFields / totalFields * 100);
+    const mandatoryOk = reqOk === REQ_MANDATORY.length;
+
+    // Score + barre
+    const scoreEl = $('exp-score'), barEl = $('exp-conf-bar');
+    scoreEl.textContent = score + '%';
+    scoreEl.className = 'exp-conf-score' + (score >= 80 ? '' : score >= 50 ? ' warn' : ' bad');
+    barEl.className = 'exp-conf-bar' + (score >= 80 ? '' : score >= 50 ? ' warn' : ' bad');
+    barEl.firstElementChild.style.width = score + '%';
+
+    // Statut final prévu
+    const statusEl = $('exp-conf-status');
+    if (mandatoryOk && score >= 80) {
+      statusEl.className = 'exp-conf-status actif';
+      statusEl.innerHTML = '✅ Sera <strong>actif</strong> à la validation';
     } else {
-      $('exp-publish-btn').textContent = '💾 Valider & publier';
-      $('exp-publish-btn').classList.remove('warn');
+      statusEl.className = 'exp-conf-status brouillon';
+      statusEl.innerHTML = mandatoryOk
+        ? '📝 Restera en <strong>brouillon</strong> — complétude < 80%'
+        : '🔒 Restera en <strong>brouillon</strong> — obligations manquantes';
     }
+
+    // Listes
+    const renderList = (targetId, items, markRequired) => {
+      const html = items.map(r => {
+        const ok = checkOne(r);
+        const cls = ok ? 'ok' : (markRequired ? 'ko required' : 'ko');
+        const ico = ok ? '✅' : (markRequired ? '🔒' : '○');
+        return `<div class="exp-conf-item ${cls}"><span class="ico">${ico}</span><span>${r.name}</span></div>`;
+      }).join('');
+      $(targetId).innerHTML = html;
+    };
+    renderList('exp-req-list',   REQ_MANDATORY, true);
+    renderList('exp-legal-list', REQ_LEGAL,     false);
+    renderList('exp-lbc-list',   [...REQ_LBC, { id: '_photos', name: 'Au moins 1 photo', _custom: photosOk === 1 }], false);
+
+    // Boutons activation
+    $('exp-btn-save-only').disabled = !mandatoryOk && !state.id_bien;
+    $('exp-btn-save-annonce').disabled = !mandatoryOk;
+    // Si transaction = estimation → pas d'annonce possible
+    const isEstim = $('exp-transaction').value === 'estimation';
+    if (isEstim) { $('exp-btn-save-annonce').disabled = true; $('exp-btn-save-annonce').title = 'Pas d\'annonce en mode estimation'; }
+    // Si transaction = mandat simple ou mandat_gestion → annonce optionnelle, mais bouton actif quand même
   }
 
   // ─── Écoute changements → màj conformité + colors ──
@@ -1022,15 +1127,53 @@ require_once __DIR__ . '/inc/header.php';
     `;
   }
 
-  // ─── STEP 9 : Publier ──
-  $('exp-publish-btn').addEventListener('click', async () => {
-    if (!state.id_bien) { alert('Brouillon pas encore créé'); return; }
-    if (!confirm('Valider et publier cette annonce ?')) return;
-    // Pour MVP : redirige vers la fiche détaillée, le user finalise là-bas si besoin
-    // (un endpoint de publish pourra être ajouté plus tard)
-    alert('✅ Brouillon enregistré sous référence ' + state.ref + '. Redirection vers la fiche détaillée pour finaliser la publication.');
-    window.location.href = 'bien_ajouter.php?edit=' + state.id_bien;
-  });
+  // ─── Finalisation : 2 boutons Valider (avec/sans annonce) ──
+  async function finalizeAndRedirect(mode) {
+    if (!state.id_bien) {
+      // Crée d'abord le brouillon si pas encore fait
+      await ensureDraftCreated();
+      if (!state.id_bien) { alert('Impossible de créer le brouillon. Vérifiez les champs critiques.'); return; }
+    }
+    // Mets à jour toutes les valeurs sur le serveur via autosave express → endpoint finalize
+    const fd = new FormData($('exp-form'));
+    fd.set('id_bien', String(state.id_bien));
+    fd.set('mode', mode); // 'bien_only' | 'with_annonce'
+    // Inclure environnement
+    Object.entries(state.env).forEach(([k, v]) => {
+      if (Array.isArray(v)) v.forEach(x => fd.append('environnement[' + k + '][]', x));
+      else if (v) fd.append('environnement[' + k + ']', v);
+    });
+    // Inclure le contenu IA généré si dispo
+    if (state.generated) fd.set('ia_generated', JSON.stringify(state.generated));
+    // Récupérer valeurs éditées de la preview IA (si preview affichée)
+    ['ia-titre-seo','ia-titre-lbc','ia-h1','ia-meta','ia-slug','ia-desc','ia-kw'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) fd.set(id.replace('ia-', 'ia_'), el.value || '');
+    });
+
+    const btnA = $('exp-btn-save-only'), btnB = $('exp-btn-save-annonce');
+    btnA.disabled = true; btnB.disabled = true;
+    const origA = btnA.textContent, origB = btnB.textContent;
+    if (mode === 'bien_only')   btnA.textContent = '⏳ Validation…';
+    if (mode === 'with_annonce') btnB.textContent = '⏳ Création annonce…';
+
+    try {
+      const r = await fetch('<?= h(app_url('/api/bien_express_finalize.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Échec');
+      if (mode === 'bien_only') {
+        window.location.href = 'bien_liste.php?highlight=' + j.id_bien;
+      } else {
+        window.location.href = 'annonce_ajouter.php?id_bien=' + j.id_bien + (j.id_annonce ? '&id_annonce=' + j.id_annonce : '') + '&from=express';
+      }
+    } catch (e) {
+      alert('❌ ' + e.message);
+      btnA.disabled = false; btnB.disabled = false;
+      btnA.textContent = origA; btnB.textContent = origB;
+    }
+  }
+  $('exp-btn-save-only').addEventListener('click', () => finalizeAndRedirect('bien_only'));
+  $('exp-btn-save-annonce').addEventListener('click', () => finalizeAndRedirect('with_annonce'));
 
   // Init
   confUpdate();
