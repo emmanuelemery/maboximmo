@@ -108,7 +108,8 @@ function ref_resolve_pattern(PDO $pdo, int $idAgence, string $type): array
         SELECT a.id, a.id_societe, a.{$col} AS agence_pattern,
                a.ref_seq_bien_current, a.ref_seq_annonce_current, a.ref_seq_year,
                s.{$col} AS societe_pattern, s.ref_annual_reset,
-               s.raison_sociale AS societe_nom, a.nom AS agence_nom
+               COALESCE(s.nom, s.raison_sociale, '') AS societe_nom,
+               a.nom_agence AS agence_nom
         FROM agences a
         LEFT JOIN societes s ON s.id = a.id_societe
         WHERE a.id = ?

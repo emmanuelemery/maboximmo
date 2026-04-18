@@ -53,13 +53,14 @@ try {
     $flt  = static fn(string $k) => ($_POST[$k] ?? '') !== '' ? (float)$_POST[$k] : null;
 
     // ─── 1. Gestion du bailleur (existant ou nouveau) ────────────
+    // Note : proprietaires a id_agence, pas id_societe
     $proprioId = $int('id_proprietaire');
     if (!$proprioId) {
         $pNom = $str('proprio_nom');
         if ($pNom !== '') {
             $stmtP = $pdo->prepare("
                 INSERT INTO proprietaires (nom, prenom, societe, email, telephone, adresse_1, code_postal, ville,
-                    type_personne, id_societe, actif, date_creation, date_modification)
+                    type_personne, id_agence, actif, date_creation, date_modification)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
             ");
             $stmtP->execute([
@@ -72,7 +73,7 @@ try {
                 $str('proprio_code_postal') ?: null,
                 $str('proprio_ville') ?: null,
                 $str('proprio_societe') !== '' ? 'morale' : 'physique',
-                $societeId ?: null,
+                $agenceId ?: null,
             ]);
             $proprioId = (int)$pdo->lastInsertId();
         }

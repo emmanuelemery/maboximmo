@@ -65,11 +65,13 @@ try {
     }
 
     // Pré-filtre SQL (cherche large, scoring en PHP)
+    // Note : proprietaires a id_agence, pas id_societe → on filtre via id_agence
+    $agenceId = (int)($_SESSION['id_agence'] ?? 0);
     $where  = ['p.actif = 1'];
     $params = [];
-    if ($societeId > 0 && $roleId !== 7) {
-        $where[] = '(p.id_societe = :societe OR p.id_societe IS NULL)';
-        $params[':societe'] = $societeId;
+    if ($agenceId > 0 && $roleId !== 7) {
+        $where[] = '(p.id_agence = :agence OR p.id_agence IS NULL)';
+        $params[':agence'] = $agenceId;
     }
     if ($excludeId > 0) {
         $where[] = 'p.id <> :exclude';

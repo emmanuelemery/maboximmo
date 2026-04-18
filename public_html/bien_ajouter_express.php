@@ -29,14 +29,15 @@ try {
 } catch (Throwable) { /* migration pas encore appliquée → garder fallback */ }
 
 // ─── Liste des propriétaires pour le sélecteur live ─────────
+// proprietaires a id_agence (pas id_societe)
 $proprietairesList = [];
 try {
     $sqlP = "SELECT id, type_personne, civilite, nom, prenom, societe, email, telephone, ville
              FROM proprietaires WHERE actif = 1";
     $paramsP = [];
-    if ($societeId > 0 && $roleId !== 7) {
-        $sqlP .= " AND (id_societe = ? OR id_societe IS NULL)";
-        $paramsP[] = $societeId;
+    if ($agenceId > 0 && $roleId !== 7) {
+        $sqlP .= " AND (id_agence = ? OR id_agence IS NULL)";
+        $paramsP[] = $agenceId;
     }
     $sqlP .= " ORDER BY nom, prenom LIMIT 500";
     $stmtP = $pdo->prepare($sqlP);
@@ -44,12 +45,21 @@ try {
     $proprietairesList = $stmtP->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable) {}
 
-// ─── Types de bien ──────────────────────────────────────────
+// ─── Types de bien (robuste sur schémas différents) ─────────
 $typesList = [];
-try {
-    $stmtTb = $pdo->query("SELECT code, libelle FROM types_bien WHERE actif = 1 ORDER BY ordre, libelle");
-    $typesList = $stmtTb->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable) {}
+$tryQueries = [
+    "SELECT code, libelle FROM types_bien WHERE actif = 1 ORDER BY ordre_affichage, libelle",
+    "SELECT code, libelle FROM types_bien WHERE actif = 1 ORDER BY ordre, libelle",
+    "SELECT code, libelle FROM types_bien WHERE actif = 1 ORDER BY libelle",
+    "SELECT code, libelle FROM types_bien ORDER BY libelle",
+];
+foreach ($tryQueries as $q) {
+    try {
+        $stmtTb = $pdo->query($q);
+        $rows = $stmtTb->fetchAll(PDO::FETCH_ASSOC);
+        if (!empty($rows)) { $typesList = $rows; break; }
+    } catch (Throwable) { continue; }
+}
 
 $csrf = csrf_token('ajouter_bien');
 
@@ -213,8 +223,11 @@ require_once __DIR__ . '/inc/header.php';
           <label>Transaction <span class="req">*</span></label>
           <select name="transaction" id="exp-transaction" required>
             <option value="">—</option>
-            <option value="location">Location</option>
-            <option value="vente">Vente</option>
+            <option value="mandat">📜 Mandat (simple)</option>
+            <option value="mandat_gestion">🔑 Mandat de gestion</option>
+            <option value="location">🏠 Location (diffusion)</option>
+            <option value="vente">🤝 Vente (diffusion)</option>
+            <option value="estimation">📊 Estimation seulement</option>
           </select>
         </div>
       </div>
@@ -284,15 +297,19 @@ require_once __DIR__ . '/inc/header.php';
     <!-- STEP 5 : Photos -->
     <div class="exp-step locked" id="step-photos">
       <div class="num">5</div>
-      <h2>Photos</h2>
-      <div class="hint">Analyse IA automatique en arrière-plan (catégorie + description pour le SEO).</div>
+      <h2>Photos <span style="font-size:11px;color:#64748b;font-weight:400;">— <span id="exp-photo-count">0</span> chargée(s)</span></h2>
+      <div class="hint">Analyse IA automatique en arrière-plan (catégorie + description pour le SEO). Cliquez ✕ pour supprimer.</div>
+
+      <!-- Grille des photos déjà chargées (au-dessus du dropzone) -->
+      <div class="exp-photo-grid" id="exp-photo-grid" style="margin-bottom:14px;"></div>
+
+      <!-- Dropzone en dessous -->
       <div class="exp-dpe-drop" id="exp-photos-drop" style="border-color:#6a4ca8;background:#faf5ff;">
         <div class="icon">📷</div>
-        <div class="title" style="color:#6a4ca8;">Glissez les photos ici</div>
-        <div class="sub">JPG · PNG · WEBP — multi-fichiers OK</div>
+        <div class="title" style="color:#6a4ca8;">Ajouter des photos</div>
+        <div class="sub">JPG · PNG · WEBP — multi-fichiers OK (maintenez Ctrl/Shift pour sélectionner plusieurs)</div>
         <input type="file" id="exp-photos-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none;">
       </div>
-      <div class="exp-photo-grid" id="exp-photo-grid"></div>
     </div>
 
     <!-- STEP 6 : Environnement -->
