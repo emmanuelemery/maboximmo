@@ -109,6 +109,10 @@ try {
     }
 
     // ── Enregistrement complet en dpe_diags (table dédiée) ───────
+    // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI
+    // (wait_timeout court sur Hostinger → "MySQL server has gone away")
+    $pdo = db_keepalive();
+
     $diagId = 0;
     if ($bienId > 0) {
         try {

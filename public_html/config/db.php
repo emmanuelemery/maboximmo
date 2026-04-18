@@ -1,9 +1,13 @@
 <?php
 declare(strict_types=1);
 
-function db(): PDO
+function db(bool $forceReconnect = false): PDO
 {
     static $pdo = null;
+
+    if ($forceReconnect) {
+        $pdo = null;
+    }
 
     if ($pdo instanceof PDO) {
         return $pdo;
@@ -58,6 +62,25 @@ function db(): PDO
 
     $pdo = new PDO($dsn, $username, $password, $options);
     return $pdo;
+}
+
+/**
+ * Vérifie que la connexion MySQL est toujours vivante (après un appel long
+ * type OpenAI/curl qui a pu dépasser le wait_timeout du serveur MySQL).
+ * Reconnecte automatiquement en cas d'erreur "MySQL server has gone away".
+ * Met également à jour $GLOBALS['pdo'].
+ */
+function db_keepalive(): PDO
+{
+    $pdo = $GLOBALS['pdo'] ?? db();
+    try {
+        $pdo->query('SELECT 1');
+        return $pdo;
+    } catch (Throwable $e) {
+        $pdo = db(true);
+        $GLOBALS['pdo'] = $pdo;
+        return $pdo;
+    }
 }
 
 // ── Credentials FTP Ubiflow (fichier non versionné) ──────────────────

@@ -7311,23 +7311,28 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           return;
         }
 
-        // Applique les champs détectés
+        // Collecte les champs (sans les appliquer) pour revue utilisateur
         const fields = data.fields || {};
-        const applied = [];
-        const skipped = [];
         const alerts = [];
+        const previewable = [];
         Object.entries(fields).forEach(([k, v]) => {
+          if (v === null || v === '' || v === undefined) return;
           // Alertes diagnostics — affichées séparément
           if (k === '_alerte_plomb')        { alerts.push('🔴 Plomb (CREP) : présence de revêtements contenant du plomb au-delà des seuils'); return; }
           if (k === '_alerte_amiante')      { alerts.push('🟠 Amiante : matériaux/produits contenant de l\'amiante repérés'); return; }
           if (k === '_alerte_electricite')  { alerts.push('🟡 Électricité : l\'installation comporte des anomalies'); return; }
-          if (applyValue(k, v)) applied.push(k);
-          else skipped.push(k);
+          // Récupère la valeur actuelle pour diff visuel
+          let currentValue = '';
+          if (k === 'dpe_classe' || k === 'ges_classe') {
+            currentValue = document.getElementById(k)?.value || '';
+          } else if (k === 'type_bien') {
+            currentValue = document.getElementById('type_bien_hidden')?.value || '';
+          } else {
+            const el = document.querySelector('[name="' + k + '"]');
+            currentValue = el ? (el.value || '') : '';
+          }
+          previewable.push({ key: k, newValue: v, currentValue });
         });
-
-        // Synchro aperçu + conformité
-        if (typeof bpSync === 'function') bpSync();
-        if (typeof confMiniSync === 'function') confMiniSync();
 
         const score = data.score || 0;
         const kind  = score >= 80 ? 'success' : (score >= 40 ? 'warning' : 'error');
@@ -7359,22 +7364,69 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
 
         const iaErrorHtml = data.ia_error
           ? '<div style="margin-top:8px;padding:8px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:6px;font-size:11px;color:#991b1b;">'
-            + '⚠️ IA non disponible : ' + data.ia_error
-            + '<br><small>Configurez OPENAI_API_KEY pour activer l\'extraction intelligente.</small>'
+            + '⚠️ ' + data.ia_error
             + '</div>'
           : '';
 
+        // Tableau de prévisualisation avec colonnes Actuel / Extrait
+        const previewRows = previewable.map(f => {
+          const changed = String(f.currentValue || '') !== String(f.newValue || '');
+          const curDisp = String(f.currentValue || '') === '' ? '—' : String(f.currentValue);
+          return '<tr style="border-bottom:1px solid #e5e7eb;">'
+            + '<td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#475569;">' + f.key + '</td>'
+            + '<td style="padding:4px 8px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + curDisp + '</td>'
+            + '<td style="padding:4px 8px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#64748b') + ';">' + String(f.newValue) + '</td>'
+            + '</tr>';
+        }).join('');
+
+        const validatePanel = previewable.length
+          ? '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+            + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+            + '<thead><tr style="background:#f1f5f9;"><th style="padding:6px 8px;text-align:left;">Champ</th><th style="padding:6px 8px;text-align:left;">Actuel</th><th style="padding:6px 8px;text-align:left;">Extrait</th></tr></thead>'
+            + '<tbody>' + previewRows + '</tbody></table>'
+            + '<div style="padding:10px;background:#f8fafc;display:flex;gap:8px;justify-content:flex-end;">'
+            + '<button type="button" id="dpe-import-cancel" style="padding:6px 12px;border-radius:6px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">Annuler</button>'
+            + '<button type="button" id="dpe-import-validate" style="padding:6px 12px;border-radius:6px;background:#0ea5e9;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider &amp; remplacer (' + previewable.length + ')</button>'
+            + '</div></div>'
+          : '<div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;color:#64748b;font-size:12px;">Aucun champ exploitable extrait du document.</div>';
+
         showStatus(
           icon + ' <strong>Diagnostic analysé</strong> — confiance ' + score + '%' + methodBadge
-          + '<br><strong>' + applied.length + ' champ(s)</strong> renseigné(s) automatiquement'
-          + '<br><small>📄 ' + (data.nom || 'document') + ' enregistré dans dpe_diags (#' + (data.diag_id || '?') + ')</small>'
-          + (applied.length ? '<br><small style="color:#666;">' + applied.join(', ') + '</small>' : '')
+          + '<br><small>📄 ' + (data.nom || 'document') + (data.diag_id ? ' enregistré dans dpe_diags (#' + data.diag_id + ')' : ' — non enregistré (erreur BDD ci-dessous)') + '</small>'
           + alertsHtml
           + resumeHtml
           + iaErrorHtml
-          + (score < 80 && !data.ia_error ? '<br><small>⚠️ Vérifiez les valeurs et complétez celles qui manquent.</small>' : ''),
+          + validatePanel,
           kind
         );
+
+        // Bind des boutons de validation
+        const validateBtn = document.getElementById('dpe-import-validate');
+        const cancelBtn = document.getElementById('dpe-import-cancel');
+        if (validateBtn) {
+          validateBtn.addEventListener('click', () => {
+            const applied = [];
+            previewable.forEach(f => {
+              if (applyValue(f.key, f.newValue)) applied.push(f.key);
+            });
+            if (typeof bpSync === 'function') bpSync();
+            if (typeof confMiniSync === 'function') confMiniSync();
+            showStatus(
+              '✅ <strong>' + applied.length + ' champ(s)</strong> appliqué(s) au formulaire.'
+              + (applied.length ? '<br><small style="color:#666;">' + applied.join(', ') + '</small>' : '')
+              + alertsHtml
+              + resumeHtml
+              + iaErrorHtml,
+              'success'
+            );
+          });
+        }
+        if (cancelBtn) {
+          cancelBtn.addEventListener('click', () => {
+            showStatus('ℹ️ Import annulé — les valeurs du formulaire sont conservées.' + iaErrorHtml, 'warning');
+          });
+        }
+
       } catch (err) {
         showStatus('❌ Erreur réseau : ' + err.message, 'error');
       }
