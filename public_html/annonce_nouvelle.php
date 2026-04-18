@@ -747,14 +747,8 @@ body.mode-fast .pro-only{display:none !important;}
     <button type="button" class="mode-btn on" onclick="setMode('fast',this)">⚡ Rapide</button>
     <button type="button" class="mode-btn" onclick="setMode('pro',this)">🛠 Pro</button>
   </div>
-  <a href="<?= h(app_url('/annonce_reglementations.php')) ?>" target="_blank" rel="noopener"
-     class="tb-reg-btn"
-     title="Consulter le référentiel complet des obligations légales par type de mandat"
-     style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;
-            background:#fef3c7;color:#92400e;border:1px solid #fcd34d;text-decoration:none;
-            font-size:12px;font-weight:700;white-space:nowrap;margin-left:8px;">
-    ⚖️ Réglementations
-  </a>
+  <!-- Bouton 'Réglementations' retiré : redondant avec la card latérale (right-col). -->
+
   <button type="button" class="btn-theme" onclick="toggleTheme()" title="Thème clair/sombre">☀️</button>
 </header>
 
@@ -821,146 +815,82 @@ body.mode-fast .pro-only{display:none !important;}
 <input type="hidden" name="adresse_formatee"  id="fAddrFmt"  value="">
 
 <!-- ═══════════════════════════════════════════════════════════
-     BANDEAU TYPE DE MANDAT + OBLIGATIONS RÉGLEMENTAIRES
-     Source de vérité : inc/annonce_reglementation.php
+     TYPE DE MANDAT : le gros bandeau a été remplacé par une
+     petite card compacte dans la right-col (voir plus bas).
+     Le sélecteur de mandat est intégré à cette card.
 ═══════════════════════════════════════════════════════════ -->
 <style>
-  .mandat-banner { background:#fff; border-radius:14px; padding:18px 22px; margin-bottom:14px;
-    border-left:4px solid <?= h($reglesMandat['color']) ?>; box-shadow:0 2px 8px rgba(0,0,0,.05); }
-  .mandat-banner-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .mandat-banner-title { font-size:16px; font-weight:700; margin:0; color:#1a1816; }
-  .mandat-banner-badge { font-size:11px; padding:3px 10px; border-radius:99px; color:#fff;
-    font-weight:700; text-transform:uppercase; letter-spacing:.04em;
-    background:<?= h($reglesMandat['color']) ?>; }
-  .mandat-banner-badge.renforcee { background:#c0392b; }
-  .mandat-selector { margin-left:auto; display:flex; align-items:center; gap:8px; }
-  .mandat-selector label { font-size:11px; color:#6a6660; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
-  .mandat-selector select { font-family:inherit; padding:6px 10px; border-radius:6px; border:1px solid #d4d7de; font-size:12px; }
-
-  .mandat-responsabilite { margin-top:10px; padding:8px 12px; border-radius:8px; font-size:12px; }
-  .mandat-responsabilite.standard  { background:#f0f9ff; color:#0369a1; }
-  .mandat-responsabilite.renforcee { background:#fef2f2; color:#991b1b; font-weight:600; }
-
-  .mandat-blocks { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; margin-top:14px; }
-  .mandat-block { background:#f8fafc; border-radius:10px; padding:12px 14px; border:1px solid #e4e6ec; font-size:12px; line-height:1.5; }
-  .mandat-block h4 { margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; font-weight:700;
-    padding-bottom:4px; border-bottom:2px solid #e4e6ec; }
-  .mandat-block h4.bloq   { color:#c0392b; border-bottom-color:#fecaca; }
-  .mandat-block h4.alerte { color:#b67c00; border-bottom-color:#fcd34d; }
-  .mandat-block h4.interdit { color:#991b1b; border-bottom-color:#fecaca; }
-  .mandat-block h4.vigilance { color:#b67c00; border-bottom-color:#fef3c7; }
-  .mandat-block ul { margin:0; padding-left:18px; }
-  .mandat-block li { padding:2px 0; color:#3f3f46; }
-  .mandat-block .cf { display:inline-block; padding:1px 5px; border-radius:3px; font-family:'DM Mono',monospace;
-    font-size:10px; background:#e4e6ec; color:#36577d; margin-right:4px; }
-  .mandat-block.more-link { display:flex; align-items:center; justify-content:center; background:#fff;
-    border:1.5px dashed #d4d7de; }
-  .mandat-block.more-link a { color:#36577d; font-weight:600; font-size:12px; text-decoration:none; }
-  .mandat-block.more-link a:hover { text-decoration:underline; }
-
-  .mandat-details { margin-top:10px; }
-  .mandat-details summary { cursor:pointer; font-size:12px; color:#6a6660; user-select:none; padding:6px 0; }
-  .mandat-details summary:hover { color:#36577d; }
+  /* Card compacte de réglementation dans la right-col */
+  .regl-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px 16px;
+    border-left: 4px solid <?= h($reglesMandat['color']) ?>;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+    position: relative;
+  }
+  .regl-card.renforcee {
+    animation: reglPulse 2.4s ease-in-out infinite;
+  }
+  @keyframes reglPulse {
+    0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,.05), 0 0 0 0 rgba(192,57,43,0); }
+    50%      { box-shadow: 0 2px 8px rgba(0,0,0,.05), 0 0 0 6px rgba(192,57,43,.22); }
+  }
+  .regl-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .regl-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1a1816;
+    margin: 0;
+  }
+  .regl-card-badge {
+    font-size: 9px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    color: #fff;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    background: <?= h($reglesMandat['color']) ?>;
+    white-space: nowrap;
+  }
+  .regl-card-badge.renforcee { background: #c0392b; }
+  .regl-card select {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #d4d7de;
+    font-size: 12px;
+    font-family: inherit;
+    margin-bottom: 10px;
+  }
+  .regl-card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    color: #36577d;
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 700;
+    width: 100%;
+    justify-content: center;
+    transition: background .15s;
+  }
+  .regl-card-link:hover { background: #e4e6ec; }
 </style>
 
-<div class="mandat-banner" id="mandat-banner">
-  <div class="mandat-banner-head">
-    <h3 class="mandat-banner-title">
-      <?= h($reglesMandat['emoji']) ?> <?= h($reglesMandat['label']) ?>
-    </h3>
-    <span class="mandat-banner-badge <?= $reglesMandat['responsabilite'] === 'RENFORCÉE' ? 'renforcee' : '' ?>">
-      <?= $reglesMandat['responsabilite'] === 'RENFORCÉE' ? 'Responsabilité renforcée' : 'Standard' ?>
-    </span>
-
-    <div class="mandat-selector">
-      <label for="mandat_type">Changer le mandat :</label>
-      <select name="mandat_type" id="mandat_type" onchange="window.location = updateQueryStringParam(window.location.href, 'mandat', this.value);">
-        <option value="vente"            <?= $mandatActif === 'vente'            ? 'selected' : '' ?>>🤝 Vente</option>
-        <option value="location_seule"   <?= $mandatActif === 'location_seule'   ? 'selected' : '' ?>>🔑 Location seule</option>
-        <option value="gestion_locative" <?= $mandatActif === 'gestion_locative' ? 'selected' : '' ?>>🏢 Gestion locative</option>
-      </select>
-    </div>
-  </div>
-
-  <?php if ($reglesMandat['responsabilite'] === 'RENFORCÉE'): ?>
-    <div class="mandat-responsabilite renforcee">
-      ⚠️ <strong>Responsabilité renforcée</strong> : en gestion locative, l'agence engage sa
-      responsabilité civile professionnelle. Vérification décence + tous diagnostics obligatoire.
-    </div>
-  <?php else: ?>
-    <div class="mandat-responsabilite standard">
-      ℹ️ Responsabilité standard d'agent immobilier (loi Hoguet, carte T).
-    </div>
-  <?php endif; ?>
-
-  <?php if ($preselectedBienId > 0 && $preselectedBien): ?>
-    <div style="margin-top:8px;font-size:11px;color:#6a6660;">
-      📍 Annonce pour le bien <strong>#<?= (int)$preselectedBienId ?></strong>
-      <?php if (!empty($preselectedBien['reference_bien'])): ?>
-        · <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;"><?= h((string)$preselectedBien['reference_bien']) ?></code>
-      <?php endif; ?>
-      <?php if (!empty($preselectedBien['adresse_1'])): ?>
-        · <?= h((string)$preselectedBien['adresse_1']) ?>, <?= h((string)($preselectedBien['ville'] ?? '')) ?>
-      <?php endif; ?>
-    </div>
-  <?php endif; ?>
-
-  <div class="mandat-blocks">
-    <?php
-      // Tri : les 5 premiers bloquants + alertes pour résumé visuel
-      $bloqList   = array_slice($reglesMandat['champs_bloquants'], 0, 6, true);
-      $alerteList = array_slice($reglesMandat['champs_alertes'],   0, 6, true);
-      $interdList = array_slice($reglesMandat['mentions_interdites'], 0, 3);
-      $vigilList  = array_slice($reglesMandat['points_vigilance'],   0, 3);
-    ?>
-
-    <div class="mandat-block">
-      <h4 class="bloq">🔒 Bloquants pour publication</h4>
-      <ul><?php foreach ($bloqList as $k => $v): ?>
-        <li><span class="cf"><?= h($k) ?></span><?= h($v) ?></li>
-      <?php endforeach; ?></ul>
-    </div>
-
-    <div class="mandat-block">
-      <h4 class="alerte">⚠️ À renseigner (alertes)</h4>
-      <ul><?php foreach ($alerteList as $k => $v): ?>
-        <li><span class="cf"><?= h($k) ?></span><?= h($v) ?></li>
-      <?php endforeach; ?></ul>
-    </div>
-
-    <div class="mandat-block">
-      <h4 class="interdit">🚫 Mentions interdites</h4>
-      <ul><?php foreach ($interdList as $m): ?>
-        <li><?= h($m) ?></li>
-      <?php endforeach; ?></ul>
-    </div>
-
-    <div class="mandat-block">
-      <h4 class="vigilance">👁️ Points de vigilance</h4>
-      <ul><?php foreach ($vigilList as $v): ?>
-        <li><?= h($v) ?></li>
-      <?php endforeach; ?></ul>
-    </div>
-
-    <div class="mandat-block more-link">
-      <a href="<?= h(app_url('/annonce_reglementations.php#' . ($mandatActif === 'vente' ? 'vente' : ($mandatActif === 'location_seule' ? 'location' : 'gestion')))) ?>" target="_blank" rel="noopener">
-        📖 Consulter le référentiel complet →
-      </a>
-    </div>
-  </div>
-
-  <details class="mandat-details">
-    <summary>✅ Voir la checklist opérationnelle avant publication (<?= count($reglesMandat['checklist']) ?> points)</summary>
-    <ul style="margin:8px 0 0;padding-left:22px;font-size:12px;line-height:1.7;">
-      <?php foreach ($reglesMandat['checklist'] as $c): ?>
-        <li><?= h($c) ?></li>
-      <?php endforeach; ?>
-    </ul>
-  </details>
-</div>
-
 <script>
-  // Helper pour changer un paramètre d'URL (mandat) sans perdre les autres
+  // Helper : change un paramètre d'URL sans perdre les autres (utilisé par le
+  // select de changement de mandat dans la card latérale).
   function updateQueryStringParam(url, key, value) {
     const u = new URL(url);
     u.searchParams.set(key, value);
@@ -1618,6 +1548,30 @@ body.mode-fast .pro-only{display:none !important;}
       <div class="pdesc-label">📝 Description</div>
       <div class="pdesc" id="pDesc">La description apparaîtra ici.</div>
     </div>
+  </div>
+
+  <!-- Card compacte Réglementation (remplace l'ancien gros bandeau) -->
+  <div class="regl-card <?= $reglesMandat['responsabilite'] === 'RENFORCÉE' ? 'renforcee' : '' ?>">
+    <div class="regl-card-head">
+      <h4 class="regl-card-title">
+        <?= h($reglesMandat['emoji']) ?> <?= h($reglesMandat['label']) ?>
+      </h4>
+      <span class="regl-card-badge <?= $reglesMandat['responsabilite'] === 'RENFORCÉE' ? 'renforcee' : '' ?>">
+        <?= $reglesMandat['responsabilite'] === 'RENFORCÉE' ? '⚠ Renforcée' : 'Standard' ?>
+      </span>
+    </div>
+
+    <select name="mandat_type" id="mandat_type"
+            onchange="window.location = updateQueryStringParam(window.location.href, 'mandat', this.value);">
+      <option value="vente"            <?= $mandatActif === 'vente'            ? 'selected' : '' ?>>🤝 Vente</option>
+      <option value="location_seule"   <?= $mandatActif === 'location_seule'   ? 'selected' : '' ?>>🔑 Location seule</option>
+      <option value="gestion_locative" <?= $mandatActif === 'gestion_locative' ? 'selected' : '' ?>>🏢 Gestion locative</option>
+    </select>
+
+    <a href="<?= h(app_url('/annonce_reglementations.php#' . ($mandatActif === 'vente' ? 'vente' : ($mandatActif === 'location_seule' ? 'location' : 'gestion')))) ?>"
+       target="_blank" rel="noopener" class="regl-card-link">
+      📖 Voir toutes les règles →
+    </a>
   </div>
 
   <div class="scard">
