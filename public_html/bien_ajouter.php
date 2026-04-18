@@ -6010,7 +6010,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         delBtn.disabled = true;
 
         const fd = new FormData();
-        fd.append('id_bien', bienId);
+        fd.append('bien_id', bienId); // l'endpoint attend `bien_id` (pas `id_bien`)
         fd.append('csrf_token', window.__bi_csrf);
         if (cat === 'diagnostic') { fd.append('action', 'delete_diag');   fd.append('diag_id', String(id)); }
         else if (cat === 'mandat') { fd.append('action', 'delete_mandat'); fd.append('mandat_id', String(id)); }
