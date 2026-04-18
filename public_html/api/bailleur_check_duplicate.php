@@ -101,10 +101,19 @@ try {
     if ($siret !== '')   { $or[] = 'p.siret = :siret';                                                       $params[':siret']   = $siret; }
 
     // Tokens de la query unifiée : chaque mot est cherché dans nom OU prenom OU societe OU email
+    // NB : avec PDO::ATTR_EMULATE_PREPARES=false (config Hostinger), un même placeholder
+    // nommé ne peut PAS être utilisé plusieurs fois dans la requête → HY093. On duplique.
     foreach ($qTokens as $i => $tok) {
-        $ph = ':qt' . $i;
-        $or[] = '(LOWER(p.nom) LIKE ' . $ph . ' OR LOWER(p.prenom) LIKE ' . $ph . ' OR LOWER(p.societe) LIKE ' . $ph . ' OR LOWER(p.email) LIKE ' . $ph . ')';
-        $params[$ph] = '%' . $tok . '%';
+        $pN = ':qt' . $i . 'n';
+        $pP = ':qt' . $i . 'p';
+        $pS = ':qt' . $i . 's';
+        $pE = ':qt' . $i . 'e';
+        $or[] = '(LOWER(p.nom) LIKE ' . $pN . ' OR LOWER(p.prenom) LIKE ' . $pP
+              . ' OR LOWER(p.societe) LIKE ' . $pS . ' OR LOWER(p.email) LIKE ' . $pE . ')';
+        $params[$pN] = '%' . $tok . '%';
+        $params[$pP] = '%' . $tok . '%';
+        $params[$pS] = '%' . $tok . '%';
+        $params[$pE] = '%' . $tok . '%';
     }
     if ($qPhoneToken !== '') {
         $or[] = 'REPLACE(REPLACE(REPLACE(REPLACE(p.telephone, " ", ""), ".", ""), "-", ""), "+", "") LIKE :qphone';

@@ -526,6 +526,21 @@ require_once __DIR__ . '/inc/header.php';
       </div>
       <div class="exp-field"><label>Adresse</label><input type="text" name="proprio_adresse" id="exp-pro-adr"></div>
       <div id="exp-pro-status" style="font-size:11px;color:#64748b;margin-top:4px;"></div>
+
+      <!-- Hidden inputs remplis par l'extraction IA (extraction exhaustive DIAG) -->
+      <input type="hidden" name="proprio_code_postal" id="exp-pro-cp">
+      <input type="hidden" name="proprio_ville" id="exp-pro-ville">
+      <input type="hidden" name="nb_salles_bain" id="exp-nsb">
+      <input type="hidden" name="nb_wc" id="exp-nwc">
+      <input type="hidden" name="dpe_valeur" id="exp-dpe-val">
+      <input type="hidden" name="ges_valeur" id="exp-ges-val">
+      <input type="hidden" name="dpe_date_realisation" id="exp-dpe-date">
+      <input type="hidden" name="dpe_vierge" id="exp-dpe-vierge">
+      <input type="hidden" name="chauffage_type" id="exp-ch-type">
+      <input type="hidden" name="chauffage_energie" id="exp-ch-energie">
+      <input type="hidden" name="eau_chaude_type" id="exp-ec-type">
+      <input type="hidden" name="loyer_hc" id="exp-loyer-hc">
+      <input type="hidden" name="lot_principal" id="exp-lot">
     </div>
 
     <!-- STEP 4 : Photos -->
@@ -925,14 +940,80 @@ require_once __DIR__ . '/inc/header.php';
   });
   dpeInput.addEventListener('change', uploadDpe);
 
-  // Mapping champs IA → IDs DOM Express
+  // ═══════════════════════════════════════════════════════════════════════
+  // Mapping IA → IDs DOM Express — EXHAUSTIF pour respecter l'objectif
+  // "extraction Express = remplir TOUT ce qui est extractible automatiquement"
+  // (cf. memory/feedback_express_extraction_exhaustive.md)
+  // ═══════════════════════════════════════════════════════════════════════
   const DPE_FIELD_MAP = {
-    type_bien: 'exp-type-bien',
-    adresse_1: 'exp-adresse', adresse_situation: 'exp-adresse2',
-    code_postal: 'exp-cp', ville: 'exp-ville',
-    surface_habitable: 'exp-surface', nb_pieces: 'exp-nbp', nb_chambres: 'exp-nbc',
-    annee_construction: 'exp-annee', etage: 'exp-etage',
-    dpe_classe: 'exp-dpe-cl', ges_classe: 'exp-ges-cl',
+    // ─ Bien : adresse + caractéristiques de base ─
+    type_bien:            'exp-type-bien',
+    adresse_1:            'exp-adresse',
+    adresse_2:            'exp-adresse2',
+    adresse_situation:    'exp-adresse2',
+    code_postal:          'exp-cp',
+    ville:                'exp-ville',
+    etage:                'exp-etage',
+    lot_principal:        'exp-lot',
+    annee_construction:   'exp-annee',
+    // ─ Surfaces & pièces ─
+    surface_habitable:    'exp-surface',
+    nb_pieces:            'exp-nbp',
+    nb_chambres:          'exp-nbc',
+    nb_salles_bain:       'exp-nsb',
+    nb_wc:                'exp-nwc',
+    // ─ DPE / GES ─
+    dpe_classe:           'exp-dpe-cl',
+    ges_classe:           'exp-ges-cl',
+    dpe_valeur:           'exp-dpe-val',
+    ges_valeur:           'exp-ges-val',
+    dpe_date_realisation: 'exp-dpe-date',
+    dpe_vierge:           'exp-dpe-vierge',
+    // ─ Chauffage / énergie ─
+    chauffage_type:       'exp-ch-type',
+    chauffage_energie:    'exp-ch-energie',
+    eau_chaude_type:      'exp-ec-type',
+    // ─ Prix / loyer ─
+    prix_vente:           'exp-prix',
+    loyer_hc:             'exp-loyer-hc',
+    // ─ Propriétaire (bailleur réel, filtré IA coté prompt) ─
+    proprio_nom:          'exp-pro-nom',
+    proprio_prenom:       'exp-pro-prenom',
+    proprio_societe:      'exp-pro-soc',
+    proprio_email:        'exp-pro-email',
+    proprio_telephone:    'exp-pro-tel',
+    proprio_adresse_1:    'exp-pro-adr',
+    proprio_code_postal:  'exp-pro-cp',
+    proprio_ville:        'exp-pro-ville',
+  };
+
+  // Champs IMPÉRATIFS pour passer en statut=actif (REQ_MANDATORY + REQ_LEGAL
+  // côté conformité). Ceux-ci DOIVENT apparaître dans le tableau, remplis
+  // ou non, pour alerter sur ce qui reste à saisir manuellement.
+  const DPE_IMPERATIFS = [
+    'type_bien', 'adresse_1', 'code_postal', 'ville',
+    'surface_habitable', 'annee_construction',
+    'dpe_classe', 'ges_classe',
+    'proprio_nom',
+  ];
+
+  // Libellés lisibles (affichés au lieu de la clé technique)
+  const DPE_FIELD_LABELS = {
+    type_bien: 'Type de bien', adresse_1: 'Adresse', adresse_2: 'Complément adresse',
+    adresse_situation: 'Porte / étage', code_postal: 'Code postal', ville: 'Ville',
+    etage: 'Étage', lot_principal: 'N° de lot', annee_construction: 'Année construction',
+    surface_habitable: 'Surface habitable', nb_pieces: 'Nb pièces', nb_chambres: 'Nb chambres',
+    nb_salles_bain: 'Salles de bain', nb_wc: 'WC',
+    dpe_classe: 'Classe DPE', ges_classe: 'Classe GES',
+    dpe_valeur: 'Valeur DPE (kWh)', ges_valeur: 'Valeur GES (kgCO₂)',
+    dpe_date_realisation: 'Date DPE', dpe_vierge: 'DPE vierge',
+    chauffage_type: 'Chauffage', chauffage_energie: 'Énergie chauffage',
+    eau_chaude_type: 'Eau chaude',
+    prix_vente: 'Prix de vente', loyer_hc: 'Loyer HC',
+    proprio_nom: 'Nom bailleur', proprio_prenom: 'Prénom bailleur',
+    proprio_societe: 'Société bailleur', proprio_email: 'Email bailleur',
+    proprio_telephone: 'Tél bailleur', proprio_adresse_1: 'Adresse bailleur',
+    proprio_code_postal: 'CP bailleur', proprio_ville: 'Ville bailleur',
   };
 
   async function uploadDpe() {
@@ -959,61 +1040,101 @@ require_once __DIR__ . '/inc/header.php';
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Tableau de validation Champ | Actuel | Extrait (pattern unifié site)
-  // Affiche + bouton "Voir PDF" + [Annuler] [Valider & remplacer]
-  // Ne remplit rien tant que l'utilisateur n'a pas cliqué Valider.
+  // Tableau de validation après extraction IA d'un DIAG.
+  // Structure en 2 sections :
+  //   1. IMPÉRATIFS : tous les champs obligatoires pour statut=actif, affichés
+  //      MÊME s'ils n'ont pas été extraits (alerte rouge si manquant)
+  //   2. COMPLÉMENTAIRES EXTRAITS : tous les autres champs non-null récupérés
+  //      par l'IA (collapsible, fond neutre)
+  // Bouton "🔍 Voir le PDF" + [Annuler] / [Valider & remplacer].
+  // Rien n'est appliqué tant que l'utilisateur n'a pas cliqué Valider.
   // ═══════════════════════════════════════════════════════════════════════
   function renderDpeValidationTable(j, statusEl) {
     const f = j.fields || {};
 
-    // Construit la liste previewable (seulement champs mappés qui ont une valeur IA)
-    const previewable = Object.entries(DPE_FIELD_MAP)
-      .filter(([key]) => f[key] != null && f[key] !== '')
-      .map(([key, targetId]) => {
-        const el = document.getElementById(targetId);
-        return { key, targetId, currentValue: el ? (el.value || '') : '', newValue: f[key] };
-      });
+    // Construit une map complète key → {currentValue, newValue, targetId, isImperatif}
+    const allEntries = Object.entries(DPE_FIELD_MAP).map(([key, targetId]) => {
+      const el = document.getElementById(targetId);
+      return {
+        key, targetId,
+        currentValue: el ? (el.value || '') : '',
+        newValue: (f[key] != null && f[key] !== '') ? f[key] : null,
+        isImperatif: DPE_IMPERATIFS.includes(key),
+        label: DPE_FIELD_LABELS[key] || key,
+      };
+    });
+
+    // Section 1 : impératifs (même vides, pour alerte)
+    const impRows = DPE_IMPERATIFS.map(k => allEntries.find(e => e.key === k)).filter(Boolean);
+    // Section 2 : complémentaires extraits (non-imperatifs + non-null)
+    const compRows = allEntries.filter(e => !e.isImperatif && e.newValue !== null);
+
+    const nImpRempli = impRows.filter(e => e.newValue !== null).length;
+    const nImpTotal  = impRows.length;
+    const nComp      = compRows.length;
+    const applicable = allEntries.filter(e => e.newValue !== null).length;
 
     const pdfUrl = j.fichier || j.fichier_relatif || '';
     const pdfName = j.nom || 'Document';
-    const docTypeBadge = j.doc_type ? '<span style="padding:2px 8px;border-radius:99px;background:#e0e7ff;color:#4338ca;font-size:10px;font-weight:700;margin-left:6px;">' + j.doc_type + '</span>' : '';
-
-    const previewRows = previewable.map(p => {
-      const changed = String(p.currentValue || '') !== String(p.newValue || '');
-      const curDisp = String(p.currentValue || '') === '' ? '—' : String(p.currentValue);
-      return '<tr style="border-bottom:1px solid #e5e7eb;">'
-        + '<td style="padding:5px 10px;font-family:monospace;font-size:11px;color:#475569;">' + p.key + '</td>'
-        + '<td style="padding:5px 10px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + curDisp + '</td>'
-        + '<td style="padding:5px 10px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#64748b') + ';">' + String(p.newValue) + '</td>'
-        + '</tr>';
-    }).join('');
-
+    const docTypeBadge = j.doc_type
+      ? '<span style="padding:2px 8px;border-radius:99px;background:#e0e7ff;color:#4338ca;font-size:10px;font-weight:700;margin-left:6px;">' + j.doc_type + '</span>'
+      : '';
     const pdfBtn = pdfUrl
       ? '<a href="' + pdfUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:700;">🔍 Voir le PDF</a>'
       : '';
 
-    const tablePart = previewable.length
-      ? '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+    const rowHtml = (e) => {
+      const hasNew = e.newValue !== null;
+      const changed = hasNew && String(e.currentValue || '') !== String(e.newValue || '');
+      const curDisp = String(e.currentValue || '') === '' ? '—' : String(e.currentValue);
+      const newDisp = hasNew ? String(e.newValue) : '<span style="color:#dc2626;font-weight:700;">⚠ manquant</span>';
+      return '<tr style="border-bottom:1px solid #e5e7eb;">'
+        + '<td style="padding:5px 10px;font-size:11px;color:#475569;">' + e.label + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + curDisp + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;font-weight:' + (changed || !hasNew ? '700' : '400') + ';color:' + (hasNew ? (changed ? '#0369a1' : '#64748b') : '#dc2626') + ';">' + newDisp + '</td>'
+        + '</tr>';
+    };
+
+    // ─── Section 1 : impératifs ─────────────────────────────────
+    const impBadge = nImpRempli === nImpTotal
+      ? '<span style="padding:2px 8px;border-radius:99px;background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;">✓ ' + nImpRempli + '/' + nImpTotal + ' impératifs</span>'
+      : '<span style="padding:2px 8px;border-radius:99px;background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;">⚠ ' + nImpRempli + '/' + nImpTotal + ' impératifs</span>';
+
+    const impSection =
+      '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid ' + (nImpRempli === nImpTotal ? '#86efac' : '#fecaca') + ';">'
+      + '<div style="padding:8px 12px;background:' + (nImpRempli === nImpTotal ? '#f0fdf4' : '#fef2f2') + ';font-weight:700;font-size:12px;display:flex;align-items:center;gap:10px;">🔴 Champs impératifs (pour passer en <em>actif</em>) ' + impBadge + '</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+      + '<thead><tr style="background:#f8fafc;"><th style="padding:5px 10px;text-align:left;">Champ</th><th style="padding:5px 10px;text-align:left;">Actuel</th><th style="padding:5px 10px;text-align:left;">Extrait IA</th></tr></thead>'
+      + '<tbody>' + impRows.map(rowHtml).join('') + '</tbody></table></div>';
+
+    // ─── Section 2 : complémentaires ──────────────────────────
+    const compSection = nComp > 0
+      ? '<details open style="margin-top:10px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+        + '<summary style="padding:8px 12px;background:#f8fafc;cursor:pointer;font-weight:700;font-size:12px;">🎁 ' + nComp + ' champ(s) complémentaire(s) extrait(s)</summary>'
         + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
-        + '<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;">Champ</th><th style="padding:6px 10px;text-align:left;">Actuel</th><th style="padding:6px 10px;text-align:left;">Extrait</th></tr></thead>'
-        + '<tbody>' + previewRows + '</tbody></table></div>'
-      : '<div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;color:#64748b;font-size:12px;">Aucun champ exploitable extrait.</div>';
+        + '<thead><tr style="background:#fafafa;"><th style="padding:5px 10px;text-align:left;">Champ</th><th style="padding:5px 10px;text-align:left;">Actuel</th><th style="padding:5px 10px;text-align:left;">Extrait IA</th></tr></thead>'
+        + '<tbody>' + compRows.map(rowHtml).join('') + '</tbody></table></details>'
+      : '';
 
     statusEl.style.background = '#f0fdf4';
     statusEl.style.color = '#14532d';
     statusEl.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-      + '<strong>✅ DPE analysé</strong>' + docTypeBadge
+      + '<strong>✅ ' + (j.doc_type === 'dpe' || j.doc_type === 'dossier_diagnostics' ? 'DIAG analysé' : 'Document analysé') + '</strong>' + docTypeBadge
       + '<span style="font-size:11px;color:#475569;">· ' + pdfName + '</span>'
       + '<div style="margin-left:auto;">' + pdfBtn + '</div>'
       + '</div>'
-      + tablePart
-      + '<div style="margin-top:10px;display:flex;justify-content:flex-end;gap:8px;">'
+      + impSection
+      + compSection
+      + '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px;">'
       + '<button type="button" id="exp-dpe-cancel" style="padding:6px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Annuler</button>'
-      + (previewable.length
-          ? '<button type="button" id="exp-dpe-validate" style="padding:6px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider &amp; remplacer (' + previewable.length + ')</button>'
+      + (applicable > 0
+          ? '<button type="button" id="exp-dpe-validate" style="padding:6px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider &amp; remplacer (' + applicable + ')</button>'
           : '')
       + '</div>';
+
+    // Utilisé par le handler Valider : on ne réapplique que les entries avec newValue !== null
+    const previewable = allEntries.filter(e => e.newValue !== null);
 
     const validateBtn = document.getElementById('exp-dpe-validate');
     const cancelBtn   = document.getElementById('exp-dpe-cancel');
