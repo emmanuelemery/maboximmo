@@ -7668,6 +7668,32 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         try { first.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
         try { first.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
       }
+
+      // ── Sync visuel des mini-cards (mc-grid) liées à ce champ ──
+      // Si une grille mini-cards a data-mc-field="<name>", on reflète la sélection.
+      try {
+        const grids = document.querySelectorAll('.mc-grid[data-mc-field="' + name + '"]');
+        if (grids.length && window.MiniCard && typeof window.MiniCard.setSelected === 'function') {
+          grids.forEach(g => window.MiniCard.setSelected(g, String(value)));
+        } else if (grids.length) {
+          // Fallback : toggle .is-selected manuellement si MiniCard pas dispo
+          grids.forEach(g => g.querySelectorAll('.mc-card').forEach(c => {
+            c.classList.toggle('is-selected', (c.dataset.mcValue ?? '') === String(value));
+          }));
+        }
+      } catch (_) {}
+
+      // ── Sync chips (boutons .ba-chip avec input radio interne) ──
+      try {
+        if (first.type !== 'radio' && first.type !== 'checkbox') {
+          document.querySelectorAll('.ba-chips input[name="' + name + '"]').forEach(rad => {
+            rad.checked = (rad.value === String(value));
+            const chip = rad.closest('.ba-chip');
+            if (chip) chip.classList.toggle('checked', rad.checked);
+          });
+        }
+      } catch (_) {}
+
       // Effet visuel : highlight vert
       first.style.transition = 'background .3s';
       first.style.background = '#dcfce7';

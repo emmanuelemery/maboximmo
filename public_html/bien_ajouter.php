@@ -7645,17 +7645,38 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         for (const el of els) el.checked = (el.value == value);
       } else {
         first.value = value;
-        // Déclenche input pour calculs dépendants (honoraires, loyer HC, etc.)
         try { first.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
         try { first.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
       }
-      // Effet visuel : highlight vert
+
+      // Sync mini-cards liées au champ (data-mc-field="name")
+      try {
+        const grids = document.querySelectorAll('.mc-grid[data-mc-field="' + name + '"]');
+        if (grids.length && window.MiniCard && typeof window.MiniCard.setSelected === 'function') {
+          grids.forEach(g => window.MiniCard.setSelected(g, String(value)));
+        } else if (grids.length) {
+          grids.forEach(g => g.querySelectorAll('.mc-card').forEach(c => {
+            c.classList.toggle('is-selected', (c.dataset.mcValue ?? '') === String(value));
+          }));
+        }
+      } catch (_) {}
+
+      // Sync chips (input radio dans .ba-chip)
+      try {
+        if (first.type !== 'radio' && first.type !== 'checkbox') {
+          document.querySelectorAll('.ba-chips input[name="' + name + '"]').forEach(rad => {
+            rad.checked = (rad.value === String(value));
+            const chip = rad.closest('.ba-chip');
+            if (chip) chip.classList.toggle('checked', rad.checked);
+          });
+        }
+      } catch (_) {}
+
       first.style.transition = 'background .3s';
       first.style.background = '#dcfce7';
       setTimeout(() => { first.style.background = ''; }, 1500);
       return true;
     }
-    // Expose pour le petit upload Diag
     window.__baApplyDpeValue = applyValue;
 
     trigger.addEventListener('click', () => input.click());
