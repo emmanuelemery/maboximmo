@@ -313,15 +313,29 @@ require_once __DIR__ . '/inc/header.php';
     <div class="exp-step locked" id="step-bailleur">
       <div class="num">4</div>
       <h2>Bailleur <span style="font-size:12px;color:#dc2626;font-weight:400;">(obligatoire)</span></h2>
-      <div class="hint">Recherche live par nom, email ou téléphone. Sélectionnez un existant ou créez un nouveau.</div>
+      <div class="hint">🔎 Recherche unifiée — tapez nom, email, téléphone ou société. Les résultats s'affichent en direct.</div>
 
+      <!-- Barre de recherche unifiée -->
+      <div class="exp-field" style="position:relative;margin-bottom:16px;">
+        <label>🔎 Rechercher un bailleur existant</label>
+        <input type="text" id="exp-pro-search" autocomplete="off"
+               placeholder="Tapez un nom, email, téléphone ou société…"
+               style="padding:10px 14px;font-size:14px;border-radius:10px;">
+        <div class="exp-proprio-suggest" id="exp-pro-suggest" style="display:none;"></div>
+        <div id="exp-pro-search-hint" style="font-size:11px;color:#64748b;margin-top:4px;">Aucune recherche en cours</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0;">
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+        <span style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">ou créer nouveau — compléter ci-dessous</span>
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+      </div>
+
+      <!-- Champs bailleur (remplis auto si sélection, ou saisie directe) -->
       <div class="exp-row">
         <div class="exp-field required-empty" id="wrap-pro-nom">
           <label>Nom <span class="req">*</span></label>
-          <div style="position:relative;">
-            <input type="text" name="proprio_nom" id="exp-pro-nom" autocomplete="off">
-            <div class="exp-proprio-suggest" id="exp-pro-suggest" style="display:none;"></div>
-          </div>
+          <input type="text" name="proprio_nom" id="exp-pro-nom" autocomplete="off">
         </div>
         <div class="exp-field"><label>Prénom</label><input type="text" name="proprio_prenom" id="exp-pro-prenom"></div>
         <div class="exp-field"><label>Société (si personne morale)</label><input type="text" name="proprio_societe" id="exp-pro-soc"></div>
@@ -597,7 +611,9 @@ require_once __DIR__ . '/inc/header.php';
       // Remplit les champs avec les valeurs extraites
       const f = j.fields || {};
       const map = {
-        type_bien: 'exp-type-bien', adresse_1: 'exp-adresse', code_postal: 'exp-cp', ville: 'exp-ville',
+        type_bien: 'exp-type-bien',
+        adresse_1: 'exp-adresse', adresse_situation: 'exp-adresse2',
+        code_postal: 'exp-cp', ville: 'exp-ville',
         surface_habitable: 'exp-surface', nb_pieces: 'exp-nbp', nb_chambres: 'exp-nbc',
         annee_construction: 'exp-annee', etage: 'exp-etage',
         dpe_classe: 'exp-dpe-cl', ges_classe: 'exp-ges-cl',
@@ -609,6 +625,28 @@ require_once __DIR__ . '/inc/header.php';
           if (el) { el.value = f[k]; el.closest('.exp-field')?.classList.add('ia-filled'); filled++; }
         }
       });
+      // Déclenche l'annee hint
+      try { $('exp-annee').dispatchEvent(new Event('input')); } catch (_) {}
+
+      // Normalisation Google de l'adresse postale extraite
+      const addrRaw = [(f.adresse_1 || ''), (f.code_postal || ''), (f.ville || '')].filter(Boolean).join(', ');
+      if (addrRaw.length > 5) {
+        try {
+          const gr = await fetch('<?= h(app_url('/api/geocode_address.php')) ?>?q=' + encodeURIComponent(addrRaw), { credentials:'same-origin' });
+          const gj = await gr.json();
+          // Le endpoint renvoie les champs à la racine (pas dans data)
+          if (gj.ok) {
+            if (gj.adresse_1)        $('exp-adresse').value = gj.adresse_1;
+            if (gj.code_postal)      $('exp-cp').value = gj.code_postal;
+            if (gj.ville)            $('exp-ville').value = gj.ville;
+            if (gj.latitude)         $('exp-lat').value = gj.latitude;
+            if (gj.longitude)        $('exp-lng').value = gj.longitude;
+            if (gj.adresse_formatee) $('exp-adresse-formatee').value = gj.adresse_formatee;
+            $('exp-adresse-status').textContent = '✓ Adresse normalisée via Google : ' + (gj.adresse_formatee || gj.adresse_1);
+          }
+        } catch (_) {}
+      }
+
       $('exp-dpe-applied').value = '1';
       status.style.background = '#f0fdf4'; status.style.color = '#14532d';
       status.innerHTML = '✅ DPE analysé — <strong>' + filled + '</strong> champ(s) pré-remplis. Vérifiez et complétez les champs critiques.';
@@ -662,55 +700,88 @@ require_once __DIR__ . '/inc/header.php';
     } catch (e) {}
   });
 
-  // ─── STEP 4 : check doublon bailleur live ──
-  let proLastQuery = '';
-  async function proSearch() {
-    const nom = $('exp-pro-nom').value.trim();
-    const email = $('exp-pro-email').value.trim();
-    const tel = $('exp-pro-tel').value.trim();
-    const soc = $('exp-pro-soc').value.trim();
-    const q = nom + '|' + email + '|' + tel + '|' + soc;
-    if (q === proLastQuery) return;
-    proLastQuery = q;
-    if (!nom && !email && !tel && !soc) { $('exp-pro-suggest').style.display = 'none'; return; }
+  // ─── STEP 4 : recherche bailleur unifiée (nom/email/tel/société en un seul champ) ──
+  const proSearchInput = $('exp-pro-search');
+  const proSuggest     = $('exp-pro-suggest');
+  const proHint        = $('exp-pro-search-hint');
+  let proSearchTimer   = null;
+
+  async function proSearchQ(q) {
+    if (!q || q.length < 2) { proSuggest.style.display = 'none'; proHint.textContent = 'Tapez au moins 2 caractères'; return; }
+    proHint.textContent = '⏳ Recherche…';
     const fd = new FormData();
     fd.append('csrf_token', CSRF);
-    fd.append('nom', nom); fd.append('email', email); fd.append('telephone', tel); fd.append('societe', soc);
+    fd.append('q', q);
     try {
       const r = await fetch('<?= h(app_url('/api/bailleur_check_duplicate.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
       const j = await r.json();
-      const s = $('exp-pro-suggest');
-      if (j.ok && j.count > 0) {
-        s.innerHTML = j.matches.map(m =>
-          `<div class="exp-proprio-item" data-id="${m.id}" data-nom="${m.nom}" data-prenom="${m.prenom||''}" data-societe="${m.societe||''}" data-email="${m.email||''}" data-tel="${m.telephone||''}">
-            <strong>${m.societe || (m.prenom + ' ' + m.nom)}</strong>
-            <span class="match">score ${m.score}</span>
-            <div style="font-size:10px;color:#64748b;">${[m.email, m.telephone, m.ville].filter(Boolean).join(' • ')}</div>
-          </div>`).join('');
-        s.style.display = 'block';
-        s.querySelectorAll('.exp-proprio-item').forEach(it => {
-          it.addEventListener('click', () => {
-            $('exp-id-proprietaire').value = it.dataset.id;
-            $('exp-pro-nom').value = it.dataset.nom;
-            $('exp-pro-prenom').value = it.dataset.prenom;
-            $('exp-pro-soc').value = it.dataset.societe;
-            $('exp-pro-email').value = it.dataset.email;
-            $('exp-pro-tel').value = it.dataset.tel;
-            s.style.display = 'none';
-            $('exp-pro-status').innerHTML = '✅ Bailleur existant sélectionné (ID ' + it.dataset.id + ')';
-            markDone('step-bailleur');
-            confUpdate();
-          });
-        });
-      } else {
-        s.style.display = 'none';
+      if (!j.ok) { proHint.textContent = '⚠️ ' + (j.error || 'erreur'); return; }
+      if (j.count === 0) {
+        proSuggest.style.display = 'none';
+        proHint.textContent = 'Aucun bailleur existant pour cette recherche — complétez les champs ci-dessous pour en créer un nouveau';
+        return;
       }
-    } catch (e) {}
+      proHint.textContent = '✓ ' + j.count + ' résultat(s)';
+      proSuggest.innerHTML = j.matches.map(m => {
+        const label  = m.societe || (((m.prenom||'') + ' ' + (m.nom||'')).trim() || '(sans nom)');
+        const detail = [m.email, m.telephone, m.ville].filter(Boolean).join(' • ');
+        return `<div class="exp-proprio-item"
+                     data-id="${m.id}"
+                     data-nom="${(m.nom||'').replace(/"/g,'&quot;')}"
+                     data-prenom="${(m.prenom||'').replace(/"/g,'&quot;')}"
+                     data-societe="${(m.societe||'').replace(/"/g,'&quot;')}"
+                     data-email="${(m.email||'').replace(/"/g,'&quot;')}"
+                     data-tel="${(m.telephone||'').replace(/"/g,'&quot;')}">
+                  <strong>${label}</strong>
+                  <span class="match">score ${m.score}</span>
+                  <div style="font-size:10px;color:#64748b;margin-top:2px;">${detail}</div>
+                </div>`;
+      }).join('');
+      proSuggest.style.display = 'block';
+      proSuggest.querySelectorAll('.exp-proprio-item').forEach(it => {
+        it.addEventListener('mousedown', (ev) => {
+          ev.preventDefault(); // empêche le blur du input avant le click
+          $('exp-id-proprietaire').value = it.dataset.id;
+          $('exp-pro-nom').value     = it.dataset.nom;
+          $('exp-pro-prenom').value  = it.dataset.prenom;
+          $('exp-pro-soc').value     = it.dataset.societe;
+          $('exp-pro-email').value   = it.dataset.email;
+          $('exp-pro-tel').value     = it.dataset.tel;
+          // Highlight les champs remplis
+          ['exp-pro-nom','exp-pro-prenom','exp-pro-soc','exp-pro-email','exp-pro-tel'].forEach(id => {
+            const el = $(id); if (el && el.value) el.closest('.exp-field')?.classList.add('ia-filled');
+          });
+          proSuggest.style.display = 'none';
+          proSearchInput.value = it.querySelector('strong').textContent;
+          $('exp-pro-status').innerHTML = '✅ Bailleur existant sélectionné <code>#' + it.dataset.id + '</code>';
+          markDone('step-bailleur');
+          confUpdate();
+        });
+      });
+    } catch (e) {
+      proHint.textContent = '⚠️ Réseau : ' + e.message;
+    }
   }
-  ['exp-pro-nom', 'exp-pro-email', 'exp-pro-tel', 'exp-pro-soc'].forEach(id => {
-    let t; $(id).addEventListener('input', () => {
-      clearTimeout(t); t = setTimeout(proSearch, 400);
-      $('exp-id-proprietaire').value = ''; // toute nouvelle saisie = déselection éventuelle
+
+  if (proSearchInput) {
+    proSearchInput.addEventListener('input', () => {
+      $('exp-id-proprietaire').value = ''; // nouvelle recherche = déselection
+      clearTimeout(proSearchTimer);
+      proSearchTimer = setTimeout(() => proSearchQ(proSearchInput.value.trim()), 300);
+    });
+    proSearchInput.addEventListener('focus', () => {
+      if (proSuggest.innerHTML.trim() && proSearchInput.value.trim().length >= 2) proSuggest.style.display = 'block';
+    });
+    proSearchInput.addEventListener('blur', () => setTimeout(() => { proSuggest.style.display = 'none'; }, 200));
+  }
+
+  // Saisie directe dans les champs bailleur → déselectionne l'ID existant
+  ['exp-pro-nom','exp-pro-prenom','exp-pro-soc','exp-pro-email','exp-pro-tel'].forEach(id => {
+    $(id).addEventListener('input', () => {
+      if ($('exp-id-proprietaire').value !== '') {
+        $('exp-id-proprietaire').value = '';
+        $('exp-pro-status').innerHTML = '🆕 Bailleur modifié — sera créé comme nouveau à la sauvegarde';
+      }
     });
   });
 

@@ -114,11 +114,13 @@ try {
     $slug = trim($slugBase, '-');
 
     // ─── 6. Création bien ───────────────────────────────────────
+    // Note : biens n'a PAS de colonne id_user native, on utilise id_user_actuel
+    // (ajoutée par la migration 20260418_express_flow) pour tracer le commercial courant
     $stmtB = $pdo->prepare("
         INSERT INTO biens (
             reference_bien, slug, statut_bien,
-            id_societe, id_agence, id_user, id_user_actuel, id_proprietaire, id_type_bien,
-            adresse_1, code_postal, ville,
+            id_societe, id_agence, id_user_actuel, id_proprietaire, id_type_bien,
+            adresse_1, adresse_2, code_postal, ville, latitude, longitude,
             etage, lot_principal,
             surface_habitable, nb_pieces, nb_chambres, nb_salles_bain, nb_wc,
             annee_construction,
@@ -128,8 +130,8 @@ try {
             date_creation, date_modification
         ) VALUES (
             :ref, :slug, 'brouillon',
-            :soc, :age, :usr, :usr, :pro, :tb,
-            :a1, :cp, :v,
+            :soc, :age, :usr, :pro, :tb,
+            :a1, :a2, :cp, :v, :lat, :lng,
             :etg, :lot,
             :sh, :np, :nc, :nsb, :nwc,
             :annee,
@@ -148,8 +150,11 @@ try {
         ':pro'       => $proprioId ?: null,
         ':tb'        => $idTypeBien,
         ':a1'        => $str('adresse_1') ?: null,
+        ':a2'        => $str('adresse_2') ?: null,
         ':cp'        => $str('code_postal') ?: null,
         ':v'         => $ville ?: null,
+        ':lat'       => $flt('latitude'),
+        ':lng'       => $flt('longitude'),
         ':etg'       => $str('etage') ?: null,
         ':lot'       => $str('lot_principal') ?: null,
         ':sh'        => $flt('surface_habitable'),

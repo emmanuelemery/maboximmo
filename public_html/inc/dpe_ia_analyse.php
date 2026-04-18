@@ -50,12 +50,13 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure exacte (null si ab
   "_meta": {
     "type_bien": "appartement|maison|villa|immeuble|terrain|local_commercial|bureau|garage|parking|null",
     "type_typologie": "T1|T2|T3|T4|T5|T6 ou null",
-    "adresse_1": "string ou null",
+    "adresse_1": "ADRESSE POSTALE PURE : numéro + voie uniquement (ex: '1 rue Jubin', '15 avenue Foch'). NE JAMAIS inclure porte, cage, allée, bâtiment, escalier, étage dans ce champ — ils doivent aller dans adresse_situation.",
+    "adresse_situation": "Compléments de situation dans l'immeuble : porte, cage, allée, bâtiment, escalier (ex: 'Porte F', 'Bâtiment A Escalier 2', 'Cage C Allée 3'). Null si aucun complément.",
     "code_postal": "string 5 chiffres ou null",
     "ville": "string ou null",
     "etage": "nombre entier ou null",
     "annee_construction": "nombre entier (4 chiffres) ou null",
-    "lot_principal": "string ou null"
+    "lot_principal": "string ou null (numéro de lot copropriété)"
   },
   "_surfaces": {
     "surface_habitable": "nombre décimal (m²) ou null",

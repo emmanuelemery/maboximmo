@@ -57,10 +57,20 @@ try {
     $email    = $norm((string)($_POST['email'] ?? ''));
     $tel      = $normPhone((string)($_POST['telephone'] ?? ''));
     $siret    = preg_replace('/[^0-9]/', '', (string)($_POST['siret'] ?? '')) ?? '';
+    // Recherche unifiée : la même chaîne est testée contre nom/prenom/email/tel/societe
+    $q        = trim((string)($_POST['q'] ?? ''));
     $excludeId = isset($_POST['exclude_id']) && ctype_digit((string)$_POST['exclude_id'])
                  ? (int)$_POST['exclude_id'] : 0;
 
-    if ($nom === '' && $prenom === '' && $societe === '' && $email === '' && $tel === '' && $siret === '') {
+    if ($q !== '') {
+        // Propagation de la query unifiée vers tous les critères
+        $qNorm = $norm($q);
+        $qPhone = $normPhone($q);
+        if ($qNorm !== '')  { $nom = $nom ?: $qNorm; $prenom = $prenom ?: $qNorm; $societe = $societe ?: $qNorm; $email = $email ?: $qNorm; }
+        if ($qPhone !== '') { $tel = $tel ?: $qPhone; }
+    }
+
+    if ($nom === '' && $prenom === '' && $societe === '' && $email === '' && $tel === '' && $siret === '' && $q === '') {
         exit(json_encode(['ok' => true, 'matches' => [], 'count' => 0]));
     }
 
@@ -78,12 +88,14 @@ try {
         $params[':exclude'] = $excludeId;
     }
 
+    // Recherche partielle (LIKE) pour live search, exacte pour SIRET
     $or = [];
-    if ($email !== '')   { $or[] = 'LOWER(p.email) = :email';        $params[':email'] = $email; }
-    if ($tel !== '')     { $or[] = 'REPLACE(REPLACE(REPLACE(REPLACE(p.telephone, " ", ""), ".", ""), "-", ""), "+", "") LIKE :tel'; $params[':tel'] = '%' . $tel; }
-    if ($nom !== '')     { $or[] = 'LOWER(p.nom) = :nom';            $params[':nom'] = $nom; }
-    if ($societe !== '') { $or[] = 'LOWER(p.societe) = :soc';        $params[':soc'] = $societe; }
-    if ($siret !== '')   { $or[] = 'p.siret = :siret';               $params[':siret'] = $siret; }
+    if ($email !== '')   { $or[] = 'LOWER(p.email) LIKE :email';                                             $params[':email']   = '%' . $email . '%'; }
+    if ($tel !== '')     { $or[] = 'REPLACE(REPLACE(REPLACE(REPLACE(p.telephone, " ", ""), ".", ""), "-", ""), "+", "") LIKE :tel';       $params[':tel']     = '%' . $tel . '%'; }
+    if ($nom !== '')     { $or[] = 'LOWER(p.nom) LIKE :nom';                                                 $params[':nom']     = '%' . $nom . '%'; }
+    if ($prenom !== '')  { $or[] = 'LOWER(p.prenom) LIKE :prenom';                                           $params[':prenom']  = '%' . $prenom . '%'; }
+    if ($societe !== '') { $or[] = 'LOWER(p.societe) LIKE :soc';                                             $params[':soc']     = '%' . $societe . '%'; }
+    if ($siret !== '')   { $or[] = 'p.siret = :siret';                                                       $params[':siret']   = $siret; }
 
     if (!$or) exit(json_encode(['ok' => true, 'matches' => [], 'count' => 0]));
 
@@ -113,6 +125,7 @@ try {
     $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $matches = [];
+    $minScore = $q !== '' ? 10 : 30; // live search → seuil plus bas
     foreach ($candidates as $c) {
         $score = 0;
         $reasons = [];
@@ -124,14 +137,29 @@ try {
         $cTel = $normPhone((string)($c['telephone'] ?? ''));
         $cSiret = preg_replace('/[^0-9]/', '', (string)($c['siret'] ?? '')) ?? '';
 
-        if ($siret !== '' && $cSiret !== '' && $siret === $cSiret) { $score += 80; $reasons[] = 'SIRET identique'; }
-        if ($email !== '' && $cMail !== '' && $email === $cMail)   { $score += 70; $reasons[] = 'Email identique'; }
-        if ($tel !== '' && $cTel !== '' && $tel === $cTel)          { $score += 50; $reasons[] = 'Téléphone identique'; }
-        if ($societe !== '' && $cSoc !== '' && $societe === $cSoc) { $score += 30; $reasons[] = 'Société identique'; }
-        if ($nom !== '' && $cNom !== '' && $nom === $cNom)          { $score += 20; $reasons[] = 'Nom identique'; }
-        if ($prenom !== '' && $cPre !== '' && $prenom === $cPre)    { $score += 10; $reasons[] = 'Prénom identique'; }
+        if ($siret !== '' && $cSiret !== '' && $siret === $cSiret)                                            { $score += 80; $reasons[] = 'SIRET identique'; }
+        if ($email !== '' && $cMail !== '') {
+            if ($email === $cMail)                { $score += 70; $reasons[] = 'Email identique'; }
+            elseif (str_contains($cMail, $email)) { $score += 40; $reasons[] = 'Email partiel'; }
+        }
+        if ($tel !== '' && $cTel !== '') {
+            if ($tel === $cTel)                { $score += 50; $reasons[] = 'Téléphone identique'; }
+            elseif (str_contains($cTel, $tel)) { $score += 30; $reasons[] = 'Téléphone partiel'; }
+        }
+        if ($societe !== '' && $cSoc !== '') {
+            if ($societe === $cSoc)                { $score += 30; $reasons[] = 'Société identique'; }
+            elseif (str_contains($cSoc, $societe)) { $score += 15; $reasons[] = 'Société partielle'; }
+        }
+        if ($nom !== '' && $cNom !== '') {
+            if ($nom === $cNom)                { $score += 20; $reasons[] = 'Nom identique'; }
+            elseif (str_contains($cNom, $nom)) { $score += 10; $reasons[] = 'Nom partiel'; }
+        }
+        if ($prenom !== '' && $cPre !== '') {
+            if ($prenom === $cPre)                { $score += 10; $reasons[] = 'Prénom identique'; }
+            elseif (str_contains($cPre, $prenom)) { $score += 5;  $reasons[] = 'Prénom partiel'; }
+        }
 
-        if ($score >= 30) {
+        if ($score >= $minScore) {
             $matches[] = [
                 'id'            => (int)$c['id'],
                 'type_personne' => (string)($c['type_personne'] ?? 'physique'),
