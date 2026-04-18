@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'apply
     }
 }
 
-$csrf = generate_csrf_token('admin_migrations');
+$csrf = csrf_token('admin_migrations');
 
 $appLayout = true;
 $pageTitle = 'Migrations BDD';
