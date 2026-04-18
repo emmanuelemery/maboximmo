@@ -118,6 +118,116 @@ if ($isEditing && $bienLoaded !== null) {
     }
 }
 
+// ── Tous les documents liés au bien (onglet Documents) ─────────
+// Agrège dpe_diags + mandats + biens_documents (si présent) en une liste
+// unifiée pour l'onglet Documents qui centralise tous les fichiers.
+$bienDocuments = [];
+if ($isEditing && $editingBienId > 0) {
+    // Diagnostics (DPE, plomb, amiante, elec, gaz, termites, ERP…)
+    try {
+        $stmtDocs = $pdo->prepare("
+            SELECT id, type_diag, est_diag_principal,
+                   nom_fichier_original, fichier_url, taille_fichier_octets,
+                   date_diagnostic, date_creation,
+                   dpe_classe, ges_classe, dpe_vierge,
+                   extraction_method, extraction_score,
+                   diagnostiqueur_nom, diagnostiqueur_societe
+            FROM dpe_diags
+            WHERE id_bien = ?
+            ORDER BY est_diag_principal DESC, id DESC
+        ");
+        $stmtDocs->execute([$editingBienId]);
+        foreach ($stmtDocs->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $bienDocuments[] = [
+                'category'  => 'diagnostic',
+                'type'      => (string)($d['type_diag'] ?? 'dossier_complet'),
+                'id'        => (int)$d['id'],
+                'nom'       => $d['nom_fichier_original'] ?: ('Diagnostic #' . $d['id']),
+                'url'       => $d['fichier_url'] ? app_url('/' . ltrim($d['fichier_url'], '/')) : '',
+                'taille'    => (int)($d['taille_fichier_octets'] ?? 0),
+                'date'      => $d['date_diagnostic'] ?: $d['date_creation'],
+                'principal' => !empty($d['est_diag_principal']),
+                'meta'      => array_filter([
+                    $d['dpe_classe']       ? 'DPE ' . $d['dpe_classe']   : null,
+                    $d['ges_classe']       ? 'GES ' . $d['ges_classe']   : null,
+                    !empty($d['dpe_vierge']) ? 'Vierge'                  : null,
+                    $d['diagnostiqueur_societe'] ?: $d['diagnostiqueur_nom'],
+                    $d['extraction_method'] ? 'Extraction ' . $d['extraction_method'] : null,
+                    isset($d['extraction_score']) && $d['extraction_score'] !== null ? 'Score ' . (int)$d['extraction_score'] . '%' : null,
+                ]),
+                'raw_table' => 'dpe_diags',
+            ];
+        }
+    } catch (Throwable $e) { error_log('[bien_ajouter] load diags docs: ' . $e->getMessage()); }
+
+    // Mandat (actif le plus récent)
+    try {
+        $stmtM = $pdo->prepare("
+            SELECT id, numero_mandat, type_mandat, nature_mandat, exclusif,
+                   date_signature, date_debut, date_fin, honoraires,
+                   document_pdf, statut
+            FROM mandats
+            WHERE id_bien = ?
+            ORDER BY id DESC
+        ");
+        $stmtM->execute([$editingBienId]);
+        foreach ($stmtM->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            $mUrl = '';
+            if (!empty($m['document_pdf'])) {
+                $mUrl = str_contains($m['document_pdf'], '://')
+                    ? $m['document_pdf']
+                    : app_url('/uploads/mandats/' . ltrim($m['document_pdf'], '/'));
+            }
+            $bienDocuments[] = [
+                'category'  => 'mandat',
+                'type'      => (string)($m['type_mandat'] ?? 'mandat'),
+                'id'        => (int)$m['id'],
+                'nom'       => $m['numero_mandat'] ? 'Mandat ' . $m['numero_mandat'] : ('Mandat #' . $m['id']),
+                'url'       => $mUrl,
+                'taille'    => 0,
+                'date'      => $m['date_signature'] ?: $m['date_debut'],
+                'principal' => true,
+                'meta'      => array_filter([
+                    $m['type_mandat']   ? ucfirst($m['type_mandat'])    : null,
+                    $m['nature_mandat'] ? ucfirst($m['nature_mandat']) : null,
+                    !empty($m['exclusif']) ? 'Exclusif' : null,
+                    $m['date_fin']    ? 'Échéance ' . date('d/m/Y', strtotime((string)$m['date_fin'])) : null,
+                    isset($m['honoraires']) && $m['honoraires'] !== null ? number_format((float)$m['honoraires'], 2, ',', ' ') . ' €' : null,
+                    $m['statut']      ? 'Statut : ' . $m['statut'] : null,
+                ]),
+                'raw_table' => 'mandats',
+            ];
+        }
+    } catch (Throwable $e) { error_log('[bien_ajouter] load mandats docs: ' . $e->getMessage()); }
+
+    // Documents génériques (biens_documents si la table existe)
+    try {
+        $stmtG = $pdo->prepare("
+            SELECT id, type_document, nom_original, url_fichier, taille_octets, date_document, date_creation
+            FROM biens_documents
+            WHERE id_bien = ?
+            ORDER BY id DESC
+        ");
+        $stmtG->execute([$editingBienId]);
+        foreach ($stmtG->fetchAll(PDO::FETCH_ASSOC) as $g) {
+            $bienDocuments[] = [
+                'category'  => 'autre',
+                'type'      => (string)($g['type_document'] ?? 'autre'),
+                'id'        => (int)$g['id'],
+                'nom'       => $g['nom_original'] ?: ('Document #' . $g['id']),
+                'url'       => $g['url_fichier'] ? app_url('/' . ltrim($g['url_fichier'], '/')) : '',
+                'taille'    => (int)($g['taille_octets'] ?? 0),
+                'date'      => $g['date_document'] ?: $g['date_creation'],
+                'principal' => false,
+                'meta'      => array_filter([$g['type_document'] ? ucfirst(str_replace('_', ' ', (string)$g['type_document'])) : null]),
+                'raw_table' => 'biens_documents',
+            ];
+        }
+    } catch (Throwable $e) {
+        // Table optionnelle : absente ou schéma différent → on ignore silencieusement
+    }
+}
+
 // Calcul de la complétude Ubiflow + admin (mode édition uniquement)
 $ubiCheck = null;
 if ($isEditing && $bienLoaded !== null) {
@@ -2996,6 +3106,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       <button type="button" class="ba-tab" data-tab="photos">📸 Photos <span class="ba-tab-count" id="ba-tab-count-photos" style="display:none;"></span></button>
       <button type="button" class="ba-tab" data-tab="description">✏️ Description</button>
       <button type="button" class="ba-tab" data-tab="annonce">📡 Annonce</button>
+      <button type="button" class="ba-tab" data-tab="documents">📎 Documents <span class="ba-tab-count" id="ba-tab-count-documents" style="<?= empty($bienDocuments) ? 'display:none;' : '' ?>"><?= count($bienDocuments) ?></span></button>
       <button type="button" class="ba-tab" data-tab="conformite">✅ Conformité</button>
     </nav>
     <div class="ba-tabs-actions" style="display:flex;gap:8px;flex-shrink:0;margin-left:auto;padding:8px 0;">
@@ -4817,6 +4928,114 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         </div>
       </div>
 
+      <!-- ════ ONGLET DOCUMENTS ════ -->
+      <?php
+        $docsByCategory = [
+            'diagnostic' => [],
+            'mandat'     => [],
+            'autre'      => [],
+        ];
+        foreach ($bienDocuments as $__d) {
+            $docsByCategory[$__d['category']][] = $__d;
+        }
+        $__catLabels = [
+            'diagnostic' => ['label' => '📊 Diagnostics & DPE', 'sub' => 'DPE, plomb, amiante, électricité, gaz, termites, ERP…'],
+            'mandat'     => ['label' => '📜 Mandats',            'sub' => 'Mandat de vente, location ou gestion.'],
+            'autre'      => ['label' => '📁 Autres documents',    'sub' => 'Plans, carrez, assurances, correspondance…'],
+        ];
+        $__fmtSize = function(int $b): string {
+            if ($b <= 0) return '';
+            if ($b < 1024) return $b . ' o';
+            if ($b < 1024 * 1024) return round($b / 1024, 1) . ' Ko';
+            return round($b / (1024 * 1024), 2) . ' Mo';
+        };
+      ?>
+      <div class="ba-panel" data-tab-panel="documents">
+        <div class="ba-card">
+          <div class="ba-card-head">
+            <div class="ba-card-title">📎 Documents du bien</div>
+            <div class="ba-card-sub">Espace centralisé de chargement, analyse IA et gestion. Les zones d'import présentes dans les autres onglets restent des raccourcis.</div>
+          </div>
+          <div class="ba-card-body">
+
+            <!-- Zone upload unifiée -->
+            <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:18px;padding:14px;background:linear-gradient(180deg,rgba(14,165,233,0.06),var(--card));border:1px dashed #0ea5e9;border-radius:12px;">
+              <div class="ba-field" style="flex:1;margin:0;">
+                <label style="font-weight:700;color:#0369a1;">Importer un document (PDF)</label>
+                <div style="font-size:11px;color:#475569;margin:4px 0 8px;">Analyse IA automatique — détection du type : DPE, diagnostic, mandat…</div>
+                <input type="file" id="docs-upload-input" accept="application/pdf" multiple style="font-size:12px;">
+              </div>
+              <button type="button" id="docs-upload-btn" style="padding:10px 16px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">
+                ⚡ Analyser & importer
+              </button>
+            </div>
+            <div id="docs-upload-status" style="display:none;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;"></div>
+
+            <!-- Listes groupées par catégorie -->
+            <div id="docs-list">
+            <?php foreach ($__catLabels as $cat => $info): $docs = $docsByCategory[$cat] ?? []; ?>
+              <div class="docs-category" data-category="<?= h($cat) ?>" style="margin-bottom:18px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:6px;border-bottom:2px solid var(--stroke);margin-bottom:10px;">
+                  <div>
+                    <div style="font-weight:700;font-size:13px;color:#334155;"><?= h($info['label']) ?> <span style="color:#94a3b8;font-weight:400;">(<?= count($docs) ?>)</span></div>
+                    <div style="font-size:10px;color:#94a3b8;"><?= h($info['sub']) ?></div>
+                  </div>
+                </div>
+                <?php if (empty($docs)): ?>
+                  <div style="padding:10px;font-size:11px;color:#94a3b8;font-style:italic;">Aucun document dans cette catégorie.</div>
+                <?php else: ?>
+                  <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+                  <?php foreach ($docs as $doc): ?>
+                    <div class="doc-row" data-doc-cat="<?= h($doc['category']) ?>" data-doc-id="<?= (int)$doc['id'] ?>" data-doc-table="<?= h($doc['raw_table']) ?>" style="display:flex;gap:12px;align-items:center;padding:10px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;">
+                      <div style="width:42px;height:42px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">
+                        <?= $doc['category'] === 'diagnostic' ? '📊' : ($doc['category'] === 'mandat' ? '📜' : '📁') ?>
+                      </div>
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-weight:700;font-size:12px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?= h((string)$doc['nom']) ?>">
+                          <?= h((string)$doc['nom']) ?>
+                          <?php if (!empty($doc['principal'])): ?>
+                            <span style="font-size:9px;padding:2px 6px;border-radius:99px;background:#dcfce7;color:#166534;margin-left:4px;">Principal</span>
+                          <?php endif; ?>
+                        </div>
+                        <div style="font-size:10px;color:#64748b;margin-top:2px;">
+                          <?php
+                            $parts = [];
+                            if (!empty($doc['date']))   $parts[] = date('d/m/Y', strtotime((string)$doc['date']));
+                            if (!empty($doc['type']))   $parts[] = str_replace('_', ' ', (string)$doc['type']);
+                            if (!empty($doc['taille'])) $parts[] = $__fmtSize((int)$doc['taille']);
+                            foreach (($doc['meta'] ?? []) as $m) if ($m) $parts[] = (string)$m;
+                            echo h(implode(' • ', $parts));
+                          ?>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:6px;flex-shrink:0;">
+                        <?php if (!empty($doc['url'])): ?>
+                          <a href="<?= h((string)$doc['url']) ?>" target="_blank" rel="noopener" title="Ouvrir le PDF" style="padding:6px 10px;border-radius:6px;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;font-size:11px;font-weight:700;text-decoration:none;font-family:inherit;">👁 Voir</a>
+                        <?php endif; ?>
+                        <?php if ($doc['category'] === 'diagnostic'): ?>
+                          <button type="button" class="doc-reanalyze-btn" data-doc-id="<?= (int)$doc['id'] ?>" title="Relancer l'analyse IA" style="padding:6px 10px;border-radius:6px;background:#fff;color:#6a4ca8;border:1px solid #6a4ca8;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">↻</button>
+                        <?php endif; ?>
+                        <button type="button" class="doc-delete-btn" data-doc-id="<?= (int)$doc['id'] ?>" data-doc-cat="<?= h($doc['category']) ?>" title="Supprimer" style="padding:6px 10px;border-radius:6px;background:#fff;color:#dc2626;border:1px solid #fecaca;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🗑</button>
+                      </div>
+                    </div>
+                  <?php endforeach; ?>
+                  </div>
+                <?php endif; ?>
+              </div>
+            <?php endforeach; ?>
+            </div>
+
+            <div class="ba-hint" style="margin-top:14px;">
+              💡 Les uploads depuis <strong>Diag & DPE</strong> et <strong>Identification → Propriétaire</strong> restent actifs et alimentent cette liste.
+            </div>
+          </div>
+        </div>
+        <div class="ba-panel-footer">
+          <button type="button" class="ba-btn-ghost" onclick="navPrev()">← Précédent</button>
+          <button type="button" class="ba-btn-primary" onclick="navNext()">Suivant →</button>
+        </div>
+      </div>
+
       <!-- ════ ONGLET CONFORMITÉ ════ -->
       <div class="ba-panel" data-tab-panel="conformite">
         <div class="ba-card">
@@ -5374,6 +5593,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     { tab: 'annonce',        sub: 'ann-details',       label: 'Détails annonce' },
     { tab: 'annonce',        sub: 'ann-photos',        label: 'Photos annonce' },
     { tab: 'annonce',        sub: 'ann-diffusion',     label: 'Diffusion' },
+    { tab: 'documents',      sub: null,                label: 'Documents' },
     { tab: 'conformite',     sub: null,                label: 'Conformité' },
   ];
   function getCurrentStepIndex() {
@@ -5710,6 +5930,121 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           }
         } catch (e) { alert('Erreur réseau'); btn.disabled = false; }
       });
+    });
+  })();
+
+  // ── ONGLET DOCUMENTS : upload unifié + delete + re-analyze ──
+  (function() {
+    const uploadInput = document.getElementById('docs-upload-input');
+    const uploadBtn   = document.getElementById('docs-upload-btn');
+    const status      = document.getElementById('docs-upload-status');
+    const listEl      = document.getElementById('docs-list');
+    if (!listEl) return;
+
+    const editMatch = window.location.search.match(/[?&]edit=(\d+)/);
+    const bienId = editMatch ? editMatch[1] : '0';
+
+    function showStatus(html, type) {
+      if (!status) return;
+      const colors = { loading:['#f0f9ff','#0ea5e9','#0369a1'], success:['#f0fdf4','#16a34a','#14532d'], warning:['#fffbeb','#f59e0b','#92400e'], error:['#fef2f2','#dc2626','#991b1b'] };
+      const c = colors[type] || colors.loading;
+      status.style.display = 'block';
+      status.style.background = c[0]; status.style.borderLeft = '4px solid ' + c[1]; status.style.color = c[2];
+      status.innerHTML = html;
+    }
+
+    // Upload (auto-déclenché à la sélection)
+    if (uploadInput) {
+      uploadInput.addEventListener('change', () => { if (uploadInput.files.length && uploadBtn) uploadBtn.click(); });
+    }
+    if (uploadBtn && uploadInput) {
+      uploadBtn.addEventListener('click', async () => {
+        const files = uploadInput.files;
+        if (!files.length) { alert('Sélectionnez un ou plusieurs PDF.'); return; }
+        if (bienId === '0') { alert('Sauvegardez d\'abord le bien une fois pour charger des documents.'); return; }
+
+        uploadBtn.disabled = true;
+        const origLabel = uploadBtn.innerHTML;
+        uploadBtn.innerHTML = '⏳ Analyse…';
+        let ok = 0, err = 0;
+
+        for (const file of files) {
+          showStatus('⏳ Analyse de <strong>' + file.name + '</strong>…', 'loading');
+          try {
+            const fd = new FormData();
+            fd.append('fichier', file);
+            fd.append('id_bien', bienId);
+            fd.append('csrf_token', window.__bi_csrf);
+            const resp = await fetch('<?= h(app_url("/api/bien_intake_upload.php")) ?>', { method: 'POST', body: fd, credentials: 'same-origin' });
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.error || 'Échec');
+            ok++;
+          } catch (e) {
+            err++;
+            console.error('[docs upload]', e);
+          }
+        }
+
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = origLabel;
+        uploadInput.value = '';
+        showStatus(
+          '✅ <strong>' + ok + '</strong> document(s) importé(s)' + (err ? ', ' + err + ' en erreur' : '')
+          + ' — <a href="javascript:location.reload()" style="color:inherit;font-weight:700;">Recharger la page</a> pour voir la liste à jour.',
+          ok ? 'success' : 'error'
+        );
+      });
+    }
+
+    // Delete par ligne
+    listEl.addEventListener('click', async (e) => {
+      const delBtn = e.target.closest('.doc-delete-btn');
+      const reBtn  = e.target.closest('.doc-reanalyze-btn');
+
+      if (delBtn) {
+        const cat = delBtn.dataset.docCat;
+        const id  = parseInt(delBtn.dataset.docId, 10);
+        if (!id) return;
+        const label = cat === 'mandat' ? 'ce mandat' : (cat === 'diagnostic' ? 'ce diagnostic' : 'ce document');
+        if (!confirm('Supprimer ' + label + ' ?')) return;
+        delBtn.disabled = true;
+
+        const fd = new FormData();
+        fd.append('id_bien', bienId);
+        fd.append('csrf_token', window.__bi_csrf);
+        if (cat === 'diagnostic') { fd.append('action', 'delete_diag');   fd.append('diag_id', String(id)); }
+        else if (cat === 'mandat') { fd.append('action', 'delete_mandat'); fd.append('mandat_id', String(id)); }
+        else                       { fd.append('action', 'delete_doc');    fd.append('doc_id', String(id)); }
+
+        try {
+          const resp = await fetch('<?= h(app_url("/api/bien_intake_action.php")) ?>', { method: 'POST', body: fd, credentials: 'same-origin' });
+          const data = await resp.json();
+          if (data.ok) {
+            const row = delBtn.closest('.doc-row');
+            if (row) row.remove();
+          } else {
+            alert('Erreur : ' + (data.error || 'inconnue'));
+            delBtn.disabled = false;
+          }
+        } catch (err) {
+          alert('Erreur réseau'); delBtn.disabled = false;
+        }
+      }
+
+      if (reBtn) {
+        const id = parseInt(reBtn.dataset.docId, 10);
+        if (!id) return;
+        reBtn.disabled = true;
+        const orig = reBtn.innerHTML;
+        reBtn.innerHTML = '⏳';
+        try {
+          // Pas d'endpoint re-analyze pour un diag existant côté PHP : on prévient l'utilisateur
+          alert('La relance d\'analyse sur un diagnostic déjà enregistré n\'est pas encore branchée. Supprimez puis ré-importez le fichier pour obtenir une nouvelle analyse.');
+        } finally {
+          reBtn.innerHTML = orig;
+          reBtn.disabled = false;
+        }
+      }
     });
   })();
 

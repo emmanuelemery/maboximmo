@@ -229,6 +229,56 @@ try {
         }
 
         // ─────────────────────────────────────────────────────
+        // DELETE_MANDAT : supprime un mandat (et son PDF)
+        // ─────────────────────────────────────────────────────
+        case 'delete_mandat': {
+            $mandatId = isset($_POST['mandat_id']) && ctype_digit((string)$_POST['mandat_id']) ? (int)$_POST['mandat_id'] : 0;
+            if ($mandatId <= 0) exit(json_encode(['ok' => false, 'error' => 'mandat_id manquant']));
+
+            $stmt = $pdo->prepare("SELECT id, document_pdf FROM mandats WHERE id = ? AND id_bien = ?");
+            $stmt->execute([$mandatId, $bienId]);
+            $mandat = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$mandat) exit(json_encode(['ok' => false, 'error' => 'Mandat introuvable']));
+
+            // Supprime le fichier physique si stocké localement
+            if (!empty($mandat['document_pdf']) && !str_contains((string)$mandat['document_pdf'], '://')) {
+                $rel = 'uploads/mandats/' . ltrim((string)$mandat['document_pdf'], '/');
+                $filePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+                if (is_file($filePath)) @unlink($filePath);
+            }
+
+            $pdo->prepare("DELETE FROM mandats WHERE id = ?")->execute([$mandatId]);
+            echo json_encode(['ok' => true, 'deleted_id' => $mandatId]);
+            exit;
+        }
+
+        // ─────────────────────────────────────────────────────
+        // DELETE_DOC : supprime un document générique (biens_documents)
+        // ─────────────────────────────────────────────────────
+        case 'delete_doc': {
+            $docId = isset($_POST['doc_id']) && ctype_digit((string)$_POST['doc_id']) ? (int)$_POST['doc_id'] : 0;
+            if ($docId <= 0) exit(json_encode(['ok' => false, 'error' => 'doc_id manquant']));
+
+            try {
+                $stmt = $pdo->prepare("SELECT id, url_fichier FROM biens_documents WHERE id = ? AND id_bien = ?");
+                $stmt->execute([$docId, $bienId]);
+                $doc = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$doc) exit(json_encode(['ok' => false, 'error' => 'Document introuvable']));
+
+                if (!empty($doc['url_fichier'])) {
+                    $filePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, ltrim((string)$doc['url_fichier'], '/'));
+                    if (is_file($filePath)) @unlink($filePath);
+                }
+
+                $pdo->prepare("DELETE FROM biens_documents WHERE id = ?")->execute([$docId]);
+                echo json_encode(['ok' => true, 'deleted_id' => $docId]);
+                exit;
+            } catch (Throwable $e) {
+                exit(json_encode(['ok' => false, 'error' => 'Table biens_documents indisponible : ' . $e->getMessage()]));
+            }
+        }
+
+        // ─────────────────────────────────────────────────────
         // SAVE_FIELD : saisie inline d'un champ obligatoire manquant
         // ─────────────────────────────────────────────────────
         case 'save_field': {
