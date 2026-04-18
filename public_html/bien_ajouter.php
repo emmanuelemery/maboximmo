@@ -3029,8 +3029,16 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     <nav class="topbar-breadcrumb">
       <a href="bien_liste.php">Biens</a>
       <span class="sep">›</span>
-      <span class="active">Ajouter un bien</span>
+      <span class="active"><?= $isEditing ? 'Modifier' : 'Ajouter' ?> un bien</span>
     </nav>
+    <?php if ($isEditing && $editingBienId > 0): ?>
+      <span style="margin-left:20px;font-size:11px;color:#64748b;font-family:monospace;background:rgba(255,255,255,.6);padding:4px 10px;border-radius:6px;border:1px solid var(--stroke);">
+        #<?= (int)$editingBienId ?>
+        <?php if (!empty($bienLoaded['reference_bien'])): ?>
+          · <strong style="color:#0f172a;"><?= h((string)$bienLoaded['reference_bien']) ?></strong>
+        <?php endif; ?>
+      </span>
+    <?php endif; ?>
     <div class="topbar-spacer"></div>
     <button type="button" class="topbar-icon-btn" title="Notifications">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>

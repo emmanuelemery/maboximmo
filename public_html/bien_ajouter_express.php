@@ -73,7 +73,18 @@ require_once __DIR__ . '/inc/header.php';
   .exp-main { margin-left: var(--sidebar-w); margin-right: var(--conf-w); min-height: 100vh; background: #f8fafc; }
   @media (max-width: 1200px) { .exp-main { margin-right: 0; } .exp-conf-panel { display: none; } }
   @media (max-width: 900px) { .exp-main { margin-left: 0; } }
-  .exp-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px 40px; }
+  .exp-wrap { max-width: 900px; margin: 0 auto; padding: 20px 20px 40px; }
+
+  /* Topbar */
+  .exp-topbar { display:flex; align-items:center; gap:8px; padding: 10px 20px; background:#fff; border-bottom: 1px solid #e5e7eb; }
+  .exp-topbar-btn { width: 32px; height: 32px; border-radius: 8px; background: #f1f5f9; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #475569; font-family: inherit; }
+  .exp-topbar-btn:hover { background: #e2e8f0; color: #0f172a; }
+  .exp-breadcrumb { margin-left: 40px; font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px; }
+  .exp-breadcrumb a { color: #0369a1; text-decoration: none; }
+  .exp-breadcrumb a:hover { text-decoration: underline; }
+  .exp-breadcrumb .sep { color: #cbd5e1; }
+  .exp-breadcrumb .active { color: #0f172a; font-weight: 600; }
+  .exp-topbar-spacer { flex: 1; }
 
   /* Panneau conformité à droite */
   .exp-conf-panel {
@@ -200,6 +211,25 @@ require_once __DIR__ . '/inc/header.php';
 </style>
 
 <main class="exp-main">
+  <!-- TOPBAR -->
+  <header class="exp-topbar">
+    <button type="button" class="exp-topbar-btn" onclick="history.back()" title="Retour">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <button type="button" class="exp-topbar-btn" onclick="history.forward()" title="Avancer">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+    <nav class="exp-breadcrumb">
+      <a href="<?= h(app_url('/bien_liste.php')) ?>">Biens</a>
+      <span class="sep">›</span>
+      <span class="active">Créer un bien (Express)</span>
+    </nav>
+    <div class="exp-topbar-spacer"></div>
+    <span id="exp-bien-id-badge" style="display:none;font-size:11px;color:#64748b;font-family:monospace;background:#f1f5f9;padding:4px 10px;border-radius:6px;">
+      #<span id="exp-topbar-idbien"></span> · <span id="exp-topbar-ref"></span>
+    </span>
+  </header>
+
 <div class="exp-wrap">
   <div class="exp-head">
     <div>
@@ -207,7 +237,7 @@ require_once __DIR__ . '/inc/header.php';
       <div class="sub">Flow rapide avec IA et pré-remplissage automatique.</div>
     </div>
     <div>
-      <a href="bien_ajouter.php">Mode détaillé →</a>
+      <a href="<?= h(app_url('/bien_ajouter.php')) ?>">🏛️ Mode détaillé →</a>
     </div>
   </div>
 
@@ -318,8 +348,8 @@ require_once __DIR__ . '/inc/header.php';
           <input type="text" name="etage" id="exp-etage">
         </div>
         <div class="exp-field">
-          <label>Lot / porte</label>
-          <input type="text" name="lot_principal" id="exp-lot">
+          <label>Lot</label>
+          <input type="text" name="lot_principal" id="exp-lot" placeholder="ex: Lot 42">
         </div>
       </div>
       <div class="exp-row">
@@ -471,33 +501,20 @@ require_once __DIR__ . '/inc/header.php';
       </div>
     </div>
 
-    <!-- STEP 6 : Note IA + Générer annonce -->
-    <div class="exp-step locked" id="step-ia">
-      <div class="num">6</div>
-      <h2>Générer l'annonce</h2>
-      <div class="hint">Note optionnelle pour guider l'IA (ton, focus, mentions spécifiques).</div>
-      <div class="exp-field">
-        <label>💡 Note pour l'IA (éphémère)</label>
-        <textarea id="exp-note-ia" rows="3" placeholder="ex: insister sur la vue, ton chaleureux, mentionner l'école à 5min"></textarea>
-      </div>
-      <button type="button" id="exp-generate-btn" class="exp-btn" disabled>✨ Générer l'annonce (SEO + LBC)</button>
-    </div>
-
-    <!-- STEP 7 : Preview annonce -->
-    <div class="exp-step locked" id="step-preview">
-      <div class="num">7</div>
-      <h2>Preview & édition de l'annonce</h2>
-      <div class="hint">Tout est éditable. Clic ↻ pour régénérer avec ou sans modifier la note.</div>
-      <div id="exp-ia-output"></div>
-      <div style="margin-top:10px;"><button type="button" id="exp-regen-btn" class="exp-btn-ghost">↻ Régénérer</button></div>
-    </div>
-
-    <!-- Validation finale : voir le panneau à droite -->
-    <div class="exp-step" id="step-valider" style="background:linear-gradient(180deg,#f0fdf4,#fff);border-color:#86efac;">
+    <!-- STEP FINAL : Validation du bien -->
+    <div class="exp-step" id="step-validate" style="background:linear-gradient(180deg,#f0fdf4,#fff);border-color:#86efac;">
       <div class="num" style="background:#16a34a;">✓</div>
-      <h2 style="color:#166534;">Terminé ?</h2>
-      <div class="hint">Le panneau de complétude à droite vous indique en permanence l'état du bien. Validez quand vous êtes prêt(e).</div>
-      <a href="bien_ajouter.php" id="exp-edit-detailed" style="display:none;font-size:12px;color:#0369a1;text-decoration:none;">🏛️ Passer en mode détaillé →</a>
+      <h2 style="color:#166534;">Valider le bien</h2>
+      <div class="hint">Le panneau à droite indique en permanence la complétude. L'annonce de diffusion se crée sur une page dédiée après validation.</div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button type="button" id="exp-main-validate-btn" class="exp-btn-final primary" style="font-size:15px;padding:14px 24px;">
+          💾 Valider le bien
+        </button>
+        <a href="<?= h(app_url('/bien_ajouter.php')) ?>" id="exp-edit-detailed" style="display:none;font-size:12px;color:#0369a1;text-decoration:none;">🏛️ Passer en mode détaillé →</a>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#64748b;">
+        Après validation, un popup confirme la création et vous propose de créer une annonce de diffusion ou de revenir à la liste.
+      </div>
     </div>
   </form>
 </div>
@@ -532,15 +549,40 @@ require_once __DIR__ . '/inc/header.php';
   </div>
 
   <div class="exp-conf-actions">
-    <button type="button" id="exp-btn-save-only" class="exp-btn-final primary">
+    <button type="button" id="exp-btn-validate" class="exp-btn-final primary">
       💾 Valider le bien
-    </button>
-    <button type="button" id="exp-btn-save-annonce" class="exp-btn-final secondary" disabled>
-      ✨ Valider &amp; créer annonce
     </button>
     <a href="<?= h(app_url('/bien_liste.php')) ?>" style="text-align:center;font-size:11px;color:#94a3b8;text-decoration:none;margin-top:4px;">← Retour sans enregistrer</a>
   </div>
 </aside>
+
+<!-- Popup après validation : récap + choix de suite -->
+<div id="exp-saved-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;max-width:540px;width:calc(100% - 40px);padding:28px 28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);">
+    <div style="width:56px;height:56px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 12px;">✅</div>
+    <h3 style="margin:0 0 6px;color:#0f172a;text-align:center;font-size:18px;">Nouveau bien enregistré</h3>
+    <p id="exp-saved-status" style="margin:0 0 18px;text-align:center;font-size:12px;color:#64748b;">&nbsp;</p>
+
+    <dl style="margin:0 0 20px;padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px;">
+      <dt style="color:#64748b;font-weight:600;">ID BDD</dt><dd id="exp-saved-id" style="margin:0;font-family:monospace;color:#0f172a;">—</dd>
+      <dt style="color:#64748b;font-weight:600;">Référence</dt><dd id="exp-saved-ref" style="margin:0;font-family:monospace;color:#0f172a;font-weight:700;">—</dd>
+      <dt style="color:#64748b;font-weight:600;">Type</dt><dd id="exp-saved-type" style="margin:0;color:#0f172a;">—</dd>
+      <dt style="color:#64748b;font-weight:600;">Bailleur</dt><dd id="exp-saved-bailleur" style="margin:0;color:#0f172a;">—</dd>
+      <dt style="color:#64748b;font-weight:600;">Statut</dt><dd id="exp-saved-statut" style="margin:0;"></dd>
+    </dl>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a id="exp-saved-btn-liste" href="<?= h(app_url('/bien_liste.php')) ?>"
+         class="exp-btn-final primary" style="flex:1;text-align:center;text-decoration:none;">
+        📋 Retour à la liste
+      </a>
+      <a id="exp-saved-btn-annonce" href="#"
+         class="exp-btn-final secondary" style="flex:1;text-align:center;text-decoration:none;">
+        📡 Créer une annonce de diffusion
+      </a>
+    </div>
+  </div>
+</div>
 
 <!-- Modal warning pas de DPE -->
 <div class="exp-modal-back" id="exp-modal-nodpe" style="display:none;">
@@ -1052,11 +1094,14 @@ require_once __DIR__ . '/inc/header.php';
         state.ref = j.reference_bien;
         $('exp-id-bien').value = j.id_bien;
         $('exp-ref-preview').value = j.reference_bien;
+        // Badge ID + ref dans la topbar (toujours visible pendant le flow)
+        $('exp-topbar-idbien').textContent = j.id_bien;
+        $('exp-topbar-ref').textContent = j.reference_bien;
+        $('exp-bien-id-badge').style.display = 'inline-block';
         $('exp-edit-detailed').href = 'bien_ajouter.php?edit=' + j.id_bien;
         $('exp-edit-detailed').style.display = 'inline-block';
         if (j.id_proprietaire) { state.id_proprietaire = j.id_proprietaire; $('exp-id-proprietaire').value = j.id_proprietaire; }
         markDone('step-ref'); markDone('step-bailleur');
-        $('exp-generate-btn').disabled = false;
       } else {
         alert('Erreur création brouillon : ' + (j.error || 'inconnue'));
       }
@@ -1079,101 +1124,66 @@ require_once __DIR__ . '/inc/header.php';
   }
   ['exp-adresse','exp-cp','exp-ville','exp-type-bien','exp-pro-nom'].forEach(id => $(id).addEventListener('blur', scheduleDraft));
 
-  // ─── STEP 7 : Générer annonce ──
-  $('exp-generate-btn').addEventListener('click', generateAnnonce);
-  $('exp-regen-btn').addEventListener('click', generateAnnonce);
-
-  async function generateAnnonce() {
-    if (!state.id_bien) { alert('Remplissez d\'abord les champs critiques pour créer le brouillon.'); return; }
-    if (!$('exp-transaction').value) { alert('Choisissez d\'abord la transaction (location/vente).'); return; }
-    const btn = $('exp-generate-btn'); btn.disabled = true; btn.textContent = '⏳ Génération…';
-    const btn2 = $('exp-regen-btn'); btn2.disabled = true;
-    try {
-      const fd = new FormData();
-      fd.append('csrf_token', CSRF);
-      fd.append('id_bien', state.id_bien);
-      fd.append('transaction', $('exp-transaction').value);
-      fd.append('note_ia', $('exp-note-ia').value);
-      fd.append('quartier', $('exp-quartier').value);
-      fd.append('points_interet', $('exp-poi').value);
-      fd.append('argument_phare', $('exp-arg').value);
-      Object.entries(state.env).forEach(([k, v]) => {
-        if (Array.isArray(v)) v.forEach(x => fd.append('environnement[' + k + '][]', x));
-        else if (v) fd.append('environnement[' + k + ']', v);
-      });
-      const r = await fetch('<?= h(app_url('/api/bien_generate_annonce.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'échec');
-      state.generated = j.generated;
-      renderGenerated(j.generated);
-      markDone('step-ia');
-    } catch (e) {
-      alert('❌ ' + e.message);
-    } finally {
-      btn.disabled = false; btn.textContent = '✨ Générer l\'annonce (SEO + LBC)';
-      btn2.disabled = false;
-    }
-  }
-  function renderGenerated(g) {
-    const out = $('exp-ia-output');
-    out.innerHTML = `
-      <div class="exp-ia-preview"><label>Titre SEO (Google)</label><input type="text" id="ia-titre-seo" value="${(g.titre_seo||'').replace(/"/g,'&quot;')}"></div>
-      <div class="exp-ia-preview"><label>Titre Le Bon Coin</label><input type="text" id="ia-titre-lbc" value="${(g.titre_lbc||'').replace(/"/g,'&quot;')}"></div>
-      <div class="exp-ia-preview"><label>H1 page publique</label><input type="text" id="ia-h1" value="${(g.h1||'').replace(/"/g,'&quot;')}"></div>
-      <div class="exp-ia-preview"><label>Meta description</label><input type="text" id="ia-meta" value="${(g.meta_description||'').replace(/"/g,'&quot;')}"></div>
-      <div class="exp-ia-preview"><label>Slug URL</label><input type="text" id="ia-slug" value="${(g.slug||'').replace(/"/g,'&quot;')}"></div>
-      <div class="exp-ia-preview"><label>Description</label><textarea id="ia-desc">${g.description||''}</textarea></div>
-      <div class="exp-ia-preview"><label>Mots-clés</label><input type="text" id="ia-kw" value="${(g.mots_cles||[]).join(', ')}"></div>
-    `;
-  }
-
-  // ─── Finalisation : 2 boutons Valider (avec/sans annonce) ──
-  async function finalizeAndRedirect(mode) {
+  // ─── Finalisation : 1 bouton Valider → popup → 2 choix (bien_liste / créer annonce) ──
+  async function finalizeBien() {
     if (!state.id_bien) {
-      // Crée d'abord le brouillon si pas encore fait
       await ensureDraftCreated();
       if (!state.id_bien) { alert('Impossible de créer le brouillon. Vérifiez les champs critiques.'); return; }
     }
-    // Mets à jour toutes les valeurs sur le serveur via autosave express → endpoint finalize
     const fd = new FormData($('exp-form'));
     fd.set('id_bien', String(state.id_bien));
-    fd.set('mode', mode); // 'bien_only' | 'with_annonce'
-    // Inclure environnement
+    fd.set('mode', 'bien_only'); // création d'annonce désormais gérée par annonce_ajouter.php
     Object.entries(state.env).forEach(([k, v]) => {
       if (Array.isArray(v)) v.forEach(x => fd.append('environnement[' + k + '][]', x));
       else if (v) fd.append('environnement[' + k + ']', v);
     });
-    // Inclure le contenu IA généré si dispo
-    if (state.generated) fd.set('ia_generated', JSON.stringify(state.generated));
-    // Récupérer valeurs éditées de la preview IA (si preview affichée)
-    ['ia-titre-seo','ia-titre-lbc','ia-h1','ia-meta','ia-slug','ia-desc','ia-kw'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) fd.set(id.replace('ia-', 'ia_'), el.value || '');
-    });
 
-    const btnA = $('exp-btn-save-only'), btnB = $('exp-btn-save-annonce');
-    btnA.disabled = true; btnB.disabled = true;
-    const origA = btnA.textContent, origB = btnB.textContent;
-    if (mode === 'bien_only')   btnA.textContent = '⏳ Validation…';
-    if (mode === 'with_annonce') btnB.textContent = '⏳ Création annonce…';
+    const btns = document.querySelectorAll('#exp-btn-validate, #exp-main-validate-btn');
+    btns.forEach(b => { b.disabled = true; b.dataset.origText = b.innerHTML; b.innerHTML = '⏳ Validation…'; });
 
     try {
       const r = await fetch('<?= h(app_url('/api/bien_express_finalize.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Échec');
-      if (mode === 'bien_only') {
-        window.location.href = 'bien_liste.php?highlight=' + j.id_bien;
-      } else {
-        window.location.href = 'annonce_ajouter.php?id_bien=' + j.id_bien + (j.id_annonce ? '&id_annonce=' + j.id_annonce : '') + '&from=express';
-      }
+
+      // Récup label type bien (depuis le select)
+      const typeSel = $('exp-type-bien');
+      const typeLabel = typeSel.options[typeSel.selectedIndex]?.text || '';
+      // Récup label bailleur
+      const bailleurLabel = $('exp-pro-soc').value || (($('exp-pro-prenom').value || '') + ' ' + ($('exp-pro-nom').value || '')).trim() || '(non renseigné)';
+
+      // Remplit la popup
+      $('exp-saved-id').textContent = '#' + j.id_bien;
+      $('exp-saved-ref').textContent = state.ref || j.reference_bien || '—';
+      $('exp-saved-type').textContent = typeLabel || '—';
+      $('exp-saved-bailleur').textContent = bailleurLabel;
+      const statutBadge = j.statut_bien === 'actif'
+        ? '<span style="background:#dcfce7;color:#166534;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;">✅ ACTIF</span>'
+        : '<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;">📝 BROUILLON</span>';
+      $('exp-saved-statut').innerHTML = statutBadge;
+      const pct = (j.completude_pct || 0) + '%';
+      const missing = (j.missing_mandatory || []).length;
+      $('exp-saved-status').textContent = 'Complétude : ' + pct
+        + (missing ? ' — ' + missing + ' obligation(s) manquante(s) (reste en brouillon)' : '');
+
+      // Met à jour les liens de la popup
+      $('exp-saved-btn-liste').href = '<?= h(app_url('/bien_liste.php')) ?>?highlight=' + j.id_bien;
+      $('exp-saved-btn-annonce').href = '<?= h(app_url('/annonce_ajouter.php')) ?>?id_bien=' + j.id_bien + '&from=express';
+
+      // Si mode estimation → cache le bouton annonce
+      const isEstim = $('exp-transaction').value === 'estimation';
+      $('exp-saved-btn-annonce').style.display = isEstim ? 'none' : '';
+
+      // Affiche la popup
+      $('exp-saved-modal').style.display = 'flex';
     } catch (e) {
       alert('❌ ' + e.message);
-      btnA.disabled = false; btnB.disabled = false;
-      btnA.textContent = origA; btnB.textContent = origB;
+    } finally {
+      btns.forEach(b => { b.disabled = false; b.innerHTML = b.dataset.origText || '💾 Valider le bien'; });
     }
   }
-  $('exp-btn-save-only').addEventListener('click', () => finalizeAndRedirect('bien_only'));
-  $('exp-btn-save-annonce').addEventListener('click', () => finalizeAndRedirect('with_annonce'));
+  $('exp-btn-validate')?.addEventListener('click', finalizeBien);
+  $('exp-main-validate-btn')?.addEventListener('click', finalizeBien);
 
   // Init
   confUpdate();
