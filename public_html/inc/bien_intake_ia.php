@@ -81,17 +81,18 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure (null si absent) :
   },
 
   "_dpe": {
-    "dpe_classe": "A|B|C|D|E|F|G ou null",
-    "ges_classe": "A|B|C|D|E|F|G ou null",
-    "dpe_valeur": "nombre entier ou null",
-    "ges_valeur": "nombre entier ou null",
-    "dpe_valeur_conso_primaire": "nombre ou null",
-    "dpe_valeur_conso_finale": "nombre ou null",
+    "dpe_classe": "A|B|C|D|E|F|G ou null (si absent, déduis-le de la valeur DPE : A≤50, B≤90, C≤150, D≤230, E≤330, F≤450, G>450 kWhEP/m².an)",
+    "ges_classe": "A|B|C|D|E|F|G ou null (déduction : A≤5, B≤10, C≤20, D≤35, E≤55, F≤80, G>80 kgCO2/m².an)",
+    "dpe_valeur": "nombre entier (kWh EP/m²/an, consommation réelle) ou null",
+    "ges_valeur": "nombre entier (kg CO2/m²/an, émissions estimées) ou null",
+    "dpe_valeur_conso_primaire": "nombre entier (kWhEP TOTAL annuel, SOMME de toutes les énergies colonne 'Consommations en énergie primaire') ou null",
+    "dpe_valeur_conso_finale": "nombre entier (kWhEF TOTAL annuel, SOMME de toutes les énergies colonne 'Consommations en énergies finales') ou null",
+    "frais_annuels_energie": "nombre (€ TOTAL annuel, SOMME colonne 'Frais annuels d'énergie' + abonnements inclus) ou null",
     "date_indice_prix_energies": "YYYY-MM-DD ou null",
     "altitude": "nombre entier (m) ou null",
     "dpe_date_realisation": "YYYY-MM-DD ou null",
     "dpe_version": "2011|2021 ou null",
-    "dpe_vierge": "true|false",
+    "dpe_vierge": "true|false (true UNIQUEMENT si 'Indéterminée' / 'DPE vierge' explicite)",
     "dpe_reference_certificat": "string (n° ADEME) ou null",
     "montant_estime_depenses_min": "nombre ou null",
     "montant_estime_depenses_max": "nombre ou null"
@@ -116,13 +117,13 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure (null si absent) :
   },
 
   "_proprietaire": {
-    "_commentaire": "Adresse PERSONNELLE du propriétaire (siège social SCI, domicile particulier). Souvent DIFFÉRENTE de l'adresse du bien. Dans un mandat / DPE, elle apparaît dans une section dédiée 'Propriétaire', 'Mandant', 'Bailleur'.",
-    "nom": "string ou null",
+    "_commentaire": "PROPRIÉTAIRE RÉEL uniquement. NE JAMAIS extraire les noms d'agences / régies (REGIE EMERY, EMERY, Cabinet, Agence, Administrateur de biens, Syndic). Ces entités sont des MANDATAIRES, PAS les vrais bailleurs. Si le doc indique 'REGIE EMERY' comme propriétaire → mets nom=null. Extrais uniquement un particulier (Mr/Mme Dupont) ou une SCI/SARL réelle (SCI FOCH). Adresse = adresse PERSONNELLE du propriétaire (siège SCI, domicile particulier), jamais celle de l'agence.",
+    "nom": "string ou null (IGNORE : REGIE EMERY, EMERY, Agence, Cabinet, Régie, Administrateur, Syndic)",
     "prenom": "string ou null",
     "civilite": "M.|Mme|null",
     "type_personne": "physique|morale|null",
-    "societe": "string ou null (raison sociale si SCI/SARL)",
-    "adresse_1": "string ou null (adresse PERSONNELLE)",
+    "societe": "string ou null (raison sociale SCI/SARL réelle — jamais une régie/agence)",
+    "adresse_1": "string ou null (adresse PERSONNELLE du bailleur, pas celle de l'agence)",
     "code_postal": "string ou null",
     "ville": "string ou null",
     "email": "string ou null",
@@ -172,10 +173,25 @@ Si tu vois deux codes postaux différents dans le doc, c'est typique : un pour l
 Autres règles :
 - Pour "doc_type" : choisis le type le plus précis. Dossier complet contenant DPE+plomb+amiante etc → "dossier_diagnostics"
 - Pour "type_typologie" : T4 → nb_pieces=4
-- Pour "annee_construction" : "Avant 1948" → 1948
+- Pour "annee_construction" :
+    • "Avant 1948" / "< 1949" → 1948 (borne haute avant 1948)
+    • "Avant 1975" → 1975
+    • "Avant 2000" → 2000
+    • Toujours l'année de la borne haute (celle AVANT laquelle il est construit)
+- Pour "etage" : "RDC" / "Rez-de-chaussée" → 0, "1er" → 1, "2ème" → 2, etc.
 - Pour les booléens : true uniquement si confirmé ; false ou null sinon
 - Pour les dates au format jj/mm/yyyy, convertis en YYYY-MM-DD strict
-- Pour le propriétaire : extrais les infos seulement si elles apparaissent EXPLICITEMENT dans le doc
+- Pour "dpe_valeur_conso_finale" / "dpe_valeur_conso_primaire" / "frais_annuels_energie" :
+    SOMME les lignes si plusieurs énergies. Ex :
+    - Gaz 8283 kWhEF + Électricité 1200 kWhEF → dpe_valeur_conso_finale = 9483
+    - Frais : 482€ gaz + 187€ abonnement = 669€
+- Pour "chauffage_energie" : identifié dans la colonne "Moyenne annuelle des consommations" (ex : "Facture Gaz Naturel" → gaz)
+- Pour "menuiseries" : matériau DOMINANT des fenêtres (ignorer portes) ; "métal avec rupteur" → "aluminium" ; mixte → "mixte"
+- Pour le propriétaire :
+    • Extrais uniquement si un NOM RÉEL apparaît (personne physique ou SCI/SARL)
+    • ⚠️ IGNORE ABSOLUMENT : REGIE EMERY, EMERY, Cabinet EMERY, Agence EMERY, Agence immobilière, Régie, Cabinet, Administrateur de biens, Syndic, Gestionnaire — ce sont des MANDATAIRES, pas des propriétaires
+    • Si le doc indique comme propriétaire l'une de ces entités → nom=null (on ne connaît pas le vrai bailleur)
+    • Exemple valide : "Mr MICHELLIER-VINOUZE" → nom=MICHELLIER-VINOUZE ; "SCI FOCH" → societe=SCI FOCH
 - N'invente RIEN. Si tu n'es pas sûr, mets null.
 
 TEXTE DU DOCUMENT :

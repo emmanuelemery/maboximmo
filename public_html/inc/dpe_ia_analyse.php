@@ -79,10 +79,11 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure exacte (null si ab
   "_dpe": {
     "dpe_classe": "A|B|C|D|E|F|G ou null",
     "ges_classe": "A|B|C|D|E|F|G ou null",
-    "dpe_valeur": "nombre entier (kWh EP/m²/an) ou null",
-    "ges_valeur": "nombre entier (kg CO2/m²/an) ou null",
-    "dpe_valeur_conso_primaire": "nombre ou null",
-    "dpe_valeur_conso_finale": "nombre ou null",
+    "dpe_valeur": "nombre entier (kWh EP/m²/an, consommation réelle) ou null",
+    "ges_valeur": "nombre entier (kg CO2/m²/an, estimation des émissions) ou null",
+    "dpe_valeur_conso_primaire": "nombre (kWhEP total annuel — TOTAL de toutes les énergies cumulées, colonne 'Consommations en énergie primaire') ou null",
+    "dpe_valeur_conso_finale": "nombre (kWhEF total annuel — TOTAL de toutes les énergies cumulées, colonne 'Consommations en énergies finales') ou null",
+    "frais_annuels_energie": "nombre (€ total annuel, colonne 'Frais annuels d'énergie' — somme de toutes les lignes + abonnements inclus si indiqué) ou null",
     "dpe_date_realisation": "YYYY-MM-DD ou null",
     "dpe_version": "2011|2021 ou null (déduit de la date : avant 01/07/2021 → 2011)",
     "dpe_vierge": "true|false (true si la consommation est 'Indéterminée' ou marqué 'DPE vierge')",
@@ -91,6 +92,16 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure exacte (null si ab
     "date_indice_prix_energies": "YYYY-MM-DD ou null",
     "dpe_reference_certificat": "string (numéro ADEME) ou null",
     "altitude": "nombre ou null"
+  },
+  "_proprietaire": {
+    "proprio_nom": "Nom du PROPRIÉTAIRE RÉEL du bien (ex: 'MICHELLIER'). NE PAS mettre le nom de l'agence/régie (EMERY, REGIE EMERY, agence immobilière, cabinet, études) — si c'est écrit 'REGIE EMERY' comme propriétaire, mettre null car c'est l'agent mandataire pas le vrai bailleur.",
+    "proprio_prenom": "Prénom du propriétaire RÉEL ou null",
+    "proprio_societe": "Nom de la société SI le propriétaire est une personne morale (SCI, SARL…) MAIS JAMAIS une régie/agence/cabinet — sinon null",
+    "proprio_adresse_1": "Adresse postale du propriétaire ou null",
+    "proprio_code_postal": "string 5 chiffres ou null",
+    "proprio_ville": "string ou null",
+    "proprio_telephone": "string ou null",
+    "proprio_email": "string ou null"
   },
   "_chauffage_energie": {
     "chauffage_type": "individuel|collectif|null",
@@ -134,6 +145,18 @@ RÈGLES IMPORTANTES :
 - Pour "chauffage_energie" : extrais l'énergie PRINCIPALE (celle qui chauffe le plus) ; si mention "Gaz Naturel" → "gaz"
 - Pour "menuiseries" : matériau DOMINANT des fenêtres (ignorer les portes) ; si "métal avec rupteur" → "aluminium" ; si mixte → "mixte"
 - Pour "ventilation" : si "VMC Double Flux" mentionné, considère que c'est équipé VMC (utilisé par le bien)
+- Pour "dpe_valeur_conso_finale" / "dpe_valeur_conso_primaire" / "frais_annuels_energie" :
+    • Cherche les TOTAUX, pas les lignes détaillées. Si plusieurs énergies (Gaz + Électricité par exemple), SOMME les valeurs.
+    • Ex : "Gaz Naturel : 8 283 kWhEF" + "Électricité : 1 200 kWhEF" → dpe_valeur_conso_finale = 9483
+    • Pour frais_annuels_energie : ADDITIONNE tous les coûts annuels de toutes les lignes (abonnements inclus si indiqué "abonnement de XX € inclus")
+    • Ex : 482 € (gaz) + 187 € (abonnement) = 669 € total
+- Pour "proprio_*" (propriétaire RÉEL) :
+    • Lis la section "PROPRIÉTAIRE" ou "Nom du propriétaire"
+    • IGNORE et NE JAMAIS extraire les noms suivants comme propriétaires : REGIE EMERY, EMERY, Agence EMERY, Cabinet EMERY, EMERY Immobilier, Régie, Agence, Cabinet, Administrateur de biens, Syndic (ce sont des mandataires/gestionnaires, pas les vrais propriétaires)
+    • Si le doc indique "REGIE EMERY" comme propriétaire, mets proprio_nom = null (on ne peut pas déduire le vrai bailleur)
+    • Sinon extrais nom/prénom OU nom de société (SCI, SARL, SCP…) du propriétaire réel
+    • Exemple : "Mr et Mme MICHELLIER - VINOUZE" → proprio_nom=MICHELLIER, proprio_prenom=null (pas de prénom clair)
+    • Exemple : "SCI FOCH" → proprio_societe=SCI FOCH, proprio_nom=null
 - Pour "dpe_vierge" : si la consommation est "Indéterminée" ou marqué "DPE vierge" → true
 - Si DPE vierge, NE PAS inventer de classe DPE/GES — laisse à null
 - Pour "chauffage_energie" : si "Panneaux rayonnants" ou "convecteurs" → "electricite"
