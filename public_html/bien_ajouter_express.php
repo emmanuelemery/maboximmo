@@ -634,6 +634,17 @@ require_once __DIR__ . '/inc/header.php';
       </div>
     </div>
 
+    <!-- STEP 6 : Autres documents (bail, mandat, acte, fiche, divers) -->
+    <!-- Visible après création du brouillon uniquement (state.id_bien > 0). -->
+    <div class="exp-step locked" id="step-docs" style="display:none;">
+      <div class="num">6</div>
+      <h2>📎 Autres documents <span style="font-size:11px;color:#64748b;font-weight:400;">— optionnel</span></h2>
+      <div class="hint">Ajoutez bail, mandat, acte de propriété, fiche commerciale ou document divers avec extraction IA automatique. Choisissez le type via les onglets.</div>
+      <link rel="stylesheet" href="<?= h(app_url('/assets/css/document_uploader.css')) ?>">
+      <div id="exp-docs-uploader-container" style="margin-top:14px;"></div>
+      <script src="<?= h(app_url('/assets/js/document_uploader.js')) ?>"></script>
+    </div>
+
     <!-- STEP FINAL : Validation du bien -->
     <div class="exp-step" id="step-validate" style="background:linear-gradient(180deg,#f0fdf4,#fff);border-color:#86efac;">
       <div class="num" style="background:#16a34a;">✓</div>
@@ -1642,6 +1653,32 @@ require_once __DIR__ . '/inc/header.php';
   });
   $('exp-quartier').addEventListener('blur', () => setTimeout(() => { $('exp-quartier-suggest').style.display = 'none'; }, 150));
 
+  // ─── Initialisation du composant DocumentUploader (après création brouillon) ──
+  // N'est appelé qu'une fois — idBien persiste dans state.id_bien, le composant
+  // lie tous les uploads suivants au bon bien.
+  let expDocsUploader = null;
+  function initExpressDocsUploader(idBien) {
+    if (expDocsUploader !== null || !idBien) return;
+    const container = document.getElementById('exp-docs-uploader-container');
+    const step = document.getElementById('step-docs');
+    if (!container || typeof window.DocumentUploader !== 'function') return;
+    step.style.display = '';       // affiche la step
+    step.classList.remove('locked');
+    expDocsUploader = new window.DocumentUploader('exp-docs-uploader-container', {
+      context: 'bien',
+      idContexte: idBien,
+      endpoint: '<?= h(app_url('/api/bien_intake_upload.php')) ?>',
+      csrfToken: CSRF,
+      availableTypes: ['bail','mandat','titre','fiche','divers'], // DPE deja traite en step 1
+      defaultType: 'bail',
+      showValidationTable: true,
+      onSuccess: (data) => {
+        // Feedback visuel discret, pas de reload (reste sur le flow Express)
+        console.log('[Express] Document annexe uploadé', data.doc_type, data.document_id || data.bien_id);
+      },
+    });
+  }
+
   // ─── Création brouillon dès qu'on a assez d'infos ──
   let draftCreating = false;
   async function ensureDraftCreated() {
@@ -1665,6 +1702,9 @@ require_once __DIR__ . '/inc/header.php';
         $('exp-edit-detailed').style.display = 'inline-block';
         if (j.id_proprietaire) { state.id_proprietaire = j.id_proprietaire; $('exp-id-proprietaire').value = j.id_proprietaire; }
         markDone('step-ref'); markDone('step-bailleur');
+        // Une fois le brouillon créé, on débloque la step d'upload d'autres documents
+        // (bail, mandat, acte, fiche, divers) avec choix de type explicite.
+        initExpressDocsUploader(j.id_bien);
       } else {
         alert('Erreur création brouillon : ' + (j.error || 'inconnue'));
       }

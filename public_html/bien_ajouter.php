@@ -4975,18 +4975,32 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
           <div class="ba-card-body">
 
-            <!-- Zone upload unifiée -->
-            <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:18px;padding:14px;background:linear-gradient(180deg,rgba(14,165,233,0.06),var(--card));border:1px dashed #0ea5e9;border-radius:12px;">
-              <div class="ba-field" style="flex:1;margin:0;">
-                <label style="font-weight:700;color:#0369a1;">Importer un document (PDF)</label>
-                <div style="font-size:11px;color:#475569;margin:4px 0 8px;">Analyse IA automatique — détection du type : DPE, diagnostic, mandat…</div>
-                <input type="file" id="docs-upload-input" accept="application/pdf" multiple style="font-size:12px;">
-              </div>
-              <button type="button" id="docs-upload-btn" style="padding:10px 16px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">
-                ⚡ Analyser & importer
-              </button>
-            </div>
-            <div id="docs-upload-status" style="display:none;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;"></div>
+            <!-- Zone upload unifiée — composant DocumentUploader (choix de type explicite) -->
+            <link rel="stylesheet" href="<?= h(app_url('/assets/css/document_uploader.css')) ?>">
+            <div id="docs-uploader-container" style="margin-bottom:18px;padding:14px;background:linear-gradient(180deg,rgba(14,165,233,0.04),var(--card));border:1px solid #bae6fd;border-radius:12px;"></div>
+            <script src="<?= h(app_url('/assets/js/document_uploader.js')) ?>"></script>
+            <script>
+              (function() {
+                const bienIdForUpload = <?= (int)$editingBienId ?: 0 ?>;
+                const uploader = new DocumentUploader('docs-uploader-container', {
+                  context: 'bien',
+                  idContexte: bienIdForUpload || null,
+                  endpoint: '<?= h(app_url('/api/bien_intake_upload.php')) ?>',
+                  csrfToken: '<?= csrf_token('ajouter_bien') ?>',
+                  availableTypes: ['diag','bail','mandat','titre','fiche','divers'],
+                  defaultType: 'diag',
+                  showValidationTable: true,
+                  applyValueFn: window.__baApplyDpeValue || null, // fonction globale applyValue() de bien_ajouter.php
+                  onSuccess: (data) => {
+                    // Actualise la liste des documents après upload (idéal : reload partiel, simple : reload complet)
+                    if (data.bien_id && !bienIdForUpload) {
+                      // Premier upload a créé un brouillon : on recharge avec l'id
+                      setTimeout(() => location.href = 'bien_ajouter.php?edit=' + data.bien_id, 1500);
+                    }
+                  },
+                });
+              })();
+            </script>
 
             <!-- Listes groupées par catégorie -->
             <div id="docs-list">
