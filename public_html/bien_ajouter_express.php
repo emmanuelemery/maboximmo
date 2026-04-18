@@ -67,24 +67,120 @@ require_once __DIR__ . '/inc/header.php';
 ?>
 <?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
 
-<style>
-  :root { --sidebar-w: 220px; --conf-w: 320px; }
-  body.app-layout { margin: 0; }
-  .exp-main { margin-left: var(--sidebar-w); margin-right: var(--conf-w); min-height: 100vh; background: #f8fafc; }
-  @media (max-width: 1200px) { .exp-main { margin-right: 0; } .exp-conf-panel { display: none; } }
-  @media (max-width: 900px) { .exp-main { margin-left: 0; } }
-  .exp-wrap { max-width: 900px; margin: 0 auto; padding: 20px 20px 40px; }
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?= h(asset_url('/css/tokens.css')) ?>">
 
-  /* Topbar */
-  .exp-topbar { display:flex; align-items:center; gap:8px; padding: 10px 20px; background:#fff; border-bottom: 1px solid #e5e7eb; }
-  .exp-topbar-btn { width: 32px; height: 32px; border-radius: 8px; background: #f1f5f9; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #475569; font-family: inherit; }
-  .exp-topbar-btn:hover { background: #e2e8f0; color: #0f172a; }
-  .exp-breadcrumb { margin-left: 40px; font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px; }
-  .exp-breadcrumb a { color: #0369a1; text-decoration: none; }
-  .exp-breadcrumb a:hover { text-decoration: underline; }
-  .exp-breadcrumb .sep { color: #cbd5e1; }
-  .exp-breadcrumb .active { color: #0f172a; font-weight: 600; }
-  .exp-topbar-spacer { flex: 1; }
+<style>
+  /* ─── Variables charte V2 MaBoxImmo (alignées sur bien_ajouter.php) ─── */
+  :root {
+    --bg:        #f0ede8;
+    --card:      #e8e4de;
+    --ink:       #1a1816;
+    --muted:     #8a8680;
+    --accent:    #36577d;
+    --accent-2:  #f59e0b;
+    --accent-3:  #7a9060;
+    --stroke:    #d4d0ca;
+    --shadow-dark:  #c4c0ba;
+    --shadow-light: #ffffff;
+    --sidebar-w: 220px;
+    --topbar-h:  56px;
+    --conf-w:    320px;
+    --neu-out: 6px 6px 14px var(--shadow-dark), -6px -6px 14px var(--shadow-light);
+    --neu-in:  inset 4px 4px 10px var(--shadow-dark), inset -4px -4px 10px var(--shadow-light);
+  }
+  body {
+    font-family: 'Sora', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    margin: 0;
+  }
+
+  /* ─── MAIN + sidebar right offset ─── */
+  .mbi-main {
+    margin-left: var(--sidebar-w);
+    margin-right: var(--conf-w);
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  @media (max-width: 1200px) { .mbi-main { margin-right: 0; } .exp-conf-panel { display: none; } }
+  @media (max-width: 900px)  { .mbi-main { margin-left: 0; } }
+
+  /* ─── TOPBAR V2 (identique à bien_ajouter.php) ─── */
+  .mbi-topbar {
+    position: sticky; top: 0; height: var(--topbar-h);
+    background: var(--card);
+    box-shadow: 0 2px 8px var(--shadow-dark);
+    border-bottom: 1px solid var(--stroke);
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 24px; z-index: 50;
+  }
+  .topbar-nav-btn, .topbar-icon-btn {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: var(--bg); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--neu-out); color: var(--muted);
+    transition: box-shadow .18s; flex-shrink: 0;
+  }
+  .topbar-nav-btn:hover, .topbar-icon-btn:hover { box-shadow: var(--neu-in); color: var(--ink); }
+  .topbar-gap { width: 50px; flex-shrink: 0; }
+  .topbar-breadcrumb {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 500; color: var(--muted);
+  }
+  .topbar-breadcrumb a { color: var(--muted); text-decoration: none; transition: color .15s; }
+  .topbar-breadcrumb a:hover { color: var(--ink); }
+  .topbar-breadcrumb .sep { color: var(--stroke); }
+  .topbar-breadcrumb .active { color: var(--accent); font-weight: 600; }
+  .topbar-spacer { flex: 1; }
+  .topbar-avatar {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700;
+    box-shadow: var(--neu-out); flex-shrink: 0;
+  }
+  .topbar-id-badge {
+    font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace;
+    background: var(--bg); padding: 5px 12px; border-radius: 6px;
+    box-shadow: var(--neu-in); border: 1px solid var(--stroke);
+  }
+  .topbar-id-badge strong { color: var(--accent); }
+  .topbar-mode-link {
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    padding: 7px 14px; border-radius: 8px;
+    background: var(--bg); box-shadow: var(--neu-out);
+    text-decoration: none; transition: box-shadow .18s;
+    white-space: nowrap;
+  }
+  .topbar-mode-link:hover { box-shadow: var(--neu-in); }
+
+  /* ─── PAGE HEAD V2 ─── */
+  .page-head {
+    padding: 18px 28px 14px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    background: var(--bg);
+  }
+  .page-head-info { flex: 1; min-width: 0; }
+  .page-head-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; font-weight: 500;
+    letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--accent-3); margin-bottom: 4px;
+  }
+  .page-head-title { font-size: 22px; font-weight: 700; color: var(--ink); margin: 0 0 4px; }
+  .page-head-sub { font-size: 13px; color: var(--muted); }
+  .page-head-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .page-head-actions a { font-size: 12px; color: var(--accent); text-decoration: none; padding: 6px 12px; border-radius: 8px; background: var(--card); box-shadow: var(--neu-out); transition: box-shadow .18s; }
+  .page-head-actions a:hover { box-shadow: var(--neu-in); }
+
+  /* Container */
+  .mbi-container { padding: 20px 28px 80px; max-width: 1200px; width: 100%; }
 
   /* Panneau conformité à droite */
   .exp-conf-panel {
@@ -120,10 +216,7 @@ require_once __DIR__ . '/inc/header.php';
   .exp-btn-final.primary.warn { background: #f59e0b; }
   .exp-btn-final.secondary { background: #0ea5e9; color: #fff; }
   .exp-btn-final.secondary:hover:not(:disabled) { background: #0284c7; }
-  .exp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-  .exp-head h1 { margin: 0; font-size: 22px; color: #0f172a; }
-  .exp-head .sub { color: #64748b; font-size: 12px; margin-top: 2px; }
-  .exp-head a { font-size: 12px; color: #0369a1; }
+  /* .exp-head retiré — le titre est dans la topbar (breadcrumb) */
 
   .exp-step { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px 22px; margin-bottom: 14px;
               transition: opacity .3s, background .3s; position: relative; }
@@ -210,36 +303,33 @@ require_once __DIR__ . '/inc/header.php';
   .exp-modal h3 { margin: 0 0 10px; }
 </style>
 
-<main class="exp-main">
-  <!-- TOPBAR -->
-  <header class="exp-topbar">
-    <button type="button" class="exp-topbar-btn" onclick="history.back()" title="Retour">
+<main class="mbi-main">
+  <!-- TOPBAR V2 — tout compact : navigation, breadcrumb, badge ID, mode détaillé, avatar -->
+  <header class="mbi-topbar">
+    <button type="button" class="topbar-nav-btn" onclick="history.back()" title="Retour">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
     </button>
-    <button type="button" class="exp-topbar-btn" onclick="history.forward()" title="Avancer">
+    <button type="button" class="topbar-nav-btn" onclick="history.forward()" title="Avancer">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
     </button>
-    <nav class="exp-breadcrumb">
+    <div class="topbar-gap"></div>
+    <nav class="topbar-breadcrumb">
       <a href="<?= h(app_url('/bien_liste.php')) ?>">Biens</a>
       <span class="sep">›</span>
-      <span class="active">Créer un bien (Express)</span>
+      <span class="active">⚡ Créer un bien (Express)</span>
     </nav>
-    <div class="exp-topbar-spacer"></div>
-    <span id="exp-bien-id-badge" style="display:none;font-size:11px;color:#64748b;font-family:monospace;background:#f1f5f9;padding:4px 10px;border-radius:6px;">
-      #<span id="exp-topbar-idbien"></span> · <span id="exp-topbar-ref"></span>
+    <span id="exp-bien-id-badge" class="topbar-id-badge" style="display:none;margin-left:16px;">
+      #<span id="exp-topbar-idbien"></span> · <strong id="exp-topbar-ref"></strong>
     </span>
+    <div class="topbar-spacer"></div>
+    <a href="<?= h(app_url('/bien_ajouter.php')) ?>" class="topbar-mode-link" title="Basculer en formulaire détaillé complet">
+      🏛️ Mode détaillé
+    </a>
+    <?php $userIni = strtoupper(substr(trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? '')), 0, 1) ?: 'U'); ?>
+    <div class="topbar-avatar" title="<?= h(trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''))) ?>"><?= h($userIni) ?></div>
   </header>
 
-<div class="exp-wrap">
-  <div class="exp-head">
-    <div>
-      <h1>⚡ Créer un bien — Express</h1>
-      <div class="sub">Flow rapide avec IA et pré-remplissage automatique.</div>
-    </div>
-    <div>
-      <a href="<?= h(app_url('/bien_ajouter.php')) ?>">🏛️ Mode détaillé →</a>
-    </div>
-  </div>
+<div class="mbi-container">
 
   <form id="exp-form">
     <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
