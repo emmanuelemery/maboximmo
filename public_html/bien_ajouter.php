@@ -6029,17 +6029,36 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         );
 
         if (ok > 0) {
+          console.log('[Docs] Champs extraits :', allExtractedFields);
+          console.log('[Docs] ' + appliedCount + ' champs appliqués');
+          // Autosave FORCÉ et synchrone (POST direct, ne dépend pas du throttle interne)
           try {
-            if (typeof autoSave === 'function') {
-              await autoSave();
+            const form = document.getElementById('bien-create-form');
+            if (form && bienId !== '0') {
+              const saveFd = new FormData(form);
+              if (!saveFd.has('_edit_id')) saveFd.set('_edit_id', bienId);
+              if (!saveFd.has('csrf_token')) saveFd.append('csrf_token', window.__bi_csrf);
+              for (const k of [...saveFd.keys()]) {
+                const v = saveFd.get(k);
+                if (v instanceof File) saveFd.delete(k);
+              }
+              const saveResp = await fetch('<?= h(app_url("/api/bien_autosave.php")) ?>', {
+                method: 'POST', body: saveFd, credentials: 'same-origin'
+              });
+              const saveJ = await saveResp.json();
+              console.log('[Docs] Autosave forcé →', saveJ);
+              if (!saveJ || !saveJ.ok) {
+                alert('⚠️ Les champs n\'ont pas pu être sauvegardés : ' + (saveJ && saveJ.error ? saveJ.error : 'erreur inconnue'));
+              }
             }
-          } catch (_) {}
+          } catch (e) { console.error('[Docs] Erreur autosave :', e); }
+
           setTimeout(() => {
             try { if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState(); } catch (_) {}
             const url = new URL(window.location.href);
             url.hash = '#documents';
             window.location.href = url.toString();
-          }, 1100);
+          }, 400);
         }
       });
     }
@@ -7623,6 +7642,24 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
 
       // Champs spéciaux internes à ignorer (alertes affichées séparément)
       if (name.startsWith('_alerte_')) return false;
+
+      // Aliases courants (harmoniser les noms de champs)
+      const aliases = { 'proprio_adresse_1': 'proprio_adresse' };
+      if (aliases[name]) name = aliases[name];
+
+      // dpe_vierge : boolean → input hidden + sync mini-card bool
+      if (name === 'dpe_vierge') {
+        const hidden = document.querySelector('[name="dpe_vierge"]');
+        const v = (value === true || value === 'true' || value === 1 || value === '1') ? 1 : 0;
+        if (hidden) { hidden.value = v; }
+        document.querySelectorAll('.ba-mc-bool[data-field="dpe_vierge"]').forEach(c => {
+          const on = v === 1;
+          c.classList.toggle('is-selected', on);
+          const inp = c.querySelector('input[type="hidden"]');
+          if (inp) inp.value = v;
+        });
+        return true;
+      }
 
       // Cas spécial : palette DPE/GES
       if (name === 'dpe_classe' || name === 'ges_classe') {

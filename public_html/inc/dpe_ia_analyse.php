@@ -121,10 +121,19 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure exacte (null si ab
 
 RÈGLES IMPORTANTES :
 - Pour "type_bien" : un APPARTEMENT T4 → type_bien=appartement, type_typologie=T4
-- Pour "annee_construction" : si "Avant 1948" ou "< 1949" → 1948
+- Pour "annee_construction" : si "Avant 1948" ou "< 1949" → 1948, "Avant 1975" → 1975, etc. (prendre la borne haute)
 - Pour "nb_pieces" depuis un T4 : T1=1, T2=2, T3=3, T4=4, T5=5
 - Pour compter chambres/sdb/wc : utilise le tableau de mesurage Loi Boutin et compte les pièces explicitement nommées
 - Si surface séjour mentionnée comme "Séjour cuis", c'est OK pour surface_sejour
+- Pour "etage" : "RDC"/"Rez-de-chaussée"/"Rez de chaussée" → 0 ; "1er"/"1ère"/"Premier" → 1 ; "2ème"/"Deuxième" → 2 ; etc.
+- Pour "dpe_vierge" : true UNIQUEMENT si la consommation énergétique est "Indéterminée" / "Non renseignée" / le DPE est explicitement marqué "vierge" ; false si des valeurs chiffrées sont présentes
+- Pour "dpe_classe" / "ges_classe" : déduis la classe de la valeur si nécessaire :
+    • DPE : A(≤50), B(51-90), C(91-150), D(151-230), E(231-330), F(331-450), G(>450) kWhEP/m²/an
+    • GES : A(≤5), B(6-10), C(11-20), D(21-35), E(36-55), F(56-80), G(>80) kgCO2/m²/an
+- Pour "chauffage_type" : "individuel" si chaudière/radiateur/pompe à chaleur DANS le logement ; "collectif" si chauffage urbain/immeuble
+- Pour "chauffage_energie" : extrais l'énergie PRINCIPALE (celle qui chauffe le plus) ; si mention "Gaz Naturel" → "gaz"
+- Pour "menuiseries" : matériau DOMINANT des fenêtres (ignorer les portes) ; si "métal avec rupteur" → "aluminium" ; si mixte → "mixte"
+- Pour "ventilation" : si "VMC Double Flux" mentionné, considère que c'est équipé VMC (utilisé par le bien)
 - Pour "dpe_vierge" : si la consommation est "Indéterminée" ou marqué "DPE vierge" → true
 - Si DPE vierge, NE PAS inventer de classe DPE/GES — laisse à null
 - Pour "chauffage_energie" : si "Panneaux rayonnants" ou "convecteurs" → "electricite"

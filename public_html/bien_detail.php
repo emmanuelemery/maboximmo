@@ -6045,20 +6045,43 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         );
 
         if (ok > 0) {
-          // Autosave explicite pour persister les champs avant reload
+          console.log('[Docs] Champs extraits :', allExtractedFields);
+          console.log('[Docs] ' + appliedCount + ' champs appliqués au formulaire');
+
+          // ── Autosave FORCÉ + synchrone : POST direct, attend la réponse ──
+          // Ne dépend pas de autoSave() interne (qui peut skip si __autoSaving=true)
           try {
-            if (typeof autoSave === 'function') {
-              await autoSave();
-            } else if (typeof window.__baAutoSave === 'function') {
-              await window.__baAutoSave();
+            const form = document.getElementById('bien-create-form');
+            if (form && state && state.id_bien || bienId !== '0') {
+              const saveFd = new FormData(form);
+              // bien_autosave.php attend _edit_id
+              if (!saveFd.has('_edit_id')) saveFd.set('_edit_id', bienId);
+              if (!saveFd.has('csrf_token')) saveFd.append('csrf_token', window.__bi_csrf);
+              for (const k of [...saveFd.keys()]) {
+                const v = saveFd.get(k);
+                if (v instanceof File) saveFd.delete(k);
+              }
+              const saveResp = await fetch('<?= h(app_url("/api/bien_autosave.php")) ?>', {
+                method: 'POST', body: saveFd, credentials: 'same-origin'
+              });
+              const saveJ = await saveResp.json();
+              console.log('[Docs] Autosave forcé →', saveJ);
+              if (!saveJ || !saveJ.ok) {
+                console.error('[Docs] ÉCHEC autosave :', saveJ);
+                alert('⚠️ Attention : les champs n\'ont pas pu être sauvegardés. ' + (saveJ && saveJ.error ? saveJ.error : ''));
+              }
             }
-          } catch (_) {}
+          } catch (e) {
+            console.error('[Docs] Erreur autosave :', e);
+          }
+
+          // Reload avec un délai de sécurité plus long (laisser le temps à la BDD)
           setTimeout(() => {
             try { if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState(); } catch (_) {}
             const url = new URL(window.location.href);
             url.hash = '#documents';
             window.location.href = url.toString();
-          }, 1100);
+          }, 400);
         }
       });
     }
@@ -7642,6 +7665,28 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
 
       // Champs spéciaux internes à ignorer (alertes affichées séparément)
       if (name.startsWith('_alerte_')) return false;
+
+      // ── Aliases / normalisation : l'IA peut renvoyer des noms différents ──
+      // On essaye d'abord d'appliquer tel quel ; si échec, on teste les alias
+      const aliases = {
+        'proprio_adresse_1': 'proprio_adresse',  // compat prompt IA mandat
+      };
+      if (aliases[name]) name = aliases[name];
+
+      // dpe_vierge : boolean → peut être un bouton ou checkbox
+      if (name === 'dpe_vierge') {
+        const hidden = document.querySelector('[name="dpe_vierge"]');
+        const v = (value === true || value === 'true' || value === 1 || value === '1') ? 1 : 0;
+        if (hidden) { hidden.value = v; }
+        // Sync mini-card bool
+        document.querySelectorAll('.ba-mc-bool[data-field="dpe_vierge"]').forEach(c => {
+          const on = v === 1;
+          c.classList.toggle('is-selected', on);
+          const inp = c.querySelector('input[type="hidden"]');
+          if (inp) inp.value = v;
+        });
+        return true;
+      }
 
       // Cas spécial : palette DPE/GES
       if (name === 'dpe_classe' || name === 'ges_classe') {
