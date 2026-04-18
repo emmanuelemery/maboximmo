@@ -4512,7 +4512,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             </div>
             <div class="ba-subtabs" id="dpeSubtabs">
               <button type="button" class="ba-subtab active" data-sub="dpe-main">⚡ DPE</button>
-              <button type="button" class="ba-subtab" data-sub="dpe-docs">📄 Documents</button>
               <button type="button" class="ba-subtab" data-sub="dpe-erp">🌍 ERP / Géorisques</button>
             </div>
           </div>
@@ -4625,76 +4624,9 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             </div>
           </div><!-- /sous-onglet dpe-main -->
 
-          <!-- ═══ SOUS-ONGLET 2 : Documents ═══ -->
-          <div class="ba-subpanel" data-sub-panel="dpe-docs" style="display:none;">
+          <!-- Sous-onglet "Documents" retiré ici — centralisé dans l'onglet principal "Documents" -->
 
-            <!-- Upload avec analyse IA -->
-            <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:18px;">
-              <div class="ba-field" style="flex:1;margin:0;">
-                <label>Importer un diagnostic (PDF) — analyse IA automatique</label>
-                <input type="file" id="diag-upload-input" accept="application/pdf" multiple style="font-size:12px;">
-              </div>
-              <button type="button" id="diag-upload-btn" style="padding:8px 14px;border-radius:8px;background:#1f6f7a;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">
-                ⚡ Analyser & ajouter
-              </button>
-            </div>
-            <div id="diag-upload-status" style="display:none;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;"></div>
-
-            <!-- Liste des documents existants -->
-            <div id="diag-list">
-            <?php if ($isEditing):
-              $stmtAllDiags = $pdo->prepare("
-                SELECT id, type_diag, date_diagnostic, dpe_classe, ges_classe, dpe_vierge, numero_ademe,
-                       fichier_url, nom_fichier_original, taille_fichier_octets,
-                       diagnostiqueur_nom, diagnostiqueur_societe,
-                       alerte_plomb_present, alerte_amiante_present,
-                       alerte_electricite_anomalies, alerte_gaz_anomalies, alerte_termites, alerte_zone_georisque,
-                       extraction_method, extraction_score, resume_bailleur, date_creation
-                FROM dpe_diags WHERE id_bien = ? ORDER BY id DESC
-              ");
-              $stmtAllDiags->execute([$editingBienId]);
-              $allDiags = $stmtAllDiags->fetchAll(PDO::FETCH_ASSOC);
-            ?>
-            <?php if (!empty($allDiags)): ?>
-              <div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;"><?= count($allDiags) ?> document(s)</div>
-              <?php foreach ($allDiags as $diag):
-                $diagUrl = function_exists('app_url') && !empty($diag['fichier_url']) ? app_url($diag['fichier_url']) : ($diag['fichier_url'] ?? '');
-                $hasAlerts = $diag['alerte_plomb_present'] || $diag['alerte_amiante_present'] || $diag['alerte_electricite_anomalies'] || $diag['alerte_gaz_anomalies'] || $diag['alerte_termites'] || $diag['alerte_zone_georisque'];
-              ?>
-              <div class="diag-row" data-diag-id="<?= (int)$diag['id'] ?>" style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:#f8f8f6;border-radius:10px;margin-bottom:6px;">
-                <div style="flex:1;min-width:0;">
-                  <div style="font-weight:700;font-size:13px;color:#1a1816;">
-                    📄 <?= h($diag['nom_fichier_original'] ?: 'Diagnostic') ?>
-                    <?php if ($diag['extraction_method'] && $diag['extraction_method'] !== 'manuel'): ?>
-                    <span style="padding:2px 6px;border-radius:99px;background:#e0e7ff;color:#4338ca;font-size:9px;font-weight:700;">🧠 IA <?= (int)$diag['extraction_score'] ?>%</span>
-                    <?php endif; ?>
-                  </div>
-                  <div style="font-size:11px;color:#888;margin-top:2px;">
-                    <?= h(ucfirst(str_replace('_', ' ', $diag['type_diag'] ?? 'autre'))) ?>
-                    <?= $diag['date_diagnostic'] ? ' • ' . h(date('d/m/Y', strtotime((string)$diag['date_diagnostic']))) : '' ?>
-                    <?= $diag['dpe_classe'] ? ' • DPE ' . h($diag['dpe_classe']) : '' ?>
-                    <?= $diag['ges_classe'] ? ' • GES ' . h($diag['ges_classe']) : '' ?>
-                    <?= $diag['taille_fichier_octets'] ? ' • ' . round($diag['taille_fichier_octets']/1024) . ' Ko' : '' ?>
-                    <?= $hasAlerts ? ' • <span style="color:#dc2626;">⚠️ Alertes</span>' : '' ?>
-                  </div>
-                </div>
-                <div style="display:flex;gap:6px;flex-shrink:0;">
-                  <?php if ($diagUrl): ?>
-                  <a href="<?= h($diagUrl) ?>" target="_blank" style="padding:5px 10px;background:#1f6f7a;color:#fff;text-decoration:none;border-radius:6px;font-size:10px;font-weight:700;">🔍 Voir</a>
-                  <?php endif; ?>
-                  <button type="button" class="diag-delete-btn" data-id="<?= (int)$diag['id'] ?>" style="padding:5px 10px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;">🗑 Supprimer</button>
-                </div>
-              </div>
-              <?php endforeach; ?>
-            <?php else: ?>
-              <div style="text-align:center;padding:20px;color:#888;font-size:13px;">Aucun diagnostic importé. Utilisez le bouton ci-dessus pour analyser un PDF.</div>
-            <?php endif; ?>
-            <?php endif; ?>
-            </div>
-
-          </div><!-- /sous-onglet dpe-docs -->
-
-          <!-- ═══ SOUS-ONGLET 3 : ERP / Géorisques ═══ -->
+          <!-- ═══ SOUS-ONGLET 2 : ERP / Géorisques ═══ -->
           <div class="ba-subpanel" data-sub-panel="dpe-erp" style="display:none;">
             <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px;margin-bottom:14px;">
               <?= boolMcCard('zone_georisque','🌍','Zone Géorisques') ?>

@@ -35,8 +35,11 @@ try {
 // ── Prochaines AG ───────────────────────────────────────────────────
 try {
     $ag_q = $pdo->prepare("
-        SELECT i.id, i.reference_immeuble AS reference, i.nom_immeuble AS nom,
-               i.ville, i.nb_lots, ii.date_ag_prochaine AS date_ag
+        SELECT i.id, i.reference_immeuble AS reference,
+               COALESCE(NULLIF(i.nom_immeuble, ''), NULLIF(i.reference_immeuble, ''), NULLIF(i.adresse_1, ''), CONCAT('Immeuble #', i.id)) AS nom,
+               i.ville,
+               (SELECT COUNT(*) FROM biens b WHERE b.id_immeuble = i.id) AS nb_lots,
+               ii.date_ag_prochaine AS date_ag
         FROM immeubles i
         JOIN immeubles_infos ii ON ii.id_immeuble = i.id
         " . ($where_etab ? $where_etab . " AND ii.date_ag_prochaine BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY)" : "WHERE ii.date_ag_prochaine BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY)") . "
@@ -49,7 +52,9 @@ try {
 // ── Immeubles sans fiche ────────────────────────────────────────────
 try {
     $sf_q = $pdo->prepare("
-        SELECT i.id, i.reference_immeuble AS reference, i.nom_immeuble AS nom, i.ville
+        SELECT i.id, i.reference_immeuble AS reference,
+               COALESCE(NULLIF(i.nom_immeuble, ''), NULLIF(i.reference_immeuble, ''), NULLIF(i.adresse_1, ''), CONCAT('Immeuble #', i.id)) AS nom,
+               i.ville
         FROM immeubles i
         LEFT JOIN immeubles_infos ii ON ii.id_immeuble = i.id
         " . ($where_etab ? $where_etab . " AND ii.id IS NULL" : "WHERE ii.id IS NULL") . "
@@ -60,10 +65,15 @@ try {
 } catch (Exception $e) { $sans_fiche = []; }
 
 // ── Derniers immeubles ──────────────────────────────────────────────
+// Nom : fallback cascadé (nom_immeuble → reference_immeuble → adresse_1 → "Immeuble #id")
+// Lots : COUNT réel (biens liés), pas la colonne dénormalisée i.nb_lots
 try {
     $rec_q = $pdo->prepare("
-        SELECT i.id, i.reference_immeuble AS reference, i.nom_immeuble AS nom,
-               i.ville, i.nb_lots, i.date_creation
+        SELECT i.id, i.reference_immeuble AS reference,
+               COALESCE(NULLIF(i.nom_immeuble, ''), NULLIF(i.reference_immeuble, ''), NULLIF(i.adresse_1, ''), CONCAT('Immeuble #', i.id)) AS nom,
+               i.ville,
+               (SELECT COUNT(*) FROM biens b WHERE b.id_immeuble = i.id) AS nb_lots,
+               i.date_creation
         FROM immeubles i " . ($where_etab ?: '') . "
         ORDER BY i.date_creation DESC LIMIT 6
     ");
