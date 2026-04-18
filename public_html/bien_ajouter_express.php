@@ -258,7 +258,11 @@ require_once __DIR__ . '/inc/header.php';
         <div class="exp-field"><label>Surface m²</label><input type="number" step="0.01" name="surface_habitable" id="exp-surface"></div>
         <div class="exp-field"><label>Pièces</label><input type="number" name="nb_pieces" id="exp-nbp"></div>
         <div class="exp-field"><label>Chambres</label><input type="number" name="nb_chambres" id="exp-nbc"></div>
-        <div class="exp-field"><label>Année const.</label><input type="number" name="annee_construction" id="exp-annee"></div>
+        <div class="exp-field">
+          <label>Année const.</label>
+          <input type="number" name="annee_construction" id="exp-annee" min="1800" max="2099" placeholder="ex: 1975">
+          <div id="exp-annee-hint" style="font-size:10px;color:#64748b;margin-top:3px;min-height:12px;line-height:1.3;"></div>
+        </div>
       </div>
       <div class="exp-row">
         <div class="exp-field"><label>DPE classe</label><input type="text" name="dpe_classe" id="exp-dpe-cl" maxlength="1"></div>
@@ -353,13 +357,31 @@ require_once __DIR__ . '/inc/header.php';
         <div class="exp-chip" data-val="vis_a_vis">🏢 Vis-à-vis</div>
       </div>
 
-      <div class="exp-field">
+      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Distance transports</label>
+      <div class="exp-chips" data-env="dist_transports" data-multi="0" style="margin-bottom:12px;">
+        <div class="exp-chip" data-val="immediat">🚇 Immédiat (&lt;2min)</div>
+        <div class="exp-chip" data-val="proche">🚶 Proche (2-5min)</div>
+        <div class="exp-chip" data-val="moyen">🚶‍♂️ Moyen (5-10min)</div>
+        <div class="exp-chip" data-val="eloigne">🚗 Éloigné (&gt;10min)</div>
+        <div class="exp-chip" data-val="voiture">🚙 Voiture requise</div>
+      </div>
+
+      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Distance commerces</label>
+      <div class="exp-chips" data-env="dist_commerces" data-multi="0" style="margin-bottom:12px;">
+        <div class="exp-chip" data-val="immediat">🛒 Immédiat (&lt;2min)</div>
+        <div class="exp-chip" data-val="proche">🛍️ Proche (2-5min)</div>
+        <div class="exp-chip" data-val="moyen">🏪 Moyen (5-10min)</div>
+        <div class="exp-chip" data-val="eloigne">🛣️ Éloigné (&gt;10min)</div>
+      </div>
+
+      <div class="exp-field" style="position:relative;">
         <label>Quartier (important SEO local)</label>
-        <input type="text" name="quartier" id="exp-quartier" placeholder="ex: Antigone, centre-ville…">
+        <input type="text" name="quartier" id="exp-quartier" autocomplete="off" placeholder="ex: Antigone, Part-Dieu, Le Marais…">
+        <div id="exp-quartier-suggest" style="display:none;position:absolute;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.08);max-height:200px;overflow-y:auto;z-index:100;width:100%;margin-top:2px;"></div>
       </div>
       <div class="exp-field">
-        <label>Points d'intérêt proches</label>
-        <input type="text" name="points_interet" id="exp-poi" placeholder="ex: tram ligne 1 à 200m, école Jules Ferry">
+        <label>Points d'intérêt supplémentaires (optionnel)</label>
+        <input type="text" name="points_interet" id="exp-poi" placeholder="ex: école Jules Ferry à 200m, parc proche">
       </div>
       <div class="exp-field">
         <label>Argument phare (1 phrase)</label>
@@ -439,9 +461,23 @@ require_once __DIR__ . '/inc/header.php';
     id_bien: 0,
     id_proprietaire: 0,
     ref: '',
-    env: { exposition: '', vue: [], ambiance: [], nuisances: [] },
+    env: { exposition: '', vue: [], ambiance: [], nuisances: [], dist_transports: '', dist_commerces: '' },
     generated: null,
     photos: [],
+  };
+
+  // Quartiers connus des grandes villes françaises (liste courte, à étendre dans une table plus tard)
+  const QUARTIERS = {
+    'lyon': ['1er arrondissement','2e arrondissement','3e arrondissement (Part-Dieu)','4e arrondissement (Croix-Rousse)','5e arrondissement (Vieux Lyon)','6e arrondissement (Brotteaux)','7e arrondissement (Guillotière/Gerland)','8e arrondissement (Monplaisir)','9e arrondissement (Vaise)','Confluence','Presqu\'île','Terreaux','Perrache','Montchat','Tête d\'Or'],
+    'paris': ['1er arr. (Louvre)','2e arr. (Bourse)','3e arr. (Marais)','4e arr. (Île Saint-Louis)','5e arr. (Quartier latin)','6e arr. (Saint-Germain)','7e arr. (Invalides)','8e arr. (Champs-Élysées)','9e arr. (Opéra)','10e arr. (République)','11e arr. (Bastille)','12e arr. (Bercy)','13e arr. (Place d\'Italie)','14e arr. (Montparnasse)','15e arr.','16e arr. (Passy)','17e arr. (Batignolles)','18e arr. (Montmartre)','19e arr. (Buttes-Chaumont)','20e arr. (Belleville)'],
+    'marseille': ['1er arr. (Belsunce)','2e arr. (Joliette)','3e arr.','4e arr. (La Blancarde)','5e arr. (Baille)','6e arr. (Préfecture)','7e arr. (Vieux-Port)','8e arr. (Prado/Corniche)','9e arr. (Mazargues)','10e arr. (Saint-Loup)','11e arr. (Saint-Marcel)','12e arr. (Les Caillols)','13e arr. (Château-Gombert)','14e arr. (Saint-Antoine)','15e arr.','16e arr. (L\'Estaque)'],
+    'montpellier': ['Centre historique (Écusson)','Antigone','Port Marianne','Beaux-Arts','Les Aubes','Les Arceaux','Boutonnet','Figuerolles','La Paillade','Mosson','Malbosc','Celleneuve','Hôpitaux-Facultés','Les Cévennes','Prés d\'Arènes','Estanove','Ovalie','Parc Marianne'],
+    'toulouse': ['Capitole','Carmes','Saint-Étienne','Saint-Aubin','Saint-Cyprien','Compans-Caffarelli','Minimes','Côte Pavée','Rangueil','Jolimont','Basso Cambo','Purpan','Blagnac (voisine)','Lardenne','Les Chalets'],
+    'nice': ['Vieux Nice','Carré d\'Or','Cimiez','Port','Musiciens','Libération','Riquier','Saint-Roch','Magnan','Fabron','L\'Ariane','Saint-Isidore'],
+    'bordeaux': ['Chartrons','Saint-Pierre','Saint-Michel','Victoire','Bacalan','Caudéran','Grand Parc','Les Aubiers','La Bastide','Saint-Jean','Nansouty'],
+    'nantes': ['Centre-ville','Île de Nantes','Bouffay','Graslin','Dervallières','Zola','Chantenay','Doulon','Erdre','Malakoff','Bellevue'],
+    'strasbourg': ['Centre','Neustadt','Krutenau','Petite France','Robertsau','Neuhof','Hautepierre','Cronenbourg','Koenigshoffen','Wacken'],
+    'lille': ['Vieux-Lille','Centre','Wazemmes','Moulins','Saint-Maurice Pellevoisin','Vauban-Esquermes','Fives','Bois-Blancs','Lille-Sud','Faubourg de Béthune'],
   };
 
   // ─── Conformité (simple) ──
@@ -662,7 +698,7 @@ require_once __DIR__ . '/inc/header.php';
     });
   });
 
-  // ─── STEP 5 : photos upload ──
+  // ─── STEP 5 : photos upload + delete ──
   const photoDrop = $('exp-photos-drop');
   const photoInput = $('exp-photos-input');
   photoDrop.addEventListener('click', () => photoInput.click());
@@ -673,18 +709,56 @@ require_once __DIR__ . '/inc/header.php';
     if (e.dataTransfer.files.length) { photoInput.files = e.dataTransfer.files; photoInput.dispatchEvent(new Event('change')); }
   });
   photoInput.addEventListener('change', async () => {
+    const files = Array.from(photoInput.files);
+    photoInput.value = ''; // reset immédiat pour accepter nouveaux uploads même avant fin du batch
+    if (!files.length) return;
+    // S'assurer qu'on a un brouillon AVANT de démarrer les uploads
     await ensureDraftCreated();
-    for (const f of photoInput.files) await uploadOnePhoto(f);
-    photoInput.value = '';
+    if (!state.id_bien) { alert('Impossible de créer le brouillon. Vérifiez les champs critiques.'); return; }
+    // Upload séquentiel pour éviter de surcharger le serveur
+    for (const f of files) await uploadOnePhoto(f);
   });
+  function updatePhotoCount() {
+    $('exp-photo-count').textContent = state.photos.length;
+  }
+  function renderPhotoThumb(p) {
+    const thumb = document.createElement('div');
+    thumb.className = 'exp-photo-thumb';
+    thumb.dataset.photoId = p.id;
+    thumb.innerHTML = `
+      <img src="${p.url || ''}" alt="">
+      ${p.categorie ? `<div class="cat">${p.categorie.replace(/_/g,' ')}</div>` : ''}
+      ${p.description ? `<div class="status">${p.description.substring(0,60)}…</div>` : ''}
+      <button type="button" class="exp-photo-del" title="Supprimer"
+              style="position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(220,38,38,.95);color:#fff;border:none;font-weight:700;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.25);">✕</button>
+    `;
+    thumb.querySelector('.exp-photo-del').addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Supprimer cette photo ?')) return;
+      const btn = ev.currentTarget; btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const fd = new FormData();
+        fd.append('csrf_token', CSRF);
+        fd.append('id_photo', String(p.id));
+        const r = await fetch('<?= h(app_url('/api/bien_photo_delete.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
+        const j = await r.json();
+        if (j.ok) {
+          state.photos = state.photos.filter(x => x.id !== p.id);
+          thumb.remove(); updatePhotoCount();
+        } else {
+          alert('Erreur : ' + (j.error || 'inconnue')); btn.disabled = false; btn.textContent = '✕';
+        }
+      } catch (e) { alert('Réseau : ' + e.message); btn.disabled = false; btn.textContent = '✕'; }
+    });
+    return thumb;
+  }
   async function uploadOnePhoto(file) {
     if (!state.id_bien) return;
-    const tempId = 't_' + Date.now() + '_' + Math.random();
     const grid = $('exp-photo-grid');
-    const thumb = document.createElement('div');
-    thumb.className = 'exp-photo-thumb'; thumb.id = tempId;
-    thumb.innerHTML = '<div class="status">⏳ Upload…</div>';
-    grid.appendChild(thumb);
+    const placeholder = document.createElement('div');
+    placeholder.className = 'exp-photo-thumb';
+    placeholder.innerHTML = '<div class="status">⏳ ' + (file.name || 'upload') + '…</div>';
+    grid.appendChild(placeholder);
     try {
       const fd = new FormData();
       fd.append('fichier', file);
@@ -693,15 +767,67 @@ require_once __DIR__ . '/inc/header.php';
       const r = await fetch('<?= h(app_url('/api/bien_intake_photo_upload.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
       const j = await r.json();
       if (j.ok) {
-        thumb.innerHTML = `<img src="${j.url || ''}" alt="">
-          ${j.categorie ? `<div class="cat">${j.categorie.replace(/_/g,' ')}</div>` : ''}
-          ${j.description ? `<div class="status">${j.description.substring(0,60)}…</div>` : ''}`;
-        state.photos.push({ id: j.id, url: j.url, categorie: j.categorie, description: j.description });
+        const photo = { id: j.id, url: j.url, categorie: j.categorie, description: j.description };
+        state.photos.push(photo);
+        placeholder.replaceWith(renderPhotoThumb(photo));
+        updatePhotoCount();
       } else {
-        thumb.innerHTML = '<div class="status" style="background:#dc2626;">❌ ' + (j.error || 'err') + '</div>';
+        placeholder.innerHTML = '<div class="status" style="background:#dc2626;">❌ ' + (j.error || 'err') + '</div>';
+        setTimeout(() => placeholder.remove(), 3500);
       }
-    } catch (e) { thumb.innerHTML = '<div class="status" style="background:#dc2626;">❌ réseau</div>'; }
+    } catch (e) {
+      placeholder.innerHTML = '<div class="status" style="background:#dc2626;">❌ réseau</div>';
+      setTimeout(() => placeholder.remove(), 3500);
+    }
   }
+
+  // ─── Année construction : affiche la période (encadrement loyers + RT) ──
+  $('exp-annee').addEventListener('input', () => {
+    const y = parseInt($('exp-annee').value, 10);
+    const hint = $('exp-annee-hint');
+    if (!y || y < 1800 || y > 2099) { hint.textContent = ''; return; }
+    // Catégorie encadrement loyers
+    let enc = '';
+    if (y < 1946)        enc = 'Avant 1946';
+    else if (y <= 1970)  enc = '1946-1970';
+    else if (y <= 1990)  enc = '1971-1990';
+    else                 enc = 'Après 1990';
+    // Réglementation thermique
+    let rt = '';
+    if (y < 1974)        rt = 'Avant RT';
+    else if (y < 1989)   rt = 'RT 1974';
+    else if (y < 2001)   rt = 'RT 1989';
+    else if (y < 2006)   rt = 'RT 2000';
+    else if (y < 2013)   rt = 'RT 2005';
+    else if (y < 2022)   rt = 'RT 2012';
+    else                 rt = 'RE 2020';
+    hint.innerHTML = `<span style="color:#6a4ca8;">📊 Encadrement : <strong>${enc}</strong></span> • <span style="color:#0369a1;">⚡ ${rt}</span>`;
+  });
+
+  // ─── Quartier autocomplete ──
+  $('exp-quartier').addEventListener('input', () => {
+    const v = $('exp-quartier').value.trim().toLowerCase();
+    const ville = ($('exp-ville').value || '').trim().toLowerCase();
+    const sug = $('exp-quartier-suggest');
+    sug.innerHTML = '';
+    if (!ville || !QUARTIERS[ville]) { sug.style.display = 'none'; return; }
+    const matches = QUARTIERS[ville].filter(q => q.toLowerCase().includes(v));
+    if (!matches.length || v === '') { sug.style.display = 'none'; return; }
+    matches.slice(0, 8).forEach(q => {
+      const d = document.createElement('div');
+      d.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9;';
+      d.textContent = q;
+      d.addEventListener('mouseenter', () => d.style.background = '#f1f5f9');
+      d.addEventListener('mouseleave', () => d.style.background = '');
+      d.addEventListener('click', () => {
+        $('exp-quartier').value = q;
+        sug.style.display = 'none';
+      });
+      sug.appendChild(d);
+    });
+    sug.style.display = 'block';
+  });
+  $('exp-quartier').addEventListener('blur', () => setTimeout(() => { $('exp-quartier-suggest').style.display = 'none'; }, 150));
 
   // ─── Création brouillon dès qu'on a assez d'infos ──
   let draftCreating = false;
