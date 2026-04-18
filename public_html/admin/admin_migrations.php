@@ -130,6 +130,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'apply
 
 $csrf = csrf_token('admin_migrations');
 
+// Détection environnement : dev.maboximmo.fr → on affiche le bouton "Déployer sur prod"
+$host = (string)($_SERVER['HTTP_HOST'] ?? '');
+$isDevEnv = str_contains($host, 'dev.') || str_contains($host, 'localhost') || str_contains($host, '127.0.0.1');
+$prodUrl  = 'https://maboximmo.fr/admin/admin_migrations.php';
+$ghPrUrl  = 'https://github.com/PIEM99/maboximmo/compare/main...develop?expand=1';
+
 $appLayout = true;
 $pageTitle = 'Migrations BDD';
 $bodyClass = '';
@@ -220,7 +226,7 @@ require_once __DIR__ . '/../inc/header.php';
 <?= htmlspecialchars((string)$row['error_log']) ?></div>
         <?php endif; ?>
 
-        <div class="mig-actions" style="margin-top: 12px;">
+        <div class="mig-actions" style="margin-top: 12px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
           <form method="post" onsubmit="return confirm('Appliquer cette migration ?');" style="display:inline;">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
             <input type="hidden" name="action" value="apply">
@@ -229,6 +235,17 @@ require_once __DIR__ . '/../inc/header.php';
               <?= $status === 'pending' ? '🚀 Appliquer' : '↻ Rejouer (additif)' ?>
             </button>
           </form>
+
+          <?php if ($isDevEnv && $status === 'applied'): ?>
+            <button type="button" class="mig-btn deploy-prod"
+                    data-migration-id="<?= htmlspecialchars($id) ?>"
+                    data-migration-title="<?= htmlspecialchars((string)$mig['title']) ?>"
+                    style="background:#c87870;">📤 Déployer sur maboximmo.fr (prod)</button>
+          <?php elseif (!$isDevEnv && $status === 'pending'): ?>
+            <span style="font-size:11px;color:#0369a1;background:#f0f9ff;padding:4px 10px;border-radius:6px;border:1px solid #bae6fd;">
+              🎯 Environnement prod — cliquer Appliquer après validation sur dev
+            </span>
+          <?php endif; ?>
         </div>
       </div>
     <?php endforeach; ?>
@@ -237,7 +254,74 @@ require_once __DIR__ . '/../inc/header.php';
   <p style="margin-top: 24px; font-size: 10px; color: #94a3b8;">
     Les migrations sont additives (<code>IF NOT EXISTS</code>) et peuvent être rejouées sans casse.
     Base : <?= htmlspecialchars(defined('DB_NAME') ? DB_NAME : '?') ?> • Hôte : <?= htmlspecialchars(defined('DB_HOST') ? DB_HOST : '?') ?>
+    <?php if ($isDevEnv): ?>
+      <span style="color:#c87870;font-weight:700;">• Environnement DEV</span>
+    <?php else: ?>
+      <span style="color:#0369a1;font-weight:700;">• Environnement PROD</span>
+    <?php endif; ?>
   </p>
 </div>
+
+<!-- Modal : Déployer sur prod -->
+<div id="deploy-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;max-width:580px;width:calc(100% - 40px);padding:24px;">
+    <h3 style="margin:0 0 10px;color:#0f172a;">📤 Déployer sur <span style="color:#c87870;">maboximmo.fr</span></h3>
+    <p style="font-size:12px;color:#475569;line-height:1.5;margin:0 0 12px;">
+      Migration : <strong id="deploy-mig-title">—</strong><br>
+      <code id="deploy-mig-id" style="font-size:11px;color:#64748b;"></code>
+    </p>
+    <div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:10px 14px;border-radius:8px;font-size:12px;color:#92400e;margin-bottom:16px;">
+      ⚠️ Le déploiement prod se fait en <strong>deux étapes</strong> — dans l'ordre.
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <span style="width:24px;height:24px;border-radius:50%;background:#0ea5e9;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">1</span>
+        <strong style="font-size:13px;">Pousser le code sur la branche <code>main</code></strong>
+      </div>
+      <div style="font-size:12px;color:#475569;margin-left:34px;margin-bottom:6px;">
+        Ouvre une Pull Request GitHub <code>develop → main</code>. Une fois mergée, le workflow <code>deploy-prod.yml</code> déploie le code sur maboximmo.fr automatiquement (1-2 min).
+      </div>
+      <a id="deploy-pr-link" href="<?= htmlspecialchars($ghPrUrl) ?>" target="_blank" rel="noopener"
+         style="display:inline-block;margin-left:34px;padding:6px 12px;border-radius:6px;background:#24292f;color:#fff;font-size:11px;text-decoration:none;font-weight:700;">
+        🔗 Ouvrir la PR GitHub (develop → main)
+      </a>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <span style="width:24px;height:24px;border-radius:50%;background:#0ea5e9;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">2</span>
+        <strong style="font-size:13px;">Appliquer la migration SQL sur prod</strong>
+      </div>
+      <div style="font-size:12px;color:#475569;margin-left:34px;margin-bottom:6px;">
+        Ouvre la page Migrations BDD sur <code>maboximmo.fr</code> et clique 🚀 Appliquer sur la même migration.
+      </div>
+      <a id="deploy-prod-link" href="<?= htmlspecialchars($prodUrl) ?>" target="_blank" rel="noopener"
+         style="display:inline-block;margin-left:34px;padding:6px 12px;border-radius:6px;background:#c87870;color:#fff;font-size:11px;text-decoration:none;font-weight:700;">
+        🎯 Ouvrir maboximmo.fr/admin/admin_migrations.php
+      </a>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button type="button" id="deploy-close" style="padding:8px 14px;border-radius:6px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const modal = document.getElementById('deploy-modal');
+  const close = document.getElementById('deploy-close');
+  document.querySelectorAll('.deploy-prod').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('deploy-mig-id').textContent = btn.dataset.migrationId;
+      document.getElementById('deploy-mig-title').textContent = btn.dataset.migrationTitle;
+      modal.style.display = 'flex';
+    });
+  });
+  if (close) close.addEventListener('click', () => modal.style.display = 'none');
+  modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+})();
+</script>
 
 <?php require_once __DIR__ . '/../inc/footer.php'; ?>
