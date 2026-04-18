@@ -40,7 +40,10 @@ function detectBienIntakeDocType(string $text): string
 
     // BAIL
     foreach (['contrat de bail', 'bail d\'habitation', 'bail commercial', 'bail mobilité',
-              'le bailleur', 'le preneur', 'durée du bail', 'préavis', 'état des lieux d\'entrée'] as $kw) {
+              'bail de location', 'bail professionnel', 'bail civil', 'bail rural',
+              'le bailleur', 'le preneur', 'le locataire', 'durée du bail', 'préavis',
+              'état des lieux d\'entrée', 'loi du 6 juillet 1989', 'l. 145-1',
+              'articles l. 145-1'] as $kw) {
         if (str_contains($head, $kw)) $score['bail'] += 3;
     }
 
@@ -56,8 +59,13 @@ function detectBienIntakeDocType(string $text): string
         if (str_contains($head, $kw)) $score['fiche'] += 2;
     }
 
-    // TITRE de propriété
-    foreach (['acte authentique', 'titre de propriété', 'me notaire', 'par-devant maître'] as $kw) {
+    // TITRE de propriété / notification mutation / avis mutation
+    foreach (['acte authentique', 'titre de propriété', 'me notaire', 'par-devant maître',
+              'notification de transfert de propriété', 'avis de mutation',
+              'notification de mutation', 'décret n° 67-223', 'decret n° 67-223',
+              'article 20 de la loi n° 65-557', 'article 6 du décret',
+              'acte reçu par office notarial', 'office notarial', 'crpcen',
+              'selarl', 'notaires associés'] as $kw) {
         if (str_contains($head, $kw)) $score['titre'] += 3;
     }
 
@@ -99,8 +107,19 @@ function analyseBienIntakeIA(string $text): array
             $r['router']   = 'fiche';
             return $r;
 
-        // case 'bail':   → inc/bien_intake_bail.php   (à créer)
-        // case 'titre':  → inc/bien_intake_titre.php  (à créer)
+        case 'bail':
+            require_once __DIR__ . '/bien_intake_bail.php';
+            $r = analyseBailIA($text);
+            $r['doc_type'] = $r['doc_type'] ?? 'bail';
+            $r['router']   = 'bail';
+            return $r;
+
+        case 'titre':
+            require_once __DIR__ . '/bien_intake_titre.php';
+            $r = analyseTitreIA($text);
+            $r['doc_type'] = $r['doc_type'] ?? 'titre';
+            $r['router']   = 'titre';
+            return $r;
 
         default:
             // Fallback : extraction générique ci-dessous

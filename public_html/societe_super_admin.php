@@ -514,7 +514,14 @@ $totalActif = count(array_filter($societes, fn($s) => (bool)$s['actif']));
           <?php if ($search !== ''): ?>&nbsp;·&nbsp; Recherche : «&nbsp;<?= h($search) ?>&nbsp;»<?php endif; ?>
         </div>
       </div>
-      <button class="btn-new-societe" onclick="openModal('modal-create')">+ Nouvelle société</button>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <a href="/admin/admin_migrations.php" class="btn-migrations"
+           title="Gestionnaire de migrations SQL (réservé super admin)"
+           style="display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;background:#fff;color:#0369a1;border:1px solid #0ea5e9;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;text-decoration:none;">
+          🗄️ Migrations BDD
+        </a>
+        <button class="btn-new-societe" onclick="openModal('modal-create')">+ Nouvelle société</button>
+      </div>
     </div>
 
     <?php if (!empty($errors)): ?>

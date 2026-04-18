@@ -7644,7 +7644,15 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       if (name.startsWith('_alerte_')) return false;
 
       // Aliases courants (harmoniser les noms de champs)
-      const aliases = { 'proprio_adresse_1': 'proprio_adresse' };
+      // - proprio_* : homogénéisation historique (adresse_1 → adresse)
+      // - bien_*    : module titre (acte de propriété) préfixe son _bien → remap vers champs standards
+      const aliases = {
+        'proprio_adresse_1': 'proprio_adresse',
+        'bien_adresse_1':    'adresse_1',
+        'bien_code_postal':  'code_postal',
+        'bien_ville':        'ville',
+        'bien_designation':  'designation',
+      };
       if (aliases[name]) name = aliases[name];
 
       // dpe_vierge : boolean → input hidden + sync mini-card bool
