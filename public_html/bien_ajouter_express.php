@@ -65,7 +65,13 @@ $csrf = csrf_token('ajouter_bien');
 
 require_once __DIR__ . '/inc/header.php';
 ?>
+<?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
+
 <style>
+  :root { --sidebar-w: 220px; }
+  body.app-layout { margin: 0; }
+  .exp-main { margin-left: var(--sidebar-w); min-height: 100vh; background: #f8fafc; }
+  @media (max-width: 900px) { .exp-main { margin-left: 0; } }
   .exp-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 120px; }
   .exp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .exp-head h1 { margin: 0; font-size: 22px; color: #0f172a; }
@@ -157,6 +163,7 @@ require_once __DIR__ . '/inc/header.php';
   .exp-modal h3 { margin: 0 0 10px; }
 </style>
 
+<main class="exp-main">
 <div class="exp-wrap">
   <div class="exp-head">
     <div>
@@ -233,9 +240,38 @@ require_once __DIR__ . '/inc/header.php';
       </div>
 
       <div class="exp-field required-empty" id="wrap-adresse">
-        <label>Adresse <span class="req">*</span></label>
-        <input type="text" name="adresse_1" id="exp-adresse" autocomplete="off" placeholder="Commencer à taper…">
+        <label>Adresse postale <span class="req">*</span> <span style="font-weight:400;color:#64748b;text-transform:none;">— auto-complétée par Google</span></label>
+        <input type="text"
+               id="exp-adresse"
+               name="adresse_1"
+               autocomplete="off"
+               placeholder="Commencez à taper (ex: 15 rue Voltaire Paris)…"
+               data-places-input
+               data-places-endpoint="api/places_autocomplete.php"
+               data-places-details-endpoint="api/places_details.php"
+               data-places-geocode-endpoint="api/geocode_address.php"
+               data-places-street1="exp-adresse"
+               data-places-postal="exp-cp"
+               data-places-city="exp-ville"
+               data-places-country="exp-pays"
+               data-places-lat="exp-lat"
+               data-places-lng="exp-lng"
+               data-places-place-id="exp-place-id"
+               data-places-formatted="exp-adresse-formatee"
+               data-places-country-code="fr">
+        <input type="hidden" name="pays" id="exp-pays" value="France">
+        <input type="hidden" name="latitude" id="exp-lat">
+        <input type="hidden" name="longitude" id="exp-lng">
+        <input type="hidden" name="google_place_id" id="exp-place-id">
+        <input type="hidden" name="adresse_formatee" id="exp-adresse-formatee">
+        <div id="exp-adresse-status" style="font-size:10px;color:#16a34a;margin-top:4px;min-height:12px;"></div>
       </div>
+
+      <div class="exp-field" id="wrap-adresse2">
+        <label>Situation dans l'immeuble <span style="font-weight:400;color:#64748b;text-transform:none;">— porte, allée, cage, étage complément (optionnel)</span></label>
+        <input type="text" name="adresse_2" id="exp-adresse2" placeholder="ex: Porte A, Allée B, Cage 2, bâtiment Nord">
+      </div>
+
       <div class="exp-row">
         <div class="exp-field required-empty" id="wrap-cp">
           <label>Code postal <span class="req">*</span></label>
@@ -934,4 +970,5 @@ require_once __DIR__ . '/inc/header.php';
 })();
 </script>
 
+</main>
 <?php require_once __DIR__ . '/inc/footer.php'; ?>
