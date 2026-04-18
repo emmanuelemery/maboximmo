@@ -925,6 +925,16 @@ require_once __DIR__ . '/inc/header.php';
   });
   dpeInput.addEventListener('change', uploadDpe);
 
+  // Mapping champs IA → IDs DOM Express
+  const DPE_FIELD_MAP = {
+    type_bien: 'exp-type-bien',
+    adresse_1: 'exp-adresse', adresse_situation: 'exp-adresse2',
+    code_postal: 'exp-cp', ville: 'exp-ville',
+    surface_habitable: 'exp-surface', nb_pieces: 'exp-nbp', nb_chambres: 'exp-nbc',
+    annee_construction: 'exp-annee', etage: 'exp-etage',
+    dpe_classe: 'exp-dpe-cl', ges_classe: 'exp-ges-cl',
+  };
+
   async function uploadDpe() {
     const file = dpeInput.files[0];
     if (!file) return;
@@ -940,55 +950,126 @@ require_once __DIR__ . '/inc/header.php';
       const r = await fetch('<?= h(app_url('/api/dpe_import_upload.php')) ?>', { method:'POST', body:fd, credentials:'same-origin' });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Échec analyse');
-      // Remplit les champs avec les valeurs extraites
-      const f = j.fields || {};
-      const map = {
-        type_bien: 'exp-type-bien',
-        adresse_1: 'exp-adresse', adresse_situation: 'exp-adresse2',
-        code_postal: 'exp-cp', ville: 'exp-ville',
-        surface_habitable: 'exp-surface', nb_pieces: 'exp-nbp', nb_chambres: 'exp-nbc',
-        annee_construction: 'exp-annee', etage: 'exp-etage',
-        dpe_classe: 'exp-dpe-cl', ges_classe: 'exp-ges-cl',
-      };
-      let filled = 0;
-      Object.entries(map).forEach(([k, id]) => {
-        if (f[k] != null && f[k] !== '') {
-          const el = $(id);
-          if (el) { el.value = f[k]; el.closest('.exp-field')?.classList.add('ia-filled'); filled++; }
-        }
-      });
-      // Déclenche l'annee hint
-      try { $('exp-annee').dispatchEvent(new Event('input')); } catch (_) {}
 
-      // Normalisation Google de l'adresse postale extraite
-      const addrRaw = [(f.adresse_1 || ''), (f.code_postal || ''), (f.ville || '')].filter(Boolean).join(', ');
-      if (addrRaw.length > 5) {
-        try {
-          const gr = await fetch('<?= h(app_url('/api/geocode_address.php')) ?>?q=' + encodeURIComponent(addrRaw), { credentials:'same-origin' });
-          const gj = await gr.json();
-          // Le endpoint renvoie les champs à la racine (pas dans data)
-          if (gj.ok) {
-            if (gj.adresse_1)        $('exp-adresse').value = gj.adresse_1;
-            if (gj.code_postal)      $('exp-cp').value = gj.code_postal;
-            if (gj.ville)            $('exp-ville').value = gj.ville;
-            if (gj.latitude)         $('exp-lat').value = gj.latitude;
-            if (gj.longitude)        $('exp-lng').value = gj.longitude;
-            if (gj.adresse_formatee) $('exp-adresse-formatee').value = gj.adresse_formatee;
-            $('exp-adresse-status').textContent = '✓ Adresse normalisée via Google : ' + (gj.adresse_formatee || gj.adresse_1);
-          }
-        } catch (_) {}
-      }
-
-      $('exp-dpe-applied').value = '1';
-      status.style.background = '#f0fdf4'; status.style.color = '#14532d';
-      status.innerHTML = '✅ DPE analysé — <strong>' + filled + '</strong> champ(s) pré-remplis. Vérifiez et complétez les champs critiques.';
-      markDone('step-dpe');
-      show('step-bien'); show('step-bailleur'); show('step-photos'); show('step-env'); show('step-validate');
-      confUpdate();
-      await ensureDraftCreated();
+      renderDpeValidationTable(j, status);
     } catch (e) {
       status.style.background = '#fef2f2'; status.style.color = '#991b1b';
       status.innerHTML = '❌ ' + e.message;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Tableau de validation Champ | Actuel | Extrait (pattern unifié site)
+  // Affiche + bouton "Voir PDF" + [Annuler] [Valider & remplacer]
+  // Ne remplit rien tant que l'utilisateur n'a pas cliqué Valider.
+  // ═══════════════════════════════════════════════════════════════════════
+  function renderDpeValidationTable(j, statusEl) {
+    const f = j.fields || {};
+
+    // Construit la liste previewable (seulement champs mappés qui ont une valeur IA)
+    const previewable = Object.entries(DPE_FIELD_MAP)
+      .filter(([key]) => f[key] != null && f[key] !== '')
+      .map(([key, targetId]) => {
+        const el = document.getElementById(targetId);
+        return { key, targetId, currentValue: el ? (el.value || '') : '', newValue: f[key] };
+      });
+
+    const pdfUrl = j.fichier || j.fichier_relatif || '';
+    const pdfName = j.nom || 'Document';
+    const docTypeBadge = j.doc_type ? '<span style="padding:2px 8px;border-radius:99px;background:#e0e7ff;color:#4338ca;font-size:10px;font-weight:700;margin-left:6px;">' + j.doc_type + '</span>' : '';
+
+    const previewRows = previewable.map(p => {
+      const changed = String(p.currentValue || '') !== String(p.newValue || '');
+      const curDisp = String(p.currentValue || '') === '' ? '—' : String(p.currentValue);
+      return '<tr style="border-bottom:1px solid #e5e7eb;">'
+        + '<td style="padding:5px 10px;font-family:monospace;font-size:11px;color:#475569;">' + p.key + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + curDisp + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#64748b') + ';">' + String(p.newValue) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    const pdfBtn = pdfUrl
+      ? '<a href="' + pdfUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:700;">🔍 Voir le PDF</a>'
+      : '';
+
+    const tablePart = previewable.length
+      ? '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+        + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+        + '<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;">Champ</th><th style="padding:6px 10px;text-align:left;">Actuel</th><th style="padding:6px 10px;text-align:left;">Extrait</th></tr></thead>'
+        + '<tbody>' + previewRows + '</tbody></table></div>'
+      : '<div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;color:#64748b;font-size:12px;">Aucun champ exploitable extrait.</div>';
+
+    statusEl.style.background = '#f0fdf4';
+    statusEl.style.color = '#14532d';
+    statusEl.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      + '<strong>✅ DPE analysé</strong>' + docTypeBadge
+      + '<span style="font-size:11px;color:#475569;">· ' + pdfName + '</span>'
+      + '<div style="margin-left:auto;">' + pdfBtn + '</div>'
+      + '</div>'
+      + tablePart
+      + '<div style="margin-top:10px;display:flex;justify-content:flex-end;gap:8px;">'
+      + '<button type="button" id="exp-dpe-cancel" style="padding:6px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Annuler</button>'
+      + (previewable.length
+          ? '<button type="button" id="exp-dpe-validate" style="padding:6px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider &amp; remplacer (' + previewable.length + ')</button>'
+          : '')
+      + '</div>';
+
+    const validateBtn = document.getElementById('exp-dpe-validate');
+    const cancelBtn   = document.getElementById('exp-dpe-cancel');
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => {
+        statusEl.style.display = 'none';
+        statusEl.innerHTML = '';
+        // Réinitialise l'input file pour permettre un nouvel upload
+        dpeInput.value = '';
+      });
+    }
+
+    if (validateBtn) {
+      validateBtn.addEventListener('click', async () => {
+        let filled = 0;
+        previewable.forEach(p => {
+          const el = document.getElementById(p.targetId);
+          if (el) {
+            el.value = p.newValue;
+            el.closest('.exp-field')?.classList.add('ia-filled');
+            filled++;
+          }
+        });
+        try { $('exp-annee').dispatchEvent(new Event('input')); } catch (_) {}
+
+        // Geocode Google (une fois validé par l'utilisateur uniquement)
+        const addrRaw = [(f.adresse_1 || ''), (f.code_postal || ''), (f.ville || '')].filter(Boolean).join(', ');
+        if (addrRaw.length > 5) {
+          try {
+            const gr = await fetch('<?= h(app_url('/api/geocode_address.php')) ?>?q=' + encodeURIComponent(addrRaw), { credentials:'same-origin' });
+            const gj = await gr.json();
+            if (gj.ok) {
+              if (gj.adresse_1)        $('exp-adresse').value = gj.adresse_1;
+              if (gj.code_postal)      $('exp-cp').value = gj.code_postal;
+              if (gj.ville)            $('exp-ville').value = gj.ville;
+              if (gj.latitude)         $('exp-lat').value = gj.latitude;
+              if (gj.longitude)        $('exp-lng').value = gj.longitude;
+              if (gj.adresse_formatee) $('exp-adresse-formatee').value = gj.adresse_formatee;
+              $('exp-adresse-status').textContent = '✓ Adresse normalisée via Google : ' + (gj.adresse_formatee || gj.adresse_1);
+            }
+          } catch (_) {}
+        }
+
+        $('exp-dpe-applied').value = '1';
+        statusEl.innerHTML =
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+          + '<strong>✅ Appliqué</strong>'
+          + '<span style="font-size:12px;">' + filled + ' champ(s) rempli(s).</span>'
+          + (pdfUrl ? '<div style="margin-left:auto;">' + pdfBtn + '</div>' : '')
+          + '</div>';
+        markDone('step-dpe');
+        show('step-bien'); show('step-bailleur'); show('step-photos'); show('step-env'); show('step-validate');
+        confUpdate();
+        await ensureDraftCreated();
+      });
     }
   }
 
