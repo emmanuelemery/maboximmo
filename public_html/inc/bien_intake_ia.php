@@ -12,7 +12,99 @@ declare(strict_types=1);
  *
  * Retourne un tableau structuré compatible avec le formulaire bien_ajouter.php.
  */
+/**
+ * Détecte le type de document via des patterns regex sur les premiers 3000 chars.
+ * Renvoie 'diag' | 'mandat' | 'bail' | 'fiche' | 'titre' | 'inconnu'.
+ * Économique (pas d'appel IA), très rapide. Pour le cas ambigu → 'inconnu'
+ * qui provoque un fallback sur l'extraction générique.
+ */
+function detectBienIntakeDocType(string $text): string
+{
+    $head = mb_strtolower(mb_substr($text, 0, 3000));
+
+    $score = ['diag' => 0, 'mandat' => 0, 'bail' => 0, 'fiche' => 0, 'titre' => 0];
+
+    // DIAGNOSTICS (DPE, plomb, amiante, électricité, gaz, termites, ERP, Loi Boutin, Carrez)
+    foreach (['diagnostic de performance', 'dpe', 'attestation de surface', 'loi boutin', 'loi carrez',
+              'numero d\'enregistrement ademe', 'constat de risque', 'amiante', 'plomb (crep)',
+              'état des risques', 'ernt', 'diagnostic termites', 'mesurage'] as $kw) {
+        if (str_contains($head, $kw)) $score['diag'] += 3;
+    }
+
+    // MANDAT
+    foreach (['mandat de vente', 'mandat de location', 'mandat de gestion', 'mandat exclusif',
+              'mandat simple', 'numéro de mandat', 'numero de mandat', 'je soussigné', 'mandant',
+              'articles 6 et 7 de la loi hoguet', 'carte professionnelle'] as $kw) {
+        if (str_contains($head, $kw)) $score['mandat'] += 3;
+    }
+
+    // BAIL
+    foreach (['contrat de bail', 'bail d\'habitation', 'bail commercial', 'bail mobilité',
+              'le bailleur', 'le preneur', 'durée du bail', 'préavis', 'état des lieux d\'entrée'] as $kw) {
+        if (str_contains($head, $kw)) $score['bail'] += 3;
+    }
+
+    // FICHE commerciale
+    foreach (['fiche commerciale', 'descriptif commercial', 'à vendre', 'a vendre',
+              'à louer', 'a louer', 'honoraires de vente'] as $kw) {
+        if (str_contains($head, $kw)) $score['fiche'] += 2;
+    }
+
+    // TITRE de propriété
+    foreach (['acte authentique', 'titre de propriété', 'me notaire', 'par-devant maître'] as $kw) {
+        if (str_contains($head, $kw)) $score['titre'] += 3;
+    }
+
+    arsort($score);
+    $best = array_key_first($score);
+    $bestScore = $score[$best];
+    // Seuil minimum pour confiance
+    return $bestScore >= 3 ? $best : 'inconnu';
+}
+
+/**
+ * Point d'entrée principal — DISPATCHER.
+ * Détecte le type de document et délègue au module spécialisé.
+ * Retombe sur l'extraction générique (code historique) si le type est inconnu.
+ */
 function analyseBienIntakeIA(string $text): array
+{
+    // ─── 1. Détection rapide du type (regex, pas d'IA) ─────────
+    $docType = detectBienIntakeDocType($text);
+
+    // ─── 2. Route vers le module spécialisé ────────────────────
+    switch ($docType) {
+        case 'diag':
+            require_once __DIR__ . '/bien_intake_diag.php';
+            $r = analyseDiagIA($text);
+            $r['doc_type'] = $r['doc_type'] ?? 'diag';
+            $r['router']   = 'diag';
+            return $r;
+
+        case 'mandat':
+            require_once __DIR__ . '/bien_intake_mandat.php';
+            $r = analyseMandatIA($text);
+            $r['router']   = 'mandat';
+            return $r;
+
+        // case 'bail':   → inc/bien_intake_bail.php   (à créer)
+        // case 'fiche':  → inc/bien_intake_fiche.php  (à créer)
+        // case 'titre':  → inc/bien_intake_titre.php  (à créer)
+
+        default:
+            // Fallback : extraction générique ci-dessous
+            return analyseBienIntakeIAGeneric($text);
+    }
+}
+
+/**
+ * Extraction générique (code historique) — utilisé en fallback quand
+ * le type de document n'a pas pu être détecté précisément.
+ *
+ * À terme, tous les types devraient avoir leur module dédié et cette
+ * fonction ne servira plus qu'en ultime secours.
+ */
+function analyseBienIntakeIAGeneric(string $text): array
 {
     $api_key = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
     $model   = defined('OPENAI_DPE_MODEL') ? OPENAI_DPE_MODEL : 'gpt-4o-mini';
