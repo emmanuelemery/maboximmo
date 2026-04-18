@@ -1084,6 +1084,15 @@ require_once __DIR__ . '/inc/header.php';
     const docTypeBadge = j.doc_type
       ? '<span style="padding:2px 8px;border-radius:99px;background:#e0e7ff;color:#4338ca;font-size:10px;font-weight:700;margin-left:6px;">' + j.doc_type + '</span>'
       : '';
+    // Badge mode : OCR Vision (PDF scanné) vs texte natif + regex/IA
+    let methodBadge = '';
+    if (j.method === 'ocr_vision' || j.used_ocr === true) {
+      methodBadge = '<span title="PDF scanné — analysé via OCR GPT-4o Vision" style="padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;margin-left:6px;">📸 OCR Vision</span>';
+    } else if (j.method === 'regex+ia') {
+      methodBadge = '<span title="Extraction texte + enrichissement IA GPT-4o-mini" style="padding:2px 8px;border-radius:99px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;margin-left:6px;">🧠 Texte + IA</span>';
+    } else if (j.method === 'regex') {
+      methodBadge = '<span title="Extraction texte regex (100% locale)" style="padding:2px 8px;border-radius:99px;background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;margin-left:6px;">⚡ Regex</span>';
+    }
     const pdfBtn = pdfUrl
       ? '<a href="' + pdfUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:700;">🔍 Voir le PDF</a>'
       : '';
@@ -1160,7 +1169,7 @@ require_once __DIR__ . '/inc/header.php';
     statusEl.style.color = '#14532d';
     statusEl.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-      + '<strong>✅ ' + (j.doc_type === 'dpe' || j.doc_type === 'dossier_diagnostics' ? 'DIAG analysé' : 'Document analysé') + '</strong>' + docTypeBadge
+      + '<strong>✅ ' + (j.doc_type === 'dpe' || j.doc_type === 'dossier_diagnostics' ? 'DIAG analysé' : 'Document analysé') + '</strong>' + docTypeBadge + methodBadge
       + '<span style="font-size:11px;color:#475569;">· ' + pdfName + '</span>'
       + '<div style="margin-left:auto;">' + pdfBtn + '</div>'
       + '</div>'
