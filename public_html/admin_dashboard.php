@@ -475,6 +475,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
                 <div class="adm-card-desc">Explorateur de tables, requêtes et structure BDD.</div>
                 <div class="adm-card-arrow arr-mauve">Ouvrir →</div>
             </a>
+            <a href="admin/admin_migrations.php" class="adm-card mauve">
+                <div class="adm-card-ico ico-mauve">
+                    <svg viewBox="0 0 24 24" stroke="#7a6898"><path d="M4 4h16v4H4z"/><path d="M4 10h16v4H4z"/><path d="M4 16h16v4H4z"/><circle cx="8" cy="6" r="1"/><circle cx="8" cy="12" r="1"/><circle cx="8" cy="18" r="1"/></svg>
+                </div>
+                <div class="adm-card-label">Migrations BDD</div>
+                <div class="adm-card-desc">Liste et application des migrations SQL (additives, rejouables).</div>
+                <div class="adm-card-arrow arr-mauve">Gérer →</div>
+            </a>
             <a href="admin_registres_access.php" class="adm-card mauve">
                 <div class="adm-card-ico ico-mauve">
                     <svg viewBox="0 0 24 24" stroke="#7a6898"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
