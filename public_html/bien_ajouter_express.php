@@ -795,13 +795,12 @@ require_once __DIR__ . '/inc/header.php';
     renderList('exp-legal-list', REQ_LEGAL,     false);
     renderList('exp-lbc-list',   [...REQ_LBC, { id: '_photos', name: 'Au moins 1 photo', _custom: photosOk === 1 }], false);
 
-    // Boutons activation
-    $('exp-btn-save-only').disabled = !mandatoryOk && !state.id_bien;
-    $('exp-btn-save-annonce').disabled = !mandatoryOk;
-    // Si transaction = estimation → pas d'annonce possible
-    const isEstim = $('exp-transaction').value === 'estimation';
-    if (isEstim) { $('exp-btn-save-annonce').disabled = true; $('exp-btn-save-annonce').title = 'Pas d\'annonce en mode estimation'; }
-    // Si transaction = mandat simple ou mandat_gestion → annonce optionnelle, mais bouton actif quand même
+    // Bouton Valider (panneau droite + bouton central) — désactivé uniquement si obligations manquantes ET pas de brouillon créé
+    const validateBtn = document.getElementById('exp-btn-validate');
+    const mainBtn     = document.getElementById('exp-main-validate-btn');
+    const disable     = !mandatoryOk && !state.id_bien;
+    if (validateBtn) validateBtn.disabled = disable;
+    if (mainBtn)     mainBtn.disabled     = disable;
   }
 
   // ─── Écoute changements → màj conformité + colors ──
@@ -884,7 +883,7 @@ require_once __DIR__ . '/inc/header.php';
       status.style.background = '#f0fdf4'; status.style.color = '#14532d';
       status.innerHTML = '✅ DPE analysé — <strong>' + filled + '</strong> champ(s) pré-remplis. Vérifiez et complétez les champs critiques.';
       markDone('step-dpe');
-      show('step-bien'); show('step-bailleur'); show('step-photos'); show('step-env'); show('step-ia'); show('step-preview'); show('step-valider');
+      show('step-bien'); show('step-bailleur'); show('step-photos'); show('step-env'); show('step-validate');
       confUpdate();
       await ensureDraftCreated();
     } catch (e) {
