@@ -6008,9 +6008,18 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         uploadInput.value = '';
         showStatus(
           '✅ <strong>' + ok + '</strong> document(s) importé(s)' + (err ? ', ' + err + ' en erreur' : '')
-          + ' — <a href="javascript:location.reload()" style="color:inherit;font-weight:700;">Recharger la page</a> pour voir la liste à jour.',
+          + ' — actualisation automatique…',
           ok ? 'success' : 'error'
         );
+        // Rechargement automatique si au moins un upload a réussi, avec préservation de l'onglet Documents
+        if (ok > 0) {
+          setTimeout(() => {
+            try { if (typeof window.__baSaveUiState === 'function') window.__baSaveUiState(); } catch (_) {}
+            const url = new URL(window.location.href);
+            url.hash = '#documents';
+            window.location.href = url.toString();
+          }, 900);
+        }
       });
     }
 
