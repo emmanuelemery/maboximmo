@@ -940,6 +940,11 @@ require_once __DIR__ . '/inc/header.php';
   });
   dpeInput.addEventListener('change', uploadDpe);
 
+  // État : bailleur sélectionné dans la liste de recherche auto (si user a cliqué).
+  // Utilisé au clic Valider pour lier un bailleur existant au lieu d'en créer un.
+  let selectedBailleurId = null;
+  let selectedBailleurLabel = '';
+
   // ═══════════════════════════════════════════════════════════════════════
   // Mapping IA → IDs DOM Express — EXHAUSTIF pour respecter l'objectif
   // "extraction Express = remplir TOUT ce qui est extractible automatiquement"
@@ -1095,25 +1100,60 @@ require_once __DIR__ . '/inc/header.php';
         + '</tr>';
     };
 
-    // ─── Section 1 : impératifs ─────────────────────────────────
-    const impBadge = nImpRempli === nImpTotal
+    // ─── Liste UNIFIÉE exhaustive (impératifs + complémentaires dans un
+    // seul tableau avec marqueurs visuels par type) ─────────────────
+    // Ordre : impératifs d'abord (même manquants), puis complémentaires extraits
+    const unifiedRows = [...impRows, ...compRows];
+
+    const rowHtmlUnified = (e) => {
+      const hasNew = e.newValue !== null;
+      const changed = hasNew && String(e.currentValue || '') !== String(e.newValue || '');
+      const curDisp = String(e.currentValue || '') === '' ? '—' : String(e.currentValue);
+      const newDisp = hasNew ? String(e.newValue) : '<span style="color:#dc2626;font-weight:700;">⚠ manquant</span>';
+      // Marqueur : 🔴 impératif manquant, ✅ impératif OK, 🎁 bonus
+      let marker;
+      if (e.isImperatif) {
+        marker = hasNew
+          ? '<span title="Impératif extrait" style="color:#16a34a;">✅</span>'
+          : '<span title="Impératif manquant" style="color:#dc2626;">🔴</span>';
+      } else {
+        marker = '<span title="Champ bonus extrait" style="color:#f59e0b;">🎁</span>';
+      }
+      return '<tr style="border-bottom:1px solid #e5e7eb;' + (e.isImperatif && !hasNew ? 'background:#fff1f2;' : '') + '">'
+        + '<td style="padding:5px 10px;width:26px;text-align:center;">' + marker + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;color:#475569;font-weight:' + (e.isImperatif ? '700' : '400') + ';">' + e.label + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + curDisp + '</td>'
+        + '<td style="padding:5px 10px;font-size:11px;font-weight:' + (changed || !hasNew ? '700' : '400') + ';color:' + (hasNew ? (changed ? '#0369a1' : '#64748b') : '#dc2626') + ';">' + newDisp + '</td>'
+        + '</tr>';
+    };
+
+    const globalBadge = nImpRempli === nImpTotal
       ? '<span style="padding:2px 8px;border-radius:99px;background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;">✓ ' + nImpRempli + '/' + nImpTotal + ' impératifs</span>'
       : '<span style="padding:2px 8px;border-radius:99px;background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;">⚠ ' + nImpRempli + '/' + nImpTotal + ' impératifs</span>';
+    const bonusBadge = nComp > 0
+      ? '<span style="padding:2px 8px;border-radius:99px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;">🎁 ' + nComp + ' bonus</span>'
+      : '';
 
-    const impSection =
-      '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid ' + (nImpRempli === nImpTotal ? '#86efac' : '#fecaca') + ';">'
-      + '<div style="padding:8px 12px;background:' + (nImpRempli === nImpTotal ? '#f0fdf4' : '#fef2f2') + ';font-weight:700;font-size:12px;display:flex;align-items:center;gap:10px;">🔴 Champs impératifs (pour passer en <em>actif</em>) ' + impBadge + '</div>'
+    const unifiedSection =
+      '<div style="margin-top:12px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
+      + '<div style="padding:8px 12px;background:#f8fafc;font-weight:700;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      + '<span>📋 Tous les champs extraits par l\'IA</span>'
+      + globalBadge + bonusBadge
+      + '</div>'
       + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
-      + '<thead><tr style="background:#f8fafc;"><th style="padding:5px 10px;text-align:left;">Champ</th><th style="padding:5px 10px;text-align:left;">Actuel</th><th style="padding:5px 10px;text-align:left;">Extrait IA</th></tr></thead>'
-      + '<tbody>' + impRows.map(rowHtml).join('') + '</tbody></table></div>';
+      + '<thead><tr style="background:#f8fafc;border-top:1px solid #e5e7eb;">'
+      + '<th style="padding:5px 10px;width:26px;"></th>'
+      + '<th style="padding:5px 10px;text-align:left;">Champ</th>'
+      + '<th style="padding:5px 10px;text-align:left;">Actuel</th>'
+      + '<th style="padding:5px 10px;text-align:left;">Extrait IA</th>'
+      + '</tr></thead>'
+      + '<tbody>' + unifiedRows.map(rowHtmlUnified).join('') + '</tbody></table></div>';
 
-    // ─── Section 2 : complémentaires ──────────────────────────
-    const compSection = nComp > 0
-      ? '<details open style="margin-top:10px;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #cbd5e1;">'
-        + '<summary style="padding:8px 12px;background:#f8fafc;cursor:pointer;font-weight:700;font-size:12px;">🎁 ' + nComp + ' champ(s) complémentaire(s) extrait(s)</summary>'
-        + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
-        + '<thead><tr style="background:#fafafa;"><th style="padding:5px 10px;text-align:left;">Champ</th><th style="padding:5px 10px;text-align:left;">Actuel</th><th style="padding:5px 10px;text-align:left;">Extrait IA</th></tr></thead>'
-        + '<tbody>' + compRows.map(rowHtml).join('') + '</tbody></table></details>'
+    // ─── Bloc auto-recherche bailleur (zone réservée — rempli async) ──
+    const bailleurSearchZone = (f.proprio_nom || f.proprio_societe)
+      ? '<div id="exp-bailleur-auto" style="margin-top:10px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12px;color:#1e40af;">'
+        + '🔍 Recherche d\'un bailleur existant dans la BDD…'
+        + '</div>'
       : '';
 
     statusEl.style.background = '#f0fdf4';
@@ -1124,14 +1164,22 @@ require_once __DIR__ . '/inc/header.php';
       + '<span style="font-size:11px;color:#475569;">· ' + pdfName + '</span>'
       + '<div style="margin-left:auto;">' + pdfBtn + '</div>'
       + '</div>'
-      + impSection
-      + compSection
+      + bailleurSearchZone
+      + unifiedSection
       + '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px;">'
       + '<button type="button" id="exp-dpe-cancel" style="padding:6px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Annuler</button>'
       + (applicable > 0
           ? '<button type="button" id="exp-dpe-validate" style="padding:6px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">✓ Valider &amp; remplacer (' + applicable + ')</button>'
           : '')
       + '</div>';
+
+    // Déclenche la recherche auto bailleur si applicable
+    if (f.proprio_nom || f.proprio_societe) {
+      autoSearchBailleur(f).catch(() => {
+        const zone = document.getElementById('exp-bailleur-auto');
+        if (zone) zone.style.display = 'none';
+      });
+    }
 
     // Utilisé par le handler Valider : on ne réapplique que les entries avec newValue !== null
     const previewable = allEntries.filter(e => e.newValue !== null);
@@ -1150,8 +1198,12 @@ require_once __DIR__ . '/inc/header.php';
 
     if (validateBtn) {
       validateBtn.addEventListener('click', async () => {
+        // Si un bailleur existant a été sélectionné dans la recherche auto,
+        // on ne réapplique PAS les champs proprio_* (on lie l'existant).
+        const bypassProprio = selectedBailleurId !== null;
         let filled = 0;
         previewable.forEach(p => {
+          if (bypassProprio && p.key.startsWith('proprio_')) return;
           const el = document.getElementById(p.targetId);
           if (el) {
             el.value = p.newValue;
@@ -1159,6 +1211,16 @@ require_once __DIR__ . '/inc/header.php';
             filled++;
           }
         });
+        if (bypassProprio) {
+          // Lie explicitement le bailleur existant (le save Express utilisera
+          // cet id au lieu de créer un nouveau proprietaire)
+          $('exp-id-proprietaire').value = selectedBailleurId;
+          state.id_proprietaire = selectedBailleurId;
+          // Marque visuellement la zone bailleur comme "pré-remplie / verrouillée"
+          const proWrap = $('wrap-pro-nom');
+          if (proWrap) proWrap.classList.add('ia-filled');
+          $('exp-pro-nom').value = selectedBailleurLabel;
+        }
         try { $('exp-annee').dispatchEvent(new Event('input')); } catch (_) {}
 
         // Geocode Google (une fois validé par l'utilisateur uniquement)
@@ -1192,6 +1254,107 @@ require_once __DIR__ . '/inc/header.php';
         await ensureDraftCreated();
       });
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Recherche auto d'un bailleur existant dans la BDD à partir des champs
+  // extraits par l'IA (proprio_nom / proprio_societe / proprio_email / tel).
+  // Rend la zone '#exp-bailleur-auto' avec les matches + bouton Sélectionner.
+  // ═══════════════════════════════════════════════════════════════════════
+  async function autoSearchBailleur(f) {
+    const zone = document.getElementById('exp-bailleur-auto');
+    if (!zone) return;
+
+    // Query combinée : tokens extraits pour recherche unifiée
+    const tokens = [
+      f.proprio_nom, f.proprio_prenom, f.proprio_societe,
+      f.proprio_email, f.proprio_telephone,
+    ].filter(Boolean).join(' ');
+    if (!tokens.trim()) { zone.style.display = 'none'; return; }
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('q', tokens);
+
+    let matches = [];
+    try {
+      const r = await fetch('<?= h(app_url('/api/bailleur_check_duplicate.php')) ?>', {
+        method:'POST', body:fd, credentials:'same-origin'
+      });
+      const j = await r.json();
+      if (j.ok) matches = (j.matches || []).slice(0, 3); // top 3
+    } catch (e) {
+      zone.style.display = 'none';
+      return;
+    }
+
+    if (matches.length === 0) {
+      zone.style.background = '#f0fdf4';
+      zone.style.borderColor = '#86efac';
+      zone.style.color = '#065f46';
+      zone.innerHTML = '✨ Aucun bailleur existant trouvé — un nouveau bailleur sera créé avec les données extraites.';
+      return;
+    }
+
+    // Affiche les matches avec bouton Sélectionner
+    const rows = matches.map(m => {
+      const label = m.societe || (((m.prenom || '') + ' ' + (m.nom || '')).trim() || '(sans nom)');
+      const details = [m.email, m.telephone, m.ville].filter(Boolean).join(' · ');
+      const scoreColor = m.score >= 70 ? '#16a34a' : (m.score >= 40 ? '#f59e0b' : '#64748b');
+      return '<div class="exp-bailleur-match" style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bfdbfe;border-radius:6px;margin-top:6px;">'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-weight:700;font-size:12px;color:#1e3a8a;">' + label
+        + ' <span style="font-weight:400;color:' + scoreColor + ';font-size:10px;">(score ' + m.score + ')</span></div>'
+        + '<div style="font-size:10px;color:#64748b;">' + (details || '—') + '</div>'
+        + '</div>'
+        + '<button type="button" class="exp-bailleur-pick" data-id="' + m.id + '" data-label="' + label.replace(/"/g,'&quot;') + '" '
+        + 'style="padding:5px 12px;border-radius:6px;background:#2563eb;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">'
+        + '✓ Sélectionner</button>'
+        + '</div>';
+    }).join('');
+
+    zone.style.background = '#eff6ff';
+    zone.style.borderColor = '#bfdbfe';
+    zone.style.color = '#1e40af';
+    zone.innerHTML =
+      '<div style="font-weight:700;margin-bottom:4px;">🔍 ' + matches.length + ' bailleur(s) potentiel(s) trouvé(s) dans la BDD</div>'
+      + '<div style="font-size:11px;color:#475569;margin-bottom:6px;">Sélectionnez un bailleur existant pour éviter un doublon, ou ignorez pour créer un nouveau.</div>'
+      + rows
+      + '<div style="margin-top:8px;">'
+      + '<button type="button" id="exp-bailleur-ignore" style="padding:4px 10px;border-radius:6px;background:transparent;color:#64748b;border:1px solid #cbd5e1;font-size:10px;cursor:pointer;font-family:inherit;">Ignorer — créer nouveau</button>'
+      + '</div>';
+
+    // Bind bouton Sélectionner sur chaque match
+    zone.querySelectorAll('.exp-bailleur-pick').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedBailleurId = parseInt(btn.dataset.id, 10);
+        selectedBailleurLabel = btn.dataset.label;
+        zone.style.background = '#f0fdf4';
+        zone.style.borderColor = '#86efac';
+        zone.style.color = '#065f46';
+        zone.innerHTML = '✅ <strong>Bailleur trouvé et repris de la BDD</strong> : '
+          + selectedBailleurLabel + ' <span style="font-size:10px;color:#475569;">(id ' + selectedBailleurId + ')</span>'
+          + ' · <a href="#" id="exp-bailleur-unpick" style="font-size:10px;color:#64748b;">↻ annuler la sélection</a>';
+        const unpick = document.getElementById('exp-bailleur-unpick');
+        if (unpick) unpick.addEventListener('click', (e) => {
+          e.preventDefault();
+          selectedBailleurId = null;
+          selectedBailleurLabel = '';
+          // Relance la recherche pour réafficher les matches
+          autoSearchBailleur(f);
+        });
+      });
+    });
+
+    // Bind bouton Ignorer
+    const ignoreBtn = document.getElementById('exp-bailleur-ignore');
+    if (ignoreBtn) ignoreBtn.addEventListener('click', () => {
+      selectedBailleurId = null;
+      zone.style.background = '#f8fafc';
+      zone.style.borderColor = '#e5e7eb';
+      zone.style.color = '#64748b';
+      zone.innerHTML = '○ Création d\'un nouveau bailleur avec les données extraites.';
+    });
   }
 
   // Pas de DPE → modal
