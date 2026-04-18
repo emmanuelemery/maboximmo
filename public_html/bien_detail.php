@@ -3353,10 +3353,11 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               </div>
             </div>
 
-            <!-- Options du bien -->
+            <!-- Options du bien — source unique de vérité (cf. Annonce renvoie ici) -->
             <div class="mc-grid" data-mc-mode="custom" style="--mc-min:80px;margin-top:18px;">
               <?= boolMcCard('loyer_meuble','🛋','Meublé','loyer_meuble','#6366f1','#eef2ff') ?>
               <?= boolMcCard('animaux_acceptes','🐾','Animaux','animaux_acceptes','#d97706','#fffbeb') ?>
+              <?= boolMcCard('fumeur_accepte','🚬','Fumeur','fumeur_accepte','#0ea5e9','#f0f9ff') ?>
               <?= boolMcCard('travaux_a_prevoir','🔧','Travaux','travaux_a_prevoir','#dc2626','#fef2f2') ?>
             </div>
 
@@ -4116,26 +4117,16 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                 <div class="mc-grid" data-mc-mode="custom" style="--mc-min:90px;margin-top:10px;">
                   <?= boolMcCard('louable_immediatement','🔑','Louable immédiatement') ?>
                 </div>
-                <div class="ba-field" style="margin-top:14px;">
-                  <label>Meublé</label>
-                  <div class="ba-chips">
-                    <label class="ba-chip"><input type="radio" name="loyer_meuble" value="1" <?= post('loyer_meuble','') === '1' ? 'checked' : '' ?>> Oui</label>
-                    <label class="ba-chip"><input type="radio" name="loyer_meuble" value="0" <?= in_array(post('loyer_meuble',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
-                  </div>
-                </div>
-                <div class="ba-field" style="margin-top:10px;">
-                  <label>Animaux acceptés</label>
-                  <div class="ba-chips">
-                    <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="1" <?= post('animaux_acceptes','') === '1' ? 'checked' : '' ?>> Oui</label>
-                    <label class="ba-chip"><input type="radio" name="animaux_acceptes" value="0" <?= in_array(post('animaux_acceptes',''), ['0',''], true) && $isEditing ? 'checked' : '' ?>> Non</label>
-                  </div>
-                </div>
-                <div class="ba-field" style="margin-top:10px;">
-                  <label>Fumeur accepté</label>
-                  <div class="ba-chips">
-                    <label class="ba-chip"><input type="radio" name="fumeur_accepte" value="1" <?= post('fumeur_accepte','') === '1' ? 'checked' : '' ?>> Oui</label>
-                    <label class="ba-chip"><input type="radio" name="fumeur_accepte" value="0" <?= post('fumeur_accepte','') === '0' ? 'checked' : '' ?>> Non</label>
-                  </div>
+                <!--
+                  Les mini-cards pour Meublé / Animaux / Travaux sont définies dans
+                  l'onglet Identification (colonne gauche, Options du bien) pour éviter
+                  les conflits de `name` dans le form (double input = valeur écrasée au
+                  POST). Ici on affiche juste un rappel textuel.
+                  Fumeur accepté : mini-card ajoutée dans la même zone Options.
+                -->
+                <div style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;font-size:11px;color:#64748b;">
+                  ℹ️ Options <strong>Meublé</strong>, <strong>Animaux</strong>, <strong>Fumeur</strong>, <strong>Travaux</strong> :
+                  à renseigner dans l'onglet <strong>Identification</strong> (zone « Options du bien »).
                 </div>
               </div><!-- /colonne droite disponibilité -->
             </div>
