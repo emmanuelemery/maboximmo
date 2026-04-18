@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/bien_form_loader.php';
 require_login();
 
 $appLayout         = true;
@@ -13,6 +14,34 @@ $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $agenceId  = (int)($_SESSION['id_agence']  ?? 0);
 $roleId    = (int)($_SESSION['id_role']    ?? 0);
+
+// ─── REPRISE D'UN BROUILLON EXISTANT ────────────────────────
+// Permet au refresh ou retour manuel de retrouver les saisies.
+// ?edit=X → charge le bien depuis la BDD et pré-remplit les valeurs côté PHP
+$expEditId = isset($_GET['edit']) && ctype_digit((string)$_GET['edit']) ? (int)$_GET['edit'] : 0;
+$expBienData = [];
+if ($expEditId > 0) {
+    $loaded = bien_form_load_record($pdo, $expEditId, $societeId ?: null);
+    if ($loaded !== null) {
+        $expBienData = $loaded;
+        // Si on a un bailleur lié, on récupère ses infos pour pré-remplir la recherche
+        if (!empty($loaded['id_proprietaire'])) {
+            try {
+                $stmtPr = $pdo->prepare("SELECT id, nom, prenom, societe, email, telephone, adresse_1 FROM proprietaires WHERE id = ?");
+                $stmtPr->execute([(int)$loaded['id_proprietaire']]);
+                $pRow = $stmtPr->fetch(PDO::FETCH_ASSOC);
+                if ($pRow) {
+                    $expBienData['__proprio'] = $pRow;
+                }
+            } catch (Throwable) {}
+        }
+    }
+}
+/** Helper : récupère une valeur du brouillon chargé (ou '' par défaut). */
+$expV = static function(string $key, $default = '') use ($expBienData) {
+    $v = $expBienData[$key] ?? $default;
+    return $v === null ? $default : $v;
+};
 
 // ─── Pattern de référence (preview) ─────────────────────────
 $refPattern = '{TYPE3}-{VILLE3}-{YY}-{SEQ:04}-{USER3}';
@@ -661,9 +690,9 @@ require_once __DIR__ . '/inc/header.php';
     </dl>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <a id="exp-saved-btn-liste" href="<?= h(app_url('/bien_liste.php')) ?>"
+      <a id="exp-saved-btn-liste" href="<?= h(app_url('/bien_detail.php')) ?>"
          class="exp-btn-final primary" style="flex:1;text-align:center;text-decoration:none;">
-        📋 Retour à la liste
+        📋 Voir / éditer le bien
       </a>
       <a id="exp-saved-btn-annonce" href="#"
          class="exp-btn-final secondary" style="flex:1;text-align:center;text-decoration:none;">
@@ -693,19 +722,91 @@ require_once __DIR__ . '/inc/header.php';
 (function() {
   const CSRF = <?= json_encode($csrf) ?>;
   const PROPRIOS = <?= json_encode($proprietairesList, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?: '[]' ?>;
+  // Brouillon existant (?edit=X) → pré-remplit les champs au chargement
+  const EXP_BIEN_DATA = <?= json_encode($expBienData, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?: '{}' ?>;
+  const EXP_EDIT_ID   = <?= (int)$expEditId ?>;
 
   const $ = (id) => document.getElementById(id);
   const show = (id) => { const e = $(id); if (e) e.classList.remove('locked'); };
   const markDone = (stepId) => { const e = $(stepId); if (e) { const n = e.querySelector('.num'); if (n) n.classList.add('done'); } };
 
   let state = {
-    id_bien: 0,
+    id_bien: EXP_EDIT_ID || 0,
     id_proprietaire: 0,
     ref: '',
     env: { exposition: '', vue: [], ambiance: [], nuisances: [], acces_transports: '', distance_commerces: '' },
     generated: null,
     photos: [],
   };
+
+  // ─── Pré-remplissage depuis brouillon existant (?edit=X) ──
+  // Rétablit les saisies après un refresh ou un retour.
+  function hydrateFromBien(data) {
+    if (!data || typeof data !== 'object') return;
+    // Champs texte/number : matching direct par name/id
+    const fieldMap = {
+      // name in form → key in data
+      adresse_1: 'adresse_1', adresse_2: 'adresse_2',
+      code_postal: 'code_postal', ville: 'ville',
+      etage: 'etage', lot_principal: 'lot_principal',
+      surface_habitable: 'surface_habitable',
+      nb_pieces: 'nb_pieces', nb_chambres: 'nb_chambres',
+      nb_salles_bain: 'nb_salles_bain', nb_wc: 'nb_wc',
+      annee_construction: 'annee_construction',
+      dpe_classe: 'dpe_classe', ges_classe: 'ges_classe',
+      dpe_valeur: 'dpe_valeur', ges_valeur: 'ges_valeur',
+      dpe_date_realisation: 'dpe_date_realisation',
+      chauffage_type: 'chauffage_type',
+      chauffage_energie: 'chauffage_energie',
+      eau_chaude_type: 'eau_chaude_type',
+      prix_vente_estime: 'prix_vente_estime',
+      loyer_hc: 'loyer_hc',
+      latitude: 'latitude', longitude: 'longitude',
+    };
+    Object.entries(fieldMap).forEach(([name, key]) => {
+      const val = data[key];
+      if (val === null || val === undefined || val === '') return;
+      const el = document.querySelector('[name="' + name + '"]') || document.getElementById('exp-' + name.replace(/_/g, '-'));
+      if (!el) return;
+      el.value = val;
+      el.closest('.exp-field')?.classList.add('ia-filled');
+    });
+    // Type de bien : recherche via types select
+    if (data.id_type_bien || data.type_bien) {
+      const sel = $('exp-type-bien');
+      if (sel) {
+        for (const opt of sel.options) {
+          if (String(opt.value).toLowerCase() === String(data.type_bien_code || '').toLowerCase()
+              || opt.value === String(data.id_type_bien || '')) {
+            opt.selected = true; break;
+          }
+        }
+      }
+    }
+    // Bailleur lié
+    if (data.__proprio) {
+      state.id_proprietaire = data.__proprio.id;
+      $('exp-id-proprietaire').value = data.__proprio.id;
+      $('exp-pro-nom').value     = data.__proprio.nom     || '';
+      $('exp-pro-prenom').value  = data.__proprio.prenom  || '';
+      $('exp-pro-soc').value     = data.__proprio.societe || '';
+      $('exp-pro-email').value   = data.__proprio.email   || '';
+      $('exp-pro-tel').value     = data.__proprio.telephone || '';
+      $('exp-pro-adr').value     = data.__proprio.adresse_1 || '';
+      $('exp-pro-status').innerHTML = '✅ Bailleur <code>#' + data.__proprio.id + '</code> associé';
+    }
+    // Référence + badge topbar
+    if (data.reference_bien) {
+      state.ref = data.reference_bien;
+      $('exp-topbar-idbien').textContent = EXP_EDIT_ID;
+      $('exp-topbar-ref').textContent = data.reference_bien;
+      $('exp-bien-id-badge').style.display = 'inline-block';
+    }
+    // Unlock tous les steps (reprise d'un brouillon = tout visible)
+    ['step-bien','step-bailleur','step-photos','step-env','step-validate'].forEach(id => {
+      const e = document.getElementById(id); if (e) e.classList.remove('locked');
+    });
+  }
 
   // Quartiers connus des grandes villes françaises (liste courte, à étendre dans une table plus tard)
   const QUARTIERS = {
@@ -768,15 +869,15 @@ require_once __DIR__ . '/inc/header.php';
     barEl.className = 'exp-conf-bar' + (score >= 80 ? '' : score >= 50 ? ' warn' : ' bad');
     barEl.firstElementChild.style.width = score + '%';
 
-    // Statut final prévu
+    // Statut final prévu (seuil : 65%)
     const statusEl = $('exp-conf-status');
-    if (mandatoryOk && score >= 80) {
+    if (mandatoryOk && score >= 65) {
       statusEl.className = 'exp-conf-status actif';
       statusEl.innerHTML = '✅ Sera <strong>actif</strong> à la validation';
     } else {
       statusEl.className = 'exp-conf-status brouillon';
       statusEl.innerHTML = mandatoryOk
-        ? '📝 Restera en <strong>brouillon</strong> — complétude < 80%'
+        ? '📝 Restera en <strong>brouillon</strong> — complétude < 65%'
         : '🔒 Restera en <strong>brouillon</strong> — obligations manquantes';
     }
 
@@ -1255,8 +1356,8 @@ require_once __DIR__ . '/inc/header.php';
         + (missing ? ' — ' + missing + ' obligation(s) manquante(s) (reste en brouillon)' : '');
 
       // Met à jour les liens de la popup
-      $('exp-saved-btn-liste').href = '<?= h(app_url('/bien_liste.php')) ?>?highlight=' + j.id_bien;
-      $('exp-saved-btn-annonce').href = '<?= h(app_url('/annonce_ajouter.php')) ?>?id_bien=' + j.id_bien + '&from=express';
+      $('exp-saved-btn-liste').href = '<?= h(app_url('/bien_detail.php')) ?>?edit=' + j.id_bien;
+      $('exp-saved-btn-annonce').href = '<?= h(app_url('/annonce_nouvelle.php')) ?>?id_bien=' + j.id_bien + '&from=express';
 
       // Si mode estimation → cache le bouton annonce
       const isEstim = $('exp-transaction').value === 'estimation';
@@ -1273,7 +1374,73 @@ require_once __DIR__ . '/inc/header.php';
   $('exp-btn-validate')?.addEventListener('click', finalizeBien);
   $('exp-main-validate-btn')?.addEventListener('click', finalizeBien);
 
-  // Init
+  // ─── AUTOSAVE Express : persiste les saisies dès qu'un brouillon existe ──
+  // Dès que state.id_bien > 0 (brouillon créé), chaque modif de champ déclenche
+  // un POST vers /api/bien_autosave.php avec un debounce 1500ms.
+  // → refresh / fermeture onglet ne perd plus les données.
+  (function initAutosaveExpress() {
+    const form = $('exp-form');
+    if (!form) return;
+
+    let saveTimer = null;
+    const DEBOUNCE = 1500;
+
+    async function runAutosave() {
+      if (!state.id_bien) return;
+      try {
+        const fd = new FormData(form);
+        // bien_autosave.php attend _edit_id + csrf_token
+        fd.set('_edit_id', String(state.id_bien));
+        fd.set('csrf_token', CSRF);
+        // Retire les champs File pour éviter les gros uploads
+        for (const k of [...fd.keys()]) {
+          const v = fd.get(k);
+          if (v instanceof File) fd.delete(k);
+        }
+        const r = await fetch('<?= h(app_url('/api/bien_autosave.php')) ?>', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        const j = await r.json();
+        if (j && j.ok) {
+          // Petit indicateur discret
+          const idBadge = $('exp-bien-id-badge');
+          if (idBadge) {
+            idBadge.style.opacity = '.5';
+            setTimeout(() => { idBadge.style.opacity = '1'; }, 400);
+          }
+        }
+      } catch (_) { /* silencieux, pas bloquant */ }
+    }
+
+    function schedule() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(runAutosave, DEBOUNCE);
+    }
+
+    // Écoute input + change sur tout le form (sauf files)
+    form.addEventListener('input', (e) => {
+      if (e.target && e.target.type === 'file') return;
+      schedule();
+    });
+    form.addEventListener('change', (e) => {
+      if (e.target && e.target.type === 'file') return;
+      schedule();
+    });
+
+    // Aussi : sauvegarde avant fermeture / masquage page (flush immédiat)
+    window.addEventListener('beforeunload', () => { if (state.id_bien) runAutosave(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && state.id_bien) runAutosave();
+    });
+  })();
+
+  // Init — hydrate si brouillon + calcule conformité
+  if (EXP_EDIT_ID > 0) {
+    hydrateFromBien(EXP_BIEN_DATA);
+    // Marque les étapes déjà faites
+    markDone('step-dpe');
+    if (state.id_proprietaire) markDone('step-bailleur');
+  }
   confUpdate();
 })();
 </script>

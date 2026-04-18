@@ -127,7 +127,9 @@ try {
     $okFields    = count(array_filter($mandatory)) + count(array_filter($additional));
     $completude  = $totalFields > 0 ? (int)round($okFields / $totalFields * 100) : 0;
     $mandatoryOk = !in_array(false, $mandatory, true);
-    $newStatut   = ($mandatoryOk && $completude >= 80) ? 'actif' : 'brouillon';
+    // Seuil réaliste : 65% (obligations + majorité des champs utiles) = actif
+    // Sous ce seuil, reste en brouillon pour éviter publication avec données trop incomplètes
+    $newStatut   = ($mandatoryOk && $completude >= 65) ? 'actif' : 'brouillon';
 
     // ─── 5. UPDATE bien ──
     $pdo->prepare("

@@ -2454,6 +2454,15 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       color: var(--muted); margin-bottom: 6px;
       text-transform: uppercase; letter-spacing: .6px;
     }
+
+    /* ── AUTO-FILL IA : fond vert permanent tant que l'utilisateur n'a pas modifié le champ ── */
+    .field-autofilled {
+      background: #dcfce7 !important;
+      border-color: #86efac !important;
+      box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15) !important;
+      transition: background .3s, border-color .3s, box-shadow .3s;
+    }
+    .field-autofilled:focus { background: #f0fdf4 !important; }
     .ba-label-row {
       display: flex;
       align-items: center;
@@ -7694,10 +7703,12 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         }
       } catch (_) {}
 
-      // Effet visuel : highlight vert
-      first.style.transition = 'background .3s';
-      first.style.background = '#dcfce7';
-      setTimeout(() => { first.style.background = ''; }, 1500);
+      // Highlight vert PERMANENT sur champ auto-rempli (retiré si user modifie)
+      first.classList.add('field-autofilled');
+      first.addEventListener('input', function clearAuto() {
+        first.classList.remove('field-autofilled');
+        first.removeEventListener('input', clearAuto);
+      }, { once: false });
       return true;
     }
     // Expose pour le petit upload Diag

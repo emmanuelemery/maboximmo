@@ -62,15 +62,18 @@ try {
     $excludeId = isset($_POST['exclude_id']) && ctype_digit((string)$_POST['exclude_id'])
                  ? (int)$_POST['exclude_id'] : 0;
 
+    // ─── Recherche unifiée par tokens ────────────────────────────
+    // "EMERY Philippe" doit matcher un bailleur nom=EMERY + prenom=Philippe
+    // (chaque mot est cherché indépendamment dans tous les champs texte)
+    $qTokens = [];
+    $qPhoneToken = '';
     if ($q !== '') {
-        // Propagation de la query unifiée vers tous les critères
         $qNorm = $norm($q);
-        $qPhone = $normPhone($q);
-        if ($qNorm !== '')  { $nom = $nom ?: $qNorm; $prenom = $prenom ?: $qNorm; $societe = $societe ?: $qNorm; $email = $email ?: $qNorm; }
-        if ($qPhone !== '') { $tel = $tel ?: $qPhone; }
+        $qPhoneToken = $normPhone($q);
+        $qTokens = array_values(array_filter(preg_split('/\s+/', $qNorm) ?: [], static fn($t) => strlen($t) >= 2));
     }
 
-    if ($nom === '' && $prenom === '' && $societe === '' && $email === '' && $tel === '' && $siret === '' && $q === '') {
+    if ($nom === '' && $prenom === '' && $societe === '' && $email === '' && $tel === '' && $siret === '' && empty($qTokens) && $qPhoneToken === '') {
         exit(json_encode(['ok' => true, 'matches' => [], 'count' => 0]));
     }
 
@@ -96,6 +99,17 @@ try {
     if ($prenom !== '')  { $or[] = 'LOWER(p.prenom) LIKE :prenom';                                           $params[':prenom']  = '%' . $prenom . '%'; }
     if ($societe !== '') { $or[] = 'LOWER(p.societe) LIKE :soc';                                             $params[':soc']     = '%' . $societe . '%'; }
     if ($siret !== '')   { $or[] = 'p.siret = :siret';                                                       $params[':siret']   = $siret; }
+
+    // Tokens de la query unifiée : chaque mot est cherché dans nom OU prenom OU societe OU email
+    foreach ($qTokens as $i => $tok) {
+        $ph = ':qt' . $i;
+        $or[] = '(LOWER(p.nom) LIKE ' . $ph . ' OR LOWER(p.prenom) LIKE ' . $ph . ' OR LOWER(p.societe) LIKE ' . $ph . ' OR LOWER(p.email) LIKE ' . $ph . ')';
+        $params[$ph] = '%' . $tok . '%';
+    }
+    if ($qPhoneToken !== '') {
+        $or[] = 'REPLACE(REPLACE(REPLACE(REPLACE(p.telephone, " ", ""), ".", ""), "-", ""), "+", "") LIKE :qphone';
+        $params[':qphone'] = '%' . $qPhoneToken . '%';
+    }
 
     if (!$or) exit(json_encode(['ok' => true, 'matches' => [], 'count' => 0]));
 
@@ -125,7 +139,7 @@ try {
     $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $matches = [];
-    $minScore = $q !== '' ? 10 : 30; // live search → seuil plus bas
+    $minScore = ($q !== '' || !empty($qTokens)) ? 8 : 30; // live search : seuil très bas
     foreach ($candidates as $c) {
         $score = 0;
         $reasons = [];
@@ -157,6 +171,19 @@ try {
         if ($prenom !== '' && $cPre !== '') {
             if ($prenom === $cPre)                { $score += 10; $reasons[] = 'Prénom identique'; }
             elseif (str_contains($cPre, $prenom)) { $score += 5;  $reasons[] = 'Prénom partiel'; }
+        }
+
+        // Scoring par token : chaque mot présent dans nom/prenom/société/email compte
+        foreach ($qTokens as $tok) {
+            $matched = 0;
+            if ($cNom  !== '' && str_contains($cNom,  $tok)) { $matched++; $reasons[] = 'Nom contient "' . $tok . '"'; }
+            if ($cPre  !== '' && str_contains($cPre,  $tok)) { $matched++; $reasons[] = 'Prénom contient "' . $tok . '"'; }
+            if ($cSoc  !== '' && str_contains($cSoc,  $tok)) { $matched++; $reasons[] = 'Société contient "' . $tok . '"'; }
+            if ($cMail !== '' && str_contains($cMail, $tok)) { $matched++; $reasons[] = 'Email contient "' . $tok . '"'; }
+            if ($matched > 0) $score += 15 * min($matched, 2); // 15pts par token trouvé, max 2 champs
+        }
+        if ($qPhoneToken !== '' && $cTel !== '' && str_contains($cTel, $qPhoneToken)) {
+            $score += 40; $reasons[] = 'Téléphone contient ' . $qPhoneToken;
         }
 
         if ($score >= $minScore) {
