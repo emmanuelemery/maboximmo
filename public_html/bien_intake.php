@@ -559,6 +559,20 @@ require __DIR__ . '/inc/sidebar_agency.php';
         une attestation de surface… L'IA extrait automatiquement toutes les données et pré-remplit
         votre fiche bien. Vous validerez ensuite dans le formulaire complet.
       </p>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <form method="post" action="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" style="display:inline;">
+          <?php if (function_exists('csrf_field')): ?>
+            <?= csrf_field('ajouter_bien') ?>
+          <?php endif; ?>
+          <input type="hidden" name="_action" value="new_draft">
+          <button type="submit"
+                  style="padding:10px 18px;border-radius:10px;background:#fff;color:#1f6f7a;border:1.5px solid #1f6f7a;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;"
+                  title="Créer un brouillon vide et passer directement au formulaire détaillé">
+            ➡️ Créer sans documents
+          </button>
+        </form>
+        <span style="font-size:11px;color:#64748b;">— passer cette étape et saisir manuellement</span>
+      </div>
     </div>
 
     <!-- ── DROP ZONES côte à côte ── -->

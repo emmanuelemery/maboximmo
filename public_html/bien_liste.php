@@ -596,11 +596,13 @@ function photoPrincipaleUrl(array $bien): ?string {
       <div class="page-head-sub"><?= $totalBiens ?> bien<?= $totalBiens > 1 ? 's' : '' ?> dans le portefeuille</div>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost">
-        ＋ Ajout direct
+      <a href="<?= htmlspecialchars(app_url('/bien_ajouter_express.php')) ?>" class="bl-btn bl-btn-primary"
+         title="Flow rapide avec IA : import DPE, auto-remplissage, génération annonce SEO + Le Bon Coin">
+        ⚡ Express
       </a>
-      <a href="<?= htmlspecialchars(app_url('/bien_intake.php')) ?>" class="bl-btn bl-btn-primary">
-        🤖 Ajout avec doc par IA
+      <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost"
+         title="Saisie détaillée complète avec tous les onglets (identif, caract, prix, DPE, photos, annonce, conformité)">
+        🏛️ Professionnelle
       </a>
     </div>
   </div>
@@ -680,11 +682,11 @@ function photoPrincipaleUrl(array $bien): ?string {
             : 'Vous n\'avez pas encore ajouté de bien. Commencez maintenant !' ?>
         </p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost">
-            ＋ Ajout direct
+          <a href="<?= htmlspecialchars(app_url('/bien_ajouter_express.php')) ?>" class="bl-btn bl-btn-primary">
+            ⚡ Express
           </a>
-          <a href="<?= htmlspecialchars(app_url('/bien_intake.php')) ?>" class="bl-btn bl-btn-primary">
-            🤖 Ajout avec doc par IA
+          <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost">
+            🏛️ Professionnelle
           </a>
         </div>
       </div>
