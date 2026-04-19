@@ -393,20 +393,37 @@ if (isset($data['statut_bien']) && trim((string)$data['statut_bien']) === '') {
 }
 
 // ══════════════════════════════════════════════════════════════
-// Protection GENERALE pour les champs "environnement" non présents dans
-// tous les forms. Express stocke les chips environnement dans state.env
-// (JS) et POST via `environnement[...]` à finalize, mais PAS à l'autosave.
-// Résultat : l'autosave POSTait `$_POST['vue'] = ''` et écrasait les CSV
-// que finalize venait de mettre. Idem pour exposition, ambiance, nuisances,
-// acces_transports, distance_commerces, quartier, points_interet,
-// argument_phare.
-// Fix : si la clé n'est PAS explicitement présente dans $_POST (pas juste
-// vide), on n'écrit pas ce champ → l'UPDATE conserve la valeur BDD.
+// Protection GENERALE pour les champs "sensibles" qui peuvent être
+// absents du form courant (Express stocke les chips env dans state.env JS
+// sans input form) OU vides sur un form simplifié (Express input text DPE
+// vide quand l'user n'a pas saisi). Sans cette protection, l'autosave
+// écrase les valeurs persistées par finalize avec '' / NULL.
+//
+// 2 catégories protégées :
+//   - ENV : exposition, vue, ambiance, nuisances, acces/distance, quartier,
+//           points_interet, argument_phare, reprise_descriptif, accroche_commerciale
+//   - DPE/CHAUFFAGE : dpe_classe, ges_classe, dpe_valeur, ges_valeur,
+//           dpe_date_realisation, chauffage_type, chauffage_energie, eau_chaude_type
+//
+// Règle : si la clé est absente de $_POST OU si sa valeur POST est vide,
+// on retire la clé de $data → l'UPDATE conserve la valeur BDD existante.
 // ══════════════════════════════════════════════════════════════
-foreach (['exposition','vue','ambiance','nuisances','acces_transports','distance_commerces',
-         'quartier','points_interet','argument_phare','reprise_descriptif','accroche_commerciale'] as $envKey) {
-    if (!array_key_exists($envKey, $_POST)) {
-        unset($data[$envKey]);
+$protectedFields = [
+    // Environnement (chips JS, pas d'input direct dans Express)
+    'exposition', 'vue', 'ambiance', 'nuisances',
+    'acces_transports', 'distance_commerces',
+    'quartier', 'points_interet', 'argument_phare',
+    'reprise_descriptif', 'accroche_commerciale',
+    // DPE / chauffage (inputs présents mais souvent vides en Express)
+    'dpe_classe', 'ges_classe', 'dpe_valeur', 'ges_valeur',
+    'dpe_date_realisation',
+    'chauffage_type', 'chauffage_energie', 'eau_chaude_type',
+];
+foreach ($protectedFields as $f) {
+    $raw = $_POST[$f] ?? null;
+    $isEmpty = ($raw === null) || (is_string($raw) && trim($raw) === '');
+    if ($isEmpty) {
+        unset($data[$f]);
     }
 }
 
