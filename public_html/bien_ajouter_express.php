@@ -525,6 +525,16 @@ require_once __DIR__ . '/inc/header.php';
         <div class="exp-field"><label id="exp-prix-label">Prix / Loyer HC</label><input type="number" step="0.01" name="prix_vente_estime" id="exp-prix"></div>
       </div>
 
+      <!-- Import dossier diagnostics (extraction IA) -->
+      <div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,#eff6ff,#faf5ff);border:1px dashed #a5b4fc;border-radius:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button type="button" id="exp-diag-trigger" style="padding:10px 16px;border-radius:8px;background:#6366f1;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-family:inherit;">
+          <span style="font-size:15px;">⚡</span> Importer un dossier de diagnostics
+        </button>
+        <span style="font-size:11px;color:#64748b;flex:1;min-width:200px;">PDF DPE — extraction IA automatique de toutes les valeurs (classes, ADEME, altitude, conso, dépenses…)</span>
+        <input type="file" id="exp-diag-file" accept=".pdf,application/pdf" style="display:none">
+      </div>
+      <div id="exp-diag-status" style="display:none;margin-top:10px;padding:10px 14px;border-radius:8px;font-size:12px;"></div>
+
       <div id="exp-dup-bien" style="display:none;margin-top:10px;padding:12px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:8px;font-size:12px;"></div>
     </div>
 
@@ -575,6 +585,14 @@ require_once __DIR__ . '/inc/header.php';
       <input type="hidden" name="ges_valeur" id="exp-ges-val">
       <input type="hidden" name="dpe_date_realisation" id="exp-dpe-date">
       <input type="hidden" name="dpe_vierge" id="exp-dpe-vierge">
+      <input type="hidden" name="dpe_reference_certificat" id="exp-dpe-ademe">
+      <input type="hidden" name="dpe_version" id="exp-dpe-version">
+      <input type="hidden" name="dpe_valeur_conso_primaire" id="exp-conso-prim">
+      <input type="hidden" name="dpe_valeur_conso_finale" id="exp-conso-fin">
+      <input type="hidden" name="montant_estime_depenses_min" id="exp-dep-min">
+      <input type="hidden" name="montant_estime_depenses_max" id="exp-dep-max">
+      <input type="hidden" name="annee_reference_depenses" id="exp-annee-ref">
+      <input type="hidden" name="altitude" id="exp-altitude">
       <input type="hidden" name="chauffage_type" id="exp-ch-type">
       <input type="hidden" name="chauffage_energie" id="exp-ch-energie">
       <input type="hidden" name="eau_chaude_type" id="exp-ec-type">
@@ -1891,6 +1909,109 @@ require_once __DIR__ . '/inc/header.php';
   // Dès que state.id_bien > 0 (brouillon créé), chaque modif de champ déclenche
   // un POST vers /api/bien_autosave.php avec un debounce 1500ms.
   // → refresh / fermeture onglet ne perd plus les données.
+  // ─── IMPORT DIAGNOSTICS (PDF DPE) — extraction IA automatique ──────
+  (function initExpressDiagImport() {
+    const trigger = document.getElementById('exp-diag-trigger');
+    const input   = document.getElementById('exp-diag-file');
+    const status  = document.getElementById('exp-diag-status');
+    if (!trigger || !input) return;
+
+    // Mapping des champs retournés par l'API vers les IDs Express
+    const FIELD_TO_ID = {
+      dpe_classe: 'exp-dpe-cl',
+      ges_classe: 'exp-ges-cl',
+      dpe_valeur: 'exp-dpe-val',
+      ges_valeur: 'exp-ges-val',
+      dpe_date_realisation: 'exp-dpe-date',
+      dpe_vierge: 'exp-dpe-vierge',
+      dpe_reference_certificat: 'exp-dpe-ademe',
+      dpe_version: 'exp-dpe-version',
+      dpe_valeur_conso_primaire: 'exp-conso-prim',
+      dpe_valeur_conso_finale: 'exp-conso-fin',
+      montant_estime_depenses_min: 'exp-dep-min',
+      montant_estime_depenses_max: 'exp-dep-max',
+      annee_reference_depenses: 'exp-annee-ref',
+      altitude: 'exp-altitude',
+      annee_construction: 'exp-annee',
+      adresse_1: 'exp-adresse',
+      code_postal: 'exp-cp',
+      ville: 'exp-ville',
+      surface_habitable: 'exp-surface',
+    };
+
+    function showStatus(html, kind) {
+      status.style.display = 'block';
+      const colors = {
+        loading: ['#fef3c7', '#92400e'],
+        success: ['#dcfce7', '#166534'],
+        warning: ['#fef3c7', '#92400e'],
+        error  : ['#fee2e2', '#991b1b'],
+      };
+      const [bg, color] = colors[kind] || colors.loading;
+      status.style.background = bg;
+      status.style.color = color;
+      status.innerHTML = html;
+    }
+
+    trigger.addEventListener('click', () => input.click());
+
+    input.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (file.size > 20 * 1024 * 1024) { showStatus('❌ Fichier trop volumineux (max 20 Mo)', 'error'); return; }
+      if (!file.name.toLowerCase().endsWith('.pdf')) { showStatus('❌ Un PDF est requis', 'error'); return; }
+
+      showStatus('⏳ Analyse du DPE en cours…', 'loading');
+
+      const fd = new FormData();
+      fd.append('fichier', file);
+      if (state.id_bien) fd.append('id_bien', String(state.id_bien));
+
+      try {
+        const resp = await fetch('<?= h(app_url('/api/dpe_import_upload.php')) ?>', {
+          method: 'POST',
+          body: fd,
+          headers: { 'X-CSRF-Token': CSRF },
+          credentials: 'same-origin',
+        });
+        const data = await resp.json();
+        if (!data.ok) { showStatus('❌ ' + (data.error || 'Erreur inconnue'), 'error'); return; }
+
+        const fields = data.fields || {};
+        let applied = 0;
+        const appliedList = [];
+        Object.entries(fields).forEach(([k, v]) => {
+          if (v === null || v === '' || v === undefined) return;
+          if (k.startsWith('_alerte_')) return;
+          const id = FIELD_TO_ID[k];
+          if (!id) return;
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.value = v;
+          // Déclenche input event pour les listeners éventuels
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          applied++;
+          appliedList.push(k);
+        });
+
+        const score = data.score || 0;
+        const methodLabel = data.method === 'regex+ia' ? '🧠 IA GPT-4o' : '⚡ Regex';
+        const icon = score >= 80 ? '✅' : (score >= 40 ? '⚠️' : 'ℹ️');
+        const kind = score >= 80 ? 'success' : (score >= 40 ? 'warning' : 'loading');
+        showStatus(
+          icon + ' <strong>' + applied + ' champ(s) rempli(s)</strong> depuis le PDF — ' + methodLabel + ' · Score: ' + score + '%<br>'
+          + '<span style="font-size:11px;">Champs : ' + appliedList.join(', ') + '</span>',
+          kind
+        );
+      } catch (err) {
+        showStatus('❌ Erreur réseau : ' + err.message, 'error');
+      } finally {
+        input.value = '';  // reset pour permettre re-upload du même fichier
+      }
+    });
+  })();
+
   (function initAutosaveExpress() {
     const form = $('exp-form');
     if (!form) return;
