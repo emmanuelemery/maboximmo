@@ -121,18 +121,93 @@ if ($section === 'dpe') {
     }
 }
 
-// ─── Section DESCRIPTIF : charger photos + types + proprietaire + dpe (fallback adresse) ───
+// ─── Section DESCRIPTIF : charger photos + types + proprietaire + sync dpe_diags→biens ───
 $descPhotos = [];
 $typeBienLabel = '';
 $proprioInfo = null;
 $typesBienList = [];
 $descDpeDiag = null;
+$descSyncedFields = [];
 if ($section === 'descriptif') {
+    // 1. Charger le dernier dpe_diags
     try {
-        $st = $pdo->prepare("SELECT adresse_detectee, code_postal_detecte, ville_detectee FROM dpe_diags WHERE id_bien = ? ORDER BY date_creation DESC, id DESC LIMIT 1");
+        $st = $pdo->prepare("SELECT * FROM dpe_diags WHERE id_bien = ? ORDER BY date_creation DESC, id DESC LIMIT 1");
         $st->execute([$editingBienId]);
         $descDpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) {}
+
+    // 2. Sync AUTOMATIQUE dpe_diags → biens (COALESCE : ne touche pas les valeurs saisies)
+    if ($descDpeDiag) {
+        $syncMap = [
+            // dpe_diags_col          => biens_col
+            'adresse_detectee'            => 'adresse_1',
+            'code_postal_detecte'         => 'code_postal',
+            'ville_detectee'              => 'ville',
+            'etage_detecte'               => 'etage',
+            'annee_construction_detectee' => 'annee_construction',
+            'surface_habitable_detectee'  => 'surface_habitable',
+            'surface_carrez_detectee'     => 'surface_carrez',
+            'surface_sejour_detectee'     => 'surface_sejour',
+            'nb_pieces_detecte'           => 'nb_pieces',
+            'nb_chambres_detecte'         => 'nb_chambres',
+            'nb_salles_bain_detecte'      => 'nb_salles_bain',
+            'nb_salles_eau_detecte'       => 'nb_salles_eau',
+            'nb_wc_detecte'               => 'nb_wc',
+            'chauffage_type_detecte'      => 'chauffage_type',
+            'chauffage_energie_detecte'   => 'chauffage_energie',
+            'eau_chaude_type_detecte'     => 'eau_chaude_type',
+            'menuiseries_detectees'       => 'menuiseries',
+            'altitude_detectee'           => 'altitude',
+            'dpe_classe'                  => 'dpe_classe',
+            'ges_classe'                  => 'ges_classe',
+            'consommation_energie'        => 'dpe_valeur',
+            'emission_ges'                => 'ges_valeur',
+            'conso_energie_primaire'      => 'dpe_valeur_conso_primaire',
+            'conso_energie_finale'        => 'dpe_valeur_conso_finale',
+            'montant_depenses_min'        => 'montant_estime_depenses_min',
+            'montant_depenses_max'        => 'montant_estime_depenses_max',
+            'date_diagnostic'             => 'dpe_date_realisation',
+            'numero_ademe'                => 'dpe_reference_certificat',
+            'dpe_version'                 => 'dpe_version',
+            'date_indice_prix'            => 'date_indice_prix_energies',
+        ];
+        $boolMap = [
+            'double_vitrage_detecte' => 'double_vitrage',
+            'volets_roulants_detecte'=> 'volets_roulants',
+            'dpe_vierge'             => 'dpe_vierge',
+            'alerte_zone_georisque'  => 'zone_georisque',
+        ];
+
+        $setParts = [];
+        $setParams = [':_id' => $editingBienId];
+        foreach ($syncMap as $src => $dst) {
+            $v = $descDpeDiag[$src] ?? null;
+            if ($v === null || $v === '') continue;
+            $bienVal = $bienLoaded[$dst] ?? null;
+            if ($bienVal !== null && $bienVal !== '') continue; // deja rempli → skip
+            $setParts[] = "`$dst` = COALESCE(NULLIF(`$dst`, ''), :v_$dst)";
+            $setParams[":v_$dst"] = $v;
+            $descSyncedFields[] = $dst;
+        }
+        foreach ($boolMap as $src => $dst) {
+            $v = $descDpeDiag[$src] ?? null;
+            if ($v === null || $v === '') continue;
+            $bienVal = (int)($bienLoaded[$dst] ?? 0);
+            if ($bienVal === 1) continue;
+            $setParts[] = "`$dst` = CASE WHEN `$dst` = 0 OR `$dst` IS NULL THEN :v_$dst ELSE `$dst` END";
+            $setParams[":v_$dst"] = (int)(!empty($v));
+            $descSyncedFields[] = $dst;
+        }
+        if (!empty($setParts)) {
+            try {
+                $pdo->prepare("UPDATE biens SET " . implode(', ', $setParts) . " WHERE id = :_id")->execute($setParams);
+                // Recharger $bienLoaded avec les nouvelles valeurs pour l'affichage
+                $bienLoaded = bien_form_load_record($pdo, $editingBienId, $idSociete) ?: $bienLoaded;
+            } catch (Throwable $e) {
+                error_log('[bien_detail_v2 sync] ' . $e->getMessage());
+            }
+        }
+    }
     try {
         $st = $pdo->query("SELECT id, code, label FROM base_types_bien ORDER BY ordre_defaut ASC, label ASC");
         $typesBienList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -532,28 +607,21 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <!-- 2. Adresse (inputs directs avec autosave, fallback depuis DPE si biens vide) -->
-          <?php
-            // Fallback : si la valeur biens est vide, on prend celle du dernier DPE analyse
-            $adr1 = (string)($b['adresse_1']   ?? '') ?: (string)($descDpeDiag['adresse_detectee']    ?? '');
-            $cp   = (string)($b['code_postal'] ?? '') ?: (string)($descDpeDiag['code_postal_detecte'] ?? '');
-            $vil  = (string)($b['ville']       ?? '') ?: (string)($descDpeDiag['ville_detectee']      ?? '');
-            $fromDpe = ($descDpeDiag && (empty($b['adresse_1']) || empty($b['code_postal']) || empty($b['ville'])));
-          ?>
+          <!-- 2. Adresse (inputs autosave — valeurs déjà syncées depuis dpe_diags si vides) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse</span>
-            <?php if ($fromDpe): ?>
-              <span class="v2-hint">📄 Repris du dernier DPE — modifiable</span>
+            <?php if (!empty($descSyncedFields)): ?>
+              <span class="v2-hint">📄 <?= count($descSyncedFields) ?> champ(s) repris automatiquement du DPE</span>
             <?php endif; ?>
             <button type="button" id="v2-imm-btn" class="v2-btn-outline v2-header-btn">
               🔍 Trouver immeuble <?php if (!empty($immeublesList)): ?><span class="v2-badge"><?= count($immeublesList) ?></span><?php endif; ?>
             </button>
           </div>
           <div class="v2-addr-grid">
-            <input type="text" id="v2-f-adresse_1"  class="v2-input" name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h($adr1) ?>">
-            <input type="text" id="v2-f-adresse_2"  class="v2-input" name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2'] ?? '')) ?>">
-            <input type="text" id="v2-f-code_postal" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h($cp) ?>">
-            <input type="text" id="v2-f-ville"       class="v2-input" name="ville"       data-autosave placeholder="Ville"     value="<?= h($vil) ?>">
+            <input type="text" id="v2-f-adresse_1"   class="v2-input" name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['adresse_1']   ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_2"   class="v2-input" name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2']   ?? '')) ?>">
+            <input type="text" id="v2-f-code_postal" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
+            <input type="text" id="v2-f-ville"       class="v2-input" name="ville"       data-autosave placeholder="Ville"     value="<?= h((string)($b['ville']       ?? '')) ?>">
           </div>
 
           <!-- 3. Caractéristiques -->
