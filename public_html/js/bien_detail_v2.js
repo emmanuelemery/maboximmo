@@ -416,6 +416,60 @@
           },
         });
       }
+
+      // ── Dropzone Photos (glisser/cliquer, multi-fichiers) ──
+      const dz = document.getElementById('v2-photo-drop');
+      const dzInput = document.getElementById('v2-photo-input');
+      const dzStatus = document.getElementById('v2-photo-drop-status');
+      if (dz && dzInput) {
+        const setStatus = (kind, msg) => {
+          if (!dzStatus) return;
+          dzStatus.className = 'v2-photo-drop-status ' + (kind || '');
+          dzStatus.textContent = msg || '';
+        };
+
+        async function uploadPhoto(file) {
+          const fd = new FormData();
+          fd.append('fichier', file);
+          fd.append('csrf_token', data.csrfToken || '');
+          if (data.bienId) fd.append('id_bien', data.bienId);
+          const r = await fetch(data.photoUploadEndpoint || '/api/bien_intake_photo_upload.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+          });
+          return r.json();
+        }
+
+        async function uploadAll(files) {
+          const list = Array.from(files).filter(f => /^image\//.test(f.type));
+          if (list.length === 0) { setStatus('err', '❌ Aucune image valide'); return; }
+          let done = 0, errs = 0;
+          setStatus('', `⏳ 0 / ${list.length}…`);
+          for (const f of list) {
+            try {
+              const j = await uploadPhoto(f);
+              if (j.ok) done++; else errs++;
+            } catch (e) { errs++; }
+            setStatus('', `⏳ ${done + errs} / ${list.length}…`);
+          }
+          if (errs === 0) setStatus('ok', `✅ ${done} photo(s) ajoutée(s)`);
+          else setStatus('err', `⚠️ ${done} OK · ${errs} échec(s)`);
+        }
+
+        dz.addEventListener('click', () => dzInput.click());
+        dzInput.addEventListener('change', (e) => {
+          if (e.target.files?.length) uploadAll(e.target.files);
+          dzInput.value = '';
+        });
+        ['dragenter', 'dragover'].forEach(ev =>
+          dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('is-dragging'); })
+        );
+        ['dragleave', 'drop'].forEach(ev =>
+          dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('is-dragging'); })
+        );
+        dz.addEventListener('drop', (e) => {
+          if (e.dataTransfer?.files?.length) uploadAll(e.dataTransfer.files);
+        });
+      }
     } else if (section === 'dpe') {
       bindMissingForm();
     }

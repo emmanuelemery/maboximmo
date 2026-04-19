@@ -1044,6 +1044,34 @@ input.v2-input.is-from-dpe {
 }
 .v2-desc-group-title:first-child { margin-top: 0; }
 
+/* Dropzone Photos (Card 1 Documents, sous DocumentUploader) */
+.v2-photo-drop-wrap { margin-top: 20px; }
+.v2-photo-drop {
+  border: 2px dashed rgba(54, 87, 125, 0.30);
+  border-radius: 12px;
+  padding: 24px 20px;
+  text-align: center;
+  cursor: pointer;
+  background: #fafbfc;
+  transition: background .2s, border-color .2s;
+}
+.v2-photo-drop:hover { background: #fff; border-color: var(--v2-accent); }
+.v2-photo-drop.is-dragging { background: var(--v2-accent-light); border-color: var(--v2-accent); border-style: solid; }
+.v2-photo-drop-icon { font-size: 36px; line-height: 1; opacity: 0.5; margin-bottom: 8px; }
+.v2-photo-drop-title {
+  font-size: 14px; font-weight: 700; color: var(--v2-accent); margin-bottom: 4px;
+}
+.v2-photo-drop-sub { font-size: 11px; color: var(--v2-muted); }
+.v2-photo-drop-status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--v2-muted);
+  min-height: 18px;
+  transition: color .2s;
+}
+.v2-photo-drop-status.ok  { color: #0ea572; }
+.v2-photo-drop-status.err { color: #dc2626; }
+
 .v2-photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

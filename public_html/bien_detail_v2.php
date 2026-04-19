@@ -509,8 +509,22 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
       <!-- Card 1 : CHARGEMENT -->
       <section class="v2-card is-active" role="tabpanel" aria-label="Chargement de documents">
-        <div class="v2-card-label">⬆️ Chargement d'un document</div>
-        <div class="v2-card-body"><div id="v2-uploader"></div></div>
+        <div class="v2-card-label">⬆️ Chargement</div>
+        <div class="v2-card-body">
+          <div id="v2-uploader"></div>
+
+          <!-- Dropzone Photos (en dessous du DocumentUploader) -->
+          <div class="v2-photo-drop-wrap">
+            <div class="v2-desc-group-title">📸 Photos du bien</div>
+            <div id="v2-photo-drop" class="v2-photo-drop">
+              <input type="file" id="v2-photo-input" accept="image/jpeg,image/png,image/webp" multiple hidden>
+              <div class="v2-photo-drop-icon">📸</div>
+              <div class="v2-photo-drop-title">Glissez vos photos ici ou cliquez</div>
+              <div class="v2-photo-drop-sub">JPG / PNG / WebP · max 15 Mo par photo · multiples acceptés</div>
+            </div>
+            <div id="v2-photo-drop-status" class="v2-photo-drop-status"></div>
+          </div>
+        </div>
       </section>
 
       <!-- Card 2 : DIAGNOSTICS -->
@@ -1318,6 +1332,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     section: <?= json_encode($section) ?>,
     csrfToken: <?= json_encode($csrfTokenVal, JSON_UNESCAPED_SLASHES) ?>,
     uploadEndpoint:      <?= json_encode(app_url('/api/bien_intake_upload.php'), JSON_UNESCAPED_SLASHES) ?>,
+    photoUploadEndpoint: <?= json_encode(app_url('/api/bien_intake_photo_upload.php'), JSON_UNESCAPED_SLASHES) ?>,
     updateEndpoint:      <?= json_encode(app_url('/api/dpe_diag_update.php'),    JSON_UNESCAPED_SLASHES) ?>,
     autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),       JSON_UNESCAPED_SLASHES) ?>,
