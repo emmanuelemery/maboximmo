@@ -1524,6 +1524,29 @@ if ($isEditing && $editingBienId > 0 && $pdo) {
         $s->execute([$editingBienId]);
         $_loadedVueIds = $s->fetchAll(PDO::FETCH_COLUMN);
 
+        // Fallback + lazy-backfill : si bien_vues vide mais biens.vue CSV rempli
+        // (cas Express qui n'a pas écrit dans bien_vues avant le commit 5f7e792),
+        // on résout les IDs depuis societe_vues ET on backfille la table pour
+        // la prochaine fois. → chips pré-cochées dès le 1er chargement.
+        if (empty($_loadedVueIds)
+            && !empty($bienLoaded['vue'])
+            && !empty($bienLoaded['id_societe'])) {
+            $codes = array_values(array_filter(array_map('trim',
+                explode(',', (string)$bienLoaded['vue']))));
+            if (!empty($codes)) {
+                $ph = implode(',', array_fill(0, count($codes), '?'));
+                $st = $pdo->prepare("SELECT id FROM societe_vues WHERE id_societe = ? AND code IN ($ph) AND actif = 1");
+                $st->execute(array_merge([(int)$bienLoaded['id_societe']], $codes));
+                $_loadedVueIds = $st->fetchAll(PDO::FETCH_COLUMN);
+                if (!empty($_loadedVueIds)) {
+                    $ins = $pdo->prepare("INSERT IGNORE INTO bien_vues (id_bien, id_societe_vue) VALUES (?, ?)");
+                    foreach ($_loadedVueIds as $vid) {
+                        try { $ins->execute([$editingBienId, (int)$vid]); } catch (Throwable) {}
+                    }
+                }
+            }
+        }
+
         $s = $pdo->prepare("SELECT id_societe_chauffage FROM bien_chauffages WHERE id_bien = ?");
         $s->execute([$editingBienId]);
         $_loadedChauffIds = $s->fetchAll(PDO::FETCH_COLUMN);
