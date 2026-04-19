@@ -553,6 +553,10 @@
 
     if (section === 'descriptif') {
       bindDescriptifAutosave(data);
+      // Si Google Maps est deja charge (cache / autre page), appel direct
+      if (window.google && window.google.maps && window.google.maps.places && typeof window.v2InitPlaces === 'function') {
+        try { window.v2InitPlaces(); } catch (e) { console.warn('[v2InitPlaces] ' + e.message); }
+      }
     }
 
     if (section === 'documents') {

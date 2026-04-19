@@ -130,6 +130,12 @@ if ($section === 'descriptif') {
     try {
         $st = $pdo->query("SELECT id, code, label FROM base_types_bien ORDER BY ordre_defaut ASC, label ASC");
         $typesBienList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        // Filtrer 'loft' + renommer 'fonds_commerce' en 'Commerce'
+        $typesBienList = array_values(array_filter($typesBienList, static fn($t) => ($t['code'] ?? '') !== 'loft'));
+        foreach ($typesBienList as &$_t) {
+            if (($_t['code'] ?? '') === 'fonds_commerce') $_t['label'] = 'Commerce';
+        }
+        unset($_t);
     } catch (Throwable $e) {}
     try {
         $st = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 60");
@@ -520,12 +526,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             <div class="v2-places-picker">
               <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Google (adresse)…" autocomplete="off">
             </div>
-            <?php if (!empty($immeublesList)): ?>
-              <div class="v2-imm-picker">
-                <input type="text" id="v2-imm-search" class="v2-input" placeholder="🏢 Immeubles enregistrés…" autocomplete="off">
-                <div id="v2-imm-suggest" class="v2-tiers-suggest" hidden></div>
-              </div>
-            <?php endif; ?>
+            <div class="v2-imm-picker">
+              <input type="text" id="v2-imm-search" class="v2-input"
+                     placeholder="🏢 Immeubles enregistrés<?= empty($immeublesList) ? ' (aucun)' : ' (' . count($immeublesList) . ')' ?>…"
+                     autocomplete="off"
+                     <?= empty($immeublesList) ? 'disabled' : '' ?>>
+              <div id="v2-imm-suggest" class="v2-tiers-suggest" hidden></div>
+            </div>
           </div>
           <div class="v2-addr-grid">
             <input type="text" id="v2-f-adresse_1" class="v2-input" name="adresse_1" data-autosave placeholder="Adresse" value="<?= h((string)($b['adresse_1'] ?? '')) ?>">
@@ -1095,8 +1102,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
 <script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
-<?php if ($section === 'descriptif' && !empty($GOOGLE_MAPS_API_KEY)): ?>
-<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=v2InitPlaces" async defer></script>
+<?php if ($section === 'descriptif'): ?>
+  <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
+<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=v2InitPlaces&loading=async" defer></script>
+  <?php else: ?>
+<script>console.warn('[v2] GOOGLE_MAPS_API_KEY non definie cote serveur — la recherche Google est desactivee');</script>
+  <?php endif; ?>
 <?php endif; ?>
 
 </body>
