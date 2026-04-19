@@ -68,6 +68,24 @@ $diagTypes   = ['dpe', 'diag', 'dossier_complet', 'dossier_diagnostics',
                 'erp', 'amiante', 'plomb', 'termites', 'gaz', 'electricite'];
 $mandatTypes = ['mandat', 'mandat_vente', 'mandat_gestion', 'mandat_location', 'bail'];
 
+// Photos du bien (pour la Card 5 Documents)
+$docsPhotos = [];
+if ($section === 'documents') {
+    try {
+        $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
+        $st->execute([$editingBienId]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $docsPhotos[] = [
+                'id'           => (int)$p['id'],
+                'url'          => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
+                'nom_original' => (string)($p['nom_original'] ?? ''),
+                'largeur'      => (int)($p['largeur'] ?? 0),
+                'hauteur'      => (int)($p['hauteur'] ?? 0),
+            ];
+        }
+    } catch (Throwable $e) {}
+}
+
 $docsDiag = [];
 $docsMandat = [];
 $docsAutre = [];
@@ -574,10 +592,42 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       </section>
 
       <!-- Card 4 : AUTRES -->
-      <section class="v2-card is-prev" role="tabpanel" aria-label="Autres documents">
+      <section class="v2-card is-hidden" role="tabpanel" aria-label="Autres documents">
         <div class="v2-card-label">📎 Autres documents <span class="v2-count" id="v2-count-autre">0</span></div>
         <div class="v2-card-body" id="v2-list-autre"></div>
       </section>
+
+      <!-- Card 5 : PHOTOS -->
+      <section class="v2-card is-prev" role="tabpanel" aria-label="Photos du bien">
+        <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-count-photos"><?= count($docsPhotos) ?></span></div>
+        <div class="v2-card-body" id="v2-photos-container">
+          <?php if (empty($docsPhotos)): ?>
+            <div class="v2-doc-empty">
+              <div class="v2-doc-empty-icon">📸</div>
+              <div>Aucune photo — glisse des photos dans la card Chargement.</div>
+            </div>
+          <?php else: ?>
+            <div class="v2-photos-doc-grid">
+              <?php foreach ($docsPhotos as $p): ?>
+                <div class="v2-photo-tile" data-id="<?= (int)$p['id'] ?>" data-url="<?= h($p['url']) ?>" data-name="<?= h($p['nom_original']) ?>">
+                  <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
+                  <div class="v2-photo-tile-actions">
+                    <button type="button" class="v2-photo-tile-btn" data-action="zoom" title="Agrandir">🔍</button>
+                    <button type="button" class="v2-photo-tile-btn danger" data-action="delete" title="Supprimer">🗑️</button>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
+        </div>
+      </section>
+
+      <!-- Lightbox pour agrandir les photos -->
+      <div id="v2-photo-lightbox" class="v2-lightbox" hidden>
+        <button type="button" class="v2-lightbox-close" aria-label="Fermer">✕</button>
+        <img id="v2-lightbox-img" src="" alt="">
+        <div id="v2-lightbox-caption" class="v2-lightbox-caption"></div>
+      </div>
 
     <?php elseif ($section === 'descriptif'): ?>
 
@@ -1435,6 +1485,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),            JSON_UNESCAPED_SLASHES) ?>,
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
+    photoDeleteEndpoint: <?= json_encode(app_url('/api/bien_photo_delete.php'),        JSON_UNESCAPED_SLASHES) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,

@@ -474,6 +474,65 @@
         });
       }
 
+      // ── Grille photos Card 5 Documents (lightbox + delete) ──
+      const photosGrid = document.querySelector('.v2-photos-doc-grid');
+      const lightbox   = document.getElementById('v2-photo-lightbox');
+      const lbImg      = document.getElementById('v2-lightbox-img');
+      const lbCaption  = document.getElementById('v2-lightbox-caption');
+      const lbClose    = lightbox?.querySelector('.v2-lightbox-close');
+
+      function openLightbox(url, name) {
+        if (!lightbox || !lbImg) return;
+        lbImg.src = url;
+        lbImg.alt = name || '';
+        if (lbCaption) lbCaption.textContent = name || '';
+        lightbox.hidden = false;
+      }
+      function closeLightbox() { if (lightbox) lightbox.hidden = true; }
+
+      if (lightbox) {
+        lbClose?.addEventListener('click', closeLightbox);
+        lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+      }
+
+      if (photosGrid) {
+        photosGrid.addEventListener('click', async (e) => {
+          const tile = e.target.closest('.v2-photo-tile');
+          if (!tile) return;
+          const btn = e.target.closest('.v2-photo-tile-btn');
+          const url = tile.dataset.url;
+          const name = tile.dataset.name;
+
+          // Si pas de clic sur un bouton : clic sur tile = agrandir
+          if (!btn) { openLightbox(url, name); return; }
+
+          const action = btn.dataset.action;
+          if (action === 'zoom') { openLightbox(url, name); return; }
+
+          if (action === 'delete') {
+            if (!confirm('Supprimer cette photo ?')) return;
+            const id = parseInt(tile.dataset.id, 10) || 0;
+            if (id <= 0) return;
+            const fd = new FormData();
+            fd.append('id_photo', id);
+            fd.append('csrf_token', data.csrfToken || '');
+            try {
+              const r = await fetch(data.photoDeleteEndpoint || '/api/bien_photo_delete.php', {
+                method: 'POST', body: fd, credentials: 'same-origin'
+              });
+              const j = await r.json();
+              if (!j.ok) throw new Error(j.error || 'Erreur suppression');
+              tile.remove();
+              const counter = document.getElementById('v2-count-photos');
+              if (counter) counter.textContent = photosGrid.querySelectorAll('.v2-photo-tile').length;
+            } catch (err) {
+              alert('❌ ' + err.message);
+            }
+          }
+        });
+      }
+
       // ── Dropzone Photos (glisser/cliquer, multi-fichiers) ──
       const dz = document.getElementById('v2-photo-drop');
       const dzInput = document.getElementById('v2-photo-input');
