@@ -22,19 +22,43 @@ $output = '';
 $errorMsg = '';
 $step = '';
 
-// Candidats pour la racine du repo (différents hébergeurs / local)
-$candidates = [
-    dirname(__DIR__, 2),                             // ../../ (public_html/admin -> repo root)
-    dirname(__DIR__, 3),                             // ../../../
-    '/home/u630423897/public_html',                  // Hostinger docroot potentiel
-    '/home/u630423897/domains/dev.maboximmo.fr/public_html',
-    realpath(__DIR__ . '/../..'),
-];
+// 1) Walk-up : remonte les répertoires parents de ce fichier jusqu'à trouver .git
+$tried = [];
 $repoRoot = null;
-foreach ($candidates as $c) {
-    if ($c && is_dir($c) && is_dir($c . '/.git')) {
-        $repoRoot = $c;
+$cur = __DIR__;
+for ($i = 0; $i < 10 && $cur && $cur !== '/' && strlen($cur) > 3; $i++) {
+    $tried[] = $cur;
+    if (file_exists($cur . '/.git')) { // dir OU fichier (worktrees)
+        $repoRoot = $cur;
         break;
+    }
+    $parent = dirname($cur);
+    if ($parent === $cur) break;
+    $cur = $parent;
+}
+
+// 2) Fallback : demander à git lui-même
+if (!$repoRoot && function_exists('shell_exec')) {
+    $top = trim((string)@shell_exec('cd ' . escapeshellarg(__DIR__) . ' && git rev-parse --show-toplevel 2>&1'));
+    if ($top && is_dir($top) && file_exists($top . '/.git')) {
+        $repoRoot = $top;
+    }
+    $tried[] = '(git rev-parse --show-toplevel) → ' . ($top ?: '—');
+}
+
+// 3) Candidats connus Hostinger
+if (!$repoRoot) {
+    $hinted = [
+        '/home/u630423897/public_html',
+        '/home/u630423897',
+        '/home/u630423897/domains/dev.maboximmo.fr/public_html',
+        '/home/u630423897/domains/dev.maboximmo.fr',
+        '/home/u630423897/domains/maboximmo.fr/public_html',
+        '/home/u630423897/domains/maboximmo.fr',
+    ];
+    foreach ($hinted as $c) {
+        $tried[] = $c;
+        if (is_dir($c) && file_exists($c . '/.git')) { $repoRoot = $c; break; }
     }
 }
 
@@ -42,7 +66,7 @@ foreach ($candidates as $c) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pull') {
     verify_csrf('admin_deploy');
     if (!$repoRoot) {
-        $errorMsg = "Impossible de trouver la racine du repo Git. Candidats testés :\n" . implode("\n", array_filter($candidates));
+        $errorMsg = "Impossible de trouver la racine du repo Git. Chemins testés :\n" . implode("\n", array_filter($tried));
     } elseif (!function_exists('shell_exec')) {
         $errorMsg = "La fonction PHP shell_exec() est désactivée sur ce serveur.";
     } else {
@@ -94,6 +118,11 @@ $csrf = csrf_token('admin_deploy');
         <div class="kv">
             <strong>Racine repo détectée</strong>
             <span><?= $repoRoot ? htmlspecialchars($repoRoot) : '<span class="err">⚠️ Non trouvée</span>' ?></span>
+
+            <?php if (!$repoRoot): ?>
+            <strong>Chemins testés</strong>
+            <span><pre style="margin:0;padding:8px 10px;background:#fff;color:#991b1b;font-size:11px;"><?= htmlspecialchars(implode("\n", array_filter($tried))) ?></pre></span>
+            <?php endif; ?>
 
             <strong>PHP shell_exec()</strong>
             <span><?= function_exists('shell_exec') ? '<span class="ok">✓ Disponible</span>' : '<span class="err">✗ Désactivée</span>' ?></span>
