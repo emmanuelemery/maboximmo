@@ -735,11 +735,27 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
 
           <!-- 2. Adresse (inputs autosave — valeurs déjà syncées depuis dpe_diags si vides) -->
+          <?php
+            $etageVal = isset($b['etage']) && $b['etage'] !== '' ? h((string)$b['etage']) : '';
+            $anneeVal = isset($b['annee_construction']) && $b['annee_construction'] !== '' ? h((string)$b['annee_construction']) : '';
+            $etageFromDpe = isset($syncFlags['etage']) ? ' is-from-dpe' : '';
+            $anneeFromDpe = isset($syncFlags['annee_construction']) ? ' is-from-dpe' : '';
+          ?>
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse</span>
             <?php if (!empty($descSyncedFields)): ?>
-              <span class="v2-hint">📄 <?= count($descSyncedFields) ?> champ(s) repris automatiquement du DPE</span>
+              <span class="v2-hint">📄 <?= count($descSyncedFields) ?> champ(s) repris du DPE</span>
             <?php endif; ?>
+            <div class="v2-num-field<?= $etageFromDpe ?>" title="Étage">
+              <span class="v2-num-icon">🪜</span>
+              <input type="number" step="any" min="0" class="v2-num-input" name="etage" data-autosave value="<?= $etageVal ?>" placeholder="0">
+              <span class="v2-num-label">Étage</span>
+            </div>
+            <div class="v2-num-field<?= $anneeFromDpe ?>" title="Année construction">
+              <span class="v2-num-icon">📅</span>
+              <input type="number" step="1" min="0" max="2100" class="v2-num-input" style="width:70px;" name="annee_construction" data-autosave value="<?= $anneeVal ?>" placeholder="Année">
+              <span class="v2-num-label">An. construction</span>
+            </div>
             <button type="button" id="v2-imm-btn" class="v2-btn-outline v2-header-btn">
               🔍 Trouver immeuble <?php if (!empty($immeublesList)): ?><span class="v2-badge"><?= count($immeublesList) ?></span><?php endif; ?>
             </button>
@@ -1129,11 +1145,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-body">
 
           <div class="v2-desc-group-title">🧭 Situation</div>
-          <div class="v2-num-grid">
-            <?= $numField('🪜', 'etage',              'Étage') ?>
-            <?= $numField('📅', 'annee_construction', 'An. construction') ?>
-          </div>
-          <div class="v2-bool-toggles" style="margin-top:10px;">
+          <div class="v2-bool-toggles">
             <?= $boolToggle('🔝', 'dernier_etage',          'Dernier étage') ?>
             <?= $boolToggle('🚪', 'adresse_visible_public', 'Adresse visible public') ?>
             <?= $boolToggle('🚚', 'acces_camion',           'Accès camion') ?>
