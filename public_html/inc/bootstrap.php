@@ -8,11 +8,13 @@ if (session_status() === PHP_SESSION_NONE) {
 date_default_timezone_set('Europe/Paris');
 
 // ── Headers de sécurité HTTP (appliqués sur toutes les pages) ──────
-header('X-Frame-Options: DENY');
+// SAMEORIGIN + frame-ancestors 'self' : autorise les iframes/embeds depuis le même domaine
+// (ex: visualisation PDF dans bien_detail_v2), bloque les sites tiers → anti-clickjacking OK
+header('X-Frame-Options: SAMEORIGIN');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Permissions-Policy: geolocation=(), camera=(), microphone=()');
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https:; frame-ancestors 'none';");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https:; frame-src 'self'; frame-ancestors 'self';");
 
 /**
  * MODE APPLICATION

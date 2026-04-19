@@ -612,7 +612,6 @@ html.v2-no-scroll, body.v2-no-scroll {
 .v2-nav {
   position: absolute;
   top: 50%;
-  transform: translateY(-50%);
   width: 40px; height: 40px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.95);
@@ -624,12 +623,14 @@ html.v2-no-scroll, body.v2-no-scroll {
   z-index: 20;
   transition: background .15s, transform .15s;
 }
-.v2-nav:hover { background: #fff; transform: translateY(-50%) scale(1.08); }
-.v2-nav:active { transform: translateY(-50%) scale(0.96); }
-/* Cards maitres : 72% centrees (bords 14% et 86%).
-   Fleches positionnees a 1/3 de la card maitre pour acces plus facile. */
-.v2-nav.prev { left: 22%; }
-.v2-nav.next { right: 22%; }
+/* Cards maitres : 72% centrees → bords a 14% et 86%.
+   Fleches pile sur le trait de la card (centrees via translate). */
+.v2-nav.prev { left: 14%; transform: translate(-50%, -50%); }
+.v2-nav.next { left: 86%; transform: translate(-50%, -50%); }
+.v2-nav.prev:hover,
+.v2-nav.next:hover { background: #fff; transform: translate(-50%, -50%) scale(1.08); }
+.v2-nav.prev:active,
+.v2-nav.next:active { transform: translate(-50%, -50%) scale(0.96); }
 
 .v2-dots {
   flex-shrink: 0;
