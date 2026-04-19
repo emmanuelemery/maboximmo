@@ -138,8 +138,8 @@ html.v2-no-scroll, body.v2-no-scroll {
   border: 1px solid var(--v2-card-border);
   border-radius: var(--v2-card-radius);
   box-shadow:
-    0 8px 16px -6px rgba(54, 87, 125, 0.12),
-    0 3px 6px -3px rgba(54, 87, 125, 0.08);
+    0 3px 8px -3px rgba(54, 87, 125, 0.10),
+    0 1px 3px -1px rgba(54, 87, 125, 0.06);
   display: flex;
   flex-direction: column;
   padding: 22px 24px;
@@ -159,10 +159,10 @@ html.v2-no-scroll, body.v2-no-scroll {
   border: 3px solid transparent;
   background:
     linear-gradient(var(--v2-card-bg), var(--v2-card-bg)) padding-box,
-    linear-gradient(135deg, #d8d8d8, #8a8a8a 45%, #5a5a5a 100%) border-box;
+    linear-gradient(135deg, #e8e8e8, #c0c0c0 50%, #a8a8a8 100%) border-box;
   box-shadow:
-    0 6px 14px -6px rgba(0, 0, 0, 0.15),
-    0 2px 6px -2px rgba(54, 87, 125, 0.10);
+    0 2px 6px -2px rgba(0, 0, 0, 0.08),
+    0 1px 3px -1px rgba(54, 87, 125, 0.06);
 }
 
 /* Gauche = bleu pétrole (cold) */
@@ -172,7 +172,7 @@ html.v2-no-scroll, body.v2-no-scroll {
   z-index: 5;
   background: linear-gradient(135deg, var(--v2-cold-1), var(--v2-cold-2));
   filter: saturate(0.9);
-  box-shadow: 0 8px 16px -6px rgba(54, 87, 125, 0.25);
+  box-shadow: 0 3px 8px -3px rgba(54, 87, 125, 0.20);
   cursor: pointer;
 }
 
@@ -183,7 +183,7 @@ html.v2-no-scroll, body.v2-no-scroll {
   z-index: 5;
   background: linear-gradient(135deg, var(--v2-warm-1), var(--v2-warm-2));
   filter: saturate(0.9);
-  box-shadow: 0 8px 16px -6px rgba(100, 130, 80, 0.25);
+  box-shadow: 0 3px 8px -3px rgba(100, 130, 80, 0.20);
   cursor: pointer;
 }
 
