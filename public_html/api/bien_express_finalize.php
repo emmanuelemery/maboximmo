@@ -31,6 +31,11 @@ require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/ref_generator.php';
 require_login();
 
+// API JSON : ne JAMAIS afficher les warnings/notices PHP dans la réponse
+// (ils cassent le parsing JSON côté client). On les log dans error.log.
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+
 header('Content-Type: application/json; charset=utf-8');
 
 try {
