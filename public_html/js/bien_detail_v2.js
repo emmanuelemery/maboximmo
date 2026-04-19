@@ -10,6 +10,9 @@
 
   const TYPE_LABELS = {
     dpe: 'DPE',
+    diag: 'Diagnostic',
+    dossier_complet: 'Dossier diagnostics',
+    dossier_diagnostics: 'Dossier diagnostics',
     certificat_surface: 'Certificat de surface',
     mesurage_loi_carrez: 'Mesurage Loi Carrez',
     erp: 'ERP',
@@ -18,10 +21,16 @@
     termites: 'Termites',
     gaz: 'Gaz',
     electricite: 'Électricité',
+    mandat: 'Mandat',
     mandat_vente: 'Mandat de vente',
     mandat_gestion: 'Mandat de gestion',
     mandat_location: 'Mandat de location',
     bail: 'Bail',
+    acte: 'Acte de propriété',
+    titre: 'Titre / Acte',
+    fiche: 'Fiche commerciale',
+    divers: 'Document divers',
+    notification_mutation: 'Notification mutation',
     autre: 'Autre',
   };
 

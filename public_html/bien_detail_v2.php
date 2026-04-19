@@ -61,8 +61,12 @@ $scoreClass = match ($scoreStatus) {
 $pageTitle = 'Détail du bien — #' . $editingBienId;
 
 // ─── Section DOCUMENTS ────────────────────────────────────────
-$diagTypes   = ['dpe','certificat_surface','mesurage_loi_carrez','erp','amiante','plomb','termites','gaz','electricite'];
-$mandatTypes = ['mandat_vente','mandat_gestion','mandat_location','bail'];
+// Types reels en base (cf. api/bien_intake_upload.php docTypeMap) :
+// 'dpe', 'diag' = diagnostics · 'mandat', 'bail' = mandats · 'acte', 'titre', 'fiche', 'divers', 'autre' = autres
+$diagTypes   = ['dpe', 'diag', 'dossier_complet', 'dossier_diagnostics',
+                'certificat_surface', 'mesurage_loi_carrez',
+                'erp', 'amiante', 'plomb', 'termites', 'gaz', 'electricite'];
+$mandatTypes = ['mandat', 'mandat_vente', 'mandat_gestion', 'mandat_location', 'bail'];
 
 $docsDiag = [];
 $docsMandat = [];
