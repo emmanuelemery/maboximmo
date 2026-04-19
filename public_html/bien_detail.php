@@ -1592,6 +1592,16 @@ if ($isEditing && $editingBienId > 0 && $pdo) {
 $username = htmlspecialchars((string)($_SESSION['username'] ?? 'Utilisateur'), ENT_QUOTES, 'UTF-8');
 $role     = htmlspecialchars((string)($_SESSION['role']     ?? 'collaborateur'), ENT_QUOTES, 'UTF-8');
 $annonceTransactionPost = (string)post('annonce_transaction', '');
+
+// Chargement du dernier dpe_diags pour le bien (sous-onglet "Données extraites")
+$_loadedDpeDiag = null;
+if ($isEditing && $editingBienId > 0 && $pdo) {
+    try {
+        $st = $pdo->prepare("SELECT * FROM dpe_diags WHERE id_bien = ? ORDER BY date_creation DESC, id DESC LIMIT 1");
+        $st->execute([$editingBienId]);
+        $_loadedDpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable) {}
+}
 ?>
 <!doctype html>
 <html lang="fr">
@@ -4625,6 +4635,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             <div class="ba-subtabs" id="dpeSubtabs">
               <button type="button" class="ba-subtab active" data-sub="dpe-main">⚡ DPE</button>
               <button type="button" class="ba-subtab" data-sub="dpe-erp">🌍 ERP / Géorisques</button>
+              <button type="button" class="ba-subtab" data-sub="dpe-extracted">📊 Données extraites<?= $_loadedDpeDiag ? ' <span style="background:#22c55e;color:#fff;border-radius:10px;padding:1px 6px;font-size:9px;margin-left:4px;">'. (int)($_loadedDpeDiag['extraction_score'] ?? 0) .'%</span>' : '' ?></button>
             </div>
           </div>
           <div class="ba-card-body">
@@ -4769,6 +4780,186 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
               </div>
             </div>
           </div><!-- /sous-onglet dpe-erp -->
+
+          <!-- ═══ SOUS-ONGLET 3 : DONNÉES EXTRAITES DU DPE (lecture seule) ═══ -->
+          <div class="ba-subpanel" data-sub-panel="dpe-extracted" style="display:none;">
+            <?php if (!$_loadedDpeDiag): ?>
+              <div style="padding:40px 20px;text-align:center;color:#64748b;background:#f8fafc;border-radius:10px;">
+                <div style="font-size:32px;margin-bottom:8px;">📭</div>
+                <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Aucun dossier de diagnostics analysé</div>
+                <div style="font-size:12px;">Uploade un PDF DPE via l'onglet <strong>Documents</strong> ou depuis Express pour voir l'extraction IA ici.</div>
+              </div>
+            <?php else:
+              $d = $_loadedDpeDiag;
+              $json = !empty($d['champs_extraits_json']) ? json_decode($d['champs_extraits_json'], true) : [];
+              if (!is_array($json)) $json = [];
+              $fmt = static function ($v): string {
+                  if ($v === null) return '<span style="color:#cbd5e1;">—</span>';
+                  if (is_bool($v)) return $v ? '<span style="color:#16a34a;font-weight:600;">Oui</span>' : '<span style="color:#dc2626;">Non</span>';
+                  if ($v === '' || $v === 0 || $v === '0') return '<span style="color:#cbd5e1;">—</span>';
+                  return h((string)$v);
+              };
+              $fileUrl = (string)($d['fichier_url'] ?? '');
+            ?>
+              <div style="display:flex;gap:12px;align-items:center;padding:12px 16px;background:#f0f9ff;border-left:4px solid #0ea5e9;border-radius:8px;margin-bottom:16px;flex-wrap:wrap;">
+                <div style="font-size:24px;">📄</div>
+                <div style="flex:1;min-width:200px;">
+                  <div style="font-weight:700;color:#0c4a6e;font-size:13px;"><?= h((string)($d['nom_fichier_original'] ?? 'Document analysé')) ?></div>
+                  <div style="font-size:11px;color:#0369a1;">
+                    Analysé le <?= h(date('d/m/Y H:i', strtotime((string)($d['extraction_date'] ?? $d['date_creation'] ?? 'now')))) ?>
+                    · Méthode : <strong><?= h((string)($d['extraction_method'] ?? '—')) ?></strong>
+                    · Score : <strong><?= (int)($d['extraction_score'] ?? 0) ?>%</strong>
+                    · <?= number_format(((int)($d['taille_fichier_octets'] ?? 0)) / 1024, 0, ',', ' ') ?> Ko
+                  </div>
+                </div>
+                <?php if ($fileUrl): ?>
+                <a href="<?= h(app_url($fileUrl)) ?>" target="_blank" style="padding:6px 14px;border-radius:8px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:12px;font-weight:600;white-space:nowrap;">👁 Voir le PDF</a>
+                <?php endif; ?>
+              </div>
+
+              <?php if (!empty($d['resume_bailleur'])): ?>
+              <div style="padding:12px 16px;background:#fefce8;border-left:4px solid #eab308;border-radius:8px;margin-bottom:16px;font-size:12px;color:#713f12;line-height:1.5;">
+                <div style="font-weight:700;margin-bottom:6px;">📋 Résumé propriétaire (IA)</div>
+                <?= nl2br(h((string)$d['resume_bailleur'])) ?>
+              </div>
+              <?php endif; ?>
+
+              <?php
+                // Mapping : colonne dpe_diags → colonne cible (table.colonne)
+                // Format : [label, dpe_diags_col, target_table, target_col, group]
+                $mapping = [
+                    // Énergie / GES
+                    ['Classe DPE',                 'dpe_classe',                  'biens', 'dpe_classe',                  '⚡ Énergie / GES'],
+                    ['Classe GES',                 'ges_classe',                  'biens', 'ges_classe',                  '⚡ Énergie / GES'],
+                    ['Consommation (kWh EP/m²/an)','consommation_energie',        'biens', 'dpe_valeur',                  '⚡ Énergie / GES'],
+                    ['Émission GES (kg CO₂/m²/an)','emission_ges',                'biens', 'ges_valeur',                  '⚡ Énergie / GES'],
+                    ['Conso primaire',             'conso_energie_primaire',      'biens', 'dpe_valeur_conso_primaire',   '⚡ Énergie / GES'],
+                    ['Conso finale',               'conso_energie_finale',        'biens', 'dpe_valeur_conso_finale',     '⚡ Énergie / GES'],
+                    ['Version DPE',                'dpe_version',                 'biens', 'dpe_version',                 '⚡ Énergie / GES'],
+                    ['DPE vierge',                 'dpe_vierge',                  'biens', 'dpe_vierge',                  '⚡ Énergie / GES'],
+                    ['Date du diagnostic',         'date_diagnostic',             'biens', 'dpe_date_realisation',        '⚡ Énergie / GES'],
+                    ['N° ADEME',                   'numero_ademe',                'biens', 'dpe_reference_certificat',    '⚡ Énergie / GES'],
+                    ['N° de dossier / rapport',    'numero_rapport',              '—',     '—',                           '⚡ Énergie / GES'],
+                    // Coûts
+                    ['Dépenses min (€/an)',        'montant_depenses_min',        'biens', 'montant_estime_depenses_min', '💰 Coûts & dépenses'],
+                    ['Dépenses max (€/an)',        'montant_depenses_max',        'biens', 'montant_estime_depenses_max', '💰 Coûts & dépenses'],
+                    ['Date indice prix',           'date_indice_prix',            'biens', 'date_indice_prix_energies',   '💰 Coûts & dépenses'],
+                    // Diagnostiqueur
+                    ['Opérateur',                  'diagnostiqueur_nom',          '—',     '—',                           '👷 Diagnostiqueur'],
+                    ['Société',                    'diagnostiqueur_societe',      '—',     '—',                           '👷 Diagnostiqueur'],
+                    // Bien
+                    ['Type de bien',               'type_bien_detecte',           'biens', 'id_type_bien (via code)',     '🏠 Bien détecté'],
+                    ['Adresse',                    'adresse_detectee',            'biens', 'adresse_1',                   '🏠 Bien détecté'],
+                    ['Code postal',                'code_postal_detecte',         'biens', 'code_postal',                 '🏠 Bien détecté'],
+                    ['Ville',                      'ville_detectee',              'biens', 'ville',                       '🏠 Bien détecté'],
+                    ['Étage',                      'etage_detecte',               'biens', 'etage',                       '🏠 Bien détecté'],
+                    ['Lot',                        'lot_detecte',                 'biens', 'lot_principal',               '🏠 Bien détecté'],
+                    ['Année construction',         'annee_construction_detectee', 'biens', 'annee_construction',          '🏠 Bien détecté'],
+                    ['Altitude (m)',               'altitude_detectee',           'biens', 'altitude',                    '🏠 Bien détecté'],
+                    // Surfaces
+                    ['Surface habitable (m²)',     'surface_habitable_detectee',  'biens', 'surface_habitable',           '📐 Surfaces'],
+                    ['Surface Carrez (m²)',        'surface_carrez_detectee',     'biens', 'surface_carrez',              '📐 Surfaces'],
+                    ['Surface séjour (m²)',        'surface_sejour_detectee',     'biens', 'surface_sejour',              '📐 Surfaces'],
+                    // Pièces
+                    ['Nb pièces',                  'nb_pieces_detecte',           'biens', 'nb_pieces',                   '🚪 Pièces'],
+                    ['Nb chambres',                'nb_chambres_detecte',         'biens', 'nb_chambres',                 '🚪 Pièces'],
+                    ['Nb salles de bain',          'nb_salles_bain_detecte',      'biens', 'nb_salles_bain',              '🚪 Pièces'],
+                    ["Nb salles d'eau",            'nb_salles_eau_detecte',       'biens', 'nb_salles_eau',               '🚪 Pièces'],
+                    ['Nb WC',                      'nb_wc_detecte',               'biens', 'nb_wc',                       '🚪 Pièces'],
+                    // Équipements
+                    ['Type de chauffage',          'chauffage_type_detecte',      'biens', 'chauffage_type',              '🔥 Équipements'],
+                    ['Énergie chauffage',          'chauffage_energie_detecte',   'biens', 'chauffage_energie',           '🔥 Équipements'],
+                    ['Eau chaude',                 'eau_chaude_type_detecte',     'biens', 'eau_chaude_type',             '🔥 Équipements'],
+                    ['Double vitrage',             'double_vitrage_detecte',      'biens', 'double_vitrage',              '🔥 Équipements'],
+                    ['Volets roulants',            'volets_roulants_detecte',     'biens', 'volets_roulants',             '🔥 Équipements'],
+                    ['Menuiseries',                'menuiseries_detectees',       'biens', 'menuiseries',                 '🔥 Équipements'],
+                    // Alertes
+                    ['Plomb (CREP)',               'alerte_plomb_present',        '—',     '—',                           '⚠️ Alertes'],
+                    ['Plomb : classe max',         'alerte_plomb_classe_max',     '—',     '—',                           '⚠️ Alertes'],
+                    ['Amiante',                    'alerte_amiante_present',      '—',     '—',                           '⚠️ Alertes'],
+                    ['Électricité anomalies',      'alerte_electricite_anomalies','—',     '—',                           '⚠️ Alertes'],
+                    ['Gaz anomalies',              'alerte_gaz_anomalies',        '—',     '—',                           '⚠️ Alertes'],
+                    ['Termites',                   'alerte_termites',             '—',     '—',                           '⚠️ Alertes'],
+                    ['Zone géo-risques',           'alerte_zone_georisque',       'biens', 'zone_georisque',              '⚠️ Alertes'],
+                    ['Zone inondation',            'alerte_inondation',           '—',     '—',                           '⚠️ Alertes'],
+                    ['Zone sismique',              'sismicite_zone',              '—',     '—',                           '⚠️ Alertes'],
+                ];
+
+                // Group by category
+                $grouped = [];
+                foreach ($mapping as $row) { $grouped[$row[4]][] = $row; }
+                $b = is_array($bienLoaded) ? $bienLoaded : [];
+              ?>
+
+              <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+                <thead>
+                  <tr style="background:#f1f5f9;">
+                    <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">Champ</th>
+                    <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">📊 dpe_diags (source)</th>
+                    <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">🏠 Table cible (valeur actuelle)</th>
+                    <th style="padding:8px 10px;text-align:center;font-weight:700;color:#334155;width:60px;">État</th>
+                  </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($grouped as $title => $rows): ?>
+                  <tr style="background:#f8fafc;">
+                    <td colspan="4" style="padding:8px 12px;font-weight:700;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #e2e8f0;"><?= h($title) ?></td>
+                  </tr>
+                  <?php foreach ($rows as [$label, $srcCol, $tgtTable, $tgtCol, $_grp]):
+                    $srcVal = $d[$srcCol] ?? null;
+                    $tgtVal = null;
+                    if ($tgtTable === 'biens' && !empty($tgtCol) && $tgtCol !== '—') {
+                        // Pour id_type_bien via code : résoudre avec types_bien
+                        if (str_starts_with($tgtCol, 'id_type_bien')) {
+                            $tgtVal = $b['_type_bien_code'] ?? $b['id_type_bien'] ?? null;
+                        } else {
+                            $tgtVal = $b[$tgtCol] ?? null;
+                        }
+                    }
+                    $srcIsEmpty = ($srcVal === null || $srcVal === '' || $srcVal === 0 || $srcVal === '0');
+                    $tgtIsEmpty = ($tgtVal === null || $tgtVal === '' || $tgtVal === 0 || $tgtVal === '0');
+                    if ($srcIsEmpty && $tgtIsEmpty) continue;  // skip si tout vide
+
+                    $match = !$srcIsEmpty && !$tgtIsEmpty && (string)$srcVal === (string)$tgtVal;
+                    $statusIcon = $srcIsEmpty ? '⚪'
+                                : ($tgtIsEmpty ? '⚠️'
+                                : ($match ? '✅' : '❌'));
+                    $statusTitle = $srcIsEmpty ? 'Pas dans dpe_diags'
+                                : ($tgtIsEmpty ? 'Pas syncé en table cible'
+                                : ($match ? 'Valeurs identiques' : 'Désynchronisation'));
+                  ?>
+                  <tr style="border-top:1px solid #e2e8f0;">
+                    <td style="padding:6px 10px;color:#475569;"><?= h($label) ?><br><span style="font-size:9px;color:#94a3b8;font-family:monospace;"><?= h($srcCol) ?></span></td>
+                    <td style="padding:6px 10px;"><?= $fmt($srcVal) ?></td>
+                    <td style="padding:6px 10px;">
+                      <?= $fmt($tgtVal) ?>
+                      <?php if ($tgtTable !== '—'): ?>
+                        <br><span style="font-size:9px;color:#94a3b8;font-family:monospace;"><?= h($tgtTable . '.' . $tgtCol) ?></span>
+                      <?php else: ?>
+                        <br><span style="font-size:9px;color:#cbd5e1;font-style:italic;">stocké uniquement dans dpe_diags</span>
+                      <?php endif; ?>
+                    </td>
+                    <td style="padding:6px 10px;text-align:center;font-size:16px;" title="<?= h($statusTitle) ?>"><?= $statusIcon ?></td>
+                  </tr>
+                  <?php endforeach; ?>
+                <?php endforeach; ?>
+                </tbody>
+              </table>
+
+              <div style="margin-top:10px;padding:8px 12px;background:#f1f5f9;border-radius:8px;font-size:11px;color:#475569;display:flex;gap:16px;flex-wrap:wrap;">
+                <span>✅ Valeurs synchronisées</span>
+                <span>❌ Désynchronisation (dpe_diags ≠ table cible)</span>
+                <span>⚠️ Non syncé en table cible</span>
+                <span>⚪ Non extrait du PDF</span>
+              </div>
+
+              <details style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;">
+                <summary style="cursor:pointer;font-weight:600;font-size:12px;color:#475569;">🔧 JSON brut (debug)</summary>
+                <pre style="margin:8px 0 0;padding:10px;background:#0f172a;color:#a7f3d0;font-size:10px;border-radius:6px;overflow-x:auto;max-height:400px;"><?= h(json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></pre>
+              </details>
+
+            <?php endif; ?>
+          </div><!-- /sous-onglet dpe-extracted -->
 
           </div><!-- /ba-card-body -->
         </div><!-- /ba-card diag -->
