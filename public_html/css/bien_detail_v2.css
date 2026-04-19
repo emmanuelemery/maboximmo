@@ -130,7 +130,7 @@ html.v2-no-scroll, body.v2-no-scroll {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 96%;
+  width: 72%;
   height: 94%;
   background: var(--v2-card-bg);
   border: 1px solid var(--v2-card-border);
@@ -158,7 +158,7 @@ html.v2-no-scroll, body.v2-no-scroll {
 
 /* Gauche = bleu pétrole (cold) */
 .v2-card.is-prev {
-  transform: translate(-50%, -50%) translateX(-32%) scale(0.72) rotateY(22deg);
+  transform: translate(-50%, -50%) translateX(-70%) scale(0.78) rotateY(22deg);
   opacity: 0.55;
   z-index: 5;
   background: linear-gradient(135deg, var(--v2-cold-1), var(--v2-cold-2));
@@ -169,7 +169,7 @@ html.v2-no-scroll, body.v2-no-scroll {
 
 /* Droite = amande foncée (warm) */
 .v2-card.is-next {
-  transform: translate(-50%, -50%) translateX(32%) scale(0.72) rotateY(-22deg);
+  transform: translate(-50%, -50%) translateX(70%) scale(0.78) rotateY(-22deg);
   opacity: 0.55;
   z-index: 5;
   background: linear-gradient(135deg, var(--v2-warm-1), var(--v2-warm-2));
