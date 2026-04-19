@@ -600,8 +600,8 @@ function photoPrincipaleUrl(array $bien): ?string {
          title="Flow rapide avec IA : import DPE, auto-remplissage, génération annonce SEO + Le Bon Coin">
         ⚡ Express
       </a>
-      <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost"
-         title="Saisie détaillée complète avec tous les onglets (identif, caract, prix, DPE, photos, annonce, conformité)">
+      <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-ghost"
+         title="Création professionnelle : saisie détaillée complète avec tous les onglets (identification, caractéristiques, Diag & DPE, Photos, Documents)">
         🏛️ Professionnelle
       </a>
       <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
@@ -692,7 +692,7 @@ function photoPrincipaleUrl(array $bien): ?string {
           <a href="<?= htmlspecialchars(app_url('/bien_ajouter_express.php')) ?>" class="bl-btn bl-btn-primary">
             ⚡ Express
           </a>
-          <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost">
+          <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-ghost">
             🏛️ Professionnelle
           </a>
         </div>
