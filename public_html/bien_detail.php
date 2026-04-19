@@ -7772,6 +7772,27 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         return true;
       }
 
+      // Cas spécial : chauffage_type / chauffage_energie / eau_chaude_type
+      // Met à jour le hidden input + coche la mini-card correspondante
+      if (name === 'chauffage_type' || name === 'chauffage_energie' || name === 'eau_chaude_type') {
+        const hidden = document.querySelector(`input[type="hidden"][name="${name}"], input[type="text"][name="${name}"]`);
+        if (hidden) hidden.value = value;
+        // Sélection mini-card (grid bien_chauffages/bien_energies) par data-mc-code ou data-code
+        const gridMap = { chauffage_type: 'mc-chauffage', chauffage_energie: 'mc-energie', eau_chaude_type: 'mc-eau-chaude' };
+        const gridId = gridMap[name];
+        if (gridId) {
+          const grid = document.getElementById(gridId);
+          if (grid) {
+            grid.querySelectorAll('.mc-card').forEach(card => {
+              const code = (card.dataset.mcCode || card.dataset.code || card.dataset.value || '').toString().toLowerCase();
+              const match = code === String(value).toLowerCase();
+              card.classList.toggle('is-selected', match);
+            });
+          }
+        }
+        return true;
+      }
+
       // Cas spécial : type_bien (cartes cliquables)
       if (name === 'type_bien') {
         const hidden = document.getElementById('type_bien_hidden');
@@ -7926,15 +7947,20 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             + '</div>'
           : '';
 
-        // Tableau de prévisualisation avec colonnes Actuel / Extrait
-        const previewRows = previewable.map(f => {
+        // Tableau de prévisualisation avec colonnes Actuel / Extrait ÉDITABLE
+        // L'user peut corriger les valeurs (nom bailleur, adresse, etc.) avant validation.
+        const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+        const previewRows = previewable.map((f, idx) => {
           const changed = String(f.currentValue || '') !== String(f.newValue || '');
           const curDisp = String(f.currentValue || '') === '' ? '—' : String(f.currentValue);
+          const editVal = escHtml(f.newValue);
           return '<tr style="border-bottom:1px solid #e5e7eb;">'
-            + '<td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#475569;">' + f.key + '</td>'
+            + '<td style="padding:4px 8px;font-family:monospace;font-size:11px;color:#475569;white-space:nowrap;">' + f.key + '</td>'
             + '<td style="padding:4px 8px;font-size:11px;color:#94a3b8;text-decoration:' + (changed ? 'line-through' : 'none') + ';">' + curDisp + '</td>'
-            + '<td style="padding:4px 8px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#64748b') + ';">' + String(f.newValue) + '</td>'
-            + '</tr>';
+            + '<td style="padding:4px 6px;">'
+            +   '<input type="text" data-preview-idx="' + idx + '" value="' + editVal + '"'
+            +     ' style="width:100%;padding:4px 8px;border:1px solid ' + (changed ? '#0ea5e9' : '#cbd5e1') + ';border-radius:6px;font-size:11px;font-weight:' + (changed ? '700' : '400') + ';color:' + (changed ? '#0369a1' : '#334155') + ';background:' + (changed ? '#f0f9ff' : '#fff') + ';font-family:inherit;">'
+            + '</td></tr>';
         }).join('');
 
         const validatePanel = previewable.length
@@ -7964,13 +7990,23 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         if (validateBtn) {
           validateBtn.addEventListener('click', () => {
             const applied = [];
-            previewable.forEach(f => {
-              if (applyValue(f.key, f.newValue)) applied.push(f.key);
+            const statusEl = document.getElementById('dpe-import-status');
+            previewable.forEach((f, idx) => {
+              // Lire la valeur potentiellement MODIFIÉE par l'user dans l'input de preview
+              const inp = statusEl ? statusEl.querySelector('input[data-preview-idx="' + idx + '"]') : null;
+              const effectiveValue = inp ? inp.value : f.newValue;
+              if (applyValue(f.key, effectiveValue)) applied.push(f.key);
             });
             if (typeof bpSync === 'function') bpSync();
             if (typeof confMiniSync === 'function') confMiniSync();
+            // Force autosave immediat pour que les valeurs arrivent en BDD tout de suite
+            // (sans attendre le debounce 30s habituel)
+            try {
+              if (typeof window.__biForceAutosave === 'function') window.__biForceAutosave();
+              else document.dispatchEvent(new Event('bi:force-autosave'));
+            } catch (_) {}
             showStatus(
-              '✅ <strong>' + applied.length + ' champ(s)</strong> appliqué(s) au formulaire.'
+              '✅ <strong>' + applied.length + ' champ(s)</strong> appliqué(s) au formulaire et sauvegardés.'
               + (applied.length ? '<br><small style="color:#666;">' + applied.join(', ') + '</small>' : '')
               + alertsHtml
               + resumeHtml
@@ -8987,6 +9023,12 @@ window.__bi_base = '<?= rtrim(asset_url('/'), '/') ?>';
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && dirty) autosave();
   });
+
+  // Expose un force-save pour le bouton "Valider & remplacer" de l'import DPE
+  window.__biForceAutosave = function() {
+    dirty = true;  // force la condition de save
+    return autosave();
+  };
 })();
 <?php endif; ?>
 </script>
