@@ -132,6 +132,13 @@ try {
     $newStatut   = ($mandatoryOk && $completude >= 65) ? 'actif' : 'brouillon';
 
     // ─── 5. UPDATE bien ──
+    // Normalisation DPE/GES classe en uppercase (la BDD historique a parfois 'c'
+    // minuscule, bien_detail compare contre 'C' majuscule)
+    $dpeRaw = $str('dpe_classe');
+    $gesRaw = $str('ges_classe');
+    $dpeClasseNorm = $dpeRaw !== '' ? strtoupper($dpeRaw) : null;
+    $gesClasseNorm = $gesRaw !== '' ? strtoupper($gesRaw) : null;
+
     $pdo->prepare("
         UPDATE biens SET
             id_proprietaire = :pro,
@@ -190,8 +197,8 @@ try {
         ':nsb'      => $int('nb_salles_bain'),
         ':nwc'      => $int('nb_wc'),
         ':annee'    => $int('annee_construction'),
-        ':dpeC'     => ($v = $str('dpe_classe')) !== '' ? strtoupper($v) : null,
-        ':gesC'     => ($v = $str('ges_classe')) !== '' ? strtoupper($v) : null,
+        ':dpeC'     => $dpeClasseNorm,
+        ':gesC'     => $gesClasseNorm,
         ':dpeV'     => $flt('dpe_valeur'),
         ':gesV'     => $flt('ges_valeur'),
         ':dpeDate'  => $str('dpe_date_realisation') ?: null,
