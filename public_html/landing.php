@@ -47,7 +47,7 @@ try {
     }
 } catch (Throwable $ex) {}
 ?><!doctype html>
-<html lang="fr" data-theme="dark">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -319,7 +319,7 @@ try {
     .profile-name {
       font-size: 22px;
       font-weight: 800;
-      color: var(--ink-strong);
+      color: #2d5f6b;
       margin-bottom: 12px;
       white-space: nowrap;
       overflow: hidden;
@@ -551,7 +551,7 @@ try {
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1.2px;
-      color: var(--muted);
+      color: #2d5f6b;
       margin-bottom: 14px;
     }
 
@@ -640,7 +640,7 @@ try {
     [data-theme="light"] .service-card:hover::before { opacity: 1; }
 
     .service-icon  { font-size: 44px; line-height: 1; }
-    .service-name  { font-size: 18px; font-weight: 800; color: var(--ink-strong); }
+    .service-name  { font-size: 18px; font-weight: 800; color: #2d5f6b; }
     .service-desc  { font-size: 13px; color: var(--muted); line-height: 1.65; flex: 1; }
 
     .service-footer {
@@ -739,9 +739,6 @@ try {
     <span><?= $societeNom ?: 'MaBoxImmo' ?></span>
   </div>
   <div class="topbar-right">
-    <button class="btn-theme" onclick="toggleTheme()" title="Changer le thème">
-      <span id="themeIcon">☀️</span>
-    </button>
     <div class="user-chip">
       <div class="user-avatar"><?=strtoupper(mb_substr($prenom ?: $nom, 0, 1))?></div>
       <span class="user-chip-name"><?=e($prenom)?></span>
@@ -767,6 +764,7 @@ try {
           <?php if ($societeNom): ?><span class="profile-tag societe">🏢 <?=e($societeNom)?></span><?php endif; ?>
           <?php if ($agenceNom):  ?><span class="profile-tag agence" >📍 <?=e($agenceNom)?></span><?php endif; ?>
         </div>
+        <?php /* KPI masques temporairement — a reactiver quand les donnees seront branchees
         <div class="profile-divider"></div>
         <div class="profile-stats">
           <div class="profile-stat">
@@ -790,6 +788,7 @@ try {
             <span class="stat-label">Semaine</span>
           </div>
         </div>
+        */ ?>
       </div>
     </div>
 
@@ -860,18 +859,6 @@ try {
 <div class="footer">© 2026 MaBoxImmo — Tous droits réservés</div>
 
 <script>
-  // ── Thème ──
-  const root = document.documentElement;
-  function applyTheme(t) {
-    root.setAttribute('data-theme', t);
-    document.getElementById('themeIcon').textContent = t === 'dark' ? '☀️' : '🌙';
-    localStorage.setItem('mbi-theme', t);
-  }
-  function toggleTheme() {
-    applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-  }
-  applyTheme(localStorage.getItem('mbi-theme') || 'dark');
-
   // ── Horloge à défilement ──
   const JOURS = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
   const MOIS  = ['janvier','février','mars','avril','mai','juin','juillet','août',
@@ -944,7 +931,7 @@ try {
   })();
 </script>
 <canvas id="bgCanvas" style="position:fixed;inset:0;z-index:0;pointer-events:none;"></canvas>
-<script>window.BG_ORBS_COUNT=5;window.BG_ORBS_DARK=true;</script>
+<script>window.BG_ORBS_COUNT=5;window.BG_ORBS_DARK=false;</script>
 <script src="js/bg_orbs.js"></script>
 </body>
 </html>
