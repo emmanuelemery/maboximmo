@@ -26,6 +26,7 @@ if (!isset($current_page)) {
     if ($basename === 'admin_dashboard') $current_page = 'admin';
     if ($basename === 'admin_migrations') $current_page = 'admin_migrations';
     if ($basename === 'admin_bailleurs') $current_page = 'admin_bailleurs';
+    if ($basename === 'admin_referentiel') $current_page = 'admin_referentiel';
 }
 
 // Rôle courant (pour section Administrer)
@@ -384,6 +385,13 @@ if (count($parts_name) >= 2) {
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
             </svg>
             <span class="sb-item-lbl" style="<?= $current_page === 'admin_bailleurs' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Gestion Bailleurs</span>
+        </a>
+        <a href="admin_referentiel.php" class="sb-item <?= $current_page === 'admin_referentiel' ? 'active' : '' ?>"
+           style="<?= $current_page === 'admin_referentiel' ? 'background:rgba(168,88,88,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_referentiel' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'admin_referentiel' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Référentiel</span>
         </a>
         <?php endif; ?>
     </div>
