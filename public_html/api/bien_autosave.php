@@ -433,6 +433,13 @@ $protectedFields = [
     'diagnostiqueur_nom', 'diagnostiqueur_societe',
     // Surfaces détectées par le DPE
     'surface_sejour', 'surface_carrez',
+    // ── Caractéristiques principales (bien_detail_v2 icon-radios) ──
+    // CRITIQUE : l'autosave v2 envoie UN champ à la fois, donc les autres
+    // doivent être protégés sinon ils sont écrasés à '' à chaque clic.
+    'id_type_bien', 'sous_type_bien', 'usage_bien',
+    'etat_bien', 'standing', 'statut_bien', 'type_commercialisation',
+    // ── Adresse (idem : autosave v2 sur chaque input indépendamment) ──
+    'adresse_1', 'adresse_2', 'code_postal', 'ville',
 ];
 foreach ($protectedFields as $f) {
     $raw = $_POST[$f] ?? null;
