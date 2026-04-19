@@ -13,12 +13,12 @@
   --v2-card-bg: #ffffff;
   --v2-card-border: rgba(54, 87, 125, 0.10);
 
-  /* Amande foncée (côté droit / is-next) */
-  --v2-warm-1: #DFC08A;
-  --v2-warm-2: #C9A463;
-  /* Bleu pétrole (côté gauche / is-prev) */
-  --v2-cold-1: #5a7a9a;
-  --v2-cold-2: #36577d;
+  /* Amande foncée (côté droit / is-next) — beaucoup plus foncé pour le relief */
+  --v2-warm-1: #a0722a;
+  --v2-warm-2: #5e3d15;
+  /* Bleu pétrole (côté gauche / is-prev) — beaucoup plus foncé */
+  --v2-cold-1: #2b4466;
+  --v2-cold-2: #0f1a28;
 
   --v2-ink: #1a1816;
   --v2-muted: #8a8680;
@@ -435,8 +435,10 @@ html.v2-no-scroll, body.v2-no-scroll {
   display: flex; align-items: center; justify-content: center;
   min-height: 0;
 }
-.v2-split-left iframe {
+.v2-split-left iframe,
+.v2-split-left object {
   width: 100%; height: 100%; border: none;
+  display: block;
 }
 .v2-split-right {
   overflow-y: auto;

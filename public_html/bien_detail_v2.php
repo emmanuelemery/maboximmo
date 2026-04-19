@@ -222,13 +222,17 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       padding: 0 24px; z-index: 50; flex-shrink: 0;
     }
     .topbar-nav-btn, .topbar-icon-btn {
-      width: 34px; height: 34px; border-radius: 8px;
+      width: 32px; height: 32px; border-radius: 8px;
       background: var(--bg); border: none; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: var(--neu-out); color: var(--muted);
+      box-shadow: 2px 2px 5px var(--shadow-dark), -2px -2px 5px var(--shadow-light);
+      color: var(--muted);
       transition: box-shadow .18s; flex-shrink: 0;
     }
-    .topbar-nav-btn:hover, .topbar-icon-btn:hover { box-shadow: var(--neu-in); color: var(--ink); }
+    .topbar-nav-btn:hover, .topbar-icon-btn:hover {
+      box-shadow: inset 1px 1px 3px var(--shadow-dark), inset -1px -1px 3px var(--shadow-light);
+      color: var(--ink);
+    }
     .topbar-gap { width: 50px; flex-shrink: 0; }
     .topbar-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--muted); }
     .topbar-breadcrumb a { color: var(--muted); transition: color .15s; }
@@ -499,7 +503,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-body v2-split">
           <div class="v2-split-left">
             <?php if ($lastDpePdf): ?>
-              <iframe src="<?= h($lastDpePdf['url_fichier']) ?>#toolbar=0" title="Document DPE"></iframe>
+              <object data="<?= h($lastDpePdf['url_fichier']) ?>#toolbar=0&navpanes=0&view=FitH" type="application/pdf" aria-label="Document DPE">
+                <div class="v2-doc-empty">
+                  <div class="v2-doc-empty-icon">📄</div>
+                  <div><?= h((string)$lastDpePdf['nom_original']) ?></div>
+                  <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-btn-outline" style="margin-top:12px;display:inline-block;">Ouvrir dans un nouvel onglet</a>
+                </div>
+              </object>
             <?php else: ?>
               <div class="v2-doc-empty">
                 <div class="v2-doc-empty-icon">📎</div>
