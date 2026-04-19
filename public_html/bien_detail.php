@@ -2545,6 +2545,21 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       color: var(--accent); font-weight: 700;
     }
 
+    /* ── ENV CHIPS (ambiance / nuisances) — vocabulaire unifié Express ─ */
+    .ba-envchips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ba-envchip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 999px;
+      border: none; background: #fff; color: #555;
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      box-shadow: 3px 3px 8px #d4d7de, -3px -3px 8px #fff;
+      transition: box-shadow .18s, color .18s; font-family: inherit;
+    }
+    .ba-envchip.active {
+      box-shadow: var(--neu-in);
+      color: var(--accent); font-weight: 700;
+    }
+
     /* ── DPE PALETTE ── */
     .ba-dpe-row { display: flex; gap: 6px; flex-wrap: wrap; }
     .ba-dpe-btn {
@@ -3689,6 +3704,33 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             $cChipsHtml .= '<label class="ba-chip' . $cls . '"><input type="radio" name="distance_commerces" value="' . $val . '" ' . $checked . '> ' . $label . '</label>';
           }
           $cChipsHtml .= '</div>';
+
+          // ── Ambiance & Nuisances : vocabulaire unifié Express ↔ bien_detail ──
+          $buildEnvChips = static function(string $name, string $label, array $chips) : string {
+              $v = (string)post($name, '');
+              $sel = array_filter(array_map('trim', explode(',', $v)));
+              $html = '<div class="ba-field ba-col-full"><label style="margin-bottom:8px;display:block;">' . h($label) . '</label>'
+                    . '<div class="ba-envchips" data-envfield="' . h($name) . '">';
+              foreach ($chips as $code => $lbl) {
+                  $active = in_array($code, $sel, true) ? ' active' : '';
+                  $html .= '<button type="button" class="ba-envchip' . $active . '" data-val="' . h($code) . '">' . $lbl . '</button>';
+              }
+              $html .= '</div><input type="hidden" name="' . h($name) . '" value="' . h($v) . '"></div>';
+              return $html;
+          };
+          $ambianceChipsHtml = $buildEnvChips('ambiance', 'Ambiance', [
+              'calme'       => '🤫 Calme',
+              'centre'      => '🏙️ Centre-ville',
+              'transports'  => '🚇 Proche transports',
+              'commerces'   => '🛒 Proche commerces',
+              'residentiel' => '🌳 Résidentiel',
+          ]);
+          $nuisancesChipsHtml = $buildEnvChips('nuisances', 'Nuisances', [
+              'route'     => '🔊 Route',
+              'aerien'    => '✈️ Aérien',
+              'rail'      => '🚂 Ferroviaire',
+              'vis_a_vis' => '🏢 Vis-à-vis',
+          ]);
         ?>
         <?= moreBtn('adresse') ?>
         <?= detailsCard('adresse', '🌍 Environnement & situation', '
@@ -3731,10 +3773,8 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
             ' . $cChipsHtml . '
           </div>
 
-          <div class="ba-field ba-col-full">
-            <label>Ambiance <span style="font-size:11px;color:var(--muted);font-weight:400;">(valeurs séparées par virgules)</span></label>
-            <input type="text" name="ambiance" value="' . h((string)post('ambiance','')) . '" placeholder="Ex: calme, centre_ville, proche_transports">
-          </div>
+          ' . $ambianceChipsHtml . '
+          ' . $nuisancesChipsHtml . '
           <div class="ba-field ba-col-full">
             <label>Points d\'intérêt supplémentaires <span style="font-size:11px;color:var(--muted);font-weight:400;">(optionnel)</span></label>
             <input type="text" name="points_interet" value="' . h((string)post('points_interet','')) . '" placeholder="Ex: école Jules Ferry à 200m, parc proche">
@@ -3742,11 +3782,6 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           <div class="ba-field ba-col-full">
             <label>Argument phare <span style="font-size:11px;color:var(--muted);font-weight:400;">(1 phrase commerciale)</span></label>
             <input type="text" name="argument_phare" value="' . h((string)post('argument_phare','')) . '" placeholder="Ex: terrasse plein sud, vue mer">
-          </div>
-
-          <div class="ba-field ba-col-full">
-            <label>Nuisances éventuelles</label>
-            <input type="text" name="nuisances" value="' . h((string)post('nuisances','')) . '" placeholder="Ex: rue passante, voie ferrée…">
           </div>
           <div class="ba-field">
             <label>Adresse visible au public</label>
@@ -5157,6 +5192,19 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
     });
   }
   window.setExposition = setExposition;
+
+  // ── ENV CHIPS (ambiance / nuisances) — toggle + sync hidden input CSV ──
+  document.querySelectorAll('.ba-envchips').forEach(group => {
+    const field = group.dataset.envfield;
+    const hidden = group.parentElement.querySelector('input[type="hidden"][name="' + field + '"]');
+    group.querySelectorAll('.ba-envchip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        chip.classList.toggle('active');
+        const vals = [...group.querySelectorAll('.ba-envchip.active')].map(c => c.dataset.val);
+        if (hidden) hidden.value = vals.join(',');
+      });
+    });
+  });
 
   // ── VUE MINI CARDS ──
   function setVue(val) {
