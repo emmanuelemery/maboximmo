@@ -4609,18 +4609,12 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
       <!-- ════ ONGLET 6 — DPE ════ -->
       <div class="ba-panel" data-tab-panel="dpe">
 
-        <!-- ── Import dossier de diagnostics intelligent ── -->
-        <div class="bi-trigger-wrap" style="margin-bottom:20px;">
-          <button type="button" id="dpe-import-trigger" class="bi-trigger-btn">
-            <span class="bi-trigger-icon">⚡</span>
-            Importer un dossier de diagnostics
-          </button>
-          <span class="bi-trigger-hint">PDF — max 20 Mo — DPE, Loi Boutin, plomb, amiante, électricité, ERP — extraction IA</span>
-          <input type="file" id="dpe-import-file" accept=".pdf,application/pdf" style="display:none">
-        </div>
-
-        <!-- Zone de feedback de l'import -->
-        <div id="dpe-import-status" style="display:none;margin-bottom:18px;padding:14px 18px;border-radius:10px;font-size:13px;"></div>
+        <!-- Import DPE retiré de cet onglet :
+             l'upload PDF diagnostic se fait désormais uniquement via
+             l'onglet "Documents" (bloc centralisé d'upload avec choix
+             de type + extraction IA) ou via Express. Évite les doublons
+             d'upload et canalise le flow sur un seul point d'entrée. -->
+        <div id="dpe-import-status" style="display:none;"></div>
 
         <div class="ba-card">
           <div class="ba-card-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;">
