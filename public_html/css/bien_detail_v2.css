@@ -616,8 +616,7 @@ html.v2-no-scroll, body.v2-no-scroll {
   flex-shrink: 0;
   margin-left: auto;
 }
-.v2-places-picker,
-.v2-imm-picker {
+.v2-places-picker {
   flex: 1;
   min-width: 180px;
   position: relative;
@@ -625,8 +624,7 @@ html.v2-no-scroll, body.v2-no-scroll {
   flex-direction: column;
   gap: 2px;
 }
-.v2-places-picker .v2-input,
-.v2-imm-picker .v2-input { font-size: 12px; padding: 7px 10px; }
+.v2-places-picker .v2-input { font-size: 12px; padding: 7px 10px; }
 .v2-picker-label {
   font-size: 10px;
   font-weight: 600;
@@ -635,6 +633,54 @@ html.v2-no-scroll, body.v2-no-scroll {
   text-transform: uppercase;
   letter-spacing: 0.3px;
   padding-right: 4px;
+}
+
+/* Bouton recherche immeuble (ouvre modal) */
+.v2-imm-btn {
+  padding: 8px 14px !important;
+  font-size: 12px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.v2-imm-btn .v2-badge {
+  background: var(--v2-accent);
+  color: #fff;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Résultats dans le modal immeuble */
+.v2-imm-results {
+  margin-top: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.v2-imm-item {
+  padding: 10px 12px;
+  background: #fafbfc;
+  border: 1px solid rgba(54, 87, 125, 0.10);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.v2-imm-item:hover { background: var(--v2-accent-light); border-color: var(--v2-accent); }
+.v2-imm-item strong { color: var(--v2-accent); font-size: 13px; }
+.v2-imm-item small { color: var(--v2-muted); font-size: 11px; }
+.v2-imm-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--v2-muted);
+  font-size: 12px;
 }
 
 /* Séparation renforcée entre rubriques icônes (caractéristiques) */

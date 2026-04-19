@@ -342,45 +342,57 @@
       tsRoot.addEventListener('tiers:created',  onSelect);
     }
 
-    // Recherche immeubles existants (autocomplete sur la liste en memoire)
-    const immSearch = document.getElementById('v2-imm-search');
-    const immSuggest = document.getElementById('v2-imm-suggest');
+    // Recherche immeubles : bouton → modal avec recherche + liste
+    const immBtn = document.getElementById('v2-imm-btn');
+    const immModal = document.getElementById('v2-imm-modal');
+    const immSearch = document.getElementById('v2-imm-modal-search');
+    const immResults = document.getElementById('v2-imm-modal-results');
+    const immClose = document.getElementById('v2-imm-modal-close');
     const immList = Array.isArray(data.immeubles) ? data.immeubles : [];
-    if (immSearch && immSuggest && immList.length > 0) {
-      const renderImm = (matches) => {
-        if (matches.length === 0) {
-          immSuggest.innerHTML = '<div class="v2-tiers-suggest-item"><small>Aucun immeuble trouvé</small></div>';
-        } else {
-          immSuggest.innerHTML = matches.slice(0, 10).map(im => {
-            const ref = im.reference_immeuble ? '[' + im.reference_immeuble + '] ' : '';
-            const adr = im.adresse || '';
-            const loc = [im.code_postal, im.ville].filter(Boolean).join(' ');
-            return `<div class="v2-tiers-suggest-item"
-                         data-id="${im.id}"
-                         data-adresse="${String(adr).replace(/"/g,'&quot;')}"
-                         data-cp="${im.code_postal || ''}"
-                         data-ville="${String(im.ville || '').replace(/"/g,'&quot;')}">
-              <strong>${ref}${adr || ('Immeuble #' + im.id)}</strong>
-              ${loc ? '<small>' + loc + '</small>' : ''}
-            </div>`;
-          }).join('');
-        }
-        immSuggest.hidden = false;
-      };
-      immSearch.addEventListener('focus', () => renderImm(immList));
-      immSearch.addEventListener('input', () => {
+
+    function renderImmList(matches) {
+      if (!immResults) return;
+      if (matches.length === 0) {
+        immResults.innerHTML = '<div class="v2-imm-empty">Aucun immeuble trouvé — clique sur ➕ Nouvel immeuble pour en créer un.</div>';
+        return;
+      }
+      immResults.innerHTML = matches.slice(0, 30).map(im => {
+        const ref = im.reference_immeuble ? '[' + im.reference_immeuble + '] ' : '';
+        const adr = im.adresse || '';
+        const loc = [im.code_postal, im.ville].filter(Boolean).join(' ');
+        return `<div class="v2-imm-item"
+                     data-id="${im.id}"
+                     data-adresse="${String(adr).replace(/"/g,'&quot;')}"
+                     data-cp="${im.code_postal || ''}"
+                     data-ville="${String(im.ville || '').replace(/"/g,'&quot;')}">
+          <strong>${ref}${adr || ('Immeuble #' + im.id)}</strong>
+          ${loc ? '<small>' + loc + '</small>' : ''}
+        </div>`;
+      }).join('');
+    }
+
+    if (immBtn && immModal) {
+      immBtn.addEventListener('click', () => {
+        immModal.hidden = false;
+        renderImmList(immList);
+        setTimeout(() => immSearch?.focus(), 50);
+      });
+      immClose?.addEventListener('click', () => { immModal.hidden = true; });
+      immModal.addEventListener('click', (e) => {
+        if (e.target === immModal) immModal.hidden = true;
+      });
+      immSearch?.addEventListener('input', () => {
         const q = immSearch.value.trim().toLowerCase();
-        if (!q) { renderImm(immList); return; }
-        const matches = immList.filter(im =>
+        if (!q) { renderImmList(immList); return; }
+        renderImmList(immList.filter(im =>
           (im.adresse || '').toLowerCase().includes(q)
           || (im.ville || '').toLowerCase().includes(q)
           || (im.code_postal || '').toLowerCase().includes(q)
           || (im.reference_immeuble || '').toLowerCase().includes(q)
-        );
-        renderImm(matches);
+        ));
       });
-      immSuggest.addEventListener('click', (e) => {
-        const item = e.target.closest('.v2-tiers-suggest-item');
+      immResults?.addEventListener('click', (e) => {
+        const item = e.target.closest('.v2-imm-item');
         if (!item || !item.dataset.id) return;
         const setVal = (id, v) => {
           const el = document.getElementById(id);
@@ -389,11 +401,7 @@
         setVal('v2-f-adresse_1',   item.dataset.adresse || '');
         setVal('v2-f-code_postal', item.dataset.cp || '');
         setVal('v2-f-ville',       item.dataset.ville || '');
-        immSearch.value = '';
-        immSuggest.hidden = true;
-      });
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.v2-imm-picker')) immSuggest.hidden = true;
+        immModal.hidden = true;
       });
     }
 

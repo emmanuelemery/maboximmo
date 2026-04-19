@@ -550,14 +550,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                      data-places-city="v2-f-ville"
                      data-places-country-code="fr">
             </div>
-            <div class="v2-imm-picker">
-              <span class="v2-picker-label">Immeubles enregistrés<?= empty($immeublesList) ? '' : ' (' . count($immeublesList) . ')' ?></span>
-              <input type="text" id="v2-imm-search" class="v2-input"
-                     placeholder="🏢 <?= empty($immeublesList) ? 'Aucun immeuble' : 'Rechercher…' ?>"
-                     autocomplete="off"
-                     <?= empty($immeublesList) ? 'disabled' : '' ?>>
-              <div id="v2-imm-suggest" class="v2-tiers-suggest" hidden></div>
-            </div>
+            <button type="button" id="v2-imm-btn" class="v2-btn-outline v2-imm-btn" title="Rechercher ou créer un immeuble">
+              🏢 Immeubles <span class="v2-badge"><?= count($immeublesList) ?></span>
+            </button>
           </div>
           <div class="v2-addr-grid">
             <input type="text" id="v2-f-adresse_1" class="v2-input" name="adresse_1" data-autosave placeholder="Adresse" value="<?= h((string)($b['adresse_1'] ?? '')) ?>">
@@ -661,6 +656,23 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       </section>
 
       <?php tiers_selector_assets(); /* injecte CSS + JS + modal du composant eprouve */ ?>
+
+      <!-- Modal recherche immeuble -->
+      <div id="v2-imm-modal" class="v2-modal" hidden>
+        <div class="v2-modal-card">
+          <h3>🏢 Rechercher un immeuble</h3>
+          <div class="v2-field">
+            <input type="text" id="v2-imm-modal-search" class="v2-input"
+                   placeholder="Adresse, ville, code postal, référence…"
+                   autocomplete="off">
+          </div>
+          <div id="v2-imm-modal-results" class="v2-imm-results"></div>
+          <div class="v2-modal-actions" style="justify-content:space-between;">
+            <a href="<?= h(app_url('/agency_immeuble_form.php')) ?>" target="_blank" class="v2-btn-outline">➕ Nouvel immeuble</a>
+            <button type="button" id="v2-imm-modal-close" class="v2-btn-outline">Fermer</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Card 2 : Pièces, surfaces, extérieur, équipements intérieurs -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Pièces et surfaces">
