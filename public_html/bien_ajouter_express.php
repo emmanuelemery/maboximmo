@@ -617,11 +617,18 @@ require_once __DIR__ . '/inc/header.php';
 
       <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Vue</label>
       <div class="exp-chips" data-env="vue" data-multi="1" style="margin-bottom:12px;">
-        <div class="exp-chip" data-val="vegetale">🌳 Végétale</div>
-        <div class="exp-chip" data-val="degagee">🏞️ Dégagée</div>
-        <div class="exp-chip" data-val="urbaine">🏘️ Urbaine</div>
+        <div class="exp-chip" data-val="degagee">👁️ Dégagée</div>
+        <div class="exp-chip" data-val="panoramique">⛰️ Panoramique</div>
+        <div class="exp-chip" data-val="parc_verdure">🌳 Parc / verdure</div>
+        <div class="exp-chip" data-val="jardin">🌿 Jardin</div>
+        <div class="exp-chip" data-val="campagne">🌾 Campagne</div>
+        <div class="exp-chip" data-val="eau">🌊 Eau</div>
+        <div class="exp-chip" data-val="ville">🏙️ Ville</div>
         <div class="exp-chip" data-val="rue">🛣️ Rue</div>
-        <div class="exp-chip" data-val="mer">🌊 Mer / lac</div>
+        <div class="exp-chip" data-val="cour">🏢 Cour</div>
+        <div class="exp-chip" data-val="sans_vis_a_vis">🙈 Sans vis-à-vis</div>
+        <div class="exp-chip" data-val="relief">🗻 Relief</div>
+        <div class="exp-chip" data-val="exceptionnelle">⭐ Exceptionnelle</div>
       </div>
 
       <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Ambiance</label>

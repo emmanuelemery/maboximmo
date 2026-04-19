@@ -393,12 +393,15 @@ if (is_post()) {
     // ── Exposition / environnement ──
     $exposition   = $str('exposition');
     $vue          = $str('vue');
-    // compat varchar : résoudre le code depuis le 1er vue_id si vue non posté
+    // Si vue non posté directement, on résout tous les codes depuis vue_ids[] et
+    // on stocke en CSV (vocabulaire unifié avec Express).
     if (empty($vue) && !empty($vueIds)) {
         try {
-            $svSt = $pdo->prepare("SELECT code FROM societe_vues WHERE id = ? LIMIT 1");
-            $svSt->execute([$vueIds[0]]);
-            $vue = (string)($svSt->fetchColumn() ?: '');
+            $ph = implode(',', array_fill(0, count($vueIds), '?'));
+            $svSt = $pdo->prepare("SELECT DISTINCT code FROM societe_vues WHERE id IN ($ph)");
+            $svSt->execute($vueIds);
+            $codes = $svSt->fetchAll(PDO::FETCH_COLUMN);
+            $vue = implode(',', array_filter($codes));
         } catch (Throwable) {}
     }
     $nuisances    = $str('nuisances');
