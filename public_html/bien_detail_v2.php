@@ -94,7 +94,11 @@ try {
         ];
         if (in_array($t, $diagTypes, true)) {
             $docsDiag[] = $row;
-            if ($lastDpePdf === null && $t === 'dpe' && $row['url_fichier']) $lastDpePdf = $row;
+            // Recherche du dernier PDF DPE/diag pour la card 4 (split view)
+            if ($lastDpePdf === null && $row['url_fichier']
+                && in_array($t, ['dpe','diag','dossier_complet','dossier_diagnostics'], true)) {
+                $lastDpePdf = $row;
+            }
         } elseif (in_array($t, $mandatTypes, true)) {
             $docsMandat[] = $row;
         } else {
