@@ -53,6 +53,11 @@ $statuts = (array)($_POST['statuts'] ?? ['brouillon', 'actif']);
 $statuts = array_values(array_filter(array_map('trim', $statuts), fn($s) => in_array($s, ['brouillon','actif','archive','vendu','loue','suspendu'], true)));
 if (empty($statuts)) $statuts = ['brouillon', 'actif'];
 
+// Défense en profondeur : si le statut "brouillon" est sélectionné, on inclut
+// aussi les biens au statut vide (fantômes créés par un ancien bug autosave).
+// Ces biens sont assimilés à des brouillons corrompus qu'il faut pouvoir purger.
+$includeGhosts = in_array('brouillon', $statuts, true);
+
 $dateMin = (string)($_POST['date_min'] ?? '');
 if (!preg_match('/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/', $dateMin)) {
     // Par défaut : hier 00:00
@@ -69,10 +74,15 @@ elseif (strlen($dateMin) === 16) $dateMin .= ':00';
 $restrictSociete = $socId > 0;
 
 // ─── Liste des biens candidats ───
+$statutWhere = "b.statut_bien IN (" . implode(',', array_fill(0, count($statuts), '?')) . ")";
+if ($includeGhosts) {
+    // Fantômes = statut vide ou NULL (bug historique autosave)
+    $statutWhere = "(" . $statutWhere . " OR b.statut_bien = '' OR b.statut_bien IS NULL)";
+}
 $sqlCandidates = "
     SELECT b.id, b.reference_bien, b.statut_bien, b.date_creation, b.adresse_1, b.ville, b.id_societe
     FROM biens b
-    WHERE b.statut_bien IN (" . implode(',', array_fill(0, count($statuts), '?')) . ")
+    WHERE {$statutWhere}
       AND b.date_creation >= ?
       " . ($restrictSociete ? 'AND b.id_societe = ?' : '') . "
     ORDER BY b.date_creation DESC

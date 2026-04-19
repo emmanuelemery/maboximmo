@@ -378,6 +378,17 @@ if ($adresse1 !== '') {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Protection : ne JAMAIS écraser statut_bien avec une valeur vide.
+// Cause d'un bug historique : Express n'a pas d'input statut_bien, donc
+// un autosave depuis Express envoyait '' et écrasait le 'brouillon' initial.
+// Résultat : biens fantômes invisibles du modal purge cascade (filtre par
+// liste de statuts valides).
+// ══════════════════════════════════════════════════════════════
+if (isset($data['statut_bien']) && trim((string)$data['statut_bien']) === '') {
+    unset($data['statut_bien']);
+}
+
+// ══════════════════════════════════════════════════════════════
 // Build & execute UPDATE biens
 // ══════════════════════════════════════════════════════════════
 $sets = [];
