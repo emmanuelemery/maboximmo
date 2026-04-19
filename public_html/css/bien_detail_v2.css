@@ -1,0 +1,391 @@
+/*
+ * bien_detail_v2.css
+ * Rôle     : Layout full-viewport (pas de scroll vertical) + carousel cards animées
+ *            pour la section Documents de bien_detail_v2.php
+ * Dépend   : tokens.css (variables brand/bg/shadow)
+ * Date     : 2026-04-19
+ */
+
+:root {
+  --v2-sidebar-w: 220px;
+  --v2-topbar-h: 56px;
+  --v2-pagehead-h: 72px;
+  --v2-viz-h: 108px;
+  --v2-gap: 14px;
+
+  --v2-card-radius: 22px;
+  --v2-card-bg: #ffffff;
+  --v2-card-border: rgba(54, 87, 125, 0.10);
+
+  --v2-warm-1: #F4E6C9;
+  --v2-warm-2: #E8D2A3;
+  --v2-cold-1: #E3ECD9;
+  --v2-cold-2: #BCCDA2;
+
+  --v2-ink: #1a1816;
+  --v2-muted: #8a8680;
+  --v2-accent: var(--brand-500, #36577d);
+
+  --v2-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --v2-dur: 620ms;
+}
+
+/* ── Empêche tout scroll vertical sur la page ── */
+html.v2-no-scroll, body.v2-no-scroll {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Main column (descend juste après la sidebar) ── */
+.v2-main {
+  margin-left: var(--v2-sidebar-w);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Page head compact ── */
+.v2-main .page-head {
+  flex-shrink: 0;
+}
+
+/* ── Viz card (champs impératifs + complétude) ── */
+.v2-viz {
+  flex-shrink: 0;
+  margin: 4px 24px 8px;
+  padding: 12px 18px;
+  background: var(--v2-card-bg);
+  border: 1px solid var(--v2-card-border);
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(54, 87, 125, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.v2-viz-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--v2-accent);
+  flex-shrink: 0;
+}
+.v2-viz-title small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--v2-muted);
+}
+.v2-viz-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  max-height: 56px;
+}
+.v2-chip {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  white-space: nowrap;
+}
+.v2-chip.ok {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+.v2-viz-score {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 120px;
+}
+.v2-viz-score-pct {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--v2-accent);
+  font-variant-numeric: tabular-nums;
+}
+.v2-viz-score-bar {
+  width: 120px;
+  height: 6px;
+  background: rgba(54, 87, 125, 0.10);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.v2-viz-score-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--v2-accent), #7a9060);
+  border-radius: 999px;
+  transition: width .4s var(--v2-ease);
+}
+
+/* ── Carousel stage ── */
+.v2-stage-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 12px;
+  overflow: hidden;
+  position: relative;
+}
+
+.v2-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  perspective: 1800px;
+  transform-style: preserve-3d;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Card ── */
+.v2-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(62%, 820px);
+  height: min(90%, 520px);
+  background: var(--v2-card-bg);
+  border: 1px solid var(--v2-card-border);
+  border-radius: var(--v2-card-radius);
+  box-shadow:
+    0 30px 60px -20px rgba(54, 87, 125, 0.25),
+    0 12px 24px -12px rgba(54, 87, 125, 0.15);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  transition:
+    transform var(--v2-dur) var(--v2-ease),
+    opacity var(--v2-dur) var(--v2-ease),
+    filter var(--v2-dur) var(--v2-ease),
+    box-shadow var(--v2-dur) var(--v2-ease);
+  will-change: transform, opacity;
+}
+
+/* Position centrale */
+.v2-card.is-active {
+  transform: translate(-50%, -50%) translateX(0) scale(1) rotateY(0);
+  opacity: 1;
+  z-index: 10;
+  filter: none;
+}
+
+/* Position prev (warm) */
+.v2-card.is-prev {
+  transform: translate(-50%, -50%) translateX(-58%) scale(0.82) rotateY(22deg);
+  opacity: 0.72;
+  z-index: 5;
+  background: linear-gradient(135deg, var(--v2-warm-1), var(--v2-warm-2));
+  filter: saturate(0.85);
+  box-shadow: 0 20px 40px -14px rgba(180, 120, 40, 0.25);
+}
+
+/* Position next (cold) */
+.v2-card.is-next {
+  transform: translate(-50%, -50%) translateX(58%) scale(0.82) rotateY(-22deg);
+  opacity: 0.72;
+  z-index: 5;
+  background: linear-gradient(135deg, var(--v2-cold-1), var(--v2-cold-2));
+  filter: saturate(0.85);
+  box-shadow: 0 20px 40px -14px rgba(100, 130, 80, 0.25);
+}
+
+/* Position hidden */
+.v2-card.is-hidden {
+  transform: translate(-50%, -50%) translateX(0) scale(0.6) rotateY(0);
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ── Label de card (verre sombre en haut) ── */
+.v2-card-label {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 18px;
+  background: rgba(26, 24, 22, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border-radius: 999px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 11;
+  box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.35);
+}
+.v2-card-label .v2-count {
+  background: rgba(255, 255, 255, 0.20);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Contenu card ── */
+.v2-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 14px;
+}
+.v2-card.is-prev .v2-card-body,
+.v2-card.is-next .v2-card-body { overflow: hidden; pointer-events: none; }
+
+/* Scrollbar interne discrète */
+.v2-card-body::-webkit-scrollbar { width: 6px; }
+.v2-card-body::-webkit-scrollbar-thumb {
+  background: rgba(54, 87, 125, 0.25);
+  border-radius: 999px;
+}
+
+/* ── Liste de documents ── */
+.v2-doc-list { display: flex; flex-direction: column; gap: 8px; }
+.v2-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fafbfc;
+  border: 1px solid rgba(54, 87, 125, 0.08);
+  border-radius: 10px;
+  transition: background .15s, border-color .15s;
+}
+.v2-doc-item:hover {
+  background: #fff;
+  border-color: rgba(54, 87, 125, 0.20);
+}
+.v2-doc-icon {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--brand-100, #d6e4f0), var(--brand-200, #b0cce2));
+  color: var(--v2-accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.v2-doc-meta { flex: 1; min-width: 0; }
+.v2-doc-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v2-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-doc-sub {
+  font-size: 11px;
+  color: var(--v2-muted);
+  margin-top: 2px;
+}
+.v2-doc-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.v2-doc-btn {
+  padding: 5px 10px;
+  font-size: 11px;
+  background: #fff;
+  border: 1px solid rgba(54, 87, 125, 0.15);
+  border-radius: 6px;
+  color: var(--v2-accent);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background .15s, border-color .15s;
+}
+.v2-doc-btn:hover {
+  background: var(--brand-50, #eef3f8);
+  border-color: var(--v2-accent);
+}
+
+.v2-doc-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--v2-muted);
+  font-size: 13px;
+}
+.v2-doc-empty-icon { font-size: 32px; opacity: 0.4; margin-bottom: 10px; }
+
+/* ── Navigation ── */
+.v2-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--v2-card-border);
+  box-shadow: 0 6px 18px -6px rgba(54, 87, 125, 0.30);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--v2-accent);
+  z-index: 20;
+  transition: background .15s, transform .15s;
+}
+.v2-nav:hover { background: #fff; transform: translateY(-50%) scale(1.08); }
+.v2-nav:active { transform: translateY(-50%) scale(0.96); }
+.v2-nav.prev { left: 24px; }
+.v2-nav.next { right: 24px; }
+
+/* ── Dots ── */
+.v2-dots {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0 4px;
+}
+.v2-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: rgba(54, 87, 125, 0.25);
+  border: none;
+  cursor: pointer;
+  transition: background .2s, transform .2s, width .3s;
+  padding: 0;
+}
+.v2-dot.is-active {
+  background: var(--v2-accent);
+  width: 24px;
+  border-radius: 999px;
+}
+
+/* ── Responsive — cache cards latérales sur mobile ── */
+@media (max-width: 900px) {
+  .v2-card { width: 90%; height: 85%; }
+  .v2-card.is-prev, .v2-card.is-next { opacity: 0; pointer-events: none; }
+  .v2-nav.prev { left: 8px; }
+  .v2-nav.next { right: 8px; }
+  .v2-main { margin-left: 0; }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .v2-card {
+    transition: opacity .2s linear;
+  }
+  .v2-card.is-active { transform: translate(-50%, -50%); }
+  .v2-card.is-prev, .v2-card.is-next {
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    pointer-events: none;
+  }
+}
