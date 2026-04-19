@@ -231,12 +231,17 @@ if ($section === 'descriptif') {
         } catch (Throwable $e) {}
     }
     if (!empty($bienLoaded['id_proprietaire'])) {
-        foreach (['tiers', 'users'] as $tbl) {
+        // Tentative tiers (personne physique OU morale via raison_sociale) puis fallback users legacy
+        try {
+            $st = $pdo->prepare("SELECT id, type_tiers, civilite, nom, prenom, raison_sociale, telephone, email FROM tiers WHERE id = ? LIMIT 1");
+            $st->execute([(int)$bienLoaded['id_proprietaire']]);
+            $proprioInfo = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {}
+        if (!$proprioInfo) {
             try {
-                $st = $pdo->prepare("SELECT nom, prenom, telephone, email FROM `$tbl` WHERE id = ? LIMIT 1");
+                $st = $pdo->prepare("SELECT id, nom, prenom, telephone, email FROM users WHERE id = ? LIMIT 1");
                 $st->execute([(int)$bienLoaded['id_proprietaire']]);
                 $proprioInfo = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-                if ($proprioInfo) break;
             } catch (Throwable $e) {}
         }
     }
@@ -552,9 +557,15 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         $v = static fn($k) => isset($b[$k]) && $b[$k] !== '' && $b[$k] !== null ? $b[$k] : null;
         $vb = static fn($k) => (int)($b[$k] ?? 0) === 1 ? '✅ Oui' : '—';
         $vn = static fn($k) => $v($k) !== null ? $v($k) : '—';
-        $proprioStr = $proprioInfo
-          ? trim((string)($proprioInfo['prenom'] ?? '') . ' ' . (string)($proprioInfo['nom'] ?? ''))
-          : '—';
+        $proprioStr = '—';
+        if ($proprioInfo) {
+            if (!empty($proprioInfo['raison_sociale'])) {
+                $proprioStr = (string)$proprioInfo['raison_sociale'];
+            } else {
+                $civ = !empty($proprioInfo['civilite']) ? $proprioInfo['civilite'] . ' ' : '';
+                $proprioStr = trim($civ . (string)($proprioInfo['prenom'] ?? '') . ' ' . (string)($proprioInfo['nom'] ?? '')) ?: '—';
+            }
+        }
       ?>
 
       <?php
@@ -618,6 +629,16 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             <div class="v2-tiers-info">
               <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
               <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
+            </div>
+          <?php endif; ?>
+
+          <?php if ($descDpeDiag && (!empty($descDpeDiag['diagnostiqueur_nom']) || !empty($descDpeDiag['diagnostiqueur_societe']))): ?>
+            <div class="v2-tiers-info is-from-dpe-info">
+              📄 <strong>Diagnostiqueur DPE :</strong>
+              <?= h(trim((string)($descDpeDiag['diagnostiqueur_nom'] ?? '') . ' ' . (string)($descDpeDiag['diagnostiqueur_societe'] ?? ''))) ?>
+              <?php if (!empty($descDpeDiag['numero_rapport'])): ?>
+                · <span>N° rapport : <?= h((string)$descDpeDiag['numero_rapport']) ?></span>
+              <?php endif; ?>
             </div>
           <?php endif; ?>
 

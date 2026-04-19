@@ -989,6 +989,15 @@ input.v2-input.is-from-dpe {
   padding: 4px 0;
   flex-basis: 100%;
 }
+.v2-tiers-info.is-from-dpe-info {
+  background: #e8f0dc;
+  border-left: 3px solid #a8c090;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: #4a6038;
+  margin-top: 4px;
+  font-size: 11px;
+}
 
 /* Modal création express */
 .v2-modal {
