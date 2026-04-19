@@ -154,7 +154,26 @@ if ($section === 'descriptif') {
             } catch (Throwable $e) {}
         }
     }
+    // Liste des immeubles dispo (meme societe/agence)
+    try {
+        $st = $pdo->prepare("
+            SELECT id, reference_immeuble, adresse, code_postal, ville
+            FROM immeubles
+            WHERE (id_societe = :s OR :s IS NULL)
+              AND (id_agence  = :a OR :a IS NULL)
+            ORDER BY ville ASC, adresse ASC
+            LIMIT 200
+        ");
+        $st->execute([':s' => $idSociete, ':a' => isset($_SESSION['id_agence']) ? (int)$_SESSION['id_agence'] : null]);
+        $immeublesList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) { $immeublesList = []; }
 }
+$immeublesList = $immeublesList ?? [];
+
+// Cle Google Maps (reutilisation bootstrap.php)
+$GOOGLE_MAPS_API_KEY = getenv('GOOGLE_MAPS_API_KEY')
+    ?: ($_ENV['GOOGLE_MAPS_API_KEY'] ?? '')
+    ?: ($_SERVER['GOOGLE_MAPS_API_KEY'] ?? '');
 
 // Labels FR + type de champ pour la card 4 (whitelist alignée sur api/dpe_diag_update.php)
 $dpeFieldDefs = [
@@ -479,32 +498,47 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <!-- Indicateur autosave -->
           <div id="v2-save-indicator" class="v2-save-indicator" aria-live="polite"></div>
 
-          <!-- 1. Propriétaire -->
-          <div class="v2-desc-group-title">👤 Propriétaire</div>
-          <div class="v2-field v2-tiers-picker-wrap">
+          <!-- 1. Propriétaire (titre + recherche + bouton sur la même ligne) -->
+          <div class="v2-group-header">
+            <span class="v2-group-header-title">👤 Propriétaire<?php if ($proprioStr): ?> <em class="v2-group-header-current">· <?= h($proprioStr) ?></em><?php endif; ?></span>
             <div class="v2-tiers-picker">
               <input type="text" id="v2-proprio-search" class="v2-input"
-                     placeholder="Rechercher un propriétaire..."
-                     value="<?= h($proprioStr ?: '') ?>"
+                     placeholder="Rechercher dans les tiers..."
                      autocomplete="off">
               <div id="v2-proprio-suggest" class="v2-tiers-suggest" hidden></div>
             </div>
-            <button type="button" id="v2-proprio-add" class="v2-btn-outline" title="Créer express">➕ Express</button>
-            <?php if ($proprioInfo): ?>
-              <div class="v2-tiers-info">
-                <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
-                <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
-              </div>
+            <button type="button" id="v2-proprio-add" class="v2-btn-outline v2-header-btn" title="Créer express">➕</button>
+          </div>
+          <?php if ($proprioInfo): ?>
+            <div class="v2-tiers-info">
+              <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
+              <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
+            </div>
+          <?php endif; ?>
+
+          <!-- 2. Adresse (titre + recherche Google + select immeuble sur la même ligne) -->
+          <div class="v2-group-header">
+            <span class="v2-group-header-title">📍 Adresse</span>
+            <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Recherche Google (adresse)…" autocomplete="off">
+            <?php if (!empty($immeublesList)): ?>
+              <select id="v2-imm-select" class="v2-input v2-imm-select">
+                <option value="">— ou sélectionner un immeuble —</option>
+                <?php foreach ($immeublesList as $imm): ?>
+                  <option value="<?= (int)$imm['id'] ?>"
+                          data-adresse="<?= h((string)($imm['adresse'] ?? '')) ?>"
+                          data-cp="<?= h((string)($imm['code_postal'] ?? '')) ?>"
+                          data-ville="<?= h((string)($imm['ville'] ?? '')) ?>">
+                    <?= h(trim(($imm['reference_immeuble'] ? '[' . $imm['reference_immeuble'] . '] ' : '') . ($imm['adresse'] ?? '') . ' ' . ($imm['code_postal'] ?? '') . ' ' . ($imm['ville'] ?? ''))) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
             <?php endif; ?>
           </div>
-
-          <!-- 2. Adresse -->
-          <div class="v2-desc-group-title">📍 Adresse</div>
           <div class="v2-addr-grid">
-            <input type="text" class="v2-input" name="adresse_1" data-autosave placeholder="Adresse" value="<?= h((string)($b['adresse_1'] ?? '')) ?>">
-            <input type="text" class="v2-input" name="adresse_2" data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2'] ?? '')) ?>">
-            <input type="text" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
-            <input type="text" class="v2-input" name="ville" data-autosave placeholder="Ville" value="<?= h((string)($b['ville'] ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_1" class="v2-input" name="adresse_1" data-autosave placeholder="Adresse" value="<?= h((string)($b['adresse_1'] ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_2" class="v2-input" name="adresse_2" data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2'] ?? '')) ?>">
+            <input type="text" id="v2-f-code_postal" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
+            <input type="text" id="v2-f-ville" class="v2-input" name="ville" data-autosave placeholder="Ville" value="<?= h((string)($b['ville'] ?? '')) ?>">
           </div>
 
           <!-- 3. Caractéristiques -->
@@ -600,6 +634,18 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
         </div>
       </section>
+
+      <!-- Modal détail tiers (lecture seule) -->
+      <div id="v2-tiers-detail-modal" class="v2-modal" hidden>
+        <div class="v2-modal-card">
+          <h3>👤 Détail du tiers</h3>
+          <div id="v2-tiers-detail-body" class="v2-tiers-detail-body"></div>
+          <div class="v2-modal-actions">
+            <button type="button" id="v2-td-cancel" class="v2-btn-outline">Fermer</button>
+            <button type="button" id="v2-td-select" class="v2-btn-primary">✓ Sélectionner ce tiers</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Modal création express propriétaire -->
       <div id="v2-proprio-modal" class="v2-modal" hidden>
@@ -1052,6 +1098,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
 <script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
+<?php if ($section === 'descriptif' && !empty($GOOGLE_MAPS_API_KEY)): ?>
+<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=v2InitPlaces" async defer></script>
+<?php endif; ?>
 
 </body>
 </html>

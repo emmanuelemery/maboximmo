@@ -582,6 +582,88 @@ html.v2-no-scroll, body.v2-no-scroll {
    SECTION DESCRIPTIF — EDITION (icon-radios + autosave + modal)
 ───────────────────────────────── */
 
+/* Group header : titre + actions inline sur la MEME ligne */
+.v2-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 16px;
+  padding-bottom: 8px;
+  border-top: 2px solid rgba(54, 87, 125, 0.14);
+  flex-wrap: wrap;
+}
+.v2-group-header:first-of-type { margin-top: 6px; padding-top: 0; border-top: none; }
+.v2-group-header-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--v2-accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.v2-group-header-current {
+  font-weight: 500;
+  font-style: normal;
+  color: var(--v2-ink);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+.v2-header-btn {
+  padding: 5px 12px !important;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.v2-imm-select { max-width: 300px; font-size: 12px; }
+
+/* Séparation renforcée entre rubriques icônes (caractéristiques) */
+.v2-desc-group-title {
+  margin-top: 22px !important;
+  padding-top: 14px !important;
+  border-top: 2px solid rgba(54, 87, 125, 0.14) !important;
+  border-bottom: none !important;
+}
+.v2-desc-group-title:first-child,
+.v2-card-body > .v2-desc-group-title:nth-child(-n+2) {
+  margin-top: 18px !important;
+}
+
+/* Détail tiers (modal non éditable) */
+.v2-tiers-detail-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 18px;
+}
+.v2-tiers-detail-body .tk { font-size: 11px; font-weight: 600; color: var(--v2-muted); text-transform: uppercase; letter-spacing: .3px; }
+.v2-tiers-detail-body .tv { font-size: 13px; color: var(--v2-ink); }
+.v2-tiers-detail-body .tg { grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(54,87,125,.08); }
+
+/* Tiers suggest : 2 actions par item (Voir + Sélectionner) */
+.v2-tiers-suggest-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.v2-tiers-suggest-btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(54, 87, 125, 0.25);
+  background: #fff;
+  color: var(--v2-accent);
+  cursor: pointer;
+  transition: background .15s;
+}
+.v2-tiers-suggest-btn:hover { background: var(--v2-accent-light); }
+.v2-tiers-suggest-btn.primary {
+  background: var(--v2-accent);
+  color: #fff;
+  border-color: transparent;
+}
+.v2-tiers-suggest-btn.primary:hover { background: var(--brand-600, #2b4466); }
+
 /* Autosave indicator */
 .v2-save-indicator {
   position: sticky;

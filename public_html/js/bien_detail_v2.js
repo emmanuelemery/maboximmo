@@ -331,6 +331,7 @@
     // Tiers picker
     const searchInput = document.getElementById('v2-proprio-search');
     const suggestBox = document.getElementById('v2-proprio-suggest');
+    let lastTiersItems = [];
     if (searchInput && suggestBox) {
       let timer = null;
       searchInput.addEventListener('input', () => {
@@ -342,14 +343,20 @@
             const r = await fetch('/api/tiers_lookup.php?q=' + encodeURIComponent(q) + '&limit=8', { credentials: 'same-origin' });
             const j = await r.json();
             const items = (j.items || []).concat(j.doublons || []);
+            lastTiersItems = items;
             if (items.length === 0) {
-              suggestBox.innerHTML = '<div class="v2-tiers-suggest-item"><small>Aucun résultat — clique sur ➕ Express pour créer</small></div>';
+              suggestBox.innerHTML = '<div class="v2-tiers-suggest-item"><small>Aucun résultat — clique sur ➕ pour créer</small></div>';
             } else {
               suggestBox.innerHTML = items.map(it => {
                 const name = it.raison_sociale || ((it.prenom || '') + ' ' + (it.nom || '')).trim();
                 const sub = [it.email, it.telephone].filter(Boolean).join(' · ');
-                return `<div class="v2-tiers-suggest-item" data-id="${it.id}" data-name="${name.replace(/"/g,'&quot;')}">
-                  <strong>${name || ('Tiers #' + it.id)}</strong>${sub ? '<small>' + sub + '</small>' : ''}
+                return `<div class="v2-tiers-suggest-item" data-id="${it.id}">
+                  <strong>${name || ('Tiers #' + it.id)}</strong>
+                  ${sub ? '<small>' + sub + '</small>' : ''}
+                  <div class="v2-tiers-suggest-actions">
+                    <button type="button" class="v2-tiers-suggest-btn" data-action="view" data-id="${it.id}">👁️ Voir</button>
+                    <button type="button" class="v2-tiers-suggest-btn primary" data-action="select" data-id="${it.id}" data-name="${(name || '').replace(/"/g,'&quot;')}">✓ Sélectionner</button>
+                  </div>
                 </div>`;
               }).join('');
             }
@@ -360,18 +367,40 @@
         }, 250);
       });
       suggestBox.addEventListener('click', (e) => {
-        const item = e.target.closest('.v2-tiers-suggest-item');
-        if (!item || !item.dataset.id) return;
-        const id = item.dataset.id;
-        const name = item.dataset.name;
-        searchInput.value = name;
-        suggestBox.hidden = true;
-        saveField('id_proprietaire', id).then(() => {
-          setTimeout(() => window.location.reload(), 500);
-        });
+        const btn = e.target.closest('.v2-tiers-suggest-btn');
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        if (action === 'select') {
+          const name = btn.dataset.name || '';
+          searchInput.value = name;
+          suggestBox.hidden = true;
+          saveField('id_proprietaire', id).then(() => {
+            setTimeout(() => window.location.reload(), 500);
+          });
+        } else if (action === 'view') {
+          const item = lastTiersItems.find(x => String(x.id) === String(id));
+          showTiersDetail(item, saveField);
+        }
       });
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.v2-tiers-picker')) suggestBox.hidden = true;
+      });
+    }
+
+    // Select immeuble : remplit les champs adresse a la selection
+    const immSelect = document.getElementById('v2-imm-select');
+    if (immSelect) {
+      immSelect.addEventListener('change', () => {
+        const opt = immSelect.options[immSelect.selectedIndex];
+        if (!opt || !opt.value) return;
+        const setVal = (id, v) => {
+          const el = document.getElementById(id);
+          if (el) { el.value = v || ''; el.dispatchEvent(new Event('change')); }
+        };
+        setVal('v2-f-adresse_1', opt.dataset.adresse || '');
+        setVal('v2-f-code_postal', opt.dataset.cp || '');
+        setVal('v2-f-ville', opt.dataset.ville || '');
       });
     }
 
@@ -417,6 +446,65 @@
       });
     }
   }
+
+  // ── Modal détail tiers (lecture seule) ──
+  function showTiersDetail(tiers, saveField) {
+    const modal = document.getElementById('v2-tiers-detail-modal');
+    const body  = document.getElementById('v2-tiers-detail-body');
+    if (!modal || !body || !tiers) return;
+    const name = tiers.raison_sociale || ((tiers.prenom || '') + ' ' + (tiers.nom || '')).trim();
+    const rows = [
+      ['Type',          tiers.type_tiers || '—'],
+      ['Civilité',      tiers.civilite  || '—'],
+      ['Nom / Raison',  name || '—'],
+      ['Email',         tiers.email     || '—'],
+      ['Téléphone',     tiers.telephone || '—'],
+      ['ID tiers',      '#' + tiers.id],
+    ];
+    body.innerHTML = rows.map(([k, v]) =>
+      `<div class="tk">${k}</div><div class="tv">${String(v).replace(/</g,'&lt;')}</div>`
+    ).join('');
+    const hide = () => { modal.hidden = true; };
+    modal.hidden = false;
+    document.getElementById('v2-td-cancel').onclick = hide;
+    document.getElementById('v2-td-select').onclick = () => {
+      const input = document.getElementById('v2-proprio-search');
+      if (input) input.value = name;
+      saveField('id_proprietaire', tiers.id).then(() => {
+        hide();
+        setTimeout(() => window.location.reload(), 500);
+      });
+    };
+  }
+
+  // ── Google Places Autocomplete (adresse) ──
+  window.v2InitPlaces = function () {
+    const input = document.getElementById('v2-google-places');
+    if (!input || !window.google || !google.maps || !google.maps.places) return;
+    const ac = new google.maps.places.Autocomplete(input, {
+      types: ['address'], componentRestrictions: { country: ['fr','be','lu','ch','mc'] },
+      fields: ['address_components','formatted_address']
+    });
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (!place || !place.address_components) return;
+      const get = (type) => {
+        const c = place.address_components.find(a => a.types.includes(type));
+        return c ? c.long_name : '';
+      };
+      const streetNum = get('street_number');
+      const route     = get('route');
+      const cp        = get('postal_code');
+      const ville     = get('locality') || get('postal_town');
+      const setVal = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) { el.value = v || ''; el.dispatchEvent(new Event('change')); }
+      };
+      setVal('v2-f-adresse_1', (streetNum + ' ' + route).trim());
+      setVal('v2-f-code_postal', cp);
+      setVal('v2-f-ville', ville);
+    });
+  };
 
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
