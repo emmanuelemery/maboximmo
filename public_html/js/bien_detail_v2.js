@@ -149,12 +149,31 @@
       this.total = this.cards.length;
       this.index = opts.startIndex || 0;
       this.dotsEl = opts.dotsEl || null;
+      this.tabsEl = opts.tabsEl || null;
       this.prevBtn = opts.prevBtn || null;
       this.nextBtn = opts.nextBtn || null;
 
       this._bindEvents();
       this._buildDots();
+      this._buildTabs();
       this.update();
+    }
+
+    _buildTabs() {
+      if (!this.tabsEl) return;
+      this.tabsEl.innerHTML = '';
+      this.cards.forEach((card, i) => {
+        const labelEl = card.querySelector('.v2-card-label');
+        const html = labelEl ? labelEl.innerHTML : ('Carte ' + (i + 1));
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'v2-stage-tab';
+        b.dataset.idx = i;
+        b.innerHTML = html;
+        b.setAttribute('role', 'tab');
+        b.addEventListener('click', () => this.go(i));
+        this.tabsEl.appendChild(b);
+      });
     }
 
     _buildDots() {
@@ -237,6 +256,13 @@
           d.classList.toggle('is-active', idx === i);
         });
       }
+
+      if (this.tabsEl) {
+        Array.from(this.tabsEl.children).forEach((t, idx) => {
+          t.classList.toggle('is-active', idx === i);
+          t.setAttribute('aria-selected', idx === i ? 'true' : 'false');
+        });
+      }
     }
   }
 
@@ -284,10 +310,12 @@
     const stage = document.getElementById('v2-stage');
     if (!stage) return;
     const dots = document.getElementById('v2-dots');
+    const tabs = document.getElementById('v2-stage-tabs');
     const prevBtn = document.getElementById('v2-prev');
     const nextBtn = document.getElementById('v2-next');
     new V2Carousel(stage, {
       dotsEl: dots,
+      tabsEl: tabs,
       prevBtn: prevBtn,
       nextBtn: nextBtn,
       startIndex: 0,

@@ -331,6 +331,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
   <!-- CAROUSEL STAGE -->
   <div class="v2-stage-wrap">
+    <!-- Barre d'onglets (titres des cards, active en grand) -->
+    <div id="v2-stage-tabs" class="v2-stage-tabs" role="tablist" aria-label="Sélection de carte"></div>
+
     <button type="button" id="v2-prev" class="v2-nav prev" aria-label="Carte précédente">
       <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
     </button>
