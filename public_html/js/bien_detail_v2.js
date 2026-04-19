@@ -289,7 +289,7 @@
       fd.append('csrf_token', csrf);
       fd.append(name, value == null ? '' : value);
       try {
-        const r = await fetch('/api/bien_autosave.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+        const r = await fetch(data.autosaveEndpoint || '/api/bien_autosave.php', { method: 'POST', body: fd, credentials: 'same-origin' });
         const j = await r.json();
         if (j.ok) showIndicator('ok', '✅ Enregistré ' + (j.saved_at || ''));
         else showIndicator('err', '❌ ' + (j.error || 'Erreur'));
@@ -340,7 +340,8 @@
         if (q.length < 2) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
         timer = setTimeout(async () => {
           try {
-            const r = await fetch('/api/tiers_lookup.php?q=' + encodeURIComponent(q) + '&limit=8', { credentials: 'same-origin' });
+            const ep = data.tiersLookupEndpoint || '/api/tiers_lookup.php';
+            const r = await fetch(ep + '?q=' + encodeURIComponent(q) + '&limit=8', { credentials: 'same-origin' });
             const j = await r.json();
             const items = (j.items || []).concat(j.doublons || []);
             lastTiersItems = items;
@@ -429,7 +430,7 @@
           roles: [{ role_code: 'proprietaire', objet_type: 'bien', id_objet: bienId }],
         };
         try {
-          const r = await fetch('/api/tiers_create.php', {
+          const r = await fetch(data.tiersCreateEndpoint || '/api/tiers_create.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
