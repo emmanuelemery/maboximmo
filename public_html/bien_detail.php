@@ -3761,18 +3761,38 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         <div class="ba-grid cols-2">
           <div class="ba-field ba-col-full">
             <label style="margin-bottom:8px;display:block;">Vue</label>
-            ' . (!$_vueFallback ? '
-            <div class="mc-grid" id="mc-vues" data-mc-mode="select" data-mc-multiple="true" data-mc-field="vue_ids" style="--mc-min:90px;">
-              ' . implode('', array_map(fn($sv) => '
-              <div class="mc-card' . (in_array((string)$sv['id'], array_map('strval', $_loadedVueIds), true) ? ' is-selected' : '') . '"
-                   data-mc-value="' . (int)$sv['id'] . '"
-                   data-mc-label="' . h($sv['label']) . '"
-                   data-mc-desc="' . h($sv['description'] ?? '') . '"
-                   data-vue-code="' . h($sv['code']) . '">
-                <div class="mc-icon">' . (!empty($sv['icone']) ? (str_starts_with($sv['icone'], 'fa-') ? '<i class="' . h($sv['icone']) . '"></i>' : '<span style="font-size:18px">' . $sv['icone'] . '</span>') : '') . '</div>
-                <div class="mc-label">' . h($sv['label']) . '</div>
-              </div>', $socVues)) . '
-            </div>' : '
+            ' . (!$_vueFallback ? (function() use ($socVues, $_loadedVueIds) {
+                // Mapping code → emoji d'Express (vocabulaire unifié)
+                $vueEmoji = [
+                    'degagee'        => '👁️',
+                    'panoramique'    => '⛰️',
+                    'parc_verdure'   => '🌳',
+                    'jardin'         => '🌿',
+                    'campagne'       => '🌾',
+                    'eau'            => '🌊',
+                    'ville'          => '🏙️',
+                    'rue'            => '🛣️',
+                    'cour'           => '🏢',
+                    'sans_vis_a_vis' => '🙈',
+                    'relief'         => '🗻',
+                    'exceptionnelle' => '⭐',
+                ];
+                $html = '<div class="mc-grid" id="mc-vues" data-mc-mode="select" data-mc-multiple="true" data-mc-field="vue_ids" style="--mc-min:90px;">';
+                foreach ($socVues as $sv) {
+                    $isSel = in_array((string)$sv['id'], array_map('strval', $_loadedVueIds), true);
+                    $emoji = $vueEmoji[$sv['code']] ?? '👁️';
+                    $html .= '<div class="mc-card' . ($isSel ? ' is-selected' : '') . '"'
+                        . ' data-mc-value="' . (int)$sv['id'] . '"'
+                        . ' data-mc-label="' . h($sv['label']) . '"'
+                        . ' data-mc-desc="' . h($sv['description'] ?? '') . '"'
+                        . ' data-vue-code="' . h($sv['code']) . '">'
+                        . '<div class="mc-icon"><span style="font-size:22px">' . $emoji . '</span></div>'
+                        . '<div class="mc-label">' . h($sv['label']) . '</div>'
+                        . '</div>';
+                }
+                $html .= '</div>';
+                return $html;
+            })() : '
             <input type="hidden" name="vue" id="vue_val" value="' . h((string)post('vue','')) . '">
             <div class="ba-vue-grid">
               ' . implode('', array_map(fn($v,$l,$i) => '
