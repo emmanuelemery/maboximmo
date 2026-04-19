@@ -252,11 +252,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       box-shadow: var(--neu-out); flex-shrink: 0;
     }
 
-    /* Page head — onglets centres au dessus de la card maitre */
+    /* Page head — onglets principaux sur fond vert amande clair */
     .page-head {
-      padding: 12px 24px 8px;
+      padding: 4px 24px;
       display: flex; align-items: center; justify-content: center;
       gap: 18px; flex-shrink: 0;
+      background: linear-gradient(180deg, #e3edd0 0%, #d4e2b8 100%);
+      border-bottom: 1px solid rgba(117, 158, 120, 0.25);
     }
     .page-head-info { flex: 1; min-width: 0; }
     .page-head-label {
