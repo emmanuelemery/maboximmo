@@ -4624,7 +4624,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                       <?= $l ?>
                     </div>
                     <?php if ($isActive): ?>
-                    <span style="font-size:10px;font-weight:700;color:<?= $color ?>;" id="dpe-val-badge">◀</span>
+                    <span class="auto-badge" style="font-size:10px;font-weight:700;color:<?= $color ?>;">◀</span>
                     <?php endif; ?>
                   </div>
                   <?php endforeach; ?>
@@ -4644,7 +4644,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                       <?= $l ?>
                     </div>
                     <?php if ($isActive): ?>
-                    <span style="font-size:10px;font-weight:700;color:#7c3aed;" id="ges-val-badge">◀</span>
+                    <span class="auto-badge" style="font-size:10px;font-weight:700;color:#7c3aed;">◀</span>
                     <?php endif; ?>
                   </div>
                   <?php endforeach; ?>
