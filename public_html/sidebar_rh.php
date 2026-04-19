@@ -27,6 +27,7 @@ if (!isset($current_page)) {
     if ($basename === 'admin_migrations') $current_page = 'admin_migrations';
     if ($basename === 'admin_bailleurs') $current_page = 'admin_bailleurs';
     if ($basename === 'admin_referentiel') $current_page = 'admin_referentiel';
+    if ($basename === 'tiers_nouveau') $current_page = 'tiers_nouveau';
 }
 
 // Rôle courant (pour section Administrer)
@@ -392,6 +393,13 @@ if (count($parts_name) >= 2) {
                 <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
             </svg>
             <span class="sb-item-lbl" style="<?= $current_page === 'admin_referentiel' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Référentiel</span>
+        </a>
+        <a href="tiers_nouveau.php" class="sb-item <?= $current_page === 'tiers_nouveau' ? 'active' : '' ?>"
+           style="<?= $current_page === 'tiers_nouveau' ? 'background:rgba(45,95,107,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'tiers_nouveau' ? '#2d5f6b' : '#5a8a95' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'tiers_nouveau' ? 'color:#2d5f6b;font-weight:700;' : 'color:#5a8a95;' ?>">Nouveau tiers</span>
         </a>
         <?php endif; ?>
     </div>
