@@ -417,7 +417,22 @@ $protectedFields = [
     // DPE / chauffage (inputs présents mais souvent vides en Express)
     'dpe_classe', 'ges_classe', 'dpe_valeur', 'ges_valeur',
     'dpe_date_realisation',
+    // Champs DPE avancés remontés par l'import diag IA (ne doivent JAMAIS
+    // être écrasés par un autosave avec valeur vide — cela supprimait les
+    // valeurs extraites du PDF)
+    'dpe_version', 'dpe_vierge', 'dpe_reference_certificat',
+    'dpe_valeur_conso_primaire', 'dpe_valeur_conso_finale',
+    'montant_estime_depenses_min', 'montant_estime_depenses_max',
+    'annee_reference_depenses',
+    'date_indice_prix_energies',
+    'altitude',
+    // Chauffage / isolation
     'chauffage_type', 'chauffage_energie', 'eau_chaude_type',
+    'double_vitrage', 'volets_roulants', 'menuiseries',
+    // Diagnostiqueur (info complémentaire du DPE)
+    'diagnostiqueur_nom', 'diagnostiqueur_societe',
+    // Surfaces détectées par le DPE
+    'surface_sejour', 'surface_carrez',
 ];
 foreach ($protectedFields as $f) {
     $raw = $_POST[$f] ?? null;
