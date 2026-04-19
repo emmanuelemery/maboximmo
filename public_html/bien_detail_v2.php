@@ -1115,7 +1115,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
   }
 </script>
 <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
-<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=onGoogleReady" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&loading=async&callback=onGoogleReady" async defer></script>
 <?php else: ?>
 <script>console.warn('[v2] GOOGLE_MAPS_API_KEY non définie — places Google désactivé');</script>
 <?php endif; ?>
