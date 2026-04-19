@@ -9,7 +9,13 @@ $current_page = 'dashboard_proprio';
 $nav_context  = 'proprio';
 
 // ── Propriétaire courant ────────────────────────────────────────
+// Super admin (role_id=1) peut consulter n'importe quel bailleur via ?id_proprietaire=X
 $idProp = (int) ($_SESSION['id_proprietaire'] ?? 0);
+$isAdminView = false;
+if ((int)current_role_id() === 1 && isset($_GET['id_proprietaire'])) {
+    $idProp = (int) $_GET['id_proprietaire'];
+    $isAdminView = true;
+}
 
 if (!$idProp) {
     // Fallback : pas de compte propriétaire associé
@@ -96,7 +102,7 @@ function money(float $v): string {
     return number_format($v, 2, ',', ' ') . ' &euro;';
 }
 
-$username = e($_SESSION['username'] ?? 'Utilisateur');
+$username = h($_SESSION['username'] ?? 'Utilisateur');
 ?><!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -165,7 +171,7 @@ $username = e($_SESSION['username'] ?? 'Utilisateur');
       <div class="page-head">
         <div>
           <h1>Tableau de bord proprietaire</h1>
-          <div class="subtitle">Bienvenue <?= $username ?> &mdash; <?= e($proprio['nom'] ?? '') ?></div>
+          <div class="subtitle">Bienvenue <?= $username ?> &mdash; <?= h($proprio['nom'] ?? '') ?></div>
         </div>
         <a href="<?= app_url('/gestion/assistant_ia.php') ?>" class="btn-ia">
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
@@ -212,14 +218,14 @@ $username = e($_SESSION['username'] ?? 'Utilisateur');
         <tbody>
         <?php foreach ($situations as $sit): ?>
           <tr>
-            <td><?= e($sit['locataire_nom']) ?></td>
-            <td><?= e($sit['numero_lot'] ?? '-') ?></td>
-            <td><?= e($sit['type_bien'] ?? '-') ?></td>
+            <td><?= h($sit['locataire_nom']) ?></td>
+            <td><?= h($sit['numero_lot'] ?? '-') ?></td>
+            <td><?= h($sit['type_bien'] ?? '-') ?></td>
             <td style="text-align:right"><?= money((float)$sit['loyer_appele']) ?></td>
             <td style="text-align:right;<?= (float)$sit['total_impaye'] > 0 ? 'color:#d63031;font-weight:600' : '' ?>">
               <?= money((float)$sit['total_impaye']) ?>
             </td>
-            <td><span class="badge-gest <?= e($sit['statut_trimestre']) ?>"><?= e($sit['statut_trimestre']) ?></span></td>
+            <td><span class="badge-gest <?= h($sit['statut_trimestre']) ?>"><?= h($sit['statut_trimestre']) ?></span></td>
           </tr>
         <?php endforeach; ?>
         </tbody>

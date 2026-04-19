@@ -25,6 +25,7 @@ if (!isset($current_page)) {
     // Détection page admin_dashboard.php
     if ($basename === 'admin_dashboard') $current_page = 'admin';
     if ($basename === 'admin_migrations') $current_page = 'admin_migrations';
+    if ($basename === 'admin_bailleurs') $current_page = 'admin_bailleurs';
 }
 
 // Rôle courant (pour section Administrer)
@@ -376,6 +377,13 @@ if (count($parts_name) >= 2) {
                 <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
             </svg>
             <span class="sb-item-lbl" style="<?= $current_page === 'admin_migrations' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Migrations BDD</span>
+        </a>
+        <a href="admin_bailleurs.php" class="sb-item <?= $current_page === 'admin_bailleurs' ? 'active' : '' ?>"
+           style="<?= $current_page === 'admin_bailleurs' ? 'background:rgba(168,88,88,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_bailleurs' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'admin_bailleurs' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Gestion Bailleurs</span>
         </a>
         <?php endif; ?>
     </div>
