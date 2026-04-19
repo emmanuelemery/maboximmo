@@ -1240,11 +1240,113 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php else: ?>
             <div class="v2-annonce-header">
-              <span class="v2-badge"><?= h((string)$annonce['etat_publication'] ?? 'brouillon') ?></span>
+              <span class="v2-badge"><?= h((string)($annonce['etat_publication'] ?? 'brouillon')) ?></span>
               <small>Annonce #<?= $aid ?> · créée le <?= h((string)($annonce['date_creation'] ?? '')) ?></small>
             </div>
-            <div class="v2-desc-group-title">— En attente de l'étape 2 : champs financiers détaillés —</div>
-            <p class="v2-hint" style="padding:10px;">La Card 1 sera complétée dans le prochain commit avec tous les champs financiers de bien_detail.php (prix, loyers, honoraires, encadrement, taxes).</p>
+
+            <?php
+              // Helpers Card 1 Annonce (data-annonce-save au lieu de data-autosave)
+              $aNum = static function(string $icon, string $name, string $label, string $suffix = '') use ($a) {
+                $val = isset($a[$name]) && $a[$name] !== null && $a[$name] !== '' ? (string)$a[$name] : '';
+                return '<div class="v2-num-field">'
+                     . '<span class="v2-num-icon">' . $icon . '</span>'
+                     . '<input type="number" step="any" min="0" class="v2-num-input" style="width:90px;"'
+                     . ' name="' . h($name) . '" data-annonce-save value="' . h($val) . '"'
+                     . ' placeholder="' . h($label) . '">'
+                     . '<span class="v2-num-label">' . h($label) . ($suffix ? ' <small>' . $suffix . '</small>' : '') . '</span>'
+                     . '</div>';
+              };
+              $aDate = static function(string $icon, string $name, string $label) use ($a) {
+                $val = isset($a[$name]) && $a[$name] !== null && $a[$name] !== '' ? (string)$a[$name] : '';
+                // Format MySQL DATE → YYYY-MM-DD pour l'input
+                if ($val && preg_match('/^(\d{4}-\d{2}-\d{2})/', $val, $m)) $val = $m[1];
+                return '<div class="v2-num-field">'
+                     . '<span class="v2-num-icon">' . $icon . '</span>'
+                     . '<input type="date" class="v2-num-input" style="width:140px;"'
+                     . ' name="' . h($name) . '" data-annonce-save value="' . h($val) . '">'
+                     . '<span class="v2-num-label">' . h($label) . '</span>'
+                     . '</div>';
+              };
+              $aText = static function(string $name, string $label, string $placeholder = '') use ($a) {
+                $val = isset($a[$name]) && $a[$name] !== null ? (string)$a[$name] : '';
+                return '<div class="v2-field" style="margin-bottom:8px;">'
+                     . '<label style="font-size:11px;font-weight:600;color:var(--v2-muted);">' . h($label) . '</label>'
+                     . '<input type="text" class="v2-input" style="margin-top:3px;"'
+                     . ' name="' . h($name) . '" data-annonce-save value="' . h($val) . '"'
+                     . ($placeholder ? ' placeholder="' . h($placeholder) . '"' : '') . '>'
+                     . '</div>';
+              };
+            ?>
+
+            <!-- Type de transaction (icon-radios avec data-target annonce) -->
+            <div class="v2-desc-group-title">💼 Type de transaction</div>
+            <?php
+              $typeTransactions = [
+                'vente'      => ['💶', 'Vente'],
+                'location'   => ['🔑', 'Location'],
+                'saisonnier' => ['🌴', 'Saisonnier'],
+                'viager'     => ['⌛', 'Viager'],
+              ];
+              $curTT = (string)($a['type_transaction'] ?? '');
+            ?>
+            <div class="v2-icon-radios" data-field="type_transaction" data-target="annonce">
+              <?php foreach ($typeTransactions as $code => [$ic, $lbl]):
+                $act = ($curTT === $code) ? ' is-active' : '';
+              ?>
+                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                  <span class="v2-icon-emoji"><?= $ic ?></span>
+                  <span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                </button>
+              <?php endforeach; ?>
+            </div>
+
+            <!-- VENTE -->
+            <div class="v2-desc-group-title">💰 Vente</div>
+            <div class="v2-num-grid">
+              <?= $aNum('💰', 'prix',                           'Prix de vente',       '€') ?>
+              <?= $aNum('🤝', 'honoraires_charge_acquereur',    'Honoraires acquéreur','€') ?>
+              <?= $aNum('🏷️', 'honoraires_charge_vendeur',      'Honoraires vendeur',  '€') ?>
+              <?= $aNum('%', 'pourcentage_honoraires_vendeur', '% vendeur',           '%') ?>
+              <?= $aNum('⚖️', 'alur_pourcentage_honoraires_ttc','% ALUR TTC',          '%') ?>
+              <?= $aNum('💼', 'honoraires_negociation_cumules', 'Hon. cumulés',        '€') ?>
+            </div>
+            <?= $aText('url_tarifs_publics', 'URL tarifs publics', 'https://...') ?>
+
+            <!-- LOCATION -->
+            <div class="v2-desc-group-title">🔑 Location</div>
+            <div class="v2-num-grid">
+              <?= $aNum('🔑', 'loyer',            'Loyer HC',         '€') ?>
+              <?= $aNum('💧', 'loyer_cc',         'Loyer CC',         '€') ?>
+              <?= $aNum('💳', 'complement_loyer', 'Complément loyer', '€') ?>
+              <?= $aNum('📑', 'honoraires_etat_des_lieux', 'Hon. EDL', '€') ?>
+            </div>
+
+            <!-- ENCADREMENT -->
+            <div class="v2-desc-group-title">📋 Encadrement loyer (ALUR)</div>
+            <?= $aText('zone_encadrement_loyer', 'Zone encadrement', 'ex : Paris, Lille, Plaine-Commune…') ?>
+            <div class="v2-num-grid">
+              <?= $aNum('📏', 'loyer_de_base',           'Loyer de base',     '€') ?>
+              <?= $aNum('📈', 'loyer_reference_majore',  'Loyer réf. majoré', '€') ?>
+            </div>
+            <?= $aText('modalite_recuperation_charges_locatives', 'Modalité récupération des charges', 'forfait / provision / réel') ?>
+
+            <!-- ANCIEN LOYER (ALUR) -->
+            <div class="v2-desc-group-title">📜 Ancien loyer (obligation ALUR)</div>
+            <div class="v2-num-grid">
+              <?= $aNum('💰', 'ancien_loyer_montant', 'Ancien loyer', '€') ?>
+              <?= $aNum('💧', 'ancien_loyer_charges', 'Anc. charges', '€') ?>
+            </div>
+            <div class="v2-num-grid">
+              <?= $aDate('📅', 'ancien_loyer_date_revision',     'Date dernière révision') ?>
+              <?= $aDate('🚪', 'ancien_locataire_date_sortie',   'Date sortie locataire') ?>
+            </div>
+
+            <!-- TAXES -->
+            <div class="v2-desc-group-title">🏛️ Taxes annuelles</div>
+            <div class="v2-num-grid">
+              <?= $aNum('🏛️', 'taxe_fonciere',   'Taxe foncière',    '€') ?>
+              <?= $aNum('🏡', 'taxe_habitation', 'Taxe habitation', '€') ?>
+            </div>
           <?php endif; ?>
         </div>
       </section>

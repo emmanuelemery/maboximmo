@@ -448,6 +448,24 @@
       });
     }
 
+    // Icon-radios de la section annonce (data-target="annonce") — route vers saveAnnonce
+    document.querySelectorAll('.v2-icon-radios[data-target="annonce"]').forEach(group => {
+      const field = group.dataset.field;
+      if (!field) return;
+      group.querySelectorAll('.v2-icon-radio').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const wasActive = btn.classList.contains('is-active');
+          group.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
+          if (!wasActive) {
+            btn.classList.add('is-active');
+            saveAnnonce(field, btn.dataset.value || '');
+          } else {
+            saveAnnonce(field, '');
+          }
+        });
+      });
+    });
+
     // Toggles canaux (data-annonce-bool)
     document.querySelectorAll('[data-annonce-bool]').forEach(btn => {
       const field = btn.dataset.annonceBool;
