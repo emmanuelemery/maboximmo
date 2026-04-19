@@ -3661,6 +3661,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                   <button type="button" class="ba-compass-chip <?= post('exposition','') === 'nord_sud' ? 'active' : '' ?>" onclick="setExposition('nord_sud')">N ↕ S</button>
                   <button type="button" class="ba-compass-chip <?= post('exposition','') === 'est_ouest' ? 'active' : '' ?>" onclick="setExposition('est_ouest')">E ↔ O</button>
                   <button type="button" class="ba-compass-chip <?= post('exposition','') === 'plein_sud' ? 'active' : '' ?>" onclick="setExposition('plein_sud')">☀ Plein Sud</button>
+                  <button type="button" class="ba-compass-chip <?= post('exposition','') === 'traversant' ? 'active' : '' ?>" onclick="setExposition('traversant')">🔄 Traversant</button>
                 </div>
               </div>
             </div>

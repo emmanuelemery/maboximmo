@@ -612,7 +612,10 @@ require_once __DIR__ . '/inc/header.php';
         <div class="exp-chip" data-val="est">🌅 Est</div>
         <div class="exp-chip" data-val="ouest">🌆 Ouest</div>
         <div class="exp-chip" data-val="nord">🌙 Nord</div>
-        <div class="exp-chip" data-val="traversant">↔️ Traversant</div>
+        <div class="exp-chip" data-val="nord_sud">↕️ Nord-Sud</div>
+        <div class="exp-chip" data-val="est_ouest">↔️ Est-Ouest</div>
+        <div class="exp-chip" data-val="plein_sud">☀️ Plein Sud</div>
+        <div class="exp-chip" data-val="traversant">🔄 Traversant</div>
       </div>
 
       <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;">Vue</label>
