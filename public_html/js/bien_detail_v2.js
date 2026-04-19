@@ -1,11 +1,7 @@
 /*
  * bien_detail_v2.js
- * Rôle : Carousel cards animées pour bien_detail_v2.php (section Documents)
- *        - Navigation flèches + clavier + swipe tactile + dots
- *        - Mount du DocumentUploader sur la card "Chargement"
- *        - Rendu des listes docs (injectées via window.__v2DocsData)
- * Dépend : /assets/js/document_uploader.js (pour la card 1)
- *          /css/bien_detail_v2.css
+ * Carousel Documents (4 cards) + Diag & DPE (6 cards dont card 4 édition)
+ * Dépend : /assets/js/document_uploader.js
  * Date   : 2026-04-19
  */
 
@@ -34,14 +30,12 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-
   function fmtSize(b) {
     b = Number(b) || 0;
     if (b < 1024) return b + ' o';
     if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' Ko';
     return (b / 1024 / 1024).toFixed(1) + ' Mo';
   }
-
   function fmtDate(s) {
     if (!s) return '';
     const d = new Date(s);
@@ -81,6 +75,63 @@
     el.innerHTML = '<div class="v2-doc-list">' + rows + '</div>';
   }
 
+  // ── Card 4 — champs manquants : submit vers dpe_diag_update.php ──
+  function bindMissingForm() {
+    const form = document.getElementById('v2-missing-form');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('v2-missing-status');
+      const data = window.__v2DocsData || {};
+      const diagId = parseInt(form.getAttribute('data-diag-id'), 10) || 0;
+      const bienId = parseInt(form.getAttribute('data-bien-id'), 10) || 0;
+
+      const fields = {};
+      Array.from(form.elements).forEach(el => {
+        if (!el.name) return;
+        const v = (el.value || '').trim();
+        if (v !== '') fields[el.name] = v;
+      });
+
+      if (Object.keys(fields).length === 0) {
+        if (status) { status.textContent = 'Aucun champ saisi.'; status.className = 'v2-form-status err'; }
+        return;
+      }
+
+      if (status) { status.textContent = '⏳ Enregistrement…'; status.className = 'v2-form-status'; }
+
+      // Si diagId == 0 (pas de dpe_diags existant) → on ne peut pas utiliser dpe_diag_update
+      // On POST vers bien_autosave à la place pour les colonnes biens équivalentes
+      if (diagId === 0) {
+        if (status) { status.textContent = '⚠️ Aucune analyse DPE enregistrée — les champs saisis ici nécessitent une ligne dpe_diags. Uploadez d\'abord un PDF ou utilisez bien_detail.'; status.className = 'v2-form-status err'; }
+        return;
+      }
+
+      try {
+        const r = await fetch(data.updateEndpoint || '/api/dpe_diag_update.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            diag_id: diagId,
+            id_bien: bienId,
+            diag_fields: fields,
+            biens_fields: {}, // Le sync dpe_diags→biens est géré côté serveur par extracted→biens (manuel côté bien_detail)
+          }),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur inconnue');
+        if (status) {
+          status.textContent = `✅ ${j.diag_updated || Object.keys(fields).length} champ(s) enregistré(s). Rechargement…`;
+          status.className = 'v2-form-status ok';
+        }
+        setTimeout(() => window.location.reload(), 900);
+      } catch (err) {
+        if (status) { status.textContent = '❌ ' + err.message; status.className = 'v2-form-status err'; }
+      }
+    });
+  }
+
   // ── Carousel ──
   class V2Carousel {
     constructor(stageEl, opts) {
@@ -91,7 +142,6 @@
       this.dotsEl = opts.dotsEl || null;
       this.prevBtn = opts.prevBtn || null;
       this.nextBtn = opts.nextBtn || null;
-      this.onChange = opts.onChange || function () {};
 
       this._bindEvents();
       this._buildDots();
@@ -116,7 +166,6 @@
       if (this.prevBtn) this.prevBtn.addEventListener('click', () => this.prev());
       if (this.nextBtn) this.nextBtn.addEventListener('click', () => this.next());
 
-      // Clavier global (limité quand le focus est dans un input)
       document.addEventListener('keydown', (e) => {
         const tag = (e.target && e.target.tagName) || '';
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -124,7 +173,7 @@
         else if (e.key === 'ArrowRight') { this.next(); e.preventDefault(); }
       });
 
-      // Swipe tactile sur le stage
+      // Swipe
       let sx = 0, sy = 0, tracking = false;
       this.stage.addEventListener('touchstart', (e) => {
         const t = e.changedTouches[0];
@@ -141,8 +190,8 @@
         }
       }, { passive: true });
 
-      // Clic direct sur prev/next card
-      this.cards.forEach((c, i) => {
+      // Clic prev/next card
+      this.cards.forEach((c) => {
         c.addEventListener('click', (e) => {
           if (c.classList.contains('is-prev')) { this.prev(); e.preventDefault(); }
           else if (c.classList.contains('is-next')) { this.next(); e.preventDefault(); }
@@ -179,51 +228,50 @@
           d.classList.toggle('is-active', idx === i);
         });
       }
-
-      this.onChange(i, this.cards[i]);
     }
   }
 
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
     const data = window.__v2DocsData || {};
-    const docsDiag   = data.docsDiag   || [];
-    const docsMandat = data.docsMandat || [];
-    const docsAutre  = data.docsAutre  || [];
+    const section = data.section || 'documents';
 
-    // Mise à jour des compteurs dans les labels
-    const setCount = (id, n) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = n;
-    };
-    setCount('v2-count-diag', docsDiag.length);
-    setCount('v2-count-mandat', docsMandat.length);
-    setCount('v2-count-autre', docsAutre.length);
+    if (section === 'documents') {
+      const docsDiag   = data.docsDiag   || [];
+      const docsMandat = data.docsMandat || [];
+      const docsAutre  = data.docsAutre  || [];
 
-    // Listes
-    renderDocsList('v2-list-diag',   docsDiag,   '📊', 'Aucun diagnostic enregistré pour ce bien.');
-    renderDocsList('v2-list-mandat', docsMandat, '📋', 'Aucun mandat enregistré pour ce bien.');
-    renderDocsList('v2-list-autre',  docsAutre,  '📎', 'Aucun document divers enregistré.');
+      const setCount = (id, n) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = n;
+      };
+      setCount('v2-count-diag',   docsDiag.length);
+      setCount('v2-count-mandat', docsMandat.length);
+      setCount('v2-count-autre',  docsAutre.length);
 
-    // DocumentUploader sur la card "Chargement"
-    const uploaderContainer = document.getElementById('v2-uploader');
-    if (uploaderContainer && window.DocumentUploader && data.bienId) {
-      new window.DocumentUploader('v2-uploader', {
-        context: 'bien',
-        idContexte: data.bienId,
-        endpoint: data.uploadEndpoint || '/api/bien_intake_upload.php',
-        csrfToken: data.csrfToken || '',
-        availableTypes: ['diag', 'bail', 'mandat', 'titre', 'fiche', 'divers'],
-        defaultType: 'diag',
-        showValidationTable: false,
-        onSuccess: function () {
-          // Recharge la page pour rafraîchir les listes (simple et sûr)
-          setTimeout(() => window.location.reload(), 1200);
-        },
-      });
+      renderDocsList('v2-list-diag',   docsDiag,   '📊', 'Aucun diagnostic enregistré pour ce bien.');
+      renderDocsList('v2-list-mandat', docsMandat, '📋', 'Aucun mandat enregistré pour ce bien.');
+      renderDocsList('v2-list-autre',  docsAutre,  '📎', 'Aucun document divers enregistré.');
+
+      const uploaderContainer = document.getElementById('v2-uploader');
+      if (uploaderContainer && window.DocumentUploader && data.bienId) {
+        new window.DocumentUploader('v2-uploader', {
+          context: 'bien',
+          idContexte: data.bienId,
+          endpoint: data.uploadEndpoint || '/api/bien_intake_upload.php',
+          csrfToken: data.csrfToken || '',
+          availableTypes: ['diag', 'bail', 'mandat', 'titre', 'fiche', 'divers'],
+          defaultType: 'diag',
+          showValidationTable: false,
+          onSuccess: function () {
+            setTimeout(() => window.location.reload(), 1200);
+          },
+        });
+      }
+    } else if (section === 'dpe') {
+      bindMissingForm();
     }
 
-    // Carousel
     const stage = document.getElementById('v2-stage');
     if (!stage) return;
     const dots = document.getElementById('v2-dots');
