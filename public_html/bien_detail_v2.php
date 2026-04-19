@@ -204,7 +204,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       --accent:    #36577d;
       --stroke:    #d4d0ca;
       --sidebar-w: 220px;
-      --topbar-h:  56px;
+      --topbar-h:  72px; /* +30% vs 56px */
       --neu-out:   6px 6px 14px var(--shadow-dark), -6px -6px 14px var(--shadow-light);
       --neu-in:    inset 4px 4px 10px var(--shadow-dark), inset -4px -4px 10px var(--shadow-light);
     }
@@ -285,12 +285,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <span class="sep">›</span>
       <span class="active">v2</span>
     </nav>
-    <span class="page-head-ref" style="margin-left:16px;">
-      #<?= (int)$editingBienId ?>
-      <?php if (!empty($bienLoaded['reference_bien'])): ?>
-        · <strong style="color:#0f172a;"><?= h((string)$bienLoaded['reference_bien']) ?></strong>
-      <?php endif; ?>
-    </span>
     <div class="topbar-spacer"></div>
 
     <!-- Score complétude Ubiflow (pill) -->
