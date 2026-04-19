@@ -138,6 +138,14 @@ $data = [
     'eau_chaude_type'         => $str('eau_chaude_type'),
     'menuiseries'             => $str('menuiseries'),
     'isolation'               => $str('isolation'),
+    // VMC / plancher / régulation / solaire — absents du mapping initial
+    // (écrits via Card 3 de bien_detail_v2)
+    'chauffage_vmc'           => $bool('chauffage_vmc'),
+    'chauffage_vmc_df'        => $bool('chauffage_vmc_df'),
+    'chauffage_plancher'      => $bool('chauffage_plancher'),
+    'chauffage_thermostat'    => $bool('chauffage_thermostat'),
+    'chauffage_regulateur'    => $bool('chauffage_regulateur'),
+    'eau_chaude_solaire'      => $bool('eau_chaude_solaire'),
 
     // ── DPE / GES ──
     'dpe_classe'              => $str('dpe_classe'),
