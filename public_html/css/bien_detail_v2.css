@@ -167,7 +167,7 @@ html.v2-no-scroll, body.v2-no-scroll {
 
 /* Gauche = bleu pétrole (cold) */
 .v2-card.is-prev {
-  transform: translate(-50%, -50%) translateX(-48%) scale(0.78) rotateY(22deg);
+  transform: translate(-50%, -50%) translateX(-62%) scale(0.78) rotateY(22deg);
   opacity: 0.55;
   z-index: 5;
   background: linear-gradient(135deg, var(--v2-cold-1), var(--v2-cold-2));
@@ -178,7 +178,7 @@ html.v2-no-scroll, body.v2-no-scroll {
 
 /* Droite = amande foncée (warm) */
 .v2-card.is-next {
-  transform: translate(-50%, -50%) translateX(48%) scale(0.78) rotateY(-22deg);
+  transform: translate(-50%, -50%) translateX(62%) scale(0.78) rotateY(-22deg);
   opacity: 0.55;
   z-index: 5;
   background: linear-gradient(135deg, var(--v2-warm-1), var(--v2-warm-2));
@@ -218,6 +218,9 @@ html.v2-no-scroll, body.v2-no-scroll {
     inset 1px 1px 1px rgba(255, 255, 255, 0.30),
     inset -1px -1px 1px rgba(0, 0, 0, 0.15);
 }
+/* Labels des cards latérales : centrés sur la partie visible (côté opposé à la card maître) */
+.v2-card.is-prev .v2-card-label { left: 25%; }
+.v2-card.is-next .v2-card-label { left: 75%; }
 .v2-card-label .v2-count {
   background: rgba(255, 255, 255, 0.20);
   padding: 1px 8px;
