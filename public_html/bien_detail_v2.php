@@ -128,6 +128,7 @@ $proprioInfo = null;
 $typesBienList = [];
 $descDpeDiag = null;
 $descSyncedFields = [];
+$descProprioFromDpe = null; // Proprio extrait du DPE (non encore associé)
 if ($section === 'descriptif') {
     // 1. Charger le dernier dpe_diags
     try {
@@ -135,6 +136,34 @@ if ($section === 'descriptif') {
         $st->execute([$editingBienId]);
         $descDpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) {}
+
+    // 1.bis. Extraire le proprio depuis champs_extraits_json du DPE
+    if ($descDpeDiag && !empty($descDpeDiag['champs_extraits_json'])) {
+        $extracted = json_decode((string)$descDpeDiag['champs_extraits_json'], true);
+        if (is_array($extracted)) {
+            $pNom = trim((string)($extracted['proprio_nom'] ?? ''));
+            $pPrenom = trim((string)($extracted['proprio_prenom'] ?? ''));
+            $pSoc = trim((string)($extracted['proprio_societe'] ?? ''));
+            if ($pNom !== '' || $pSoc !== '') {
+                $descProprioFromDpe = [
+                    'nom'       => $pNom,
+                    'prenom'    => $pPrenom,
+                    'societe'   => $pSoc,
+                    'email'     => trim((string)($extracted['proprio_email']     ?? '')),
+                    'telephone' => trim((string)($extracted['proprio_telephone'] ?? '')),
+                    'adresse'   => trim((string)($extracted['proprio_adresse_1'] ?? $extracted['proprio_adresse'] ?? '')),
+                    'cp'        => trim((string)($extracted['proprio_code_postal']?? '')),
+                    'ville'     => trim((string)($extracted['proprio_ville']     ?? '')),
+                    'civilite'  => trim((string)($extracted['proprio_civilite']  ?? '')),
+                    'type'      => trim((string)($extracted['proprio_type_personne'] ?? '')) === 'morale' ? 'personne_morale' : 'personne_physique',
+                ];
+                $descProprioFromDpe['display'] = $pSoc !== '' ? $pSoc : trim(
+                    ($descProprioFromDpe['civilite'] ? $descProprioFromDpe['civilite'] . ' ' : '')
+                    . $pPrenom . ' ' . $pNom
+                );
+            }
+        }
+    }
 
     // 2. Sync AUTOMATIQUE dpe_diags → biens (COALESCE : ne touche pas les valeurs saisies)
     if ($descDpeDiag) {
@@ -629,6 +658,28 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             <div class="v2-tiers-info">
               <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
               <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
+            </div>
+          <?php endif; ?>
+
+          <?php if ($descProprioFromDpe && empty($bienLoaded['id_proprietaire'])): ?>
+            <div class="v2-dpe-proprio-suggest" id="v2-dpe-proprio-suggest"
+                 data-proprio='<?= h(json_encode($descProprioFromDpe, JSON_UNESCAPED_UNICODE|JSON_HEX_APOS|JSON_HEX_QUOT)) ?>'>
+              <div class="v2-dpe-proprio-header">
+                📄 <strong>Propriétaire détecté dans le DPE</strong>
+              </div>
+              <div class="v2-dpe-proprio-body">
+                <span class="v2-dpe-proprio-name"><?= h($descProprioFromDpe['display']) ?></span>
+                <?php if (!empty($descProprioFromDpe['telephone'])): ?>
+                  <span>· 📞 <?= h($descProprioFromDpe['telephone']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($descProprioFromDpe['email'])): ?>
+                  <span>· ✉️ <?= h($descProprioFromDpe['email']) ?></span>
+                <?php endif; ?>
+              </div>
+              <div class="v2-dpe-proprio-actions">
+                <button type="button" class="v2-btn-primary" id="v2-dpe-proprio-create">✓ Créer &amp; associer</button>
+                <span id="v2-dpe-proprio-status" class="v2-form-status"></span>
+              </div>
             </div>
           <?php endif; ?>
 
@@ -1378,12 +1429,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     bienId: <?= (int)$editingBienId ?>,
     section: <?= json_encode($section) ?>,
     csrfToken: <?= json_encode($csrfTokenVal, JSON_UNESCAPED_SLASHES) ?>,
-    uploadEndpoint:      <?= json_encode(app_url('/api/bien_intake_upload.php'), JSON_UNESCAPED_SLASHES) ?>,
+    uploadEndpoint:      <?= json_encode(app_url('/api/bien_intake_upload.php'),       JSON_UNESCAPED_SLASHES) ?>,
     photoUploadEndpoint: <?= json_encode(app_url('/api/bien_intake_photo_upload.php'), JSON_UNESCAPED_SLASHES) ?>,
-    updateEndpoint:      <?= json_encode(app_url('/api/dpe_diag_update.php'),    JSON_UNESCAPED_SLASHES) ?>,
-    autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,
-    tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),       JSON_UNESCAPED_SLASHES) ?>,
-    tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),       JSON_UNESCAPED_SLASHES) ?>,
+    updateEndpoint:      <?= json_encode(app_url('/api/dpe_diag_update.php'),          JSON_UNESCAPED_SLASHES) ?>,
+    autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),            JSON_UNESCAPED_SLASHES) ?>,
+    tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
+    tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,

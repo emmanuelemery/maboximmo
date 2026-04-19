@@ -396,6 +396,49 @@
 
     if (section === 'descriptif') {
       bindDescriptifAutosave(data);
+
+      // Création express du propriétaire détecté dans le DPE
+      const btnCreate = document.getElementById('v2-dpe-proprio-create');
+      const suggestBox = document.getElementById('v2-dpe-proprio-suggest');
+      const statusEl   = document.getElementById('v2-dpe-proprio-status');
+      if (btnCreate && suggestBox) {
+        btnCreate.addEventListener('click', async () => {
+          const pd = JSON.parse(suggestBox.dataset.proprio || '{}');
+          btnCreate.disabled = true;
+          if (statusEl) { statusEl.textContent = '⏳ Création…'; statusEl.className = 'v2-form-status'; }
+          try {
+            // 1. Créer le tiers via tiers_create
+            const body = {
+              type_tiers:     pd.type || 'personne_physique',
+              civilite:       pd.civilite || '',
+              nom:            pd.nom || '',
+              prenom:         pd.prenom || '',
+              raison_sociale: pd.societe || '',
+              email:          pd.email || '',
+              telephone:      pd.telephone || '',
+              adresse_1:      pd.adresse || '',
+              code_postal:    pd.cp || '',
+              ville:          pd.ville || '',
+              roles: [{ role_code: 'proprietaire', objet_type: 'bien', id_objet: data.bienId }],
+            };
+            const r = await fetch(data.tiersCreateEndpoint || '/api/tiers_create.php', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify(body),
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'Erreur création');
+            // 2. Associer au bien via autosave
+            await window.__v2SaveField('id_proprietaire', j.id || j.tiers_id || '');
+            if (statusEl) { statusEl.textContent = '✅ Associé, rechargement…'; statusEl.className = 'v2-form-status ok'; }
+            setTimeout(() => window.location.reload(), 600);
+          } catch (e) {
+            btnCreate.disabled = false;
+            if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.className = 'v2-form-status err'; }
+          }
+        });
+      }
     }
 
     if (section === 'documents') {
