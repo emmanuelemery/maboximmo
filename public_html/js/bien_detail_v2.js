@@ -328,72 +328,18 @@
       });
     });
 
-    // Tiers picker (composant tiers_selector eprouve) — on ecoute les events du composant
-    const tsRoot = document.querySelector('[data-ts-root="v2-proprio-picker"]');
-    if (tsRoot) {
-      const onSelect = (ev) => {
-        const tiers = ev.detail || {};
-        if (!tiers.id) return;
-        saveField('id_proprietaire', tiers.id).then(() => {
-          setTimeout(() => window.location.reload(), 500);
-        });
-      };
-      tsRoot.addEventListener('tiers:selected', onSelect);
-      tsRoot.addEventListener('tiers:created',  onSelect);
-    }
-
-    // Recherche immeubles : bouton → modal avec recherche + liste
+    // Modal liste immeubles (simplifié, déjà rendu en PHP)
     const immBtn = document.getElementById('v2-imm-btn');
     const immModal = document.getElementById('v2-imm-modal');
-    const immSearch = document.getElementById('v2-imm-modal-search');
-    const immResults = document.getElementById('v2-imm-modal-results');
     const immClose = document.getElementById('v2-imm-modal-close');
-    const immList = Array.isArray(data.immeubles) ? data.immeubles : [];
-
-    function renderImmList(matches) {
-      if (!immResults) return;
-      if (matches.length === 0) {
-        immResults.innerHTML = '<div class="v2-imm-empty">Aucun immeuble trouvé — clique sur ➕ Nouvel immeuble pour en créer un.</div>';
-        return;
-      }
-      immResults.innerHTML = matches.slice(0, 30).map(im => {
-        const ref = im.reference_immeuble ? '[' + im.reference_immeuble + '] ' : '';
-        const adr = im.adresse || '';
-        const loc = [im.code_postal, im.ville].filter(Boolean).join(' ');
-        return `<div class="v2-imm-item"
-                     data-id="${im.id}"
-                     data-adresse="${String(adr).replace(/"/g,'&quot;')}"
-                     data-cp="${im.code_postal || ''}"
-                     data-ville="${String(im.ville || '').replace(/"/g,'&quot;')}">
-          <strong>${ref}${adr || ('Immeuble #' + im.id)}</strong>
-          ${loc ? '<small>' + loc + '</small>' : ''}
-        </div>`;
-      }).join('');
-    }
 
     if (immBtn && immModal) {
-      immBtn.addEventListener('click', () => {
-        immModal.hidden = false;
-        renderImmList(immList);
-        setTimeout(() => immSearch?.focus(), 50);
-      });
+      immBtn.addEventListener('click', () => { immModal.hidden = false; });
       immClose?.addEventListener('click', () => { immModal.hidden = true; });
       immModal.addEventListener('click', (e) => {
         if (e.target === immModal) immModal.hidden = true;
-      });
-      immSearch?.addEventListener('input', () => {
-        const q = immSearch.value.trim().toLowerCase();
-        if (!q) { renderImmList(immList); return; }
-        renderImmList(immList.filter(im =>
-          (im.adresse || '').toLowerCase().includes(q)
-          || (im.ville || '').toLowerCase().includes(q)
-          || (im.code_postal || '').toLowerCase().includes(q)
-          || (im.reference_immeuble || '').toLowerCase().includes(q)
-        ));
-      });
-      immResults?.addEventListener('click', (e) => {
         const item = e.target.closest('.v2-imm-item');
-        if (!item || !item.dataset.id) return;
+        if (!item) return;
         const setVal = (id, v) => {
           const el = document.getElementById(id);
           if (el) { el.value = v || ''; el.dispatchEvent(new Event('change')); }
@@ -414,18 +360,6 @@
 
     if (section === 'descriptif') {
       bindDescriptifAutosave(data);
-      // Quand places.js remplit les champs adresse (v2-f-adresse_1, etc.),
-      // on declenche l'autosave manuellement — places.js dispatche un
-      // CustomEvent 'places:filled' sur l'input Google
-      const placesInput = document.getElementById('v2-google-places');
-      if (placesInput) {
-        placesInput.addEventListener('places:filled', () => {
-          ['v2-f-adresse_1', 'v2-f-code_postal', 'v2-f-ville'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.dispatchEvent(new Event('change'));
-          });
-        });
-      }
     }
 
     if (section === 'documents') {

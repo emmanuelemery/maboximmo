@@ -656,11 +656,27 @@ html.v2-no-scroll, body.v2-no-scroll {
 /* Résultats dans le modal immeuble */
 .v2-imm-results {
   margin-top: 8px;
-  max-height: 340px;
+  max-height: 400px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.v2-hint {
+  font-size: 10px;
+  color: var(--v2-muted);
+  font-style: italic;
+  margin-left: 8px;
+}
+.v2-proprio-display {
+  font-size: 13px;
+  color: var(--v2-ink);
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .v2-imm-item {
   padding: 10px 12px;

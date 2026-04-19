@@ -15,7 +15,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/bien_form_loader.php';
 require_once __DIR__ . '/inc/ubiflow_validator.php';
-require_once __DIR__ . '/inc/tiers_selector.php';
 require_login();
 
 $appLayout = true;
@@ -122,12 +121,18 @@ if ($section === 'dpe') {
     }
 }
 
-// ─── Section DESCRIPTIF : charger photos + types + proprietaire ───
+// ─── Section DESCRIPTIF : charger photos + types + proprietaire + dpe (fallback adresse) ───
 $descPhotos = [];
 $typeBienLabel = '';
 $proprioInfo = null;
 $typesBienList = [];
+$descDpeDiag = null;
 if ($section === 'descriptif') {
+    try {
+        $st = $pdo->prepare("SELECT adresse_detectee, code_postal_detecte, ville_detectee FROM dpe_diags WHERE id_bien = ? ORDER BY date_creation DESC, id DESC LIMIT 1");
+        $st->execute([$editingBienId]);
+        $descDpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable $e) {}
     try {
         $st = $pdo->query("SELECT id, code, label FROM base_types_bien ORDER BY ordre_defaut ASC, label ASC");
         $typesBienList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -151,7 +156,6 @@ if ($section === 'descriptif') {
         } catch (Throwable $e) {}
     }
     if (!empty($bienLoaded['id_proprietaire'])) {
-        // Tentative tiers (nouvelle architecture) puis fallback users legacy
         foreach (['tiers', 'users'] as $tbl) {
             try {
                 $st = $pdo->prepare("SELECT nom, prenom, telephone, email FROM `$tbl` WHERE id = ? LIMIT 1");
@@ -161,32 +165,21 @@ if ($section === 'descriptif') {
             } catch (Throwable $e) {}
         }
     }
-    // Liste des immeubles dispo (meme societe/agence)
+    // Liste alphabetique des immeubles de la societe/agence du user
     try {
         $st = $pdo->prepare("
             SELECT id, reference_immeuble, adresse, code_postal, ville
             FROM immeubles
             WHERE (id_societe = :s OR :s IS NULL)
               AND (id_agence  = :a OR :a IS NULL)
-            ORDER BY ville ASC, adresse ASC
-            LIMIT 200
+            ORDER BY adresse ASC, ville ASC
+            LIMIT 500
         ");
         $st->execute([':s' => $idSociete, ':a' => isset($_SESSION['id_agence']) ? (int)$_SESSION['id_agence'] : null]);
         $immeublesList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable $e) { $immeublesList = []; }
 }
 $immeublesList = $immeublesList ?? [];
-
-// Cle Google Maps — pattern identique a rh_indemnite_km.php (qui fonctionne)
-$googleConfigPaths = [
-    __DIR__ . '/../u630423897/google_config.php',
-    __DIR__ . '/google_config.php',
-    __DIR__ . '/../google_config.php',
-];
-foreach ($googleConfigPaths as $p) { if (file_exists($p)) { require_once $p; break; } }
-$GOOGLE_MAPS_API_KEY = defined('GOOGLE_MAPS_API_KEY')
-    ? GOOGLE_MAPS_API_KEY
-    : ($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
 
 // Labels FR + type de champ pour la card 4 (whitelist alignée sur api/dpe_diag_update.php)
 $dpeFieldDefs = [
@@ -509,24 +502,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div id="v2-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
 
-          <!-- 1. Propriétaire (composant tiers_selector eprouve) -->
+          <!-- 1. Propriétaire (lecture seule, édition via bien_detail.php) -->
           <div class="v2-group-header">
-            <span class="v2-group-header-title">👤 Propriétaire<?php if ($proprioStr): ?> <em class="v2-group-header-current">· <?= h($proprioStr) ?></em><?php endif; ?></span>
-            <div id="v2-proprio-picker-wrap" class="v2-ts-wrap">
-              <?php
-                tiers_selector_render([
-                  'id'          => 'v2-proprio-picker',
-                  'name'        => 'id_proprietaire_picker',
-                  'label'       => '',
-                  'role_filter' => 'proprietaire',
-                  'placeholder' => 'Rechercher nom, email, téléphone…',
-                  'value_id'    => (int)($b['id_proprietaire'] ?? 0),
-                  'value_label' => $proprioStr ?: '',
-                  'allow_create'=> true,
-                  'default_roles' => ['proprietaire'],
-                ]);
-              ?>
-            </div>
+            <span class="v2-group-header-title">👤 Propriétaire</span>
+            <span class="v2-proprio-display"><?= h($proprioStr ?: '— Non renseigné —') ?></span>
+            <a href="<?= h(app_url('/bien_detail.php?edit=' . $editingBienId)) ?>"
+               class="v2-btn-outline v2-header-btn" title="Modifier dans bien_detail">✏️</a>
           </div>
           <?php if ($proprioInfo): ?>
             <div class="v2-tiers-info">
@@ -535,31 +516,28 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <!-- 2. Adresse (recherche Google via places.js + recherche immeuble sur la même ligne) -->
+          <!-- 2. Adresse (inputs directs avec autosave, fallback depuis DPE si biens vide) -->
+          <?php
+            // Fallback : si la valeur biens est vide, on prend celle du dernier DPE analyse
+            $adr1 = (string)($b['adresse_1']   ?? '') ?: (string)($descDpeDiag['adresse_detectee']    ?? '');
+            $cp   = (string)($b['code_postal'] ?? '') ?: (string)($descDpeDiag['code_postal_detecte'] ?? '');
+            $vil  = (string)($b['ville']       ?? '') ?: (string)($descDpeDiag['ville_detectee']      ?? '');
+            $fromDpe = ($descDpeDiag && (empty($b['adresse_1']) || empty($b['code_postal']) || empty($b['ville'])));
+          ?>
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse</span>
-            <div class="v2-places-picker">
-              <span class="v2-picker-label">Recherche Google</span>
-              <input type="text" id="v2-google-places" class="v2-input"
-                     placeholder="🔍 Ex: 15 place Bellecour Lyon…"
-                     autocomplete="off"
-                     data-places-input
-                     data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
-                     data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
-                     data-places-street1="v2-f-adresse_1"
-                     data-places-postal="v2-f-code_postal"
-                     data-places-city="v2-f-ville"
-                     data-places-country-code="fr">
-            </div>
-            <button type="button" id="v2-imm-btn" class="v2-btn-outline v2-imm-btn" title="Rechercher ou créer un immeuble">
-              🏢 Immeubles <span class="v2-badge"><?= count($immeublesList) ?></span>
+            <?php if ($fromDpe): ?>
+              <span class="v2-hint">📄 Repris du dernier DPE — modifiable</span>
+            <?php endif; ?>
+            <button type="button" id="v2-imm-btn" class="v2-btn-outline v2-header-btn">
+              🔍 Trouver immeuble <?php if (!empty($immeublesList)): ?><span class="v2-badge"><?= count($immeublesList) ?></span><?php endif; ?>
             </button>
           </div>
           <div class="v2-addr-grid">
-            <input type="text" id="v2-f-adresse_1" class="v2-input" name="adresse_1" data-autosave placeholder="Adresse" value="<?= h((string)($b['adresse_1'] ?? '')) ?>">
-            <input type="text" id="v2-f-adresse_2" class="v2-input" name="adresse_2" data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2'] ?? '')) ?>">
-            <input type="text" id="v2-f-code_postal" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
-            <input type="text" id="v2-f-ville" class="v2-input" name="ville" data-autosave placeholder="Ville" value="<?= h((string)($b['ville'] ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_1"  class="v2-input" name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h($adr1) ?>">
+            <input type="text" id="v2-f-adresse_2"  class="v2-input" name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2'] ?? '')) ?>">
+            <input type="text" id="v2-f-code_postal" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h($cp) ?>">
+            <input type="text" id="v2-f-ville"       class="v2-input" name="ville"       data-autosave placeholder="Ville"     value="<?= h($vil) ?>">
           </div>
 
           <!-- 3. Caractéristiques -->
@@ -656,20 +634,30 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <?php tiers_selector_assets(); /* injecte CSS + JS + modal du composant eprouve */ ?>
-
-      <!-- Modal recherche immeuble -->
+      <!-- Modal liste immeubles (alpha) — plus de recherche -->
       <div id="v2-imm-modal" class="v2-modal" hidden>
         <div class="v2-modal-card">
-          <h3>🏢 Rechercher un immeuble</h3>
-          <div class="v2-field">
-            <input type="text" id="v2-imm-modal-search" class="v2-input"
-                   placeholder="Adresse, ville, code postal, référence…"
-                   autocomplete="off">
-          </div>
-          <div id="v2-imm-modal-results" class="v2-imm-results"></div>
-          <div class="v2-modal-actions" style="justify-content:space-between;">
-            <a href="<?= h(app_url('/agency_immeuble_form.php')) ?>" target="_blank" class="v2-btn-outline">➕ Nouvel immeuble</a>
+          <h3>🏢 Sélectionner un immeuble</h3>
+          <?php if (!empty($immeublesList)): ?>
+            <div class="v2-imm-results">
+              <?php foreach ($immeublesList as $imm):
+                $adr = (string)($imm['adresse'] ?? '');
+                $loc = trim(((string)($imm['code_postal'] ?? '')) . ' ' . ((string)($imm['ville'] ?? '')));
+                $ref = !empty($imm['reference_immeuble']) ? '[' . $imm['reference_immeuble'] . '] ' : '';
+              ?>
+                <div class="v2-imm-item"
+                     data-adresse="<?= h($adr) ?>"
+                     data-cp="<?= h((string)($imm['code_postal'] ?? '')) ?>"
+                     data-ville="<?= h((string)($imm['ville'] ?? '')) ?>">
+                  <strong><?= h($ref . ($adr ?: 'Immeuble #' . (int)$imm['id'])) ?></strong>
+                  <?php if ($loc): ?><small><?= h($loc) ?></small><?php endif; ?>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php else: ?>
+            <div class="v2-imm-empty">Aucun immeuble dans votre agence pour le moment.</div>
+          <?php endif; ?>
+          <div class="v2-modal-actions">
             <button type="button" id="v2-imm-modal-close" class="v2-btn-outline">Fermer</button>
           </div>
         </div>
@@ -1092,34 +1080,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
-    immeubles:  <?= json_encode($immeublesList ?? [], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
+    immeubles:  <?= json_encode($immeublesList, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
   };
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
 <script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
-<!-- Google Places — pattern identique à rh_indemnite_km.php (qui fonctionne) -->
-<script>
-  // onGoogleReady est appelé par Google Maps quand la librairie est chargée.
-  // Il déclenche ensuite places.js (initPlacesAutocomplete) pour binder les inputs
-  // qui ont l'attribut data-places-endpoint.
-  window.onGoogleReady = function () {
-    if (typeof window.initPlacesAutocomplete === 'function') {
-      try { window.initPlacesAutocomplete(); } catch(e) { console.warn('[v2] initPlacesAutocomplete:', e); }
-    }
-  };
-</script>
-<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
-<script>
-  // Si places.js s'initialise avant Google Maps (et Google est déjà là), on force
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    if (typeof window.initPlacesAutocomplete === 'function') window.initPlacesAutocomplete();
-  }
-</script>
-<?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
-<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&loading=async&callback=onGoogleReady" async defer></script>
-<?php else: ?>
-<script>console.warn('[v2] GOOGLE_MAPS_API_KEY non définie — places Google désactivé');</script>
-<?php endif; ?>
 
 </body>
 </html>
