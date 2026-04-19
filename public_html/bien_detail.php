@@ -7797,6 +7797,23 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
         return true;
       }
 
+      // ── Mini-cards booléennes (boolMcCard : double_vitrage, volets_roulants,
+      //    balcon, terrasse, jardin, cave, garage, piscine, etc.) ──
+      // Le widget est un .ba-mc-bool[data-field="<name>"] avec hidden input interne.
+      // On toggle la classe is-selected ET on met à jour le hidden.
+      try {
+        const boolCards = document.querySelectorAll('.ba-mc-bool[data-field="' + name + '"]');
+        if (boolCards.length) {
+          const on = (value === 1 || value === '1' || value === true || value === 'true' || value === 'oui' || value === 'yes');
+          boolCards.forEach(c => {
+            c.classList.toggle('is-selected', on);
+            const inp = c.querySelector('input[type="hidden"]');
+            if (inp) inp.value = on ? '1' : '0';
+          });
+          return true;
+        }
+      } catch (_) {}
+
       // Cas standard
       const els = document.querySelectorAll(`[name="${name}"]`);
       if (!els.length) return false;
