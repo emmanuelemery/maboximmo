@@ -363,44 +363,6 @@ try {
         ]);
         $diagId = (int)$pdo->lastInsertId();
 
-        // ── Archivage du PDF dans biens_documents (onglet "Documents") ──
-        // Sans cet INSERT, le PDF est sur disque + dans dpe_diags, mais invisible
-        // dans l'UI documents du bien. Fix critique pour que l'user retrouve son PDF.
-        try {
-            $uidUp = function_exists('current_user_id') ? (int)current_user_id() : null;
-            $docTypeMap = [
-                'diag'             => 'dpe',
-                'dossier_complet'  => 'dpe',
-                'dossier_diagnostics' => 'dpe',
-                'mandat_gestion'   => 'mandat',
-                'mandat_vente'     => 'mandat',
-                'mandat_location'  => 'mandat',
-                'acte_propriete'   => 'acte',
-            ];
-            $bdType = $docTypeMap[$docType] ?? 'diag';
-            $pdo->prepare("
-                INSERT INTO biens_documents
-                    (id_bien, type_document, libelle, url_fichier, nom_original,
-                     mime_type, taille_octets, date_document, id_user_upload,
-                     visible_proprietaire, date_upload)
-                VALUES
-                    (:id_bien, :type_document, :libelle, :url, :nom_orig, :mime,
-                     :taille, :date_doc, :uid, 1, NOW())
-            ")->execute([
-                ':id_bien'       => $bienId,
-                ':type_document' => $bdType,
-                ':libelle'       => $docTitre ?: ucfirst($bdType),
-                ':url'           => $publicUrl,
-                ':nom_orig'      => $file['name'],
-                ':mime'          => $file['type'] ?? 'application/pdf',
-                ':taille'        => (int)$file['size'],
-                ':date_doc'      => $fields['dpe_date_realisation'] ?? ($fields['date_signature'] ?? null),
-                ':uid'           => $uidUp ?: null,
-            ]);
-        } catch (Throwable $exDoc) {
-            error_log('[bien_intake] biens_documents insert failed: ' . $exDoc->getMessage());
-        }
-
         // ── Sync bien_chauffages / bien_energies (tables de jointure pour chips) ──
         // Même pattern que bien_vues : l'info est stockée en code texte dans biens.*
         // mais bien_detail affiche les chips depuis les tables de jointure avec IDs.
@@ -435,6 +397,50 @@ try {
         }
     } catch (Throwable $e) {
         error_log('[bien_intake] dpe_diags insert failed: ' . $e->getMessage());
+    }
+
+    // ── Archivage du PDF dans biens_documents (HORS try/catch dpe_diags) ──
+    // CRITIQUE : cet INSERT doit s'exécuter MÊME si dpe_diags échoue (MySQL
+    // gone away, colonne manquante, etc.). Sans lui, le PDF est sur disque
+    // mais invisible dans l'onglet Documents du bien.
+    // On fait un reconnect fresh avant pour maximiser les chances en cas de
+    // connexion morte après l'IA.
+    if ($bienId > 0) {
+        try {
+            $pdo = db_reconnect_fresh();
+            $uidUp = function_exists('current_user_id') ? (int)current_user_id() : null;
+            $docTypeMap = [
+                'diag'                => 'dpe',
+                'dossier_complet'     => 'dpe',
+                'dossier_diagnostics' => 'dpe',
+                'mandat_gestion'      => 'mandat',
+                'mandat_vente'        => 'mandat',
+                'mandat_location'     => 'mandat',
+                'acte_propriete'      => 'acte',
+            ];
+            $bdType = $docTypeMap[$docType ?? ''] ?? 'diag';
+            $pdo->prepare("
+                INSERT INTO biens_documents
+                    (id_bien, type_document, libelle, url_fichier, nom_original,
+                     mime_type, taille_octets, date_document, id_user_upload,
+                     visible_proprietaire, date_upload)
+                VALUES
+                    (:id_bien, :type_document, :libelle, :url, :nom_orig, :mime,
+                     :taille, :date_doc, :uid, 1, NOW())
+            ")->execute([
+                ':id_bien'       => $bienId,
+                ':type_document' => $bdType,
+                ':libelle'       => ($docTitre ?? '') ?: ucfirst($bdType),
+                ':url'           => $publicUrl,
+                ':nom_orig'      => $file['name'],
+                ':mime'          => $file['type'] ?? 'application/pdf',
+                ':taille'        => (int)$file['size'],
+                ':date_doc'      => $fields['dpe_date_realisation'] ?? ($fields['date_signature'] ?? null),
+                ':uid'           => $uidUp ?: null,
+            ]);
+        } catch (Throwable $exDoc) {
+            error_log('[bien_intake] biens_documents insert failed: ' . $exDoc->getMessage());
+        }
     }
 
     // ── (6) Sync biens.* (no-overwrite : ne touche pas les valeurs déjà saisies) ──
