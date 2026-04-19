@@ -35,7 +35,7 @@ if ($bienLoaded === null) {
 }
 
 // Section courante
-$sectionsAvail = ['documents', 'dpe', 'descriptif'];
+$sectionsAvail = ['documents', 'dpe', 'descriptif', 'annonce'];
 $section = $_GET['section'] ?? 'documents';
 if (!in_array($section, $sectionsAvail, true)) $section = 'documents';
 
@@ -125,6 +125,22 @@ try {
     }
 } catch (Throwable $e) {
     error_log('[bien_detail_v2] biens_documents: ' . $e->getMessage());
+}
+
+// ─── Section ANNONCE : charger l'annonce existante du bien ──────
+$annonce = null;
+$annoncePhotoIds = [];
+if ($section === 'annonce') {
+    try {
+        $st = $pdo->prepare("SELECT * FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
+        $st->execute([$editingBienId]);
+        $annonce = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($annonce) {
+            $st2 = $pdo->prepare("SELECT id_biens_photo FROM annonces_photos WHERE id_annonce = ?");
+            $st2->execute([(int)$annonce['id']]);
+            $annoncePhotoIds = array_map('intval', $st2->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        }
+    } catch (Throwable $e) { error_log('[bien_detail_v2 annonce] ' . $e->getMessage()); }
 }
 
 // ─── Section DPE : charger dpe_diags + whitelist champs ────────
@@ -539,6 +555,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
          class="v2-section-tab<?= $section === 'descriptif' ? ' is-active' : '' ?>"
          role="tab" aria-selected="<?= $section === 'descriptif' ? 'true' : 'false' ?>">
         <span>🏠</span> Descriptif
+      </a>
+      <a href="?edit=<?= (int)$editingBienId ?>&section=annonce"
+         class="v2-section-tab<?= $section === 'annonce' ? ' is-active' : '' ?>"
+         role="tab" aria-selected="<?= $section === 'annonce' ? 'true' : 'false' ?>">
+        <span>📡</span> Annonce
       </a>
     </nav>
   </div>
@@ -1193,6 +1214,77 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
+    <?php elseif ($section === 'annonce'): ?>
+
+      <?php
+        $a = $annonce ?: [];
+        $aid = (int)($annonce['id'] ?? 0);
+        $af = static fn($k, $d='') => isset($a[$k]) && $a[$k] !== null && $a[$k] !== '' ? (string)$a[$k] : (string)$d;
+        $ab = static fn($k) => (int)($a[$k] ?? 0) === 1;
+      ?>
+
+      <!-- Card 1 : Conditions financières -->
+      <section class="v2-card is-active" role="tabpanel" aria-label="Conditions financières">
+        <div class="v2-card-label">💶 Conditions financières</div>
+        <div id="v2-annonce-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
+        <div class="v2-card-body">
+          <?php if (!$annonce): ?>
+            <div class="v2-doc-empty" style="padding:24px;">
+              <div class="v2-doc-empty-icon">📡</div>
+              <div style="margin-bottom:14px;">
+                Aucune annonce enregistrée pour ce bien.<br>
+                <small>Remplissez les conditions financières puis créez l'annonce.</small>
+              </div>
+              <button type="button" id="v2-annonce-create" class="v2-btn-primary">➕ Créer l'annonce (brouillon)</button>
+              <span id="v2-annonce-create-status" class="v2-form-status" style="margin-left:10px;"></span>
+            </div>
+          <?php else: ?>
+            <div class="v2-annonce-header">
+              <span class="v2-badge"><?= h((string)$annonce['etat_publication'] ?? 'brouillon') ?></span>
+              <small>Annonce #<?= $aid ?> · créée le <?= h((string)($annonce['date_creation'] ?? '')) ?></small>
+            </div>
+            <div class="v2-desc-group-title">— En attente de l'étape 2 : champs financiers détaillés —</div>
+            <p class="v2-hint" style="padding:10px;">La Card 1 sera complétée dans le prochain commit avec tous les champs financiers de bien_detail.php (prix, loyers, honoraires, encadrement, taxes).</p>
+          <?php endif; ?>
+        </div>
+      </section>
+
+      <!-- Card 2 : Photos de l'annonce -->
+      <section class="v2-card is-next" role="tabpanel" aria-label="Photos de l'annonce">
+        <div class="v2-card-label">📸 Photos <?php if (!empty($annoncePhotoIds)): ?><span class="v2-count"><?= count($annoncePhotoIds) ?></span><?php endif; ?></div>
+        <div class="v2-card-body">
+          <?php if (!$annonce): ?>
+            <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📸</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
+          <?php else: ?>
+            <p class="v2-hint" style="padding:10px;">Sélection des photos du bien à inclure dans l'annonce (table annonces_photos N:N) — à compléter dans le prochain commit.</p>
+          <?php endif; ?>
+        </div>
+      </section>
+
+      <!-- Card 3 : Diffusion (3 canaux) -->
+      <section class="v2-card is-prev" role="tabpanel" aria-label="Diffusion">
+        <div class="v2-card-label">📡 Diffusion</div>
+        <div class="v2-card-body">
+          <?php if (!$annonce): ?>
+            <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📡</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
+          <?php else: ?>
+            <div class="v2-desc-group-title">Canaux de diffusion</div>
+            <div class="v2-bool-toggles">
+              <button type="button" class="v2-bool-toggle<?= $ab('visible_maboximmo') ? ' is-active' : '' ?>" data-annonce-bool="visible_maboximmo">
+                <span class="v2-icon-emoji">🏢</span><span class="v2-icon-lbl">MaBoxImmo (annuaire interne)</span>
+              </button>
+              <button type="button" class="v2-bool-toggle<?= $ab('visible_site_perso') ? ' is-active' : '' ?>" data-annonce-bool="visible_site_perso">
+                <span class="v2-icon-emoji">🌐</span><span class="v2-icon-lbl">Site perso de l'agence</span>
+              </button>
+              <button type="button" class="v2-bool-toggle<?= $ab('visible_portails') ? ' is-active' : '' ?>" data-annonce-bool="visible_portails">
+                <span class="v2-icon-emoji">📰</span><span class="v2-icon-lbl">Portails (LeBonCoin, SeLoger, Bien'ici)</span>
+              </button>
+            </div>
+            <p class="v2-hint" style="padding:10px;">Validateur Ubiflow + bouton "Diffuser maintenant" à compléter dans le prochain commit.</p>
+          <?php endif; ?>
+        </div>
+      </section>
+
     <?php else: /* section = dpe */ ?>
 
       <!-- Card 1 : DPE (visu) -->
@@ -1498,6 +1590,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
     photoDeleteEndpoint: <?= json_encode(app_url('/api/bien_photo_delete.php'),        JSON_UNESCAPED_SLASHES) ?>,
+    annonceCreateEndpoint:   <?= json_encode(app_url('/api/annonce_create.php'),       JSON_UNESCAPED_SLASHES) ?>,
+    annonceAutosaveEndpoint: <?= json_encode(app_url('/api/annonce_autosave.php'),     JSON_UNESCAPED_SLASHES) ?>,
+    annonceId: <?= (int)($annonce['id'] ?? 0) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,

@@ -362,6 +362,24 @@ html.v2-no-scroll, body.v2-no-scroll {
 }
 .v2-doc-empty-icon { font-size: 32px; opacity: 0.4; margin-bottom: 10px; }
 
+/* En-tête annonce (Card 1 Annonce) */
+.v2-annonce-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  background: var(--v2-accent-light);
+  border: 1px solid rgba(54, 87, 125, 0.15);
+  border-radius: 8px;
+}
+.v2-annonce-header .v2-badge {
+  background: var(--v2-accent);
+  color: #fff;
+  text-transform: uppercase;
+}
+.v2-annonce-header small { color: var(--v2-muted); font-size: 11px; }
+
 /* En-tête diagnostiqueur DPE (top of Card 1 DPE) */
 .v2-dpe-diag-header {
   display: flex;

@@ -389,10 +389,94 @@
 
   }
 
+  // ── Section ANNONCE : création + autosave annonce + toggles canaux ──
+  function bindAnnonceSection(data) {
+    const indicator = document.getElementById('v2-annonce-save-indicator');
+    const csrf = data.csrfToken;
+
+    function showInd(kind, msg) {
+      if (!indicator) return;
+      indicator.className = 'v2-save-indicator v2-save-floating ' + (kind || '');
+      indicator.textContent = msg || '';
+      if (kind === 'ok') {
+        setTimeout(() => { if (indicator) { indicator.textContent = ''; indicator.className = 'v2-save-indicator v2-save-floating'; } }, 2000);
+      }
+    }
+
+    async function saveAnnonce(name, value) {
+      const aid = data.annonceId;
+      if (!aid) return;
+      showInd('', '💾 Enregistrement…');
+      const fd = new FormData();
+      fd.append('_annonce_id', aid);
+      fd.append('csrf_token', csrf);
+      fd.append(name, value == null ? '' : value);
+      try {
+        const r = await fetch(data.annonceAutosaveEndpoint || '/api/annonce_autosave.php', {
+          method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const j = await r.json();
+        if (j.ok) showInd('ok', '✅ Enregistré ' + (j.saved_at || ''));
+        else showInd('err', '❌ ' + (j.error || 'Erreur'));
+      } catch (e) {
+        showInd('err', '❌ ' + e.message);
+      }
+    }
+
+    // Création annonce (bouton dans Card 1)
+    const btnCreate = document.getElementById('v2-annonce-create');
+    const btnCreateStatus = document.getElementById('v2-annonce-create-status');
+    if (btnCreate) {
+      btnCreate.addEventListener('click', async () => {
+        btnCreate.disabled = true;
+        if (btnCreateStatus) { btnCreateStatus.textContent = '⏳ Création…'; btnCreateStatus.className = 'v2-form-status'; }
+        const fd = new FormData();
+        fd.append('id_bien', data.bienId);
+        fd.append('csrf_token', csrf);
+        try {
+          const r = await fetch(data.annonceCreateEndpoint || '/api/annonce_create.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Erreur création');
+          if (btnCreateStatus) { btnCreateStatus.textContent = '✅ Annonce créée, rechargement…'; btnCreateStatus.className = 'v2-form-status ok'; }
+          setTimeout(() => window.location.reload(), 500);
+        } catch (e) {
+          btnCreate.disabled = false;
+          if (btnCreateStatus) { btnCreateStatus.textContent = '❌ ' + e.message; btnCreateStatus.className = 'v2-form-status err'; }
+        }
+      });
+    }
+
+    // Toggles canaux (data-annonce-bool)
+    document.querySelectorAll('[data-annonce-bool]').forEach(btn => {
+      const field = btn.dataset.annonceBool;
+      if (!field) return;
+      btn.addEventListener('click', () => {
+        const isActive = !btn.classList.contains('is-active');
+        btn.classList.toggle('is-active', isActive);
+        saveAnnonce(field, isActive ? '1' : '0');
+      });
+    });
+
+    // Inputs annonce (futurs champs financiers) — même pattern data-annonce-save
+    document.querySelectorAll('[data-annonce-save]').forEach(el => {
+      const handler = () => saveAnnonce(el.name, el.value);
+      el.addEventListener('change', handler);
+      if (el.type === 'text' || el.type === 'number' || el.type === 'date' || el.tagName === 'TEXTAREA') {
+        el.addEventListener('blur', handler);
+      }
+    });
+  }
+
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
     const data = window.__v2DocsData || {};
     const section = data.section || 'documents';
+
+    if (section === 'annonce') {
+      bindAnnonceSection(data);
+    }
 
     if (section === 'descriptif') {
       bindDescriptifAutosave(data);
