@@ -824,6 +824,120 @@ html.v2-no-scroll, body.v2-no-scroll {
 .v2-icon-emoji { font-size: 16px; line-height: 1; }
 .v2-icon-lbl { font-weight: 600; }
 
+/* ─────────────────────────────────
+   Indicateur "valeur reprise du DPE" — fond vert olive
+───────────────────────────────── */
+.v2-num-field.is-from-dpe {
+  background: #e8f0dc;
+  border-color: #a8c090;
+}
+.v2-num-field.is-from-dpe .v2-num-input {
+  background: #f2f7ea;
+  border-color: #bcd29e;
+}
+.v2-bool-toggle.is-from-dpe:not(.is-active) {
+  background: #e8f0dc;
+  border-color: #a8c090;
+  color: #4a6038;
+}
+.v2-input.is-from-dpe,
+input.v2-input.is-from-dpe {
+  background: #e8f0dc !important;
+  border-color: #a8c090 !important;
+}
+
+/* ─────────────────────────────────
+   CARD 2 — num-fields + bool-toggles
+───────────────────────────────── */
+.v2-num-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.v2-num-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fafbfc;
+  border: 1px solid rgba(54, 87, 125, 0.12);
+  border-radius: 8px;
+  transition: background .15s, border-color .15s;
+}
+.v2-num-field:focus-within {
+  background: #fff;
+  border-color: var(--v2-accent);
+}
+.v2-num-icon { font-size: 20px; flex-shrink: 0; line-height: 1; }
+.v2-num-input {
+  width: 56px;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  background: #fff;
+  border: 1px solid rgba(54, 87, 125, 0.15);
+  border-radius: 6px;
+  color: var(--v2-ink);
+  text-align: center;
+  -moz-appearance: textfield;
+  flex-shrink: 0;
+}
+.v2-num-input::-webkit-outer-spin-button,
+.v2-num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.v2-num-input:focus {
+  outline: none;
+  border-color: var(--v2-accent);
+  box-shadow: 0 0 0 2px rgba(54, 87, 125, 0.15);
+}
+.v2-num-label {
+  font-size: 11px;
+  color: var(--v2-muted);
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-num-label small { font-size: 10px; opacity: .8; }
+
+/* Toggles booléens (balcon, terrasse, etc.) */
+.v2-bool-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.v2-bool-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #fafbfc;
+  border: 1px solid rgba(54, 87, 125, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--v2-muted);
+  transition: background .15s, border-color .15s, color .15s, transform .1s;
+  white-space: nowrap;
+}
+.v2-bool-toggle:hover { background: #fff; border-color: var(--v2-accent); color: var(--v2-accent); }
+.v2-bool-toggle:active { transform: scale(0.97); }
+.v2-bool-toggle.is-active {
+  background: linear-gradient(135deg, var(--brand-500, #36577d), var(--brand-700, #213450));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 5px rgba(54, 87, 125, 0.28);
+}
+.v2-bool-toggle .v2-icon-emoji { font-size: 16px; line-height: 1; }
+.v2-bool-toggle .v2-icon-lbl { font-weight: 600; }
+
 /* Adresse grid */
 .v2-addr-grid {
   display: grid;

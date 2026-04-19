@@ -617,11 +617,15 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
               🔍 Trouver immeuble <?php if (!empty($immeublesList)): ?><span class="v2-badge"><?= count($immeublesList) ?></span><?php endif; ?>
             </button>
           </div>
+          <?php
+            $syncFlags = array_flip($descSyncedFields);
+            $addrCls = static fn($f) => isset($syncFlags[$f]) ? ' is-from-dpe' : '';
+          ?>
           <div class="v2-addr-grid">
-            <input type="text" id="v2-f-adresse_1"   class="v2-input" name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['adresse_1']   ?? '')) ?>">
-            <input type="text" id="v2-f-adresse_2"   class="v2-input" name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2']   ?? '')) ?>">
-            <input type="text" id="v2-f-code_postal" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
-            <input type="text" id="v2-f-ville"       class="v2-input" name="ville"       data-autosave placeholder="Ville"     value="<?= h((string)($b['ville']       ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_1"   class="v2-input<?= $addrCls('adresse_1') ?>"   name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['adresse_1']   ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_2"   class="v2-input<?= $addrCls('adresse_2') ?>"   name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2']   ?? '')) ?>">
+            <input type="text" id="v2-f-code_postal" class="v2-input<?= $addrCls('code_postal') ?>" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
+            <input type="text" id="v2-f-ville"       class="v2-input<?= $addrCls('ville') ?>"       name="ville"       data-autosave placeholder="Ville"     value="<?= h((string)($b['ville']       ?? '')) ?>">
           </div>
 
           <!-- 3. Caractéristiques -->
@@ -747,56 +751,82 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </div>
 
-      <!-- Card 2 : Pièces, surfaces, extérieur, équipements intérieurs -->
+      <?php
+        $syncedFlags = array_flip($descSyncedFields);
+        $numField = static function(string $icon, string $name, string $label, string $suffix = '') use ($b, $syncedFlags) {
+          $val = isset($b[$name]) && $b[$name] !== null && $b[$name] !== '' ? $b[$name] : '';
+          $fromDpe = isset($syncedFlags[$name]) ? ' is-from-dpe' : '';
+          return '<div class="v2-num-field' . $fromDpe . '" title="' . ($fromDpe ? 'Repris du DPE' : '') . '">'
+               . '<span class="v2-num-icon">' . $icon . '</span>'
+               . '<input type="number" step="any" min="0" class="v2-num-input"'
+               . ' name="' . h($name) . '" data-autosave value="' . h((string)$val) . '"'
+               . ' placeholder="' . h($label) . '">'
+               . '<span class="v2-num-label">' . h($label) . ($suffix ? ' <small>' . $suffix . '</small>' : '') . '</span>'
+               . '</div>';
+        };
+        $boolToggle = static function(string $icon, string $name, string $label) use ($b, $syncedFlags) {
+          $active = (int)($b[$name] ?? 0) === 1 ? ' is-active' : '';
+          $fromDpe = isset($syncedFlags[$name]) ? ' is-from-dpe' : '';
+          return '<button type="button" class="v2-bool-toggle' . $active . $fromDpe . '" data-bool-field="' . h($name) . '"'
+               . ($fromDpe ? ' title="Repris du DPE"' : '') . '>'
+               . '<span class="v2-icon-emoji">' . $icon . '</span>'
+               . '<span class="v2-icon-lbl">' . h($label) . '</span>'
+               . '</button>';
+        };
+      ?>
+
+      <!-- Card 2 : Pièces, surfaces, extérieur, équipements (ÉDITION AUTOSAVE) -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Pièces et surfaces">
         <div class="v2-card-label">📐 Pièces &amp; Surfaces</div>
         <div class="v2-card-body">
-          <div class="v2-desc-group-title">🚪 Pièces</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Nb pièces</div><div class="v2-kv-v"><?= h((string)$vn('nb_pieces')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Chambres</div><div class="v2-kv-v"><?= h((string)$vn('nb_chambres')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Salles de bain</div><div class="v2-kv-v"><?= h((string)$vn('nb_salles_bain')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Salles d'eau</div><div class="v2-kv-v"><?= h((string)$vn('nb_salles_eau')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">WC</div><div class="v2-kv-v"><?= h((string)$vn('nb_wc')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Niveaux</div><div class="v2-kv-v"><?= h((string)$vn('nb_niveaux')) ?></div></div>
+
+          <div class="v2-desc-group-title">🚪 Pièces (nombre)</div>
+          <div class="v2-num-grid">
+            <?= $numField('🛋️', 'nb_pieces',      'Pièces') ?>
+            <?= $numField('🛏️', 'nb_chambres',    'Chambres') ?>
+            <?= $numField('🛁',  'nb_salles_bain', 'SDB') ?>
+            <?= $numField('🚿',  'nb_salles_eau',  "S. d'eau") ?>
+            <?= $numField('🚽',  'nb_wc',          'WC') ?>
+            <?= $numField('🏢', 'nb_niveaux',     'Niveaux') ?>
           </div>
 
           <div class="v2-desc-group-title">📏 Surfaces (m²)</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Habitable</div><div class="v2-kv-v"><?= h((string)$vn('surface_habitable')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Carrez</div><div class="v2-kv-v"><?= h((string)$vn('surface_carrez')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Séjour</div><div class="v2-kv-v"><?= h((string)$vn('surface_sejour')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Totale</div><div class="v2-kv-v"><?= h((string)$vn('surface_totale')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Terrain</div><div class="v2-kv-v"><?= h((string)$vn('surface_terrain')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Hauteur plafond</div><div class="v2-kv-v"><?= h((string)$vn('hauteur_plafond')) ?></div></div>
+          <div class="v2-num-grid">
+            <?= $numField('🏠', 'surface_habitable', 'Habitable', 'm²') ?>
+            <?= $numField('📐', 'surface_carrez',    'Carrez',    'm²') ?>
+            <?= $numField('🛋️', 'surface_sejour',    'Séjour',    'm²') ?>
+            <?= $numField('🏞️', 'surface_totale',    'Totale',    'm²') ?>
+            <?= $numField('🌳', 'surface_terrain',   'Terrain',   'm²') ?>
+            <?= $numField('↕️', 'hauteur_plafond',   'Plafond',   'm') ?>
           </div>
 
-          <div class="v2-desc-group-title">🌳 Extérieur &amp; dépendances</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Balcon</div><div class="v2-kv-v"><?= $vb('balcon') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Terrasse</div><div class="v2-kv-v"><?= $vb('terrasse') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Jardin</div><div class="v2-kv-v"><?= $vb('jardin') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Cour</div><div class="v2-kv-v"><?= $vb('cour') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Cave</div><div class="v2-kv-v"><?= $vb('cave') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Grenier</div><div class="v2-kv-v"><?= $vb('grenier') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Garage</div><div class="v2-kv-v"><?= $vb('garage') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Box</div><div class="v2-kv-v"><?= $vb('box') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Piscine</div><div class="v2-kv-v"><?= $vb('piscine') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Parking</div><div class="v2-kv-v"><?= h((string)$vn('parking_nb')) ?></div></div>
+          <div class="v2-desc-group-title">🌳 Extérieur &amp; dépendances <small>(cliquer pour activer)</small></div>
+          <div class="v2-bool-toggles">
+            <?= $boolToggle('🏞️', 'balcon',   'Balcon') ?>
+            <?= $boolToggle('🌅',  'terrasse', 'Terrasse') ?>
+            <?= $boolToggle('🌳',  'jardin',   'Jardin') ?>
+            <?= $boolToggle('🏡',  'cour',     'Cour') ?>
+            <?= $boolToggle('📦',  'cave',     'Cave') ?>
+            <?= $boolToggle('🏚️', 'grenier',  'Grenier') ?>
+            <?= $boolToggle('🚗',  'garage',   'Garage') ?>
+            <?= $boolToggle('🅿️', 'box',      'Box') ?>
+            <?= $boolToggle('🏊',  'piscine',  'Piscine') ?>
+          </div>
+          <div class="v2-num-grid" style="margin-top:10px;">
+            <?= $numField('🅿️', 'parking_nb', 'Parkings') ?>
           </div>
 
-          <div class="v2-desc-group-title">🛋️ Équipements intérieurs</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Cuisine équipée</div><div class="v2-kv-v"><?= $vb('cuisine_equipee') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Type cuisine</div><div class="v2-kv-v"><?= h((string)$vn('cuisine_type')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Ascenseur</div><div class="v2-kv-v"><?= $vb('ascenseur') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Interphone</div><div class="v2-kv-v"><?= $vb('interphone') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Digicode</div><div class="v2-kv-v"><?= $vb('digicode') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Alarme</div><div class="v2-kv-v"><?= $vb('alarme') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Fibre</div><div class="v2-kv-v"><?= $vb('fibre') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Cheminée</div><div class="v2-kv-v"><?= $vb('cheminee') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Double vitrage</div><div class="v2-kv-v"><?= $vb('double_vitrage') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Volets roulants</div><div class="v2-kv-v"><?= $vb('volets_roulants') ?></div></div>
+          <div class="v2-desc-group-title">🛋️ Équipements intérieurs <small>(cliquer pour activer)</small></div>
+          <div class="v2-bool-toggles">
+            <?= $boolToggle('🍳', 'cuisine_equipee', 'Cuisine équ.') ?>
+            <?= $boolToggle('🛗', 'ascenseur',       'Ascenseur') ?>
+            <?= $boolToggle('📞', 'interphone',      'Interphone') ?>
+            <?= $boolToggle('🔐', 'digicode',        'Digicode') ?>
+            <?= $boolToggle('🚨', 'alarme',          'Alarme') ?>
+            <?= $boolToggle('🌐', 'fibre',           'Fibre') ?>
+            <?= $boolToggle('🔥', 'cheminee',        'Cheminée') ?>
+            <?= $boolToggle('🪟', 'double_vitrage',  'Double vitrage') ?>
+            <?= $boolToggle('🎚️', 'volets_roulants', 'Volets roul.') ?>
           </div>
         </div>
       </section>

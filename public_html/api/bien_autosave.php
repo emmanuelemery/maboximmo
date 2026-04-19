@@ -440,6 +440,19 @@ $protectedFields = [
     'etat_bien', 'standing', 'statut_bien', 'type_commercialisation',
     // ── Adresse (idem : autosave v2 sur chaque input indépendamment) ──
     'adresse_1', 'adresse_2', 'code_postal', 'ville',
+    // ── Pièces / Surfaces / Équipements / Dépendances (bien_detail_v2 Card 2) ──
+    'nb_pieces', 'nb_chambres', 'nb_salles_bain', 'nb_salles_eau', 'nb_wc',
+    'nb_niveaux', 'parking_nb',
+    'surface_habitable', 'surface_totale', 'surface_terrain',
+    'surface_balcon', 'surface_terrasse', 'surface_jardin', 'surface_cave',
+    'surface_garage', 'surface_box', 'surface_veranda', 'surface_annexe',
+    'hauteur_plafond', 'annee_construction',
+    'balcon', 'terrasse', 'jardin', 'cour', 'cave', 'grenier',
+    'garage', 'box', 'piscine', 'dependances', 'acces_camion', 'vitrine',
+    'cuisine_type', 'cuisine_equipee', 'ascenseur', 'interphone',
+    'digicode', 'alarme', 'fibre', 'cheminee',
+    // Environnement Card 4 v2
+    'dernier_etage', 'numero_porte', 'adresse_visible_public', 'etage',
 ];
 foreach ($protectedFields as $f) {
     $raw = $_POST[$f] ?? null;

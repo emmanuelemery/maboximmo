@@ -310,6 +310,28 @@
       }
     });
 
+    // Bool toggles (balcon, terrasse, ascenseur, etc.) — click = toggle on/off
+    document.querySelectorAll('.v2-bool-toggle').forEach(btn => {
+      const field = btn.dataset.boolField;
+      if (!field) return;
+      btn.addEventListener('click', () => {
+        const isActive = !btn.classList.contains('is-active');
+        btn.classList.toggle('is-active', isActive);
+        // Dès modification : retire l'indicateur DPE (valeur devient saisie utilisateur)
+        btn.classList.remove('is-from-dpe');
+        saveField(field, isActive ? '1' : '0');
+      });
+    });
+
+    // Retire 'is-from-dpe' sur input/num à la modification utilisateur
+    document.querySelectorAll('[data-autosave]').forEach(el => {
+      el.addEventListener('input', () => {
+        el.classList.remove('is-from-dpe');
+        const wrap = el.closest('.v2-num-field');
+        if (wrap) wrap.classList.remove('is-from-dpe');
+      });
+    });
+
     // Icon radios (1 choix exclusif par groupe, reclic = désélection)
     document.querySelectorAll('.v2-icon-radios').forEach(group => {
       const field = group.dataset.field;
