@@ -301,6 +301,37 @@ try {
                 error_log('[dpe_import] INSERT biens_documents failed: ' . $exDoc->getMessage());
             }
 
+            // ── Sync bien_chauffages / bien_energies (tables de jointure pour chips) ──
+            try {
+                $stSoc = $pdo->prepare("SELECT id_societe FROM biens WHERE id = ?");
+                $stSoc->execute([$bienId]);
+                $idSocieteBien = (int)($stSoc->fetchColumn() ?: 0);
+                if ($idSocieteBien > 0) {
+                    $chCode = (string)($fields['chauffage_type'] ?? '');
+                    if ($chCode !== '') {
+                        $st = $pdo->prepare("SELECT id FROM societe_types_chauffage WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                        $st->execute([$idSocieteBien, $chCode]);
+                        $chId = (int)($st->fetchColumn() ?: 0);
+                        if ($chId > 0) {
+                            $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?, ?)")
+                                ->execute([$bienId, $chId]);
+                        }
+                    }
+                    $enCode = (string)($fields['chauffage_energie'] ?? '');
+                    if ($enCode !== '') {
+                        $st = $pdo->prepare("SELECT id FROM societe_energies WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                        $st->execute([$idSocieteBien, $enCode]);
+                        $enId = (int)($st->fetchColumn() ?: 0);
+                        if ($enId > 0) {
+                            $pdo->prepare("INSERT IGNORE INTO bien_energies (id_bien, id_societe_energie) VALUES (?, ?)")
+                                ->execute([$bienId, $enId]);
+                        }
+                    }
+                }
+            } catch (Throwable $exSync) {
+                error_log('[dpe_import] sync bien_chauffages/energies failed: ' . $exSync->getMessage());
+            }
+
             // ── Sync : on remonte les valeurs critiques sur la fiche bien ──
             // Les champs ne sont mis à jour QUE s'ils sont vides (no-overwrite),
             // pour respecter d'éventuelles saisies manuelles antérieures.

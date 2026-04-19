@@ -265,7 +265,7 @@ try {
                 consommation_energie, emission_ges,
                 conso_energie_primaire, conso_energie_finale,
                 montant_depenses_min, montant_depenses_max,
-                date_indice_prix, dpe_version, numero_ademe,
+                date_indice_prix, dpe_version, numero_ademe, numero_rapport,
                 diagnostiqueur_nom, diagnostiqueur_societe,
                 fichier_url, nom_fichier_original, taille_fichier_octets, mime_type,
                 type_bien_detecte, adresse_detectee, code_postal_detecte, ville_detectee,
@@ -287,7 +287,7 @@ try {
                 :conso, :ges,
                 :primaire, :finale,
                 :depmin, :depmax,
-                :indice, :ver, :ademe,
+                :indice, :ver, :ademe, :num_rapport,
                 :diag_nom, :diag_soc,
                 :url, :nom, :taille, :mime,
                 :tb, :adr, :cp, :ville,
@@ -321,8 +321,9 @@ try {
             ':indice'  => $fields['date_indice_prix_energies'] ?? null,
             ':ver'     => $fields['dpe_version'] ?? null,
             ':ademe'   => $fields['dpe_reference_certificat'] ?? null,
-            ':diag_nom'=> $fields['operateur_nom'] ?? null,
-            ':diag_soc'=> $fields['operateur_societe'] ?? null,
+            ':num_rapport' => $fields['diag_dossier_numero'] ?? $fields['numero_rapport'] ?? null,
+            ':diag_nom'=> $fields['diag_operateur_nom'] ?? $fields['operateur_nom'] ?? null,
+            ':diag_soc'=> $fields['diag_operateur_societe'] ?? $fields['operateur_societe'] ?? null,
             ':url'     => $publicUrl,
             ':nom'     => $file['name'],
             ':taille'  => (int)$file['size'],
@@ -357,7 +358,7 @@ try {
             ':a_geo'   => !empty($fields['zone_georisque']) ? 1 : 0,
             ':score'   => min(100, count($fields) * 4),
             ':json'    => json_encode($fields, JSON_UNESCAPED_UNICODE),
-            ':resume'  => $resume,
+            ':resume'  => $fields['diag_resume_ia'] ?? $resume,
             ':titre'   => $docTitre,
         ]);
         $diagId = (int)$pdo->lastInsertId();
@@ -398,6 +399,39 @@ try {
             ]);
         } catch (Throwable $exDoc) {
             error_log('[bien_intake] biens_documents insert failed: ' . $exDoc->getMessage());
+        }
+
+        // ── Sync bien_chauffages / bien_energies (tables de jointure pour chips) ──
+        // Même pattern que bien_vues : l'info est stockée en code texte dans biens.*
+        // mais bien_detail affiche les chips depuis les tables de jointure avec IDs.
+        try {
+            $stSoc = $pdo->prepare("SELECT id_societe FROM biens WHERE id = ?");
+            $stSoc->execute([$bienId]);
+            $idSocieteBien = (int)($stSoc->fetchColumn() ?: 0);
+            if ($idSocieteBien > 0) {
+                $chCode = (string)($fields['chauffage_type'] ?? '');
+                if ($chCode !== '') {
+                    $st = $pdo->prepare("SELECT id FROM societe_types_chauffage WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                    $st->execute([$idSocieteBien, $chCode]);
+                    $chId = (int)($st->fetchColumn() ?: 0);
+                    if ($chId > 0) {
+                        $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?, ?)")
+                            ->execute([$bienId, $chId]);
+                    }
+                }
+                $enCode = (string)($fields['chauffage_energie'] ?? '');
+                if ($enCode !== '') {
+                    $st = $pdo->prepare("SELECT id FROM societe_energies WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                    $st->execute([$idSocieteBien, $enCode]);
+                    $enId = (int)($st->fetchColumn() ?: 0);
+                    if ($enId > 0) {
+                        $pdo->prepare("INSERT IGNORE INTO bien_energies (id_bien, id_societe_energie) VALUES (?, ?)")
+                            ->execute([$bienId, $enId]);
+                    }
+                }
+            }
+        } catch (Throwable $exSync) {
+            error_log('[bien_intake] sync bien_chauffages/energies failed: ' . $exSync->getMessage());
         }
     } catch (Throwable $e) {
         error_log('[bien_intake] dpe_diags insert failed: ' . $e->getMessage());

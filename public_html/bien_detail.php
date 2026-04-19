@@ -1551,9 +1551,41 @@ if ($isEditing && $editingBienId > 0 && $pdo) {
         $s->execute([$editingBienId]);
         $_loadedChauffIds = $s->fetchAll(PDO::FETCH_COLUMN);
 
+        // Lazy backfill bien_chauffages depuis biens.chauffage_type (si table vide)
+        if (empty($_loadedChauffIds)
+            && !empty($bienLoaded['chauffage_type'])
+            && !empty($bienLoaded['id_societe'])) {
+            try {
+                $st = $pdo->prepare("SELECT id FROM societe_types_chauffage WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                $st->execute([(int)$bienLoaded['id_societe'], (string)$bienLoaded['chauffage_type']]);
+                $chId = (int)($st->fetchColumn() ?: 0);
+                if ($chId > 0) {
+                    $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?, ?)")
+                        ->execute([$editingBienId, $chId]);
+                    $_loadedChauffIds = [$chId];
+                }
+            } catch (Throwable) {}
+        }
+
         $s = $pdo->prepare("SELECT id_societe_energie FROM bien_energies WHERE id_bien = ?");
         $s->execute([$editingBienId]);
         $_loadedEnergieIds = $s->fetchAll(PDO::FETCH_COLUMN);
+
+        // Lazy backfill bien_energies depuis biens.chauffage_energie (si table vide)
+        if (empty($_loadedEnergieIds)
+            && !empty($bienLoaded['chauffage_energie'])
+            && !empty($bienLoaded['id_societe'])) {
+            try {
+                $st = $pdo->prepare("SELECT id FROM societe_energies WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                $st->execute([(int)$bienLoaded['id_societe'], (string)$bienLoaded['chauffage_energie']]);
+                $enId = (int)($st->fetchColumn() ?: 0);
+                if ($enId > 0) {
+                    $pdo->prepare("INSERT IGNORE INTO bien_energies (id_bien, id_societe_energie) VALUES (?, ?)")
+                        ->execute([$editingBienId, $enId]);
+                    $_loadedEnergieIds = [$enId];
+                }
+            } catch (Throwable) {}
+        }
     } catch (Throwable) {}
 }
 
