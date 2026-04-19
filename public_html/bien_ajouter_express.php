@@ -1961,6 +1961,18 @@ require_once __DIR__ . '/inc/header.php';
       if (file.size > 20 * 1024 * 1024) { showStatus('❌ Fichier trop volumineux (max 20 Mo)', 'error'); return; }
       if (!file.name.toLowerCase().endsWith('.pdf')) { showStatus('❌ Un PDF est requis', 'error'); return; }
 
+      // ── Forcer la création du brouillon AVANT l'upload ──
+      // Sans brouillon (state.id_bien=0), le PDF ne serait pas archivé dans
+      // biens_documents ni dpe_diags (endpoint requires id_bien > 0).
+      if (!state.id_bien) {
+        showStatus('⏳ Création du brouillon…', 'loading');
+        try { await ensureDraftCreated(); } catch (e) {}
+        if (!state.id_bien) {
+          showStatus('⚠️ Impossible de créer le brouillon — le PDF ne sera pas archivé. Remplis d\'abord les champs obligatoires (adresse, type, bailleur).', 'warning');
+          return;
+        }
+      }
+
       showStatus('⏳ Analyse du DPE en cours…', 'loading');
 
       const fd = new FormData();
