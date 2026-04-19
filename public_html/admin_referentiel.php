@@ -588,6 +588,82 @@ $bonnes_pratiques = [
                 </div>
             </section>
 
+            <!-- 7 · ARCHITECTURE DONNÉES (TIERS) -->
+            <section class="section">
+                <div class="section-head">
+                    <div class="section-num">7</div>
+                    <div class="section-title">Architecture données — les Tiers</div>
+                </div>
+                <p class="section-desc">
+                    Toute personne ou entité externe (propriétaire, bailleur, locataire, mandant, prestataire, notaire…) est <strong>saisie une seule fois</strong> dans la table <code>tiers</code>.
+                    Les rôles métier sont ajoutés via <code>tiers_roles</code>. Les comptes applicatifs (<code>users</code>) restent séparés et reliés via <code>user_tiers</code>.
+                </p>
+                <div class="example-card" style="margin-bottom:18px;">
+                    <div style="font-family:'DM Mono',monospace;font-size:10px;color:#a85858;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">Règle fondamentale</div>
+                    <div style="font-size:14px;color:#1a1816;line-height:1.6;">
+                        <strong style="color:#2d5f6b;">users</strong> = identité <strong>applicative</strong> (auth, rôles app) ·
+                        <strong style="color:#4878a6;">tiers</strong> = identité <strong>métier</strong> (source unique) ·
+                        <strong style="color:#6b8e6f;">tiers_roles</strong> = affectations contextuelles multiples
+                    </div>
+                </div>
+
+                <div class="lex-group">
+                    <div class="lex-head">Tables de l'écosystème tiers</div>
+                    <div class="lex-table">
+                        <div class="lex-row">
+                            <div class="lex-term">tiers</div>
+                            <div class="lex-def">Racine métier. Personnes physiques, morales, entités juridiques, indivisions, syndicats de copropriétaires. Un tiers = une identité unique avec tous ses contacts et coordonnées.</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">tiers_roles</div>
+                            <div class="lex-def">Affectations d'un tiers dans des rôles métier. Un même tiers peut avoir N rôles sur N objets (bien, immeuble, mandat, bail…). Dates de début/fin pour l'historisation.</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">tiers_roles_codes</div>
+                            <div class="lex-def">Référentiel des ~59 codes de rôle (proprietaire, bailleur, locataire, coproprietaire, notaire, artisan, garant, syndic…). Catégorisés : acteur_immo, juridique, prestataire, financier, crm, contact.</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">tiers_contacts</div>
+                            <div class="lex-def">Personnes physiques rattachées à une entité morale (gérant SCI, associé, président CS, contact comptable…). Avec qualité, priorité et canal de communication principal.</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">user_tiers</div>
+                            <div class="lex-def">Pont entre un compte applicatif et une fiche métier. Type de lien : <code>self</code> (collaborateur = tiers), <code>extranet_bailleur</code>, <code>extranet_coproprio</code>, <code>extranet_locataire</code>, <code>extranet_prestataire</code>.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lex-group" style="margin-top:14px;">
+                    <div class="lex-head">Exemples concrets — un tiers, plusieurs rôles</div>
+                    <div class="lex-table">
+                        <div class="lex-row">
+                            <div class="lex-term">M. Dupont Jean</div>
+                            <div class="lex-def">1 tiers · [proprietaire, bien #12] · [bailleur, bien #45] · [coproprietaire, immeuble #7, quote_part 8.00] · [membre_cs, immeuble #7]</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">SCI Dupont</div>
+                            <div class="lex-def">1 tiers (personne_morale) · [proprietaire, immeuble #3] · 2 tiers_contacts (M. Jean Dupont - gerant, Mme Marie Dupont - associee)</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">Locataire qui devient acquéreur</div>
+                            <div class="lex-def">1 tiers · [locataire, bail #88, date_fin 2026-03-01] · [acquereur, bien #55, date_debut 2026-03-15]</div>
+                        </div>
+                        <div class="lex-row">
+                            <div class="lex-term">Copropriétaire avec extranet</div>
+                            <div class="lex-def">1 tiers · [coproprietaire, immeuble #9] · 1 user · user_tiers.type_lien=extranet_coproprio</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="example-card" style="margin-top:18px;">
+                    <div style="font-family:'DM Mono',monospace;font-size:10px;color:#6b8e6f;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">Règle de développement</div>
+                    <div style="font-size:13px;color:#4a4844;line-height:1.65;">
+                        Toute <strong>nouvelle page</strong> qui gère des personnes ou entités écrit dans <code>tiers</code> + <code>tiers_roles</code> — jamais dans les tables legacy.
+                        Les pages existantes (<code>agency_proprietaires</code>, <code>agency_mandants</code>, <code>admin_bailleurs</code>) migrent progressivement vers l'architecture tiers sans casse.
+                    </div>
+                </div>
+            </section>
+
             <!-- Pied de page documentaire -->
             <div style="margin-top: 40px; padding: 18px 22px; text-align:center; font-family:'DM Mono',monospace; font-size:10px; color:#a8a49e; letter-spacing: 0.12em; text-transform: uppercase;">
                 · Document vivant · À mettre à jour lors de tout ajout de service ou module ·
