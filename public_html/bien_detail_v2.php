@@ -285,6 +285,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <span class="sep">›</span>
       <span class="active">v2</span>
     </nav>
+    <span class="page-head-ref" style="margin-left:16px;">
+      #<?= (int)$editingBienId ?>
+      <?php if (!empty($bienLoaded['reference_bien'])): ?>
+        · <strong style="color:#0f172a;"><?= h((string)$bienLoaded['reference_bien']) ?></strong>
+      <?php endif; ?>
+    </span>
     <div class="topbar-spacer"></div>
 
     <!-- Score complétude Ubiflow (pill) -->
@@ -299,12 +305,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     <div class="topbar-avatar"><?= h(strtoupper(substr($username, 0, 1))) ?></div>
   </header>
 
-  <!-- PAGE HEAD avec nav onglets -->
+  <!-- PAGE HEAD — onglets seuls -->
   <div class="page-head">
-    <div class="page-head-info">
-      <div class="page-head-label">Gestion des biens · <?= $section === 'dpe' ? 'Diag &amp; DPE' : 'Documents' ?></div>
-      <h1 class="page-head-title"><?= h($pageTitle) ?></h1>
-    </div>
     <nav class="v2-section-tabs" role="tablist" aria-label="Sections du bien">
       <a href="?edit=<?= (int)$editingBienId ?>&section=documents"
          class="v2-section-tab<?= $section === 'documents' ? ' is-active' : '' ?>"
