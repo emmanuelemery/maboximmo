@@ -394,6 +394,32 @@
     const indicator = document.getElementById('v2-annonce-save-indicator');
     const csrf = data.csrfToken;
 
+    // Autosave biens (data-autosave) — partagé avec la Card Encadrement
+    async function saveBienField(name, value) {
+      if (!data.bienId) return;
+      const fd = new FormData();
+      fd.append('id_bien', data.bienId);
+      fd.append('csrf_token', csrf);
+      fd.append(name, value == null ? '' : value);
+      try {
+        const r = await fetch(data.autosaveEndpoint || '/api/bien_autosave.php', {
+          method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const j = await r.json();
+        if (j.ok) showInd('ok', '✅ Enregistré ' + (j.saved_at || ''));
+        else showInd('err', '❌ ' + (j.error || 'Erreur'));
+      } catch (e) {
+        showInd('err', '❌ ' + e.message);
+      }
+    }
+    document.querySelectorAll('[data-autosave]').forEach(el => {
+      const handler = () => saveBienField(el.name, el.value);
+      el.addEventListener('change', handler);
+      if (el.type === 'text' || el.type === 'number' || el.type === 'date' || el.tagName === 'TEXTAREA') {
+        el.addEventListener('blur', handler);
+      }
+    });
+
     function showInd(kind, msg) {
       if (!indicator) return;
       indicator.className = 'v2-save-indicator v2-save-floating ' + (kind || '');
@@ -494,6 +520,115 @@
       photosStatus.className = 'v2-annonce-photos-status ' + (kind || '');
       photosStatus.textContent = msg || '';
     }
+
+    function applyBulkSelection(selectedIds) {
+      const set = new Set((selectedIds || []).map(Number));
+      document.querySelectorAll('.v2-annonce-photo-tile').forEach(t => {
+        const id = parseInt(t.dataset.photoId, 10) || 0;
+        const sel = set.has(id);
+        t.classList.toggle('is-selected', sel);
+        const chk = t.querySelector('.v2-annonce-photo-check');
+        if (chk) chk.textContent = sel ? '✓' : '+';
+      });
+    }
+
+    async function bulkPhotos(action) {
+      if (!data.annonceId) return;
+      setPhotoStatus('', '⏳ ' + (action === 'all' ? 'Sélection' : 'Désélection') + ' en cours…');
+      const fd = new FormData();
+      fd.append('id_annonce', data.annonceId);
+      fd.append('action', action);
+      fd.append('csrf_token', csrf);
+      try {
+        const r = await fetch(data.annoncePhotosBulkEndpoint || '/api/annonce_photos_bulk.php', {
+          method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur');
+        applyBulkSelection(j.selected_ids || []);
+        if (photosCount) photosCount.textContent = j.count;
+        setPhotoStatus('ok', '✅ ' + j.count + ' photo(s) dans l\'annonce');
+        setTimeout(() => setPhotoStatus('', ''), 2000);
+      } catch (e) {
+        setPhotoStatus('err', '❌ ' + e.message);
+      }
+    }
+    document.getElementById('v2-annonce-photos-all')?.addEventListener('click', () => bulkPhotos('all'));
+    document.getElementById('v2-annonce-photos-none')?.addEventListener('click', () => bulkPhotos('none'));
+
+    // ═══ Card 2 Encadrement des loyers ═══
+    bindEncadrementCard(data, csrf);
+    bindCplSection(data, csrf);
+
+    // ═══ Card 3 Annonce : compteurs de caractères ═══
+    document.querySelectorAll('.v2-char-count').forEach(counter => {
+      const targetName = counter.dataset.target;
+      const min = parseInt(counter.dataset.min, 10) || 0;
+      const optimal = parseInt(counter.dataset.optimal, 10) || 0;
+      const target = document.querySelector('[name="' + targetName + '"]');
+      if (!target) return;
+      const update = () => {
+        const n = (target.value || '').length;
+        if (optimal) {
+          counter.textContent = n + ' / ' + optimal + ' car.';
+          counter.classList.toggle('is-ok',   n > 0 && n <= optimal);
+          counter.classList.toggle('is-warn', n > optimal);
+        } else if (min) {
+          counter.textContent = n + ' / ' + min + '+ car.';
+          counter.classList.toggle('is-ok',   n >= min);
+          counter.classList.toggle('is-warn', n > 0 && n < min);
+        } else {
+          counter.textContent = n + ' car.';
+        }
+      };
+      target.addEventListener('input', update);
+      update();
+    });
+
+    // ═══ Card 5 Diffusion : mini-cards (toggle via click, même pattern que bool-toggles) ═══
+    document.querySelectorAll('.v2-chan-card[data-annonce-bool]').forEach(btn => {
+      const field = btn.dataset.annonceBool;
+      btn.addEventListener('click', () => {
+        const isOn = !btn.classList.contains('is-selected');
+        btn.classList.toggle('is-selected', isOn);
+        saveAnnonce(field, isOn ? '1' : '0');
+      });
+    });
+
+    // ═══ Card 5 Récap Ubiflow : click → scroll vers champ ou redirect section ═══
+    document.querySelectorAll('.v2-ubi-item').forEach(item => {
+      const go = () => {
+        const field = item.dataset.field;
+        const targetSec = item.dataset.v2Section;
+        const currentSec = data.section || 'annonce';
+        if (!field) return;
+        if (targetSec && targetSec !== currentSec) {
+          window.location.href = '?edit=' + encodeURIComponent(data.bienId) +
+                                 '&section=' + encodeURIComponent(targetSec) +
+                                 '&focus=' + encodeURIComponent(field);
+          return;
+        }
+        focusField(field);
+      };
+      item.addEventListener('click', go);
+      item.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    });
+
+    // ═══ Card 5 Bouton Diffuser (placeholder, backend à venir) ═══
+    const diffuseBtn = document.getElementById('v2-diffuse-btn');
+    const diffuseStatus = document.getElementById('v2-diffuse-status');
+    if (diffuseBtn) {
+      diffuseBtn.addEventListener('click', () => {
+        if (diffuseBtn.disabled) return;
+        diffuseStatus.textContent = '⏳ Diffusion — endpoint en cours d\'implémentation. Les canaux sont sauvegardés, à connecter à Ubiflow / passerelle LeBonCoin.';
+        diffuseStatus.className = 'v2-form-status';
+      });
+    }
+
+    // (focus-on-load est géré au niveau global de l'init — évite la duplication)
+
     document.querySelectorAll('.v2-annonce-photo-tile').forEach(tile => {
       tile.addEventListener('click', async () => {
         const id = parseInt(tile.dataset.photoId, 10) || 0;
@@ -525,10 +660,247 @@
     });
   }
 
+  // ── Helper : focus + scroll vers un champ par son name/id ──
+  function focusField(fieldKey) {
+    if (!fieldKey) return;
+    // 1. Cherche par id "v2-f-<key>" (préféré, stable)
+    let el = document.getElementById('v2-f-' + fieldKey);
+    // 2. Fallback : par name
+    if (!el) el = document.querySelector('[name="' + fieldKey + '"]');
+    if (!el) return;
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* noop */ }
+    const wrap = el.closest('.v2-field, .v2-num-field, .v2-card, section');
+    if (wrap) {
+      wrap.classList.add('v2-field-focus-flash');
+      setTimeout(() => wrap.classList.remove('v2-field-focus-flash'), 2000);
+    }
+    try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (_) {} }
+  }
+
+  // ── Helpers Encadrement des loyers ──
+  function anneeToEpoque(annee) {
+    annee = parseInt(annee, 10) || 0;
+    if (annee <= 0) return '';
+    if (annee <  1946) return 'avant_1946';
+    if (annee <= 1970) return '1946_1970';
+    if (annee <= 1990) return '1971_1990';
+    if (annee <= 2005) return '1991_2005';
+    return 'apres_2005';
+  }
+
+  function bindEncadrementCard(data, csrf) {
+    const banner = document.getElementById('v2-enc-banner');
+    if (!banner) return;
+
+    // Enrichir le contexte à partir des inputs actuels (valeurs à jour)
+    function currentContext() {
+      const ctx = Object.assign({}, data.bienEncContext || {});
+      const cp = document.querySelector('[name="code_postal"]');
+      const an = document.querySelector('[name="annee_construction"]');
+      const nb = document.querySelector('[name="nb_pieces"]');
+      const sf = document.querySelector('[name="surface_habitable"]');
+      const mb = document.querySelector('[name="loyer_meuble"]');
+      if (cp) ctx.code_postal = cp.value;
+      if (an) ctx.annee_construction = parseInt(an.value, 10) || ctx.annee_construction;
+      if (nb) ctx.nb_pieces = parseInt(nb.value, 10) || ctx.nb_pieces;
+      if (sf) ctx.surface = parseFloat(sf.value) || ctx.surface;
+      if (mb && (mb.type === 'hidden' || mb.type === 'checkbox')) ctx.meuble = mb.value === '1' || mb.checked ? 1 : 0;
+      return ctx;
+    }
+
+    function setField(name, val, { onlyIfEmpty = false } = {}) {
+      const el = document.querySelector('[name="' + name + '"]');
+      if (!el) return;
+      if (onlyIfEmpty && el.value && el.dataset.autoEnc !== '1') return;
+      el.value = val;
+      el.dataset.autoEnc = '1';
+      // Déclenche l'autosave
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    async function fetchEncadrement() {
+      const ctx = currentContext();
+      const cp    = (ctx.code_postal || '').trim();
+      const epoque = anneeToEpoque(ctx.annee_construction);
+      const pieces = Math.min(parseInt(ctx.nb_pieces, 10) || 0, 4);
+      const meuble = ctx.meuble ? 1 : 0;
+      if (!cp || !epoque || pieces < 1) { banner.hidden = true; return; }
+      // Restreint aux CP Lyon + Villeurbanne
+      if (!/^690[0-9]{2}$/.test(cp) && cp !== '69100') { banner.hidden = true; return; }
+
+      try {
+        const url = (data.encadrementEndpoint || '/api/encadrement_loyers.php')
+                  + '?code_postal=' + encodeURIComponent(cp)
+                  + '&nb_pieces='   + encodeURIComponent(pieces)
+                  + '&epoque='      + encodeURIComponent(epoque)
+                  + '&meuble='      + encodeURIComponent(meuble);
+        const r = await fetch(url, { credentials: 'same-origin' });
+        const j = await r.json();
+        if (!j.ok) { banner.hidden = true; return; }
+
+        // Tarifs (biens) — auto-remplis si champ vide ou déjà auto
+        setField('enc_loyer_ref', j.loyer_reference,         { onlyIfEmpty: true });
+        setField('enc_loyer_max', j.loyer_reference_majore,  { onlyIfEmpty: true });
+        setField('enc_loyer_min', j.loyer_reference_minore,  { onlyIfEmpty: true });
+
+        // Loyers €/mois (annonce) — surface × tarif
+        const surf = parseFloat(ctx.surface) || 0;
+        if (surf > 0) {
+          setField('loyer_de_base',          (surf * j.loyer_reference).toFixed(2),        { onlyIfEmpty: true });
+          setField('loyer_reference_majore', (surf * j.loyer_reference_majore).toFixed(2), { onlyIfEmpty: true });
+        }
+
+        // Zone label
+        setField('enc_zone', j.zone_label || ('Zone ' + (j.zone || '')), { onlyIfEmpty: true });
+
+        // Coche auto "zone encadrée"
+        const zeBtn = document.querySelector('[data-annonce-bool="zone_encadrement_loyer"]');
+        if (zeBtn && !zeBtn.classList.contains('is-active')) {
+          zeBtn.click();
+        }
+
+        // Bannière
+        banner.hidden = false;
+        banner.innerHTML =
+          '<strong>📋 Zone encadrée — ' + escapeHtml(j.zone_label || '') + '</strong>'
+          + ' · Réf : <strong>' + j.loyer_reference + '</strong> €/m²'
+          + ' · Majoré : <strong>' + j.loyer_reference_majore + '</strong> €/m²'
+          + ' · Minoré : <strong>' + j.loyer_reference_minore + '</strong> €/m²';
+      } catch (e) {
+        banner.hidden = true;
+      }
+    }
+
+    // Re-fetch au bouton manuel + à l'init
+    const refreshBtn = document.getElementById('v2-enc-refresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', fetchEncadrement);
+    fetchEncadrement();
+  }
+
+  function bindCplSection(data, csrf) {
+    const wrap = document.getElementById('v2-cpl-lignes');
+    if (!wrap) return;
+    const addBtn = document.getElementById('v2-cpl-add');
+    const totalEl = document.getElementById('v2-cpl-total');
+    const statusEl = document.getElementById('v2-cpl-status');
+    const annonceId = parseInt(wrap.dataset.annonceId, 10) || 0;
+
+    function setStatus(kind, msg) {
+      if (!statusEl) return;
+      statusEl.className = 'v2-cpl-status ' + (kind || '');
+      statusEl.textContent = msg || '';
+      if (kind === 'ok') setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'v2-cpl-status'; }, 1800);
+    }
+
+    function fmt(n) {
+      const v = (typeof n === 'number' ? n : parseFloat(n)) || 0;
+      return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function buildRow(id, libelle = '', montant = '') {
+      const row = document.createElement('div');
+      row.className = 'v2-cpl-row';
+      row.dataset.cplId = id;
+      row.innerHTML = ''
+        + '<input type="text" class="v2-input v2-cpl-libelle" value="' + escapeHtml(libelle) + '" placeholder="Ex : vue dégagée sur parc">'
+        + '<input type="number" step="0.01" min="0" class="v2-num-input v2-cpl-montant" value="' + escapeHtml(String(montant)) + '" placeholder="€">'
+        + '<button type="button" class="v2-cpl-del" title="Supprimer">✕</button>';
+      bindRow(row);
+      return row;
+    }
+
+    async function upsertRow(row, field, value) {
+      const id = parseInt(row.dataset.cplId, 10) || 0;
+      if (!id || !annonceId) return;
+      const fd = new FormData();
+      fd.append('id', id);
+      fd.append(field, value);
+      fd.append('csrf_token', csrf);
+      setStatus('', '⏳ Enregistrement…');
+      try {
+        const r = await fetch(data.cplUpdateEndpoint || '/api/annonce_cpl_update.php', {
+          method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur');
+        if (totalEl) totalEl.textContent = fmt(j.total);
+        // Sync le champ complement_loyer visible dans la Card 1 (s'il est rendu)
+        const cplField = document.querySelector('[name="complement_loyer"]');
+        if (cplField) cplField.value = j.total;
+        setStatus('ok', '✅');
+      } catch (e) {
+        setStatus('err', '❌ ' + e.message);
+      }
+    }
+
+    async function deleteRow(row) {
+      const id = parseInt(row.dataset.cplId, 10) || 0;
+      if (!id) { row.remove(); return; }
+      const fd = new FormData();
+      fd.append('id', id);
+      fd.append('csrf_token', csrf);
+      setStatus('', '⏳ Suppression…');
+      try {
+        const r = await fetch(data.cplDeleteEndpoint || '/api/annonce_cpl_delete.php', {
+          method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur');
+        if (totalEl) totalEl.textContent = fmt(j.total);
+        const cplField = document.querySelector('[name="complement_loyer"]');
+        if (cplField) cplField.value = j.total;
+        row.remove();
+        setStatus('ok', '✅');
+      } catch (e) {
+        setStatus('err', '❌ ' + e.message);
+      }
+    }
+
+    function bindRow(row) {
+      const lib = row.querySelector('.v2-cpl-libelle');
+      const mnt = row.querySelector('.v2-cpl-montant');
+      const del = row.querySelector('.v2-cpl-del');
+      lib?.addEventListener('blur',  () => upsertRow(row, 'libelle', lib.value));
+      mnt?.addEventListener('blur',  () => upsertRow(row, 'montant', mnt.value));
+      mnt?.addEventListener('change',() => upsertRow(row, 'montant', mnt.value));
+      del?.addEventListener('click', () => deleteRow(row));
+    }
+    // Bind les lignes déjà rendues côté PHP
+    wrap.querySelectorAll('.v2-cpl-row').forEach(bindRow);
+
+    addBtn?.addEventListener('click', async () => {
+      if (!annonceId) return;
+      const fd = new FormData();
+      fd.append('id_annonce', annonceId);
+      fd.append('csrf_token', csrf);
+      setStatus('', '⏳ Ajout…');
+      try {
+        const r = await fetch(data.cplAddEndpoint || '/api/annonce_cpl_add.php', {
+          method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur');
+        const row = buildRow(j.id);
+        wrap.appendChild(row);
+        row.querySelector('.v2-cpl-libelle')?.focus();
+        setStatus('ok', '✅');
+      } catch (e) {
+        setStatus('err', '❌ ' + e.message);
+      }
+    });
+  }
+
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
     const data = window.__v2DocsData || {};
     const section = data.section || 'documents';
+
+    // Focus sur champ demandé via ?focus=xxx (actif pour toutes les sections)
+    const params = new URLSearchParams(window.location.search);
+    const focusKey = params.get('focus');
+    if (focusKey) {
+      setTimeout(() => focusField(focusKey), 300);
+    }
 
     if (section === 'annonce') {
       bindAnnonceSection(data);

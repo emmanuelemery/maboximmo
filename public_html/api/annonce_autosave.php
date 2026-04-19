@@ -75,7 +75,8 @@ $data = [
     'loyer_de_base'            => $flt('loyer_de_base'),
     'loyer_reference_majore'   => $flt('loyer_reference_majore'),
     'complement_loyer'         => $flt('complement_loyer'),
-    'zone_encadrement_loyer'   => $str('zone_encadrement_loyer'),
+    'zone_encadrement_loyer'   => $bool('zone_encadrement_loyer'),
+    'loyer_est_cc'             => $bool('loyer_est_cc'),
     'modalite_recuperation_charges_locatives' => $str('modalite_recuperation_charges_locatives'),
 
     // Ancien loyer (ALUR)
@@ -90,6 +91,16 @@ $data = [
 
     // Autres
     'honoraires_etat_des_lieux' => $flt('honoraires_etat_des_lieux'),
+
+    // Description / Détails / Titre / SEO
+    'description'              => $str('description'),
+    'resume_court'             => $str('resume_court'),
+    'points_forts'             => $str('points_forts'),
+    'accroche_commerciale'     => $str('accroche_commerciale'),
+    'titre'                    => $str('titre'),
+    'meta_title'               => $str('meta_title'),
+    'meta_description'         => $str('meta_description'),
+    'slug'                     => $str('slug'),
 ];
 
 // Protection : si la cle n'est pas presente dans POST, on la retire

@@ -87,6 +87,31 @@ try {
         }
     }
 
+    // Auto-lien : si une annonce existe déjà pour ce bien, on y inclut la nouvelle photo par défaut.
+    // La sélection/exclusion pour l'annonce se pilote ensuite depuis la Card 2 Photos.
+    $annonceLinked = false;
+    try {
+        if (!empty($res['id'])) {
+            $stA = $pdo->prepare("SELECT id FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
+            $stA->execute([$bienId]);
+            $idAnnonce = (int)($stA->fetchColumn() ?: 0);
+            if ($idAnnonce > 0) {
+                $chk = $pdo->prepare("SELECT 1 FROM annonces_photos WHERE id_annonce = ? AND id_biens_photo = ? LIMIT 1");
+                $chk->execute([$idAnnonce, (int)$res['id']]);
+                if (!$chk->fetchColumn()) {
+                    $stO = $pdo->prepare("SELECT COALESCE(MAX(ordre), -1) + 1 FROM annonces_photos WHERE id_annonce = ?");
+                    $stO->execute([$idAnnonce]);
+                    $nextO = (int)$stO->fetchColumn();
+                    $pdo->prepare("INSERT INTO annonces_photos (id_annonce, id_biens_photo, ordre) VALUES (?, ?, ?)")
+                        ->execute([$idAnnonce, (int)$res['id'], $nextO]);
+                    $annonceLinked = true;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[bien_intake_photo] auto-lien annonce: ' . $e->getMessage());
+    }
+
     echo json_encode([
         'ok'        => true,
         'bien_id'   => $bienId,
@@ -94,6 +119,7 @@ try {
         'url'       => app_url('/' . $res['url']),
         'ordre'     => $res['ordre'] ?? null,
         'duplicate' => $res['duplicate'] ?? false,
+        'annonce_linked' => $annonceLinked,
         'categorie' => $analyse['ok'] ? ($analyse['categorie'] ?? null) : null,
         'description' => $analyse['ok'] ? ($analyse['description'] ?? null) : null,
     ]);

@@ -131,6 +131,7 @@ try {
 $annonce = null;
 $annoncePhotoIds = [];
 $annonceBienPhotos = [];
+$cplLignes = [];
 if ($section === 'annonce') {
     try {
         $st = $pdo->prepare("SELECT * FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
@@ -140,6 +141,11 @@ if ($section === 'annonce') {
             $st2 = $pdo->prepare("SELECT id_biens_photo FROM annonces_photos WHERE id_annonce = ?");
             $st2->execute([(int)$annonce['id']]);
             $annoncePhotoIds = array_map('intval', $st2->fetchAll(PDO::FETCH_COLUMN) ?: []);
+
+            // Lignes complément de loyer
+            $stCpl = $pdo->prepare("SELECT id, libelle, montant, ordre FROM annonces_complement_loyer_lignes WHERE id_annonce = ? ORDER BY ordre ASC, id ASC");
+            $stCpl->execute([(int)$annonce['id']]);
+            $cplLignes = $stCpl->fetchAll(PDO::FETCH_ASSOC) ?: [];
         }
         // Toutes les photos du bien (pour la grille de sélection)
         $st3 = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
@@ -1332,15 +1338,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
               <?= $aNum('📑', 'honoraires_etat_des_lieux', 'Hon. EDL', '€') ?>
             </div>
 
-            <!-- ENCADREMENT -->
-            <div class="v2-desc-group-title">📋 Encadrement loyer (ALUR)</div>
-            <?= $aText('zone_encadrement_loyer', 'Zone encadrement', 'ex : Paris, Lille, Plaine-Commune…') ?>
-            <div class="v2-num-grid">
-              <?= $aNum('📏', 'loyer_de_base',           'Loyer de base',     '€') ?>
-              <?= $aNum('📈', 'loyer_reference_majore',  'Loyer réf. majoré', '€') ?>
-            </div>
-            <?= $aText('modalite_recuperation_charges_locatives', 'Modalité récupération des charges', 'forfait / provision / réel') ?>
-
             <!-- ANCIEN LOYER (ALUR) -->
             <div class="v2-desc-group-title">📜 Ancien loyer (obligation ALUR)</div>
             <div class="v2-num-grid">
@@ -1362,7 +1359,204 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 2 : Photos de l'annonce (N:N toggle biens_photos ↔ annonces_photos) -->
+      <!-- Card 2 : Encadrement des loyers -->
+      <section class="v2-card is-next" role="tabpanel" aria-label="Encadrement des loyers">
+        <div class="v2-card-label">📋 Encadrement des loyers</div>
+        <div class="v2-card-body">
+          <?php if (!$annonce): ?>
+            <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📋</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
+          <?php else:
+            $aZoneEnc  = (int)($a['zone_encadrement_loyer'] ?? 0) === 1;
+            $aLoyerCc  = (int)($a['loyer_est_cc'] ?? 0) === 1;
+            $encZone   = (string)($bienLoaded['enc_zone']        ?? '');
+            $encLRef   = $bienLoaded['enc_loyer_ref']   ?? '';
+            $encLMax   = $bienLoaded['enc_loyer_max']   ?? '';
+            $encLMin   = $bienLoaded['enc_loyer_min']   ?? '';
+            $lBase     = $a['loyer_de_base']          ?? '';
+            $lRefMaj   = $a['loyer_reference_majore'] ?? '';
+            $modalite  = (string)($a['modalite_recuperation_charges_locatives'] ?? '');
+          ?>
+            <!-- Bannière auto-remplie par JS -->
+            <div id="v2-enc-banner" class="v2-enc-banner" hidden></div>
+
+            <!-- Liens externes -->
+            <div class="v2-enc-links">
+              <a href="https://data.grandlyon.com/portail/fr/jeux-de-donnees/encadrement-des-loyers-de-la-metropole-de-lyon-2025-2026/info"
+                 target="_blank" rel="noopener" class="v2-btn-secondary">🗺️ Carte des zones</a>
+              <a href="https://demarches.toodego.com/logement/encadrement-des-loyers-v2/"
+                 target="_blank" rel="noopener" class="v2-btn-secondary">🔍 Simulateur Grand Lyon</a>
+            </div>
+
+            <!-- Toggles Zone encadrée + Loyer CC -->
+            <div class="v2-bool-toggles" style="margin-top:12px;">
+              <button type="button" class="v2-bool-toggle<?= $aZoneEnc ? ' is-active' : '' ?>" data-annonce-bool="zone_encadrement_loyer">
+                <span class="v2-icon-emoji">📋</span><span class="v2-icon-lbl">Zone encadrée</span>
+              </button>
+              <button type="button" class="v2-bool-toggle<?= $aLoyerCc ? ' is-active' : '' ?>" data-annonce-bool="loyer_est_cc">
+                <span class="v2-icon-emoji">💧</span><span class="v2-icon-lbl">Loyer affiché CC</span>
+              </button>
+            </div>
+
+            <!-- Zone label (stocké sur biens) -->
+            <div class="v2-field" style="margin-top:12px;">
+              <label style="font-size:11px;font-weight:600;color:var(--v2-muted);">Zone d'encadrement (label)</label>
+              <input type="text" class="v2-input" name="enc_zone" data-autosave
+                     value="<?= h($encZone) ?>" placeholder="ex : Lyon 3e, 7e, 8e, 9e, Villeurbanne">
+            </div>
+
+            <!-- Tarifs officiels €/m² (biens) -->
+            <div class="v2-desc-group-title" style="margin-top:14px;">📐 Tarifs officiels (€/m²)</div>
+            <div class="v2-num-grid">
+              <div class="v2-num-field">
+                <span class="v2-num-icon">📏</span>
+                <input type="number" step="0.01" min="0" class="v2-num-input" style="width:90px;"
+                       name="enc_loyer_ref" data-autosave value="<?= h((string)$encLRef) ?>" placeholder="Référence">
+                <span class="v2-num-label">Loyer référence <small>€/m²</small></span>
+              </div>
+              <div class="v2-num-field">
+                <span class="v2-num-icon">📈</span>
+                <input type="number" step="0.01" min="0" class="v2-num-input" style="width:90px;"
+                       name="enc_loyer_max" data-autosave value="<?= h((string)$encLMax) ?>" placeholder="Majoré">
+                <span class="v2-num-label">Loyer majoré <small>€/m²</small></span>
+              </div>
+              <div class="v2-num-field">
+                <span class="v2-num-icon">📉</span>
+                <input type="number" step="0.01" min="0" class="v2-num-input" style="width:90px;"
+                       name="enc_loyer_min" data-autosave value="<?= h((string)$encLMin) ?>" placeholder="Minoré">
+                <span class="v2-num-label">Loyer minoré <small>€/m²</small></span>
+              </div>
+            </div>
+
+            <!-- Loyers calculés €/mois (annonce) -->
+            <div class="v2-desc-group-title" style="margin-top:14px;">💰 Loyers calculés (€/mois)</div>
+            <div class="v2-num-grid">
+              <div class="v2-num-field">
+                <span class="v2-num-icon">📏</span>
+                <input type="number" step="0.01" min="0" class="v2-num-input" style="width:100px;"
+                       name="loyer_de_base" data-annonce-save value="<?= h((string)$lBase) ?>" placeholder="Loyer de base">
+                <span class="v2-num-label">Loyer de base <small>€</small></span>
+              </div>
+              <div class="v2-num-field">
+                <span class="v2-num-icon">📈</span>
+                <input type="number" step="0.01" min="0" class="v2-num-input" style="width:100px;"
+                       name="loyer_reference_majore" data-annonce-save value="<?= h((string)$lRefMaj) ?>" placeholder="Réf. majoré">
+                <span class="v2-num-label">Loyer réf. majoré <small>€</small></span>
+              </div>
+            </div>
+
+            <!-- Modalité récupération des charges -->
+            <div class="v2-field" style="margin-top:12px;">
+              <label style="font-size:11px;font-weight:600;color:var(--v2-muted);">Modalité récupération des charges</label>
+              <select class="v2-input" name="modalite_recuperation_charges_locatives" data-annonce-save>
+                <option value=""                            <?= $modalite === ''                            ? 'selected' : '' ?>>—</option>
+                <option value="forfait"                     <?= $modalite === 'forfait'                     ? 'selected' : '' ?>>Forfait</option>
+                <option value="provision annuelle"          <?= $modalite === 'provision annuelle'          ? 'selected' : '' ?>>Provision annuelle</option>
+                <option value="remboursement sur justificatifs" <?= $modalite === 'remboursement sur justificatifs' ? 'selected' : '' ?>>Remboursement sur justificatifs</option>
+              </select>
+            </div>
+
+            <!-- Complément de loyer -->
+            <div class="v2-desc-group-title" style="margin-top:18px;border-top:1px solid var(--v2-stroke,#eee);padding-top:12px;">
+              ➕ Complément de loyer (justifications)
+            </div>
+            <div class="v2-enc-cpl-hint" style="font-size:11px;color:var(--v2-muted);margin-bottom:8px;">
+              Total appliqué à <code>complement_loyer</code>. Le loyer total HC = majoré + somme des compléments.
+            </div>
+            <div id="v2-cpl-lignes" data-annonce-id="<?= (int)$annonce['id'] ?>">
+              <?php foreach ($cplLignes as $ln): ?>
+                <div class="v2-cpl-row" data-cpl-id="<?= (int)$ln['id'] ?>">
+                  <input type="text" class="v2-input v2-cpl-libelle" value="<?= h((string)$ln['libelle']) ?>" placeholder="Ex : vue dégagée sur parc">
+                  <input type="number" step="0.01" min="0" class="v2-num-input v2-cpl-montant" value="<?= h((string)$ln['montant']) ?>" placeholder="€">
+                  <button type="button" class="v2-cpl-del" title="Supprimer">✕</button>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <div class="v2-cpl-footer">
+              <button type="button" id="v2-cpl-add" class="v2-btn-secondary">＋ Ajouter une justification</button>
+              <span class="v2-cpl-total">Total : <strong id="v2-cpl-total"><?= number_format(array_sum(array_map(static fn($l) => (float)$l['montant'], $cplLignes)), 2, ',', ' ') ?></strong> €</span>
+            </div>
+            <div id="v2-cpl-status" class="v2-cpl-status" aria-live="polite"></div>
+          <?php endif; ?>
+        </div>
+      </section>
+
+      <!-- Card 3 : Annonce (description / détails / titre / SEO) -->
+      <section class="v2-card is-next" role="tabpanel" aria-label="Annonce">
+        <div class="v2-card-label">📝 Annonce</div>
+        <div class="v2-card-body">
+          <?php if (!$annonce): ?>
+            <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📝</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
+          <?php else: ?>
+            <!-- Description -->
+            <div class="v2-desc-group-title">📝 Description</div>
+            <div class="v2-field">
+              <textarea class="v2-input v2-textarea" name="description" id="v2-f-description"
+                        data-annonce-save data-min-chars="100" rows="6"
+                        placeholder="Rédigez le texte de diffusion (min. 100 caractères requis par Ubiflow)…"><?= h((string)($a['description'] ?? '')) ?></textarea>
+              <small class="v2-char-count" data-target="description" data-min="100">0 / 100+ car.</small>
+            </div>
+
+            <!-- Détails -->
+            <div class="v2-desc-group-title" style="margin-top:14px;">📋 Détails</div>
+            <div class="v2-field">
+              <label class="v2-field-label">Résumé court</label>
+              <textarea class="v2-input v2-textarea" name="resume_court" id="v2-f-resume_court"
+                        data-annonce-save rows="2"
+                        placeholder="Court résumé pour listings / aperçus…"><?= h((string)($a['resume_court'] ?? '')) ?></textarea>
+            </div>
+            <div class="v2-field">
+              <label class="v2-field-label">Points forts</label>
+              <textarea class="v2-input v2-textarea" name="points_forts" id="v2-f-points_forts"
+                        data-annonce-save rows="3"
+                        placeholder="Un atout par ligne (ex : vue panoramique, parking, …)"><?= h((string)($a['points_forts'] ?? '')) ?></textarea>
+            </div>
+            <div class="v2-field">
+              <label class="v2-field-label">Accroche commerciale</label>
+              <input type="text" class="v2-input" name="accroche_commerciale" id="v2-f-accroche_commerciale"
+                     data-annonce-save maxlength="255"
+                     value="<?= h((string)($a['accroche_commerciale'] ?? '')) ?>"
+                     placeholder="Phrase courte d'accroche commerciale…">
+            </div>
+
+            <!-- Annonce (titre) -->
+            <div class="v2-desc-group-title" style="margin-top:14px;">📣 Annonce</div>
+            <div class="v2-field">
+              <label class="v2-field-label">Titre de l'annonce <small>(diffusé sur portails)</small></label>
+              <input type="text" class="v2-input" name="titre" id="v2-f-titre"
+                     data-annonce-save maxlength="255"
+                     value="<?= h((string)($a['titre'] ?? '')) ?>"
+                     placeholder="Ex : Appartement 3 pièces plein centre avec balcon…">
+            </div>
+
+            <!-- SEO -->
+            <div class="v2-desc-group-title" style="margin-top:14px;">🔍 SEO</div>
+            <div class="v2-field">
+              <label class="v2-field-label">Meta title <small>(≈60 car. optimal)</small></label>
+              <input type="text" class="v2-input" name="meta_title" id="v2-f-meta_title"
+                     data-annonce-save maxlength="255"
+                     value="<?= h((string)($a['meta_title'] ?? '')) ?>"
+                     placeholder="Titre pour moteurs de recherche…">
+              <small class="v2-char-count" data-target="meta_title" data-min="0" data-optimal="60">0 / 60</small>
+            </div>
+            <div class="v2-field">
+              <label class="v2-field-label">Meta description <small>(≈160 car. optimal)</small></label>
+              <textarea class="v2-input v2-textarea" name="meta_description" id="v2-f-meta_description"
+                        data-annonce-save maxlength="320" rows="2"
+                        placeholder="Description pour moteurs…"><?= h((string)($a['meta_description'] ?? '')) ?></textarea>
+              <small class="v2-char-count" data-target="meta_description" data-min="0" data-optimal="160">0 / 160</small>
+            </div>
+            <div class="v2-field">
+              <label class="v2-field-label">URL slug</label>
+              <input type="text" class="v2-input" name="slug" id="v2-f-slug"
+                     data-annonce-save maxlength="190"
+                     value="<?= h((string)($a['slug'] ?? '')) ?>"
+                     placeholder="ex : appartement-lyon-3-pieces-balcon">
+            </div>
+          <?php endif; ?>
+        </div>
+      </section>
+
+      <!-- Card 4 : Photos de l'annonce (N:N toggle biens_photos ↔ annonces_photos) -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Photos de l'annonce">
         <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-annonce-photos-count"><?= count($annoncePhotoIds) ?></span></div>
         <div class="v2-card-body">
@@ -1380,6 +1574,10 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
               Clique sur une photo pour l'inclure ou l'exclure de l'annonce diffusée.
               Les photos sélectionnées sont celles qui partent sur les portails.
             </div>
+            <div class="v2-annonce-photos-bulk">
+              <button type="button" id="v2-annonce-photos-all" class="v2-btn-secondary">✓ Tout sélectionner</button>
+              <button type="button" id="v2-annonce-photos-none" class="v2-btn-secondary">✕ Tout désélectionner</button>
+            </div>
             <div class="v2-annonce-photos-grid">
               <?php foreach ($annonceBienPhotos as $p): ?>
                 <?php $isSel = in_array($p['id'], $annoncePhotoIds, true); ?>
@@ -1396,26 +1594,101 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 3 : Diffusion (3 canaux) -->
+      <!-- Card 5 : Diffusion (canaux + récap Ubiflow + diffuser) -->
       <section class="v2-card is-prev" role="tabpanel" aria-label="Diffusion">
         <div class="v2-card-label">📡 Diffusion</div>
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📡</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
           <?php else: ?>
-            <div class="v2-desc-group-title">Canaux de diffusion</div>
-            <div class="v2-bool-toggles">
-              <button type="button" class="v2-bool-toggle<?= $ab('visible_maboximmo') ? ' is-active' : '' ?>" data-annonce-bool="visible_maboximmo">
-                <span class="v2-icon-emoji">🏢</span><span class="v2-icon-lbl">MaBoxImmo (annuaire interne)</span>
+            <!-- Canaux de diffusion : mini-cards colorées -->
+            <div class="v2-desc-group-title">📢 Canaux de diffusion</div>
+            <div class="v2-chan-grid">
+              <button type="button" class="v2-chan-card v2-chan-mbi<?= $ab('visible_maboximmo')  ? ' is-selected' : '' ?>"
+                      data-annonce-bool="visible_maboximmo">
+                <span class="v2-chan-icon">🏢</span>
+                <span class="v2-chan-title">MaBoxImmo</span>
+                <span class="v2-chan-sub">Annuaire interne</span>
               </button>
-              <button type="button" class="v2-bool-toggle<?= $ab('visible_site_perso') ? ' is-active' : '' ?>" data-annonce-bool="visible_site_perso">
-                <span class="v2-icon-emoji">🌐</span><span class="v2-icon-lbl">Site perso de l'agence</span>
+              <button type="button" class="v2-chan-card v2-chan-web<?= $ab('visible_site_perso') ? ' is-selected' : '' ?>"
+                      data-annonce-bool="visible_site_perso">
+                <span class="v2-chan-icon">🌐</span>
+                <span class="v2-chan-title">Site perso</span>
+                <span class="v2-chan-sub">Site de l'agence</span>
               </button>
-              <button type="button" class="v2-bool-toggle<?= $ab('visible_portails') ? ' is-active' : '' ?>" data-annonce-bool="visible_portails">
-                <span class="v2-icon-emoji">📰</span><span class="v2-icon-lbl">Portails (LeBonCoin, SeLoger, Bien'ici)</span>
+              <button type="button" class="v2-chan-card v2-chan-lbc<?= $ab('visible_portails')   ? ' is-selected' : '' ?>"
+                      data-annonce-bool="visible_portails">
+                <span class="v2-chan-icon">📰</span>
+                <span class="v2-chan-title">LeBonCoin</span>
+                <span class="v2-chan-sub">Via passerelle</span>
               </button>
             </div>
-            <p class="v2-hint" style="padding:10px;">Validateur Ubiflow + bouton "Diffuser maintenant" à compléter dans le prochain commit.</p>
+
+            <!-- Récapitulatif de complétude Ubiflow -->
+            <?php
+              // Mapping key → section v2
+              $FIELD_TO_V2 = [
+                'reference_bien' => 'descriptif', 'designation' => 'descriptif',
+                'description' => 'annonce', 'meta_title' => 'annonce', 'meta_description' => 'annonce',
+                'titre' => 'annonce', 'accroche_commerciale' => 'annonce',
+                'code_postal' => 'descriptif', 'ville' => 'descriptif',
+                'adresse_1' => 'descriptif', 'id_type_bien' => 'descriptif',
+                'surface_habitable' => 'descriptif', 'nb_pieces' => 'descriptif',
+                'annee_construction' => 'descriptif', 'nb_wc' => 'descriptif',
+                'copro_nb_lots' => 'descriptif', 'copro_quote_part_charges' => 'descriptif',
+                'type_transaction' => 'annonce', 'prix' => 'annonce', 'loyer' => 'annonce',
+                'alur_pourcentage_honoraires_ttc' => 'annonce', 'url_tarifs_publics' => 'annonce',
+                'dpe_classe' => 'dpe', 'ges_classe' => 'dpe', 'dpe_valeur' => 'dpe',
+                'ges_valeur' => 'dpe', 'dpe_date_realisation' => 'dpe',
+                '_photos_count' => 'documents',
+              ];
+              $missing = $ubiCheck['missing'] ?? [];
+              $scorePctLocal = (int)($ubiCheck['score'] ?? 0);
+              $scoreCls = $scorePctLocal >= 100 ? 'ok' : ($scorePctLocal >= 70 ? 'warn' : 'bad');
+              $canDiffuse = empty(array_filter($missing, static fn($m) => !empty($m['blocking'])));
+            ?>
+            <div class="v2-desc-group-title" style="margin-top:16px;">✅ Complétude Ubiflow</div>
+            <div class="v2-ubi-gauge <?= $scoreCls ?>">
+              <div class="v2-ubi-gauge-bar" style="--pct:<?= $scorePctLocal ?>%"></div>
+              <span class="v2-ubi-gauge-label"><?= $scorePctLocal ?>%
+                · <?= count($missing) ?> champ<?= count($missing) > 1 ? 's' : '' ?> manquant<?= count($missing) > 1 ? 's' : '' ?></span>
+            </div>
+
+            <div class="v2-ubi-recap">
+              <?php if (empty($missing)): ?>
+                <div class="v2-ubi-ok">✅ Tous les champs Ubiflow sont complets — prêt à diffuser.</div>
+              <?php else: ?>
+                <?php foreach ($missing as $m):
+                  $key     = (string)($m['key'] ?? '');
+                  $label   = (string)($m['label'] ?? $key);
+                  $secVal  = (string)($m['section'] ?? '');
+                  $block   = !empty($m['blocking']);
+                  $v2Sec   = $FIELD_TO_V2[$key] ?? 'descriptif';
+                ?>
+                  <div class="v2-ubi-item <?= $block ? 'is-blocking' : 'is-warning' ?>"
+                       data-field="<?= h($key) ?>"
+                       data-v2-section="<?= h($v2Sec) ?>"
+                       tabindex="0" role="button">
+                    <span class="v2-ubi-icon"><?= $block ? '❌' : '⚠️' ?></span>
+                    <div class="v2-ubi-main">
+                      <div class="v2-ubi-label"><?= h($label) ?></div>
+                      <div class="v2-ubi-sec"><?= h($secVal) ?> · <em><?= h($v2Sec) ?></em></div>
+                    </div>
+                    <span class="v2-ubi-arrow">→</span>
+                  </div>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </div>
+
+            <!-- Bouton Diffuser -->
+            <div class="v2-diffuse-actions">
+              <button type="button" id="v2-diffuse-btn" class="v2-btn-primary v2-btn-diffuse"
+                      <?= $canDiffuse ? '' : 'disabled' ?>
+                      title="<?= $canDiffuse ? 'Lancer la diffusion sur les canaux activés' : 'Résoudre d\'abord les champs bloquants' ?>">
+                🚀 Diffuser maintenant
+              </button>
+              <span id="v2-diffuse-status" class="v2-form-status" aria-live="polite"></span>
+            </div>
           <?php endif; ?>
         </div>
       </section>
@@ -1728,6 +2001,18 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     annonceCreateEndpoint:       <?= json_encode(app_url('/api/annonce_create.php'),        JSON_UNESCAPED_SLASHES) ?>,
     annonceAutosaveEndpoint:     <?= json_encode(app_url('/api/annonce_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,
     annoncePhotoToggleEndpoint:  <?= json_encode(app_url('/api/annonce_photo_toggle.php'),  JSON_UNESCAPED_SLASHES) ?>,
+    annoncePhotosBulkEndpoint:   <?= json_encode(app_url('/api/annonce_photos_bulk.php'),   JSON_UNESCAPED_SLASHES) ?>,
+    encadrementEndpoint:         <?= json_encode(app_url('/api/encadrement_loyers.php'),    JSON_UNESCAPED_SLASHES) ?>,
+    cplAddEndpoint:              <?= json_encode(app_url('/api/annonce_cpl_add.php'),       JSON_UNESCAPED_SLASHES) ?>,
+    cplUpdateEndpoint:           <?= json_encode(app_url('/api/annonce_cpl_update.php'),    JSON_UNESCAPED_SLASHES) ?>,
+    cplDeleteEndpoint:           <?= json_encode(app_url('/api/annonce_cpl_delete.php'),    JSON_UNESCAPED_SLASHES) ?>,
+    bienEncContext: {
+      code_postal: <?= json_encode((string)($bienLoaded['code_postal']       ?? ''), JSON_UNESCAPED_SLASHES) ?>,
+      annee_construction: <?= (int)($bienLoaded['annee_construction'] ?? 0) ?>,
+      nb_pieces:  <?= (int)($bienLoaded['nb_pieces']          ?? 0) ?>,
+      surface:    <?= json_encode((float)($bienLoaded['surface_habitable']  ?? 0)) ?>,
+      meuble:     <?= (int)(!empty($bienLoaded['loyer_meuble']) ? 1 : 0) ?>,
+    },
     annonceId: <?= (int)($annonce['id'] ?? 0) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,

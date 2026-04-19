@@ -313,6 +313,20 @@ html.v2-no-scroll, body.v2-no-scroll {
 .v2-btn-primary:hover { background: var(--brand-600, #2b4466); }
 .v2-btn-primary:active { transform: scale(0.97); }
 
+.v2-btn-secondary {
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff;
+  color: var(--v2-accent);
+  border: 1px solid var(--v2-accent);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.v2-btn-secondary:hover { background: var(--v2-accent-light, #eef2f7); }
+.v2-btn-secondary:active { transform: scale(0.97); }
+
 /* ─────────────────────────────────
    LISTE DOCUMENTS
 ───────────────────────────────── */
@@ -362,7 +376,67 @@ html.v2-no-scroll, body.v2-no-scroll {
 }
 .v2-doc-empty-icon { font-size: 32px; opacity: 0.4; margin-bottom: 10px; }
 
+/* Card Encadrement des loyers */
+.v2-enc-banner {
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #eef5ff;
+  border: 1px solid #bcd3ec;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #1f3b5e;
+  line-height: 1.5;
+}
+.v2-enc-banner strong { color: #0f2540; }
+.v2-enc-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.v2-enc-links a { text-decoration: none; }
+
+/* Complément de loyer : lignes inline */
+#v2-cpl-lignes { display: flex; flex-direction: column; gap: 6px; }
+.v2-cpl-row {
+  display: grid;
+  grid-template-columns: 1fr 130px 34px;
+  gap: 8px;
+  align-items: center;
+}
+.v2-cpl-row .v2-cpl-montant { width: 100%; }
+.v2-cpl-del {
+  background: transparent;
+  border: 1px solid var(--v2-stroke, #ddd);
+  border-radius: 6px;
+  width: 30px; height: 30px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--v2-muted, #666);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.v2-cpl-del:hover { background: #fdecec; color: #b91c1c; border-color: #f3b3b3; }
+.v2-cpl-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--v2-stroke, #eee);
+}
+.v2-cpl-total { font-size: 12.5px; color: var(--v2-muted, #666); }
+.v2-cpl-total strong { color: #0f172a; }
+.v2-cpl-status { margin-top: 6px; font-size: 11px; color: var(--v2-muted, #666); min-height: 14px; }
+.v2-cpl-status.ok  { color: #0ea572; }
+.v2-cpl-status.err { color: #dc2626; }
+
 /* Card 2 Annonce : grille photos avec toggle N:N */
+.v2-annonce-photos-bulk {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
 .v2-annonce-photos-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -1429,4 +1503,187 @@ input.v2-input.is-from-dpe {
     transform: translate(-50%, -50%);
     opacity: 0; pointer-events: none;
   }
+}
+
+/* ═════════════════════════════════════════
+   Card Annonce : textarea + compteurs
+   ═════════════════════════════════════════ */
+.v2-textarea {
+  resize: vertical;
+  min-height: 64px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.v2-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--v2-muted, #666);
+  margin-bottom: 3px;
+}
+.v2-field-label small { font-weight: 400; color: var(--v2-muted, #888); }
+.v2-char-count {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--v2-muted, #888);
+}
+.v2-char-count.is-ok   { color: #0ea572; }
+.v2-char-count.is-warn { color: #c97b2e; }
+
+/* Flash visuel quand on navigue vers un champ via le récap */
+.v2-field-focus-flash {
+  animation: v2FieldFlash 2s ease-in-out 1;
+}
+@keyframes v2FieldFlash {
+  0%   { box-shadow: 0 0 0 0 rgba(54,87,125,0); }
+  10%  { box-shadow: 0 0 0 4px rgba(54,87,125,0.35); background: rgba(54,87,125,0.04); }
+  100% { box-shadow: 0 0 0 0 rgba(54,87,125,0); background: transparent; }
+}
+
+/* ═════════════════════════════════════════
+   Card Diffusion : mini-cards canaux colorés
+   ═════════════════════════════════════════ */
+.v2-chan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.v2-chan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 16px;
+  min-height: 84px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+  transition: border-color .18s, background .18s, box-shadow .18s, transform .12s;
+  background: #fff;
+  box-shadow: 3px 3px 10px rgba(100, 110, 130, 0.10), -2px -2px 6px rgba(255,255,255,0.9);
+}
+.v2-chan-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.10); }
+.v2-chan-icon { font-size: 22px; line-height: 1; }
+.v2-chan-title { font-size: 13.5px; font-weight: 700; color: #0f172a; }
+.v2-chan-sub { font-size: 11px; color: var(--v2-muted, #666); }
+.v2-chan-card.is-selected::after {
+  content: '✓';
+  position: absolute;
+  top: 8px; right: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+/* Variante bleue MaBoxImmo */
+.v2-chan-mbi.is-selected {
+  border-color: #2b6cb0;
+  background: linear-gradient(180deg, #eaf4ff 0%, #dae8fa 100%);
+}
+.v2-chan-mbi.is-selected::after { background: #2b6cb0; }
+/* Variante verte Site perso */
+.v2-chan-web.is-selected {
+  border-color: #2f855a;
+  background: linear-gradient(180deg, #e6f7ee 0%, #d4ecdc 100%);
+}
+.v2-chan-web.is-selected::after { background: #2f855a; }
+/* Variante orange LeBonCoin */
+.v2-chan-lbc.is-selected {
+  border-color: #dd6b20;
+  background: linear-gradient(180deg, #fff1e3 0%, #ffddc0 100%);
+}
+.v2-chan-lbc.is-selected::after { background: #dd6b20; }
+
+/* Jauge de complétude Ubiflow */
+.v2-ubi-gauge {
+  position: relative;
+  height: 26px;
+  border-radius: 8px;
+  background: #f1f3f7;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.v2-ubi-gauge-bar {
+  position: absolute; top: 0; left: 0; bottom: 0;
+  width: var(--pct, 0%);
+  transition: width .3s ease;
+}
+.v2-ubi-gauge.ok   .v2-ubi-gauge-bar { background: linear-gradient(90deg, #34c77a, #0ea572); }
+.v2-ubi-gauge.warn .v2-ubi-gauge-bar { background: linear-gradient(90deg, #f6b64c, #e99420); }
+.v2-ubi-gauge.bad  .v2-ubi-gauge-bar { background: linear-gradient(90deg, #f68585, #dc2626); }
+.v2-ubi-gauge-label {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+
+/* Liste récap champs manquants */
+.v2-ubi-recap {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.v2-ubi-ok {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #e6f7ee;
+  color: #0f5a38;
+  font-size: 13px;
+  border: 1px solid #bde3cc;
+}
+.v2-ubi-item {
+  display: grid;
+  grid-template-columns: 30px 1fr 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.v2-ubi-item:hover { background: #f8fafc; border-color: #c7d2de; transform: translateX(2px); }
+.v2-ubi-item.is-blocking { border-left: 4px solid #dc2626; }
+.v2-ubi-item.is-warning  { border-left: 4px solid #c97b2e; }
+.v2-ubi-icon { font-size: 16px; }
+.v2-ubi-main { min-width: 0; }
+.v2-ubi-label { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2-ubi-sec { font-size: 11px; color: var(--v2-muted, #666); }
+.v2-ubi-sec em { font-style: normal; font-weight: 600; color: var(--v2-accent, #36577d); }
+.v2-ubi-arrow { font-size: 16px; color: var(--v2-muted, #888); }
+.v2-ubi-item:hover .v2-ubi-arrow { color: var(--v2-accent, #36577d); }
+
+/* Bouton Diffuser */
+.v2-diffuse-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--v2-stroke, #eee);
+}
+.v2-btn-diffuse {
+  font-size: 14px;
+  padding: 10px 22px;
+  box-shadow: 0 6px 14px rgba(54,87,125,0.25);
+}
+.v2-btn-diffuse[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
 }

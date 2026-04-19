@@ -60,7 +60,26 @@ try {
         ':ag'   => $agenceId  ?: null,
     ]);
     $id = (int)$pdo->lastInsertId();
-    exit(json_encode(['ok' => true, 'id' => $id, 'existed' => false]));
+
+    // Auto-lien : toutes les photos actuelles du bien sont par défaut incluses dans l'annonce.
+    // Le tri d'exclusion se fait ensuite depuis la Card 2 Photos de l'annonce.
+    $linked = 0;
+    try {
+        $stP = $pdo->prepare("SELECT id FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
+        $stP->execute([$bienId]);
+        $photoIds = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        if ($photoIds) {
+            $ins = $pdo->prepare("INSERT INTO annonces_photos (id_annonce, id_biens_photo, ordre) VALUES (?, ?, ?)");
+            foreach ($photoIds as $k => $pid) {
+                $ins->execute([$id, $pid, $k]);
+                $linked++;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[annonce_create] auto-lien photos: ' . $e->getMessage());
+    }
+
+    exit(json_encode(['ok' => true, 'id' => $id, 'existed' => false, 'photos_linked' => $linked]));
 } catch (Throwable $e) {
     error_log('[annonce_create] ' . $e->getMessage());
     http_response_code(500);
