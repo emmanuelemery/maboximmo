@@ -485,6 +485,44 @@
         el.addEventListener('blur', handler);
       }
     });
+
+    // Card 2 Photos : toggle sélection N:N
+    const photosStatus = document.getElementById('v2-annonce-photos-status');
+    const photosCount  = document.getElementById('v2-annonce-photos-count');
+    function setPhotoStatus(kind, msg) {
+      if (!photosStatus) return;
+      photosStatus.className = 'v2-annonce-photos-status ' + (kind || '');
+      photosStatus.textContent = msg || '';
+    }
+    document.querySelectorAll('.v2-annonce-photo-tile').forEach(tile => {
+      tile.addEventListener('click', async () => {
+        const id = parseInt(tile.dataset.photoId, 10) || 0;
+        if (!id || !data.annonceId) return;
+        tile.style.pointerEvents = 'none';
+        setPhotoStatus('', '⏳ Enregistrement…');
+        const fd = new FormData();
+        fd.append('id_annonce', data.annonceId);
+        fd.append('id_biens_photo', id);
+        fd.append('csrf_token', csrf);
+        try {
+          const r = await fetch(data.annoncePhotoToggleEndpoint || '/api/annonce_photo_toggle.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Erreur');
+          const nowSelected = (j.action === 'added');
+          tile.classList.toggle('is-selected', nowSelected);
+          tile.querySelector('.v2-annonce-photo-check').textContent = nowSelected ? '✓' : '+';
+          if (photosCount) photosCount.textContent = j.count;
+          setPhotoStatus('ok', (nowSelected ? '✅ Ajoutée' : '✅ Retirée') + ' · ' + j.count + ' photo(s) dans l\'annonce');
+          setTimeout(() => setPhotoStatus('', ''), 2000);
+        } catch (e) {
+          setPhotoStatus('err', '❌ ' + e.message);
+        } finally {
+          tile.style.pointerEvents = '';
+        }
+      });
+    });
   }
 
   // ── Init ──

@@ -127,9 +127,10 @@ try {
     error_log('[bien_detail_v2] biens_documents: ' . $e->getMessage());
 }
 
-// ─── Section ANNONCE : charger l'annonce existante du bien ──────
+// ─── Section ANNONCE : charger l'annonce existante du bien + photos ──
 $annonce = null;
 $annoncePhotoIds = [];
+$annonceBienPhotos = [];
 if ($section === 'annonce') {
     try {
         $st = $pdo->prepare("SELECT * FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
@@ -139,6 +140,16 @@ if ($section === 'annonce') {
             $st2 = $pdo->prepare("SELECT id_biens_photo FROM annonces_photos WHERE id_annonce = ?");
             $st2->execute([(int)$annonce['id']]);
             $annoncePhotoIds = array_map('intval', $st2->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        }
+        // Toutes les photos du bien (pour la grille de sélection)
+        $st3 = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
+        $st3->execute([$editingBienId]);
+        foreach ($st3->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $annonceBienPhotos[] = [
+                'id'  => (int)$p['id'],
+                'url' => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
+                'nom' => (string)($p['nom_original'] ?? ''),
+            ];
         }
     } catch (Throwable $e) { error_log('[bien_detail_v2 annonce] ' . $e->getMessage()); }
 }
@@ -1351,14 +1362,36 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 2 : Photos de l'annonce -->
+      <!-- Card 2 : Photos de l'annonce (N:N toggle biens_photos ↔ annonces_photos) -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Photos de l'annonce">
-        <div class="v2-card-label">📸 Photos <?php if (!empty($annoncePhotoIds)): ?><span class="v2-count"><?= count($annoncePhotoIds) ?></span><?php endif; ?></div>
+        <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-annonce-photos-count"><?= count($annoncePhotoIds) ?></span></div>
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📸</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
+          <?php elseif (empty($annonceBienPhotos)): ?>
+            <div class="v2-doc-empty">
+              <div class="v2-doc-empty-icon">📸</div>
+              <div>Aucune photo disponible pour ce bien.<br>
+                <small>Charge des photos dans <a href="?edit=<?= (int)$editingBienId ?>&section=documents">📎 Documents → Chargement</a>.</small>
+              </div>
+            </div>
           <?php else: ?>
-            <p class="v2-hint" style="padding:10px;">Sélection des photos du bien à inclure dans l'annonce (table annonces_photos N:N) — à compléter dans le prochain commit.</p>
+            <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
+              Clique sur une photo pour l'inclure ou l'exclure de l'annonce diffusée.
+              Les photos sélectionnées sont celles qui partent sur les portails.
+            </div>
+            <div class="v2-annonce-photos-grid">
+              <?php foreach ($annonceBienPhotos as $p): ?>
+                <?php $isSel = in_array($p['id'], $annoncePhotoIds, true); ?>
+                <div class="v2-annonce-photo-tile<?= $isSel ? ' is-selected' : '' ?>" data-photo-id="<?= $p['id'] ?>">
+                  <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
+                  <div class="v2-annonce-photo-check">
+                    <?= $isSel ? '✓' : '+' ?>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <div class="v2-annonce-photos-status" id="v2-annonce-photos-status"></div>
           <?php endif; ?>
         </div>
       </section>
@@ -1692,8 +1725,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
     photoDeleteEndpoint: <?= json_encode(app_url('/api/bien_photo_delete.php'),        JSON_UNESCAPED_SLASHES) ?>,
-    annonceCreateEndpoint:   <?= json_encode(app_url('/api/annonce_create.php'),       JSON_UNESCAPED_SLASHES) ?>,
-    annonceAutosaveEndpoint: <?= json_encode(app_url('/api/annonce_autosave.php'),     JSON_UNESCAPED_SLASHES) ?>,
+    annonceCreateEndpoint:       <?= json_encode(app_url('/api/annonce_create.php'),        JSON_UNESCAPED_SLASHES) ?>,
+    annonceAutosaveEndpoint:     <?= json_encode(app_url('/api/annonce_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,
+    annoncePhotoToggleEndpoint:  <?= json_encode(app_url('/api/annonce_photo_toggle.php'),  JSON_UNESCAPED_SLASHES) ?>,
     annonceId: <?= (int)($annonce['id'] ?? 0) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
