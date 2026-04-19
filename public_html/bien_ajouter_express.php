@@ -738,6 +738,7 @@ require_once __DIR__ . '/inc/header.php';
     <dl style="margin:0 0 20px;padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px;">
       <dt style="color:#64748b;font-weight:600;">ID BDD</dt><dd id="exp-saved-id" style="margin:0;font-family:monospace;color:#0f172a;">—</dd>
       <dt style="color:#64748b;font-weight:600;">Référence</dt><dd id="exp-saved-ref" style="margin:0;font-family:monospace;color:#0f172a;font-weight:700;">—</dd>
+      <dt style="color:#64748b;font-weight:600;">Ville</dt><dd id="exp-saved-ville" style="margin:0;color:#0f172a;">—</dd>
       <dt style="color:#64748b;font-weight:600;">Type</dt><dd id="exp-saved-type" style="margin:0;color:#0f172a;">—</dd>
       <dt style="color:#64748b;font-weight:600;">Bailleur</dt><dd id="exp-saved-bailleur" style="margin:0;color:#0f172a;">—</dd>
       <dt style="color:#64748b;font-weight:600;">Statut</dt><dd id="exp-saved-statut" style="margin:0;"></dd>
@@ -1842,9 +1843,10 @@ require_once __DIR__ . '/inc/header.php';
       // Récup label bailleur
       const bailleurLabel = $('exp-pro-soc').value || (($('exp-pro-prenom').value || '') + ' ' + ($('exp-pro-nom').value || '')).trim() || '(non renseigné)';
 
-      // Remplit la popup
+      // Remplit la popup — priorité à la ref renvoyée par finalize (source de vérité BDD)
       $('exp-saved-id').textContent = '#' + j.id_bien;
-      $('exp-saved-ref').textContent = state.ref || j.reference_bien || '—';
+      $('exp-saved-ref').textContent = j.reference_bien || state.ref || '—';
+      $('exp-saved-ville').textContent = j.ville || $('exp-ville').value || '—';
       $('exp-saved-type').textContent = typeLabel || '—';
       $('exp-saved-bailleur').textContent = bailleurLabel;
       const statutBadge = j.statut_bien === 'actif'

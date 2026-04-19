@@ -217,7 +217,9 @@ function ref_build_base_vars(array $ctx, array $agence, array $societe): array
  */
 function ref_substitute_pattern(string $pattern, array $vars): string
 {
-    return preg_replace_callback('/\{([A-Z_]+)(?::(\d+))?\}/', function ($m) use ($vars) {
+    // Regex accepte lettres, chiffres et underscore — sinon les tokens comme
+    // {TYPE3}, {VILLE3}, {USER3} ne seraient jamais substitués.
+    return preg_replace_callback('/\{([A-Z_][A-Z_0-9]*)(?::(\d+))?\}/', function ($m) use ($vars) {
         $token = $m[1];
         $padTo = isset($m[2]) ? (int)$m[2] : 0;
         $value = $vars[$token] ?? null;

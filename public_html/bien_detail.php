@@ -3729,6 +3729,19 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
           </div>
 
           <div class="ba-field ba-col-full">
+            <label>Ambiance <span style="font-size:11px;color:var(--muted);font-weight:400;">(valeurs séparées par virgules)</span></label>
+            <input type="text" name="ambiance" value="' . h((string)post('ambiance','')) . '" placeholder="Ex: calme, centre_ville, proche_transports">
+          </div>
+          <div class="ba-field ba-col-full">
+            <label>Points d\'intérêt supplémentaires <span style="font-size:11px;color:var(--muted);font-weight:400;">(optionnel)</span></label>
+            <input type="text" name="points_interet" value="' . h((string)post('points_interet','')) . '" placeholder="Ex: école Jules Ferry à 200m, parc proche">
+          </div>
+          <div class="ba-field ba-col-full">
+            <label>Argument phare <span style="font-size:11px;color:var(--muted);font-weight:400;">(1 phrase commerciale)</span></label>
+            <input type="text" name="argument_phare" value="' . h((string)post('argument_phare','')) . '" placeholder="Ex: terrasse plein sud, vue mer">
+          </div>
+
+          <div class="ba-field ba-col-full">
             <label>Nuisances éventuelles</label>
             <input type="text" name="nuisances" value="' . h((string)post('nuisances','')) . '" placeholder="Ex: rue passante, voie ferrée…">
           </div>
