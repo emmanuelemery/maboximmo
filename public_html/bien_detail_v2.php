@@ -1096,19 +1096,28 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
 <script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
-<?php if ($section === 'descriptif'): ?>
-<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
-  <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
-<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=initPlacesAutocomplete" defer></script>
+<!-- Google Places — pattern identique à rh_indemnite_km.php (qui fonctionne) -->
 <script>
-  // Si le DOM est deja pret quand places.js se charge, force l'init
+  // onGoogleReady est appelé par Google Maps quand la librairie est chargée.
+  // Il déclenche ensuite places.js (initPlacesAutocomplete) pour binder les inputs
+  // qui ont l'attribut data-places-endpoint.
+  window.onGoogleReady = function () {
+    if (typeof window.initPlacesAutocomplete === 'function') {
+      try { window.initPlacesAutocomplete(); } catch(e) { console.warn('[v2] initPlacesAutocomplete:', e); }
+    }
+  };
+</script>
+<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
+<script>
+  // Si places.js s'initialise avant Google Maps (et Google est déjà là), on force
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     if (typeof window.initPlacesAutocomplete === 'function') window.initPlacesAutocomplete();
   }
 </script>
-  <?php else: ?>
-<script>console.warn('[v2] GOOGLE_MAPS_API_KEY non definie — la recherche Google est desactivee');</script>
-  <?php endif; ?>
+<?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
+<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=onGoogleReady" async defer></script>
+<?php else: ?>
+<script>console.warn('[v2] GOOGLE_MAPS_API_KEY non définie — places Google désactivé');</script>
 <?php endif; ?>
 
 </body>
