@@ -493,12 +493,10 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <!-- Card 1 : Propriétaire / Adresse / Caractéristiques (EDITION AVEC AUTOSAVE) -->
       <section class="v2-card is-active" role="tabpanel" aria-label="Caractéristiques">
         <div class="v2-card-label">📋 Caractéristiques</div>
+        <div id="v2-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
 
-          <!-- Indicateur autosave -->
-          <div id="v2-save-indicator" class="v2-save-indicator" aria-live="polite"></div>
-
-          <!-- 1. Propriétaire (titre + recherche + bouton sur la même ligne) -->
+          <!-- 1. Propriétaire (tout en haut, titre + recherche + bouton sur la même ligne) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">👤 Propriétaire<?php if ($proprioStr): ?> <em class="v2-group-header-current">· <?= h($proprioStr) ?></em><?php endif; ?></span>
             <div class="v2-tiers-picker">

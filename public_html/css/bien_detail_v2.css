@@ -664,17 +664,22 @@ html.v2-no-scroll, body.v2-no-scroll {
 }
 .v2-tiers-suggest-btn.primary:hover { background: var(--brand-600, #2b4466); }
 
-/* Autosave indicator */
+/* Autosave indicator — flottant en haut à droite de la card, hors du flux */
 .v2-save-indicator {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  text-align: right;
   font-size: 11px;
   color: var(--v2-muted);
-  padding: 2px 0 6px;
   min-height: 18px;
   transition: color .2s;
+}
+.v2-save-indicator.v2-save-floating {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  z-index: 12;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 10px;
+  border-radius: 999px;
+  pointer-events: none;
 }
 .v2-save-indicator.ok  { color: #0ea572; }
 .v2-save-indicator.err { color: #dc2626; }
