@@ -632,15 +632,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <?php if ($descDpeDiag && (!empty($descDpeDiag['diagnostiqueur_nom']) || !empty($descDpeDiag['diagnostiqueur_societe']))): ?>
-            <div class="v2-tiers-info is-from-dpe-info">
-              📄 <strong>Diagnostiqueur DPE :</strong>
-              <?= h(trim((string)($descDpeDiag['diagnostiqueur_nom'] ?? '') . ' ' . (string)($descDpeDiag['diagnostiqueur_societe'] ?? ''))) ?>
-              <?php if (!empty($descDpeDiag['numero_rapport'])): ?>
-                · <span>N° rapport : <?= h((string)$descDpeDiag['numero_rapport']) ?></span>
-              <?php endif; ?>
-            </div>
-          <?php endif; ?>
 
           <!-- 2. Adresse (inputs autosave — valeurs déjà syncées depuis dpe_diags si vides) -->
           <div class="v2-group-header">
@@ -1095,6 +1086,27 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <section class="v2-card is-active" role="tabpanel" aria-label="DPE">
         <div class="v2-card-label">⚡ DPE</div>
         <div class="v2-card-body">
+
+          <?php if ($dpeDiag && (!empty($dpeDiag['diagnostiqueur_nom']) || !empty($dpeDiag['diagnostiqueur_societe']) || !empty($dpeDiag['numero_rapport']))): ?>
+            <div class="v2-dpe-diag-header">
+              <div class="v2-dpe-diag-label">📄 Diagnostiqueur</div>
+              <div class="v2-dpe-diag-info">
+                <?php if (!empty($dpeDiag['diagnostiqueur_nom'])): ?>
+                  <strong><?= h((string)$dpeDiag['diagnostiqueur_nom']) ?></strong>
+                <?php endif; ?>
+                <?php if (!empty($dpeDiag['diagnostiqueur_societe'])): ?>
+                  <span class="v2-dpe-diag-societe">· <?= h((string)$dpeDiag['diagnostiqueur_societe']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($dpeDiag['numero_rapport'])): ?>
+                  <span class="v2-dpe-diag-meta">· N° rapport : <?= h((string)$dpeDiag['numero_rapport']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($dpeDiag['numero_ademe'])): ?>
+                  <span class="v2-dpe-diag-meta">· ADEME : <?= h((string)$dpeDiag['numero_ademe']) ?></span>
+                <?php endif; ?>
+              </div>
+            </div>
+          <?php endif; ?>
+
           <div class="v2-dpe-visu">
             <div class="v2-dpe-col">
               <div class="v2-dpe-col-title">⚡ Énergie (kWh/m²/an)</div>

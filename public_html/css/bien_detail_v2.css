@@ -362,6 +362,41 @@ html.v2-no-scroll, body.v2-no-scroll {
 }
 .v2-doc-empty-icon { font-size: 32px; opacity: 0.4; margin-bottom: 10px; }
 
+/* En-tête diagnostiqueur DPE (top of Card 1 DPE) */
+.v2-dpe-diag-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  background: #e8f0dc;
+  border: 1px solid #a8c090;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+.v2-dpe-diag-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #4a6038;
+  flex-shrink: 0;
+}
+.v2-dpe-diag-info {
+  font-size: 13px;
+  color: var(--v2-ink);
+  flex: 1;
+  min-width: 0;
+}
+.v2-dpe-diag-info strong { color: var(--v2-accent); }
+.v2-dpe-diag-societe { color: var(--v2-muted); font-weight: 500; }
+.v2-dpe-diag-meta {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--v2-muted);
+  margin-left: 4px;
+}
+
 /* ─────────────────────────────────
    CARD DPE VISU (pastilles A-G)
 ───────────────────────────────── */
