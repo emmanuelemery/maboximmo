@@ -19,39 +19,59 @@ $page    = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 20;
 $offset  = ($page - 1) * $perPage;
 
-// ── Requête ──
-$where  = ['1=1'];
+// ── Requête (Phase 3 — source TIERS) ──
+// On liste les tiers avec rôle 'proprietaire' et on garde le pointeur legacy `p.id`
+// pour conserver les liens vers agency_proprietaire_fiche.php?id=X (table proprietaires).
+$where  = ["tr.role_code = 'proprietaire'"];
 $params = [];
 
+// Cloisonnement multi-tenant (on filtre sur l'agence via proprietaires legacy ou tiers directement)
 if ($agenceId > 0) {
-    $where[]  = 'p.id_agence = ?';
+    $where[]  = '(p.id_agence = ? OR t.id_agence = ?)';
+    $params[] = $agenceId;
     $params[] = $agenceId;
 }
 if ($filterSearch !== '') {
-    $where[]  = "(p.nom LIKE ? OR p.prenom LIKE ? OR p.email LIKE ? OR p.telephone LIKE ? OR p.societe LIKE ?)";
+    $where[]  = "(t.nom LIKE ? OR t.prenom LIKE ? OR t.email LIKE ? OR t.telephone LIKE ? OR t.raison_sociale LIKE ?)";
     $q = '%' . $filterSearch . '%';
     $params = array_merge($params, [$q, $q, $q, $q, $q]);
 }
 if ($filterType !== '') {
-    $where[]  = "p.type_personne = ?";
-    $params[] = $filterType;
+    // Mapping legacy : "morale" → personne_morale, sinon personne_physique
+    $where[]  = "t.type_tiers = ?";
+    $params[] = $filterType === 'morale' ? 'personne_morale' : 'personne_physique';
 }
 
 $whereStr = implode(' AND ', $where);
 
-$stmtCount = $pdo->prepare("SELECT COUNT(*) FROM proprietaires p WHERE {$whereStr}");
+$baseJoin = "
+    FROM tiers t
+    INNER JOIN tiers_roles tr ON tr.id_tiers = t.id
+    LEFT JOIN proprietaires p ON p.id_tiers = t.id
+";
+
+$stmtCount = $pdo->prepare("SELECT COUNT(DISTINCT t.id) {$baseJoin} WHERE {$whereStr}");
 $stmtCount->execute($params);
 $total = (int)$stmtCount->fetchColumn();
 $totalPages = max(1, (int)ceil($total / $perPage));
 
 $sql = "
-    SELECT p.*,
-           (SELECT COUNT(*) FROM biens b WHERE b.id_proprietaire = p.id) AS nb_biens,
+    SELECT t.id AS id_tiers,
+           p.id AS id,
+           COALESCE(NULLIF(t.nom_affichage, ''),
+                    NULLIF(t.raison_sociale, ''),
+                    TRIM(CONCAT_WS(' ', t.prenom, t.nom))) AS label,
+           t.civilite, t.nom, t.prenom, t.raison_sociale AS societe, t.email, t.telephone,
+           t.code_postal, t.ville, t.actif,
+           CASE WHEN t.type_tiers = 'personne_morale' THEN 'morale' ELSE 'physique' END AS type_personne,
+           t.date_creation,
+           (SELECT COUNT(*) FROM biens b   WHERE b.id_proprietaire = p.id) AS nb_biens,
            (SELECT COUNT(*) FROM mandats m WHERE m.id_proprietaire = p.id) AS nb_mandats,
            (SELECT COUNT(*) FROM bailleur_documents bd WHERE bd.id_proprietaire = p.id) AS nb_docs
-    FROM proprietaires p
+    {$baseJoin}
     WHERE {$whereStr}
-    ORDER BY p.nom ASC, p.prenom ASC
+    GROUP BY t.id
+    ORDER BY t.nom ASC, t.prenom ASC, t.raison_sociale ASC
     LIMIT {$perPage} OFFSET {$offset}
 ";
 $stmt = $pdo->prepare($sql);

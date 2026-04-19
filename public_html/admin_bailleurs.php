@@ -15,21 +15,32 @@ $pdo = $GLOBALS['pdo'];
 
 $q = trim((string)($_GET['q'] ?? ''));
 
+// ── Source : architecture TIERS (Phase 3 migré 2026-04-19) ──
+// On liste les tiers avec rôle "proprietaire" et on garde le pointeur legacy
+// `proprietaires.id` via LEFT JOIN pour continuer à ouvrir dashboard_proprietaire.php?id_proprietaire=X.
 $sql = "
-    SELECT p.id, p.nom, p.prenom, p.societe, p.email, p.ville, p.type_personne,
-           p.type_dashboard, p.actif, p.id_agence,
+    SELECT t.id AS id_tiers,
+           COALESCE(NULLIF(t.nom_affichage, ''),
+                    NULLIF(t.raison_sociale, ''),
+                    TRIM(CONCAT_WS(' ', t.prenom, t.nom))) AS label,
+           t.nom, t.prenom, t.raison_sociale, t.email, t.ville, t.type_tiers,
+           t.actif,
+           p.id AS id_proprietaire, p.code_compte, p.type_dashboard, p.id_agence,
            a.nom_agence,
            (SELECT COUNT(*) FROM immeubles WHERE id_proprietaire = p.id) AS nb_immeubles,
-           (SELECT COUNT(*) FROM biens WHERE id_proprietaire = p.id) AS nb_biens
-    FROM proprietaires p
-    LEFT JOIN agences a ON a.id = p.id_agence
+           (SELECT COUNT(*) FROM biens       WHERE id_proprietaire = p.id) AS nb_biens
+    FROM tiers t
+    INNER JOIN tiers_roles tr ON tr.id_tiers = t.id AND tr.role_code = 'proprietaire'
+    LEFT JOIN proprietaires p ON p.id_tiers = t.id
+    LEFT JOIN agences a       ON a.id = p.id_agence
 ";
 $params = [];
 if ($q !== '') {
-    $sql .= " WHERE p.nom LIKE :q OR p.prenom LIKE :q OR p.societe LIKE :q OR p.email LIKE :q OR p.ville LIKE :q ";
+    $sql .= " WHERE t.nom LIKE :q OR t.prenom LIKE :q OR t.raison_sociale LIKE :q OR t.email LIKE :q OR t.ville LIKE :q ";
     $params[':q'] = '%' . $q . '%';
 }
-$sql .= " ORDER BY p.actif DESC, p.nom ASC, p.societe ASC";
+$sql .= " GROUP BY t.id
+          ORDER BY t.actif DESC, t.nom ASC, t.raison_sociale ASC";
 
 try {
     $stmt = $pdo->prepare($sql);
@@ -43,10 +54,12 @@ $nbTotal    = count($bailleurs);
 $nbActifs   = 0;
 $nbStandard = 0;
 $nbGroupe   = 0;
+$nbAvecCompteLegacy = 0;
 foreach ($bailleurs as $b) {
     if ((int)$b['actif'] === 1) $nbActifs++;
     if (($b['type_dashboard'] ?? '') === 'groupe_sir') $nbGroupe++;
     else $nbStandard++;
+    if (!empty($b['id_proprietaire'])) $nbAvecCompteLegacy++;
 }
 
 $current_page = 'admin_bailleurs';
@@ -310,18 +323,27 @@ $current_page = 'admin_bailleurs';
                 <div class="empty">Aucun bailleur trouvé.</div>
             <?php else: ?>
                 <?php foreach ($bailleurs as $b):
-                    $label = trim((string)($b['societe'] ?: (($b['prenom'] ? $b['prenom'] . ' ' : '') . $b['nom'])));
+                    $label = trim((string)($b['label'] ?: '—'));
                     $initials = strtoupper(substr($label, 0, 2));
                     $typeClass = (($b['type_dashboard'] ?? '') === 'groupe_sir') ? 'groupe' : 'standard';
                     $typeLabel = (($b['type_dashboard'] ?? '') === 'groupe_sir') ? 'Groupe SIR' : 'Standard';
+                    $typeTiersLabel = match ($b['type_tiers'] ?? '') {
+                        'personne_morale'  => 'Personne morale',
+                        'syndicat_coprop'  => 'Syndicat copro',
+                        'entite_juridique' => 'Entité juridique',
+                        'indivision'       => 'Indivision',
+                        default            => 'Personne physique',
+                    };
+                    $hasLegacy = !empty($b['id_proprietaire']);
                 ?>
                 <div class="b-row">
                     <div class="b-avatar <?= (int)$b['actif'] === 0 ? 'inactif' : '' ?>"><?= h($initials ?: '??') ?></div>
                     <div>
-                        <div class="b-name"><?= h($label ?: '—') ?></div>
+                        <div class="b-name"><?= h($label) ?></div>
                         <div class="b-sub">
-                            <?= h($b['type_personne'] ?? '—') ?>
-                            · <span class="b-type <?= $typeClass ?>"><?= h($typeLabel) ?></span>
+                            <?= h($typeTiersLabel) ?>
+                            <?php if ($hasLegacy): ?> · <span class="b-type <?= $typeClass ?>"><?= h($typeLabel) ?></span><?php endif; ?>
+                            · <span style="color:#a8a49e;">Tiers #<?= (int)$b['id_tiers'] ?></span>
                             <?= (int)$b['actif'] === 0 ? ' · <span style="color:#a85858;">Inactif</span>' : '' ?>
                         </div>
                     </div>
@@ -333,9 +355,13 @@ $current_page = 'admin_bailleurs';
                     <div class="b-count hide-sm"><?= (int)$b['nb_immeubles'] ?></div>
                     <div class="b-count hide-sm"><?= (int)$b['nb_biens'] ?></div>
                     <div>
-                        <a href="<?= h(app_url('/dashboard_proprietaire.php?id_proprietaire=' . (int)$b['id'])) ?>" class="b-btn">
-                            Dashboard →
-                        </a>
+                        <?php if ($hasLegacy): ?>
+                            <a href="<?= h(app_url('/dashboard_proprietaire.php?id_proprietaire=' . (int)$b['id_proprietaire'])) ?>" class="b-btn">
+                                Dashboard →
+                            </a>
+                        <?php else: ?>
+                            <span class="b-btn" style="background:#c8c4be;cursor:default;opacity:0.6;" title="Ce tiers n'a pas encore de compte propriétaire lié (sera créé à la Phase 5)">Tiers only</span>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endforeach; ?>
