@@ -543,6 +543,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
               <input type="text" id="v2-google-places" class="v2-input"
                      placeholder="🔍 Ex: 15 place Bellecour Lyon…"
                      autocomplete="off"
+                     data-places-input
                      data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
                      data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
                      data-places-street1="v2-f-adresse_1"
