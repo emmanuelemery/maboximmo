@@ -177,19 +177,16 @@ if ($section === 'descriptif') {
 }
 $immeublesList = $immeublesList ?? [];
 
-// Cle Google Maps (env → puis fichier /home/.../google_config.php hors public_html)
-$GOOGLE_MAPS_API_KEY = getenv('GOOGLE_MAPS_API_KEY')
-    ?: ($_ENV['GOOGLE_MAPS_API_KEY'] ?? '')
-    ?: ($_SERVER['GOOGLE_MAPS_API_KEY'] ?? '');
-if (empty($GOOGLE_MAPS_API_KEY)) {
-    foreach ([dirname(__DIR__, 2) . '/google_config.php', dirname(__DIR__) . '/google_config.php'] as $_cfg) {
-        if (is_file($_cfg)) {
-            @include $_cfg;
-            if (defined('GOOGLE_MAPS_API_KEY')) $GOOGLE_MAPS_API_KEY = GOOGLE_MAPS_API_KEY;
-            break;
-        }
-    }
-}
+// Cle Google Maps — pattern identique a rh_indemnite_km.php (qui fonctionne)
+$googleConfigPaths = [
+    __DIR__ . '/../u630423897/google_config.php',
+    __DIR__ . '/google_config.php',
+    __DIR__ . '/../google_config.php',
+];
+foreach ($googleConfigPaths as $p) { if (file_exists($p)) { require_once $p; break; } }
+$GOOGLE_MAPS_API_KEY = defined('GOOGLE_MAPS_API_KEY')
+    ? GOOGLE_MAPS_API_KEY
+    : ($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
 
 // Labels FR + type de champ pour la card 4 (whitelist alignée sur api/dpe_diag_update.php)
 $dpeFieldDefs = [
