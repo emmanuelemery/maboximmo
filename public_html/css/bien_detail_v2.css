@@ -578,6 +578,38 @@ html.v2-no-scroll, body.v2-no-scroll {
 /* ─────────────────────────────────
    CARD 6 — Alertes
 ───────────────────────────────── */
+/* ─────────────────────────────────
+   SECTION DESCRIPTIF — groupes + photos
+───────────────────────────────── */
+.v2-desc-group-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--v2-accent);
+  margin: 14px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(54, 87, 125, 0.08);
+}
+.v2-desc-group-title:first-child { margin-top: 0; }
+
+.v2-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.v2-photo-item {
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fafbfc;
+  border: 1px solid rgba(54, 87, 125, 0.10);
+  transition: transform .15s, box-shadow .15s;
+}
+.v2-photo-item:hover { transform: scale(1.03); box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+.v2-photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 .v2-alerts-section {
   margin-top: 18px;
   padding-top: 14px;

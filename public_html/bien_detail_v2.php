@@ -35,7 +35,7 @@ if ($bienLoaded === null) {
 }
 
 // Section courante
-$sectionsAvail = ['documents', 'dpe'];
+$sectionsAvail = ['documents', 'dpe', 'descriptif'];
 $section = $_GET['section'] ?? 'documents';
 if (!in_array($section, $sectionsAvail, true)) $section = 'documents';
 
@@ -118,6 +118,36 @@ if ($section === 'dpe') {
         $dpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) {
         error_log('[bien_detail_v2] dpe_diags: ' . $e->getMessage());
+    }
+}
+
+// ─── Section DESCRIPTIF : charger photos + type label + proprietaire ───
+$descPhotos = [];
+$typeBienLabel = '';
+$proprioInfo = null;
+if ($section === 'descriptif') {
+    try {
+        $st = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 60");
+        $st->execute([$editingBienId]);
+        $descPhotos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {}
+    if (!empty($bienLoaded['id_type_bien'])) {
+        try {
+            $st = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
+            $st->execute([(int)$bienLoaded['id_type_bien']]);
+            $typeBienLabel = (string)($st->fetchColumn() ?: '');
+        } catch (Throwable $e) {}
+    }
+    if (!empty($bienLoaded['id_proprietaire'])) {
+        // Tentative tiers (nouvelle architecture) puis fallback users legacy
+        foreach (['tiers', 'users'] as $tbl) {
+            try {
+                $st = $pdo->prepare("SELECT nom, prenom, telephone, email FROM `$tbl` WHERE id = ? LIMIT 1");
+                $st->execute([(int)$bienLoaded['id_proprietaire']]);
+                $proprioInfo = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+                if ($proprioInfo) break;
+            } catch (Throwable $e) {}
+        }
     }
 }
 
@@ -332,6 +362,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
          role="tab" aria-selected="<?= $section === 'dpe' ? 'true' : 'false' ?>">
         <span>⚡</span> Diag &amp; DPE
       </a>
+      <a href="?edit=<?= (int)$editingBienId ?>&section=descriptif"
+         class="v2-section-tab<?= $section === 'descriptif' ? ' is-active' : '' ?>"
+         role="tab" aria-selected="<?= $section === 'descriptif' ? 'true' : 'false' ?>">
+        <span>🏠</span> Descriptif
+      </a>
     </nav>
   </div>
 
@@ -373,6 +408,188 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <section class="v2-card is-prev" role="tabpanel" aria-label="Autres documents">
         <div class="v2-card-label">📎 Autres documents <span class="v2-count" id="v2-count-autre">0</span></div>
         <div class="v2-card-body" id="v2-list-autre"></div>
+      </section>
+
+    <?php elseif ($section === 'descriptif'): ?>
+
+      <?php
+        $b = $bienLoaded;
+        $v = static fn($k) => isset($b[$k]) && $b[$k] !== '' && $b[$k] !== null ? $b[$k] : null;
+        $vb = static fn($k) => (int)($b[$k] ?? 0) === 1 ? '✅ Oui' : '—';
+        $vn = static fn($k) => $v($k) !== null ? $v($k) : '—';
+        $proprioStr = $proprioInfo
+          ? trim((string)($proprioInfo['prenom'] ?? '') . ' ' . (string)($proprioInfo['nom'] ?? ''))
+          : '—';
+      ?>
+
+      <!-- Card 1 : Caractéristiques / adresse / type / proprio -->
+      <section class="v2-card is-active" role="tabpanel" aria-label="Caractéristiques">
+        <div class="v2-card-label">📋 Caractéristiques</div>
+        <div class="v2-card-body">
+          <div class="v2-desc-group-title">🏷️ Identification</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Type de bien</div><div class="v2-kv-v"><?= h($typeBienLabel ?: '—') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Sous-type</div><div class="v2-kv-v"><?= h((string)$vn('sous_type_bien')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Usage</div><div class="v2-kv-v"><?= h((string)$vn('usage_bien')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Référence</div><div class="v2-kv-v"><?= h((string)$vn('reference_bien')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Désignation</div><div class="v2-kv-v"><?= h((string)$vn('designation')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Standing</div><div class="v2-kv-v"><?= h((string)$vn('standing')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">État</div><div class="v2-kv-v"><?= h((string)$vn('etat_bien')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Statut</div><div class="v2-kv-v"><?= h((string)$vn('statut_bien')) ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">📍 Adresse</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Adresse</div><div class="v2-kv-v"><?= h((string)$vn('adresse_1')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Complément</div><div class="v2-kv-v"><?= h((string)$vn('adresse_2')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Code postal</div><div class="v2-kv-v"><?= h((string)$vn('code_postal')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Ville</div><div class="v2-kv-v"><?= h((string)$vn('ville')) ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">👤 Propriétaire</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Nom</div><div class="v2-kv-v"><?= h($proprioStr ?: '—') ?></div></div>
+            <?php if ($proprioInfo): ?>
+              <div class="v2-kv"><div class="v2-kv-k">Téléphone</div><div class="v2-kv-v"><?= h((string)($proprioInfo['telephone'] ?? '—')) ?></div></div>
+              <div class="v2-kv"><div class="v2-kv-k">Email</div><div class="v2-kv-v"><?= h((string)($proprioInfo['email'] ?? '—')) ?></div></div>
+            <?php endif; ?>
+          </div>
+          <div class="v2-card-footer">
+            <a class="v2-btn-outline" href="<?= h(app_url('/bien_detail.php?edit=' . $editingBienId)) ?>">✏️ Éditer dans bien_detail</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card 2 : Pièces, surfaces, extérieur, équipements intérieurs -->
+      <section class="v2-card is-next" role="tabpanel" aria-label="Pièces et surfaces">
+        <div class="v2-card-label">📐 Pièces &amp; Surfaces</div>
+        <div class="v2-card-body">
+          <div class="v2-desc-group-title">🚪 Pièces</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Nb pièces</div><div class="v2-kv-v"><?= h((string)$vn('nb_pieces')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Chambres</div><div class="v2-kv-v"><?= h((string)$vn('nb_chambres')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Salles de bain</div><div class="v2-kv-v"><?= h((string)$vn('nb_salles_bain')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Salles d'eau</div><div class="v2-kv-v"><?= h((string)$vn('nb_salles_eau')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">WC</div><div class="v2-kv-v"><?= h((string)$vn('nb_wc')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Niveaux</div><div class="v2-kv-v"><?= h((string)$vn('nb_niveaux')) ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">📏 Surfaces (m²)</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Habitable</div><div class="v2-kv-v"><?= h((string)$vn('surface_habitable')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Carrez</div><div class="v2-kv-v"><?= h((string)$vn('surface_carrez')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Séjour</div><div class="v2-kv-v"><?= h((string)$vn('surface_sejour')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Totale</div><div class="v2-kv-v"><?= h((string)$vn('surface_totale')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Terrain</div><div class="v2-kv-v"><?= h((string)$vn('surface_terrain')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Hauteur plafond</div><div class="v2-kv-v"><?= h((string)$vn('hauteur_plafond')) ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">🌳 Extérieur &amp; dépendances</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Balcon</div><div class="v2-kv-v"><?= $vb('balcon') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Terrasse</div><div class="v2-kv-v"><?= $vb('terrasse') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Jardin</div><div class="v2-kv-v"><?= $vb('jardin') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Cour</div><div class="v2-kv-v"><?= $vb('cour') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Cave</div><div class="v2-kv-v"><?= $vb('cave') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Grenier</div><div class="v2-kv-v"><?= $vb('grenier') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Garage</div><div class="v2-kv-v"><?= $vb('garage') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Box</div><div class="v2-kv-v"><?= $vb('box') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Piscine</div><div class="v2-kv-v"><?= $vb('piscine') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Parking</div><div class="v2-kv-v"><?= h((string)$vn('parking_nb')) ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">🛋️ Équipements intérieurs</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Cuisine équipée</div><div class="v2-kv-v"><?= $vb('cuisine_equipee') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Type cuisine</div><div class="v2-kv-v"><?= h((string)$vn('cuisine_type')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Ascenseur</div><div class="v2-kv-v"><?= $vb('ascenseur') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Interphone</div><div class="v2-kv-v"><?= $vb('interphone') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Digicode</div><div class="v2-kv-v"><?= $vb('digicode') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Alarme</div><div class="v2-kv-v"><?= $vb('alarme') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Fibre</div><div class="v2-kv-v"><?= $vb('fibre') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Cheminée</div><div class="v2-kv-v"><?= $vb('cheminee') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Double vitrage</div><div class="v2-kv-v"><?= $vb('double_vitrage') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Volets roulants</div><div class="v2-kv-v"><?= $vb('volets_roulants') ?></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card 3 : Chauffage & Énergie -->
+      <section class="v2-card is-hidden" role="tabpanel" aria-label="Chauffage et énergie">
+        <div class="v2-card-label">🔥 Chauffage &amp; Énergie</div>
+        <div class="v2-card-body">
+          <div class="v2-desc-group-title">🔥 Chauffage</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Type</div><div class="v2-kv-v"><?= h((string)$vn('chauffage_type')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Énergie</div><div class="v2-kv-v"><?= h((string)$vn('chauffage_energie')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Plancher chauffant</div><div class="v2-kv-v"><?= $vb('chauffage_plancher') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Thermostat</div><div class="v2-kv-v"><?= $vb('chauffage_thermostat') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Régulateur</div><div class="v2-kv-v"><?= $vb('chauffage_regulateur') ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">💧 Eau chaude</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Type</div><div class="v2-kv-v"><?= h((string)$vn('eau_chaude_type')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Solaire</div><div class="v2-kv-v"><?= $vb('eau_chaude_solaire') ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">🌬️ VMC &amp; isolation</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">VMC</div><div class="v2-kv-v"><?= $vb('chauffage_vmc') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">VMC double flux</div><div class="v2-kv-v"><?= $vb('chauffage_vmc_df') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Climatisation</div><div class="v2-kv-v"><?= $vb('climatisation') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Menuiseries</div><div class="v2-kv-v"><?= h((string)$vn('menuiseries')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Isolation</div><div class="v2-kv-v"><?= h((string)$vn('isolation')) ?></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card 4 : Environnement -->
+      <section class="v2-card is-hidden" role="tabpanel" aria-label="Environnement">
+        <div class="v2-card-label">🌳 Environnement</div>
+        <div class="v2-card-body">
+          <div class="v2-desc-group-title">🧭 Situation</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Étage</div><div class="v2-kv-v"><?= h((string)$vn('etage')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Dernier étage</div><div class="v2-kv-v"><?= $vb('dernier_etage') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Exposition</div><div class="v2-kv-v"><?= h((string)$vn('exposition')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Vue</div><div class="v2-kv-v"><?= h((string)$vn('vue')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Numéro de porte</div><div class="v2-kv-v"><?= h((string)$vn('numero_porte')) ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Année construction</div><div class="v2-kv-v"><?= h((string)$vn('annee_construction')) ?></div></div>
+          </div>
+
+          <div class="v2-desc-group-title">🔊 Nuisances &amp; accès</div>
+          <div class="v2-kv-grid">
+            <div class="v2-kv"><div class="v2-kv-k">Nuisances</div><div class="v2-kv-v"><?= h((string)$vn('nuisances')) ?: '—' ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Accès camion</div><div class="v2-kv-v"><?= $vb('acces_camion') ?></div></div>
+            <div class="v2-kv"><div class="v2-kv-k">Adresse visible</div><div class="v2-kv-v"><?= $vb('adresse_visible_public') ?></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card 5 : Photos -->
+      <section class="v2-card is-prev" role="tabpanel" aria-label="Photos">
+        <div class="v2-card-label">📸 Photos <span class="v2-count"><?= count($descPhotos) ?></span></div>
+        <div class="v2-card-body">
+          <?php if (!empty($descPhotos)): ?>
+            <div class="v2-photo-grid">
+              <?php foreach ($descPhotos as $p): ?>
+                <?php
+                  $photoUrl = $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '';
+                  if (!$photoUrl) continue;
+                ?>
+                <a class="v2-photo-item" href="<?= h($photoUrl) ?>" target="_blank" rel="noopener" title="<?= h((string)($p['nom_original'] ?? '')) ?>">
+                  <img src="<?= h($photoUrl) ?>" alt="<?= h((string)($p['nom_original'] ?? 'Photo')) ?>" loading="lazy">
+                </a>
+              <?php endforeach; ?>
+            </div>
+          <?php else: ?>
+            <div class="v2-doc-empty">
+              <div class="v2-doc-empty-icon">📸</div>
+              <div>Aucune photo enregistrée.</div>
+            </div>
+          <?php endif; ?>
+        </div>
       </section>
 
     <?php else: /* section = dpe */ ?>
