@@ -39,17 +39,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mandant'])) {
     if (empty($fields['raison_sociale'])) {
         $error = 'Le nom est obligatoire.';
     } else {
-        if ($editId) {
-            $set = implode(',', array_map(fn($k) => "`$k`=?", array_keys($fields)));
-            $pdo->prepare("UPDATE agency_mandant SET $set WHERE id=?")->execute([...array_values($fields), $editId]);
-        } else {
-            $cols = implode(',', array_map(fn($k) => "`$k`", array_keys($fields)));
-            $phs  = implode(',', array_fill(0, count($fields), '?'));
-            $pdo->prepare("INSERT INTO agency_mandant ($cols) VALUES($phs)")->execute(array_values($fields));
-            $editId = (int)$pdo->lastInsertId();
+        $pdo->beginTransaction();
+        try {
+            // ── Sauvegarde agency_mandant (legacy conservé) ──
+            if ($editId) {
+                $set = implode(',', array_map(fn($k) => "`$k`=?", array_keys($fields)));
+                $pdo->prepare("UPDATE agency_mandant SET $set WHERE id=?")->execute([...array_values($fields), $editId]);
+            } else {
+                $cols = implode(',', array_map(fn($k) => "`$k`", array_keys($fields)));
+                $phs  = implode(',', array_fill(0, count($fields), '?'));
+                $pdo->prepare("INSERT INTO agency_mandant ($cols) VALUES($phs)")->execute(array_values($fields));
+                $editId = (int)$pdo->lastInsertId();
+            }
+
+            // ── Double écriture TIERS (Phase 3.2) ──
+            // Type de tiers selon type_mandant : copropriete → syndicat_coprop, sci → personne_morale, sinon personne_morale
+            $typeTiers = match ($type) {
+                'copropriete' => 'syndicat_coprop',
+                'sci'         => 'personne_morale',
+                default       => 'personne_morale',
+            };
+            // role_code selon type_mandant
+            $roleCode = match ($type) {
+                'copropriete' => 'syndicat_coprop',
+                'sci'         => 'proprietaire',
+                default       => 'mandant',
+            };
+
+            // Récupérer l'id_tiers existant ou en créer un
+            $existingTiers = (int)$pdo->query("SELECT id_tiers FROM agency_mandant WHERE id=$editId")->fetchColumn();
+            if ($existingTiers > 0) {
+                // UPDATE tiers existant
+                $pdo->prepare("
+                    UPDATE tiers SET
+                        id_agence=:id_agence,
+                        type_tiers=:type_tiers,
+                        raison_sociale=:rs, siret=:siret,
+                        email=:email, telephone=:tel,
+                        adresse_ligne1=:adr, code_postal=:cp, ville=:ville,
+                        actif=:actif,
+                        nom_affichage=:rs
+                    WHERE id=:id
+                ")->execute([
+                    ':id_agence'  => $fields['id_etablissement'] ?: null,
+                    ':type_tiers' => $typeTiers,
+                    ':rs'         => $fields['raison_sociale'],
+                    ':siret'      => $fields['siret'] ?: null,
+                    ':email'      => $fields['email'] ?: null,
+                    ':tel'        => $fields['telephone'] ?: null,
+                    ':adr'        => $fields['adresse'] ?: null,
+                    ':cp'         => $fields['code_postal'] ?: null,
+                    ':ville'      => $fields['ville'] ?: null,
+                    ':actif'      => $fields['actif'],
+                    ':id'         => $existingTiers,
+                ]);
+                $idTiers = $existingTiers;
+            } else {
+                // INSERT nouveau tiers
+                $pdo->prepare("
+                    INSERT INTO tiers
+                        (id_agence, type_tiers, raison_sociale, nom_affichage, siret,
+                         email, telephone, adresse_ligne1, code_postal, ville, pays, actif,
+                         source_creation, id_user_createur)
+                    VALUES
+                        (:id_agence, :type_tiers, :rs, :rs, :siret,
+                         :email, :tel, :adr, :cp, :ville, 'France', :actif,
+                         'agency_mandant_form', :user_id)
+                ")->execute([
+                    ':id_agence'  => $fields['id_etablissement'] ?: null,
+                    ':type_tiers' => $typeTiers,
+                    ':rs'         => $fields['raison_sociale'],
+                    ':siret'      => $fields['siret'] ?: null,
+                    ':email'      => $fields['email'] ?: null,
+                    ':tel'        => $fields['telephone'] ?: null,
+                    ':adr'        => $fields['adresse'] ?: null,
+                    ':cp'         => $fields['code_postal'] ?: null,
+                    ':ville'      => $fields['ville'] ?: null,
+                    ':actif'      => $fields['actif'],
+                    ':user_id'    => $user_id ?: null,
+                ]);
+                $idTiers = (int)$pdo->lastInsertId();
+                // Lier agency_mandant.id_tiers
+                $pdo->prepare("UPDATE agency_mandant SET id_tiers=? WHERE id=?")->execute([$idTiers, $editId]);
+            }
+
+            // Rôle contextualisé à l'immeuble si renseigné
+            if ($fields['id_immeuble']) {
+                $pdo->prepare("
+                    INSERT IGNORE INTO tiers_roles (id_tiers, role_code, objet_type, id_objet, actif)
+                    VALUES (?, ?, 'immeuble', ?, ?)
+                ")->execute([$idTiers, $roleCode, $fields['id_immeuble'], $fields['actif']]);
+            } else {
+                // Rôle global sans contexte — vérifier qu'il n'existe pas déjà
+                $st = $pdo->prepare("SELECT COUNT(*) FROM tiers_roles WHERE id_tiers=? AND role_code=? AND objet_type IS NULL");
+                $st->execute([$idTiers, $roleCode]);
+                if ((int)$st->fetchColumn() === 0) {
+                    $pdo->prepare("
+                        INSERT INTO tiers_roles (id_tiers, role_code, objet_type, id_objet, actif)
+                        VALUES (?, ?, NULL, NULL, ?)
+                    ")->execute([$idTiers, $roleCode, $fields['actif']]);
+                }
+            }
+
+            $pdo->commit();
+            header('Location: agency_mandant_fiche.php?id='.$editId);
+            exit;
+        } catch (Throwable $ex) {
+            $pdo->rollBack();
+            $error = 'Erreur enregistrement : ' . $ex->getMessage();
         }
-        header('Location: agency_mandant_fiche.php?id='.$editId);
-        exit;
     }
 }
 

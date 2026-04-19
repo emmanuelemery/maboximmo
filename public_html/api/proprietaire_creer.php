@@ -86,39 +86,99 @@ try {
         }
     }
 
-    $stmt = $pdo->prepare("
-        INSERT INTO proprietaires
-            (id_agence, type_personne, civilite, nom, prenom, societe,
-             email, telephone, telephone_2,
-             adresse_1, code_postal, ville,
-             commentaire, actif, date_creation, date_modification)
-        VALUES
-            (?, ?, ?, ?, ?, ?,
-             ?, ?, ?,
-             ?, ?, ?,
-             ?, 1, NOW(), NOW())
-    ");
-    $stmt->execute([
-        $agenceId ?: null,
-        $typePersonne,
-        $civilite  ?: null,
-        $nom,
-        $prenom    ?: null,
-        $societe   ?: null,
-        $email     ?: null,
-        $telephone ?: null,
-        $telephone2?: null,
-        $adresse1  ?: null,
-        $cp        ?: null,
-        $ville     ?: null,
-        $commentaire?: null,
-    ]);
-    $id = (int)$pdo->lastInsertId();
+    // ── Création en transaction : tiers + tiers_roles + proprietaires ──
+    // (Phase 3.3 — double écriture vers la source unique tiers)
+    $societeId = (int)($_SESSION['id_societe'] ?? 0) ?: null;
+    $userId    = (int)current_user_id() ?: null;
+    $typeTiers = $typePersonne === 'morale' ? 'personne_morale' : 'personne_physique';
+    $nomAffichage = $societe !== '' ? $societe : trim($prenom . ' ' . $nom);
+
+    $pdo->beginTransaction();
+    try {
+        // 1. INSERT tiers
+        $stT = $pdo->prepare("
+            INSERT INTO tiers
+                (id_societe, id_agence, type_tiers,
+                 civilite, nom, prenom, raison_sociale, nom_affichage,
+                 email, telephone, telephone_secondaire,
+                 adresse_ligne1, code_postal, ville, pays,
+                 commentaire, actif, source_creation, id_user_createur)
+            VALUES
+                (:id_societe, :id_agence, :type_tiers,
+                 :civilite, :nom, :prenom, :raison_sociale, :nom_affichage,
+                 :email, :telephone, :telephone2,
+                 :adresse1, :cp, :ville, 'France',
+                 :commentaire, 1, 'agency_proprietaires_modal', :user_id)
+        ");
+        $stT->execute([
+            ':id_societe' => $societeId,
+            ':id_agence'  => $agenceId ?: null,
+            ':type_tiers' => $typeTiers,
+            ':civilite'   => $civilite  ?: null,
+            ':nom'        => $nom,
+            ':prenom'     => $prenom    ?: null,
+            ':raison_sociale' => $societe ?: null,
+            ':nom_affichage'  => $nomAffichage,
+            ':email'      => $email     ?: null,
+            ':telephone'  => $telephone ?: null,
+            ':telephone2' => $telephone2?: null,
+            ':adresse1'   => $adresse1  ?: null,
+            ':cp'         => $cp        ?: null,
+            ':ville'      => $ville     ?: null,
+            ':commentaire'=> $commentaire?: null,
+            ':user_id'    => $userId,
+        ]);
+        $idTiers = (int)$pdo->lastInsertId();
+
+        // 2. INSERT tiers_roles (role=proprietaire, objet global)
+        $pdo->prepare("
+            INSERT IGNORE INTO tiers_roles (id_tiers, role_code, objet_type, id_objet, actif)
+            VALUES (?, 'proprietaire', NULL, NULL, 1)
+        ")->execute([$idTiers]);
+
+        // 3. INSERT proprietaires (legacy + lien vers tiers)
+        $stmt = $pdo->prepare("
+            INSERT INTO proprietaires
+                (id_tiers, id_agence, type_personne, civilite, nom, prenom, societe,
+                 email, telephone, telephone_2,
+                 adresse_1, code_postal, ville,
+                 commentaire, actif, date_creation, date_modification)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?,
+                 ?, ?, ?,
+                 ?, ?, ?,
+                 ?, 1, NOW(), NOW())
+        ");
+        $stmt->execute([
+            $idTiers,
+            $agenceId ?: null,
+            $typePersonne,
+            $civilite  ?: null,
+            $nom,
+            $prenom    ?: null,
+            $societe   ?: null,
+            $email     ?: null,
+            $telephone ?: null,
+            $telephone2?: null,
+            $adresse1  ?: null,
+            $cp        ?: null,
+            $ville     ?: null,
+            $commentaire?: null,
+        ]);
+        $id = (int)$pdo->lastInsertId();
+
+        $pdo->commit();
+    } catch (Throwable $txEx) {
+        $pdo->rollBack();
+        http_response_code(500);
+        exit(json_encode(['ok' => false, 'error' => 'Erreur transaction : ' . $txEx->getMessage()]));
+    }
 
     exit(json_encode([
-        'ok'  => true,
-        'id'  => $id,
-        'nom' => ($prenom ? $prenom . ' ' : '') . $nom,
+        'ok'       => true,
+        'id'       => $id,
+        'id_tiers' => $idTiers,
+        'nom'      => ($prenom ? $prenom . ' ' : '') . $nom,
     ], JSON_UNESCAPED_UNICODE));
 
 } catch (Throwable $e) {
