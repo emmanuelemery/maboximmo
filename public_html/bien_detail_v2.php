@@ -931,26 +931,87 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 4 : Environnement -->
+      <?php
+        // Dictionnaires Card 4
+        $expositions = [
+          'nord'       => ['⬆️', 'Nord'],
+          'est'        => ['➡️', 'Est'],
+          'sud'        => ['⬇️', 'Sud'],
+          'ouest'      => ['⬅️', 'Ouest'],
+          'nord_sud'   => ['↕️', 'N/S'],
+          'est_ouest'  => ['↔️', 'E/O'],
+          'plein_sud'  => ['☀️', 'Plein Sud'],
+          'traversant' => ['🔄', 'Traversant'],
+        ];
+        $vues = [
+          'degagee'   => ['🌅', 'Dégagée'],
+          'jardin'    => ['🌳', 'Jardin'],
+          'mer'       => ['🌊', 'Mer'],
+          'montagne'  => ['⛰️', 'Montagne'],
+          'parc'      => ['🌲', 'Parc'],
+          'cour'      => ['🏡', 'Cour'],
+          'rue'       => ['🛣️', 'Rue'],
+          'immeuble'  => ['🏢', 'Immeuble'],
+        ];
+        $nuisancesOpts = [
+          'aucune'     => ['✅', 'Aucune'],
+          'route'      => ['🚗', 'Route'],
+          'voie_ferree'=> ['🚂', 'Voie ferrée'],
+          'aeroport'   => ['✈️', 'Aéroport'],
+          'industrie'  => ['🏭', 'Industrie'],
+          'nocturne'   => ['🌙', 'Nocturne'],
+        ];
+        $accesTransports = [
+          'moins_5'  => ['⚡', '< 5 min'],
+          'moins_10' => ['🚶', '< 10 min'],
+          'moins_15' => ['🚶', '< 15 min'],
+          'plus_20'  => ['🐌', '> 20 min'],
+        ];
+        $distanceCommerces = [
+          'moins_200'  => ['🏃', '< 200 m'],
+          'moins_400'  => ['🚶', '< 400 m'],
+          'moins_600'  => ['🚶', '< 600 m'],
+          'moins_800'  => ['🚶', '< 800 m'],
+          'plus_1200'  => ['🚗', '> 1,2 km'],
+        ];
+
+        $curExpo    = (string)($b['exposition']         ?? '');
+        $curVue     = (string)($b['vue']                ?? '');
+        $curNuis    = (string)($b['nuisances']          ?? '');
+        $curTrans   = (string)($b['acces_transports']   ?? '');
+        $curCom     = (string)($b['distance_commerces'] ?? '');
+      ?>
+
+      <!-- Card 4 : Environnement (ÉDITION AUTOSAVE avec icônes) -->
       <section class="v2-card is-hidden" role="tabpanel" aria-label="Environnement">
         <div class="v2-card-label">🌳 Environnement</div>
         <div class="v2-card-body">
+
           <div class="v2-desc-group-title">🧭 Situation</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Étage</div><div class="v2-kv-v"><?= h((string)$vn('etage')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Dernier étage</div><div class="v2-kv-v"><?= $vb('dernier_etage') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Exposition</div><div class="v2-kv-v"><?= h((string)$vn('exposition')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Vue</div><div class="v2-kv-v"><?= h((string)$vn('vue')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Numéro de porte</div><div class="v2-kv-v"><?= h((string)$vn('numero_porte')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Année construction</div><div class="v2-kv-v"><?= h((string)$vn('annee_construction')) ?></div></div>
+          <div class="v2-num-grid">
+            <?= $numField('🪜', 'etage',              'Étage') ?>
+            <?= $numField('📅', 'annee_construction', 'An. construction') ?>
+          </div>
+          <div class="v2-bool-toggles" style="margin-top:10px;">
+            <?= $boolToggle('🔝', 'dernier_etage',          'Dernier étage') ?>
+            <?= $boolToggle('🚪', 'adresse_visible_public', 'Adresse visible public') ?>
+            <?= $boolToggle('🚚', 'acces_camion',           'Accès camion') ?>
           </div>
 
-          <div class="v2-desc-group-title">🔊 Nuisances &amp; accès</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Nuisances</div><div class="v2-kv-v"><?= h((string)$vn('nuisances')) ?: '—' ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Accès camion</div><div class="v2-kv-v"><?= $vb('acces_camion') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Adresse visible</div><div class="v2-kv-v"><?= $vb('adresse_visible_public') ?></div></div>
-          </div>
+          <div class="v2-desc-group-title">☀️ Exposition</div>
+          <?= $iconRadios('exposition', $expositions, $curExpo) ?>
+
+          <div class="v2-desc-group-title">👀 Vue</div>
+          <?= $iconRadios('vue', $vues, $curVue) ?>
+
+          <div class="v2-desc-group-title">🔊 Nuisances</div>
+          <?= $iconRadios('nuisances', $nuisancesOpts, $curNuis) ?>
+
+          <div class="v2-desc-group-title">🚉 Accès transports</div>
+          <?= $iconRadios('acces_transports', $accesTransports, $curTrans) ?>
+
+          <div class="v2-desc-group-title">🏪 Distance commerces</div>
+          <?= $iconRadios('distance_commerces', $distanceCommerces, $curCom) ?>
         </div>
       </section>
 
