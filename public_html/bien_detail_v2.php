@@ -572,9 +572,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 5 : Analyse du rapport -->
-      <section class="v2-card is-hidden" role="tabpanel" aria-label="Analyse du rapport">
-        <div class="v2-card-label">🧠 Analyse du rapport</div>
+      <!-- Card 5 : Analyse du rapport + Alertes -->
+      <section class="v2-card is-prev" role="tabpanel" aria-label="Analyse du rapport et alertes">
+        <div class="v2-card-label">🧠 Analyse &amp; ⚠️ Alertes</div>
         <div class="v2-card-body">
           <?php if (!empty($dpeDiag['resume_bailleur']) || !empty($dpeDiag['commentaire'])): ?>
             <?php if (!empty($dpeDiag['resume_bailleur'])): ?>
@@ -589,57 +589,49 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                 <div class="v2-analysis-body"><?= nl2br(h((string)$dpeDiag['commentaire'])) ?></div>
               </div>
             <?php endif; ?>
-          <?php else: ?>
+          <?php elseif (!$dpeDiag): ?>
             <div class="v2-doc-empty">
               <div class="v2-doc-empty-icon">🧠</div>
               <div>Aucune analyse disponible.<br><small>L'analyse IA est générée automatiquement lors de l'upload d'un PDF DPE.</small></div>
             </div>
           <?php endif; ?>
-        </div>
-      </section>
 
-      <!-- Card 6 : Alertes -->
-      <section class="v2-card is-prev" role="tabpanel" aria-label="Alertes sur diagnostics">
-        <div class="v2-card-label">⚠️ Alertes s/Diag</div>
-        <div class="v2-card-body">
           <?php if ($dpeDiag): ?>
-            <div class="v2-alerts-grid">
-              <?php
-                $alerts = [
-                  ['k' => 'alerte_plomb_present',     'label' => 'Plomb',         'icon' => '🧪', 'detail' => $dpeDiag['alerte_plomb_classe_max'] ?? null],
-                  ['k' => 'alerte_amiante_present',   'label' => 'Amiante',       'icon' => '🧱'],
-                  ['k' => 'alerte_electricite_anomalies', 'label' => 'Électricité','icon' => '⚡', 'freeText' => true],
-                  ['k' => 'alerte_gaz_anomalies',     'label' => 'Gaz',           'icon' => '🔥', 'freeText' => true],
-                  ['k' => 'alerte_termites',          'label' => 'Termites',      'icon' => '🐜'],
-                  ['k' => 'alerte_zone_georisque',    'label' => 'Géorisque',     'icon' => '🌍'],
-                  ['k' => 'alerte_inondation',        'label' => 'Inondation',    'icon' => '💧'],
-                ];
-                foreach ($alerts as $a):
-                  $val = $dpeDiag[$a['k']] ?? null;
-                  $freeText = !empty($a['freeText']);
-                  if ($freeText) {
-                      $state = (!empty($val) && $val !== '0' && $val !== 'aucune' && $val !== 'Aucune') ? 'bad' : 'ok';
-                      $txt = $state === 'bad' ? h((string)$val) : 'Aucune anomalie';
-                  } else {
-                      $state = (int)$val === 1 ? 'bad' : 'ok';
-                      $txt = $state === 'bad' ? '⚠️ Signalé' : '✅ Aucun';
-                      if ($state === 'bad' && !empty($a['detail'])) $txt .= ' (' . h((string)$a['detail']) . ')';
-                  }
-              ?>
-                <div class="v2-alert-card <?= $state ?>">
-                  <div class="v2-alert-icon"><?= $a['icon'] ?></div>
-                  <div class="v2-alert-label"><?= h($a['label']) ?></div>
-                  <div class="v2-alert-state"><?= $txt ?></div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-            <?php if (!empty($dpeDiag['sismicite_zone'])): ?>
-              <div class="v2-alert-sismic">🌋 Zone de sismicité : <strong><?= h((string)$dpeDiag['sismicite_zone']) ?></strong></div>
-            <?php endif; ?>
-          <?php else: ?>
-            <div class="v2-doc-empty">
-              <div class="v2-doc-empty-icon">⚠️</div>
-              <div>Aucune alerte — pas d'analyse DPE disponible.</div>
+            <div class="v2-alerts-section">
+              <div class="v2-alerts-title">⚠️ Alertes sur diagnostics</div>
+              <div class="v2-alerts-grid">
+                <?php
+                  $alerts = [
+                    ['k' => 'alerte_plomb_present',     'label' => 'Plomb',         'icon' => '🧪', 'detail' => $dpeDiag['alerte_plomb_classe_max'] ?? null],
+                    ['k' => 'alerte_amiante_present',   'label' => 'Amiante',       'icon' => '🧱'],
+                    ['k' => 'alerte_electricite_anomalies', 'label' => 'Électricité','icon' => '⚡', 'freeText' => true],
+                    ['k' => 'alerte_gaz_anomalies',     'label' => 'Gaz',           'icon' => '🔥', 'freeText' => true],
+                    ['k' => 'alerte_termites',          'label' => 'Termites',      'icon' => '🐜'],
+                    ['k' => 'alerte_zone_georisque',    'label' => 'Géorisque',     'icon' => '🌍'],
+                    ['k' => 'alerte_inondation',        'label' => 'Inondation',    'icon' => '💧'],
+                  ];
+                  foreach ($alerts as $a):
+                    $val = $dpeDiag[$a['k']] ?? null;
+                    $freeText = !empty($a['freeText']);
+                    if ($freeText) {
+                        $state = (!empty($val) && $val !== '0' && $val !== 'aucune' && $val !== 'Aucune') ? 'bad' : 'ok';
+                        $txt = $state === 'bad' ? h((string)$val) : 'Aucune anomalie';
+                    } else {
+                        $state = (int)$val === 1 ? 'bad' : 'ok';
+                        $txt = $state === 'bad' ? '⚠️ Signalé' : '✅ Aucun';
+                        if ($state === 'bad' && !empty($a['detail'])) $txt .= ' (' . h((string)$a['detail']) . ')';
+                    }
+                ?>
+                  <div class="v2-alert-card <?= $state ?>">
+                    <div class="v2-alert-icon"><?= $a['icon'] ?></div>
+                    <div class="v2-alert-label"><?= h($a['label']) ?></div>
+                    <div class="v2-alert-state"><?= $txt ?></div>
+                  </div>
+                <?php endforeach; ?>
+              </div>
+              <?php if (!empty($dpeDiag['sismicite_zone'])): ?>
+                <div class="v2-alert-sismic">🌋 Zone de sismicité : <strong><?= h((string)$dpeDiag['sismicite_zone']) ?></strong></div>
+              <?php endif; ?>
             </div>
           <?php endif; ?>
         </div>

@@ -578,10 +578,21 @@ html.v2-no-scroll, body.v2-no-scroll {
 /* ─────────────────────────────────
    CARD 6 — Alertes
 ───────────────────────────────── */
+.v2-alerts-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(54, 87, 125, 0.10);
+}
+.v2-alerts-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--v2-accent);
+  margin-bottom: 10px;
+}
 .v2-alerts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
 }
 .v2-alert-card {
   padding: 14px 16px;
