@@ -514,22 +514,17 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <!-- 2. Adresse (titre + recherche Google + select immeuble sur la même ligne) -->
+          <!-- 2. Adresse (titre + recherche Google + recherche immeuble sur la même ligne) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse</span>
-            <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Recherche Google (adresse)…" autocomplete="off">
+            <div class="v2-places-picker">
+              <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Google (adresse)…" autocomplete="off">
+            </div>
             <?php if (!empty($immeublesList)): ?>
-              <select id="v2-imm-select" class="v2-input v2-imm-select">
-                <option value="">— ou sélectionner un immeuble —</option>
-                <?php foreach ($immeublesList as $imm): ?>
-                  <option value="<?= (int)$imm['id'] ?>"
-                          data-adresse="<?= h((string)($imm['adresse'] ?? '')) ?>"
-                          data-cp="<?= h((string)($imm['code_postal'] ?? '')) ?>"
-                          data-ville="<?= h((string)($imm['ville'] ?? '')) ?>">
-                    <?= h(trim(($imm['reference_immeuble'] ? '[' . $imm['reference_immeuble'] . '] ' : '') . ($imm['adresse'] ?? '') . ' ' . ($imm['code_postal'] ?? '') . ' ' . ($imm['ville'] ?? ''))) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
+              <div class="v2-imm-picker">
+                <input type="text" id="v2-imm-search" class="v2-input" placeholder="🏢 Immeubles enregistrés…" autocomplete="off">
+                <div id="v2-imm-suggest" class="v2-tiers-suggest" hidden></div>
+              </div>
             <?php endif; ?>
           </div>
           <div class="v2-addr-grid">
@@ -1095,6 +1090,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
+    immeubles:  <?= json_encode($immeublesList ?? [], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
   };
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>

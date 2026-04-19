@@ -616,7 +616,14 @@ html.v2-no-scroll, body.v2-no-scroll {
   flex-shrink: 0;
   margin-left: auto;
 }
-.v2-imm-select { max-width: 300px; font-size: 12px; }
+.v2-places-picker,
+.v2-imm-picker {
+  flex: 1;
+  min-width: 180px;
+  position: relative;
+}
+.v2-places-picker .v2-input,
+.v2-imm-picker .v2-input { font-size: 12px; padding: 7px 10px; }
 
 /* Séparation renforcée entre rubriques icônes (caractéristiques) */
 .v2-desc-group-title {
