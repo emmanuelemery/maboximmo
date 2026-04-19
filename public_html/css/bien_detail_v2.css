@@ -13,12 +13,14 @@
   --v2-card-bg: #ffffff;
   --v2-card-border: rgba(54, 87, 125, 0.10);
 
-  /* Vert olive charte (côté droit / is-next) */
-  --v2-warm-1: var(--accent-green, #7a9060);
+  /* Vert olive (côté droit / is-next) */
+  --v2-warm-1: #759e78;
   --v2-warm-2: #4a6038;
-  /* Bleu pétrole charte (côté gauche / is-prev) */
-  --v2-cold-1: var(--brand-700, #213450);
+  /* Bleu pétrole (côté gauche / is-prev) */
+  --v2-cold-1: #4b7994;
   --v2-cold-2: var(--brand-800, #17253a);
+  /* Bleu pétrole foncé pour le label */
+  --v2-label-bg: var(--brand-800, #17253a);
 
   --v2-ink: #1a1816;
   --v2-muted: #8a8680;
@@ -154,6 +156,13 @@ html.v2-no-scroll, body.v2-no-scroll {
   opacity: 1;
   z-index: 10;
   filter: none;
+  border: 3px solid var(--brand-700, #213450);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.9) inset,
+    0 0 32px rgba(75, 121, 148, 0.45),
+    0 0 64px rgba(75, 121, 148, 0.25),
+    0 30px 60px -20px rgba(54, 87, 125, 0.30),
+    0 12px 24px -12px rgba(54, 87, 125, 0.20);
 }
 
 /* Gauche = bleu pétrole (cold) */
@@ -185,27 +194,29 @@ html.v2-no-scroll, body.v2-no-scroll {
   pointer-events: none;
 }
 
-/* Label sombre en haut */
+/* Label card : cadre 3D neumorphique bleu pétrole foncé */
 .v2-card-label {
   position: absolute;
-  top: -14px;
+  top: -18px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 6px 18px;
-  background: rgba(26, 24, 22, 0.85);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  padding: 8px 16px;
+  background: var(--v2-label-bg);
   color: #fff;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  border-radius: 999px;
+  border-radius: 10px;
   white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 8px;
   z-index: 11;
-  box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    3px 3px 8px rgba(0, 0, 0, 0.35),
+    -2px -2px 6px rgba(255, 255, 255, 0.25),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.15),
+    inset -1px -1px 2px rgba(0, 0, 0, 0.20);
 }
 .v2-card-label .v2-count {
   background: rgba(255, 255, 255, 0.20);
