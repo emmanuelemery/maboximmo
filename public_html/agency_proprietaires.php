@@ -320,6 +320,11 @@ document.getElementById('form-new-proprio').addEventListener('submit', async fun
     btn.textContent = 'Créer';
   }
 });
+
+// Ouverture auto du modal via ?new=1 (lien depuis la barre de création du dashboard)
+if (new URLSearchParams(window.location.search).get('new') === '1') {
+  document.getElementById('modal-new-proprio').classList.add('open');
+}
 </script>
 
 <?php include __DIR__ . '/inc/footer.php'; ?>
