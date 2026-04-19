@@ -252,7 +252,7 @@ try {
     // ── (5) Persistance différenciée selon le type de document ──
     // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI (15-30s)
     // (wait_timeout court sur Hostinger → "MySQL server has gone away")
-    $pdo = db_keepalive();
+    $pdo = db_reconnect_fresh();
 
     $diagId = 0;
 

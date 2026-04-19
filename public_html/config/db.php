@@ -75,12 +75,28 @@ function db_keepalive(): PDO
     $pdo = $GLOBALS['pdo'] ?? db();
     try {
         $pdo->query('SELECT 1');
+        // Étend les timeouts session (défense contre OCR/IA longs)
+        try { $pdo->exec("SET SESSION wait_timeout = 600, interactive_timeout = 600"); } catch (Throwable) {}
         return $pdo;
     } catch (Throwable $e) {
         $pdo = db(true);
         $GLOBALS['pdo'] = $pdo;
+        try { $pdo->exec("SET SESSION wait_timeout = 600, interactive_timeout = 600"); } catch (Throwable) {}
         return $pdo;
     }
+}
+
+/**
+ * Force un reconnect PDO frais (utile avant une grosse INSERT après un traitement
+ * long type OCR/IA où la connexion a pu timeout entre le SELECT 1 de db_keepalive
+ * et l'INSERT effectif).
+ */
+function db_reconnect_fresh(): PDO
+{
+    $pdo = db(true);  // nouvelle connexion forcée
+    $GLOBALS['pdo'] = $pdo;
+    try { $pdo->exec("SET SESSION wait_timeout = 600, interactive_timeout = 600"); } catch (Throwable) {}
+    return $pdo;
 }
 
 // ── Credentials FTP Ubiflow (fichier non versionné) ──────────────────

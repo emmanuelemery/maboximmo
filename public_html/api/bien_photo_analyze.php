@@ -157,7 +157,7 @@ try {
         $desc = $res['description'] ?? null;
 
         // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI
-        $pdo = db_keepalive();
+        $pdo = db_reconnect_fresh();
 
         if ($iaColsOk) {
             try {

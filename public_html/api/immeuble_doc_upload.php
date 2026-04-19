@@ -141,7 +141,7 @@ try {
     }
 
     // ─── Insertion en BDD ───
-    $pdo = db_keepalive();
+    $pdo = db_reconnect_fresh();
 
     $stmt = $pdo->prepare("
         INSERT INTO immeubles_documents (

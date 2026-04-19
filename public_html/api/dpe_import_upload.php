@@ -153,7 +153,10 @@ try {
     // ── Enregistrement complet en dpe_diags (table dédiée) ───────
     // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI
     // (wait_timeout court sur Hostinger → "MySQL server has gone away")
-    $pdo = db_keepalive();
+    // Après l'OCR/IA qui peut durer 30-120s, on force un reconnect PDO frais
+    // avant les INSERT critiques. Un simple SELECT 1 (db_keepalive) peut passer
+    // puis le vrai INSERT tomber sur une connexion morte entre les deux.
+    $pdo = db_reconnect_fresh();
 
     $diagId = 0;
     if ($bienId > 0) {
