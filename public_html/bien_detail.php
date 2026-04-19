@@ -4891,12 +4891,18 @@ if ($isEditing && $editingBienId > 0 && $pdo) {
                 $b = is_array($bienLoaded) ? $bienLoaded : [];
               ?>
 
+              <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button type="button" id="dpe-extracted-save" style="padding:8px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">💾 Sauvegarder les modifications</button>
+                <span id="dpe-extracted-save-msg" style="font-size:12px;color:#64748b;"></span>
+                <span style="margin-left:auto;font-size:11px;color:#64748b;">Toutes les cellules sont éditables. Modifiez puis cliquez sur "Sauvegarder".</span>
+              </div>
+
               <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
                 <thead>
                   <tr style="background:#f1f5f9;">
                     <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">Champ</th>
                     <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">📊 dpe_diags (source)</th>
-                    <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">🏠 Table cible (valeur actuelle)</th>
+                    <th style="padding:8px 10px;text-align:left;font-weight:700;color:#334155;">🏠 Table cible</th>
                     <th style="padding:8px 10px;text-align:center;font-weight:700;color:#334155;width:60px;">État</th>
                   </tr>
                 </thead>
@@ -4909,35 +4915,50 @@ if ($isEditing && $editingBienId > 0 && $pdo) {
                     $srcVal = $d[$srcCol] ?? null;
                     $tgtVal = null;
                     if ($tgtTable === 'biens' && !empty($tgtCol) && $tgtCol !== '—') {
-                        // Pour id_type_bien via code : résoudre avec types_bien
                         if (str_starts_with($tgtCol, 'id_type_bien')) {
                             $tgtVal = $b['_type_bien_code'] ?? $b['id_type_bien'] ?? null;
                         } else {
                             $tgtVal = $b[$tgtCol] ?? null;
                         }
                     }
-                    $srcIsEmpty = ($srcVal === null || $srcVal === '' || $srcVal === 0 || $srcVal === '0');
-                    $tgtIsEmpty = ($tgtVal === null || $tgtVal === '' || $tgtVal === 0 || $tgtVal === '0');
-                    if ($srcIsEmpty && $tgtIsEmpty) continue;  // skip si tout vide
-
+                    $srcIsEmpty = ($srcVal === null || $srcVal === '');
+                    $tgtIsEmpty = ($tgtVal === null || $tgtVal === '');
                     $match = !$srcIsEmpty && !$tgtIsEmpty && (string)$srcVal === (string)$tgtVal;
-                    $statusIcon = $srcIsEmpty ? '⚪'
+                    $statusIcon = ($srcIsEmpty && $tgtIsEmpty) ? '⚪'
+                                : ($srcIsEmpty ? '📝'
                                 : ($tgtIsEmpty ? '⚠️'
-                                : ($match ? '✅' : '❌'));
-                    $statusTitle = $srcIsEmpty ? 'Pas dans dpe_diags'
+                                : ($match ? '✅' : '❌')));
+                    $statusTitle = ($srcIsEmpty && $tgtIsEmpty) ? 'Aucune valeur'
+                                : ($srcIsEmpty ? 'Valeur uniquement dans la table cible'
                                 : ($tgtIsEmpty ? 'Pas syncé en table cible'
-                                : ($match ? 'Valeurs identiques' : 'Désynchronisation'));
+                                : ($match ? 'Valeurs identiques' : 'Désynchronisation')));
+
+                    // Champs interdits en édition (identité techniques)
+                    $srcReadonly = false;
+                    $tgtReadonly = ($tgtTable !== 'biens' || str_starts_with((string)$tgtCol, 'id_type_bien'));
                   ?>
                   <tr style="border-top:1px solid #e2e8f0;">
                     <td style="padding:6px 10px;color:#475569;"><?= h($label) ?><br><span style="font-size:9px;color:#94a3b8;font-family:monospace;"><?= h($srcCol) ?></span></td>
-                    <td style="padding:6px 10px;"><?= $fmt($srcVal) ?></td>
-                    <td style="padding:6px 10px;">
-                      <?= $fmt($tgtVal) ?>
-                      <?php if ($tgtTable !== '—'): ?>
-                        <br><span style="font-size:9px;color:#94a3b8;font-family:monospace;"><?= h($tgtTable . '.' . $tgtCol) ?></span>
+                    <td style="padding:6px 8px;">
+                      <input type="text"
+                             value="<?= h((string)($srcVal ?? '')) ?>"
+                             data-diag-col="<?= h($srcCol) ?>"
+                             class="dpe-diag-input"
+                             <?= $srcReadonly ? 'readonly' : '' ?>
+                             style="width:100%;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:11px;font-family:inherit;background:<?= $srcReadonly ? '#f1f5f9' : '#fff' ?>;">
+                    </td>
+                    <td style="padding:6px 8px;">
+                      <?php if ($tgtTable === 'biens' && !$tgtReadonly): ?>
+                        <input type="text"
+                               value="<?= h((string)($tgtVal ?? '')) ?>"
+                               name="<?= h($tgtCol) ?>"
+                               data-biens-col="<?= h($tgtCol) ?>"
+                               class="dpe-biens-input"
+                               style="width:100%;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:11px;font-family:inherit;background:#fff;">
                       <?php else: ?>
-                        <br><span style="font-size:9px;color:#cbd5e1;font-style:italic;">stocké uniquement dans dpe_diags</span>
+                        <div style="padding:4px 8px;color:#cbd5e1;font-style:italic;font-size:11px;">— stocké uniquement dans dpe_diags —</div>
                       <?php endif; ?>
+                      <span style="font-size:9px;color:#94a3b8;font-family:monospace;"><?= $tgtTable === '—' ? '' : h($tgtTable . '.' . $tgtCol) ?></span>
                     </td>
                     <td style="padding:6px 10px;text-align:center;font-size:16px;" title="<?= h($statusTitle) ?>"><?= $statusIcon ?></td>
                   </tr>
@@ -4947,11 +4968,59 @@ if ($isEditing && $editingBienId > 0 && $pdo) {
               </table>
 
               <div style="margin-top:10px;padding:8px 12px;background:#f1f5f9;border-radius:8px;font-size:11px;color:#475569;display:flex;gap:16px;flex-wrap:wrap;">
-                <span>✅ Valeurs synchronisées</span>
-                <span>❌ Désynchronisation (dpe_diags ≠ table cible)</span>
-                <span>⚠️ Non syncé en table cible</span>
-                <span>⚪ Non extrait du PDF</span>
+                <span>✅ Identiques</span>
+                <span>❌ Désync (valeurs différentes)</span>
+                <span>📝 Valeur uniquement dans table cible</span>
+                <span>⚠️ Pas syncé en table cible</span>
+                <span>⚪ Aucune valeur</span>
               </div>
+
+              <script>
+              (function() {
+                const btnSave = document.getElementById('dpe-extracted-save');
+                const msgEl = document.getElementById('dpe-extracted-save-msg');
+                const diagId = <?= (int)($d['id'] ?? 0) ?>;
+                const bienId = <?= (int)$editingBienId ?>;
+                if (!btnSave || !diagId) return;
+
+                btnSave.addEventListener('click', async () => {
+                  const diagUpdates = {};
+                  document.querySelectorAll('.dpe-diag-input').forEach(inp => {
+                    const col = inp.dataset.diagCol;
+                    if (col) diagUpdates[col] = inp.value;
+                  });
+                  const biensUpdates = {};
+                  document.querySelectorAll('.dpe-biens-input').forEach(inp => {
+                    const col = inp.dataset.biensCol;
+                    if (col) biensUpdates[col] = inp.value;
+                  });
+
+                  btnSave.disabled = true;
+                  btnSave.textContent = '⏳ Sauvegarde...';
+                  msgEl.textContent = '';
+                  msgEl.style.color = '#64748b';
+
+                  try {
+                    const resp = await fetch('<?= h(app_url('/api/dpe_diag_update.php')) ?>', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': (window.__bi_csrf || '') },
+                      credentials: 'same-origin',
+                      body: JSON.stringify({ diag_id: diagId, id_bien: bienId, diag_fields: diagUpdates, biens_fields: biensUpdates })
+                    });
+                    const data = await resp.json();
+                    if (!data.ok) throw new Error(data.error || 'Erreur inconnue');
+                    msgEl.textContent = '✅ Sauvegardé (' + (data.diag_updated || 0) + ' champ(s) dpe_diags, ' + (data.biens_updated || 0) + ' champ(s) biens)';
+                    msgEl.style.color = '#16a34a';
+                  } catch (err) {
+                    msgEl.textContent = '❌ ' + err.message;
+                    msgEl.style.color = '#dc2626';
+                  } finally {
+                    btnSave.disabled = false;
+                    btnSave.textContent = '💾 Sauvegarder les modifications';
+                  }
+                });
+              })();
+              </script>
 
               <details style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;">
                 <summary style="cursor:pointer;font-weight:600;font-size:12px;color:#475569;">🔧 JSON brut (debug)</summary>
