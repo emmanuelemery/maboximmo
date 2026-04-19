@@ -4574,7 +4574,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                     $dpeColors = ['A'=>'#319834','B'=>'#33a357','C'=>'#51b755','D'=>'#f2e500','E'=>'#f0b200','F'=>'#eb8235','G'=>'#d7221f'];
                     $dpeLimits = ['A'=>70,'B'=>110,'C'=>180,'D'=>250,'E'=>330,'F'=>420,'G'=>999];
                     foreach ($dpeColors as $l => $color):
-                      $isActive = post('dpe_classe','') === $l;
+                      $isActive = strtoupper((string)post('dpe_classe','')) === $l;
                   ?>
                   <div class="dpe-bar<?= $isActive ? ' active' : '' ?>" data-letter="<?= $l ?>" style="display:flex;align-items:center;gap:6px;">
                     <div style="width:<?= 40 + (ord($l) - 65) * 20 ?>px;height:26px;background:<?= $color ?>;color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;border-radius:4px 12px 12px 4px;opacity:<?= $isActive ? '1' : '0.4' ?>;transition:opacity .2s;">
@@ -4594,7 +4594,7 @@ $annonceTransactionPost = (string)post('annonce_transaction', '');
                     $gesTxtColors = ['A'=>'#7c3aed','B'=>'#7c3aed','C'=>'#fff','D'=>'#fff','E'=>'#fff','F'=>'#fff','G'=>'#fff'];
                     $gesLimits = ['A'=>6,'B'=>11,'C'=>30,'D'=>50,'E'=>70,'F'=>100,'G'=>999];
                     foreach ($gesColors as $l => $color):
-                      $isActive = post('ges_classe','') === $l;
+                      $isActive = strtoupper((string)post('ges_classe','')) === $l;
                   ?>
                   <div class="ges-bar<?= $isActive ? ' active' : '' ?>" data-letter="<?= $l ?>" style="display:flex;align-items:center;gap:6px;">
                     <div style="width:<?= 40 + (ord($l) - 65) * 20 ?>px;height:26px;background:<?= $color ?>;color:<?= $gesTxtColors[$l] ?>;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;border-radius:4px 12px 12px 4px;opacity:<?= $isActive ? '1' : '0.4' ?>;transition:opacity .2s;">

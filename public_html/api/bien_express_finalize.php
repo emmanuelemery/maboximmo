@@ -190,8 +190,8 @@ try {
         ':nsb'      => $int('nb_salles_bain'),
         ':nwc'      => $int('nb_wc'),
         ':annee'    => $int('annee_construction'),
-        ':dpeC'     => $str('dpe_classe') ?: null,
-        ':gesC'     => $str('ges_classe') ?: null,
+        ':dpeC'     => ($v = $str('dpe_classe')) !== '' ? strtoupper($v) : null,
+        ':gesC'     => ($v = $str('ges_classe')) !== '' ? strtoupper($v) : null,
         ':dpeV'     => $flt('dpe_valeur'),
         ':gesV'     => $flt('ges_valeur'),
         ':dpeDate'  => $str('dpe_date_realisation') ?: null,
@@ -211,6 +211,34 @@ try {
         ':statut'   => $newStatut,
         ':id'       => $idBien,
     ]);
+
+    // ─── 5b. Synchronisation bien_vues depuis le CSV biens.vue ──
+    // bien_detail affiche les chips Vue depuis la table `bien_vues`
+    // (table de jointure id_bien ↔ id_societe_vue), pas depuis le CSV.
+    // On traduit donc le CSV en lignes dans bien_vues pour que les chips
+    // soient pré-cochées au chargement de bien_detail.
+    if ($idSociete > 0) {
+        try {
+            $pdo->prepare("DELETE FROM bien_vues WHERE id_bien = ?")->execute([$idBien]);
+            if ($vue !== '') {
+                $codes = array_values(array_filter(array_map('trim', explode(',', $vue))));
+                if (!empty($codes)) {
+                    $phCodes = implode(',', array_fill(0, count($codes), '?'));
+                    $stVid = $pdo->prepare("SELECT id FROM societe_vues WHERE id_societe = ? AND code IN ($phCodes) AND actif = 1");
+                    $stVid->execute(array_merge([$idSociete], $codes));
+                    $vueIds = $stVid->fetchAll(PDO::FETCH_COLUMN);
+                    if (!empty($vueIds)) {
+                        $insBv = $pdo->prepare("INSERT IGNORE INTO bien_vues (id_bien, id_societe_vue) VALUES (?, ?)");
+                        foreach ($vueIds as $vid) {
+                            $insBv->execute([$idBien, (int)$vid]);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $exBv) {
+            error_log('[bien_express_finalize] sync bien_vues failed: ' . $exBv->getMessage());
+        }
+    }
 
     // ─── 6. Création annonce si mode with_annonce ──
     $idAnnonce = null;
