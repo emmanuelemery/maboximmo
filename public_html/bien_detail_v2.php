@@ -165,18 +165,34 @@ if ($section === 'descriptif') {
             } catch (Throwable $e) {}
         }
     }
-    // Liste alphabetique des immeubles de la societe/agence du user
+    // Liste alphabetique des immeubles
+    // - Super admin (role_id = 1) : voit TOUS les immeubles
+    // - Autres : filtre par id_societe / id_agence (multi-tenant)
     try {
-        $st = $pdo->prepare("
-            SELECT id, reference_immeuble, adresse, code_postal, ville
-            FROM immeubles
-            WHERE (id_societe = :s OR :s IS NULL)
-              AND (id_agence  = :a OR :a IS NULL)
-            ORDER BY adresse ASC, ville ASC
-            LIMIT 500
-        ");
-        $st->execute([':s' => $idSociete, ':a' => isset($_SESSION['id_agence']) ? (int)$_SESSION['id_agence'] : null]);
-        $immeublesList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $roleId = function_exists('current_role_id') ? (int)current_role_id() : 0;
+        if ($roleId === 1) {
+            $st = $pdo->query("
+                SELECT id, reference_immeuble, adresse, code_postal, ville
+                FROM immeubles
+                ORDER BY adresse ASC, ville ASC
+                LIMIT 500
+            ");
+            $immeublesList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } else {
+            $st = $pdo->prepare("
+                SELECT id, reference_immeuble, adresse, code_postal, ville
+                FROM immeubles
+                WHERE (id_societe = :s OR :s IS NULL)
+                  AND (id_agence  = :a OR :a IS NULL)
+                ORDER BY adresse ASC, ville ASC
+                LIMIT 500
+            ");
+            $st->execute([
+                ':s' => $idSociete,
+                ':a' => isset($_SESSION['id_agence']) ? (int)$_SESSION['id_agence'] : null,
+            ]);
+            $immeublesList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        }
     } catch (Throwable $e) { $immeublesList = []; }
 }
 $immeublesList = $immeublesList ?? [];
