@@ -27,11 +27,27 @@ $bienId = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['i
 
 if ($bienId <= 0) {
     try {
-        $stmt = $pdo->prepare("
-            INSERT INTO biens (id_societe, id_agence, id_user_actuel, statut_bien, date_creation, date_modification)
-            VALUES (?, ?, ?, 'brouillon', NOW(), NOW())
-        ");
-        $stmt->execute([$societeId ?: null, $agenceId ?: null, $userId ?: null]);
+        // FK fk_biens_type oblige un id_type_bien valide (NULL refusé sur
+        // certaines instances). On prend le premier type disponible — l'user
+        // le changera via le select "id_type_bien" dans la section Identification.
+        $defaultTypeId = null;
+        try {
+            $defaultTypeId = (int)$pdo->query("SELECT id FROM types_bien ORDER BY id ASC LIMIT 1")->fetchColumn() ?: null;
+        } catch (Throwable) { /* table peut être absente */ }
+
+        $cols = ['id_societe', 'id_agence', 'id_user_actuel', 'statut_bien', 'date_creation', 'date_modification'];
+        $vals = [$societeId ?: null, $agenceId ?: null, $userId ?: null, 'brouillon'];
+        $ph   = ['?', '?', '?', '?', 'NOW()', 'NOW()'];
+
+        if ($defaultTypeId) {
+            $cols[] = 'id_type_bien';
+            $vals[] = $defaultTypeId;
+            $ph[]   = '?';
+        }
+
+        $sql = "INSERT INTO biens (`" . implode('`,`', $cols) . "`) VALUES (" . implode(',', $ph) . ")";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($vals);
         $bienId = (int)$pdo->lastInsertId();
         header('Location: bien_creation.php?id=' . $bienId);
         exit;
