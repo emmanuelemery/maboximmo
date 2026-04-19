@@ -453,6 +453,10 @@ $protectedFields = [
     'digicode', 'alarme', 'fibre', 'cheminee',
     // Environnement Card 4 v2
     'dernier_etage', 'numero_porte', 'adresse_visible_public', 'etage',
+    // Card 3 v2 : chauffage / énergie / VMC / isolation
+    'chauffage_plancher', 'chauffage_thermostat', 'chauffage_regulateur',
+    'chauffage_vmc', 'chauffage_vmc_df', 'climatisation',
+    'eau_chaude_solaire', 'isolation',
 ];
 foreach ($protectedFields as $f) {
     $raw = $_POST[$f] ?? null;

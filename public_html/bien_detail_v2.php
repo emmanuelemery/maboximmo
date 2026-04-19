@@ -831,32 +831,102 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 3 : Chauffage & Énergie -->
+      <?php
+        // Dictionnaires icon-radios Card 3
+        $chauffageTypes = [
+          'individuel'    => ['🏠', 'Individuel'],
+          'collectif'     => ['🏢', 'Collectif'],
+          'electrique'    => ['⚡',  'Électrique'],
+          'pompe_chaleur' => ['♻️', 'PAC'],
+        ];
+        $chauffageEnergies = [
+          'gaz'         => ['🔥', 'Gaz'],
+          'fioul'       => ['⛽', 'Fioul'],
+          'electricite' => ['⚡',  'Électricité'],
+          'bois'        => ['🪵', 'Bois'],
+          'solaire'     => ['☀️', 'Solaire'],
+        ];
+        $eauChaudeTypes = [
+          'individuelle' => ['🏠', 'Individuelle'],
+          'collective'   => ['🏢', 'Collective'],
+          'chauffe_eau'  => ['⚡',  'Chauffe-eau'],
+          'solaire'      => ['☀️', 'Solaire'],
+        ];
+        $menuiseriesTypes = [
+          'pvc'       => ['🪟', 'PVC'],
+          'bois'      => ['🪵', 'Bois'],
+          'aluminium' => ['🔩', 'Alu'],
+          'mixte'     => ['🔀', 'Mixte'],
+        ];
+        $isolationTypes = [
+          'thermique'           => ['🌡️', 'Thermique'],
+          'thermique_phonique'  => ['🔇', 'Therm+Phon'],
+          'faible'              => ['⚠️', 'Faible'],
+        ];
+
+        $curChType    = (string)($b['chauffage_type']    ?? '');
+        $curChEnergy  = (string)($b['chauffage_energie'] ?? '');
+        $curEauType   = (string)($b['eau_chaude_type']   ?? '');
+        $curMenui     = (string)($b['menuiseries']       ?? '');
+        $curIsol      = (string)($b['isolation']         ?? '');
+
+        // Helper : génère un groupe icon-radios avec fond DPE si applicable
+        $iconRadios = static function(string $field, array $dict, string $current) use ($syncFlags) {
+          $html = '<div class="v2-icon-radios" data-field="' . h($field) . '">';
+          foreach ($dict as $code => [$ic, $lbl]) {
+            $act = ($current === $code) ? ' is-active' : '';
+            $dpe = (isset($syncFlags[$field]) && $current === $code) ? ' is-from-dpe' : '';
+            $html .= '<button type="button" class="v2-icon-radio' . $act . $dpe . '" data-value="' . h($code) . '">'
+                   . '<span class="v2-icon-emoji">' . $ic . '</span>'
+                   . '<span class="v2-icon-lbl">' . h($lbl) . '</span>'
+                   . '</button>';
+          }
+          return $html . '</div>';
+        };
+      ?>
+
+      <!-- Card 3 : Chauffage & Énergie (ÉDITION AUTOSAVE avec icônes) -->
       <section class="v2-card is-hidden" role="tabpanel" aria-label="Chauffage et énergie">
         <div class="v2-card-label">🔥 Chauffage &amp; Énergie</div>
         <div class="v2-card-body">
+
           <div class="v2-desc-group-title">🔥 Chauffage</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Type</div><div class="v2-kv-v"><?= h((string)$vn('chauffage_type')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Énergie</div><div class="v2-kv-v"><?= h((string)$vn('chauffage_energie')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Plancher chauffant</div><div class="v2-kv-v"><?= $vb('chauffage_plancher') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Thermostat</div><div class="v2-kv-v"><?= $vb('chauffage_thermostat') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Régulateur</div><div class="v2-kv-v"><?= $vb('chauffage_regulateur') ?></div></div>
+          <div class="v2-icon-row">
+            <span class="v2-icon-row-label">Type</span>
+            <?= $iconRadios('chauffage_type', $chauffageTypes, $curChType) ?>
+          </div>
+          <div class="v2-icon-row">
+            <span class="v2-icon-row-label">Énergie</span>
+            <?= $iconRadios('chauffage_energie', $chauffageEnergies, $curChEnergy) ?>
+          </div>
+          <div class="v2-bool-toggles" style="margin-top:10px;">
+            <?= $boolToggle('🔥', 'chauffage_plancher',    'Plancher chauffant') ?>
+            <?= $boolToggle('🌡️', 'chauffage_thermostat',  'Thermostat') ?>
+            <?= $boolToggle('⚙️', 'chauffage_regulateur',  'Régulateur') ?>
           </div>
 
           <div class="v2-desc-group-title">💧 Eau chaude</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Type</div><div class="v2-kv-v"><?= h((string)$vn('eau_chaude_type')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Solaire</div><div class="v2-kv-v"><?= $vb('eau_chaude_solaire') ?></div></div>
+          <div class="v2-icon-row">
+            <span class="v2-icon-row-label">Type</span>
+            <?= $iconRadios('eau_chaude_type', $eauChaudeTypes, $curEauType) ?>
+          </div>
+          <div class="v2-bool-toggles" style="margin-top:10px;">
+            <?= $boolToggle('☀️', 'eau_chaude_solaire', 'Solaire') ?>
           </div>
 
-          <div class="v2-desc-group-title">🌬️ VMC &amp; isolation</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">VMC</div><div class="v2-kv-v"><?= $vb('chauffage_vmc') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">VMC double flux</div><div class="v2-kv-v"><?= $vb('chauffage_vmc_df') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Climatisation</div><div class="v2-kv-v"><?= $vb('climatisation') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Menuiseries</div><div class="v2-kv-v"><?= h((string)$vn('menuiseries')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Isolation</div><div class="v2-kv-v"><?= h((string)$vn('isolation')) ?></div></div>
+          <div class="v2-desc-group-title">🌬️ VMC, climatisation &amp; isolation</div>
+          <div class="v2-bool-toggles">
+            <?= $boolToggle('🌬️', 'chauffage_vmc',    'VMC') ?>
+            <?= $boolToggle('🔁',  'chauffage_vmc_df', 'VMC double flux') ?>
+            <?= $boolToggle('❄️',  'climatisation',    'Climatisation') ?>
+          </div>
+          <div class="v2-icon-row" style="margin-top:14px;">
+            <span class="v2-icon-row-label">Menuiseries</span>
+            <?= $iconRadios('menuiseries', $menuiseriesTypes, $curMenui) ?>
+          </div>
+          <div class="v2-icon-row">
+            <span class="v2-icon-row-label">Isolation</span>
+            <?= $iconRadios('isolation', $isolationTypes, $curIsol) ?>
           </div>
         </div>
       </section>
