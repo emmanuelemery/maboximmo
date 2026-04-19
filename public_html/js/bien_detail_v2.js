@@ -328,65 +328,18 @@
       });
     });
 
-    // Tiers picker
-    const searchInput = document.getElementById('v2-proprio-search');
-    const suggestBox = document.getElementById('v2-proprio-suggest');
-    let lastTiersItems = [];
-    if (searchInput && suggestBox) {
-      let timer = null;
-      searchInput.addEventListener('input', () => {
-        const q = searchInput.value.trim();
-        clearTimeout(timer);
-        if (q.length < 2) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
-        timer = setTimeout(async () => {
-          try {
-            const ep = data.tiersLookupEndpoint || '/api/tiers_lookup.php';
-            const r = await fetch(ep + '?q=' + encodeURIComponent(q) + '&limit=8', { credentials: 'same-origin' });
-            const j = await r.json();
-            const items = (j.items || []).concat(j.doublons || []);
-            lastTiersItems = items;
-            if (items.length === 0) {
-              suggestBox.innerHTML = '<div class="v2-tiers-suggest-item"><small>Aucun résultat — clique sur ➕ pour créer</small></div>';
-            } else {
-              suggestBox.innerHTML = items.map(it => {
-                const name = it.raison_sociale || ((it.prenom || '') + ' ' + (it.nom || '')).trim();
-                const sub = [it.email, it.telephone].filter(Boolean).join(' · ');
-                return `<div class="v2-tiers-suggest-item" data-id="${it.id}">
-                  <strong>${name || ('Tiers #' + it.id)}</strong>
-                  ${sub ? '<small>' + sub + '</small>' : ''}
-                  <div class="v2-tiers-suggest-actions">
-                    <button type="button" class="v2-tiers-suggest-btn" data-action="view" data-id="${it.id}">👁️ Voir</button>
-                    <button type="button" class="v2-tiers-suggest-btn primary" data-action="select" data-id="${it.id}" data-name="${(name || '').replace(/"/g,'&quot;')}">✓ Sélectionner</button>
-                  </div>
-                </div>`;
-              }).join('');
-            }
-            suggestBox.hidden = false;
-          } catch (e) {
-            suggestBox.hidden = true;
-          }
-        }, 250);
-      });
-      suggestBox.addEventListener('click', (e) => {
-        const btn = e.target.closest('.v2-tiers-suggest-btn');
-        if (!btn) return;
-        const id = btn.dataset.id;
-        const action = btn.dataset.action;
-        if (action === 'select') {
-          const name = btn.dataset.name || '';
-          searchInput.value = name;
-          suggestBox.hidden = true;
-          saveField('id_proprietaire', id).then(() => {
-            setTimeout(() => window.location.reload(), 500);
-          });
-        } else if (action === 'view') {
-          const item = lastTiersItems.find(x => String(x.id) === String(id));
-          showTiersDetail(item, saveField);
-        }
-      });
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.v2-tiers-picker')) suggestBox.hidden = true;
-      });
+    // Tiers picker (composant tiers_selector eprouve) — on ecoute les events du composant
+    const tsRoot = document.querySelector('[data-ts-root="v2-proprio-picker"]');
+    if (tsRoot) {
+      const onSelect = (ev) => {
+        const tiers = ev.detail || {};
+        if (!tiers.id) return;
+        saveField('id_proprietaire', tiers.id).then(() => {
+          setTimeout(() => window.location.reload(), 500);
+        });
+      };
+      tsRoot.addEventListener('tiers:selected', onSelect);
+      tsRoot.addEventListener('tiers:created',  onSelect);
     }
 
     // Recherche immeubles existants (autocomplete sur la liste en memoire)
@@ -444,107 +397,7 @@
       });
     }
 
-    // Modal création express
-    const modal = document.getElementById('v2-proprio-modal');
-    const addBtn = document.getElementById('v2-proprio-add');
-    const typeSel = document.getElementById('v2-pm-type');
-    if (modal && addBtn) {
-      const show = () => { modal.hidden = false; };
-      const hide = () => { modal.hidden = true; };
-      addBtn.addEventListener('click', show);
-      document.getElementById('v2-pm-cancel')?.addEventListener('click', hide);
-      typeSel?.addEventListener('change', () => {
-        const isPP = typeSel.value === 'personne_physique';
-        modal.querySelectorAll('.v2-pm-pp').forEach(el => el.hidden = !isPP);
-        modal.querySelectorAll('.v2-pm-pm').forEach(el => el.hidden = isPP);
-      });
-      document.getElementById('v2-pm-save')?.addEventListener('click', async () => {
-        const body = {
-          type_tiers: typeSel.value,
-          nom: (document.getElementById('v2-pm-nom')?.value || '').trim(),
-          prenom: (document.getElementById('v2-pm-prenom')?.value || '').trim(),
-          raison_sociale: (document.getElementById('v2-pm-rs')?.value || '').trim(),
-          email: (document.getElementById('v2-pm-email')?.value || '').trim(),
-          telephone: (document.getElementById('v2-pm-tel')?.value || '').trim(),
-          roles: [{ role_code: 'proprietaire', objet_type: 'bien', id_objet: bienId }],
-        };
-        try {
-          const r = await fetch(data.tiersCreateEndpoint || '/api/tiers_create.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify(body),
-          });
-          const j = await r.json();
-          if (!j.ok) throw new Error(j.error || 'Erreur création');
-          await saveField('id_proprietaire', j.id || j.tiers_id || '');
-          hide();
-          setTimeout(() => window.location.reload(), 500);
-        } catch (e) {
-          alert('❌ ' + e.message);
-        }
-      });
-    }
   }
-
-  // ── Modal détail tiers (lecture seule) ──
-  function showTiersDetail(tiers, saveField) {
-    const modal = document.getElementById('v2-tiers-detail-modal');
-    const body  = document.getElementById('v2-tiers-detail-body');
-    if (!modal || !body || !tiers) return;
-    const name = tiers.raison_sociale || ((tiers.prenom || '') + ' ' + (tiers.nom || '')).trim();
-    const rows = [
-      ['Type',          tiers.type_tiers || '—'],
-      ['Civilité',      tiers.civilite  || '—'],
-      ['Nom / Raison',  name || '—'],
-      ['Email',         tiers.email     || '—'],
-      ['Téléphone',     tiers.telephone || '—'],
-      ['ID tiers',      '#' + tiers.id],
-    ];
-    body.innerHTML = rows.map(([k, v]) =>
-      `<div class="tk">${k}</div><div class="tv">${String(v).replace(/</g,'&lt;')}</div>`
-    ).join('');
-    const hide = () => { modal.hidden = true; };
-    modal.hidden = false;
-    document.getElementById('v2-td-cancel').onclick = hide;
-    document.getElementById('v2-td-select').onclick = () => {
-      const input = document.getElementById('v2-proprio-search');
-      if (input) input.value = name;
-      saveField('id_proprietaire', tiers.id).then(() => {
-        hide();
-        setTimeout(() => window.location.reload(), 500);
-      });
-    };
-  }
-
-  // ── Google Places Autocomplete (adresse) ──
-  window.v2InitPlaces = function () {
-    const input = document.getElementById('v2-google-places');
-    if (!input || !window.google || !google.maps || !google.maps.places) return;
-    const ac = new google.maps.places.Autocomplete(input, {
-      types: ['address'], componentRestrictions: { country: ['fr','be','lu','ch','mc'] },
-      fields: ['address_components','formatted_address']
-    });
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (!place || !place.address_components) return;
-      const get = (type) => {
-        const c = place.address_components.find(a => a.types.includes(type));
-        return c ? c.long_name : '';
-      };
-      const streetNum = get('street_number');
-      const route     = get('route');
-      const cp        = get('postal_code');
-      const ville     = get('locality') || get('postal_town');
-      const setVal = (id, v) => {
-        const el = document.getElementById(id);
-        if (el) { el.value = v || ''; el.dispatchEvent(new Event('change')); }
-      };
-      setVal('v2-f-adresse_1', (streetNum + ' ' + route).trim());
-      setVal('v2-f-code_postal', cp);
-      setVal('v2-f-ville', ville);
-    });
-  };
 
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
@@ -553,9 +406,17 @@
 
     if (section === 'descriptif') {
       bindDescriptifAutosave(data);
-      // Si Google Maps est deja charge (cache / autre page), appel direct
-      if (window.google && window.google.maps && window.google.maps.places && typeof window.v2InitPlaces === 'function') {
-        try { window.v2InitPlaces(); } catch (e) { console.warn('[v2InitPlaces] ' + e.message); }
+      // Quand places.js remplit les champs adresse (v2-f-adresse_1, etc.),
+      // on declenche l'autosave manuellement — places.js dispatche un
+      // CustomEvent 'places:filled' sur l'input Google
+      const placesInput = document.getElementById('v2-google-places');
+      if (placesInput) {
+        placesInput.addEventListener('places:filled', () => {
+          ['v2-f-adresse_1', 'v2-f-code_postal', 'v2-f-ville'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.dispatchEvent(new Event('change'));
+          });
+        });
       }
     }
 

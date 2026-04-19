@@ -15,6 +15,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/bien_form_loader.php';
 require_once __DIR__ . '/inc/ubiflow_validator.php';
+require_once __DIR__ . '/inc/tiers_selector.php';
 require_login();
 
 $appLayout = true;
@@ -511,16 +512,24 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div id="v2-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
 
-          <!-- 1. Propriétaire (tout en haut, titre + recherche + bouton sur la même ligne) -->
+          <!-- 1. Propriétaire (composant tiers_selector eprouve) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">👤 Propriétaire<?php if ($proprioStr): ?> <em class="v2-group-header-current">· <?= h($proprioStr) ?></em><?php endif; ?></span>
-            <div class="v2-tiers-picker">
-              <input type="text" id="v2-proprio-search" class="v2-input"
-                     placeholder="Rechercher dans les tiers..."
-                     autocomplete="off">
-              <div id="v2-proprio-suggest" class="v2-tiers-suggest" hidden></div>
+            <div id="v2-proprio-picker-wrap" class="v2-ts-wrap">
+              <?php
+                tiers_selector_render([
+                  'id'          => 'v2-proprio-picker',
+                  'name'        => 'id_proprietaire_picker',
+                  'label'       => '',
+                  'role_filter' => 'proprietaire',
+                  'placeholder' => 'Rechercher nom, email, téléphone…',
+                  'value_id'    => (int)($b['id_proprietaire'] ?? 0),
+                  'value_label' => $proprioStr ?: '',
+                  'allow_create'=> true,
+                  'default_roles' => ['proprietaire'],
+                ]);
+              ?>
             </div>
-            <button type="button" id="v2-proprio-add" class="v2-btn-outline v2-header-btn" title="Créer express">➕</button>
           </div>
           <?php if ($proprioInfo): ?>
             <div class="v2-tiers-info">
@@ -529,12 +538,20 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <!-- 2. Adresse (titre + recherche Google + recherche immeuble sur la même ligne) -->
+          <!-- 2. Adresse (recherche Google via places.js + recherche immeuble sur la même ligne) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse</span>
             <div class="v2-places-picker">
               <span class="v2-picker-label">Recherche Google</span>
-              <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Ex: 15 place Bellecour Lyon…" autocomplete="off">
+              <input type="text" id="v2-google-places" class="v2-input"
+                     placeholder="🔍 Ex: 15 place Bellecour Lyon…"
+                     autocomplete="off"
+                     data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
+                     data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
+                     data-places-street1="v2-f-adresse_1"
+                     data-places-postal="v2-f-code_postal"
+                     data-places-city="v2-f-ville"
+                     data-places-country-code="fr">
             </div>
             <div class="v2-imm-picker">
               <span class="v2-picker-label">Immeubles enregistrés<?= empty($immeublesList) ? '' : ' (' . count($immeublesList) . ')' ?></span>
@@ -646,50 +663,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Modal détail tiers (lecture seule) -->
-      <div id="v2-tiers-detail-modal" class="v2-modal" hidden>
-        <div class="v2-modal-card">
-          <h3>👤 Détail du tiers</h3>
-          <div id="v2-tiers-detail-body" class="v2-tiers-detail-body"></div>
-          <div class="v2-modal-actions">
-            <button type="button" id="v2-td-cancel" class="v2-btn-outline">Fermer</button>
-            <button type="button" id="v2-td-select" class="v2-btn-primary">✓ Sélectionner ce tiers</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Modal création express propriétaire -->
-      <div id="v2-proprio-modal" class="v2-modal" hidden>
-        <div class="v2-modal-card">
-          <h3>➕ Nouveau propriétaire</h3>
-          <div class="v2-field">
-            <label>Type</label>
-            <select id="v2-pm-type" class="v2-input">
-              <option value="personne_physique">Personne physique</option>
-              <option value="personne_morale">Personne morale</option>
-            </select>
-          </div>
-          <div class="v2-field v2-pm-pp">
-            <label>Nom *</label><input type="text" id="v2-pm-nom" class="v2-input">
-          </div>
-          <div class="v2-field v2-pm-pp">
-            <label>Prénom</label><input type="text" id="v2-pm-prenom" class="v2-input">
-          </div>
-          <div class="v2-field v2-pm-pm" hidden>
-            <label>Raison sociale *</label><input type="text" id="v2-pm-rs" class="v2-input">
-          </div>
-          <div class="v2-field">
-            <label>Email</label><input type="email" id="v2-pm-email" class="v2-input">
-          </div>
-          <div class="v2-field">
-            <label>Téléphone</label><input type="tel" id="v2-pm-tel" class="v2-input">
-          </div>
-          <div class="v2-modal-actions">
-            <button type="button" id="v2-pm-cancel" class="v2-btn-outline">Annuler</button>
-            <button type="button" id="v2-pm-save" class="v2-btn-primary">Créer &amp; associer</button>
-          </div>
-        </div>
-      </div>
+      <?php tiers_selector_assets(); /* injecte CSS + JS + modal du composant eprouve */ ?>
 
       <!-- Card 2 : Pièces, surfaces, extérieur, équipements intérieurs -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Pièces et surfaces">
@@ -1114,10 +1088,17 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
 <script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
 <?php if ($section === 'descriptif'): ?>
+<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
   <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
-<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=v2InitPlaces&loading=async" defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=initPlacesAutocomplete" defer></script>
+<script>
+  // Si le DOM est deja pret quand places.js se charge, force l'init
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    if (typeof window.initPlacesAutocomplete === 'function') window.initPlacesAutocomplete();
+  }
+</script>
   <?php else: ?>
-<script>console.warn('[v2] GOOGLE_MAPS_API_KEY non definie cote serveur — la recherche Google est desactivee');</script>
+<script>console.warn('[v2] GOOGLE_MAPS_API_KEY non definie — la recherche Google est desactivee');</script>
   <?php endif; ?>
 <?php endif; ?>
 
