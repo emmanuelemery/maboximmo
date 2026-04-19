@@ -393,6 +393,24 @@ if (isset($data['statut_bien']) && trim((string)$data['statut_bien']) === '') {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Protection GENERALE pour les champs "environnement" non présents dans
+// tous les forms. Express stocke les chips environnement dans state.env
+// (JS) et POST via `environnement[...]` à finalize, mais PAS à l'autosave.
+// Résultat : l'autosave POSTait `$_POST['vue'] = ''` et écrasait les CSV
+// que finalize venait de mettre. Idem pour exposition, ambiance, nuisances,
+// acces_transports, distance_commerces, quartier, points_interet,
+// argument_phare.
+// Fix : si la clé n'est PAS explicitement présente dans $_POST (pas juste
+// vide), on n'écrit pas ce champ → l'UPDATE conserve la valeur BDD.
+// ══════════════════════════════════════════════════════════════
+foreach (['exposition','vue','ambiance','nuisances','acces_transports','distance_commerces',
+         'quartier','points_interet','argument_phare','reprise_descriptif','accroche_commerciale'] as $envKey) {
+    if (!array_key_exists($envKey, $_POST)) {
+        unset($data[$envKey]);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Build & execute UPDATE biens
 // ══════════════════════════════════════════════════════════════
 $sets = [];
