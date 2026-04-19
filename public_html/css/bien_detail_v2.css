@@ -467,7 +467,7 @@ html.v2-no-scroll, body.v2-no-scroll {
 ───────────────────────────────── */
 .v2-card-body.v2-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 7fr 3fr;
   gap: 20px;
   padding-top: 12px;
   overflow: hidden;
