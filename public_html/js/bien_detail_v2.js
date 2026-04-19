@@ -266,10 +266,166 @@
     }
   }
 
+  // ── Section DESCRIPTIF : autosave + icon-radios + tiers picker ──
+  function bindDescriptifAutosave(data) {
+    const indicator = document.getElementById('v2-save-indicator');
+    const bienId = data.bienId;
+    const csrf = data.csrfToken;
+
+    function showIndicator(kind, msg) {
+      if (!indicator) return;
+      indicator.className = 'v2-save-indicator ' + (kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : '');
+      indicator.textContent = msg;
+      if (kind === 'ok') {
+        setTimeout(() => { indicator.textContent = ''; indicator.className = 'v2-save-indicator'; }, 2000);
+      }
+    }
+
+    async function saveField(name, value) {
+      if (!bienId) return;
+      showIndicator('', '💾 Enregistrement…');
+      const fd = new FormData();
+      fd.append('_edit_id', bienId);
+      fd.append('csrf_token', csrf);
+      fd.append(name, value == null ? '' : value);
+      try {
+        const r = await fetch('/api/bien_autosave.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+        const j = await r.json();
+        if (j.ok) showIndicator('ok', '✅ Enregistré ' + (j.saved_at || ''));
+        else showIndicator('err', '❌ ' + (j.error || 'Erreur'));
+      } catch (e) {
+        showIndicator('err', '❌ ' + e.message);
+      }
+    }
+    // Expose pour le tiers picker / modal
+    window.__v2SaveField = saveField;
+
+    // Inputs avec autosave
+    document.querySelectorAll('[data-autosave]').forEach(el => {
+      const handler = () => saveField(el.name, el.value);
+      if (el.type === 'checkbox' || el.type === 'radio') el.addEventListener('change', handler);
+      else {
+        el.addEventListener('change', handler);
+        el.addEventListener('blur', handler);
+      }
+    });
+
+    // Icon radios (1 choix exclusif par groupe, reclic = désélection)
+    document.querySelectorAll('.v2-icon-radios').forEach(group => {
+      const field = group.dataset.field;
+      if (!field) return;
+      group.querySelectorAll('.v2-icon-radio').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const wasActive = btn.classList.contains('is-active');
+          group.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
+          if (!wasActive) {
+            btn.classList.add('is-active');
+            saveField(field, btn.dataset.value || '');
+          } else {
+            saveField(field, '');
+          }
+        });
+      });
+    });
+
+    // Tiers picker
+    const searchInput = document.getElementById('v2-proprio-search');
+    const suggestBox = document.getElementById('v2-proprio-suggest');
+    if (searchInput && suggestBox) {
+      let timer = null;
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.trim();
+        clearTimeout(timer);
+        if (q.length < 2) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
+        timer = setTimeout(async () => {
+          try {
+            const r = await fetch('/api/tiers_lookup.php?q=' + encodeURIComponent(q) + '&limit=8', { credentials: 'same-origin' });
+            const j = await r.json();
+            const items = (j.items || []).concat(j.doublons || []);
+            if (items.length === 0) {
+              suggestBox.innerHTML = '<div class="v2-tiers-suggest-item"><small>Aucun résultat — clique sur ➕ Express pour créer</small></div>';
+            } else {
+              suggestBox.innerHTML = items.map(it => {
+                const name = it.raison_sociale || ((it.prenom || '') + ' ' + (it.nom || '')).trim();
+                const sub = [it.email, it.telephone].filter(Boolean).join(' · ');
+                return `<div class="v2-tiers-suggest-item" data-id="${it.id}" data-name="${name.replace(/"/g,'&quot;')}">
+                  <strong>${name || ('Tiers #' + it.id)}</strong>${sub ? '<small>' + sub + '</small>' : ''}
+                </div>`;
+              }).join('');
+            }
+            suggestBox.hidden = false;
+          } catch (e) {
+            suggestBox.hidden = true;
+          }
+        }, 250);
+      });
+      suggestBox.addEventListener('click', (e) => {
+        const item = e.target.closest('.v2-tiers-suggest-item');
+        if (!item || !item.dataset.id) return;
+        const id = item.dataset.id;
+        const name = item.dataset.name;
+        searchInput.value = name;
+        suggestBox.hidden = true;
+        saveField('id_proprietaire', id).then(() => {
+          setTimeout(() => window.location.reload(), 500);
+        });
+      });
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.v2-tiers-picker')) suggestBox.hidden = true;
+      });
+    }
+
+    // Modal création express
+    const modal = document.getElementById('v2-proprio-modal');
+    const addBtn = document.getElementById('v2-proprio-add');
+    const typeSel = document.getElementById('v2-pm-type');
+    if (modal && addBtn) {
+      const show = () => { modal.hidden = false; };
+      const hide = () => { modal.hidden = true; };
+      addBtn.addEventListener('click', show);
+      document.getElementById('v2-pm-cancel')?.addEventListener('click', hide);
+      typeSel?.addEventListener('change', () => {
+        const isPP = typeSel.value === 'personne_physique';
+        modal.querySelectorAll('.v2-pm-pp').forEach(el => el.hidden = !isPP);
+        modal.querySelectorAll('.v2-pm-pm').forEach(el => el.hidden = isPP);
+      });
+      document.getElementById('v2-pm-save')?.addEventListener('click', async () => {
+        const body = {
+          type_tiers: typeSel.value,
+          nom: (document.getElementById('v2-pm-nom')?.value || '').trim(),
+          prenom: (document.getElementById('v2-pm-prenom')?.value || '').trim(),
+          raison_sociale: (document.getElementById('v2-pm-rs')?.value || '').trim(),
+          email: (document.getElementById('v2-pm-email')?.value || '').trim(),
+          telephone: (document.getElementById('v2-pm-tel')?.value || '').trim(),
+          roles: [{ role_code: 'proprietaire', objet_type: 'bien', id_objet: bienId }],
+        };
+        try {
+          const r = await fetch('/api/tiers_create.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Erreur création');
+          await saveField('id_proprietaire', j.id || j.tiers_id || '');
+          hide();
+          setTimeout(() => window.location.reload(), 500);
+        } catch (e) {
+          alert('❌ ' + e.message);
+        }
+      });
+    }
+  }
+
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
     const data = window.__v2DocsData || {};
     const section = data.section || 'documents';
+
+    if (section === 'descriptif') {
+      bindDescriptifAutosave(data);
+    }
 
     if (section === 'documents') {
       const docsDiag   = data.docsDiag   || [];

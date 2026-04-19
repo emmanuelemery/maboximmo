@@ -579,6 +579,175 @@ html.v2-no-scroll, body.v2-no-scroll {
    CARD 6 — Alertes
 ───────────────────────────────── */
 /* ─────────────────────────────────
+   SECTION DESCRIPTIF — EDITION (icon-radios + autosave + modal)
+───────────────────────────────── */
+
+/* Autosave indicator */
+.v2-save-indicator {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  text-align: right;
+  font-size: 11px;
+  color: var(--v2-muted);
+  padding: 2px 0 6px;
+  min-height: 18px;
+  transition: color .2s;
+}
+.v2-save-indicator.ok  { color: #0ea572; }
+.v2-save-indicator.err { color: #dc2626; }
+
+/* Ligne split 2 colonnes (sous-type + usage, état + standing, etc.) */
+.v2-row-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+@media (max-width: 900px) { .v2-row-split { grid-template-columns: 1fr; gap: 10px; } }
+
+/* Icon row (label + radios) */
+.v2-icon-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.v2-icon-row-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--v2-muted);
+}
+
+.v2-icon-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.v2-icon-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #fafbfc;
+  border: 1px solid rgba(54, 87, 125, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--v2-ink);
+  transition: background .15s, border-color .15s, transform .1s, box-shadow .15s;
+  white-space: nowrap;
+}
+.v2-icon-radio:hover {
+  background: #fff;
+  border-color: var(--v2-accent);
+  color: var(--v2-accent);
+}
+.v2-icon-radio:active { transform: scale(0.97); }
+.v2-icon-radio.is-active {
+  background: linear-gradient(135deg, var(--brand-500, #36577d), var(--brand-700, #213450));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 5px rgba(54, 87, 125, 0.28);
+}
+.v2-icon-emoji { font-size: 16px; line-height: 1; }
+.v2-icon-lbl { font-weight: 600; }
+
+/* Adresse grid */
+.v2-addr-grid {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 0.6fr 1.2fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+@media (max-width: 900px) { .v2-addr-grid { grid-template-columns: 1fr 1fr; } }
+
+/* Tiers picker */
+.v2-tiers-picker-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.v2-tiers-picker {
+  flex: 1;
+  position: relative;
+  min-width: 240px;
+}
+.v2-tiers-suggest {
+  position: absolute;
+  top: calc(100% + 4px); left: 0; right: 0;
+  background: #fff;
+  border: 1px solid rgba(54, 87, 125, 0.20);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 30;
+}
+.v2-tiers-suggest-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid rgba(54, 87, 125, 0.06);
+}
+.v2-tiers-suggest-item:hover { background: var(--v2-accent-light); }
+.v2-tiers-suggest-item strong { color: var(--v2-accent); }
+.v2-tiers-suggest-item small { color: var(--v2-muted); }
+.v2-tiers-info {
+  font-size: 11px;
+  color: var(--v2-muted);
+  padding: 4px 0;
+  flex-basis: 100%;
+}
+
+/* Modal création express */
+.v2-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 24, 22, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.v2-modal[hidden] { display: none; }
+.v2-modal-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 22px 26px;
+  width: 90%;
+  max-width: 460px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.v2-modal-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--v2-accent);
+  margin-bottom: 4px;
+}
+.v2-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(54, 87, 125, 0.08);
+}
+
+/* ─────────────────────────────────
    SECTION DESCRIPTIF — groupes + photos
 ───────────────────────────────── */
 .v2-desc-group-title {

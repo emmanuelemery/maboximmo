@@ -121,11 +121,16 @@ if ($section === 'dpe') {
     }
 }
 
-// ─── Section DESCRIPTIF : charger photos + type label + proprietaire ───
+// ─── Section DESCRIPTIF : charger photos + types + proprietaire ───
 $descPhotos = [];
 $typeBienLabel = '';
 $proprioInfo = null;
+$typesBienList = [];
 if ($section === 'descriptif') {
+    try {
+        $st = $pdo->query("SELECT id, code, label FROM base_types_bien ORDER BY ordre_defaut ASC, label ASC");
+        $typesBienList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {}
     try {
         $st = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 60");
         $st->execute([$editingBienId]);
@@ -422,43 +427,212 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           : '—';
       ?>
 
-      <!-- Card 1 : Caractéristiques / adresse / type / proprio -->
+      <?php
+        // Icones (emojis natifs) par champ
+        $typeIcons = [
+          'appartement'=>'🏢','maison'=>'🏠','villa'=>'🏡','terrain'=>'🗺️',
+          'local_commercial'=>'🏪','bureau'=>'💼','immeuble'=>'🏬',
+          'parking'=>'🅿️','garage'=>'🚗','entrepot'=>'📦','boutique'=>'🛍️',
+          'loft'=>'🎨','atelier'=>'🔧','fonds_commerce'=>'✍️','programme_neuf'=>'🏗️',
+        ];
+        $sousTypes = [
+          'studio'=>['🏚️','Studio'], 't1'=>['1️⃣','T1'], 't2'=>['2️⃣','T2'],
+          't3'=>['3️⃣','T3'], 't4'=>['4️⃣','T4'], 't5'=>['5️⃣','T5+'],
+          'duplex'=>['🏗️','Duplex'], 'triplex'=>['🏙️','Triplex'],
+          'plain_pied'=>['➖','Plain-pied'], 'a_etage'=>['⬆️','À étage'],
+        ];
+        $usages = [
+          'habitation'=>['🏠','Habitation'], 'commercial'=>['🏪','Commercial'],
+          'professionnel'=>['💼','Pro'], 'mixte'=>['🔀','Mixte'],
+        ];
+        $etats = [
+          'neuf'=>['✨','Neuf'], 'recent'=>['🆕','Récent'],
+          'bon_etat'=>['✅','Bon état'], 'rafraichir'=>['🎨','À rafraîchir'],
+          'travaux'=>['🔨','Travaux'], 'mauvais'=>['⚠️','Mauvais'],
+        ];
+        $standings = [
+          'economique'=>['💰','Économique'], 'standard'=>['⭐','Standard'],
+          'standing'=>['✨','Standing'], 'luxe'=>['💎','Luxe'],
+        ];
+        $statuts = [
+          'actif'=>['✅','Actif'], 'brouillon'=>['📝','Brouillon'], 'archive'=>['📦','Archivé'],
+        ];
+        $mandats = [
+          'vente'=>['💶','Vente'], 'location'=>['🔑','Location'], 'gestion'=>['🏢','Gestion'],
+        ];
+
+        $curType    = (int)($b['id_type_bien'] ?? 0);
+        $curSType   = (string)($b['sous_type_bien'] ?? '');
+        $curUsage   = (string)($b['usage_bien'] ?? '');
+        $curEtat    = (string)($b['etat_bien'] ?? '');
+        $curStand   = (string)($b['standing'] ?? '');
+        $curStatut  = (string)($b['statut_bien'] ?? '');
+        $curMandat  = (string)($b['type_commercialisation'] ?? '');
+        $curProprio = (int)($b['id_proprietaire'] ?? 0);
+      ?>
+
+      <!-- Card 1 : Propriétaire / Adresse / Caractéristiques (EDITION AVEC AUTOSAVE) -->
       <section class="v2-card is-active" role="tabpanel" aria-label="Caractéristiques">
         <div class="v2-card-label">📋 Caractéristiques</div>
         <div class="v2-card-body">
-          <div class="v2-desc-group-title">🏷️ Identification</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Type de bien</div><div class="v2-kv-v"><?= h($typeBienLabel ?: '—') ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Sous-type</div><div class="v2-kv-v"><?= h((string)$vn('sous_type_bien')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Usage</div><div class="v2-kv-v"><?= h((string)$vn('usage_bien')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Référence</div><div class="v2-kv-v"><?= h((string)$vn('reference_bien')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Désignation</div><div class="v2-kv-v"><?= h((string)$vn('designation')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Standing</div><div class="v2-kv-v"><?= h((string)$vn('standing')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">État</div><div class="v2-kv-v"><?= h((string)$vn('etat_bien')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Statut</div><div class="v2-kv-v"><?= h((string)$vn('statut_bien')) ?></div></div>
-          </div>
 
-          <div class="v2-desc-group-title">📍 Adresse</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Adresse</div><div class="v2-kv-v"><?= h((string)$vn('adresse_1')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Complément</div><div class="v2-kv-v"><?= h((string)$vn('adresse_2')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Code postal</div><div class="v2-kv-v"><?= h((string)$vn('code_postal')) ?></div></div>
-            <div class="v2-kv"><div class="v2-kv-k">Ville</div><div class="v2-kv-v"><?= h((string)$vn('ville')) ?></div></div>
-          </div>
+          <!-- Indicateur autosave -->
+          <div id="v2-save-indicator" class="v2-save-indicator" aria-live="polite"></div>
 
+          <!-- 1. Propriétaire -->
           <div class="v2-desc-group-title">👤 Propriétaire</div>
-          <div class="v2-kv-grid">
-            <div class="v2-kv"><div class="v2-kv-k">Nom</div><div class="v2-kv-v"><?= h($proprioStr ?: '—') ?></div></div>
+          <div class="v2-field v2-tiers-picker-wrap">
+            <div class="v2-tiers-picker">
+              <input type="text" id="v2-proprio-search" class="v2-input"
+                     placeholder="Rechercher un propriétaire..."
+                     value="<?= h($proprioStr ?: '') ?>"
+                     autocomplete="off">
+              <div id="v2-proprio-suggest" class="v2-tiers-suggest" hidden></div>
+            </div>
+            <button type="button" id="v2-proprio-add" class="v2-btn-outline" title="Créer express">➕ Express</button>
             <?php if ($proprioInfo): ?>
-              <div class="v2-kv"><div class="v2-kv-k">Téléphone</div><div class="v2-kv-v"><?= h((string)($proprioInfo['telephone'] ?? '—')) ?></div></div>
-              <div class="v2-kv"><div class="v2-kv-k">Email</div><div class="v2-kv-v"><?= h((string)($proprioInfo['email'] ?? '—')) ?></div></div>
+              <div class="v2-tiers-info">
+                <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
+                <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
+              </div>
             <?php endif; ?>
           </div>
-          <div class="v2-card-footer">
-            <a class="v2-btn-outline" href="<?= h(app_url('/bien_detail.php?edit=' . $editingBienId)) ?>">✏️ Éditer dans bien_detail</a>
+
+          <!-- 2. Adresse -->
+          <div class="v2-desc-group-title">📍 Adresse</div>
+          <div class="v2-addr-grid">
+            <input type="text" class="v2-input" name="adresse_1" data-autosave placeholder="Adresse" value="<?= h((string)($b['adresse_1'] ?? '')) ?>">
+            <input type="text" class="v2-input" name="adresse_2" data-autosave placeholder="Complément" value="<?= h((string)($b['adresse_2'] ?? '')) ?>">
+            <input type="text" class="v2-input" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['code_postal'] ?? '')) ?>">
+            <input type="text" class="v2-input" name="ville" data-autosave placeholder="Ville" value="<?= h((string)($b['ville'] ?? '')) ?>">
           </div>
+
+          <!-- 3. Caractéristiques -->
+          <div class="v2-desc-group-title">🏷️ Caractéristiques</div>
+
+          <!-- Type (pleine largeur) -->
+          <div class="v2-icon-row">
+            <span class="v2-icon-row-label">Type</span>
+            <div class="v2-icon-radios" data-field="id_type_bien">
+              <?php foreach ($typesBienList as $t):
+                $icon = $typeIcons[$t['code']] ?? '📦';
+                $act = ((int)$t['id'] === $curType) ? ' is-active' : '';
+              ?>
+                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= (int)$t['id'] ?>" title="<?= h((string)$t['label']) ?>">
+                  <span class="v2-icon-emoji"><?= $icon ?></span>
+                  <span class="v2-icon-lbl"><?= h((string)$t['label']) ?></span>
+                </button>
+              <?php endforeach; ?>
+            </div>
+          </div>
+
+          <!-- Sous-type + Usage -->
+          <div class="v2-row-split">
+            <div class="v2-icon-row">
+              <span class="v2-icon-row-label">Sous-type</span>
+              <div class="v2-icon-radios" data-field="sous_type_bien">
+                <?php foreach ($sousTypes as $code => [$ic, $lbl]): $act = ($curSType === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="v2-icon-row">
+              <span class="v2-icon-row-label">Usage</span>
+              <div class="v2-icon-radios" data-field="usage_bien">
+                <?php foreach ($usages as $code => [$ic, $lbl]): $act = ($curUsage === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          </div>
+
+          <!-- État + Standing -->
+          <div class="v2-row-split">
+            <div class="v2-icon-row">
+              <span class="v2-icon-row-label">État</span>
+              <div class="v2-icon-radios" data-field="etat_bien">
+                <?php foreach ($etats as $code => [$ic, $lbl]): $act = ($curEtat === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="v2-icon-row">
+              <span class="v2-icon-row-label">Standing</span>
+              <div class="v2-icon-radios" data-field="standing">
+                <?php foreach ($standings as $code => [$ic, $lbl]): $act = ($curStand === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          </div>
+
+          <!-- Statut + Mandat -->
+          <div class="v2-row-split">
+            <div class="v2-icon-row">
+              <span class="v2-icon-row-label">Statut</span>
+              <div class="v2-icon-radios" data-field="statut_bien">
+                <?php foreach ($statuts as $code => [$ic, $lbl]): $act = ($curStatut === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="v2-icon-row">
+              <span class="v2-icon-row-label">Mandat</span>
+              <div class="v2-icon-radios" data-field="type_commercialisation">
+                <?php foreach ($mandats as $code => [$ic, $lbl]): $act = ($curMandat === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
+
+      <!-- Modal création express propriétaire -->
+      <div id="v2-proprio-modal" class="v2-modal" hidden>
+        <div class="v2-modal-card">
+          <h3>➕ Nouveau propriétaire</h3>
+          <div class="v2-field">
+            <label>Type</label>
+            <select id="v2-pm-type" class="v2-input">
+              <option value="personne_physique">Personne physique</option>
+              <option value="personne_morale">Personne morale</option>
+            </select>
+          </div>
+          <div class="v2-field v2-pm-pp">
+            <label>Nom *</label><input type="text" id="v2-pm-nom" class="v2-input">
+          </div>
+          <div class="v2-field v2-pm-pp">
+            <label>Prénom</label><input type="text" id="v2-pm-prenom" class="v2-input">
+          </div>
+          <div class="v2-field v2-pm-pm" hidden>
+            <label>Raison sociale *</label><input type="text" id="v2-pm-rs" class="v2-input">
+          </div>
+          <div class="v2-field">
+            <label>Email</label><input type="email" id="v2-pm-email" class="v2-input">
+          </div>
+          <div class="v2-field">
+            <label>Téléphone</label><input type="tel" id="v2-pm-tel" class="v2-input">
+          </div>
+          <div class="v2-modal-actions">
+            <button type="button" id="v2-pm-cancel" class="v2-btn-outline">Annuler</button>
+            <button type="button" id="v2-pm-save" class="v2-btn-primary">Créer &amp; associer</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Card 2 : Pièces, surfaces, extérieur, équipements intérieurs -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Pièces et surfaces">
