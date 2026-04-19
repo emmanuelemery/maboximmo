@@ -897,6 +897,20 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           }
           return $html . '</div>';
         };
+
+        // Helper multi-sélection (vue, nuisances) : valeurs separees par virgule
+        $iconMulti = static function(string $field, array $dict, string $currentStr) {
+          $selected = array_filter(array_map('trim', explode(',', $currentStr)));
+          $html = '<div class="v2-icon-radios" data-field="' . h($field) . '" data-multi="1">';
+          foreach ($dict as $code => [$ic, $lbl]) {
+            $act = in_array($code, $selected, true) ? ' is-active' : '';
+            $html .= '<button type="button" class="v2-icon-radio' . $act . '" data-value="' . h($code) . '">'
+                   . '<span class="v2-icon-emoji">' . $ic . '</span>'
+                   . '<span class="v2-icon-lbl">' . h($lbl) . '</span>'
+                   . '</button>';
+          }
+          return $html . '</div>';
+        };
       ?>
 
       <!-- Card 3 : Chauffage & Énergie (ÉDITION AUTOSAVE avec icônes) -->
@@ -1015,11 +1029,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <div class="v2-desc-group-title">☀️ Exposition</div>
           <?= $iconRadios('exposition', $expositions, $curExpo) ?>
 
-          <div class="v2-desc-group-title">👀 Vue</div>
-          <?= $iconRadios('vue', $vues, $curVue) ?>
+          <div class="v2-desc-group-title">👀 Vue <small>(plusieurs choix possibles)</small></div>
+          <?= $iconMulti('vue', $vues, $curVue) ?>
 
-          <div class="v2-desc-group-title">🔊 Nuisances</div>
-          <?= $iconRadios('nuisances', $nuisancesOpts, $curNuis) ?>
+          <div class="v2-desc-group-title">🔊 Nuisances <small>(plusieurs choix possibles)</small></div>
+          <?= $iconMulti('nuisances', $nuisancesOpts, $curNuis) ?>
 
           <div class="v2-desc-group-title">🚉 Accès transports</div>
           <?= $iconRadios('acces_transports', $accesTransports, $curTrans) ?>

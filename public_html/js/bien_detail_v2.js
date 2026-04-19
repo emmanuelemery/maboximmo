@@ -332,19 +332,33 @@
       });
     });
 
-    // Icon radios (1 choix exclusif par groupe, reclic = désélection)
+    // Icon radios — 2 modes :
+    //  - Par defaut : 1 choix exclusif par groupe (reclic = déselection)
+    //  - data-multi="1" : multi-sélection, valeurs concaténées par virgule
     document.querySelectorAll('.v2-icon-radios').forEach(group => {
       const field = group.dataset.field;
       if (!field) return;
+      const isMulti = group.dataset.multi === '1';
+
       group.querySelectorAll('.v2-icon-radio').forEach(btn => {
         btn.addEventListener('click', () => {
-          const wasActive = btn.classList.contains('is-active');
-          group.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
-          if (!wasActive) {
-            btn.classList.add('is-active');
-            saveField(field, btn.dataset.value || '');
+          if (isMulti) {
+            // Multi : toggle le bouton cliqué uniquement, save valeurs concat
+            btn.classList.toggle('is-active');
+            const values = Array.from(group.querySelectorAll('.v2-icon-radio.is-active'))
+              .map(b => b.dataset.value || '')
+              .filter(Boolean);
+            saveField(field, values.join(','));
           } else {
-            saveField(field, '');
+            // Radio (exclusif)
+            const wasActive = btn.classList.contains('is-active');
+            group.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
+            if (!wasActive) {
+              btn.classList.add('is-active');
+              saveField(field, btn.dataset.value || '');
+            } else {
+              saveField(field, '');
+            }
           }
         });
       });
