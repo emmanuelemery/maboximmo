@@ -76,23 +76,23 @@ html.v2-no-scroll, body.v2-no-scroll {
 .v2-topbar-score.bad  { color: #dc2626; border-color: rgba(220, 38, 38, 0.30); }
 
 /* ─────────────────────────────────
-   NAV ONGLETS SECTIONS (page-head) — resserre
+   NAV ONGLETS SECTIONS (page-head) — principaux : +25% taille
 ───────────────────────────────── */
 .v2-section-tabs {
   display: flex;
-  gap: 4px;
+  gap: 5px;
   flex-shrink: 0;
-  padding: 3px;
+  padding: 4px;
   background: rgba(255, 255, 255, 0.55);
-  border-radius: 10px;
+  border-radius: 12px;
 }
 .v2-section-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 7px;
-  font-size: 12px;
+  gap: 8px;
+  padding: 7px 16px;
+  border-radius: 9px;
+  font-size: 15px;
   font-weight: 600;
   color: #4a6038;
   transition: background .18s, color .18s, box-shadow .18s;
