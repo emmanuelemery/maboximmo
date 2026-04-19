@@ -194,7 +194,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= asset_url('/css/tokens.css') ?>">
   <link rel="stylesheet" href="<?= asset_url('/assets/css/document_uploader.css') ?>">
-  <link rel="stylesheet" href="<?= asset_url('/css/bien_detail_v2.css') ?>">
+  <link rel="stylesheet" href="<?= asset_url('/css/bien_detail_v2.css') ?>?v=<?= @filemtime(__DIR__ . '/css/bien_detail_v2.css') ?: time() ?>">
   <style>
     :root {
       --bg:        var(--bg-secondary);
@@ -660,7 +660,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
   };
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
-<script src="<?= asset_url('/js/bien_detail_v2.js') ?>"></script>
+<script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
 
 </body>
 </html>
