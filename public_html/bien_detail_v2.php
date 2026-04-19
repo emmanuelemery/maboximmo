@@ -176,10 +176,19 @@ if ($section === 'descriptif') {
 }
 $immeublesList = $immeublesList ?? [];
 
-// Cle Google Maps (reutilisation bootstrap.php)
+// Cle Google Maps (env → puis fichier /home/.../google_config.php hors public_html)
 $GOOGLE_MAPS_API_KEY = getenv('GOOGLE_MAPS_API_KEY')
     ?: ($_ENV['GOOGLE_MAPS_API_KEY'] ?? '')
     ?: ($_SERVER['GOOGLE_MAPS_API_KEY'] ?? '');
+if (empty($GOOGLE_MAPS_API_KEY)) {
+    foreach ([dirname(__DIR__, 2) . '/google_config.php', dirname(__DIR__) . '/google_config.php'] as $_cfg) {
+        if (is_file($_cfg)) {
+            @include $_cfg;
+            if (defined('GOOGLE_MAPS_API_KEY')) $GOOGLE_MAPS_API_KEY = GOOGLE_MAPS_API_KEY;
+            break;
+        }
+    }
+}
 
 // Labels FR + type de champ pour la card 4 (whitelist alignée sur api/dpe_diag_update.php)
 $dpeFieldDefs = [
@@ -524,11 +533,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse</span>
             <div class="v2-places-picker">
-              <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Google (adresse)…" autocomplete="off">
+              <span class="v2-picker-label">Recherche Google</span>
+              <input type="text" id="v2-google-places" class="v2-input" placeholder="🔍 Ex: 15 place Bellecour Lyon…" autocomplete="off">
             </div>
             <div class="v2-imm-picker">
+              <span class="v2-picker-label">Immeubles enregistrés<?= empty($immeublesList) ? '' : ' (' . count($immeublesList) . ')' ?></span>
               <input type="text" id="v2-imm-search" class="v2-input"
-                     placeholder="🏢 Immeubles enregistrés<?= empty($immeublesList) ? ' (aucun)' : ' (' . count($immeublesList) . ')' ?>…"
+                     placeholder="🏢 <?= empty($immeublesList) ? 'Aucun immeuble' : 'Rechercher…' ?>"
                      autocomplete="off"
                      <?= empty($immeublesList) ? 'disabled' : '' ?>>
               <div id="v2-imm-suggest" class="v2-tiers-suggest" hidden></div>

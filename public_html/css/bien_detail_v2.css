@@ -621,9 +621,21 @@ html.v2-no-scroll, body.v2-no-scroll {
   flex: 1;
   min-width: 180px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .v2-places-picker .v2-input,
 .v2-imm-picker .v2-input { font-size: 12px; padding: 7px 10px; }
+.v2-picker-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--v2-muted);
+  text-align: right;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding-right: 4px;
+}
 
 /* Séparation renforcée entre rubriques icônes (caractéristiques) */
 .v2-desc-group-title {
