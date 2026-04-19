@@ -516,13 +516,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-body v2-split">
           <div class="v2-split-left">
             <?php if ($lastDpePdf): ?>
-              <object data="<?= h($lastDpePdf['url_fichier']) ?>#toolbar=0&navpanes=0&view=FitH" type="application/pdf" aria-label="Document DPE">
-                <div class="v2-doc-empty">
-                  <div class="v2-doc-empty-icon">📄</div>
-                  <div><?= h((string)$lastDpePdf['nom_original']) ?></div>
-                  <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-btn-outline" style="margin-top:12px;display:inline-block;">Ouvrir dans un nouvel onglet</a>
-                </div>
-              </object>
+              <iframe src="<?= h($lastDpePdf['url_fichier']) ?>" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
+              <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
             <?php else: ?>
               <div class="v2-doc-empty">
                 <div class="v2-doc-empty-icon">📎</div>
