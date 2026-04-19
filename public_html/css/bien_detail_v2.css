@@ -13,12 +13,12 @@
   --v2-card-bg: #ffffff;
   --v2-card-border: rgba(54, 87, 125, 0.10);
 
-  /* Amande foncée (côté droit / is-next) — beaucoup plus foncé pour le relief */
-  --v2-warm-1: #a0722a;
-  --v2-warm-2: #5e3d15;
-  /* Bleu pétrole (côté gauche / is-prev) — beaucoup plus foncé */
-  --v2-cold-1: #2b4466;
-  --v2-cold-2: #0f1a28;
+  /* Vert olive charte (côté droit / is-next) */
+  --v2-warm-1: var(--accent-green, #7a9060);
+  --v2-warm-2: #4a6038;
+  /* Bleu pétrole charte (côté gauche / is-prev) */
+  --v2-cold-1: var(--brand-700, #213450);
+  --v2-cold-2: var(--brand-800, #17253a);
 
   --v2-ink: #1a1816;
   --v2-muted: #8a8680;
