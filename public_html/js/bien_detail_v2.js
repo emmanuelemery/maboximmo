@@ -528,17 +528,124 @@
       photosStatus.textContent = msg || '';
     }
 
-    function applyBulkSelection(selectedIds) {
-      const set = new Set((selectedIds || []).map(Number));
+    // ── Re-render sans reload : réorganise les tiles photos selon l'ordre
+    //    fourni (ids sélectionnés dans leur ordre annonce), met à jour les
+    //    badges numéros + PRINCIPALE + compteur + disponible[limite atteinte]
+    function rerenderAnnoncePhotosGrid(selectedIdsOrdered) {
+      const MAX = 7;
+      const selectedIds = (selectedIdsOrdered || []).map(Number);
+      const selSet = new Set(selectedIds);
+
+      // 1. Index des tiles par photoId (toutes sections confondues)
+      const tilesById = new Map();
       document.querySelectorAll('.v2-annonce-photo-tile').forEach(t => {
         const id = parseInt(t.dataset.photoId, 10) || 0;
-        const sel = set.has(id);
-        t.classList.toggle('is-selected', sel);
-        const chk = t.querySelector('.v2-annonce-photo-check');
-        if (chk) chk.textContent = sel ? '✓' : '+';
+        if (id) tilesById.set(id, t);
       });
+      if (tilesById.size === 0) return;
+
+      // 2. Récupère (ou crée) les containers sections
+      const cardBody = document.querySelector('section[aria-label="Photos de l\'annonce"] .v2-card-body');
+      if (!cardBody) return;
+
+      function ensureSection(kind, labelHTML) {
+        let label = cardBody.querySelector('.v2-annonce-photos-section-label.' + kind);
+        let grid  = cardBody.querySelector('#v2-annonce-photos-grid-' + kind);
+        if (!grid) {
+          label = document.createElement('div');
+          label.className = 'v2-annonce-photos-section-label ' + kind;
+          label.innerHTML = labelHTML;
+          grid = document.createElement('div');
+          grid.className = 'v2-annonce-photos-grid';
+          grid.id = 'v2-annonce-photos-grid-' + kind;
+          // Insère avant la status zone (ou à la fin)
+          const status = document.getElementById('v2-annonce-photos-status');
+          if (status) {
+            cardBody.insertBefore(label, status);
+            cardBody.insertBefore(grid, status);
+          } else {
+            cardBody.appendChild(label);
+            cardBody.appendChild(grid);
+          }
+        } else if (label) {
+          label.innerHTML = labelHTML;
+        }
+        return { label, grid };
+      }
+
+      const full = selectedIds.length >= MAX;
+      const labelAvail = '📂 Disponibles <small>(cliquez pour ajouter'
+        + (full ? ' — limite atteinte' : '') + ')</small>';
+      const selSect = selectedIds.length > 0
+        ? ensureSection('selected',  '📌 Sélectionnées (glissez pour réordonner · 1ère = principale)')
+        : null;
+      const availSect = ensureSection('available', labelAvail);
+
+      // 3. Déplace / met à jour chaque tile
+      selectedIds.forEach((pid, i) => {
+        const t = tilesById.get(pid);
+        if (!t || !selSect) return;
+        selSect.grid.appendChild(t);
+        t.classList.add('is-selected');
+        t.setAttribute('draggable', 'true');
+        t.dataset.rank = String(i);
+        // Badge ordre
+        let order = t.querySelector('.v2-annonce-photo-order');
+        if (!order) {
+          order = document.createElement('span');
+          order.className = 'v2-annonce-photo-order';
+          t.appendChild(order);
+        }
+        order.textContent = String(i + 1);
+        // Badge PRINCIPALE (sur la 1ère uniquement)
+        let main = t.querySelector('.v2-annonce-photo-main');
+        if (i === 0) {
+          if (!main) {
+            main = document.createElement('span');
+            main.className = 'v2-annonce-photo-main';
+            main.textContent = 'PRINCIPALE';
+            t.appendChild(main);
+          }
+        } else if (main) {
+          main.remove();
+        }
+        // Check ✓
+        const chk = t.querySelector('.v2-annonce-photo-check');
+        if (chk) chk.textContent = '✓';
+      });
+
+      // Tiles non sélectionnées : nettoyage + section Disponibles
+      tilesById.forEach((t, id) => {
+        if (selSet.has(id)) return;
+        availSect.grid.appendChild(t);
+        t.classList.remove('is-selected');
+        t.removeAttribute('draggable');
+        delete t.dataset.rank;
+        const order = t.querySelector('.v2-annonce-photo-order');
+        if (order) order.remove();
+        const main = t.querySelector('.v2-annonce-photo-main');
+        if (main) main.remove();
+        const chk = t.querySelector('.v2-annonce-photo-check');
+        if (chk) chk.textContent = '+';
+      });
+
+      // 4. Retirer les sections vides (label orphelin)
+      if (selectedIds.length === 0 && selSect) {
+        selSect.label.remove();
+        selSect.grid.remove();
+      }
+
+      // 5. Compteur top
+      const counter = document.getElementById('v2-annonce-photos-counter');
+      const counterN = document.getElementById('v2-annonce-photos-counter-n');
+      if (counterN) counterN.textContent = String(selectedIds.length);
+      if (counter) counter.classList.toggle('is-full', full);
+
+      // 6. Compteur card label
+      if (photosCount) photosCount.textContent = selectedIds.length;
     }
 
+    // ── Bulk all / none : re-render JS, pas de reload ──
     async function bulkPhotos(action) {
       if (!data.annonceId) return;
       const label = action === 'all' ? 'Récupération depuis le bien' : 'Désélection';
@@ -553,10 +660,9 @@
         });
         const j = await r.json();
         if (!j.ok) throw new Error(j.error || 'Erreur');
-        // Reload pour que les sections "Sélectionnées / Disponibles" et les badges
-        // (numéros, PRINCIPALE) soient re-rendus par PHP dans l'ordre BDD.
-        setPhotoStatus('ok', '✅ ' + j.count + ' photo(s) dans l\'annonce — rechargement…');
-        setTimeout(() => window.location.reload(), 500);
+        rerenderAnnoncePhotosGrid(j.selected_ids || []);
+        setPhotoStatus('ok', '✅ ' + j.count + ' photo(s) dans l\'annonce');
+        setTimeout(() => setPhotoStatus('', ''), 1500);
       } catch (e) {
         setPhotoStatus('err', '❌ ' + e.message);
       }
@@ -640,12 +746,33 @@
 
     // (focus-on-load est géré au niveau global de l'init — évite la duplication)
 
-    document.querySelectorAll('.v2-annonce-photo-tile').forEach(tile => {
-      tile.addEventListener('click', async (e) => {
-        // Ignore le click quand c'est un drag qui se termine
+    // ── Toggle photo (click) : re-render JS pur, pas de reload ──
+    //    On délègue au containeur pour que les tiles re-déplacées par
+    //    rerenderAnnoncePhotosGrid restent cliquables.
+    const photosCardBody = document.querySelector('section[aria-label="Photos de l\'annonce"] .v2-card-body');
+    if (photosCardBody) {
+      photosCardBody.addEventListener('click', async (e) => {
+        const tile = e.target.closest('.v2-annonce-photo-tile');
+        if (!tile) return;
         if (tile.dataset.dragging === '1') return;
         const id = parseInt(tile.dataset.photoId, 10) || 0;
         if (!id || !data.annonceId) return;
+
+        // Calcule la nouvelle liste d'IDs sélectionnés en fonction de l'état
+        const currentSelTiles = Array.from(
+          document.querySelectorAll('#v2-annonce-photos-grid-selected .v2-annonce-photo-tile[data-photo-id]')
+        );
+        const currentIds = currentSelTiles.map(t => parseInt(t.dataset.photoId, 10)).filter(Boolean);
+        const isCurrentlySelected = currentIds.includes(id);
+        // Optimistic newIds pour détecter limite atteinte côté client aussi
+        const newIds = isCurrentlySelected
+          ? currentIds.filter(x => x !== id)
+          : currentIds.concat([id]);
+        if (!isCurrentlySelected && newIds.length > 7) {
+          setPhotoStatus('err', '⚠️ Maximum 7 photos atteint. Désélectionnez-en une avant.');
+          return;
+        }
+
         tile.style.pointerEvents = 'none';
         setPhotoStatus('', '⏳ Enregistrement…');
         const fd = new FormData();
@@ -664,18 +791,20 @@
             }
             throw new Error(j.error || 'Erreur');
           }
-          // Reload pour re-render sections (sélectionnées / disponibles),
-          // les badges numéros, et le badge PRINCIPALE sur la nouvelle 1ère.
+          // Re-render instantané : on reste exactement sur la Card Photos,
+          // aucun flash, aucune perte de scroll.
+          rerenderAnnoncePhotosGrid(newIds);
           const msg = (j.action === 'added' ? '✅ Ajoutée' : '✅ Retirée')
-                    + ' · ' + j.count + ' photo(s) dans l\'annonce — rechargement…';
+                    + ' · ' + j.count + ' photo(s) dans l\'annonce';
           setPhotoStatus('ok', msg);
-          setTimeout(() => window.location.reload(), 350);
-        } catch (e) {
-          setPhotoStatus('err', '❌ ' + e.message);
+          setTimeout(() => setPhotoStatus('', ''), 1500);
+        } catch (err) {
+          setPhotoStatus('err', '❌ ' + err.message);
+        } finally {
           tile.style.pointerEvents = '';
         }
       });
-    });
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -1385,12 +1514,80 @@
     const tabs = document.getElementById('v2-stage-tabs');
     const prevBtn = document.getElementById('v2-prev');
     const nextBtn = document.getElementById('v2-next');
-    new V2Carousel(stage, {
+    const v2Carousel = new V2Carousel(stage, {
       dotsEl: dots,
       tabsEl: tabs,
       prevBtn: prevBtn,
       nextBtn: nextBtn,
       startIndex: 0,
     });
+    window.__v2Carousel = v2Carousel;
+
+    // ══════════════════════════════════════════════════════════════
+    // Préservation état V2 : card active + scroll au reload / retour
+    // ══════════════════════════════════════════════════════════════
+    //   - Clé sessionStorage unique par page+section
+    //   - Restauration au chargement (si l'URL n'a pas ?focus=X,
+    //     auquel cas on laisse le focus-on-load prendre la main)
+    //   - Sauvegarde : sur changement de carte, scroll (debounced),
+    //     et beforeunload
+    bindV2StatePersistence(v2Carousel);
   });
+
+  function bindV2StatePersistence(carousel) {
+    const params = new URLSearchParams(location.search);
+    const section = params.get('section') || '';
+    const edit    = params.get('edit')    || '';
+    const focus   = params.get('focus')   || '';
+    const SS_KEY = 'v2_state::' + location.pathname + '::' + section + '::' + edit;
+
+    // Restauration (sauf si ?focus=X explicite : focus-on-load gere lui-meme le scroll)
+    if (!focus) {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(SS_KEY) || '{}');
+        if (typeof saved.cardIdx === 'number' && saved.cardIdx >= 0 && saved.cardIdx < carousel.total) {
+          carousel.go(saved.cardIdx);
+        }
+        if (typeof saved.scrollY === 'number' && saved.scrollY > 0) {
+          // Deux RAF pour laisser la card active se positionner avant le scroll
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.scrollTo(0, saved.scrollY);
+          }));
+        }
+      } catch (_) {}
+    }
+
+    // Sauvegarde debounced
+    let _ssTimer = null;
+    function save() {
+      clearTimeout(_ssTimer);
+      _ssTimer = setTimeout(() => {
+        try {
+          sessionStorage.setItem(SS_KEY, JSON.stringify({
+            cardIdx: carousel.index,
+            scrollY: window.scrollY,
+            ts:      Date.now(),
+          }));
+        } catch (_) {}
+      }, 120);
+    }
+
+    // Change de carte : monkey-patch go() pour notifier
+    const _origGo = carousel.go.bind(carousel);
+    carousel.go = function (i) { _origGo(i); save(); };
+
+    // Scroll (passif)
+    window.addEventListener('scroll', save, { passive: true });
+
+    // Filet de sécurité : snapshot synchrone avant unload
+    window.addEventListener('beforeunload', () => {
+      try {
+        sessionStorage.setItem(SS_KEY, JSON.stringify({
+          cardIdx: carousel.index,
+          scrollY: window.scrollY,
+          ts:      Date.now(),
+        }));
+      } catch (_) {}
+    });
+  }
 })();
