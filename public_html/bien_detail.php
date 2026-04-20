@@ -838,6 +838,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         ];
 
         $curType    = (int)($b['id_type_bien'] ?? 0);
+        // Code stable du type courant (les IDs auto-increment ne sont pas portables entre dev/prod)
+        $curTypeCode = '';
+        foreach ($typesBienList as $_t) {
+            if ((int)$_t['id'] === $curType) { $curTypeCode = (string)$_t['code']; break; }
+        }
         $curSType   = (string)($b['sous_type_bien'] ?? '');
         $curUsage   = (string)($b['usage_bien'] ?? '');
         $curEtat    = (string)($b['etat_bien'] ?? '');
@@ -1101,12 +1106,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <!-- Type (pleine largeur) -->
           <div class="v2-icon-row">
             <span class="v2-icon-row-label">Type</span>
-            <div class="v2-icon-radios" data-field="id_type_bien">
+            <div class="v2-icon-radios" data-field="type_bien">
               <?php foreach ($typesBienList as $t):
                 $icon = $typeIcons[$t['code']] ?? '📦';
-                $act = ((int)$t['id'] === $curType) ? ' is-active' : '';
+                $act = ((string)$t['code'] === $curTypeCode) ? ' is-active' : '';
               ?>
-                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= (int)$t['id'] ?>" title="<?= h((string)$t['label']) ?>">
+                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h((string)$t['code']) ?>" title="<?= h((string)$t['label']) ?>">
                   <span class="v2-icon-emoji"><?= $icon ?></span>
                   <span class="v2-icon-lbl"><?= h((string)$t['label']) ?></span>
                 </button>

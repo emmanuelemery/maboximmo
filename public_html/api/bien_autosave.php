@@ -213,16 +213,11 @@ $data = [
     'accroche_commerciale'    => $str('accroche_commerciale'),
 ];
 
-// Also handle type_bien → id_type_bien
-$typeBienCode = $str('type_bien');
-if ($typeBienCode !== '') {
-    $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
-    $stmtT->execute([$typeBienCode]);
-    $tbId = (int)$stmtT->fetchColumn();
-    if ($tbId > 0) {
-        $data['id_type_bien'] = $tbId;
-    }
-}
+// Note : la conversion type_bien (code) → id_type_bien (id local en base) se
+// fait APRÈS le bloc protectedFields ci-dessous — sinon l'unset id_type_bien
+// (POST['id_type_bien'] absent quand le frontend envoie type_bien) écraserait
+// la valeur résolue ici. La résolution par code est obligatoire car les IDs
+// auto-increment de types_bien ne sont pas portables entre dev/prod.
 
 // id_proprietaire — soit sélectionné, soit création à la volée
 $proprioId = $int('id_proprietaire');
@@ -471,6 +466,19 @@ foreach ($protectedFields as $f) {
     $isEmpty = ($raw === null) || (is_string($raw) && trim($raw) === '');
     if ($isEmpty) {
         unset($data[$f]);
+    }
+}
+
+// Résolution finale : type_bien (code stable) → id_type_bien (id local en base).
+// Doit rester APRÈS protectedFields, sinon le unset id_type_bien (absent du POST
+// quand le frontend envoie type_bien) écraserait la valeur résolue ici.
+$typeBienCode = $str('type_bien');
+if ($typeBienCode !== '') {
+    $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+    $stmtT->execute([$typeBienCode]);
+    $tbId = (int)$stmtT->fetchColumn();
+    if ($tbId > 0) {
+        $data['id_type_bien'] = $tbId;
     }
 }
 
