@@ -717,7 +717,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-label">⬆️ Chargement</div>
         <div class="v2-card-body">
           <div class="v2-chargement-tagline">
-            ✨ Le meilleur moyen de créer un bien, est de scanné son DPE !
+            ✨ Le meilleur moyen de créer un bien est de scanner son DPE !
           </div>
           <div id="v2-uploader"></div>
 
