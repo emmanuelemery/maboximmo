@@ -518,6 +518,11 @@
     // ══════════════════════════════════════════════════════════════
     bindAnnonceIAGenerate(data);
 
+    // ══════════════════════════════════════════════════════════════
+    // Card 4 Annonce — Dropzone upload photos (débloque le cas "zéro photo")
+    // ══════════════════════════════════════════════════════════════
+    bindAnnonceDropzone(data);
+
     // Card 2 Photos : toggle sélection N:N
     const photosStatus = document.getElementById('v2-annonce-photos-status');
     const photosCount  = document.getElementById('v2-annonce-photos-count');
@@ -847,6 +852,75 @@
         btn.disabled = false;
         btn.innerHTML = '✨ Regénérer l\'annonce complète';
       }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Card 4 Annonce — Dropzone upload de photos du bien
+  // (identique à celle de la section Documents — reload après succès
+  //  pour que les photos apparaissent dans la grille de sélection N:N)
+  // ══════════════════════════════════════════════════════════════════
+  function bindAnnonceDropzone(data) {
+    const dz       = document.getElementById('v2-annonce-photo-drop');
+    const dzInput  = document.getElementById('v2-annonce-photo-input');
+    const dzStatus = document.getElementById('v2-annonce-photo-drop-status');
+    if (!dz || !dzInput) return;
+
+    const setStatus = (kind, msg) => {
+      if (!dzStatus) return;
+      dzStatus.className = 'v2-photo-drop-status ' + (kind || '');
+      dzStatus.textContent = msg || '';
+    };
+
+    async function uploadPhoto(file) {
+      const fd = new FormData();
+      fd.append('fichier', file);
+      fd.append('csrf_token', data.csrfToken || '');
+      if (data.bienId) fd.append('id_bien', data.bienId);
+      const r = await fetch(data.photoUploadEndpoint || '/api/bien_intake_photo_upload.php', {
+        method: 'POST', body: fd, credentials: 'same-origin'
+      });
+      return r.json();
+    }
+
+    async function uploadAll(files) {
+      const list = Array.from(files).filter(f => /^image\//.test(f.type));
+      if (list.length === 0) { setStatus('err', '❌ Aucune image valide'); return; }
+      dz.classList.add('is-busy');
+      let done = 0, errs = 0;
+      setStatus('', `⏳ 0 / ${list.length}…`);
+      for (const f of list) {
+        try {
+          const j = await uploadPhoto(f);
+          if (j && j.ok) done++; else errs++;
+        } catch (e) { errs++; }
+        setStatus('', `⏳ ${done + errs} / ${list.length}…`);
+      }
+      dz.classList.remove('is-busy');
+      if (done > 0 && errs === 0) {
+        setStatus('ok', `✅ ${done} photo(s) ajoutée(s) — rechargement…`);
+        setTimeout(() => window.location.reload(), 600);
+      } else if (done > 0) {
+        setStatus('err', `⚠️ ${done} OK · ${errs} échec(s) — rechargement…`);
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        setStatus('err', `❌ ${errs} échec(s) — aucune photo chargée`);
+      }
+    }
+
+    dz.addEventListener('click', () => dzInput.click());
+    dzInput.addEventListener('change', (e) => {
+      if (e.target.files?.length) uploadAll(e.target.files);
+      dzInput.value = '';
+    });
+    ['dragenter', 'dragover'].forEach(ev =>
+      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('is-dragging'); })
+    );
+    ['dragleave', 'drop'].forEach(ev =>
+      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('is-dragging'); })
+    );
+    dz.addEventListener('drop', (e) => {
+      if (e.dataTransfer?.files?.length) uploadAll(e.dataTransfer.files);
     });
   }
 

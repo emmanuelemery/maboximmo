@@ -1628,34 +1628,49 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📸</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
-          <?php elseif (empty($annonceBienPhotos)): ?>
-            <div class="v2-doc-empty">
-              <div class="v2-doc-empty-icon">📸</div>
-              <div>Aucune photo disponible pour ce bien.<br>
-                <small>Charge des photos dans <a href="?edit=<?= (int)$editingBienId ?>&section=documents">📎 Documents → Chargement</a>.</small>
-              </div>
-            </div>
           <?php else: ?>
-            <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
-              Clique sur une photo pour l'inclure ou l'exclure de l'annonce diffusée.
-              Les photos sélectionnées sont celles qui partent sur les portails.
-            </div>
-            <div class="v2-annonce-photos-bulk">
-              <button type="button" id="v2-annonce-photos-all" class="v2-btn-secondary">✓ Tout sélectionner</button>
-              <button type="button" id="v2-annonce-photos-none" class="v2-btn-secondary">✕ Tout désélectionner</button>
-            </div>
-            <div class="v2-annonce-photos-grid">
-              <?php foreach ($annonceBienPhotos as $p): ?>
-                <?php $isSel = in_array($p['id'], $annoncePhotoIds, true); ?>
-                <div class="v2-annonce-photo-tile<?= $isSel ? ' is-selected' : '' ?>" data-photo-id="<?= $p['id'] ?>">
-                  <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
-                  <div class="v2-annonce-photo-check">
-                    <?= $isSel ? '✓' : '+' ?>
+            <?php if (empty($annonceBienPhotos)): ?>
+              <!-- Aucune photo : on déclenche l'upload directement ici -->
+              <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
+                Aucune photo n'est encore chargée pour ce bien. Charge-les directement ci-dessous —
+                tu pourras ensuite sélectionner celles à diffuser sur les portails.
+              </div>
+            <?php else: ?>
+              <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
+                Clique sur une photo pour l'inclure ou l'exclure de l'annonce diffusée.
+                Les photos sélectionnées sont celles qui partent sur les portails.
+              </div>
+              <div class="v2-annonce-photos-bulk">
+                <button type="button" id="v2-annonce-photos-all" class="v2-btn-secondary">✓ Tout sélectionner</button>
+                <button type="button" id="v2-annonce-photos-none" class="v2-btn-secondary">✕ Tout désélectionner</button>
+              </div>
+              <div class="v2-annonce-photos-grid">
+                <?php foreach ($annonceBienPhotos as $p): ?>
+                  <?php $isSel = in_array($p['id'], $annoncePhotoIds, true); ?>
+                  <div class="v2-annonce-photo-tile<?= $isSel ? ' is-selected' : '' ?>" data-photo-id="<?= $p['id'] ?>">
+                    <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
+                    <div class="v2-annonce-photo-check">
+                      <?= $isSel ? '✓' : '+' ?>
+                    </div>
                   </div>
-                </div>
-              <?php endforeach; ?>
+                <?php endforeach; ?>
+              </div>
+              <div class="v2-annonce-photos-status" id="v2-annonce-photos-status"></div>
+            <?php endif; ?>
+
+            <!-- Dropzone upload de photos bien (toujours visible quand annonce existe) -->
+            <div class="v2-photo-drop-wrap" style="margin-top:<?= empty($annonceBienPhotos) ? '0' : '14px' ?>;">
+              <?php if (!empty($annonceBienPhotos)): ?>
+                <div class="v2-desc-group-title">📸 Ajouter des photos au bien</div>
+              <?php endif; ?>
+              <div id="v2-annonce-photo-drop" class="v2-photo-drop">
+                <input type="file" id="v2-annonce-photo-input" accept="image/jpeg,image/png,image/webp" multiple hidden>
+                <div class="v2-photo-drop-icon">📸</div>
+                <div class="v2-photo-drop-title">Glissez vos photos ici ou cliquez</div>
+                <div class="v2-photo-drop-sub">JPG / PNG / WebP · max 15 Mo par photo · multiples acceptés</div>
+              </div>
+              <div id="v2-annonce-photo-drop-status" class="v2-photo-drop-status"></div>
             </div>
-            <div class="v2-annonce-photos-status" id="v2-annonce-photos-status"></div>
           <?php endif; ?>
         </div>
       </section>
