@@ -949,14 +949,67 @@
       });
     });
 
-    // ═══ Card 5 Bouton Diffuser (placeholder, backend à venir) ═══
+    // ═══ Card 5 Bouton « 🚀 Diffuser maintenant » ═══
+    // POST /api/annonce_diffuser.php :
+    //   - Vérifie complétude Ubiflow (champs bloquants)
+    //   - UPDATE etat_publication = 'diffusee' + date_publication
+    //   - Si visible_portails coché : génère XML + ubiflow_deploy FTP
     const diffuseBtn = document.getElementById('v2-diffuse-btn');
     const diffuseStatus = document.getElementById('v2-diffuse-status');
     if (diffuseBtn) {
-      diffuseBtn.addEventListener('click', () => {
+      diffuseBtn.addEventListener('click', async () => {
         if (diffuseBtn.disabled) return;
-        diffuseStatus.textContent = '⏳ Diffusion — endpoint en cours d\'implémentation. Les canaux sont sauvegardés, à connecter à Ubiflow / passerelle LeBonCoin.';
+        if (!data.annonceId) {
+          diffuseStatus.textContent = '❌ Annonce introuvable.';
+          diffuseStatus.className = 'v2-form-status err';
+          return;
+        }
+        diffuseBtn.disabled = true;
+        const originalLabel = diffuseBtn.innerHTML;
+        diffuseBtn.innerHTML = '⏳ Diffusion en cours…';
+        diffuseStatus.textContent = '⏳ Vérification + dépôt FTP (peut prendre 10-30 s)…';
         diffuseStatus.className = 'v2-form-status';
+
+        const fd = new FormData();
+        fd.append('_annonce_id', data.annonceId);
+        fd.append('csrf_token', csrf);
+
+        try {
+          const r = await fetch(data.annonceDiffuserEndpoint || '/api/annonce_diffuser.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+          });
+          const j = await r.json();
+          if (!j.ok) {
+            diffuseStatus.textContent = '❌ ' + (j.error || 'Échec');
+            diffuseStatus.className = 'v2-form-status err';
+            diffuseBtn.disabled = false;
+            diffuseBtn.innerHTML = originalLabel;
+            return;
+          }
+
+          // Résumé par canal
+          const parts = [];
+          const c = j.canaux || {};
+          if (c.maboximmo && c.maboximmo.ok)  parts.push('🏢 MaBoxImmo ✓');
+          if (c.site_perso && c.site_perso.ok) parts.push('🌐 Site ✓');
+          if (c.portails) {
+            if (c.portails.ok) {
+              parts.push('📰 Portails ✓'
+                + (typeof c.portails.annonces_in_flux === 'number' ? ' (' + c.portails.annonces_in_flux + ' annonces)' : ''));
+            } else {
+              parts.push('📰 Portails ❌ ' + (c.portails.error || ''));
+            }
+          }
+          diffuseStatus.innerHTML = '✅ Annonce diffusée. ' + parts.join(' · ');
+          diffuseStatus.className = 'v2-form-status ok';
+          diffuseBtn.innerHTML = '✓ Diffusé — rechargement…';
+          setTimeout(() => window.location.reload(), 1800);
+        } catch (e) {
+          diffuseStatus.textContent = '❌ ' + e.message;
+          diffuseStatus.className = 'v2-form-status err';
+          diffuseBtn.disabled = false;
+          diffuseBtn.innerHTML = originalLabel;
+        }
       });
     }
 
