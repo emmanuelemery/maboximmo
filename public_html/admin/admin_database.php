@@ -1714,7 +1714,7 @@ function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
             currentTable = table;
 
             // Récupérer la structure des colonnes
-            fetch('/MaBoxImmo2026/public_html/admin/api_table.php?action=columns&table=' + encodeURIComponent(table))
+            fetch('api_table.php?action=columns&table=' + encodeURIComponent(table))
                 .then(r => r.json())
                 .then(data => {
                     tableColumnsInfo = data.columns;
@@ -1747,7 +1747,7 @@ function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
             currentTable = table;
 
             // Récupérer la structure des colonnes pour le contexte
-            fetch('/MaBoxImmo2026/public_html/admin/api_table.php?action=columns&table=' + encodeURIComponent(table))
+            fetch('api_table.php?action=columns&table=' + encodeURIComponent(table))
                 .then(r => r.json())
                 .then(data => {
                     tableColumnsInfo = data.columns;
@@ -1942,7 +1942,7 @@ function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
             // Vérifier si c'est une nouvelle ligne (pas d'id ou id vide)
             const isNew = !currentRow.id || currentRow.id === '';
             const action = isNew ? 'insert' : 'update';
-            const url = '/MaBoxImmo2026/public_html/admin/api_table.php?action=' + action + '&table=' + encodeURIComponent(currentTable);
+            const url = 'api_table.php?action=' + action + '&table=' + encodeURIComponent(currentTable);
 
             // Pour UPDATE, ajouter l'id
             if (!isNew) {
@@ -1993,7 +1993,7 @@ function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
         // Supprimer une ligne depuis la modal
         function deleteRowFromModal() {
-            fetch('/MaBoxImmo2026/public_html/admin/api_table.php?action=delete&table=' + encodeURIComponent(currentTable), {
+            fetch('api_table.php?action=delete&table=' + encodeURIComponent(currentTable), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.body.dataset.csrf },
                 body: JSON.stringify({ id: currentRow.id })
@@ -2112,7 +2112,7 @@ function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
             submitBtn.disabled = true;
             errorDiv.classList.remove('show');
 
-            fetch('/MaBoxImmo2026/public_html/admin/verify_password.php', {
+            fetch('verify_password.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: password })
