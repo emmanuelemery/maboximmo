@@ -596,13 +596,9 @@ function photoPrincipaleUrl(array $bien): ?string {
       <div class="page-head-sub"><?= $totalBiens ?> bien<?= $totalBiens > 1 ? 's' : '' ?> dans le portefeuille</div>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <a href="<?= htmlspecialchars(app_url('/bien_ajouter_express.php')) ?>" class="bl-btn bl-btn-primary"
-         title="Flow rapide avec IA : import DPE, auto-remplissage, génération annonce SEO + Le Bon Coin">
-        ⚡ Express
-      </a>
-      <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-ghost"
-         title="Création professionnelle : saisie détaillée complète avec tous les onglets (identification, caractéristiques, Diag & DPE, Photos, Documents)">
-        🏛️ Professionnelle
+      <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-primary"
+         title="Créer un nouveau bien — page unifiée : création, édition, documents, DPE, annonce, diffusion">
+        ➕ Nouveau bien
       </a>
       <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
       <button type="button" class="bl-btn" id="btn-purge-admin"
@@ -689,11 +685,8 @@ function photoPrincipaleUrl(array $bien): ?string {
             : 'Vous n\'avez pas encore ajouté de bien. Commencez maintenant !' ?>
         </p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <a href="<?= htmlspecialchars(app_url('/bien_ajouter_express.php')) ?>" class="bl-btn bl-btn-primary">
-            ⚡ Express
-          </a>
-          <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-ghost">
-            🏛️ Professionnelle
+          <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-primary">
+            ➕ Nouveau bien
           </a>
         </div>
       </div>

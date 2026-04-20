@@ -779,29 +779,61 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         $curProprio = (int)($b['id_proprietaire'] ?? 0);
       ?>
 
-      <!-- Card 1 : Propriétaire / Adresse / Caractéristiques (EDITION AVEC AUTOSAVE) -->
-      <section class="v2-card is-active" role="tabpanel" aria-label="Caractéristiques">
-        <div class="v2-card-label">📋 Caractéristiques</div>
+      <!-- Card 1 : Propriétaire (tiers lié, recherche, création express, infos extraites) -->
+      <section class="v2-card is-active" role="tabpanel" aria-label="Propriétaire">
+        <div class="v2-card-label">👤 Propriétaire</div>
         <div id="v2-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
-
-          <!-- 1. Propriétaire (lecture seule ; édition avancée dans l'ancienne page V1) -->
-          <div class="v2-group-header">
-            <span class="v2-group-header-title">👤 Propriétaire</span>
-            <span class="v2-proprio-display"><?= h($proprioStr ?: '— Non renseigné —') ?></span>
-            <a href="<?= h(app_url('/bien_detail_ex.php?edit=' . $editingBienId)) ?>"
-               class="v2-btn-outline v2-header-btn" title="Édition avancée (ancienne vue V1)">✏️</a>
-          </div>
           <?php if ($proprioInfo): ?>
-            <div class="v2-tiers-info">
-              <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
-              <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
+            <!-- ─── État : propriétaire lié au bien ──────────────────── -->
+            <div class="v2-proprio-card is-linked">
+              <div class="v2-proprio-head">
+                <div class="v2-proprio-avatar">👤</div>
+                <div class="v2-proprio-main">
+                  <div class="v2-proprio-name"><?= h((string)($proprioStr ?: '—')) ?></div>
+                  <div class="v2-proprio-meta">
+                    <?php if (!empty($proprioInfo['telephone'])): ?>📞 <?= h((string)$proprioInfo['telephone']) ?><?php endif; ?>
+                    <?php if (!empty($proprioInfo['email'])): ?> · ✉️ <?= h((string)$proprioInfo['email']) ?><?php endif; ?>
+                    <?php
+                      $vilP = trim((string)($proprioInfo['ville'] ?? ''));
+                      $cpP  = trim((string)($proprioInfo['code_postal'] ?? ''));
+                      if ($cpP || $vilP): ?>
+                      · 📍 <?= h(trim($cpP . ' ' . $vilP)) ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <div class="v2-proprio-actions">
+                  <button type="button" class="v2-btn-secondary" id="v2-proprio-unlink"
+                          title="Retirer ce propriétaire du bien (le tiers reste en base)">🔗 Dissocier</button>
+                </div>
+              </div>
+            </div>
+          <?php else: ?>
+            <!-- ─── État : pas de propriétaire lié ───────────────────── -->
+            <div class="v2-proprio-card is-empty">
+              <div class="v2-proprio-empty-msg">
+                Aucun propriétaire n'est lié à ce bien.
+                Recherche-le dans la base ou crée-en un nouveau.
+              </div>
             </div>
           <?php endif; ?>
 
+          <!-- ─── Recherche + création (toujours visibles) ──────────── -->
+          <div class="v2-group-header" style="margin-top:14px;">
+            <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
+          </div>
+          <div class="v2-proprio-picker">
+            <input type="text" class="v2-input" id="v2-proprio-search"
+                   placeholder="Tape un nom, email, société…" autocomplete="off">
+            <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
+          </div>
+          <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
+
           <?php if ($descProprioFromDpe && empty($bienLoaded['id_proprietaire'])): ?>
+            <!-- ─── Propriétaire détecté dans le DPE (prefill rapide) ─ -->
             <div class="v2-dpe-proprio-suggest" id="v2-dpe-proprio-suggest"
-                 data-proprio='<?= h(json_encode($descProprioFromDpe, JSON_UNESCAPED_UNICODE|JSON_HEX_APOS|JSON_HEX_QUOT)) ?>'>
+                 data-proprio='<?= h(json_encode($descProprioFromDpe, JSON_UNESCAPED_UNICODE|JSON_HEX_APOS|JSON_HEX_QUOT)) ?>'
+                 style="margin-top:14px;">
               <div class="v2-dpe-proprio-header">
                 📄 <strong>Propriétaire détecté dans le DPE</strong>
               </div>
@@ -821,7 +853,84 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
+          <!-- ─── Modal création express propriétaire ─────────────── -->
+          <div class="v2-modal-overlay" id="v2-proprio-modal" hidden>
+            <div class="v2-modal">
+              <div class="v2-modal-head">
+                <h3>➕ Nouveau propriétaire</h3>
+                <button type="button" class="v2-modal-close" id="v2-proprio-modal-close">✕</button>
+              </div>
+              <div class="v2-modal-body">
+                <div class="v2-icon-row">
+                  <span class="v2-icon-row-label">Type</span>
+                  <div class="v2-icon-radios" id="v2-proprio-type">
+                    <button type="button" class="v2-icon-radio is-active" data-value="personne_physique">
+                      <span class="v2-icon-emoji">👤</span><span class="v2-icon-lbl">Particulier</span>
+                    </button>
+                    <button type="button" class="v2-icon-radio" data-value="personne_morale">
+                      <span class="v2-icon-emoji">🏢</span><span class="v2-icon-lbl">Société</span>
+                    </button>
+                  </div>
+                </div>
 
+                <div id="v2-proprio-pp-fields">
+                  <div class="v2-addr-grid" style="grid-template-columns:1fr 1fr; margin-top:10px;">
+                    <div class="v2-field">
+                      <label class="v2-field-label">Prénom</label>
+                      <input type="text" class="v2-input" id="v2-proprio-prenom" maxlength="80">
+                    </div>
+                    <div class="v2-field">
+                      <label class="v2-field-label">Nom <span style="color:#dc2626;">*</span></label>
+                      <input type="text" class="v2-input" id="v2-proprio-nom" maxlength="80" required>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="v2-proprio-pm-fields" hidden>
+                  <div class="v2-field" style="margin-top:10px;">
+                    <label class="v2-field-label">Raison sociale <span style="color:#dc2626;">*</span></label>
+                    <input type="text" class="v2-input" id="v2-proprio-raison" maxlength="150">
+                  </div>
+                  <div class="v2-field">
+                    <label class="v2-field-label">SIRET</label>
+                    <input type="text" class="v2-input" id="v2-proprio-siret" maxlength="20" placeholder="14 chiffres">
+                  </div>
+                </div>
+
+                <div class="v2-addr-grid" style="grid-template-columns:1fr 1fr; margin-top:10px;">
+                  <div class="v2-field">
+                    <label class="v2-field-label">Email</label>
+                    <input type="email" class="v2-input" id="v2-proprio-email">
+                  </div>
+                  <div class="v2-field">
+                    <label class="v2-field-label">Téléphone</label>
+                    <input type="tel" class="v2-input" id="v2-proprio-tel">
+                  </div>
+                </div>
+                <div class="v2-field" style="margin-top:10px;">
+                  <label class="v2-field-label">Adresse</label>
+                  <input type="text" class="v2-input" id="v2-proprio-adresse">
+                </div>
+                <div class="v2-addr-grid" style="grid-template-columns:0.4fr 1fr; margin-top:8px;">
+                  <input type="text" class="v2-input" id="v2-proprio-cp" placeholder="CP" maxlength="10">
+                  <input type="text" class="v2-input" id="v2-proprio-ville" placeholder="Ville">
+                </div>
+
+                <div id="v2-proprio-modal-status" class="v2-form-status" style="margin-top:10px;"></div>
+              </div>
+              <div class="v2-modal-foot">
+                <button type="button" class="v2-btn-secondary" id="v2-proprio-modal-cancel">Annuler</button>
+                <button type="button" class="v2-btn-primary" id="v2-proprio-modal-save">✓ Créer et associer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card 2 : Adresse / Caractéristiques (EDITION AVEC AUTOSAVE) -->
+      <section class="v2-card is-next" role="tabpanel" aria-label="Caractéristiques">
+        <div class="v2-card-label">📋 Caractéristiques</div>
+        <div class="v2-card-body">
           <!-- 1bis. Identification (référence + désignation commerciale) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">🏷️ Identification</span>

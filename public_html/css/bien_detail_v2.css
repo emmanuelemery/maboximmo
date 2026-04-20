@@ -1829,3 +1829,146 @@ input.v2-input.is-from-dpe {
   cursor: wait;
   box-shadow: none;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Card Propriétaire : tiers lié + picker + modal création
+   ══════════════════════════════════════════════════════════════════ */
+.v2-proprio-card {
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.v2-proprio-card.is-linked {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.05), rgba(16, 185, 129, 0.01));
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.v2-proprio-card.is-empty {
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+}
+.v2-proprio-empty-msg {
+  color: var(--v2-muted, #64748b);
+  font-size: 13px;
+  text-align: center;
+  padding: 8px 4px;
+}
+.v2-proprio-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.v2-proprio-avatar {
+  font-size: 26px;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.65);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.v2-proprio-main { flex: 1; min-width: 200px; }
+.v2-proprio-name { font-size: 15px; font-weight: 700; color: #0f172a; }
+.v2-proprio-meta { font-size: 12px; color: var(--v2-muted, #64748b); margin-top: 2px; }
+.v2-proprio-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Picker */
+.v2-proprio-picker {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.v2-proprio-picker .v2-input { flex: 1; min-width: 200px; }
+.v2-proprio-results {
+  margin-top: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.v2-proprio-result {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s;
+  font-family: inherit;
+}
+.v2-proprio-result:last-child { border-bottom: 0; }
+.v2-proprio-result:hover { background: #f8fafc; }
+.v2-proprio-result-avatar { font-size: 18px; }
+.v2-proprio-result-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.v2-proprio-result-name { font-weight: 600; font-size: 13px; color: #0f172a; }
+.v2-proprio-result-meta { font-size: 11px; color: var(--v2-muted, #64748b); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2-proprio-result-empty {
+  padding: 14px;
+  color: var(--v2-muted, #64748b);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Modal générique V2 (utilisé par création express propriétaire)
+   ══════════════════════════════════════════════════════════════════ */
+.v2-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+}
+.v2-modal-overlay[hidden] { display: none; }
+.v2-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.30);
+  width: 100%;
+  max-width: 560px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.v2-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc, #fff);
+}
+.v2-modal-head h3 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
+.v2-modal-close {
+  background: none;
+  border: 0;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--v2-muted, #64748b);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.v2-modal-close:hover { background: #f1f5f9; }
+.v2-modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+.v2-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}

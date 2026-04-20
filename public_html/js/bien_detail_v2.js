@@ -389,6 +389,219 @@
 
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // Card Propriétaire (section descriptif) : picker autocomplete +
+  // modal de création express + dissociation
+  // ══════════════════════════════════════════════════════════════════
+  function bindProprioManager(data) {
+    const searchEl  = document.getElementById('v2-proprio-search');
+    const resultsEl = document.getElementById('v2-proprio-results');
+    const newBtn    = document.getElementById('v2-proprio-new-btn');
+    const unlinkBtn = document.getElementById('v2-proprio-unlink');
+    if (!searchEl && !newBtn && !unlinkBtn) return;
+
+    // ─── Lier un tiers existant au bien (via id_proprietaire autosave) ──
+    async function linkTiersToBien(tiersId) {
+      if (!window.__v2SaveField) return false;
+      try {
+        await window.__v2SaveField('id_proprietaire', tiersId);
+        return true;
+      } catch (e) { return false; }
+    }
+
+    // ─── Autocomplete picker ────────────────────────────────────────
+    let searchTimer = null;
+    function renderResults(items) {
+      if (!resultsEl) return;
+      if (!items.length) {
+        resultsEl.innerHTML = '<div class="v2-proprio-result-empty">Aucun résultat. Clique « + Créer nouveau » pour l\'ajouter.</div>';
+        resultsEl.hidden = false;
+        return;
+      }
+      resultsEl.innerHTML = items.map(t => {
+        const name = t.type_tiers === 'personne_morale'
+          ? (t.raison_sociale || '—')
+          : ((t.civilite || '') + ' ' + (t.prenom || '') + ' ' + (t.nom || '')).trim() || '—';
+        const meta = [t.email, t.telephone, t.ville].filter(Boolean).join(' · ');
+        return `
+          <button type="button" class="v2-proprio-result" data-tiers-id="${t.id}">
+            <span class="v2-proprio-result-avatar">${t.type_tiers === 'personne_morale' ? '🏢' : '👤'}</span>
+            <span class="v2-proprio-result-body">
+              <span class="v2-proprio-result-name">${escapeHtml(name)}</span>
+              ${meta ? '<span class="v2-proprio-result-meta">' + escapeHtml(meta) + '</span>' : ''}
+            </span>
+          </button>
+        `;
+      }).join('');
+      resultsEl.hidden = false;
+      resultsEl.querySelectorAll('.v2-proprio-result').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const tid = parseInt(btn.dataset.tiersId, 10) || 0;
+          if (!tid) return;
+          btn.disabled = true;
+          btn.innerHTML = '⏳ Liaison en cours…';
+          const ok = await linkTiersToBien(tid);
+          if (ok) {
+            setTimeout(() => window.location.reload(), 400);
+          } else {
+            btn.disabled = false;
+            btn.innerHTML = '❌ Erreur — réessayer';
+          }
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, ch =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[ch]));
+    }
+
+    if (searchEl) {
+      searchEl.addEventListener('input', () => {
+        const q = searchEl.value.trim();
+        clearTimeout(searchTimer);
+        if (q.length < 2) {
+          if (resultsEl) { resultsEl.hidden = true; resultsEl.innerHTML = ''; }
+          return;
+        }
+        searchTimer = setTimeout(async () => {
+          try {
+            const url = (data.tiersLookupEndpoint || '/api/tiers_lookup.php')
+              + '?q=' + encodeURIComponent(q) + '&role=proprietaire&limit=10';
+            const r = await fetch(url, { credentials: 'same-origin' });
+            const j = await r.json();
+            renderResults(j.items || []);
+          } catch (e) { /* silent */ }
+        }, 250);
+      });
+      searchEl.addEventListener('blur', () => {
+        setTimeout(() => { if (resultsEl) resultsEl.hidden = true; }, 200);
+      });
+      searchEl.addEventListener('focus', () => {
+        if (resultsEl && resultsEl.innerHTML) resultsEl.hidden = false;
+      });
+    }
+
+    // ─── Dissocier ─────────────────────────────────────────────────
+    if (unlinkBtn) {
+      unlinkBtn.addEventListener('click', async () => {
+        if (!confirm('Retirer ce propriétaire du bien ?\n(Le tiers reste en base et peut être relié ailleurs.)')) return;
+        unlinkBtn.disabled = true;
+        unlinkBtn.textContent = '⏳ Dissociation…';
+        const ok = await linkTiersToBien('');
+        if (ok) setTimeout(() => window.location.reload(), 400);
+        else { unlinkBtn.disabled = false; unlinkBtn.textContent = '❌ Erreur'; }
+      });
+    }
+
+    // ─── Modal création express ────────────────────────────────────
+    const modal       = document.getElementById('v2-proprio-modal');
+    const closeBtn    = document.getElementById('v2-proprio-modal-close');
+    const cancelBtn   = document.getElementById('v2-proprio-modal-cancel');
+    const saveBtn     = document.getElementById('v2-proprio-modal-save');
+    const statusEl    = document.getElementById('v2-proprio-modal-status');
+    const typeRadios  = document.getElementById('v2-proprio-type');
+    const ppFields    = document.getElementById('v2-proprio-pp-fields');
+    const pmFields    = document.getElementById('v2-proprio-pm-fields');
+
+    function setModalStatus(kind, msg) {
+      if (!statusEl) return;
+      statusEl.className = 'v2-form-status' + (kind ? ' ' + kind : '');
+      statusEl.textContent = msg || '';
+    }
+    function openModal() {
+      if (!modal) return;
+      modal.hidden = false;
+      setModalStatus('', '');
+      // Prefill si searchEl contient du texte
+      if (searchEl && searchEl.value.trim()) {
+        const nomEl = document.getElementById('v2-proprio-nom');
+        if (nomEl && !nomEl.value) nomEl.value = searchEl.value.trim();
+      }
+    }
+    function closeModal() { if (modal) modal.hidden = true; }
+
+    if (newBtn && modal) newBtn.addEventListener('click', openModal);
+    if (closeBtn)  closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (modal) modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Switch type particulier / société
+    let typeTiers = 'personne_physique';
+    if (typeRadios) {
+      typeRadios.querySelectorAll('.v2-icon-radio').forEach(btn => {
+        btn.addEventListener('click', () => {
+          typeRadios.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+          typeTiers = btn.dataset.value || 'personne_physique';
+          if (ppFields) ppFields.hidden = (typeTiers !== 'personne_physique');
+          if (pmFields) pmFields.hidden = (typeTiers !== 'personne_morale');
+        });
+      });
+    }
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const nom     = (document.getElementById('v2-proprio-nom')    || {}).value || '';
+        const prenom  = (document.getElementById('v2-proprio-prenom') || {}).value || '';
+        const raison  = (document.getElementById('v2-proprio-raison') || {}).value || '';
+        const siret   = (document.getElementById('v2-proprio-siret')  || {}).value || '';
+        const email   = (document.getElementById('v2-proprio-email')  || {}).value || '';
+        const tel     = (document.getElementById('v2-proprio-tel')    || {}).value || '';
+        const adresse = (document.getElementById('v2-proprio-adresse')|| {}).value || '';
+        const cp      = (document.getElementById('v2-proprio-cp')     || {}).value || '';
+        const ville   = (document.getElementById('v2-proprio-ville')  || {}).value || '';
+
+        if (typeTiers === 'personne_physique' && !nom.trim()) {
+          setModalStatus('err', '❌ Le nom est obligatoire.');
+          return;
+        }
+        if (typeTiers === 'personne_morale' && !raison.trim()) {
+          setModalStatus('err', '❌ La raison sociale est obligatoire.');
+          return;
+        }
+
+        saveBtn.disabled = true;
+        setModalStatus('', '⏳ Création du tiers…');
+
+        const body = {
+          type_tiers:     typeTiers,
+          nom:            nom.trim(),
+          prenom:         prenom.trim(),
+          raison_sociale: raison.trim(),
+          siret:          siret.trim(),
+          email:          email.trim(),
+          telephone:      tel.trim(),
+          adresse_ligne1: adresse.trim(),
+          code_postal:    cp.trim(),
+          ville:          ville.trim(),
+          roles: [{ role_code: 'proprietaire', objet_type: 'bien', id_objet: data.bienId }],
+        };
+        try {
+          const r = await fetch(data.tiersCreateEndpoint || '/api/tiers_create.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Erreur création');
+          const tiersId = j.id || j.tiers_id || 0;
+          if (!tiersId) throw new Error('Tiers créé mais id manquant');
+          const ok = await linkTiersToBien(tiersId);
+          if (!ok) throw new Error('Échec liaison au bien');
+          setModalStatus('ok', '✅ Créé et associé, rechargement…');
+          setTimeout(() => window.location.reload(), 500);
+        } catch (e) {
+          saveBtn.disabled = false;
+          setModalStatus('err', '❌ ' + e.message);
+        }
+      });
+    }
+  }
+
   // ── Section ANNONCE : création + autosave annonce + toggles canaux ──
   function bindAnnonceSection(data) {
     const indicator = document.getElementById('v2-annonce-save-indicator');
@@ -1384,6 +1597,9 @@
           }
         });
       }
+
+      // ─── Gestion Card Propriétaire (picker + modal create + dissocier) ───
+      bindProprioManager(data);
     }
 
     if (section === 'documents') {
