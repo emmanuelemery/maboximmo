@@ -15,6 +15,9 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      - name: Écrit le SHA du commit dans .git_version
+        run: echo "${{ github.sha }}" > public_html/.git_version
+
       - name: Déploiement FTP vers public_html/dev
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
