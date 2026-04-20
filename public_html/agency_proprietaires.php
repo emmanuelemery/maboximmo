@@ -113,98 +113,14 @@ include __DIR__ . '/inc/sidebar_agency.php';
 
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<?= asset_url('/css/tokens.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('/css/liste_layout.css') ?>">
 <style>
-  :root {
-    --bg:      var(--bg-secondary);
-    --card:    var(--bg-primary);
-    --ink:     #1a1816;
-    --muted:   #8a8680;
-    --accent:  #36577d;
-    --accent-2:#f59e0b;
-    --accent-3:#7a9060;
-    --stroke:  rgba(138,134,128,.2);
-  }
+  /* Styles spécifiques agency_proprietaires (table + modal) — le reste
+     (topbar / page-head / bl-btn / bl-filters / bl-search / bl-select /
+     bl-content / bl-pagination / bl-empty / bl-modal) vient de liste_layout.css
+     donc strictement identique à bien_liste. */
 
-  /* Topbar */
-  .bl-topbar {
-    height: 50px; background: var(--card); border-bottom: 1px solid var(--stroke);
-    display: flex; align-items: center; gap: 10px; padding: 0 24px;
-    position: sticky; top: 0; z-index: 50;
-  }
-  .topbar-nav-btn {
-    width: 34px; height: 34px; border-radius: 8px; background: var(--bg); border: none;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    box-shadow: var(--neu-out); color: var(--muted); flex-shrink: 0;
-  }
-  .topbar-nav-btn:hover { box-shadow: var(--neu-in); color: var(--ink); }
-  .topbar-gap { width: 50px; flex-shrink: 0; }
-  .topbar-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--muted); }
-  .topbar-breadcrumb .active { color: var(--accent); font-weight: 600; }
-  .topbar-spacer { flex: 1; }
-  .topbar-icon-btn {
-    width: 34px; height: 34px; border-radius: 8px; background: var(--bg); border: none;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    box-shadow: var(--neu-out); color: var(--muted); flex-shrink: 0;
-  }
-  .topbar-avatar {
-    width: 34px; height: 34px; border-radius: 8px; background: var(--accent); color: #fff;
-    display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
-    box-shadow: var(--neu-out); flex-shrink: 0;
-  }
-
-  /* Page head */
-  .page-head {
-    padding: 24px 28px 8px;
-    display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
-  }
-  .page-head-info { flex: 1; }
-  .page-head-label {
-    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
-    letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent-3); margin-bottom: 4px;
-  }
-  .page-head-title { font-size: 22px; font-weight: 700; color: var(--ink); }
-  .page-head-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-
-  /* Buttons */
-  .bl-btn {
-    display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px;
-    border-radius: var(--r-pill); font-size: 13px; font-weight: 600; cursor: pointer;
-    text-decoration: none; border: none; font-family: inherit; white-space: nowrap;
-  }
-  .bl-btn-primary {
-    background: linear-gradient(135deg, var(--btn-save-from), var(--btn-save-to)); color: #fff;
-    box-shadow: 0 4px 12px rgba(249,115,22,0.35);
-  }
-  .bl-btn-ghost { background: var(--bg); color: var(--muted); box-shadow: var(--neu-out); }
-  .bl-btn-ghost:hover { color: var(--ink); }
-
-  /* Filters */
-  .bl-filters {
-    background: var(--card); border-bottom: 1px solid var(--stroke);
-    padding: 12px 28px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  }
-  .bl-search { flex: 1; min-width: 220px; max-width: 360px; position: relative; }
-  .bl-search input {
-    width: 100%; padding: 8px 14px 8px 36px; background: var(--bg); border: none;
-    border-radius: var(--r-pill); color: var(--ink); font-size: 13px; outline: none;
-    box-shadow: var(--neu-in); font-family: inherit;
-  }
-  .bl-search .search-icon {
-    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    color: var(--muted); font-size: 13px; pointer-events: none;
-  }
-  .bl-select {
-    padding: 8px 14px; background: var(--bg); border: none; border-radius: var(--r-pill);
-    color: var(--ink); font-size: 13px; cursor: pointer; outline: none;
-    box-shadow: var(--neu-in); font-family: inherit;
-  }
-  .bl-filter-count {
-    margin-left: auto; font-size: 12px; color: var(--muted);
-    font-family: 'DM Mono', monospace; white-space: nowrap;
-  }
-
-  /* Content + Table */
-  .bl-content { padding: 24px 28px 60px; flex: 1; }
+  /* Table propriétaires */
   .ap-table {
     width: 100%; border-collapse: separate; border-spacing: 0;
     background: var(--card); border-radius: var(--r-lg); overflow: hidden;
@@ -253,26 +169,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
   .ap-action-btn:hover { background: var(--card); color: var(--ink); box-shadow: var(--neu-out); }
   .ap-action-btn.danger:hover { color: #dc2626; }
 
-  /* Empty */
-  .bl-empty { text-align: center; padding: 80px 20px; color: var(--muted); }
-  .bl-empty-icon { font-size: 4rem; margin-bottom: 16px; opacity: .5; }
-  .bl-empty h2 { font-size: 1.2rem; margin-bottom: 8px; color: var(--ink); }
-
-  /* Pagination */
-  .bl-pagination {
-    display: flex; align-items: center; justify-content: center;
-    gap: 8px; padding: 28px 0 8px; flex-wrap: wrap;
-  }
-  .bl-page-btn {
-    min-width: 36px; height: 36px; padding: 0 12px; border-radius: var(--r-sm); border: none;
-    background: var(--bg); color: var(--muted); font-size: 13px; cursor: pointer;
-    text-decoration: none; display: flex; align-items: center; justify-content: center;
-    box-shadow: var(--neu-out);
-  }
-  .bl-page-btn:hover { box-shadow: var(--neu-in); color: var(--ink); }
-  .bl-page-btn.current { box-shadow: var(--neu-in); color: var(--accent); font-weight: 700; }
-
-  /* Modal */
+  /* Modal création propriétaire */
   .ap-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9999; align-items: center; justify-content: center; }
   .ap-modal-overlay.open { display: flex; }
   .ap-modal { background: var(--card); border-radius: 14px; padding: 24px; max-width: 600px; width: 92%; box-shadow: 0 12px 40px rgba(0,0,0,.15); }
