@@ -84,6 +84,9 @@ try {
             $paramsRole[':role'] = $role;
         }
 
+        // Note PDO : avec ATTR_EMULATE_PREPARES = false, un placeholder
+        // nommé ne peut être référencé qu'une seule fois. On utilise donc
+        // des placeholders distincts :q1..q7 pour chaque colonne LIKE.
         $sqlSearch = "
             SELECT t.id, t.type_tiers, t.civilite, t.nom, t.prenom, t.raison_sociale,
                    t.email, t.telephone, t.ville, t.code_postal, t.siret,
@@ -97,13 +100,13 @@ try {
             FROM tiers t
             WHERE t.actif = 1
               AND (
-                   t.nom            LIKE :q
-                OR t.prenom         LIKE :q
-                OR t.raison_sociale LIKE :q
-                OR t.email          LIKE :q
-                OR t.telephone      LIKE :q
-                OR t.siret          LIKE :q
-                OR t.ville          LIKE :q
+                   t.nom            LIKE :q1
+                OR t.prenom         LIKE :q2
+                OR t.raison_sociale LIKE :q3
+                OR t.email          LIKE :q4
+                OR t.telephone      LIKE :q5
+                OR t.siret          LIKE :q6
+                OR t.ville          LIKE :q7
               )
               $whereType
               $whereRole
@@ -114,7 +117,7 @@ try {
             LIMIT :lim
         ";
         $st = $pdo->prepare($sqlSearch);
-        $st->bindValue(':q', $like);
+        for ($i = 1; $i <= 7; $i++) { $st->bindValue(":q{$i}", $like); }
         $st->bindValue(':qstart', $q . '%');
         $st->bindValue(':lim', $limit, PDO::PARAM_INT);
         foreach ($paramsType as $k => $v) $st->bindValue($k, $v);
