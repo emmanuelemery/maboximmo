@@ -124,15 +124,52 @@ $ann = $stA->fetch(PDO::FETCH_ASSOC) ?: null;
     <tr><th>date_creation</th><td><?= htmlspecialchars((string)($ann['date_creation'] ?? '')) ?></td></tr>
   </table>
 
-  <h2>4. Photos sélectionnées pour cette annonce (<code>annonces_photos</code> WHERE id_annonce = <?= (int)$ann['id'] ?>)</h2>
+  <h2>4. Schéma réel de <code>annonces_photos</code> sur ce serveur</h2>
   <?php
-  $stAP = $pdo->prepare("SELECT ap.id_biens_photo, ap.ordre, bp.url_photo, bp.id_bien AS photo_id_bien
-                         FROM annonces_photos ap
-                         LEFT JOIN biens_photos bp ON bp.id = ap.id_biens_photo
-                         WHERE ap.id_annonce = ?
-                         ORDER BY ap.ordre ASC, ap.id ASC");
-  $stAP->execute([(int)$ann['id']]);
-  $selPhotos = $stAP->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  $stCols = $pdo->query("SHOW COLUMNS FROM annonces_photos");
+  $cols = $stCols->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  $colNames = array_column($cols, 'Field');
+  // Détecte automatiquement le nom réel de la colonne FK vers biens_photos
+  $fkCol = null;
+  foreach (['id_biens_photo', 'id_bien_photo', 'id_photo', 'biens_photo_id', 'bien_photo_id'] as $candidate) {
+      if (in_array($candidate, $colNames, true)) { $fkCol = $candidate; break; }
+  }
+  ?>
+  <table>
+    <tr><th>Field</th><th>Type</th><th>Null</th><th>Key</th></tr>
+    <?php foreach ($cols as $c): ?>
+      <tr><td><code><?= htmlspecialchars($c['Field']) ?></code></td>
+          <td><?= htmlspecialchars($c['Type']) ?></td>
+          <td><?= htmlspecialchars($c['Null']) ?></td>
+          <td><?= htmlspecialchars($c['Key']) ?></td>
+      </tr>
+    <?php endforeach; ?>
+  </table>
+
+  <p>
+    Colonne FK vers <code>biens_photos</code> détectée :
+    <?php if ($fkCol): ?>
+      <code class="<?= $fkCol === 'id_biens_photo' ? 'ok' : 'ko' ?>"><?= htmlspecialchars($fkCol) ?></code>
+      <?php if ($fkCol !== 'id_biens_photo'): ?>
+        <span class="ko">⚠️ MISMATCH avec le code V2 qui utilise <code>id_biens_photo</code></span>
+      <?php endif; ?>
+    <?php else: ?>
+      <span class="ko">❌ Aucune colonne FK détectée — schéma inconnu</span>
+    <?php endif; ?>
+  </p>
+
+  <h2>5. Photos sélectionnées pour cette annonce (<code>annonces_photos</code> WHERE id_annonce = <?= (int)$ann['id'] ?>)</h2>
+  <?php
+  $selPhotos = [];
+  if ($fkCol) {
+      $stAP = $pdo->prepare("SELECT ap.`{$fkCol}` AS photo_ref, ap.ordre, bp.url_photo, bp.id_bien AS photo_id_bien
+                             FROM annonces_photos ap
+                             LEFT JOIN biens_photos bp ON bp.id = ap.`{$fkCol}`
+                             WHERE ap.id_annonce = ?
+                             ORDER BY ap.ordre ASC, ap.id ASC");
+      $stAP->execute([(int)$ann['id']]);
+      $selPhotos = $stAP->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  }
   ?>
   <p><strong><?= count($selPhotos) ?> photo(s)</strong> rattachée(s) à l'annonce.</p>
   <?php if ($countPhotos > 0 && count($selPhotos) === 0): ?>
@@ -140,10 +177,10 @@ $ann = $stA->fetch(PDO::FETCH_ASSOC) ?: null;
   <?php endif; ?>
   <?php if (!empty($selPhotos)): ?>
     <table>
-      <tr><th>id_biens_photo</th><th>ordre</th><th>preview</th><th>id_bien de la photo</th></tr>
+      <tr><th><?= htmlspecialchars($fkCol) ?></th><th>ordre</th><th>preview</th><th>id_bien de la photo</th></tr>
       <?php foreach ($selPhotos as $sp): ?>
         <tr>
-          <td><?= (int)$sp['id_biens_photo'] ?></td>
+          <td><?= (int)$sp['photo_ref'] ?></td>
           <td><?= (int)$sp['ordre'] ?></td>
           <td><?php if (!empty($sp['url_photo'])): ?><img src="<?= htmlspecialchars(app_url('/' . ltrim((string)$sp['url_photo'], '/'))) ?>" alt=""><?php endif; ?></td>
           <td><?= (int)$sp['photo_id_bien'] ?>
@@ -155,7 +192,7 @@ $ann = $stA->fetch(PDO::FETCH_ASSOC) ?: null;
   <?php endif; ?>
 <?php endif; ?>
 
-<h2>5. Verdict</h2>
+<h2>6. Verdict</h2>
 <ul>
   <?php if (!$bien): ?>
     <li class="ko">Bien inexistant → impossible.</li>
@@ -163,6 +200,13 @@ $ann = $stA->fetch(PDO::FETCH_ASSOC) ?: null;
     <li class="ko">biens_photos = 0 pour id_bien <?= $idBien ?> → upload via Documents → Chargement nécessaire.</li>
   <?php elseif (!$ann): ?>
     <li class="warn">Photos présentes sur le bien mais pas d'annonce → crée l'annonce (Card 1 Annonce).</li>
+  <?php elseif ($ann && isset($fkCol) && $fkCol !== 'id_biens_photo'): ?>
+    <li class="ko">
+      <strong>⚠️ PROBLÈME DE SCHÉMA :</strong>
+      La table <code>annonces_photos</code> utilise la colonne <code><?= htmlspecialchars($fkCol) ?></code>,
+      mais le code V2 attend <code>id_biens_photo</code>. Il faut renommer la colonne
+      via <code>ALTER TABLE annonces_photos CHANGE COLUMN `<?= htmlspecialchars($fkCol) ?>` `id_biens_photo` INT UNSIGNED NOT NULL;</code>
+    </li>
   <?php elseif (count($selPhotos) === 0): ?>
     <li class="ok">Photos présentes (<?= $countPhotos ?>) et annonce existante (#<?= (int)$ann['id'] ?>) → clique « 🔄 Récupérer les photos du bien » dans Card 4 Annonce.</li>
   <?php else: ?>
