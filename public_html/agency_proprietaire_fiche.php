@@ -240,6 +240,24 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <button type="button" class="topbar-nav-btn" onclick="history.forward()" title="Avancer">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
     </button>
+    <?php
+      // Retour vers la page d'origine (ex: Card Proprio depuis bien_detail)
+      // On valide le param pour bloquer les URLs externes (phishing) : on
+      // n'accepte qu'un chemin local commencant par /.
+      $returnUrl = isset($_GET['return']) ? (string)$_GET['return'] : '';
+      if ($returnUrl !== '' && !preg_match('#^/[A-Za-z0-9_\-./?=&%]+$#', $returnUrl)) {
+          $returnUrl = '';
+      }
+    ?>
+    <?php if ($returnUrl !== ''): ?>
+      <a href="<?= h(app_url($returnUrl)) ?>"
+         class="topbar-nav-btn"
+         style="width:auto;padding:0 12px;gap:6px;font-size:12px;font-weight:600;"
+         title="Retour au bien d'origine">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        <span>Retour au bien</span>
+      </a>
+    <?php endif; ?>
     <div class="topbar-gap"></div>
     <nav class="topbar-breadcrumb">
       <span>Agency</span> <span style="color:#ccc;">›</span>

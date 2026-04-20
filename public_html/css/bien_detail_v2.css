@@ -1872,6 +1872,50 @@ input.v2-input.is-from-dpe {
 .v2-proprio-meta { font-size: 12px; color: var(--v2-muted, #64748b); margin-top: 2px; }
 .v2-proprio-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* Patrimoine du propriétaire (nb biens + répartition agences) */
+.v2-proprio-patrimoine {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(16, 185, 129, 0.25);
+}
+.v2-proprio-patrimoine-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #15803d;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+.v2-proprio-patrimoine-title strong {
+  font-weight: 800;
+  color: #0f172a;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  margin: 0 4px;
+}
+.v2-proprio-patrimoine-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.v2-proprio-patrimoine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  background: rgba(54, 87, 125, 0.08);
+  color: var(--v2-accent, #36577d);
+  border-radius: 999px;
+  font-weight: 500;
+}
+.v2-proprio-patrimoine-chip strong {
+  font-weight: 800;
+  color: #0f172a;
+  margin-left: 3px;
+}
+
 /* Picker */
 .v2-proprio-picker {
   display: flex;

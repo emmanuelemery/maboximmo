@@ -389,18 +389,52 @@ if ($section === 'descriptif') {
         } catch (Throwable $e) {}
     }
     if (!empty($bienLoaded['id_proprietaire'])) {
-        // Tentative tiers (personne physique OU morale via raison_sociale) puis fallback users legacy
+        // biens.id_proprietaire pointe sur proprietaires.id (legacy). On
+        // joint vers tiers via proprietaires.id_tiers pour récupérer les
+        // infos enrichies (type, civilité, email, tél, adresse).
         try {
-            $st = $pdo->prepare("SELECT id, type_tiers, civilite, nom, prenom, raison_sociale, telephone, email FROM tiers WHERE id = ? LIMIT 1");
+            $st = $pdo->prepare("
+                SELECT p.id              AS id_proprio_legacy,
+                       p.id_tiers        AS id_tiers,
+                       COALESCE(t.type_tiers, 'personne_physique') AS type_tiers,
+                       COALESCE(NULLIF(t.civilite, ''),       p.civilite)    AS civilite,
+                       COALESCE(NULLIF(t.nom, ''),            p.nom)         AS nom,
+                       COALESCE(NULLIF(t.prenom, ''),         p.prenom)      AS prenom,
+                       COALESCE(NULLIF(t.raison_sociale, ''), p.societe)     AS raison_sociale,
+                       COALESCE(NULLIF(t.email, ''),          p.email)       AS email,
+                       COALESCE(NULLIF(t.telephone, ''),      p.telephone)   AS telephone,
+                       COALESCE(NULLIF(t.adresse_ligne1, ''), p.adresse_1)   AS adresse,
+                       COALESCE(NULLIF(t.code_postal, ''),    p.code_postal) AS code_postal,
+                       COALESCE(NULLIF(t.ville, ''),          p.ville)       AS ville
+                FROM proprietaires p
+                LEFT JOIN tiers t ON t.id = p.id_tiers
+                WHERE p.id = ?
+                LIMIT 1
+            ");
             $st->execute([(int)$bienLoaded['id_proprietaire']]);
             $proprioInfo = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-        } catch (Throwable $e) {}
-        if (!$proprioInfo) {
+        } catch (Throwable $e) {
+            error_log('[proprio load] ' . $e->getMessage());
+        }
+
+        // Patrimoine du proprio : nb de biens + répartition par agence
+        if ($proprioInfo && !empty($proprioInfo['id_proprio_legacy'])) {
             try {
-                $st = $pdo->prepare("SELECT id, nom, prenom, telephone, email FROM users WHERE id = ? LIMIT 1");
-                $st->execute([(int)$bienLoaded['id_proprietaire']]);
-                $proprioInfo = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-            } catch (Throwable $e) {}
+                $st = $pdo->prepare("
+                    SELECT ag.id, ag.nom_agence AS nom, COUNT(*) AS nb_biens
+                    FROM biens b
+                    LEFT JOIN agences ag ON ag.id = b.id_agence
+                    WHERE b.id_proprietaire = ?
+                    GROUP BY ag.id, ag.nom_agence
+                    ORDER BY nb_biens DESC
+                ");
+                $st->execute([(int)$proprioInfo['id_proprio_legacy']]);
+                $proprioInfo['_patrimoine_agences'] = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                $proprioInfo['_patrimoine_total']   = (int)array_sum(array_column($proprioInfo['_patrimoine_agences'], 'nb_biens'));
+            } catch (Throwable $e) {
+                $proprioInfo['_patrimoine_agences'] = [];
+                $proprioInfo['_patrimoine_total']   = 0;
+            }
         }
     }
     // Liste alphabetique des immeubles
@@ -814,9 +848,20 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-body">
           <?php if ($proprioInfo): ?>
             <!-- ─── État : propriétaire lié au bien ──────────────────── -->
+            <?php
+              $idProprioLegacy = (int)($proprioInfo['id_proprio_legacy'] ?? 0);
+              $patTotal        = (int)($proprioInfo['_patrimoine_total'] ?? 0);
+              $patAgences      = $proprioInfo['_patrimoine_agences'] ?? [];
+              // URL de retour pour revenir sur ce bien après édition
+              $returnUrl = '/bien_detail.php?edit=' . (int)$editingBienId . '&section=descriptif';
+              $ficheUrl  = '/agency_proprietaire_fiche.php?id=' . $idProprioLegacy
+                         . '&return=' . urlencode($returnUrl);
+            ?>
             <div class="v2-proprio-card is-linked">
               <div class="v2-proprio-head">
-                <div class="v2-proprio-avatar">👤</div>
+                <div class="v2-proprio-avatar">
+                  <?= ($proprioInfo['type_tiers'] ?? '') === 'personne_morale' ? '🏢' : '👤' ?>
+                </div>
                 <div class="v2-proprio-main">
                   <div class="v2-proprio-name"><?= h((string)($proprioStr ?: '—')) ?></div>
                   <div class="v2-proprio-meta">
@@ -828,13 +873,45 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                       if ($cpP || $vilP): ?>
                       · 📍 <?= h(trim($cpP . ' ' . $vilP)) ?>
                     <?php endif; ?>
+                    <?php if (!empty($proprioInfo['adresse'])): ?>
+                      <div style="margin-top:2px;"><?= h((string)$proprioInfo['adresse']) ?></div>
+                    <?php endif; ?>
                   </div>
                 </div>
                 <div class="v2-proprio-actions">
+                  <?php if ($idProprioLegacy > 0): ?>
+                    <a class="v2-btn-primary" href="<?= h(app_url($ficheUrl)) ?>"
+                       title="Ouvrir la fiche complète — modifiable, retour automatique sur ce bien">
+                      ✏️ Ouvrir fiche
+                    </a>
+                  <?php endif; ?>
                   <button type="button" class="v2-btn-secondary" id="v2-proprio-unlink"
                           title="Retirer ce propriétaire du bien (le tiers reste en base)">🔗 Dissocier</button>
                 </div>
               </div>
+
+              <!-- ─── Patrimoine chez nous ─── -->
+              <?php if ($patTotal > 0): ?>
+                <div class="v2-proprio-patrimoine">
+                  <div class="v2-proprio-patrimoine-title">
+                    📊 Patrimoine chez nous
+                    <strong><?= $patTotal ?> bien<?= $patTotal > 1 ? 's' : '' ?></strong>
+                    <?php if (count($patAgences) > 1): ?>
+                      · <?= count($patAgences) ?> agences
+                    <?php endif; ?>
+                  </div>
+                  <div class="v2-proprio-patrimoine-list">
+                    <?php foreach ($patAgences as $ag):
+                      $agNom = (string)($ag['nom'] ?? '— Sans agence —');
+                      $nb    = (int)$ag['nb_biens'];
+                    ?>
+                      <span class="v2-proprio-patrimoine-chip">
+                        🏢 <?= h($agNom) ?> · <strong><?= $nb ?></strong>
+                      </span>
+                    <?php endforeach; ?>
+                  </div>
+                </div>
+              <?php endif; ?>
             </div>
           <?php else: ?>
             <!-- ─── État : pas de propriétaire lié ───────────────────── -->
