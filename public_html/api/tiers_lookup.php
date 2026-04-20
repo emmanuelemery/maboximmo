@@ -20,16 +20,21 @@ $type      = trim((string)($_GET['type'] ?? ''));      // personne_physique | pe
 $email     = trim((string)($_GET['email'] ?? ''));     // détection doublon par email
 $siret     = trim((string)($_GET['siret'] ?? ''));     // détection doublon par siret
 $limit     = min(20, max(1, (int)($_GET['limit'] ?? 10)));
+$scope     = trim((string)($_GET['scope'] ?? ''));     // 'all' désactive le filtre société/agence
 
 if ($q === '' && $email === '' && $siret === '') {
     echo json_encode(['ok' => true, 'items' => [], 'doublons' => []], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-// Cloisonnement multi-tenant (hors super admin)
+// Cloisonnement multi-tenant (hors super admin et hors scope=all)
+// Note métier : les TIERS sont des personnes réutilisables (un propriétaire
+// peut avoir des biens dans plusieurs sociétés/agences). Le scope=all
+// permet de désactiver le filtre pour les usages cross-tenant (ex: picker
+// propriétaire dans bien_detail V2).
 $whereTenant = '';
 $paramsTenant = [];
-if ($roleId !== 1) {
+if ($roleId !== 1 && $scope !== 'all') {
     // Les tiers backfill n'ont pas id_societe (seulement id_agence) — on tolère NULL
     $whereTenant = " AND (t.id_societe = :societe OR t.id_societe IS NULL)
                      AND (t.id_agence  = :agence  OR t.id_agence  IS NULL) ";

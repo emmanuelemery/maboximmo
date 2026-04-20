@@ -466,8 +466,12 @@
         }
         searchTimer = setTimeout(async () => {
           try {
+            // On NE filtre PAS par role (un tiers sans role proprietaire
+            // peut devenir proprietaire via la liaison) et on NE filtre PAS
+            // par societe/agence (un proprietaire peut etre partage entre
+            // plusieurs societes/agences — confirme par le user).
             const url = (data.tiersLookupEndpoint || '/api/tiers_lookup.php')
-              + '?q=' + encodeURIComponent(q) + '&role=proprietaire&limit=10';
+              + '?q=' + encodeURIComponent(q) + '&scope=all&limit=15';
             const r = await fetch(url, { credentials: 'same-origin' });
             const j = await r.json();
             renderResults(j.items || []);
@@ -588,7 +592,8 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'Erreur création');
-          const tiersId = j.id || j.tiers_id || 0;
+          // api/tiers_create.php renvoie 'id_tiers' (pas 'id'), on tolère les deux
+          const tiersId = j.id_tiers || j.id || j.tiers_id || 0;
           if (!tiersId) throw new Error('Tiers créé mais id manquant');
           const ok = await linkTiersToBien(tiersId);
           if (!ok) throw new Error('Échec liaison au bien');
