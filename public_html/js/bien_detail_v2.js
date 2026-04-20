@@ -78,10 +78,53 @@
           </div>
           <div class="v2-doc-actions">
             ${url ? `<a class="v2-doc-btn" href="${escapeHtml(url)}" target="_blank" rel="noopener">Voir</a>` : ''}
+            <button type="button" class="v2-doc-btn v2-doc-btn-danger" data-action="delete-doc" title="Supprimer ce document">🗑️</button>
           </div>
         </div>`;
     }).join('');
     el.innerHTML = '<div class="v2-doc-list">' + rows + '</div>';
+
+    // Handler suppression (délégué sur le container)
+    el.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-action="delete-doc"]');
+      if (!btn) return;
+      const item = btn.closest('.v2-doc-item');
+      const docId = parseInt(item?.dataset.docId, 10) || 0;
+      if (!docId) return;
+      if (!confirm('Supprimer ce document ?\n(Le fichier et la ligne sont retirés, les données DPE/mandat analysées restent.)')) return;
+
+      btn.disabled = true; btn.textContent = '⏳';
+      const fd = new FormData();
+      fd.append('id_doc', docId);
+      fd.append('csrf_token', (window.__v2DocsData || {}).csrfToken || '');
+      try {
+        const r = await fetch('/api/biens_documents_delete.php', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        const j = await r.json();
+        if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; btn.textContent = '🗑️'; return; }
+        // Retire la ligne du DOM + met à jour le compteur de la Card
+        item.style.transition = 'opacity .25s';
+        item.style.opacity = '0';
+        setTimeout(() => {
+          item.remove();
+          // Met à jour le compteur v2-count-* associé à ce container
+          const countId = containerId.replace('v2-list-', 'v2-count-');
+          const countEl = document.getElementById(countId);
+          if (countEl) {
+            const n = el.querySelectorAll('.v2-doc-item').length;
+            countEl.textContent = n;
+            // Si plus aucun doc : empty state
+            if (n === 0) {
+              el.innerHTML = `<div class="v2-doc-empty"><div class="v2-doc-empty-icon">${emptyIcon}</div><div>${emptyMsg}</div></div>`;
+            }
+          }
+        }, 250);
+      } catch (err) {
+        alert('❌ ' + err.message);
+        btn.disabled = false; btn.textContent = '🗑️';
+      }
+    });
   }
 
   // ── Card 4 — champs manquants : submit vers dpe_diag_update.php ──

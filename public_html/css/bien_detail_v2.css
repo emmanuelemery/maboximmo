@@ -367,6 +367,17 @@ html.v2-no-scroll, body.v2-no-scroll {
   transition: background .15s;
 }
 .v2-doc-btn:hover { background: var(--v2-accent-light); border-color: var(--v2-accent); }
+.v2-doc-btn-danger {
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.25);
+  background: #fff;
+}
+.v2-doc-btn-danger:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+  color: #991b1b;
+}
+.v2-doc-btn-danger:disabled { opacity: .5; cursor: wait; }
 
 .v2-doc-empty {
   text-align: center;
