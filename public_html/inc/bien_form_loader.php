@@ -215,10 +215,10 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
     // Annonce minimale par défaut (type_transaction = 'location' par défaut, modifiable)
     try {
         $pdo->prepare("
-            INSERT INTO annonces (id_bien, type_transaction, statut, date_creation, date_modification)
-            VALUES (?, 'location', 'brouillon', NOW(), NOW())
-        ")->execute([$bienId]);
-    } catch (Throwable) {}
+            INSERT INTO annonces (id_bien, id_societe, type_transaction, etat_publication, date_creation, date_modification)
+            VALUES (?, ?, 'location', 'brouillon', NOW(), NOW())
+        ")->execute([$bienId, $idSociete]);
+    } catch (Throwable $e) { error_log('[create_draft annonce] ' . $e->getMessage()); }
 
     // Photo par défaut (placeholder) si elle existe sur disque
     try {
