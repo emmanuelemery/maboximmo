@@ -449,6 +449,9 @@
         showInd('err', '❌ ' + e.message);
       }
     }
+    // Expose pour bindAnnonceIAGenerate (persistance directe apres setField,
+    // plus robuste que de compter sur dispatchEvent('change'))
+    window.__v2SaveAnnonceField = saveAnnonce;
 
     // Création annonce (bouton dans Card 1)
     const btnCreate = document.getElementById('v2-annonce-create');
@@ -903,13 +906,32 @@
   // ── Helper : focus + scroll vers un champ par son name/id ──
   function focusField(fieldKey) {
     if (!fieldKey) return;
-    // 1. Cherche par id "v2-f-<key>" (préféré, stable)
+    // 1. Cherche par id "v2-f-<key>" (préféré, stable pour les inputs classiques)
     let el = document.getElementById('v2-f-' + fieldKey);
-    // 2. Fallback : par name
+    // 2. Fallback : par name (textarea, input, select)
     if (!el) el = document.querySelector('[name="' + fieldKey + '"]');
+    // 3. Fallback : icon-radios (type_transaction, id_type_bien, chauffage_type…)
+    if (!el) el = document.querySelector('.v2-icon-radios[data-field="' + fieldKey + '"]');
+    // 4. Fallback : bool-toggles (balcon, terrasse, ascenseur…)
+    if (!el) el = document.querySelector('[data-bool-field="' + fieldKey + '"]');
+    // 5. Fallback : canaux diffusion annonce (visible_maboximmo, visible_portails…)
+    if (!el) el = document.querySelector('[data-annonce-bool="' + fieldKey + '"]');
     if (!el) return;
+
+    // Si la cible est dans une v2-card, activer cette card dans le carousel
+    // pour qu'elle soit au premier plan avant le scroll.
+    const targetCard = el.closest('.v2-card');
+    const stage = document.getElementById('v2-stage');
+    if (targetCard && stage && window.__v2Carousel) {
+      const allCards = Array.from(stage.querySelectorAll('.v2-card'));
+      const idx = allCards.indexOf(targetCard);
+      if (idx >= 0 && idx !== window.__v2Carousel.index) {
+        window.__v2Carousel.go(idx);
+      }
+    }
+
     try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* noop */ }
-    const wrap = el.closest('.v2-field, .v2-num-field, .v2-card, section');
+    const wrap = el.closest('.v2-field, .v2-num-field, .v2-icon-radios, .v2-card, section');
     if (wrap) {
       wrap.classList.add('v2-field-focus-flash');
       setTimeout(() => wrap.classList.remove('v2-field-focus-flash'), 2000);
@@ -969,8 +991,13 @@
       if (!el) return;
       el.value = (value == null) ? '' : String(value);
       // 'input' : met à jour les compteurs de caractères
-      // 'change' : déclenche l'autosave (data-annonce-save)
-      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      // Persistance : appel direct + dispatch change (double ceinture) pour
+      // garantir que le champ est sauvé même si le listener change a été
+      // attaché avant ou après setField.
+      if (el.name && typeof window.__v2SaveAnnonceField === 'function') {
+        window.__v2SaveAnnonceField(el.name, el.value);
+      }
       el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 

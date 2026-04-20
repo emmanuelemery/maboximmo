@@ -34,6 +34,35 @@ if ($bienLoaded === null) {
     exit;
 }
 
+// ─── Auto-génération reference_bien si vide ────────────────
+// Ubiflow exige une reference_bien ; si elle est vide (cas d'un bien créé
+// par intake avant la mise en place de ref_generator, ou brouillon sans
+// commercial), on la génère depuis le pattern de l'agence/société.
+if (empty($bienLoaded['reference_bien'])) {
+    try {
+        require_once __DIR__ . '/inc/ref_generator.php';
+        $refCtx = [
+            'id_agence'       => (int)($bienLoaded['id_agence'] ?? $_SESSION['id_agence'] ?? 0),
+            'type_bien_code'  => (string)($bienLoaded['_type_code'] ?? ''),
+            'ville'           => (string)($bienLoaded['ville'] ?? ''),
+            'user'            => [
+                'nom'    => (string)($_SESSION['nom']    ?? ''),
+                'prenom' => (string)($_SESSION['prenom'] ?? ''),
+            ],
+        ];
+        if ($refCtx['id_agence'] > 0) {
+            $newRef = ref_generate_bien($pdo, $refCtx);
+            if ($newRef !== '') {
+                $pdo->prepare("UPDATE biens SET reference_bien = ?, date_modification = NOW() WHERE id = ? AND (reference_bien IS NULL OR reference_bien = '')")
+                    ->execute([$newRef, $editingBienId]);
+                $bienLoaded['reference_bien'] = $newRef;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[bien_detail_v2 ref_generate_bien] ' . $e->getMessage());
+    }
+}
+
 // Section courante
 $sectionsAvail = ['documents', 'dpe', 'descriptif', 'annonce'];
 $section = $_GET['section'] ?? 'documents';

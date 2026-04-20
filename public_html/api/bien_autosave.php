@@ -490,6 +490,24 @@ try {
     $pdo->prepare("UPDATE biens SET " . implode(', ', $sets) . ", date_modification = NOW() WHERE id = :_id")
         ->execute($params);
 
+    // ── Propagation designation → annonces.accroche_commerciale si vide ──
+    // Permet de remplir automatiquement l'accroche de la derniere annonce
+    // du bien quand l'utilisateur saisit la designation commerciale et que
+    // l'accroche n'a pas encore ete generee par l'IA.
+    if (isset($data['designation']) && !empty($data['designation'])) {
+        try {
+            $desVal = (string)$data['designation'];
+            $pdo->prepare("
+                UPDATE annonces
+                SET accroche_commerciale = ?, date_modification = NOW()
+                WHERE id_bien = ?
+                  AND (accroche_commerciale IS NULL OR accroche_commerciale = '')
+            ")->execute([mb_substr($desVal, 0, 255), $bienId]);
+        } catch (Throwable $e) {
+            error_log('[bien_autosave propagate designation] ' . $e->getMessage());
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════
     // Update annonces table (honoraires, mandats, locataire précédent, taxes…)
     // ══════════════════════════════════════════════════════════════
