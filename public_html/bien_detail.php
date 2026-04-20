@@ -2402,6 +2402,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),            JSON_UNESCAPED_SLASHES) ?>,
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
+    bienProprioLinkEndpoint: <?= json_encode(app_url('/api/bien_proprio_link.php'),    JSON_UNESCAPED_SLASHES) ?>,
     photoDeleteEndpoint: <?= json_encode(app_url('/api/bien_photo_delete.php'),        JSON_UNESCAPED_SLASHES) ?>,
     annonceCreateEndpoint:       <?= json_encode(app_url('/api/annonce_create.php'),        JSON_UNESCAPED_SLASHES) ?>,
     annonceAutosaveEndpoint:     <?= json_encode(app_url('/api/annonce_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,

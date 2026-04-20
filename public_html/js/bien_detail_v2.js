@@ -400,13 +400,41 @@
     const unlinkBtn = document.getElementById('v2-proprio-unlink');
     if (!searchEl && !newBtn && !unlinkBtn) return;
 
-    // ─── Lier un tiers existant au bien (via id_proprietaire autosave) ──
+    // ─── Lier/dissocier un tiers au bien ──
+    // NOTE : biens.id_proprietaire a une FK vers `proprietaires.id` (legacy),
+    // pas vers `tiers.id`. On passe par /api/bien_proprio_link.php qui crée
+    // la ligne proprietaires à la volée si elle n'existe pas.
+    // tiersId = 0 ou '' -> dissocie.
     async function linkTiersToBien(tiersId) {
-      if (!window.__v2SaveField) return false;
+      const bienId = parseInt(data.bienId, 10) || 0;
+      if (!bienId) return false;
+      const body = {
+        id_bien:    bienId,
+        id_tiers:   parseInt(tiersId, 10) || 0,
+        csrf_token: data.csrfToken || '',
+      };
       try {
-        await window.__v2SaveField('id_proprietaire', tiersId);
+        const r = await fetch((data.bienProprioLinkEndpoint || '/api/bien_proprio_link.php'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': data.csrfToken || '',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        const j = await r.json();
+        if (!j.ok) {
+          console.warn('[linkTiersToBien]', j.error);
+          alert('❌ ' + (j.error || 'Erreur liaison propriétaire'));
+          return false;
+        }
         return true;
-      } catch (e) { return false; }
+      } catch (e) {
+        console.warn('[linkTiersToBien]', e);
+        alert('❌ ' + e.message);
+        return false;
+      }
     }
 
     // ─── Autocomplete picker ────────────────────────────────────────
