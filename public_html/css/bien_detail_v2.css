@@ -715,7 +715,9 @@ html.v2-no-scroll, body.v2-no-scroll {
 ───────────────────────────────── */
 .v2-card-body.v2-split {
   display: grid;
-  grid-template-columns: 7fr 3fr;
+  /* PDF : prend tout l'espace restant (visualisation maximale).
+     Form de saisie : largeur fixe suffisante pour les champs (~300px). */
+  grid-template-columns: 1fr 300px;
   gap: 20px;
   padding-top: 12px;
   overflow: hidden;
