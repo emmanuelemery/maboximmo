@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -17,11 +18,14 @@ jobs:
       - name: Déploiement FTP vers public_html
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: maboximmo.fr
-          username: u630423897.maboximmo.fr
+          server: ftp.maboximmo.fr
+          port: 21
+          protocol: ftp
+          username: u630423897.maboximmo
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
           server-dir: /public_html/
+          state-name: .ftp-deploy-sync-prod
           exclude: |
             **/.git*
             **/.git*/**
