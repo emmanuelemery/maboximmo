@@ -25,7 +25,7 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
           server-dir: /public_html/
-          state-name: .ftp-deploy-sync-prod-v2-20260420
+          state-name: .ftp-deploy-sync-prod-v3-20260421
           exclude: |
             **/.git*
             **/.git*/**
