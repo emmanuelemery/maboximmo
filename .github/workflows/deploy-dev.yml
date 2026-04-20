@@ -29,6 +29,7 @@ jobs:
           local-dir: ./public_html/
           server-dir: /dev/
           state-name: .ftp-deploy-sync-v2
+          log-level: verbose
           exclude: |
             **/.git*
             **/.git*/**

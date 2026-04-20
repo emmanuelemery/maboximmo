@@ -1,0 +1,1 @@
+FTP diagnostic marker — 2026-04-21 — doit apparaitre en prod apres upload FTP.
