@@ -512,6 +512,12 @@
       }
     });
 
+    // ══════════════════════════════════════════════════════════════
+    // Card 3 Annonce — Bouton IA « Générer l'annonce complète »
+    // + persistance session de l'orientation (ton/cible/mots-clés/notes)
+    // ══════════════════════════════════════════════════════════════
+    bindAnnonceIAGenerate(data);
+
     // Card 2 Photos : toggle sélection N:N
     const photosStatus = document.getElementById('v2-annonce-photos-status');
     const photosCount  = document.getElementById('v2-annonce-photos-count');
@@ -675,6 +681,173 @@
       setTimeout(() => wrap.classList.remove('v2-field-focus-flash'), 2000);
     }
     try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (_) {} }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Card 3 Annonce — Génération IA (description / titre / SEO / slug)
+  // ══════════════════════════════════════════════════════════════════
+  function bindAnnonceIAGenerate(data) {
+    const btn    = document.getElementById('v2-ia-generate');
+    const status = document.getElementById('v2-ia-generate-status');
+    if (!btn) return;
+
+    const annonceId = parseInt(data.annonceId, 10) || 0;
+    const bienId    = parseInt(data.bienId,    10) || 0;
+    if (!annonceId || !bienId) {
+      btn.disabled = true;
+      return;
+    }
+
+    // ── Orientation : persistance session (propre à ce bien) ──
+    const SS_KEY = 'v2IaOrientation_bien_' + bienId;
+    const tonEl      = document.getElementById('v2-ia-ton');
+    const cibleEl    = document.getElementById('v2-ia-cible');
+    const keywordsEl = document.getElementById('v2-ia-keywords');
+    const notesEl    = document.getElementById('v2-ia-notes');
+
+    // Restauration depuis sessionStorage
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SS_KEY) || '{}');
+      if (saved.ton      && tonEl)      tonEl.value      = saved.ton;
+      if (saved.cible    && cibleEl)    cibleEl.value    = saved.cible;
+      if (saved.keywords && keywordsEl) keywordsEl.value = saved.keywords;
+      if (saved.notes    && notesEl)    notesEl.value    = saved.notes;
+    } catch (_) {}
+
+    function persistOrientation() {
+      try {
+        sessionStorage.setItem(SS_KEY, JSON.stringify({
+          ton:      tonEl ? tonEl.value : '',
+          cible:    cibleEl ? cibleEl.value : '',
+          keywords: keywordsEl ? keywordsEl.value : '',
+          notes:    notesEl ? notesEl.value : '',
+        }));
+      } catch (_) {}
+    }
+    [tonEl, cibleEl, keywordsEl, notesEl].forEach(el => {
+      if (!el) return;
+      el.addEventListener('change', persistOrientation);
+      el.addEventListener('blur',   persistOrientation);
+    });
+
+    // ── Helpers d'écriture + autosave ──
+    function setField(id, value) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = (value == null) ? '' : String(value);
+      // 'input' : met à jour les compteurs de caractères
+      // 'change' : déclenche l'autosave (data-annonce-save)
+      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function setStatus(kind, msg) {
+      if (!status) return;
+      status.className = 'v2-form-status' + (kind ? ' ' + kind : '');
+      status.textContent = msg || '';
+    }
+
+    // ── Lecture des champs bien côté bien_detail_v2 (descriptif) ──
+    function formVal(name) {
+      const el = document.querySelector('[name="' + name + '"]');
+      return el ? el.value : '';
+    }
+    function formChecked(name) {
+      const el = document.querySelector('[name="' + name + '"]');
+      if (!el) return 0;
+      if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? 1 : 0;
+      return el.value ? 1 : 0;
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const oldLabel = btn.innerHTML;
+      btn.innerHTML = '⏳ L\'IA rédige…';
+      setStatus('', '⏳ Analyse + rédaction en cours (15-30 s)…');
+
+      // Type de transaction (depuis la Card 1 de l'annonce)
+      const transEl = document.querySelector('.v2-icon-radios[data-target="annonce"][data-field="type_transaction"] .v2-icon-radio.is-active');
+      const typeTransaction = transEl ? (transEl.dataset.value || '') : '';
+
+      const payload = {
+        bien_id:     bienId,
+        // Orientation session
+        orientation_ton:      tonEl ? tonEl.value : '',
+        orientation_cible:    cibleEl ? cibleEl.value : '',
+        orientation_keywords: keywordsEl ? keywordsEl.value : '',
+        description_brute:    (notesEl ? notesEl.value : '') || formVal('description'),
+        // Champs factuels du bien (le serveur ré-enrichit depuis la BDD si vides)
+        type_bien:   '', // serveur lit biens.id_type_bien
+        adresse_1:   formVal('adresse_1'),
+        code_postal: formVal('code_postal'),
+        ville:       formVal('ville'),
+        surface:     parseFloat(formVal('surface_habitable')) || 0,
+        nb_pieces:   parseInt(formVal('nb_pieces'),    10) || 0,
+        nb_chambres: parseInt(formVal('nb_chambres'),  10) || 0,
+        nb_sdb:      parseInt(formVal('nb_salles_bain'),10) || 0,
+        etage:       parseInt(formVal('etage'),        10) || 0,
+        nb_etages:   parseInt(formVal('nb_niveaux'),   10) || 0,
+        loyer_hc:    typeTransaction === 'location' ? (parseFloat(formVal('loyer_de_base')) || 0) : 0,
+        charges:     0,
+        prix_vente:  typeTransaction === 'vente' ? (parseFloat(formVal('prix')) || 0) : 0,
+        dpe_classe:  formVal('dpe_classe'),
+        ges_classe:  formVal('ges_classe'),
+        meuble:      formChecked('loyer_meuble'),
+        ascenseur:   formChecked('ascenseur'),
+        parking:     formChecked('garage') || formChecked('parking'),
+        balcon:      formChecked('balcon'),
+        terrasse:    formChecked('terrasse'),
+        cave:        formChecked('cave'),
+        digicode:    formChecked('digicode'),
+        fibre:       formChecked('fibre'),
+      };
+
+      try {
+        const endpoint = data.aiGenerateEndpoint || '/api/bien_ai_generate.php';
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': data.aiCsrfToken || data.csrfToken || '',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify(payload),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur IA');
+
+        // ── Remplissage (écrasement volontaire — regénération complète) ──
+        if (j.description)      setField('v2-f-description', j.description);
+        if (Array.isArray(j.points_forts) && j.points_forts.length) {
+          setField('v2-f-points_forts', j.points_forts.join('\n'));
+        }
+        if (j.accroche)         setField('v2-f-accroche_commerciale', j.accroche);
+        if (j.titre)            setField('v2-f-titre', j.titre);
+        if (j.meta_title)       setField('v2-f-meta_title', j.meta_title);
+        if (j.meta_description) setField('v2-f-meta_description', j.meta_description);
+        if (j.mots_cles) {
+          const mc = Array.isArray(j.mots_cles) ? j.mots_cles.join(', ') : j.mots_cles;
+          setField('v2-f-mots_cles', mc);
+        }
+        if (j.slug)             setField('v2-f-slug', j.slug);
+
+        // Résumé court : première phrase de la description si champ vide
+        const resumeEl = document.getElementById('v2-f-resume_court');
+        if (resumeEl && !resumeEl.value.trim() && j.description) {
+          const firstSentence = (j.description.match(/^[^.!?]+[.!?]/) || [j.description.slice(0, 140)])[0].trim();
+          setField('v2-f-resume_court', firstSentence.slice(0, 255));
+        }
+
+        const len = (j.description || '').length;
+        setStatus('ok', '✅ Annonce générée — ' + len + ' car. de description');
+        setTimeout(() => setStatus('', ''), 4000);
+      } catch (e) {
+        setStatus('err', '❌ ' + (e.message || 'Erreur'));
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '✨ Regénérer l\'annonce complète';
+      }
+    });
   }
 
   // ── Helpers Encadrement des loyers ──

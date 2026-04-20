@@ -142,6 +142,11 @@ $prestations  = is_array($copro['prestations']  ?? null) ? implode(', ', $copro[
 $orientations = is_array($copro['orientations'] ?? null) ? implode(', ', $copro['orientations']) : '';
 $descriptionBrute = trim((string)($body['description_brute'] ?? ''));
 
+/* ── Orientation IA (optionnelle, passée depuis Card 3 Annonce v2) ── */
+$orientationTon      = trim((string)($body['orientation_ton']      ?? ''));
+$orientationCible    = trim((string)($body['orientation_cible']    ?? ''));
+$orientationKeywords = trim((string)($body['orientation_keywords'] ?? ''));
+
 /* ── Enrichissement serveur depuis la BDD ────────────────
    Si un bien_id est fourni, on complète le contexte avec :
      - toutes les colonnes biens + annonces récentes
@@ -308,6 +313,16 @@ if ($descriptionBrute !== '') {
     $notesBrutes = "\nNOTES DE L'AGENT (à intégrer intelligemment, ne pas recopier mot à mot) :\n" . $descriptionBrute . "\n";
 }
 
+// Orientation éditoriale (ton + cible + mots-clés à privilégier)
+$orientationBlock = '';
+$orientationParts = [];
+if ($orientationTon !== '')      $orientationParts[] = 'Ton à adopter : ' . $orientationTon;
+if ($orientationCible !== '')    $orientationParts[] = 'Cible à adresser : ' . $orientationCible;
+if ($orientationKeywords !== '') $orientationParts[] = 'Mots-clés à intégrer naturellement : ' . $orientationKeywords;
+if (!empty($orientationParts)) {
+    $orientationBlock = "\nORIENTATION ÉDITORIALE (à respecter pour tout le contenu généré) :\n- " . implode("\n- ", $orientationParts) . "\n";
+}
+
 // Analyses Vision des photos (déjà calculées à l'upload)
 $photosBlock = '';
 if (!empty($photoAnalyses)) {
@@ -338,11 +353,13 @@ $userPrompt = <<<USER
 Voici les données d'un bien immobilier :
 
 {$dataContext}
-{$notesBrutes}{$photosBlock}
+{$notesBrutes}{$orientationBlock}{$photosBlock}
 À partir de TOUTES ces informations (caractéristiques techniques, notes de l'agent, analyses visuelles des photos), génère un JSON avec exactement ces clés :
 - "description" : texte commercial ~180 mots, style annonce professionnelle, sans répéter les chiffres déjà listés dans le titre, adapté pour le site web et les portails
 - "points_forts" : tableau de 3 chaînes courtes (bullet points pour l'annonce, ex: "Lumineux 3 pièces avec balcon", "DPE B - faibles charges", "Proche commerces et transports")
-- "meta_title" : titre SEO ~60 caractères (type + pièces + surface + ville)
+- "titre" : titre d'annonce diffusé sur les portails (Le Bon Coin, SeLoger) ~70 caractères max, accrocheur, intégrant le type + nb pièces + surface + atout principal + ville
+- "accroche" : phrase d'accroche commerciale courte (~100 caractères) — un crochet émotionnel / différenciant, sans répéter mot à mot le titre
+- "meta_title" : titre SEO Google ~60 caractères max (plus dense, optimisé moteurs)
 - "meta_description" : description SEO ~150 caractères accrocheuse
 - "mots_cles" : tableau de 6 à 8 mots-clés SEO longue traîne (ex: "appartement 3 pièces Lyon 6ème à louer")
 - "slug" : URL en minuscules avec tirets (ex: "appartement-3-pieces-65m2-lyon-6eme")

@@ -100,6 +100,7 @@ $data = [
     'titre'                    => $str('titre'),
     'meta_title'               => $str('meta_title'),
     'meta_description'         => $str('meta_description'),
+    'mots_cles'                => $str('mots_cles'),
     'slug'                     => $str('slug'),
 ];
 

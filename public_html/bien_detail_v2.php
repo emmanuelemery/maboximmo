@@ -1487,6 +1487,65 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📝</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
           <?php else: ?>
+
+            <!-- ═══ Bloc Orientation IA (session uniquement, non persisté) ═══ -->
+            <details class="v2-ia-orientation" id="v2-ia-orientation">
+              <summary>
+                <span>✨ Orientation IA</span>
+                <small>ton, cible &amp; mots-clés à privilégier — session uniquement</small>
+              </summary>
+              <div class="v2-ia-orientation-body">
+                <div class="v2-field">
+                  <label class="v2-field-label">Ton de l'annonce</label>
+                  <select class="v2-input" id="v2-ia-ton">
+                    <option value="">— Par défaut (professionnel) —</option>
+                    <option value="Professionnel et factuel">Professionnel &amp; factuel</option>
+                    <option value="Chaleureux et accueillant">Chaleureux &amp; accueillant</option>
+                    <option value="Premium / haut de gamme">Premium / haut de gamme</option>
+                    <option value="Familial et rassurant">Familial &amp; rassurant</option>
+                    <option value="Court et percutant">Court &amp; percutant</option>
+                    <option value="Investissement / ROI">Investissement / ROI</option>
+                  </select>
+                </div>
+                <div class="v2-field">
+                  <label class="v2-field-label">Cible à adresser</label>
+                  <select class="v2-input" id="v2-ia-cible">
+                    <option value="">— Aucune cible particulière —</option>
+                    <option value="Primo-accédant">Primo-accédant</option>
+                    <option value="Investisseur locatif">Investisseur locatif</option>
+                    <option value="Famille avec enfants">Famille avec enfants</option>
+                    <option value="Jeune couple">Jeune couple</option>
+                    <option value="Étudiant">Étudiant</option>
+                    <option value="Sénior / retraité">Sénior / retraité</option>
+                    <option value="Résidence secondaire">Résidence secondaire</option>
+                    <option value="Professionnel / bureaux">Professionnel / bureaux</option>
+                  </select>
+                </div>
+                <div class="v2-field">
+                  <label class="v2-field-label">Mots-clés à intégrer <small>(séparés par virgules)</small></label>
+                  <input type="text" class="v2-input" id="v2-ia-keywords"
+                         placeholder="ex : proche métro, vue dégagée, lumineux, calme">
+                </div>
+                <div class="v2-field">
+                  <label class="v2-field-label">Notes à mentionner <small>(éléments internes à intégrer au texte)</small></label>
+                  <textarea class="v2-input v2-textarea" id="v2-ia-notes" rows="2"
+                            placeholder="Ex : travaux récents, chaudière neuve 2024, copropriété bien gérée, école primaire à 200 m…"></textarea>
+                </div>
+              </div>
+            </details>
+
+            <!-- ═══ Bouton unique de génération ═══ -->
+            <div class="v2-ia-generate-bar">
+              <button type="button" class="v2-btn-primary v2-ia-generate-btn" id="v2-ia-generate"
+                      title="Rédige description, points forts, titre, accroche, meta + mots-clés + slug — à partir du bien, photos analysées et orientation ci-dessus">
+                ✨ Générer l'annonce complète
+              </button>
+              <span class="v2-form-status" id="v2-ia-generate-status"></span>
+            </div>
+            <div class="v2-hint" style="margin-bottom:14px;">
+              Le bouton régénère <strong>tous les champs ci-dessous</strong> à partir des données du bien, des photos analysées et de l'orientation. Cliquez à nouveau après chaque modification des caractéristiques du bien ou de l'orientation.
+            </div>
+
             <!-- Description -->
             <div class="v2-desc-group-title">📝 Description</div>
             <div class="v2-field">
@@ -1544,6 +1603,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                         data-annonce-save maxlength="320" rows="2"
                         placeholder="Description pour moteurs…"><?= h((string)($a['meta_description'] ?? '')) ?></textarea>
               <small class="v2-char-count" data-target="meta_description" data-min="0" data-optimal="160">0 / 160</small>
+            </div>
+            <div class="v2-field">
+              <label class="v2-field-label">Mots-clés <small>(séparés par virgules)</small></label>
+              <input type="text" class="v2-input" name="mots_cles" id="v2-f-mots_cles"
+                     data-annonce-save maxlength="500"
+                     value="<?= h((string)($a['mots_cles'] ?? '')) ?>"
+                     placeholder="ex : appartement 3 pièces, lyon 6ème, à louer, proche métro">
             </div>
             <div class="v2-field">
               <label class="v2-field-label">URL slug</label>
@@ -2006,6 +2072,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     cplAddEndpoint:              <?= json_encode(app_url('/api/annonce_cpl_add.php'),       JSON_UNESCAPED_SLASHES) ?>,
     cplUpdateEndpoint:           <?= json_encode(app_url('/api/annonce_cpl_update.php'),    JSON_UNESCAPED_SLASHES) ?>,
     cplDeleteEndpoint:           <?= json_encode(app_url('/api/annonce_cpl_delete.php'),    JSON_UNESCAPED_SLASHES) ?>,
+    aiGenerateEndpoint:          <?= json_encode(app_url('/api/bien_ai_generate.php'),      JSON_UNESCAPED_SLASHES) ?>,
+    aiCsrfToken:                 <?= json_encode(csrf_token('ajouter_bien'),                JSON_UNESCAPED_SLASHES) ?>,
     bienEncContext: {
       code_postal: <?= json_encode((string)($bienLoaded['code_postal']       ?? ''), JSON_UNESCAPED_SLASHES) ?>,
       annee_construction: <?= (int)($bienLoaded['annee_construction'] ?? 0) ?>,
