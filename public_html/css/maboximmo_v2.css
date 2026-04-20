@@ -17,7 +17,7 @@
  *   - Responsive + prefers-reduced-motion
  *
  * Dépend : tokens.css (--brand-*, --accent-*, --shadow-*)
- * Page de référence : bien_detail_v2.php
+ * Page de référence : bien_detail.php (promue V2 le 2026-04-20, ex-V1 en bien_detail_ex.php)
  *
  * Classes avec prefix .v2-* pour éviter les collisions avec l'existant.
  * Conventions :

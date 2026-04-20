@@ -41,7 +41,7 @@ header('Content-Type: text/html; charset=utf-8');
 </form>
 
 <?php if ($idBien <= 0): ?>
-  <p>👉 Entre un <code>id_bien</code> ci-dessus. Tu peux le lire dans l'URL de <code>bien_detail_v2.php?edit=<strong>X</strong></code>.</p>
+  <p>👉 Entre un <code>id_bien</code> ci-dessus. Tu peux le lire dans l'URL de <code>bien_detail.php?edit=<strong>X</strong></code>.</p>
 <?php else: ?>
 
 <?php
