@@ -138,7 +138,8 @@ if ($section === 'annonce') {
         $st->execute([$editingBienId]);
         $annonce = $st->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($annonce) {
-            $st2 = $pdo->prepare("SELECT id_biens_photo FROM annonces_photos WHERE id_annonce = ?");
+            // Photos sélectionnées de l'annonce, DANS LEUR ORDRE
+            $st2 = $pdo->prepare("SELECT id_biens_photo FROM annonces_photos WHERE id_annonce = ? ORDER BY ordre ASC, id ASC");
             $st2->execute([(int)$annonce['id']]);
             $annoncePhotoIds = array_map('intval', $st2->fetchAll(PDO::FETCH_COLUMN) ?: []);
 
@@ -147,15 +148,29 @@ if ($section === 'annonce') {
             $stCpl->execute([(int)$annonce['id']]);
             $cplLignes = $stCpl->fetchAll(PDO::FETCH_ASSOC) ?: [];
         }
-        // Toutes les photos du bien (pour la grille de sélection)
+        // Toutes les photos du bien (indexées par id, ordre par défaut = ordre biens_photos)
         $st3 = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
         $st3->execute([$editingBienId]);
+        $photosById = [];
+        $photosOrdreBien = [];
         foreach ($st3->fetchAll(PDO::FETCH_ASSOC) as $p) {
-            $annonceBienPhotos[] = [
-                'id'  => (int)$p['id'],
+            $id = (int)$p['id'];
+            $photosById[$id] = [
+                'id'  => $id,
                 'url' => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
                 'nom' => (string)($p['nom_original'] ?? ''),
             ];
+            $photosOrdreBien[] = $id;
+        }
+        // Ordre final : sélectionnées (dans l'ordre annonce) puis disponibles (dans l'ordre bien)
+        $selSet = array_flip($annoncePhotoIds);
+        foreach ($annoncePhotoIds as $pid) {
+            if (isset($photosById[$pid])) $annonceBienPhotos[] = $photosById[$pid];
+        }
+        foreach ($photosOrdreBien as $pid) {
+            if (!isset($selSet[$pid]) && isset($photosById[$pid])) {
+                $annonceBienPhotos[] = $photosById[$pid];
+            }
         }
     } catch (Throwable $e) { error_log('[bien_detail_v2 annonce] ' . $e->getMessage()); }
 }
@@ -1629,48 +1644,83 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📸</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
           <?php else: ?>
+            <?php
+              $selIdsSet = array_flip($annoncePhotoIds);
+              $nbSel = count($annoncePhotoIds);
+              $MAX_PHOTOS_ANN = 7;
+              $photosDispo = array_values(array_filter($annonceBienPhotos, fn($p) => !isset($selIdsSet[$p['id']])));
+              $photosSel   = [];
+              foreach ($annoncePhotoIds as $pid) {
+                  foreach ($annonceBienPhotos as $p) {
+                      if ((int)$p['id'] === $pid) { $photosSel[] = $p; break; }
+                  }
+              }
+            ?>
             <?php if (empty($annonceBienPhotos)): ?>
-              <!-- Aucune photo : on déclenche l'upload directement ici -->
-              <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
-                Aucune photo n'est encore chargée pour ce bien. Charge-les directement ci-dessous —
-                tu pourras ensuite sélectionner celles à diffuser sur les portails.
+              <div class="v2-doc-empty">
+                <div class="v2-doc-empty-icon">📸</div>
+                <div>
+                  Aucune photo n'est encore chargée pour ce bien.<br>
+                  <small>Charge-les dans <a href="?edit=<?= (int)$editingBienId ?>&section=documents">📎 Documents → Chargement</a>,
+                  puis reviens ici pour les sélectionner.</small>
+                </div>
               </div>
             <?php else: ?>
+              <!-- Compteur + actions en masse -->
+              <div class="v2-annonce-photos-topbar">
+                <div class="v2-annonce-photos-counter<?= $nbSel >= $MAX_PHOTOS_ANN ? ' is-full' : '' ?>" id="v2-annonce-photos-counter">
+                  <strong id="v2-annonce-photos-counter-n"><?= $nbSel ?></strong>
+                  <span> / <?= $MAX_PHOTOS_ANN ?> photos max</span>
+                </div>
+                <div class="v2-annonce-photos-bulk">
+                  <button type="button" id="v2-annonce-photos-all" class="v2-btn-primary"
+                          title="Ajoute à l'annonce toutes les photos du bien non encore sélectionnées (dans la limite de 7)">
+                    🔄 Récupérer les photos du bien
+                  </button>
+                  <button type="button" id="v2-annonce-photos-none" class="v2-btn-secondary">✕ Tout désélectionner</button>
+                </div>
+              </div>
               <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
-                Clique sur une photo pour l'inclure ou l'exclure de l'annonce diffusée.
-                Les photos sélectionnées sont celles qui partent sur les portails.
+                Si les photos du bien ne remontent pas toutes seules dans l'annonce, clique sur
+                <strong>« 🔄 Récupérer les photos du bien »</strong> ci-dessus.
+                <strong>Glisse les sélectionnées</strong> pour les réordonner — la 1ère sera la photo <strong>principale</strong> diffusée sur les portails.
               </div>
-              <div class="v2-annonce-photos-bulk">
-                <button type="button" id="v2-annonce-photos-all" class="v2-btn-secondary">✓ Tout sélectionner</button>
-                <button type="button" id="v2-annonce-photos-none" class="v2-btn-secondary">✕ Tout désélectionner</button>
-              </div>
-              <div class="v2-annonce-photos-grid">
-                <?php foreach ($annonceBienPhotos as $p): ?>
-                  <?php $isSel = in_array($p['id'], $annoncePhotoIds, true); ?>
-                  <div class="v2-annonce-photo-tile<?= $isSel ? ' is-selected' : '' ?>" data-photo-id="<?= $p['id'] ?>">
-                    <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
-                    <div class="v2-annonce-photo-check">
-                      <?= $isSel ? '✓' : '+' ?>
+
+              <?php if (!empty($photosSel)): ?>
+                <div class="v2-annonce-photos-section-label selected">
+                  📌 Sélectionnées (glissez pour réordonner · 1ère = principale)
+                </div>
+                <div class="v2-annonce-photos-grid" id="v2-annonce-photos-grid-selected">
+                  <?php foreach ($photosSel as $i => $p): ?>
+                    <div class="v2-annonce-photo-tile is-selected" draggable="true"
+                         data-photo-id="<?= (int)$p['id'] ?>" data-rank="<?= $i ?>">
+                      <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
+                      <span class="v2-annonce-photo-order"><?= $i + 1 ?></span>
+                      <?php if ($i === 0): ?>
+                        <span class="v2-annonce-photo-main">PRINCIPALE</span>
+                      <?php endif; ?>
+                      <div class="v2-annonce-photo-check">✓</div>
                     </div>
-                  </div>
-                <?php endforeach; ?>
-              </div>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
+
+              <?php if (!empty($photosDispo)): ?>
+                <div class="v2-annonce-photos-section-label available">
+                  📂 Disponibles <small>(cliquez pour ajouter<?= $nbSel >= $MAX_PHOTOS_ANN ? ' — limite atteinte' : '' ?>)</small>
+                </div>
+                <div class="v2-annonce-photos-grid" id="v2-annonce-photos-grid-available">
+                  <?php foreach ($photosDispo as $p): ?>
+                    <div class="v2-annonce-photo-tile" data-photo-id="<?= (int)$p['id'] ?>">
+                      <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
+                      <div class="v2-annonce-photo-check">+</div>
+                    </div>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
+
               <div class="v2-annonce-photos-status" id="v2-annonce-photos-status"></div>
             <?php endif; ?>
-
-            <!-- Dropzone upload de photos bien (toujours visible quand annonce existe) -->
-            <div class="v2-photo-drop-wrap" style="margin-top:<?= empty($annonceBienPhotos) ? '0' : '14px' ?>;">
-              <?php if (!empty($annonceBienPhotos)): ?>
-                <div class="v2-desc-group-title">📸 Ajouter des photos au bien</div>
-              <?php endif; ?>
-              <div id="v2-annonce-photo-drop" class="v2-photo-drop">
-                <input type="file" id="v2-annonce-photo-input" accept="image/jpeg,image/png,image/webp" multiple hidden>
-                <div class="v2-photo-drop-icon">📸</div>
-                <div class="v2-photo-drop-title">Glissez vos photos ici ou cliquez</div>
-                <div class="v2-photo-drop-sub">JPG / PNG / WebP · max 15 Mo par photo · multiples acceptés</div>
-              </div>
-              <div id="v2-annonce-photo-drop-status" class="v2-photo-drop-status"></div>
-            </div>
           <?php endif; ?>
         </div>
       </section>
@@ -2083,6 +2133,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     annonceAutosaveEndpoint:     <?= json_encode(app_url('/api/annonce_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,
     annoncePhotoToggleEndpoint:  <?= json_encode(app_url('/api/annonce_photo_toggle.php'),  JSON_UNESCAPED_SLASHES) ?>,
     annoncePhotosBulkEndpoint:   <?= json_encode(app_url('/api/annonce_photos_bulk.php'),   JSON_UNESCAPED_SLASHES) ?>,
+    annoncePhotoReorderEndpoint: <?= json_encode(app_url('/api/annonce_photo_reorder.php'), JSON_UNESCAPED_SLASHES) ?>,
     encadrementEndpoint:         <?= json_encode(app_url('/api/encadrement_loyers.php'),    JSON_UNESCAPED_SLASHES) ?>,
     cplAddEndpoint:              <?= json_encode(app_url('/api/annonce_cpl_add.php'),       JSON_UNESCAPED_SLASHES) ?>,
     cplUpdateEndpoint:           <?= json_encode(app_url('/api/annonce_cpl_update.php'),    JSON_UNESCAPED_SLASHES) ?>,

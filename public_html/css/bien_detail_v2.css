@@ -484,6 +484,79 @@ html.v2-no-scroll, body.v2-no-scroll {
 .v2-annonce-photos-status.ok  { color: #0ea572; }
 .v2-annonce-photos-status.err { color: #dc2626; }
 
+/* Card 4 Annonce — Topbar (compteur + bulk) */
+.v2-annonce-photos-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.v2-annonce-photos-counter {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v2-muted, #888);
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(54, 87, 125, 0.08);
+  border: 1px solid rgba(54, 87, 125, 0.18);
+}
+.v2-annonce-photos-counter strong { color: var(--v2-accent, #36577d); font-size: 15px; }
+.v2-annonce-photos-counter.is-full {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.40);
+  color: #b91c1c;
+}
+.v2-annonce-photos-counter.is-full strong { color: #dc2626; }
+
+/* Card 4 Annonce — Labels de section (Sélectionnées / Disponibles) */
+.v2-annonce-photos-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin: 14px 0 8px;
+  padding: 4px 0;
+}
+.v2-annonce-photos-section-label.selected { color: #15803d; border-bottom: 1px dashed rgba(21, 128, 61, 0.30); }
+.v2-annonce-photos-section-label.available { color: #64748b; border-bottom: 1px dashed rgba(100, 116, 139, 0.30); }
+.v2-annonce-photos-section-label small { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--v2-muted, #888); }
+
+/* Card 4 Annonce — Badges ordre + PRINCIPALE + drag */
+.v2-annonce-photo-order {
+  position: absolute;
+  top: 6px; left: 6px;
+  min-width: 24px; height: 24px;
+  padding: 0 6px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.v2-annonce-photo-main {
+  position: absolute;
+  bottom: 6px; left: 6px;
+  background: #15803d;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 3px 7px;
+  border-radius: 4px;
+  letter-spacing: .06em;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.v2-annonce-photo-tile[draggable="true"] { cursor: grab; }
+.v2-annonce-photo-tile[draggable="true"]:active { cursor: grabbing; }
+.v2-annonce-photo-tile.is-dragging {
+  opacity: 0.45;
+  outline: 2px dashed var(--v2-accent, #36577d);
+  outline-offset: -4px;
+}
+
 /* En-tête annonce (Card 1 Annonce) */
 .v2-annonce-header {
   display: flex;

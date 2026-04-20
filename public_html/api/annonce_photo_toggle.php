@@ -51,6 +51,8 @@ try {
 }
 
 // Toggle : si déjà présent → DELETE, sinon INSERT avec ordre max+1
+// Limite portails : maximum 7 photos par annonce (alignement bien_ajouter / Ubiflow)
+const ANNONCE_MAX_PHOTOS = 7;
 try {
     $st = $pdo->prepare("SELECT id FROM annonces_photos WHERE id_annonce = ? AND id_biens_photo = ? LIMIT 1");
     $st->execute([$annonceId, $photoId]);
@@ -60,6 +62,19 @@ try {
         $pdo->prepare("DELETE FROM annonces_photos WHERE id = ?")->execute([$existingId]);
         $action = 'removed';
     } else {
+        // Garde-fou : refus si déjà au maximum
+        $stCnt = $pdo->prepare("SELECT COUNT(*) FROM annonces_photos WHERE id_annonce = ?");
+        $stCnt->execute([$annonceId]);
+        $current = (int)$stCnt->fetchColumn();
+        if ($current >= ANNONCE_MAX_PHOTOS) {
+            exit(json_encode([
+                'ok'    => false,
+                'error' => 'Maximum ' . ANNONCE_MAX_PHOTOS . ' photos atteint pour cette annonce. Désélectionnez-en une avant.',
+                'limit_reached' => true,
+                'count' => $current,
+                'max'   => ANNONCE_MAX_PHOTOS,
+            ]));
+        }
         // Ordre max actuel + 1
         $st = $pdo->prepare("SELECT COALESCE(MAX(ordre), -1) + 1 FROM annonces_photos WHERE id_annonce = ?");
         $st->execute([$annonceId]);

@@ -518,11 +518,6 @@
     // ══════════════════════════════════════════════════════════════
     bindAnnonceIAGenerate(data);
 
-    // ══════════════════════════════════════════════════════════════
-    // Card 4 Annonce — Dropzone upload photos (débloque le cas "zéro photo")
-    // ══════════════════════════════════════════════════════════════
-    bindAnnonceDropzone(data);
-
     // Card 2 Photos : toggle sélection N:N
     const photosStatus = document.getElementById('v2-annonce-photos-status');
     const photosCount  = document.getElementById('v2-annonce-photos-count');
@@ -545,7 +540,8 @@
 
     async function bulkPhotos(action) {
       if (!data.annonceId) return;
-      setPhotoStatus('', '⏳ ' + (action === 'all' ? 'Sélection' : 'Désélection') + ' en cours…');
+      const label = action === 'all' ? 'Récupération depuis le bien' : 'Désélection';
+      setPhotoStatus('', '⏳ ' + label + ' en cours…');
       const fd = new FormData();
       fd.append('id_annonce', data.annonceId);
       fd.append('action', action);
@@ -556,16 +552,19 @@
         });
         const j = await r.json();
         if (!j.ok) throw new Error(j.error || 'Erreur');
-        applyBulkSelection(j.selected_ids || []);
-        if (photosCount) photosCount.textContent = j.count;
-        setPhotoStatus('ok', '✅ ' + j.count + ' photo(s) dans l\'annonce');
-        setTimeout(() => setPhotoStatus('', ''), 2000);
+        // Reload pour que les sections "Sélectionnées / Disponibles" et les badges
+        // (numéros, PRINCIPALE) soient re-rendus par PHP dans l'ordre BDD.
+        setPhotoStatus('ok', '✅ ' + j.count + ' photo(s) dans l\'annonce — rechargement…');
+        setTimeout(() => window.location.reload(), 500);
       } catch (e) {
         setPhotoStatus('err', '❌ ' + e.message);
       }
     }
     document.getElementById('v2-annonce-photos-all')?.addEventListener('click', () => bulkPhotos('all'));
     document.getElementById('v2-annonce-photos-none')?.addEventListener('click', () => bulkPhotos('none'));
+
+    // ── Drag & drop réordonnement des photos sélectionnées ──
+    bindAnnoncePhotosReorder(data, csrf, setPhotoStatus);
 
     // ═══ Card 2 Encadrement des loyers ═══
     bindEncadrementCard(data, csrf);
@@ -641,7 +640,9 @@
     // (focus-on-load est géré au niveau global de l'init — évite la duplication)
 
     document.querySelectorAll('.v2-annonce-photo-tile').forEach(tile => {
-      tile.addEventListener('click', async () => {
+      tile.addEventListener('click', async (e) => {
+        // Ignore le click quand c'est un drag qui se termine
+        if (tile.dataset.dragging === '1') return;
         const id = parseInt(tile.dataset.photoId, 10) || 0;
         if (!id || !data.annonceId) return;
         tile.style.pointerEvents = 'none';
@@ -655,19 +656,117 @@
             method: 'POST', body: fd, credentials: 'same-origin'
           });
           const j = await r.json();
-          if (!j.ok) throw new Error(j.error || 'Erreur');
-          const nowSelected = (j.action === 'added');
-          tile.classList.toggle('is-selected', nowSelected);
-          tile.querySelector('.v2-annonce-photo-check').textContent = nowSelected ? '✓' : '+';
-          if (photosCount) photosCount.textContent = j.count;
-          setPhotoStatus('ok', (nowSelected ? '✅ Ajoutée' : '✅ Retirée') + ' · ' + j.count + ' photo(s) dans l\'annonce');
-          setTimeout(() => setPhotoStatus('', ''), 2000);
+          if (!j.ok) {
+            if (j.limit_reached) {
+              setPhotoStatus('err', '⚠️ ' + j.error);
+              return;
+            }
+            throw new Error(j.error || 'Erreur');
+          }
+          // Reload pour re-render sections (sélectionnées / disponibles),
+          // les badges numéros, et le badge PRINCIPALE sur la nouvelle 1ère.
+          const msg = (j.action === 'added' ? '✅ Ajoutée' : '✅ Retirée')
+                    + ' · ' + j.count + ' photo(s) dans l\'annonce — rechargement…';
+          setPhotoStatus('ok', msg);
+          setTimeout(() => window.location.reload(), 350);
         } catch (e) {
           setPhotoStatus('err', '❌ ' + e.message);
-        } finally {
           tile.style.pointerEvents = '';
         }
       });
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Card 4 Annonce — Drag & Drop pour réordonner les photos sélectionnées
+  // Appel api/annonce_photo_reorder.php après drop, met à jour les badges
+  // numéros sans reload (PRINCIPALE se déplace si la 1ère change).
+  // ══════════════════════════════════════════════════════════════════
+  function bindAnnoncePhotosReorder(data, csrf, setStatus) {
+    const grid = document.getElementById('v2-annonce-photos-grid-selected');
+    if (!grid || !data.annonceId) return;
+
+    const tiles = () => Array.from(grid.querySelectorAll('.v2-annonce-photo-tile[draggable="true"]'));
+    let dragEl = null;
+
+    function refreshBadges() {
+      tiles().forEach((t, i) => {
+        const orderBadge = t.querySelector('.v2-annonce-photo-order');
+        if (orderBadge) orderBadge.textContent = String(i + 1);
+        let mainBadge = t.querySelector('.v2-annonce-photo-main');
+        if (i === 0) {
+          if (!mainBadge) {
+            mainBadge = document.createElement('span');
+            mainBadge.className = 'v2-annonce-photo-main';
+            mainBadge.textContent = 'PRINCIPALE';
+            t.appendChild(mainBadge);
+          }
+        } else if (mainBadge) {
+          mainBadge.remove();
+        }
+        t.dataset.rank = String(i);
+      });
+    }
+
+    async function persistOrder() {
+      const ids = tiles().map(t => parseInt(t.dataset.photoId, 10)).filter(Boolean);
+      if (!ids.length) return;
+      setStatus('', '⏳ Réordonnement…');
+      const fd = new FormData();
+      fd.append('id_annonce', data.annonceId);
+      fd.append('csrf_token', csrf);
+      ids.forEach(id => fd.append('ordered_ids[]', id));
+      try {
+        const endpoint = data.annoncePhotoReorderEndpoint || '/api/annonce_photo_reorder.php';
+        const r = await fetch(endpoint, { method: 'POST', body: fd, credentials: 'same-origin' });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur réordonnement');
+        setStatus('ok', '✅ Ordre enregistré');
+        setTimeout(() => setStatus('', ''), 1500);
+      } catch (e) {
+        setStatus('err', '❌ ' + e.message);
+      }
+    }
+
+    grid.addEventListener('dragstart', (e) => {
+      const t = e.target.closest('.v2-annonce-photo-tile[draggable="true"]');
+      if (!t) return;
+      dragEl = t;
+      t.dataset.dragging = '1';
+      t.classList.add('is-dragging');
+      try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+      try { e.dataTransfer.setData('text/plain', t.dataset.photoId || ''); } catch (_) {}
+    });
+
+    grid.addEventListener('dragover', (e) => {
+      if (!dragEl) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+      const over = e.target.closest('.v2-annonce-photo-tile[draggable="true"]');
+      if (!over || over === dragEl) return;
+      const rect = over.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width / 2;
+      if (after) {
+        over.after(dragEl);
+      } else {
+        over.before(dragEl);
+      }
+    });
+
+    grid.addEventListener('drop', (e) => {
+      if (!dragEl) return;
+      e.preventDefault();
+    });
+
+    grid.addEventListener('dragend', () => {
+      if (!dragEl) return;
+      dragEl.classList.remove('is-dragging');
+      refreshBadges();
+      persistOrder();
+      // Nettoie le flag un peu après pour éviter que le click post-drag ne toggle
+      const el = dragEl;
+      setTimeout(() => { delete el.dataset.dragging; }, 150);
+      dragEl = null;
     });
   }
 
@@ -852,75 +951,6 @@
         btn.disabled = false;
         btn.innerHTML = '✨ Regénérer l\'annonce complète';
       }
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════════
-  // Card 4 Annonce — Dropzone upload de photos du bien
-  // (identique à celle de la section Documents — reload après succès
-  //  pour que les photos apparaissent dans la grille de sélection N:N)
-  // ══════════════════════════════════════════════════════════════════
-  function bindAnnonceDropzone(data) {
-    const dz       = document.getElementById('v2-annonce-photo-drop');
-    const dzInput  = document.getElementById('v2-annonce-photo-input');
-    const dzStatus = document.getElementById('v2-annonce-photo-drop-status');
-    if (!dz || !dzInput) return;
-
-    const setStatus = (kind, msg) => {
-      if (!dzStatus) return;
-      dzStatus.className = 'v2-photo-drop-status ' + (kind || '');
-      dzStatus.textContent = msg || '';
-    };
-
-    async function uploadPhoto(file) {
-      const fd = new FormData();
-      fd.append('fichier', file);
-      fd.append('csrf_token', data.csrfToken || '');
-      if (data.bienId) fd.append('id_bien', data.bienId);
-      const r = await fetch(data.photoUploadEndpoint || '/api/bien_intake_photo_upload.php', {
-        method: 'POST', body: fd, credentials: 'same-origin'
-      });
-      return r.json();
-    }
-
-    async function uploadAll(files) {
-      const list = Array.from(files).filter(f => /^image\//.test(f.type));
-      if (list.length === 0) { setStatus('err', '❌ Aucune image valide'); return; }
-      dz.classList.add('is-busy');
-      let done = 0, errs = 0;
-      setStatus('', `⏳ 0 / ${list.length}…`);
-      for (const f of list) {
-        try {
-          const j = await uploadPhoto(f);
-          if (j && j.ok) done++; else errs++;
-        } catch (e) { errs++; }
-        setStatus('', `⏳ ${done + errs} / ${list.length}…`);
-      }
-      dz.classList.remove('is-busy');
-      if (done > 0 && errs === 0) {
-        setStatus('ok', `✅ ${done} photo(s) ajoutée(s) — rechargement…`);
-        setTimeout(() => window.location.reload(), 600);
-      } else if (done > 0) {
-        setStatus('err', `⚠️ ${done} OK · ${errs} échec(s) — rechargement…`);
-        setTimeout(() => window.location.reload(), 1200);
-      } else {
-        setStatus('err', `❌ ${errs} échec(s) — aucune photo chargée`);
-      }
-    }
-
-    dz.addEventListener('click', () => dzInput.click());
-    dzInput.addEventListener('change', (e) => {
-      if (e.target.files?.length) uploadAll(e.target.files);
-      dzInput.value = '';
-    });
-    ['dragenter', 'dragover'].forEach(ev =>
-      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('is-dragging'); })
-    );
-    ['dragleave', 'drop'].forEach(ev =>
-      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('is-dragging'); })
-    );
-    dz.addEventListener('drop', (e) => {
-      if (e.dataTransfer?.files?.length) uploadAll(e.dataTransfer.files);
     });
   }
 

@@ -39,6 +39,9 @@ try {
     }
     $bienId = (int)$row['id_bien'];
 
+    // Limite portails : 7 photos max par annonce
+    $MAX_PHOTOS = 7;
+
     if ($action === 'none') {
         $pdo->prepare("DELETE FROM annonces_photos WHERE id_annonce = ?")->execute([$annonceId]);
     } else {
@@ -47,18 +50,24 @@ try {
         $stL->execute([$annonceId]);
         $existing = array_map('intval', $stL->fetchAll(PDO::FETCH_COLUMN) ?: []);
 
-        $stP = $pdo->prepare("SELECT id FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
-        $stP->execute([$bienId]);
-        $all = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        // Si déjà saturé, on ne rajoute rien
+        $slots = max(0, $MAX_PHOTOS - count($existing));
+        if ($slots > 0) {
+            $stP = $pdo->prepare("SELECT id FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
+            $stP->execute([$bienId]);
+            $all = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN) ?: []);
 
-        $missing = array_values(array_diff($all, $existing));
-        if ($missing) {
-            $stO = $pdo->prepare("SELECT COALESCE(MAX(ordre), -1) + 1 FROM annonces_photos WHERE id_annonce = ?");
-            $stO->execute([$annonceId]);
-            $nextO = (int)$stO->fetchColumn();
-            $ins = $pdo->prepare("INSERT INTO annonces_photos (id_annonce, id_biens_photo, ordre) VALUES (?, ?, ?)");
-            foreach ($missing as $pid) {
-                $ins->execute([$annonceId, $pid, $nextO++]);
+            $missing = array_values(array_diff($all, $existing));
+            // On ne prend que ce qui rentre dans la limite de 7
+            $missing = array_slice($missing, 0, $slots);
+            if ($missing) {
+                $stO = $pdo->prepare("SELECT COALESCE(MAX(ordre), -1) + 1 FROM annonces_photos WHERE id_annonce = ?");
+                $stO->execute([$annonceId]);
+                $nextO = (int)$stO->fetchColumn();
+                $ins = $pdo->prepare("INSERT INTO annonces_photos (id_annonce, id_biens_photo, ordre) VALUES (?, ?, ?)");
+                foreach ($missing as $pid) {
+                    $ins->execute([$annonceId, $pid, $nextO++]);
+                }
             }
         }
     }
