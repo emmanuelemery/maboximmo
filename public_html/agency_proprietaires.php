@@ -1,116 +1,183 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/tenant_scope.php';
 require_login();
 
-$appLayout  = true;
-$pageTitle  = 'Propriétaires';
-$bodyClass  = '';
-$robots     = 'noindex, nofollow';
+$appLayout = true;
+$pageTitle = 'Propriétaires';
+$bodyClass = '';
+$robots    = 'noindex, nofollow';
 
-$pdo       = $GLOBALS['pdo'];
-$societeId = (int)($_SESSION['id_societe'] ?? 0);
-$agenceId  = (int)($_SESSION['id_agence'] ?? 0);
+$pdo   = $GLOBALS['pdo'];
+$ctx   = tenant_current_context();
+$isAdmin = $ctx['is_super_admin'];
 
-// ── Filtres ──
-$filterSearch = trim((string)($_GET['q'] ?? ''));
-$filterType   = trim((string)($_GET['type'] ?? ''));
-$page    = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 20;
-$offset  = ($page - 1) * $perPage;
+if (!function_exists('e')) {
+    function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+}
 
-// ── Requête ──
-$where  = ['1=1'];
+/* ── Filtres GET ───────────────────────────────────────── */
+$filterSearch = trim((string)($_GET['q']      ?? ''));
+$filterType   = trim((string)($_GET['type']   ?? ''));
+$filterStatut = trim((string)($_GET['statut'] ?? 'actif'));
+$page         = max(1, (int)($_GET['page']    ?? 1));
+$perPage      = 20;
+$offset       = ($page - 1) * $perPage;
+
+/* ── Résolution scope société / agence via helper ──────── */
+$agencesVisibles = tenant_agences_visibles($pdo);
+$validAgenceIds  = array_map(static fn($a) => (int)$a['id'], $agencesVisibles);
+$scope           = tenant_resolve_filter($validAgenceIds);
+$scopeSoc        = (int)$scope['id_societe'];
+$scopeAg         = (int)$scope['id_agence'];
+
+/* ── Construction requête ──────────────────────────────── */
+$where  = ["tr.role_code = 'proprietaire'"];
 $params = [];
 
-if ($agenceId > 0) {
-    $where[]  = 'p.id_agence = ?';
-    $params[] = $agenceId;
+// Cloisonnement société (forcé pour users standards)
+if ($scopeSoc > 0) {
+    $where[]  = "(t.id_societe = ? OR t.id_societe IS NULL)";
+    $params[] = $scopeSoc;
 }
+// Filtre agence optionnel (via tiers OU proprietaires legacy)
+if ($scopeAg > 0) {
+    $where[]  = "(t.id_agence = ? OR p.id_agence = ?)";
+    $params[] = $scopeAg;
+    $params[] = $scopeAg;
+}
+
 if ($filterSearch !== '') {
-    $where[]  = "(p.nom LIKE ? OR p.prenom LIKE ? OR p.email LIKE ? OR p.telephone LIKE ? OR p.societe LIKE ?)";
+    $where[]  = "(t.nom LIKE ? OR t.prenom LIKE ? OR t.email LIKE ? OR t.telephone LIKE ? OR t.raison_sociale LIKE ?)";
     $q = '%' . $filterSearch . '%';
-    $params = array_merge($params, [$q, $q, $q, $q, $q]);
+    array_push($params, $q, $q, $q, $q, $q);
 }
 if ($filterType !== '') {
-    $where[]  = "p.type_personne = ?";
-    $params[] = $filterType;
+    $where[]  = "t.type_tiers = ?";
+    $params[] = $filterType === 'morale' ? 'personne_morale' : 'personne_physique';
 }
+if ($filterStatut === 'actif') {
+    $where[] = "t.actif = 1";
+} elseif ($filterStatut === 'archive') {
+    $where[] = "t.actif = 0";
+}
+// 'tous' → pas de filtre
 
 $whereStr = implode(' AND ', $where);
 
-$stmtCount = $pdo->prepare("SELECT COUNT(*) FROM proprietaires p WHERE {$whereStr}");
-$stmtCount->execute($params);
-$total = (int)$stmtCount->fetchColumn();
-$totalPages = max(1, (int)ceil($total / $perPage));
-
-$sql = "
-    SELECT p.*,
-           (SELECT COUNT(*) FROM biens b WHERE b.id_proprietaire = p.id) AS nb_biens,
-           (SELECT COUNT(*) FROM mandats m WHERE m.id_proprietaire = p.id) AS nb_mandats,
-           (SELECT COUNT(*) FROM bailleur_documents bd WHERE bd.id_proprietaire = p.id) AS nb_docs
-    FROM proprietaires p
-    WHERE {$whereStr}
-    ORDER BY p.nom ASC, p.prenom ASC
-    LIMIT {$perPage} OFFSET {$offset}
+$baseJoin = "
+    FROM tiers t
+    INNER JOIN tiers_roles tr ON tr.id_tiers = t.id
+    LEFT JOIN proprietaires p ON p.id_tiers = t.id
+    LEFT JOIN agences ag ON ag.id = COALESCE(t.id_agence, p.id_agence)
 ";
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$proprietaires = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+try {
+    $stmtCount = $pdo->prepare("SELECT COUNT(DISTINCT t.id) {$baseJoin} WHERE {$whereStr}");
+    $stmtCount->execute($params);
+    $total = (int)$stmtCount->fetchColumn();
+    $totalPages = max(1, (int)ceil($total / $perPage));
+
+    $sql = "
+        SELECT t.id AS id_tiers,
+               p.id AS id_proprio_legacy,
+               COALESCE(NULLIF(t.nom_affichage, ''),
+                        NULLIF(t.raison_sociale, ''),
+                        TRIM(CONCAT_WS(' ', t.prenom, t.nom))) AS label,
+               t.civilite, t.nom, t.prenom, t.raison_sociale, t.email, t.telephone,
+               t.code_postal, t.ville, t.actif, t.type_tiers,
+               ag.nom_agence AS agence_nom,
+               (SELECT COUNT(*) FROM biens b   WHERE b.id_proprietaire = p.id) AS nb_biens,
+               (SELECT COUNT(*) FROM mandats m WHERE m.id_proprietaire = p.id) AS nb_mandats
+        {$baseJoin}
+        WHERE {$whereStr}
+        GROUP BY t.id
+        ORDER BY t.actif DESC, t.nom ASC, t.prenom ASC, t.raison_sociale ASC
+        LIMIT {$perPage} OFFSET {$offset}
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $proprietaires = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $ex) {
+    error_log('[agency_proprietaires] ' . $ex->getMessage());
+    $proprietaires = [];
+    $total = 0;
+    $totalPages = 1;
+}
 
 include __DIR__ . '/inc/header.php';
 $sidebarType = 'agency';
 include __DIR__ . '/inc/sidebar_agency.php';
 ?>
 
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?= asset_url('/css/tokens.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('/css/liste_layout.css') ?>">
 <style>
-/* ── Topbar ── */
-.bl-topbar { height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 20px; border-bottom: 1px solid var(--stroke, #eee); background: var(--card-bg, #fff); position: sticky; top: 0; z-index: 100; }
-.topbar-nav-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: var(--bg-subtle, #f5f5f5); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--ink-muted, #888); }
-.topbar-nav-btn:hover { color: var(--ink, #333); }
-.topbar-gap { width: 50px; flex-shrink: 0; }
-.topbar-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--ink-muted, #888); }
-.topbar-breadcrumb .active { color: var(--accent, #f7941d); font-weight: 600; }
-.topbar-spacer { flex: 1; }
-.topbar-icon-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--ink-muted, #888); }
-.topbar-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent, #f7941d); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+  /* Styles spécifiques agency_proprietaires (table + modal) — le reste
+     (topbar / page-head / bl-btn / bl-filters / bl-search / bl-select /
+     bl-content / bl-pagination / bl-empty / bl-modal) vient de liste_layout.css
+     donc strictement identique à bien_liste. */
 
-.ap-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-.ap-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-.ap-head h1 { font-size: 1.4rem; font-weight: 700; color: var(--ink, #1a1a2e); margin: 0; }
+  /* Table propriétaires */
+  .ap-table {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    background: var(--card); border-radius: var(--r-lg); overflow: hidden;
+    box-shadow: var(--neu-out);
+  }
+  .ap-table th {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); padding: 12px 14px; text-align: left; background: var(--bg);
+    border-bottom: 1px solid var(--stroke);
+  }
+  .ap-table td {
+    padding: 12px 14px; font-size: 13px; border-bottom: 1px solid var(--stroke);
+    vertical-align: middle; color: var(--ink);
+  }
+  .ap-table tr:last-child td { border-bottom: none; }
+  .ap-table tr:hover td { background: rgba(54,87,125,0.03); }
+  .ap-table tr.is-archived td { opacity: 0.55; background: rgba(138,134,128,0.04); }
+  .ap-table a.ap-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .ap-table a.ap-link:hover { text-decoration: underline; }
 
-.ap-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-.ap-filters input, .ap-filters select { padding: 7px 12px; border: 1px solid var(--stroke, #ddd); border-radius: 8px; font-size: 13px; }
-.ap-filters input[type="text"] { min-width: 220px; }
+  .ap-badge {
+    display: inline-block; font-size: 10px; padding: 2px 8px;
+    border-radius: 20px; font-weight: 600;
+  }
+  .ap-badge-physique { background: rgba(54,87,125,.12); color: var(--accent); }
+  .ap-badge-morale   { background: rgba(122,144,96,.15); color: #4d6b3a; }
+  .ap-badge-archived { background: rgba(138,134,128,.15); color: var(--muted); font-size: 10px; margin-left: 6px; }
 
-.ap-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--card-bg, #fff); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-.ap-table th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink-muted, #888); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--stroke, #eee); background: var(--bg-subtle, #fafafa); }
-.ap-table td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--stroke, #f0f0f0); vertical-align: middle; }
-.ap-table tr:last-child td { border-bottom: none; }
-.ap-table tr:hover td { background: rgba(247,148,29,0.03); }
-.ap-table a { color: var(--accent, #f7941d); text-decoration: none; font-weight: 600; }
-.ap-table a:hover { text-decoration: underline; }
+  .ap-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; height: 20px; border-radius: 10px;
+    font-size: 11px; font-weight: 700;
+  }
+  .ap-count-biens   { background: rgba(54,87,125,.12); color: var(--accent); }
+  .ap-count-mandats { background: rgba(249,115,22,.12); color: #c05000; }
+  .ap-count-zero    { background: rgba(138,134,128,.10); color: var(--muted); }
 
-.ap-badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
-.ap-badge-physique { background: #dbeafe; color: #1e40af; }
-.ap-badge-morale { background: #dcfce7; color: #166534; }
+  .ap-actions { display: flex; gap: 4px; justify-content: flex-end; }
+  .ap-action-btn {
+    width: 30px; height: 30px; border-radius: 6px; border: none;
+    background: var(--bg); cursor: pointer; color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none; font-size: 14px;
+    transition: background .15s, color .15s;
+  }
+  .ap-action-btn:hover { background: var(--card); color: var(--ink); box-shadow: var(--neu-out); }
+  .ap-action-btn.danger:hover { color: #dc2626; }
 
-.ap-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; border-radius: 10px; font-size: 11px; font-weight: 700; }
-.ap-count-biens { background: #eff6ff; color: #1e40af; }
-.ap-count-mandats { background: #fef3c7; color: #92400e; }
-.ap-count-docs { background: #f0fdf4; color: #166534; }
-
-.ap-btn { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
-.ap-btn-primary { background: var(--accent, #f7941d); color: #fff; }
-.ap-btn-ghost { background: var(--bg-subtle, #f0f0f0); color: var(--ink, #333); }
-
-.ap-pagination { display: flex; gap: 4px; justify-content: center; margin-top: 16px; }
-.ap-pagination a, .ap-pagination span { padding: 6px 12px; border-radius: 6px; font-size: 12px; text-decoration: none; }
-.ap-pagination a { background: var(--bg-subtle, #f0f0f0); color: var(--ink, #333); }
-.ap-pagination a:hover { background: var(--accent, #f7941d); color: #fff; }
-.ap-pagination span.current { background: var(--accent, #f7941d); color: #fff; font-weight: 700; }
-
-.ap-empty { text-align: center; padding: 40px; color: var(--ink-muted, #888); font-size: 14px; }
+  /* Modal création propriétaire */
+  .ap-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9999; align-items: center; justify-content: center; }
+  .ap-modal-overlay.open { display: flex; }
+  .ap-modal { background: var(--card); border-radius: 14px; padding: 24px; max-width: 600px; width: 92%; box-shadow: 0 12px 40px rgba(0,0,0,.15); }
+  .ap-modal h3 { margin: 0 0 16px; font-size: 1.1rem; }
+  .ap-modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ap-modal-field { display: flex; flex-direction: column; gap: 3px; }
+  .ap-modal-field label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+  .ap-modal-field input, .ap-modal-field select { padding: 8px 12px; border: 1px solid var(--stroke); border-radius: 8px; font-size: 13px; font-family: inherit; }
 </style>
 
 <div class="mbi-main">
@@ -125,7 +192,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
     </button>
     <div class="topbar-gap"></div>
     <nav class="topbar-breadcrumb">
-      <span>Agency</span> <span style="color:#ccc;">›</span> <span class="active">Propriétaires</span>
+      <span class="active">Propriétaires</span>
     </nav>
     <div class="topbar-spacer"></div>
     <button type="button" class="topbar-icon-btn" title="Notifications">
@@ -134,100 +201,170 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <div class="topbar-avatar"><?= strtoupper(substr((string)($_SESSION['username'] ?? 'U'), 0, 1)) ?></div>
   </div>
 
-<div class="ap-container">
-
-  <div class="ap-head">
-    <h1>👥 Propriétaires <span style="font-size:.8rem;font-weight:400;color:var(--ink-muted,#888);">(<?= $total ?>)</span></h1>
-    <button type="button" class="ap-btn ap-btn-primary" onclick="document.getElementById('modal-new-proprio').classList.add('open')">+ Nouveau propriétaire</button>
+  <!-- PAGE HEAD -->
+  <div class="page-head">
+    <div class="page-head-info">
+      <div class="page-head-label">Gestion des propriétaires</div>
+      <h1 class="page-head-title">Propriétaires</h1>
+      <div class="page-head-sub"><?= $total ?> propriétaire<?= $total > 1 ? 's' : '' ?><?= $filterStatut === 'archive' ? ' (archivés)' : '' ?></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button type="button" class="bl-btn bl-btn-primary" onclick="document.getElementById('modal-new-proprio').classList.add('open')">
+        ➕ Nouveau propriétaire
+      </button>
+    </div>
   </div>
 
-  <form class="ap-filters" method="get">
-    <input type="text" name="q" value="<?= h($filterSearch) ?>" placeholder="Rechercher un propriétaire...">
-    <select name="type" onchange="this.form.submit()">
+  <!-- FILTERS -->
+  <form class="bl-filters" method="get" action="">
+    <div class="bl-search">
+      <span class="search-icon">🔍</span>
+      <input type="text" name="q" placeholder="Nom, email, téléphone…" value="<?= e($filterSearch) ?>">
+    </div>
+
+    <select name="type" class="bl-select" onchange="this.form.submit()">
       <option value="">Tous types</option>
-      <option value="physique" <?= $filterType === 'physique' ? 'selected' : '' ?>>Personne physique</option>
-      <option value="morale" <?= $filterType === 'morale' ? 'selected' : '' ?>>Personne morale</option>
+      <option value="physique" <?= $filterType === 'physique' ? 'selected' : '' ?>>👤 Particulier</option>
+      <option value="morale"   <?= $filterType === 'morale'   ? 'selected' : '' ?>>🏢 Société</option>
     </select>
-    <button type="submit" class="ap-btn ap-btn-primary">Rechercher</button>
-    <?php if ($filterSearch || $filterType): ?>
-    <a href="agency_proprietaires.php" class="ap-btn ap-btn-ghost">Réinitialiser</a>
+
+    <select name="statut" class="bl-select" onchange="this.form.submit()">
+      <option value="actif"   <?= $filterStatut === 'actif'   ? 'selected' : '' ?>>Actifs</option>
+      <option value="archive" <?= $filterStatut === 'archive' ? 'selected' : '' ?>>📦 Archivés</option>
+      <option value="tous"    <?= $filterStatut === 'tous'    ? 'selected' : '' ?>>Tous</option>
+    </select>
+
+    <!-- Filtres société (super admin) + agence -->
+    <?= tenant_render_filter_bar($pdo, ['show_societe' => true, 'show_agence' => true]) ?>
+
+    <?php if ($filterSearch || $filterType || $filterStatut !== 'actif' || $scopeAg > 0 || ($isAdmin && $scopeSoc > 0)): ?>
+      <a href="agency_proprietaires.php" class="bl-btn bl-btn-ghost" style="font-size:.8rem;">✕ Réinitialiser</a>
     <?php endif; ?>
+
+    <span class="bl-filter-count">Page <?= $page ?> / <?= $totalPages ?></span>
   </form>
 
-  <?php if (empty($proprietaires)): ?>
-  <div class="ap-empty">Aucun propriétaire trouvé.</div>
-  <?php else: ?>
-  <table class="ap-table">
-    <thead>
-      <tr>
-        <th>Nom</th>
-        <th>Type</th>
-        <th>Contact</th>
-        <th>Ville</th>
-        <th>Biens</th>
-        <th>Mandats</th>
-        <th>Docs</th>
-        <th>Créé le</th>
-      </tr>
-    </thead>
-    <tbody>
-    <?php foreach ($proprietaires as $p):
-        $fullName = trim(($p['prenom'] ? $p['prenom'] . ' ' : '') . $p['nom']);
-        if ($p['societe']) $fullName .= ' (' . $p['societe'] . ')';
-    ?>
-      <tr>
-        <td>
-          <a href="agency_proprietaire_fiche.php?id=<?= (int)$p['id'] ?>"><?= h($fullName) ?></a>
-          <?php if ($p['civilite']): ?><span style="color:#aaa;font-size:11px;"><?= h($p['civilite']) ?></span><?php endif; ?>
-        </td>
-        <td><span class="ap-badge ap-badge-<?= h($p['type_personne'] ?: 'physique') ?>"><?= $p['type_personne'] === 'morale' ? 'Morale' : 'Physique' ?></span></td>
-        <td style="font-size:12px;">
-          <?php if ($p['email']): ?><div><?= h($p['email']) ?></div><?php endif; ?>
-          <?php if ($p['telephone']): ?><div style="color:#888;"><?= h($p['telephone']) ?></div><?php endif; ?>
-        </td>
-        <td style="font-size:12px;"><?= h(($p['code_postal'] ? $p['code_postal'] . ' ' : '') . ($p['ville'] ?? '')) ?></td>
-        <td><span class="ap-count ap-count-biens"><?= (int)$p['nb_biens'] ?></span></td>
-        <td><span class="ap-count ap-count-mandats"><?= (int)$p['nb_mandats'] ?></span></td>
-        <td><span class="ap-count ap-count-docs"><?= (int)$p['nb_docs'] ?></span></td>
-        <td style="font-size:11px;color:#888;"><?= $p['date_creation'] ? date('d/m/Y', strtotime($p['date_creation'])) : '—' ?></td>
-      </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
+  <!-- CONTENT -->
+  <div class="bl-content">
+    <?php if (empty($proprietaires)): ?>
+      <div class="bl-empty">
+        <div class="bl-empty-icon">👥</div>
+        <h2>Aucun propriétaire trouvé</h2>
+        <p><?= ($filterSearch || $filterType) ? 'Essaie d\'ajuster les filtres.' : 'Commence par créer un propriétaire.' ?></p>
+        <button type="button" class="bl-btn bl-btn-primary" onclick="document.getElementById('modal-new-proprio').classList.add('open')">
+          ➕ Nouveau propriétaire
+        </button>
+      </div>
+    <?php else: ?>
+      <table class="ap-table">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Type</th>
+            <th>Contact</th>
+            <th>Agence</th>
+            <th style="text-align:center;">Biens</th>
+            <th style="text-align:center;">Mandats</th>
+            <th style="text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($proprietaires as $p):
+            $isArchived = (int)$p['actif'] === 0;
+            $fullName   = (string)$p['label'];
+            $isMorale   = $p['type_tiers'] === 'personne_morale';
+            $ficheUrl   = 'agency_proprietaire_fiche.php?id=' . (int)($p['id_proprio_legacy'] ?? 0);
+          ?>
+          <tr class="<?= $isArchived ? 'is-archived' : '' ?>" data-id-tiers="<?= (int)$p['id_tiers'] ?>">
+            <td>
+              <?php if ($p['id_proprio_legacy']): ?>
+                <a href="<?= e($ficheUrl) ?>" class="ap-link"><?= e($fullName) ?></a>
+              <?php else: ?>
+                <span><?= e($fullName) ?></span>
+              <?php endif; ?>
+              <?php if ($p['civilite']): ?><span style="color:var(--muted);font-size:11px;"> · <?= e($p['civilite']) ?></span><?php endif; ?>
+              <?php if ($isArchived): ?><span class="ap-badge ap-badge-archived">📦 archivé</span><?php endif; ?>
+            </td>
+            <td>
+              <span class="ap-badge ap-badge-<?= $isMorale ? 'morale' : 'physique' ?>">
+                <?= $isMorale ? '🏢 Société' : '👤 Particulier' ?>
+              </span>
+            </td>
+            <td style="font-size:12px;">
+              <?php if ($p['email']): ?><div><?= e($p['email']) ?></div><?php endif; ?>
+              <?php if ($p['telephone']): ?><div style="color:var(--muted);"><?= e($p['telephone']) ?></div><?php endif; ?>
+              <?php if (!$p['email'] && !$p['telephone']): ?>—<?php endif; ?>
+            </td>
+            <td style="font-size:12px;"><?= $p['agence_nom'] ? e($p['agence_nom']) : '<span style="color:var(--muted);">—</span>' ?></td>
+            <td style="text-align:center;">
+              <span class="ap-count <?= (int)$p['nb_biens'] > 0 ? 'ap-count-biens' : 'ap-count-zero' ?>"><?= (int)$p['nb_biens'] ?></span>
+            </td>
+            <td style="text-align:center;">
+              <span class="ap-count <?= (int)$p['nb_mandats'] > 0 ? 'ap-count-mandats' : 'ap-count-zero' ?>"><?= (int)$p['nb_mandats'] ?></span>
+            </td>
+            <td>
+              <div class="ap-actions">
+                <?php if ($p['id_proprio_legacy']): ?>
+                  <a class="ap-action-btn" href="<?= e($ficheUrl) ?>" title="Voir la fiche">👁️</a>
+                <?php endif; ?>
+                <?php if ($isArchived): ?>
+                  <button type="button" class="ap-action-btn" data-action="restore" title="Restaurer">♻️</button>
+                <?php else: ?>
+                  <button type="button" class="ap-action-btn" data-action="archive" title="Archiver">📦</button>
+                <?php endif; ?>
+                <?php if ($isAdmin): ?>
+                  <button type="button" class="ap-action-btn danger" data-action="delete" title="Supprimer définitivement (admin)">🗑️</button>
+                <?php endif; ?>
+              </div>
+            </td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
 
-  <?php if ($totalPages > 1): ?>
-  <div class="ap-pagination">
-    <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-      <?php if ($i === $page): ?>
-        <span class="current"><?= $i ?></span>
-      <?php else: ?>
-        <a href="?page=<?= $i ?>&q=<?= urlencode($filterSearch) ?>&type=<?= urlencode($filterType) ?>"><?= $i ?></a>
+      <?php if ($totalPages > 1): ?>
+      <div class="bl-pagination">
+        <?php
+          $base = array_filter([
+            'q'       => $filterSearch,
+            'type'    => $filterType,
+            'statut'  => $filterStatut !== 'actif' ? $filterStatut : '',
+            'societe' => $scopeSoc > 0 && $isAdmin ? $scopeSoc : '',
+            'agence'  => $scopeAg  > 0 ? $scopeAg  : '',
+          ], fn($v) => $v !== '');
+          for ($i = 1; $i <= $totalPages; $i++):
+            $qs = http_build_query($base + ['page' => $i]);
+        ?>
+          <?php if ($i === $page): ?>
+            <span class="bl-page-btn current"><?= $i ?></span>
+          <?php else: ?>
+            <a href="?<?= e($qs) ?>" class="bl-page-btn"><?= $i ?></a>
+          <?php endif; ?>
+        <?php endfor; ?>
+      </div>
       <?php endif; ?>
-    <?php endfor; ?>
+    <?php endif; ?>
   </div>
-  <?php endif; ?>
-
-  <?php endif; ?>
-
-</div>
 </div>
 
 <!-- MODAL NOUVEAU PROPRIÉTAIRE -->
 <div class="ap-modal-overlay" id="modal-new-proprio" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="ap-modal">
-    <h3>Nouveau propriétaire</h3>
+    <h3>➕ Nouveau propriétaire</h3>
     <form id="form-new-proprio">
       <div class="ap-modal-grid">
         <div class="ap-modal-field">
           <label>Type</label>
           <select name="type_personne" id="np-type">
-            <option value="physique">Physique</option>
-            <option value="morale">Morale</option>
+            <option value="physique">👤 Particulier</option>
+            <option value="morale">🏢 Société</option>
           </select>
         </div>
         <div class="ap-modal-field">
           <label>Civilité</label>
-          <select name="civilite"><option value="">—</option><option value="M.">M.</option><option value="Mme">Mme</option></select>
+          <select name="civilite">
+            <option value="">—</option><option value="M.">M.</option><option value="Mme">Mme</option>
+          </select>
         </div>
         <div class="ap-modal-field">
           <label>Nom *</label>
@@ -250,46 +387,35 @@ include __DIR__ . '/inc/sidebar_agency.php';
           <input type="tel" name="telephone">
         </div>
         <div class="ap-modal-field">
-          <label>Adresse</label>
-          <input type="text" name="adresse_1">
-        </div>
-        <div class="ap-modal-field">
           <label>Code postal</label>
           <input type="text" name="code_postal">
         </div>
-        <div class="ap-modal-field">
+        <div class="ap-modal-field" style="grid-column: 1 / -1;">
+          <label>Adresse</label>
+          <input type="text" name="adresse_1">
+        </div>
+        <div class="ap-modal-field" style="grid-column: 1 / -1;">
           <label>Ville</label>
           <input type="text" name="ville">
         </div>
       </div>
       <div id="np-doublon" style="display:none;margin:12px 0;padding:10px 14px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-        <button type="button" class="ap-btn ap-btn-ghost" onclick="document.getElementById('modal-new-proprio').classList.remove('open')">Annuler</button>
-        <button type="submit" class="ap-btn ap-btn-primary" id="np-submit">Créer</button>
+        <button type="button" class="bl-btn bl-btn-ghost" onclick="document.getElementById('modal-new-proprio').classList.remove('open')">Annuler</button>
+        <button type="submit" class="bl-btn bl-btn-primary" id="np-submit">Créer</button>
       </div>
     </form>
   </div>
 </div>
 
-<style>
-.ap-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:9999; align-items:center; justify-content:center; }
-.ap-modal-overlay.open { display:flex; }
-.ap-modal { background:var(--card-bg,#fff); border-radius:14px; padding:24px; max-width:560px; width:90%; box-shadow:0 12px 40px rgba(0,0,0,.15); }
-.ap-modal h3 { margin:0 0 16px; font-size:1.1rem; }
-.ap-modal-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.ap-modal-field { display:flex; flex-direction:column; gap:3px; }
-.ap-modal-field label { font-size:11px; font-weight:600; text-transform:uppercase; color:var(--ink-muted,#888); }
-.ap-modal-field input, .ap-modal-field select { padding:7px 10px; border:1px solid var(--stroke,#ddd); border-radius:8px; font-size:13px; }
-</style>
-
 <script>
+// ── Modal création propriétaire (inchangé du flow existant) ──
 document.getElementById('form-new-proprio').addEventListener('submit', async function(e) {
   e.preventDefault();
   const form = this;
   const btn = document.getElementById('np-submit');
   const doublonEl = document.getElementById('np-doublon');
-  btn.disabled = true;
-  btn.textContent = 'Création…';
+  btn.disabled = true; btn.textContent = 'Création…';
   doublonEl.style.display = 'none';
 
   const data = {};
@@ -307,7 +433,7 @@ document.getElementById('form-new-proprio').addEventListener('submit', async fun
       doublonEl.textContent = r.error || 'Erreur';
       doublonEl.style.display = 'block';
     } else if (r.existant) {
-      doublonEl.innerHTML = '⚠️ Un propriétaire similaire existe déjà : <strong>' + r.nom + '</strong> (ID #' + r.id + '). <a href="agency_proprietaire_fiche.php?id=' + r.id + '" style="color:#1e40af;">Voir la fiche</a>';
+      doublonEl.innerHTML = '⚠️ Un propriétaire similaire existe déjà : <strong>' + r.nom + '</strong>. <a href="agency_proprietaire_fiche.php?id=' + r.id + '">Voir la fiche</a>';
       doublonEl.style.display = 'block';
     } else {
       window.location.href = 'agency_proprietaire_fiche.php?id=' + r.id;
@@ -316,9 +442,57 @@ document.getElementById('form-new-proprio').addEventListener('submit', async fun
     doublonEl.textContent = 'Erreur réseau : ' + err.message;
     doublonEl.style.display = 'block';
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Créer';
+    btn.disabled = false; btn.textContent = 'Créer';
   }
+});
+
+// Ouverture auto modal via ?new=1
+if (new URLSearchParams(window.location.search).get('new') === '1') {
+  document.getElementById('modal-new-proprio').classList.add('open');
+}
+
+// ── Actions archiver / restaurer / supprimer ──
+document.querySelectorAll('.ap-action-btn[data-action]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const action = btn.dataset.action;
+    const row = btn.closest('tr');
+    const idTiers = parseInt(row?.dataset.idTiers, 10) || 0;
+    if (!idTiers) return;
+
+    if (action === 'delete') {
+      if (!confirm('⚠️ SUPPRESSION DÉFINITIVE\n\nCette action retirera le propriétaire de la base de données. Impossible si des biens / mandats y sont liés.\n\nConfirmer ?')) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const r = await fetch('api/tiers_delete.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id_tiers: idTiers, confirm: 'DELETE' }),
+        });
+        const j = await r.json();
+        if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; btn.textContent = '🗑️'; return; }
+        row.style.transition = 'opacity .3s'; row.style.opacity = '0';
+        setTimeout(() => row.remove(), 300);
+      } catch (e) { alert('❌ ' + e.message); btn.disabled = false; btn.textContent = '🗑️'; }
+      return;
+    }
+
+    // archive / restore
+    const label = action === 'archive' ? 'Archiver ce propriétaire ?' : 'Restaurer ce propriétaire ?';
+    if (!confirm(label)) return;
+    btn.disabled = true; btn.textContent = '⏳';
+    try {
+      const r = await fetch('api/tiers_archive.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ id_tiers: idTiers, action }),
+      });
+      const j = await r.json();
+      if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; return; }
+      window.location.reload();
+    } catch (e) { alert('❌ ' + e.message); btn.disabled = false; }
+  });
 });
 </script>
 

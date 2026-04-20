@@ -156,6 +156,9 @@ try {
         $cat  = $res['categorie']   ?? null;
         $desc = $res['description'] ?? null;
 
+        // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI
+        $pdo = db_reconnect_fresh();
+
         if ($iaColsOk) {
             try {
                 $pdo->prepare("

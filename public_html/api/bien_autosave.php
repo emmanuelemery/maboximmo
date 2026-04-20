@@ -68,6 +68,10 @@ $data = [
     'exposition'              => $str('exposition'),
     'vue'                     => $str('vue'),
     'nuisances'               => $str('nuisances'),
+    'quartier'                => $str('quartier'),
+    'ambiance'                => $str('ambiance'),
+    'argument_phare'          => $str('argument_phare'),
+    'points_interet'          => $str('points_interet'),
     'acces_transports'        => $str('acces_transports') ?: null,
     'distance_commerces'      => $str('distance_commerces') ?: null,
     'altitude'                => $int('altitude'),
@@ -134,6 +138,14 @@ $data = [
     'eau_chaude_type'         => $str('eau_chaude_type'),
     'menuiseries'             => $str('menuiseries'),
     'isolation'               => $str('isolation'),
+    // VMC / plancher / régulation / solaire — absents du mapping initial
+    // (écrits via Card 3 de bien_detail_v2)
+    'chauffage_vmc'           => $bool('chauffage_vmc'),
+    'chauffage_vmc_df'        => $bool('chauffage_vmc_df'),
+    'chauffage_plancher'      => $bool('chauffage_plancher'),
+    'chauffage_thermostat'    => $bool('chauffage_thermostat'),
+    'chauffage_regulateur'    => $bool('chauffage_regulateur'),
+    'eau_chaude_solaire'      => $bool('eau_chaude_solaire'),
 
     // ── DPE / GES ──
     'dpe_classe'              => $str('dpe_classe'),
@@ -378,6 +390,91 @@ if ($adresse1 !== '') {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Protection : ne JAMAIS écraser statut_bien avec une valeur vide.
+// Cause d'un bug historique : Express n'a pas d'input statut_bien, donc
+// un autosave depuis Express envoyait '' et écrasait le 'brouillon' initial.
+// Résultat : biens fantômes invisibles du modal purge cascade (filtre par
+// liste de statuts valides).
+// ══════════════════════════════════════════════════════════════
+if (isset($data['statut_bien']) && trim((string)$data['statut_bien']) === '') {
+    unset($data['statut_bien']);
+}
+
+// ══════════════════════════════════════════════════════════════
+// Protection GENERALE pour les champs "sensibles" qui peuvent être
+// absents du form courant (Express stocke les chips env dans state.env JS
+// sans input form) OU vides sur un form simplifié (Express input text DPE
+// vide quand l'user n'a pas saisi). Sans cette protection, l'autosave
+// écrase les valeurs persistées par finalize avec '' / NULL.
+//
+// 2 catégories protégées :
+//   - ENV : exposition, vue, ambiance, nuisances, acces/distance, quartier,
+//           points_interet, argument_phare, reprise_descriptif, accroche_commerciale
+//   - DPE/CHAUFFAGE : dpe_classe, ges_classe, dpe_valeur, ges_valeur,
+//           dpe_date_realisation, chauffage_type, chauffage_energie, eau_chaude_type
+//
+// Règle : si la clé est absente de $_POST OU si sa valeur POST est vide,
+// on retire la clé de $data → l'UPDATE conserve la valeur BDD existante.
+// ══════════════════════════════════════════════════════════════
+$protectedFields = [
+    // Environnement (chips JS, pas d'input direct dans Express)
+    'exposition', 'vue', 'ambiance', 'nuisances',
+    'acces_transports', 'distance_commerces',
+    'quartier', 'points_interet', 'argument_phare',
+    'reprise_descriptif', 'accroche_commerciale',
+    // DPE / chauffage (inputs présents mais souvent vides en Express)
+    'dpe_classe', 'ges_classe', 'dpe_valeur', 'ges_valeur',
+    'dpe_date_realisation',
+    // Champs DPE avancés remontés par l'import diag IA (ne doivent JAMAIS
+    // être écrasés par un autosave avec valeur vide — cela supprimait les
+    // valeurs extraites du PDF)
+    'dpe_version', 'dpe_vierge', 'dpe_reference_certificat',
+    'dpe_valeur_conso_primaire', 'dpe_valeur_conso_finale',
+    'montant_estime_depenses_min', 'montant_estime_depenses_max',
+    'annee_reference_depenses',
+    'date_indice_prix_energies',
+    'altitude',
+    // Chauffage / isolation
+    'chauffage_type', 'chauffage_energie', 'eau_chaude_type',
+    'double_vitrage', 'volets_roulants', 'menuiseries',
+    // Diagnostiqueur (info complémentaire du DPE)
+    'diagnostiqueur_nom', 'diagnostiqueur_societe',
+    // Surfaces détectées par le DPE
+    'surface_sejour', 'surface_carrez',
+    // ── Caractéristiques principales (bien_detail_v2 icon-radios) ──
+    // CRITIQUE : l'autosave v2 envoie UN champ à la fois, donc les autres
+    // doivent être protégés sinon ils sont écrasés à '' à chaque clic.
+    'id_type_bien', 'sous_type_bien', 'usage_bien',
+    'etat_bien', 'standing', 'statut_bien', 'type_commercialisation',
+    // ── Adresse (idem : autosave v2 sur chaque input indépendamment) ──
+    'adresse_1', 'adresse_2', 'code_postal', 'ville',
+    // ── Pièces / Surfaces / Équipements / Dépendances (bien_detail_v2 Card 2) ──
+    'nb_pieces', 'nb_chambres', 'nb_salles_bain', 'nb_salles_eau', 'nb_wc',
+    'nb_niveaux', 'parking_nb',
+    'surface_habitable', 'surface_totale', 'surface_terrain',
+    'surface_balcon', 'surface_terrasse', 'surface_jardin', 'surface_cave',
+    'surface_garage', 'surface_box', 'surface_veranda', 'surface_annexe',
+    'hauteur_plafond', 'annee_construction',
+    'balcon', 'terrasse', 'jardin', 'cour', 'cave', 'grenier',
+    'garage', 'box', 'piscine', 'dependances', 'acces_camion', 'vitrine',
+    'cuisine_type', 'cuisine_equipee', 'ascenseur', 'interphone',
+    'digicode', 'alarme', 'fibre', 'cheminee',
+    // Environnement Card 4 v2
+    'dernier_etage', 'numero_porte', 'adresse_visible_public', 'etage',
+    // Card 3 v2 : chauffage / énergie / VMC / isolation
+    'chauffage_plancher', 'chauffage_thermostat', 'chauffage_regulateur',
+    'chauffage_vmc', 'chauffage_vmc_df', 'climatisation',
+    'eau_chaude_solaire', 'isolation',
+];
+foreach ($protectedFields as $f) {
+    $raw = $_POST[$f] ?? null;
+    $isEmpty = ($raw === null) || (is_string($raw) && trim($raw) === '');
+    if ($isEmpty) {
+        unset($data[$f]);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Build & execute UPDATE biens
 // ══════════════════════════════════════════════════════════════
 $sets = [];
@@ -392,6 +489,24 @@ $params[':_id'] = $bienId;
 try {
     $pdo->prepare("UPDATE biens SET " . implode(', ', $sets) . ", date_modification = NOW() WHERE id = :_id")
         ->execute($params);
+
+    // ── Propagation designation → annonces.accroche_commerciale si vide ──
+    // Permet de remplir automatiquement l'accroche de la derniere annonce
+    // du bien quand l'utilisateur saisit la designation commerciale et que
+    // l'accroche n'a pas encore ete generee par l'IA.
+    if (isset($data['designation']) && !empty($data['designation'])) {
+        try {
+            $desVal = (string)$data['designation'];
+            $pdo->prepare("
+                UPDATE annonces
+                SET accroche_commerciale = ?, date_modification = NOW()
+                WHERE id_bien = ?
+                  AND (accroche_commerciale IS NULL OR accroche_commerciale = '')
+            ")->execute([mb_substr($desVal, 0, 255), $bienId]);
+        } catch (Throwable $e) {
+            error_log('[bien_autosave propagate designation] ' . $e->getMessage());
+        }
+    }
 
     // ══════════════════════════════════════════════════════════════
     // Update annonces table (honoraires, mandats, locataire précédent, taxes…)
@@ -477,9 +592,17 @@ try {
         }
     }
 
+    // Auto-activation brouillon -> actif dès qu'adresse + propriétaire renseignés
+    $autoActivated = false;
+    if ($bienId > 0) {
+        require_once dirname(__DIR__) . '/inc/bien_auto_activate.php';
+        $autoActivated = bien_maybe_activate($pdo, $bienId);
+    }
+
     echo json_encode([
-        'ok'       => true,
-        'saved_at' => date('H:i'),
+        'ok'             => true,
+        'saved_at'       => date('H:i'),
+        'auto_activated' => $autoActivated,
     ]);
 } catch (Throwable $e) {
     error_log('[bien_autosave] ' . $e->getMessage());

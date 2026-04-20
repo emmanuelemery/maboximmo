@@ -159,6 +159,30 @@ function bien_form_populate_post(array $loaded): void
     if (empty($_POST['annonce_loyer']) && !empty($loaded['loyer_hc'])) {
         $_POST['annonce_loyer'] = (string)$loaded['loyer_hc'];
     }
+
+    // ─────────────────────────────────────────────────────────
+    // Conversion biens.vue (CSV de codes) → vue_ids[] pour pré-cocher
+    // les chips du widget bien_detail. Le stockage unifié est CSV de
+    // codes (ex : 'degagee,eau'), les IDs dépendent de la société.
+    // ─────────────────────────────────────────────────────────
+    if (empty($_POST['vue_ids']) && !empty($loaded['vue']) && !empty($loaded['id_societe'])) {
+        try {
+            $codes = array_values(array_filter(array_map('trim', explode(',', (string)$loaded['vue']))));
+            if (!empty($codes)) {
+                /** @var PDO $pdo */
+                $pdo = $GLOBALS['pdo'] ?? null;
+                if ($pdo instanceof PDO) {
+                    $ph = implode(',', array_fill(0, count($codes), '?'));
+                    $st = $pdo->prepare("SELECT id FROM societe_vues WHERE id_societe = ? AND code IN ($ph) AND actif = 1");
+                    $st->execute(array_merge([(int)$loaded['id_societe']], $codes));
+                    $ids = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+                    if (!empty($ids)) {
+                        $_POST['vue_ids'] = $ids;
+                    }
+                }
+            }
+        } catch (Throwable) {}
+    }
 }
 
 /**
@@ -191,10 +215,10 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
     // Annonce minimale par défaut (type_transaction = 'location' par défaut, modifiable)
     try {
         $pdo->prepare("
-            INSERT INTO annonces (id_bien, type_transaction, statut, date_creation, date_modification)
-            VALUES (?, 'location', 'brouillon', NOW(), NOW())
-        ")->execute([$bienId]);
-    } catch (Throwable) {}
+            INSERT INTO annonces (id_bien, id_societe, type_transaction, etat_publication, date_creation, date_modification)
+            VALUES (?, ?, 'location', 'brouillon', NOW(), NOW())
+        ")->execute([$bienId, $idSociete]);
+    } catch (Throwable $e) { error_log('[create_draft annonce] ' . $e->getMessage()); }
 
     // Photo par défaut (placeholder) si elle existe sur disque
     try {

@@ -1,0 +1,289 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * Document Uploader — styles
+ * ═══════════════════════════════════════════════════════════════════════
+ * Composant onglets + dropzone + tableau validation IA.
+ * Cohérent avec la charte V2 (couleurs, espacements, radius).
+ */
+
+.doc-uploader {
+  font-family: inherit;
+  color: #0f172a;
+}
+
+/* ── Onglets par type ────────────────────────────────────── */
+.doc-uploader-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 4px;
+}
+.doc-uploader-tab {
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.doc-uploader-tab:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+.doc-uploader-tab.active {
+  background: #fff;
+  color: #0369a1;
+  border-color: #e5e7eb;
+  border-bottom: 2px solid #fff;
+  margin-bottom: -2px;
+  font-weight: 700;
+  box-shadow: 0 -2px 0 0 #0ea5e9 inset;
+}
+
+.doc-uploader-hint {
+  font-size: 11px;
+  color: #64748b;
+  padding: 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.doc-uploader-hint .icon {
+  color: #0ea5e9;
+}
+
+/* ── Dropzone ─────────────────────────────────────────────── */
+.doc-uploader-dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 30px 20px;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  position: relative;
+}
+.doc-uploader-dropzone:hover {
+  background: #f0f9ff;
+  border-color: #0ea5e9;
+}
+.doc-uploader-dropzone.dragging {
+  background: #dbeafe;
+  border-color: #0284c7;
+  border-style: solid;
+}
+.doc-uploader-dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.doc-uploader-dropzone .dz-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+.doc-uploader-dropzone .dz-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0369a1;
+  margin-bottom: 4px;
+}
+.doc-uploader-dropzone .dz-subtitle {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* ── Status + résultats ───────────────────────────────────── */
+.doc-uploader-status {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  display: none;
+  line-height: 1.5;
+}
+.doc-uploader-status.loading {
+  background: #f0f9ff;
+  color: #0369a1;
+  border-left: 4px solid #0ea5e9;
+}
+.doc-uploader-status.success {
+  background: #f0fdf4;
+  color: #14532d;
+  border-left: 4px solid #16a34a;
+}
+.doc-uploader-status.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border-left: 4px solid #dc2626;
+}
+
+.doc-uploader-results {
+  margin-top: 10px;
+}
+.doc-uploader-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+.doc-uploader-badge.ocr {
+  background: #fef3c7;
+  color: #92400e;
+}
+.doc-uploader-badge.text-ia {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.doc-uploader-badge.regex {
+  background: #d1fae5;
+  color: #065f46;
+}
+.doc-uploader-pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #0ea5e9;
+  color: #fff;
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 700;
+}
+.doc-uploader-pdf-link:hover {
+  background: #0284c7;
+}
+
+/* ── Tableau validation IA ────────────────────────────────── */
+.doc-uploader-table {
+  margin-top: 10px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.doc-uploader-table-head {
+  padding: 8px 12px;
+  background: #f8fafc;
+  font-weight: 700;
+  font-size: 12px;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #e5e7eb;
+}
+.doc-uploader-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.doc-uploader-table th {
+  padding: 6px 10px;
+  text-align: left;
+  background: #f8fafc;
+  font-weight: 700;
+  color: #334155;
+  border-bottom: 1px solid #e5e7eb;
+}
+.doc-uploader-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.doc-uploader-table tr:last-child td {
+  border-bottom: none;
+}
+.doc-uploader-table .col-marker {
+  width: 28px;
+  text-align: center;
+}
+.doc-uploader-table .col-champ {
+  color: #475569;
+  font-weight: 600;
+}
+.doc-uploader-table .col-current {
+  color: #94a3b8;
+}
+.doc-uploader-table .col-current.changed {
+  text-decoration: line-through;
+}
+.doc-uploader-table .col-extracted {
+  font-weight: 700;
+}
+.doc-uploader-table .col-extracted.changed {
+  color: #0369a1;
+}
+.doc-uploader-table .col-extracted.missing {
+  color: #dc2626;
+}
+.doc-uploader-table .row-missing {
+  background: #fff1f2;
+}
+
+.doc-uploader-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.doc-uploader-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid transparent;
+  transition: background .15s;
+}
+.doc-uploader-btn.btn-cancel {
+  background: #fff;
+  color: #475569;
+  border-color: #cbd5e1;
+  font-weight: 600;
+}
+.doc-uploader-btn.btn-cancel:hover {
+  background: #f8fafc;
+}
+.doc-uploader-btn.btn-primary {
+  background: #0ea5e9;
+  color: #fff;
+}
+.doc-uploader-btn.btn-primary:hover {
+  background: #0284c7;
+}
+
+/* ── Bloc bailleur existant (auto-search) ─────────────────── */
+.doc-uploader-bailleur-auto {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #1e40af;
+}
+.doc-uploader-bailleur-auto.success {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #065f46;
+}
+.doc-uploader-bailleur-auto.muted {
+  background: #f8fafc;
+  border-color: #e5e7eb;
+  color: #64748b;
+}

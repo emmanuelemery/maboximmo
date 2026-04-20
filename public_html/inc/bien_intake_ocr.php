@@ -117,9 +117,12 @@ class BienIntakeOCR
      * Reprend la même structure JSON que analyseBienIntakeIA() pour la cohérence.
      *
      * @param string[] $imagePaths Liste de chemins vers les JPEG
+     * @param array       $imagePaths  Chemins des images JPEG à analyser
+     * @param string|null $forceType   Type explicite (diag|bail|mandat|titre|fiche|divers)
+     *                                 — ajouté au prompt pour guider l'extraction
      * @return array {ok, fields, doc_type, doc_titre, resume, error}
      */
-    public static function analyseImagesIA(array $imagePaths): array
+    public static function analyseImagesIA(array $imagePaths, ?string $forceType = null): array
     {
         $api_key = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
         if (!$api_key) {
@@ -133,9 +136,26 @@ class BienIntakeOCR
         $system_prompt = "Tu es un assistant expert en immobilier français qui sait LIRE les documents scannés "
             . "(images) et en extraire les données structurées. Tu réponds UNIQUEMENT avec du JSON valide.";
 
+        // Indication du type forcé (l'utilisateur a choisi explicitement via l'UI onglets)
+        $typeHint = '';
+        if ($forceType !== null && $forceType !== '') {
+            $typeLabels = [
+                'diag'   => 'DIAGNOSTIC (DPE / plomb / amiante / électricité / gaz / termites / ERP / mesurage)',
+                'bail'   => 'BAIL (habitation / commercial / professionnel / civil / terrain)',
+                'mandat' => 'MANDAT (vente / gestion / location / recherche)',
+                'titre'  => 'ACTE DE PROPRIÉTÉ / NOTIFICATION DE MUTATION',
+                'fiche'  => 'FICHE COMMERCIALE (Hektor / Périclès / Apimo / Poliris / Netty / ICI)',
+                'divers' => 'DOCUMENT DIVERS (type non catégorisé)',
+            ];
+            $label = $typeLabels[$forceType] ?? strtoupper($forceType);
+            $typeHint = "\n\n⚠️ L'UTILISATEUR A INDIQUÉ QUE CE DOCUMENT EST DE TYPE : {$label}.\n"
+                . "Optimise ton extraction pour ce type de document. Concentre-toi sur les champs "
+                . "pertinents pour ce type et remplis doc_type = \"{$forceType}\" (ou un sous-type).\n";
+        }
+
         $user_text = <<<PROMPT
 Tu vas recevoir une ou plusieurs images correspondant aux pages d'un document immobilier français scanné
-(DPE, mandat, dossier de diagnostics, fiche commerciale, mesurage Loi Boutin, état des risques, attestation, etc.).
+(DPE, mandat, dossier de diagnostics, fiche commerciale, mesurage Loi Boutin, état des risques, attestation, etc.).{$typeHint}
 
 LIS attentivement TOUTES les images (OCR), puis extrais TOUTES les données utiles.
 Réponds UNIQUEMENT avec du JSON valide, structure exacte ci-dessous (null si absent) :

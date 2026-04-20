@@ -1,12 +1,14 @@
 <?php
 declare(strict_types=1);
-set_time_limit(60);
+// 120s : l'OCR Vision multi-pages peut prendre 30-60s selon le PDF
+set_time_limit(120);
 
 require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/auth.php';
 require_once dirname(__DIR__) . '/inc/bien_import_parser.php';
 require_once dirname(__DIR__) . '/inc/dpe_import_parser.php';
 require_once dirname(__DIR__) . '/inc/dpe_ia_analyse.php';
+require_once dirname(__DIR__) . '/inc/bien_intake_ocr.php'; // fallback OCR Vision GPT-4o pour PDF scannés
 require_login();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -57,58 +59,105 @@ if (!move_uploaded_file($file['tmp_name'], $destPath)) {
 
 try {
     // ── Extraction texte ─────────────────────────────────────
-    $texteSource  = BienImportParser::extractText($destPath);
-    if (trim($texteSource) === '') {
-        exit(json_encode([
-            'ok' => false,
-            'error' => 'Impossible d\'extraire le texte du PDF (peut-être un PDF scanné — utilisez OCR au préalable)',
-            'fichier' => $publicUrl,
-        ]));
-    }
+    $texteSource = BienImportParser::extractText($destPath);
+    $textLen     = mb_strlen(trim($texteSource));
 
-    // ── Parsing DPE en deux passes ───────────────────────────
-    // 1) Regex rapide (gratuit, instantané)
-    $regexResult = DpeImportParser::parse($texteSource);
-    $fields      = $regexResult['fields'];
-    $score       = $regexResult['score'];
-    $method      = 'regex';
+    // ── Détection PDF scanné ─────────────────────────────────
+    // Si on a moins de 200 caractères extraits, c'est presque certainement
+    // un PDF scanné (image). Bascule directe sur OCR Vision GPT-4o.
+    $isProbablyScanned = ($textLen < 200);
+    $usedOcr           = false;
+    $ocrError          = null;
 
-    // 2) Si regex insuffisant, on appelle GPT-4o pour compléter
-    //    (seuil : score < 80% OU moins de 6 champs détectés)
+    $fields = [];
+    $score  = 0;
+    $method = 'regex';
     $iaError = null;
-    $needsAI = ($score < 80 || count($fields) < 6);
-    if ($needsAI) {
-        $iaResult = analyseDpeIA($texteSource);
-        if ($iaResult['ok'] && !empty($iaResult['fields'])) {
-            foreach ($iaResult['fields'] as $k => $v) {
-                if (!isset($fields[$k]) || $fields[$k] === null || $fields[$k] === '') {
-                    $fields[$k] = $v;
-                }
+
+    if ($isProbablyScanned) {
+        // ═══ PATH A : OCR Vision (pdftoppm → images JPEG → GPT-4o Vision) ═══
+        // Pattern identique à api/bien_intake_upload.php (module partagé BienIntakeOCR)
+        try {
+            $tmpOcrDir = dirname(__DIR__) . '/uploads/_ocr_tmp/dpe_' . ($bienId > 0 ? $bienId . '_' : '') . time();
+            $images = BienIntakeOCR::pdfToImages($destPath, $tmpOcrDir, 8);
+            if (empty($images)) {
+                throw new RuntimeException('Aucune image générée par pdftoppm (Poppler manquant ?)');
             }
-            // Score recalculé via le validateur étendu (poids cohérent)
-            $allKeys = [
-                'type_bien'=>4,'adresse_1'=>3,'code_postal'=>3,'ville'=>3,
-                'annee_construction'=>3,'etage'=>1,
-                'surface_habitable'=>4,'nb_pieces'=>3,'nb_chambres'=>3,
-                'nb_wc'=>2,'nb_salles_bain'=>2,'surface_sejour'=>1,
-                'dpe_classe'=>4,'ges_classe'=>4,'dpe_valeur'=>3,'ges_valeur'=>3,
-                'dpe_date_realisation'=>3,'dpe_reference_certificat'=>2,'dpe_vierge'=>4,
-                'chauffage_energie'=>1,'eau_chaude_type'=>1,'menuiseries'=>1,
-                'double_vitrage'=>1,'volets_roulants'=>1,
-                'montant_estime_depenses_min'=>1,'montant_estime_depenses_max'=>1,
-                'zone_georisque'=>1,
-            ];
-            $totalW = array_sum($allKeys); $reachedW = 0;
-            foreach ($allKeys as $k => $w) if (!empty($fields[$k])) $reachedW += $w;
-            $score = $totalW > 0 ? min(100, (int) round(($reachedW / $totalW) * 100)) : 0;
-            $method = 'regex+ia';
-        } else {
-            $iaError = $iaResult['error'] ?? 'Erreur IA inconnue';
-            error_log('[dpe_import] IA fallback failed: ' . $iaError);
+            $ocrResult = BienIntakeOCR::analyseImagesIA($images);
+            BienIntakeOCR::cleanupTmpDir($tmpOcrDir);
+
+            if (!$ocrResult['ok']) {
+                throw new RuntimeException('OCR Vision : ' . ($ocrResult['error'] ?? 'inconnue'));
+            }
+
+            $fields    = $ocrResult['fields'] ?? [];
+            $usedOcr   = true;
+            $method    = 'ocr_vision';
+            // Score conservateur : 85 si OCR a trouvé des champs, 30 sinon
+            $score     = count($fields) >= 3 ? 85 : 30;
+        } catch (Throwable $ocrEx) {
+            $ocrError = $ocrEx->getMessage();
+            error_log('[dpe_import] OCR Vision failed: ' . $ocrError);
+            // Si l'OCR échoue, on renvoie une erreur explicite (pas de texte, pas d'OCR → impossible)
+            exit(json_encode([
+                'ok'      => false,
+                'error'   => 'PDF scanné non analysable : ' . $ocrError,
+                'fichier' => $publicUrl,
+                'nom'     => $file['name'],
+                'used_ocr'=> true,
+                'method'  => 'ocr_vision_failed',
+            ], JSON_UNESCAPED_UNICODE));
         }
-    }
+    } else {
+        // ═══ PATH B : extraction texte native + regex + IA fallback ═══
+        $regexResult = DpeImportParser::parse($texteSource);
+        $fields      = $regexResult['fields'];
+        $score       = $regexResult['score'];
+        $method      = 'regex';
+
+        // 2) Si regex insuffisant, on appelle GPT-4o pour compléter
+        //    (seuil : score < 80% OU moins de 6 champs détectés)
+        $needsAI = ($score < 80 || count($fields) < 6);
+        if ($needsAI) {
+            $iaResult = analyseDpeIA($texteSource);
+            if ($iaResult['ok'] && !empty($iaResult['fields'])) {
+                foreach ($iaResult['fields'] as $k => $v) {
+                    if (!isset($fields[$k]) || $fields[$k] === null || $fields[$k] === '') {
+                        $fields[$k] = $v;
+                    }
+                }
+                // Score recalculé via le validateur étendu (poids cohérent)
+                $allKeys = [
+                    'type_bien'=>4,'adresse_1'=>3,'code_postal'=>3,'ville'=>3,
+                    'annee_construction'=>3,'etage'=>1,
+                    'surface_habitable'=>4,'nb_pieces'=>3,'nb_chambres'=>3,
+                    'nb_wc'=>2,'nb_salles_bain'=>2,'surface_sejour'=>1,
+                    'dpe_classe'=>4,'ges_classe'=>4,'dpe_valeur'=>3,'ges_valeur'=>3,
+                    'dpe_date_realisation'=>3,'dpe_reference_certificat'=>2,'dpe_vierge'=>4,
+                    'chauffage_energie'=>1,'eau_chaude_type'=>1,'menuiseries'=>1,
+                    'double_vitrage'=>1,'volets_roulants'=>1,
+                    'montant_estime_depenses_min'=>1,'montant_estime_depenses_max'=>1,
+                    'zone_georisque'=>1,
+                ];
+                $totalW = array_sum($allKeys); $reachedW = 0;
+                foreach ($allKeys as $k => $w) if (!empty($fields[$k])) $reachedW += $w;
+                $score = $totalW > 0 ? min(100, (int) round(($reachedW / $totalW) * 100)) : 0;
+                $method = 'regex+ia';
+            } else {
+                $iaError = $iaResult['error'] ?? 'Erreur IA inconnue';
+                error_log('[dpe_import] IA fallback failed: ' . $iaError);
+            }
+        }
+    } // fin else (PATH B)
 
     // ── Enregistrement complet en dpe_diags (table dédiée) ───────
+    // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI
+    // (wait_timeout court sur Hostinger → "MySQL server has gone away")
+    // Après l'OCR/IA qui peut durer 30-120s, on force un reconnect PDO frais
+    // avant les INSERT critiques. Un simple SELECT 1 (db_keepalive) peut passer
+    // puis le vrai INSERT tomber sur une connexion morte entre les deux.
+    $pdo = db_reconnect_fresh();
+
     $diagId = 0;
     if ($bienId > 0) {
         try {
@@ -226,6 +275,37 @@ try {
             ]);
             $diagId = (int)$pdo->lastInsertId();
 
+            // ── Sync bien_chauffages / bien_energies (tables de jointure pour chips) ──
+            try {
+                $stSoc = $pdo->prepare("SELECT id_societe FROM biens WHERE id = ?");
+                $stSoc->execute([$bienId]);
+                $idSocieteBien = (int)($stSoc->fetchColumn() ?: 0);
+                if ($idSocieteBien > 0) {
+                    $chCode = (string)($fields['chauffage_type'] ?? '');
+                    if ($chCode !== '') {
+                        $st = $pdo->prepare("SELECT id FROM societe_types_chauffage WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                        $st->execute([$idSocieteBien, $chCode]);
+                        $chId = (int)($st->fetchColumn() ?: 0);
+                        if ($chId > 0) {
+                            $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?, ?)")
+                                ->execute([$bienId, $chId]);
+                        }
+                    }
+                    $enCode = (string)($fields['chauffage_energie'] ?? '');
+                    if ($enCode !== '') {
+                        $st = $pdo->prepare("SELECT id FROM societe_energies WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                        $st->execute([$idSocieteBien, $enCode]);
+                        $enId = (int)($st->fetchColumn() ?: 0);
+                        if ($enId > 0) {
+                            $pdo->prepare("INSERT IGNORE INTO bien_energies (id_bien, id_societe_energie) VALUES (?, ?)")
+                                ->execute([$bienId, $enId]);
+                        }
+                    }
+                }
+            } catch (Throwable $exSync) {
+                error_log('[dpe_import] sync bien_chauffages/energies failed: ' . $exSync->getMessage());
+            }
+
             // ── Sync : on remonte les valeurs critiques sur la fiche bien ──
             // Les champs ne sont mis à jour QUE s'ils sont vides (no-overwrite),
             // pour respecter d'éventuelles saisies manuelles antérieures.
@@ -295,6 +375,33 @@ try {
             error_log('[dpe_import] dpe_diags insert failed: ' . $e->getMessage());
             $iaError = ($iaError ? $iaError . ' | ' : '') . 'BDD: ' . $e->getMessage();
         }
+
+        // ── Archivage PDF dans biens_documents (HORS try/catch dpe_diags) ──
+        // CRITIQUE : cet INSERT doit s'exécuter MÊME si dpe_diags échoue (MySQL
+        // gone away, colonne manquante, etc.). Sans lui, le PDF est sur disque
+        // mais invisible dans l'onglet Documents du bien.
+        try {
+            $pdo = db_reconnect_fresh();
+            $uidUp = function_exists('current_user_id') ? (int)current_user_id() : null;
+            $pdo->prepare("
+                INSERT INTO biens_documents
+                    (id_bien, type_document, libelle, url_fichier, nom_original,
+                     mime_type, taille_octets, date_document, id_user_upload,
+                     visible_proprietaire, date_upload)
+                VALUES
+                    (:id_bien, 'dpe', 'DPE', :url, :nom_orig, 'application/pdf',
+                     :taille, :date_doc, :uid, 1, NOW())
+            ")->execute([
+                ':id_bien'  => $bienId,
+                ':url'      => $publicUrl,
+                ':nom_orig' => $file['name'],
+                ':taille'   => (int)$file['size'],
+                ':date_doc' => $fields['dpe_date_realisation'] ?? null,
+                ':uid'      => $uidUp ?: null,
+            ]);
+        } catch (Throwable $exDoc) {
+            error_log('[dpe_import] INSERT biens_documents failed: ' . $exDoc->getMessage());
+        }
     }
 
     // Filtre les champs internes (diag_*) — déjà persistés en BDD,
@@ -310,7 +417,9 @@ try {
         'ok'      => true,
         'fields'  => $fieldsForForm,
         'score'   => $score,
-        'method'  => $method,
+        'method'  => $method,               // 'regex' | 'regex+ia' | 'ocr_vision'
+        'used_ocr'=> $usedOcr,              // true si fallback OCR Vision déclenché
+        'text_length' => $textLen,          // taille texte natif (debug / UX)
         'ia_error' => $iaError,
         'diag_id' => $diagId,
         'fichier' => $publicUrl,

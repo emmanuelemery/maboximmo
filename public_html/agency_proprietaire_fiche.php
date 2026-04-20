@@ -160,73 +160,157 @@ $sidebarType = 'agency';
 include __DIR__ . '/inc/sidebar_agency.php';
 ?>
 
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?= asset_url('/css/tokens.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('/css/liste_layout.css') ?>">
 <style>
-/* ── Topbar ── */
-.bl-topbar { height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 20px; border-bottom: 1px solid var(--stroke, #eee); background: var(--card-bg, #fff); position: sticky; top: 0; z-index: 100; }
-.topbar-nav-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: var(--bg-subtle, #f5f5f5); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--ink-muted, #888); }
-.topbar-nav-btn:hover { color: var(--ink, #333); }
-.topbar-gap { width: 50px; flex-shrink: 0; }
-.topbar-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--ink-muted, #888); }
-.topbar-breadcrumb .active { color: var(--accent, #f7941d); font-weight: 600; }
-.topbar-spacer { flex: 1; }
-.topbar-icon-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--ink-muted, #888); }
-.topbar-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent, #f7941d); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+/* Styles spécifiques fiche propriétaire (tabs, form grid, table, upload) —
+   le reste (topbar, page-head, bl-btn, etc.) est hérité de liste_layout.css. */
 
-.pf-container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+.pf-container { padding: 20px 28px 60px; flex: 1; }
 
-.pf-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
-.pf-head-back { color: var(--ink-muted, #888); text-decoration: none; font-size: 13px; }
-.pf-head-back:hover { color: var(--ink); }
-.pf-head h1 { font-size: 1.4rem; font-weight: 700; margin: 0; }
-.pf-head-type { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
-.pf-head-type-physique { background: #dbeafe; color: #1e40af; }
-.pf-head-type-morale { background: #dcfce7; color: #166534; }
+/* Type badge à côté du titre */
+.pf-head-type {
+  font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600;
+  display: inline-block; letter-spacing: .04em;
+}
+.pf-head-type-physique { background: rgba(54,87,125,.12); color: var(--accent); }
+.pf-head-type-morale   { background: rgba(122,144,96,.15); color: #4d6b3a; }
 
-.pf-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--stroke, #eee); margin-bottom: 20px; }
-.pf-tab { padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--ink-muted, #888); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
+/* Tabs */
+.pf-tabs {
+  display: flex; gap: 4px; border-bottom: 2px solid var(--stroke);
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.pf-tab {
+  padding: 10px 18px; font-size: 13px; font-weight: 600;
+  color: var(--muted); text-decoration: none;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  transition: color .2s, border-color .2s;
+  font-family: inherit;
+}
 .pf-tab:hover { color: var(--ink); }
-.pf-tab.active { color: var(--accent, #f7941d); border-bottom-color: var(--accent, #f7941d); }
-.pf-tab-count { font-size: 10px; font-weight: 700; background: var(--bg-subtle, #f0f0f0); padding: 1px 6px; border-radius: 10px; margin-left: 4px; }
+.pf-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.pf-tab-count {
+  font-size: 10px; font-weight: 700;
+  background: var(--bg); padding: 2px 8px; border-radius: 10px; margin-left: 4px;
+  box-shadow: var(--neu-in);
+}
 
 .pf-panel { display: none; }
 .pf-panel.active { display: block; }
 
-.pf-card { background: var(--card-bg, #fff); border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); margin-bottom: 16px; }
-.pf-card-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--ink, #1a1a2e); }
+/* Cards (fond neumorphique comme bien_liste) */
+.pf-card {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--neu-out);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.pf-card-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; font-weight: 500;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--accent-3); margin-bottom: 14px;
+}
 
-.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.pf-field { display: flex; flex-direction: column; gap: 3px; }
-.pf-field label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-muted, #888); }
-.pf-field input, .pf-field select, .pf-field textarea { padding: 8px 10px; border: 1px solid var(--stroke, #ddd); border-radius: 8px; font-size: 13px; }
-.pf-field textarea { min-height: 80px; resize: vertical; }
+/* Form grid */
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.pf-field { display: flex; flex-direction: column; gap: 4px; }
+.pf-field label {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted);
+}
+.pf-field input,
+.pf-field select,
+.pf-field textarea {
+  padding: 9px 12px;
+  background: var(--bg);
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  box-shadow: var(--neu-in);
+  outline: none;
+  transition: box-shadow .15s;
+}
+.pf-field input:focus,
+.pf-field select:focus,
+.pf-field textarea:focus { box-shadow: var(--neu-in), 0 0 0 2px rgba(54,87,125,.2); }
+.pf-field textarea { min-height: 90px; resize: vertical; }
 
-.pf-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--card-bg, #fff); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-.pf-table th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-muted, #888); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--stroke, #eee); background: var(--bg-subtle, #fafafa); }
-.pf-table td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--stroke, #f0f0f0); }
+/* Table */
+.pf-table {
+  width: 100%;
+  border-collapse: separate; border-spacing: 0;
+  background: var(--card);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--neu-out);
+}
+.pf-table th {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted);
+  padding: 12px 14px; text-align: left;
+  border-bottom: 1px solid var(--stroke);
+  background: var(--bg);
+}
+.pf-table td {
+  padding: 12px 14px; font-size: 13px;
+  border-bottom: 1px solid var(--stroke);
+  vertical-align: middle;
+}
 .pf-table tr:last-child td { border-bottom: none; }
-.pf-table tr:hover td { background: rgba(247,148,29,0.03); }
-.pf-table a { color: var(--accent, #f7941d); text-decoration: none; font-weight: 600; }
+.pf-table tr:hover td { background: rgba(54,87,125,.03); }
+.pf-table a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.pf-table a:hover { text-decoration: underline; }
 
-.pf-btn { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
-.pf-btn-primary { background: var(--accent, #f7941d); color: #fff; }
-.pf-btn-ghost { background: var(--bg-subtle, #f0f0f0); color: var(--ink, #333); }
-.pf-btn-danger { background: #fee2e2; color: #991b1b; }
-.pf-btn:hover { opacity: .85; }
+/* Badges statut (bien / mandat) */
+.pf-badge {
+  display: inline-block;
+  font-size: 10px; padding: 3px 10px;
+  border-radius: var(--r-pill); font-weight: 700;
+  letter-spacing: .04em;
+}
+.pf-badge-actif    { background: #f0fdf4; color: #166534; }
+.pf-badge-inactif  { background: #fef2f2; color: #991b1b; }
+.pf-badge-archive  { background: rgba(138,134,128,.15); color: var(--muted); }
 
-.pf-badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
-.pf-badge-actif { background: #dcfce7; color: #166534; }
-.pf-badge-inactif { background: #fee2e2; color: #991b1b; }
-.pf-badge-archive { background: #f3f4f6; color: #6b7280; }
-
-.pf-upload { background: var(--card-bg, #fff); border: 2px dashed var(--stroke, #ddd); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+/* Upload zone documents */
+.pf-upload {
+  background: var(--card);
+  border: 2px dashed rgba(54,87,125,.25);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  margin-bottom: 16px;
+}
 .pf-upload-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; }
 .pf-upload-grid .pf-field { margin: 0; }
 
-.pf-toast { position: fixed; top: 16px; right: 16px; z-index: 99999; max-width: 400px; padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: 0 4px 20px rgba(0,0,0,.12); background: #f0fdf4; color: #14532d; border: 1px solid #bbf7d0; }
+/* Bouton danger (suppr document) */
+.bl-btn-danger {
+  background: #fef2f2; color: #991b1b;
+  box-shadow: var(--neu-out);
+}
+
+/* Toast */
+.pf-toast {
+  position: fixed; top: 70px; right: 24px; z-index: 9999;
+  max-width: 400px; padding: 12px 18px;
+  border-radius: var(--r-md);
+  font-size: 13px; font-weight: 600;
+  box-shadow: var(--neu-out);
+  background: #f0fdf4; color: #14532d;
+  border: 1px solid #bbf7d0;
+}
 
 @media (max-width: 768px) {
-    .pf-upload-grid { grid-template-columns: 1fr; }
-    .pf-tabs { overflow-x: auto; }
+  .pf-upload-grid { grid-template-columns: 1fr; }
+  .pf-tabs { overflow-x: auto; }
 }
 </style>
 
@@ -240,6 +324,24 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <button type="button" class="topbar-nav-btn" onclick="history.forward()" title="Avancer">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
     </button>
+    <?php
+      // Retour vers la page d'origine (ex: Card Proprio depuis bien_detail)
+      // On valide le param pour bloquer les URLs externes (phishing) : on
+      // n'accepte qu'un chemin local commencant par /.
+      $returnUrl = isset($_GET['return']) ? (string)$_GET['return'] : '';
+      if ($returnUrl !== '' && !preg_match('#^/[A-Za-z0-9_\-./?=&%]+$#', $returnUrl)) {
+          $returnUrl = '';
+      }
+    ?>
+    <?php if ($returnUrl !== ''): ?>
+      <a href="<?= h(app_url($returnUrl)) ?>"
+         class="topbar-nav-btn"
+         style="width:auto;padding:0 12px;gap:6px;font-size:12px;font-weight:600;"
+         title="Retour au bien d'origine">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        <span>Retour au bien</span>
+      </a>
+    <?php endif; ?>
     <div class="topbar-gap"></div>
     <nav class="topbar-breadcrumb">
       <span>Agency</span> <span style="color:#ccc;">›</span>
@@ -254,23 +356,30 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <div class="topbar-avatar"><?= strtoupper(substr((string)($_SESSION['username'] ?? 'U'), 0, 1)) ?></div>
   </div>
 
+<?php if ($msg): ?>
+<div class="pf-toast" id="pf-toast"><?= h($msg) ?>
+  <button onclick="this.parentElement.remove()" style="margin-left:12px;background:none;border:none;cursor:pointer;font-size:16px;color:inherit;opacity:.6;">✕</button>
+</div>
+<script>setTimeout(() => { const t = document.getElementById('pf-toast'); if (t) { t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(() => t.remove(), 300); }}, 4000);</script>
+<?php endif; ?>
+
+<!-- PAGE HEAD (style bien_liste) -->
+<div class="page-head">
+  <div class="page-head-info">
+    <div class="page-head-label">Gestion des propriétaires</div>
+    <h1 class="page-head-title"><?= h($fullName) ?>
+      <span class="pf-head-type pf-head-type-<?= h($prop['type_personne'] ?: 'physique') ?>" style="margin-left:12px;vertical-align:middle;font-size:13px;">
+        <?= ($prop['type_personne'] ?? 'physique') === 'morale' ? '🏢 Personne morale' : '👤 Personne physique' ?>
+      </span>
+    </h1>
+    <div class="page-head-sub">Fiche complète modifiable · biens, mandats, documents</div>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <a href="agency_proprietaires.php" class="bl-btn bl-btn-ghost">← Liste des propriétaires</a>
+  </div>
+</div>
+
 <div class="pf-container">
-
-  <?php if ($msg): ?>
-  <div class="pf-toast" id="pf-toast"><?= h($msg) ?>
-    <button onclick="this.parentElement.remove()" style="margin-left:12px;background:none;border:none;cursor:pointer;font-size:16px;color:inherit;opacity:.6;">✕</button>
-  </div>
-  <script>setTimeout(() => { const t = document.getElementById('pf-toast'); if (t) { t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(() => t.remove(), 300); }}, 4000);</script>
-  <?php endif; ?>
-
-  <!-- HEAD -->
-  <div class="pf-head">
-    <a href="agency_proprietaires.php" class="pf-head-back">← Propriétaires</a>
-    <h1><?= h($fullName) ?></h1>
-    <span class="pf-head-type pf-head-type-<?= h($prop['type_personne'] ?: 'physique') ?>">
-      <?= ($prop['type_personne'] ?? 'physique') === 'morale' ? 'Personne morale' : 'Personne physique' ?>
-    </span>
-  </div>
 
   <!-- TABS -->
   <nav class="pf-tabs">
@@ -336,7 +445,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
         </div>
       </div>
 
-      <button type="submit" class="pf-btn pf-btn-primary">Enregistrer les modifications</button>
+      <button type="submit" class="bl-btn bl-btn-primary">Enregistrer les modifications</button>
     </form>
   </div>
 
@@ -412,7 +521,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
           <td style="font-size:12px;"><?= $m['date_fin'] ? date('d/m/Y', strtotime($m['date_fin'])) : '—' ?></td>
           <td style="font-size:12px;"><?= $m['honoraires'] ? number_format((float)$m['honoraires'], 2, ',', ' ') . ' €' : '—' ?></td>
           <td><span class="pf-badge pf-badge-<?= ($m['statut'] ?? '') === 'actif' ? 'actif' : 'inactif' ?>"><?= h($m['statut'] ?? '—') ?></span></td>
-          <td><?php if ($m['document_pdf']): ?><a href="<?= h($m['document_pdf']) ?>" target="_blank" class="pf-btn pf-btn-ghost" style="padding:3px 8px;">PDF</a><?php else: ?>—<?php endif; ?></td>
+          <td><?php if ($m['document_pdf']): ?><a href="<?= h($m['document_pdf']) ?>" target="_blank" class="bl-btn bl-btn-ghost" style="padding:3px 8px;">PDF</a><?php else: ?>—<?php endif; ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
@@ -445,7 +554,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
             <label>Titre</label>
             <input type="text" name="titre" placeholder="Optionnel">
           </div>
-          <button type="submit" class="pf-btn pf-btn-primary" style="height:38px;">Ajouter</button>
+          <button type="submit" class="bl-btn bl-btn-primary" style="height:38px;">Ajouter</button>
         </div>
       </div>
     </form>
@@ -478,13 +587,13 @@ include __DIR__ . '/inc/sidebar_agency.php';
           <td style="font-size:12px;white-space:nowrap;"><?= $d['date_upload'] ? date('d/m/Y', strtotime($d['date_upload'])) : '—' ?></td>
           <td style="font-size:12px;"><?= $sizeStr ?></td>
           <td style="text-align:right;">
-            <a href="<?= h($d['chemin_fichier']) ?>" target="_blank" class="pf-btn pf-btn-ghost">Voir</a>
-            <a href="<?= h($d['chemin_fichier']) ?>" download class="pf-btn pf-btn-ghost">Télécharger</a>
+            <a href="<?= h($d['chemin_fichier']) ?>" target="_blank" class="bl-btn bl-btn-ghost">Voir</a>
+            <a href="<?= h($d['chemin_fichier']) ?>" download class="bl-btn bl-btn-ghost">Télécharger</a>
             <form method="post" style="display:inline;" onsubmit="return confirm('Supprimer ce document ?')">
               <?= csrf_field('proprio_fiche') ?>
               <input type="hidden" name="_action" value="delete_doc">
               <input type="hidden" name="doc_id" value="<?= (int)$d['id'] ?>">
-              <button type="submit" class="pf-btn pf-btn-danger">Suppr.</button>
+              <button type="submit" class="bl-btn bl-btn-danger">Suppr.</button>
             </form>
           </td>
         </tr>

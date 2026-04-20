@@ -57,6 +57,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'id_etablissement' => (int)($_POST['id_etablissement'] ?? 0),
         'immatriculation'  => strtoupper(trim($_POST['immatriculation'] ?? '')),
         'gestionnaire'     => (int)($_POST['gestionnaire']  ?? 0) ?: null,
+        'latitude'         => trim($_POST['latitude'] ?? '') !== '' ? (float)$_POST['latitude'] : null,
+        'longitude'        => trim($_POST['longitude'] ?? '') !== '' ? (float)$_POST['longitude'] : null,
+        'google_place_id'  => trim($_POST['google_place_id'] ?? '') ?: null,
+        'adresse_formatee' => trim($_POST['adresse_formatee'] ?? '') ?: null,
     ];
 
     if ($data['reference'] === '') $errors[] = 'La référence est obligatoire.';
@@ -71,7 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($editMode) {
             $stmt = $pdo->prepare("UPDATE immeubles SET
                 reference_immeuble=:reference, nom_immeuble=:nom, adresse_1=:adresse, code_postal=:code_postal,
-                ville=:ville, nb_lots=:nb_lots, type_immeuble=:type, id_agence=:id_etablissement
+                ville=:ville, nb_lots=:nb_lots, type_immeuble=:type, id_agence=:id_etablissement,
+                latitude=:latitude, longitude=:longitude, google_place_id=:google_place_id, adresse_formatee=:adresse_formatee
                 WHERE id=:id");
             unset($data['immatriculation'], $data['gestionnaire']);
             $data['id'] = $id;
@@ -82,8 +87,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $imm = $stmt2->fetch(PDO::FETCH_ASSOC) ?: $imm;
         } else {
             $stmt = $pdo->prepare("INSERT INTO immeubles
-                (reference_immeuble, nom_immeuble, adresse_1, code_postal, ville, nb_lots, type_immeuble, id_agence)
-                VALUES (:reference, :nom, :adresse, :code_postal, :ville, :nb_lots, :type, :id_etablissement)");
+                (reference_immeuble, nom_immeuble, adresse_1, code_postal, ville, nb_lots, type_immeuble, id_agence,
+                 latitude, longitude, google_place_id, adresse_formatee)
+                VALUES (:reference, :nom, :adresse, :code_postal, :ville, :nb_lots, :type, :id_etablissement,
+                        :latitude, :longitude, :google_place_id, :adresse_formatee)");
+            unset($data['immatriculation'], $data['gestionnaire']);
             $stmt->execute($data);
             $newId = (int)$pdo->lastInsertId();
             header("Location: agency_immeuble_fiche.php?id=$newId");
@@ -155,6 +163,24 @@ $layout_extra_css = <<<'EXTRACSS'
 EXTRACSS;
 
 $layout_extra_js = <<<'EXTRAJS'
+<style>
+.places-dropdown {
+    position: absolute; z-index: 2000;
+    background: #fff; border: 1px solid rgba(196,192,186,0.5); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 300px; overflow-y: auto;
+}
+.places-item { padding: 10px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid rgba(196,192,186,0.2); }
+.places-item:last-child { border-bottom: none; }
+.places-item:hover, .places-item.active { background: rgba(72,120,166,0.08); }
+</style>
+<script src="js/places.js"></script>
+EXTRAJS;
+
+if ($GOOGLE_MAPS_API_KEY !== '') {
+    $layout_extra_js .= '<script async src="https://maps.googleapis.com/maps/api/js?key=' . urlencode($GOOGLE_MAPS_API_KEY) . '&libraries=places&callback=initPlacesAutocomplete"></script>';
+}
+
+$layout_extra_js .= <<<'EXTRAJS'
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const el = document.getElementById('immatriculation');
@@ -254,30 +280,65 @@ ob_start();
     <div class="section-header">
         <div class="section-title">
             <div class="line-l"></div>
-            <span class="sec-txt">Adresse</span>
+            <span class="sec-txt">Adresse &mdash; Google Places</span>
             <div class="line-r"></div>
         </div>
     </div>
     <div class="form-card">
         <div class="form-row cols1">
             <div class="ff">
+                <label>🔍 Rechercher l'adresse</label>
+                <input type="text"
+                       id="imm_places_search"
+                       placeholder="Commencez à taper l'adresse (autocomplete Google)…"
+                       data-places-input
+                       data-places-endpoint="api/places_autocomplete.php"
+                       data-places-details-endpoint="api/places_details.php"
+                       data-places-geocode-endpoint="api/geocode_address.php"
+                       data-places-street1="imm_adresse"
+                       data-places-postal="imm_cp"
+                       data-places-city="imm_ville"
+                       data-places-lat="imm_lat"
+                       data-places-lng="imm_lng"
+                       data-places-place-id="imm_place_id"
+                       data-places-formatted="imm_formatee"
+                       data-places-country-code="fr">
+            </div>
+        </div>
+        <div class="form-row cols1">
+            <div class="ff">
                 <label>Adresse <span class="req">*</span></label>
-                <input type="text" name="adresse" value="<?= h($val('adresse')) ?>"
+                <input type="text" name="adresse" id="imm_adresse" value="<?= h($val('adresse')) ?>"
                        placeholder="Numéro et rue" required>
             </div>
         </div>
         <div class="form-row cols2">
             <div class="ff">
                 <label>Code postal <span class="req">*</span></label>
-                <input type="text" name="code_postal" value="<?= h($val('code_postal')) ?>"
+                <input type="text" name="code_postal" id="imm_cp" value="<?= h($val('code_postal')) ?>"
                        placeholder="69000" maxlength="10" required>
             </div>
             <div class="ff">
                 <label>Ville / Commune <span class="req">*</span></label>
-                <input type="text" name="ville" value="<?= h($val('ville')) ?>"
+                <input type="text" name="ville" id="imm_ville" value="<?= h($val('ville')) ?>"
                        placeholder="Lyon" required>
             </div>
         </div>
+        <div class="form-row cols3">
+            <div class="ff">
+                <label>Latitude (GPS)</label>
+                <input type="text" name="latitude" id="imm_lat" value="<?= h($val('latitude')) ?>" readonly>
+            </div>
+            <div class="ff">
+                <label>Longitude (GPS)</label>
+                <input type="text" name="longitude" id="imm_lng" value="<?= h($val('longitude')) ?>" readonly>
+            </div>
+            <div class="ff">
+                <label>Google Place ID</label>
+                <input type="text" name="google_place_id" id="imm_place_id" value="<?= h($val('google_place_id')) ?>" readonly>
+            </div>
+        </div>
+        <input type="hidden" name="adresse_formatee" id="imm_formatee" value="<?= h($val('adresse_formatee')) ?>">
     </div>
 
     <!-- Section Organisation -->

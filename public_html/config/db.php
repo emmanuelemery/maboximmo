@@ -1,9 +1,13 @@
 <?php
 declare(strict_types=1);
 
-function db(): PDO
+function db(bool $forceReconnect = false): PDO
 {
     static $pdo = null;
+
+    if ($forceReconnect) {
+        $pdo = null;
+    }
 
     if ($pdo instanceof PDO) {
         return $pdo;
@@ -57,6 +61,41 @@ function db(): PDO
     ];
 
     $pdo = new PDO($dsn, $username, $password, $options);
+    return $pdo;
+}
+
+/**
+ * Vérifie que la connexion MySQL est toujours vivante (après un appel long
+ * type OpenAI/curl qui a pu dépasser le wait_timeout du serveur MySQL).
+ * Reconnecte automatiquement en cas d'erreur "MySQL server has gone away".
+ * Met également à jour $GLOBALS['pdo'].
+ */
+function db_keepalive(): PDO
+{
+    $pdo = $GLOBALS['pdo'] ?? db();
+    try {
+        $pdo->query('SELECT 1');
+        // Étend les timeouts session (défense contre OCR/IA longs)
+        try { $pdo->exec("SET SESSION wait_timeout = 600, interactive_timeout = 600"); } catch (Throwable) {}
+        return $pdo;
+    } catch (Throwable $e) {
+        $pdo = db(true);
+        $GLOBALS['pdo'] = $pdo;
+        try { $pdo->exec("SET SESSION wait_timeout = 600, interactive_timeout = 600"); } catch (Throwable) {}
+        return $pdo;
+    }
+}
+
+/**
+ * Force un reconnect PDO frais (utile avant une grosse INSERT après un traitement
+ * long type OCR/IA où la connexion a pu timeout entre le SELECT 1 de db_keepalive
+ * et l'INSERT effectif).
+ */
+function db_reconnect_fresh(): PDO
+{
+    $pdo = db(true);  // nouvelle connexion forcée
+    $GLOBALS['pdo'] = $pdo;
+    try { $pdo->exec("SET SESSION wait_timeout = 600, interactive_timeout = 600"); } catch (Throwable) {}
     return $pdo;
 }
 

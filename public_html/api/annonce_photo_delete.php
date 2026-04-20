@@ -2,51 +2,23 @@
 declare(strict_types=1);
 
 /**
- * POST /api/annonce_photo_delete.php
+ * DEPRECATED (migration V2, 2026-04-20)
  *
- * Supprime une photo (et toutes ses variantes) d'une annonce.
- * Paramètres : id_photo, csrf_token
+ * Ancien endpoint de suppression de photos annonces_photos (schéma "copies
+ * physiques"). La V2 utilise une liaison N:N : retirer une photo d'une
+ * annonce se fait par toggle via /api/annonce_photo_toggle.php (qui retire
+ * la ligne de sélection sans toucher aux fichiers du bien).
+ *
+ * L'ancien code est consultable dans l'historique Git.
  */
 
 require_once dirname(__DIR__) . '/inc/bootstrap.php';
-require_once dirname(__DIR__) . '/inc/annonce_photos_manager.php';
+require_once dirname(__DIR__) . '/inc/auth.php';
 require_login();
 
 header('Content-Type: application/json; charset=utf-8');
-
-try {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['ok' => false, 'error' => 'Méthode non autorisée']);
-        exit;
-    }
-    verify_csrf_any('annonce_nouvelle');
-
-    $pdo       = db();
-    $societeId = (int)($_SESSION['id_societe'] ?? 0);
-    $idPhoto   = (int)($_POST['id_photo'] ?? 0);
-
-    if ($idPhoto <= 0) throw new RuntimeException('id_photo manquant');
-
-    // Récupérer la photo + son annonce + vérifier la société
-    $st = $pdo->prepare("
-        SELECT p.id_annonce, p.ordre_affichage, a.id_societe
-        FROM annonces_photos p
-        JOIN annonces a ON a.id = p.id_annonce
-        WHERE p.id = ? LIMIT 1
-    ");
-    $st->execute([$idPhoto]);
-    $row = $st->fetch(PDO::FETCH_ASSOC);
-    if (!$row || (int)$row['id_societe'] !== $societeId) {
-        throw new RuntimeException('Photo introuvable ou accès refusé');
-    }
-
-    $manager = new AnnoncePhotosManager($pdo);
-    $ok = $manager->supprimer((int)$row['id_annonce'], (int)$row['ordre_affichage']);
-
-    echo json_encode(['ok' => $ok], JSON_UNESCAPED_UNICODE);
-
-} catch (Throwable $e) {
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
-}
+http_response_code(410);
+exit(json_encode([
+    'ok'    => false,
+    'error' => 'Endpoint déprécié (migration V2 du 2026-04-20). Utiliser annonce_photo_toggle.php pour retirer une photo de l\'annonce.',
+]));

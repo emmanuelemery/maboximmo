@@ -351,6 +351,7 @@ ob_start();
         <button type="button" class="tab-btn" data-tab="ag">📅 AG</button>
         <button type="button" class="tab-btn" data-tab="travaux">🔧 Travaux</button>
         <button type="button" class="tab-btn" data-tab="admin">📋 Administratif</button>
+        <button type="button" class="tab-btn" data-tab="documents">📎 Documents</button>
         <button type="button" class="tab-btn" data-tab="notes">📝 Notes</button>
     </div>
 
@@ -612,6 +613,91 @@ ob_start();
         <?php endif; ?>
     </div>
 </div></div><!-- /tab admin -->
+
+<!-- ═══ ONGLET DOCUMENTS ═══ -->
+<div class="tab-panel" data-tab="documents">
+<div style="padding:18px 22px">
+    <h3 style="margin:0 0 6px;color:#0f172a;font-size:15px;">📎 Documents de l'immeuble</h3>
+    <p style="margin:0 0 14px;color:#64748b;font-size:12px;">
+        Règlement de copropriété, PV d'AG, assurances, diagnostics communs, mandats de syndic, actes…
+        Choisissez le type avant d'uploader pour une extraction IA optimale.
+    </p>
+
+    <link rel="stylesheet" href="/assets/css/document_uploader.css">
+    <div id="imm-docs-uploader-container" style="padding:14px;background:linear-gradient(180deg,rgba(14,165,233,0.04),#fff);border:1px solid #bae6fd;border-radius:12px;"></div>
+    <script src="/assets/js/document_uploader.js"></script>
+    <script>
+      (function() {
+        const idImmeuble = <?= (int)($fiche['id'] ?? 0) ?>;
+        if (!idImmeuble || typeof window.DocumentUploader !== 'function') return;
+        new window.DocumentUploader('imm-docs-uploader-container', {
+          context: 'immeuble',
+          idContexte: idImmeuble,
+          endpoint: '/api/immeuble_doc_upload.php',
+          csrfToken: '<?= csrf_token('ajouter_bien') ?>',
+          availableTypes: ['diag','mandat','titre','fiche','divers'],
+          defaultType: 'divers',
+          showValidationTable: true,
+          onSuccess: (data) => {
+            // Feedback léger — l'utilisateur reste sur la fiche immeuble
+            console.log('[Immeuble] Document uploadé', data.doc_type, data.document_id);
+          },
+        });
+      })();
+    </script>
+
+    <div id="imm-docs-list" style="margin-top:20px;">
+    <?php
+      // Liste des documents existants (si la table existe)
+      try {
+        $stmtDocs = $pdo->prepare("SELECT id, type_document, sous_type, nom_fichier, url_fichier,
+                                          taille_octets, method_extraction, created_at
+                                   FROM immeubles_documents
+                                   WHERE id_immeuble = ?
+                                   ORDER BY created_at DESC LIMIT 50");
+        $stmtDocs->execute([(int)($fiche['id'] ?? 0)]);
+        $immDocs = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
+      } catch (Throwable $e) {
+        $immDocs = [];
+      }
+      if (!empty($immDocs)):
+    ?>
+      <h4 style="margin:0 0 8px;font-size:13px;color:#334155;"><?= count($immDocs) ?> document(s) enregistré(s)</h4>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+      <?php foreach ($immDocs as $d):
+        $icons = ['diag'=>'📊','bail'=>'📝','mandat'=>'📋','titre'=>'🏛️','fiche'=>'🏢','divers'=>'📎','autre'=>'📄'];
+        $icon  = $icons[$d['type_document']] ?? '📄';
+      ?>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+          <span style="font-size:18px;"><?= $icon ?></span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:12px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <?= h((string)$d['nom_fichier']) ?>
+            </div>
+            <div style="font-size:10px;color:#64748b;">
+              <?= h((string)$d['type_document']) ?>
+              <?= $d['sous_type'] ? ' · ' . h((string)$d['sous_type']) : '' ?>
+              <?= $d['method_extraction'] ? ' · ' . h((string)$d['method_extraction']) : '' ?>
+              · <?= h((string)date('d/m/Y', strtotime((string)$d['created_at']))) ?>
+            </div>
+          </div>
+          <?php if (!empty($d['url_fichier'])): ?>
+            <a href="<?= h((string)$d['url_fichier']) ?>" target="_blank" rel="noopener"
+               style="padding:5px 10px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:6px;font-size:10px;font-weight:700;">
+              🔍 Voir
+            </a>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+      </div>
+    <?php else: ?>
+      <div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px;font-style:italic;">
+        Aucun document enregistré pour cet immeuble.
+      </div>
+    <?php endif; ?>
+    </div>
+</div>
+</div><!-- /tab documents -->
 
 <!-- ═══ ONGLET NOTES ═══ -->
 <div class="tab-panel" data-tab="notes">

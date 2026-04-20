@@ -36,11 +36,11 @@
     "remarque": ""
   },
   "photos": {
-    "source_maboximmo": "annonces_photos.url_photo",
+    "source_maboximmo": "biens_photos.url_photo via JOIN annonces_photos",
     "type_source": "varchar url",
-    "transformation": "ORDER BY principale DESC, ordre_affichage ASC",
+    "transformation": "JOIN annonces_photos.id_biens_photo = biens_photos.id WHERE id_annonce = ? ORDER BY annonces_photos.ordre ASC",
     "statut": "OK",
-    "remarque": "Incoherence a surveiller : validator compte depuis biens_photos, exporter lit annonces_photos (BLOQUANT #5)"
+    "remarque": "Modele V2 (migration 2026-04-20) : annonces_photos = liaison N:N vers biens_photos. Validator et exporter lisent desormais la meme source."
   },
 
   "code_type": {

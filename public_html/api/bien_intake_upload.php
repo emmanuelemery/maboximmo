@@ -100,6 +100,16 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 verify_csrf_any('ajouter_bien');
 
+// ─── Type forcé par l'UI (onglets de choix de type) ──────────────
+// Règle site : l'utilisateur DOIT indiquer le type avant l'upload pour
+// garantir le bon module d'extraction (cf. memory/feedback_upload_documents_types.md)
+// Si absent ou 'auto' → détection regex (fallback)
+$forceType = isset($_POST['force_type']) ? trim((string)$_POST['force_type']) : null;
+$validForceTypes = ['bail', 'mandat', 'titre', 'diag', 'fiche', 'divers', 'auto'];
+if ($forceType !== null && !in_array(strtolower($forceType), $validForceTypes, true)) {
+    $forceType = null; // silencieusement ignoré si invalide
+}
+
 if (empty($_FILES['fichier']) || $_FILES['fichier']['error'] !== UPLOAD_ERR_OK) {
     exit(json_encode(['ok' => false, 'error' => 'Aucun fichier reçu']));
 }
@@ -152,7 +162,7 @@ try {
 
     if (!$isProbablyScanned) {
         // ── (4a) Analyse texte rapide (chemin classique) ──────
-        $iaResult = analyseBienIntakeIA($texteSource);
+        $iaResult = analyseBienIntakeIA($texteSource, $forceType);
         // Si l'IA n'a quasiment rien trouvé, on bascule en OCR
         if (!$iaResult['ok'] || ($iaResult['count'] ?? 0) < 3) {
             $isProbablyScanned = true;
@@ -167,7 +177,7 @@ try {
             if (empty($images)) {
                 throw new RuntimeException('Aucune image générée par pdftoppm');
             }
-            $iaResult = BienIntakeOCR::analyseImagesIA($images);
+            $iaResult = BienIntakeOCR::analyseImagesIA($images, $forceType);
             BienIntakeOCR::cleanupTmpDir($tmpOcrDir);
             $usedOcr = true;
         } catch (Throwable $ocrEx) {
@@ -240,6 +250,10 @@ try {
     }
 
     // ── (5) Persistance différenciée selon le type de document ──
+    // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI (15-30s)
+    // (wait_timeout court sur Hostinger → "MySQL server has gone away")
+    $pdo = db_reconnect_fresh();
+
     $diagId = 0;
 
     // Toujours : on insère une entrée dans dpe_diags pour tracer le doc analysé
@@ -251,7 +265,7 @@ try {
                 consommation_energie, emission_ges,
                 conso_energie_primaire, conso_energie_finale,
                 montant_depenses_min, montant_depenses_max,
-                date_indice_prix, dpe_version, numero_ademe,
+                date_indice_prix, dpe_version, numero_ademe, numero_rapport,
                 diagnostiqueur_nom, diagnostiqueur_societe,
                 fichier_url, nom_fichier_original, taille_fichier_octets, mime_type,
                 type_bien_detecte, adresse_detectee, code_postal_detecte, ville_detectee,
@@ -273,7 +287,7 @@ try {
                 :conso, :ges,
                 :primaire, :finale,
                 :depmin, :depmax,
-                :indice, :ver, :ademe,
+                :indice, :ver, :ademe, :num_rapport,
                 :diag_nom, :diag_soc,
                 :url, :nom, :taille, :mime,
                 :tb, :adr, :cp, :ville,
@@ -307,8 +321,9 @@ try {
             ':indice'  => $fields['date_indice_prix_energies'] ?? null,
             ':ver'     => $fields['dpe_version'] ?? null,
             ':ademe'   => $fields['dpe_reference_certificat'] ?? null,
-            ':diag_nom'=> $fields['operateur_nom'] ?? null,
-            ':diag_soc'=> $fields['operateur_societe'] ?? null,
+            ':num_rapport' => $fields['diag_dossier_numero'] ?? $fields['numero_rapport'] ?? null,
+            ':diag_nom'=> $fields['diag_operateur_nom'] ?? $fields['operateur_nom'] ?? null,
+            ':diag_soc'=> $fields['diag_operateur_societe'] ?? $fields['operateur_societe'] ?? null,
             ':url'     => $publicUrl,
             ':nom'     => $file['name'],
             ':taille'  => (int)$file['size'],
@@ -343,12 +358,89 @@ try {
             ':a_geo'   => !empty($fields['zone_georisque']) ? 1 : 0,
             ':score'   => min(100, count($fields) * 4),
             ':json'    => json_encode($fields, JSON_UNESCAPED_UNICODE),
-            ':resume'  => $resume,
+            ':resume'  => $fields['diag_resume_ia'] ?? $resume,
             ':titre'   => $docTitre,
         ]);
         $diagId = (int)$pdo->lastInsertId();
+
+        // ── Sync bien_chauffages / bien_energies (tables de jointure pour chips) ──
+        // Même pattern que bien_vues : l'info est stockée en code texte dans biens.*
+        // mais bien_detail affiche les chips depuis les tables de jointure avec IDs.
+        try {
+            $stSoc = $pdo->prepare("SELECT id_societe FROM biens WHERE id = ?");
+            $stSoc->execute([$bienId]);
+            $idSocieteBien = (int)($stSoc->fetchColumn() ?: 0);
+            if ($idSocieteBien > 0) {
+                $chCode = (string)($fields['chauffage_type'] ?? '');
+                if ($chCode !== '') {
+                    $st = $pdo->prepare("SELECT id FROM societe_types_chauffage WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                    $st->execute([$idSocieteBien, $chCode]);
+                    $chId = (int)($st->fetchColumn() ?: 0);
+                    if ($chId > 0) {
+                        $pdo->prepare("INSERT IGNORE INTO bien_chauffages (id_bien, id_societe_chauffage) VALUES (?, ?)")
+                            ->execute([$bienId, $chId]);
+                    }
+                }
+                $enCode = (string)($fields['chauffage_energie'] ?? '');
+                if ($enCode !== '') {
+                    $st = $pdo->prepare("SELECT id FROM societe_energies WHERE id_societe = ? AND code = ? AND actif = 1 LIMIT 1");
+                    $st->execute([$idSocieteBien, $enCode]);
+                    $enId = (int)($st->fetchColumn() ?: 0);
+                    if ($enId > 0) {
+                        $pdo->prepare("INSERT IGNORE INTO bien_energies (id_bien, id_societe_energie) VALUES (?, ?)")
+                            ->execute([$bienId, $enId]);
+                    }
+                }
+            }
+        } catch (Throwable $exSync) {
+            error_log('[bien_intake] sync bien_chauffages/energies failed: ' . $exSync->getMessage());
+        }
     } catch (Throwable $e) {
         error_log('[bien_intake] dpe_diags insert failed: ' . $e->getMessage());
+    }
+
+    // ── Archivage du PDF dans biens_documents (HORS try/catch dpe_diags) ──
+    // CRITIQUE : cet INSERT doit s'exécuter MÊME si dpe_diags échoue (MySQL
+    // gone away, colonne manquante, etc.). Sans lui, le PDF est sur disque
+    // mais invisible dans l'onglet Documents du bien.
+    // On fait un reconnect fresh avant pour maximiser les chances en cas de
+    // connexion morte après l'IA.
+    if ($bienId > 0) {
+        try {
+            $pdo = db_reconnect_fresh();
+            $uidUp = function_exists('current_user_id') ? (int)current_user_id() : null;
+            $docTypeMap = [
+                'diag'                => 'dpe',
+                'dossier_complet'     => 'dpe',
+                'dossier_diagnostics' => 'dpe',
+                'mandat_gestion'      => 'mandat',
+                'mandat_vente'        => 'mandat',
+                'mandat_location'     => 'mandat',
+                'acte_propriete'      => 'acte',
+            ];
+            $bdType = $docTypeMap[$docType ?? ''] ?? 'diag';
+            $pdo->prepare("
+                INSERT INTO biens_documents
+                    (id_bien, type_document, libelle, url_fichier, nom_original,
+                     mime_type, taille_octets, date_document, id_user_upload,
+                     visible_proprietaire, date_upload)
+                VALUES
+                    (:id_bien, :type_document, :libelle, :url, :nom_orig, :mime,
+                     :taille, :date_doc, :uid, 1, NOW())
+            ")->execute([
+                ':id_bien'       => $bienId,
+                ':type_document' => $bdType,
+                ':libelle'       => ($docTitre ?? '') ?: ucfirst($bdType),
+                ':url'           => $publicUrl,
+                ':nom_orig'      => $file['name'],
+                ':mime'          => $file['type'] ?? 'application/pdf',
+                ':taille'        => (int)$file['size'],
+                ':date_doc'      => $fields['dpe_date_realisation'] ?? ($fields['date_signature'] ?? null),
+                ':uid'           => $uidUp ?: null,
+            ]);
+        } catch (Throwable $exDoc) {
+            error_log('[bien_intake] biens_documents insert failed: ' . $exDoc->getMessage());
+        }
     }
 
     // ── (6) Sync biens.* (no-overwrite : ne touche pas les valeurs déjà saisies) ──
@@ -592,6 +684,188 @@ try {
         }
     }
 
+    // ── (8.6) BAIL — création dans bien_baux si doc_type = 'bail' ──
+    // Tables créées par la migration 20260418_baux_et_actes.
+    // Try/catch large : si la table n'existe pas encore, on log et on continue.
+    $bailId = 0;
+    if ($docType === 'bail') {
+        try {
+            // Extrait les colonnes connues ; tout le reste va dans metadata JSON.
+            $bailCols = [
+                'bail_nature'             => $fields['bail_bail_nature']      ?? null,
+                'bail_type'               => $fields['bail_bail_type']        ?? null,
+                'usage_bien'              => $fields['bail_usage_bien']       ?? null,
+                'destination_activite'    => $fields['bail_destination_activite'] ?? null,
+                'reference_bail'          => $fields['bail_reference_bail']   ?? null,
+                'date_signature'          => $fields['bail_date_signature']   ?? null,
+                'date_prise_effet'        => $fields['bail_date_prise_effet'] ?? null,
+                'duree_mois'              => $fields['bail_duree_mois']       ?? null,
+                'date_fin'                => $fields['bail_date_fin']         ?? null,
+                'periode_triennale'       => !empty($fields['bail_periode_triennale']) ? 1 : 0,
+                'reconduction'            => $fields['bail_reconduction']     ?? null,
+                'clause_resolutoire'      => !empty($fields['bail_clause_resolutoire']) ? 1 : 0,
+
+                'loyer_mensuel_hc'        => $fields['loyer_mensuel_hc']      ?? null,
+                'complement_loyer'        => $fields['complement_loyer']      ?? null,
+                'charges_mensuelles'      => $fields['charges_mensuelles']    ?? null,
+                'charges_type'            => $fields['charges_type']          ?? null,
+                'total_mensuel'           => $fields['total_mensuel']         ?? null,
+                'tva_applicable'          => !empty($fields['tva_applicable']) ? 1 : 0,
+                'tva_taux'                => $fields['tva_taux']              ?? null,
+                'indice_type'             => $fields['indice_type']           ?? null,
+                'indice_trimestre'        => $fields['indice_trimestre']      ?? null,
+                'indice_valeur'           => $fields['indice_valeur']         ?? null,
+                'date_revision_jour_mois' => $fields['date_revision_jour_mois'] ?? null,
+
+                'zone_tendue'             => !empty($fields['zone_tendue']) ? 1 : 0,
+                'loyer_reference'         => $fields['loyer_reference']       ?? null,
+                'loyer_reference_majore'  => $fields['loyer_reference_majore'] ?? null,
+
+                'depot_garantie'          => $fields['depot_garantie']        ?? null,
+                'nb_termes_garantie'      => $fields['nb_termes_garantie']    ?? null,
+
+                'honoraires_bailleur_ttc'  => $fields['honoraires_bailleur_ttc']  ?? null,
+                'honoraires_locataire_ttc' => $fields['honoraires_locataire_ttc'] ?? null,
+                'honoraires_charge'        => $fields['honoraires_charge']        ?? null,
+
+                'locataire_type'           => $fields['locataire_type_personne'] ?? 'physique',
+                'locataire_nom'            => $fields['locataire_nom']           ?? null,
+                'locataire_prenom'         => $fields['locataire_prenom']        ?? null,
+                'locataire_raison_sociale' => $fields['locataire_raison_sociale'] ?? null,
+                'locataire_siren'          => $fields['locataire_siren']         ?? null,
+                'locataire_email'          => $fields['locataire_email']         ?? null,
+                'locataire_telephone'      => $fields['locataire_telephone']     ?? null,
+
+                'caution_type'             => $fields['caution_type_caution'] ?? ($fields['caution_nom'] ?? '' !== '' ? 'physique' : 'aucune'),
+                'caution_nom'              => $fields['caution_nom']          ?? null,
+                'caution_prenom'           => $fields['caution_prenom']       ?? null,
+            ];
+
+            // metadata JSON : on y met tout ce qu'on n'a pas posé en colonne
+            $metaPayload = [
+                'mandataire'  => [
+                    'nom_agence'       => $fields['mandataire_nom_agence']       ?? null,
+                    'carte_pro'        => $fields['mandataire_carte_pro']        ?? null,
+                    'caisse_garantie'  => $fields['mandataire_caisse_garantie']  ?? null,
+                    'montant_garantie' => $fields['mandataire_montant_garantie'] ?? null,
+                ],
+                'taxes_recuperables' => [
+                    'taxe_fonciere'     => !empty($fields['taxe_taxe_fonciere']),
+                    'teom'              => !empty($fields['taxe_teom']),
+                    'taxe_bureaux'      => !empty($fields['taxe_taxe_bureaux']),
+                    'gestion_fiscalite' => !empty($fields['taxe_gestion_fiscalite']),
+                ],
+                'locataire_extra' => [
+                    'date_naissance'      => $fields['locataire_date_naissance']   ?? null,
+                    'lieu_naissance'      => $fields['locataire_lieu_naissance']   ?? null,
+                    'nationalite'         => $fields['locataire_nationalite']      ?? null,
+                    'profession'          => $fields['locataire_profession']       ?? null,
+                    'adresse_1'           => $fields['locataire_adresse_1']        ?? null,
+                    'code_postal'         => $fields['locataire_code_postal']      ?? null,
+                    'ville'               => $fields['locataire_ville']            ?? null,
+                    'situation_familiale' => $fields['locataire_situation_familiale'] ?? null,
+                ],
+                'caution_extra' => [
+                    'date_naissance' => $fields['caution_date_naissance'] ?? null,
+                    'adresse'        => $fields['caution_adresse']        ?? null,
+                ],
+            ];
+            if (!empty($fields['bail_metadata_multi'])) {
+                $multiDecoded = json_decode((string)$fields['bail_metadata_multi'], true);
+                if (is_array($multiDecoded)) $metaPayload['multi'] = $multiDecoded;
+            }
+
+            $cols   = array_keys($bailCols);
+            $placeholders = array_map(fn($c) => ':' . $c, $cols);
+            $sql    = "INSERT INTO bien_baux (id_bien, id_proprietaire, id_agence, id_societe, "
+                    . implode(', ', $cols) . ", metadata, document_pdf, statut, id_user_created) "
+                    . "VALUES (:id_bien, :id_prop, :id_ag, :id_soc, "
+                    . implode(', ', $placeholders) . ", :metadata, :document_pdf, 'brouillon', :id_user)";
+            $stmt = $pdo->prepare($sql);
+            $params = array_combine($placeholders, array_values($bailCols));
+            $params[':id_bien']      = $bienId;
+            $params[':id_prop']      = $newProprioId ?: null;
+            $params[':id_ag']        = $agenceId ?: null;
+            $params[':id_soc']       = $societeId ?: null;
+            $params[':metadata']     = json_encode($metaPayload, JSON_UNESCAPED_UNICODE);
+            $params[':document_pdf'] = $publicUrl;
+            $params[':id_user']      = $userId ?: null;
+            $stmt->execute($params);
+            $bailId = (int)$pdo->lastInsertId();
+        } catch (Throwable $e) {
+            error_log('[bien_intake] bien_baux insert failed: ' . $e->getMessage());
+        }
+    }
+
+    // ── (8.7) ACTE DE PROPRIÉTÉ — création dans bailleur_acte ──
+    $acteId = 0;
+    if ($docType === 'titre') {
+        try {
+            $acteCols = [
+                'type_document'   => $fields['acte_type_document']   ?? 'notification_mutation',
+                'nature_mutation' => $fields['acte_nature_mutation'] ?? 'vente',
+                'date_acte'       => $fields['acte_date_acte']       ?? null,
+                'date_jouissance' => $fields['acte_date_jouissance'] ?? null,
+                'date_notification' => $fields['acte_date_notification'] ?? null,
+
+                'notaire_office'      => $fields['notaire_office_nom'] ?? null,
+                'notaire_nom'         => $fields['notaire_notaire_nom'] ?? null,
+                'notaire_crpcen'      => $fields['notaire_crpcen']     ?? null,
+                'notaire_adresse_1'   => $fields['notaire_adresse_1']  ?? null,
+                'notaire_code_postal' => $fields['notaire_code_postal'] ?? null,
+                'notaire_ville'       => $fields['notaire_ville']      ?? null,
+                'notaire_telephone'   => $fields['notaire_telephone']  ?? null,
+
+                'notaire_vendeur_nom'    => $fields['notaire_vendeur_notaire_nom'] ?? null,
+                'notaire_vendeur_crpcen' => $fields['notaire_vendeur_crpcen']      ?? null,
+                'notaire_vendeur_ville'  => $fields['notaire_vendeur_ville']       ?? null,
+
+                'vendeurs'         => $fields['vendeurs_json']         ?? null,
+                'acquereurs'       => $fields['acquereurs_json']       ?? null,
+                'cadastre'         => $fields['cadastre_json']         ?? null,
+                'lots_copropriete' => $fields['lots_copropriete_json'] ?? null,
+
+                'designation'      => $fields['bien_designation']        ?? null,
+                'bien_adresse_1'   => $fields['bien_adresse_1']          ?? null,
+                'bien_code_postal' => $fields['bien_code_postal']        ?? null,
+                'bien_ville'       => $fields['bien_ville']              ?? null,
+
+                'prix_vente'                  => $fields['prix_vente']                  ?? null,
+                'frais_mutation'              => $fields['frais_mutation']              ?? null,
+                'provision_charges'           => $fields['provision_charges']           ?? null,
+                'charges_impayees'            => $fields['charges_impayees']            ?? null,
+                'emprunt_collectif_rembourse' => $fields['emprunt_collectif_rembourse'] ?? null,
+
+                'domicile_opposition'    => $fields['domicile_opposition']    ?? null,
+                'delai_opposition_jours' => $fields['delai_opposition_jours'] ?? null,
+            ];
+
+            $metaPayload = [
+                'bien_nb_batiments'       => $fields['bien_nb_batiments']       ?? null,
+                'bien_description_libre'  => $fields['bien_description_libre']  ?? null,
+            ];
+
+            $cols   = array_keys($acteCols);
+            $placeholders = array_map(fn($c) => ':' . $c, $cols);
+            $sql    = "INSERT INTO bailleur_acte (id_bien, id_proprietaire, id_societe, "
+                    . implode(', ', $cols) . ", metadata, document_pdf, id_user_created) "
+                    . "VALUES (:id_bien, :id_prop, :id_soc, "
+                    . implode(', ', $placeholders) . ", :metadata, :document_pdf, :id_user)";
+            $stmt = $pdo->prepare($sql);
+            $params = array_combine($placeholders, array_values($acteCols));
+            $params[':id_bien']      = $bienId;
+            $params[':id_prop']      = $newProprioId ?: null;
+            $params[':id_soc']       = $societeId ?: null;
+            $params[':metadata']     = json_encode($metaPayload, JSON_UNESCAPED_UNICODE);
+            $params[':document_pdf'] = $publicUrl;
+            $params[':id_user']      = $userId ?: null;
+            $stmt->execute($params);
+            $acteId = (int)$pdo->lastInsertId();
+        } catch (Throwable $e) {
+            error_log('[bien_intake] bailleur_acte insert failed: ' . $e->getMessage());
+        }
+    }
+
     // ── (9) Mandat — création si extrait ──
     if (!empty($fields['type_mandat'])) {
         try {
@@ -624,7 +898,10 @@ try {
         'bien_id'    => $bienId,
         'created_now'=> $createdNow,
         'diag_id'    => $diagId,
+        'bail_id'    => $bailId,
+        'acte_id'    => $acteId,
         'doc_type'   => $docType,
+        'force_type' => $forceType,  // type explicite demandé par l'UI (ou null si auto)
         'doc_titre'  => $docTitre,
         'resume'     => $resume,
         'fields'     => $fields,

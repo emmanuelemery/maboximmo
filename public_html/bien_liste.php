@@ -596,12 +596,17 @@ function photoPrincipaleUrl(array $bien): ?string {
       <div class="page-head-sub"><?= $totalBiens ?> bien<?= $totalBiens > 1 ? 's' : '' ?> dans le portefeuille</div>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost">
-        ＋ Ajout direct
+      <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-primary"
+         title="Créer un nouveau bien — page unifiée : création, édition, documents, DPE, annonce, diffusion">
+        ➕ Nouveau bien
       </a>
-      <a href="<?= htmlspecialchars(app_url('/bien_intake.php')) ?>" class="bl-btn bl-btn-primary">
-        🤖 Ajout avec doc par IA
-      </a>
+      <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
+      <button type="button" class="bl-btn" id="btn-purge-admin"
+              style="background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;font-weight:700;cursor:pointer;font-family:inherit;"
+              title="Supprimer réellement (avec cascade) les biens créés récemment — admin only">
+        🗑 Nettoyage admin
+      </button>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -680,11 +685,8 @@ function photoPrincipaleUrl(array $bien): ?string {
             : 'Vous n\'avez pas encore ajouté de bien. Commencez maintenant !' ?>
         </p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <a href="<?= htmlspecialchars(app_url('/bien_ajouter.php')) ?>" class="bl-btn bl-btn-ghost">
-            ＋ Ajout direct
-          </a>
-          <a href="<?= htmlspecialchars(app_url('/bien_intake.php')) ?>" class="bl-btn bl-btn-primary">
-            🤖 Ajout avec doc par IA
+          <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-primary">
+            ➕ Nouveau bien
           </a>
         </div>
       </div>
@@ -727,9 +729,9 @@ function photoPrincipaleUrl(array $bien): ?string {
                 'titre'   => $b['designation'] ?: (($b['type_libelle'] ?? '') . ' — ' . ($b['ville'] ?? '')),
                 'adresse' => trim(($b['adresse_1'] ?? '') . ', ' . ($b['code_postal'] ?? '') . ' ' . ($b['ville'] ?? ''), ', '),
                 'photo'   => photoPrincipaleUrl($b),
-                'urlEdit'     => app_url('/bien_ajouter.php?edit=' . (int)$b['id']),
-                'urlAnnonces' => app_url('/bien_ajouter.php?edit=' . (int)$b['id']) . '#annonce',
-                'urlDiffuser' => app_url('/bien_ajouter.php?edit=' . (int)$b['id']) . '#diffusion',
+                'urlEdit'     => app_url('/bien_detail.php?edit=' . (int)$b['id']),
+                'urlAnnonces' => app_url('/annonce_nouvelle.php?id_bien=' . (int)$b['id']),
+                'urlDiffuser' => app_url('/annonce_nouvelle.php?id_bien=' . (int)$b['id']),
             ];
         }
       ?>
@@ -931,6 +933,188 @@ document.getElementById('deleteModal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
 });
 </script>
+
+<?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
+<!-- ═══ MODAL : Nettoyage admin (suppression réelle + cascade) ═══ -->
+<div id="purgeModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:1100;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;max-width:780px;width:calc(100% - 40px);max-height:90vh;overflow-y:auto;padding:28px;">
+    <h2 style="margin:0 0 6px;color:#b91c1c;font-size:20px;">🗑 Suppression réelle + cascade (admin)</h2>
+    <p style="margin:0 0 18px;color:#64748b;font-size:13px;">
+      Supprime <strong>définitivement</strong> les biens correspondant au filtre + toutes les lignes liées dans 25+ tables (annonces, mandats, diagnostics, photos, documents, baux, actes…). <strong>Irréversible.</strong>
+    </p>
+
+    <!-- Étape 1 : scope -->
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:12px;color:#0f172a;margin-bottom:10px;">1️⃣ Définir le scope</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <label style="font-size:12px;color:#475569;">
+          Créés depuis&nbsp;:
+          <input type="datetime-local" id="purgeDateMin"
+                 value="<?= date('Y-m-d\T00:00', strtotime('yesterday')) ?>"
+                 style="display:block;margin-top:4px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;width:100%;">
+        </label>
+        <div style="font-size:12px;color:#475569;">
+          Statuts :
+          <div style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;">
+            <label><input type="checkbox" class="purgeStatut" value="brouillon" checked> brouillon</label>
+            <label><input type="checkbox" class="purgeStatut" value="actif" checked> actif</label>
+            <label><input type="checkbox" class="purgeStatut" value="suspendu"> suspendu</label>
+            <label><input type="checkbox" class="purgeStatut" value="archive"> archive</label>
+          </div>
+        </div>
+      </div>
+      <button type="button" id="btnPurgePreview"
+              style="margin-top:14px;padding:8px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">
+        📋 Prévisualiser
+      </button>
+    </div>
+
+    <!-- Étape 2 : résultats + confirmation -->
+    <div id="purgeResults" style="display:none;"></div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+      <button type="button" id="btnPurgeClose"
+              style="padding:8px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">
+        Fermer
+      </button>
+      <button type="button" id="btnPurgeDelete" disabled
+              style="padding:8px 14px;border-radius:8px;background:#dc2626;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;opacity:.4;pointer-events:none;">
+        🗑 Supprimer définitivement
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const modal        = document.getElementById('purgeModal');
+  const btnOpen      = document.getElementById('btn-purge-admin');
+  const btnClose     = document.getElementById('btnPurgeClose');
+  const btnPreview   = document.getElementById('btnPurgePreview');
+  const btnDelete    = document.getElementById('btnPurgeDelete');
+  const results      = document.getElementById('purgeResults');
+  const csrf         = '<?= csrf_token('bien_delete_cascade') ?>';
+  let previewToken   = null;
+
+  function openModal()  { modal.style.display = 'flex'; }
+  function closeModal() { modal.style.display = 'none'; results.innerHTML = ''; results.style.display = 'none'; lockDelete(); }
+  function lockDelete() { btnDelete.disabled = true; btnDelete.style.opacity = .4; btnDelete.style.pointerEvents = 'none'; previewToken = null; }
+  function unlockDelete() { btnDelete.disabled = false; btnDelete.style.opacity = 1; btnDelete.style.pointerEvents = 'auto'; }
+
+  function buildFormData(action) {
+    const fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fd.append('action', action);
+    fd.append('date_min', document.getElementById('purgeDateMin').value);
+    document.querySelectorAll('.purgeStatut:checked').forEach(c => fd.append('statuts[]', c.value));
+    if (action === 'delete' && previewToken) fd.append('token', previewToken);
+    return fd;
+  }
+
+  function renderCandidates(data) {
+    const cands = data.candidates || [];
+    const byTbl = data.count_by_table || {};
+    let html = '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:#92400e;">';
+    html += '<strong>' + data.count + ' bien' + (data.count > 1 ? 's' : '') + '</strong> dans le scope. ';
+    const totalRelated = Object.values(byTbl).reduce((a, b) => a + b, 0);
+    html += totalRelated + ' ligne(s) liée(s) dans ' + Object.keys(byTbl).length + ' table(s) filles.';
+    html += '</div>';
+
+    if (cands.length) {
+      html += '<div style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:10px;"><table style="width:100%;border-collapse:collapse;font-size:11px;">';
+      html += '<thead style="position:sticky;top:0;background:#f1f5f9;"><tr><th style="padding:6px 8px;text-align:left;">ID</th><th style="padding:6px 8px;text-align:left;">Ref</th><th style="padding:6px 8px;text-align:left;">Statut</th><th style="padding:6px 8px;text-align:left;">Adresse</th><th style="padding:6px 8px;text-align:left;">Créé le</th></tr></thead><tbody>';
+      cands.forEach(c => {
+        html += '<tr style="border-top:1px solid #e5e7eb;">'
+             +  '<td style="padding:5px 8px;font-family:monospace;color:#64748b;">' + c.id + '</td>'
+             +  '<td style="padding:5px 8px;">' + (c.reference_bien || '—') + '</td>'
+             +  '<td style="padding:5px 8px;"><span style="padding:2px 6px;border-radius:99px;background:' + (c.statut_bien === 'brouillon' ? '#fef3c7' : '#dbeafe') + ';font-size:10px;">' + c.statut_bien + '</span></td>'
+             +  '<td style="padding:5px 8px;color:#475569;">' + ((c.adresse_1 || '') + ' ' + (c.ville || '')).trim() + '</td>'
+             +  '<td style="padding:5px 8px;color:#94a3b8;font-size:10px;">' + (c.date_creation || '') + '</td>'
+             +  '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    if (Object.keys(byTbl).length) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;color:#475569;font-size:11px;">Détail des lignes liées (' + Object.keys(byTbl).length + ' tables)</summary>';
+      html += '<div style="padding:8px 12px;font-size:11px;color:#475569;font-family:monospace;line-height:1.7;">';
+      Object.entries(byTbl).sort((a,b) => b[1] - a[1]).forEach(([t, n]) => {
+        html += t + ' : ' + n + '<br>';
+      });
+      html += '</div></details>';
+    }
+    return html;
+  }
+
+  function renderDeleted(data) {
+    const d = data.deleted || {};
+    let html = '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px;font-size:13px;color:#14532d;">';
+    html += '✅ <strong>Suppression terminée</strong> — ' + (data.total_biens || 0) + ' bien(s) supprimé(s) définitivement.';
+    html += '</div>';
+    html += '<details style="margin-top:10px;"><summary style="cursor:pointer;color:#475569;font-size:11px;">Détail par table (' + Object.keys(d).length + ')</summary>';
+    html += '<div style="padding:8px 12px;font-size:11px;color:#475569;font-family:monospace;line-height:1.7;">';
+    Object.entries(d).forEach(([t, n]) => { html += t + ' : ' + n + '<br>'; });
+    html += '</div></details>';
+    return html;
+  }
+
+  btnOpen.addEventListener('click', openModal);
+  btnClose.addEventListener('click', closeModal);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+  btnPreview.addEventListener('click', async () => {
+    lockDelete();
+    btnPreview.disabled = true;
+    btnPreview.textContent = '⏳ Chargement…';
+    try {
+      const r = await fetch('<?= htmlspecialchars(app_url('/api/bien_delete_cascade.php')) ?>', { method: 'POST', body: buildFormData('preview') });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || 'Erreur inconnue');
+      results.innerHTML = renderCandidates(data);
+      results.style.display = 'block';
+      if (data.count > 0) {
+        previewToken = data.token;
+        unlockDelete();
+      }
+    } catch (e) {
+      results.innerHTML = '<div style="background:#fef2f2;color:#991b1b;padding:10px;border-radius:8px;font-size:12px;">❌ ' + e.message + '</div>';
+      results.style.display = 'block';
+    } finally {
+      btnPreview.disabled = false;
+      btnPreview.textContent = '📋 Prévisualiser';
+    }
+  });
+
+  // Invalidate preview token if scope changes
+  document.querySelectorAll('.purgeStatut, #purgeDateMin').forEach(el => {
+    el.addEventListener('change', () => { lockDelete(); results.innerHTML = ''; results.style.display = 'none'; });
+  });
+
+  btnDelete.addEventListener('click', async () => {
+    if (!previewToken) return;
+    if (!confirm('Confirmer la SUPPRESSION DÉFINITIVE ? Cette action est IRRÉVERSIBLE.')) return;
+    if (!confirm('Dernière confirmation — tape OK dans la prochaine boîte pour valider.')) return;
+    const t = prompt('Tape "SUPPRIMER" pour confirmer :', '');
+    if (t !== 'SUPPRIMER') { alert('Annulé.'); return; }
+
+    btnDelete.disabled = true;
+    btnDelete.textContent = '⏳ Suppression…';
+    try {
+      const r = await fetch('<?= htmlspecialchars(app_url('/api/bien_delete_cascade.php')) ?>', { method: 'POST', body: buildFormData('delete') });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || 'Erreur inconnue');
+      results.innerHTML = renderDeleted(data);
+      lockDelete();
+      setTimeout(() => location.reload(), 2000);
+    } catch (e) {
+      results.innerHTML = '<div style="background:#fef2f2;color:#991b1b;padding:10px;border-radius:8px;font-size:12px;">❌ ' + e.message + '</div>';
+      btnDelete.disabled = false;
+      btnDelete.textContent = '🗑 Supprimer définitivement';
+    }
+  });
+})();
+</script>
+<?php endif; ?>
 
 </body>
 </html>

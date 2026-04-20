@@ -12,7 +12,166 @@ declare(strict_types=1);
  *
  * Retourne un tableau structuré compatible avec le formulaire bien_ajouter.php.
  */
-function analyseBienIntakeIA(string $text): array
+/**
+ * Détecte le type de document via des patterns regex sur les premiers 3000 chars.
+ * Renvoie 'diag' | 'mandat' | 'bail' | 'fiche' | 'titre' | 'inconnu'.
+ * Économique (pas d'appel IA), très rapide. Pour le cas ambigu → 'inconnu'
+ * qui provoque un fallback sur l'extraction générique.
+ */
+function detectBienIntakeDocType(string $text): string
+{
+    $head = mb_strtolower(mb_substr($text, 0, 3000));
+
+    $score = ['diag' => 0, 'mandat' => 0, 'bail' => 0, 'fiche' => 0, 'titre' => 0];
+
+    // DIAGNOSTICS (DPE, plomb, amiante, électricité, gaz, termites, ERP, Loi Boutin, Carrez)
+    foreach (['diagnostic de performance', 'dpe', 'attestation de surface', 'loi boutin', 'loi carrez',
+              'numero d\'enregistrement ademe', 'constat de risque', 'amiante', 'plomb (crep)',
+              'état des risques', 'ernt', 'diagnostic termites', 'mesurage'] as $kw) {
+        if (str_contains($head, $kw)) $score['diag'] += 3;
+    }
+
+    // MANDAT
+    foreach (['mandat de vente', 'mandat de location', 'mandat de gestion', 'mandat exclusif',
+              'mandat simple', 'numéro de mandat', 'numero de mandat', 'je soussigné', 'mandant',
+              'articles 6 et 7 de la loi hoguet', 'carte professionnelle'] as $kw) {
+        if (str_contains($head, $kw)) $score['mandat'] += 3;
+    }
+
+    // BAIL
+    foreach (['contrat de bail', 'bail d\'habitation', 'bail commercial', 'bail mobilité',
+              'bail de location', 'bail professionnel', 'bail civil', 'bail rural',
+              'le bailleur', 'le preneur', 'le locataire', 'durée du bail', 'préavis',
+              'état des lieux d\'entrée', 'loi du 6 juillet 1989', 'l. 145-1',
+              'articles l. 145-1'] as $kw) {
+        if (str_contains($head, $kw)) $score['bail'] += 3;
+    }
+
+    // FICHE commerciale (Hektor, Périclès, Apimo, Poliris, Netty, ICI…)
+    foreach (['fiche commerciale', 'fiche privée', 'fiche privee', 'descriptif commercial',
+              'n° de dossier', 'n° de mandat', 'mandat et disponibilite', 'mandat et disponibilité',
+              'informations financieres', 'informations financières', 'secteur et commodites',
+              'secteur et commodités', 'prix vente public', 'prix net vendeur',
+              'adresse du bien', 'description parking', 'description appartement'] as $kw) {
+        if (str_contains($head, $kw)) $score['fiche'] += 3;
+    }
+    foreach (['à vendre', 'a vendre', 'à louer', 'a louer', 'honoraires de vente'] as $kw) {
+        if (str_contains($head, $kw)) $score['fiche'] += 2;
+    }
+
+    // TITRE de propriété / notification mutation / avis mutation
+    foreach (['acte authentique', 'titre de propriété', 'me notaire', 'par-devant maître',
+              'notification de transfert de propriété', 'avis de mutation',
+              'notification de mutation', 'décret n° 67-223', 'decret n° 67-223',
+              'article 20 de la loi n° 65-557', 'article 6 du décret',
+              'acte reçu par office notarial', 'office notarial', 'crpcen',
+              'selarl', 'notaires associés'] as $kw) {
+        if (str_contains($head, $kw)) $score['titre'] += 3;
+    }
+
+    arsort($score);
+    $best = array_key_first($score);
+    $bestScore = $score[$best];
+    // Seuil minimum pour confiance
+    return $bestScore >= 3 ? $best : 'inconnu';
+}
+
+/**
+ * Point d'entrée principal — DISPATCHER.
+ *
+ * @param string      $text       Texte extrait du document à analyser
+ * @param string|null $forceType  Si fourni (bail|mandat|titre|diag|fiche|divers),
+ *                                bypasse la détection regex et route direct
+ *                                vers le module spécialisé demandé. Sinon,
+ *                                détection auto via detectBienIntakeDocType().
+ *
+ * Règle site (cf. memory/feedback_upload_documents_types.md) : l'UI doit TOUJOURS
+ * passer le type explicite choisi par l'utilisateur. La détection auto sert
+ * uniquement de fallback quand le type est inconnu.
+ */
+function analyseBienIntakeIA(string $text, ?string $forceType = null): array
+{
+    // ─── 1. Type : forcé par l'appelant OU détection auto ─────
+    $validForced = ['bail', 'mandat', 'titre', 'diag', 'fiche', 'divers'];
+    if ($forceType !== null) {
+        $forceType = strtolower(trim($forceType));
+        if (in_array($forceType, $validForced, true)) {
+            $docType = $forceType;
+        } elseif ($forceType === 'auto' || $forceType === '') {
+            $docType = detectBienIntakeDocType($text);
+        } else {
+            // Type invalide → on fallback sur auto pour éviter d'échouer bêtement
+            $docType = detectBienIntakeDocType($text);
+        }
+    } else {
+        $docType = detectBienIntakeDocType($text);
+    }
+
+    // ─── 2. Route vers le module spécialisé ────────────────────
+    switch ($docType) {
+        case 'diag':
+            require_once __DIR__ . '/bien_intake_diag.php';
+            $r = analyseDiagIA($text);
+            $r['doc_type'] = $r['doc_type'] ?? 'diag';
+            $r['router']   = 'diag';
+            return $r;
+
+        case 'mandat':
+            require_once __DIR__ . '/bien_intake_mandat.php';
+            $r = analyseMandatIA($text);
+            $r['router']   = 'mandat';
+            return $r;
+
+        case 'fiche':
+            require_once __DIR__ . '/bien_intake_fiche.php';
+            $r = analyseFicheIA($text);
+            $r['router']   = 'fiche';
+            return $r;
+
+        case 'bail':
+            require_once __DIR__ . '/bien_intake_bail.php';
+            $r = analyseBailIA($text);
+            $r['doc_type'] = $r['doc_type'] ?? 'bail';
+            $r['router']   = 'bail';
+            return $r;
+
+        case 'titre':
+            require_once __DIR__ . '/bien_intake_titre.php';
+            $r = analyseTitreIA($text);
+            $r['doc_type'] = $r['doc_type'] ?? 'titre';
+            $r['router']   = 'titre';
+            return $r;
+
+        case 'divers':
+            // Module divers (résumé IA + chat) — sera créé à l'Étape 3.
+            // En attendant, fallback sur extraction générique avec tag divers.
+            if (file_exists(__DIR__ . '/bien_intake_divers.php')) {
+                require_once __DIR__ . '/bien_intake_divers.php';
+                $r = analyseDiversIA($text);
+                $r['router'] = 'divers';
+                return $r;
+            }
+            $r = analyseBienIntakeIAGeneric($text);
+            $r['doc_type'] = 'divers';
+            $r['router']   = 'divers_fallback';
+            return $r;
+
+        default:
+            // Fallback : extraction générique ci-dessous
+            $r = analyseBienIntakeIAGeneric($text);
+            $r['router'] = 'generic';
+            return $r;
+    }
+}
+
+/**
+ * Extraction générique (code historique) — utilisé en fallback quand
+ * le type de document n'a pas pu être détecté précisément.
+ *
+ * À terme, tous les types devraient avoir leur module dédié et cette
+ * fonction ne servira plus qu'en ultime secours.
+ */
+function analyseBienIntakeIAGeneric(string $text): array
 {
     $api_key = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
     $model   = defined('OPENAI_DPE_MODEL') ? OPENAI_DPE_MODEL : 'gpt-4o-mini';
@@ -81,17 +240,18 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure (null si absent) :
   },
 
   "_dpe": {
-    "dpe_classe": "A|B|C|D|E|F|G ou null",
-    "ges_classe": "A|B|C|D|E|F|G ou null",
-    "dpe_valeur": "nombre entier ou null",
-    "ges_valeur": "nombre entier ou null",
-    "dpe_valeur_conso_primaire": "nombre ou null",
-    "dpe_valeur_conso_finale": "nombre ou null",
+    "dpe_classe": "A|B|C|D|E|F|G ou null (si absent, déduis-le de la valeur DPE : A≤50, B≤90, C≤150, D≤230, E≤330, F≤450, G>450 kWhEP/m².an)",
+    "ges_classe": "A|B|C|D|E|F|G ou null (déduction : A≤5, B≤10, C≤20, D≤35, E≤55, F≤80, G>80 kgCO2/m².an)",
+    "dpe_valeur": "nombre entier (kWh EP/m²/an, consommation réelle) ou null",
+    "ges_valeur": "nombre entier (kg CO2/m²/an, émissions estimées) ou null",
+    "dpe_valeur_conso_primaire": "nombre entier (kWhEP TOTAL annuel, SOMME de toutes les énergies colonne 'Consommations en énergie primaire') ou null",
+    "dpe_valeur_conso_finale": "nombre entier (kWhEF TOTAL annuel, SOMME de toutes les énergies colonne 'Consommations en énergies finales') ou null",
+    "frais_annuels_energie": "nombre (€ TOTAL annuel, SOMME colonne 'Frais annuels d'énergie' + abonnements inclus) ou null",
     "date_indice_prix_energies": "YYYY-MM-DD ou null",
     "altitude": "nombre entier (m) ou null",
     "dpe_date_realisation": "YYYY-MM-DD ou null",
     "dpe_version": "2011|2021 ou null",
-    "dpe_vierge": "true|false",
+    "dpe_vierge": "true|false (true UNIQUEMENT si 'Indéterminée' / 'DPE vierge' explicite)",
     "dpe_reference_certificat": "string (n° ADEME) ou null",
     "montant_estime_depenses_min": "nombre ou null",
     "montant_estime_depenses_max": "nombre ou null"
@@ -116,13 +276,13 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure (null si absent) :
   },
 
   "_proprietaire": {
-    "_commentaire": "Adresse PERSONNELLE du propriétaire (siège social SCI, domicile particulier). Souvent DIFFÉRENTE de l'adresse du bien. Dans un mandat / DPE, elle apparaît dans une section dédiée 'Propriétaire', 'Mandant', 'Bailleur'.",
-    "nom": "string ou null",
+    "_commentaire": "PROPRIÉTAIRE RÉEL uniquement. NE JAMAIS extraire les noms d'agences / régies (REGIE EMERY, EMERY, Cabinet, Agence, Administrateur de biens, Syndic). Ces entités sont des MANDATAIRES, PAS les vrais bailleurs. Si le doc indique 'REGIE EMERY' comme propriétaire → mets nom=null. Extrais uniquement un particulier (Mr/Mme Dupont) ou une SCI/SARL réelle (SCI FOCH). Adresse = adresse PERSONNELLE du propriétaire (siège SCI, domicile particulier), jamais celle de l'agence.",
+    "nom": "string ou null (IGNORE : REGIE EMERY, EMERY, Agence, Cabinet, Régie, Administrateur, Syndic)",
     "prenom": "string ou null",
     "civilite": "M.|Mme|null",
     "type_personne": "physique|morale|null",
-    "societe": "string ou null (raison sociale si SCI/SARL)",
-    "adresse_1": "string ou null (adresse PERSONNELLE)",
+    "societe": "string ou null (raison sociale SCI/SARL réelle — jamais une régie/agence)",
+    "adresse_1": "string ou null (adresse PERSONNELLE du bailleur, pas celle de l'agence)",
     "code_postal": "string ou null",
     "ville": "string ou null",
     "email": "string ou null",
@@ -172,10 +332,25 @@ Si tu vois deux codes postaux différents dans le doc, c'est typique : un pour l
 Autres règles :
 - Pour "doc_type" : choisis le type le plus précis. Dossier complet contenant DPE+plomb+amiante etc → "dossier_diagnostics"
 - Pour "type_typologie" : T4 → nb_pieces=4
-- Pour "annee_construction" : "Avant 1948" → 1948
+- Pour "annee_construction" :
+    • "Avant 1948" / "< 1949" → 1948 (borne haute avant 1948)
+    • "Avant 1975" → 1975
+    • "Avant 2000" → 2000
+    • Toujours l'année de la borne haute (celle AVANT laquelle il est construit)
+- Pour "etage" : "RDC" / "Rez-de-chaussée" → 0, "1er" → 1, "2ème" → 2, etc.
 - Pour les booléens : true uniquement si confirmé ; false ou null sinon
 - Pour les dates au format jj/mm/yyyy, convertis en YYYY-MM-DD strict
-- Pour le propriétaire : extrais les infos seulement si elles apparaissent EXPLICITEMENT dans le doc
+- Pour "dpe_valeur_conso_finale" / "dpe_valeur_conso_primaire" / "frais_annuels_energie" :
+    SOMME les lignes si plusieurs énergies. Ex :
+    - Gaz 8283 kWhEF + Électricité 1200 kWhEF → dpe_valeur_conso_finale = 9483
+    - Frais : 482€ gaz + 187€ abonnement = 669€
+- Pour "chauffage_energie" : identifié dans la colonne "Moyenne annuelle des consommations" (ex : "Facture Gaz Naturel" → gaz)
+- Pour "menuiseries" : matériau DOMINANT des fenêtres (ignorer portes) ; "métal avec rupteur" → "aluminium" ; mixte → "mixte"
+- Pour le propriétaire :
+    • Extrais uniquement si un NOM RÉEL apparaît (personne physique ou SCI/SARL)
+    • ⚠️ IGNORE ABSOLUMENT : REGIE EMERY, EMERY, Cabinet EMERY, Agence EMERY, Agence immobilière, Régie, Cabinet, Administrateur de biens, Syndic, Gestionnaire — ce sont des MANDATAIRES, pas des propriétaires
+    • Si le doc indique comme propriétaire l'une de ces entités → nom=null (on ne connaît pas le vrai bailleur)
+    • Exemple valide : "Mr MICHELLIER-VINOUZE" → nom=MICHELLIER-VINOUZE ; "SCI FOCH" → societe=SCI FOCH
 - N'invente RIEN. Si tu n'es pas sûr, mets null.
 
 TEXTE DU DOCUMENT :

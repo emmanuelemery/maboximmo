@@ -24,6 +24,10 @@ if (!isset($current_page)) {
     $current_page = $rubrique_map[$rubrique] ?? ($_GET['page'] ?? 'dashboard');
     // Détection page admin_dashboard.php
     if ($basename === 'admin_dashboard') $current_page = 'admin';
+    if ($basename === 'admin_migrations') $current_page = 'admin_migrations';
+    if ($basename === 'admin_bailleurs') $current_page = 'admin_bailleurs';
+    if ($basename === 'admin_referentiel') $current_page = 'admin_referentiel';
+    if ($basename === 'tiers_nouveau') $current_page = 'tiers_nouveau';
 }
 
 // Rôle courant (pour section Administrer)
@@ -368,6 +372,34 @@ if (count($parts_name) >= 2) {
                 <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
             </svg>
             <span class="sb-item-lbl" style="<?= $current_page === 'admin' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Administration</span>
+        </a>
+        <a href="admin/admin_migrations.php" class="sb-item <?= $current_page === 'admin_migrations' ? 'active' : '' ?>"
+           style="<?= $current_page === 'admin_migrations' ? 'background:rgba(168,88,88,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_migrations' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'admin_migrations' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Migrations BDD</span>
+        </a>
+        <a href="admin_bailleurs.php" class="sb-item <?= $current_page === 'admin_bailleurs' ? 'active' : '' ?>"
+           style="<?= $current_page === 'admin_bailleurs' ? 'background:rgba(168,88,88,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_bailleurs' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'admin_bailleurs' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Gestion Bailleurs</span>
+        </a>
+        <a href="admin_referentiel.php" class="sb-item <?= $current_page === 'admin_referentiel' ? 'active' : '' ?>"
+           style="<?= $current_page === 'admin_referentiel' ? 'background:rgba(168,88,88,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_referentiel' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'admin_referentiel' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Référentiel</span>
+        </a>
+        <a href="tiers_nouveau.php" class="sb-item <?= $current_page === 'tiers_nouveau' ? 'active' : '' ?>"
+           style="<?= $current_page === 'tiers_nouveau' ? 'background:rgba(45,95,107,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'tiers_nouveau' ? '#2d5f6b' : '#5a8a95' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'tiers_nouveau' ? 'color:#2d5f6b;font-weight:700;' : 'color:#5a8a95;' ?>">Nouveau tiers</span>
         </a>
         <?php endif; ?>
     </div>
