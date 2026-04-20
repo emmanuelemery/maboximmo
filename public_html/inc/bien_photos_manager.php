@@ -1,26 +1,32 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/image_tools.php';
+
 /**
  * BienPhotosManager — Bibliothèque photos rattachée au bien
  *
- * Stocke les photos brutes d'un bien (originaux JPEG/PNG/WebP) dans :
- *   uploads/biens/{id_societe}/{id_bien}/NN_{hash}.{ext}
+ * Stocke les photos d'un bien dans :
+ *   uploads/biens/{id_societe}/{id_bien}/NN_{hash}.jpg      (original compressé)
+ *   uploads/biens/{id_societe}/{id_bien}/NN_{hash}.lbc.jpg  (variante Le Bon Coin)
  *
- * Et insère une ligne par photo dans la table `biens_photos`.
+ * À l'upload, l'image est :
+ *   - chargée avec redressement EXIF
+ *   - downscale à max ORIGINAL_MAX_WIDTH si plus large
+ *   - réencodée JPEG qualité ORIGINAL_QUALITY (métadonnées EXIF droppées)
+ *   - dupliquée en variante LBC : max LBC_MAX_WIDTH, JPEG forcé < LBC_MAX_BYTES
  *
- * Ces photos servent de bibliothèque source : quand l'utilisateur crée
- * une annonce, il sélectionne jusqu'à 7 photos depuis cette bibliothèque,
- * et AnnoncePhotosManager les COPIE + RENOMME en mode SEO + génère
- * les variantes WebP dans uploads/annonces/{soc}/{id_annonce}/.
- *
- * NB : ce manager ne fait PAS de redimensionnement / réencodage WebP.
- * C'est volontaire — on garde l'original tel quel pour préserver
- * la qualité maximale, et c'est AnnoncePhotosManager qui fait
- * le traitement SEO au moment de la diffusion.
+ * Le tout ramène des photos smartphone ~8 Mo à ~600 Ko (original) + ~300 Ko
+ * (variante LBC), soit un facteur ~15× sur l'usage disque.
  */
 final class BienPhotosManager
 {
+    public const ORIGINAL_MAX_WIDTH = 2500;
+    public const ORIGINAL_QUALITY   = 85;
+    public const LBC_MAX_WIDTH      = 1200;
+    public const LBC_MAX_BYTES      = 1_900_000;
+    public const LBC_SUFFIX         = '.lbc.jpg';
+
     private PDO $pdo;
 
     public function __construct(PDO $pdo)
@@ -49,35 +55,8 @@ final class BienPhotosManager
             return ['ok' => false, 'error' => 'Fichier source introuvable'];
         }
 
-        // Détection MIME + extension
-        $info = @getimagesize($srcPath);
-        if (!$info) {
-            return ['ok' => false, 'error' => 'Format image invalide'];
-        }
-        $mime = $info['mime'] ?? '';
-        $ext = match ($info[2]) {
-            IMAGETYPE_JPEG => 'jpg',
-            IMAGETYPE_PNG  => 'png',
-            IMAGETYPE_WEBP => 'webp',
-            default        => null,
-        };
-        if ($ext === null) {
-            return ['ok' => false, 'error' => 'Format non supporté (JPG/PNG/WebP uniquement)'];
-        }
-
-        // Création du dossier disque
-        $dirAbs = dirname(__DIR__) . '/uploads/biens/' . $idSociete . '/' . $idBien . '/';
-        $dirRel = 'uploads/biens/' . $idSociete . '/' . $idBien . '/';
-        if (!is_dir($dirAbs) && !@mkdir($dirAbs, 0755, true) && !is_dir($dirAbs)) {
-            return ['ok' => false, 'error' => 'Impossible de créer le dossier ' . $dirRel];
-        }
-
-        // Calcul de l'ordre suivant
-        $st = $this->pdo->prepare("SELECT COALESCE(MAX(ordre), 0) FROM biens_photos WHERE id_bien = ?");
-        $st->execute([$idBien]);
-        $nextOrdre = ((int)$st->fetchColumn()) + 1;
-
-        // Hash + nom de fichier
+        // Hash du fichier SOURCE (pré-compression) → utilisé pour la déduplication
+        // même si l'upload du même fichier brut produit un binaire compressé différent.
         $md5 = md5_file($srcPath) ?: substr(uniqid('', true), 0, 12);
 
         // Vérif déduplication par hash
@@ -92,29 +71,73 @@ final class BienPhotosManager
             ];
         }
 
-        $fileName = sprintf('%02d_%s.%s', $nextOrdre, substr($md5, 0, 8), $ext);
-        $destAbs = $dirAbs . $fileName;
-        $destRel = $dirRel . $fileName;
+        // Charge l'image avec redressement EXIF
+        $loaded = it_load_and_orient($srcPath);
+        if (!$loaded) {
+            return ['ok' => false, 'error' => 'Format image invalide ou non supporté (JPG/PNG/WebP uniquement)'];
+        }
+        [$imgRes, $srcExt] = $loaded;
 
-        if (!@copy($srcPath, $destAbs) && !@rename($srcPath, $destAbs)) {
-            return ['ok' => false, 'error' => 'Impossible d\'écrire le fichier sur disque'];
+        // Création du dossier disque
+        $dirAbs = dirname(__DIR__) . '/uploads/biens/' . $idSociete . '/' . $idBien . '/';
+        $dirRel = 'uploads/biens/' . $idSociete . '/' . $idBien . '/';
+        if (!is_dir($dirAbs) && !@mkdir($dirAbs, 0755, true) && !is_dir($dirAbs)) {
+            imagedestroy($imgRes);
+            return ['ok' => false, 'error' => 'Impossible de créer le dossier ' . $dirRel];
         }
 
-        $largeur = $info[0] ?? null;
-        $hauteur = $info[1] ?? null;
-        $poids = filesize($destAbs) ?: null;
+        // Calcul de l'ordre suivant
+        $st = $this->pdo->prepare("SELECT COALESCE(MAX(ordre), 0) FROM biens_photos WHERE id_bien = ?");
+        $st->execute([$idBien]);
+        $nextOrdre = ((int)$st->fetchColumn()) + 1;
+
+        // Downscale pour l'original
+        $origRes = it_resize_max_width($imgRes, self::ORIGINAL_MAX_WIDTH);
+        $origResIsNew = ($origRes !== $imgRes);
+
+        $baseName = sprintf('%02d_%s', $nextOrdre, substr($md5, 0, 8));
+        $origFile = $baseName . '.jpg';
+        $lbcFile  = $baseName . self::LBC_SUFFIX;
+        $origAbs = $dirAbs . $origFile;
+        $lbcAbs  = $dirAbs . $lbcFile;
+        $origRel = $dirRel . $origFile;
+        $lbcRel  = $dirRel . $lbcFile;
+
+        if (!it_save_jpeg($origRes, $origAbs, self::ORIGINAL_QUALITY)) {
+            if ($origResIsNew) imagedestroy($origRes);
+            imagedestroy($imgRes);
+            return ['ok' => false, 'error' => 'Impossible d\'écrire l\'original sur disque'];
+        }
+
+        // Variante LBC : downscale indépendant depuis l'image d'origine redressée
+        $lbcRes = it_resize_max_width($imgRes, self::LBC_MAX_WIDTH);
+        $lbcResIsNew = ($lbcRes !== $imgRes);
+        $lbcQualityUsed = it_save_jpeg_under_size($lbcRes, $lbcAbs, self::LBC_MAX_BYTES);
+        if ($lbcResIsNew) imagedestroy($lbcRes);
+
+        // Nettoyage ressources GD
+        if ($origResIsNew) imagedestroy($origRes);
+        imagedestroy($imgRes);
+
+        // Mesures finales
+        $origInfo = it_measure($origAbs);
+        $largeur = $origInfo['largeur'] ?: null;
+        $hauteur = $origInfo['hauteur'] ?: null;
+        $poids   = $origInfo['poids']   ?: null;
+        $mime    = $origInfo['mime']    ?: 'image/jpeg';
 
         // Insertion BDD
         try {
             $st = $this->pdo->prepare(
                 "INSERT INTO biens_photos
-                 (id_bien, ordre, url_photo, nom_original, largeur, hauteur, poids_octets, hash_md5, mime_type, id_user_upload, date_upload)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
+                 (id_bien, ordre, url_photo, url_lbc, nom_original, largeur, hauteur, poids_octets, hash_md5, mime_type, id_user_upload, date_upload)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
             );
             $st->execute([
                 $idBien,
                 $nextOrdre,
-                $destRel,
+                $origRel,
+                $lbcQualityUsed > 0 ? $lbcRel : null,
                 $nomOriginal,
                 $largeur,
                 $hauteur,
@@ -125,18 +148,21 @@ final class BienPhotosManager
             ]);
             $idPhoto = (int)$this->pdo->lastInsertId();
         } catch (Throwable $e) {
-            @unlink($destAbs);
+            @unlink($origAbs);
+            @unlink($lbcAbs);
             return ['ok' => false, 'error' => 'Erreur BDD : ' . $e->getMessage()];
         }
 
         return [
-            'ok'      => true,
-            'id'      => $idPhoto,
-            'url'     => $destRel,
-            'ordre'   => $nextOrdre,
-            'largeur' => $largeur,
-            'hauteur' => $hauteur,
-            'poids'   => $poids,
+            'ok'       => true,
+            'id'       => $idPhoto,
+            'url'      => $origRel,
+            'url_lbc'  => $lbcQualityUsed > 0 ? $lbcRel : null,
+            'ordre'    => $nextOrdre,
+            'largeur'  => $largeur,
+            'hauteur'  => $hauteur,
+            'poids'    => $poids,
+            'lbc_q'    => $lbcQualityUsed,
         ];
     }
 
@@ -160,13 +186,14 @@ final class BienPhotosManager
      */
     public function supprimer(int $idPhoto): bool
     {
-        $st = $this->pdo->prepare("SELECT url_photo FROM biens_photos WHERE id = ?");
+        $st = $this->pdo->prepare("SELECT url_photo, url_lbc FROM biens_photos WHERE id = ?");
         $st->execute([$idPhoto]);
-        $url = $st->fetchColumn();
-        if (!$url) return false;
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return false;
 
-        $abs = dirname(__DIR__) . '/' . $url;
-        @unlink($abs);
+        $base = dirname(__DIR__) . '/';
+        if (!empty($row['url_photo'])) @unlink($base . ltrim((string)$row['url_photo'], '/'));
+        if (!empty($row['url_lbc']))   @unlink($base . ltrim((string)$row['url_lbc'],   '/'));
 
         $st = $this->pdo->prepare("DELETE FROM biens_photos WHERE id = ?");
         return $st->execute([$idPhoto]);

@@ -565,15 +565,21 @@ SQL;
  * Modèle V2 (2026-04-20) : annonces_photos est une table de liaison N:N
  * vers biens_photos (id_biens_photo). Les URLs sont lues depuis biens_photos
  * par JOIN, dans l'ordre annonces_photos.ordre.
+ *
+ * Variante LBC (2026-04-21) : Ubiflow diffuse entre autres vers Le Bon Coin
+ * qui impose JPEG ≤ 1200 px et < 2 Mo. On renvoie `url_lbc` quand elle est
+ * disponible, avec fallback sur `url_photo` pour les photos pas encore
+ * rattrapées par admin/tools_photos_recompress.php.
  */
 function ubiflow_get_photos(PDO $pdo, int $idAnnonce): array
 {
     $stmt = $pdo->prepare(
-        'SELECT bp.url_photo FROM annonces_photos ap
+        'SELECT COALESCE(bp.url_lbc, bp.url_photo) AS url
+         FROM annonces_photos ap
          JOIN biens_photos bp ON bp.id = ap.id_biens_photo
          WHERE ap.id_annonce = :id
          ORDER BY ap.ordre ASC, ap.id ASC'
     );
     $stmt->execute([':id' => $idAnnonce]);
-    return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'url_photo');
+    return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'url');
 }
