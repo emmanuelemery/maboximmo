@@ -787,6 +787,22 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <?php endif; ?>
 
 
+          <!-- 1bis. Identification (référence + désignation commerciale) -->
+          <div class="v2-group-header">
+            <span class="v2-group-header-title">🏷️ Identification</span>
+            <span class="v2-hint">Référence interne + désignation commerciale — repris dans l'annonce et le flux Ubiflow</span>
+          </div>
+          <div class="v2-addr-grid" style="grid-template-columns: 0.5fr 1fr;">
+            <input type="text" id="v2-f-reference_bien" class="v2-input"
+                   name="reference_bien" data-autosave maxlength="60"
+                   placeholder="Référence bien (ex : 2026-001)"
+                   value="<?= h((string)($b['reference_bien'] ?? '')) ?>">
+            <input type="text" id="v2-f-designation" class="v2-input"
+                   name="designation" data-autosave maxlength="255"
+                   placeholder="Désignation commerciale (ex : T3 lumineux vue dégagée, 65m²)"
+                   value="<?= h((string)($b['designation'] ?? '')) ?>">
+          </div>
+
           <!-- 2. Adresse (inputs autosave — valeurs déjà syncées depuis dpe_diags si vides) -->
           <?php
             $etageVal = isset($b['etage']) && $b['etage'] !== '' ? h((string)$b['etage']) : '';
