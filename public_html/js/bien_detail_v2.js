@@ -405,9 +405,10 @@
     // pas vers `tiers.id`. On passe par /api/bien_proprio_link.php qui crée
     // la ligne proprietaires à la volée si elle n'existe pas.
     // tiersId = 0 ou '' -> dissocie.
+    // Retourne : { ok: bool, id_proprio_legacy: number|null, error?: string }
     async function linkTiersToBien(tiersId) {
       const bienId = parseInt(data.bienId, 10) || 0;
-      if (!bienId) return false;
+      if (!bienId) return { ok: false, error: 'bienId manquant' };
       const body = {
         id_bien:    bienId,
         id_tiers:   parseInt(tiersId, 10) || 0,
@@ -427,13 +428,13 @@
         if (!j.ok) {
           console.warn('[linkTiersToBien]', j.error);
           alert('❌ ' + (j.error || 'Erreur liaison propriétaire'));
-          return false;
+          return { ok: false, error: j.error };
         }
-        return true;
+        return { ok: true, id_proprio_legacy: j.id_proprio_legacy || null };
       } catch (e) {
         console.warn('[linkTiersToBien]', e);
         alert('❌ ' + e.message);
-        return false;
+        return { ok: false, error: e.message };
       }
     }
 
@@ -468,8 +469,8 @@
           if (!tid) return;
           btn.disabled = true;
           btn.innerHTML = '⏳ Liaison en cours…';
-          const ok = await linkTiersToBien(tid);
-          if (ok) {
+          const res = await linkTiersToBien(tid);
+          if (res.ok) {
             setTimeout(() => window.location.reload(), 400);
           } else {
             btn.disabled = false;
@@ -520,8 +521,8 @@
         if (!confirm('Retirer ce propriétaire du bien ?\n(Le tiers reste en base et peut être relié ailleurs.)')) return;
         unlinkBtn.disabled = true;
         unlinkBtn.textContent = '⏳ Dissociation…';
-        const ok = await linkTiersToBien('');
-        if (ok) setTimeout(() => window.location.reload(), 400);
+        const res = await linkTiersToBien('');
+        if (res.ok) setTimeout(() => window.location.reload(), 400);
         else { unlinkBtn.disabled = false; unlinkBtn.textContent = '❌ Erreur'; }
       });
     }
@@ -541,17 +542,35 @@
       statusEl.className = 'v2-form-status' + (kind ? ' ' + kind : '');
       statusEl.textContent = msg || '';
     }
-    function openModal() {
+    // openModal(prefill?) — prefill est un objet optionnel avec les champs
+    // pré-remplis (ex: depuis suggestion DPE). Les champs vides laissent
+    // l'état actuel, les champs fournis écrasent.
+    function openModal(prefill) {
       if (!modal) return;
       modal.hidden = false;
       setModalStatus('', '');
-      // Prefill si searchEl contient du texte
-      if (searchEl && searchEl.value.trim()) {
-        const nomEl = document.getElementById('v2-proprio-nom');
-        if (nomEl && !nomEl.value) nomEl.value = searchEl.value.trim();
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+      if (prefill && typeof prefill === 'object') {
+        // Type : bascule sur le bon tab si fourni
+        const wantType = prefill.type_tiers || (prefill.raison_sociale ? 'personne_morale' : 'personne_physique');
+        const typeBtn = typeRadios ? typeRadios.querySelector('.v2-icon-radio[data-value="' + wantType + '"]') : null;
+        if (typeBtn && !typeBtn.classList.contains('is-active')) typeBtn.click();
+        set('v2-proprio-nom',    prefill.nom);
+        set('v2-proprio-prenom', prefill.prenom);
+        set('v2-proprio-raison', prefill.raison_sociale);
+        set('v2-proprio-siret',  prefill.siret);
+        set('v2-proprio-email',  prefill.email);
+        set('v2-proprio-tel',    prefill.telephone);
+        set('v2-proprio-adresse',prefill.adresse || prefill.adresse_1 || prefill.adresse_ligne1);
+        set('v2-proprio-cp',     prefill.code_postal || prefill.cp);
+        set('v2-proprio-ville',  prefill.ville);
+      } else if (searchEl && searchEl.value.trim()) {
+        set('v2-proprio-nom', searchEl.value.trim());
       }
     }
     function closeModal() { if (modal) modal.hidden = true; }
+    // Expose openModal avec prefill pour la suggestion DPE
+    window.__v2OpenProprioModal = openModal;
 
     if (newBtn && modal) newBtn.addEventListener('click', openModal);
     if (closeBtn)  closeBtn.addEventListener('click', closeModal);
@@ -620,13 +639,24 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'Erreur création');
-          // api/tiers_create.php renvoie 'id_tiers' (pas 'id'), on tolère les deux
           const tiersId = j.id_tiers || j.id || j.tiers_id || 0;
           if (!tiersId) throw new Error('Tiers créé mais id manquant');
-          const ok = await linkTiersToBien(tiersId);
-          if (!ok) throw new Error('Échec liaison au bien');
-          setModalStatus('ok', '✅ Créé et associé, rechargement…');
-          setTimeout(() => window.location.reload(), 500);
+          const res = await linkTiersToBien(tiersId);
+          if (!res.ok) throw new Error(res.error || 'Échec liaison au bien');
+          // Redirection vers la fiche du propriétaire (modifiable),
+          // avec return URL pour revenir sur ce bien au clic "Retour".
+          const idLegacy = res.id_proprio_legacy || 0;
+          if (idLegacy > 0) {
+            const retUrl = '/bien_detail.php?edit=' + encodeURIComponent(data.bienId) + '&section=descriptif';
+            setModalStatus('ok', '✅ Créé et associé — ouverture de sa fiche…');
+            setTimeout(() => {
+              window.location.href = '/agency_proprietaire_fiche.php?id=' + idLegacy
+                + '&return=' + encodeURIComponent(retUrl);
+            }, 400);
+          } else {
+            setModalStatus('ok', '✅ Créé et associé, rechargement…');
+            setTimeout(() => window.location.reload(), 500);
+          }
         } catch (e) {
           saveBtn.disabled = false;
           setModalStatus('err', '❌ ' + e.message);
@@ -1642,45 +1672,32 @@
       bindDescriptifAutosave(data);
 
       // Création express du propriétaire détecté dans le DPE
-      const btnCreate = document.getElementById('v2-dpe-proprio-create');
+      // "Propriétaire détecté dans DPE" → ouvre le modal de création
+      // PRÉ-REMPLI avec les données détectées. L'user peut modifier / vérifier
+      // avant de valider (évite aussi les doublons par double-clic puisque
+      // la création effective passe par le modal qui a sa propre garde).
+      const btnCreate  = document.getElementById('v2-dpe-proprio-create');
       const suggestBox = document.getElementById('v2-dpe-proprio-suggest');
       const statusEl   = document.getElementById('v2-dpe-proprio-status');
       if (btnCreate && suggestBox) {
-        btnCreate.addEventListener('click', async () => {
-          const pd = JSON.parse(suggestBox.dataset.proprio || '{}');
-          btnCreate.disabled = true;
-          if (statusEl) { statusEl.textContent = '⏳ Création…'; statusEl.className = 'v2-form-status'; }
-          try {
-            // 1. Créer le tiers via tiers_create
-            const body = {
-              type_tiers:     pd.type || 'personne_physique',
-              civilite:       pd.civilite || '',
-              nom:            pd.nom || '',
-              prenom:         pd.prenom || '',
-              raison_sociale: pd.societe || '',
-              email:          pd.email || '',
-              telephone:      pd.telephone || '',
-              adresse_1:      pd.adresse || '',
-              code_postal:    pd.cp || '',
-              ville:          pd.ville || '',
-              roles: [{ role_code: 'proprietaire', objet_type: 'bien', id_objet: data.bienId }],
-            };
-            const r = await fetch(data.tiersCreateEndpoint || '/api/tiers_create.php', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'same-origin',
-              body: JSON.stringify(body),
-            });
-            const j = await r.json();
-            if (!j.ok) throw new Error(j.error || 'Erreur création');
-            // 2. Associer au bien via autosave
-            await window.__v2SaveField('id_proprietaire', j.id || j.tiers_id || '');
-            if (statusEl) { statusEl.textContent = '✅ Associé, rechargement…'; statusEl.className = 'v2-form-status ok'; }
-            setTimeout(() => window.location.reload(), 600);
-          } catch (e) {
-            btnCreate.disabled = false;
-            if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.className = 'v2-form-status err'; }
+        btnCreate.addEventListener('click', () => {
+          if (typeof window.__v2OpenProprioModal !== 'function') {
+            if (statusEl) { statusEl.textContent = '❌ Card Propriétaire non initialisée'; statusEl.className = 'v2-form-status err'; }
+            return;
           }
+          const pd = JSON.parse(suggestBox.dataset.proprio || '{}');
+          window.__v2OpenProprioModal({
+            type_tiers:     pd.type || 'personne_physique',
+            nom:            pd.nom,
+            prenom:         pd.prenom,
+            raison_sociale: pd.societe,
+            email:          pd.email,
+            telephone:      pd.telephone,
+            adresse:        pd.adresse,
+            code_postal:    pd.cp,
+            ville:          pd.ville,
+          });
+          if (statusEl) { statusEl.textContent = '✏️ Vérifie et valide dans le modal'; statusEl.className = 'v2-form-status'; }
         });
       }
 
