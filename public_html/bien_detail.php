@@ -29,8 +29,21 @@ $robots    = 'noindex, nofollow';
 
 $editingBienId = isset($_GET['edit']) && ctype_digit((string)$_GET['edit']) ? (int)$_GET['edit'] : 0;
 if ($editingBienId <= 0) {
-    header('Location: ' . app_url('/bien_liste.php?err=bien_introuvable'));
-    exit;
+    // Création d'un nouveau brouillon à la volée : l'user arrive sur
+    // /bien_detail.php (sans ?edit) depuis bien_liste "➕ Nouveau bien"
+    // ou depuis un lien legacy (bien_ajouter.php redirect).
+    try {
+        $idSocieteSession = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null;
+        $idAgenceSession  = isset($_SESSION['id_agence'])  ? (int)$_SESSION['id_agence']  : null;
+        $editingBienId = bien_form_create_draft($pdo, $idSocieteSession ?: null, $idAgenceSession ?: null);
+        // Redirige avec ?edit=X pour URL propre + compat F5/bookmark
+        header('Location: ' . app_url('/bien_detail.php?edit=' . $editingBienId . '&section=documents'));
+        exit;
+    } catch (Throwable $e) {
+        error_log('[bien_detail create_draft] ' . $e->getMessage());
+        header('Location: ' . app_url('/bien_liste.php?err=creation_bien'));
+        exit;
+    }
 }
 
 $idSociete = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null;
