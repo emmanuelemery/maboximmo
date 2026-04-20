@@ -39,6 +39,7 @@ public_html__backup*/
 # ── SQL dumps & gros fichiers ──
 *.sql
 !sql/migration_*.sql
+!public_html/sql_migrations_tiers/*.sql
 *.zip
 *.tar.gz
 *.rar
