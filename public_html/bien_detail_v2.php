@@ -1558,9 +1558,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                          placeholder="ex : proche métro, vue dégagée, lumineux, calme">
                 </div>
                 <div class="v2-field">
-                  <label class="v2-field-label">Notes à mentionner <small>(éléments internes à intégrer au texte)</small></label>
-                  <textarea class="v2-input v2-textarea" id="v2-ia-notes" rows="2"
-                            placeholder="Ex : travaux récents, chaudière neuve 2024, copropriété bien gérée, école primaire à 200 m…"></textarea>
+                  <label class="v2-field-label">
+                    Reprise descriptif <small>(notes brutes à intégrer — <strong>persistées sur le bien</strong>, réutilisées par l'IA)</small>
+                  </label>
+                  <textarea class="v2-input v2-textarea" id="v2-ia-notes" name="reprise_descriptif" data-autosave rows="3"
+                            placeholder="Ex : travaux récents, chaudière neuve 2024, copropriété bien gérée, école primaire à 200 m…"><?= h((string)($bienLoaded['reprise_descriptif'] ?? '')) ?></textarea>
                 </div>
               </div>
             </details>

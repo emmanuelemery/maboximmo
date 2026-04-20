@@ -203,25 +203,98 @@ if ($bienId > 0) {
             if (!$digicode  && (int)($bienRow['digicode'] ?? 0) === 1)    $digicode = true;
             if (!$fibre     && (int)($bienRow['fibre'] ?? 0) === 1)       $fibre    = true;
 
-            // Contexte BDD additionnel : champs utiles pour ChatGPT
-            if (!empty($bienRow['designation']))          $bienDbCtx[] = 'Désignation : ' . $bienRow['designation'];
-            if (!empty($bienRow['exposition']))           $bienDbCtx[] = 'Exposition : ' . $bienRow['exposition'];
-            if (!empty($bienRow['vue']))                  $bienDbCtx[] = 'Vue : ' . $bienRow['vue'];
-            if (!empty($bienRow['chauffage_type']))       $bienDbCtx[] = 'Chauffage : ' . $bienRow['chauffage_type'] . (!empty($bienRow['chauffage_energie']) ? ' (' . $bienRow['chauffage_energie'] . ')' : '');
-            if (!empty($bienRow['annee_construction']))   $bienDbCtx[] = 'Année construction : ' . $bienRow['annee_construction'];
-            if (!empty($bienRow['etat_bien']))            $bienDbCtx[] = 'État : ' . $bienRow['etat_bien'];
-            if (!empty($bienRow['standing']))             $bienDbCtx[] = 'Standing : ' . $bienRow['standing'];
-            if (!empty($bienRow['cuisine_type']))         $bienDbCtx[] = 'Cuisine : ' . $bienRow['cuisine_type'] . (((int)($bienRow['cuisine_equipee'] ?? 0)) === 1 ? ' (équipée)' : '');
-            if (!empty($bienRow['surface_sejour']))       $bienDbCtx[] = 'Séjour : ' . $bienRow['surface_sejour'] . ' m²';
-            if (!empty($bienRow['surface_terrain']))      $bienDbCtx[] = 'Terrain : ' . $bienRow['surface_terrain'] . ' m²';
-            if (!empty($bienRow['surface_balcon']))       $bienDbCtx[] = 'Balcon : ' . $bienRow['surface_balcon'] . ' m²';
-            if (!empty($bienRow['surface_terrasse']))     $bienDbCtx[] = 'Terrasse : ' . $bienRow['surface_terrasse'] . ' m²';
-            if (!empty($bienRow['surface_jardin']))       $bienDbCtx[] = 'Jardin : ' . $bienRow['surface_jardin'] . ' m²';
-            if (!empty($bienRow['hauteur_sous_plafond'])) $bienDbCtx[] = 'Hauteur sous plafond : ' . $bienRow['hauteur_sous_plafond'] . ' m';
-            if ((int)($bienRow['cheminee'] ?? 0) === 1)     $bienDbCtx[] = 'Cheminée : oui';
-            if ((int)($bienRow['climatisation'] ?? 0) === 1) $bienDbCtx[] = 'Climatisation : oui';
-            if ((int)($bienRow['piscine'] ?? 0) === 1)      $bienDbCtx[] = 'Piscine : oui';
-            if (!empty($bienRow['commentaire']))          $bienDbCtx[] = 'Notes internes : ' . $bienRow['commentaire'];
+            // ── Helpers locaux pour pousser le contexte proprement ──
+            $pushTxt = function(string $label, $val) use (&$bienDbCtx) {
+                if ($val === null || $val === '' || $val === 0 || $val === '0') return;
+                $bienDbCtx[] = $label . ' : ' . $val;
+            };
+            $pushBool = function(string $label, $val) use (&$bienDbCtx) {
+                if ((int)($val ?? 0) === 1) $bienDbCtx[] = $label . ' : oui';
+            };
+            $pushSurf = function(string $label, $val) use (&$bienDbCtx) {
+                $f = (float)($val ?? 0);
+                if ($f > 0) $bienDbCtx[] = $label . ' : ' . $f . ' m²';
+            };
+
+            // Identité commerciale & caractérisation
+            $pushTxt('Désignation',        $bienRow['designation']        ?? null);
+            $pushTxt('Référence interne',  $bienRow['reference_bien']     ?? null);
+            $pushTxt('État',               $bienRow['etat_bien']          ?? null);
+            $pushTxt('Standing',           $bienRow['standing']           ?? null);
+            $pushTxt('Année construction', $bienRow['annee_construction'] ?? null);
+
+            // Surfaces complémentaires
+            $pushSurf('Séjour',               $bienRow['surface_sejour']   ?? null);
+            $pushSurf('Carrez',               $bienRow['surface_carrez']   ?? null);
+            $pushSurf('Surface totale',       $bienRow['surface_totale']   ?? null);
+            $pushSurf('Terrain',              $bienRow['surface_terrain']  ?? null);
+            $pushSurf('Balcon',               $bienRow['surface_balcon']   ?? null);
+            $pushSurf('Terrasse',             $bienRow['surface_terrasse'] ?? null);
+            $pushSurf('Jardin',               $bienRow['surface_jardin']   ?? null);
+            $pushSurf('Cave',                 $bienRow['surface_cave']     ?? null);
+            $pushSurf('Garage',               $bienRow['surface_garage']   ?? null);
+            $pushTxt('Hauteur sous plafond', !empty($bienRow['hauteur_sous_plafond']) ? ($bienRow['hauteur_sous_plafond'] . ' m') : null);
+            $pushTxt('Dernier étage',        (int)($bienRow['dernier_etage'] ?? 0) === 1 ? 'oui' : null);
+
+            // Cuisine
+            if (!empty($bienRow['cuisine_type'])) {
+                $bienDbCtx[] = 'Cuisine : ' . $bienRow['cuisine_type'] . (((int)($bienRow['cuisine_equipee'] ?? 0)) === 1 ? ' (équipée)' : '');
+            } else {
+                $pushBool('Cuisine équipée', $bienRow['cuisine_equipee'] ?? null);
+            }
+
+            // Chauffage + énergie (détail)
+            if (!empty($bienRow['chauffage_type'])) {
+                $bienDbCtx[] = 'Chauffage : ' . $bienRow['chauffage_type']
+                    . (!empty($bienRow['chauffage_energie']) ? ' (' . $bienRow['chauffage_energie'] . ')' : '');
+            }
+            $pushTxt('Eau chaude',         $bienRow['eau_chaude_type']     ?? null);
+            $pushBool('Eau chaude solaire', $bienRow['eau_chaude_solaire'] ?? null);
+            $pushBool('Plancher chauffant', $bienRow['chauffage_plancher'] ?? null);
+            $pushBool('Thermostat',        $bienRow['chauffage_thermostat'] ?? null);
+            $pushBool('Régulateur',        $bienRow['chauffage_regulateur'] ?? null);
+            $pushBool('VMC',               $bienRow['chauffage_vmc']       ?? null);
+            $pushBool('VMC double flux',   $bienRow['chauffage_vmc_df']    ?? null);
+            $pushBool('Climatisation',     $bienRow['climatisation']       ?? null);
+            $pushTxt('Menuiseries',        $bienRow['menuiseries']         ?? null);
+            $pushTxt('Isolation',          $bienRow['isolation']           ?? null);
+            $pushBool('Double vitrage',    $bienRow['double_vitrage']      ?? null);
+            $pushBool('Volets roulants',   $bienRow['volets_roulants']     ?? null);
+            $pushBool('Cheminée',          $bienRow['cheminee']            ?? null);
+
+            // Extérieur & dépendances
+            $pushBool('Jardin',        $bienRow['jardin']       ?? null);
+            $pushBool('Cour',          $bienRow['cour']         ?? null);
+            $pushBool('Grenier',       $bienRow['grenier']      ?? null);
+            $pushBool('Garage',        $bienRow['garage']       ?? null);
+            $pushBool('Box',           $bienRow['box']          ?? null);
+            $pushBool('Piscine',       $bienRow['piscine']      ?? null);
+            $pushBool('Dépendances',   $bienRow['dependances']  ?? null);
+            $pushBool('Accès camion',  $bienRow['acces_camion'] ?? null);
+
+            // Sécurité / accès
+            $pushBool('Interphone',    $bienRow['interphone']   ?? null);
+            $pushBool('Alarme',        $bienRow['alarme']       ?? null);
+
+            // Environnement / emplacement
+            $pushTxt('Exposition',        $bienRow['exposition']        ?? null);
+            $pushTxt('Vue',               $bienRow['vue']               ?? null);
+            $pushTxt('Ambiance',          $bienRow['ambiance']          ?? null);
+            $pushTxt('Quartier',          $bienRow['quartier']          ?? null);
+            $pushTxt('Nuisances',         $bienRow['nuisances']         ?? null);
+            $pushTxt('Accès transports',  $bienRow['acces_transports']  ?? null);
+            $pushTxt('Distance commerces', $bienRow['distance_commerces'] ?? null);
+            $pushTxt('Points d\'intérêt', $bienRow['points_interet']    ?? null);
+            $pushTxt('Argument phare',    $bienRow['argument_phare']    ?? null);
+
+            // Politiques occupant (utile pour cibler annonce)
+            $pushBool('Animaux acceptés', $bienRow['animaux_acceptes']  ?? null);
+            $pushBool('Fumeur accepté',   $bienRow['fumeur_accepte']    ?? null);
+            $pushBool('Meublé',           $bienRow['loyer_meuble']      ?? null);
+
+            // Notes / reprise descriptive libre (saisie agent)
+            if (!empty($bienRow['reprise_descriptif'])) $bienDbCtx[] = 'Reprise descriptif agent : ' . $bienRow['reprise_descriptif'];
+            if (!empty($bienRow['commentaire']))        $bienDbCtx[] = 'Notes internes : ' . $bienRow['commentaire'];
         }
 
         // 2. Annonce principale (prix, loyer, charges, description brute)

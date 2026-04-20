@@ -398,7 +398,8 @@
     async function saveBienField(name, value) {
       if (!data.bienId) return;
       const fd = new FormData();
-      fd.append('id_bien', data.bienId);
+      // bien_autosave.php attend `_edit_id` (pas `id_bien`)
+      fd.append('_edit_id', data.bienId);
       fd.append('csrf_token', csrf);
       fd.append(name, value == null ? '' : value);
       try {
@@ -809,13 +810,13 @@
     const keywordsEl = document.getElementById('v2-ia-keywords');
     const notesEl    = document.getElementById('v2-ia-notes');
 
-    // Restauration depuis sessionStorage
+    // Restauration depuis sessionStorage (ton/cible/keywords seulement).
+    // Les "notes" (reprise_descriptif) vivent maintenant en BDD via data-autosave.
     try {
       const saved = JSON.parse(sessionStorage.getItem(SS_KEY) || '{}');
       if (saved.ton      && tonEl)      tonEl.value      = saved.ton;
       if (saved.cible    && cibleEl)    cibleEl.value    = saved.cible;
       if (saved.keywords && keywordsEl) keywordsEl.value = saved.keywords;
-      if (saved.notes    && notesEl)    notesEl.value    = saved.notes;
     } catch (_) {}
 
     function persistOrientation() {
@@ -824,11 +825,10 @@
           ton:      tonEl ? tonEl.value : '',
           cible:    cibleEl ? cibleEl.value : '',
           keywords: keywordsEl ? keywordsEl.value : '',
-          notes:    notesEl ? notesEl.value : '',
         }));
       } catch (_) {}
     }
-    [tonEl, cibleEl, keywordsEl, notesEl].forEach(el => {
+    [tonEl, cibleEl, keywordsEl].forEach(el => {
       if (!el) return;
       el.addEventListener('change', persistOrientation);
       el.addEventListener('blur',   persistOrientation);
