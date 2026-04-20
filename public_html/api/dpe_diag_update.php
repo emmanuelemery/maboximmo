@@ -68,6 +68,61 @@ $biensAllowedCols = [
     'zone_georisque',
 ];
 
+// ── Auto-mapping dpe_diags → biens ──
+// Quand l'utilisateur renseigne un champ depuis la Card "À compléter"
+// DPE, il est naturel qu'il se propage aussi vers la table biens (sinon
+// l'user voit sa valeur dans la card Extraits mais pas dans la card
+// principale DPE qui lit biens.*).
+// Les clés ci-dessous sont les colonnes de dpe_diags ; les valeurs sont
+// la colonne biens équivalente (même sémantique).
+$autoMapDiagToBien = [
+    'dpe_classe'                    => 'dpe_classe',
+    'ges_classe'                    => 'ges_classe',
+    'consommation_energie'          => 'dpe_valeur',
+    'conso_energie_primaire'        => 'dpe_valeur_conso_primaire',
+    'conso_energie_finale'          => 'dpe_valeur_conso_finale',
+    'emission_ges'                  => 'ges_valeur',
+    'montant_depenses_min'          => 'montant_estime_depenses_min',
+    'montant_depenses_max'          => 'montant_estime_depenses_max',
+    'date_diagnostic'               => 'dpe_date_realisation',
+    'date_indice_prix'              => 'date_indice_prix_energies',
+    'dpe_version'                   => 'dpe_version',
+    'dpe_vierge'                    => 'dpe_vierge',
+    'numero_ademe'                  => 'dpe_reference_certificat',
+    'adresse_detectee'              => 'adresse_1',
+    'code_postal_detecte'           => 'code_postal',
+    'ville_detectee'                => 'ville',
+    'etage_detecte'                 => 'etage',
+    'lot_detecte'                   => 'lot_principal',
+    'annee_construction_detectee'   => 'annee_construction',
+    'altitude_detectee'             => 'altitude',
+    'surface_habitable_detectee'    => 'surface_habitable',
+    'surface_carrez_detectee'       => 'surface_carrez',
+    'surface_sejour_detectee'       => 'surface_sejour',
+    'nb_pieces_detecte'             => 'nb_pieces',
+    'nb_chambres_detecte'           => 'nb_chambres',
+    'nb_salles_bain_detecte'        => 'nb_salles_bain',
+    'nb_salles_eau_detecte'         => 'nb_salles_eau',
+    'nb_wc_detecte'                 => 'nb_wc',
+    'chauffage_type_detecte'        => 'chauffage_type',
+    'chauffage_energie_detecte'     => 'chauffage_energie',
+    'eau_chaude_type_detecte'       => 'eau_chaude_type',
+    'double_vitrage_detecte'        => 'double_vitrage',
+    'volets_roulants_detecte'       => 'volets_roulants',
+    'menuiseries_detectees'         => 'menuiseries',
+    'alerte_zone_georisque'         => 'zone_georisque',
+];
+
+// Propagation auto : pour chaque diag_field, si le mapping existe et
+// que la valeur n'est pas déjà explicitement dans biens_fields, on
+// l'ajoute. L'utilisateur peut toujours override via biens_fields.
+foreach ($diagFields as $diagCol => $diagVal) {
+    if (!isset($autoMapDiagToBien[$diagCol])) continue;
+    $bienCol = $autoMapDiagToBien[$diagCol];
+    if (array_key_exists($bienCol, $biensFields)) continue; // Déjà fourni explicitement
+    $biensFields[$bienCol] = $diagVal;
+}
+
 try {
     $pdo->beginTransaction();
 
@@ -88,10 +143,11 @@ try {
         $diagCount = $st->rowCount();
     }
 
-    // UPDATE biens (si bienId fourni)
+    // UPDATE biens (si bienId fourni) — inclut désormais les champs
+    // auto-mappés depuis diag_fields
     $biensCount = 0;
+    $biensSet = [];
     if ($bienId > 0) {
-        $biensSet = [];
         $biensParams = [':_id' => $bienId];
         foreach ($biensFields as $col => $val) {
             if (!in_array($col, $biensAllowedCols, true)) continue;
@@ -109,12 +165,20 @@ try {
 
     $pdo->commit();
 
+    // Auto-activation brouillon -> actif si adresse + proprietaire reunis
+    $autoActivated = false;
+    if ($bienId > 0) {
+        require_once __DIR__ . '/../inc/bien_auto_activate.php';
+        $autoActivated = bien_maybe_activate($pdo, $bienId);
+    }
+
     echo json_encode([
         'ok' => true,
-        'diag_updated' => count($diagSet),
-        'biens_updated' => count($biensSet ?? []),
-        'diag_rows_affected' => $diagCount,
+        'diag_updated'        => count($diagSet),
+        'biens_updated'       => count($biensSet),
+        'diag_rows_affected'  => $diagCount,
         'biens_rows_affected' => $biensCount,
+        'auto_activated'      => $autoActivated,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();

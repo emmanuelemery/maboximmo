@@ -592,9 +592,17 @@ try {
         }
     }
 
+    // Auto-activation brouillon -> actif dès qu'adresse + propriétaire renseignés
+    $autoActivated = false;
+    if ($bienId > 0) {
+        require_once dirname(__DIR__) . '/inc/bien_auto_activate.php';
+        $autoActivated = bien_maybe_activate($pdo, $bienId);
+    }
+
     echo json_encode([
-        'ok'       => true,
-        'saved_at' => date('H:i'),
+        'ok'             => true,
+        'saved_at'       => date('H:i'),
+        'auto_activated' => $autoActivated,
     ]);
 } catch (Throwable $e) {
     error_log('[bien_autosave] ' . $e->getMessage());
