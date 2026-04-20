@@ -84,8 +84,11 @@ if (empty($bienLoaded['reference_bien'])) {
 
 // Section courante
 $sectionsAvail = ['documents', 'dpe', 'descriptif', 'annonce'];
-$section = $_GET['section'] ?? 'documents';
-if (!in_array($section, $sectionsAvail, true)) $section = 'documents';
+// Défaut = 'descriptif' (ouverture d'un bien existant depuis bien_liste).
+// Pour un NOUVEAU brouillon, le redirect ci-dessus force explicitement
+// 'section=documents' pour atterrir sur la Card Chargement (DPE, mandat…).
+$section = $_GET['section'] ?? 'descriptif';
+if (!in_array($section, $sectionsAvail, true)) $section = 'descriptif';
 
 // Complétude Ubiflow (score pill topbar)
 $annonceIdLoaded = (int)($bienLoaded['_annonce_id'] ?? 0);
@@ -713,6 +716,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <section class="v2-card is-active" role="tabpanel" aria-label="Chargement de documents">
         <div class="v2-card-label">⬆️ Chargement</div>
         <div class="v2-card-body">
+          <div class="v2-chargement-tagline">
+            ✨ Le meilleur moyen de créer un bien, est de scanné son DPE !
+          </div>
           <div id="v2-uploader"></div>
 
           <!-- Dropzone Photos (en dessous du DocumentUploader) -->

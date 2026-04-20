@@ -1916,6 +1916,25 @@ input.v2-input.is-from-dpe {
   margin-left: 3px;
 }
 
+/* Card Chargement — tagline doré centré en haut */
+.v2-chargement-tagline {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.3;
+  padding: 14px 20px 18px;
+  background: linear-gradient(135deg, #d4af37 0%, #f9e076 45%, #c89b1a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 1px 1px rgba(196, 149, 26, 0.12);
+  letter-spacing: .01em;
+  font-family: 'Sora', system-ui, sans-serif;
+}
+@media (max-width: 640px) {
+  .v2-chargement-tagline { font-size: 17px; padding: 10px 14px 14px; }
+}
+
 /* Picker */
 .v2-proprio-picker {
   display: flex;

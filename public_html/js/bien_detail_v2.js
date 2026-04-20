@@ -1848,7 +1848,10 @@
       tabsEl: tabs,
       prevBtn: prevBtn,
       nextBtn: nextBtn,
-      startIndex: 0,
+      // En descriptif : Card 1 = Propriétaire, Card 2 = Caractéristiques.
+      // L'user atterrit direct sur Caractéristiques à l'ouverture d'un bien
+      // existant (index 1). Les autres sections partent de la Card 1.
+      startIndex: (data.section === 'descriptif') ? 1 : 0,
     });
     window.__v2Carousel = v2Carousel;
 
