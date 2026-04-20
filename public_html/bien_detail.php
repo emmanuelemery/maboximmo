@@ -196,6 +196,21 @@ if ($section === 'annonce') {
             $stCpl->execute([(int)$annonce['id']]);
             $cplLignes = $stCpl->fetchAll(PDO::FETCH_ASSOC) ?: [];
         }
+
+        // ── Historique complet : toutes les annonces du bien (y compris active) ──
+        // Utilisé par la Card 6 "Historique" pour retracer vente 2024 / location 2026 etc.
+        $annoncesHistorique = [];
+        $stH = $pdo->prepare("
+            SELECT a.id, a.type_transaction, a.etat_publication,
+                   a.date_creation, a.date_publication, a.date_modification,
+                   a.prix, a.loyer, a.loyer_cc, a.titre,
+                   (SELECT COUNT(*) FROM annonces_photos ap WHERE ap.id_annonce = a.id) AS nb_photos
+            FROM annonces a
+            WHERE a.id_bien = ?
+            ORDER BY a.id DESC
+        ");
+        $stH->execute([$editingBienId]);
+        $annoncesHistorique = $stH->fetchAll(PDO::FETCH_ASSOC) ?: [];
         // Toutes les photos du bien (indexées par id, ordre par défaut = ordre biens_photos)
         $st3 = $pdo->prepare("SELECT id, url_photo, nom_original FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC");
         $st3->execute([$editingBienId]);
@@ -1994,6 +2009,90 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                 🚀 Diffuser maintenant
               </button>
               <span id="v2-diffuse-status" class="v2-form-status" aria-live="polite"></span>
+            </div>
+          <?php endif; ?>
+        </div>
+      </section>
+
+      <!-- Card 6 : Historique des annonces du bien -->
+      <section class="v2-card is-next" role="tabpanel" aria-label="Historique des annonces">
+        <div class="v2-card-label">📜 Historique <span class="v2-count"><?= count($annoncesHistorique) ?></span></div>
+        <div class="v2-card-body">
+          <?php if (empty($annoncesHistorique)): ?>
+            <div class="v2-doc-empty">
+              <div class="v2-doc-empty-icon">📜</div>
+              <div>Aucune annonce pour ce bien.</div>
+            </div>
+          <?php else: ?>
+            <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
+              Toutes les annonces successives du bien. La plus récente (◉) est celle éditée dans les autres cards.
+              Les annonces <strong>archivées</strong> restent consultables pour conserver l'historique (vente 2024 aboutie, location 2026, etc.).
+            </div>
+            <div class="v2-histo-wrap">
+              <table class="v2-histo-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Créée</th>
+                    <th>Transaction</th>
+                    <th>État</th>
+                    <th>Montant</th>
+                    <th style="text-align:center;">Photos</th>
+                    <th>Titre</th>
+                    <th>Publiée</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php
+                    $currentAnnonceId = (int)($annonce['id'] ?? 0);
+                    $labelTrans = [
+                      'vente' => '💶 Vente', 'location' => '🔑 Location',
+                      'saisonnier' => '🌴 Saison.', 'viager' => '⌛ Viager',
+                    ];
+                    $labelEtat = [
+                      'brouillon' => ['📝', 'Brouillon', 'is-draft'],
+                      'diffusee'  => ['🚀', 'Diffusée',  'is-live'],
+                      'archivee'  => ['📦', 'Archivée',  'is-archived'],
+                    ];
+                    foreach ($annoncesHistorique as $ah):
+                      $aid    = (int)$ah['id'];
+                      $isCurr = $aid === $currentAnnonceId;
+                      $trans  = (string)($ah['type_transaction'] ?? '');
+                      $etat   = (string)($ah['etat_publication'] ?? 'brouillon');
+                      [$eIc, $eLbl, $eCls] = $labelEtat[$etat] ?? ['❓', $etat, ''];
+                      $montant = '';
+                      if ($trans === 'vente' && !empty($ah['prix'])) {
+                        $montant = number_format((float)$ah['prix'], 0, ',', ' ') . ' €';
+                      } elseif (!empty($ah['loyer_cc'])) {
+                        $montant = number_format((float)$ah['loyer_cc'], 0, ',', ' ') . ' € CC/mois';
+                      } elseif (!empty($ah['loyer'])) {
+                        $montant = number_format((float)$ah['loyer'], 0, ',', ' ') . ' € HC/mois';
+                      }
+                      $dc = $ah['date_creation']    ? date('d/m/Y', strtotime((string)$ah['date_creation'])) : '—';
+                      $dp = $ah['date_publication'] ? date('d/m/Y', strtotime((string)$ah['date_publication'])) : '—';
+                  ?>
+                    <tr class="v2-histo-row <?= $eCls ?><?= $isCurr ? ' is-current' : '' ?>">
+                      <td class="v2-histo-id">
+                        <?php if ($isCurr): ?><span class="v2-histo-current-dot" title="Annonce active">◉</span><?php endif; ?>
+                        #<?= $aid ?>
+                      </td>
+                      <td><?= h($dc) ?></td>
+                      <td><?= $trans !== '' ? h($labelTrans[$trans] ?? $trans) : '<span style="color:var(--v2-muted);">—</span>' ?></td>
+                      <td><span class="v2-histo-badge <?= $eCls ?>"><?= $eIc ?> <?= h($eLbl) ?></span></td>
+                      <td><?= $montant !== '' ? h($montant) : '<span style="color:var(--v2-muted);">—</span>' ?></td>
+                      <td style="text-align:center;">
+                        <span class="v2-histo-photos<?= (int)$ah['nb_photos'] > 0 ? '' : ' is-zero' ?>">
+                          📸 <?= (int)$ah['nb_photos'] ?>
+                        </span>
+                      </td>
+                      <td class="v2-histo-titre" title="<?= h((string)($ah['titre'] ?? '')) ?>">
+                        <?= h((string)($ah['titre'] ?? '')) ?: '<span style="color:var(--v2-muted);">—</span>' ?>
+                      </td>
+                      <td><?= h($dp) ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
             </div>
           <?php endif; ?>
         </div>

@@ -1972,3 +1972,66 @@ input.v2-input.is-from-dpe {
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Card 6 Annonce — Historique (table read-only)
+   ══════════════════════════════════════════════════════════════════ */
+.v2-histo-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid #e2e8f0; }
+.v2-histo-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  background: #fff;
+}
+.v2-histo-table th {
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 700;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.v2-histo-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #0f172a;
+  vertical-align: middle;
+}
+.v2-histo-table tr:last-child td { border-bottom: 0; }
+.v2-histo-table tr:hover td { background: #f8fafc; }
+
+.v2-histo-row.is-archived td { opacity: 0.55; }
+.v2-histo-row.is-current  { background: linear-gradient(90deg, rgba(16,185,129,0.05), transparent); }
+.v2-histo-row.is-current td:first-child { border-left: 3px solid #15803d; padding-left: 10px; }
+
+.v2-histo-current-dot { color: #15803d; font-size: 14px; margin-right: 4px; }
+.v2-histo-id { font-family: 'DM Mono', ui-monospace, monospace; font-size: 11.5px; color: #64748b; white-space: nowrap; }
+.v2-histo-titre {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+}
+
+.v2-histo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.v2-histo-badge.is-draft    { background: rgba(100,116,139,0.14); color: #475569; }
+.v2-histo-badge.is-live     { background: rgba(16,185,129,0.16);  color: #15803d; }
+.v2-histo-badge.is-archived { background: rgba(138,134,128,0.14); color: #78716c; }
+
+.v2-histo-photos { font-size: 11px; color: var(--v2-accent, #36577d); white-space: nowrap; }
+.v2-histo-photos.is-zero { color: var(--v2-muted, #94a3b8); }
