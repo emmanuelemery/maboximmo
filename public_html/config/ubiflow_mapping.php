@@ -561,13 +561,18 @@ SQL;
 
 /**
  * Récupère les photos d'une annonce (ordonnées), sous forme de liste d'URLs.
+ *
+ * Modèle V2 (2026-04-20) : annonces_photos est une table de liaison N:N
+ * vers biens_photos (id_biens_photo). Les URLs sont lues depuis biens_photos
+ * par JOIN, dans l'ordre annonces_photos.ordre.
  */
 function ubiflow_get_photos(PDO $pdo, int $idAnnonce): array
 {
     $stmt = $pdo->prepare(
-        'SELECT url_photo FROM annonces_photos
-         WHERE id_annonce = :id
-         ORDER BY principale DESC, ordre_affichage ASC, id ASC'
+        'SELECT bp.url_photo FROM annonces_photos ap
+         JOIN biens_photos bp ON bp.id = ap.id_biens_photo
+         WHERE ap.id_annonce = :id
+         ORDER BY ap.ordre ASC, ap.id ASC'
     );
     $stmt->execute([':id' => $idAnnonce]);
     return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'url_photo');
