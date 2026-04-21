@@ -2161,10 +2161,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                           <em><?= h(trim($bCp . ' ' . $bVille) ?: 'Adresse à compléter') ?></em>
                         <?php endif; ?>
                       </div>
-                      <?php
-                        $editDescUrl = app_url('/bien_detail.php?edit=' . (int)$editingBienId . '&section=annonce&focus=description');
-                      ?>
-                      <div onclick="window.location.href=<?= json_encode($editDescUrl, JSON_UNESCAPED_SLASHES) ?>"
+                      <div onclick="if(window.__v2FocusField){window.__v2FocusField('description');}"
                            style="font-size:11px; color:#334155; line-height:1.4; cursor:pointer; padding:4px; border-radius:4px; transition:background .15s;"
                            onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'"
                            title="Cliquer pour éditer la description">

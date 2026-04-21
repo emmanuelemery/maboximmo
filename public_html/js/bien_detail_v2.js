@@ -1312,6 +1312,9 @@
     }
     try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (_) {} }
   }
+  // Expose focusField globalement pour pouvoir l'appeler depuis du HTML inline
+  // (ex: clic sur la description preview de la Card Diffusion)
+  window.__v2FocusField = focusField;
 
   // ══════════════════════════════════════════════════════════════════
   // Card 3 Annonce — Génération IA (description / titre / SEO / slug)
