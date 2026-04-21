@@ -48,16 +48,25 @@ try {
         exit(json_encode(['ok' => true, 'id' => $existing, 'existed' => true]));
     }
 
+    // Hérite id_agence + id_user (commercial) du bien si renseignés, sinon fallback session
+    $stB = $pdo->prepare("SELECT id_agence, id_user_actuel, id_societe FROM biens WHERE id = ?");
+    $stB->execute([$bienId]);
+    $bienRow = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
+    $finalSoc    = (int)($bienRow['id_societe']     ?? 0) ?: ($societeId ?: 0);
+    $finalAgence = (int)($bienRow['id_agence']      ?? 0) ?: ($agenceId  ?: 0);
+    $finalUser   = (int)($bienRow['id_user_actuel'] ?? 0) ?: ($userId    ?: 0);
+
     $st = $pdo->prepare("
-        INSERT INTO annonces (id_bien, id_societe, id_agence, etat_publication,
+        INSERT INTO annonces (id_bien, id_societe, id_agence, id_user, etat_publication,
                               visible_portails, visible_maboximmo, visible_site_perso,
                               date_creation, date_modification)
-        VALUES (:bien, :soc, :ag, 'brouillon', 0, 0, 0, NOW(), NOW())
+        VALUES (:bien, :soc, :ag, :usr, 'brouillon', 0, 0, 0, NOW(), NOW())
     ");
     $st->execute([
         ':bien' => $bienId,
-        ':soc'  => $societeId ?: null,
-        ':ag'   => $agenceId  ?: null,
+        ':soc'  => $finalSoc    ?: null,
+        ':ag'   => $finalAgence ?: null,
+        ':usr'  => $finalUser   ?: null,
     ]);
     $id = (int)$pdo->lastInsertId();
 

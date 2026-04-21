@@ -123,15 +123,17 @@ $mandatTypes = ['mandat', 'mandat_vente', 'mandat_gestion', 'mandat_location', '
 $docsPhotos = [];
 if ($section === 'documents') {
     try {
-        $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
+        $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
         $st->execute([$editingBienId]);
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
             $docsPhotos[] = [
-                'id'           => (int)$p['id'],
-                'url'          => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
-                'nom_original' => (string)($p['nom_original'] ?? ''),
-                'largeur'      => (int)($p['largeur'] ?? 0),
-                'hauteur'      => (int)($p['hauteur'] ?? 0),
+                'id'             => (int)$p['id'],
+                'url'            => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
+                'nom_original'   => (string)($p['nom_original'] ?? ''),
+                'largeur'        => (int)($p['largeur'] ?? 0),
+                'hauteur'        => (int)($p['hauteur'] ?? 0),
+                'categorie'      => (string)($p['categorie'] ?? ''),
+                'description_ia' => (string)($p['description_ia'] ?? ''),
             ];
         }
     } catch (Throwable $e) {}
@@ -205,7 +207,7 @@ if ($section === 'annonce') {
         $annoncesHistorique = [];
         $stH = $pdo->prepare("
             SELECT a.id, a.type_transaction, a.etat_publication,
-                   a.date_creation, a.date_publication, a.date_modification,
+                   a.date_creation, a.date_mise_en_ligne AS date_publication, a.date_modification,
                    a.prix, a.loyer, a.loyer_cc, a.titre,
                    (SELECT COUNT(*) FROM annonces_photos ap WHERE ap.id_annonce = a.id) AS nb_photos
             FROM annonces a
@@ -236,6 +238,17 @@ if ($section === 'annonce') {
         foreach ($photosOrdreBien as $pid) {
             if (!isset($selSet[$pid]) && isset($photosById[$pid])) {
                 $annonceBienPhotos[] = $photosById[$pid];
+            }
+        }
+        // Garde-fou inconditionnel : si pour une raison quelconque les loops
+        // ci-dessus n'ont rien produit (annonces_photos orphelins, IDs ne
+        // matchant pas, etc.), on prend toutes les photos du bien — l'user
+        // pourra ensuite resélectionner via la Card Photos.
+        if (empty($annonceBienPhotos) && !empty($photosOrdreBien)) {
+            foreach ($photosOrdreBien as $pid) {
+                if (isset($photosById[$pid])) {
+                    $annonceBienPhotos[] = $photosById[$pid];
+                }
             }
         }
     } catch (Throwable $e) { error_log('[bien_detail_v2 annonce] ' . $e->getMessage()); }
@@ -655,6 +668,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <?php if (!empty($bienLoaded['reference_bien'])): ?>
         · <strong style="color:#0f172a;"><?= h((string)$bienLoaded['reference_bien']) ?></strong>
       <?php endif; ?>
+      <?php if ($section === 'annonce' && !empty($annonce)): ?>
+        · <span style="color:#0ea5e9; font-weight:600;" title="ID interne de l'annonce courante">📰 Annonce #<?= (int)$annonce['id'] ?></span>
+      <?php endif; ?>
     </span>
     <div class="topbar-spacer"></div>
 
@@ -766,10 +782,25 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             <div class="v2-photos-doc-grid">
               <?php foreach ($docsPhotos as $p): ?>
                 <div class="v2-photo-tile" data-id="<?= (int)$p['id'] ?>" data-url="<?= h($p['url']) ?>" data-name="<?= h($p['nom_original']) ?>">
-                  <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
-                  <div class="v2-photo-tile-actions">
-                    <button type="button" class="v2-photo-tile-btn" data-action="zoom" title="Agrandir">🔍</button>
-                    <button type="button" class="v2-photo-tile-btn danger" data-action="delete" title="Supprimer">🗑️</button>
+                  <div class="v2-photo-tile-img-wrap">
+                    <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
+                    <div class="v2-photo-tile-actions">
+                      <button type="button" class="v2-photo-tile-btn" data-action="zoom" title="Agrandir">🔍</button>
+                      <button type="button" class="v2-photo-tile-btn" data-action="analyze" title="Analyser à l'IA (catégorie + description)">🤖</button>
+                      <button type="button" class="v2-photo-tile-btn danger" data-action="delete" title="Supprimer">🗑️</button>
+                    </div>
+                  </div>
+                  <div class="v2-photo-tile-ai" data-photo-ai="<?= (int)$p['id'] ?>">
+                    <?php if ($p['categorie'] !== '' || $p['description_ia'] !== ''): ?>
+                      <?php if ($p['categorie'] !== ''): ?>
+                        <span class="v2-photo-tile-ai-cat">🏷️ <?= h($p['categorie']) ?></span>
+                      <?php endif; ?>
+                      <?php if ($p['description_ia'] !== ''): ?>
+                        <div class="v2-photo-tile-ai-desc"><?= h((string)$p['description_ia']) ?></div>
+                      <?php endif; ?>
+                    <?php else: ?>
+                      <span class="v2-photo-tile-ai-empty">📝 Pas encore analysée — clique 🤖</span>
+                    <?php endif; ?>
                   </div>
                 </div>
               <?php endforeach; ?>
@@ -838,6 +869,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         ];
 
         $curType    = (int)($b['id_type_bien'] ?? 0);
+        // Code stable du type courant (les IDs auto-increment ne sont pas portables entre dev/prod)
+        $curTypeCode = '';
+        foreach ($typesBienList as $_t) {
+            if ((int)$_t['id'] === $curType) { $curTypeCode = (string)$_t['code']; break; }
+        }
         $curSType   = (string)($b['sous_type_bien'] ?? '');
         $curUsage   = (string)($b['usage_bien'] ?? '');
         $curEtat    = (string)($b['etat_bien'] ?? '');
@@ -1101,12 +1137,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <!-- Type (pleine largeur) -->
           <div class="v2-icon-row">
             <span class="v2-icon-row-label">Type</span>
-            <div class="v2-icon-radios" data-field="id_type_bien">
+            <div class="v2-icon-radios" data-field="type_bien">
               <?php foreach ($typesBienList as $t):
                 $icon = $typeIcons[$t['code']] ?? '📦';
-                $act = ((int)$t['id'] === $curType) ? ' is-active' : '';
+                $act = ((string)$t['code'] === $curTypeCode) ? ' is-active' : '';
               ?>
-                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= (int)$t['id'] ?>" title="<?= h((string)$t['label']) ?>">
+                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h((string)$t['code']) ?>" title="<?= h((string)$t['label']) ?>">
                   <span class="v2-icon-emoji"><?= $icon ?></span>
                   <span class="v2-icon-lbl"><?= h((string)$t['label']) ?></span>
                 </button>
@@ -1910,90 +1946,28 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-      <!-- Card 4 : Photos de l'annonce (N:N toggle biens_photos ↔ annonces_photos) -->
+      <!-- Card 4 : Photos de l'annonce → page dédiée annonce_photos.php -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Photos de l'annonce">
         <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-annonce-photos-count"><?= count($annoncePhotoIds) ?></span></div>
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📸</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
-          <?php else: ?>
-            <?php
-              $selIdsSet = array_flip($annoncePhotoIds);
-              $nbSel = count($annoncePhotoIds);
-              $MAX_PHOTOS_ANN = 7;
-              $photosDispo = array_values(array_filter($annonceBienPhotos, fn($p) => !isset($selIdsSet[$p['id']])));
-              $photosSel   = [];
-              foreach ($annoncePhotoIds as $pid) {
-                  foreach ($annonceBienPhotos as $p) {
-                      if ((int)$p['id'] === $pid) { $photosSel[] = $p; break; }
-                  }
-              }
-            ?>
-            <?php if (empty($annonceBienPhotos)): ?>
-              <div class="v2-doc-empty">
-                <div class="v2-doc-empty-icon">📸</div>
-                <div>
-                  Aucune photo n'est encore chargée pour ce bien.<br>
-                  <small>Charge-les dans <a href="?edit=<?= (int)$editingBienId ?>&section=documents">📎 Documents → Chargement</a>,
-                  puis reviens ici pour les sélectionner.</small>
+          <?php else:
+            $returnQS = '/bien_detail.php?edit=' . (int)$editingBienId . '&section=annonce';
+            $apUrl = '/annonce_photos.php?id_annonce=' . (int)$annonce['id'] . '&return=' . urlencode($returnQS);
+          ?>
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; gap:18px;">
+              <div style="font-size:48px;">📸</div>
+              <div style="text-align:center; color:#475569; font-size:14px; max-width:520px;">
+                <strong style="color:#0f172a; font-size:16px;"><?= count($annoncePhotoIds) ?> photo(s) actuellement sélectionnée(s)</strong>
+                <div style="margin-top:8px;">
+                  Ouvre la page de sélection pour ajouter, retirer ou réordonner les photos qui apparaîtront sur l'annonce diffusée.
                 </div>
               </div>
-            <?php else: ?>
-              <!-- Compteur + actions en masse -->
-              <div class="v2-annonce-photos-topbar">
-                <div class="v2-annonce-photos-counter<?= $nbSel >= $MAX_PHOTOS_ANN ? ' is-full' : '' ?>" id="v2-annonce-photos-counter">
-                  <strong id="v2-annonce-photos-counter-n"><?= $nbSel ?></strong>
-                  <span> / <?= $MAX_PHOTOS_ANN ?> photos max</span>
-                </div>
-                <div class="v2-annonce-photos-bulk">
-                  <button type="button" id="v2-annonce-photos-all" class="v2-btn-primary"
-                          title="Ajoute à l'annonce toutes les photos du bien non encore sélectionnées (dans la limite de 7)">
-                    🔄 Récupérer les photos du bien
-                  </button>
-                  <button type="button" id="v2-annonce-photos-none" class="v2-btn-secondary">✕ Tout désélectionner</button>
-                </div>
-              </div>
-              <div class="v2-hint" style="padding:6px 10px;margin-bottom:10px;">
-                Si les photos du bien ne remontent pas toutes seules dans l'annonce, clique sur
-                <strong>« 🔄 Récupérer les photos du bien »</strong> ci-dessus.
-                <strong>Glisse les sélectionnées</strong> pour les réordonner — la 1ère sera la photo <strong>principale</strong> diffusée sur les portails.
-              </div>
-
-              <?php if (!empty($photosSel)): ?>
-                <div class="v2-annonce-photos-section-label selected">
-                  📌 Sélectionnées (glissez pour réordonner · 1ère = principale)
-                </div>
-                <div class="v2-annonce-photos-grid" id="v2-annonce-photos-grid-selected">
-                  <?php foreach ($photosSel as $i => $p): ?>
-                    <div class="v2-annonce-photo-tile is-selected" draggable="true"
-                         data-photo-id="<?= (int)$p['id'] ?>" data-rank="<?= $i ?>">
-                      <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
-                      <span class="v2-annonce-photo-order"><?= $i + 1 ?></span>
-                      <?php if ($i === 0): ?>
-                        <span class="v2-annonce-photo-main">PRINCIPALE</span>
-                      <?php endif; ?>
-                      <div class="v2-annonce-photo-check">✓</div>
-                    </div>
-                  <?php endforeach; ?>
-                </div>
-              <?php endif; ?>
-
-              <?php if (!empty($photosDispo)): ?>
-                <div class="v2-annonce-photos-section-label available">
-                  📂 Disponibles <small>(cliquez pour ajouter<?= $nbSel >= $MAX_PHOTOS_ANN ? ' — limite atteinte' : '' ?>)</small>
-                </div>
-                <div class="v2-annonce-photos-grid" id="v2-annonce-photos-grid-available">
-                  <?php foreach ($photosDispo as $p): ?>
-                    <div class="v2-annonce-photo-tile" data-photo-id="<?= (int)$p['id'] ?>">
-                      <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom']) ?>" loading="lazy">
-                      <div class="v2-annonce-photo-check">+</div>
-                    </div>
-                  <?php endforeach; ?>
-                </div>
-              <?php endif; ?>
-
-              <div class="v2-annonce-photos-status" id="v2-annonce-photos-status"></div>
-            <?php endif; ?>
+              <a href="<?= h(app_url($apUrl)) ?>" class="v2-btn-primary" style="font-size:14px; padding:12px 22px;">
+                📸 Sélectionner les photos de l'annonce →
+              </a>
+            </div>
           <?php endif; ?>
         </div>
       </section>
@@ -2004,9 +1978,58 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
             <div class="v2-doc-empty"><div class="v2-doc-empty-icon">📡</div><div>Créez d'abord l'annonce dans la Card 1.</div></div>
-          <?php else: ?>
-            <!-- Canaux de diffusion : mini-cards colorées -->
-            <div class="v2-desc-group-title">📢 Canaux de diffusion</div>
+          <?php else:
+            // Fallback : ces variables ne sont définies qu'en section=descriptif
+            if (!isset($mandats)) {
+                $mandats = ['vente'=>['💶','Vente'], 'location'=>['🔑','Location'], 'gestion'=>['🏢','Gestion']];
+            }
+            if (!isset($curMandat)) {
+                $curMandat = (string)($b['type_commercialisation'] ?? '');
+            }
+            // ── Préparation aperçu : 1ère photo sélectionnée ──
+            $previewPhotoUrl = '';
+            if (!empty($annoncePhotoIds)) {
+                $firstPid = (int)$annoncePhotoIds[0];
+                $stPv = $pdo->prepare("SELECT url_photo FROM biens_photos WHERE id = ? LIMIT 1");
+                $stPv->execute([$firstPid]);
+                $up = (string)$stPv->fetchColumn();
+                if ($up) $previewPhotoUrl = app_url('/' . ltrim($up, '/'));
+            }
+            // Champs annonce
+            $aTitre = (string)($annonce['titre'] ?? '');
+            $aDesc  = (string)($annonce['description'] ?? '');
+            $aPrix  = (float)($annonce['prix'] ?? 0);
+            $aLoyer = (float)($annonce['loyer'] ?? 0);
+            $aTrans = (string)($annonce['type_transaction'] ?? '');
+            // Champs bien
+            $bSurfH = (float)($b['surface_habitable'] ?? 0);
+            $bPieces= (int)($b['nb_pieces'] ?? 0);
+            $bChamb = (int)($b['nb_chambres'] ?? 0);
+            $bDpe   = (string)($b['dpe_classe'] ?? '');
+            $bGes   = (string)($b['ges_classe'] ?? '');
+            $bAdrVis= (int)($b['adresse_visible_public'] ?? 0) === 1;
+            $bAdr   = trim((string)($b['adresse_1'] ?? ''));
+            $bCp    = (string)($b['code_postal'] ?? '');
+            $bVille = (string)($b['ville'] ?? '');
+          ?>
+
+            <!-- Layout 2 colonnes : actions à gauche, aperçu à droite -->
+            <div style="display:grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: start;">
+              <div>
+                <!-- ⬆️ Type de mandat (doublon — sync via biens.type_commercialisation) -->
+                <div class="v2-desc-group-title" style="margin-top:0;">📋 Type de mandat</div>
+                <div class="v2-icon-row" style="margin-bottom:18px;">
+                  <div class="v2-icon-radios" data-field="type_commercialisation">
+                    <?php foreach ($mandats as $code => [$ic, $lbl]): $act = ($curMandat === $code) ? ' is-active' : ''; ?>
+                      <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                        <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                      </button>
+                    <?php endforeach; ?>
+                  </div>
+                </div>
+
+              <!-- Suite colonne gauche : canaux + complétude + diffuser -->
+              <div class="v2-desc-group-title">📢 Canaux de diffusion</div>
             <div class="v2-chan-grid">
               <button type="button" class="v2-chan-card v2-chan-mbi<?= $ab('visible_maboximmo')  ? ' is-selected' : '' ?>"
                       data-annonce-bool="visible_maboximmo">
@@ -2093,6 +2116,66 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
               </button>
               <span id="v2-diffuse-status" class="v2-form-status" aria-live="polite"></span>
             </div>
+              </div><!-- /col gauche -->
+
+              <!-- 👁️ Aperçu de l'annonce diffusée (colonne droite, sticky) -->
+              <div>
+                <div style="position: sticky; top: 90px;">
+                  <div class="v2-desc-group-title" style="margin-top:0;">👁️ Aperçu</div>
+                  <div style="border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; background:#fff; box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+                    <div style="position:relative; aspect-ratio: 4/3; background:#f1f5f9;">
+                      <?php if ($previewPhotoUrl): ?>
+                        <img src="<?= h($previewPhotoUrl) ?>" alt="Photo principale" style="width:100%; height:100%; object-fit:cover; display:block;">
+                      <?php else: ?>
+                        <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#94a3b8; font-size:32px;">
+                          📷<small style="font-size:11px; margin-top:4px;">Aucune photo</small>
+                        </div>
+                      <?php endif; ?>
+                      <?php if ($aTrans): ?>
+                        <span style="position:absolute; top:8px; left:8px; background:#0ea5e9; color:#fff; font-size:10px; font-weight:700; padding:3px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:.04em;"><?= h($aTrans) ?></span>
+                      <?php endif; ?>
+                    </div>
+                    <div style="padding:12px 14px;">
+                      <div style="font-size:18px; font-weight:700; color:#0f172a; margin-bottom:4px;">
+                        <?php if ($aTrans === 'vente' && $aPrix > 0): ?>
+                          <?= number_format($aPrix, 0, ',', ' ') ?> €
+                        <?php elseif ($aTrans === 'location' && $aLoyer > 0): ?>
+                          <?= number_format($aLoyer, 0, ',', ' ') ?> €<small style="font-weight:400; color:#64748b;"> /mois</small>
+                        <?php else: ?>
+                          <span style="color:#94a3b8; font-size:14px;">Prix à définir</span>
+                        <?php endif; ?>
+                      </div>
+                      <div style="font-size:13px; font-weight:600; color:#0f172a; margin-bottom:6px; line-height:1.3;"><?= h($aTitre ?: '(Titre à compléter)') ?></div>
+                      <div style="font-size:11px; color:#64748b; margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                        <?php if ($bSurfH > 0): ?><span>📐 <?= number_format($bSurfH, 1, ',', ' ') ?> m²</span><?php endif; ?>
+                        <?php if ($bPieces > 0): ?><span>🚪 <?= $bPieces ?>p</span><?php endif; ?>
+                        <?php if ($bChamb > 0): ?><span>🛏️ <?= $bChamb ?>ch</span><?php endif; ?>
+                        <?php if ($bDpe): ?><span style="background:#f1f5f9; padding:1px 5px; border-radius:3px; font-weight:600;">DPE <?= h($bDpe) ?></span><?php endif; ?>
+                        <?php if ($bGes): ?><span style="background:#f1f5f9; padding:1px 5px; border-radius:3px; font-weight:600;">GES <?= h($bGes) ?></span><?php endif; ?>
+                      </div>
+                      <div style="font-size:11px; color:#475569; margin-bottom:8px;">
+                        📍
+                        <?php if ($bAdrVis && $bAdr): ?>
+                          <?= h($bAdr) ?>, <?= h(trim($bCp . ' ' . $bVille)) ?>
+                        <?php else: ?>
+                          <em><?= h(trim($bCp . ' ' . $bVille) ?: 'Adresse à compléter') ?></em>
+                        <?php endif; ?>
+                      </div>
+                      <div onclick="if(window.__v2FocusField){window.__v2FocusField('description');}"
+                           style="font-size:11px; color:#334155; line-height:1.4; cursor:pointer; padding:4px; border-radius:4px; transition:background .15s;"
+                           onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'"
+                           title="Cliquer pour éditer la description">
+                        <?php if ($aDesc !== ''): ?>
+                          <?= nl2br(h((string)$aDesc)) ?>
+                        <?php else: ?>
+                          <em style="color:#94a3b8;">📝 Description à compléter — clique pour la rédiger</em>
+                        <?php endif; ?>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div><!-- /col droite -->
+            </div><!-- /grid 2 cols -->
           <?php endif; ?>
         </div>
       </section>
@@ -2479,6 +2562,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
     bienId: <?= (int)$editingBienId ?>,
     section: <?= json_encode($section) ?>,
     csrfToken: <?= json_encode($csrfTokenVal, JSON_UNESCAPED_SLASHES) ?>,
+    proprioFicheUrl: <?= json_encode(app_url('/agency_proprietaire_fiche.php'), JSON_UNESCAPED_SLASHES) ?>,
+    bienDetailUrl:   <?= json_encode(app_url('/bien_detail.php'),                JSON_UNESCAPED_SLASHES) ?>,
     uploadEndpoint:      <?= json_encode(app_url('/api/bien_intake_upload.php'),       JSON_UNESCAPED_SLASHES) ?>,
     photoUploadEndpoint: <?= json_encode(app_url('/api/bien_intake_photo_upload.php'), JSON_UNESCAPED_SLASHES) ?>,
     updateEndpoint:      <?= json_encode(app_url('/api/dpe_diag_update.php'),          JSON_UNESCAPED_SLASHES) ?>,

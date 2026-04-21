@@ -37,36 +37,102 @@ class BienIntakeOCR
      */
     public static function pdfToImages(string $pdfPath, string $tmpDir, int $maxPages = self::MAX_PAGES): array
     {
-        $exe = self::findPdfToPpm();
-        if (!$exe) {
-            throw new RuntimeException('pdftoppm introuvable — Poppler doit être installé');
-        }
         if (!is_dir($tmpDir) && !mkdir($tmpDir, 0775, true)) {
             throw new RuntimeException('Impossible de créer le dossier temporaire OCR');
         }
 
-        $prefix = $tmpDir . DIRECTORY_SEPARATOR . 'page';
-        $cmd = sprintf(
-            '"%s" -jpeg -jpegopt quality=%d -r %d -f 1 -l %d "%s" "%s"',
-            $exe,
-            self::JPEG_Q,
-            self::DPI,
-            $maxPages,
-            $pdfPath,
-            $prefix
-        );
-
-        $output = [];
-        $code = 0;
-        @exec($cmd . ' 2>&1', $output, $code);
-        if ($code !== 0) {
-            throw new RuntimeException('pdftoppm a échoué : ' . implode("\n", $output));
+        // ── Tentative 1 : pdftoppm (Poppler CLI) ────────────────────
+        $exe = self::findPdfToPpm();
+        $shellOk = function_exists('exec') && !in_array('exec', explode(',', (string)ini_get('disable_functions')));
+        if ($exe && $shellOk) {
+            $prefix = $tmpDir . DIRECTORY_SEPARATOR . 'page';
+            $cmd = sprintf(
+                '"%s" -jpeg -jpegopt quality=%d -r %d -f 1 -l %d "%s" "%s"',
+                $exe,
+                self::JPEG_Q,
+                self::DPI,
+                $maxPages,
+                $pdfPath,
+                $prefix
+            );
+            $output = [];
+            $code = 0;
+            @exec($cmd . ' 2>&1', $output, $code);
+            if ($code === 0) {
+                $files = glob($tmpDir . DIRECTORY_SEPARATOR . 'page-*.jpg') ?: [];
+                sort($files);
+                if (!empty($files)) return $files;
+            }
         }
 
-        // Récupère les fichiers générés (format : page-1.jpg, page-2.jpg, …)
-        $files = glob($tmpDir . DIRECTORY_SEPARATOR . 'page-*.jpg') ?: [];
-        sort($files);
-        return $files;
+        // ── Tentative 2 : Imagick (extension PHP) ───────────────────
+        if (extension_loaded('imagick')) {
+            try {
+                $im = new \Imagick();
+                $im->setResolution(self::DPI, self::DPI);
+                $pageRange = $maxPages > 1 ? '[0-' . ($maxPages - 1) . ']' : '[0]';
+                $im->readImage($pdfPath . $pageRange);
+                $im->setImageFormat('jpeg');
+                $im->setImageCompressionQuality(self::JPEG_Q);
+
+                $files = [];
+                $idx = 1;
+                foreach ($im as $page) {
+                    $page->setImageFormat('jpeg');
+                    $blob = $page->getImageBlob();
+                    if (strlen($blob) > 200 && substr($blob, 0, 3) === "\xFF\xD8\xFF") {
+                        $out = $tmpDir . DIRECTORY_SEPARATOR . 'page-' . $idx . '.jpg';
+                        if (file_put_contents($out, $blob) !== false) {
+                            $files[] = $out;
+                            $idx++;
+                        }
+                    }
+                }
+                $im->clear();
+                $im->destroy();
+                if (!empty($files)) return $files;
+            } catch (\Throwable $e) {
+                error_log('[BienIntakeOCR Imagick] ' . $e->getMessage());
+            }
+        }
+
+        // ── Tentative 3 : extraction images JPEG embarquées (binaire pur) ──
+        // Marche pour PDF qui contiennent déjà des JPEG en flux (ex: scan).
+        $bin = @file_get_contents($pdfPath);
+        if ($bin !== false && strlen($bin) > 200) {
+            $files = [];
+            $offset = 0;
+            $len = strlen($bin);
+            $idx = 1;
+            while ($offset < $len && count($files) < $maxPages) {
+                $soi = strpos($bin, "\xFF\xD8\xFF", $offset);
+                if ($soi === false) break;
+                $eoi = false;
+                $pos = $soi + 100;
+                $searchEnd = min($soi + 5 * 1024 * 1024, $len);
+                while ($pos < $searchEnd) {
+                    $found = strpos($bin, "\xFF\xD9", $pos);
+                    if ($found === false) break;
+                    $eoi = $found + 2;
+                    $pos = $found + 2;
+                    break;
+                }
+                if ($eoi === false) { $offset = $soi + 3; continue; }
+                $blob = substr($bin, $soi, $eoi - $soi);
+                if (strlen($blob) > 5000) {
+                    $out = $tmpDir . DIRECTORY_SEPARATOR . 'page-' . $idx . '.jpg';
+                    if (file_put_contents($out, $blob) !== false) {
+                        $files[] = $out;
+                        $idx++;
+                    }
+                }
+                $offset = $eoi;
+            }
+            if (!empty($files)) return $files;
+        }
+
+        throw new RuntimeException('OCR indisponible : pdftoppm/Imagick absents et aucune image embarquée extractible. '
+            . 'Demandez à Hostinger d\'activer Poppler ou Imagick, ou utilisez un PDF textuel natif.');
     }
 
     private static function findPdfToPpm(): ?string

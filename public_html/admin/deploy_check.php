@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Affiche en un seul écran l'état du déploiement :
  *   - Environnement (dev / prod)
  *   - Nom de la BDD connectée (détecte si on est sur la bonne)
- *   - Commit git déployé (lu depuis .git_version écrit par le workflow)
+ *   - Commit git déployé (lu depuis git_version.txt écrit par le workflow)
  *   - Liste des fichiers critiques (existence + date)
  *   - Migrations pending (présentes dans inc/migrations/ mais pas dans _migrations_applied)
  *
@@ -39,7 +39,7 @@ $dbIsProd = !$dbIsDev;
 $dbMismatch = ($isProd && $dbIsDev) || ($isDev && $dbIsProd);
 
 // ── Commit git déployé ──────────────────────────────────────────────
-$gitVersionFile = dirname(__DIR__) . '/.git_version';
+$gitVersionFile = dirname(__DIR__) . '/git_version.txt';
 $gitSha = is_file($gitVersionFile) ? trim((string)file_get_contents($gitVersionFile)) : null;
 
 // ── Migrations pending ─────────────────────────────────────────────
@@ -229,7 +229,7 @@ require_once __DIR__ . '/../inc/header.php';
         <div class="dc-kv"><span class="k">Lien GitHub</span><span class="v"><a href="https://github.com/PIEM99/maboximmo/commit/<?= htmlspecialchars($gitSha) ?>" target="_blank">voir le commit</a></span></div>
       <?php else: ?>
         <p style="color:#92400e; font-size:12px; margin:6px 0 0;">
-          ⚠️ Pas de fichier <code>.git_version</code>. Le workflow doit être mis à jour pour en générer un.
+          ⚠️ Pas de fichier <code>git_version.txt</code>. Le workflow doit être mis à jour pour en générer un.
         </p>
       <?php endif; ?>
     </div>

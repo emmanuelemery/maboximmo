@@ -690,10 +690,12 @@
           // avec return URL pour revenir sur ce bien au clic "Retour".
           const idLegacy = res.id_proprio_legacy || 0;
           if (idLegacy > 0) {
-            const retUrl = '/bien_detail.php?edit=' + encodeURIComponent(data.bienId) + '&section=descriptif';
+            const baseDetail = data.bienDetailUrl || '/bien_detail.php';
+            const baseFiche  = data.proprioFicheUrl || '/agency_proprietaire_fiche.php';
+            const retUrl = baseDetail + '?edit=' + encodeURIComponent(data.bienId) + '&section=descriptif';
             setModalStatus('ok', '✅ Créé et associé — ouverture de sa fiche…');
             setTimeout(() => {
-              window.location.href = '/agency_proprietaire_fiche.php?id=' + idLegacy
+              window.location.href = baseFiche + '?id=' + idLegacy
                 + '&return=' + encodeURIComponent(retUrl);
             }, 400);
           } else {
@@ -1310,6 +1312,9 @@
     }
     try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (_) {} }
   }
+  // Expose focusField globalement pour pouvoir l'appeler depuis du HTML inline
+  // (ex: clic sur la description preview de la Card Diffusion)
+  window.__v2FocusField = focusField;
 
   // ══════════════════════════════════════════════════════════════════
   // Card 3 Annonce — Génération IA (description / titre / SEO / slug)
@@ -1835,6 +1840,39 @@
               if (counter) counter.textContent = photosGrid.querySelectorAll('.v2-photo-tile').length;
             } catch (err) {
               alert('❌ ' + err.message);
+            }
+          }
+
+          if (action === 'analyze') {
+            const id = parseInt(tile.dataset.id, 10) || 0;
+            if (id <= 0) return;
+            const aiBox = tile.querySelector('[data-photo-ai]');
+            if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty">⏳ Analyse en cours…</span>';
+            btn.disabled = true; btn.textContent = '⏳';
+            try {
+              const fd = new FormData();
+              fd.append('id_photo', id);
+              fd.append('csrf_token', data.csrfToken || '');
+              fd.append('force', '1');
+              const analyzeUrl = (data.bienDetailUrl ? data.bienDetailUrl.replace('/bien_detail.php', '') : '') + '/api/bien_photo_analyze.php';
+              const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
+              const j = await r.json();
+              if (!j.ok) throw new Error(j.error || 'Erreur analyse');
+              const res = (j.results && j.results[0]) || {};
+              const cat = res.categorie || '';
+              const desc = res.description || '';
+              if (aiBox) {
+                const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+                let html = '';
+                if (cat)  html += '<span class="v2-photo-tile-ai-cat">🏷️ ' + escapeHtml(cat) + '</span>';
+                if (desc) html += '<div class="v2-photo-tile-ai-desc">' + escapeHtml(desc) + '</div>';
+                if (!html) html = '<span class="v2-photo-tile-ai-empty">📝 Aucun résultat</span>';
+                aiBox.innerHTML = html;
+              }
+              btn.disabled = false; btn.textContent = '🤖';
+            } catch (err) {
+              if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + err.message + '</span>';
+              btn.disabled = false; btn.textContent = '🤖';
             }
           }
         });

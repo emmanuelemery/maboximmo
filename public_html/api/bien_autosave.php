@@ -213,16 +213,11 @@ $data = [
     'accroche_commerciale'    => $str('accroche_commerciale'),
 ];
 
-// Also handle type_bien → id_type_bien
-$typeBienCode = $str('type_bien');
-if ($typeBienCode !== '') {
-    $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
-    $stmtT->execute([$typeBienCode]);
-    $tbId = (int)$stmtT->fetchColumn();
-    if ($tbId > 0) {
-        $data['id_type_bien'] = $tbId;
-    }
-}
+// Note : la conversion type_bien (code) → id_type_bien (id local en base) se
+// fait APRÈS le bloc protectedFields ci-dessous — sinon l'unset id_type_bien
+// (POST['id_type_bien'] absent quand le frontend envoie type_bien) écraserait
+// la valeur résolue ici. La résolution par code est obligatoire car les IDs
+// auto-increment de types_bien ne sont pas portables entre dev/prod.
 
 // id_proprietaire — soit sélectionné, soit création à la volée
 $proprioId = $int('id_proprietaire');
@@ -448,6 +443,10 @@ $protectedFields = [
     'etat_bien', 'standing', 'statut_bien', 'type_commercialisation',
     // ── Adresse (idem : autosave v2 sur chaque input indépendamment) ──
     'adresse_1', 'adresse_2', 'code_postal', 'ville',
+    // ── Identification (autosave v2 envoie 1 champ à la fois — sans ces
+    // protections, chaque clic ailleurs écrasait la ref/désignation à '',
+    // forçant ref_generate_bien à regénérer un nouveau numéro à chaque load)
+    'reference_bien', 'reference_externe', 'designation', 'lot_principal', 'lot_secondaire',
     // ── Pièces / Surfaces / Équipements / Dépendances (bien_detail_v2 Card 2) ──
     'nb_pieces', 'nb_chambres', 'nb_salles_bain', 'nb_salles_eau', 'nb_wc',
     'nb_niveaux', 'parking_nb',
@@ -471,6 +470,19 @@ foreach ($protectedFields as $f) {
     $isEmpty = ($raw === null) || (is_string($raw) && trim($raw) === '');
     if ($isEmpty) {
         unset($data[$f]);
+    }
+}
+
+// Résolution finale : type_bien (code stable) → id_type_bien (id local en base).
+// Doit rester APRÈS protectedFields, sinon le unset id_type_bien (absent du POST
+// quand le frontend envoie type_bien) écraserait la valeur résolue ici.
+$typeBienCode = $str('type_bien');
+if ($typeBienCode !== '') {
+    $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+    $stmtT->execute([$typeBienCode]);
+    $tbId = (int)$stmtT->fetchColumn();
+    if ($tbId > 0) {
+        $data['id_type_bien'] = $tbId;
     }
 }
 
@@ -510,20 +522,53 @@ try {
 
     // ══════════════════════════════════════════════════════════════
     // Update annonces table (honoraires, mandats, locataire précédent, taxes…)
+    //
+    // PROTECTION CRITIQUE : ne faire l'UPDATE annonces QUE si au moins un
+    // champ annonce est explicitement présent dans le POST. Sinon, l'autosave
+    // d'UN champ biens (ex: type_commercialisation, sous_type_bien) déclencherait
+    // un UPDATE annonces avec TOUS les champs vides → écrase description,
+    // mandat_type, prix, etc. C'était le bug "description s'efface au clic
+    // sur n'importe quel bouton".
     // ══════════════════════════════════════════════════════════════
+    $annonceFieldsInPost = [
+        'annonce_transaction', 'annonce_prix_vente', 'annonce_loyer', 'annonce_commercial_id',
+        'description', 'texte_ia',
+        'honoraires_charge_acquereur', 'honoraires_charge_vendeur',
+        'alur_pourcentage_honoraires_ttc', 'pourcentage_honoraires_vendeur',
+        'honoraires_negociation_cumules', 'url_tarifs_publics',
+        'zone_encadrement_loyer', 'loyer_de_base', 'loyer_est_cc',
+        'loyer_reference_majore', 'complement_loyer',
+        'modalite_recuperation_charges_locatives', 'honoraires_etat_des_lieux',
+        'mandat_numero', 'mandat_type', 'date_mandat', 'mandat_echeance',
+        'ancien_loyer_montant', 'ancien_loyer_charges', 'ancien_loyer_date_revision',
+        'ancien_locataire_date_sortie', 'ancien_loyer_communique',
+        'taxe_fonciere', 'taxe_habitation',
+        'cpl_libelle', 'cpl_montant',
+    ];
+    $hasAnnonceFieldInPost = false;
+    foreach ($annonceFieldsInPost as $_k) {
+        if (array_key_exists($_k, $_POST)) { $hasAnnonceFieldInPost = true; break; }
+    }
+
     $annonceTransaction = $str('annonce_transaction');
     $stmtAnn = $pdo->prepare("SELECT id FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
     $stmtAnn->execute([$bienId]);
     $annonceId = (int)$stmtAnn->fetchColumn();
 
-    // Create annonce if needed
+    // Create annonce if needed — hérite id_societe/id_agence/id_user (commercial) du bien
     if ($annonceId <= 0 && $annonceTransaction !== '') {
-        $pdo->prepare("INSERT INTO annonces (id_bien, id_societe, type_transaction, date_creation, date_modification) VALUES (?, ?, ?, NOW(), NOW())")
-            ->execute([$bienId, $societeId, $annonceTransaction]);
+        $stB = $pdo->prepare("SELECT id_agence, id_user_actuel, id_societe FROM biens WHERE id = ?");
+        $stB->execute([$bienId]);
+        $bRow = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
+        $finalSoc    = (int)($bRow['id_societe']     ?? 0) ?: ($societeId ?: 0);
+        $finalAgence = (int)($bRow['id_agence']      ?? 0) ?: (int)($_SESSION['id_agence'] ?? 0);
+        $finalUser   = (int)($bRow['id_user_actuel'] ?? 0) ?: (int)($_SESSION['user_id']  ?? 0);
+        $pdo->prepare("INSERT INTO annonces (id_bien, id_societe, id_agence, id_user, type_transaction, date_creation, date_modification) VALUES (?, ?, ?, ?, ?, NOW(), NOW())")
+            ->execute([$bienId, $finalSoc ?: null, $finalAgence ?: null, $finalUser ?: null, $annonceTransaction]);
         $annonceId = (int)$pdo->lastInsertId();
     }
 
-    if ($annonceId > 0) {
+    if ($annonceId > 0 && $hasAnnonceFieldInPost) {
         $annData = [
             'type_transaction'       => $annonceTransaction ?: null,
             'id_user'                => $int('annonce_commercial_id'),

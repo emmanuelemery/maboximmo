@@ -15,8 +15,8 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      - name: Écrit le SHA du commit dans .git_version
-        run: echo "${{ github.sha }}" > public_html/.git_version
+      - name: Écrit le SHA du commit dans git_version.txt
+        run: echo "${{ github.sha }}" > public_html/git_version.txt
 
       - name: Déploiement FTP vers public_html/dev
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -28,11 +28,13 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public_html/
           server-dir: /dev/
-          state-name: .ftp-deploy-sync-v2
+          state-name: .ftp-deploy-sync-dev-v3-20260420
           log-level: verbose
           exclude: |
-            **/.git*
-            **/.git*/**
+            **/.git/**
+            **/.gitignore
+            **/.gitattributes
+            **/.github/**
             **/node_modules/**
             **/.DS_Store
             **/uploads/**
