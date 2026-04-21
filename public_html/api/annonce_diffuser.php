@@ -82,10 +82,11 @@ try {
 
     /* ── 5. UPDATE etat_publication ───────────────────────────── */
     $alreadyDiffusee = ($annonce['etat_publication'] ?? '') === 'diffusee';
+    // date_mise_en_ligne (colonne réelle en BDD, cf. schéma annonces) — set 1ère fois uniquement
     $pdo->prepare("
         UPDATE annonces
         SET etat_publication = 'diffusee',
-            date_publication = COALESCE(date_publication, NOW()),
+            date_mise_en_ligne = COALESCE(date_mise_en_ligne, NOW()),
             date_modification = NOW()
         WHERE id = ?
     ")->execute([$annonceId]);
