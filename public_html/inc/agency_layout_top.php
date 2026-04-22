@@ -31,14 +31,22 @@ $_agInitials = strtoupper(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<?php if (function_exists('app_url')): ?>
+<base href="<?= htmlspecialchars(app_url('/')) ?>">
+<?php endif; ?>
 <title><?= htmlspecialchars($pageTitle) ?> — MaBoxImmo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/tokens.css">
-<link rel="stylesheet" href="css/base.css">
-<link rel="stylesheet" href="css/components.css">
-<link rel="stylesheet" href="css/layout.css">
-<link rel="stylesheet" href="css/theme-syndic.css">
+<?php
+// Chemins CSS via asset_url() pour fonctionner depuis n'importe quel sous-dossier
+// (ex: public_html/admin/admin_*.php). Fallback sur chemins absolus si asset_url absent.
+$_lyCss = static fn(string $p): string => function_exists('asset_url') ? asset_url($p) : $p;
+?>
+<link rel="stylesheet" href="<?= htmlspecialchars($_lyCss('/css/tokens.css')) ?>">
+<link rel="stylesheet" href="<?= htmlspecialchars($_lyCss('/css/base.css')) ?>">
+<link rel="stylesheet" href="<?= htmlspecialchars($_lyCss('/css/components.css')) ?>">
+<link rel="stylesheet" href="<?= htmlspecialchars($_lyCss('/css/layout.css')) ?>">
+<link rel="stylesheet" href="<?= htmlspecialchars($_lyCss('/css/theme-syndic.css')) ?>">
 <style>
 /* ── Agency layout normalisé ──────────────────────────────────── */
 body { margin:0; background:#ffffff; font-family:'Sora',sans-serif; }

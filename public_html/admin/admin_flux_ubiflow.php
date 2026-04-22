@@ -230,14 +230,23 @@ function fmtSize(int $bytes): string {
         </tr>
       </thead>
       <tbody>
-        <?php foreach ($flux as $f): ?>
-          <tr>
+        <?php foreach ($flux as $f):
+          $isEmpty = (int)$f['nb_annonces'] === 0;
+          $rowStyle = $isEmpty ? 'background:#fef2f2;' : '';
+        ?>
+          <tr style="<?= $rowStyle ?>">
             <td>
-              <div style="font-weight:600; color:#0f172a;"><?= htmlspecialchars($f['agence_nom'] ?: ucfirst((string)$f['slug'])) ?></div>
+              <div style="font-weight:600; color:#0f172a;">
+                <?php if ($isEmpty): ?>⚠️ <?php endif; ?>
+                <?= htmlspecialchars($f['agence_nom'] ?: ucfirst((string)$f['slug'])) ?>
+              </div>
               <span class="fl-slug"><?= htmlspecialchars((string)$f['slug']) ?></span>
             </td>
             <td><span class="fl-filename"><?= htmlspecialchars((string)$f['file']) ?></span></td>
-            <td style="text-align:center;"><span class="fl-nb"><?= (int)$f['nb_annonces'] ?></span></td>
+            <td style="text-align:center;">
+              <span class="fl-nb" style="<?= $isEmpty ? 'color:#dc2626;' : '' ?>"><?= (int)$f['nb_annonces'] ?></span>
+              <?php if ($isEmpty): ?><div style="font-size:10px; color:#991b1b; margin-top:2px;">flux vide</div><?php endif; ?>
+            </td>
             <td style="text-align:center; color:#64748b;"><?= (int)$f['nb_photos'] ?></td>
             <td style="color:#64748b; font-size:12px;"><?= fmtSize((int)$f['size']) ?></td>
             <td style="color:#64748b; font-size:12px;"><?= $f['mtime'] ? date('d/m/Y H:i', (int)$f['mtime']) : '—' ?></td>
