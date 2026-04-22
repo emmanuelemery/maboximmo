@@ -147,7 +147,7 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
     <?php if ($isAdmin): ?>
     <div class="sb-divider"></div>
     <div class="sb-group admin">
-        <div class="sb-section<?= sbActiveSection(['rh_user.php','rh_user_add.php','agency_honoraires_config.php','admin_documents.php','rh_mails.php']) ? ' section-active' : '' ?>">
+        <div class="sb-section<?= sbActiveSection(['rh_user.php','rh_user_add.php','agency_honoraires_config.php','admin_documents.php','rh_mails.php','param_types_bien.php','param_chauffage.php','param_dependances.php','param_vues.php']) ? ' section-active' : '' ?>">
             Administration
             <span class="sb-badge adm">ADMIN</span>
         </div>
@@ -164,6 +164,21 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <li><a href="./rh_mails.php" class="<?= sbActive('rh_mails.php') ?>">
                 <span class="sb-icon">📧</span><span class="sb-label">Emails collectifs</span>
             </a></li>
+            <li style="margin-top:8px; padding:6px 14px 2px; font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase;">
+                Paramétrage
+            </li>
+            <li><a href="./admin/param_types_bien.php" class="<?= sbActive('param_types_bien.php') ?>">
+                <span class="sb-icon">🏠</span><span class="sb-label">Types de bien</span>
+            </a></li>
+            <li><a href="./admin/param_chauffage.php" class="<?= sbActive('param_chauffage.php') ?>">
+                <span class="sb-icon">🔥</span><span class="sb-label">Chauffage / Énergie</span>
+            </a></li>
+            <li><a href="./admin/param_dependances.php" class="<?= sbActive('param_dependances.php') ?>">
+                <span class="sb-icon">📦</span><span class="sb-label">Dépendances</span>
+            </a></li>
+            <li><a href="./admin/param_vues.php" class="<?= sbActive('param_vues.php') ?>">
+                <span class="sb-icon">🌅</span><span class="sb-label">Vues / Exposition</span>
+            </a></li>
         </ul>
     </div>
     <?php endif; ?>
@@ -174,7 +189,7 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
     <?php if ($isSuperAdmin): ?>
     <div class="sb-divider"></div>
     <div class="sb-group super">
-        <div class="sb-section<?= sbActiveSection(['admin_database.php','admin_migrations.php','admin_honoraires_recalc.php','admin_bareme.php','design-system.php','societe_super_admin.php']) ? ' section-active' : '' ?>">
+        <div class="sb-section<?= sbActiveSection(['admin_database.php','admin_migrations.php','admin_honoraires_recalc.php','admin_bareme.php','admin_flux_ubiflow.php','admin_deploy.php','tools_photos_recompress.php','design-system.php','societe_super_admin.php']) ? ' section-active' : '' ?>">
             Super Admin
             <span class="sb-badge sup">SA</span>
         </div>
@@ -182,12 +197,9 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <li><a href="./societe_super_admin.php" class="<?= sbActive('societe_super_admin.php') ?>">
                 <span class="sb-icon">🏢</span><span class="sb-label">Toutes les sociétés</span>
             </a></li>
-            <li><a href="./admin/admin_database.php" class="<?= sbActive('admin_database.php') ?>">
-                <span class="sb-icon">🗄</span><span class="sb-label">Base de données</span>
-            </a></li>
-            <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
-                <span class="sb-icon">🚀</span><span class="sb-label">Migrations BDD</span>
-            </a></li>
+            <li style="margin-top:8px; padding:6px 14px 2px; font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase;">
+                Compliance / Flux
+            </li>
             <li><a href="./admin/admin_honoraires_recalc.php" class="<?= sbActive('admin_honoraires_recalc.php') ?>">
                 <span class="sb-icon">⚖️</span><span class="sb-label">Rattrapage honoraires</span>
             </a></li>
@@ -196,6 +208,21 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             </a></li>
             <li><a href="./admin/admin_flux_ubiflow.php" class="<?= sbActive('admin_flux_ubiflow.php') ?>">
                 <span class="sb-icon">📡</span><span class="sb-label">Flux XML Ubiflow</span>
+            </a></li>
+            <li style="margin-top:8px; padding:6px 14px 2px; font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase;">
+                Infra / Tech
+            </li>
+            <li><a href="./admin/admin_database.php" class="<?= sbActive('admin_database.php') ?>">
+                <span class="sb-icon">🗄</span><span class="sb-label">Base de données</span>
+            </a></li>
+            <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
+                <span class="sb-icon">🚀</span><span class="sb-label">Migrations BDD</span>
+            </a></li>
+            <li><a href="./admin/admin_deploy.php" class="<?= sbActive('admin_deploy.php') ?>">
+                <span class="sb-icon">🛠️</span><span class="sb-label">Déploiement FTP</span>
+            </a></li>
+            <li><a href="./admin/tools_photos_recompress.php" class="<?= sbActive('tools_photos_recompress.php') ?>">
+                <span class="sb-icon">🖼️</span><span class="sb-label">Optimiser photos LBC</span>
             </a></li>
             <li><a href="./design-system.php" class="<?= sbActive('design-system.php') ?>">
                 <span class="sb-icon">🎨</span><span class="sb-label">Design System</span>
