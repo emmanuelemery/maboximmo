@@ -39,6 +39,29 @@ use PHPMailer\PHPMailer\Exception;
 
 header('Content-Type: application/json; charset=utf-8');
 
+// ─── Mode diag candidates : expose la liste des users candidats ──────
+if (($_GET['mode'] ?? '') === 'candidates') {
+    require_once dirname(__DIR__) . '/inc/recap_mailer.php';
+    $window = recap_window_from_now();
+    try {
+        $candidates = recap_collect_candidates($GLOBALS['pdo'], $window);
+        echo json_encode([
+            'ok' => true,
+            'window' => ['start' => $window['start_sql'], 'end' => $window['end_sql'], 'hours' => $window['hours']],
+            'count' => count($candidates),
+            'list'  => $candidates,
+        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    } catch (Throwable $e) {
+        echo json_encode([
+            'ok' => false,
+            'error' => $e->getMessage(),
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+        ]);
+    }
+    exit;
+}
+
 $to       = 'emmanuel.emery@regie-emery.com';
 $from     = defined('CRON_RECAP_FROM_EMAIL') ? (string)CRON_RECAP_FROM_EMAIL : 'ne-pas-repondre@maboximmo.fr';
 $fromName = defined('CRON_RECAP_FROM_NAME')  ? (string)CRON_RECAP_FROM_NAME  : 'MaBoxImmo';
