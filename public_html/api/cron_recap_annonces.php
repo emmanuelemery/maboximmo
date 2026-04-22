@@ -7,6 +7,37 @@
 //   0 9 * * *  curl -s "https://maboximmo.fr/api/cron_recap_annonces.php?token=XXX" > /dev/null
 declare(strict_types=1);
 
+// Filet de sécurité : capture toute erreur fatale et retourne JSON lisible
+// (au lieu d'un 500 Apache vide).
+set_exception_handler(function (Throwable $e): void {
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    echo json_encode([
+        'ok'    => false,
+        'error' => $e->getMessage(),
+        'file'  => basename($e->getFile()),
+        'line'  => $e->getLine(),
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+});
+register_shutdown_function(function (): void {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'ok'    => false,
+            'error' => $e['message'],
+            'file'  => basename($e['file']),
+            'line'  => $e['line'],
+        ], JSON_UNESCAPED_UNICODE);
+    }
+});
+
 require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/mailer.php';
 require_once dirname(__DIR__) . '/inc/recap_mailer.php';
