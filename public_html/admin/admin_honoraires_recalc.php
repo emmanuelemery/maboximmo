@@ -46,17 +46,32 @@ function hono_excluded_sql(): string
     return "tb.code NOT IN ({$list})";
 }
 
-// Clause WHERE commune aux requêtes preview / update
-function hono_where_clause(): string
+// Clause WHERE — scope configurable via $_POST['scope']
+//   all       = toutes annonces non archivées (brouillon + diffusées)  [DÉFAUT]
+//   diffusees = uniquement visibles portails (publiee/active/en_ligne)
+//   brouillon = uniquement brouillon
+function hono_where_clause(string $scope = 'all'): string
 {
-    return "a.visible_portails = 1
-      AND a.statut IN ('publiee','active','en_ligne')
-      AND a.type_transaction IN ('location','saisonnier','location_annuelle','location_saisonniere')
+    $base = "a.type_transaction IN ('location','saisonnier','location_annuelle','location_saisonniere')
       AND " . hono_excluded_sql() . "
       AND COALESCE(b.surface_habitable, b.surface_totale, 0) > 0";
+    if ($scope === 'diffusees') {
+        return "a.visible_portails = 1
+          AND a.statut IN ('publiee','active','en_ligne')
+          AND {$base}";
+    }
+    if ($scope === 'brouillon') {
+        return "(a.etat_publication = 'brouillon' OR a.statut = 'brouillon')
+          AND {$base}";
+    }
+    // 'all' = tout sauf archivées
+    return "(a.etat_publication IS NULL OR a.etat_publication NOT IN ('archivee','archived'))
+      AND {$base}";
 }
 
 $action = (string)($_POST['action'] ?? '');
+$scope  = (string)($_POST['scope']  ?? 'all');
+if (!in_array($scope, ['all','diffusees','brouillon'], true)) $scope = 'all';
 $flash = null;
 $counts = null;
 
@@ -94,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['preview', 'appl
                     a.honoraires_location_bail  = ROUND(COALESCE(b.surface_habitable, b.surface_totale, 0) * t.honoraires_location_bail_m2, 2),
                     a.honoraires_etat_des_lieux = ROUND(COALESCE(b.surface_habitable, b.surface_totale, 0) * t.honoraires_edl_m2, 2),
                     a.date_modification = NOW()
-                WHERE " . hono_where_clause() . "
+                WHERE " . hono_where_clause($scope) . "
             ");
             // 3b. loyer_cc = loyer HC réf + charges
             $n2 = $pdo->exec("
@@ -108,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['preview', 'appl
                     ) + COALESCE(b.charges_locatives, 0)
                 , 2),
                 a.date_modification = NOW()
-                WHERE " . hono_where_clause() . "
+                WHERE " . hono_where_clause($scope) . "
             ");
             // 3c. depot_garantie si vide
             $n3 = $pdo->exec("
@@ -122,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['preview', 'appl
                     )
                 , 2),
                 a.date_modification = NOW()
-                WHERE " . hono_where_clause() . "
+                WHERE " . hono_where_clause($scope) . "
                 AND (a.depot_garantie IS NULL OR a.depot_garantie = 0)
             ");
             $flash = [
@@ -152,7 +167,7 @@ try {
         FROM annonces a
         JOIN biens b       ON b.id = a.id_bien
         JOIN types_bien tb ON tb.id = b.id_type_bien
-        WHERE " . hono_where_clause() . "
+        WHERE " . hono_where_clause($scope) . "
     ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
     $preview = $pdo->query("
@@ -177,7 +192,7 @@ try {
             ON t.id_societe IS NULL
             AND t.zone_tendue = COALESCE(b.zone_tendue, 'non_tendue')
             AND t.actif = 1
-        WHERE " . hono_where_clause() . "
+        WHERE " . hono_where_clause($scope) . "
         ORDER BY a.id DESC
         LIMIT 100
     ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -271,13 +286,23 @@ require_once __DIR__ . '/../inc/header.php';
     bien_detail.php (Card 1), mais pas les dépasser (plafond ALUR appliqué par le helper).
   </div>
 
-  <form method="post" class="hr-actions">
+  <form method="post">
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
-    <button type="submit" name="action" value="preview" class="hr-btn hr-btn-preview">👀 Aperçu (ne modifie rien)</button>
-    <button type="submit" name="action" value="apply" class="hr-btn hr-btn-apply"
-            onclick="return confirm('⚠️ ÉCRASER les honoraires + loyer_cc + dépôt sur toutes les annonces location actives diffusées ?\n\nCette action est IRRÉVERSIBLE.');">
-      ✅ Appliquer (écraser)
-    </button>
+    <div style="margin-bottom:14px;">
+      <label style="display:block; font-size:12px; font-weight:600; color:#475569; margin-bottom:6px;">Scope (toutes agences, tous biens habitation)</label>
+      <select name="scope" class="hr-input" style="padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; font-family:inherit; min-width:360px;">
+        <option value="all"       <?= $scope === 'all'       ? 'selected' : '' ?>>Toutes annonces non archivées (brouillon + diffusées)</option>
+        <option value="brouillon" <?= $scope === 'brouillon' ? 'selected' : '' ?>>Brouillon uniquement</option>
+        <option value="diffusees" <?= $scope === 'diffusees' ? 'selected' : '' ?>>Diffusées portails uniquement (visible_portails=1)</option>
+      </select>
+    </div>
+    <div class="hr-actions">
+      <button type="submit" name="action" value="preview" class="hr-btn hr-btn-preview">👀 Aperçu (ne modifie rien)</button>
+      <button type="submit" name="action" value="apply" class="hr-btn hr-btn-apply"
+              onclick="return confirm('⚠️ ÉCRASER les honoraires + loyer_cc + dépôt sur toutes les annonces du scope sélectionné ?\n\nCette action est IRRÉVERSIBLE.');">
+        ✅ Appliquer (écraser)
+      </button>
+    </div>
   </form>
 
   <?php if (!empty($preview)): ?>

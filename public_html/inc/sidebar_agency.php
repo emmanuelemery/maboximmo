@@ -174,7 +174,7 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
     <?php if ($isSuperAdmin): ?>
     <div class="sb-divider"></div>
     <div class="sb-group super">
-        <div class="sb-section<?= sbActiveSection(['admin_database.php','admin_migrations.php','design-system.php','societe_super_admin.php']) ? ' section-active' : '' ?>">
+        <div class="sb-section<?= sbActiveSection(['admin_database.php','admin_migrations.php','admin_honoraires_recalc.php','admin_bareme.php','design-system.php','societe_super_admin.php']) ? ' section-active' : '' ?>">
             Super Admin
             <span class="sb-badge sup">SA</span>
         </div>
@@ -187,6 +187,12 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             </a></li>
             <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
                 <span class="sb-icon">🚀</span><span class="sb-label">Migrations BDD</span>
+            </a></li>
+            <li><a href="./admin/admin_honoraires_recalc.php" class="<?= sbActive('admin_honoraires_recalc.php') ?>">
+                <span class="sb-icon">⚖️</span><span class="sb-label">Rattrapage honoraires</span>
+            </a></li>
+            <li><a href="./admin/admin_bareme.php" class="<?= sbActive('admin_bareme.php') ?>">
+                <span class="sb-icon">📜</span><span class="sb-label">URL barème honoraires</span>
             </a></li>
             <li><a href="./design-system.php" class="<?= sbActive('design-system.php') ?>">
                 <span class="sb-icon">🎨</span><span class="sb-label">Design System</span>
