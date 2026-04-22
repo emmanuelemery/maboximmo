@@ -1,14 +1,32 @@
--- ════════════════════════════════════════════════════════════════
--- Migration 2026-04-22 : Honoraires location ALUR + zone tendue + loyer CC
--- ════════════════════════════════════════════════════════════════
--- Objectifs :
---   1. Table de config des tarifs honoraires par zone tendue et société
---   2. Table de lookup CP → zone tendue (auto-fill à la saisie d'adresse)
---   3. Nouvelle colonne annonces.honoraires_location_bail
---      (car les honoraires concernent l'annonce pas le bien)
--- À lancer sur la base prod via phpMyAdmin après déploiement code.
+<?php
+/**
+ * Migration 2026-04-22 : Honoraires location ALUR (zone tendue + tarifs)
+ *
+ * Contexte
+ * --------
+ * Compliance ALUR (arrêté 10/01/2014) : les honoraires locataire pour la
+ * location + bail sont plafonnés en €/m² selon la zone tendue du bien.
+ * Plafond EDL = 3 €/m² toutes zones.
+ *
+ * Cette migration crée :
+ *   1. `societe_tarifs_honoraires` : tarifs €/m² par société × zone.
+ *      Ligne id_societe NULL = tarifs par défaut (plafonds ALUR).
+ *   2. `base_zones_tendues` : lookup CP → zone, pré-rempli avec Paris
+ *      (tres_tendue) + 10 grandes métropoles (tendue).
+ *   3. `annonces.honoraires_location_bail` : colonne DECIMAL(10,2) pour
+ *      le montant plafonné saisi par l'agence (séparé de honoraires_etat_des_lieux).
+ *
+ * Les tarifs sont les plafonds 2025 (8 / 10 / 12 €/m²). La migration
+ * `20260422_honoraires_plafonds_2026` les met à jour vers les plafonds
+ * 2026 indexés IRL (8,07 / 10,09 / 12,10 €/m²).
+ */
 
--- ── 1. Table de config des tarifs honoraires par zone ─────────────
+return [
+    'id'          => '20260422_honoraires_location_alur',
+    'title'       => 'Honoraires location ALUR : societe_tarifs_honoraires + base_zones_tendues + annonces.honoraires_location_bail',
+    'description' => "Crée le système de plafonds honoraires ALUR (2 tables + 1 colonne). Pré-remplit 77 CP en zone tendue (Paris + 10 métropoles) et les tarifs par défaut 2025. Nécessaire avant de facturer honoraires location via le flux Ubiflow.",
+    'created_at'  => '2026-04-22',
+    'sql' => <<<'SQL'
 CREATE TABLE IF NOT EXISTS `societe_tarifs_honoraires` (
     `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
     `id_societe` INT(10) UNSIGNED NULL COMMENT 'NULL = tarifs par défaut (plafonds ALUR)',
@@ -26,27 +44,21 @@ CREATE TABLE IF NOT EXISTS `societe_tarifs_honoraires` (
     CONSTRAINT `fk_tarifs_societe` FOREIGN KEY (`id_societe`) REFERENCES `societes`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tarifs plafond ALUR par défaut (id_societe NULL = fallback universel)
 INSERT IGNORE INTO `societe_tarifs_honoraires` (`id_societe`, `zone_tendue`, `honoraires_location_bail_m2`, `honoraires_edl_m2`) VALUES
 (NULL, 'non_tendue',   8.00, 3.00),
 (NULL, 'tendue',      10.00, 3.00),
 (NULL, 'tres_tendue', 12.00, 3.00);
 
--- ── 2. Table de lookup CP → zone tendue (auto-fill au changement d'adresse) ─────────
 CREATE TABLE IF NOT EXISTS `base_zones_tendues` (
     `code_postal` VARCHAR(10) NOT NULL,
     `zone_tendue` ENUM('non_tendue','tendue','tres_tendue') NOT NULL DEFAULT 'non_tendue',
     `commune` VARCHAR(200) NULL,
-    `source` VARCHAR(50) NULL COMMENT 'ex: arrete_2023, insee_officiel…',
+    `source` VARCHAR(50) NULL COMMENT 'ex: arrete_alur, insee_officiel…',
     PRIMARY KEY (`code_postal`),
     KEY `idx_zone` (`zone_tendue`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Données initiales : Paris + petite couronne (très tendue) + Lyon/Villeurbanne (tendue)
--- + quelques autres grandes métropoles en tendue.
--- À étendre avec la liste officielle des 1151 communes en zone tendue.
 INSERT IGNORE INTO `base_zones_tendues` (`code_postal`, `zone_tendue`, `commune`, `source`) VALUES
--- Paris intra-muros
 ('75001','tres_tendue','Paris 1er','arrete_alur'),
 ('75002','tres_tendue','Paris 2e','arrete_alur'),
 ('75003','tres_tendue','Paris 3e','arrete_alur'),
@@ -67,7 +79,6 @@ INSERT IGNORE INTO `base_zones_tendues` (`code_postal`, `zone_tendue`, `commune`
 ('75018','tres_tendue','Paris 18e','arrete_alur'),
 ('75019','tres_tendue','Paris 19e','arrete_alur'),
 ('75020','tres_tendue','Paris 20e','arrete_alur'),
--- Lyon + Villeurbanne
 ('69001','tendue','Lyon 1er','arrete_alur'),
 ('69002','tendue','Lyon 2e','arrete_alur'),
 ('69003','tendue','Lyon 3e','arrete_alur'),
@@ -78,18 +89,15 @@ INSERT IGNORE INTO `base_zones_tendues` (`code_postal`, `zone_tendue`, `commune`
 ('69008','tendue','Lyon 8e','arrete_alur'),
 ('69009','tendue','Lyon 9e','arrete_alur'),
 ('69100','tendue','Villeurbanne','arrete_alur'),
--- Bordeaux
 ('33000','tendue','Bordeaux','arrete_alur'),
 ('33100','tendue','Bordeaux','arrete_alur'),
 ('33200','tendue','Bordeaux','arrete_alur'),
 ('33300','tendue','Bordeaux','arrete_alur'),
 ('33800','tendue','Bordeaux','arrete_alur'),
--- Lille + métropole
 ('59000','tendue','Lille','arrete_alur'),
 ('59160','tendue','Lomme','arrete_alur'),
 ('59260','tendue','Hellemmes','arrete_alur'),
 ('59800','tendue','Lille','arrete_alur'),
--- Marseille
 ('13001','tendue','Marseille 1','arrete_alur'),
 ('13002','tendue','Marseille 2','arrete_alur'),
 ('13003','tendue','Marseille 3','arrete_alur'),
@@ -106,37 +114,32 @@ INSERT IGNORE INTO `base_zones_tendues` (`code_postal`, `zone_tendue`, `commune`
 ('13014','tendue','Marseille 14','arrete_alur'),
 ('13015','tendue','Marseille 15','arrete_alur'),
 ('13016','tendue','Marseille 16','arrete_alur'),
--- Toulouse
 ('31000','tendue','Toulouse','arrete_alur'),
 ('31100','tendue','Toulouse','arrete_alur'),
 ('31200','tendue','Toulouse','arrete_alur'),
 ('31300','tendue','Toulouse','arrete_alur'),
 ('31400','tendue','Toulouse','arrete_alur'),
 ('31500','tendue','Toulouse','arrete_alur'),
--- Nantes
 ('44000','tendue','Nantes','arrete_alur'),
 ('44100','tendue','Nantes','arrete_alur'),
 ('44200','tendue','Nantes','arrete_alur'),
 ('44300','tendue','Nantes','arrete_alur'),
--- Rennes
 ('35000','tendue','Rennes','arrete_alur'),
 ('35200','tendue','Rennes','arrete_alur'),
 ('35700','tendue','Rennes','arrete_alur'),
--- Nice
 ('06000','tendue','Nice','arrete_alur'),
 ('06100','tendue','Nice','arrete_alur'),
 ('06200','tendue','Nice','arrete_alur'),
 ('06300','tendue','Nice','arrete_alur'),
--- Strasbourg
 ('67000','tendue','Strasbourg','arrete_alur'),
 ('67100','tendue','Strasbourg','arrete_alur'),
 ('67200','tendue','Strasbourg','arrete_alur'),
--- Grenoble
 ('38000','tendue','Grenoble','arrete_alur'),
 ('38100','tendue','Grenoble','arrete_alur');
 
--- ── 3. Nouvelle colonne annonces.honoraires_location_bail ─────────
 ALTER TABLE `annonces`
-ADD COLUMN `honoraires_location_bail` DECIMAL(10,2) NULL
-    COMMENT 'Honoraires location + bail (€, TTC). Plafonné ALUR = surface × tarif par zone. Additionné à honoraires_etat_des_lieux pour le total locataire envoyé à Ubiflow.'
-AFTER `honoraires_etat_des_lieux`;
+    ADD COLUMN IF NOT EXISTS `honoraires_location_bail` DECIMAL(10,2) NULL
+        COMMENT 'Honoraires location + bail (€, TTC). Plafonné ALUR = surface × tarif par zone. Additionné à honoraires_etat_des_lieux pour le total locataire envoyé à Ubiflow.'
+        AFTER `honoraires_etat_des_lieux`;
+SQL,
+];
