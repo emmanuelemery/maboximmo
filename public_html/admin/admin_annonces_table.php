@@ -82,12 +82,31 @@ $sql = "
         a.id, a.id_bien, a.id_agence, a.id_societe, a.id_user,
         a.reference_annonce, a.titre, a.type_transaction,
         a.statut, a.etat_publication,
-        a.prix, a.loyer, a.loyer_cc, a.charges, a.depot_garantie,
+        -- Vente
+        a.prix, a.prix_net_vendeur,
+        a.honoraires, a.honoraires_charge_acquereur, a.honoraires_charge_vendeur,
+        a.alur_pourcentage_honoraires_ttc, a.pourcentage_honoraires_vendeur,
+        a.honoraires_negociation_cumules,
+        -- Location
+        a.loyer, a.loyer_cc, a.loyer_est_cc,
+        a.complement_loyer, a.loyer_reference_majore, a.loyer_de_base,
+        a.zone_encadrement_loyer, a.modalite_recuperation_charges_locatives,
+        a.depot_garantie,
         a.honoraires_location_bail, a.honoraires_etat_des_lieux,
-        a.taxe_fonciere, a.taxe_habitation, a.taxe_ordures_menageres,
+        a.duree_bail_mois, a.date_disponibilite, a.disponible_de_suite,
+        a.meuble,
+        a.ancien_loyer_montant, a.ancien_loyer_charges, a.ancien_loyer_communique,
+        -- Taxes
+        a.charges, a.taxe_fonciere, a.taxe_habitation, a.taxe_ordures_menageres,
+        -- Visibilité
         a.visible_portails, a.visible_site, a.visible_maboximmo, a.visible_site_perso,
-        a.mandat_numero, a.mandat_type, a.date_mandat,
+        a.exclusivite, a.coup_coeur,
+        -- Mandat
+        a.mandat_numero, a.mandat_type, a.date_mandat, a.mandat_echeance,
         a.url_tarifs_publics,
+        -- Charges biens (source Ubiflow)
+        b.charges_locatives AS b_charges_locatives,
+        -- Meta
         a.date_creation, a.date_modification,
         b.reference_bien,
         ag.nom_agence,
@@ -200,95 +219,174 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     Toute modif est irréversible — pas de système d'annulation.
   </div>
 
+  <?php
+    // ── Définition centralisée des colonnes ───────────────────────────────
+    // scope : 'both' | 'vente' | 'location' (caché si filtre type_transaction différent)
+    // type : 'id' (readonly fk_bien), 'fk-agence'|'fk-societe'|'fk-user', 'enum-*',
+    //        'bool', 'decimal', 'text', 'readonly'
+    // tip : tooltip affiché au survol du header — explique l'utilité + balise Ubiflow si exportée
+    $columns = [
+      ['key'=>'id',                'label'=>'#id',       'type'=>'readonly', 'scope'=>'both',     'tip'=>"Identifiant unique de l'annonce"],
+      ['key'=>'id_bien',           'label'=>'Bien',      'type'=>'fk_bien',  'scope'=>'both',     'tip'=>'Lien vers le bien rattaché'],
+      ['key'=>'id_agence',         'label'=>'Agence',    'type'=>'fk-agence','scope'=>'both',     'tip'=>"Agence de l'annonce (détermine le flux Ubiflow destination)"],
+      ['key'=>'id_societe',        'label'=>'Société',   'type'=>'fk-societe','scope'=>'both',    'tip'=>"Société d'appartenance"],
+      ['key'=>'id_user',           'label'=>'Commercial','type'=>'fk-user',  'scope'=>'both',     'tip'=>"Commercial en charge (contact_nom sur Ubiflow)"],
+      ['key'=>'type_transaction',  'label'=>'Transaction','type'=>'enum-trans','scope'=>'both',   'tip'=>"Vente/Location/Saisonnier/Viager → balise Ubiflow <prestation type> (V/L/S/W)"],
+      ['key'=>'statut',            'label'=>'Statut',    'type'=>'enum-statut','scope'=>'both',   'tip'=>"Statut interne (brouillon/publiee/active/en_ligne/archivee). Requis publiée pour flux Ubiflow."],
+      ['key'=>'etat_publication',  'label'=>'État pub.', 'type'=>'enum-etat','scope'=>'both',     'tip'=>"État du cycle de publication (brouillon/diffusée/archivée)"],
+      ['key'=>'visible_portails',  'label'=>'Port.',     'type'=>'bool',     'scope'=>'both',     'tip'=>"Visible sur les portails Ubiflow (LeBonCoin/SeLoger). Obligatoire pour diffusion."],
+      ['key'=>'visible_site',      'label'=>'Site',      'type'=>'bool',     'scope'=>'both',     'tip'=>"Visible sur le site public MaBoxImmo"],
+      ['key'=>'visible_maboximmo', 'label'=>'MBI',       'type'=>'bool',     'scope'=>'both',     'tip'=>"Visible dans l'annuaire interne MaBoxImmo"],
+      ['key'=>'visible_site_perso','label'=>'S.pers',    'type'=>'bool',     'scope'=>'both',     'tip'=>"Visible sur le site perso de l'agence"],
+      ['key'=>'exclusivite',       'label'=>'Excl.',     'type'=>'bool',     'scope'=>'both',     'tip'=>"Mandat exclusif (balise <exclusivite> Ubiflow)"],
+      ['key'=>'coup_coeur',        'label'=>'♥',         'type'=>'bool',     'scope'=>'both',     'tip'=>"Mise en avant coup de cœur"],
+
+      // ── VENTE uniquement ─────────────────────────────────────────────
+      ['key'=>'prix',              'label'=>'Prix',      'type'=>'decimal',  'scope'=>'vente',    'tip'=>"Prix de vente TTC honoraires inclus → balise Ubiflow <prix>"],
+      ['key'=>'prix_net_vendeur',  'label'=>'Prix net',  'type'=>'decimal',  'scope'=>'vente',    'tip'=>"Prix hors honoraires (= prix - honoraires) → balise <prix_hors_honoraires>"],
+      ['key'=>'honoraires',        'label'=>'Hono',      'type'=>'decimal',  'scope'=>'vente',    'tip'=>"Montant honoraires de négociation → balise <honoraires_negociation>"],
+      ['key'=>'honoraires_charge_acquereur', 'label'=>'Acq.', 'type'=>'bool','scope'=>'vente',    'tip'=>"Honoraires à charge acquéreur (O/N ALUR)"],
+      ['key'=>'honoraires_charge_vendeur',   'label'=>'Vend.','type'=>'bool','scope'=>'vente',    'tip'=>"Honoraires à charge vendeur (O/N ALUR)"],
+      ['key'=>'alur_pourcentage_honoraires_ttc', 'label'=>'% ALUR','type'=>'decimal','scope'=>'vente','tip'=>"% TTC des honoraires sur le prix hors honoraires (obligation ALUR)"],
+      ['key'=>'honoraires_negociation_cumules','label'=>'Hono cumul','type'=>'decimal','scope'=>'vente','tip'=>"Somme honoraires acquéreur + vendeur → balise <honoraires_negociation_cumules>"],
+
+      // ── LOCATION uniquement ──────────────────────────────────────────
+      ['key'=>'loyer',                 'label'=>'Loyer HC',  'type'=>'decimal','scope'=>'location','tip'=>"Loyer mensuel hors charges → balise Ubiflow <loyer_mensuel>"],
+      ['key'=>'loyer_cc',              'label'=>'Loyer CC',  'type'=>'decimal','scope'=>'location','tip'=>"Loyer charges comprises (= HC + charges) → balise <loyer_mensuel_cc>"],
+      ['key'=>'complement_loyer',      'label'=>'Compl.',    'type'=>'decimal','scope'=>'location','tip'=>"Complément de loyer (zone encadrée) → balise <complement_loyer>"],
+      ['key'=>'loyer_reference_majore','label'=>'Majoré',    'type'=>'decimal','scope'=>'location','tip'=>"Loyer de référence majoré (zone encadrée) → balise <loyer_reference_majore>"],
+      ['key'=>'loyer_de_base',         'label'=>'Base',      'type'=>'decimal','scope'=>'location','tip'=>"Loyer de base mensuel (ALUR zone encadrée) → balise <loyer_de_base>"],
+      ['key'=>'zone_encadrement_loyer','label'=>'Zone enc.', 'type'=>'bool',   'scope'=>'location','tip'=>"Zone encadrement des loyers → balise <zone_encadrement_loyer>"],
+      ['key'=>'b_charges_locatives',   'label'=>'Charges',   'type'=>'readonly','scope'=>'location','tip'=>"Charges locatives mensuelles (sur biens.charges_locatives) → balise <charges_locatives>"],
+      ['key'=>'depot_garantie',        'label'=>'Dépôt',     'type'=>'decimal','scope'=>'location','tip'=>"Dépôt de garantie → balise <depot_garantie>. 1 mois de loyer HC par défaut."],
+      ['key'=>'honoraires_location_bail',  'label'=>'Loc+bail','type'=>'decimal','scope'=>'location','tip'=>"Honoraires location + rédaction bail (plafond ALUR) → balise <honoraires_location>"],
+      ['key'=>'honoraires_etat_des_lieux', 'label'=>'EDL',     'type'=>'decimal','scope'=>'location','tip'=>"Honoraires état des lieux (plafond ALUR 3 €/m²) → balise <honoraires_etat_des_lieux>"],
+      ['key'=>'honoraires_loc_total',      'label'=>'Tot. loc','type'=>'readonly_calc','scope'=>'location','tip'=>"Total honoraires locataire = loc+bail + EDL → balise <honoraires_locataire_total>"],
+      ['key'=>'meuble',                'label'=>'Meublé',    'type'=>'bool',  'scope'=>'location','tip'=>"Location meublée → balise <meuble>"],
+      ['key'=>'disponible_de_suite',   'label'=>'Dispo',     'type'=>'bool',  'scope'=>'location','tip'=>"Disponible immédiatement → balise <disponible_immediatement>"],
+      ['key'=>'date_disponibilite',    'label'=>'Date dispo','type'=>'date',  'scope'=>'location','tip'=>"Date disponibilité → balise <date_disponibilite>"],
+      ['key'=>'duree_bail_mois',       'label'=>'Bail(m)',   'type'=>'decimal','scope'=>'location','tip'=>"Durée du bail en mois → balise <duree_du_bail>"],
+
+      // ── Taxes (both) ──────────────────────────────────────────────────
+      ['key'=>'taxe_fonciere',       'label'=>'TF',        'type'=>'decimal','scope'=>'both',    'tip'=>"Taxe foncière annuelle → balise <taxe_fonciere>"],
+      ['key'=>'taxe_habitation',     'label'=>'TH',        'type'=>'decimal','scope'=>'both',    'tip'=>"Taxe habitation annuelle → balise <taxe_habitation>"],
+      ['key'=>'taxe_ordures_menageres','label'=>'TOM',     'type'=>'decimal','scope'=>'both',    'tip'=>"Taxe enlèvement ordures ménagères (TEOM/TOM) annuelle"],
+
+      // ── Mandat & annonce (both) ───────────────────────────────────────
+      ['key'=>'mandat_numero',       'label'=>'Mandat №',  'type'=>'text',   'scope'=>'both',    'tip'=>"Numéro de mandat → balise <mandat_numero>"],
+      ['key'=>'mandat_type',         'label'=>'Type M.',   'type'=>'enum-mandat','scope'=>'both','tip'=>"Type de mandat : exclusif/simple → balise <mandat_type>"],
+      ['key'=>'date_mandat',         'label'=>'Date M.',   'type'=>'date',   'scope'=>'both',    'tip'=>"Date de signature du mandat → balise <date_mandat>"],
+      ['key'=>'url_tarifs_publics',  'label'=>'URL barème','type'=>'text',   'scope'=>'both',    'tip'=>"URL publique du barème honoraires (obligation ALUR) → balise <url_tarifs_publics>"],
+      ['key'=>'titre',               'label'=>'Titre',     'type'=>'text',   'scope'=>'both',    'tip'=>"Titre de l'annonce → balise <titre>. Obligatoire pour diffusion."],
+      ['key'=>'date_modification',   'label'=>'Modifiée',  'type'=>'readonly','scope'=>'both',   'tip'=>"Date de dernière modification"],
+    ];
+
+    // Filtrage scope selon filtre transaction
+    $visibleCols = array_filter($columns, function($c) use ($fTrans) {
+      if ($c['scope'] === 'both') return true;
+      if ($fTrans === 'vente') return $c['scope'] === 'vente';
+      if (in_array($fTrans, ['location','saisonnier','location_annuelle'], true)) return $c['scope'] === 'location';
+      return true; // filtre = Toutes → affiche tout
+    });
+
+    // Helpers rendu
+    $currentQS = $_GET;
+    $renderHeader = function(array $c) use (&$currentQS, $sort, $dir) {
+        $sortable = isset($c['key']) && !in_array($c['type'], ['readonly_calc','fk_bien'], true);
+        $tip = htmlspecialchars($c['tip'] ?? '', ENT_QUOTES);
+        if (!$sortable) {
+            echo '<th title="' . $tip . '">' . htmlspecialchars($c['label']) . '</th>';
+            return;
+        }
+        $nextDir = ($sort === $c['key'] && $dir === 'asc') ? 'desc' : 'asc';
+        $qs = $currentQS; $qs['sort'] = $c['key']; $qs['dir'] = $nextDir;
+        $url = '?' . http_build_query($qs);
+        $arrow = '';
+        if ($sort === $c['key']) $arrow = '<span class="arrow">' . ($dir === 'asc' ? '↑' : '↓') . '</span>';
+        echo '<th title="' . $tip . '"><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">' . htmlspecialchars($c['label']) . ' ' . $arrow . '</a></th>';
+    };
+
+    $renderCell = function(array $c, array $r, int $annId, string $editBien) {
+        $key = $c['key'];
+        $type = $c['type'];
+        $tip = htmlspecialchars($c['tip'] ?? '', ENT_QUOTES);
+        // Cas spéciaux
+        if ($type === 'readonly') {
+            if ($key === 'id') {
+                echo '<td title="' . $tip . '"><a href="' . htmlspecialchars($editBien, ENT_QUOTES) . '" class="at-fk-link">#' . $annId . '</a></td>';
+                return;
+            }
+            if ($key === 'date_modification') {
+                echo '<td style="color:#94a3b8; font-size:9px;">' . htmlspecialchars((string)($r[$key] ?? '')) . '</td>';
+                return;
+            }
+            // Default readonly
+            echo '<td title="' . $tip . '" style="color:#64748b;">' . htmlspecialchars((string)($r[$key] ?? '—')) . '</td>';
+            return;
+        }
+        if ($type === 'fk_bien') {
+            echo '<td><a href="' . htmlspecialchars($editBien, ENT_QUOTES) . '" class="at-fk-link">#' . (int)$r['id_bien']
+               . (!empty($r['reference_bien']) ? '<br><span class="at-ref">' . htmlspecialchars((string)$r['reference_bien']) . '</span>' : '')
+               . '</a></td>';
+            return;
+        }
+        if ($type === 'readonly_calc') {
+            // Calculs spéciaux
+            if ($key === 'honoraires_loc_total') {
+                $t = (float)($r['honoraires_location_bail'] ?? 0) + (float)($r['honoraires_etat_des_lieux'] ?? 0);
+                echo '<td style="font-weight:700; color:#78350f; background:#fef3c7;" title="' . $tip . '">' . ($t > 0 ? number_format($t, 2, '.', '') : '—') . '</td>';
+            } else {
+                echo '<td>—</td>';
+            }
+            return;
+        }
+
+        $v = $r[$key] ?? null;
+        $display = $v;
+        if ($type === 'fk-agence') $display = $r['nom_agence'] ?? '—';
+        elseif ($type === 'fk-societe') $display = $r['societe_nom'] ?? '—';
+        elseif ($type === 'fk-user') $display = $r['user_nom'] ?? '—';
+        elseif ($type === 'bool') $display = (int)$v;
+        elseif ($display === null || $display === '') $display = '—';
+
+        $dataValue = (string)($v ?? '');
+        if ($type === 'fk-agence') $dataValue = (string)(int)$r['id_agence'];
+        elseif ($type === 'fk-societe') $dataValue = (string)(int)$r['id_societe'];
+        elseif ($type === 'fk-user') $dataValue = (string)(int)$r['id_user'];
+        elseif ($type === 'bool') $dataValue = (string)(int)$v;
+
+        $displayHtml = htmlspecialchars((string)$display);
+        if ($type === 'bool') {
+            $bv = (int)$v;
+            $displayHtml = '<span class="at-b ' . ($bv ? 'at-b-on' : 'at-b-off') . '">' . ($bv ? '1' : '0') . '</span>';
+        } elseif ($type === 'text' && $key === 'titre') {
+            $displayHtml = htmlspecialchars(mb_substr((string)($v ?: '—'), 0, 60));
+        }
+
+        echo '<td title="' . $tip . '"><span class="at-cell"'
+           . ' data-ann="' . $annId . '"'
+           . ' data-field="' . htmlspecialchars($key, ENT_QUOTES) . '"'
+           . ' data-type="' . htmlspecialchars($type, ENT_QUOTES) . '"'
+           . ' data-value="' . htmlspecialchars($dataValue, ENT_QUOTES) . '">'
+           . $displayHtml
+           . '</span></td>';
+    };
+  ?>
+
   <div class="at-scroll">
   <table class="at-table">
     <thead>
       <tr>
-        <?php
-          // Helper : génère un <th> avec lien de tri. Ajoute ↑↓ sur la colonne active.
-          $currentQS = $_GET;
-          $sortLink = static function(string $col, string $label) use (&$currentQS, $sort, $dir) {
-              $nextDir = ($sort === $col && $dir === 'asc') ? 'desc' : 'asc';
-              $qs = $currentQS;
-              $qs['sort'] = $col;
-              $qs['dir']  = $nextDir;
-              $url = '?' . http_build_query($qs);
-              $arrow = '';
-              if ($sort === $col) $arrow = '<span class="arrow">' . ($dir === 'asc' ? '↑' : '↓') . '</span>';
-              echo '<th><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">' . htmlspecialchars($label) . ' ' . $arrow . '</a></th>';
-          };
-        ?>
-        <?php $sortLink('id',                    '#id'); ?>
-        <?php $sortLink('id_bien',               'Bien'); ?>
-        <?php $sortLink('id_agence',             'Agence'); ?>
-        <?php $sortLink('id_societe',            'Société'); ?>
-        <?php $sortLink('id_user',               'Commercial'); ?>
-        <?php $sortLink('type_transaction',      'Transaction'); ?>
-        <?php $sortLink('statut',                'Statut'); ?>
-        <?php $sortLink('etat_publication',      'État pub.'); ?>
-        <?php $sortLink('visible_portails',      'Port.'); ?>
-        <?php $sortLink('visible_site',          'Site'); ?>
-        <?php $sortLink('visible_maboximmo',     'MBI'); ?>
-        <?php $sortLink('visible_site_perso',    'S.pers'); ?>
-        <?php $sortLink('prix',                  'Prix'); ?>
-        <?php $sortLink('loyer',                 'Loyer'); ?>
-        <?php $sortLink('loyer_cc',              'Loyer CC'); ?>
-        <?php $sortLink('honoraires_location_bail',  'Loc+bail'); ?>
-        <?php $sortLink('honoraires_etat_des_lieux', 'EDL'); ?>
-        <?php $sortLink('depot_garantie',        'Dépôt'); ?>
-        <?php $sortLink('mandat_numero',         'Mandat №'); ?>
-        <?php $sortLink('mandat_type',           'Type M.'); ?>
-        <?php $sortLink('titre',                 'Titre'); ?>
-        <?php $sortLink('date_modification',     'Modifiée'); ?>
+        <?php foreach ($visibleCols as $c) $renderHeader($c); ?>
       </tr>
     </thead>
     <tbody>
-      <?php foreach ($rows as $r): ?>
-        <?php
-          $editBien = app_url('/bien_detail.php?edit=' . (int)$r['id_bien'] . '&section=annonce');
-          $annId = (int)$r['id'];
-        ?>
+      <?php foreach ($rows as $r):
+        $editBien = app_url('/bien_detail.php?edit=' . (int)$r['id_bien'] . '&section=annonce');
+        $annId = (int)$r['id'];
+      ?>
         <tr>
-          <td><a href="<?= ate($editBien) ?>" class="at-fk-link">#<?= $annId ?></a></td>
-          <td>
-            <a href="<?= ate($editBien) ?>" class="at-fk-link">
-              #<?= (int)$r['id_bien'] ?>
-              <?php if (!empty($r['reference_bien'])): ?><br><span class="at-ref"><?= ate($r['reference_bien']) ?></span><?php endif; ?>
-            </a>
-          </td>
-          <!-- id_agence (FK) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="id_agence" data-type="fk-agence" data-value="<?= (int)$r['id_agence'] ?>"><?= ate($r['nom_agence'] ?: '—') ?></span></td>
-          <!-- id_societe (FK) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="id_societe" data-type="fk-societe" data-value="<?= (int)$r['id_societe'] ?>"><?= ate($r['societe_nom'] ?: '—') ?></span></td>
-          <!-- id_user (FK) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="id_user" data-type="fk-user" data-value="<?= (int)$r['id_user'] ?>"><?= ate($r['user_nom'] ?: '—') ?></span></td>
-          <!-- type_transaction (enum) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="type_transaction" data-type="enum-trans" data-value="<?= ate($r['type_transaction']) ?>"><?= ate($r['type_transaction'] ?: '—') ?></span></td>
-          <!-- statut (enum) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="statut" data-type="enum-statut" data-value="<?= ate($r['statut']) ?>"><?= ate($r['statut'] ?: '—') ?></span></td>
-          <!-- etat_publication (enum) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="etat_publication" data-type="enum-etat" data-value="<?= ate($r['etat_publication']) ?>"><?= ate($r['etat_publication'] ?: '—') ?></span></td>
-          <!-- bools -->
-          <?php foreach (['visible_portails','visible_site','visible_maboximmo','visible_site_perso'] as $bf):
-            $bv = (int)($r[$bf] ?? 0);
-          ?>
-            <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="<?= $bf ?>" data-type="bool" data-value="<?= $bv ?>">
-              <span class="at-b <?= $bv ? 'at-b-on':'at-b-off' ?>"><?= $bv ? '1':'0' ?></span>
-            </span></td>
-          <?php endforeach; ?>
-          <!-- decimals -->
-          <?php foreach (['prix','loyer','loyer_cc','honoraires_location_bail','honoraires_etat_des_lieux','depot_garantie'] as $df):
-            $dv = $r[$df];
-          ?>
-            <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="<?= $df ?>" data-type="decimal" data-value="<?= ate((string)$dv) ?>"><?= $dv !== null ? ate((string)$dv) : '—' ?></span></td>
-          <?php endforeach; ?>
-          <!-- mandat_numero (text) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="mandat_numero" data-type="text" data-value="<?= ate((string)$r['mandat_numero']) ?>"><?= ate($r['mandat_numero'] ?: '—') ?></span></td>
-          <!-- mandat_type (enum) -->
-          <td><span class="at-cell" data-ann="<?= $annId ?>" data-field="mandat_type" data-type="enum-mandat" data-value="<?= ate((string)$r['mandat_type']) ?>"><?= ate($r['mandat_type'] ?: '—') ?></span></td>
-          <!-- titre (text) -->
-          <td style="max-width:260px; white-space:normal;"><span class="at-cell" data-ann="<?= $annId ?>" data-field="titre" data-type="text" data-value="<?= ate((string)$r['titre']) ?>" title="Clique pour éditer"><?= ate(mb_substr((string)($r['titre'] ?: '—'), 0, 60)) ?></span></td>
-          <td style="color:#94a3b8; font-size:10px;"><?= ate($r['date_modification']) ?></td>
+          <?php foreach ($visibleCols as $c) $renderCell($c, $r, $annId, $editBien); ?>
         </tr>
       <?php endforeach; ?>
     </tbody>

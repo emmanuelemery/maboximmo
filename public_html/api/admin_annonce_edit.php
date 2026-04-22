@@ -42,14 +42,25 @@ $editableFields = [
     'reference_annonce'  => ['type' => 'text', 'maxlen' => 50],
     'mandat_numero'      => ['type' => 'text', 'maxlen' => 50],
     'url_tarifs_publics' => ['type' => 'text', 'maxlen' => 2083],
-    // number
+    // number — vente
     'prix'               => ['type' => 'decimal'],
+    'prix_net_vendeur'   => ['type' => 'decimal'],
+    'honoraires'         => ['type' => 'decimal'],
+    'alur_pourcentage_honoraires_ttc' => ['type' => 'decimal'],
+    'pourcentage_honoraires_vendeur'  => ['type' => 'decimal'],
+    'honoraires_negociation_cumules'  => ['type' => 'decimal'],
+    // number — location
     'loyer'              => ['type' => 'decimal'],
     'loyer_cc'           => ['type' => 'decimal'],
     'charges'            => ['type' => 'decimal'],
+    'complement_loyer'   => ['type' => 'decimal'],
+    'loyer_reference_majore' => ['type' => 'decimal'],
+    'loyer_de_base'      => ['type' => 'decimal'],
     'depot_garantie'     => ['type' => 'decimal'],
     'honoraires_location_bail'  => ['type' => 'decimal'],
     'honoraires_etat_des_lieux' => ['type' => 'decimal'],
+    'duree_bail_mois'    => ['type' => 'decimal'],
+    // number — taxes (both)
     'taxe_fonciere'      => ['type' => 'decimal'],
     'taxe_habitation'    => ['type' => 'decimal'],
     'taxe_ordures_menageres' => ['type' => 'decimal'],
@@ -67,6 +78,11 @@ $editableFields = [
     'coup_coeur'         => ['type' => 'bool'],
     'meuble'             => ['type' => 'bool'],
     'disponible_de_suite'=> ['type' => 'bool'],
+    'honoraires_charge_acquereur' => ['type' => 'bool'],
+    'honoraires_charge_vendeur'   => ['type' => 'bool'],
+    'zone_encadrement_loyer'      => ['type' => 'bool'],
+    'loyer_est_cc'                => ['type' => 'bool'],
+    'ancien_loyer_communique'     => ['type' => 'bool'],
     // FK (avec validation d'existence)
     'id_agence'          => ['type' => 'fk', 'table' => 'agences'],
     'id_societe'         => ['type' => 'fk', 'table' => 'societes'],
@@ -74,6 +90,9 @@ $editableFields = [
     // date
     'date_mandat'        => ['type' => 'date'],
     'date_disponibilite' => ['type' => 'date'],
+    'mandat_echeance'    => ['type' => 'date'],
+    'ancien_loyer_date_revision'   => ['type' => 'date'],
+    'ancien_locataire_date_sortie' => ['type' => 'date'],
 ];
 
 if (!isset($editableFields[$field])) {
