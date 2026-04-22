@@ -30,8 +30,8 @@ if ($roleId !== 1) {
 $pdo = $GLOBALS['pdo'];
 
 // Options sociétés / agences (pour filtre ciblé)
-$societes = $pdo->query("SELECT id, raison_sociale FROM societes ORDER BY raison_sociale")->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$agences  = $pdo->query("SELECT id, nom, id_societe FROM agences ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$societes = $pdo->query("SELECT id, COALESCE(NULLIF(raison_sociale,''), nom) AS raison_sociale FROM societes ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$agences  = $pdo->query("SELECT id, nom_agence AS nom, id_societe FROM agences ORDER BY nom_agence")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $action = (string)($_POST['action'] ?? '');
 $url     = trim((string)($_POST['url_tarifs_publics'] ?? ''));
@@ -109,11 +109,13 @@ try {
     $q = $pdo->prepare("
         SELECT a.id, a.type_transaction, a.etat_publication, a.statut,
                a.url_tarifs_publics,
-               s.raison_sociale AS societe, ag.nom AS agence
+               COALESCE(s.raison_sociale, s.nom) AS societe,
+               ag.nom_agence AS agence
         FROM annonces a
         LEFT JOIN societes s  ON s.id  = a.id_societe
         LEFT JOIN agences  ag ON ag.id = a.id_agence
         WHERE {$whereOn}
+        -- nom_agence est l'alias correct (colonne réelle : agences.nom_agence)
         ORDER BY a.id DESC
         LIMIT 50
     ");
