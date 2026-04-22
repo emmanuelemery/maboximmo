@@ -218,9 +218,6 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <li><a href="./admin/admin_database.php" class="<?= sbActive('admin_database.php') ?>">
                 <span class="sb-icon">🗄</span><span class="sb-label">Base de données</span>
             </a></li>
-            <li><a href="./admin/admin_annonces_table.php" class="<?= sbActive('admin_annonces_table.php') ?>">
-                <span class="sb-icon">📋</span><span class="sb-label">Annonces (édition directe)</span>
-            </a></li>
             <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
                 <span class="sb-icon">🚀</span><span class="sb-label">Migrations BDD</span>
             </a></li>
