@@ -64,7 +64,7 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
 }
 }
 ?>
-<link rel="stylesheet" href="css/sidebar.css">
+<link rel="stylesheet" href="<?= htmlspecialchars(function_exists('asset_url') ? asset_url('/css/sidebar.css') : '/css/sidebar.css') ?>">
 
 <aside class="mbi-sidebar">
 
