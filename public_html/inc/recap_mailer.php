@@ -208,6 +208,9 @@ if (!function_exists('recap_collect_candidates')) {
     function recap_collect_candidates(PDO $pdo, array $window): array
     {
         try {
+            // ⚠️ PDO avec prepared statements natives MySQL ne supporte PAS la
+            // réutilisation d'un placeholder nommé plusieurs fois dans une même
+            // requête → chaque occurrence doit avoir son propre nom (:s1, :s2…).
             $st = $pdo->prepare("
                 SELECT DISTINCT u.id, u.email, u.prenom, u.nom
                 FROM users u
@@ -223,21 +226,26 @@ if (!function_exists('recap_collect_candidates')) {
                       SELECT 1 FROM annonces a
                       WHERE a.id_user = u.id
                         AND (
-                          a.date_mise_en_ligne BETWEEN :s AND :e
-                          OR a.date_creation   BETWEEN :s AND :e
-                          OR (a.etat_publication IN ('archivee','archived') AND a.date_modification BETWEEN :s AND :e)
+                          a.date_mise_en_ligne BETWEEN :s1 AND :e1
+                          OR a.date_creation   BETWEEN :s2 AND :e2
+                          OR (a.etat_publication IN ('archivee','archived') AND a.date_modification BETWEEN :s3 AND :e3)
                         )
                     )
                     OR EXISTS (
                       SELECT 1 FROM annonces_versions v
                       WHERE v.id_user = u.id
                         AND v.type_action = 'delete'
-                        AND v.date_creation BETWEEN :s AND :e
+                        AND v.date_creation BETWEEN :s4 AND :e4
                     )
                   )
                 ORDER BY u.nom, u.prenom
             ");
-            $st->execute([':s' => $window['start_sql'], ':e' => $window['end_sql']]);
+            $st->execute([
+                ':s1' => $window['start_sql'], ':e1' => $window['end_sql'],
+                ':s2' => $window['start_sql'], ':e2' => $window['end_sql'],
+                ':s3' => $window['start_sql'], ':e3' => $window['end_sql'],
+                ':s4' => $window['start_sql'], ':e4' => $window['end_sql'],
+            ]);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
             error_log('[recap_mailer] recap_collect_candidates: ' . $e->getMessage());
