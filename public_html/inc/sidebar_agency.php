@@ -114,6 +114,9 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             Agency
         </div>
         <ul class="sb-nav">
+            <li><a href="./annonce_liste.php" class="<?= sbActive('annonce_liste.php') ?>">
+                <span class="sb-icon">📡</span><span class="sb-label">Mes annonces</span>
+            </a></li>
             <li><a href="./bien_liste.php" class="<?= sbActive('bien_liste.php') ?>">
                 <span class="sb-icon">🏘️</span><span class="sb-label">Mes biens</span>
             </a></li>
