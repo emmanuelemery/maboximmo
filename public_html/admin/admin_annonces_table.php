@@ -27,9 +27,14 @@ if (!$isAdmin) {
 
 function ate($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 
-// Filtres minimaux
-$fAgence = (int)($_GET['id_agence'] ?? 0);
+// Filtres
+$fAgence = (int)($_GET['id_agence']    ?? 0);
+$fUser   = (int)($_GET['id_user']      ?? 0);
+$fTrans  = trim((string)($_GET['transaction'] ?? ''));
 $fEtat   = trim((string)($_GET['etat'] ?? ''));
+$sort    = trim((string)($_GET['sort'] ?? 'id'));
+$dir     = strtolower(trim((string)($_GET['dir'] ?? 'desc')));
+if (!in_array($dir, ['asc','desc'], true)) $dir = 'desc';
 
 $where = ['1=1'];
 $params = [];
@@ -38,10 +43,39 @@ if (!$isSuperAdmin && $societeId > 0) {
     $params[':fsoc'] = $societeId;
 }
 if ($fAgence > 0) { $where[] = 'a.id_agence = :fag'; $params[':fag'] = $fAgence; }
+if ($fUser   > 0) { $where[] = 'a.id_user = :fu';    $params[':fu']  = $fUser;   }
+if ($fTrans !== '') { $where[] = 'a.type_transaction = :ftr'; $params[':ftr'] = $fTrans; }
 if ($fEtat === 'brouillon')    $where[] = "(a.etat_publication = 'brouillon' OR a.statut = 'brouillon')";
 if ($fEtat === 'diffusee')     $where[] = "(a.etat_publication IN ('diffusee','publiee') OR a.statut IN ('publiee','active','en_ligne'))";
 if ($fEtat === 'archivee')     $where[] = "a.etat_publication IN ('archivee','archived')";
 $whereClause = 'WHERE ' . implode(' AND ', $where);
+
+// Whitelist des colonnes triables (sécurité — pas d'injection via $_GET)
+$sortable = [
+    'id'                    => 'a.id',
+    'id_bien'               => 'a.id_bien',
+    'id_agence'             => 'ag.nom_agence',
+    'id_societe'            => 's.nom',
+    'id_user'               => 'u.nom',
+    'type_transaction'      => 'a.type_transaction',
+    'statut'                => 'a.statut',
+    'etat_publication'      => 'a.etat_publication',
+    'visible_portails'      => 'a.visible_portails',
+    'visible_site'          => 'a.visible_site',
+    'visible_maboximmo'     => 'a.visible_maboximmo',
+    'visible_site_perso'    => 'a.visible_site_perso',
+    'prix'                  => 'a.prix',
+    'loyer'                 => 'a.loyer',
+    'loyer_cc'              => 'a.loyer_cc',
+    'honoraires_location_bail'  => 'a.honoraires_location_bail',
+    'honoraires_etat_des_lieux' => 'a.honoraires_etat_des_lieux',
+    'depot_garantie'        => 'a.depot_garantie',
+    'mandat_numero'         => 'a.mandat_numero',
+    'mandat_type'           => 'a.mandat_type',
+    'titre'                 => 'a.titre',
+    'date_modification'     => 'a.date_modification',
+];
+$orderSql = ($sortable[$sort] ?? 'a.id') . ' ' . strtoupper($dir);
 
 $sql = "
     SELECT
@@ -65,7 +99,7 @@ $sql = "
     LEFT JOIN societes s  ON s.id = a.id_societe
     LEFT JOIN users u     ON u.id = a.id_user
     {$whereClause}
-    ORDER BY a.id DESC
+    ORDER BY {$orderSql}
     LIMIT 300
 ";
 $st = $pdo->prepare($sql);
@@ -91,33 +125,39 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
                 display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .at-filters select { padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:12px; }
   .at-filters .count { margin-left:auto; font-size:12px; color:#64748b; }
-  .at-table { width:100%; border-collapse:collapse; font-size:11px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
-  .at-table th { background:#f8fafc; padding:6px 8px; text-align:left; font-weight:700; color:#475569; border-bottom:1px solid #e5e7eb; white-space:nowrap; font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
-  .at-table td { padding:5px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+  .at-table { border-collapse:collapse; font-size:10px; background:#fff; border:1px solid #e5e7eb; border-radius:6px; }
+  .at-table th { background:#f8fafc; padding:5px 6px; text-align:left; font-weight:700; color:#475569; border-bottom:1px solid #e5e7eb; white-space:nowrap; font-size:9px; text-transform:uppercase; letter-spacing:.02em; position:sticky; top:0; z-index:2; }
+  .at-table th a { color:#475569; text-decoration:none; display:inline-flex; align-items:center; gap:3px; }
+  .at-table th a:hover { color:#0369a1; }
+  .at-table th .arrow { color:#0ea5e9; font-weight:800; }
+  .at-table td { padding:3px 6px; border-bottom:1px solid #f1f5f9; vertical-align:middle; white-space:nowrap; }
   .at-table tr:hover td { background:#f8fafc; }
-  .at-cell { cursor:pointer; padding:3px 6px; border-radius:4px; min-height:18px; display:inline-block; min-width:40px; }
+  .at-cell { cursor:pointer; padding:2px 4px; border-radius:3px; min-height:16px; display:inline-block; min-width:30px; font-size:10px; }
   .at-cell:hover { background:#dbeafe; }
   .at-cell.saving { background:#fef3c7 !important; }
   .at-cell.saved { background:#dcfce7 !important; transition:background 1s; }
   .at-cell.err { background:#fee2e2 !important; }
   .at-cell input, .at-cell select {
-    font-size:11px; padding:2px 4px; border:1px solid #0ea5e9; border-radius:4px;
-    background:#fff; min-width:80px; font-family:inherit;
+    font-size:10px; padding:1px 3px; border:1px solid #0ea5e9; border-radius:3px;
+    background:#fff; min-width:70px; font-family:inherit;
   }
-  .at-id { font-family:monospace; font-size:10px; color:#64748b; }
-  .at-fk-link { color:#0369a1; text-decoration:none; border-bottom:1px dotted #0ea5e9; }
+  .at-id { font-family:monospace; font-size:9px; color:#64748b; }
+  .at-fk-link { color:#0369a1; text-decoration:none; border-bottom:1px dotted #0ea5e9; font-size:10px; }
   .at-fk-link:hover { background:#dbeafe; }
-  .at-b { padding:1px 6px; border-radius:99px; font-size:9px; font-weight:700; text-transform:uppercase; }
+  .at-b { padding:1px 5px; border-radius:99px; font-size:8px; font-weight:700; }
   .at-b-on  { background:#dcfce7; color:#166534; }
   .at-b-off { background:#fee2e2; color:#991b1b; }
-  .at-ref { font-family:monospace; font-size:10px; color:#334155; }
-  .at-wide td { white-space:nowrap; }
-  .at-scroll { overflow-x:auto; max-width:100%; }
+  .at-ref { font-family:monospace; font-size:9px; color:#334155; }
+  .at-scroll { overflow-x:auto; max-width:100%; border-radius:6px; max-height:calc(100vh - 240px); overflow-y:auto; }
 </style>
 
 <div class="at-wrap">
 
   <form method="get" class="at-filters">
+    <!-- Préserve le tri courant lors d'un filtrage -->
+    <input type="hidden" name="sort" value="<?= ate($sort) ?>">
+    <input type="hidden" name="dir"  value="<?= ate($dir) ?>">
+
     <label style="font-size:12px; font-weight:600; color:#475569;">Agence</label>
     <select name="id_agence" onchange="this.form.submit()">
       <option value="0">Toutes</option>
@@ -125,6 +165,24 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
         <option value="<?= (int)$ag['id'] ?>" <?= $fAgence === (int)$ag['id'] ? 'selected' : '' ?>><?= ate($ag['nom_agence']) ?></option>
       <?php endforeach; ?>
     </select>
+
+    <label style="font-size:12px; font-weight:600; color:#475569;">Commercial</label>
+    <select name="id_user" onchange="this.form.submit()">
+      <option value="0">Tous</option>
+      <?php foreach ($users as $u): ?>
+        <option value="<?= (int)$u['id'] ?>" <?= $fUser === (int)$u['id'] ? 'selected' : '' ?>><?= ate($u['lbl']) ?></option>
+      <?php endforeach; ?>
+    </select>
+
+    <label style="font-size:12px; font-weight:600; color:#475569;">Transaction</label>
+    <select name="transaction" onchange="this.form.submit()">
+      <option value="">Toutes</option>
+      <option value="vente"      <?= $fTrans==='vente' ? 'selected':'' ?>>Vente</option>
+      <option value="location"   <?= $fTrans==='location' ? 'selected':'' ?>>Location</option>
+      <option value="saisonnier" <?= $fTrans==='saisonnier' ? 'selected':'' ?>>Saisonnier</option>
+      <option value="viager"     <?= $fTrans==='viager' ? 'selected':'' ?>>Viager</option>
+    </select>
+
     <label style="font-size:12px; font-weight:600; color:#475569;">État</label>
     <select name="etat" onchange="this.form.submit()">
       <option value="">Tous</option>
@@ -132,8 +190,9 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
       <option value="diffusee"  <?= $fEtat === 'diffusee'  ? 'selected' : '' ?>>Diffusée</option>
       <option value="archivee"  <?= $fEtat === 'archivee'  ? 'selected' : '' ?>>Archivée</option>
     </select>
+
     <a href="admin_annonces_table.php" style="font-size:12px; color:#64748b;">✕ Reset</a>
-    <span class="count"><?= count($rows) ?> annonce(s) · édition directe BDD</span>
+    <span class="count"><?= count($rows) ?> annonce(s) · tri : <?= ate($sort) ?> <?= $dir === 'desc' ? '↓' : '↑' ?></span>
   </form>
 
   <div style="background:#fef3c7; padding:10px 14px; border-radius:8px; margin-bottom:10px; font-size:12px; color:#78350f;">
@@ -142,31 +201,45 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
   </div>
 
   <div class="at-scroll">
-  <table class="at-table at-wide">
+  <table class="at-table">
     <thead>
       <tr>
-        <th>#id</th>
-        <th>Bien</th>
-        <th>Agence</th>
-        <th>Société</th>
-        <th>Commercial</th>
-        <th>Transaction</th>
-        <th>Statut</th>
-        <th>État pub.</th>
-        <th>Portails</th>
-        <th>Site</th>
-        <th>MBI</th>
-        <th>S.perso</th>
-        <th>Prix</th>
-        <th>Loyer</th>
-        <th>Loyer CC</th>
-        <th>Hono loc+bail</th>
-        <th>Hono EDL</th>
-        <th>Dépôt</th>
-        <th>Mandat №</th>
-        <th>Type M.</th>
-        <th>Titre</th>
-        <th>Modifiée</th>
+        <?php
+          // Helper : génère un <th> avec lien de tri. Ajoute ↑↓ sur la colonne active.
+          $currentQS = $_GET;
+          $sortLink = static function(string $col, string $label) use (&$currentQS, $sort, $dir) {
+              $nextDir = ($sort === $col && $dir === 'asc') ? 'desc' : 'asc';
+              $qs = $currentQS;
+              $qs['sort'] = $col;
+              $qs['dir']  = $nextDir;
+              $url = '?' . http_build_query($qs);
+              $arrow = '';
+              if ($sort === $col) $arrow = '<span class="arrow">' . ($dir === 'asc' ? '↑' : '↓') . '</span>';
+              echo '<th><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">' . htmlspecialchars($label) . ' ' . $arrow . '</a></th>';
+          };
+        ?>
+        <?php $sortLink('id',                    '#id'); ?>
+        <?php $sortLink('id_bien',               'Bien'); ?>
+        <?php $sortLink('id_agence',             'Agence'); ?>
+        <?php $sortLink('id_societe',            'Société'); ?>
+        <?php $sortLink('id_user',               'Commercial'); ?>
+        <?php $sortLink('type_transaction',      'Transaction'); ?>
+        <?php $sortLink('statut',                'Statut'); ?>
+        <?php $sortLink('etat_publication',      'État pub.'); ?>
+        <?php $sortLink('visible_portails',      'Port.'); ?>
+        <?php $sortLink('visible_site',          'Site'); ?>
+        <?php $sortLink('visible_maboximmo',     'MBI'); ?>
+        <?php $sortLink('visible_site_perso',    'S.pers'); ?>
+        <?php $sortLink('prix',                  'Prix'); ?>
+        <?php $sortLink('loyer',                 'Loyer'); ?>
+        <?php $sortLink('loyer_cc',              'Loyer CC'); ?>
+        <?php $sortLink('honoraires_location_bail',  'Loc+bail'); ?>
+        <?php $sortLink('honoraires_etat_des_lieux', 'EDL'); ?>
+        <?php $sortLink('depot_garantie',        'Dépôt'); ?>
+        <?php $sortLink('mandat_numero',         'Mandat №'); ?>
+        <?php $sortLink('mandat_type',           'Type M.'); ?>
+        <?php $sortLink('titre',                 'Titre'); ?>
+        <?php $sortLink('date_modification',     'Modifiée'); ?>
       </tr>
     </thead>
     <tbody>
