@@ -60,8 +60,9 @@ if ($expected === '' || $got === '' || !hash_equals($expected, $got)) {
 
 $pdo       = $GLOBALS['pdo'];
 $adminMail = defined('CRON_RECAP_ADMIN_EMAIL') ? (string)CRON_RECAP_ADMIN_EMAIL : 'emmanuel.emery@regie-emery.com';
-$fromEmail = defined('CRON_RECAP_FROM_EMAIL')  ? (string)CRON_RECAP_FROM_EMAIL  : 'ne-pas-repondre@maboximmo.fr';
+$fromEmail = defined('CRON_RECAP_FROM_EMAIL')  ? (string)CRON_RECAP_FROM_EMAIL  : 'contact@maboximmo.fr';
 $fromName  = defined('CRON_RECAP_FROM_NAME')   ? (string)CRON_RECAP_FROM_NAME   : 'MaBoxImmo';
+$replyTo   = defined('CRON_RECAP_REPLY_TO')    ? (string)CRON_RECAP_REPLY_TO    : 'emmanuel.emery@regie-emery.com';
 
 $window = recap_window_from_now();
 
@@ -113,7 +114,7 @@ foreach ($candidates as $u) {
 
     $subject = '🏠 Bonjour ' . $prenom . ' — votre récap MaBoxImmo du matin';
     $html    = recap_build_email_user($pdo, $u, $activity, $window);
-    $ok      = send_mail($email, $subject, $html, [], true, '', '', $fromEmail, $fromName);
+    $ok      = send_mail($email, $subject, $html, [], true, '', $replyTo, $fromEmail, $fromName);
 
     if ($ok) {
         $nbSent++;
@@ -128,7 +129,7 @@ foreach ($candidates as $u) {
 $globalData = recap_collect_global($pdo, $window);
 $globalSubject = '📊 Récap global MaBoxImmo — ' . $window['day_fr'];
 $globalHtml    = recap_build_email_global($globalData, $window);
-$globalOk      = send_mail($adminMail, $globalSubject, $globalHtml, [], true, '', '', $fromEmail, $fromName);
+$globalOk      = send_mail($adminMail, $globalSubject, $globalHtml, [], true, '', $replyTo, $fromEmail, $fromName);
 $details[] = ['uid' => 0, 'email' => $adminMail, 'status' => $globalOk ? 'sent_global' : 'global_failed'];
 if ($globalOk) $nbSent++; else $nbFail++;
 

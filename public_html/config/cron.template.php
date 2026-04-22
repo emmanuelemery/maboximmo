@@ -21,6 +21,12 @@ define('CRON_RECAP_TOKEN', 'REMPLACE_PAR_TON_TOKEN_SECRET_ALEATOIRE');
 // Email super-admin qui reçoit le récap global (ne pas laisser vide)
 define('CRON_RECAP_ADMIN_EMAIL', 'emmanuel.emery@regie-emery.com');
 
-// Adresse expéditeur des mails
-define('CRON_RECAP_FROM_EMAIL', 'ne-pas-repondre@maboximmo.fr');
+// Adresse expéditeur des mails — DOIT être une adresse authentifiée par le SMTP
+// (sinon Hostinger rejette avec "Sender address rejected: not owned by user …").
+// Par défaut = contact@maboximmo.fr (compte SMTP utilisé).
+define('CRON_RECAP_FROM_EMAIL', 'contact@maboximmo.fr');
 define('CRON_RECAP_FROM_NAME',  'MaBoxImmo');
+
+// Reply-To : où arrivent les réponses des commerciaux quand ils répondent aux mails.
+// Peut être une adresse d'un autre domaine (pas de contrainte SMTP).
+define('CRON_RECAP_REPLY_TO',   'emmanuel.emery@regie-emery.com');
