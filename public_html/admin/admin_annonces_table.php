@@ -172,7 +172,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
 
 <div class="at-wrap">
 
-  <form method="get" class="at-filters">
+  <form method="get" class="at-filters" action="<?= htmlspecialchars(app_url('/admin/admin_annonces_table.php')) ?>">
     <!-- Préserve le tri courant lors d'un filtrage -->
     <input type="hidden" name="sort" value="<?= ate($sort) ?>">
     <input type="hidden" name="dir"  value="<?= ate($dir) ?>">
@@ -210,7 +210,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
       <option value="archivee"  <?= $fEtat === 'archivee'  ? 'selected' : '' ?>>Archivée</option>
     </select>
 
-    <a href="admin_annonces_table.php" style="font-size:12px; color:#64748b;">✕ Reset</a>
+    <a href="<?= htmlspecialchars(app_url('/admin/admin_annonces_table.php')) ?>" style="font-size:12px; color:#64748b;">✕ Reset</a>
     <span class="count"><?= count($rows) ?> annonce(s) · tri : <?= ate($sort) ?> <?= $dir === 'desc' ? '↓' : '↑' ?></span>
   </form>
 
@@ -291,7 +291,10 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
 
     // Helpers rendu
     $currentQS = $_GET;
-    $renderHeader = function(array $c) use (&$currentQS, $sort, $dir) {
+    // ⚠️ <base href="/"> dans agency_layout_top.php casse les liens query-only (?foo=bar).
+    // On préfixe par l'URL absolue de la page pour contourner.
+    $selfUrl = app_url('/admin/admin_annonces_table.php');
+    $renderHeader = function(array $c) use (&$currentQS, $sort, $dir, $selfUrl) {
         $sortable = isset($c['key']) && !in_array($c['type'], ['readonly_calc','fk_bien'], true);
         $tip = htmlspecialchars($c['tip'] ?? '', ENT_QUOTES);
         if (!$sortable) {
@@ -300,7 +303,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
         }
         $nextDir = ($sort === $c['key'] && $dir === 'asc') ? 'desc' : 'asc';
         $qs = $currentQS; $qs['sort'] = $c['key']; $qs['dir'] = $nextDir;
-        $url = '?' . http_build_query($qs);
+        $url = $selfUrl . '?' . http_build_query($qs);
         $arrow = '';
         if ($sort === $c['key']) $arrow = '<span class="arrow">' . ($dir === 'asc' ? '↑' : '↓') . '</span>';
         echo '<th title="' . $tip . '"><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">' . htmlspecialchars($c['label']) . ' ' . $arrow . '</a></th>';

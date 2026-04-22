@@ -197,7 +197,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     </div>
   <?php endif; ?>
 
-  <form method="post" class="br-card">
+  <form method="post" class="br-card" action="<?= htmlspecialchars(app_url('/admin/admin_bareme.php')) ?>">
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
 
     <div class="br-field">

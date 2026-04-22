@@ -286,7 +286,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     bien_detail.php (Card 1), mais pas les dépasser (plafond ALUR appliqué par le helper).
   </div>
 
-  <form method="post">
+  <form method="post" action="<?= htmlspecialchars(app_url('/admin/admin_honoraires_recalc.php')) ?>">
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
     <div style="margin-bottom:14px;">
       <label style="display:block; font-size:12px; font-weight:600; color:#475569; margin-bottom:6px;">Scope (toutes agences, tous biens habitation)</label>

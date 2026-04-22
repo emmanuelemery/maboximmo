@@ -211,8 +211,13 @@ function fmtSize(int $bytes): string {
       <p style="font-size:12px;">Va sur <a href="../agency_dashboard_diffusion.php">Ma Box Agency → Diffusion Ubiflow</a> et clique « Envoyer maintenant » ou « Force » sur une agence pour produire un XML.</p>
     </div>
   <?php else: ?>
+    <?php
+      // ⚠️ <base href="/"> dans agency_layout_top.php casse les liens query-only (?foo=bar).
+      // On construit les URLs absolues vers le fichier courant pour contourner.
+      $selfUrl = app_url('/admin/admin_flux_ubiflow.php');
+    ?>
     <div class="fl-actions">
-      <a href="?zip=1" class="fl-btn fl-btn-zip">
+      <a href="<?= htmlspecialchars($selfUrl) ?>?zip=1" class="fl-btn fl-btn-zip">
         📦 Télécharger tout en ZIP (<?= count($flux) ?> fichier<?= count($flux) > 1 ? 's' : '' ?>)
       </a>
     </div>
@@ -252,8 +257,8 @@ function fmtSize(int $bytes): string {
             <td style="color:#64748b; font-size:12px;"><?= $f['mtime'] ? date('d/m/Y H:i', (int)$f['mtime']) : '—' ?></td>
             <td style="text-align:right;">
               <div class="fl-links" style="justify-content:flex-end;">
-                <a href="?view=<?= htmlspecialchars(rawurlencode((string)$f['slug'])) ?>&file=<?= htmlspecialchars(rawurlencode((string)$f['file'])) ?>" target="_blank" class="fl-link-btn fl-link-view" title="Ouvrir le XML dans un nouvel onglet">👁️ Voir</a>
-                <a href="?download=<?= htmlspecialchars(rawurlencode((string)$f['slug'])) ?>&file=<?= htmlspecialchars(rawurlencode((string)$f['file'])) ?>" class="fl-link-btn fl-link-dl" title="Télécharger le XML">⬇️ DL</a>
+                <a href="<?= htmlspecialchars($selfUrl) ?>?view=<?= htmlspecialchars(rawurlencode((string)$f['slug'])) ?>&file=<?= htmlspecialchars(rawurlencode((string)$f['file'])) ?>" target="_blank" class="fl-link-btn fl-link-view" title="Ouvrir le XML dans un nouvel onglet">👁️ Voir</a>
+                <a href="<?= htmlspecialchars($selfUrl) ?>?download=<?= htmlspecialchars(rawurlencode((string)$f['slug'])) ?>&file=<?= htmlspecialchars(rawurlencode((string)$f['file'])) ?>" class="fl-link-btn fl-link-dl" title="Télécharger le XML">⬇️ DL</a>
               </div>
             </td>
           </tr>
