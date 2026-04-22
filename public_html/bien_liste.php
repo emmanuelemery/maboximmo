@@ -121,6 +121,15 @@ try {
             (SELECT a.prix             FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS prix_vente,
             (SELECT a.loyer            FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS loyer_hc,
             (SELECT a.charges          FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS charges_locataire,
+            -- Champs Ubiflow pour voyants de contrôle (ligne bien_liste)
+            (SELECT a.id               FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS last_annonce_id,
+            (SELECT a.titre            FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS last_titre,
+            (SELECT a.description      FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS last_description,
+            b.id_proprietaire,
+            b.surface_totale,
+            b.ges_classe,
+            b.dpe_vierge,
+            (SELECT COUNT(*) FROM biens_photos bp2 WHERE bp2.id_bien = b.id) AS nb_photos,
             (SELECT bp.url_photo FROM biens_photos bp WHERE bp.id_bien = b.id ORDER BY bp.ordre ASC, bp.id ASC LIMIT 1) AS photo_principale
         FROM biens b
         LEFT JOIN immeubles i  ON i.id  = b.id_immeuble
@@ -518,7 +527,7 @@ function photoPrincipaleUrl(array $bien): ?string {
       background: var(--card); border-radius: var(--r-lg);
       box-shadow: var(--neu-out);
       display: grid;
-      grid-template-columns: 96px 1fr auto auto auto;
+      grid-template-columns: 96px 1fr auto auto auto auto;
       gap: 16px; align-items: center;
       padding: 10px 16px 10px 10px;
       transition: box-shadow .18s;
@@ -551,11 +560,34 @@ function photoPrincipaleUrl(array $bien): ?string {
       white-space: nowrap;
     }
     .bl-list-actions { display: flex; gap: 6px; }
+
+    /* Voyants Ubiflow sur chaque ligne */
+    .bl-voyants {
+      display: flex; gap: 3px; flex-wrap: nowrap; align-items: center;
+      padding: 4px 6px; background: rgba(15,23,42,.03); border-radius: 99px;
+    }
+    .bl-v-dot {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; font-size: 11px; line-height: 1;
+      border-radius: 50%; text-decoration: none;
+      transition: transform .1s;
+    }
+    .bl-v-dot:hover { transform: scale(1.2); }
+    .bl-v-ok   { background: #dcfce7; filter: grayscale(0); }
+    .bl-v-warn { background: #fef3c7; box-shadow: 0 0 0 2px #f59e0b inset; }
+    .bl-v-crit { background: #fee2e2; box-shadow: 0 0 0 2px #dc2626 inset;
+                 animation: bl-pulse 1.5s ease-in-out infinite; }
+    @keyframes bl-pulse {
+      0%, 100% { box-shadow: 0 0 0 2px #dc2626 inset, 0 0 0 0 rgba(220,38,38,0.4); }
+      50%      { box-shadow: 0 0 0 2px #dc2626 inset, 0 0 0 6px rgba(220,38,38,0); }
+    }
+
     @media (max-width: 820px) {
       .bl-list-row {
         grid-template-columns: 72px 1fr auto;
       }
       .bl-list-row .bl-list-badges,
+      .bl-list-row .bl-voyants,
       .bl-list-row .bl-list-price { grid-column: 2 / -1; }
       .bl-list-thumb { width: 72px; height: 54px; }
     }
@@ -708,6 +740,86 @@ function photoPrincipaleUrl(array $bien): ?string {
       <?php
         // ── Pré-calcul des données communes aux deux vues (cards / list) ──
         // Évite de dupliquer la logique entre les deux boucles.
+
+        /**
+         * Calcule les 7 voyants Ubiflow pour un bien donné.
+         * Retourne une liste de [key, label, ok, severity, section, focus].
+         * - severity : 'critical' (rouge, bloque la diffusion) ou 'warning' (jaune, impact qualité)
+         * - section  : l'onglet bien_detail à ouvrir au clic
+         * - focus    : le paramètre ?focus= à scroller/focus
+         */
+        $ubiflowChecksBien = static function(array $b): array {
+            $tc = strtolower((string)($b['type_code'] ?? ''));
+            $exemptDpeSurface = in_array($tc, ['parking','stationnement','garage','box','terrain','terrain_agricole'], true);
+            $trans = (string)($b['type_transaction'] ?? '');
+            $checks = [];
+
+            // Titre (annonce)
+            $checks[] = [
+                'key' => 'titre', 'label' => 'Titre annonce',
+                'ok' => !empty($b['last_titre']),
+                'severity' => 'critical', 'section' => 'annonce', 'focus' => 'titre',
+            ];
+            // Description (annonce)
+            $checks[] = [
+                'key' => 'description', 'label' => 'Description',
+                'ok' => !empty($b['last_description']),
+                'severity' => 'critical', 'section' => 'annonce', 'focus' => 'description',
+            ];
+            // Type transaction (annonce)
+            $checks[] = [
+                'key' => 'transaction', 'label' => 'Type de transaction (vente/location)',
+                'ok' => $trans !== '',
+                'severity' => 'critical', 'section' => 'annonce', 'focus' => 'type_transaction',
+            ];
+            // Prix ou loyer selon transaction
+            $prixOk = true; $prixFocus = 'prix';
+            if ($trans === 'vente') {
+                $prixOk = (float)($b['prix_vente'] ?? 0) > 0;
+            } elseif (in_array($trans, ['location','saisonnier'], true)) {
+                $prixOk = (float)($b['loyer_hc'] ?? 0) > 0;
+                $prixFocus = 'loyer';
+            }
+            $checks[] = [
+                'key' => 'prix', 'label' => ($trans === 'vente' ? 'Prix de vente' : 'Loyer HC'),
+                'ok' => $prixOk,
+                'severity' => 'critical', 'section' => 'annonce', 'focus' => $prixFocus,
+            ];
+            // Photos
+            $checks[] = [
+                'key' => 'photos', 'label' => 'Au moins une photo',
+                'ok' => (int)($b['nb_photos'] ?? 0) >= 1,
+                'severity' => 'critical', 'section' => 'documents', 'focus' => '',
+            ];
+            // Adresse (via JOIN immeubles — COALESCE déjà fait dans SELECT)
+            $adrOk = !empty($b['adresse_1']) && !empty($b['code_postal']) && !empty($b['ville']);
+            $checks[] = [
+                'key' => 'adresse', 'label' => 'Adresse complète',
+                'ok' => $adrOk,
+                'severity' => 'critical', 'section' => 'descriptif', 'focus' => 'adresse_1',
+            ];
+            // Propriétaire
+            $checks[] = [
+                'key' => 'proprio', 'label' => 'Propriétaire',
+                'ok' => (int)($b['id_proprietaire'] ?? 0) > 0,
+                'severity' => 'critical', 'section' => 'descriptif', 'focus' => 'proprio',
+            ];
+            // Secondaires (warning)
+            if (!$exemptDpeSurface) {
+                $checks[] = [
+                    'key' => 'surface', 'label' => 'Surface habitable',
+                    'ok' => (float)($b['surface_habitable'] ?? 0) > 0 || (float)($b['surface_totale'] ?? 0) > 0,
+                    'severity' => 'warning', 'section' => 'descriptif', 'focus' => 'surface_habitable',
+                ];
+                $checks[] = [
+                    'key' => 'dpe', 'label' => 'DPE (classe ou vierge)',
+                    'ok' => !empty($b['dpe_classe']) || (int)($b['dpe_vierge'] ?? 0) === 1,
+                    'severity' => 'warning', 'section' => 'dpe', 'focus' => 'dpe_classe',
+                ];
+            }
+            return $checks;
+        };
+
         $items = [];
         foreach ($biens as $b) {
             $trans  = $b['type_transaction'] ?? 'location';
@@ -729,6 +841,16 @@ function photoPrincipaleUrl(array $bien): ?string {
                     $needsAttention = true; $missingHints[] = 'Désignation';
                 }
             }
+            // Voyants Ubiflow (7-9 checks selon type)
+            $ubiChecks = $ubiflowChecksBien($b);
+            $ubiCritiqueKO = 0; $ubiWarnKO = 0;
+            foreach ($ubiChecks as $c) {
+                if (!$c['ok']) {
+                    if ($c['severity'] === 'critical') $ubiCritiqueKO++;
+                    else                               $ubiWarnKO++;
+                }
+            }
+
             $items[] = [
                 'b'       => $b,
                 'emoji'   => $typeEmoji[$b['type_code'] ?? ''] ?? '🏢',
@@ -745,6 +867,9 @@ function photoPrincipaleUrl(array $bien): ?string {
                 'urlEdit'     => app_url('/bien_detail.php?edit=' . (int)$b['id']),
                 'urlAnnonces' => app_url('/annonce_nouvelle.php?id_bien=' . (int)$b['id']),
                 'urlDiffuser' => app_url('/annonce_nouvelle.php?id_bien=' . (int)$b['id']),
+                'ubiChecks'   => $ubiChecks,
+                'ubiCritKO'   => $ubiCritiqueKO,
+                'ubiWarnKO'   => $ubiWarnKO,
             ];
         }
       ?>
@@ -784,6 +909,28 @@ function photoPrincipaleUrl(array $bien): ?string {
                 <?php if ($it['dpe'] !== ''): ?>
                   <div class="dpe-badge" style="background:<?= $it['dpeC'] ?>" title="DPE"><?= e($it['dpe']) ?></div>
                 <?php endif; ?>
+              </div>
+
+              <!-- Voyants Ubiflow — un clic envoie au champ à compléter -->
+              <div class="bl-voyants" title="Ubiflow : <?= $it['ubiCritKO'] ?> bloquant(s) · <?= $it['ubiWarnKO'] ?> avertissement(s)">
+                <?php foreach ($it['ubiChecks'] as $c):
+                  $cls = $c['ok']
+                    ? 'bl-v-ok'
+                    : ($c['severity'] === 'critical' ? 'bl-v-crit' : 'bl-v-warn');
+                  $lblIc = [
+                    'titre' => '📝', 'description' => '📄', 'transaction' => '💼',
+                    'prix' => '💰', 'photos' => '📸', 'adresse' => '📍',
+                    'proprio' => '👤', 'surface' => '📐', 'dpe' => '⚡',
+                  ][$c['key']] ?? '●';
+                  $focusParam = $c['focus'] ? '&focus=' . rawurlencode((string)$c['focus']) : '';
+                  $url = app_url('/bien_detail.php?edit=' . (int)$b['id']
+                        . '&section=' . rawurlencode((string)$c['section']) . $focusParam);
+                ?>
+                  <a href="<?= e($url) ?>" class="bl-v-dot <?= $cls ?>"
+                     title="<?= e($c['label']) ?><?= $c['ok'] ? ' — ✅ OK' : ($c['severity'] === 'critical' ? ' — ❌ BLOQUANT' : ' — ⚠️ À compléter') ?>">
+                    <?= $lblIc ?>
+                  </a>
+                <?php endforeach; ?>
               </div>
 
               <div class="bl-list-price"><?= formatPrix($b) ?></div>
