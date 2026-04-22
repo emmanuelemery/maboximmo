@@ -2,6 +2,11 @@
 declare(strict_types=1);
 require_once __DIR__ . '/roles_services.php';
 
+// Marque le contexte de navigation pour les pages partagées (bien_liste, etc.)
+if (session_status() === PHP_SESSION_ACTIVE || session_status() === PHP_SESSION_NONE) {
+    $_SESSION['nav_ctx'] = 'agency';
+}
+
 $roleId        = function_exists('current_role_id')  ? current_role_id()  : 0;
 $sidebarUserId = function_exists('current_user_id')  ? current_user_id()  : 0;
 $isSuperAdmin  = function_exists('is_super_admin')   ? is_super_admin()   : false;

@@ -4,12 +4,6 @@
  */
 declare(strict_types=1);
 
-// Marque le contexte de navigation pour les pages partagées (bien_liste, etc.)
-// afin qu'elles rechargent la bonne sidebar et ne basculent pas sur agency.
-if (session_status() === PHP_SESSION_ACTIVE || session_status() === PHP_SESSION_NONE) {
-    $_SESSION['nav_ctx'] = 'bailleur';
-}
-
 $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
 $sbActive = static function (string ...$pages) use ($currentPage): string {
     return in_array($currentPage, $pages, true) ? ' active' : '';
@@ -96,32 +90,6 @@ $sbActive = static function (string ...$pages) use ($currentPage): string {
         <ul class="sb-nav">
             <li><a href="./bailleur_sci_organigramme.php" class="<?= $sbActive('bailleur_sci_organigramme.php') ?>">
                 <span class="sb-icon">🏛</span><span class="sb-label">Organigramme SCI</span>
-            </a></li>
-        </ul>
-    </div>
-
-    <div class="sb-divider"></div>
-
-    <!-- ═══════════════════════════
-         ANALYSE INVESTISSEUR
-    ═══════════════════════════ -->
-    <div class="sb-group nav">
-        <div class="sb-section">Analyse Investisseur</div>
-        <ul class="sb-nav">
-            <li><a href="./investisseur/" class="<?= $sbActive('index.php', 'detail.php', 'nouvelle.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
-                <span class="sb-icon">📊</span><span class="sb-label">Dashboard analyses</span>
-            </a></li>
-            <li><a href="./investisseur/nouvelle.php" class="<?= $sbActive('nouvelle.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
-                <span class="sb-icon">✍️</span><span class="sb-label">Nouvelle analyse</span>
-            </a></li>
-            <li><a href="./investisseur/comparaison.php" class="<?= $sbActive('comparaison.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
-                <span class="sb-icon">⚖️</span><span class="sb-label">Comparer des biens</span>
-            </a></li>
-            <li><a href="./investisseur/valorisation.php" class="<?= $sbActive('valorisation.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
-                <span class="sb-icon">💰</span><span class="sb-label">Simulateur valeur</span>
-            </a></li>
-            <li><a href="./investisseur/contacts.php" class="<?= $sbActive('contacts.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
-                <span class="sb-icon">👤</span><span class="sb-label">Contacts &amp; partages</span>
             </a></li>
         </ul>
     </div>

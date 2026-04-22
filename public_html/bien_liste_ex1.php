@@ -595,15 +595,7 @@ function photoPrincipaleUrl(array $bien): ?string {
 </head>
 <body>
 
-<?php
-// Choix de la sidebar selon le contexte de navigation (bailleur / agency).
-// Par défaut : agency (comportement historique). Si l'utilisateur vient
-// de la sidebar bailleur, $_SESSION['nav_ctx'] = 'bailleur' → on reste dessus.
-$_sbFile = ($_SESSION['nav_ctx'] ?? '') === 'bailleur'
-    ? __DIR__ . '/inc/sidebar_bailleur.php'
-    : __DIR__ . '/inc/sidebar_agency.php';
-require_once $_sbFile;
-?>
+<?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
 
 <div class="mbi-main">
 

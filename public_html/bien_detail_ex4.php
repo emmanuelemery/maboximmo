@@ -665,12 +665,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 </head>
 <body class="<?= h($bodyClass) ?>">
 
-<?php
-$_sbFile = ($_SESSION['nav_ctx'] ?? '') === 'bailleur'
-    ? __DIR__ . '/inc/sidebar_bailleur.php'
-    : __DIR__ . '/inc/sidebar_agency.php';
-require_once $_sbFile;
-?>
+<?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
 
 <main class="mbi-main v2-main">
 

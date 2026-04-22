@@ -19,10 +19,6 @@ $pageSubtitle = $pageSubtitle ?? 'Ma Box Agency';
 $pageIcon     = $pageIcon     ?? '';
 $extraCss     = $extraCss     ?? '';
 $bodyAttr     = $bodyAttr     ?? '';
-// Sidebar : nom sans .php, fichier attendu dans inc/. Fallback = sidebar_agency.
-$layoutSidebar = $layoutSidebar ?? 'sidebar_agency';
-$_lySidebarFile = __DIR__ . '/' . basename((string)$layoutSidebar) . '.php';
-if (!is_file($_lySidebarFile)) $_lySidebarFile = __DIR__ . '/sidebar_agency.php';
 
 // Initiales utilisateur
 $_agInitials = strtoupper(
@@ -120,7 +116,7 @@ body { margin:0; background:#ffffff; font-family:'Sora',sans-serif; }
 </head>
 <body <?= $bodyAttr ?>>
 
-<?php include $_lySidebarFile; ?>
+<?php include __DIR__ . '/sidebar_agency.php'; ?>
 
 <div class="agency-content">
 
