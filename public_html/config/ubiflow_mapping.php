@@ -350,6 +350,8 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
         'duree_du_bail'              => ubi_num($row['a_duree_bail_mois'] ?? null),
         'date_disponibilite'         => ubi_date($row['a_date_disponibilite'] ?? null),
         'disponible_immediatement'   => ubi_bool($row['a_disponible_de_suite'] ?? null),
+        // URL barème honoraires dupliquée dans <prestation> (conforme XMLs validés Ubiflow 2026-04)
+        'url_tarifs_publics'         => ubi_str($row['a_url_tarifs_publics'] ?? null),
     ];
 
     // -----------------------------------------------------------------
