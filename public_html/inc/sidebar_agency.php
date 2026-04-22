@@ -194,6 +194,9 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <li><a href="./admin/admin_bareme.php" class="<?= sbActive('admin_bareme.php') ?>">
                 <span class="sb-icon">📜</span><span class="sb-label">URL barème honoraires</span>
             </a></li>
+            <li><a href="./admin/admin_flux_ubiflow.php" class="<?= sbActive('admin_flux_ubiflow.php') ?>">
+                <span class="sb-icon">📡</span><span class="sb-label">Flux XML Ubiflow</span>
+            </a></li>
             <li><a href="./design-system.php" class="<?= sbActive('design-system.php') ?>">
                 <span class="sb-icon">🎨</span><span class="sb-label">Design System</span>
             </a></li>
