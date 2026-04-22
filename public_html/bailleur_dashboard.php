@@ -315,28 +315,83 @@ foreach ($depensesCat as $c): $p = $mx>0?((float)$c['total_debit']/$mx*100):0; $
 <?php endforeach; ?></tbody></table></div>
 <?php endif; ?>
 
-<?php if (!empty($immeubles)): ?>
-<div class="bs"><div class="bs-t">Immeubles (<?= count($immeubles) ?>)</div>
-<table class="bt"><thead><tr><th>Immeuble</th><th>Adresse</th><th>Mandat</th><th>Lots</th><th>Occupés</th><th>Impayés</th><th>CRG</th><th></th></tr></thead><tbody>
-<?php foreach ($immeubles as $im):
-$il = array_filter($details, fn($d)=>(int)($d['id_immeuble']??0)===(int)$im['id']);
-$io = count(array_filter($il, fn($d)=>$d['statut_trimestre']==='occupe'));
-$ii = count(array_filter($il, fn($d)=>(float)$d['total_impaye']>0));
-$it = array_sum(array_map(fn($d)=>(float)$d['total_impaye'], $il));
-// Trouver le PDF CRG pour cet immeuble (via propriétaire + période)
-$immPropId = (int)($im['id_proprietaire'] ?? $fProp);
-$immPdf = '';
-if ($fTrim > 0) { $immPdf = $crgDocs[$immPropId][$fAnnee][$fTrim] ?? ''; }
-else { for ($__t=4;$__t>=1;$__t--) { if (!empty($crgDocs[$immPropId][$fAnnee][$__t])) { $immPdf = $crgDocs[$immPropId][$fAnnee][$__t]; break; } } }
+<?php if (!empty($immeubles)):
+  // Règles d'affichage de la liste immeubles :
+  //   - Immeuble sélectionné ($fImm > 0)   → 1 seule ligne (l'immeuble actif)
+  //   - Propriétaire sélectionné ($fProp)  → max 5 lignes visibles + scroll interne
+  //   - Sans filtre                         → 3 lignes visibles + bouton "Voir tout"
+  $immFiltres = $immeubles;
+  if ($fImm > 0) {
+      $immFiltres = array_values(array_filter($immeubles, fn($x) => (int)$x['id'] === $fImm));
+  }
+  $nbTotal = count($immFiltres);
+  if ($fImm > 0)         { $visible = $nbTotal; $maxH = 'auto'; $collapseBtn = false; }
+  elseif ($fProp > 0)    { $visible = min(5, $nbTotal); $maxH = '260px'; $collapseBtn = false; }
+  else                   { $visible = min(3, $nbTotal); $maxH = '160px'; $collapseBtn = ($nbTotal > 3); }
 ?>
-<tr><td><strong><?= h($im['nom_immeuble']?:$im['code_crg']) ?></strong></td>
-<td style="font-size:11px;color:#666"><?= h(trim(($im['adresse_1']??'').' '.($im['code_postal']??'').' '.($im['ville']??''))) ?></td>
-<td style="font-size:10px;font-family:'DM Mono',monospace;color:#4878a6"><?= h($im['compte_gestion'] ?? '') ?></td>
-<td><?= count($il) ?></td><td><span class="bb bb-ok"><?= $io ?></span></td>
-<td><?= $ii>0?'<span class="bb bb-d">'.$ii.' ('.fmt($it).')</span>':'<span class="bb bb-ok">0</span>' ?></td>
-<td><?php if ($immPdf): ?><a href="<?= h($immPdf) ?>" target="_blank" title="Ouvrir le CRG PDF" style="font-size:14px">📄</a><?php else: ?><span style="color:#ccc;font-size:11px">—</span><?php endif; ?></td>
-<td><a href="bailleur_dashboard.php?prop=<?= $fProp ?>&annee=<?= $fAnnee ?>&trim=<?= $fTrim ?>&imm=<?= $im['id'] ?>" style="font-size:11px;color:#4878a6">Détail →</a></td></tr>
-<?php endforeach; ?></tbody></table></div>
+<div class="bs">
+  <div class="bs-t" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>Immeubles (<?= $nbTotal ?><?= $fImm > 0 ? ' — sélection' : '' ?>)</span>
+    <?php if ($collapseBtn): ?>
+      <button type="button" id="bs-imm-toggle" onclick="bsToggleImm()"
+              style="padding:4px 10px;border:1px solid #d4d7de;background:#fff;border-radius:6px;font-size:11px;font-weight:600;color:#4a6038;cursor:pointer;">
+        ▼ Voir tout (<?= $nbTotal ?>)
+      </button>
+    <?php endif; ?>
+  </div>
+  <div id="bs-imm-scroll" style="max-height:<?= $maxH ?>;overflow-y:auto;transition:max-height .25s;">
+    <table class="bt" style="margin:0;">
+      <thead style="position:sticky;top:0;background:#fff;z-index:1;">
+        <tr><th>Immeuble</th><th>Adresse</th><th>Mandat</th><th>Lots</th><th>Occupés</th><th>Impayés</th><th>CRG</th><th></th></tr>
+      </thead>
+      <tbody>
+        <?php foreach ($immFiltres as $im):
+          $il = array_filter($details, fn($d)=>(int)($d['id_immeuble']??0)===(int)$im['id']);
+          $io = count(array_filter($il, fn($d)=>$d['statut_trimestre']==='occupe'));
+          $ii = count(array_filter($il, fn($d)=>(float)$d['total_impaye']>0));
+          $it = array_sum(array_map(fn($d)=>(float)$d['total_impaye'], $il));
+          $immPropId = (int)($im['id_proprietaire'] ?? $fProp);
+          $immPdf = '';
+          if ($fTrim > 0) { $immPdf = $crgDocs[$immPropId][$fAnnee][$fTrim] ?? ''; }
+          else { for ($__t=4;$__t>=1;$__t--) { if (!empty($crgDocs[$immPropId][$fAnnee][$__t])) { $immPdf = $crgDocs[$immPropId][$fAnnee][$__t]; break; } } }
+          $isSelected = ($fImm > 0 && (int)$im['id'] === $fImm);
+        ?>
+          <tr<?= $isSelected ? ' style="background:#f0fdf4;"' : '' ?>>
+            <td><strong><?= h($im['nom_immeuble']?:$im['code_crg']) ?></strong></td>
+            <td style="font-size:11px;color:#666"><?= h(trim(($im['adresse_1']??'').' '.($im['code_postal']??'').' '.($im['ville']??''))) ?></td>
+            <td style="font-size:10px;font-family:'DM Mono',monospace;color:#4878a6"><?= h($im['compte_gestion'] ?? '') ?></td>
+            <td><?= count($il) ?></td>
+            <td><span class="bb bb-ok"><?= $io ?></span></td>
+            <td><?= $ii>0?'<span class="bb bb-d">'.$ii.' ('.fmt($it).')</span>':'<span class="bb bb-ok">0</span>' ?></td>
+            <td><?php if ($immPdf): ?><a href="<?= h($immPdf) ?>" target="_blank" title="Ouvrir le CRG PDF" style="font-size:14px">📄</a><?php else: ?><span style="color:#ccc;font-size:11px">—</span><?php endif; ?></td>
+            <td>
+              <?php if ($isSelected): ?>
+                <a href="bailleur_dashboard.php?prop=<?= $fProp ?>&annee=<?= $fAnnee ?>&trim=<?= $fTrim ?>" style="font-size:11px;color:#dc2626">✕ Retirer filtre</a>
+              <?php else: ?>
+                <a href="bailleur_dashboard.php?prop=<?= $fProp ?>&annee=<?= $fAnnee ?>&trim=<?= $fTrim ?>&imm=<?= $im['id'] ?>" style="font-size:11px;color:#4878a6">Détail →</a>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php if ($collapseBtn): ?>
+<script>
+(function(){
+  var box = document.getElementById('bs-imm-scroll');
+  var btn = document.getElementById('bs-imm-toggle');
+  if (!box || !btn) return;
+  var expanded = false;
+  window.bsToggleImm = function(){
+    expanded = !expanded;
+    box.style.maxHeight = expanded ? box.scrollHeight + 'px' : '160px';
+    btn.innerHTML = expanded ? '▲ Réduire' : '▼ Voir tout (<?= $nbTotal ?>)';
+  };
+})();
+</script>
+<?php endif; ?>
 <?php endif; ?>
 
 <?php if (!empty($details)): ?>
