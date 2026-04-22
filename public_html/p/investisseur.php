@@ -279,28 +279,27 @@ body {
 
     <?php elseif ($p['type'] === 'portefeuille' && !empty($p['id_contact_externe'])):
         $idContact = (int)$p['id_contact_externe'];
-
-        // Propriétaires + biens accessibles
-        $props = inv_contact_proprietaires($pdo, $idContact);
+        $props   = inv_contact_proprietaires($pdo, $idContact);
         $bienIds = inv_contact_biens_ids($pdo, $idContact);
 
-        // Analyses investisseur associées (via id_proprietaire OU via id_bien_source)
-        $analysesByBien = [];
-        if (!empty($bienIds)) {
-            $in = implode(',', $bienIds);
-            $st = $pdo->query("SELECT id, id_bien_source, titre_analyse, ville, type_bien,
-                                      prix_vente_catalogue, prix_achat, loyer_estime,
-                                      rendement_net, score_global, surface, locataire_nom, bail_fin
-                               FROM investisseur_analyses
-                               WHERE id_bien_source IN ($in)
-                                  OR id_proprietaire IN (" . implode(',', array_column($props, 'id')) . ")");
-            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $a) {
-                $k = $a['id_bien_source'] ?: 0;
-                if ($k) $analysesByBien[$k][] = $a;
-            }
+        // Charge les analyses (source principale pour KPI)
+        $propIdsList = array_map(fn($x) => (int)$x['id'], $props);
+        $analyses = [];
+        if (!empty($propIdsList)) {
+            $st = $pdo->query("SELECT a.id, a.id_bien_source, a.id_proprietaire, a.titre_analyse, a.ville, a.type_bien,
+                               a.prix_vente_catalogue, a.prix_achat, a.loyer_estime, a.rendement_net, a.rendement_brut,
+                               a.score_global, a.surface, a.locataire_nom, a.bail_fin
+                               FROM investisseur_analyses a
+                               WHERE a.id_proprietaire IN (" . implode(',', $propIdsList) . ")");
+            $analyses = $st->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $analysesByBien = []; $analysesByProp = [];
+        foreach ($analyses as $a) {
+            if (!empty($a['id_bien_source'])) $analysesByBien[(int)$a['id_bien_source']][] = $a;
+            $analysesByProp[(int)$a['id_proprietaire']][] = $a;
         }
 
-        // Biens regroupés par propriétaire
+        // Biens (table biens) regroupés par propriétaire
         $biensByProp = [];
         if (!empty($bienIds)) {
             $in = implode(',', $bienIds);
@@ -312,187 +311,339 @@ body {
                                LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
                                WHERE b.id IN ($in)
                                ORDER BY b.ville ASC, b.designation ASC");
-            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $b) {
-                $biensByProp[(int)$b['id_proprietaire']][] = $b;
-            }
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $b) $biensByProp[(int)$b['id_proprietaire']][] = $b;
         }
 
-        // Contact info
+        // Contact
         $st = $pdo->prepare("SELECT civilite, prenom, nom FROM investisseur_contacts_externes WHERE id = :c LIMIT 1");
-        $st->bindValue(':c', $idContact, PDO::PARAM_INT);
-        $st->execute();
+        $st->bindValue(':c', $idContact, PDO::PARAM_INT); $st->execute();
         $contact = $st->fetch(PDO::FETCH_ASSOC) ?: [];
         $contactName = trim(($contact['civilite'] ?? '') . ' ' . ($contact['prenom'] ?? '') . ' ' . ($contact['nom'] ?? ''));
 
-        // Synthèse portefeuille
-        $totValeur = 0.0; $totLoyer = 0.0; $nbBiens = 0;
-        foreach ($analysesByBien as $bId => $list) {
-            foreach ($list as $a) {
-                $totValeur += (float)$a['prix_achat'];
-                $totLoyer  += (float)$a['loyer_estime'] * 12;
-                $nbBiens++;
+        // ── KPI consolidés (via analyses)
+        $totValeur = 0.0; $totLoyer = 0.0; $totSurface = 0.0;
+        $parSCI = []; $parTypo = []; $parVille = []; $parLocataire = [];
+        $alertesBail = []; $vacants = [];
+        $horsAnalyse = 0;
+
+        foreach ($analyses as $a) {
+            $totValeur  += (float)$a['prix_achat'];
+            $totLoyer   += (float)$a['loyer_estime'] * 12;
+            $totSurface += (float)$a['surface'];
+
+            $propLabel = '';
+            foreach ($props as $pp) { if ((int)$pp['id'] === (int)$a['id_proprietaire']) { $propLabel = $pp['societe'] ?: ($pp['prenom'] . ' ' . $pp['nom']); break; } }
+            if ($propLabel) $parSCI[$propLabel] = ($parSCI[$propLabel] ?? 0) + (float)$a['prix_achat'];
+
+            $typKey = inv_typologie_of($a['type_bien']);
+            $typLbl = inv_typologies()[$typKey][0] ?? 'Autre';
+            $parTypo[$typLbl] = ($parTypo[$typLbl] ?? 0) + (float)$a['prix_achat'];
+
+            if (!empty($a['ville']))        $parVille[$a['ville']]         = ($parVille[$a['ville']] ?? 0) + 1;
+            if (!empty($a['locataire_nom']))$parLocataire[$a['locataire_nom']] = ($parLocataire[$a['locataire_nom']] ?? 0) + 1;
+
+            if (!empty($a['bail_fin']) && $a['bail_fin'] !== '0000-00-00') {
+                $days = (int)floor((strtotime((string)$a['bail_fin']) - time()) / 86400);
+                if ($days >= 0 && $days <= 365) $alertesBail[] = ['analyse' => $a, 'days' => $days];
+                elseif ($days < 0) $alertesBail[] = ['analyse' => $a, 'days' => $days];
+            }
+            if (stripos((string)($a['locataire_nom'] ?? ''), 'LOUER') !== false || empty(trim((string)$a['locataire_nom']))) {
+                if ((float)$a['loyer_estime'] == 0) $vacants[] = $a;
             }
         }
+        arsort($parSCI); arsort($parTypo); arsort($parVille); arsort($parLocataire);
+        $parVille     = array_slice($parVille, 0, 10, true);
+        $parLocataire = array_slice($parLocataire, 0, 8, true);
+        usort($alertesBail, fn($a, $b) => $a['days'] <=> $b['days']);
+
+        // Documents récents (toutes SCI confondues)
+        $recentDocs = [];
+        if (!empty($bienIds)) {
+            $in = implode(',', $bienIds);
+            try {
+                $st = $pdo->query("SELECT d.id, d.id_bien, d.libelle, d.nom_original, d.url_fichier, d.date_upload, d.uploaded_by_externe,
+                                           b.designation, b.ville
+                                   FROM biens_documents d
+                                   LEFT JOIN biens b ON b.id = d.id_bien
+                                   WHERE d.id_bien IN ($in)
+                                     AND (d.visible_proprietaire = 1 OR d.visible_proprietaire IS NULL)
+                                   ORDER BY d.date_upload DESC
+                                   LIMIT 10");
+                $recentDocs = $st->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) {}
+        }
+
+        $nbAnalyses = count($analyses);
+        $rdtBrutMoy = $totValeur > 0 ? ($totLoyer / $totValeur) * 100 : 0;
     ?>
 
-    <div class="pub-paper">
-        <h1>Portefeuille <?= $h($contactName ?: 'Propriétaire') ?></h1>
-        <p class="pub-loc">
-            <?= count($props) ?> société<?= count($props) > 1 ? 's' : '' ?> ·
-            <?= count($bienIds) ?> bien<?= count($bienIds) > 1 ? 's' : '' ?> ·
-            <?= $fmt($totValeur) ?> € de valeur estimée
-        </p>
+    <!-- Hero -->
+    <div class="pub-paper" style="background: linear-gradient(135deg, #24324a 0%, #3a4d6d 100%); color:#fff; border-radius:18px; padding:40px 48px; margin-bottom:24px;">
+        <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:250px;">
+                <div style="font-family:'DM Mono',monospace; font-size:11px; letter-spacing:.2em; text-transform:uppercase; opacity:.7;">Portefeuille immobilier</div>
+                <h1 style="margin:4px 0 0; color:#fff; font-size:32px; font-weight:800; letter-spacing:-0.02em;">Bienvenue, <?= $h($contactName ?: 'Propriétaire') ?></h1>
+                <p style="margin:8px 0 0; opacity:.85; font-size:14px;">
+                    <?= count($props) ?> société<?= count($props) > 1 ? 's' : '' ?>
+                    · <?= count($bienIds) ?> bien<?= count($bienIds) > 1 ? 's' : '' ?>
+                    · <?= $nbAnalyses ?> analyse<?= $nbAnalyses > 1 ? 's' : '' ?> investisseur
+                </p>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.15em; text-transform:uppercase; opacity:.7;">Valeur totale estimée</div>
+                <div style="font-size:36px; font-weight:800; margin-top:4px;"><?= $fmt($totValeur) ?> €</div>
+                <div style="font-size:12px; opacity:.75; margin-top:2px;">Rendement brut moyen · <strong><?= $fmt($rdtBrutMoy, 2) ?> %</strong></div>
+            </div>
+        </div>
+    </div>
 
-        <table class="pub-kpi">
-            <tr><th>Nombre de biens</th><td><?= count($bienIds) ?></td></tr>
-            <tr><th>Valeur consolidée</th><td><strong><?= $fmt($totValeur) ?> €</strong></td></tr>
-            <tr><th>Loyers annuels (HT)</th><td><?= $fmt($totLoyer) ?> €</td></tr>
-            <tr><th>Rendement brut global</th><td><?= $totValeur > 0 ? $fmt($totLoyer / $totValeur * 100, 2) . ' %' : '—' ?></td></tr>
-        </table>
+    <!-- KPI cards -->
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:14px; margin-bottom:24px;">
+        <?php
+        $kpis = [
+            ['Biens',           (string)count($bienIds),           '#24324a'],
+            ['Sociétés',        (string)count($props),             '#4878a6'],
+            ['Valeur',          $fmt($totValeur) . ' €',           '#4f7a3a'],
+            ['Loyers / an',     $fmt($totLoyer) . ' €',            '#7ba056'],
+            ['Surface',         $fmt($totSurface) . ' m²',         '#9a9690'],
+            ['Rdt brut moy.',   $fmt($rdtBrutMoy, 2) . ' %',       '#d9b13a'],
+        ];
+        foreach ($kpis as [$lbl, $val, $col]): ?>
+        <div style="background:#fff; border-left:4px solid <?= $col ?>; border-radius:12px; padding:18px 20px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+            <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690;"><?= $h($lbl) ?></div>
+            <div style="font-family:'Sora',sans-serif; font-size:22px; font-weight:800; color:<?= $col ?>; margin-top:4px; line-height:1;"><?= $h($val) ?></div>
+        </div>
+        <?php endforeach; ?>
+    </div>
 
-        <?php foreach ($props as $prop):
-            $idP = (int)$prop['id'];
-            $biensP = $biensByProp[$idP] ?? [];
-            if (empty($biensP)) continue;
-            $label = $prop['societe'] ?: trim($prop['prenom'] . ' ' . $prop['nom']) ?: 'Propriétaire #' . $idP;
+    <!-- Alertes (si bail arrive à échéance ou bail expiré) -->
+    <?php if (!empty($alertesBail) || !empty($vacants)): ?>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-bottom:24px;">
+        <?php if (!empty($alertesBail)):
+            $next = $alertesBail[0];
+            $daysFirst = $next['days'];
         ?>
-            <h2 style="margin:40px 0 14px; font-size:18px; color:#24324a; font-weight:800; letter-spacing:-0.01em; border-bottom: 1px solid #eee; padding-bottom: 10px;">
-                🏛 <?= $h($label) ?>
-                <span style="font-family:'DM Mono',monospace; font-size:11px; letter-spacing:.12em; color:#9a9690; text-transform:uppercase; font-weight:500;">
-                    · <?= count($biensP) ?> bien<?= count($biensP) > 1 ? 's' : '' ?>
+        <div style="background:#fff; border-left:4px solid <?= $daysFirst < 0 ? '#b4443a' : ($daysFirst < 90 ? '#d97a3a' : '#d9b13a') ?>; border-radius:12px; padding:16px 20px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <div>
+                    <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690;">Baux — échéances proches</div>
+                    <div style="font-family:'Sora',sans-serif; font-size:16px; font-weight:700; color:#24324a; margin-top:2px;"><?= count($alertesBail) ?> bail<?= count($alertesBail) > 1 ? 's' : '' ?> à surveiller</div>
+                </div>
+                <div style="font-size:28px;">⏰</div>
+            </div>
+            <?php foreach (array_slice($alertesBail, 0, 3) as $al):
+                $ab = $al['analyse']; $d = $al['days'];
+            ?>
+            <div style="font-size:12.5px; padding:4px 0; border-top:1px dashed #eee;">
+                <?= $h(mb_substr($ab['titre_analyse'], 0, 42)) ?>
+                <span style="color:<?= $d < 0 ? '#b4443a' : '#d97a3a' ?>; font-weight:700;">
+                    · <?= $d < 0 ? 'expiré' : 'dans ' . $d . ' j' ?>
                 </span>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($vacants)): ?>
+        <div style="background:#fff; border-left:4px solid #b4443a; border-radius:12px; padding:16px 20px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <div>
+                    <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690;">Biens vacants</div>
+                    <div style="font-family:'Sora',sans-serif; font-size:16px; font-weight:700; color:#24324a; margin-top:2px;"><?= count($vacants) ?> bien<?= count($vacants) > 1 ? 's' : '' ?> sans loyer</div>
+                </div>
+                <div style="font-size:28px;">🔑</div>
+            </div>
+            <?php foreach (array_slice($vacants, 0, 3) as $v): ?>
+            <div style="font-size:12.5px; padding:4px 0; border-top:1px dashed #eee; color:#5a5a55;">
+                <?= $h(mb_substr($v['titre_analyse'], 0, 50)) ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($recentDocs)): ?>
+        <div style="background:#fff; border-left:4px solid #4878a6; border-radius:12px; padding:16px 20px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <div>
+                    <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690;">Documents récents</div>
+                    <div style="font-family:'Sora',sans-serif; font-size:16px; font-weight:700; color:#24324a; margin-top:2px;"><?= count($recentDocs) ?> dernier<?= count($recentDocs) > 1 ? 's' : '' ?> partagés</div>
+                </div>
+                <div style="font-size:28px;">📂</div>
+            </div>
+            <?php foreach (array_slice($recentDocs, 0, 3) as $d): ?>
+            <div style="font-size:12.5px; padding:4px 0; border-top:1px dashed #eee;">
+                📄 <?= $h(mb_substr($d['libelle'] ?: $d['nom_original'], 0, 40)) ?>
+                <span style="color:#9a9690; font-size:11px;">· <?= date('d/m/Y', strtotime((string)$d['date_upload'])) ?></span>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Graphiques de répartition -->
+    <div style="background:#fff; border-radius:14px; padding:24px 28px; margin-bottom:24px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+        <h2 style="margin:0 0 18px; font-size:16px; color:#24324a; letter-spacing:-0.01em;">📊 Répartition du portefeuille</h2>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px;">
+            <?php if (!empty($parSCI)): ?>
+            <div style="text-align:center;">
+                <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690; margin-bottom:8px;">Par société (valeur)</div>
+                <div style="position:relative; width:100%; max-width:180px; aspect-ratio:1; margin:0 auto; cursor:zoom-in;" onclick="this.querySelector('canvas').click()">
+                    <canvas data-inv-chart="doughnut" data-title="Répartition par société"
+                            data-labels='<?= $h(json_encode(array_keys($parSCI))) ?>'
+                            data-values='<?= $h(json_encode(array_values($parSCI))) ?>'></canvas>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($parTypo)): ?>
+            <div style="text-align:center;">
+                <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690; margin-bottom:8px;">Par typologie</div>
+                <div style="position:relative; width:100%; max-width:180px; aspect-ratio:1; margin:0 auto; cursor:zoom-in;">
+                    <canvas data-inv-chart="doughnut" data-title="Répartition par typologie"
+                            data-labels='<?= $h(json_encode(array_keys($parTypo))) ?>'
+                            data-values='<?= $h(json_encode(array_values($parTypo))) ?>'></canvas>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($parVille)): ?>
+            <div style="text-align:center;">
+                <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690; margin-bottom:8px;">Top villes (nb biens)</div>
+                <div style="position:relative; width:100%; max-width:240px; aspect-ratio:3/2; margin:0 auto; cursor:zoom-in;">
+                    <canvas data-inv-chart="bar" data-title="Top villes"
+                            data-labels='<?= $h(json_encode(array_keys($parVille))) ?>'
+                            data-values='<?= $h(json_encode(array_values($parVille))) ?>'></canvas>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($parLocataire)): ?>
+            <div style="text-align:center;">
+                <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9a9690; margin-bottom:8px;">Top locataires</div>
+                <div style="position:relative; width:100%; max-width:240px; aspect-ratio:3/2; margin:0 auto; cursor:zoom-in;">
+                    <canvas data-inv-chart="bar" data-title="Top locataires"
+                            data-labels='<?= $h(json_encode(array_keys($parLocataire))) ?>'
+                            data-values='<?= $h(json_encode(array_values($parLocataire))) ?>'></canvas>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Grille des SCI (accès) -->
+    <div style="background:#fff; border-radius:14px; padding:24px 28px; margin-bottom:24px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+        <h2 style="margin:0 0 18px; font-size:16px; color:#24324a;">🏛 Mes sociétés</h2>
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px;">
+            <?php foreach ($props as $prop):
+                $idP = (int)$prop['id'];
+                $biensP = $biensByProp[$idP] ?? [];
+                $anaP = $analysesByProp[$idP] ?? [];
+                $lbl = $prop['societe'] ?: trim($prop['prenom'] . ' ' . $prop['nom']);
+                $valP = array_sum(array_column($anaP, 'prix_achat'));
+                $loyerP = array_sum(array_map(fn($x) => (float)$x['loyer_estime'] * 12, $anaP));
+            ?>
+            <a href="#sci-<?= $idP ?>" style="display:block; padding:16px 18px; background:#f9f7f2; border-radius:10px; text-decoration:none; border-left:4px solid #24324a; transition:transform .15s;"
+               onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                <div style="font-family:'Sora',sans-serif; font-weight:700; color:#24324a; font-size:14px;"><?= $h($lbl) ?></div>
+                <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.08em; color:#9a9690; text-transform:uppercase; margin-top:4px;">
+                    <?= count($biensP) ?> bien<?= count($biensP) > 1 ? 's' : '' ?> · <?= count($anaP) ?> analyse<?= count($anaP) > 1 ? 's' : '' ?>
+                </div>
+                <div style="margin-top:10px; display:flex; justify-content:space-between; font-size:12px;">
+                    <span style="color:#4f7a3a; font-weight:700;"><?= $fmt($valP) ?> €</span>
+                    <span style="color:#5a5a55;"><?= $fmt($loyerP) ?> € / an</span>
+                </div>
+            </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
+    <!-- Détail par SCI (en dessous) -->
+    <?php foreach ($props as $prop):
+        $idP = (int)$prop['id'];
+        $biensP = $biensByProp[$idP] ?? [];
+        if (empty($biensP)) continue;
+        $label = $prop['societe'] ?: trim($prop['prenom'] . ' ' . $prop['nom']);
+    ?>
+        <div id="sci-<?= $idP ?>" style="background:#fff; border-radius:14px; padding:24px 28px; margin-bottom:16px; box-shadow:0 8px 20px rgba(36,50,74,.06);">
+            <h2 style="margin:0 0 16px; font-size:17px; color:#24324a;">🏛 <?= $h($label) ?>
+                <span style="font-family:'DM Mono',monospace; font-size:11px; letter-spacing:.12em; color:#9a9690; text-transform:uppercase; font-weight:500; margin-left:10px;">· <?= count($biensP) ?> bien<?= count($biensP) > 1 ? 's' : '' ?></span>
             </h2>
 
             <?php foreach ($biensP as $b):
                 $idBien = (int)$b['id'];
-                $analyses = $analysesByBien[$idBien] ?? [];
+                $ana = $analysesByBien[$idBien] ?? [];
                 $titre = $b['designation'] ?: ('Bien #' . $idBien);
-
-                // Chargement docs visibles
-                $docs = [];
+                $docs = []; $photos = [];
                 try {
                     $st = $pdo->prepare("SELECT id, type_document, libelle, nom_original, url_fichier, date_upload, uploaded_by_externe
-                                         FROM biens_documents
-                                         WHERE id_bien = :b AND (visible_proprietaire = 1 OR visible_proprietaire IS NULL)
-                                         ORDER BY date_upload DESC");
-                    $st->bindValue(':b', $idBien, PDO::PARAM_INT);
-                    $st->execute();
+                                         FROM biens_documents WHERE id_bien = :b AND (visible_proprietaire = 1 OR visible_proprietaire IS NULL) ORDER BY date_upload DESC");
+                    $st->bindValue(':b', $idBien, PDO::PARAM_INT); $st->execute();
                     $docs = $st->fetchAll(PDO::FETCH_ASSOC);
                 } catch (Throwable $e) {}
-
-                // Chargement photos
-                $photos = [];
                 try {
-                    $st = $pdo->prepare("SELECT id, url_photo, ordre FROM biens_photos
-                                         WHERE id_bien = :b AND (visible_proprietaire = 1 OR visible_proprietaire IS NULL)
-                                         ORDER BY COALESCE(ordre, 999), id");
-                    $st->bindValue(':b', $idBien, PDO::PARAM_INT);
-                    $st->execute();
+                    $st = $pdo->prepare("SELECT id, url_photo, ordre FROM biens_photos WHERE id_bien = :b AND (visible_proprietaire = 1 OR visible_proprietaire IS NULL) ORDER BY COALESCE(ordre, 999), id");
+                    $st->bindValue(':b', $idBien, PDO::PARAM_INT); $st->execute();
                     $photos = $st->fetchAll(PDO::FETCH_ASSOC);
                 } catch (Throwable $e) {}
             ?>
-            <details style="background:#fff; border:1px solid #eee; border-radius:10px; padding:18px 22px; margin-bottom:12px;">
-                <summary style="cursor:pointer; font-weight:700; color:#24324a; list-style:none; display:flex; align-items:center; justify-content:space-between;">
-                    <span>
-                        <strong><?= $h($titre) ?></strong>
+            <details style="border:1px solid #eee; border-radius:10px; padding:12px 18px; margin-bottom:8px;">
+                <summary style="cursor:pointer; font-weight:600; color:#24324a; list-style:none; display:flex; align-items:center; justify-content:space-between;">
+                    <span><strong><?= $h($titre) ?></strong>
                         <span style="font-family:'DM Mono',monospace; font-size:10px; color:#9a9690; letter-spacing:.08em; text-transform:uppercase; margin-left:10px;">
-                            <?= $h($b['type_libelle'] ?: '') ?>
-                            <?php if ($b['ville']): ?> · <?= $h($b['ville']) ?><?php endif; ?>
-                            <?php if ($b['surface_habitable']): ?> · <?= $fmt((float)$b['surface_habitable']) ?> m²<?php endif; ?>
+                            <?= $h($b['type_libelle'] ?: '') ?><?php if ($b['ville']): ?> · <?= $h($b['ville']) ?><?php endif; ?>
                         </span>
                     </span>
-                    <span style="font-family:'DM Mono',monospace; font-size:10px; color:#4f7a3a;">
-                        <?= count($photos) ?> 📷 · <?= count($docs) ?> 📄
-                    </span>
+                    <span style="font-family:'DM Mono',monospace; font-size:10px; color:#4f7a3a;"><?= count($photos) ?>📷 · <?= count($docs) ?>📄</span>
                 </summary>
-
-                <div style="margin-top:16px;">
-                    <!-- Résumé analyse -->
-                    <?php if (!empty($analyses[0])): $a = $analyses[0]; ?>
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom:14px;">
-                            <div style="background:#f9f7f2; padding:10px; border-radius:8px;">
-                                <div style="font-size:10px; color:#9a9690; letter-spacing:.1em; text-transform:uppercase;">Valeur</div>
-                                <div style="font-weight:700; color:#24324a;"><?= $fmt((float)$a['prix_achat']) ?> €</div>
-                            </div>
-                            <div style="background:#f9f7f2; padding:10px; border-radius:8px;">
-                                <div style="font-size:10px; color:#9a9690; letter-spacing:.1em; text-transform:uppercase;">Loyer/an</div>
-                                <div style="font-weight:700; color:#24324a;"><?= $fmt((float)$a['loyer_estime'] * 12) ?> €</div>
-                            </div>
-                            <div style="background:#f9f7f2; padding:10px; border-radius:8px;">
-                                <div style="font-size:10px; color:#9a9690; letter-spacing:.1em; text-transform:uppercase;">Rdt net</div>
-                                <div style="font-weight:700; color:#4f7a3a;"><?= $fmt((float)$a['rendement_net'], 2) ?> %</div>
-                            </div>
-                            <?php if (!empty($a['locataire_nom'])): ?>
-                            <div style="background:#f9f7f2; padding:10px; border-radius:8px;">
-                                <div style="font-size:10px; color:#9a9690; letter-spacing:.1em; text-transform:uppercase;">Locataire</div>
-                                <div style="font-weight:700; color:#24324a; font-size:12px;"><?= $h($a['locataire_nom']) ?></div>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
-
-                    <!-- Photos -->
-                    <?php if (!empty($photos)): ?>
-                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;">
-                        <?php foreach (array_slice($photos, 0, 8) as $ph):
-                            $url = $ph['url_photo'] ?: '';
-                            if ($url && !str_starts_with($url, 'http')) {
-                                $url = '/' . ltrim($url, '/');
-                            }
-                        ?>
-                        <a href="<?= $h($url) ?>" target="_blank" style="display:block; width:90px; height:70px; overflow:hidden; border-radius:6px; background:#eee;">
-                            <img src="<?= $h($url) ?>" style="width:100%; height:100%; object-fit:cover;" loading="lazy">
-                        </a>
-                        <?php endforeach; ?>
-                        <?php if (count($photos) > 8): ?>
-                            <div style="width:90px; height:70px; display:flex; align-items:center; justify-content:center; background:#eee; border-radius:6px; color:#666; font-size:12px;">+<?= count($photos) - 8 ?></div>
-                        <?php endif; ?>
+                <div style="margin-top:14px;">
+                    <?php if (!empty($ana[0])): $a = $ana[0]; ?>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:8px; margin-bottom:12px;">
+                        <div style="background:#f9f7f2; padding:8px 12px; border-radius:6px;"><div style="font-size:10px; color:#9a9690; text-transform:uppercase; letter-spacing:.1em;">Valeur</div><div style="font-weight:700; color:#24324a;"><?= $fmt((float)$a['prix_achat']) ?> €</div></div>
+                        <div style="background:#f9f7f2; padding:8px 12px; border-radius:6px;"><div style="font-size:10px; color:#9a9690; text-transform:uppercase; letter-spacing:.1em;">Loyer/an</div><div style="font-weight:700; color:#24324a;"><?= $fmt((float)$a['loyer_estime'] * 12) ?> €</div></div>
+                        <div style="background:#f9f7f2; padding:8px 12px; border-radius:6px;"><div style="font-size:10px; color:#9a9690; text-transform:uppercase; letter-spacing:.1em;">Rdt net</div><div style="font-weight:700; color:#4f7a3a;"><?= $fmt((float)$a['rendement_net'], 2) ?>%</div></div>
+                        <?php if (!empty($a['locataire_nom'])): ?><div style="background:#f9f7f2; padding:8px 12px; border-radius:6px;"><div style="font-size:10px; color:#9a9690; text-transform:uppercase; letter-spacing:.1em;">Locataire</div><div style="font-weight:700; color:#24324a; font-size:11.5px;"><?= $h($a['locataire_nom']) ?></div></div><?php endif; ?>
                     </div>
                     <?php endif; ?>
 
-                    <!-- Documents -->
+                    <?php if (!empty($photos)): ?>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+                        <?php foreach (array_slice($photos, 0, 6) as $ph):
+                            $url = $ph['url_photo'] ?: ''; if ($url && !str_starts_with($url, 'http')) $url = '/' . ltrim($url, '/'); ?>
+                        <a href="<?= $h($url) ?>" target="_blank" style="width:80px; height:60px; overflow:hidden; border-radius:4px; background:#eee;"><img src="<?= $h($url) ?>" style="width:100%; height:100%; object-fit:cover;" loading="lazy"></a>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+
                     <?php if (!empty($docs)): ?>
-                    <div style="background:#fafafa; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
-                        <div style="font-size:10px; color:#9a9690; letter-spacing:.12em; text-transform:uppercase; margin-bottom:6px;">Documents</div>
+                    <div style="background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px;">
                         <?php foreach ($docs as $d):
                             $isExt = !empty($d['uploaded_by_externe']);
-                            $docUrl = $d['url_fichier'] ?: '';
-                            if ($docUrl && !str_starts_with($docUrl, 'http')) $docUrl = '/' . ltrim($docUrl, '/');
-                        ?>
-                        <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom: 1px dashed #eee; font-size:13px;">
-                            <span>
-                                📄 <a href="<?= $h($docUrl) ?>" target="_blank" style="color:#24324a; text-decoration:none;"><?= $h($d['libelle'] ?: $d['nom_original']) ?></a>
-                                <?php if ($d['type_document']): ?><span style="color:#9a9690; font-size:11px;">· <?= $h($d['type_document']) ?></span><?php endif; ?>
-                                <?php if ($isExt): ?><span style="color:#4f7a3a; font-size:10px; margin-left:6px;">(envoyé par vous)</span><?php endif; ?>
-                            </span>
-                            <span style="color:#9a9690; font-size:11px;"><?= date('d/m/Y', strtotime((string)$d['date_upload'])) ?></span>
+                            $docUrl = $d['url_fichier'] ?: ''; if ($docUrl && !str_starts_with($docUrl, 'http')) $docUrl = '/' . ltrim($docUrl, '/'); ?>
+                        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;">
+                            <span>📄 <a href="<?= $h($docUrl) ?>" target="_blank" style="color:#24324a; text-decoration:none;"><?= $h($d['libelle'] ?: $d['nom_original']) ?></a><?php if ($isExt): ?> <span style="color:#4f7a3a; font-size:10px;">(vous)</span><?php endif; ?></span>
+                            <span style="color:#9a9690; font-size:10px;"><?= date('d/m/Y', strtotime((string)$d['date_upload'])) ?></span>
                         </div>
                         <?php endforeach; ?>
                     </div>
                     <?php endif; ?>
 
-                    <!-- Upload propriétaire -->
-                    <div style="background:#eef3ea; border-left: 4px solid #4f7a3a; border-radius:8px; padding: 12px 14px;">
-                        <div style="font-size:12px; font-weight:600; color:#4f7a3a; margin-bottom:6px;">📤 Ajouter un document pour ce bien</div>
-                        <form method="post" enctype="multipart/form-data" action="<?= $h(function_exists('app_url') ? app_url('/p/upload.php') : '/p/upload.php') ?>" style="display:flex; gap:8px; align-items:center;">
-                            <input type="hidden" name="t" value="<?= $h($token) ?>">
-                            <input type="hidden" name="id_bien" value="<?= $idBien ?>">
-                            <input type="file" name="files[]" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.eml,.msg" style="flex:1; font-size:12px;">
-                            <button type="submit" style="padding:8px 16px; background:#4f7a3a; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">Envoyer</button>
-                        </form>
-                        <p style="margin:6px 0 0; font-size:10.5px; color:#9a9690;">PDF, images, Word, Excel, emails — 10 Mo max par fichier.</p>
-                    </div>
+                    <form method="post" enctype="multipart/form-data" action="<?= $h(function_exists('app_url') ? app_url('/p/upload.php') : '/p/upload.php') ?>" style="display:flex; gap:8px; align-items:center; padding:8px 12px; background:#eef3ea; border-left:3px solid #4f7a3a; border-radius:6px;">
+                        <input type="hidden" name="t" value="<?= $h($token) ?>">
+                        <input type="hidden" name="id_bien" value="<?= $idBien ?>">
+                        <input type="file" name="files[]" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.eml,.msg" style="flex:1; font-size:11px;">
+                        <button type="submit" style="padding:6px 14px; background:#4f7a3a; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">📤 Envoyer</button>
+                    </form>
                 </div>
             </details>
             <?php endforeach; ?>
-        <?php endforeach; ?>
-
-        <div class="pub-footer">
-            Vous accédez à <?= count($bienIds) ?> bien<?= count($bienIds) > 1 ? 's' : '' ?> rattaché<?= count($bienIds) > 1 ? 's' : '' ?> à <strong><?= count($props) ?> société<?= count($props) > 1 ? 's' : '' ?></strong>.
-            Les documents ajoutés via ce lien sont automatiquement notifiés à votre gestionnaire MaBoxImmo.
-            <br>Document généré le <?= date('d/m/Y à H:i') ?>.
         </div>
+    <?php endforeach; ?>
+
+    <div style="text-align:center; padding:28px 20px; color:#9a9690; font-size:11px;">
+        Lien confidentiel valable jusqu'au <?= date('d/m/Y', strtotime((string)$p['expire_at'])) ?>.
+        Documents ajoutés via ce lien automatiquement notifiés à votre gestionnaire MaBoxImmo.
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="<?= $h(function_exists('asset_url') ? asset_url('/investisseur/assets/investisseur.js') : '/investisseur/assets/investisseur.js') ?>"></script>
 
     <?php elseif ($p['type'] === 'scenario'): ?>
 
