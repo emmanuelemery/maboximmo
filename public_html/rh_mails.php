@@ -847,19 +847,18 @@ async function sendMail() {
     const formData = new FormData(document.getElementById('mail-form'));
     const data = Object.fromEntries(formData);
 
-    const checkedUsers = document.querySelectorAll('.user-checkbox:checked');
-    if (checkedUsers.length > 0) {
-        data.recipient_type = 'users';
-        data.user_ids = Array.from(checkedUsers).map(cb => cb.value).join(',');
-        delete data.recipient_id;
-    } else if (!data.recipient_type) {
-        alert('Veuillez sélectionner des destinataires');
-        return false;
-    }
-
+    // Source de vérité = la liste affichée à l'écran (window.currentRecipients).
+    // Si l'utilisateur est en mode "Tous/Société/Agence/Service" et retire
+    // manuellement des destinataires via le bouton ×, la liste filtrée doit
+    // être envoyée telle quelle — sinon le backend récupère TOUS les users
+    // et ignore les suppressions (bug signalé 2026-04-22).
     const recipients = window.currentRecipients || [];
     if (recipients.length > 30) { alert('⚠️ Maximum 30 destinataires. Actuellement : ' + recipients.length); return false; }
     if (recipients.length === 0) { alert('Veuillez sélectionner des destinataires'); return false; }
+
+    data.recipient_type = 'users';
+    data.user_ids = recipients.map(u => u.id).join(',');
+    delete data.recipient_id;
 
     try {
         data.attachment_ids = window.mailAttachmentIds || [];
