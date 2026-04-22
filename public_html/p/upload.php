@@ -28,6 +28,12 @@ if (!preg_match('/^[a-f0-9]{32,128}$/i', $token)) { http_response_code(400); die
 $p = inv_partage_load_by_token($pdo, $token);
 if (!$p || !inv_partage_is_valid($p)) { http_response_code(403); die('Lien expiré ou révoqué.'); }
 
+// Vérification mot de passe si présent
+if (!empty($p['password_hash'])) {
+    $sessKey = 'inv_pub_auth_' . substr((string)$p['token'], 0, 16);
+    if (empty($_SESSION[$sessKey])) { http_response_code(403); die('Session non authentifiée. Retournez à la page et saisissez le mot de passe.'); }
+}
+
 $idBien = (int)($_POST['id_bien'] ?? 0);
 if ($idBien <= 0) back_with_msg($token, 'Bien non spécifié', false);
 

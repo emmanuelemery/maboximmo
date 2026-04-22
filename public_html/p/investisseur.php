@@ -34,6 +34,48 @@ if (!inv_partage_is_valid($p)) {
     die('Ce lien a expiré ou a été révoqué. Merci de demander un nouveau lien à votre interlocuteur.');
 }
 
+// ─── Protection par mot de passe (si password_hash défini) ───────────
+if (!empty($p['password_hash'])) {
+    $sessKey = 'inv_pub_auth_' . substr((string)$p['token'], 0, 16);
+    $pwdError = '';
+    if (!empty($_POST['pwd'])) {
+        if (password_verify((string)$_POST['pwd'], (string)$p['password_hash'])) {
+            $_SESSION[$sessKey] = 1;
+        } else {
+            $pwdError = 'Mot de passe incorrect.';
+        }
+    }
+    if (empty($_SESSION[$sessKey])) {
+        // Écran de saisie du mot de passe
+        ?><!doctype html><meta charset=utf-8><title>Accès protégé</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+        <style>
+        body { font-family: 'Sora', sans-serif; background: linear-gradient(135deg,#f9f7f2,#eef3ea); display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:20px; }
+        .box { background:#fff; padding:36px 40px; border-radius:14px; box-shadow:0 20px 60px rgba(36,50,74,.12); max-width:380px; width:100%; text-align:center; }
+        .box h1 { color:#24324a; font-size:20px; margin:0 0 6px; }
+        .box p  { color:#9a9690; font-size:13px; margin:0 0 24px; }
+        .box input { width:100%; padding:12px 14px; border:1px solid #e6e1d7; border-radius:10px; font-size:15px; font-family:'Sora',sans-serif; box-sizing:border-box; }
+        .box button { width:100%; padding:12px; margin-top:12px; background:#24324a; color:#fff; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:'Sora',sans-serif; }
+        .box button:hover { background:#1a2535; }
+        .err { color:#b4443a; font-size:12.5px; margin-top:10px; }
+        .lock { font-size:28px; margin-bottom:8px; }
+        </style>
+        <div class="box">
+            <div class="lock">🔒</div>
+            <h1>Accès protégé</h1>
+            <p>Merci de saisir le mot de passe fourni par votre interlocuteur.</p>
+            <form method="post">
+                <input type="password" name="pwd" placeholder="Mot de passe" autofocus required>
+                <button type="submit">Accéder</button>
+                <?php if ($pwdError): ?><div class="err"><?= htmlspecialchars($pwdError) ?></div><?php endif; ?>
+            </form>
+        </div>
+        <?php
+        exit;
+    }
+}
+
 // Track la consultation
 inv_partage_track_consultation($pdo, (int)$p['id'], (string)($_SERVER['REMOTE_ADDR'] ?? ''));
 

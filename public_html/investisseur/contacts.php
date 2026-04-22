@@ -52,9 +52,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'message' => trim((string)($_POST['message'] ?? '')),
                 'jours' => (int)($_POST['jours'] ?? 90),
             ]);
-            // Lier au contact
-            $pdo->prepare("UPDATE investisseur_partages SET id_contact_externe = :c WHERE id = :p")
-                ->execute([':c' => $id, ':p' => $idP]);
+            // Lier au contact + password optionnel
+            $pwd = trim((string)($_POST['pwd'] ?? ''));
+            $updSql = "UPDATE investisseur_partages SET id_contact_externe = :c";
+            $updParams = [':c' => $id, ':p' => $idP];
+            if ($pwd !== '') {
+                $updSql .= ", password_hash = :h";
+                $updParams[':h'] = password_hash($pwd, PASSWORD_BCRYPT);
+            }
+            $updSql .= " WHERE id = :p";
+            $pdo->prepare($updSql)->execute($updParams);
             if (!empty($_POST['envoyer_mail'])) {
                 $r = inv_partage_send_email($pdo, $idP);
                 $flash = $r['ok']
@@ -255,6 +262,11 @@ $val = fn($k, $def = '') => $h($contact[$k] ?? $def);
                             <option value="180">6 mois</option>
                             <option value="365">1 an</option>
                         </select>
+                    </div>
+                    <div class="inv-field">
+                        <label>Mot de passe d'accès (optionnel)</label>
+                        <input type="text" name="pwd" placeholder="Laissez vide pour accès sans password">
+                        <span class="hint">Si renseigné, le destinataire devra saisir ce mot de passe pour ouvrir le lien.</span>
                     </div>
                     <div class="inv-field span-2">
                         <label>Message personnel (dans l'email)</label>
