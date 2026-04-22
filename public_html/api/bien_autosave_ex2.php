@@ -31,41 +31,15 @@ if ($bienId <= 0) {
 // Verify ownership — super-admin (role=1) bypass le filtre société pour pouvoir éditer n'importe quel bien
 $isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
 if ($isSuperAdmin) {
-    $stmt = $pdo->prepare("SELECT id, statut_bien FROM biens WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id FROM biens WHERE id = ?");
     $stmt->execute([$bienId]);
 } else {
-    $stmt = $pdo->prepare("SELECT id, statut_bien FROM biens WHERE id = ? AND id_societe = ?");
+    $stmt = $pdo->prepare("SELECT id FROM biens WHERE id = ? AND id_societe = ?");
     $stmt->execute([$bienId, $societeId]);
 }
-$bienCheckRow = $stmt->fetch(PDO::FETCH_ASSOC);
-if (!$bienCheckRow) {
+if (!$stmt->fetchColumn()) {
     http_response_code(403);
     exit(json_encode(['ok' => false, 'error' => 'Bien introuvable']));
-}
-$bienEstActif = ((string)($bienCheckRow['statut_bien'] ?? '') === 'actif');
-
-// ⚠️ Guard flow 2026-04-22 : si le bien est actif, l'adresse et le propriétaire
-// sont VERROUILLÉS. Toute tentative de modifier ces champs depuis l'UI est rejetée.
-// L'utilisateur doit d'abord dé-valider le bien (api/bien_validate.php action=invalidate).
-if ($bienEstActif) {
-    $lockedFields = ['adresse_1', 'adresse_2', 'code_postal', 'ville', 'latitude', 'longitude',
-                     'google_place_id', 'adresse_formatted', 'id_immeuble_selected',
-                     'id_proprietaire'];
-    $attempted = [];
-    foreach ($lockedFields as $_lf) {
-        if (array_key_exists($_lf, $_POST) && (string)$_POST[$_lf] !== '') {
-            $attempted[] = $_lf;
-        }
-    }
-    if (!empty($attempted)) {
-        http_response_code(403);
-        exit(json_encode([
-            'ok' => false,
-            'error' => 'Champs verrouillés (bien actif) : ' . implode(', ', $attempted) . '. Dévalide le bien d\'abord.',
-            'locked_fields' => $attempted,
-            'statut_bien'   => 'actif',
-        ]));
-    }
 }
 
 // Helpers
@@ -648,14 +622,17 @@ try {
     $annonceId = (int)$stmtAnn->fetchColumn();
 
     // Create annonce if needed — hérite id_societe/id_agence/id_user (commercial) du bien
-    // ⚠️ 2026-04-22 : auto-création d'annonce DÉSACTIVÉE (flow validation bien obligatoire).
-    // L'annonce est désormais créée EXCLUSIVEMENT via api/annonce_create.php, déclenché
-    // par le modal UI "Créer une annonce ?" après validation du bien. On ne crée plus
-    // automatiquement à la réception d'un `annonce_transaction` en POST.
-    //
-    // Ancien comportement (pour mémoire) : création silencieuse avec héritage
-    // id_societe/id_agence/id_user du bien. Retiré pour garantir que chaque annonce
-    // passe par le flow de validation Ubiflow explicite.
+    if ($annonceId <= 0 && $annonceTransaction !== '') {
+        $stB = $pdo->prepare("SELECT id_agence, id_user_actuel, id_societe FROM biens WHERE id = ?");
+        $stB->execute([$bienId]);
+        $bRow = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
+        $finalSoc    = (int)($bRow['id_societe']     ?? 0) ?: ($societeId ?: 0);
+        $finalAgence = (int)($bRow['id_agence']      ?? 0) ?: (int)($_SESSION['id_agence'] ?? 0);
+        $finalUser   = (int)($bRow['id_user_actuel'] ?? 0) ?: (int)($_SESSION['user_id']  ?? 0);
+        $pdo->prepare("INSERT INTO annonces (id_bien, id_societe, id_agence, id_user, type_transaction, date_creation, date_modification) VALUES (?, ?, ?, ?, ?, NOW(), NOW())")
+            ->execute([$bienId, $finalSoc ?: null, $finalAgence ?: null, $finalUser ?: null, $annonceTransaction]);
+        $annonceId = (int)$pdo->lastInsertId();
+    }
 
     if ($annonceId > 0 && $hasAnnonceFieldInPost) {
         $annData = [

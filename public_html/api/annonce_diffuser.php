@@ -48,7 +48,30 @@ try {
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
     }
 
-    $bienRow = $pdo->prepare("SELECT * FROM biens WHERE id = ? LIMIT 1");
+    // JOIN types_bien  : expose _type_bien_code (ex: 'garage', 'parking', 'appartement'…)
+    //                    indispensable pour que ubiflow_check_completude() applique
+    //                    correctement les required_when basés sur le code type.
+    // JOIN immeubles   : expose _imm_code_postal / _imm_ville / _imm_adresse_1 / etc.
+    //                    indispensable car bien_autosave.php persiste l'adresse dans la
+    //                    table `immeubles` (via biens.id_immeuble) — PAS dans biens.*.
+    //                    Sans ce JOIN, le validator voit biens.code_postal et biens.ville
+    //                    vides alors que l'immeuble lié a bien les bonnes valeurs.
+    $bienRow = $pdo->prepare("
+        SELECT b.*,
+               tb.code      AS _type_bien_code,
+               i.adresse_1  AS _imm_adresse_1,
+               i.adresse_2  AS _imm_adresse_2,
+               i.code_postal AS _imm_code_postal,
+               i.ville      AS _imm_ville,
+               i.pays       AS _imm_pays,
+               i.latitude   AS _imm_latitude,
+               i.longitude  AS _imm_longitude
+        FROM biens b
+        LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+        LEFT JOIN immeubles  i  ON i.id  = b.id_immeuble
+        WHERE b.id = ?
+        LIMIT 1
+    ");
     $bienRow->execute([(int)$annonce['bid']]);
     $bien = $bienRow->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -83,9 +106,12 @@ try {
     /* ── 5. UPDATE etat_publication ───────────────────────────── */
     $alreadyDiffusee = ($annonce['etat_publication'] ?? '') === 'diffusee';
     // date_mise_en_ligne (colonne réelle en BDD, cf. schéma annonces) — set 1ère fois uniquement
+    // statut = 'publiee' : requis par le filtre Ubiflow (config/ubiflow_mapping.php)
+    // qui filtre sur statut IN ('publiee','active','en_ligne')
     $pdo->prepare("
         UPDATE annonces
         SET etat_publication = 'diffusee',
+            statut = 'publiee',
             date_mise_en_ligne = COALESCE(date_mise_en_ligne, NOW()),
             date_modification = NOW()
         WHERE id = ?

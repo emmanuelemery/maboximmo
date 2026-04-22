@@ -65,7 +65,8 @@ try {
 
 $alertMonth = (int)$now->format('n');
 $alertYear = (int)$now->format('Y');
-$detailUrl = 'rh_salaires_user.php?mois=' . $alertMonth . '&annee=' . $alertYear;
+$detailUrl      = 'rh_salaires_user.php?mois=' . $alertMonth . '&annee=' . $alertYear;
+$moisEnCoursUrl = 'rh_salaires.php?mois='      . $alertMonth . '&annee=' . $alertYear . '&scope=me';
 
 /* ── Layout variables ── */
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
@@ -126,7 +127,7 @@ ob_start();
                 <div class="alert-title">À partir du 23, pensez à remplir votre salaire</div>
                 <div class="alert-text">Vos congés et vos IK sont liés au salaire du mois. Pensez à compléter le mois de <?= h(mois_fr($alertMonth)) ?>.</div>
                 <div class="alert-actions">
-                    <a class="btn" href="<?= h($detailUrl) ?>">🧾 Remplir mon salaire</a>
+                    <a class="btn" href="<?= h($moisEnCoursUrl) ?>">🧾 Remplir mon salaire</a>
                     <a class="btn btn-ghost" href="rh_conges.php">🏖️ Mes congés</a>
                     <a class="btn btn-ghost" href="rh_indemnite_km.php">🚗 Mes IK</a>
                 </div>
@@ -137,7 +138,10 @@ ob_start();
                 <div class="card">
                     <div class="row" style="justify-content:space-between">
                         <div style="font-weight:700;font-size:13px">📌 Mon modèle de salaire</div>
-                        <a class="btn" href="<?= h($detailUrl) ?>">+ Ouvrir le mois en cours</a>
+                        <div style="display:flex;gap:8px;">
+                            <a class="btn" href="<?= h($moisEnCoursUrl) ?>" title="Voir le salaire réel du mois en cours (limité à mes données)">+ Ouvrir le mois en cours</a>
+                            <a class="btn btn-ghost" href="<?= h($detailUrl) ?>" title="Voir la page modèle (structure du salaire)">📋 Voir modèle</a>
+                        </div>
                     </div>
                     <?php if ($model): ?>
                     <table class="model-table">

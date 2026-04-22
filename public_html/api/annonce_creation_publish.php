@@ -40,8 +40,12 @@ try {
         exit(json_encode(['ok' => false, 'error' => 'hors de votre société']));
     }
 
+    // Correspondance etat_publication → statut (utilisé par la requête Ubiflow)
+    // Ubiflow filtre sur statut IN ('publiee', 'active', 'en_ligne')
+    $statutMapped = ($etat === 'publie') ? 'publiee' : 'brouillon';
+
     $extra = '';
-    $params = [':etat' => $etat, ':id' => $annonceId];
+    $params = [':etat' => $etat, ':statut' => $statutMapped, ':id' => $annonceId];
     if ($etat === 'publie') {
         // Si la colonne date_publication existe, on la remplit
         try {
@@ -50,7 +54,7 @@ try {
         } catch (Throwable) { /* ignore */ }
     }
 
-    $pdo->prepare("UPDATE annonces SET etat_publication = :etat{$extra}, date_modification = NOW() WHERE id = :id")
+    $pdo->prepare("UPDATE annonces SET etat_publication = :etat, statut = :statut{$extra}, date_modification = NOW() WHERE id = :id")
         ->execute($params);
 
     echo json_encode(['ok' => true, 'etat' => $etat]);

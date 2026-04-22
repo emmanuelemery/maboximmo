@@ -422,6 +422,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['close_month'])) {
 // Permission gestion salaires agence (non-admin avec flag spécial)
 $agenceScope = can_manage_salaires_agence(); // 0 = pas de scope spécial, >0 = id_agence forcé
 
+// Scope "me" : filtre forcé sur l'user connecté (même si manager/gestion_salaires).
+// Utilisé quand on arrive via le bouton "Ouvrir le mois en cours" de rh_salaires_user_list.
+$scopeMe = isset($_GET['scope']) && $_GET['scope'] === 'me';
+
 $now = new DateTime('now', new DateTimeZone('Europe/Paris'));
 $mois_sel    = $_GET['mois']    ?? $now->format('n');
 $annee_sel   = $_GET['annee']   ?? $now->format('Y');
@@ -901,8 +905,8 @@ if ($modeles_only) {
 if($societe_sel !== 'toutes') { $sql .= " AND u.id_societe = :soc"; $p[':soc'] = (int)$societe_sel; }
 if($agence_sel !== 'toutes') { $sql .= " AND u.id_agence = :age"; $p[':age'] = (int)$agence_sel; }
 
-// Collaborateur sans gestion_salaires : ne voit que son propre salaire
-if ($roleId === 3 && $agenceScope === 0) {
+// Collaborateur sans gestion_salaires OU accès forcé via ?scope=me : ne voit que son propre salaire
+if (($roleId === 3 && $agenceScope === 0) || $scopeMe) {
     $sql .= " AND u.id = :self_uid";
     $p[':self_uid'] = current_user_id();
 }
@@ -1769,7 +1773,7 @@ ob_start();
 
 </div>
 
-<!-- ── Workflow comptable (admin uniquement) ── -->
+<!-- ── Workflow comptable — titre visible pour tous ; déroulement admin uniquement ── -->
 <?php if ($roleId === 1): ?>
 <div class="section-header" style="cursor:pointer" onclick="toggleSection('workflow-card','workflow-chevron')">
     <div class="section-title">
@@ -1781,6 +1785,16 @@ ob_start();
         <span class="line-r"></span>
     </div>
 </div>
+<?php else: ?>
+<div class="section-header" style="opacity:.45;cursor:default">
+    <div class="section-title">
+        <span class="line-l"></span>
+        <span class="sec-txt">Workflow comptable <small style="font-size:10px;color:#94a3b8;font-weight:400;">— réservé à l'admin</small></span>
+        <span class="line-r"></span>
+    </div>
+</div>
+<?php endif; ?>
+<?php if ($roleId === 1): ?>
 <div class="v2-card collapsible collapsed" id="workflow-card" style="margin-bottom:20px">
     <div class="v2-card-body">
         <?php if ($societe_sel === 'toutes'): ?>

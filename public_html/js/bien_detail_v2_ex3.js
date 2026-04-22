@@ -710,96 +710,6 @@
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // Flow 2026-04-22 : Validation bien → création annonce
-  // ═══════════════════════════════════════════════════════════════
-
-  // Ouvre le modal "Créer une annonce ?" (section=annonce, bien actif, pas d'annonce)
-  function openAnnonceCreateModal(data) {
-    const modal = document.getElementById('v2-annonce-create-modal');
-    if (!modal) return;
-    modal.hidden = false;
-    const confirmBtn = document.getElementById('v2-annonce-modal-confirm');
-    if (confirmBtn && !confirmBtn.__bound) {
-      confirmBtn.__bound = true;
-      confirmBtn.addEventListener('click', async () => {
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = '⏳ Création…';
-        try {
-          const fd = new FormData();
-          fd.append('id_bien', data.bienId);
-          fd.append('csrf_token', data.csrfToken);
-          const r = await fetch(data.annonceCreateEndpoint || '/api/annonce_create.php', {
-            method: 'POST', body: fd, credentials: 'same-origin'
-          });
-          const j = await r.json();
-          if (!j.ok) throw new Error(j.error || 'Erreur création annonce');
-          // Reload la page pour charger la Card 1 Conditions financières
-          window.location.reload();
-        } catch (e) {
-          alert('❌ ' + e.message);
-          confirmBtn.disabled = false;
-          confirmBtn.textContent = '✅ Créer l\'annonce';
-        }
-      });
-    }
-    // Binding des boutons fermer
-    modal.querySelectorAll('[data-annonce-modal-close]').forEach(el => {
-      if (el.__bound) return;
-      el.__bound = true;
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        modal.hidden = true;
-      });
-    });
-    // Fallback bouton "Ouvrir création" (si user a fermé le modal)
-    const fallbackBtn = document.getElementById('v2-annonce-create');
-    if (fallbackBtn && !fallbackBtn.__bound) {
-      fallbackBtn.__bound = true;
-      fallbackBtn.addEventListener('click', () => openAnnonceCreateModal(data));
-    }
-  }
-
-  // Card Validation : bouton Valider + bouton Dé-valider
-  function bindValidationCard(data) {
-    const btnValidate   = document.getElementById('v2-bien-validate');
-    const btnInvalidate = document.getElementById('v2-bien-invalidate');
-    const statusEl      = document.getElementById('v2-bien-validate-status');
-    const csrf          = data.csrfToken;
-    const endpoint      = data.bienValidateEndpoint || '/api/bien_validate.php';
-
-    async function callApi(action, confirmMsg) {
-      if (confirmMsg && !confirm(confirmMsg)) return;
-      const targetBtn = action === 'validate' ? btnValidate : btnInvalidate;
-      if (targetBtn) targetBtn.disabled = true;
-      if (statusEl) { statusEl.textContent = '⏳ En cours…'; statusEl.style.color = '#64748b'; }
-      try {
-        const fd = new FormData();
-        fd.append('id_bien', data.bienId);
-        fd.append('action', action);
-        fd.append('csrf_token', csrf);
-        const r = await fetch(endpoint, { method: 'POST', body: fd, credentials: 'same-origin' });
-        const j = await r.json();
-        if (!j.ok) {
-          const msg = j.error + (j.missing && j.missing.length ? ' (' + j.missing.join(', ') + ')' : '');
-          throw new Error(msg);
-        }
-        if (statusEl) {
-          statusEl.textContent = action === 'validate' ? '✅ Bien validé ! Rechargement…' : '🔓 Bien dé-validé. Rechargement…';
-          statusEl.style.color = '#16a34a';
-        }
-        setTimeout(() => window.location.reload(), 500);
-      } catch (e) {
-        if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#dc2626'; }
-        if (targetBtn) targetBtn.disabled = false;
-      }
-    }
-
-    if (btnValidate) btnValidate.addEventListener('click', () => callApi('validate', null));
-    if (btnInvalidate) btnInvalidate.addEventListener('click', () => callApi('invalidate',
-      '⚠️ Dé-valider le bien va le repasser en brouillon et te permettre de modifier adresse + propriétaire.\n\nLe bien ne sera plus diffusable tant qu\'il n\'est pas revalidé.\n\nContinuer ?'));
-  }
-
   // ── Section ANNONCE : création + autosave annonce + toggles canaux ──
   function bindAnnonceSection(data) {
     const indicator = document.getElementById('v2-annonce-save-indicator');
@@ -1890,14 +1800,6 @@
 
     if (section === 'annonce') {
       bindAnnonceSection(data);
-      // Flow 2026-04-22 : si pas d'annonce active, ouvre le modal de création
-      if (data.bienEstActif && !data.annonceId) {
-        setTimeout(() => openAnnonceCreateModal(data), 250);
-      }
-    }
-
-    if (section === 'validation') {
-      bindValidationCard(data);
     }
 
     if (section === 'descriptif') {

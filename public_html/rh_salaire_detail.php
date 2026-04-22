@@ -406,7 +406,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_field'])) {
 $sections = [
     'Rémunération de base' => ['salaire_brut_base'=>['label'=>'Salaire brut','type'=>'money'],'treizieme_mois'=>['label'=>'13e mois','type'=>'money'],'anciennete'=>['label'=>'Ancienneté (%)','type'=>'int'],'avantage_nature'=>['label'=>'Avantage nature','type'=>'money'],'heures_supp'=>['label'=>'Heures supplémentaires','type'=>'money'],'prime_admin'=>['label'=>'Prime administrative','type'=>'money'],'prime_exceptionnelle'=>['label'=>'Prime exceptionnelle','type'=>'money']],
     'Achats & Frais' => ['stationnement'=>['label'=>'Stationnement','type'=>'money'],'remboursement_achat'=>['label'=>'Remboursement achat','type'=>'money'],'frais_professionnels'=>['label'=>'Frais professionnels','type'=>'money'],'frais_reception'=>['label'=>'Frais réception','type'=>'money'],'frais_deplacement'=>['label'=>'Frais déplacement','type'=>'money']],
-    'Primes & Commissions' => ['commission_ca'=>['label'=>'Commission CA','type'=>'money','readonly'=>true],'commission_ca_nouvelles_affaires'=>['label'=>'Commission NA','type'=>'money','readonly'=>true]],
+    'Primes & Commissions' => ['commission_ca'=>['label'=>'Commission CA','type'=>'money'],'commission_ca_nouvelles_affaires'=>['label'=>'Commission NA','type'=>'money']],
     'Indemnités Kilométriques' => ['ik_nb_km'=>['label'=>'Nombre km','type'=>'money','readonly'=>true],'total_ik'=>['label'=>'Total IK','type'=>'money','readonly'=>true],'ik_montant'=>['label'=>'IK montant (€)','type'=>'money','readonly'=>true],'vehicule_immat'=>['label'=>'Immatriculation','type'=>'text','readonly'=>true]],
 ];
 
@@ -1077,14 +1077,18 @@ ob_start();
                             <?=$lbl?>
                         </button>
                         <?php endforeach; ?>
-                        <?php if ($isPrimes): ?>
+                        <?php /* Bouton "Saisie" masqué temporairement — page rh_commission_detail.php
+                                  à créer en mai 2026. En attendant : champs Commission CA / NA
+                                  saisissables directement dans le tableau ci-dessous + justificatifs
+                                  envoyés par mail au manager.
+                        if ($isPrimes): ?>
                         <a href="rh_commission_detail.php?id_user=<?=$idUser?>&mois_ref=<?=urlencode($mois_ref)?>"
                            class="v2-btn btn-commission"
                            title="Saisir / voir les commissions du mois">
                             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                             Saisie
                         </a>
-                        <?php endif; ?>
+                        <?php endif; */ ?>
                         <?php if ($isIK): ?>
                         <a href="rh_indemnite_km.php?id_user=<?=$idUser?>&mois_ref=<?=urlencode($mois_ref)?>"
                            class="v2-btn btn-ik"

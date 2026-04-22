@@ -2,30 +2,24 @@
 declare(strict_types=1);
 
 /**
- * bien_auto_activate.php — ⚠️ DEPRECATED 2026-04-22
+ * bien_auto_activate.php — Auto-activation d'un bien brouillon
  *
- * Historique : règle métier (2026-04-20) passait automatiquement un bien
- * de 'brouillon' à 'actif' dès qu'adresse + propriétaire étaient remplis.
+ * Règle métier (2026-04-20) : un bien passe automatiquement du statut
+ * `brouillon` à `actif` dès qu'il dispose :
+ *   - d'une adresse (biens.adresse_1 non vide)
+ *   - d'un propriétaire (biens.id_proprietaire > 0)
  *
- * OBSOLÈTE depuis 2026-04-22 : la validation est maintenant MANUELLE via
- *   - UI : Card Validation (onglet bien_detail.php?section=validation)
- *   - Backend : api/bien_validate.php + inc/bien_validator.php
+ * Cette bascule est déclenchée côté serveur par les endpoints qui
+ * modifient le bien (bien_autosave, dpe_diag_update, tiers_create +
+ * liaison) pour offrir une UX fluide : pas de clic manuel requis sur
+ * le statut.
  *
- * La fonction est conservée comme no-op pour ne pas casser les appels
- * existants (bien_autosave.php, dpe_diag_update.php, etc.) — elle retourne
- * toujours false. La logique de génération de référence (ref_generate_bien)
- * a été déplacée dans la validation manuelle.
+ * L'auto-activation ne s'applique QUE si le statut courant est
+ * 'brouillon' — on ne touche pas aux biens déjà actifs / archivés /
+ * vendus / loués.
  */
 
 if (!function_exists('bien_maybe_activate')) {
-    /** @return bool Toujours false depuis 2026-04-22 (voir docblock). */
-    function bien_maybe_activate(PDO $pdo, int $bienId): bool {
-        return false;
-    }
-}
-
-// Legacy code preservé pour consultation mais jamais appelé.
-if (false && !function_exists('bien_maybe_activate_legacy_2026_04_20')) {
     /**
      * @param PDO $pdo
      * @param int $bienId

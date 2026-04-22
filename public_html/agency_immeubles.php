@@ -156,15 +156,15 @@ $layout_head_filters = '
     <input type="hidden" name="vue" value="'.h($fVue).'">
     <div class="ph-filter">
         <label>Référence</label>
-        <input type="text" name="reference" value="'.h($fRef).'" placeholder="ex. 1070" oninput="this.form.submit()">
+        <input type="text" name="reference" value="'.h($fRef).'" placeholder="ex. 1070" data-debounce-submit>
     </div>
     <div class="ph-filter">
         <label>Nom</label>
-        <input type="text" name="nom" value="'.h($fNom).'" placeholder="Nom immeuble" oninput="this.form.submit()">
+        <input type="text" name="nom" value="'.h($fNom).'" placeholder="Nom immeuble" data-debounce-submit>
     </div>
     <div class="ph-filter">
         <label>Ville</label>
-        <input type="text" name="ville" value="'.h($fVille).'" oninput="this.form.submit()">
+        <input type="text" name="ville" value="'.h($fVille).'" data-debounce-submit>
     </div>
     <div class="ph-filter">
         <label>Type</label>
@@ -566,6 +566,24 @@ function fmt(n) { return (parseFloat(n) || 0).toLocaleString('fr-FR', {minimumFr
 
 <?php
 $layout_content = ob_get_clean();
-$layout_extra_js = '<script>document.addEventListener("click",function(e){var w=document.getElementById("add-imm-wrap");var m=document.getElementById("add-imm-menu");if(w&&m&&!w.contains(e.target))m.style.display="none";});</script>';
+$layout_extra_js = '<script>
+document.addEventListener("click",function(e){var w=document.getElementById("add-imm-wrap");var m=document.getElementById("add-imm-menu");if(w&&m&&!w.contains(e.target))m.style.display="none";});
+// Debounce : soumet le form de filtres seulement quand l utilisateur arrete de taper
+// (evite le submit a chaque caractere qui interrompait la saisie).
+(function(){
+  var inputs = document.querySelectorAll("#filter-form [data-debounce-submit]");
+  var timer = null;
+  inputs.forEach(function(el){
+    el.addEventListener("input", function(){
+      clearTimeout(timer);
+      timer = setTimeout(function(){ el.form && el.form.submit(); }, 400);
+    });
+    // Soumet immediatement si Entree
+    el.addEventListener("keydown", function(ev){
+      if (ev.key === "Enter") { ev.preventDefault(); clearTimeout(timer); el.form && el.form.submit(); }
+    });
+  });
+})();
+</script>';
 require_once __DIR__ . '/inc/layout_maboximmo.php';
 ?>

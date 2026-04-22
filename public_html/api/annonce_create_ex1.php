@@ -39,32 +39,9 @@ try {
     exit(json_encode(['ok' => false, 'error' => 'Erreur vérification bien']));
 }
 
-// Refus si bien pas encore validé (flow 2026-04-22 : validation bien obligatoire)
+// Si une annonce existe déjà pour ce bien, la retourner
 try {
-    $stS = $pdo->prepare("SELECT statut_bien FROM biens WHERE id = ? LIMIT 1");
-    $stS->execute([$bienId]);
-    $statutBien = (string)($stS->fetchColumn() ?: 'brouillon');
-    if ($statutBien !== 'actif') {
-        http_response_code(403);
-        exit(json_encode([
-            'ok' => false,
-            'error' => 'Le bien doit être validé avant de créer une annonce',
-            'statut_bien' => $statutBien,
-        ]));
-    }
-} catch (Throwable $e) {
-    exit(json_encode(['ok' => false, 'error' => 'Erreur vérif statut bien']));
-}
-
-// Si une annonce NON archivée existe déjà pour ce bien, la retourner.
-// Règle 2026-04-22 : on ne reprend JAMAIS une annonce archivée — on en crée une
-// nouvelle à chaque demande (vente 2024 archivée → location 2026 = nouvelle annonce).
-try {
-    $st = $pdo->prepare("
-        SELECT id FROM annonces
-        WHERE id_bien = ? AND (etat_publication IS NULL OR etat_publication NOT IN ('archivee','archived'))
-        ORDER BY id DESC LIMIT 1
-    ");
+    $st = $pdo->prepare("SELECT id FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
     $st->execute([$bienId]);
     $existing = (int)($st->fetchColumn() ?: 0);
     if ($existing > 0) {
@@ -109,27 +86,6 @@ try {
         }
     } catch (Throwable $e) {
         error_log('[annonce_create] auto-lien photos: ' . $e->getMessage());
-    }
-
-    // ── Cascade de recalcul initial (2026-04-22) ──
-    // À la création, on initialise immédiatement les champs dérivés depuis
-    // le bien (surface, CP, charges, enc_loyer_max…) :
-    //   - zone_tendue sur biens (depuis CP via base_zones_tendues)
-    //   - loyer_reference_majore = surface × enc_loyer_max (si calculable)
-    //   - honoraires_location_bail = surface × tarif zone (plafond ALUR)
-    //   - honoraires_etat_des_lieux = surface × 3
-    //   - depot_garantie = 1 mois de loyer HC référence
-    //   - loyer_cc = loyer HC + charges
-    // Ainsi l'utilisateur arrive sur Card 1 avec les montants déjà pré-remplis.
-    try {
-        require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
-        loyer_majore_recalc_save($pdo, $id);
-        loyer_hc_recalc_save($pdo, $id);
-        depot_garantie_recalc_save($pdo, $id);
-        honoraires_recalc_save($pdo, $id, false);
-        loyer_cc_recalc_save($pdo, $id);
-    } catch (Throwable $e) {
-        error_log('[annonce_create] cascade recalc: ' . $e->getMessage());
     }
 
     exit(json_encode(['ok' => true, 'id' => $id, 'existed' => false, 'photos_linked' => $linked]));

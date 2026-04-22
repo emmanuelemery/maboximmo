@@ -56,7 +56,7 @@ if (!function_exists('ubiflow_agences_all')) {
             'lyon_07' => [
                 'id_agence'   => 3,
                 'login_ftp'   => 'ag697117',
-                'nom'         => 'EMERY IMMOBILIER LYON',
+                'nom'         => 'REGIE EMERY LYON',
                 'code_postal' => '69007',
                 'ville'       => 'LYON 07',
                 'id_societe'  => 1,

@@ -212,6 +212,13 @@ include __DIR__ . '/inc/sidebar_agency.php';
       <button type="button" class="bl-btn bl-btn-primary" onclick="document.getElementById('modal-new-proprio').classList.add('open')">
         ➕ Nouveau propriétaire
       </button>
+      <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
+      <button type="button" class="bl-btn" id="btn-purge-proprio-admin"
+              style="background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;font-weight:700;cursor:pointer;font-family:inherit;"
+              title="Supprimer réellement (avec cascade) des propriétaires — admin only">
+        🗑 Nettoyage admin
+      </button>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -495,5 +502,134 @@ document.querySelectorAll('.ap-action-btn[data-action]').forEach(btn => {
   });
 });
 </script>
+
+<?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
+<!-- ═══ MODAL : Nettoyage admin propriétaires (admin only) ═══ -->
+<div class="bl-modal" id="modal-purge-proprio">
+  <div class="bl-modal-content" style="max-width:900px;">
+    <h2 style="margin:0 0 6px;color:#b91c1c;font-size:20px;">🗑 Suppression de propriétaires (admin)</h2>
+    <p style="margin:0 0 16px;color:#64748b;font-size:13px;">
+      Outil de nettoyage. Filtre les propriétaires candidats, prévisualise leurs dépendances (biens, baux…), puis supprime.
+      Si dépendances > 0 : option "force" pour supprimer en cascade (TRÈS destructif).
+    </p>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+      <div>
+        <label style="font-size:12px; color:#64748b; font-weight:600; display:block; margin-bottom:4px;">Mode de sélection</label>
+        <select id="purge-prop-mode" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
+          <option value="ids">Par IDs (saisis ci-dessous)</option>
+          <option value="no_biens">Tous ceux SANS bien lié (créés depuis date X)</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px; color:#64748b; font-weight:600; display:block; margin-bottom:4px;">Date min (mode "sans bien")</label>
+        <input type="date" id="purge-prop-date" value="<?= date('Y-m-d', strtotime('-30 days')) ?>" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
+      </div>
+    </div>
+
+    <div id="purge-prop-ids-wrap">
+      <label style="font-size:12px; color:#64748b; font-weight:600; display:block; margin-bottom:4px;">IDs propriétaires (séparés par virgule)</label>
+      <input type="text" id="purge-prop-ids" placeholder="ex: 12, 34, 56" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-family:monospace;">
+    </div>
+
+    <div style="display:flex; gap:10px; margin: 16px 0;">
+      <button type="button" id="purge-prop-preview-btn" class="bl-btn" style="background:#0ea5e9; color:#fff; border:none; padding:9px 16px; border-radius:6px; font-weight:700; cursor:pointer;">
+        🔍 Prévisualiser
+      </button>
+      <button type="button" id="purge-prop-delete-btn" class="bl-btn" style="background:#94a3b8; color:#fff; border:none; padding:9px 16px; border-radius:6px; font-weight:700; cursor:not-allowed;" disabled>
+        🗑 Supprimer maintenant
+      </button>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#475569;">
+        <input type="checkbox" id="purge-prop-force"> force=1 (supprimer biens en cascade)
+      </label>
+      <button type="button" class="bl-btn" onclick="document.getElementById('modal-purge-proprio').classList.remove('open')" style="margin-left:auto; background:#fff; color:#475569; border:1px solid #cbd5e1; padding:9px 16px; border-radius:6px;">
+        Fermer
+      </button>
+    </div>
+
+    <div id="purge-prop-result" style="background:#0f172a; color:#f1f5f9; padding:14px; border-radius:8px; font-family:monospace; font-size:12px; max-height:400px; overflow-y:auto; white-space:pre-wrap;">
+      Cliquez sur 🔍 Prévisualiser pour voir les propriétaires candidats.
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const csrfPurge = '<?= csrf_token('proprietaire_delete_cascade') ?>';
+  let lastToken = null;
+
+  const btnOpen   = document.getElementById('btn-purge-proprio-admin');
+  const modal     = document.getElementById('modal-purge-proprio');
+  const btnPrev   = document.getElementById('purge-prop-preview-btn');
+  const btnDel    = document.getElementById('purge-prop-delete-btn');
+  const result    = document.getElementById('purge-prop-result');
+  const inputIds  = document.getElementById('purge-prop-ids');
+  const inputDate = document.getElementById('purge-prop-date');
+  const selectMode= document.getElementById('purge-prop-mode');
+  const wrapIds   = document.getElementById('purge-prop-ids-wrap');
+  const cbForce   = document.getElementById('purge-prop-force');
+
+  if (!btnOpen || !modal) return;
+
+  btnOpen.addEventListener('click', () => modal.classList.add('open'));
+
+  selectMode.addEventListener('change', () => {
+    wrapIds.style.display = selectMode.value === 'ids' ? 'block' : 'none';
+  });
+
+  function buildFormData(action) {
+    const fd = new FormData();
+    fd.append('csrf_token', csrfPurge);
+    fd.append('action', action);
+    if (selectMode.value === 'ids') {
+      fd.append('ids', inputIds.value || '');
+    } else {
+      fd.append('filter_mode', 'no_biens');
+      fd.append('date_min', inputDate.value || '');
+    }
+    if (action === 'delete' && lastToken) fd.append('token', lastToken);
+    if (action === 'delete' && cbForce.checked) fd.append('force', '1');
+    return fd;
+  }
+
+  btnPrev.addEventListener('click', async () => {
+    btnPrev.disabled = true; btnPrev.textContent = '⏳ Préview…';
+    btnDel.disabled = true; btnDel.style.background = '#94a3b8'; btnDel.style.cursor = 'not-allowed';
+    result.textContent = 'Chargement…';
+    try {
+      const r = await fetch('<?= htmlspecialchars(app_url('/api/proprietaire_delete_cascade.php')) ?>', { method: 'POST', body: buildFormData('preview') });
+      const j = await r.json();
+      result.textContent = JSON.stringify(j, null, 2);
+      if (j.ok && j.count > 0) {
+        lastToken = j.token;
+        btnDel.disabled = false; btnDel.style.background = '#dc2626'; btnDel.style.cursor = 'pointer';
+      }
+    } catch (e) {
+      result.textContent = '❌ ' + e.message;
+    }
+    btnPrev.disabled = false; btnPrev.textContent = '🔍 Prévisualiser';
+  });
+
+  btnDel.addEventListener('click', async () => {
+    if (!confirm('⚠️ Suppression DÉFINITIVE — Confirmer ?')) return;
+    btnDel.disabled = true; btnDel.textContent = '⏳ Suppression…';
+    try {
+      const r = await fetch('<?= htmlspecialchars(app_url('/api/proprietaire_delete_cascade.php')) ?>', { method: 'POST', body: buildFormData('delete') });
+      const j = await r.json();
+      result.textContent = JSON.stringify(j, null, 2);
+      if (j.ok) {
+        btnDel.textContent = '✅ Supprimé';
+        setTimeout(() => window.location.reload(), 2500);
+      } else {
+        btnDel.disabled = false; btnDel.textContent = '🗑 Supprimer maintenant';
+      }
+    } catch (e) {
+      result.textContent = '❌ ' + e.message;
+      btnDel.disabled = false; btnDel.textContent = '🗑 Supprimer maintenant';
+    }
+  });
+})();
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/inc/footer.php'; ?>

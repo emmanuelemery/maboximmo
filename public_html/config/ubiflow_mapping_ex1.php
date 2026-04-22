@@ -329,8 +329,7 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
         'loyer_mensuel'              => ubi_num($row['a_loyer'] ?? null),
         'loyer_mensuel_cc'           => ubi_num($row['a_loyer_cc'] ?? null),
         'loyer_est_cc'               => ubi_bool($row['a_loyer_est_cc'] ?? null),
-        // Charges : priorité à biens.charges_locatives (champ effectivement saisi) sur annonces.charges (jamais écrit)
-        'charges_locatives'          => ubi_num($row['a_charges_override'] ?? $row['a_charges'] ?? null),
+        'charges_locatives'          => ubi_num($row['a_charges'] ?? null),
         'complement_loyer'           => ubi_num($row['a_complement_loyer'] ?? null),
         'loyer_reference_majore'     => ubi_num($row['a_loyer_reference_majore'] ?? null),
         'loyer_de_base'              => ubi_num($row['a_loyer_de_base'] ?? null),
@@ -471,21 +470,13 @@ SELECT
     a.mandat_echeance   AS a_mandat_echeance,
 
     b.reference_bien    AS b_reference_bien,
-    -- CORRECTION #8 (2026-04-22) : depuis la refonte immeubles, l'adresse
-    -- canonique est sur `immeubles`. `biens.code_postal/ville/...` ne sont
-    -- plus alimentés systématiquement → 29% des biens ont adresse vide sur
-    -- biens mais renseignée sur l'immeuble lié. On fait un COALESCE pour
-    -- éviter que Ubiflow reçoive des annonces avec CP/ville/GPS vides.
-    COALESCE(i.code_postal, b.code_postal)       AS b_code_postal,
-    COALESCE(i.ville,       b.ville)             AS b_ville,
-    COALESCE(i.adresse_1,   b.adresse_1)         AS b_adresse_1,
-    COALESCE(i.latitude,    b.latitude)          AS b_latitude,
-    COALESCE(i.longitude,   b.longitude)         AS b_longitude,
+    b.code_postal       AS b_code_postal,
+    b.ville             AS b_ville,
+    b.adresse_1         AS b_adresse_1,
+    b.latitude          AS b_latitude,
+    b.longitude         AS b_longitude,
     b.precision_geoloc  AS b_precision_geoloc,
     b.altitude          AS b_altitude,
-    -- Charges : on source sur biens.charges_locatives (champ réellement saisi
-    -- dans l'UI) plutôt que sur annonces.charges (jamais écrite par autosave)
-    b.charges_locatives AS a_charges_override,
     b.surface_habitable AS b_surface_habitable,
     b.surface_totale    AS b_surface_totale,
     b.surface_carrez    AS b_surface_carrez,
@@ -569,7 +560,6 @@ SELECT
 
 FROM annonces a
 INNER JOIN biens      b ON b.id = a.id_bien
-LEFT  JOIN immeubles  i ON i.id = b.id_immeuble
 LEFT  JOIN types_bien t ON t.id = b.id_type_bien
 LEFT  JOIN dpe_diags  d ON d.id_bien = b.id AND d.est_diag_principal = 1
 {$where}

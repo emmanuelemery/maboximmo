@@ -311,14 +311,23 @@
             });
         }
 
+        // Debounce 250ms : évite de redessiner le dropdown pendant que l'user vise un item
+        // (sinon race condition = click atterrit sur un autre item fraîchement remplacé).
+        // Réduit aussi la charge sur l'API Google Places.
+        var inputDebounceTimer = null;
         input.addEventListener('input', function () {
             if (isSelecting) return;
             var value = (input.value || '').trim();
             if (value.length < 3) {
+                if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null; }
                 hideDropdown();
                 return;
             }
-            requestPredictions(value);
+            if (inputDebounceTimer) clearTimeout(inputDebounceTimer);
+            inputDebounceTimer = setTimeout(function () {
+                if (isSelecting) return;
+                requestPredictions(value);
+            }, 250);
         });
 
         input.addEventListener('keydown', function (e) {

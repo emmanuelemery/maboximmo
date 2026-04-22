@@ -89,7 +89,6 @@ $data = [
     // Taxes
     'taxe_fonciere'            => $flt('taxe_fonciere'),
     'taxe_habitation'          => $flt('taxe_habitation'),
-    'taxe_ordures_menageres'   => $flt('taxe_ordures_menageres'),
 
     // Honoraires locataire (ALUR) — modifiables manuellement
     'honoraires_etat_des_lieux' => $flt('honoraires_etat_des_lieux'),

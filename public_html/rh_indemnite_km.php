@@ -282,23 +282,47 @@ $layout_extra_css = <<<'EXTRACSS'
         .ik-input[type=number] { width: 70px; text-align: right; }
         select.ik-input { cursor: pointer; }
 
-        /* Champ immeuble avec autocomplete */
-        .ik-imm-wrap { position: relative; min-width: 170px; }
-        .ik-imm-results {
+        /* Champ immeuble avec autocomplete — dropdown vert amande lisible */
+        .ik-imm-wrap, .ik-depart-search { position: relative; min-width: 170px; }
+        .ik-imm-results, .ik-depart-imm-results {
             position: fixed; z-index: 9999;
-            background: #f0ece6; border-radius: 10px; max-height: 220px; overflow-y: auto;
-            box-shadow: 0 8px 28px rgba(0,0,0,0.18); margin-top: 4px;
-            min-width: 260px;
+            background: #dcecd4;            /* vert amande pâle */
+            border: 1px solid #87a777;       /* bordure verte plus marquée */
+            border-radius: 10px; max-height: 260px; overflow-y: auto;
+            box-shadow: 0 10px 32px rgba(54,87,125,0.30);
+            margin-top: 4px;
+            min-width: 280px;
         }
-        .ik-imm-item {
-            padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(196,192,186,0.3);
+        .ik-imm-item, .ik-depart-imm-item {
+            padding: 9px 13px; cursor: pointer;
+            border-bottom: 1px solid rgba(135,167,119,0.35);
             transition: background .1s;
+            color: #1a1816;
         }
-        .ik-imm-item:last-child { border-bottom: none; }
-        .ik-imm-item:hover, .ik-imm-item-active { background: rgba(196,192,186,0.3); }
-        .ik-imm-item-active { border-left: 3px solid #36577d; padding-left: 9px; }
-        .ik-imm-item strong { display: block; font-size: 12px; font-family: 'Sora', sans-serif; color: #1a1816; }
-        .ik-imm-item small { color: #a8a49e; font-size: 10px; font-family: 'DM Mono', monospace; }
+        .ik-imm-item:last-child, .ik-depart-imm-item:last-child { border-bottom: none; }
+        .ik-imm-item:hover, .ik-imm-item-active,
+        .ik-depart-imm-item:hover, .ik-depart-imm-item-active { background: #c5dfb6; }
+        .ik-imm-item-active, .ik-depart-imm-item-active {
+            border-left: 3px solid #36577d; padding-left: 10px;
+        }
+        .ik-imm-item strong, .ik-depart-imm-item strong {
+            display: block; font-size: 12px; font-family: 'Sora', sans-serif; color: #1a1816;
+        }
+        .ik-imm-item small, .ik-depart-imm-item small {
+            color: #5a7045; font-size: 10px; font-family: 'DM Mono', monospace;
+        }
+        /* Item spécial "Saisir adresse libre" — visuellement distinct */
+        .ik-imm-item-google {
+            background: #fff7e6; border-top: 2px solid #f59e0b;
+            color: #7c2d12; font-weight: 600; font-size: 12px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .ik-imm-item-google:hover { background: #fde7b8; }
+        /* Mode adresse libre actif (input passe en bordure orange) */
+        .ik-imm-input.is-free-address {
+            border: 2px solid #f59e0b !important;
+            background: #fff7e6;
+        }
 
         /* Cases Aller / Retour cliquables */
         .ik-km-cell { min-width: 80px; }
@@ -1916,9 +1940,73 @@ function onImmInput(input) {
             onmousedown="event.preventDefault()"
             onclick="openCreateImmeuble('dest', '${escHtml(q)}', '', '${sessId}', '${ligneId}')">
             + Créer « ${escHtml(q)} » dans la base…</div>`;
+        // Bouton "Saisir adresse libre via Google" (fallback si pas d'immeuble correspondant)
+        results.innerHTML += `<div class="ik-imm-item ik-imm-item-google"
+            onmousedown="event.preventDefault()"
+            onclick="switchImmToFreeAddress(this)">
+            🔍 Saisir adresse libre via Google</div>`;
         results.style.display = 'block';
         positionImmResults(input, results);
     }, 280);
+}
+
+// Bascule l'input destination en mode "adresse libre Google"
+function switchImmToFreeAddress(item) {
+    const wrap  = item.closest('.ik-imm-wrap');
+    const input = wrap.querySelector('.ik-imm-input');
+    const results = wrap.querySelector('.ik-imm-results');
+    const tr = item.closest('tr');
+    if (!input || !tr) return;
+    // Visuel : bordure orange + placeholder explicite
+    input.classList.add('is-free-address');
+    input.placeholder = 'Adresse libre (Google)…';
+    // Reset id immeuble (on n'est plus sur un immeuble en BDD)
+    const idEl = wrap.querySelector('.ik-imm-id');
+    if (idEl) idEl.value = '0';
+    // Cache la dropdown
+    results.style.display = 'none';
+    // Branche Google Places
+    attachPlacesToImmDest(input, tr);
+    // Refocus + sélection pour que l'utilisateur tape directement
+    input.focus();
+    input.select();
+}
+
+// Branche Google Places Autocomplete sur le champ destination (équivalent de attachPlacesAutocomplete pour le départ)
+function attachPlacesToImmDest(input, tr) {
+    if (!googleReady || !window.google?.maps?.places) {
+        console.warn('[IK] Google Places pas prêt — ré-essayer dans 500ms');
+        setTimeout(() => attachPlacesToImmDest(input, tr), 500);
+        return;
+    }
+    if (input._placesInitDest) return;
+    input._placesInitDest = true;
+    const ac = new google.maps.places.Autocomplete(input, {
+        types: ['address'],
+        componentRestrictions: { country: 'fr' },
+        fields: ['geometry', 'formatted_address'],
+    });
+    ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        if (!place.geometry) return;
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        const wrap = input.closest('.ik-imm-wrap');
+        const latEl = wrap.querySelector('.ik-imm-lat');
+        const lngEl = wrap.querySelector('.ik-imm-lng');
+        const idEl  = wrap.querySelector('.ik-imm-id');
+        if (latEl) latEl.value = lat;
+        if (lngEl) lngEl.value = lng;
+        if (idEl)  idEl.value  = '0';
+        // Adresse formatée comme valeur visible
+        if (place.formatted_address) input.value = place.formatted_address;
+        // Recalc distance si départ a déjà des coordonnées
+        const departLat = parseFloat(tr.dataset.departLat);
+        const departLng = parseFloat(tr.dataset.departLng);
+        if (departLat && departLng && lat && lng) recalcDistance(tr, departLat, departLng, lat, lng);
+        markRowActive(tr);
+        scheduleSave(tr);
+    });
 }
 
 function positionImmResults(input, results) {
@@ -2246,14 +2334,16 @@ async function clotureSession(sessId) {
         });
         const json = await r.json();
         if (!json.ok) { alert('Erreur : ' + (json.error || 'inconnue')); return; }
-        // Feedback visuel sans rechargement
+        // Feedback visuel court avant redirection vers la fiche salaire
         const btn = document.querySelector(`#session-${sessId} .v2-btn-blue-pastel`);
         if (btn) {
-            const orig = btn.innerHTML;
-            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ' + (json.total_km ?? '') + ' km envoyés';
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ' + (json.total_km ?? '') + ' km · ' + (json.total_ik ?? '—') + ' € — redirection…';
             btn.disabled = true;
-            setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
         }
+        // Redirection auto vers le détail du salaire pour vérifier les champs remplis
+        setTimeout(() => {
+            if (json.redirect_url) window.location.href = json.redirect_url;
+        }, 800);
     } catch(e) { alert('Erreur : ' + e.message); }
 }
 

@@ -67,14 +67,20 @@ function ubiflow_minimum_rules(): array
 
         // ── DPE (obligations 2011 / 2021 / 2022) ──
         // Skipped quand le DPE est marqué "vierge" (valeurs chiffrées non requises)
-        ['key' => 'dpe_classe',         'label' => 'Classe énergétique (DPE)',    'scope' => 'bien',    'section' => 'dpe'],
+        // Et pour les types sans obligation DPE légale : parking, stationnement, garage, box, terrain
+        ['key' => 'dpe_classe',         'label' => 'Classe énergétique (DPE)',    'scope' => 'bien',    'section' => 'dpe',
+         'required_when' => fn($b,$a) => !in_array(($b['_type_bien_code'] ?? ''), ['parking','stationnement','garage','box','terrain'], true)],
         ['key' => 'ges_classe',         'label' => 'Classe GES',                  'scope' => 'bien',    'section' => 'dpe',
-         'required_when' => fn($b,$a) => (int)($b['dpe_vierge'] ?? 0) !== 1],
+         'required_when' => fn($b,$a) => (int)($b['dpe_vierge'] ?? 0) !== 1
+             && !in_array(($b['_type_bien_code'] ?? ''), ['parking','stationnement','garage','box','terrain'], true)],
         ['key' => 'dpe_valeur',         'label' => 'Valeur DPE (kWh/m²/an)',      'scope' => 'bien',    'section' => 'dpe',
-         'required_when' => fn($b,$a) => (int)($b['dpe_vierge'] ?? 0) !== 1],
+         'required_when' => fn($b,$a) => (int)($b['dpe_vierge'] ?? 0) !== 1
+             && !in_array(($b['_type_bien_code'] ?? ''), ['parking','stationnement','garage','box','terrain'], true)],
         ['key' => 'ges_valeur',         'label' => 'Valeur GES (CO₂/m²/an)',      'scope' => 'bien',    'section' => 'dpe',
-         'required_when' => fn($b,$a) => (int)($b['dpe_vierge'] ?? 0) !== 1],
-        ['key' => 'dpe_date_realisation','label' => 'Date de réalisation DPE',    'scope' => 'bien',    'section' => 'dpe'],
+         'required_when' => fn($b,$a) => (int)($b['dpe_vierge'] ?? 0) !== 1
+             && !in_array(($b['_type_bien_code'] ?? ''), ['parking','stationnement','garage','box','terrain'], true)],
+        ['key' => 'dpe_date_realisation','label' => 'Date de réalisation DPE',    'scope' => 'bien',    'section' => 'dpe',
+         'required_when' => fn($b,$a) => !in_array(($b['_type_bien_code'] ?? ''), ['parking','stationnement','garage','box','terrain'], true)],
 
         // ── ALUR copropriété (uniquement si bien en copro) ──
         ['key' => 'copro_nb_lots',      'label' => 'Nombre de lots de la copropriété', 'scope' => 'bien', 'section' => 'alur',

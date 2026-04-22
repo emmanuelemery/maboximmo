@@ -56,6 +56,14 @@ $stmtCount30 = $pdo->prepare("
       AND started_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
 ");
 
+// Compteur biens diffusés par agence (count distinct des id_bien avec annonce diffusée)
+$stmtBiensDiff = $pdo->prepare("
+    SELECT COUNT(DISTINCT a.id_bien)
+    FROM annonces a
+    WHERE a.id_agence = :id_agence
+      AND a.etat_publication = 'diffusee'
+");
+
 foreach ($agences as $slug => &$ag) {
     $stmtLast->execute([':slug' => $slug]);
     $ag['_last']    = $stmtLast->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -63,8 +71,26 @@ foreach ($agences as $slug => &$ag) {
     $ag['_last_ok'] = $stmtLastOk->fetch(PDO::FETCH_ASSOC) ?: null;
     $stmtCount30->execute([':slug' => $slug]);
     $ag['_count_30'] = (int)$stmtCount30->fetchColumn();
+    // Nb biens diffusés pour cette agence
+    $stmtBiensDiff->execute([':id_agence' => (int)($ag['id_agence'] ?? 0)]);
+    $ag['_nb_biens_diffuses'] = (int)$stmtBiensDiff->fetchColumn();
 }
 unset($ag);
+
+// ─── Total biens diffusés (toutes agences visibles, dédoublonné par bien) ──
+$totalBiensDiffuses = 0;
+$idAgences = array_filter(array_map(fn($a) => (int)($a['id_agence'] ?? 0), $agences), fn($v) => $v > 0);
+if (!empty($idAgences)) {
+    $ph = implode(',', array_fill(0, count($idAgences), '?'));
+    $st = $pdo->prepare("
+        SELECT COUNT(DISTINCT a.id_bien)
+        FROM annonces a
+        WHERE a.id_agence IN ($ph)
+          AND a.etat_publication = 'diffusee'
+    ");
+    $st->execute(array_values($idAgences));
+    $totalBiensDiffuses = (int)$st->fetchColumn();
+}
 
 // ─── 3. KPIs globaux ──────────────────────────────────────────────────
 $stmtKpi = $pdo->query("
@@ -126,6 +152,7 @@ $layout_head_kpis = '
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#92400e">' . ($totalFtpErr + $totalBuildErr) . '</div><div class="ph-kpi-lbl">Erreurs 30j</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#8a8680">' . $totalDup . '</div><div class="ph-kpi-lbl">Doublons ignorés</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#36577d">' . ($avgMs > 0 ? $avgMs . 'ms' : '—') . '</div><div class="ph-kpi-lbl">Durée moy.</div></div>
+    <div class="ph-kpi"><div class="ph-kpi-val" style="color:#0ea5e9">' . $totalBiensDiffuses . '</div><div class="ph-kpi-lbl">📡 Biens diffusés</div></div>
 ';
 
 $layout_head_actions = '
@@ -366,6 +393,73 @@ async function ubiflowForceResend(slug, btn) {
         if (btn) { btn.disabled = false; btn.innerHTML = '↻ Force'; }
     }
 }
+
+// ── Déplier / replier le journal versionné ──
+function toggleHistoryExtra() {
+    const btn = document.getElementById('btn-history-toggle');
+    const rows = document.querySelectorAll('[data-history-extra="1"]');
+    const isHidden = rows.length > 0 && rows[0].style.display === 'none';
+    rows.forEach(r => r.style.display = isHidden ? 'grid' : 'none');
+    if (btn) btn.innerHTML = isHidden ? '▲ Replier' : '▼ Déplier (' + rows.length + ' autres)';
+}
+
+// ── Modal "Biens diffusés par agence" ──
+async function openBiensDiffModal(idAgence, nomAgence) {
+    const modal = document.getElementById('biens-diff-modal');
+    const title = document.getElementById('biens-diff-modal-title');
+    const body  = document.getElementById('biens-diff-modal-body');
+    if (!modal) return;
+    title.textContent = '📋 Biens diffusés — ' + nomAgence;
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">⏳ Chargement…</div>';
+    modal.style.display = 'flex';
+    try {
+        const r = await fetch('api/agence_biens_diffuses.php?id_agence=' + encodeURIComponent(idAgence), { credentials: 'same-origin' });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Erreur');
+        if (!j.biens || j.biens.length === 0) {
+            body.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">Aucun bien actuellement diffusé pour cette agence.</div>';
+            return;
+        }
+        const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+        html += '<thead><tr style="background:#f8fafc;text-align:left;">'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Réf</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Type</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Adresse</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Canaux</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">1ère diffusion</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Commercial</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Action</th>'
+              + '</tr></thead><tbody>';
+        for (const b of j.biens) {
+            const canaux = [];
+            if (b.visible_maboximmo) canaux.push('<span title="MaBoxImmo">🏢</span>');
+            if (b.visible_site_perso) canaux.push('<span title="Site perso">🌐</span>');
+            if (b.visible_portails) canaux.push('<span title="LeBonCoin via Ubiflow">📰</span>');
+            html += '<tr style="border-bottom:1px solid #f1f5f9;">'
+                  + '<td style="padding:8px;font-family:monospace;">' + escapeHtml(b.reference_bien || '#'+b.id_bien) + '</td>'
+                  + '<td style="padding:8px;">' + escapeHtml(b.type_bien || '—') + '</td>'
+                  + '<td style="padding:8px;color:#475569;">' + escapeHtml((b.code_postal || '') + ' ' + (b.ville || '')) + '</td>'
+                  + '<td style="padding:8px;font-size:14px;">' + (canaux.join(' ') || '—') + '</td>'
+                  + '<td style="padding:8px;font-family:monospace;color:#475569;">' + escapeHtml(b.date_premiere_diff || '—') + '</td>'
+                  + '<td style="padding:8px;"><span title="' + escapeHtml(b.commercial_full || '') + '" style="background:#e0f2fe;color:#0369a1;font-weight:700;padding:3px 8px;border-radius:99px;font-family:monospace;">' + escapeHtml(b.commercial_init || '—') + '</span></td>'
+                  + '<td style="padding:8px;"><a href="bien_detail.php?edit=' + encodeURIComponent(b.id_bien) + '&section=annonce" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:700;">🔗 Ouvrir</a></td>'
+                  + '</tr>';
+        }
+        html += '</tbody></table>';
+        html += '<div style="margin-top:14px;padding:10px;background:#f1f5f9;border-radius:6px;color:#64748b;font-size:12px;">Total : <strong>' + j.biens.length + '</strong> bien(s) diffusé(s).</div>';
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;">❌ ' + e.message + '</div>';
+    }
+}
+function closeBiensDiffModal() {
+    const m = document.getElementById('biens-diff-modal');
+    if (m) m.style.display = 'none';
+}
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeBiensDiffModal();
+});
 </script>
 JS;
 
@@ -455,8 +549,28 @@ ob_start();
                 ↻ Force
             </button>
         </div>
+        <div style="display:flex;justify-content:flex-end;padding-top:6px;">
+            <button type="button" class="diff-btn ghost" style="flex:0 0 auto;font-size:10px;padding:5px 12px;"
+                    onclick="openBiensDiffModal(<?= (int)($ag['id_agence'] ?? 0) ?>, '<?= e($ag['nom']) ?>')"
+                    title="Voir les biens diffusés de cette agence">
+                📋 <?= (int)$ag['_nb_biens_diffuses'] ?> bien(s) diffusé(s) →
+            </button>
+        </div>
     </div>
     <?php endforeach; ?>
+</div>
+
+<!-- ══ MODAL : Biens diffusés par agence ══ -->
+<div id="biens-diff-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:10000;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)closeBiensDiffModal()">
+    <div style="background:#fff;border-radius:12px;max-width:1000px;width:100%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+        <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+            <h2 id="biens-diff-modal-title" style="margin:0;font-size:18px;color:#0f172a;">📋 Biens diffusés</h2>
+            <button type="button" onclick="closeBiensDiffModal()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:#64748b;">×</button>
+        </div>
+        <div id="biens-diff-modal-body" style="padding:20px;overflow-y:auto;font-size:13px;">
+            <div style="text-align:center;padding:40px;color:#94a3b8;">⏳ Chargement…</div>
+        </div>
+    </div>
 </div>
 
 <!-- ══ HISTORIQUE 30 DERNIERS JOURS ══ -->
@@ -484,7 +598,7 @@ ob_start();
         <span>Détails</span>
         <span>Origine</span>
     </div>
-    <?php foreach ($history as $row):
+    <?php foreach ($history as $idx => $row):
         $status = $row['status'];
         $statusClass = match($status) {
             'ok'                => 'ok',
@@ -506,8 +620,10 @@ ob_start();
         if ($row['triggered_user'] && ($row['u_prenom'] || $row['u_nom'])) {
             $userLabel = trim(($row['u_prenom'] ?? '') . ' ' . ($row['u_nom'] ?? ''));
         }
+        // Les 10 premières lignes visibles, le reste caché derrière "Déplier"
+        $hiddenAttr = $idx >= 10 ? ' data-history-extra="1" style="display:none;"' : '';
     ?>
-    <div class="diff-history-row">
+    <div class="diff-history-row"<?= $hiddenAttr ?>>
         <span class="col-date"><?= e((new DateTime($row['started_at']))->format('d/m H:i:s')) ?></span>
         <span class="col-slug"><?= e($row['slug_agence']) ?></span>
         <span><span class="diff-status <?= $statusClass ?>"><?= e($statusLabel) ?></span></span>
@@ -527,6 +643,15 @@ ob_start();
         </span>
     </div>
     <?php endforeach; ?>
+
+    <?php if (count($history) > 10): ?>
+    <div style="text-align:center;padding-top:14px;">
+        <button type="button" id="btn-history-toggle" onclick="toggleHistoryExtra()"
+                style="background:#fff;color:#0369a1;border:1px solid #cbd5e1;padding:8px 18px;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;font-family:inherit;">
+            ▼ Déplier (<?= count($history) - 10 ?> autres)
+        </button>
+    </div>
+    <?php endif; ?>
     <?php endif; ?>
 </div>
 

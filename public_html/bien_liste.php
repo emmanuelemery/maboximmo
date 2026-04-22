@@ -43,8 +43,16 @@ try {
 }
 
 /* ── Construction de la requête dynamique ──────────────── */
-$where   = ["b.id_societe = :id_societe"];
-$params  = [':id_societe' => $_SESSION['id_societe'] ?? 0];
+// Super-admin (role_id=1) voit TOUS les biens (cross-société/agence) ;
+// les autres rôles sont restreints à leur société.
+$isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
+if ($isSuperAdmin) {
+    $where  = ['1=1'];
+    $params = [];
+} else {
+    $where  = ["b.id_societe = :id_societe"];
+    $params = [':id_societe' => $_SESSION['id_societe'] ?? 0];
+}
 
 if ($filterType !== '') {
     $where[]          = "tb.code = :type";
@@ -599,6 +607,11 @@ function photoPrincipaleUrl(array $bien): ?string {
       <a href="<?= htmlspecialchars(app_url('/bien_detail.php')) ?>" class="bl-btn bl-btn-primary"
          title="Créer un nouveau bien — page unifiée : création, édition, documents, DPE, annonce, diffusion">
         ➕ Nouveau bien
+      </a>
+      <a href="<?= e(app_url('/guide_creation_bien.php')) ?>" class="bl-btn"
+         style="background:#f97316;color:#fff;border:1px solid #ea580c;font-weight:700;text-decoration:none;"
+         title="Guide pas-à-pas pour créer un bien et diffuser une annonce">
+        📖 Guide création
       </a>
       <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
       <button type="button" class="bl-btn" id="btn-purge-admin"

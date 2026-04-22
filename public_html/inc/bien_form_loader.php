@@ -188,8 +188,12 @@ function bien_form_populate_post(array $loaded): void
 /**
  * Crée immédiatement un bien minimal en statut "brouillon" et renvoie son id.
  * Utilisé par l'action "Créer un bien" depuis bien_liste.php.
+ *
+ * $idUser : commercial attribué automatiquement (créateur du bien).
+ * Est propagé sur biens.id_user_actuel ET sur la pré-annonce annonces.id_user,
+ * modifiable ensuite via le select "Commercial attribué" de la Card Diffusion.
  */
-function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int $idTypeBienDefault = null): int
+function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int $idTypeBienDefault = null, ?int $idUser = null): int
 {
     if ($idTypeBienDefault === null || $idTypeBienDefault <= 0) {
         // Récupère le premier type actif (en général : appartement)
@@ -200,12 +204,13 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
     $tempRef = 'TMP-' . date('ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 5));
 
     $stmt = $pdo->prepare("
-        INSERT INTO biens (id_societe, id_agence, id_type_bien, statut_bien, reference_bien, designation, date_creation)
-        VALUES (:soc, :ag, :type, 'brouillon', :ref, :des, NOW())
+        INSERT INTO biens (id_societe, id_agence, id_user_actuel, id_type_bien, statut_bien, reference_bien, designation, date_creation)
+        VALUES (:soc, :ag, :usr, :type, 'brouillon', :ref, :des, NOW())
     ");
     $stmt->execute([
         ':soc'  => $idSociete,
         ':ag'   => $idAgence,
+        ':usr'  => $idUser ?: null,
         ':type' => $idTypeBienDefault,
         ':ref'  => $tempRef,
         ':des'  => 'Brouillon créé le ' . date('d/m/Y H:i'),
@@ -213,11 +218,12 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
     $bienId = (int)$pdo->lastInsertId();
 
     // Annonce minimale par défaut (type_transaction = 'location' par défaut, modifiable)
+    // id_user = commercial attribué automatiquement (même que biens.id_user_actuel)
     try {
         $pdo->prepare("
-            INSERT INTO annonces (id_bien, id_societe, type_transaction, etat_publication, date_creation, date_modification)
-            VALUES (?, ?, 'location', 'brouillon', NOW(), NOW())
-        ")->execute([$bienId, $idSociete]);
+            INSERT INTO annonces (id_bien, id_societe, id_agence, id_user, type_transaction, etat_publication, date_creation, date_modification)
+            VALUES (?, ?, ?, ?, 'location', 'brouillon', NOW(), NOW())
+        ")->execute([$bienId, $idSociete, $idAgence, $idUser ?: null]);
     } catch (Throwable $e) { error_log('[create_draft annonce] ' . $e->getMessage()); }
 
     // Photo par défaut (placeholder) si elle existe sur disque

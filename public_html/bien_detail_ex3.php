@@ -86,21 +86,12 @@ if (empty($bienLoaded['reference_bien'])) {
 }
 
 // Section courante
-$sectionsAvail = ['documents', 'dpe', 'descriptif', 'validation', 'annonce'];
+$sectionsAvail = ['documents', 'dpe', 'descriptif', 'annonce'];
 // Défaut = 'descriptif' (ouverture d'un bien existant depuis bien_liste).
 // Pour un NOUVEAU brouillon, le redirect ci-dessus force explicitement
 // 'section=documents' pour atterrir sur la Card Chargement (DPE, mandat…).
 $section = $_GET['section'] ?? 'descriptif';
 if (!in_array($section, $sectionsAvail, true)) $section = 'descriptif';
-
-// ── Flow 2026-04-22 : validation bien obligatoire avant annonce ──
-// Statut du bien pour gérer les gates UI (bloquer annonce si !actif)
-$statutBien = (string)($bienLoaded['statut_bien'] ?? 'brouillon');
-$bienEstActif = ($statutBien === 'actif');
-// Pré-charge la checklist pour la section Validation (et pour afficher le nb manquant sur le tab)
-require_once __DIR__ . '/inc/bien_validator.php';
-$validationResult = bien_validator_check($pdo, $editingBienId);
-$nbManquants = count($validationResult['missing_required']);
 
 // Complétude Ubiflow (score pill topbar)
 $annonceIdLoaded = (int)($bienLoaded['_annonce_id'] ?? 0);
@@ -726,18 +717,10 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
          role="tab" aria-selected="<?= $section === 'descriptif' ? 'true' : 'false' ?>">
         <span>🏠</span> Descriptif
       </a>
-      <a href="?edit=<?= (int)$editingBienId ?>&section=validation"
-         class="v2-section-tab<?= $section === 'validation' ? ' is-active' : '' ?>"
-         role="tab" aria-selected="<?= $section === 'validation' ? 'true' : 'false' ?>"
-         title="<?= $bienEstActif ? 'Bien validé' : ($nbManquants . ' champ(s) manquant(s)') ?>">
-        <span><?= $bienEstActif ? '✅' : '⚠️' ?></span> Validation<?php if (!$bienEstActif && $nbManquants > 0): ?> <small style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:700;"><?= $nbManquants ?></small><?php endif; ?>
-      </a>
       <a href="?edit=<?= (int)$editingBienId ?>&section=annonce"
-         class="v2-section-tab<?= $section === 'annonce' ? ' is-active' : '' ?><?= !$bienEstActif ? ' is-locked' : '' ?>"
-         role="tab" aria-selected="<?= $section === 'annonce' ? 'true' : 'false' ?>"
-         title="<?= $bienEstActif ? 'Diffusion sur portails' : '🔒 Valide d\'abord le bien pour accéder à l\'annonce' ?>"
-         <?php if (!$bienEstActif): ?>data-locked="1" onclick="alert('⚠️ Tu dois d\'abord valider le bien (onglet Validation) avant de pouvoir créer une annonce.'); return false;"<?php endif; ?>>
-        <span><?= $bienEstActif ? '📡' : '🔒' ?></span> Annonce
+         class="v2-section-tab<?= $section === 'annonce' ? ' is-active' : '' ?>"
+         role="tab" aria-selected="<?= $section === 'annonce' ? 'true' : 'false' ?>">
+        <span>📡</span> Annonce
       </a>
     </nav>
   </div>
@@ -957,16 +940,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                       ✏️ Ouvrir fiche
                     </a>
                   <?php endif; ?>
-                  <?php if ($bienEstActif): ?>
-                    <button type="button" class="v2-btn-secondary" disabled
-                            style="background:#f1f5f9; color:#64748b; cursor:not-allowed;"
-                            title="🔒 Verrouillé — dé-valide le bien pour changer de propriétaire">
-                      🔒 Dissocier (verrouillé)
-                    </button>
-                  <?php else: ?>
-                    <button type="button" class="v2-btn-secondary" id="v2-proprio-unlink"
-                            title="Retirer ce propriétaire du bien (le tiers reste en base)">🔗 Dissocier</button>
-                  <?php endif; ?>
+                  <button type="button" class="v2-btn-secondary" id="v2-proprio-unlink"
+                          title="Retirer ce propriétaire du bien (le tiers reste en base)">🔗 Dissocier</button>
                 </div>
               </div>
 
@@ -1003,22 +978,16 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <!-- ─── Recherche + création — désactivé si bien actif (proprio verrouillé) ──────────── -->
-          <?php if ($bienEstActif): ?>
-            <div style="margin-top:14px; padding:12px 16px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:6px; font-size:13px; color:#78350f;">
-              🔒 <strong>Propriétaire verrouillé.</strong> Dé-valide le bien (onglet Validation) pour changer de propriétaire.
-            </div>
-          <?php else: ?>
-            <div class="v2-group-header" style="margin-top:14px;">
-              <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
-            </div>
-            <div class="v2-proprio-picker">
-              <input type="text" class="v2-input" id="v2-proprio-search"
-                     placeholder="Tape un nom, email, société…" autocomplete="off">
-              <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
-            </div>
-            <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
-          <?php endif; ?>
+          <!-- ─── Recherche + création (toujours visibles) ──────────── -->
+          <div class="v2-group-header" style="margin-top:14px;">
+            <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
+          </div>
+          <div class="v2-proprio-picker">
+            <input type="text" class="v2-input" id="v2-proprio-search"
+                   placeholder="Tape un nom, email, société…" autocomplete="off">
+            <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
+          </div>
+          <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
 
           <?php if ($descProprioFromDpe && empty($bienLoaded['id_proprietaire'])): ?>
             <!-- ─── Propriétaire détecté dans le DPE (prefill rapide) ─ -->
@@ -1169,34 +1138,24 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             $addrCls = static fn($f) => isset($syncFlags[$f]) ? ' is-from-dpe' : '';
           ?>
           <!-- Bouton d'ouverture du modal d'adresse (recherche Google + immeubles existants) -->
-          <!-- ⚠️ Bloqué si bien actif : l'adresse fait partie des données critiques verrouillées.
-               L'utilisateur doit dé-valider le bien (onglet Validation) pour pouvoir la modifier. -->
           <div style="margin-bottom:10px;">
-            <?php if ($bienEstActif): ?>
-              <button type="button" class="v2-btn-secondary"
-                      style="width:100%; padding:12px; font-size:13px; background:#f1f5f9; color:#64748b; cursor:not-allowed;"
-                      disabled title="🔒 Adresse verrouillée — dé-valide le bien (onglet Validation) pour la modifier">
-                🔒 Adresse verrouillée (bien validé)
-              </button>
-            <?php else: ?>
-              <button type="button"
-                      class="v2-btn-primary"
-                      style="width:100%; padding:12px; font-size:13px;"
-                      data-addr-modal-open
-                      data-addr-target-street1="v2-f-adresse_1"
-                      data-addr-target-street2="v2-f-adresse_2"
-                      data-addr-target-postal="v2-f-code_postal"
-                      data-addr-target-city="v2-f-ville"
-                      data-addr-target-lat="v2-f-latitude"
-                      data-addr-target-lng="v2-f-longitude"
-                      data-addr-target-placeid="v2-f-place_id"
-                      data-addr-target-formatted="v2-f-formatted"
-                      data-addr-save-endpoint="<?= h(app_url('/api/bien_autosave.php')) ?>"
-                      data-addr-bien-id="<?= (int)$editingBienId ?>"
-                      data-addr-csrf="<?= h(csrf_token('ajouter_bien')) ?>">
-                📍 Rechercher / saisir l'adresse (Google + immeubles existants)
-              </button>
-            <?php endif; ?>
+            <button type="button"
+                    class="v2-btn-primary"
+                    style="width:100%; padding:12px; font-size:13px;"
+                    data-addr-modal-open
+                    data-addr-target-street1="v2-f-adresse_1"
+                    data-addr-target-street2="v2-f-adresse_2"
+                    data-addr-target-postal="v2-f-code_postal"
+                    data-addr-target-city="v2-f-ville"
+                    data-addr-target-lat="v2-f-latitude"
+                    data-addr-target-lng="v2-f-longitude"
+                    data-addr-target-placeid="v2-f-place_id"
+                    data-addr-target-formatted="v2-f-formatted"
+                    data-addr-save-endpoint="<?= h(app_url('/api/bien_autosave.php')) ?>"
+                    data-addr-bien-id="<?= (int)$editingBienId ?>"
+                    data-addr-csrf="<?= h(csrf_token('ajouter_bien')) ?>">
+              📍 Rechercher / saisir l'adresse (Google + immeubles existants)
+            </button>
           </div>
           <div class="v2-addr-grid">
             <input type="text" id="v2-f-adresse_1"   class="v2-input<?= $addrCls('adresse_1') ?>"   name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['_imm_adresse_1']   ?? $b['adresse_1']   ?? '')) ?>">
@@ -1640,91 +1599,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
-    <?php elseif ($section === 'validation'): ?>
-
-      <!-- Card Validation — checklist Ubiflow + gros bouton Valider -->
-      <section class="v2-card is-active" role="tabpanel" aria-label="Validation du bien">
-        <div class="v2-card-label">✅ Validation du bien</div>
-        <div class="v2-card-body">
-          <?php if ($bienEstActif): ?>
-            <div style="padding:20px; background:#ecfdf5; border:2px solid #10b981; border-radius:12px; text-align:center; margin-bottom:20px;">
-              <div style="font-size:36px; margin-bottom:8px;">✅</div>
-              <div style="font-size:18px; font-weight:700; color:#065f46;">Bien validé et actif</div>
-              <small style="color:#047857; display:block; margin-top:4px;">Tu peux maintenant créer une annonce depuis l'onglet 📡 Annonce.</small>
-            </div>
-            <div style="background:#fef3c7; padding:12px 16px; border-radius:8px; margin-bottom:16px; font-size:13px; color:#78350f;">
-              ⚠️ <strong>Adresse et propriétaire verrouillés.</strong> Pour modifier ces données critiques, tu dois d'abord dé-valider le bien.
-            </div>
-            <button type="button" id="v2-bien-invalidate" class="v2-btn-secondary" style="background:#fff; border:1px solid #dc2626; color:#dc2626;">
-              🔓 Dé-valider le bien (modifier adresse / propriétaire)
-            </button>
-            <div id="v2-bien-validate-status" style="margin-top:12px; font-size:13px;"></div>
-          <?php else: ?>
-            <div style="padding:16px; background:#fefce8; border:1px solid #f59e0b; border-radius:10px; margin-bottom:20px;">
-              <strong style="color:#78350f;">📋 Checklist Ubiflow</strong>
-              <small style="display:block; color:#92400e; margin-top:4px;">
-                Remplis les champs obligatoires pour pouvoir créer une annonce diffusable sur LeBonCoin, SeLoger, etc.
-                <?php if ($validationResult['exempt_dpe_surface']): ?>
-                  <br>→ Surface et DPE non requis pour ce type de bien (<?= h($validationResult['type_code']) ?>).
-                <?php endif; ?>
-              </small>
-            </div>
-
-            <div class="v2-validation-checklist" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;">
-              <?php foreach ($validationResult['checks'] as $c):
-                $bg = $c['ok'] ? '#ecfdf5' : ($c['required'] ? '#fef2f2' : '#f8fafc');
-                $bd = $c['ok'] ? '#10b981' : ($c['required'] ? '#ef4444' : '#cbd5e1');
-                $ic = $c['ok'] ? '✅' : ($c['required'] ? '❌' : '➖');
-              ?>
-                <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:<?= $bg ?>; border-left:4px solid <?= $bd ?>; border-radius:6px;">
-                  <span style="font-size:20px;"><?= $ic ?></span>
-                  <div style="flex:1;">
-                    <div style="font-weight:600; color:#0f172a; font-size:13px;">
-                      <?= h($c['label']) ?>
-                      <?php if (!$c['required']): ?><small style="color:#64748b; font-weight:400;"> (optionnel)</small><?php endif; ?>
-                    </div>
-                    <small style="color:#64748b; font-size:11px;"><?= h($c['detail']) ?></small>
-                  </div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-
-            <div style="display:flex; gap:16px; align-items:center;">
-              <button type="button" id="v2-bien-validate" class="v2-btn-primary"
-                      style="flex:1; padding:18px; font-size:16px; font-weight:700; background:<?= $validationResult['ok'] ? '#16a34a' : '#94a3b8' ?>; border-color:<?= $validationResult['ok'] ? '#16a34a' : '#94a3b8' ?>; cursor:<?= $validationResult['ok'] ? 'pointer' : 'not-allowed' ?>;"
-                      <?= $validationResult['ok'] ? '' : 'disabled' ?>>
-                ✅ VALIDER LE BIEN &amp; ACTIVER
-              </button>
-            </div>
-            <div id="v2-bien-validate-status" style="margin-top:12px; font-size:13px;"></div>
-            <?php if (!$validationResult['ok']): ?>
-              <small style="display:block; margin-top:10px; color:#dc2626; font-size:12px;">
-                ❌ <?= count($validationResult['missing_required']) ?> champ(s) obligatoire(s) manquant(s).
-                Complète-les dans les onglets Documents / DPE / Descriptif.
-              </small>
-            <?php endif; ?>
-          <?php endif; ?>
-        </div>
-      </section>
-
-    <?php elseif ($section === 'annonce' && !$bienEstActif): ?>
-
-      <!-- Gate : bien non validé → impossible de créer une annonce -->
-      <section class="v2-card is-active" role="tabpanel" aria-label="Annonce bloquée">
-        <div class="v2-card-label">🔒 Annonce bloquée</div>
-        <div class="v2-card-body" style="text-align:center; padding:40px 20px;">
-          <div style="font-size:48px; margin-bottom:16px;">🔒</div>
-          <h2 style="font-size:20px; color:#0f172a; margin-bottom:12px;">Bien non validé</h2>
-          <p style="color:#64748b; max-width:500px; margin:0 auto 24px;">
-            Tu dois d'abord valider le bien (remplir les champs obligatoires Ubiflow) avant de pouvoir créer une annonce.
-            Ça garantit qu'une fois diffusée sur LeBonCoin / SeLoger, elle ne sera pas rejetée pour données manquantes.
-          </p>
-          <a href="?edit=<?= (int)$editingBienId ?>&section=validation" class="v2-btn-primary" style="display:inline-block; padding:14px 28px; text-decoration:none;">
-            ⚠️ Aller à la validation (<?= $nbManquants ?> champ<?= $nbManquants > 1 ? 's' : '' ?> manquant<?= $nbManquants > 1 ? 's' : '' ?>)
-          </a>
-        </div>
-      </section>
-
     <?php elseif ($section === 'annonce'): ?>
 
       <?php
@@ -1753,16 +1627,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div id="v2-annonce-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
-            <!-- Placeholder : le JS détecte l'absence d'annonce et déclenche
-                 le modal "Créer une annonce pour ce bien ?" au chargement
-                 de la section. Bouton manuel en fallback si modal fermé. -->
-            <div class="v2-doc-empty" style="padding:24px;" id="v2-annonce-empty">
+            <div class="v2-doc-empty" style="padding:24px;">
               <div class="v2-doc-empty-icon">📡</div>
               <div style="margin-bottom:14px;">
-                Aucune annonce pour ce bien.<br>
-                <small>La fenêtre de création va s'ouvrir automatiquement.</small>
+                Aucune annonce enregistrée pour ce bien.<br>
+                <small>Remplissez les conditions financières puis créez l'annonce.</small>
               </div>
-              <button type="button" id="v2-annonce-create" class="v2-btn-primary">➕ Ouvrir la création d'annonce</button>
+              <button type="button" id="v2-annonce-create" class="v2-btn-primary">➕ Créer l'annonce (brouillon)</button>
               <span id="v2-annonce-create-status" class="v2-form-status" style="margin-left:10px;"></span>
             </div>
           <?php else: ?>
@@ -1772,8 +1643,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
 
             <?php
-              // Zone tendue (utilisée pour le pill en haut + section Location plus bas)
-              $zoneCur = (string)($b['zone_tendue'] ?? 'non_tendue');
               // Helpers Card 1 Annonce (data-annonce-save au lieu de data-autosave)
               $aNum = static function(string $icon, string $name, string $label, string $suffix = '') use ($a) {
                 $val = isset($a[$name]) && $a[$name] !== null && $a[$name] !== '' ? (string)$a[$name] : '';
@@ -1808,6 +1677,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             ?>
 
             <!-- Type de transaction (icon-radios avec data-target annonce) -->
+            <div class="v2-desc-group-title">💼 Type de transaction</div>
             <?php
               $typeTransactions = [
                 'vente'      => ['💶', 'Vente'],
@@ -1816,33 +1686,16 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                 'viager'     => ['⌛', 'Viager'],
               ];
               $curTT = (string)($a['type_transaction'] ?? '');
-              // Affichage de la zone honoraires pour vérification visuelle
-              $zonePillMap = [
-                'non_tendue'  => ['🟢', 'Non tendue',  '8,07 €/m²',  '#ecfdf5', '#065f46'],
-                'tendue'      => ['🟠', 'Tendue',      '10,09 €/m²', '#fef3c7', '#78350f'],
-                'tres_tendue' => ['🔴', 'Très tendue', '12,10 €/m²', '#fee2e2', '#991b1b'],
-              ];
-              $zonePill = $zonePillMap[$zoneCur] ?? $zonePillMap['non_tendue'];
             ?>
-            <div class="v2-desc-group-title">💼 Type de transaction</div>
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
-              <div class="v2-icon-radios" data-field="type_transaction" data-target="annonce" style="margin:0;">
-                <?php foreach ($typeTransactions as $code => [$ic, $lbl]):
-                  $act = ($curTT === $code) ? ' is-active' : '';
-                ?>
-                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
-                    <span class="v2-icon-emoji"><?= $ic ?></span>
-                    <span class="v2-icon-lbl"><?= h($lbl) ?></span>
-                  </button>
-                <?php endforeach; ?>
-              </div>
-              <!-- Pill zone honoraires (vérification visuelle) -->
-              <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:99px; background:<?= $zonePill[3] ?>; color:<?= $zonePill[4] ?>; font-size:12px; font-weight:600; white-space:nowrap;"
-                   title="Plafond honoraires location+bail applicable à ce bien">
-                <?= $zonePill[0] ?>
-                <span>Zone <?= h($zonePill[1]) ?></span>
-                <small style="font-weight:400; opacity:.75;">· plafond <?= h($zonePill[2]) ?></small>
-              </div>
+            <div class="v2-icon-radios" data-field="type_transaction" data-target="annonce">
+              <?php foreach ($typeTransactions as $code => [$ic, $lbl]):
+                $act = ($curTT === $code) ? ' is-active' : '';
+              ?>
+                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                  <span class="v2-icon-emoji"><?= $ic ?></span>
+                  <span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                </button>
+              <?php endforeach; ?>
             </div>
 
             <!-- VENTE -->
@@ -1971,9 +1824,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             <!-- TAXES -->
             <div class="v2-desc-group-title">🏛️ Taxes annuelles</div>
             <div class="v2-num-grid">
-              <?= $aNum('🏛️', 'taxe_fonciere',          'Taxe foncière (TF)',     '€') ?>
-              <?= $aNum('🏡', 'taxe_habitation',        'Taxe habitation',        '€') ?>
-              <?= $aNum('🗑️', 'taxe_ordures_menageres', 'TOM (ordures ménagères)', '€') ?>
+              <?= $aNum('🏛️', 'taxe_fonciere',   'Taxe foncière',    '€') ?>
+              <?= $aNum('🏡', 'taxe_habitation', 'Taxe habitation', '€') ?>
             </div>
           <?php endif; ?>
         </div>
@@ -3054,11 +2906,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       meuble:     <?= (int)(!empty($bienLoaded['loyer_meuble']) ? 1 : 0) ?>,
     },
     annonceId: <?= (int)($annonce['id'] ?? 0) ?>,
-    // Flow 2026-04-22 : statut bien + endpoint de validation
-    statutBien:         <?= json_encode($statutBien, JSON_UNESCAPED_SLASHES) ?>,
-    bienEstActif:       <?= $bienEstActif ? 'true' : 'false' ?>,
-    nbManquants:        <?= (int)$nbManquants ?>,
-    bienValidateEndpoint: <?= json_encode(app_url('/api/bien_validate.php'), JSON_UNESCAPED_SLASHES) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
@@ -3070,39 +2917,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
 <!-- Modal universel d'adresse (Google Places + immeubles existants) -->
 <?php require_once __DIR__ . '/inc/adresse_modal.php'; ?>
-
-<!-- ═══════════════════════════════════════════════════════════════════════
-     MODAL "Créer une annonce ?" — déclenché à l'entrée section=annonce
-     si aucune annonce active (flow 2026-04-22)
-     ═══════════════════════════════════════════════════════════════════════ -->
-<div id="v2-annonce-create-modal" class="addr-modal" hidden>
-  <div class="addr-modal-overlay" data-annonce-modal-close></div>
-  <div class="addr-modal-card" style="max-width:520px;">
-    <div class="addr-modal-head">
-      <h3>📡 Créer une annonce pour ce bien ?</h3>
-      <button type="button" class="addr-modal-x" data-annonce-modal-close aria-label="Fermer">×</button>
-    </div>
-    <div class="addr-modal-body">
-      <div style="text-align:center; padding:14px 0;">
-        <div style="font-size:40px; margin-bottom:12px;">📡</div>
-        <p style="color:#334155; font-size:14px; line-height:1.5;">
-          Une nouvelle annonce va être créée pour ce bien, en héritant automatiquement :
-        </p>
-        <ul style="text-align:left; max-width:380px; margin:12px auto; color:#475569; font-size:13px; line-height:1.8;">
-          <li>🏢 Adresse &amp; immeuble</li>
-          <li>🏛️ Société, agence, commercial</li>
-          <li>👤 Propriétaire rattaché</li>
-          <li>📸 Toutes les photos actuelles du bien</li>
-        </ul>
-        <p style="color:#64748b; font-size:12px;">Tu pourras ensuite renseigner le type de mandat (vente / location / gestion), les montants, honoraires, etc.</p>
-      </div>
-    </div>
-    <div class="addr-modal-foot">
-      <button type="button" class="addr-modal-btn-secondary" data-annonce-modal-close>Annuler</button>
-      <button type="button" id="v2-annonce-modal-confirm" class="addr-modal-btn-primary">✅ Créer l'annonce</button>
-    </div>
-  </div>
-</div>
 <script src="<?= asset_url('/js/places.js') ?>"></script>
 <script src="<?= asset_url('/js/adresse_modal.js') ?>?v=<?= @filemtime(__DIR__ . '/js/adresse_modal.js') ?: time() ?>"></script>
 <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>

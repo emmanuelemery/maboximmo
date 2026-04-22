@@ -710,187 +710,33 @@
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // Flow 2026-04-22 : Validation bien → création annonce
-  // ═══════════════════════════════════════════════════════════════
-
-  // Ouvre le modal "Créer une annonce ?" (section=annonce, bien actif, pas d'annonce)
-  function openAnnonceCreateModal(data) {
-    const modal = document.getElementById('v2-annonce-create-modal');
-    if (!modal) return;
-    modal.hidden = false;
-    const confirmBtn = document.getElementById('v2-annonce-modal-confirm');
-    if (confirmBtn && !confirmBtn.__bound) {
-      confirmBtn.__bound = true;
-      confirmBtn.addEventListener('click', async () => {
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = '⏳ Création…';
-        try {
-          const fd = new FormData();
-          fd.append('id_bien', data.bienId);
-          fd.append('csrf_token', data.csrfToken);
-          const r = await fetch(data.annonceCreateEndpoint || '/api/annonce_create.php', {
-            method: 'POST', body: fd, credentials: 'same-origin'
-          });
-          const j = await r.json();
-          if (!j.ok) throw new Error(j.error || 'Erreur création annonce');
-          // Reload la page pour charger la Card 1 Conditions financières
-          window.location.reload();
-        } catch (e) {
-          alert('❌ ' + e.message);
-          confirmBtn.disabled = false;
-          confirmBtn.textContent = '✅ Créer l\'annonce';
-        }
-      });
-    }
-    // Binding des boutons fermer
-    modal.querySelectorAll('[data-annonce-modal-close]').forEach(el => {
-      if (el.__bound) return;
-      el.__bound = true;
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        modal.hidden = true;
-      });
-    });
-    // Fallback bouton "Ouvrir création" (si user a fermé le modal)
-    const fallbackBtn = document.getElementById('v2-annonce-create');
-    if (fallbackBtn && !fallbackBtn.__bound) {
-      fallbackBtn.__bound = true;
-      fallbackBtn.addEventListener('click', () => openAnnonceCreateModal(data));
-    }
-  }
-
-  // Card Validation : bouton Valider + bouton Dé-valider
-  function bindValidationCard(data) {
-    const btnValidate   = document.getElementById('v2-bien-validate');
-    const btnInvalidate = document.getElementById('v2-bien-invalidate');
-    const statusEl      = document.getElementById('v2-bien-validate-status');
-    const csrf          = data.csrfToken;
-    const endpoint      = data.bienValidateEndpoint || '/api/bien_validate.php';
-
-    async function callApi(action, confirmMsg) {
-      if (confirmMsg && !confirm(confirmMsg)) return;
-      const targetBtn = action === 'validate' ? btnValidate : btnInvalidate;
-      if (targetBtn) targetBtn.disabled = true;
-      if (statusEl) { statusEl.textContent = '⏳ En cours…'; statusEl.style.color = '#64748b'; }
-      try {
-        const fd = new FormData();
-        fd.append('id_bien', data.bienId);
-        fd.append('action', action);
-        fd.append('csrf_token', csrf);
-        const r = await fetch(endpoint, { method: 'POST', body: fd, credentials: 'same-origin' });
-        const j = await r.json();
-        if (!j.ok) {
-          const msg = j.error + (j.missing && j.missing.length ? ' (' + j.missing.join(', ') + ')' : '');
-          throw new Error(msg);
-        }
-        if (statusEl) {
-          statusEl.textContent = action === 'validate' ? '✅ Bien validé ! Rechargement…' : '🔓 Bien dé-validé. Rechargement…';
-          statusEl.style.color = '#16a34a';
-        }
-        setTimeout(() => window.location.reload(), 500);
-      } catch (e) {
-        if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#dc2626'; }
-        if (targetBtn) targetBtn.disabled = false;
-      }
-    }
-
-    if (btnValidate) btnValidate.addEventListener('click', () => callApi('validate', null));
-    if (btnInvalidate) btnInvalidate.addEventListener('click', () => callApi('invalidate',
-      '⚠️ Dé-valider le bien va le repasser en brouillon et te permettre de modifier adresse + propriétaire.\n\nLe bien ne sera plus diffusable tant qu\'il n\'est pas revalidé.\n\nContinuer ?'));
-  }
-
   // ── Section ANNONCE : création + autosave annonce + toggles canaux ──
   function bindAnnonceSection(data) {
     const indicator = document.getElementById('v2-annonce-save-indicator');
     const csrf = data.csrfToken;
 
-    // Rafraîchit les champs readonly / auto calculés à partir de la réponse JSON
-    // des endpoints d'autosave. Les endpoints renvoient maintenant :
-    //   { loyer_cc, loyer_hc, loyer_reference_majore, complement_loyer,
-    //     depot_garantie, honoraires: { location_bail, edl, total, zone,
-    //     location_bail_capped, edl_capped, plafond_location_bail, plafond_edl } }
+    // Rafraîchit les champs readonly calculés (loyer_cc, total honoraires, complément)
+    // à partir de la réponse JSON des endpoints d'autosave. Les endpoints retournent
+    // maintenant { loyer_cc, honoraires: { location_bail, edl, total, zone } }.
     function applyCalculated(json) {
       if (!json || typeof json !== 'object') return;
-      const fmt = (n) => {
-        if (n == null || isNaN(n)) return '';
-        const s = Number(n).toFixed(2);
-        return s.replace(/\.?0+$/, '');
-      };
-      // setDisp : ne rien faire si la clé est ABSENTE de la réponse (undefined).
-      // Si la clé est présente mais null/0 → on efface. Sinon on met à jour.
-      // Corrige le bug "sauver charges efface le complément Card 1".
-      const setDisp = (id, val) => {
-        if (val === undefined) return;
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.value = (typeof val === 'number' && val > 0) ? fmt(val) : '';
-      };
-      // Champs readonly (toujours présents quand pertinents)
-      setDisp('v2-loyer-cc-display',          json.loyer_cc);
-      setDisp('v2-complement-loyer-display',  json.complement_loyer);
-
-      // Champs auto-fillable (ne pas écraser si l'utilisateur a saisi un truc plus récent)
-      const syncIfEmpty = (selector, val) => {
-        const el = document.querySelector(selector);
-        if (el && typeof val === 'number' && val > 0 && (!el.value || parseFloat(el.value) === 0)) {
-          el.value = fmt(val);
-        }
-      };
-      if (json.loyer_reference_majore != null) syncIfEmpty('[name="loyer_reference_majore"]', json.loyer_reference_majore);
-      if (json.depot_garantie != null)         syncIfEmpty('[name="depot_garantie"]',         json.depot_garantie);
-      if (json.enc_zone != null)               syncIfEmpty('[name="enc_zone"]',               json.enc_zone);
-
-      // Loyer HC : si le backend a recalculé (= majoré + complément), on FORCE la
-      // mise à jour de l'input (contrairement à syncIfEmpty) car c'est un champ
-      // calculé dès que loyer_reference_majore > 0.
-      if (typeof json.loyer_hc === 'number') {
-        const hcEl = document.querySelector('[name="loyer"]');
-        if (hcEl && json.loyer_hc > 0) hcEl.value = fmt(json.loyer_hc);
+      const fmt = (n) => (n == null || isNaN(n)) ? '' : Number(n).toFixed(2).replace(/\.00$/, '');
+      if (typeof json.loyer_cc === 'number') {
+        const el = document.getElementById('v2-loyer-cc-display');
+        if (el) el.value = json.loyer_cc > 0 ? fmt(json.loyer_cc) : '';
       }
-      // Sub-label "dont complément: X €" sous le champ Loyer HC
-      const cplVal = json.complement_loyer;
-      if (cplVal !== undefined) {
-        const hcEl = document.querySelector('[name="loyer"]');
-        const hcWrap = hcEl ? hcEl.closest('.v2-num-field') : null;
-        const labelEl = hcWrap ? hcWrap.querySelector('.v2-num-label') : null;
-        if (labelEl) {
-          // Reconstruit le contenu : "Loyer HC €" + optionnel "dont complément: X €"
-          let html = 'Loyer HC <small>€</small>';
-          if (typeof cplVal === 'number' && cplVal > 0) {
-            html += '<br><small style="color:#0369a1;">dont complément : ' + fmt(cplVal) + ' €</small>';
-          }
-          labelEl.innerHTML = html;
-        }
-      }
-
-      // Honoraires : le backend a pu écrêter la valeur (cap ALUR) → on force l'input
-      // au montant renvoyé + on affiche un warning visible si capped.
-      const warnEl = document.getElementById('v2-hono-cap-warning');
-      const warnMsgs = [];
       if (json.honoraires && typeof json.honoraires === 'object') {
-        const h = json.honoraires;
         const locEl = document.querySelector('[name="honoraires_location_bail"]');
         const edlEl = document.querySelector('[name="honoraires_etat_des_lieux"]');
         const totEl = document.getElementById('v2-hono-total-display');
-        // Toujours synchroniser aux valeurs retournées par le serveur (après éventuel cap)
-        if (locEl && typeof h.location_bail === 'number') locEl.value = h.location_bail > 0 ? fmt(h.location_bail) : '';
-        if (edlEl && typeof h.edl === 'number')            edlEl.value = h.edl > 0           ? fmt(h.edl)           : '';
-        if (totEl && typeof h.total === 'number')          totEl.value = h.total > 0         ? fmt(h.total)         : '';
-        if (h.location_bail_capped) warnMsgs.push('⚠️ Honoraires location+bail plafonnés à ' + fmt(h.plafond_location_bail) + ' € (ALUR)');
-        if (h.edl_capped)           warnMsgs.push('⚠️ Honoraires état des lieux plafonnés à ' + fmt(h.plafond_edl) + ' € (ALUR)');
-      }
-      if (warnEl) {
-        if (warnMsgs.length) {
-          warnEl.innerHTML = warnMsgs.join('<br>');
-          warnEl.style.display = 'block';
-          clearTimeout(warnEl.__hideTimer);
-          warnEl.__hideTimer = setTimeout(() => { warnEl.style.display = 'none'; }, 6000);
-        }
+        // Ne remplir que si le champ est vide (respect d'une saisie manuelle utilisateur)
+        if (locEl && !locEl.value && json.honoraires.location_bail > 0) locEl.value = fmt(json.honoraires.location_bail);
+        if (edlEl && !edlEl.value && json.honoraires.edl > 0)            edlEl.value = fmt(json.honoraires.edl);
+        const lv = parseFloat(locEl?.value || '0') || 0;
+        const ev = parseFloat(edlEl?.value || '0') || 0;
+        if (totEl) totEl.value = (lv + ev) > 0 ? fmt(lv + ev) : '';
       }
     }
-    // Exposé globalement pour que bindCplSection (hors scope) puisse l'appeler
-    window.__v2ApplyCalculated = applyCalculated;
 
     // Autosave biens (data-autosave) — partagé avec la Card Encadrement
     async function saveBienField(name, value) {
@@ -1811,9 +1657,16 @@
         const j = await r.json();
         if (!j.ok) throw new Error(j.error || 'Erreur');
         if (totalEl) totalEl.textContent = fmt(j.total);
-        // Délègue à applyCalculated : met à jour loyer CC, loyer HC, complément display,
-        // sub-label "dont complément : X €" en cascade.
-        if (typeof window.__v2ApplyCalculated === 'function') window.__v2ApplyCalculated(j);
+        // Sync le champ complement_loyer visible dans la Card 1 (s'il est rendu)
+        const cplField = document.querySelector('[name="complement_loyer"]');
+        if (cplField) cplField.value = j.total;
+        const cplDisp = document.getElementById('v2-complement-loyer-display');
+        if (cplDisp) cplDisp.value = j.total > 0 ? Number(j.total).toFixed(2).replace(/\.00$/, '') : '';
+        // Le loyer CC a été recalculé côté serveur
+        if (typeof j.loyer_cc === 'number') {
+          const lccDisp = document.getElementById('v2-loyer-cc-display');
+          if (lccDisp) lccDisp.value = j.loyer_cc > 0 ? Number(j.loyer_cc).toFixed(2).replace(/\.00$/, '') : '';
+        }
         setStatus('ok', '✅');
       } catch (e) {
         setStatus('err', '❌ ' + e.message);
@@ -1834,7 +1687,14 @@
         const j = await r.json();
         if (!j.ok) throw new Error(j.error || 'Erreur');
         if (totalEl) totalEl.textContent = fmt(j.total);
-        if (typeof window.__v2ApplyCalculated === 'function') window.__v2ApplyCalculated(j);
+        const cplField = document.querySelector('[name="complement_loyer"]');
+        if (cplField) cplField.value = j.total;
+        const cplDisp = document.getElementById('v2-complement-loyer-display');
+        if (cplDisp) cplDisp.value = j.total > 0 ? Number(j.total).toFixed(2).replace(/\.00$/, '') : '';
+        if (typeof j.loyer_cc === 'number') {
+          const lccDisp = document.getElementById('v2-loyer-cc-display');
+          if (lccDisp) lccDisp.value = j.loyer_cc > 0 ? Number(j.loyer_cc).toFixed(2).replace(/\.00$/, '') : '';
+        }
         row.remove();
         setStatus('ok', '✅');
       } catch (e) {
@@ -1890,14 +1750,6 @@
 
     if (section === 'annonce') {
       bindAnnonceSection(data);
-      // Flow 2026-04-22 : si pas d'annonce active, ouvre le modal de création
-      if (data.bienEstActif && !data.annonceId) {
-        setTimeout(() => openAnnonceCreateModal(data), 250);
-      }
-    }
-
-    if (section === 'validation') {
-      bindValidationCard(data);
     }
 
     if (section === 'descriptif') {

@@ -75,7 +75,6 @@ $data = [
     'loyer_de_base'            => $flt('loyer_de_base'),
     'loyer_reference_majore'   => $flt('loyer_reference_majore'),
     'complement_loyer'         => $flt('complement_loyer'),
-    'depot_garantie'           => $flt('depot_garantie'),
     'zone_encadrement_loyer'   => $bool('zone_encadrement_loyer'),
     'loyer_est_cc'             => $bool('loyer_est_cc'),
     'modalite_recuperation_charges_locatives' => $str('modalite_recuperation_charges_locatives'),
@@ -89,7 +88,6 @@ $data = [
     // Taxes
     'taxe_fonciere'            => $flt('taxe_fonciere'),
     'taxe_habitation'          => $flt('taxe_habitation'),
-    'taxe_ordures_menageres'   => $flt('taxe_ordures_menageres'),
 
     // Honoraires locataire (ALUR) — modifiables manuellement
     'honoraires_etat_des_lieux' => $flt('honoraires_etat_des_lieux'),
@@ -140,39 +138,23 @@ try {
     $st = $pdo->prepare($sql);
     $st->execute($params);
 
-    // ── Recalculs automatiques en cascade ──
-    //   1. loyer_reference_majore (auto si vide & surface × enc_loyer_max calculable)
-    //   2. depot_garantie (auto si vide = 1 mois loyer HC de référence)
-    //   3. honoraires (cap ALUR TOUJOURS appliqué, même sur saisie manuelle qui dépasse)
-    //   4. loyer_cc (toujours recalculé = loyer HC réf + charges biens)
+    // ── Recalculs automatiques (loyer CC + honoraires locataire) ──
     require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
 
-    loyer_majore_recalc_save($pdo, $annonceId);
-    // loyer HC = majoré + complément (seulement si majoré > 0) — AVANT depot & cc
-    loyer_hc_recalc_save($pdo, $annonceId);
-    depot_garantie_recalc_save($pdo, $annonceId);
+    // Honoraires : auto-fill uniquement si l'utilisateur n'a pas envoyé manuellement
+    // les champs dans ce POST (sinon on respecte sa saisie)
+    $honoManuels = array_key_exists('honoraires_location_bail', $_POST)
+                || array_key_exists('honoraires_etat_des_lieux', $_POST);
+    $honoCalc = $honoManuels ? null : honoraires_recalc_save($pdo, $annonceId, false);
 
-    // Honoraires : le helper lit la valeur DB (qui vient d'être mise à jour par
-    // la saisie POST si elle était présente) et l'écrête au plafond si dépassement.
-    $honoCalc = honoraires_recalc_save($pdo, $annonceId, false);
-
-    // loyer_cc : dernier maillon (dépend des précédents)
+    // loyer_cc : toujours recalculé (loyer HC + charges bien + complément de loyer)
     $loyerCC = loyer_cc_recalc_save($pdo, $annonceId);
-
-    // Re-lecture pour renvoyer au front les valeurs finales (après cascade)
-    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie FROM annonces WHERE id = ? LIMIT 1");
-    $stFinal->execute([$annonceId]);
-    $final = $stFinal->fetch(PDO::FETCH_ASSOC) ?: [];
 
     exit(json_encode([
         'ok' => true,
         'saved_at' => date('H:i'),
         'fields' => array_keys($data),
         'loyer_cc' => $loyerCC,
-        'loyer_hc' => isset($final['loyer'])                  ? (float)$final['loyer']                  : null,
-        'loyer_reference_majore' => isset($final['loyer_reference_majore']) ? (float)$final['loyer_reference_majore'] : null,
-        'complement_loyer'       => isset($final['complement_loyer'])       ? (float)$final['complement_loyer']       : null,
-        'depot_garantie'         => isset($final['depot_garantie'])         ? (float)$final['depot_garantie']         : null,
         'honoraires' => $honoCalc,
     ]));
 } catch (Throwable $e) {
