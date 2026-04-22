@@ -125,9 +125,9 @@ try {
 
 $csrf = function_exists('csrf_token') ? csrf_token('admin_bareme') : '';
 
-$appLayout = true;
-$pageTitle = 'Barème honoraires — URL publique';
-require_once __DIR__ . '/../inc/header.php';
+$pageTitle    = 'URL barème honoraires';
+$pageSubtitle = 'Super Admin · ALUR';
+require_once __DIR__ . '/../inc/agency_layout_top.php';
 ?>
 
 <style>
@@ -292,7 +292,4 @@ require_once __DIR__ . '/../inc/header.php';
   <?php endif; ?>
 </div>
 
-<?php
-if (file_exists(__DIR__ . '/../inc/footer.php')) {
-    require_once __DIR__ . '/../inc/footer.php';
-}
+<?php require_once __DIR__ . '/../inc/agency_layout_bottom.php'; ?>

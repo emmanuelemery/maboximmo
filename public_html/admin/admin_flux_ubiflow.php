@@ -137,9 +137,9 @@ if (is_dir($exportDir)) {
 // Tri par dossier puis nom
 usort($flux, fn($a, $b) => strcmp($a['slug'] . $a['file'], $b['slug'] . $b['file']));
 
-$appLayout = true;
-$pageTitle = 'Flux Ubiflow — XMLs exportés';
-require_once __DIR__ . '/../inc/header.php';
+$pageTitle    = 'Flux XML Ubiflow';
+$pageSubtitle = 'Super Admin · Diffusion portails';
+require_once __DIR__ . '/../inc/agency_layout_top.php';
 
 function fmtSize(int $bytes): string {
     if ($bytes < 1024) return $bytes . ' o';
@@ -259,7 +259,4 @@ function fmtSize(int $bytes): string {
   </div>
 </div>
 
-<?php
-if (file_exists(__DIR__ . '/../inc/footer.php')) {
-    require_once __DIR__ . '/../inc/footer.php';
-}
+<?php require_once __DIR__ . '/../inc/agency_layout_bottom.php'; ?>

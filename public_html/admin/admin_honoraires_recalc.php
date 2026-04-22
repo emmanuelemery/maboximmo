@@ -204,9 +204,9 @@ try {
 
 $csrf = function_exists('csrf_token') ? csrf_token('admin_honoraires_recalc') : '';
 
-$appLayout = true;
-$pageTitle = 'Rattrapage honoraires locataire';
-require_once __DIR__ . '/../inc/header.php';
+$pageTitle    = 'Rattrapage honoraires';
+$pageSubtitle = 'Super Admin · Compliance ALUR';
+require_once __DIR__ . '/../inc/agency_layout_top.php';
 ?>
 
 <style>
@@ -351,8 +351,4 @@ require_once __DIR__ . '/../inc/header.php';
   </div>
 </div>
 
-<?php
-// Footer si la fonction existe
-if (file_exists(__DIR__ . '/../inc/footer.php')) {
-    require_once __DIR__ . '/../inc/footer.php';
-}
+<?php require_once __DIR__ . '/../inc/agency_layout_bottom.php'; ?>
