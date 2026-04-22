@@ -298,6 +298,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
 
 <script>
 const AT_CSRF = <?= json_encode($csrf, JSON_UNESCAPED_SLASHES) ?>;
+const AT_ENDPOINT = <?= json_encode(app_url('/api/admin_annonce_edit.php'), JSON_UNESCAPED_SLASHES) ?>;
 const AT_AGENCES = <?= json_encode(array_map(fn($a) => ['id'=>(int)$a['id'],'lbl'=>$a['nom_agence']], $agences), JSON_UNESCAPED_UNICODE) ?>;
 const AT_SOCIETES = <?= json_encode(array_map(fn($s) => ['id'=>(int)$s['id'],'lbl'=>$s['lbl']], $societes), JSON_UNESCAPED_UNICODE) ?>;
 const AT_USERS = <?= json_encode(array_map(fn($u) => ['id'=>(int)$u['id'],'lbl'=>$u['lbl']], $users), JSON_UNESCAPED_UNICODE) ?>;
@@ -352,7 +353,14 @@ async function atSave(cell, newVal) {
     fd.append('field', cell.dataset.field);
     fd.append('value', newVal);
     fd.append('csrf_token', AT_CSRF);
-    const r = await fetch('../api/admin_annonce_edit.php', { method:'POST', body:fd, credentials:'same-origin' });
+    const r = await fetch(AT_ENDPOINT, { method:'POST', body:fd, credentials:'same-origin' });
+    // Protection contre une réponse HTML (session expirée → redirect login, erreur PHP, 404…)
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      const txt = await r.text();
+      const snippet = txt.substring(0, 200).replace(/\s+/g, ' ');
+      throw new Error('Réponse non-JSON (HTTP ' + r.status + ') — début : ' + snippet);
+    }
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'Erreur');
 
