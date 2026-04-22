@@ -59,7 +59,9 @@ if ($fEtat !== '' && $fEtat !== 'all') {
     if ($fEtat === 'brouillon') {
         $where[] = "(a.etat_publication = 'brouillon' OR a.statut = 'brouillon')";
     } elseif ($fEtat === 'diffusee') {
-        $where[] = "a.etat_publication IN ('diffusee','publiee') OR a.statut IN ('publiee','active','en_ligne')";
+        // ⚠️ parenthèses OBLIGATOIRES sinon le OR casse le scope des autres filtres AND
+        // (ex: filtre agence ignoré car OR statut IN (...) matche toute annonce publiée)
+        $where[] = "(a.etat_publication IN ('diffusee','publiee') OR a.statut IN ('publiee','active','en_ligne'))";
     } elseif ($fEtat === 'archivee') {
         $where[] = "a.etat_publication IN ('archivee','archived')";
     }
@@ -225,36 +227,49 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
     <div class="al-kpi"><div class="al-kpi-nb" style="color:#0369a1;"><?= $nbPortails ?></div><div class="al-kpi-lbl">Visible portails</div></div>
   </div>
 
-  <!-- Filtres -->
-  <form method="get" class="al-filters">
-    <input type="text" name="q" placeholder="🔎 Recherche titre, réf, ville…" value="<?= ae($q) ?>">
-    <select name="transaction">
+  <!-- Filtres — submit automatique au changement -->
+  <form method="get" class="al-filters" id="al-form">
+    <input type="text" name="q" placeholder="🔎 Recherche titre, réf, ville…" value="<?= ae($q) ?>" id="al-q">
+    <select name="transaction" onchange="this.form.submit()">
       <option value="">Toutes transactions</option>
       <?php foreach (['vente'=>'Vente','location'=>'Location','saisonnier'=>'Saisonnier','viager'=>'Viager'] as $k=>$lbl): ?>
         <option value="<?= ae($k) ?>" <?= $fTrans === $k ? 'selected' : '' ?>><?= ae($lbl) ?></option>
       <?php endforeach; ?>
     </select>
-    <select name="id_agence">
+    <select name="id_agence" onchange="this.form.submit()">
       <option value="0">Toutes agences</option>
       <?php foreach ($agencesOpts as $ao): ?>
         <option value="<?= (int)$ao['id'] ?>" <?= $fAgence === (int)$ao['id'] ? 'selected' : '' ?>><?= ae($ao['nom_agence']) ?></option>
       <?php endforeach; ?>
     </select>
-    <select name="etat">
+    <select name="etat" onchange="this.form.submit()">
       <option value="all"       <?= $fEtat==='' || $fEtat==='all' ? 'selected' : '' ?>>Tous états</option>
       <option value="brouillon" <?= $fEtat==='brouillon' ? 'selected' : '' ?>>Brouillon</option>
       <option value="diffusee"  <?= $fEtat==='diffusee'  ? 'selected' : '' ?>>Diffusée / active</option>
       <option value="archivee"  <?= $fEtat==='archivee'  ? 'selected' : '' ?>>Archivée</option>
     </select>
     <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#475569;">
-      <input type="checkbox" name="portails" value="1" <?= $fPortails===1 ? 'checked' : '' ?>>
+      <input type="checkbox" name="portails" value="1" <?= $fPortails===1 ? 'checked' : '' ?> onchange="this.form.submit()">
       Portails=1
     </label>
-    <div style="display:flex; gap:6px;">
-      <button type="submit" class="al-btn">🔍 Filtrer</button>
-      <a href="annonce_liste.php" class="al-btn al-btn-ghost">✕</a>
-    </div>
+    <a href="annonce_liste.php" class="al-btn al-btn-ghost" title="Réinitialiser tous les filtres">✕ Reset</a>
   </form>
+  <script>
+    // Submit automatique sur la recherche texte (debounce 400 ms) + sur Entrée
+    (function() {
+      const q = document.getElementById('al-q');
+      const form = document.getElementById('al-form');
+      if (!q || !form) return;
+      let t = null;
+      q.addEventListener('input', () => {
+        clearTimeout(t);
+        t = setTimeout(() => form.submit(), 400);
+      });
+      q.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); form.submit(); }
+      });
+    })();
+  </script>
 
   <!-- Tableau -->
   <?php if (empty($rows)): ?>
