@@ -90,9 +90,9 @@ $qsFilter = array_filter([
         </div>
         <div style="flex:1"></div>
         <div class="inv-quickbar">
+            <a href="<?= $h($u('/investisseur/prix_priorites.php')) ?>" class="primary" style="background:#b4443a;">🎯 Prix &amp; priorités</a>
             <a href="<?= $h($u('/investisseur/valorisation.php')) ?>" class="primary" style="background:#4f7a3a;">💰 Simulateur</a>
             <a href="<?= $h($u('/investisseur/nouvelle.php')) ?>">+ Nouvelle</a>
-            <a href="<?= $h($u('/investisseur/nouvelle.php?from_crg=1')) ?>">⇡ Depuis CRG</a>
             <a href="<?= $h($u('/investisseur/comparaison.php')) ?>">⚖ Comparer</a>
         </div>
     </div>

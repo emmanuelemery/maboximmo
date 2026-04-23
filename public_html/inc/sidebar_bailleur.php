@@ -120,6 +120,9 @@ $sbActive = static function (string ...$pages) use ($currentPage): string {
             <li><a href="./investisseur/valorisation.php" class="<?= $sbActive('valorisation.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
                 <span class="sb-icon">💰</span><span class="sb-label">Simulateur valeur</span>
             </a></li>
+            <li><a href="./investisseur/prix_priorites.php" class="<?= $sbActive('prix_priorites.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
+                <span class="sb-icon">🎯</span><span class="sb-label">Prix &amp; priorités</span>
+            </a></li>
             <li><a href="./investisseur/contacts.php" class="<?= $sbActive('contacts.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
                 <span class="sb-icon">👤</span><span class="sb-label">Contacts &amp; partages</span>
             </a></li>
