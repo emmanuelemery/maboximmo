@@ -134,9 +134,10 @@ foreach (array_keys($data) as $k) {
     }
 }
 
-// Auto-switch loyer_mode quand zone_encadrement_loyer change
-//   activation   (0 → 1) : mode passe à 'majore'
-//   désactivation (1 → 0): mode passe à 'libre'
+// Auto-switch loyer_mode + enc_auto_apply quand zone_encadrement_loyer change
+//   activation   (0 → 1) : mode 'majore' + pré-remplit tarifs depuis adresse
+//   désactivation (1 → 0): mode 'libre'
+$encAutoResult = null;
 if (array_key_exists('zone_encadrement_loyer', $data) && !array_key_exists('loyer_mode', $data)) {
     try {
         $stPrev = $pdo->prepare("SELECT COALESCE(zone_encadrement_loyer, 0) FROM annonces WHERE id = ? LIMIT 1");
@@ -145,6 +146,11 @@ if (array_key_exists('zone_encadrement_loyer', $data) && !array_key_exists('loye
         $newZone  = (int)$data['zone_encadrement_loyer'];
         if ($prevZone !== $newZone) {
             $data['loyer_mode'] = $newZone === 1 ? 'majore' : 'libre';
+            // Activation : on laisse l'UPDATE se faire, puis on déclenche enc_auto_apply
+            // (les colonnes biens sont mises à jour en plus de annonces)
+            if ($newZone === 1) {
+                $_encTriggerAutoApply = true;
+            }
         }
     } catch (Throwable $e) { /* non bloquant */ }
 }
@@ -171,6 +177,13 @@ try {
     //   3. honoraires (cap ALUR TOUJOURS appliqué, même sur saisie manuelle qui dépasse)
     //   4. loyer_cc (toujours recalculé = loyer HC réf + charges biens)
     require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
+
+    // Si l'user vient d'activer la zone encadrée → auto-remplit les tarifs
+    // depuis l'adresse (CP + pièces + époque + meublé)
+    if (!empty($_encTriggerAutoApply)) {
+        require_once dirname(__DIR__) . '/inc/encadrement_helper.php';
+        $encAutoResult = enc_auto_apply($pdo, $annonceId);
+    }
 
     loyer_majore_recalc_save($pdo, $annonceId);
     // Sync complement_loyer selon le mode (0 si reference/minore/libre, SUM si majore)
@@ -205,6 +218,7 @@ try {
         'meuble'                 => isset($final['meuble'])                 ? (int)$final['meuble']                   : null,
         'loyer_mode'             => isset($final['loyer_mode'])             ? (string)$final['loyer_mode']            : null,
         'zone_encadrement_loyer' => isset($final['zone_encadrement_loyer']) ? (int)$final['zone_encadrement_loyer']   : null,
+        'encadrement_auto'       => $encAutoResult,
         'honoraires' => $honoCalc,
     ]));
 } catch (Throwable $e) {

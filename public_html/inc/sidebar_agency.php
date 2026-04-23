@@ -119,32 +119,32 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             Agency
         </div>
         <ul class="sb-nav">
-            <li><a href="./annonce_liste.php" class="<?= sbActive('annonce_liste.php') ?>">
-                <span class="sb-icon">📡</span><span class="sb-label">Mes annonces</span>
-            </a></li>
-            <li><a href="./bien_liste.php" class="<?= sbActive('bien_liste.php') ?>">
-                <span class="sb-icon">🏘️</span><span class="sb-label">Mes biens</span>
-            </a></li>
             <li><a href="./agency_proprietaires.php" class="<?= sbActive('agency_proprietaires.php') ?><?= sbActive('agency_proprietaire_fiche.php') ?>">
                 <span class="sb-icon">👥</span><span class="sb-label">Propriétaires</span>
-            </a></li>
-            <li><a href="./agency_dashboard_diffusion.php" class="<?= sbActive('agency_dashboard_diffusion.php') ?>">
-                <span class="sb-icon">📡</span><span class="sb-label">Diffusion</span>
             </a></li>
             <li><a href="./agency_immeubles.php" class="<?= sbActive('agency_immeubles.php') ?>">
                 <span class="sb-icon">🏢</span><span class="sb-label">Immeubles</span>
             </a></li>
-            <li><a href="./agency_reunions.php" class="<?= sbActive('agency_reunions.php') ?>">
-                <span class="sb-icon">📅</span><span class="sb-label">Réunions</span>
+            <li><a href="./bien_liste.php" class="<?= sbActive('bien_liste.php') ?>">
+                <span class="sb-icon">🏘️</span><span class="sb-label">Biens</span>
+            </a></li>
+            <li><a href="./annonce_liste.php" class="<?= sbActive('annonce_liste.php') ?>">
+                <span class="sb-icon">📣</span><span class="sb-label">Annonces</span>
+            </a></li>
+            <li><a href="./agency_dashboard_diffusion.php" class="<?= sbActive('agency_dashboard_diffusion.php') ?>">
+                <span class="sb-icon">📡</span><span class="sb-label">Diffusion</span>
             </a></li>
             <li><a href="./agency_taches.php" class="<?= sbActive('agency_taches.php') ?>">
                 <span class="sb-icon">✅</span><span class="sb-label">Tâches</span>
             </a></li>
-            <li><a href="./agency_registres.php" class="<?= sbActive('agency_registres.php') ?>">
-                <span class="sb-icon">📂</span><span class="sb-label">Registres</span>
+            <li><a href="./agency_reunions.php" class="<?= sbActive('agency_reunions.php') ?>">
+                <span class="sb-icon">📅</span><span class="sb-label">Réunions</span>
             </a></li>
             <li><a href="./agency_factures.php" class="<?= sbActive('agency_factures.php') ?>">
                 <span class="sb-icon">💰</span><span class="sb-label">Factures</span>
+            </a></li>
+            <li><a href="./agency_registres.php" class="<?= sbActive('agency_registres.php') ?>">
+                <span class="sb-icon">📂</span><span class="sb-label">Registres</span>
             </a></li>
         </ul>
     </div>

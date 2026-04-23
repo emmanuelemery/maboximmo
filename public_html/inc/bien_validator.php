@@ -208,7 +208,7 @@ function bien_validator_validate(PDO $pdo, int $idBien): array
             SELECT b.reference_bien, b.designation, b.id_agence, b.ville,
                    tb.code AS type_code
             FROM biens b
-            LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+            LEFT JOIN base_types_bien tb ON tb.id = b.id_type_bien
             WHERE b.id = ? LIMIT 1
         ");
         $st->execute([$idBien]);

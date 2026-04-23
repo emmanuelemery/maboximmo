@@ -20,6 +20,7 @@ declare(strict_types=1);
  *   {USER3}      initiales commercial (1er lettre prénom + 2 1ères lettres nom)
  *   {USER2}      2 initiales (prénom + nom)
  *   {YY}         2 derniers chiffres année courante
+ *   {YYMM}       2 chiffres année + 2 chiffres mois (ex: 2604 pour avril 2026)
  *   {YYYY}       année complète
  *   {SEQ}        séquence bien (non paddée)
  *   {SEQ:NN}     séquence bien paddée à N chiffres (ex: SEQ:04 → 0042)
@@ -127,7 +128,7 @@ function ref_resolve_pattern(PDO $pdo, int $idAgence, string $type): array
         // Fallback hard-codé si aucun pattern configuré
         $pattern = $type === 'annonce'
             ? '{BIEN_REF}-{TRANS3}-{ANN_SEQ:02}'
-            : '{TYPE3}-{VILLE3}-{YY}-{SEQ:04}-{USER3}';
+            : '{TYPE3}-{VILLE3}-{YYMM}-{SEQ:04}-{USER3}';
     }
     $agence = [
         'id'                       => (int)$row['id'],
@@ -207,6 +208,7 @@ function ref_build_base_vars(array $ctx, array $agence, array $societe): array
         'USER2'  => ref_user_initials($user, 2),
         'USER3'  => ref_user_initials($user, 3),
         'YY'     => date('y'),
+        'YYMM'   => date('ym'),
         'YYYY'  => date('Y'),
     ];
 }

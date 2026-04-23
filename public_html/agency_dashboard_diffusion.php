@@ -64,6 +64,17 @@ $stmtBiensDiff = $pdo->prepare("
       AND a.etat_publication = 'diffusee'
 ");
 
+// Compteur annonces "à diffuser" par agence :
+//   - visible_portails = 1 (agent veut diffuser)
+//   - etat_publication != 'diffusee' (pas encore envoyé)
+$stmtADiffuser = $pdo->prepare("
+    SELECT COUNT(*)
+    FROM annonces a
+    WHERE a.id_agence = :id_agence
+      AND COALESCE(a.visible_portails, 0) = 1
+      AND (a.etat_publication IS NULL OR a.etat_publication != 'diffusee')
+");
+
 foreach ($agences as $slug => &$ag) {
     $stmtLast->execute([':slug' => $slug]);
     $ag['_last']    = $stmtLast->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -74,8 +85,13 @@ foreach ($agences as $slug => &$ag) {
     // Nb biens diffusés pour cette agence
     $stmtBiensDiff->execute([':id_agence' => (int)($ag['id_agence'] ?? 0)]);
     $ag['_nb_biens_diffuses'] = (int)$stmtBiensDiff->fetchColumn();
+    // Nb annonces à diffuser (souhaitées portails mais pas encore envoyées)
+    $stmtADiffuser->execute([':id_agence' => (int)($ag['id_agence'] ?? 0)]);
+    $ag['_nb_a_diffuser'] = (int)$stmtADiffuser->fetchColumn();
 }
 unset($ag);
+
+$totalADiffuser = array_sum(array_map(fn($a) => (int)($a['_nb_a_diffuser'] ?? 0), $agences));
 
 // ─── Total biens diffusés (toutes agences visibles, dédoublonné par bien) ──
 $totalBiensDiffuses = 0;
@@ -153,6 +169,7 @@ $layout_head_kpis = '
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#8a8680">' . $totalDup . '</div><div class="ph-kpi-lbl">Doublons ignorés</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#36577d">' . ($avgMs > 0 ? $avgMs . 'ms' : '—') . '</div><div class="ph-kpi-lbl">Durée moy.</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#0ea5e9">' . $totalBiensDiffuses . '</div><div class="ph-kpi-lbl">📡 Biens diffusés</div></div>
+    <div class="ph-kpi"><div class="ph-kpi-val" style="color:' . ($totalADiffuser > 0 ? '#c2410c' : '#8a8680') . '">' . $totalADiffuser . '</div><div class="ph-kpi-lbl">⏳ À diffuser</div></div>
 ';
 
 $layout_head_actions = '
@@ -555,6 +572,11 @@ ob_start();
                     title="Voir les biens diffusés de cette agence">
                 📋 <?= (int)$ag['_nb_biens_diffuses'] ?> bien(s) diffusé(s) →
             </button>
+            <?php $nbAD = (int)($ag['_nb_a_diffuser'] ?? 0); ?>
+            <span style="flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:99px;font-size:11px;font-weight:600;background:<?= $nbAD > 0 ? '#fff7ed' : '#f1f5f9' ?>;color:<?= $nbAD > 0 ? '#c2410c' : '#8a8680' ?>;border:1px solid <?= $nbAD > 0 ? '#fdba74' : '#e2e8f0' ?>;"
+                  title="Annonces avec visible_portails=1 mais pas encore diffusées">
+                ⏳ <?= $nbAD ?> à diffuser
+            </span>
         </div>
     </div>
     <?php endforeach; ?>
