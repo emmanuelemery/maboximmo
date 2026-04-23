@@ -83,8 +83,8 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
 ?>
 <style>
 .rn-wrap { max-width: 1400px; margin: 0 auto; }
-.rn-two-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
-@media (max-width: 1000px) { .rn-two-cols { grid-template-columns: 1fr; } }
+.rn-two-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; align-items: start; }
+@media (max-width: 800px) { .rn-two-cols { grid-template-columns: 1fr; } }
 .rn-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .rn-label-row .pct-box { display:inline-flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#4878a6; font-weight:700; }
 .rn-label-row .pct-box input { width:52px; padding:3px 6px; font-size:12px; font-family:'Sora',sans-serif; border:1px solid #c8d8ea; border-radius:4px; text-align:right; font-weight:700; background:#fff; }
@@ -281,8 +281,7 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
             </div>
         </div>
     </div>
-    </div>
-    <!-- ↑ Fermeture card Simulation (gauche) -->
+    <!-- ↑ Fermeture card Simulation (gauche, rn-paper) -->
 
         <!-- ─── Vue acquéreur (card droite dans rn-two-cols) ─── -->
         <?php
@@ -295,7 +294,6 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
         ?>
         <div class="rn-paper" style="margin-bottom:0; background:#f4f8fc; border-left:4px solid #4878a6;">
             <h2 style="color:#4878a6;">💼 Vue acquéreur — coût total réel</h2>
-            <div>
 
                 <div class="rn-field" style="margin-bottom:12px;">
                     <div class="rn-label-row">
@@ -366,9 +364,6 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                     </div>
                     <div class="hint" id="rn_fin_detail" style="margin-top:6px;"></div>
                 </div>
-            </div>
-
-            </div>
         </div>
         <!-- ↑ Fermeture card Vue acquéreur (droite) -->
 
