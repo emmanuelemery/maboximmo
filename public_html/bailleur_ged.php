@@ -142,7 +142,9 @@ $layout_head_kpis = '<div style="display:flex;gap:10px;justify-content:center;fl
     <a href="bailleur_crg_audit.php?prop='.$fProp.'" style="'.$_off.'">🔍 Audit CRG</a>
     <a href="bailleur_sci_organigramme.php" style="'.$_off.'">🏛 SCI</a>
 </div>';
-$layout_head_actions = '';
+$layout_head_actions = ($roleId === 1)
+    ? '<a href="bailleur_validation_imports.php" class="ph-btn primary" style="font-size:12px;padding:7px 14px;">📥 Imports</a>'
+    : '';
 
 $layout_extra_css = '<style>
 .bf{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:18px;padding:12px 16px;background:#fff;border-radius:12px;box-shadow:2px 2px 8px rgba(0,0,0,.04)}
