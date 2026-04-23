@@ -220,9 +220,17 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
             </div>
             <!-- Prix simulé -->
             <div class="rn-field simu">
-                <label>Prix de vente simulé (€)</label>
+                <div class="rn-label-row">
+                    <label style="margin:0;">Prix de vente simulé (€)</label>
+                    <button type="button" id="rn_valider_prix" title="Copier ce prix dans le prix fixé et sauvegarder"
+                            style="padding:3px 10px; font-size:10px; font-weight:700; background:#4f7a3a; color:#fff;
+                                   border:none; border-radius:999px; cursor:pointer; font-family:'Sora',sans-serif;
+                                   letter-spacing:.05em; text-transform:uppercase;">
+                        ✓ Valider ce prix
+                    </button>
+                </div>
                 <input type="number" id="rn_prix_simu" placeholder="—" step="1000">
-                <div class="hint">Se recalcule selon loyer et taux</div>
+                <div class="hint">Se recalcule selon loyer et taux · clic sur "Valider" = fixé + enregistrement</div>
             </div>
             <!-- Prix fixé (BDD) -->
             <div class="rn-field fixed" style="grid-column: span 2;">
@@ -643,6 +651,18 @@ F.travBail.addEventListener('input',   () => { markDirty(); runAnalysis(); }); /
 F.tauxBanque.addEventListener('input', () => { recalcFinancement(); });
 F.priorite.addEventListener('input', markDirty);
 F.commentaire.addEventListener('input', markDirty);
+
+// Bouton "✓ Valider ce prix" : copie le prix simulé vers le prix fixé et save
+$$('rn_valider_prix')?.addEventListener('click', () => {
+    const simu = parseFloat(F.prixSimu.value);
+    if (isNaN(simu) || simu <= 0) { alert('Saisissez d\'abord un prix simulé.'); return; }
+    F.prixFixe.value = Math.round(simu);
+    markDirty();
+    recalcCoutAcquereur();
+    runAnalysis();
+    // Déclenche le save
+    $$('rn_save_btn').click();
+});
 
 // Hints formatés sous les inputs € (séparateurs milliers + €)
 attachEurHint(F.loyerReel,  $$('rn_notaire_hint')   ? null : null, ''); // no hint dédié pour loyer réel
