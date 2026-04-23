@@ -850,6 +850,23 @@
         }
       }
 
+      // Vente : synchronise les 4 champs avec les valeurs finales backend
+      // (prix_fai readonly toujours, les autres sauf si focus utilisateur)
+      if (json.vente && typeof json.vente === 'object') {
+        const v = json.vente;
+        const updateIfNotFocus = (id, val) => {
+          const el = document.getElementById(id);
+          if (!el || document.activeElement === el) return;
+          el.value = (typeof val === 'number' && val > 0) ? fmt(val) : '';
+        };
+        updateIfNotFocus('v2-vente-net',  v.prix_net_vendeur);
+        updateIfNotFocus('v2-vente-hono', v.honoraires);
+        updateIfNotFocus('v2-vente-pct',  v.pct_alur);
+        // Prix FAI readonly : toujours mis à jour
+        const faiEl = document.getElementById('v2-vente-fai');
+        if (faiEl) faiEl.value = (typeof v.prix_fai === 'number' && v.prix_fai > 0) ? fmt(v.prix_fai) : '';
+      }
+
       // Loyer HC : si le backend a recalculé (= majoré + complément), on FORCE la
       // mise à jour de l'input (contrairement à syncIfEmpty) car c'est un champ
       // calculé dès que loyer_reference_majore > 0.
@@ -1028,6 +1045,80 @@
         el.addEventListener('blur', handler);
       }
     });
+
+    // ══════════════════════════════════════════════════════════════
+    // Section VENTE — cascade calcul instant + toggle payeur
+    // net + hono (€) ⇄ % ; prix FAI = net + hono (auto, readonly)
+    // ══════════════════════════════════════════════════════════════
+    (function bindVenteSection() {
+      const netEl  = document.getElementById('v2-vente-net');
+      const honoEl = document.getElementById('v2-vente-hono');
+      const pctEl  = document.getElementById('v2-vente-pct');
+      const faiEl  = document.getElementById('v2-vente-fai');
+      if (!netEl || !honoEl || !pctEl || !faiEl) return;
+
+      const fmt = (n) => {
+        if (n == null || isNaN(n)) return '';
+        const s = Number(n).toFixed(2);
+        return s.replace(/\.?0+$/, '');
+      };
+      const num = (el) => {
+        const v = parseFloat((el.value || '').replace(',', '.'));
+        return isNaN(v) ? 0 : v;
+      };
+      const refreshFai = () => {
+        const fai = num(netEl) + num(honoEl);
+        faiEl.value = fai > 0 ? fmt(fai) : '';
+      };
+
+      // Saisie des honoraires (€) : recalcule le % si net > 0
+      honoEl.addEventListener('input', () => {
+        const net = num(netEl);
+        if (net > 0) {
+          const pct = (num(honoEl) / net) * 100;
+          if (pct > 0) pctEl.value = fmt(pct);
+        }
+        refreshFai();
+      });
+      // Saisie du % : recalcule les honoraires (€) si net > 0
+      pctEl.addEventListener('input', () => {
+        const net = num(netEl);
+        if (net > 0) {
+          const hono = (net * num(pctEl)) / 100;
+          if (hono > 0) honoEl.value = fmt(hono);
+        }
+        refreshFai();
+      });
+      // Saisie du net : ajuste l'autre (priorité au % s'il est > 0)
+      netEl.addEventListener('input', () => {
+        const net = num(netEl);
+        if (net > 0) {
+          if (num(pctEl) > 0) {
+            const hono = (net * num(pctEl)) / 100;
+            if (hono > 0) honoEl.value = fmt(hono);
+          } else if (num(honoEl) > 0) {
+            const pct = (num(honoEl) / net) * 100;
+            if (pct > 0) pctEl.value = fmt(pct);
+          }
+        }
+        refreshFai();
+      });
+
+      // Toggle Acquéreur / Vendeur (exclusif) — sauve les 2 flags
+      document.querySelectorAll('.v2-icon-radios[data-target="vente"][data-field="honoraires_payeur"]').forEach(group => {
+        group.querySelectorAll('.v2-icon-radio').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (btn.classList.contains('is-active')) return;
+            group.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            const value = btn.dataset.value || 'acquereur';
+            // Sauve les 2 flags exclusifs
+            await saveAnnonce('honoraires_charge_acquereur', value === 'acquereur' ? '1' : '0');
+            await saveAnnonce('honoraires_charge_vendeur',   value === 'vendeur'   ? '1' : '0');
+          });
+        });
+      });
+    })();
 
     // ══════════════════════════════════════════════════════════════
     // Card 3 Annonce — Bouton IA « Générer l'annonce complète »

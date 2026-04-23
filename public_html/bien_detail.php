@@ -1881,16 +1881,67 @@ require_once $_sbFile;
             </div>
 
             <!-- VENTE -->
+            <?php
+              // Modèle 2026-04-24 : simplification commissions vente
+              //   prix_net_vendeur + honoraires (€) ⇄ % (saisie inverse)
+              //   prix (FAI) = prix_net_vendeur + honoraires  (calculé, readonly)
+              //   toggle Acquéreur / Vendeur (exclusif) → flag honoraires_charge_*
+              $curPrixNet    = (float)($a['prix_net_vendeur'] ?? 0);
+              $curHono       = (float)($a['honoraires'] ?? 0);
+              $curPctAlur    = (float)($a['alur_pourcentage_honoraires_ttc'] ?? 0);
+              $curPrixFAI    = (float)($a['prix'] ?? 0);
+              if ($curPrixFAI <= 0 && ($curPrixNet > 0 || $curHono > 0)) $curPrixFAI = $curPrixNet + $curHono;
+              if ($curPctAlur <= 0 && $curPrixNet > 0 && $curHono > 0) $curPctAlur = round(($curHono / $curPrixNet) * 100, 2);
+              $curChargeAcq  = (int)($a['honoraires_charge_acquereur'] ?? 0) === 1;
+              $curChargeVen  = (int)($a['honoraires_charge_vendeur'] ?? 0) === 1;
+              if (!$curChargeAcq && !$curChargeVen) $curChargeAcq = true; // défaut
+              $fmtV = static fn($v) => $v > 0 ? rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.') : '';
+            ?>
             <div class="v2-desc-group-title">💰 Vente</div>
-            <div class="v2-num-grid">
-              <?= $aNum('💰', 'prix',                           'Prix de vente',       '€') ?>
-              <?= $aNum('🤝', 'honoraires_charge_acquereur',    'Honoraires acquéreur','€') ?>
-              <?= $aNum('🏷️', 'honoraires_charge_vendeur',      'Honoraires vendeur',  '€') ?>
-              <?= $aNum('%', 'pourcentage_honoraires_vendeur', '% vendeur',           '%') ?>
-              <?= $aNum('⚖️', 'alur_pourcentage_honoraires_ttc','% ALUR TTC',          '%') ?>
-              <?= $aNum('💼', 'honoraires_negociation_cumules', 'Hon. cumulés',        '€') ?>
+            <!-- Toggle qui paye les honoraires (exclusif) -->
+            <div style="display:flex; justify-content:flex-start; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+              <span style="font-size:11px; font-weight:600; color:var(--v2-muted);">Honoraires à la charge :</span>
+              <div class="v2-icon-radios" data-field="honoraires_payeur" data-target="vente" style="margin:0;" title="Défini qui supporte juridiquement les honoraires (impacte l'affichage annonce + flux portails)">
+                <button type="button" class="v2-icon-radio<?= $curChargeAcq ? ' is-active' : '' ?>" data-value="acquereur">
+                  <span class="v2-icon-emoji">🛒</span>
+                  <span class="v2-icon-lbl">Acquéreur</span>
+                </button>
+                <button type="button" class="v2-icon-radio<?= $curChargeVen ? ' is-active' : '' ?>" data-value="vendeur">
+                  <span class="v2-icon-emoji">🏷️</span>
+                  <span class="v2-icon-lbl">Vendeur</span>
+                </button>
+              </div>
             </div>
-            <?= $aText('url_tarifs_publics', 'URL tarifs publics', 'https://...') ?>
+            <div class="v2-loc-grid" id="v2-vente-grid">
+              <!-- PRIX NET VENDEUR -->
+              <div class="v2-loc-field" title="Montant revenant au vendeur (hors honoraires)">
+                <label class="v2-loc-lbl"><span>💰</span> Prix net vendeur <small>€</small></label>
+                <input type="number" step="0.01" min="0" class="v2-loc-input"
+                       name="prix_net_vendeur" data-annonce-save id="v2-vente-net"
+                       value="<?= h($fmtV($curPrixNet)) ?>" placeholder="Net vendeur">
+              </div>
+              <!-- HONORAIRES € -->
+              <div class="v2-loc-field" title="Montant des honoraires en euros. La saisie met à jour automatiquement le %.">
+                <label class="v2-loc-lbl"><span>🤝</span> Honoraires <small>€</small></label>
+                <input type="number" step="0.01" min="0" class="v2-loc-input"
+                       name="honoraires" data-annonce-save id="v2-vente-hono"
+                       value="<?= h($fmtV($curHono)) ?>" placeholder="Honoraires">
+              </div>
+              <!-- HONORAIRES % -->
+              <div class="v2-loc-field" title="% honoraires TTC. La saisie met à jour automatiquement les honoraires €.">
+                <label class="v2-loc-lbl"><span>⚖️</span> % honoraires <small>%</small></label>
+                <input type="number" step="0.01" min="0" max="20" class="v2-loc-input"
+                       name="alur_pourcentage_honoraires_ttc" data-annonce-save id="v2-vente-pct"
+                       value="<?= h($fmtV($curPctAlur)) ?>" placeholder="%">
+              </div>
+              <!-- PRIX FAI = net + hono (readonly) -->
+              <div class="v2-loc-field is-accent" title="Prix FAI (Frais Agence Inclus) = net vendeur + honoraires. Calculé automatiquement.">
+                <label class="v2-loc-lbl"><span>🏷️</span> <strong>Prix FAI</strong> <small>€</small></label>
+                <input type="number" step="0.01" class="v2-loc-input is-accent"
+                       id="v2-vente-fai" value="<?= h($fmtV($curPrixFAI)) ?>" readonly tabindex="-1">
+              </div>
+            </div>
+            <?= $aText('url_tarifs_publics', 'URL tarifs publics (barème honoraires — obligation arrêté 10/01/2017)', 'https://...') ?>
 
             <!-- LOCATION -->
             <?php

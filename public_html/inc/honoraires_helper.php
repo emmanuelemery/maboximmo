@@ -180,6 +180,74 @@ function loyer_hc_reference(PDO $pdo, int $idAnnonce): float
  * Règle : saisie manuelle > calcul auto — n'écrase JAMAIS une valeur existante.
  */
 /**
+ * Recalcule et sauvegarde les montants vente : prix_net_vendeur, honoraires (€),
+ * alur_pourcentage_honoraires_ttc (%), et prix (FAI).
+ *
+ * Logique :
+ *   - prix (FAI) = prix_net_vendeur + honoraires  (TOUJOURS recalculé)
+ *   - Si honoraires € et % absents → pas de calcul
+ *   - Si % renseigné et honoraires € vide → hono = net × % / 100
+ *   - Si honoraires € renseigné et % vide → % = hono / net × 100
+ *   - Si les deux renseignés, le dernier saisi côté front prime (le backend
+ *     accepte ce que POST envoie, puis synchronise l'autre)
+ *
+ * @param string|null $lastSaved 'net' | 'hono' | 'pct' | null (si connu, impose la priorité)
+ */
+function prix_fai_recalc_save(PDO $pdo, int $idAnnonce, ?string $lastSaved = null): ?float
+{
+    if ($idAnnonce <= 0) return null;
+    try {
+        $st = $pdo->prepare("
+            SELECT COALESCE(prix_net_vendeur, 0) AS net,
+                   COALESCE(honoraires, 0)       AS hono,
+                   COALESCE(alur_pourcentage_honoraires_ttc, 0) AS pct,
+                   COALESCE(prix, 0)             AS prix
+            FROM annonces WHERE id = ? LIMIT 1
+        ");
+        $st->execute([$idAnnonce]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+
+        $net  = (float)$row['net'];
+        $hono = (float)$row['hono'];
+        $pct  = (float)$row['pct'];
+
+        if ($net > 0) {
+            // Si l'user vient de saisir le %, on recalcule hono. Sinon si hono existe, on recalcule %.
+            if ($lastSaved === 'pct' && $pct > 0) {
+                $hono = round($net * $pct / 100, 2);
+            } elseif ($lastSaved === 'hono' && $hono > 0) {
+                $pct  = round($hono / $net * 100, 2);
+            } elseif ($hono > 0 && $pct <= 0) {
+                $pct  = round($hono / $net * 100, 2);
+            } elseif ($pct > 0 && $hono <= 0) {
+                $hono = round($net * $pct / 100, 2);
+            } elseif ($lastSaved === 'net') {
+                // Net modifié : on recalcule le plus cohérent (priorité au % s'il > 0)
+                if ($pct > 0) $hono = round($net * $pct / 100, 2);
+                elseif ($hono > 0) $pct = round($hono / $net * 100, 2);
+            }
+        }
+
+        $fai = round($net + $hono, 2);
+
+        $pdo->prepare("
+            UPDATE annonces
+               SET honoraires = ?,
+                   alur_pourcentage_honoraires_ttc = ?,
+                   prix = ?,
+                   date_modification = NOW()
+             WHERE id = ?
+        ")->execute([$hono, $pct, $fai, $idAnnonce]);
+
+        return $fai;
+    } catch (Throwable $e) {
+        error_log('[honoraires_helper] prix_fai_recalc_save: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
  * Synchronise annonces.complement_loyer depuis la SUM des lignes justificatives,
  * MAIS uniquement si le mode de loyer l'autorise :
  *   - mode 'majore'     : SUM des lignes appliquée (complément effectif)

@@ -60,13 +60,14 @@ $data = [
     // Transaction
     'type_transaction'         => $str('type_transaction'),
 
-    // Vente
+    // Vente — modèle 2026-04-24 : prix FAI = net + honoraires (calculé backend)
     'prix'                     => $flt('prix'),
-    'honoraires_charge_acquereur' => $flt('honoraires_charge_acquereur'),
-    'honoraires_charge_vendeur'   => $flt('honoraires_charge_vendeur'),
-    'pourcentage_honoraires_vendeur' => $flt('pourcentage_honoraires_vendeur'),
+    'prix_net_vendeur'         => $flt('prix_net_vendeur'),
+    'honoraires'               => $flt('honoraires'),
     'alur_pourcentage_honoraires_ttc' => $flt('alur_pourcentage_honoraires_ttc'),
-    'honoraires_negociation_cumules'  => $flt('honoraires_negociation_cumules'),
+    // Flags exclusifs (tinyint 0/1) — piloté par le toggle Acquéreur/Vendeur
+    'honoraires_charge_acquereur' => $bool('honoraires_charge_acquereur'),
+    'honoraires_charge_vendeur'   => $bool('honoraires_charge_vendeur'),
     'url_tarifs_publics'       => $str('url_tarifs_publics'),
 
     // Location
@@ -185,6 +186,15 @@ try {
         $encAutoResult = enc_auto_apply($pdo, $annonceId);
     }
 
+    // Cascade vente : si net/hono/% modifiés → recalcul prix FAI + %/hono manquant
+    $venteLastSaved = null;
+    if (array_key_exists('prix_net_vendeur', $_POST))                      $venteLastSaved = 'net';
+    elseif (array_key_exists('honoraires', $_POST))                        $venteLastSaved = 'hono';
+    elseif (array_key_exists('alur_pourcentage_honoraires_ttc', $_POST))   $venteLastSaved = 'pct';
+    if ($venteLastSaved !== null) {
+        prix_fai_recalc_save($pdo, $annonceId, $venteLastSaved);
+    }
+
     loyer_majore_recalc_save($pdo, $annonceId);
     // Sync complement_loyer selon le mode (0 si reference/minore/libre, SUM si majore)
     complement_loyer_sync_from_mode($pdo, $annonceId);
@@ -202,7 +212,7 @@ try {
     $loyerCC = loyer_cc_recalc_save($pdo, $annonceId);
 
     // Re-lecture pour renvoyer au front les valeurs finales (après cascade)
-    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble, loyer_mode, zone_encadrement_loyer FROM annonces WHERE id = ? LIMIT 1");
+    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble, loyer_mode, zone_encadrement_loyer, prix, prix_net_vendeur, honoraires AS vente_honoraires, alur_pourcentage_honoraires_ttc, honoraires_charge_acquereur, honoraires_charge_vendeur FROM annonces WHERE id = ? LIMIT 1");
     $stFinal->execute([$annonceId]);
     $final = $stFinal->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -219,6 +229,15 @@ try {
         'loyer_mode'             => isset($final['loyer_mode'])             ? (string)$final['loyer_mode']            : null,
         'zone_encadrement_loyer' => isset($final['zone_encadrement_loyer']) ? (int)$final['zone_encadrement_loyer']   : null,
         'encadrement_auto'       => $encAutoResult,
+        // Vente — valeurs finales après recalcul backend
+        'vente' => [
+            'prix_fai'          => isset($final['prix'])                  ? (float)$final['prix']                  : null,
+            'prix_net_vendeur'  => isset($final['prix_net_vendeur'])      ? (float)$final['prix_net_vendeur']      : null,
+            'honoraires'        => isset($final['vente_honoraires'])      ? (float)$final['vente_honoraires']      : null,
+            'pct_alur'          => isset($final['alur_pourcentage_honoraires_ttc']) ? (float)$final['alur_pourcentage_honoraires_ttc'] : null,
+            'charge_acquereur'  => isset($final['honoraires_charge_acquereur'])     ? (int)$final['honoraires_charge_acquereur']       : null,
+            'charge_vendeur'    => isset($final['honoraires_charge_vendeur'])       ? (int)$final['honoraires_charge_vendeur']         : null,
+        ],
         'honoraires' => $honoCalc,
     ]));
 } catch (Throwable $e) {
