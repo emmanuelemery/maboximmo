@@ -86,6 +86,8 @@ if (!function_exists('inv_columns_assignables')) {
             'strategie','potentiel_valorisation','tension_locative','facilite_revente',
             'niveau_risque','qualite_emplacement','commentaire_humain',
             'statut',
+            // Mode réunion (workbench)
+            'priorite_vente','taux_renta_retenu','commentaire_reunion',
         ];
     }
 }
@@ -129,6 +131,7 @@ if (!function_exists('inv_sanitize_post')) {
                     'assurance_pno','gestion_locative','vacance_locative','entretien_imprevus',
                     'honoraires_vente','credit_crd',
                     'revalorisation_bien_pct_an','indexation_loyer_pct_an','ira_pct','taux_imposition_pct',
+                    'taux_renta_retenu',
                 ], true) => inv_f($v),
                 in_array($col, [
                     'id_bien_source','id_proprietaire',
@@ -136,6 +139,7 @@ if (!function_exists('inv_sanitize_post')) {
                     'duree_credit','potentiel_valorisation','tension_locative',
                     'facilite_revente','niveau_risque','qualite_emplacement',
                     'photovoltaique','nb_parkings','credit_duree_restante_mois',
+                    'priorite_vente',
                 ], true) => inv_i($v),
                 $col === 'bail_fin' => (trim((string)$v) !== '' ? substr(trim((string)$v), 0, 10) : null),
                 default  => trim((string)$v),
