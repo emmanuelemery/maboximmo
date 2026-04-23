@@ -232,11 +232,46 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                 <input type="number" id="rn_prix_simu" placeholder="—" step="1000">
                 <div class="hint">Se recalcule selon loyer et taux · clic sur "Valider" = fixé + enregistrement</div>
             </div>
-            <!-- Prix fixé (BDD) -->
+            <!-- Prix BDD actuel (readonly) + Nouveau prix proposé + Historique -->
+            <div class="rn-field" style="grid-column: span 2;">
+                <div class="rn-label-row">
+                    <label style="margin:0; color:#9a9690;">📌 Prix actuel en BDD (lecture seule)</label>
+                    <button type="button" id="rn_btn_historique" title="Voir l'historique des changements"
+                            style="padding:3px 10px; font-size:10px; font-weight:700; background:#fff; border:1px solid #e6e1d7;
+                                   color:#4878a6; border-radius:999px; cursor:pointer; font-family:'Sora',sans-serif;
+                                   letter-spacing:.05em; text-transform:uppercase;">
+                        📜 Historique des prix
+                    </button>
+                </div>
+                <input type="text" id="rn_prix_bdd_display" readonly value="<?= number_format($prixCat, 0, ',', ' ') . ' €' ?>"
+                       style="background:#f4f4f4; color:#5a5a55; cursor:default;">
+                <div class="hint">Prix en base — sera remplacé si tu valides un nouveau prix ci-dessous</div>
+            </div>
+
             <div class="rn-field fixed" style="grid-column: span 2;">
-                <label>💾 Prix de vente fixé (sauvegardé en BDD)</label>
+                <div class="rn-label-row">
+                    <label style="margin:0;">💾 Nouveau prix proposé (€) — remplacera le prix BDD</label>
+                    <button type="button" id="rn_btn_valider_bdd" title="Valider et remplacer le prix BDD"
+                            style="padding:3px 12px; font-size:10px; font-weight:700; background:#4f7a3a; color:#fff;
+                                   border:none; border-radius:999px; cursor:pointer; font-family:'Sora',sans-serif;
+                                   letter-spacing:.05em; text-transform:uppercase;">
+                        ✓ Valider comme prix BDD
+                    </button>
+                </div>
                 <input type="number" id="rn_prix_fixe" value="<?= (int)$prixCat ?>" step="1000">
-                <div class="hint">Ce prix sera conservé quand vous quitterez la page</div>
+                <div class="hint">Tape le nouveau prix puis clique « Valider ». L'ancien sera archivé dans l'historique avec date.</div>
+            </div>
+        </div>
+
+        <!-- Modale Historique -->
+        <div id="rn_modal_hist" style="display:none; position:fixed; inset:0; background:rgba(36,50,74,.5); z-index:9999; align-items:center; justify-content:center;">
+            <div style="background:#fff; border-radius:14px; padding:24px 28px; max-width:620px; width:92%; max-height:80vh; overflow-y:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                    <h3 style="margin:0; color:#24324a;">📜 Historique des prix</h3>
+                    <button type="button" onclick="document.getElementById('rn_modal_hist').style.display='none'"
+                            style="background:transparent; border:none; font-size:22px; cursor:pointer; color:#9a9690;">&times;</button>
+                </div>
+                <div id="rn_hist_content" style="font-size:13px;">Chargement…</div>
             </div>
         </div>
 
@@ -652,7 +687,7 @@ F.tauxBanque.addEventListener('input', () => { recalcFinancement(); });
 F.priorite.addEventListener('input', markDirty);
 F.commentaire.addEventListener('input', markDirty);
 
-// Bouton "✓ Valider ce prix" : copie le prix simulé vers le prix fixé et save
+// Bouton "✓ Valider ce prix" : copie le prix simulé vers le nouveau prix proposé
 $$('rn_valider_prix')?.addEventListener('click', () => {
     const simu = parseFloat(F.prixSimu.value);
     if (isNaN(simu) || simu <= 0) { alert('Saisissez d\'abord un prix simulé.'); return; }
@@ -660,8 +695,90 @@ $$('rn_valider_prix')?.addEventListener('click', () => {
     markDirty();
     recalcCoutAcquereur();
     runAnalysis();
-    // Déclenche le save
-    $$('rn_save_btn').click();
+    // Focus sur le bouton Valider BDD pour que le user confirme
+    $$('rn_btn_valider_bdd').focus();
+    $$('rn_btn_valider_bdd').style.animation = 'pulse 1s 3';
+});
+
+// Bouton "✓ Valider comme prix BDD" : archive l'ancien + sauve le nouveau
+$$('rn_btn_valider_bdd')?.addEventListener('click', async () => {
+    const nouveau = parseFloat(F.prixFixe.value);
+    if (isNaN(nouveau) || nouveau <= 0) { alert('Saisissez un prix valide.'); return; }
+    const motif = prompt('Motif du changement (optionnel) — ex : négociation, marché, révision prix…', '');
+    const btn = $$('rn_btn_valider_bdd');
+    btn.disabled = true; btn.textContent = '…';
+    const fd = new FormData();
+    fd.append('action', 'save');
+    fd.append('id', RN_ID);
+    fd.append('_csrf_token', RN_CSRF);
+    fd.append('prix_vente_catalogue', nouveau);
+    fd.append('motif_prix', motif || '');
+    // On envoie aussi les autres champs pour qu'ils soient conservés
+    fd.append('loyer_annuel',         F.loyerReel.value);
+    fd.append('priorite_vente',       F.priorite.value || '0');
+    fd.append('taux_renta_retenu',    F.taux.value);
+    fd.append('commentaire_reunion',  F.commentaire.value);
+    fd.append('frais_notaire',        F.notaire.value || '0');
+    fd.append('honoraires_vente',     F.honoraires.value || '0');
+    fd.append('travaux',              F.travaux.value || '0');
+    fd.append('travaux_bailleur',     F.travBail.value || '0');
+    try {
+        const r = await fetch(RN_API, {method:'POST', body:fd});
+        const j = await r.json();
+        btn.disabled = false;
+        if (j.ok) {
+            btn.textContent = '✓ Enregistré';
+            $$('rn_prix_bdd_display').value = new Intl.NumberFormat('fr-FR', {maximumFractionDigits: 0}).format(nouveau) + ' €';
+            setTimeout(() => btn.textContent = '✓ Valider comme prix BDD', 2000);
+            runAnalysis();
+        } else {
+            btn.textContent = '✗ Erreur';
+            alert(j.error || 'Erreur');
+            setTimeout(() => btn.textContent = '✓ Valider comme prix BDD', 2000);
+        }
+    } catch (e) { btn.disabled = false; btn.textContent = '✗'; }
+});
+
+// Bouton "📜 Historique"
+$$('rn_btn_historique')?.addEventListener('click', async () => {
+    const modal = $$('rn_modal_hist');
+    const content = $$('rn_hist_content');
+    modal.style.display = 'flex';
+    content.innerHTML = 'Chargement…';
+    const fd = new FormData();
+    fd.append('action', 'history');
+    fd.append('id', RN_ID);
+    try {
+        const r = await fetch(RN_API, {method:'POST', body:fd});
+        const j = await r.json();
+        if (!j.ok || !j.history || j.history.length === 0) {
+            content.innerHTML = '<div style="color:#9a9690; padding:24px 0; text-align:center;">Aucun historique de changement de prix pour ce bien.</div>';
+            return;
+        }
+        let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+        html += '<thead><tr style="background:#f9f7f2;"><th style="padding:8px; text-align:left;">Date</th><th style="padding:8px; text-align:right;">Avant</th><th style="padding:8px; text-align:right;">Après</th><th style="padding:8px; text-align:right;">Écart</th><th style="padding:8px; text-align:left;">Motif / Par</th></tr></thead><tbody>';
+        for (const h of j.history) {
+            const ancien = parseFloat(h.prix_ancien);
+            const nouveau = parseFloat(h.prix_nouveau);
+            const ecart = isNaN(ancien) ? 0 : nouveau - ancien;
+            const ecartPct = (isNaN(ancien) || ancien === 0) ? 0 : (ecart / ancien) * 100;
+            const col = ecart < 0 ? '#b4443a' : (ecart > 0 ? '#4f7a3a' : '#9a9690');
+            html += '<tr style="border-bottom:1px solid #eee;">'
+                + '<td style="padding:8px; font-size:12px;">' + new Date(h.changed_at).toLocaleString('fr-FR') + '</td>'
+                + '<td style="padding:8px; text-align:right; color:#9a9690;">' + (isNaN(ancien) ? '—' : fmtE(ancien)) + '</td>'
+                + '<td style="padding:8px; text-align:right; color:#24324a; font-weight:700;">' + fmtE(nouveau) + '</td>'
+                + '<td style="padding:8px; text-align:right; color:' + col + '; font-weight:700;">' + (ecart === 0 ? '—' : (ecart > 0 ? '+' : '') + fmtE(ecart) + (ancien > 0 ? ' (' + (ecartPct > 0 ? '+' : '') + ecartPct.toFixed(1) + '%)' : '')) + '</td>'
+                + '<td style="padding:8px; font-size:12px; color:#5a5a55;">' + (h.motif || '—') + '<br><span style="font-size:10px; color:#9a9690;">' + (h.par_user || '') + '</span></td>'
+                + '</tr>';
+        }
+        html += '</tbody></table>';
+        content.innerHTML = html;
+    } catch (e) { content.innerHTML = '<div style="color:#b4443a;">Erreur de chargement</div>'; }
+});
+
+// Clic hors modal = fermer
+$$('rn_modal_hist')?.addEventListener('click', e => {
+    if (e.target.id === 'rn_modal_hist') e.target.style.display = 'none';
 });
 
 // Hints formatés sous les inputs € (séparateurs milliers + €)

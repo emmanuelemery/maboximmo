@@ -71,11 +71,34 @@ try {
         exit;
     }
 
+    if ($action === 'history') {
+        $st = $pdo->prepare("SELECT h.id, h.prix_ancien, h.prix_nouveau, h.motif, h.changed_at,
+                                    CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,'')) AS par_user
+                             FROM investisseur_prix_historique h
+                             LEFT JOIN users u ON u.id = h.id_user
+                             WHERE h.id_analyse = :id
+                             ORDER BY h.changed_at DESC LIMIT 50");
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+        echo json_encode(['ok' => true, 'history' => $st->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'save') {
         verify_csrf_any();
+
+        // Archive l'ancien prix SI le nouveau diffère (trace historique)
         if (isset($_POST['prix_vente_catalogue']) && $_POST['prix_vente_catalogue'] !== '') {
-            $row['prix_vente_catalogue'] = (float)str_replace(',', '.', (string)$_POST['prix_vente_catalogue']);
-            $row['prix_achat'] = $row['prix_vente_catalogue'];
+            $nouveauPrix = (float)str_replace(',', '.', (string)$_POST['prix_vente_catalogue']);
+            $ancienPrix  = (float)($row['prix_vente_catalogue'] ?? 0);
+            if (abs($nouveauPrix - $ancienPrix) > 0.5) {
+                $uid = (int)($_SESSION['id_user'] ?? $_SESSION['id'] ?? 0);
+                $motif = trim((string)($_POST['motif_prix'] ?? ''));
+                $pdo->prepare("INSERT INTO investisseur_prix_historique (id_analyse, id_user, prix_ancien, prix_nouveau, motif) VALUES (:a, :u, :pa, :pn, :m)")
+                    ->execute([':a' => $id, ':u' => $uid ?: null, ':pa' => $ancienPrix ?: null, ':pn' => $nouveauPrix, ':m' => $motif ?: null]);
+            }
+            $row['prix_vente_catalogue'] = $nouveauPrix;
+            $row['prix_achat'] = $nouveauPrix;
         }
         if (isset($_POST['loyer_annuel']) && $_POST['loyer_annuel'] !== '') {
             $row['loyer_estime'] = round(((float)str_replace(',', '.', (string)$_POST['loyer_annuel'])) / 12, 2);
