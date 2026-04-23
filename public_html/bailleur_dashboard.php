@@ -317,8 +317,8 @@ ob_start();
   <div><div class="bk-v" style="color:#16a34a"><?= fmt($kpi['encaissements']) ?></div><div class="bk-l">Loyers appelés</div></div>
   <?php if ($showInterne): ?>
   <div><div class="bk-v" style="color:#dc2626"><?= fmt($kpi['depenses']) ?></div><div class="bk-l">Dépenses</div></div>
-  <?php endif; ?>
   <div><div class="bk-v" style="color:<?= $kpi['solde']>=0?'#16a34a':'#dc2626' ?>"><?= fmt($kpi['solde']) ?></div><div class="bk-l">Solde net</div></div>
+  <?php endif; ?>
   <div><div class="bk-v"><?= $kpi['lots_total'] ?></div><div class="bk-l">Lots</div></div>
   <div><div class="bk-v" style="color:#16a34a"><?= $kpi['lots_occupes'] ?></div><div class="bk-l">Occupés</div></div>
   <?php if ($showInterne): ?>
