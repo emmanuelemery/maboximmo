@@ -378,6 +378,41 @@ $radarValues = [
         </div>
     </div>
 
+    <!-- Bloc clarification : coût d'acquisition acquéreur -->
+    <?php
+    $px       = (float)$row['prix_achat'];
+    $notaire  = (float)$row['frais_notaire'] > 0 ? (float)$row['frais_notaire'] : round($px * 0.08, 0);
+    $travauxV = (float)($row['travaux'] ?? 0);
+    $agence   = (float)($row['frais_agence'] ?? 0);
+    $meubles  = (float)($row['ameublement'] ?? 0);
+    $coutTotalAcq = $px + $notaire + $travauxV + $agence + $meubles;
+    $tauxAcq  = ($coutTotalAcq > 0 && $row['loyer_estime'] > 0)
+              ? (((float)$row['loyer_estime'] * 12) / $coutTotalAcq) * 100 : 0;
+    ?>
+    <div class="inv-paper" style="border-left:4px solid #4878a6; background:#f4f8fc;">
+        <h2 style="color:#4878a6;">💼 Coût d'acquisition pour un acquéreur</h2>
+        <p style="margin:0 0 14px; font-size:13px; color:#5a5a55;">
+            Pour un investisseur, le coût total à débourser = prix demandé + frais de notaire
+            (<?= $notaire === round($px * 0.08, 0) ? '~8 % auto' : 'renseignés' ?>)
+            + éventuels frais d'agence + travaux + ameublement. C'est sur ce total que le rendement <em>réel</em> acquéreur se calcule.
+        </p>
+        <table class="inv-kpi-table" style="margin:0;">
+            <tr><th>Prix demandé</th><td><?= number_format($px, 0, ',', ' ') ?> €</td></tr>
+            <tr><th>+ Frais de notaire</th><td><?= number_format($notaire, 0, ',', ' ') ?> €</td></tr>
+            <?php if ($agence > 0): ?><tr><th>+ Frais d'agence</th><td><?= number_format($agence, 0, ',', ' ') ?> €</td></tr><?php endif; ?>
+            <?php if ($meubles > 0): ?><tr><th>+ Ameublement</th><td><?= number_format($meubles, 0, ',', ' ') ?> €</td></tr><?php endif; ?>
+            <tr><th>+ Travaux estimés</th><td><?= $travauxV > 0 ? number_format($travauxV, 0, ',', ' ') . ' €' : '— (à préciser en réunion)' ?></td></tr>
+            <tr style="background:#e0ebf8;"><th style="color:#4878a6;">= COÛT TOTAL ACQUÉREUR</th><td style="color:#4878a6; font-size:16px;"><strong><?= number_format($coutTotalAcq, 0, ',', ' ') ?> €</strong></td></tr>
+            <tr><th>Rendement brut <em>réel</em> acquéreur</th><td style="color:#4878a6;"><strong><?= $tauxAcq > 0 ? number_format($tauxAcq, 2, ',', ' ') . ' %' : '—' ?></strong>
+                <span style="font-size:11px; color:#9a9690;">(loyer annuel / coût total)</span>
+            </td></tr>
+        </table>
+        <p style="margin:12px 0 0; font-size:12px; color:#5a5a55;">
+            💡 Pour saisir ou modifier les <strong>travaux estimés</strong> et voir l'impact sur ce taux en temps réel,
+            utilisez le <a href="<?= $h($u('/investisseur/reunion.php?id=' . $id)) ?>" style="color:#b4443a; font-weight:600;">mode réunion 🎤</a>.
+        </p>
+    </div>
+
     <!-- Détails chiffrés -->
     <div class="inv-paper">
         <h2 id="details">Détail chiffré</h2>
@@ -397,7 +432,7 @@ $radarValues = [
                         (<?= $ecartNego < 0 ? '−' : '+' ?><?= number_format(abs($ecartNegoPct), 1, ',', ' ') ?> %)
                     </td></tr>
                 <?php else: ?>
-                    <tr><th>Prix d'achat</th><td><?= number_format($pAchat, 0, ',', ' ') ?> €</td></tr>
+                    <tr><th>Prix d'achat (demandé)</th><td><?= number_format($pAchat, 0, ',', ' ') ?> €</td></tr>
                 <?php endif; ?>
                 <tr><th>Prix / m²</th><td><strong><?= (float)$row['prix_m2'] > 0 ? number_format((float)$row['prix_m2'], 0, ',', ' ') . ' €' : '—' ?></strong></td></tr>
                 <tr><th>Frais de notaire</th><td><?= number_format((float)$row['frais_notaire'], 0, ',', ' ') ?> €</td></tr>

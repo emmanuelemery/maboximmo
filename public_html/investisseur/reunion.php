@@ -55,6 +55,12 @@ $tauxDefault = $prixCat > 0 && $loyerAnnuel > 0 ? round(($loyerAnnuel / $prixCat
 $tauxRetenu = $row['taux_renta_retenu'] !== null && (float)$row['taux_renta_retenu'] > 0 ? (float)$row['taux_renta_retenu'] : $tauxDefault;
 $priorite = (int)($row['priorite_vente'] ?? 0);
 
+// Coût acquéreur : frais notaires + travaux (déjà en BDD)
+$fraisNotaire = (float)($row['frais_notaire'] ?? 0);
+$travaux      = (float)($row['travaux'] ?? 0);
+// Si frais notaires vides, on propose ~8% par défaut (commercial / ancien)
+$fraisNotaireDefault = $fraisNotaire > 0 ? $fraisNotaire : round($prixCat * 0.08, 0);
+
 // Adresse pour Google Maps
 $adresseComplete = trim(($row['adresse'] ?? '') . ' ' . ($row['ville'] ?? ''));
 $gmapsUrl = $adresseComplete !== ''
@@ -216,15 +222,43 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                 <input type="number" id="rn_prix_fixe" value="<?= (int)$prixCat ?>" step="1000">
                 <div class="hint">Ce prix sera conservé quand vous quitterez la page</div>
             </div>
+        </div>
 
+        <!-- ─── Coût d'acquisition acquéreur ─── -->
+        <h3 style="margin:24px 0 10px; font-size:13px; color:#4878a6; text-transform:uppercase; letter-spacing:.08em;">💼 Vue acquéreur — coût total réel</h3>
+        <div class="rn-sim" style="background:#eff6ff; padding:14px 16px; border-radius:10px; border-left:4px solid #4878a6;">
+            <div class="rn-field">
+                <label>Frais de notaire (€)</label>
+                <input type="number" id="rn_notaire" value="<?= (int)$fraisNotaireDefault ?>" step="100">
+                <div class="hint">Vide = 8 % auto du prix (ancien commercial)</div>
+            </div>
+            <div class="rn-field">
+                <label>Travaux estimés (€)</label>
+                <input type="number" id="rn_travaux" value="<?= (int)$travaux ?>" step="1000">
+                <div class="hint">Rafraîchissement, mise aux normes, rénovation...</div>
+            </div>
+            <div class="rn-field" style="grid-column: span 2;">
+                <label style="color:#4878a6;">= Coût total acquéreur</label>
+                <input type="text" id="rn_cout_total" readonly style="background:#e0ebf8; color:#4878a6; font-size:20px; font-weight:800; cursor:default;">
+                <div class="hint" id="rn_cout_detail">Prix + frais notaire + travaux</div>
+            </div>
+            <div class="rn-field" style="grid-column: span 2;">
+                <label style="color:#4878a6;">Taux de rentabilité RÉEL acquéreur (%)</label>
+                <input type="text" id="rn_taux_acq" readonly style="background:#e0ebf8; color:#4878a6; font-size:18px; font-weight:800; cursor:default;">
+                <div class="hint">Loyer annuel / Coût total acquéreur — c'est le taux réellement servi à l'acheteur</div>
+            </div>
+        </div>
+
+        <!-- ─── Priorité + Save ─── -->
+        <div class="rn-sim" style="margin-top:20px;">
             <div class="rn-field">
                 <label>Priorité (0-10)</label>
                 <input type="number" id="rn_priorite" value="<?= $priorite ?>" min="0" max="10" step="1">
                 <div class="hint">0 = non prioritaire, 10 = urgent</div>
             </div>
 
-            <div style="grid-column: span 2; text-align:right; margin-top:8px;">
-                <button type="button" class="rn-save" id="rn_save_btn">💾 Enregistrer prix fixé + priorité + taux + commentaire</button>
+            <div style="grid-column: span 1; text-align:right; align-self:end;">
+                <button type="button" class="rn-save" id="rn_save_btn">💾 Enregistrer prix + notaire + travaux + priorité + commentaire</button>
             </div>
         </div>
     </div>
@@ -295,6 +329,11 @@ const F = {
     taux:      $$('rn_taux'),
     prixSimu:  $$('rn_prix_simu'),
     prixFixe:  $$('rn_prix_fixe'),
+    notaire:   $$('rn_notaire'),
+    travaux:   $$('rn_travaux'),
+    coutTotal: $$('rn_cout_total'),
+    tauxAcq:   $$('rn_taux_acq'),
+    coutDetail: $$('rn_cout_detail'),
     priorite:  $$('rn_priorite'),
     commentaire: $$('rn_commentaire'),
 };
@@ -341,6 +380,22 @@ function syncFromPrixSimu() {
     runAnalysis();
 }
 
+// ─── Coût acquéreur total = Prix retenu + frais notaires + travaux ───
+function recalcCoutAcquereur() {
+    const prix  = getPrix().val;
+    const loyer = getLoyer().val;
+    let notaire = parseFloat(F.notaire.value);
+    const travaux = parseFloat(F.travaux.value) || 0;
+    // Auto : si frais notaires non saisis → 8 % du prix retenu
+    if (isNaN(notaire) || notaire <= 0) {
+        notaire = prix > 0 ? Math.round(prix * 0.08) : 0;
+    }
+    const total = prix + notaire + travaux;
+    F.coutTotal.value = total > 0 ? new Intl.NumberFormat('fr-FR', {maximumFractionDigits: 0}).format(total) + ' €' : '—';
+    F.tauxAcq.value   = (total > 0 && loyer > 0) ? ((loyer / total) * 100).toFixed(2) + ' %' : '—';
+    F.coutDetail.textContent = 'Prix ' + fmt(prix) + ' + notaire ' + fmt(notaire) + ' + travaux ' + fmt(travaux) + ' €';
+}
+
 // ─── Lancement de l'analyse serveur (live) ───────────────────────────
 let rnT = null;
 async function runAnalysis() {
@@ -379,13 +434,18 @@ async function runAnalysis() {
 }
 
 // Hooks
-F.loyerReel.addEventListener('input', syncFromLoyer);
-F.loyerSimu.addEventListener('input', syncFromLoyer);
-F.taux.addEventListener('input', syncFromTaux);
-F.prixSimu.addEventListener('input', syncFromPrixSimu);
-F.prixFixe.addEventListener('input', () => { markDirty(); runAnalysis(); });
+F.loyerReel.addEventListener('input', () => { recalcCoutAcquereur(); syncFromLoyer(); });
+F.loyerSimu.addEventListener('input', () => { recalcCoutAcquereur(); syncFromLoyer(); });
+F.taux.addEventListener('input',      () => { recalcCoutAcquereur(); syncFromTaux(); });
+F.prixSimu.addEventListener('input',  () => { recalcCoutAcquereur(); syncFromPrixSimu(); });
+F.prixFixe.addEventListener('input',  () => { markDirty(); recalcCoutAcquereur(); runAnalysis(); });
+F.notaire.addEventListener('input',   () => { markDirty(); recalcCoutAcquereur(); });
+F.travaux.addEventListener('input',   () => { markDirty(); recalcCoutAcquereur(); });
 F.priorite.addEventListener('input', markDirty);
 F.commentaire.addEventListener('input', markDirty);
+
+// Calcul initial
+recalcCoutAcquereur();
 
 function markDirty() {
     const btn = $$('rn_save_btn');
@@ -406,6 +466,8 @@ $$('rn_save_btn').addEventListener('click', async () => {
     fd.append('priorite_vente',       F.priorite.value || '0');
     fd.append('taux_renta_retenu',    F.taux.value);
     fd.append('commentaire_reunion',  F.commentaire.value);
+    fd.append('frais_notaire',        F.notaire.value || '0');
+    fd.append('travaux',              F.travaux.value || '0');
     try {
         const r = await fetch(RN_API, {method:'POST', body:fd});
         const j = await r.json();
@@ -435,6 +497,8 @@ async function autosaveOnLeave() {
     fd.append('priorite_vente',       F.priorite.value || '0');
     fd.append('taux_renta_retenu',    F.taux.value);
     fd.append('commentaire_reunion',  F.commentaire.value);
+    fd.append('frais_notaire',        F.notaire.value || '0');
+    fd.append('travaux',              F.travaux.value || '0');
     try { await fetch(RN_API, {method:'POST', body:fd, keepalive:true}); } catch (e) {}
 }
 document.querySelectorAll('.rn-nav a').forEach(a => {

@@ -85,6 +85,12 @@ try {
         if (isset($_POST['commentaire_reunion'])) {
             $row['commentaire_reunion'] = trim((string)$_POST['commentaire_reunion']);
         }
+        if (isset($_POST['frais_notaire'])) {
+            $row['frais_notaire'] = (float)str_replace(',', '.', (string)$_POST['frais_notaire']);
+        }
+        if (isset($_POST['travaux'])) {
+            $row['travaux'] = (float)str_replace(',', '.', (string)$_POST['travaux']);
+        }
         inv_save($pdo, $row, $id);
         $row = inv_load($pdo, $id);
         echo json_encode(['ok' => true, 'row' => [
