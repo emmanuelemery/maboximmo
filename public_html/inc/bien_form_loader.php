@@ -37,7 +37,7 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
             i.latitude AS _imm_latitude,
             i.longitude AS _imm_longitude
         FROM biens b
-        LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+        LEFT JOIN base_types_bien tb ON tb.id = b.id_type_bien
         LEFT JOIN immeubles  i  ON i.id  = b.id_immeuble
         WHERE b.id = :id
         " . ($idSociete !== null ? " AND (b.id_societe = :soc OR b.id_societe IS NULL)" : "") . "
@@ -197,7 +197,7 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
 {
     if ($idTypeBienDefault === null || $idTypeBienDefault <= 0) {
         // Récupère le premier type actif (en général : appartement)
-        $idTypeBienDefault = (int)($pdo->query("SELECT id FROM types_bien WHERE actif = 1 ORDER BY ordre_affichage, id LIMIT 1")->fetchColumn() ?: 1);
+        $idTypeBienDefault = (int)($pdo->query("SELECT id FROM base_types_bien WHERE actif = 1 ORDER BY ordre_defaut, id LIMIT 1")->fetchColumn() ?: 1);
     }
 
     // Référence temporaire unique (modifiable ensuite par l'utilisateur)

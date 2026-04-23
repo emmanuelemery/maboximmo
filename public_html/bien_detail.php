@@ -2369,12 +2369,12 @@ require_once $_sbFile;
                       }
                   }
 
-                  // Label du type de bien : récupéré via types_bien.libelle (id_type_bien)
+                  // Label du type de bien : récupéré via base_types_bien.label (id_type_bien)
                   $typeBienLibelle = '';
                   $typeBienEmoji   = '🏷️';
                   if (!empty($b['id_type_bien'])) {
                       try {
-                          $stTb = $pdo->prepare("SELECT libelle FROM types_bien WHERE id = ? LIMIT 1");
+                          $stTb = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
                           $stTb->execute([(int)$b['id_type_bien']]);
                           $typeBienLibelle = (string)$stTb->fetchColumn();
                       } catch (Throwable) {}

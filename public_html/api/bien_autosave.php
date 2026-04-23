@@ -570,7 +570,11 @@ foreach ($protectedFields as $f) {
 // quand le frontend envoie type_bien) écraserait la valeur résolue ici.
 $typeBienCode = $str('type_bien');
 if ($typeBienCode !== '') {
-    $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+    // Bug 2026-04-23 : dropdown bien_detail utilise base_types_bien, donc la résolution
+    // code → id doit se faire sur la même table pour éviter l'inversion systématique
+    // au rafraîchissement (ex : Appartement devenait Maison car id=2 dans types_bien
+    // = Appartement mais id=2 dans base_types_bien = Maison).
+    $stmtT = $pdo->prepare("SELECT id FROM base_types_bien WHERE code = ? LIMIT 1");
     $stmtT->execute([$typeBienCode]);
     $tbId = (int)$stmtT->fetchColumn();
     if ($tbId > 0) {
