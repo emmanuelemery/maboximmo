@@ -82,7 +82,12 @@ $h = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
 ?>
 <style>
-.rn-wrap { max-width: 1100px; margin: 0 auto; }
+.rn-wrap { max-width: 1400px; margin: 0 auto; }
+.rn-two-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; margin-top: 24px; }
+@media (max-width: 900px) { .rn-two-cols { grid-template-columns: 1fr; } }
+.rn-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.rn-label-row .pct-box { display:inline-flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#4878a6; font-weight:700; }
+.rn-label-row .pct-box input { width:52px; padding:3px 6px; font-size:12px; font-family:'Sora',sans-serif; border:1px solid #c8d8ea; border-radius:4px; text-align:right; font-weight:700; background:#fff; }
 .rn-head { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
 .rn-head h1 { margin:0; font-size:24px; color:#24324a; flex:1; }
 .rn-nav { display:flex; gap:8px; }
@@ -228,20 +233,39 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
         </div>
 
         <!-- ─── Vues acquéreur + propriétaire côte à côte ─── -->
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-top:24px;">
+        <div class="rn-two-cols">
 
             <!-- VUE ACQUÉREUR -->
+            <?php
+            // Taux bancaire par défaut selon typologie
+            $typ = inv_typologie_of($row['type_bien'] ?? '');
+            $tauxBanqueDefault = match ($typ) {
+                'commercial' => 4.5,
+                'bureau'     => 4.3,
+                'activite'   => 4.5,
+                'immeuble'   => 4.0,
+                'habitation' => 3.8,
+                'parking'    => 5.0,
+                default      => 4.5,
+            };
+            ?>
             <div style="background:#eff6ff; padding:14px 16px; border-radius:10px; border-left:4px solid #4878a6;">
                 <h3 style="margin:0 0 12px; font-size:13px; color:#4878a6; text-transform:uppercase; letter-spacing:.08em;">💼 Vue acquéreur — coût total réel</h3>
 
                 <div class="rn-field" style="margin-bottom:12px;">
-                    <label>Frais de notaire (€) <span style="float:right;">Taux : <input type="number" id="rn_notaire_pct" value="8" step="0.1" min="0" max="15" style="width:56px; padding:2px 6px; font-size:12px; font-family:inherit; border:1px solid #c8d8ea; border-radius:4px; text-align:right;">%</span></label>
+                    <div class="rn-label-row">
+                        <label style="margin:0;">Frais de notaire (€)</label>
+                        <span class="pct-box">Taux <input type="number" id="rn_notaire_pct" value="8" step="0.1" min="0" max="15">%</span>
+                    </div>
                     <input type="number" id="rn_notaire" value="<?= (int)$fraisNotaireDefault ?>" step="100">
                     <div class="hint" id="rn_notaire_hint"></div>
                 </div>
 
                 <div class="rn-field" style="margin-bottom:12px;">
-                    <label>Honoraires de commercialisation (€) <span style="float:right;">Taux : <input type="number" id="rn_honoraires_pct" value="4" step="0.1" min="0" max="15" style="width:56px; padding:2px 6px; font-size:12px; font-family:inherit; border:1px solid #c8d8ea; border-radius:4px; text-align:right;">%</span></label>
+                    <div class="rn-label-row">
+                        <label style="margin:0;">Honoraires de commercialisation (€)</label>
+                        <span class="pct-box">Taux <input type="number" id="rn_honoraires_pct" value="4" step="0.1" min="0" max="15">%</span>
+                    </div>
                     <input type="number" id="rn_honoraires" value="<?= (int)$honorairesVenteDefault ?>" step="100">
                     <div class="hint" id="rn_honoraires_hint"></div>
                 </div>
@@ -262,6 +286,40 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                     <label style="color:#4878a6;">Taux de rentabilité RÉEL acquéreur (%)</label>
                     <input type="text" id="rn_taux_acq" readonly style="background:#e0ebf8; color:#4878a6; font-size:18px; font-weight:800; cursor:default;">
                     <div class="hint">Loyer annuel / Coût total acquéreur</div>
+                </div>
+
+                <!-- ─── Simulation financement bancaire ─── -->
+                <div style="margin-top:16px; padding:12px 14px; background:#fff; border:1px dashed #c8d8ea; border-radius:8px;">
+                    <div style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#4878a6; font-weight:700; margin-bottom:10px;">
+                        💰 Simulation financement (80 % du coût total sur 15 ans)
+                    </div>
+                    <div class="rn-field" style="margin-bottom:10px;">
+                        <div class="rn-label-row">
+                            <label style="margin:0;">Taux bancaire (%)</label>
+                            <span class="pct-box" style="color:#9a9690;">typologie : <?= $h(inv_typologies()[$typ][0] ?? 'Autre') ?></span>
+                        </div>
+                        <input type="number" id="rn_taux_banque" value="<?= number_format($tauxBanqueDefault, 2, '.', '') ?>" step="0.05" min="0.5" max="10">
+                        <div class="hint">Taux moyen constaté pour ce type de bien — modifiable</div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                        <div class="rn-field">
+                            <label style="color:#4878a6; font-size:10px;">Emprunt (80 %)</label>
+                            <input type="text" id="rn_emprunt" readonly style="background:#f4f8fc; color:#4878a6; font-weight:700; font-size:13px;">
+                        </div>
+                        <div class="rn-field">
+                            <label style="color:#4878a6; font-size:10px;">Mensualité crédit</label>
+                            <input type="text" id="rn_mensualite" readonly style="background:#f4f8fc; color:#4878a6; font-weight:700; font-size:13px;">
+                        </div>
+                        <div class="rn-field">
+                            <label style="color:#4878a6; font-size:10px;">Coût financement annuel</label>
+                            <input type="text" id="rn_cout_fin_an" readonly style="background:#f4f8fc; color:#4878a6; font-weight:700; font-size:13px;">
+                        </div>
+                        <div class="rn-field">
+                            <label style="color:#4878a6; font-size:10px;">Couverture loyer</label>
+                            <input type="text" id="rn_couverture" readonly style="background:#f4f8fc; color:#4878a6; font-weight:700; font-size:13px;">
+                        </div>
+                    </div>
+                    <div class="hint" id="rn_fin_detail" style="margin-top:6px;"></div>
                 </div>
             </div>
 
@@ -384,6 +442,12 @@ const F = {
     travBail:   $$('rn_trav_bailleur'),
     cfBailleur: $$('rn_cf_bailleur_an1'),
     gainGarder10: $$('rn_gain_10'),
+    tauxBanque: $$('rn_taux_banque'),
+    emprunt:    $$('rn_emprunt'),
+    mensualite: $$('rn_mensualite'),
+    coutFinAn:  $$('rn_cout_fin_an'),
+    couverture: $$('rn_couverture'),
+    finDetail:  $$('rn_fin_detail'),
     coutTotal:  $$('rn_cout_total'),
     tauxAcq:    $$('rn_taux_acq'),
     coutDetail: $$('rn_cout_detail'),
@@ -470,12 +534,50 @@ function syncEurFromPct(inputEur, pctEl) {
     const pct  = parseFloat(pctEl.value);
     if (prix > 0 && !isNaN(pct)) inputEur.value = Math.round(prix * pct / 100);
     markDirty(); recalcCoutAcquereur();
+recalcFinancement();
 }
 function syncPctFromEur(inputEur, pctEl) {
     const prix = getPrix().val;
     const eur  = parseFloat(inputEur.value);
     if (prix > 0 && !isNaN(eur)) pctEl.value = ((eur / prix) * 100).toFixed(2);
     markDirty(); recalcCoutAcquereur();
+recalcFinancement();
+}
+
+// ─── Simulation financement bancaire (80 % × 15 ans) ───
+function recalcFinancement() {
+    // Le coût total acquéreur est déjà calculé dans F.coutTotal (format "1 234 567 €")
+    // On le reconstruit depuis les données brutes pour plus de fiabilité.
+    const prix = getPrix().val;
+    let notaire    = parseFloat(F.notaire.value);
+    let honoraires = parseFloat(F.honoraires.value);
+    const travaux  = parseFloat(F.travaux.value) || 0;
+    if (isNaN(notaire)    || notaire <= 0)    notaire    = prix > 0 ? Math.round(prix * (parseFloat(F.notairePct.value || 8)    / 100)) : 0;
+    if (isNaN(honoraires) || honoraires <= 0) honoraires = prix > 0 ? Math.round(prix * (parseFloat(F.honorairesPct.value || 4) / 100)) : 0;
+    const cout = prix + notaire + honoraires + travaux;
+
+    const emprunt = Math.round(cout * 0.80);
+    const tauxAn  = parseFloat(F.tauxBanque.value);
+    const loyerAn = getLoyer().val;
+    const nMois   = 15 * 12;
+    const t       = (isNaN(tauxAn) ? 4.5 : tauxAn) / 100 / 12;
+    let mensualite = 0, coutAn = 0, couverture = 0;
+    if (emprunt > 0 && t > 0) {
+        mensualite = emprunt * (t * Math.pow(1 + t, nMois)) / (Math.pow(1 + t, nMois) - 1);
+        coutAn = mensualite * 12;
+        couverture = loyerAn > 0 ? (loyerAn / coutAn) * 100 : 0;
+    }
+    F.emprunt.value    = emprunt > 0 ? fmtE(emprunt) : '—';
+    F.mensualite.value = mensualite > 0 ? fmtE(Math.round(mensualite)) + ' / mois' : '—';
+    F.coutFinAn.value  = coutAn > 0 ? fmtE(Math.round(coutAn)) + ' / an' : '—';
+    F.couverture.value = couverture > 0 ? couverture.toFixed(0) + ' %' : '—';
+    // Couleur : vert si couverture >= 100, orange si 80-99, rouge < 80
+    const col = couverture >= 100 ? '#4f7a3a' : (couverture >= 80 ? '#d97a3a' : '#b4443a');
+    F.couverture.style.color = col;
+    F.finDetail.innerHTML = emprunt > 0
+        ? 'Emprunt ' + fmtE(emprunt) + ' × ' + (isNaN(tauxAn) ? '?' : tauxAn.toFixed(2)) + '% × 15 ans · '
+          + 'loyer annuel ' + fmtE(loyerAn) + ' couvre <strong style="color:' + col + '">' + (couverture > 0 ? couverture.toFixed(0) + '%' : '—') + '</strong> des traites'
+        : '';
 }
 
 // ─── Lancement de l'analyse serveur (live) ───────────────────────────
@@ -521,17 +623,24 @@ async function runAnalysis() {
 }
 
 // Hooks
-F.loyerReel.addEventListener('input',  () => { recalcCoutAcquereur(); syncFromLoyer(); });
-F.loyerSimu.addEventListener('input',  () => { recalcCoutAcquereur(); syncFromLoyer(); });
-F.taux.addEventListener('input',       () => { recalcCoutAcquereur(); syncFromTaux(); });
-F.prixSimu.addEventListener('input',   () => { recalcCoutAcquereur(); syncFromPrixSimu(); });
-F.prixFixe.addEventListener('input',   () => { markDirty(); recalcCoutAcquereur(); runAnalysis(); });
+F.loyerReel.addEventListener('input',  () => { recalcCoutAcquereur();
+recalcFinancement(); syncFromLoyer(); });
+F.loyerSimu.addEventListener('input',  () => { recalcCoutAcquereur();
+recalcFinancement(); syncFromLoyer(); });
+F.taux.addEventListener('input',       () => { recalcCoutAcquereur();
+recalcFinancement(); syncFromTaux(); });
+F.prixSimu.addEventListener('input',   () => { recalcCoutAcquereur();
+recalcFinancement(); syncFromPrixSimu(); });
+F.prixFixe.addEventListener('input',   () => { markDirty(); recalcCoutAcquereur();
+recalcFinancement(); runAnalysis(); });
 F.notaire.addEventListener('input',       () => syncPctFromEur(F.notaire, F.notairePct));
 F.notairePct.addEventListener('input',    () => syncEurFromPct(F.notaire, F.notairePct));
 F.honoraires.addEventListener('input',    () => syncPctFromEur(F.honoraires, F.honorairesPct));
 F.honorairesPct.addEventListener('input', () => syncEurFromPct(F.honoraires, F.honorairesPct));
-F.travaux.addEventListener('input',    () => { markDirty(); recalcCoutAcquereur(); });
+F.travaux.addEventListener('input',    () => { markDirty(); recalcCoutAcquereur();
+recalcFinancement(); });
 F.travBail.addEventListener('input',   () => { markDirty(); runAnalysis(); }); // impact projection 5/10 ans
+F.tauxBanque.addEventListener('input', () => { recalcFinancement(); });
 F.priorite.addEventListener('input', markDirty);
 F.commentaire.addEventListener('input', markDirty);
 
@@ -566,6 +675,7 @@ addLiveFmt(F.prixFixe);
 
 // Calcul initial
 recalcCoutAcquereur();
+recalcFinancement();
 
 function markDirty() {
     const btn = $$('rn_save_btn');
