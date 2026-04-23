@@ -43,12 +43,21 @@ try {
 }
 
 /* ── Construction de la requête dynamique ──────────────── */
-// Super-admin (role_id=1) voit TOUS les biens (cross-société/agence) ;
-// les autres rôles sont restreints à leur société.
-$isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
+// Super-admin (role_id=1) voit TOUS les biens (cross-société/agence).
+// Rôles propriétaires (9 = PROPRIO, 10 = PROPRIO_VIP) : scope via user_proprietaires
+// (ils voient les biens des SCI auxquelles leur user est rattaché, peu importe id_societe).
+// Autres rôles : restriction à leur société.
+$_idRole = (int)($_SESSION['id_role'] ?? 0);
+$_idUser = (int)($_SESSION['id_user'] ?? $_SESSION['id'] ?? 0);
+$isSuperAdmin = ($_idRole === 1);
+$isProprioExterne = in_array($_idRole, [9, 10], true);
+
 if ($isSuperAdmin) {
     $where  = ['1=1'];
     $params = [];
+} elseif ($isProprioExterne && $_idUser > 0) {
+    $where  = ["b.id_proprietaire IN (SELECT id_proprietaire FROM user_proprietaires WHERE id_user = :id_user)"];
+    $params = [':id_user' => $_idUser];
 } else {
     $where  = ["b.id_societe = :id_societe"];
     $params = [':id_societe' => $_SESSION['id_societe'] ?? 0];

@@ -47,13 +47,31 @@ if ($editingBienId <= 0) {
     }
 }
 
-// Super-admin (role=1) bypass le filtre société pour pouvoir voir n'importe quel bien
-$isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
-$idSociete = $isSuperAdmin ? null : (isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null);
+// Super-admin (role=1) bypass le filtre société pour pouvoir voir n'importe quel bien.
+// Rôles propriétaires externes (9/10) : bypass du filtre société également — le scope
+// est assuré par user_proprietaires (contrôle ci-dessous).
+$_idRole = (int)($_SESSION['id_role'] ?? 0);
+$isSuperAdmin = ($_idRole === 1);
+$isProprioExterne = in_array($_idRole, [9, 10], true);
+$idSociete = ($isSuperAdmin || $isProprioExterne) ? null : (isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null);
 $bienLoaded = bien_form_load_record($pdo, $editingBienId, $idSociete);
 if ($bienLoaded === null) {
     header('Location: ' . app_url('/bien_liste.php?err=bien_introuvable'));
     exit;
+}
+// Contrôle d'accès supplémentaire pour les propriétaires : vérifier que
+// le bien appartient bien à une des SCI rattachées à leur user.
+if ($isProprioExterne) {
+    $_idUserSess = (int)($_SESSION['id_user'] ?? $_SESSION['id'] ?? 0);
+    $stAcc = $pdo->prepare("SELECT 1 FROM user_proprietaires
+        WHERE id_user = :u AND id_proprietaire = :p LIMIT 1");
+    $stAcc->bindValue(':u', $_idUserSess, PDO::PARAM_INT);
+    $stAcc->bindValue(':p', (int)($bienLoaded['id_proprietaire'] ?? 0), PDO::PARAM_INT);
+    $stAcc->execute();
+    if (!$stAcc->fetchColumn()) {
+        header('Location: ' . app_url('/bien_liste.php?err=acces_refuse'));
+        exit;
+    }
 }
 
 // ─── Auto-génération reference_bien si vide ────────────────

@@ -245,7 +245,19 @@ $_bailNav = '<div style="display:flex;gap:10px;justify-content:center;flex:1;">
     <a href="bailleur_sci_organigramme.php" style="' . $_off . '">🏛 SCI</a>
 </div>';
 $layout_head_kpis = $_bailNav;
-$layout_head_actions = '';
+
+// Bouton dédié "Partis débiteurs" (affichage masqué par défaut, accès sur demande)
+$_debCount = isset($lotsPartisImpaye) ? count($lotsPartisImpaye) : 0;
+if ($_debCount > 0) {
+    $_debTarget = $_GET;
+    if (isset($_debTarget['debiteurs'])) { unset($_debTarget['debiteurs']); $_debLabel = '🔼 Masquer débiteurs'; $_debActive = true; }
+    else                                 { $_debTarget['debiteurs'] = 1;     $_debLabel = '⚠ Partis débiteurs (' . $_debCount . ')'; $_debActive = false; }
+    $_debUrl = 'bailleur_dashboard.php?' . http_build_query($_debTarget);
+    $_debStyle = 'padding:8px 18px;border-radius:10px;text-decoration:none;font-size:12.5px;font-weight:600;border:1px solid ' . ($_debActive ? '#dc2626' : '#d4d7de') . ';background:' . ($_debActive ? '#fef2f2' : '#fff') . ';color:#dc2626;';
+    $layout_head_actions = '<a href="' . $_debUrl . '" style="' . $_debStyle . '">' . $_debLabel . '</a>';
+} else {
+    $layout_head_actions = '';
+}
 
 $layout_extra_css = '<style>
 .bk{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
@@ -459,19 +471,20 @@ $periode = ($d['trimestre'] ? 'T'.$d['trimestre'] : '') . ' ' . ($d['annee'] ?? 
 <?php
 $showDebiteurs = isset($_GET['debiteurs']);
 $totalImpayePartis = array_sum(array_map(fn($d) => (float)$d['total_impaye'], $lotsPartisImpaye));
-if (!empty($lotsPartisImpaye)): ?>
-<!-- Locataires partis avec impayé -->
+// Le bloc "partis débiteurs" est volontairement invisible par défaut.
+// Il n'apparaît QUE si l'utilisateur a cliqué sur le bouton dédié (?debiteurs=1).
+// Cela évite de polluer le dashboard principal avec une section de suivi
+// contentieux qui nécessite une attention spécifique.
+if ($showDebiteurs && !empty($lotsPartisImpaye)): ?>
+<!-- Locataires partis avec impayé (affichage explicite seulement) -->
 <div style="margin:16px 0 8px;display:flex;align-items:center;gap:12px;">
     <span style="font-size:12px;font-weight:600;color:#dc2626;">Locataires partis — solde impayé (<?= count($lotsPartisImpaye) ?>) — Total : <?= fmt($totalImpayePartis) ?></span>
-    <?php
-    $debParams = $_GET;
-    if ($showDebiteurs) { unset($debParams['debiteurs']); } else { $debParams['debiteurs'] = 1; }
-    ?>
-    <a href="bailleur_dashboard.php?<?= http_build_query($debParams) ?>" style="font-size:11px;padding:4px 12px;border-radius:6px;border:1px solid #d4d7de;background:<?= $showDebiteurs ? '#fef2f2' : '#fff' ?>;color:#dc2626;text-decoration:none;font-weight:600;">
-        <?= $showDebiteurs ? '🔼 Masquer' : '🔽 Voir les débiteurs (' . count($lotsPartisImpaye) . ')' ?>
+    <?php $debParams = $_GET; unset($debParams['debiteurs']); ?>
+    <a href="bailleur_dashboard.php?<?= http_build_query($debParams) ?>" style="font-size:11px;padding:4px 12px;border-radius:6px;border:1px solid #d4d7de;background:#fef2f2;color:#dc2626;text-decoration:none;font-weight:600;">
+        🔼 Masquer les débiteurs
     </a>
 </div>
-<?php if ($showDebiteurs): ?>
+<?php if (true): ?>
 <table class="bt"><thead><tr><th>Lot</th><th>Locataire</th><th>Statut</th><th>Solde impayé</th><th>Période</th><th>CRG</th></tr></thead><tbody>
 <?php foreach ($lotsPartisImpaye as $d):
 $crgRow = null; if (!empty($crgIds)) { foreach ($crgs as $_c) { if ((int)$_c['id']===(int)$d['id_crg']) { $crgRow=$_c; break; } } }
