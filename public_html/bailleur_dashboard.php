@@ -81,6 +81,14 @@ $fTrim  = isset($_GET['trim'])  ? (int)$_GET['trim']   : 0;
 $fImm   = isset($_GET['imm'])   ? (int)$_GET['imm']    : 0;
 $fBien  = isset($_GET['bien'])  ? (int)$_GET['bien']   : 0;
 
+// Rôles propriétaires externes (9 = PROPRIO, 10 = PROPRIO_VIP) :
+// ne pas afficher les indicateurs internes (dépenses détaillées, impayés,
+// débiteurs) — réservés à l'admin cabinet. On garde pour eux : encaissements,
+// solde, lots, patrimoine.
+$_idRoleDash = (int)($_SESSION['id_role'] ?? 0);
+$isProprioDash = in_array($_idRoleDash, [9, 10], true);
+$showInterne   = !$isProprioDash; // admin / collab / manager / super admin
+
 if ($fProp <= 0 && count($propIds) === 1) $fProp = (int)$propIds[0];
 $activePropIds = ($fProp > 0 && in_array($fProp, $propIds)) ? [$fProp] : $propIds;
 
@@ -246,9 +254,10 @@ $_bailNav = '<div style="display:flex;gap:10px;justify-content:center;flex:1;">
 </div>';
 $layout_head_kpis = $_bailNav;
 
-// Bouton dédié "Partis débiteurs" (affichage masqué par défaut, accès sur demande)
+// Bouton dédié "Partis débiteurs" (masqué par défaut, accès sur demande)
+// Réservé aux rôles internes (admin cabinet) — jamais affiché aux propriétaires externes.
 $_debCount = isset($lotsPartisImpaye) ? count($lotsPartisImpaye) : 0;
-if ($_debCount > 0) {
+if ($showInterne && $_debCount > 0) {
     $_debTarget = $_GET;
     if (isset($_debTarget['debiteurs'])) { unset($_debTarget['debiteurs']); $_debLabel = '🔼 Masquer débiteurs'; $_debActive = true; }
     else                                 { $_debTarget['debiteurs'] = 1;     $_debLabel = '⚠ Partis débiteurs (' . $_debCount . ')'; $_debActive = false; }
@@ -305,13 +314,17 @@ ob_start();
 
 
 <div class="bk">
-  <div><div class="bk-v" style="color:#16a34a"><?= fmt($kpi['encaissements']) ?></div><div class="bk-l">Encaissements</div></div>
+  <div><div class="bk-v" style="color:#16a34a"><?= fmt($kpi['encaissements']) ?></div><div class="bk-l">Loyers appelés</div></div>
+  <?php if ($showInterne): ?>
   <div><div class="bk-v" style="color:#dc2626"><?= fmt($kpi['depenses']) ?></div><div class="bk-l">Dépenses</div></div>
+  <?php endif; ?>
   <div><div class="bk-v" style="color:<?= $kpi['solde']>=0?'#16a34a':'#dc2626' ?>"><?= fmt($kpi['solde']) ?></div><div class="bk-l">Solde net</div></div>
   <div><div class="bk-v"><?= $kpi['lots_total'] ?></div><div class="bk-l">Lots</div></div>
   <div><div class="bk-v" style="color:#16a34a"><?= $kpi['lots_occupes'] ?></div><div class="bk-l">Occupés</div></div>
+  <?php if ($showInterne): ?>
   <div><div class="bk-v" style="color:<?= $kpi['lots_impayes']>0?'#dc2626':'#16a34a' ?>"><?= $kpi['lots_impayes'] ?></div><div class="bk-l">Lots en impayé</div></div>
   <div><div class="bk-v" style="color:<?= $kpi['total_impayes']>0?'#dc2626':'#16a34a' ?>"><?= fmt($kpi['total_impayes']) ?></div><div class="bk-l">Total impayés</div></div>
+  <?php endif; ?>
 </div>
 
 <?php
@@ -319,7 +332,8 @@ ob_start();
 // Sur une vue globale (plusieurs immeubles agrégés), les catégories
 // cumulent des choses non comparables — on ne l'affiche donc que si
 // un immeuble est sélectionné.
-if ($fImm > 0 && !empty($depensesCat)):
+// Également réservé à l'admin (dépenses détaillées = info interne cabinet)
+if ($showInterne && $fImm > 0 && !empty($depensesCat)):
     $selImmNom = $immeubles[array_search($fImm, array_column($immeubles, 'id'))]['nom_immeuble'] ?? ('Immeuble #' . $fImm);
 ?>
 <div class="bs"><div class="bs-t">Répartition des dépenses — <?= h($selImmNom) ?></div>
@@ -361,7 +375,7 @@ foreach ($depensesCat as $c): $p = $mx>0?((float)$c['total_debit']/$mx*100):0; $
   <div id="bs-imm-scroll" style="max-height:<?= $maxH ?>;overflow-y:auto;transition:max-height .25s;">
     <table class="bt" style="margin:0;">
       <thead style="position:sticky;top:0;background:#fff;z-index:1;">
-        <tr><th>Immeuble</th><th>Adresse</th><th>Mandat</th><th>Lots</th><th>Occupés</th><th>Impayés</th><th>CRG</th><th></th></tr>
+        <tr><th>Immeuble</th><th>Adresse</th><th>Mandat</th><th>Lots</th><th>Occupés</th><?php if ($showInterne): ?><th>Impayés</th><?php endif; ?><th>CRG</th><th></th></tr>
       </thead>
       <tbody>
         <?php foreach ($immFiltres as $im):
@@ -381,7 +395,7 @@ foreach ($depensesCat as $c): $p = $mx>0?((float)$c['total_debit']/$mx*100):0; $
             <td style="font-size:10px;font-family:'DM Mono',monospace;color:#4878a6"><?= h($im['compte_gestion'] ?? '') ?></td>
             <td><?= count($il) ?></td>
             <td><span class="bb bb-ok"><?= $io ?></span></td>
-            <td><?= $ii>0?'<span class="bb bb-d">'.$ii.' ('.fmt($it).')</span>':'<span class="bb bb-ok">0</span>' ?></td>
+            <?php if ($showInterne): ?><td><?= $ii>0?'<span class="bb bb-d">'.$ii.' ('.fmt($it).')</span>':'<span class="bb bb-ok">0</span>' ?></td><?php endif; ?>
             <td><?php if ($immPdf): ?><a href="<?= h($immPdf) ?>" target="_blank" title="Ouvrir le CRG PDF" style="font-size:14px">📄</a><?php else: ?><span style="color:#ccc;font-size:11px">—</span><?php endif; ?></td>
             <td style="white-space:nowrap;">
               <?php if ($isSelected):
