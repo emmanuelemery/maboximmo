@@ -198,8 +198,11 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
         </div>
     </div>
 
-    <!-- ─── Simulation + Vue acquéreur côte à côte ─── -->
+    <!-- ─── Simulation + Vue propriétaire (gauche) · Vue acquéreur (droite) ─── -->
     <div class="rn-two-cols" style="margin-bottom:16px;">
+
+    <!-- ═══ COLONNE GAUCHE ═══ -->
+    <div style="display:flex; flex-direction:column; gap:14px;">
 
     <div class="rn-paper" style="margin-bottom:0;">
         <h2>🎛 Simulation — loyer, taux, prix
@@ -282,6 +285,33 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
         </div>
     </div>
     <!-- ↑ Fermeture card Simulation (gauche, rn-paper) -->
+
+    <!-- ─── Vue propriétaire (sous Simulation, dans la colonne gauche) ─── -->
+    <div class="rn-paper" style="margin-bottom:0; background:#f3f7f0; border-left:4px solid #4f7a3a;">
+        <h2 style="color:#4f7a3a;">🏠 Vue propriétaire — si je conserve le bien</h2>
+        <div class="rn-field" style="margin-bottom:12px;">
+            <label>Travaux à charge du bailleur (€) — ponctuel année 1</label>
+            <input type="number" id="rn_trav_bailleur" value="<?= (int)$travauxBailleur ?>" step="1000">
+            <div class="hint" id="rn_trav_bailleur_hint"></div>
+        </div>
+        <div style="background:#fff; padding:10px 14px; border-radius:8px; border:1px dashed #c8e0b8; font-size:12px; color:#5a5a55; line-height:1.5; margin-bottom:12px;">
+            💡 Ces travaux se <strong>soustraient du cashflow année 1</strong> → ils impactent
+            immédiatement les scénarios <strong>« Garder 5 ans »</strong> et <strong>« Garder 10 ans »</strong>.
+        </div>
+        <div class="rn-field" style="margin-bottom:12px;">
+            <label style="color:#4f7a3a;">Cashflow année 1 après travaux bailleur</label>
+            <input type="text" id="rn_cf_bailleur_an1" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
+            <div class="hint">Loyer - charges - mensualités - travaux bailleur</div>
+        </div>
+        <div class="rn-field">
+            <label style="color:#4f7a3a;">Cash net scénario « Garder 10 ans »</label>
+            <input type="text" id="rn_gain_10" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
+            <div class="hint">Projection à horizon 10 ans</div>
+        </div>
+    </div>
+
+    </div>
+    <!-- ↑ Fermeture colonne gauche (Simulation + Vue propriétaire) -->
 
         <!-- ─── Vue acquéreur (card droite dans rn-two-cols) ─── -->
         <?php
@@ -369,34 +399,6 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
 
     </div>
     <!-- ↑ Fermeture rn-two-cols (2 colonnes SIMULATION + ACQUÉREUR) -->
-
-    <!-- ─── Vue propriétaire (pleine largeur sous les 2 cards) ─── -->
-    <div class="rn-paper" style="background:#f3f7f0; border-left:4px solid #4f7a3a;">
-        <h2 style="color:#4f7a3a;">🏠 Vue propriétaire — si je conserve le bien</h2>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start;">
-            <div class="rn-field">
-                <label>Travaux à charge du bailleur (€) — ponctuel année 1</label>
-                <input type="number" id="rn_trav_bailleur" value="<?= (int)$travauxBailleur ?>" step="1000">
-                <div class="hint" id="rn_trav_bailleur_hint"></div>
-                <div style="background:#fff; padding:10px 14px; border-radius:8px; border:1px dashed #c8e0b8; font-size:12px; color:#5a5a55; line-height:1.5; margin-top:10px;">
-                    💡 Ces travaux se <strong>soustraient du cashflow année 1</strong> → ils impactent
-                    immédiatement les scénarios <strong>« Garder 5 ans »</strong> et <strong>« Garder 10 ans »</strong>.
-                </div>
-            </div>
-            <div>
-                <div class="rn-field" style="margin-bottom:12px;">
-                    <label style="color:#4f7a3a;">Cashflow année 1 après travaux bailleur</label>
-                    <input type="text" id="rn_cf_bailleur_an1" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
-                    <div class="hint">Loyer - charges - mensualités - travaux bailleur</div>
-                </div>
-                <div class="rn-field">
-                    <label style="color:#4f7a3a;">Cash net scénario « Garder 10 ans »</label>
-                    <input type="text" id="rn_gain_10" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
-                    <div class="hint">Projection à horizon 10 ans</div>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- ─── Priorité + Save (pleine largeur) ─── -->
     <div class="rn-paper">
