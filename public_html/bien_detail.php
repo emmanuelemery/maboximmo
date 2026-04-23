@@ -1954,8 +1954,14 @@ require_once $_sbFile;
                   <input type="number" step="0.01" min="0" id="v2-renta-charges" placeholder="0">
                 </div>
                 <div class="v2-renta-results">
-                  <span>Rdt brute : <strong id="v2-renta-brute">—</strong></span>
-                  <span>Rdt nette : <strong id="v2-renta-nette">—</strong></span>
+                  <div class="v2-renta-kpi">
+                    <div class="v2-renta-kpi-lbl">Rdt brute</div>
+                    <div class="v2-renta-kpi-val" id="v2-renta-brute">—</div>
+                  </div>
+                  <div class="v2-renta-kpi">
+                    <div class="v2-renta-kpi-lbl">Rdt nette</div>
+                    <div class="v2-renta-kpi-val" id="v2-renta-nette">—</div>
+                  </div>
                 </div>
               </div>
             </div>
