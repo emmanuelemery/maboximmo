@@ -90,10 +90,19 @@ $qsFilter = array_filter([
         </div>
         <div style="flex:1"></div>
         <div class="inv-quickbar">
-            <a href="<?= $h($u('/investisseur/prix_priorites.php')) ?>" class="primary" style="background:#b4443a;">🎯 Prix &amp; priorités</a>
+            <?php
+            // Bien le plus prioritaire → accès direct au mode réunion
+            $firstPrioId = null;
+            foreach ($rows as $r) { if ((int)($r['priorite_vente'] ?? 0) > 0) { $firstPrioId = (int)$r['id']; break; } }
+            if (!$firstPrioId && !empty($rows)) $firstPrioId = (int)$rows[0]['id'];
+            ?>
+            <?php if ($firstPrioId): ?>
+            <a href="<?= $h($u('/investisseur/reunion.php?id=' . $firstPrioId)) ?>" class="primary" style="background:#b4443a;">🎤 Mode réunion</a>
+            <?php endif; ?>
+            <a href="<?= $h($u('/investisseur/prix_priorites.php')) ?>" class="primary" style="background:#24324a;">🎯 Prix &amp; priorités</a>
             <a href="<?= $h($u('/investisseur/valorisation.php')) ?>" class="primary" style="background:#4f7a3a;">💰 Simulateur</a>
-            <a href="<?= $h($u('/investisseur/nouvelle.php')) ?>">+ Nouvelle</a>
             <a href="<?= $h($u('/investisseur/comparaison.php')) ?>">⚖ Comparer</a>
+            <a href="<?= $h($u('/investisseur/nouvelle.php')) ?>">+ Nouvelle</a>
         </div>
     </div>
 
@@ -215,6 +224,14 @@ $qsFilter = array_filter([
                 <span class="sv"><?= $sg ?></span>
                 <span class="sl"><?= $h($lbl) ?></span>
             </a>
+            <div class="ic-actions" style="display:flex; gap:6px; align-items:center;">
+                <a href="<?= $h($u('/investisseur/reunion.php?id=' . (int)$row['id'])) ?>"
+                   title="Mode réunion (simulation live)"
+                   style="padding:6px 10px; background:#b4443a; color:#fff; border-radius:8px; text-decoration:none; font-size:12px; font-weight:700; white-space:nowrap;">🎤</a>
+                <a href="<?= $h($href) ?>"
+                   title="Analyse complète"
+                   style="padding:6px 10px; background:#fff; color:#24324a; border:1px solid #e6e1d7; border-radius:8px; text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap;">🔍</a>
+            </div>
         </div>
         <?php endforeach; ?>
     <?php endif; ?>
