@@ -271,7 +271,7 @@ unset($_SESSION['_valo_flash_error']);
             $col = $diffPct >= 0 ? '#4f7a3a' : '#b4443a';
         ?>
         <div class="inv-card-list" style="--bar-color:<?= $col ?>; margin-bottom:8px;">
-            <a href="?loaded=<?= (int)$s['id'] ?>" class="ic-title-block" style="text-decoration:none;">
+            <a href="<?= $h($u('/investisseur/valorisation.php')) ?>?loaded=<?= (int)$s['id'] ?>" class="ic-title-block" style="text-decoration:none;">
                 <div class="ic-title"><?= $h($s['nom_scenario']) ?></div>
                 <div class="ic-sub">
                     <?= $h($s['description'] ?: '—') ?> ·
@@ -288,7 +288,7 @@ unset($_SESSION['_valo_flash_error']);
                 <span class="ml">vs catalogue</span>
             </div>
             <div class="ic-actions">
-                <a href="?loaded=<?= (int)$s['id'] ?>" class="inv-btn sm">Charger</a>
+                <a href="<?= $h($u('/investisseur/valorisation.php')) ?>?loaded=<?= (int)$s['id'] ?>" class="inv-btn sm">Charger</a>
                 <a href="<?= $h($u('/investisseur/partager.php?type=scenario&id_ref=' . (int)$s['id'] . '&email=t.saby@groupe-sir.fr')) ?>" class="inv-btn sm">📤 Partager</a>
                 <form method="post" style="margin:0;" onsubmit="return confirm('Supprimer ce scénario ?');">
                     <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">

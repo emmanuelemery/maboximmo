@@ -152,7 +152,7 @@ $val = fn($k, $def = '') => $h($contact[$k] ?? $def);
             </div>
         <?php else: ?>
             <?php foreach ($allContacts as $c): ?>
-            <a href="?id=<?= (int)$c['id'] ?>" class="inv-card-list" style="--bar-color:<?= $c['actif'] ? '#4f7a3a' : '#9a9690' ?>; text-decoration:none">
+            <a href="<?= $h($u('/investisseur/contacts.php')) ?>?id=<?= (int)$c['id'] ?>" class="inv-card-list" style="--bar-color:<?= $c['actif'] ? '#4f7a3a' : '#9a9690' ?>; text-decoration:none">
                 <div class="ic-title-block">
                     <div class="ic-title"><?= $h(($c['prenom'] ? $c['prenom'] . ' ' : '') . $c['nom']) ?></div>
                     <div class="ic-sub"><?= $h($c['email']) ?> · <?= $h($c['role']) ?><?php if ($c['telephone']): ?> · <?= $h($c['telephone']) ?><?php endif; ?></div>

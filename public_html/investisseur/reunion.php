@@ -166,12 +166,12 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
         <h1>🎤 <?= $h($row['titre_analyse']) ?></h1>
         <div class="rn-nav">
             <?php if ($idPrev): ?>
-                <a href="?id=<?= (int)$idPrev ?>" title="Bien précédent (← priorité)">← Précédent</a>
+                <a href="<?= $h($u('/investisseur/reunion.php')) ?>?id=<?= (int)$idPrev ?>" title="Bien précédent (← priorité)">← Précédent</a>
             <?php else: ?><span class="dis">← Précédent</span><?php endif; ?>
             <a href="<?= $h($u('/investisseur/prix_priorites.php')) ?>">☰ Liste</a>
             <a href="<?= $h($u('/investisseur/detail.php?id=' . $id)) ?>" target="_blank">🔍 Analyse complète</a>
             <?php if ($idNext): ?>
-                <a href="?id=<?= (int)$idNext ?>" title="Bien suivant">Suivant →</a>
+                <a href="<?= $h($u('/investisseur/reunion.php')) ?>?id=<?= (int)$idNext ?>" title="Bien suivant">Suivant →</a>
             <?php else: ?><span class="dis">Suivant →</span><?php endif; ?>
         </div>
     </div>

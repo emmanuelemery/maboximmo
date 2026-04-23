@@ -162,16 +162,17 @@ $typos = inv_typologies();
     </div>
 
     <!-- Toolbar filtres -->
-    <form method="get" class="inv-paper pp-toolbar">
+    <?php $selfUrl = $u('/investisseur/prix_priorites.php'); ?>
+    <form method="get" action="<?= $h($selfUrl) ?>" class="inv-paper pp-toolbar">
         <span class="inv-pill-label">Tri</span>
         <?php foreach (['priorite' => '⚡ Priorité', 'prix_desc' => 'Prix ↓', 'rdt_desc' => 'Rdt net ↓', 'titre' => 'A→Z'] as $k => $lbl): ?>
-            <a class="inv-pill <?= $tri === $k ? 'active' : '' ?>" href="?<?= http_build_query(array_merge($_GET, ['tri' => $k])) ?>"><?= $h($lbl) ?></a>
+            <a class="inv-pill <?= $tri === $k ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= http_build_query(array_merge($_GET, ['tri' => $k])) ?>"><?= $h($lbl) ?></a>
         <?php endforeach; ?>
 
         <span style="margin-left:14px;"></span><span class="inv-pill-label">Typologie</span>
-        <a class="inv-pill <?= $filters['typologie'] === '' ? 'active' : '' ?>" href="?<?= http_build_query(array_merge($_GET, ['typologie' => ''])) ?>">Toutes</a>
+        <a class="inv-pill <?= $filters['typologie'] === '' ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= http_build_query(array_merge($_GET, ['typologie' => ''])) ?>">Toutes</a>
         <?php foreach ($typos as $tk => $td): ?>
-            <a class="inv-pill <?= $filters['typologie'] === $tk ? 'active' : '' ?>" href="?<?= http_build_query(array_merge($_GET, ['typologie' => $tk])) ?>"><?= $h($td[0]) ?></a>
+            <a class="inv-pill <?= $filters['typologie'] === $tk ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= http_build_query(array_merge($_GET, ['typologie' => $tk])) ?>"><?= $h($td[0]) ?></a>
         <?php endforeach; ?>
 
         <div style="flex:1"></div>

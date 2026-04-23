@@ -107,26 +107,27 @@ $qsFilter = array_filter([
     </div>
 
     <!-- Filtres -->
-    <form method="get" id="inv-filter-form">
+    <?php $selfUrl = $u('/investisseur/index.php'); ?>
+    <form method="get" action="<?= $h($selfUrl) ?>" id="inv-filter-form">
         <div class="inv-pills">
             <span class="inv-pill-label">Typologie</span>
-            <a class="inv-pill <?= $filters['typologie']==='' ? 'active' : '' ?>" href="?<?= $h(http_build_query(array_merge($_GET, ['typologie' => '']))) ?>">Toutes</a>
+            <a class="inv-pill <?= $filters['typologie']==='' ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['typologie' => '']))) ?>">Toutes</a>
             <?php foreach ($typos as $tk => $td): ?>
                 <a class="inv-pill <?= $filters['typologie']===$tk ? 'active' : '' ?>"
-                   href="?<?= $h(http_build_query(array_merge($_GET, ['typologie' => $tk]))) ?>"><?= $h($td[0]) ?></a>
+                   href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['typologie' => $tk]))) ?>"><?= $h($td[0]) ?></a>
             <?php endforeach; ?>
         </div>
         <div class="inv-pills">
             <span class="inv-pill-label">Statut</span>
-            <a class="inv-pill <?= $filters['statut']===''           ? 'active' : '' ?>" href="?<?= $h(http_build_query(array_merge($_GET, ['statut' => '']))) ?>">Tous</a>
-            <a class="inv-pill <?= $filters['statut']==='brouillon'  ? 'active' : '' ?>" href="?<?= $h(http_build_query(array_merge($_GET, ['statut' => 'brouillon']))) ?>">Brouillon</a>
-            <a class="inv-pill <?= $filters['statut']==='finalisee'  ? 'active' : '' ?>" href="?<?= $h(http_build_query(array_merge($_GET, ['statut' => 'finalisee']))) ?>">Finalisées</a>
-            <a class="inv-pill <?= $filters['statut']==='archivee'   ? 'active' : '' ?>" href="?<?= $h(http_build_query(array_merge($_GET, ['statut' => 'archivee']))) ?>">Archivées</a>
+            <a class="inv-pill <?= $filters['statut']===''           ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['statut' => '']))) ?>">Tous</a>
+            <a class="inv-pill <?= $filters['statut']==='brouillon'  ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['statut' => 'brouillon']))) ?>">Brouillon</a>
+            <a class="inv-pill <?= $filters['statut']==='finalisee'  ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['statut' => 'finalisee']))) ?>">Finalisées</a>
+            <a class="inv-pill <?= $filters['statut']==='archivee'   ? 'active' : '' ?>" href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['statut' => 'archivee']))) ?>">Archivées</a>
 
             <span class="inv-pill-label" style="margin-left:16px">Score ≥</span>
             <?php foreach ([['',''], ['30','30+'], ['50','50+'], ['65','65+'], ['75','75+']] as $s): ?>
                 <a class="inv-pill <?= (string)$filters['min_score']===(string)$s[0] ? 'active' : '' ?>"
-                   href="?<?= $h(http_build_query(array_merge($_GET, ['min_score' => $s[0]]))) ?>"><?= $s[1] ?: 'Tous' ?></a>
+                   href="<?= $h($selfUrl) ?>?<?= $h(http_build_query(array_merge($_GET, ['min_score' => $s[0]]))) ?>"><?= $s[1] ?: 'Tous' ?></a>
             <?php endforeach; ?>
 
             <div style="flex:1"></div>
