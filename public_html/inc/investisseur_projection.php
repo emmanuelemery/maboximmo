@@ -120,12 +120,17 @@ if (!function_exists('inv_proj_years')) {
             $mensualite = 0;
         }
 
+        // Travaux à charge du bailleur si conservation : ponctuel en année 1
+        $travauxBailleur = inv_f($a['travaux_bailleur'] ?? 0);
+
         $years = [];
         $cumule = 0.0;
         $crd = $crd0;
         for ($y = 1; $y <= $nAnnees; $y++) {
             $loyerAn  = round($loyer0   * pow(1 + $indexLoyer    / 100, $y - 1), 2);
             $chargesAn = round($charges0 * pow(1 + $indexLoyer   / 100, $y - 1), 2);
+            // Charges supplémentaires année 1 : travaux bailleur ponctuels
+            $travauxAn1 = ($y === 1) ? $travauxBailleur : 0.0;
 
             $moisCetteAnnee = $mensualite > 0 ? min(12, max(0, $dureeRestMois - 12 * ($y - 1))) : 0;
             $mensualitesAn = round($mensualite * $moisCetteAnnee, 2);
@@ -139,11 +144,11 @@ if (!function_exists('inv_proj_years')) {
                 $crd = max(0.0, round($crd - $capitalRemb, 2));
             }
 
-            $cashflowBrut = round($loyerAn - $chargesAn - $mensualitesAn, 2);
+            $cashflowBrut = round($loyerAn - $chargesAn - $mensualitesAn - $travauxAn1, 2);
             $cashflowNet  = $cashflowBrut;
             if ($tauxImposPct !== null) {
-                // Base imposable ≈ loyer - charges - intérêts (pas le capital)
-                $baseImpos = max(0.0, $loyerAn - $chargesAn - $interetsAn);
+                // Base imposable ≈ loyer - charges - intérêts - travaux (déductibles)
+                $baseImpos = max(0.0, $loyerAn - $chargesAn - $interetsAn - $travauxAn1);
                 $impot = round($baseImpos * ($tauxImposPct / 100), 2);
                 $cashflowNet = round($cashflowBrut - $impot, 2);
             }

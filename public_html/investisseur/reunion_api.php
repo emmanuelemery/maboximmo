@@ -41,6 +41,10 @@ try {
         $row['loyer_estime'] = round($loyerAnnuel / 12, 2);
         $row['prix_vente_catalogue'] = $prix;
         $row['prix_achat'] = $prix;
+        // Travaux bailleur (impact sur projection année 1)
+        if (isset($_POST['travaux_bailleur'])) {
+            $row['travaux_bailleur'] = (float)str_replace(',', '.', (string)$_POST['travaux_bailleur']);
+        }
 
         $calc = inv_compute_all($row);
         $arb  = inv_proj_arbitrage($row, [5, 10]);
@@ -88,8 +92,14 @@ try {
         if (isset($_POST['frais_notaire'])) {
             $row['frais_notaire'] = (float)str_replace(',', '.', (string)$_POST['frais_notaire']);
         }
+        if (isset($_POST['honoraires_vente'])) {
+            $row['honoraires_vente'] = (float)str_replace(',', '.', (string)$_POST['honoraires_vente']);
+        }
         if (isset($_POST['travaux'])) {
             $row['travaux'] = (float)str_replace(',', '.', (string)$_POST['travaux']);
+        }
+        if (isset($_POST['travaux_bailleur'])) {
+            $row['travaux_bailleur'] = (float)str_replace(',', '.', (string)$_POST['travaux_bailleur']);
         }
         inv_save($pdo, $row, $id);
         $row = inv_load($pdo, $id);

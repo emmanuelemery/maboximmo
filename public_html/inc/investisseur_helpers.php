@@ -75,7 +75,7 @@ if (!function_exists('inv_columns_assignables')) {
             'titre_analyse','reference_bien','type_bien','ville','quartier','adresse',
             'surface','nb_pieces','etage','etat_general','annee_construction',
             'exterieur','cave','garage','parking','dpe','ges',
-            'prix_vente_catalogue','prix_achat','frais_notaire','frais_agence','travaux','ameublement',
+            'prix_vente_catalogue','prix_achat','frais_notaire','frais_agence','travaux','travaux_bailleur','ameublement',
             'apport','taux_credit','duree_credit',
             'credit_crd','credit_duree_restante_mois',
             'revalorisation_bien_pct_an','indexation_loyer_pct_an','ira_pct','taux_imposition_pct',
@@ -123,7 +123,7 @@ if (!function_exists('inv_sanitize_post')) {
             $v = $src[$col];
             $out[$col] = match (true) {
                 in_array($col, [
-                    'surface','prix_vente_catalogue','prix_achat','frais_notaire','frais_agence','travaux',
+                    'surface','prix_vente_catalogue','prix_achat','frais_notaire','frais_agence','travaux','travaux_bailleur',
                     'ameublement','apport','taux_credit','loyer_estime',
                     'charges_recuperables','charges_non_recuperables','taxe_fonciere',
                     'assurance_pno','gestion_locative','vacance_locative','entretien_imprevus',
