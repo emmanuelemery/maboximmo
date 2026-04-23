@@ -503,6 +503,44 @@ const F = {
     commentaire: $$('rn_commentaire'),
 };
 
+// ══════════════════════════════════════════════════════════════
+// FILET DE SÉCURITÉ : autosave localStorage des saisies
+// (protège contre les pannes API — restauré au chargement)
+// ══════════════════════════════════════════════════════════════
+const RN_DRAFT_KEY = 'reunion_draft_' + RN_ID;
+const RN_DRAFT_FIELDS = ['loyerReel','prixFixe','taux','priorite','commentaire','notaire','honoraires','travaux','travBail'];
+function saveDraft() {
+    try {
+        const d = {};
+        RN_DRAFT_FIELDS.forEach(k => { if (F[k]) d[k] = F[k].value; });
+        d._ts = Date.now();
+        localStorage.setItem(RN_DRAFT_KEY, JSON.stringify(d));
+    } catch (_) {}
+}
+function clearDraft() { try { localStorage.removeItem(RN_DRAFT_KEY); } catch (_) {} }
+function restoreDraft() {
+    try {
+        const raw = localStorage.getItem(RN_DRAFT_KEY);
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        // Ne propose que si draft récent (< 24h) et au moins 1 champ non vide
+        if (!d || (Date.now() - (d._ts || 0)) > 86400000) { clearDraft(); return; }
+        const hasContent = RN_DRAFT_FIELDS.some(k => d[k] && String(d[k]).trim() !== '');
+        if (!hasContent) { clearDraft(); return; }
+        if (confirm('📋 Un brouillon non enregistré existe pour ce bien.\n\nLe restaurer ?\n(Sinon, cliquer Annuler pour repartir des valeurs BDD)')) {
+            RN_DRAFT_FIELDS.forEach(k => { if (F[k] && d[k] !== undefined) F[k].value = d[k]; });
+        } else {
+            clearDraft();
+        }
+    } catch (_) { clearDraft(); }
+}
+// Bind autosave sur input de tous les champs suivis
+RN_DRAFT_FIELDS.forEach(k => {
+    if (F[k]) ['input','change','blur'].forEach(evt => F[k].addEventListener(evt, saveDraft));
+});
+// Restore au chargement
+setTimeout(restoreDraft, 100);
+
 // Helper format euros avec séparateurs de milliers
 const fmtE = v => (v === null || v === undefined || isNaN(v) || v === '')
     ? '—'
@@ -884,6 +922,7 @@ $$('rn_save_btn').addEventListener('click', async () => {
         if (j.ok) {
             btn.classList.remove('dirty'); btn.classList.add('saved');
             btn.textContent = '✓ Enregistré';
+            clearDraft();
             setTimeout(() => btn.textContent = '💾 Enregistrer prix fixé + priorité + taux + commentaire', 1800);
         } else {
             alert('Erreur : ' + (j.error || 'inconnue'));
