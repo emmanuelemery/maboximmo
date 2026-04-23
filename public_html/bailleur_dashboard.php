@@ -314,8 +314,15 @@ ob_start();
   <div><div class="bk-v" style="color:<?= $kpi['total_impayes']>0?'#dc2626':'#16a34a' ?>"><?= fmt($kpi['total_impayes']) ?></div><div class="bk-l">Total impayés</div></div>
 </div>
 
-<?php if (!empty($depensesCat)): ?>
-<div class="bs"><div class="bs-t">Répartition des dépenses</div>
+<?php
+// La répartition des dépenses n'a de sens QUE sur un immeuble précis.
+// Sur une vue globale (plusieurs immeubles agrégés), les catégories
+// cumulent des choses non comparables — on ne l'affiche donc que si
+// un immeuble est sélectionné.
+if ($fImm > 0 && !empty($depensesCat)):
+    $selImmNom = $immeubles[array_search($fImm, array_column($immeubles, 'id'))]['nom_immeuble'] ?? ('Immeuble #' . $fImm);
+?>
+<div class="bs"><div class="bs-t">Répartition des dépenses — <?= h($selImmNom) ?></div>
 <table class="bt"><thead><tr><th>Catégorie</th><th>Débits</th><th>Crédits</th><th style="width:30%">Part</th></tr></thead><tbody>
 <?php $mx = max(array_column($depensesCat,'total_debit')?:[1]);
 $clr = ['Taxe foncière'=>'#7c3aed','Syndic'=>'#4878a6','Assurance'=>'#d97706','Honoraires'=>'#d4a843','Procédures'=>'#dc2626','Autres'=>'#6b7280'];
@@ -376,9 +383,27 @@ foreach ($depensesCat as $c): $p = $mx>0?((float)$c['total_debit']/$mx*100):0; $
             <td><span class="bb bb-ok"><?= $io ?></span></td>
             <td><?= $ii>0?'<span class="bb bb-d">'.$ii.' ('.fmt($it).')</span>':'<span class="bb bb-ok">0</span>' ?></td>
             <td><?php if ($immPdf): ?><a href="<?= h($immPdf) ?>" target="_blank" title="Ouvrir le CRG PDF" style="font-size:14px">📄</a><?php else: ?><span style="color:#ccc;font-size:11px">—</span><?php endif; ?></td>
-            <td>
-              <?php if ($isSelected): ?>
-                <a href="bailleur_dashboard.php?prop=<?= $fProp ?>&annee=<?= $fAnnee ?>&trim=<?= $fTrim ?>" style="font-size:11px;color:#dc2626">✕ Retirer filtre</a>
+            <td style="white-space:nowrap;">
+              <?php if ($isSelected):
+                  // Récupérer la première analyse investisseur d'un bien de cet immeuble → bouton "🎤 Réunion"
+                  $stFind = $pdo->prepare("SELECT a.id FROM investisseur_analyses a
+                      JOIN biens b ON b.id = a.id_bien_source
+                      WHERE b.id_immeuble = :im
+                      ORDER BY COALESCE(a.priorite_vente, 0) DESC, a.score_global DESC LIMIT 1");
+                  $stFind->bindValue(':im', $fImm, PDO::PARAM_INT);
+                  $stFind->execute();
+                  $firstAnalyse = (int)$stFind->fetchColumn();
+              ?>
+                <a href="bien_liste.php?imm=<?= $im['id'] ?>"
+                   style="padding:4px 10px;border:1px solid #4878a6;background:#eff6ff;color:#4878a6;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;margin-right:4px;"
+                   title="Voir les biens de cet immeuble">🏠 Biens</a>
+                <?php if ($firstAnalyse > 0): ?>
+                <a href="investisseur/reunion.php?id=<?= $firstAnalyse ?>"
+                   style="padding:4px 10px;border:1px solid #b4443a;background:#fef2f2;color:#b4443a;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;margin-right:4px;"
+                   title="Ouvrir un bien de cet immeuble en mode réunion">🎤 Réunion</a>
+                <?php endif; ?>
+                <a href="bailleur_dashboard.php?prop=<?= $fProp ?>&annee=<?= $fAnnee ?>&trim=<?= $fTrim ?>"
+                   style="font-size:11px;color:#dc2626;">✕ Retirer</a>
               <?php else: ?>
                 <a href="bailleur_dashboard.php?prop=<?= $fProp ?>&annee=<?= $fAnnee ?>&trim=<?= $fTrim ?>&imm=<?= $im['id'] ?>" style="font-size:11px;color:#4878a6">Détail →</a>
               <?php endif; ?>
