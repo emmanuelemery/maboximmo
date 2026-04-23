@@ -298,24 +298,33 @@ function enc_zone_label_recalc_save(PDO $pdo, int $idBien): ?string
 }
 
 /**
- * Recalcule et sauvegarde annonces.depot_garantie = 1 mois de loyer HC de référence,
- * uniquement si le champ est vide. Respecte une saisie manuelle.
+ * Recalcule et sauvegarde annonces.depot_garantie.
+ *   - Libre  (meuble=0) : 1 mois de loyer HC de référence
+ *   - Meublé (meuble=1) : 2 mois de loyer HC de référence
+ *
+ * Par défaut, respecte une saisie manuelle (depot_garantie > 0). Passer $force=true
+ * pour écraser la valeur existante — utilisé quand l'user toggle le flag meublé,
+ * car le montant est légal (pas libre de saisie).
  */
-function depot_garantie_recalc_save(PDO $pdo, int $idAnnonce): ?float
+function depot_garantie_recalc_save(PDO $pdo, int $idAnnonce, bool $force = false): ?float
 {
     if ($idAnnonce <= 0) return null;
     try {
-        $st = $pdo->prepare("SELECT depot_garantie FROM annonces WHERE id = ? LIMIT 1");
+        $st = $pdo->prepare("SELECT depot_garantie, COALESCE(meuble, 0) AS meuble FROM annonces WHERE id = ? LIMIT 1");
         $st->execute([$idAnnonce]);
-        $cur = $st->fetchColumn();
-        if ($cur !== false && $cur !== null && (float)$cur > 0) {
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $cur = $row['depot_garantie'];
+        if (!$force && $cur !== null && (float)$cur > 0) {
             return (float)$cur; // saisie manuelle respectée
         }
         $hc = loyer_hc_reference($pdo, $idAnnonce);
         if ($hc <= 0) return null;
+        $mult = ((int)$row['meuble'] === 1) ? 2 : 1;
+        $depot = round($hc * $mult, 2);
         $pdo->prepare("UPDATE annonces SET depot_garantie = ?, date_modification = NOW() WHERE id = ?")
-            ->execute([$hc, $idAnnonce]);
-        return $hc;
+            ->execute([$depot, $idAnnonce]);
+        return $depot;
     } catch (Throwable $e) {
         error_log('[honoraires_helper] depot_garantie_recalc_save: ' . $e->getMessage());
         return null;

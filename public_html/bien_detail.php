@@ -1847,6 +1847,7 @@ require_once $_sbFile;
               ];
               $zonePill = $zonePillMap[$zoneCur] ?? $zonePillMap['non_tendue'];
             ?>
+            <?php $curMeubleTop = (int)($a['meuble'] ?? 0) === 1; ?>
             <div class="v2-desc-group-title">💼 Type de transaction</div>
             <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
               <div class="v2-icon-radios" data-field="type_transaction" data-target="annonce" style="margin:0;">
@@ -1858,6 +1859,17 @@ require_once $_sbFile;
                     <span class="v2-icon-lbl"><?= h($lbl) ?></span>
                   </button>
                 <?php endforeach; ?>
+              </div>
+              <!-- Type location : Libre / Meublé (défaut libre, impacte dépôt garantie : 1 mois libre / 2 mois meublé) -->
+              <div class="v2-icon-radios" data-field="meuble" data-target="annonce" style="margin:0;" title="Dépôt garantie : 1 mois HC libre / 2 mois HC meublé">
+                <button type="button" class="v2-icon-radio<?= $curMeubleTop ? '' : ' is-active' ?>" data-value="0">
+                  <span class="v2-icon-emoji">🪑</span>
+                  <span class="v2-icon-lbl">Libre</span>
+                </button>
+                <button type="button" class="v2-icon-radio<?= $curMeubleTop ? ' is-active' : '' ?>" data-value="1">
+                  <span class="v2-icon-emoji">🛋️</span>
+                  <span class="v2-icon-lbl">Meublé</span>
+                </button>
               </div>
               <!-- Pill zone honoraires (vérification visuelle) -->
               <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:99px; background:<?= $zonePill[3] ?>; color:<?= $zonePill[4] ?>; font-size:12px; font-weight:600; white-space:nowrap;"
@@ -1913,50 +1925,44 @@ require_once $_sbFile;
               $hasComplement   = $curComplement > 0;
             ?>
             <div class="v2-desc-group-title">🔑 Location</div>
-            <div class="v2-num-grid">
+            <?php $curMeuble = (int)($a['meuble'] ?? 0) === 1; $depMois = $curMeuble ? 2 : 1; ?>
+            <div class="v2-loc-grid">
               <!-- LOYER CC — champ calculé readonly (gros) -->
-              <div class="v2-num-field" style="background:#ecfeff; border:2px solid #0ea5e9;" title="Calculé : Loyer HC + charges">
-                <span class="v2-num-icon">💧</span>
-                <input type="number" step="any" class="v2-num-input" style="width:110px; font-weight:800; font-size:15px; color:#0c4a6e;"
+              <div class="v2-loc-field is-accent" title="Calculé : Loyer HC + charges">
+                <label class="v2-loc-lbl"><span>💧</span> <strong>Loyer CC</strong> <small>€/mois</small></label>
+                <input type="number" step="any" class="v2-loc-input is-accent"
                        id="v2-loyer-cc-display" value="<?= h($curLoyerCCDisp) ?>" readonly tabindex="-1">
-                <span class="v2-num-label"><strong>Loyer CC</strong> <small>€/mois (= HC + charges)</small></span>
               </div>
               <!-- LOYER HC — saisie manuelle ou auto (majoré + complément) -->
-              <div class="v2-num-field" title="Loyer hors charges. Si zone encadrée : majoré + complément (auto). Sinon saisie manuelle.">
-                <span class="v2-num-icon">🔑</span>
-                <input type="number" step="any" min="0" class="v2-num-input" style="width:100px;"
+              <div class="v2-loc-field" title="Loyer hors charges. Si zone encadrée : majoré + complément (auto). Sinon saisie manuelle.">
+                <label class="v2-loc-lbl"><span>🔑</span> Loyer HC <small>€</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
                        name="loyer" data-annonce-save value="<?= h((string)($a['loyer'] ?? '')) ?>" placeholder="Loyer HC">
-                <span class="v2-num-label">
-                  Loyer HC <small>€</small>
-                  <?php if ($hasComplement): ?>
-                    <br><small style="color:#0369a1;">dont complément : <?= h($fmt($curComplement)) ?> €</small>
-                  <?php endif; ?>
-                </span>
               </div>
               <!-- CHARGES — stockées sur biens.charges_locatives -->
-              <div class="v2-num-field">
-                <span class="v2-num-icon">💡</span>
-                <input type="number" step="any" min="0" class="v2-num-input" style="width:90px;"
+              <div class="v2-loc-field">
+                <label class="v2-loc-lbl"><span>💡</span> Charges <small>€</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
                        name="charges_locatives" data-autosave value="<?= h((string)($b['charges_locatives'] ?? '')) ?>" placeholder="Charges">
-                <span class="v2-num-label">Charges <small>€</small></span>
+              </div>
+              <!-- LOYER MAJORÉ — readonly, reprise depuis Card Encadrement -->
+              <div class="v2-loc-field is-ro" title="Reprise depuis Card Encadrement (loyer_reference_majore)">
+                <label class="v2-loc-lbl"><span>📈</span> Majoré <small>€</small></label>
+                <input type="number" step="any" class="v2-loc-input is-ro"
+                       id="v2-loyer-majore-display" value="<?= h($curMajoreDisp) ?>" readonly tabindex="-1">
               </div>
               <!-- COMPLÉMENT LOYER — readonly, maintenu par les lignes Card 2 -->
-              <div class="v2-num-field" title="Total des justifications (éditable dans Card 2 Encadrement)">
-                <span class="v2-num-icon">💳</span>
-                <input type="number" step="any" class="v2-num-input" style="width:90px; background:#f8fafc;"
+              <div class="v2-loc-field is-ro" title="Total des justifications (éditable dans Card Encadrement)">
+                <label class="v2-loc-lbl"><span>💳</span> Complément <small>€</small></label>
+                <input type="number" step="any" class="v2-loc-input is-ro"
                        id="v2-complement-loyer-display" value="<?= h($curComplDisp) ?>" readonly tabindex="-1">
-                <span class="v2-num-label">
-                  Complément <small>€</small>
-                  <br><small style="color:#92400e;">compris dans loyer HC</small>
-                </span>
               </div>
-              <!-- DÉPÔT DE GARANTIE — auto = 1 mois loyer HC, modifiable -->
-              <div class="v2-num-field" title="Par défaut 1 mois de loyer HC, modifiable">
-                <span class="v2-num-icon">🔒</span>
-                <input type="number" step="any" min="0" class="v2-num-input" style="width:100px;"
+              <!-- DÉPÔT DE GARANTIE — auto = X mois loyer HC (1 libre / 2 meublé), modifiable -->
+              <div class="v2-loc-field" title="Par défaut <?= $depMois ?> mois de loyer HC (<?= $curMeuble ? 'meublé' : 'libre' ?>), modifiable">
+                <label class="v2-loc-lbl"><span>🔒</span> Dépôt <small>€ (<?= $depMois ?> mois HC)</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
                        name="depot_garantie" data-annonce-save id="v2-depot-garantie-input"
                        value="<?= h($curDepotDisp) ?>" placeholder="Dépôt">
-                <span class="v2-num-label">Dépôt garantie <small>€ (1 mois HC auto)</small></span>
               </div>
             </div>
 

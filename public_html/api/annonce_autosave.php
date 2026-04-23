@@ -78,6 +78,7 @@ $data = [
     'depot_garantie'           => $flt('depot_garantie'),
     'zone_encadrement_loyer'   => $bool('zone_encadrement_loyer'),
     'loyer_est_cc'             => $bool('loyer_est_cc'),
+    'meuble'                   => $bool('meuble'),
     'modalite_recuperation_charges_locatives' => $str('modalite_recuperation_charges_locatives'),
 
     // Ancien loyer (ALUR)
@@ -150,7 +151,9 @@ try {
     loyer_majore_recalc_save($pdo, $annonceId);
     // loyer HC = majoré + complément (seulement si majoré > 0) — AVANT depot & cc
     loyer_hc_recalc_save($pdo, $annonceId);
-    depot_garantie_recalc_save($pdo, $annonceId);
+    // Si l'user a toggle meuble → on FORCE le recalcul du dépôt (montant légal 1/2 mois)
+    $forceDepot = array_key_exists('meuble', $_POST);
+    depot_garantie_recalc_save($pdo, $annonceId, $forceDepot);
 
     // Honoraires : le helper lit la valeur DB (qui vient d'être mise à jour par
     // la saisie POST si elle était présente) et l'écrête au plafond si dépassement.
@@ -160,7 +163,7 @@ try {
     $loyerCC = loyer_cc_recalc_save($pdo, $annonceId);
 
     // Re-lecture pour renvoyer au front les valeurs finales (après cascade)
-    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie FROM annonces WHERE id = ? LIMIT 1");
+    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble FROM annonces WHERE id = ? LIMIT 1");
     $stFinal->execute([$annonceId]);
     $final = $stFinal->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -173,6 +176,7 @@ try {
         'loyer_reference_majore' => isset($final['loyer_reference_majore']) ? (float)$final['loyer_reference_majore'] : null,
         'complement_loyer'       => isset($final['complement_loyer'])       ? (float)$final['complement_loyer']       : null,
         'depot_garantie'         => isset($final['depot_garantie'])         ? (float)$final['depot_garantie']         : null,
+        'meuble'                 => isset($final['meuble'])                 ? (int)$final['meuble']                   : null,
         'honoraires' => $honoCalc,
     ]));
 } catch (Throwable $e) {

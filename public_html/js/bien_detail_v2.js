@@ -829,6 +829,7 @@
       // Champs readonly (toujours présents quand pertinents)
       setDisp('v2-loyer-cc-display',          json.loyer_cc);
       setDisp('v2-complement-loyer-display',  json.complement_loyer);
+      setDisp('v2-loyer-majore-display',      json.loyer_reference_majore);
 
       // Champs auto-fillable (ne pas écraser si l'utilisateur a saisi un truc plus récent)
       const syncIfEmpty = (selector, val) => {
@@ -838,8 +839,16 @@
         }
       };
       if (json.loyer_reference_majore != null) syncIfEmpty('[name="loyer_reference_majore"]', json.loyer_reference_majore);
-      if (json.depot_garantie != null)         syncIfEmpty('[name="depot_garantie"]',         json.depot_garantie);
       if (json.enc_zone != null)               syncIfEmpty('[name="enc_zone"]',               json.enc_zone);
+
+      // Dépôt garantie : FORCE l'update car le backend a pu l'écraser (toggle meublé ×2).
+      // L'input ne doit pas avoir le focus pour éviter d'écraser une saisie en cours.
+      if (typeof json.depot_garantie === 'number') {
+        const depEl = document.querySelector('[name="depot_garantie"]');
+        if (depEl && document.activeElement !== depEl) {
+          depEl.value = json.depot_garantie > 0 ? fmt(json.depot_garantie) : '';
+        }
+      }
 
       // Loyer HC : si le backend a recalculé (= majoré + complément), on FORCE la
       // mise à jour de l'input (contrairement à syncIfEmpty) car c'est un champ
@@ -847,21 +856,6 @@
       if (typeof json.loyer_hc === 'number') {
         const hcEl = document.querySelector('[name="loyer"]');
         if (hcEl && json.loyer_hc > 0) hcEl.value = fmt(json.loyer_hc);
-      }
-      // Sub-label "dont complément: X €" sous le champ Loyer HC
-      const cplVal = json.complement_loyer;
-      if (cplVal !== undefined) {
-        const hcEl = document.querySelector('[name="loyer"]');
-        const hcWrap = hcEl ? hcEl.closest('.v2-num-field') : null;
-        const labelEl = hcWrap ? hcWrap.querySelector('.v2-num-label') : null;
-        if (labelEl) {
-          // Reconstruit le contenu : "Loyer HC €" + optionnel "dont complément: X €"
-          let html = 'Loyer HC <small>€</small>';
-          if (typeof cplVal === 'number' && cplVal > 0) {
-            html += '<br><small style="color:#0369a1;">dont complément : ' + fmt(cplVal) + ' €</small>';
-          }
-          labelEl.innerHTML = html;
-        }
       }
 
       // Honoraires : le backend a pu écrêter la valeur (cap ALUR) → on force l'input
