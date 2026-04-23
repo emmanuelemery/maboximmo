@@ -319,7 +319,7 @@ async function ppSave(id) {
     const fd = new FormData();
     fd.append('action', 'save');
     fd.append('id', id);
-    fd.append('_csrf_token', ppCsrf);
+    fd.append('csrf_token', ppCsrf);
     fd.append('priorite_vente', prio);
     if (prix !== '') fd.append('prix_vente_catalogue', prix);
     try {

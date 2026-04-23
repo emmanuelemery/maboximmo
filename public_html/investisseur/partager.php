@@ -135,7 +135,7 @@ $u = function_exists('app_url') ? fn($p) => app_url($p) : fn($p) => $p;
     <div class="inv-paper">
         <h2>Créer un nouveau lien</h2>
         <form method="post">
-            <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+            <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
             <input type="hidden" name="type" value="<?= $h($type) ?>">
             <input type="hidden" name="id_ref" value="<?= (int)$idRef ?>">
 

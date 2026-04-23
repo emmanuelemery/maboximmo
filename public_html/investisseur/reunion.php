@@ -747,7 +747,7 @@ $$('rn_btn_valider_bdd')?.addEventListener('click', async () => {
     const fd = new FormData();
     fd.append('action', 'save');
     fd.append('id', RN_ID);
-    fd.append('_csrf_token', RN_CSRF);
+    fd.append('csrf_token', RN_CSRF);
     fd.append('prix_vente_catalogue', nouveau);
     fd.append('motif_prix', motif || '');
     // On envoie aussi les autres champs pour qu'ils soient conservés
@@ -772,7 +772,7 @@ $$('rn_btn_valider_bdd')?.addEventListener('click', async () => {
             runAnalysis();
         } else {
             btn.textContent = '✗ Erreur';
-            alert(j.error || 'Erreur');
+            alert(j.error || j.message || 'Erreur');
             setTimeout(() => btn.textContent = '✓ Valider comme prix BDD', 2000);
         }
     } catch (e) { btn.disabled = false; btn.textContent = '✗'; }
@@ -867,7 +867,7 @@ $$('rn_save_btn').addEventListener('click', async () => {
     const fd = new FormData();
     fd.append('action', 'save');
     fd.append('id', RN_ID);
-    fd.append('_csrf_token', RN_CSRF);
+    fd.append('csrf_token', RN_CSRF);
     fd.append('prix_vente_catalogue', F.prixFixe.value);
     fd.append('loyer_annuel',         F.loyerReel.value);
     fd.append('priorite_vente',       F.priorite.value || '0');
@@ -900,7 +900,7 @@ async function autosaveOnLeave() {
     if (!btn.classList.contains('dirty')) return;
     saved = true;
     const fd = new FormData();
-    fd.append('action', 'save'); fd.append('id', RN_ID); fd.append('_csrf_token', RN_CSRF);
+    fd.append('action', 'save'); fd.append('id', RN_ID); fd.append('csrf_token', RN_CSRF);
     fd.append('prix_vente_catalogue', F.prixFixe.value);
     fd.append('loyer_annuel',         F.loyerReel.value);
     fd.append('priorite_vente',       F.priorite.value || '0');
@@ -936,7 +936,7 @@ $$('rn_rec_toggle').addEventListener('click', async () => {
                 const fd = new FormData();
                 fd.append('action', 'upload_audio');
                 fd.append('id', RN_ID);
-                fd.append('_csrf_token', RN_CSRF);
+                fd.append('csrf_token', RN_CSRF);
                 fd.append('duree_sec', duree);
                 fd.append('audio', blob, 'rec_' + Date.now() + '.webm');
                 try {
@@ -985,7 +985,7 @@ async function rnDeleteAudio(idAudio) {
     fd.append('action', 'delete_audio');
     fd.append('id', RN_ID);
     fd.append('id_audio', idAudio);
-    fd.append('_csrf_token', RN_CSRF);
+    fd.append('csrf_token', RN_CSRF);
     await fetch(RN_API, {method:'POST', body:fd});
     document.querySelector('[data-audio-id="' + idAudio + '"]')?.remove();
 }
@@ -1067,7 +1067,7 @@ runAnalysis();
     async function ask(q) {
         addUser(q); input.value=''; send.disabled=true; addTyping();
         const fd = new FormData();
-        fd.append('question', q); fd.append('id_analyse', RN_ID); fd.append('_csrf_token', RN_CSRF);
+        fd.append('question', q); fd.append('id_analyse', RN_ID); fd.append('csrf_token', RN_CSRF);
         try {
             const r = await fetch(CHAT_API, {method:'POST', body:fd});
             const j = await r.json();

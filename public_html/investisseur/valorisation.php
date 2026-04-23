@@ -233,7 +233,7 @@ unset($_SESSION['_valo_flash_error']);
     <div class="inv-paper">
         <h2>💾 Enregistrer ce scénario (versionning)</h2>
         <form method="post" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
-            <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+            <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
             <input type="hidden" name="action" value="save">
             <?php foreach (array_keys(inv_valo_default_params()) as $k): ?>
                 <input type="hidden" name="<?= $h($k) ?>" value="<?= $h((float)$params[$k]) ?>">
@@ -291,7 +291,7 @@ unset($_SESSION['_valo_flash_error']);
                 <a href="<?= $h($u('/investisseur/valorisation.php')) ?>?loaded=<?= (int)$s['id'] ?>" class="inv-btn sm">Charger</a>
                 <a href="<?= $h($u('/investisseur/partager.php?type=scenario&id_ref=' . (int)$s['id'] . '&email=t.saby@groupe-sir.fr')) ?>" class="inv-btn sm">📤 Partager</a>
                 <form method="post" style="margin:0;" onsubmit="return confirm('Supprimer ce scénario ?');">
-                    <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="id_scenario" value="<?= (int)$s['id'] ?>">
                     <button type="submit" class="inv-btn sm danger">Suppr.</button>

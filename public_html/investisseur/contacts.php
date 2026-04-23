@@ -167,7 +167,7 @@ $val = fn($k, $def = '') => $h($contact[$k] ?? $def);
     <?php else: ?>
         <!-- ═══════════ MODE FICHE CONTACT ═══════════ -->
         <form method="post">
-            <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+            <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
             <input type="hidden" name="action" value="save">
 
             <div class="inv-paper">
@@ -238,7 +238,7 @@ $val = fn($k, $def = '') => $h($contact[$k] ?? $def);
 
         <?php if ($id): ?>
         <form id="frm-del" method="post" style="display:none;">
-            <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+            <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
             <input type="hidden" name="action" value="delete">
         </form>
 
@@ -251,7 +251,7 @@ $val = fn($k, $def = '') => $h($contact[$k] ?? $def);
                 Le destinataire pourra également <strong>ajouter des documents</strong> qui vous seront notifiés.
             </p>
             <form method="post">
-                <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                 <input type="hidden" name="action" value="generate_link">
                 <div class="inv-form-grid">
                     <div class="inv-field">

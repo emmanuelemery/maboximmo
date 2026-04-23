@@ -142,7 +142,7 @@ function inv_rating($name, $current, $label) {
     <?php endif; ?>
 
     <form method="post" action="">
-        <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+        <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
         <?php if ($id): ?><input type="hidden" name="id" value="<?= (int)$id ?>"><?php endif; ?>
         <?php if (!empty($data['id_bien_source'])): ?>
             <input type="hidden" name="id_bien_source" value="<?= (int)$data['id_bien_source'] ?>">

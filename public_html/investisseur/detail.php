@@ -616,7 +616,7 @@ $radarValues = [
                 btnSave.textContent = 'Enregistrement...';
                 const body = new FormData();
                 body.append('id', <?= (int)$id ?>);
-                body.append('_csrf_token', '<?= $h(csrf_token()) ?>');
+                body.append('csrf_token', '<?= $h(csrf_token()) ?>');
                 Object.entries(form).forEach(([k, el]) => {
                     const map = {crd:'credit_crd', duree:'credit_duree_restante_mois', taux:'taux_credit', ira:'ira_pct', revalo:'revalorisation_bien_pct_an', index:'indexation_loyer_pct_an', impot:'taux_imposition_pct'};
                     body.append(map[k], el.value);
@@ -719,7 +719,7 @@ $radarValues = [
 
         <!-- Ajout rapide -->
         <form method="post" style="margin-bottom:22px">
-            <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+            <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
             <input type="hidden" name="action" value="comm_save">
             <div class="inv-form-grid">
                 <div class="inv-field">
@@ -776,13 +776,13 @@ $radarValues = [
                 </div>
                 <div class="ic-actions">
                     <form method="post" style="margin:0">
-                        <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                        <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                         <input type="hidden" name="action" value="comm_toggle">
                         <input type="hidden" name="comment_id" value="<?= (int)$c['id'] ?>">
                         <button type="submit" class="inv-btn sm ghost">Archiver</button>
                     </form>
                     <form method="post" style="margin:0" onsubmit="return confirm('Supprimer ?');">
-                        <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                        <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                         <input type="hidden" name="action" value="comm_delete">
                         <input type="hidden" name="comment_id" value="<?= (int)$c['id'] ?>">
                         <button type="submit" class="inv-btn sm danger">Suppr.</button>
@@ -793,7 +793,7 @@ $radarValues = [
 
             <div style="margin-top:14px; text-align:center;">
                 <form method="post" style="display:inline">
-                    <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                     <input type="hidden" name="action" value="recalc">
                     <button type="submit" class="inv-btn">🔄 Recalculer la synthèse en intégrant les commentaires</button>
                 </form>
@@ -806,12 +806,12 @@ $radarValues = [
         <span style="color:#9a9690; font-size:12px;">Mis à jour le <?= $h(date('d/m/Y H:i', strtotime($row['updated_at']))) ?></span>
         <div style="display:flex; gap:10px;">
             <form method="post" style="margin:0">
-                <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                 <input type="hidden" name="action" value="duplicate">
                 <button type="submit" class="inv-btn sm">Dupliquer</button>
             </form>
             <form method="post" style="margin:0" onsubmit="return confirm('Supprimer définitivement cette analyse ?');">
-                <input type="hidden" name="_csrf_token" value="<?= $h(csrf_token()) ?>">
+                <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
                 <input type="hidden" name="action" value="delete">
                 <button type="submit" class="inv-btn sm danger">Supprimer</button>
             </form>

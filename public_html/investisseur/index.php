@@ -350,7 +350,7 @@ $qsFilter = array_filter([
     async function ask(q) {
         addUser(q); input.value = ''; send.disabled = true; addTyping();
         const fd = new FormData();
-        fd.append('question', q); fd.append('_csrf_token', CSRF);
+        fd.append('question', q); fd.append('csrf_token', CSRF);
         try {
             const r = await fetch(API, {method:'POST', body:fd});
             const j = await r.json();
