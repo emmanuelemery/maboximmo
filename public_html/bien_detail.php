@@ -1945,22 +1945,26 @@ require_once $_sbFile;
                    avec libellé inline à gauche. Valeurs persistées en localStorage. -->
               <div class="v2-renta-sim" style="grid-column: span 2;" data-bien-id="<?= (int)($b['id'] ?? 0) ?>">
                 <div class="v2-renta-head">💡 Simulation rentabilité (non enregistrée)</div>
-                <div class="v2-renta-row">
-                  <label>Loyer mensuel <small>€</small></label>
-                  <input type="number" step="0.01" min="0" id="v2-renta-loyer" placeholder="0">
-                </div>
-                <div class="v2-renta-row">
-                  <label>Charges mensuelles <small>€</small></label>
-                  <input type="number" step="0.01" min="0" id="v2-renta-charges" placeholder="0">
-                </div>
-                <div class="v2-renta-results">
-                  <div class="v2-renta-kpi">
-                    <div class="v2-renta-kpi-lbl">Rdt brute</div>
-                    <div class="v2-renta-kpi-val" id="v2-renta-brute">—</div>
+                <div class="v2-renta-body">
+                  <div class="v2-renta-inputs">
+                    <div class="v2-renta-row">
+                      <label>Loyer <small>€</small></label>
+                      <input type="number" step="0.01" min="0" id="v2-renta-loyer" placeholder="0">
+                    </div>
+                    <div class="v2-renta-row">
+                      <label>Charges <small>€</small></label>
+                      <input type="number" step="0.01" min="0" id="v2-renta-charges" placeholder="0">
+                    </div>
                   </div>
-                  <div class="v2-renta-kpi">
-                    <div class="v2-renta-kpi-lbl">Rdt nette</div>
-                    <div class="v2-renta-kpi-val" id="v2-renta-nette">—</div>
+                  <div class="v2-renta-results">
+                    <div class="v2-renta-kpi">
+                      <div class="v2-renta-kpi-lbl">Brute</div>
+                      <div class="v2-renta-kpi-val" id="v2-renta-brute">—</div>
+                    </div>
+                    <div class="v2-renta-kpi">
+                      <div class="v2-renta-kpi-lbl">Nette</div>
+                      <div class="v2-renta-kpi-val" id="v2-renta-nette">—</div>
+                    </div>
                   </div>
                 </div>
               </div>
