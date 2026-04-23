@@ -44,22 +44,23 @@ try {
 
     $pdo->prepare("DELETE FROM annonces_complement_loyer_lignes WHERE id = ?")->execute([$ligneId]);
 
+    // Sync complement_loyer selon mode (0 si reference/minore/libre, SUM si majore)
+    require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
+    $applied = complement_loyer_sync_from_mode($pdo, $annonceId);
+
     $stT = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM annonces_complement_loyer_lignes WHERE id_annonce = ?");
     $stT->execute([$annonceId]);
-    $total = (float)$stT->fetchColumn();
-    $pdo->prepare("UPDATE annonces SET complement_loyer = ?, date_modification = NOW() WHERE id = ?")
-        ->execute([$total, $annonceId]);
+    $totalLignes = (float)$stT->fetchColumn();
 
-    // Cascade : loyer HC (si majoré > 0) → loyer CC
-    require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
+    // Cascade : loyer HC (selon mode) → loyer CC
     $loyerHC = loyer_hc_recalc_save($pdo, $annonceId);
     $loyerCC = loyer_cc_recalc_save($pdo, $annonceId);
 
     exit(json_encode([
-        'ok' => true, 'total' => $total, 'id_annonce' => $annonceId,
+        'ok' => true, 'total' => $totalLignes, 'id_annonce' => $annonceId,
         'loyer_cc' => $loyerCC,
         'loyer_hc' => $loyerHC,
-        'complement_loyer' => $total,
+        'complement_loyer' => $applied,
     ]));
 } catch (Throwable $e) {
     error_log('[annonce_cpl_delete] ' . $e->getMessage());

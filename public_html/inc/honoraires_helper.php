@@ -137,10 +137,8 @@ function loyer_cc_calcul(PDO $pdo, int $idAnnonce): float
     try {
         $st = $pdo->prepare("
             SELECT
-                COALESCE(a.loyer, 0)                     AS loyer_hc,
-                COALESCE(a.loyer_reference_majore, 0)    AS majore,
-                COALESCE(a.complement_loyer, 0)          AS cpl,
-                COALESCE(b.charges_locatives, 0)         AS charges
+                COALESCE(a.loyer, 0)              AS loyer_hc,
+                COALESCE(b.charges_locatives, 0)  AS charges
             FROM annonces a
             LEFT JOIN biens b ON b.id = a.id_bien
             WHERE a.id = ?
@@ -149,14 +147,8 @@ function loyer_cc_calcul(PDO $pdo, int $idAnnonce): float
         $st->execute([$idAnnonce]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) return 0.0;
-
-        // Loyer de référence HC : majoré + complément si majoré existe, sinon loyer saisi
-        $majore = (float)$row['majore'];
-        $cpl    = (float)$row['cpl'];
-        $hcManuel = (float)$row['loyer_hc'];
-        $loyerHcRef = ($majore > 0) ? ($majore + $cpl) : $hcManuel;
-
-        return round($loyerHcRef + (float)$row['charges'], 2);
+        // loyer_hc est maintenant la source de vérité (recalculé selon mode en amont)
+        return round((float)$row['loyer_hc'] + (float)$row['charges'], 2);
     } catch (Throwable $e) {
         error_log('[honoraires_helper] loyer_cc_calcul: ' . $e->getMessage());
         return 0.0;
@@ -173,17 +165,9 @@ function loyer_hc_reference(PDO $pdo, int $idAnnonce): float
 {
     if ($idAnnonce <= 0) return 0.0;
     try {
-        $st = $pdo->prepare("
-            SELECT COALESCE(loyer, 0) AS loyer,
-                   COALESCE(loyer_reference_majore, 0) AS majore,
-                   COALESCE(complement_loyer, 0) AS cpl
-            FROM annonces WHERE id = ? LIMIT 1
-        ");
+        $st = $pdo->prepare("SELECT COALESCE(loyer, 0) FROM annonces WHERE id = ? LIMIT 1");
         $st->execute([$idAnnonce]);
-        $row = $st->fetch(PDO::FETCH_ASSOC);
-        if (!$row) return 0.0;
-        $maj = (float)$row['majore'];
-        return $maj > 0 ? ($maj + (float)$row['cpl']) : (float)$row['loyer'];
+        return (float)($st->fetchColumn() ?: 0);
     } catch (Throwable $e) {
         return 0.0;
     }
@@ -195,6 +179,41 @@ function loyer_hc_reference(PDO $pdo, int $idAnnonce): float
  *
  * Règle : saisie manuelle > calcul auto — n'écrase JAMAIS une valeur existante.
  */
+/**
+ * Synchronise annonces.complement_loyer depuis la SUM des lignes justificatives,
+ * MAIS uniquement si le mode de loyer l'autorise :
+ *   - mode 'majore'     : SUM des lignes appliquée (complément effectif)
+ *   - autres modes      : complement_loyer forcé à 0 (lignes conservées pour info)
+ *
+ * À appeler après toute modification de ligne complément (add/update/delete)
+ * ET après tout changement de loyer_mode.
+ */
+function complement_loyer_sync_from_mode(PDO $pdo, int $idAnnonce): float
+{
+    if ($idAnnonce <= 0) return 0.0;
+    try {
+        $stM = $pdo->prepare("SELECT COALESCE(loyer_mode, 'libre') FROM annonces WHERE id = ? LIMIT 1");
+        $stM->execute([$idAnnonce]);
+        $mode = (string)($stM->fetchColumn() ?: 'libre');
+
+        if ($mode !== 'majore') {
+            $pdo->prepare("UPDATE annonces SET complement_loyer = 0, date_modification = NOW() WHERE id = ?")
+                ->execute([$idAnnonce]);
+            return 0.0;
+        }
+
+        $stS = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM annonces_complement_loyer_lignes WHERE id_annonce = ?");
+        $stS->execute([$idAnnonce]);
+        $sum = (float)$stS->fetchColumn();
+        $pdo->prepare("UPDATE annonces SET complement_loyer = ?, date_modification = NOW() WHERE id = ?")
+            ->execute([$sum, $idAnnonce]);
+        return $sum;
+    } catch (Throwable $e) {
+        error_log('[honoraires_helper] complement_loyer_sync_from_mode: ' . $e->getMessage());
+        return 0.0;
+    }
+}
+
 function loyer_majore_recalc_save(PDO $pdo, int $idAnnonce): ?float
 {
     if ($idAnnonce <= 0) return null;
@@ -242,17 +261,52 @@ function loyer_hc_recalc_save(PDO $pdo, int $idAnnonce): ?float
 {
     if ($idAnnonce <= 0) return null;
     try {
-        $st = $pdo->prepare("SELECT loyer_reference_majore, complement_loyer, loyer FROM annonces WHERE id = ? LIMIT 1");
+        $st = $pdo->prepare("
+            SELECT a.loyer, a.loyer_reference_majore, a.complement_loyer, a.loyer_mode,
+                   COALESCE(b.surface_habitable, b.surface_totale, 0) AS surface,
+                   COALESCE(b.enc_loyer_ref, 0)  AS enc_ref,
+                   COALESCE(b.enc_loyer_min, 0)  AS enc_min,
+                   COALESCE(b.enc_loyer_max, 0)  AS enc_max
+            FROM annonces a
+            LEFT JOIN biens b ON b.id = a.id_bien
+            WHERE a.id = ? LIMIT 1
+        ");
         $st->execute([$idAnnonce]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
-        $majore = (float)($row['loyer_reference_majore'] ?? 0);
-        if ($majore <= 0) {
-            // Pas de majoré → loyer HC est saisi manuellement, on ne touche pas
-            return $row['loyer'] !== null ? (float)$row['loyer'] : null;
+
+        $mode    = (string)($row['loyer_mode'] ?? 'libre');
+        $surface = (float)$row['surface'];
+        $majore  = (float)($row['loyer_reference_majore'] ?? 0);
+        $cpl     = (float)($row['complement_loyer'] ?? 0);
+
+        $calc = null;
+        switch ($mode) {
+            case 'libre':
+                // Saisie manuelle → on ne touche pas
+                return $row['loyer'] !== null ? (float)$row['loyer'] : null;
+
+            case 'majore':
+                if ($majore <= 0) return $row['loyer'] !== null ? (float)$row['loyer'] : null;
+                $calc = round($majore + $cpl, 2);
+                break;
+
+            case 'reference':
+                $encRef = (float)$row['enc_ref'];
+                if ($surface <= 0 || $encRef <= 0) return $row['loyer'] !== null ? (float)$row['loyer'] : null;
+                $calc = round($surface * $encRef, 2);
+                break;
+
+            case 'minore':
+                $encMin = (float)$row['enc_min'];
+                if ($surface <= 0 || $encMin <= 0) return $row['loyer'] !== null ? (float)$row['loyer'] : null;
+                $calc = round($surface * $encMin, 2);
+                break;
+
+            default:
+                return $row['loyer'] !== null ? (float)$row['loyer'] : null;
         }
-        $cpl = (float)($row['complement_loyer'] ?? 0);
-        $calc = round($majore + $cpl, 2);
+
         if ($row['loyer'] === null || abs(((float)$row['loyer']) - $calc) > 0.001) {
             $pdo->prepare("UPDATE annonces SET loyer = ?, date_modification = NOW() WHERE id = ?")
                 ->execute([$calc, $idAnnonce]);

@@ -988,14 +988,35 @@
       });
     });
 
+    // Boutons mode loyer HC (minoré / référence / majoré) — reload après save
+    // car le changement de mode impacte readonly du champ, verrouillage
+    // complément Card Encadrement, et recalcule loyer HC côté serveur.
+    document.querySelectorAll('.v2-loyer-mode-btns[data-target="annonce"]').forEach(group => {
+      const field = group.dataset.field || 'loyer_mode';
+      group.querySelectorAll('.v2-mode-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (btn.classList.contains('is-active')) return;
+          group.querySelectorAll('.v2-mode-btn').forEach(b => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+          await saveAnnonce(field, btn.dataset.value || 'libre');
+          // Reload pour refléter readonly/lock/recalculé
+          setTimeout(() => window.location.reload(), 150);
+        });
+      });
+    });
+
     // Toggles canaux (data-annonce-bool)
     document.querySelectorAll('[data-annonce-bool]').forEach(btn => {
       const field = btn.dataset.annonceBool;
       if (!field) return;
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const isActive = !btn.classList.contains('is-active');
         btn.classList.toggle('is-active', isActive);
-        saveAnnonce(field, isActive ? '1' : '0');
+        await saveAnnonce(field, isActive ? '1' : '0');
+        // zone_encadrement_loyer toggle → reload (affiche/masque boutons mode, etc.)
+        if (field === 'zone_encadrement_loyer') {
+          setTimeout(() => window.location.reload(), 150);
+        }
       });
     });
 

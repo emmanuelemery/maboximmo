@@ -1228,6 +1228,53 @@ input.v2-input.is-from-dpe {
 .v2-loc-input.is-accent { font-weight: 800; font-size: 15px; color: #0c4a6e; }
 .v2-loc-input.is-ro { background: #f8fafc; cursor: default; }
 
+/* Boutons mode loyer (minoré / référence / majoré) sous le champ Loyer HC */
+.v2-loyer-mode-btns {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+}
+.v2-mode-btn {
+  flex: 1;
+  padding: 3px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  background: #fff;
+  border: 1px solid rgba(54, 87, 125, 0.18);
+  border-radius: 5px;
+  color: var(--v2-muted);
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  white-space: nowrap;
+}
+.v2-mode-btn:hover { background: #f1f5f9; border-color: var(--v2-accent); }
+.v2-mode-btn.is-active {
+  background: var(--v2-accent);
+  border-color: var(--v2-accent);
+  color: #fff;
+}
+
+/* Card Encadrement : banner + lignes grisées quand mode != majoré */
+.v2-enc-cpl-locked {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #78350f;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.v2-cpl-row.is-disabled {
+  opacity: .55;
+  pointer-events: none;
+}
+.v2-cpl-row.is-disabled .v2-input,
+.v2-cpl-row.is-disabled .v2-num-input {
+  background: #f1f5f9;
+}
+
 /* Toggles booléens (balcon, terrasse, etc.) */
 .v2-bool-toggles {
   display: flex;

@@ -1894,15 +1894,23 @@ require_once $_sbFile;
 
             <!-- LOCATION -->
             <?php
-              // Modèle 2026-04-22 (corrigé) :
-              //   loyer_HC = loyer_majoré + complément (si majoré) OU saisi manuellement
-              //   loyer_CC = loyer_HC + charges  (le complément est DÉJÀ dans loyer_HC)
-              //   dépôt   = loyer_HC (auto si vide, modifiable)
+              // Modèle 2026-04-24 :
+              //   loyer_mode ∈ {libre, majore, reference, minore}
+              //     - libre     : loyer_HC = saisie manuelle
+              //     - majore    : loyer_HC = loyer_reference_majore + SUM(lignes complément)
+              //     - reference : loyer_HC = surface × enc_loyer_ref (complément IGNORÉ)
+              //     - minore    : loyer_HC = surface × enc_loyer_min (complément IGNORÉ)
+              //   loyer_CC = loyer_HC + charges
+              //   dépôt    = loyer_HC × (meuble ? 2 : 1) (auto si vide ou si toggle meuble)
+              $curLoyerMode    = (string)($a['loyer_mode']      ?? 'libre');
               $curLoyerHC      = (float)($a['loyer']            ?? 0);
               $curMajore       = (float)($a['loyer_reference_majore'] ?? 0);
               $curCharges      = (float)($b['charges_locatives'] ?? 0);
               $curComplement   = (float)($a['complement_loyer'] ?? 0);
               $curDepot        = (float)($a['depot_garantie']   ?? 0);
+              $isEncadre       = (int)($a['zone_encadrement_loyer'] ?? 0) === 1;
+              $hcReadonly      = $isEncadre && $curLoyerMode !== 'libre';
+              $cplIgnored      = $isEncadre && in_array($curLoyerMode, ['reference','minore'], true);
               // Loyer HC de référence (pour affichage & calculs dérivés)
               $loyerHcRef      = $curMajore > 0 ? ($curMajore + $curComplement) : $curLoyerHC;
               // Loyer CC (depuis DB si maintenu, sinon calculé)
@@ -1933,11 +1941,19 @@ require_once $_sbFile;
                 <input type="number" step="any" class="v2-loc-input is-accent"
                        id="v2-loyer-cc-display" value="<?= h($curLoyerCCDisp) ?>" readonly tabindex="-1">
               </div>
-              <!-- LOYER HC — saisie manuelle ou auto (majoré + complément) -->
-              <div class="v2-loc-field" title="Loyer hors charges. Si zone encadrée : majoré + complément (auto). Sinon saisie manuelle.">
+              <!-- LOYER HC — readonly si zone encadrée (mode majoré/réf/minoré). Mode libre = saisie manuelle. -->
+              <div class="v2-loc-field<?= $hcReadonly ? ' is-ro' : '' ?>" title="<?= $hcReadonly ? 'Loyer HC calculé selon mode ' . h($curLoyerMode) . '. Pour modifier : change le mode ou ajuste les compléments (mode majoré uniquement).' : 'Loyer HC hors charges — saisie manuelle libre.' ?>">
                 <label class="v2-loc-lbl"><span>🔑</span> Loyer HC <small>€</small></label>
-                <input type="number" step="any" min="0" class="v2-loc-input"
-                       name="loyer" data-annonce-save value="<?= h((string)($a['loyer'] ?? '')) ?>" placeholder="Loyer HC">
+                <input type="number" step="any" min="0" class="v2-loc-input<?= $hcReadonly ? ' is-ro' : '' ?>"
+                       name="loyer" data-annonce-save value="<?= h((string)($a['loyer'] ?? '')) ?>"
+                       placeholder="Loyer HC"<?= $hcReadonly ? ' readonly tabindex="-1"' : '' ?>>
+                <?php if ($isEncadre): ?>
+                  <div class="v2-loyer-mode-btns" data-field="loyer_mode" data-target="annonce" role="group" aria-label="Mode de loyer HC">
+                    <button type="button" class="v2-mode-btn<?= $curLoyerMode === 'minore'    ? ' is-active' : '' ?>" data-value="minore"    title="Loyer minoré : surface × tarif minoré. Complément INTERDIT.">📉 Min</button>
+                    <button type="button" class="v2-mode-btn<?= $curLoyerMode === 'reference' ? ' is-active' : '' ?>" data-value="reference" title="Loyer de référence : surface × tarif de référence. Complément INTERDIT.">📐 Réf</button>
+                    <button type="button" class="v2-mode-btn<?= $curLoyerMode === 'majore'    ? ' is-active' : '' ?>" data-value="majore"    title="Loyer majoré + compléments justifiés (défaut encadrement).">📈 Maj</button>
+                  </div>
+                <?php endif; ?>
               </div>
               <!-- CHARGES — stockées sur biens.charges_locatives -->
               <div class="v2-loc-field">
@@ -2116,24 +2132,53 @@ require_once $_sbFile;
             </div>
 
             <!-- Complément de loyer -->
+            <?php
+              $encMode      = (string)($a['loyer_mode'] ?? 'libre');
+              $encCplLocked = $aZoneEnc && in_array($encMode, ['reference','minore'], true);
+              $encTotalLignes = array_sum(array_map(static fn($l) => (float)$l['montant'], $cplLignes));
+            ?>
             <div class="v2-desc-group-title" style="margin-top:18px;border-top:1px solid var(--v2-stroke,#eee);padding-top:12px;">
               ➕ Complément de loyer (justifications)
             </div>
-            <div class="v2-enc-cpl-hint" style="font-size:11px;color:var(--v2-muted);margin-bottom:8px;">
-              Total appliqué à <code>complement_loyer</code>. Le loyer total HC = majoré + somme des compléments.
-            </div>
-            <div id="v2-cpl-lignes" data-annonce-id="<?= (int)$annonce['id'] ?>">
+            <?php if ($encCplLocked): ?>
+              <div class="v2-enc-cpl-locked">
+                <strong>⚠ Compléments interdits en mode <?= h($encMode) ?></strong> — art. 18 loi 89-462.<br>
+                Les lignes ci-dessous sont conservées pour information mais <u>ne sont pas sommées</u> et n'impactent pas le loyer HC.
+                Repasse en mode <strong>Majoré</strong> (Card Cond. financières) pour réautoriser.
+              </div>
+            <?php else: ?>
+              <div class="v2-enc-cpl-hint" style="font-size:11px;color:var(--v2-muted);margin-bottom:8px;">
+                Total appliqué à <code>complement_loyer</code>. Le loyer total HC = majoré + somme des compléments.
+              </div>
+            <?php endif; ?>
+            <datalist id="v2-cpl-suggestions">
+              <option value="Terrasse">
+              <option value="Vue dégagée">
+              <option value="Stationnement privatif">
+              <option value="Balcon">
+              <option value="Cave">
+              <option value="Double exposition">
+              <option value="Dernier étage">
+              <option value="Équipements haut de gamme">
+            </datalist>
+            <div id="v2-cpl-lignes" data-annonce-id="<?= (int)$annonce['id'] ?>" data-locked="<?= $encCplLocked ? '1' : '0' ?>">
               <?php foreach ($cplLignes as $ln): ?>
-                <div class="v2-cpl-row" data-cpl-id="<?= (int)$ln['id'] ?>">
-                  <input type="text" class="v2-input v2-cpl-libelle" value="<?= h((string)$ln['libelle']) ?>" placeholder="Ex : vue dégagée sur parc">
+                <div class="v2-cpl-row<?= $encCplLocked ? ' is-disabled' : '' ?>" data-cpl-id="<?= (int)$ln['id'] ?>">
+                  <input type="text" class="v2-input v2-cpl-libelle" list="v2-cpl-suggestions" value="<?= h((string)$ln['libelle']) ?>" placeholder="Ex : vue dégagée sur parc">
                   <input type="number" step="0.01" min="0" class="v2-num-input v2-cpl-montant" value="<?= h((string)$ln['montant']) ?>" placeholder="€">
                   <button type="button" class="v2-cpl-del" title="Supprimer">✕</button>
                 </div>
               <?php endforeach; ?>
             </div>
             <div class="v2-cpl-footer">
-              <button type="button" id="v2-cpl-add" class="v2-btn-secondary">＋ Ajouter une justification</button>
-              <span class="v2-cpl-total">Total : <strong id="v2-cpl-total"><?= number_format(array_sum(array_map(static fn($l) => (float)$l['montant'], $cplLignes)), 2, ',', ' ') ?></strong> €</span>
+              <button type="button" id="v2-cpl-add" class="v2-btn-secondary"<?= $encCplLocked ? ' disabled style="opacity:.5;cursor:not-allowed;"' : '' ?>>＋ Ajouter une justification</button>
+              <span class="v2-cpl-total">
+                <?php if ($encCplLocked): ?>
+                  <span style="color:#92400e;">Total ignoré</span> (info : <strong><?= number_format($encTotalLignes, 2, ',', ' ') ?></strong> €)
+                <?php else: ?>
+                  Total : <strong id="v2-cpl-total"><?= number_format($encTotalLignes, 2, ',', ' ') ?></strong> €
+                <?php endif; ?>
+              </span>
             </div>
             <div id="v2-cpl-status" class="v2-cpl-status" aria-live="polite"></div>
           <?php endif; ?>

@@ -78,6 +78,7 @@ $data = [
     'depot_garantie'           => $flt('depot_garantie'),
     'zone_encadrement_loyer'   => $bool('zone_encadrement_loyer'),
     'loyer_est_cc'             => $bool('loyer_est_cc'),
+    'loyer_mode'               => $str('loyer_mode'),
     'meuble'                   => $bool('meuble'),
     'modalite_recuperation_charges_locatives' => $str('modalite_recuperation_charges_locatives'),
 
@@ -117,12 +118,35 @@ if (array_key_exists('annonce_commercial_id', $_POST)) {
     $_POST['id_user'] = $_POST['annonce_commercial_id'];
 }
 
+// Validation ENUM loyer_mode
+if (array_key_exists('loyer_mode', $data)) {
+    $allowed = ['libre', 'majore', 'reference', 'minore'];
+    if (!in_array($data['loyer_mode'], $allowed, true)) {
+        unset($data['loyer_mode']);
+    }
+}
+
 // Protection : si la cle n'est pas presente dans POST, on la retire
 // (evite d'ecraser en base un champ non-envoye par l'autosave partiel)
 foreach (array_keys($data) as $k) {
     if (!array_key_exists($k, $_POST)) {
         unset($data[$k]);
     }
+}
+
+// Auto-switch loyer_mode quand zone_encadrement_loyer change
+//   activation   (0 → 1) : mode passe à 'majore'
+//   désactivation (1 → 0): mode passe à 'libre'
+if (array_key_exists('zone_encadrement_loyer', $data) && !array_key_exists('loyer_mode', $data)) {
+    try {
+        $stPrev = $pdo->prepare("SELECT COALESCE(zone_encadrement_loyer, 0) FROM annonces WHERE id = ? LIMIT 1");
+        $stPrev->execute([$annonceId]);
+        $prevZone = (int)$stPrev->fetchColumn();
+        $newZone  = (int)$data['zone_encadrement_loyer'];
+        if ($prevZone !== $newZone) {
+            $data['loyer_mode'] = $newZone === 1 ? 'majore' : 'libre';
+        }
+    } catch (Throwable $e) { /* non bloquant */ }
 }
 
 if (empty($data)) {
@@ -149,10 +173,12 @@ try {
     require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
 
     loyer_majore_recalc_save($pdo, $annonceId);
-    // loyer HC = majoré + complément (seulement si majoré > 0) — AVANT depot & cc
+    // Sync complement_loyer selon le mode (0 si reference/minore/libre, SUM si majore)
+    complement_loyer_sync_from_mode($pdo, $annonceId);
+    // loyer HC selon mode (libre manuel / majore / reference / minore)
     loyer_hc_recalc_save($pdo, $annonceId);
-    // Si l'user a toggle meuble → on FORCE le recalcul du dépôt (montant légal 1/2 mois)
-    $forceDepot = array_key_exists('meuble', $_POST);
+    // Force recalcul dépôt si toggle meuble OU changement de mode (impact loyer HC)
+    $forceDepot = array_key_exists('meuble', $_POST) || array_key_exists('loyer_mode', $_POST);
     depot_garantie_recalc_save($pdo, $annonceId, $forceDepot);
 
     // Honoraires : le helper lit la valeur DB (qui vient d'être mise à jour par
@@ -163,7 +189,7 @@ try {
     $loyerCC = loyer_cc_recalc_save($pdo, $annonceId);
 
     // Re-lecture pour renvoyer au front les valeurs finales (après cascade)
-    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble FROM annonces WHERE id = ? LIMIT 1");
+    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble, loyer_mode, zone_encadrement_loyer FROM annonces WHERE id = ? LIMIT 1");
     $stFinal->execute([$annonceId]);
     $final = $stFinal->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -177,6 +203,8 @@ try {
         'complement_loyer'       => isset($final['complement_loyer'])       ? (float)$final['complement_loyer']       : null,
         'depot_garantie'         => isset($final['depot_garantie'])         ? (float)$final['depot_garantie']         : null,
         'meuble'                 => isset($final['meuble'])                 ? (int)$final['meuble']                   : null,
+        'loyer_mode'             => isset($final['loyer_mode'])             ? (string)$final['loyer_mode']            : null,
+        'zone_encadrement_loyer' => isset($final['zone_encadrement_loyer']) ? (int)$final['zone_encadrement_loyer']   : null,
         'honoraires' => $honoCalc,
     ]));
 } catch (Throwable $e) {
