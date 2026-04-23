@@ -227,51 +227,73 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
             </div>
         </div>
 
-        <!-- ─── Coût d'acquisition acquéreur ─── -->
-        <h3 style="margin:24px 0 10px; font-size:13px; color:#4878a6; text-transform:uppercase; letter-spacing:.08em;">💼 Vue acquéreur — coût total réel</h3>
-        <div class="rn-sim" style="background:#eff6ff; padding:14px 16px; border-radius:10px; border-left:4px solid #4878a6;">
-            <div class="rn-field">
-                <label>Frais de notaire (€)</label>
-                <input type="number" id="rn_notaire" value="<?= (int)$fraisNotaireDefault ?>" step="100">
-                <div class="hint" id="rn_notaire_hint">— · par défaut 8 % du prix</div>
-            </div>
-            <div class="rn-field">
-                <label>Honoraires de commercialisation (€)</label>
-                <input type="number" id="rn_honoraires" value="<?= (int)$honorairesVenteDefault ?>" step="100">
-                <div class="hint" id="rn_honoraires_hint">— · par défaut 4 % du prix</div>
-            </div>
-            <div class="rn-field" style="grid-column: span 2;">
-                <label>Travaux estimés (€)</label>
-                <input type="number" id="rn_travaux" value="<?= (int)$travaux ?>" step="1000">
-                <div class="hint" id="rn_travaux_hint">— · rafraîchissement, mise aux normes, rénovation…</div>
-            </div>
-            <div class="rn-field" style="grid-column: span 2;">
-                <label style="color:#4878a6;">= Coût total acquéreur</label>
-                <input type="text" id="rn_cout_total" readonly style="background:#e0ebf8; color:#4878a6; font-size:22px; font-weight:800; cursor:default;">
-                <div class="hint" id="rn_cout_detail">Prix + notaire + honoraires + travaux</div>
-            </div>
-            <div class="rn-field" style="grid-column: span 2;">
-                <label style="color:#4878a6;">Taux de rentabilité RÉEL acquéreur (%)</label>
-                <input type="text" id="rn_taux_acq" readonly style="background:#e0ebf8; color:#4878a6; font-size:18px; font-weight:800; cursor:default;">
-                <div class="hint">Loyer annuel / Coût total acquéreur — c'est le taux réellement servi à l'acheteur</div>
-            </div>
-        </div>
+        <!-- ─── Vues acquéreur + propriétaire côte à côte ─── -->
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-top:24px;">
 
-        <!-- ─── Vue propriétaire (si conservation) ─── -->
-        <h3 style="margin:24px 0 10px; font-size:13px; color:#4f7a3a; text-transform:uppercase; letter-spacing:.08em;">🏠 Vue propriétaire — si je conserve le bien</h3>
-        <div class="rn-sim" style="background:#eef3ea; padding:14px 16px; border-radius:10px; border-left:4px solid #4f7a3a;">
-            <div class="rn-field" style="grid-column: span 2;">
-                <label>Travaux à charge du bailleur (€) — ponctuel année 1</label>
-                <input type="number" id="rn_trav_bailleur" value="<?= (int)$travauxBailleur ?>" step="1000">
-                <div class="hint" id="rn_trav_bailleur_hint">— · remise aux normes, DPE, rénovation que tu dois engager</div>
+            <!-- VUE ACQUÉREUR -->
+            <div style="background:#eff6ff; padding:14px 16px; border-radius:10px; border-left:4px solid #4878a6;">
+                <h3 style="margin:0 0 12px; font-size:13px; color:#4878a6; text-transform:uppercase; letter-spacing:.08em;">💼 Vue acquéreur — coût total réel</h3>
+
+                <div class="rn-field" style="margin-bottom:12px;">
+                    <label>Frais de notaire (€) <span style="float:right;">Taux : <input type="number" id="rn_notaire_pct" value="8" step="0.1" min="0" max="15" style="width:56px; padding:2px 6px; font-size:12px; font-family:inherit; border:1px solid #c8d8ea; border-radius:4px; text-align:right;">%</span></label>
+                    <input type="number" id="rn_notaire" value="<?= (int)$fraisNotaireDefault ?>" step="100">
+                    <div class="hint" id="rn_notaire_hint"></div>
+                </div>
+
+                <div class="rn-field" style="margin-bottom:12px;">
+                    <label>Honoraires de commercialisation (€) <span style="float:right;">Taux : <input type="number" id="rn_honoraires_pct" value="4" step="0.1" min="0" max="15" style="width:56px; padding:2px 6px; font-size:12px; font-family:inherit; border:1px solid #c8d8ea; border-radius:4px; text-align:right;">%</span></label>
+                    <input type="number" id="rn_honoraires" value="<?= (int)$honorairesVenteDefault ?>" step="100">
+                    <div class="hint" id="rn_honoraires_hint"></div>
+                </div>
+
+                <div class="rn-field" style="margin-bottom:12px;">
+                    <label>Travaux estimés acquéreur (€)</label>
+                    <input type="number" id="rn_travaux" value="<?= (int)$travaux ?>" step="1000">
+                    <div class="hint" id="rn_travaux_hint"></div>
+                </div>
+
+                <div class="rn-field" style="margin-top:14px; padding-top:10px; border-top:1px dashed #c8d8ea;">
+                    <label style="color:#4878a6;">= Coût total acquéreur</label>
+                    <input type="text" id="rn_cout_total" readonly style="background:#e0ebf8; color:#4878a6; font-size:22px; font-weight:800; cursor:default;">
+                    <div class="hint" id="rn_cout_detail">Prix + notaire + honoraires + travaux</div>
+                </div>
+
+                <div class="rn-field" style="margin-top:10px;">
+                    <label style="color:#4878a6;">Taux de rentabilité RÉEL acquéreur (%)</label>
+                    <input type="text" id="rn_taux_acq" readonly style="background:#e0ebf8; color:#4878a6; font-size:18px; font-weight:800; cursor:default;">
+                    <div class="hint">Loyer annuel / Coût total acquéreur</div>
+                </div>
             </div>
-            <div class="rn-field" style="grid-column: span 2;">
-                <div style="background:#fff; padding:10px 14px; border-radius:8px; border:1px dashed #c8e0b8; font-size:12px; color:#5a5a55; line-height:1.5;">
-                    💡 Ces travaux se soustraient du <strong>cashflow année 1</strong> → ils impactent
+
+            <!-- VUE PROPRIÉTAIRE -->
+            <div style="background:#eef3ea; padding:14px 16px; border-radius:10px; border-left:4px solid #4f7a3a;">
+                <h3 style="margin:0 0 12px; font-size:13px; color:#4f7a3a; text-transform:uppercase; letter-spacing:.08em;">🏠 Vue propriétaire — si je conserve</h3>
+
+                <div class="rn-field" style="margin-bottom:12px;">
+                    <label>Travaux à charge du bailleur (€) — ponctuel année 1</label>
+                    <input type="number" id="rn_trav_bailleur" value="<?= (int)$travauxBailleur ?>" step="1000">
+                    <div class="hint" id="rn_trav_bailleur_hint"></div>
+                </div>
+
+                <div style="background:#fff; padding:10px 14px; border-radius:8px; border:1px dashed #c8e0b8; font-size:12px; color:#5a5a55; line-height:1.5; margin-top:12px;">
+                    💡 Ces travaux se <strong>soustraient du cashflow année 1</strong> → ils impactent
                     immédiatement les scénarios <strong>« Garder 5 ans »</strong> et <strong>« Garder 10 ans »</strong>
                     dans l'analyse live ci-dessous.
                 </div>
+
+                <div class="rn-field" style="margin-top:14px; padding-top:10px; border-top:1px dashed #c8e0b8;">
+                    <label style="color:#4f7a3a;">Cashflow année 1 après travaux bailleur</label>
+                    <input type="text" id="rn_cf_bailleur_an1" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
+                    <div class="hint">Loyer - charges - mensualités - travaux bailleur</div>
+                </div>
+
+                <div class="rn-field" style="margin-top:10px;">
+                    <label style="color:#4f7a3a;">Impact sur scénario « Garder 10 ans »</label>
+                    <input type="text" id="rn_gain_10" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
+                    <div class="hint">Cash net final à horizon 10 ans</div>
+                </div>
             </div>
+
         </div>
 
         <!-- ─── Priorité + Save ─── -->
@@ -355,9 +377,13 @@ const F = {
     prixSimu:   $$('rn_prix_simu'),
     prixFixe:   $$('rn_prix_fixe'),
     notaire:    $$('rn_notaire'),
+    notairePct: $$('rn_notaire_pct'),
     honoraires: $$('rn_honoraires'),
+    honorairesPct: $$('rn_honoraires_pct'),
     travaux:    $$('rn_travaux'),
     travBail:   $$('rn_trav_bailleur'),
+    cfBailleur: $$('rn_cf_bailleur_an1'),
+    gainGarder10: $$('rn_gain_10'),
     coutTotal:  $$('rn_cout_total'),
     tauxAcq:    $$('rn_taux_acq'),
     coutDetail: $$('rn_cout_detail'),
@@ -427,16 +453,29 @@ function syncFromPrixSimu() {
 function recalcCoutAcquereur() {
     const prix  = getPrix().val;
     const loyer = getLoyer().val;
-    let notaire   = parseFloat(F.notaire.value);
+    let notaire    = parseFloat(F.notaire.value);
     let honoraires = parseFloat(F.honoraires.value);
-    const travaux = parseFloat(F.travaux.value) || 0;
-    // Défauts auto si champs vides / 0
-    if (isNaN(notaire) || notaire <= 0)     notaire   = prix > 0 ? Math.round(prix * 0.08) : 0;
-    if (isNaN(honoraires) || honoraires <= 0) honoraires = prix > 0 ? Math.round(prix * 0.04) : 0;
+    const travaux  = parseFloat(F.travaux.value) || 0;
+    if (isNaN(notaire)    || notaire <= 0)    notaire    = prix > 0 ? Math.round(prix * (parseFloat(F.notairePct.value || 8)    / 100)) : 0;
+    if (isNaN(honoraires) || honoraires <= 0) honoraires = prix > 0 ? Math.round(prix * (parseFloat(F.honorairesPct.value || 4) / 100)) : 0;
     const total = prix + notaire + honoraires + travaux;
     F.coutTotal.value = total > 0 ? fmtE(total) : '—';
     F.tauxAcq.value   = (total > 0 && loyer > 0) ? ((loyer / total) * 100).toFixed(2).replace('.', ',') + ' %' : '—';
     F.coutDetail.innerHTML = 'Prix <strong>' + fmtE(prix) + '</strong> + notaire <strong>' + fmtE(notaire) + '</strong> + honoraires <strong>' + fmtE(honoraires) + '</strong> + travaux <strong>' + fmtE(travaux) + '</strong>';
+}
+
+// ─── Liaison € ↔ % pour notaire et honoraires ───
+function syncEurFromPct(inputEur, pctEl) {
+    const prix = getPrix().val;
+    const pct  = parseFloat(pctEl.value);
+    if (prix > 0 && !isNaN(pct)) inputEur.value = Math.round(prix * pct / 100);
+    markDirty(); recalcCoutAcquereur();
+}
+function syncPctFromEur(inputEur, pctEl) {
+    const prix = getPrix().val;
+    const eur  = parseFloat(inputEur.value);
+    if (prix > 0 && !isNaN(eur)) pctEl.value = ((eur / prix) * 100).toFixed(2);
+    markDirty(); recalcCoutAcquereur();
 }
 
 // ─── Lancement de l'analyse serveur (live) ───────────────────────────
@@ -473,6 +512,10 @@ async function runAnalysis() {
             setSc('rn_sc_5',   j.arbitrage.garder_5,   j.arbitrage.meilleur === 'garder_5');
             setSc('rn_sc_10',  j.arbitrage.garder_10,  j.arbitrage.meilleur === 'garder_10');
             $$('rn_reco').innerHTML = '💡 <strong>' + j.arbitrage.conseil + '</strong>';
+
+            // Miroir sur Vue propriétaire
+            if (F.cfBailleur)   F.cfBailleur.value   = fmt(j.kpi.cashflow_mensuel * 12) + ' € / an';
+            if (F.gainGarder10) F.gainGarder10.value = fmtE(j.arbitrage.garder_10);
         } catch (e) { console.error(e); }
     }, 300);
 }
@@ -483,8 +526,10 @@ F.loyerSimu.addEventListener('input',  () => { recalcCoutAcquereur(); syncFromLo
 F.taux.addEventListener('input',       () => { recalcCoutAcquereur(); syncFromTaux(); });
 F.prixSimu.addEventListener('input',   () => { recalcCoutAcquereur(); syncFromPrixSimu(); });
 F.prixFixe.addEventListener('input',   () => { markDirty(); recalcCoutAcquereur(); runAnalysis(); });
-F.notaire.addEventListener('input',    () => { markDirty(); recalcCoutAcquereur(); });
-F.honoraires.addEventListener('input', () => { markDirty(); recalcCoutAcquereur(); });
+F.notaire.addEventListener('input',       () => syncPctFromEur(F.notaire, F.notairePct));
+F.notairePct.addEventListener('input',    () => syncEurFromPct(F.notaire, F.notairePct));
+F.honoraires.addEventListener('input',    () => syncPctFromEur(F.honoraires, F.honorairesPct));
+F.honorairesPct.addEventListener('input', () => syncEurFromPct(F.honoraires, F.honorairesPct));
 F.travaux.addEventListener('input',    () => { markDirty(); recalcCoutAcquereur(); });
 F.travBail.addEventListener('input',   () => { markDirty(); runAnalysis(); }); // impact projection 5/10 ans
 F.priorite.addEventListener('input', markDirty);
