@@ -83,11 +83,15 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
 ?>
 <style>
 .rn-wrap { max-width: 1400px; margin: 0 auto; }
-.rn-two-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; margin-top: 24px; }
-@media (max-width: 900px) { .rn-two-cols { grid-template-columns: 1fr; } }
+.rn-two-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+@media (max-width: 1000px) { .rn-two-cols { grid-template-columns: 1fr; } }
 .rn-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .rn-label-row .pct-box { display:inline-flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#4878a6; font-weight:700; }
 .rn-label-row .pct-box input { width:52px; padding:3px 6px; font-size:12px; font-family:'Sora',sans-serif; border:1px solid #c8d8ea; border-radius:4px; text-align:right; font-weight:700; background:#fff; }
+.rn-var-badge { display:inline-block; padding:3px 10px; border-radius:999px; font-family:'Sora',sans-serif; font-size:11px; font-weight:700; letter-spacing:.02em; }
+.rn-var-badge.up   { background:#eef3ea; color:#4f7a3a; }
+.rn-var-badge.down { background:#fef2f2; color:#b4443a; }
+.rn-var-badge.eq   { background:#f4f4f4; color:#9a9690; }
 .rn-head { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
 .rn-head h1 { margin:0; font-size:24px; color:#24324a; flex:1; }
 .rn-nav { display:flex; gap:8px; }
@@ -194,8 +198,10 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
         </div>
     </div>
 
-    <!-- ─── Simulation ─── -->
-    <div class="rn-paper">
+    <!-- ─── Simulation + Vue acquéreur côte à côte ─── -->
+    <div class="rn-two-cols" style="margin-bottom:16px;">
+
+    <div class="rn-paper" style="margin-bottom:0;">
         <h2>🎛 Simulation — loyer, taux, prix
             <span style="font-family:'DM Mono',monospace; font-size:10px; color:#9a9690; font-weight:400; margin-left:auto;">Les 3 champs simulés sont liés</span>
         </h2>
@@ -230,7 +236,7 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                     </button>
                 </div>
                 <input type="number" id="rn_prix_simu" placeholder="—" step="1000">
-                <div class="hint">Se recalcule selon loyer et taux · clic sur "Valider" = fixé + enregistrement</div>
+                <div class="hint">Se recalcule selon loyer et taux · <span id="rn_var_simu" class="rn-var-badge eq">— vs BDD</span></div>
             </div>
             <!-- Prix BDD actuel (readonly) + Nouveau prix proposé + Historique -->
             <div class="rn-field" style="grid-column: span 2;">
@@ -259,7 +265,7 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                     </button>
                 </div>
                 <input type="number" id="rn_prix_fixe" value="<?= (int)$prixCat ?>" step="1000">
-                <div class="hint">Tape le nouveau prix puis clique « Valider ». L'ancien sera archivé dans l'historique avec date.</div>
+                <div class="hint">Tape le nouveau prix puis clique « Valider » · <span id="rn_var_fixe" class="rn-var-badge eq">— vs BDD</span></div>
             </div>
         </div>
 
@@ -274,26 +280,22 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                 <div id="rn_hist_content" style="font-size:13px;">Chargement…</div>
             </div>
         </div>
+    </div>
+    </div>
+    <!-- ↑ Fermeture card Simulation (gauche) -->
 
-        <!-- ─── Vues acquéreur + propriétaire côte à côte ─── -->
-        <div class="rn-two-cols">
-
-            <!-- VUE ACQUÉREUR -->
-            <?php
-            // Taux bancaire par défaut selon typologie
-            $typ = inv_typologie_of($row['type_bien'] ?? '');
-            $tauxBanqueDefault = match ($typ) {
-                'commercial' => 4.5,
-                'bureau'     => 4.3,
-                'activite'   => 4.5,
-                'immeuble'   => 4.0,
-                'habitation' => 3.8,
-                'parking'    => 5.0,
-                default      => 4.5,
-            };
-            ?>
-            <div style="background:#eff6ff; padding:14px 16px; border-radius:10px; border-left:4px solid #4878a6;">
-                <h3 style="margin:0 0 12px; font-size:13px; color:#4878a6; text-transform:uppercase; letter-spacing:.08em;">💼 Vue acquéreur — coût total réel</h3>
+        <!-- ─── Vue acquéreur (card droite dans rn-two-cols) ─── -->
+        <?php
+        $typ = inv_typologie_of($row['type_bien'] ?? '');
+        $tauxBanqueDefault = match ($typ) {
+            'commercial' => 4.5, 'bureau' => 4.3, 'activite' => 4.5,
+            'immeuble' => 4.0, 'habitation' => 3.8, 'parking' => 5.0,
+            default => 4.5,
+        };
+        ?>
+        <div class="rn-paper" style="margin-bottom:0; background:#f4f8fc; border-left:4px solid #4878a6;">
+            <h2 style="color:#4878a6;">💼 Vue acquéreur — coût total réel</h2>
+            <div>
 
                 <div class="rn-field" style="margin-bottom:12px;">
                     <div class="rn-label-row">
@@ -366,46 +368,50 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
                 </div>
             </div>
 
-            <!-- VUE PROPRIÉTAIRE -->
-            <div style="background:#eef3ea; padding:14px 16px; border-radius:10px; border-left:4px solid #4f7a3a;">
-                <h3 style="margin:0 0 12px; font-size:13px; color:#4f7a3a; text-transform:uppercase; letter-spacing:.08em;">🏠 Vue propriétaire — si je conserve</h3>
+            </div>
+        </div>
+        <!-- ↑ Fermeture card Vue acquéreur (droite) -->
 
-                <div class="rn-field" style="margin-bottom:12px;">
-                    <label>Travaux à charge du bailleur (€) — ponctuel année 1</label>
-                    <input type="number" id="rn_trav_bailleur" value="<?= (int)$travauxBailleur ?>" step="1000">
-                    <div class="hint" id="rn_trav_bailleur_hint"></div>
-                </div>
+    </div>
+    <!-- ↑ Fermeture rn-two-cols (2 colonnes SIMULATION + ACQUÉREUR) -->
 
-                <div style="background:#fff; padding:10px 14px; border-radius:8px; border:1px dashed #c8e0b8; font-size:12px; color:#5a5a55; line-height:1.5; margin-top:12px;">
+    <!-- ─── Vue propriétaire (pleine largeur sous les 2 cards) ─── -->
+    <div class="rn-paper" style="background:#f3f7f0; border-left:4px solid #4f7a3a;">
+        <h2 style="color:#4f7a3a;">🏠 Vue propriétaire — si je conserve le bien</h2>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start;">
+            <div class="rn-field">
+                <label>Travaux à charge du bailleur (€) — ponctuel année 1</label>
+                <input type="number" id="rn_trav_bailleur" value="<?= (int)$travauxBailleur ?>" step="1000">
+                <div class="hint" id="rn_trav_bailleur_hint"></div>
+                <div style="background:#fff; padding:10px 14px; border-radius:8px; border:1px dashed #c8e0b8; font-size:12px; color:#5a5a55; line-height:1.5; margin-top:10px;">
                     💡 Ces travaux se <strong>soustraient du cashflow année 1</strong> → ils impactent
-                    immédiatement les scénarios <strong>« Garder 5 ans »</strong> et <strong>« Garder 10 ans »</strong>
-                    dans l'analyse live ci-dessous.
+                    immédiatement les scénarios <strong>« Garder 5 ans »</strong> et <strong>« Garder 10 ans »</strong>.
                 </div>
-
-                <div class="rn-field" style="margin-top:14px; padding-top:10px; border-top:1px dashed #c8e0b8;">
+            </div>
+            <div>
+                <div class="rn-field" style="margin-bottom:12px;">
                     <label style="color:#4f7a3a;">Cashflow année 1 après travaux bailleur</label>
                     <input type="text" id="rn_cf_bailleur_an1" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
                     <div class="hint">Loyer - charges - mensualités - travaux bailleur</div>
                 </div>
-
-                <div class="rn-field" style="margin-top:10px;">
-                    <label style="color:#4f7a3a;">Impact sur scénario « Garder 10 ans »</label>
+                <div class="rn-field">
+                    <label style="color:#4f7a3a;">Cash net scénario « Garder 10 ans »</label>
                     <input type="text" id="rn_gain_10" readonly style="background:#dff0d4; color:#4f7a3a; font-size:18px; font-weight:800; cursor:default;">
-                    <div class="hint">Cash net final à horizon 10 ans</div>
+                    <div class="hint">Projection à horizon 10 ans</div>
                 </div>
             </div>
-
         </div>
+    </div>
 
-        <!-- ─── Priorité + Save ─── -->
-        <div class="rn-sim" style="margin-top:20px;">
+    <!-- ─── Priorité + Save (pleine largeur) ─── -->
+    <div class="rn-paper">
+        <div class="rn-sim">
             <div class="rn-field">
                 <label>Priorité (0-10)</label>
                 <input type="number" id="rn_priorite" value="<?= $priorite ?>" min="0" max="10" step="1">
                 <div class="hint">0 = non prioritaire, 10 = urgent</div>
             </div>
-
-            <div style="grid-column: span 1; text-align:right; align-self:end;">
+            <div style="text-align:right; align-self:end;">
                 <button type="button" class="rn-save" id="rn_save_btn">💾 Enregistrer toutes les saisies</button>
             </div>
         </div>
@@ -467,6 +473,8 @@ $fmt = fn($v) => number_format((float)$v, 0, ',', ' ');
 const RN_ID   = <?= (int)$id ?>;
 const RN_API  = <?= json_encode($u('/investisseur/reunion_api.php')) ?>;
 const RN_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token() : '') ?>;
+// Prix BDD de référence (au chargement) — sert à calculer la variation live
+let RN_PRIX_BDD_REF = <?= (float)$prixCat ?>;
 const fmt = v => (v === null || v === undefined || isNaN(v)) ? '—' : new Intl.NumberFormat('fr-FR', {maximumFractionDigits: 0}).format(v);
 const fmt2 = v => (v === null || v === undefined || isNaN(v)) ? '—' : new Intl.NumberFormat('fr-FR', {maximumFractionDigits: 2, minimumFractionDigits: 2}).format(v);
 
@@ -587,6 +595,38 @@ function syncPctFromEur(inputEur, pctEl) {
 recalcFinancement();
 }
 
+// ─── Variation prix (€ et %) vs prix BDD actuel ───
+function badgeVariation(spanEl, valSaisi) {
+    if (!spanEl) return;
+    if (isNaN(valSaisi) || valSaisi <= 0) {
+        spanEl.className = 'rn-var-badge eq';
+        spanEl.textContent = '— vs BDD';
+        return;
+    }
+    const ref = RN_PRIX_BDD_REF;
+    if (!ref || ref <= 0) {
+        spanEl.className = 'rn-var-badge eq';
+        spanEl.textContent = '— (pas de prix BDD)';
+        return;
+    }
+    const diff = valSaisi - ref;
+    const pct = (diff / ref) * 100;
+    if (Math.abs(diff) < 1) {
+        spanEl.className = 'rn-var-badge eq';
+        spanEl.textContent = '= BDD (' + fmtE(ref) + ')';
+    } else if (diff > 0) {
+        spanEl.className = 'rn-var-badge up';
+        spanEl.textContent = '+' + fmtE(diff) + ' (+' + pct.toFixed(1).replace('.',',') + '%) vs BDD';
+    } else {
+        spanEl.className = 'rn-var-badge down';
+        spanEl.textContent = '−' + fmtE(Math.abs(diff)) + ' (' + pct.toFixed(1).replace('.',',') + '%) vs BDD';
+    }
+}
+function refreshVariations() {
+    badgeVariation($$('rn_var_simu'), parseFloat(F.prixSimu.value));
+    badgeVariation($$('rn_var_fixe'), parseFloat(F.prixFixe.value));
+}
+
 // ─── Simulation financement bancaire (80 % × 15 ans) ───
 function recalcFinancement() {
     // Le coût total acquéreur est déjà calculé dans F.coutTotal (format "1 234 567 €")
@@ -673,9 +713,9 @@ recalcFinancement(); syncFromLoyer(); });
 F.taux.addEventListener('input',       () => { recalcCoutAcquereur();
 recalcFinancement(); syncFromTaux(); });
 F.prixSimu.addEventListener('input',   () => { recalcCoutAcquereur();
-recalcFinancement(); syncFromPrixSimu(); });
+recalcFinancement(); refreshVariations(); syncFromPrixSimu(); });
 F.prixFixe.addEventListener('input',   () => { markDirty(); recalcCoutAcquereur();
-recalcFinancement(); runAnalysis(); });
+recalcFinancement(); refreshVariations(); runAnalysis(); });
 F.notaire.addEventListener('input',       () => syncPctFromEur(F.notaire, F.notairePct));
 F.notairePct.addEventListener('input',    () => syncEurFromPct(F.notaire, F.notairePct));
 F.honoraires.addEventListener('input',    () => syncPctFromEur(F.honoraires, F.honorairesPct));
@@ -729,6 +769,8 @@ $$('rn_btn_valider_bdd')?.addEventListener('click', async () => {
         if (j.ok) {
             btn.textContent = '✓ Enregistré';
             $$('rn_prix_bdd_display').value = new Intl.NumberFormat('fr-FR', {maximumFractionDigits: 0}).format(nouveau) + ' €';
+            RN_PRIX_BDD_REF = nouveau; // Mise à jour de la référence pour les variations futures
+            refreshVariations();
             setTimeout(() => btn.textContent = '✓ Valider comme prix BDD', 2000);
             runAnalysis();
         } else {
@@ -813,6 +855,7 @@ addLiveFmt(F.prixFixe);
 // Calcul initial
 recalcCoutAcquereur();
 recalcFinancement();
+refreshVariations();
 
 function markDirty() {
     const btn = $$('rn_save_btn');
