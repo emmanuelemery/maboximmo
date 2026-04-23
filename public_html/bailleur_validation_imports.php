@@ -85,6 +85,59 @@ try {
     $files = $st->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {}
 
+// ─── Phase 2 : classification stats + items à trier ───────
+$classStats = [];
+$classItems = [];
+$fConf = (string)($_GET['conf'] ?? 'ambigu'); // par défaut on montre les ambigus à trier
+try {
+    $stCS = $pdo->prepare("
+        SELECT c.confidence, SUM(IF(c.validated = 1, 1, 0)) AS val_ok,
+               SUM(IF(c.validated = -1, 1, 0)) AS val_ko,
+               SUM(IF(c.validated = 0, 1, 0)) AS val_wait,
+               COUNT(*) AS total
+        FROM ged_classification_staging c
+        JOIN ged_manifest m ON m.id = c.id_manifest
+        WHERE m.batch_id = :b
+        GROUP BY c.confidence
+    ");
+    $stCS->execute([':b' => $batch]);
+    $classStats = $stCS->fetchAll(PDO::FETCH_ASSOC);
+
+    $stItems = $pdo->prepare("
+        SELECT c.id, c.id_manifest, c.id_proprietaire, c.id_immeuble, c.id_bien,
+               c.confidence, c.score, c.hint_filename, c.hint_proprio, c.hint_adresse,
+               c.validated, c.comment,
+               m.filename, m.famille_doc, m.taille_octets, m.path_source,
+               p.societe AS prop_nom,
+               i.adresse_1 AS imm_adresse, i.ville AS imm_ville
+        FROM ged_classification_staging c
+        JOIN ged_manifest m ON m.id = c.id_manifest
+        LEFT JOIN proprietaires p ON p.id = c.id_proprietaire
+        LEFT JOIN immeubles i ON i.id = c.id_immeuble
+        WHERE m.batch_id = :b AND c.confidence = :conf AND c.validated = 0
+        ORDER BY c.score DESC, m.filename
+        LIMIT 80
+    ");
+    $stItems->execute([':b' => $batch, ':conf' => $fConf]);
+    $classItems = $stItems->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {}
+
+// Propriétaires et immeubles pour selects de réassignation
+$allProprios = [];
+$allImmeubles = [];
+try {
+    $allProprios = $pdo->query("
+        SELECT id, COALESCE(societe, CONCAT(prenom, ' ', nom)) AS label
+        FROM proprietaires WHERE actif = 1 ORDER BY label
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    $allImmeubles = $pdo->query("
+        SELECT id, CONCAT(COALESCE(adresse_1,''), ' · ', COALESCE(ville,''), ' ', COALESCE(code_postal,'')) AS label
+        FROM immeubles WHERE id_societe IN (1,6) ORDER BY ville, adresse_1 LIMIT 1000
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {}
+
+$csrfToken = function_exists('csrf_token') ? csrf_token() : '';
+
 // ─── Layout ────────────────────────────────────────────────
 $layout_title   = 'Imports GED — Validation';
 $layout_module  = 'Bailleur';
@@ -289,14 +342,226 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
       </div>
 
     <?php elseif ($phase === 2): ?>
-      <div class="vi-card">
-        <h3>Phase 2 — Classification propriétaire / immeuble / bien</h3>
-        <p style="color:#64748b;font-size:12px;">
-          Cette phase matchera chaque fichier au bon propriétaire + immeuble + bien,
-          en détectant les doublons existants avant toute création.
-        </p>
-        <p><strong>📝 À venir — lancement du classifieur</strong></p>
+      <!-- Stats classification -->
+      <div class="vi-stats">
+        <?php
+          $confColors = ['certain'=>'#10b981','probable'=>'#3b82f6','ambigu'=>'#f59e0b','non_classe'=>'#ef4444'];
+          $confLabels = ['certain'=>'Certain','probable'=>'Probable','ambigu'=>'Ambigu','non_classe'=>'Non classé'];
+          $totalCS = 0; $totalValOk = 0; $totalValWait = 0;
+          foreach ($classStats as $cs) { $totalCS += (int)$cs['total']; $totalValOk += (int)$cs['val_ok']; $totalValWait += (int)$cs['val_wait']; }
+        ?>
+        <div class="vi-stat" style="border-left-color:#0f172a;">
+          <div class="icon">📦</div><div class="nb"><?= $totalCS ?></div>
+          <div class="lbl">Total classés</div>
+        </div>
+        <div class="vi-stat" style="border-left-color:#10b981;">
+          <div class="icon">✅</div><div class="nb"><?= $totalValOk ?></div>
+          <div class="lbl">Validés</div>
+        </div>
+        <div class="vi-stat" style="border-left-color:#f59e0b;">
+          <div class="icon">⏳</div><div class="nb"><?= $totalValWait ?></div>
+          <div class="lbl">En attente</div>
+        </div>
+        <?php foreach ($classStats as $cs): ?>
+          <?php $c = $cs['confidence']; ?>
+          <div class="vi-stat" style="border-left-color:<?= $confColors[$c] ?? '#94a3b8' ?>;">
+            <div class="icon"><?= $c === 'certain' ? '🟢' : ($c === 'probable' ? '🔵' : ($c === 'ambigu' ? '🟠' : '🔴')) ?></div>
+            <div class="nb"><?= (int)$cs['total'] ?></div>
+            <div class="lbl"><?= h($confLabels[$c] ?? $c) ?></div>
+          </div>
+        <?php endforeach; ?>
       </div>
+
+      <!-- Actions globales -->
+      <div class="vi-card">
+        <h3>⚡ Actions rapides</h3>
+        <div class="vi-chips" style="margin:0;">
+          <button class="vi-chip <?= $fConf === 'ambigu' ? 'active' : '' ?>" onclick="location.href='?phase=2&batch=<?= h($batch) ?>&conf=ambigu'">🟠 Trier les ambigus</button>
+          <button class="vi-chip <?= $fConf === 'non_classe' ? 'active' : '' ?>" onclick="location.href='?phase=2&batch=<?= h($batch) ?>&conf=non_classe'">🔴 Voir les non classés</button>
+          <button class="vi-chip <?= $fConf === 'probable' ? 'active' : '' ?>" onclick="location.href='?phase=2&batch=<?= h($batch) ?>&conf=probable'">🔵 Voir les probables</button>
+          <button class="vi-chip <?= $fConf === 'certain' ? 'active' : '' ?>" onclick="location.href='?phase=2&batch=<?= h($batch) ?>&conf=certain'">🟢 Voir les certains</button>
+          <button class="vi-chip" style="background:#10b981;color:#fff;border-color:#10b981;" onclick="validateAllCertain()">✅ Valider tous les certains en masse</button>
+        </div>
+      </div>
+
+      <!-- Écran de tri split : liste à gauche, preview à droite -->
+      <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap: 14px; min-height: 70vh;">
+
+        <!-- Liste scrollable -->
+        <div class="vi-card" style="max-height: 80vh; overflow-y: auto; padding: 10px;">
+          <h3 style="position:sticky;top:-10px;background:#fff;padding:8px 10px;margin:-10px -10px 10px;z-index:10;border-bottom:1px solid #eee;">
+            <?= count($classItems) ?> <?= h($fConf) ?> à trier
+          </h3>
+          <?php if (empty($classItems)): ?>
+            <p style="padding:30px;text-align:center;color:#94a3b8;">Rien à trier dans cette catégorie ✨</p>
+          <?php else: ?>
+            <?php foreach ($classItems as $it): ?>
+              <div class="vi-trier-item" id="item-<?= (int)$it['id'] ?>" onclick="selectItem(<?= (int)$it['id'] ?>, <?= (int)$it['id_manifest'] ?>)">
+                <div style="display:flex;justify-content:space-between;gap:8px;">
+                  <strong style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?= h($it['filename']) ?>">
+                    <?= $famIcons[$it['famille_doc']] ?? '📄' ?> <?= h($it['filename']) ?>
+                  </strong>
+                  <span class="vi-badge" style="background:<?= $confColors[$it['confidence']] ?? '#94a3b8' ?>;color:#fff;">
+                    <?= (int)$it['score'] ?>
+                  </span>
+                </div>
+                <div style="font-size:10px;color:#64748b;margin-top:4px;">
+                  <?php if ($it['prop_nom']): ?>
+                    👤 <?= h($it['prop_nom']) ?>
+                  <?php elseif ($it['hint_proprio']): ?>
+                    👤 <em><?= h($it['hint_proprio']) ?> (suggéré)</em>
+                  <?php endif; ?>
+                  <?php if ($it['imm_adresse']): ?>
+                    · 🏢 <?= h($it['imm_adresse']) ?> <?= h($it['imm_ville']) ?>
+                  <?php elseif ($it['hint_adresse']): ?>
+                    · 🏢 <em><?= h($it['hint_adresse']) ?></em>
+                  <?php endif; ?>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </div>
+
+        <!-- Panneau détail + preview -->
+        <div>
+          <div class="vi-card" id="vi-detail" style="display:none;">
+            <h3>📄 Détail</h3>
+            <div id="vi-detail-meta" style="font-size:12px;color:#475569;line-height:1.5;margin-bottom:12px;"></div>
+
+            <div style="background:#fafafa;padding:10px;border-radius:8px;margin-bottom:12px;">
+              <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;">Propriétaire</label>
+              <select id="vi-prop-select" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin-top:4px;" onchange="reassignProp()">
+                <option value="">— Non assigné —</option>
+                <?php foreach ($allProprios as $p): ?>
+                  <option value="<?= (int)$p['id'] ?>"><?= h($p['label']) ?></option>
+                <?php endforeach; ?>
+              </select>
+
+              <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;margin-top:10px;display:block;">Immeuble</label>
+              <select id="vi-imm-select" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin-top:4px;" onchange="reassignImm()">
+                <option value="">— Non assigné —</option>
+                <?php foreach ($allImmeubles as $i): ?>
+                  <option value="<?= (int)$i['id'] ?>"><?= h($i['label']) ?></option>
+                <?php endforeach; ?>
+              </select>
+
+              <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;margin-top:10px;display:block;">Commentaire</label>
+              <input id="vi-comment" type="text" placeholder="Note optionnelle" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin-top:4px;" onblur="saveComment()">
+            </div>
+
+            <div style="display:flex;gap:8px;margin-bottom:12px;">
+              <button class="vi-btn vi-btn-primary" style="flex:1;" onclick="actionItem('validate')">✅ Valider</button>
+              <button class="vi-btn" style="flex:1;background:#ef4444;color:#fff;" onclick="actionItem('reject')">❌ Rejeter</button>
+            </div>
+
+            <iframe id="vi-preview" style="width:100%;height:500px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;"></iframe>
+          </div>
+          <div class="vi-card" id="vi-detail-placeholder" style="text-align:center;padding:40px;color:#94a3b8;">
+            ← Clique sur un item à gauche pour afficher le détail
+          </div>
+        </div>
+      </div>
+
+      <script>
+      const CSRF = <?= json_encode($csrfToken) ?>;
+      const BATCH = <?= json_encode($batch) ?>;
+      let currentId = 0;
+
+      function selectItem(classId, manifestId) {
+        currentId = classId;
+        document.querySelectorAll('.vi-trier-item').forEach(el => el.classList.remove('is-active'));
+        const el = document.getElementById('item-' + classId);
+        if (el) el.classList.add('is-active');
+
+        // Remplit les selects avec les valeurs actuelles
+        const data = el ? el.dataset : null;
+        document.getElementById('vi-detail').style.display = 'block';
+        document.getElementById('vi-detail-placeholder').style.display = 'none';
+        document.getElementById('vi-preview').src = './api/ged_preview.php?id=' + manifestId;
+
+        // Meta (filename + path)
+        const filename = el.querySelector('strong').textContent.trim();
+        const sub = el.querySelectorAll('div')[1].textContent.trim();
+        document.getElementById('vi-detail-meta').innerHTML =
+          '<strong>' + filename + '</strong><br>' + sub;
+
+        // Pré-remplit les selects
+        fetch('./api/ged_classification_get.php?id=' + classId, {credentials:'same-origin'})
+          .then(r => r.json())
+          .then(j => {
+            if (j.ok) {
+              document.getElementById('vi-prop-select').value = j.item.id_proprietaire || '';
+              document.getElementById('vi-imm-select').value = j.item.id_immeuble || '';
+              document.getElementById('vi-comment').value = j.item.comment || '';
+            }
+          }).catch(()=>{});
+      }
+
+      async function actionItem(action) {
+        if (!currentId) return;
+        const fd = new FormData();
+        fd.append('id', currentId);
+        fd.append('action', action);
+        fd.append('csrf_token', CSRF);
+        const r = await fetch('./api/ged_action.php', {method:'POST', body:fd, credentials:'same-origin'});
+        const j = await r.json();
+        if (j.ok) {
+          document.getElementById('item-' + currentId).style.opacity = '0.3';
+          document.getElementById('item-' + currentId).style.pointerEvents = 'none';
+          setTimeout(() => location.reload(), 600);
+        } else {
+          alert('Erreur : ' + (j.error || j.message || 'inconnue'));
+        }
+      }
+
+      async function reassignProp() {
+        if (!currentId) return;
+        const v = document.getElementById('vi-prop-select').value;
+        const fd = new FormData();
+        fd.append('id', currentId); fd.append('action', 'reassign_prop');
+        fd.append('new_id', v); fd.append('csrf_token', CSRF);
+        await fetch('./api/ged_action.php', {method:'POST', body:fd, credentials:'same-origin'});
+      }
+      async function reassignImm() {
+        if (!currentId) return;
+        const v = document.getElementById('vi-imm-select').value;
+        const fd = new FormData();
+        fd.append('id', currentId); fd.append('action', 'reassign_imm');
+        fd.append('new_id', v); fd.append('csrf_token', CSRF);
+        await fetch('./api/ged_action.php', {method:'POST', body:fd, credentials:'same-origin'});
+      }
+      async function saveComment() {
+        if (!currentId) return;
+        const c = document.getElementById('vi-comment').value;
+        const fd = new FormData();
+        fd.append('id', currentId); fd.append('action', 'comment');
+        fd.append('comment', c); fd.append('csrf_token', CSRF);
+        await fetch('./api/ged_action.php', {method:'POST', body:fd, credentials:'same-origin'});
+      }
+      async function validateAllCertain() {
+        if (!confirm('Valider automatiquement TOUS les items en statut "certain" non encore validés ?')) return;
+        const fd = new FormData();
+        fd.append('id', '0'); fd.append('action', 'validate_all_certain');
+        fd.append('batch', BATCH); fd.append('csrf_token', CSRF);
+        const r = await fetch('./api/ged_action.php', {method:'POST', body:fd, credentials:'same-origin'});
+        const j = await r.json();
+        if (j.ok) {
+          alert('✅ ' + (j.affected || 0) + ' items validés');
+          location.reload();
+        } else {
+          alert('Erreur : ' + (j.error || 'inconnue'));
+        }
+      }
+      </script>
+
+      <style>
+      .vi-trier-item {
+        padding: 8px 10px; margin-bottom: 6px; border-radius: 6px;
+        background: #fff; border: 1px solid #e5e7eb; cursor: pointer; transition: all .15s;
+      }
+      .vi-trier-item:hover { border-color: #36577d; background: #f8fafc; }
+      .vi-trier-item.is-active { border-color: #36577d; background: #eff6ff; box-shadow: 0 0 0 2px rgba(54,87,125,.15); }
+      </style>
 
     <?php elseif ($phase === 3): ?>
       <div class="vi-card">
