@@ -1940,6 +1940,24 @@ require_once $_sbFile;
                 <input type="number" step="0.01" class="v2-loc-input is-accent"
                        id="v2-vente-fai" value="<?= h($fmtV($curPrixFAI)) ?>" readonly tabindex="-1">
               </div>
+              <!-- SIMULATION RENTABILITÉ (affichage local, pas persisté en BDD)
+                   Occupe 2 colonnes à droite du Prix FAI, les 2 inputs empilés
+                   avec libellé inline à gauche. Valeurs persistées en localStorage. -->
+              <div class="v2-renta-sim" style="grid-column: span 2;" data-bien-id="<?= (int)($b['id'] ?? 0) ?>">
+                <div class="v2-renta-head">💡 Simulation rentabilité (non enregistrée)</div>
+                <div class="v2-renta-row">
+                  <label>Loyer mensuel <small>€</small></label>
+                  <input type="number" step="0.01" min="0" id="v2-renta-loyer" placeholder="0">
+                </div>
+                <div class="v2-renta-row">
+                  <label>Charges mensuelles <small>€</small></label>
+                  <input type="number" step="0.01" min="0" id="v2-renta-charges" placeholder="0">
+                </div>
+                <div class="v2-renta-results">
+                  <span>Rdt brute : <strong id="v2-renta-brute">—</strong></span>
+                  <span>Rdt nette : <strong id="v2-renta-nette">—</strong></span>
+                </div>
+              </div>
             </div>
             <?= $aText('url_tarifs_publics', 'URL tarifs publics (barème honoraires — obligation arrêté 10/01/2017)', 'https://...') ?>
 

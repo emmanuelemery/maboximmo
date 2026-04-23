@@ -1228,6 +1228,67 @@ input.v2-input.is-from-dpe {
 .v2-loc-input.is-accent { font-weight: 800; font-size: 15px; color: #0c4a6e; }
 .v2-loc-input.is-ro { background: #f8fafc; cursor: default; }
 
+/* Bloc Simulation rentabilité (vente) — 2 colonnes à droite de Prix FAI */
+.v2-renta-sim {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 10px;
+  background: #fffbeb;
+  border: 1px dashed #f59e0b;
+  border-radius: 8px;
+  align-self: stretch;
+}
+.v2-renta-head {
+  font-size: 10px;
+  font-weight: 600;
+  color: #78350f;
+  text-align: right;
+}
+.v2-renta-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.v2-renta-row label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #78350f;
+  white-space: nowrap;
+}
+.v2-renta-row label small { font-size: 10px; font-weight: 500; opacity: .8; }
+.v2-renta-row input {
+  width: 100px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  background: #fff;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 5px;
+  color: var(--v2-ink);
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.v2-renta-row input::-webkit-outer-spin-button,
+.v2-renta-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.v2-renta-row input:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+}
+.v2-renta-results {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  font-size: 11px;
+  color: #78350f;
+  margin-top: 2px;
+}
+.v2-renta-results strong { color: #b45309; font-size: 12px; }
+
 /* Boutons mode loyer (minoré / référence / majoré) sous le champ Loyer HC */
 .v2-loyer-mode-btns {
   display: flex;

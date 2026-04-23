@@ -1118,6 +1118,46 @@
           });
         });
       });
+
+      // ── Simulation rentabilité (non persisté BDD, persisté localStorage) ──
+      const rentaSim    = document.querySelector('.v2-renta-sim');
+      const loyerEl     = document.getElementById('v2-renta-loyer');
+      const chargesEl   = document.getElementById('v2-renta-charges');
+      const bruteEl     = document.getElementById('v2-renta-brute');
+      const netteEl     = document.getElementById('v2-renta-nette');
+      if (rentaSim && loyerEl && chargesEl && bruteEl && netteEl) {
+        const bienId  = rentaSim.dataset.bienId || '0';
+        const lsKey   = 'renta_sim_bien_' + bienId;
+        // Restore depuis localStorage (si même bien, même navigateur)
+        try {
+          const saved = JSON.parse(localStorage.getItem(lsKey) || '{}');
+          if (saved.loyer)   loyerEl.value   = saved.loyer;
+          if (saved.charges) chargesEl.value = saved.charges;
+        } catch (_) {}
+
+        const fmtPct = (p) => (p > 0 && isFinite(p)) ? p.toFixed(2).replace(/\.?0+$/, '') + ' %' : '—';
+        const recompute = () => {
+          const loyer   = parseFloat((loyerEl.value   || '').replace(',', '.')) || 0;
+          const charges = parseFloat((chargesEl.value || '').replace(',', '.')) || 0;
+          const faiTxt  = (faiEl.value || '').replace(',', '.');
+          const fai     = parseFloat(faiTxt) || 0;
+          let brute = 0, nette = 0;
+          if (fai > 0 && loyer > 0) {
+            brute = (loyer * 12 / fai) * 100;
+            nette = ((loyer - charges) * 12 / fai) * 100;
+          }
+          bruteEl.textContent = fmtPct(brute);
+          netteEl.textContent = fmtPct(nette);
+          try {
+            localStorage.setItem(lsKey, JSON.stringify({ loyer: loyerEl.value, charges: chargesEl.value }));
+          } catch (_) {}
+        };
+        loyerEl.addEventListener('input',  recompute);
+        chargesEl.addEventListener('input', recompute);
+        // Recalcule aussi quand le Prix FAI change (saisie des champs vente)
+        [netEl, honoEl, pctEl].forEach(el => el.addEventListener('input', recompute));
+        recompute();
+      }
     })();
 
     // ══════════════════════════════════════════════════════════════
