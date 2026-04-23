@@ -43,8 +43,13 @@ if ($filters['prop'] > 0) {
     $params[':f_prop'] = $filters['prop'];
 }
 if ($filters['q'] !== '') {
-    $where[] = '(a.titre_analyse LIKE :f_q OR a.ville LIKE :f_q OR a.reference_bien LIKE :f_q OR a.locataire_nom LIKE :f_q)';
-    $params[':f_q'] = '%' . $filters['q'] . '%';
+    // Placeholders uniques (MariaDB/PDO refuse les réutilisations avec EMULATE_PREPARES=false)
+    $where[] = '(a.titre_analyse LIKE :f_q1 OR a.ville LIKE :f_q2 OR a.reference_bien LIKE :f_q3 OR a.locataire_nom LIKE :f_q4)';
+    $needle = '%' . $filters['q'] . '%';
+    $params[':f_q1'] = $needle;
+    $params[':f_q2'] = $needle;
+    $params[':f_q3'] = $needle;
+    $params[':f_q4'] = $needle;
 }
 
 $orderBy = match ($tri) {

@@ -281,8 +281,13 @@ if (!function_exists('inv_list')) {
             $params = array_merge($params, $tParams);
         }
         if (!empty($filters['q'])) {
-            $where[] = '(titre_analyse LIKE :f_q OR reference_bien LIKE :f_q OR ville LIKE :f_q OR locataire_nom LIKE :f_q)';
-            $params[':f_q'] = '%' . $filters['q'] . '%';
+            // Placeholders uniques (MariaDB refuse les réutilisations quand EMULATE_PREPARES=false)
+            $where[] = '(titre_analyse LIKE :f_q1 OR reference_bien LIKE :f_q2 OR ville LIKE :f_q3 OR locataire_nom LIKE :f_q4)';
+            $needle = '%' . $filters['q'] . '%';
+            $params[':f_q1'] = $needle;
+            $params[':f_q2'] = $needle;
+            $params[':f_q3'] = $needle;
+            $params[':f_q4'] = $needle;
         }
 
         $sql = "SELECT id, titre_analyse, reference_bien, type_bien, ville, quartier, adresse,
