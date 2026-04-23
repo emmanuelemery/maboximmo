@@ -954,4 +954,92 @@ async function rnDeleteAudio(idAudio) {
 runAnalysis();
 </script>
 
+
+<!-- ─── Chat IA sur CE bien spécifique ─── -->
+<div id="rn-chat-fab" style="position:fixed; bottom:24px; right:24px; z-index:9998;
+     width:58px; height:58px; border-radius:50%; background:#b4443a; color:#fff;
+     display:flex; align-items:center; justify-content:center; cursor:pointer;
+     box-shadow:0 10px 30px rgba(180,68,58,.35); font-size:24px; transition:all .15s;">
+    🤖
+</div>
+<div id="rn-chat-panel" style="display:none; position:fixed; bottom:92px; right:24px; z-index:9999;
+     width:420px; max-width:92vw; height:560px; max-height:80vh;
+     background:#fff; border-radius:14px; box-shadow:0 20px 60px rgba(36,50,74,.25);
+     flex-direction:column; overflow:hidden;">
+    <div style="padding:14px 18px; background:linear-gradient(135deg,#b4443a,#d97a3a); color:#fff;
+                display:flex; align-items:center; justify-content:space-between;">
+        <div>
+            <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:14px;">🤖 Conseiller sur ce bien</div>
+            <div style="font-family:'DM Mono',monospace; font-size:10px; opacity:.8; letter-spacing:.08em;"><?= $h(mb_substr($row['titre_analyse'], 0, 40)) ?></div>
+        </div>
+        <button type="button" id="rn-chat-close" style="background:transparent; border:none; color:#fff; font-size:22px; cursor:pointer;">&times;</button>
+    </div>
+    <div id="rn-chat-msgs" style="flex:1; padding:16px 18px; overflow-y:auto; font-size:13.5px; line-height:1.55; color:#2c2a28; background:#fafafa;"></div>
+    <div style="padding:12px 14px; border-top:1px solid #eee; background:#fff;">
+        <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;" id="rn-chat-suggest">
+            <button type="button" class="rn-chat-sug" data-q="Ce bien est-il à vendre ou à conserver selon les chiffres ?">Vendre ou garder ?</button>
+            <button type="button" class="rn-chat-sug" data-q="Quel prix de vente me semble raisonnable pour atteindre un rendement brut de 7 % ?">Prix à 7 %</button>
+            <button type="button" class="rn-chat-sug" data-q="Quels sont les principaux risques à relever pour ce bien ?">Risques</button>
+            <button type="button" class="rn-chat-sug" data-q="Comment justifier ce prix auprès du propriétaire ?">Argumentaire</button>
+        </div>
+        <form id="rn-chat-form" style="display:flex; gap:8px;">
+            <input type="text" id="rn-chat-input" placeholder="Posez une question sur ce bien…" autocomplete="off"
+                   style="flex:1; padding:10px 14px; border:1px solid #e6e1d7; border-radius:10px; font-family:'Sora',sans-serif; font-size:13px; outline:none;">
+            <button type="submit" id="rn-chat-send"
+                    style="padding:10px 16px; background:#b4443a; color:#fff; border:none; border-radius:10px; font-weight:700; cursor:pointer;">→</button>
+        </form>
+    </div>
+</div>
+
+<style>
+.rn-chat-sug { padding:4px 10px; font-size:10.5px; background:#f4f4f4; border:1px solid #e6e1d7; border-radius:999px; cursor:pointer; color:#5a5a55; font-family:'Sora',sans-serif; }
+.rn-chat-sug:hover { background:#b4443a; color:#fff; border-color:#b4443a; }
+#rn-chat-fab:hover { transform: scale(1.08); }
+.rn-chat-msg { margin-bottom:14px; }
+.rn-chat-msg.user { text-align:right; }
+.rn-chat-msg.user .bulle { background:#b4443a; color:#fff; border-bottom-right-radius:4px; }
+.rn-chat-msg.bot .bulle { background:#fff; color:#2c2a28; border:1px solid #e6e1d7; border-bottom-left-radius:4px; }
+.rn-chat-msg .bulle { display:inline-block; padding:10px 14px; border-radius:12px; max-width:82%; text-align:left; white-space:pre-wrap; }
+.rn-chat-typing { color:#9a9690; font-style:italic; font-size:12px; padding:6px 14px; }
+</style>
+
+<script>
+(function () {
+    const fab = document.getElementById('rn-chat-fab');
+    const panel = document.getElementById('rn-chat-panel');
+    const close = document.getElementById('rn-chat-close');
+    const msgs = document.getElementById('rn-chat-msgs');
+    const form = document.getElementById('rn-chat-form');
+    const input = document.getElementById('rn-chat-input');
+    const send = document.getElementById('rn-chat-send');
+    const CHAT_API = <?= json_encode($u('/investisseur/ai_chat.php')) ?>;
+
+    const open = () => { panel.style.display = 'flex'; fab.style.display = 'none'; input.focus();
+        if (!msgs.innerHTML) addBot('Je connais toutes les données de ce bien (prix, loyer, locataire, commentaires, historique…). Posez-moi votre question.'); };
+    fab.addEventListener('click', open);
+    close.addEventListener('click', () => { panel.style.display = 'none'; fab.style.display = 'flex'; });
+
+    function addUser(t) { const d=document.createElement('div'); d.className='rn-chat-msg user'; d.innerHTML='<div class="bulle"></div>'; d.querySelector('.bulle').textContent=t; msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; }
+    function addBot(t) { const d=document.createElement('div'); d.className='rn-chat-msg bot'; d.innerHTML='<div class="bulle"></div>'; d.querySelector('.bulle').innerText=t; msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; }
+    function addTyping() { const d=document.createElement('div'); d.className='rn-chat-typing'; d.id='rn-chat-typing'; d.textContent='⏳ Analyse…'; msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; }
+    function rmTyping() { document.getElementById('rn-chat-typing')?.remove(); }
+
+    async function ask(q) {
+        addUser(q); input.value=''; send.disabled=true; addTyping();
+        const fd = new FormData();
+        fd.append('question', q); fd.append('id_analyse', RN_ID); fd.append('_csrf_token', RN_CSRF);
+        try {
+            const r = await fetch(CHAT_API, {method:'POST', body:fd});
+            const j = await r.json();
+            rmTyping();
+            if (j.ok) addBot(j.reponse);
+            else addBot('⚠ ' + (j.error || 'Erreur'));
+        } catch (e) { rmTyping(); addBot('⚠ Erreur réseau'); }
+        send.disabled=false; input.focus();
+    }
+    form.addEventListener('submit', e => { e.preventDefault(); const q = input.value.trim(); if (q) ask(q); });
+    document.querySelectorAll('.rn-chat-sug').forEach(b => b.addEventListener('click', () => ask(b.dataset.q)));
+})();
+</script>
+
 <?php require_once __DIR__ . '/../inc/agency_layout_bottom.php'; ?>

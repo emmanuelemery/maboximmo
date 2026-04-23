@@ -27,6 +27,93 @@ try {
     if ($question === '') throw new RuntimeException('Question vide');
     if (mb_strlen($question) > 500) throw new RuntimeException('Question trop longue (max 500 car.)');
 
+    $idAnalyse = (int)($_POST['id_analyse'] ?? 0);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MODE BIEN SPÉCIFIQUE (page réunion)
+    // ═══════════════════════════════════════════════════════════════════
+    if ($idAnalyse > 0) {
+        $row = inv_load($pdo, $idAnalyse);
+        if (!$row) throw new RuntimeException('Bien introuvable ou hors périmètre');
+
+        // Historique prix
+        $stH = $pdo->prepare("SELECT prix_ancien, prix_nouveau, motif, changed_at
+                              FROM investisseur_prix_historique
+                              WHERE id_analyse = :id ORDER BY changed_at DESC LIMIT 10");
+        $stH->bindValue(':id', $idAnalyse, PDO::PARAM_INT);
+        $stH->execute();
+        $historique = $stH->fetchAll(PDO::FETCH_ASSOC);
+
+        // Commentaires orientés
+        $stC = $pdo->prepare("SELECT categorie, titre, contenu, poids FROM investisseur_commentaires
+                              WHERE id_analyse = :id AND actif = 1 ORDER BY poids DESC LIMIT 15");
+        try { $stC->bindValue(':id', $idAnalyse, PDO::PARAM_INT); $stC->execute(); $comms = $stC->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) { $comms = []; }
+
+        $ctx = [
+            'mode' => 'bien_specifique',
+            'bien' => [
+                'titre'       => $row['titre_analyse'],
+                'type'        => $row['type_bien'],
+                'ville'       => $row['ville'],
+                'adresse'     => $row['adresse'],
+                'surface_m2'  => (float)$row['surface'],
+                'locataire'   => $row['locataire_nom'],
+                'bail_fin'    => $row['bail_fin'],
+                'photovoltaique' => !empty($row['photovoltaique']),
+                'prix_vente_catalogue' => (float)$row['prix_vente_catalogue'],
+                'prix_achat'  => (float)$row['prix_achat'],
+                'loyer_mensuel' => (float)$row['loyer_estime'],
+                'loyer_annuel'  => (float)$row['loyer_estime'] * 12,
+                'frais_notaire' => (float)$row['frais_notaire'],
+                'honoraires_vente' => (float)$row['honoraires_vente'],
+                'travaux_acquereur' => (float)$row['travaux'],
+                'travaux_bailleur'  => (float)($row['travaux_bailleur'] ?? 0),
+                'credit_crd'    => (float)($row['credit_crd'] ?? 0),
+                'credit_duree_restante_mois' => (int)($row['credit_duree_restante_mois'] ?? 0),
+                'rdt_brut'      => (float)$row['rendement_brut'],
+                'rdt_net'       => (float)$row['rendement_net'],
+                'prix_m2'       => (float)$row['prix_m2'],
+                'multiple_loyer'=> (float)$row['multiple_loyer'],
+                'cashflow_mensuel' => (float)$row['cashflow_mensuel'],
+                'score_global'  => (int)$row['score_global'],
+                'score_risque'  => (int)$row['score_risque'],
+                'score_attractivite' => (int)$row['score_attractivite'],
+                'priorite_vente'=> (int)($row['priorite_vente'] ?? 0),
+                'strategie'     => $row['strategie'],
+                'reco_finale'   => $row['reco_finale'],
+                'synthese'      => $row['synthese'],
+                'commentaire_humain'  => $row['commentaire_humain'],
+                'commentaire_reunion' => $row['commentaire_reunion'],
+            ],
+            'historique_prix' => array_map(fn($h) => [
+                'date' => $h['changed_at'], 'ancien' => (float)$h['prix_ancien'],
+                'nouveau' => (float)$h['prix_nouveau'], 'motif' => $h['motif'],
+            ], $historique),
+            'commentaires_orientes' => array_map(fn($c) => [
+                'categorie' => $c['categorie'], 'titre' => $c['titre'],
+                'contenu' => $c['contenu'], 'poids' => (int)$c['poids'],
+            ], $comms),
+        ];
+
+        $system = "Tu es un analyste investissement immobilier français expérimenté. "
+            . "Tu réponds aux questions d'un professionnel sur UN bien spécifique (voir contexte JSON). "
+            . "Sois concis (max 200 mots), argumente avec les chiffres fournis. "
+            . "Nomme les éléments précis du bien quand pertinent. "
+            . "Si la donnée manque, dis-le plutôt qu'inventer. "
+            . "Format : paragraphes courts + puces. Ton direct et professionnel.";
+
+        $user = "CONTEXTE BIEN (JSON) :\n" . json_encode($ctx, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n\n"
+              . "QUESTION :\n" . $question;
+
+        $resp = inv_ai_chat($system, $user, false, 0.3);
+        if (!$resp['ok']) throw new RuntimeException($resp['error'] ?? 'Erreur IA');
+        echo json_encode(['ok' => true, 'reponse' => $resp['text']], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MODE PORTEFEUILLE (dashboard)
+    // ═══════════════════════════════════════════════════════════════════
     // ── Contexte du portefeuille (scopé utilisateur) ────────────────────
     $scope = inv_scope_where();
     $sql = "SELECT id, titre_analyse, reference_bien, type_bien, ville, surface,
