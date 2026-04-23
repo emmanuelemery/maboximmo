@@ -242,8 +242,10 @@ $typos = inv_typologies();
             </td>
             <td style="white-space:nowrap;">
                 <button type="button" class="pp-save-btn" onclick="ppSave(<?= (int)$r['id'] ?>)" title="Sauvegarder">💾</button>
+                <a href="<?= $h($u('/investisseur/reunion.php?id=' . (int)$r['id'])) ?>"
+                   class="pp-save-btn" style="text-decoration:none; background:#b4443a; color:#fff; border-color:#b4443a;" title="Mode réunion bien par bien">🎤</a>
                 <a href="<?= $h($u('/investisseur/detail.php?id=' . (int)$r['id'])) ?>" target="_blank"
-                   class="pp-save-btn" style="text-decoration:none;" title="Ouvrir l'analyse complète dans un nouvel onglet">🔍</a>
+                   class="pp-save-btn" style="text-decoration:none;" title="Analyse complète (nouvel onglet)">🔍</a>
             </td>
         </tr>
         <?php endforeach; ?>
