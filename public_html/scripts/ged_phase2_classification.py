@@ -141,6 +141,40 @@ def best_immeuble_match(hints: str, immeubles: list, cp_hint: str = ''):
 # Extensions acceptées pour être classifié (les .php/.zip sont des scripts techniques à ignorer)
 ACCEPTED_EXTS = {'pdf', 'xlsx', 'xls', 'csv', 'jpg', 'jpeg', 'png', 'doc', 'docx'}
 
+# Seuil minimum fuzzy pour considérer qu'un immeuble matche réellement
+IMMEUBLE_MIN_SCORE = 50
+
+# Dossiers techniques (jamais une adresse) — à ignorer comme source d'adresse
+TECH_FOLDERS_NORM = {
+    '04 DIAGNOSTICS', '01 GROUPE SIR ET SABY', '01 DIAG ET DPE',
+    'CRG', 'BAUX', 'ASSURANCES', 'FACTURES', 'PHOTOS', 'DIAGNOSTICS',
+    'DPE', 'DIAG', 'ACTES', 'MANDATS', 'GED', 'CORRESPONDANCE',
+}
+
+def looks_like_address(s: str) -> bool:
+    """Heuristique : chaîne ressemble à une adresse d'immeuble."""
+    if not s:
+        return False
+    n = norm(s)
+    if not n:
+        return False
+    # Ignore dossiers techniques purs
+    if n in TECH_FOLDERS_NORM:
+        return False
+    # Ignore préfixes type "01_" ou "04_" (dossiers d'organisation)
+    if re.match(r'^\d{1,2}\s', n) and len(n.split()) == 1:
+        return False
+    # Adresse patterns clairs
+    if re.match(r'^\d+[\s\-]+[A-Z]', n):  # "13 LOUIS", "11-13 REPUBLIQUE"
+        return True
+    if re.match(r'^\d+\s*[A-Z]', n):  # "1 PLACE" (sans séparateur)
+        return True
+    # Texte pur avec au moins 2 mots (ex: "PLACE GODIEN")
+    words = [w for w in n.split() if len(w) >= 2]
+    if len(words) >= 2 and not re.match(r'^\d+$', words[0]):
+        return True
+    return False
+
 def classify_one(manifest, proprios, immeubles):
     """Retourne dict avec id_proprio, id_immeuble, confidence, score, hints."""
     path = manifest['path_source']
@@ -158,43 +192,75 @@ def classify_one(manifest, proprios, immeubles):
 
     # Hints path parent
     parts = re.split(r'[\\/]', path)
-    parent_folders = ' '.join(parts[-3:-1])  # 2 niveaux avant le fichier
+    parent_clean = norm(parts[-2]) if len(parts) >= 2 else ''
+    # Full path hint : TOUS les composants (pour détecter SIR/SABY à la racine)
+    full_path_hint = ' '.join(parts)
+    parent_folders = ' '.join(parts[-3:-1])  # 2 niveaux (pour extraction adresse)
     full_hint = f'{parent_folders} {filename}'
 
-    # 1. Match proprio sur tout le chemin
-    proprio, p_score = best_proprio_match(full_hint, proprios)
+    # 1. Match proprio sur le PATH COMPLET (pas juste 2 niveaux)
+    proprio, p_score = best_proprio_match(full_path_hint, proprios)
 
-    # 2. Extract adresse/CP : cherche explicitement un pattern "num + rue/av/bd/..."
-    # D'abord dans filename (prioritaire), sinon dans path parent (pour DPE organisés par immeuble)
+    # 2. Extract adresse : priorité au dossier immédiat parts[-2]
     adresse_tokens = ''
     cp_hint = ''
     cp_match = re.search(r'\b(\d{5})\b', full_hint)
     if cp_match:
         cp_hint = cp_match.group(1)
 
-    # Pattern adresse explicite : "123 NOM RUE" ou "123 NOM" (min 3 chars reste)
-    adr_m = re.search(r'(\d+)\s+([A-Z][\w\s]{4,40})', norm(filename))
-    if not adr_m:
-        adr_m = re.search(r'(\d+)\s+([A-Z][\w\s]{4,40})', norm(parent_folders))
-    if adr_m:
-        adresse_tokens = f'{adr_m.group(1)} {adr_m.group(2)}'.strip()
+    if looks_like_address(parent_clean):
+        adresse_tokens = parent_clean
+    else:
+        # Fallback : regex sur filename puis parent_folders
+        adr_m = re.search(r'(\d+)\s+([A-Z][\w\s]{4,40})', norm(filename))
+        if not adr_m:
+            adr_m = re.search(r'(\d+)\s+([A-Z][\w\s]{4,40})', norm(parent_folders))
+        if adr_m:
+            adresse_tokens = f'{adr_m.group(1)} {adr_m.group(2)}'.strip()
 
-    # 3. Match immeuble — SEULEMENT si on a extrait une adresse
+    # 3. Match immeuble + seuil minimum (sinon on considère None)
     immeuble, i_score = (None, 0.0)
     if adresse_tokens:
         immeuble, i_score = best_immeuble_match(adresse_tokens, immeubles, cp_hint)
+        if i_score < IMMEUBLE_MIN_SCORE:
+            immeuble = None  # garde i_score pour info mais pas de match réel
 
-    # 4. Confidence globale
-    # Cas 1 : match immeuble fort → certain
-    if i_score >= 75 and p_score >= 60:
+    # 4. Proposition création si adresse détectée mais pas d'immeuble matché
+    creation_needed = None
+    if not immeuble and looks_like_address(parent_clean):
+        ville_guess = ''
+        cp_guess = cp_hint
+        vm = re.search(r'\b(\d{5})\s+([A-Z\s]+)', norm(filename))
+        if vm:
+            cp_guess = vm.group(1)
+            ville_guess = vm.group(2).strip()[:50]
+        creation_needed = {
+            'immeuble': {
+                'adresse_1': parent_clean[:200],
+                'code_postal': cp_guess,
+                'ville': ville_guess,
+                'source': 'parent_folder',
+            }
+        }
+
+    # 5. Confidence globale
+    # Rappel : has_immeuble implique i_score >= IMMEUBLE_MIN_SCORE (50)
+    has_immeuble = immeuble is not None
+    has_proprio = proprio is not None
+    if has_immeuble and i_score >= 75 and p_score >= 60:
         confidence = 'certain'
-    elif i_score >= 60 or p_score >= 80:
+    elif has_immeuble and (i_score >= 70 or p_score >= 60):
         confidence = 'probable'
-    elif p_score >= 40 and (immeuble or adresse_tokens):
+    elif has_immeuble:
+        # Match BDD existant mais faible → ambigu (à trier)
         confidence = 'ambigu'
-    elif p_score >= 40 and not adresse_tokens:
-        # Propriétaire identifié mais pas d'adresse — assignation niveau propriétaire uniquement
+    elif creation_needed:
+        # Parent folder = adresse claire mais rien en BDD → ambigu (à créer ou rattacher)
+        confidence = 'ambigu'
+    elif has_proprio and p_score >= 80:
         confidence = 'probable'
+    elif has_proprio and p_score >= 40:
+        confidence = 'ambigu'
     else:
         confidence = 'non_classe'
 
@@ -206,7 +272,8 @@ def classify_one(manifest, proprios, immeubles):
         'score': round((p_score + i_score) / 2, 2),
         'hint_filename': filename[:480],
         'hint_proprio': proprio['label'][:250] if proprio else None,
-        'hint_adresse': (adresse_tokens or '')[:480],
+        'hint_adresse': (adresse_tokens or parent_clean or '')[:480],
+        'creation_needed': creation_needed,
     }
 
 def main():
@@ -253,17 +320,20 @@ def main():
 
         # dedup_hash
         dh = sha1(f"{clazz['id_proprietaire'] or 0}|{clazz['id_immeuble'] or 0}|{manifest['md5']}".encode()).hexdigest()
+        cn_json = json.dumps(clazz['creation_needed'], ensure_ascii=False) if clazz.get('creation_needed') else None
 
         try:
             cur.execute("""
                 INSERT INTO ged_classification_staging
                     (id_manifest, id_proprietaire, id_immeuble, id_bien,
-                     dedup_hash, confidence, score, hint_filename, hint_proprio, hint_adresse)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     dedup_hash, confidence, score, hint_filename, hint_proprio, hint_adresse,
+                     creation_needed_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 manifest['id'], clazz['id_proprietaire'], clazz['id_immeuble'], clazz['id_bien'],
                 dh, clazz['confidence'], clazz['score'],
                 clazz['hint_filename'], clazz['hint_proprio'], clazz['hint_adresse'],
+                cn_json,
             ))
         except mysql.connector.Error as e:
             print(f'❌ SQL {manifest["filename"]}: {e}')

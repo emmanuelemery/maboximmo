@@ -24,7 +24,8 @@ try {
     $st = $pdo->prepare("
         SELECT c.id, c.id_manifest, c.id_proprietaire, c.id_immeuble, c.id_bien,
                c.confidence, c.score, c.comment, c.validated, c.hint_filename,
-               c.hint_proprio, c.hint_adresse, m.filename, m.path_source, m.famille_doc
+               c.hint_proprio, c.hint_adresse, c.creation_needed_json,
+               m.filename, m.path_source, m.famille_doc
         FROM ged_classification_staging c
         JOIN ged_manifest m ON m.id = c.id_manifest
         WHERE c.id = ? LIMIT 1
@@ -32,6 +33,9 @@ try {
     $st->execute([$id]);
     $item = $st->fetch(PDO::FETCH_ASSOC);
     if (!$item) throw new RuntimeException('Item introuvable');
+    if (!empty($item['creation_needed_json'])) {
+        $item['creation_needed'] = json_decode($item['creation_needed_json'], true);
+    }
     echo json_encode(['ok' => true, 'item' => $item]);
 } catch (Throwable $e) {
     http_response_code(400);

@@ -106,7 +106,7 @@ try {
     $stItems = $pdo->prepare("
         SELECT c.id, c.id_manifest, c.id_proprietaire, c.id_immeuble, c.id_bien,
                c.confidence, c.score, c.hint_filename, c.hint_proprio, c.hint_adresse,
-               c.validated, c.comment,
+               c.validated, c.comment, c.creation_needed_json,
                m.filename, m.famille_doc, m.taille_octets, m.path_source,
                p.societe AS prop_nom,
                i.adresse_1 AS imm_adresse, i.ville AS imm_ville
@@ -416,6 +416,9 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
                   <?php elseif ($it['hint_adresse']): ?>
                     · 🏢 <em><?= h($it['hint_adresse']) ?></em>
                   <?php endif; ?>
+                  <?php if (!empty($it['creation_needed_json'])): ?>
+                    <span class="vi-badge" style="background:#fef3c7;color:#78350f;margin-left:6px;">🏢 À créer</span>
+                  <?php endif; ?>
                 </div>
               </div>
             <?php endforeach; ?>
@@ -447,6 +450,23 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
 
               <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;margin-top:10px;display:block;">Commentaire</label>
               <input id="vi-comment" type="text" placeholder="Note optionnelle" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin-top:4px;" onblur="saveComment()">
+            </div>
+
+            <div id="vi-create-imm" style="display:none;background:#fef3c7;border:1px solid #fcd34d;padding:10px;border-radius:8px;margin-bottom:12px;">
+              <div style="font-size:11px;font-weight:700;color:#78350f;margin-bottom:8px;">🏢 Aucun immeuble existant — proposition de création</div>
+              <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;">Adresse *</label>
+              <input id="vi-ci-adresse" type="text" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin:4px 0 8px;">
+              <div style="display:grid;grid-template-columns:1fr 2fr;gap:6px;">
+                <div>
+                  <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;">CP</label>
+                  <input id="vi-ci-cp" type="text" maxlength="5" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin-top:4px;">
+                </div>
+                <div>
+                  <label style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;">Ville</label>
+                  <input id="vi-ci-ville" type="text" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;margin-top:4px;">
+                </div>
+              </div>
+              <button class="vi-btn vi-btn-primary" style="width:100%;margin-top:8px;" onclick="createImmeuble()">🏢 Créer l'immeuble et rattacher</button>
             </div>
 
             <div style="display:flex;gap:8px;margin-bottom:12px;">
@@ -493,8 +513,40 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
               document.getElementById('vi-prop-select').value = j.item.id_proprietaire || '';
               document.getElementById('vi-imm-select').value = j.item.id_immeuble || '';
               document.getElementById('vi-comment').value = j.item.comment || '';
+
+              // Bloc création immeuble si creation_needed présent ET pas d'immeuble rattaché
+              const ciBlock = document.getElementById('vi-create-imm');
+              const cn = j.item.creation_needed;
+              if (cn && cn.immeuble && !j.item.id_immeuble) {
+                ciBlock.style.display = 'block';
+                document.getElementById('vi-ci-adresse').value = cn.immeuble.adresse_1 || '';
+                document.getElementById('vi-ci-cp').value = cn.immeuble.code_postal || '';
+                document.getElementById('vi-ci-ville').value = cn.immeuble.ville || '';
+              } else {
+                ciBlock.style.display = 'none';
+              }
             }
           }).catch(()=>{});
+      }
+
+      async function createImmeuble() {
+        if (!currentId) return;
+        const adr = document.getElementById('vi-ci-adresse').value.trim();
+        if (!adr) { alert('Adresse requise'); return; }
+        const fd = new FormData();
+        fd.append('id', currentId); fd.append('action', 'create_immeuble_from_ged');
+        fd.append('adresse_1', adr);
+        fd.append('code_postal', document.getElementById('vi-ci-cp').value.trim());
+        fd.append('ville', document.getElementById('vi-ci-ville').value.trim());
+        fd.append('csrf_token', CSRF);
+        const r = await fetch('./api/ged_action.php', {method:'POST', body:fd, credentials:'same-origin'});
+        const j = await r.json();
+        if (j.ok) {
+          alert('🏢 Immeuble créé #' + j.id_immeuble + ' — rattaché à la ligne.');
+          location.reload();
+        } else {
+          alert('Erreur : ' + (j.error || 'inconnue'));
+        }
       }
 
       async function actionItem(action) {

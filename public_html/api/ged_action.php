@@ -88,6 +88,53 @@ try {
                 ->execute([$c ?: null, $id]);
             break;
 
+        case 'create_immeuble_from_ged':
+            // Crée un immeuble à partir de creation_needed_json + overrides POST
+            $stG = $pdo->prepare("SELECT creation_needed_json, id_proprietaire
+                                  FROM ged_classification_staging WHERE id = ? LIMIT 1");
+            $stG->execute([$id]);
+            $g = $stG->fetch(PDO::FETCH_ASSOC);
+            if (!$g) throw new RuntimeException('Classification introuvable');
+
+            $cn = $g['creation_needed_json'] ? json_decode($g['creation_needed_json'], true) : null;
+            $imm = $cn['immeuble'] ?? [];
+
+            // Overrides POST prioritaires sur la suggestion JSON
+            $adresse = trim((string)($_POST['adresse_1'] ?? $imm['adresse_1'] ?? ''));
+            $cp      = trim((string)($_POST['code_postal'] ?? $imm['code_postal'] ?? ''));
+            $ville   = trim((string)($_POST['ville'] ?? $imm['ville'] ?? ''));
+            $idProp  = (int)($_POST['id_proprietaire'] ?? $g['id_proprietaire'] ?? 0) ?: null;
+            if ($adresse === '') throw new RuntimeException('adresse_1 requise');
+
+            // Scope societe/agence selon user
+            $idSoc = (int)($_SESSION['id_societe'] ?? 1);
+            $idAg  = (int)($_SESSION['id_agence'] ?? 3);
+
+            $pdo->beginTransaction();
+            try {
+                $stI = $pdo->prepare("
+                    INSERT INTO immeubles (adresse_1, code_postal, ville, id_societe, id_agence,
+                                           statut_immeuble, pays, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'actif', 'France', NOW())
+                ");
+                $stI->execute([$adresse, $cp ?: null, $ville ?: null, $idSoc, $idAg]);
+                $newImmId = (int)$pdo->lastInsertId();
+
+                // Met à jour la ligne staging : immeuble rattaché + confidence upgrade + clear creation_needed
+                $pdo->prepare("
+                    UPDATE ged_classification_staging
+                    SET id_immeuble = ?, confidence = 'probable', creation_needed_json = NULL
+                    WHERE id = ?
+                ")->execute([$newImmId, $id]);
+
+                $pdo->commit();
+                exit(json_encode(['ok' => true, 'id_immeuble' => $newImmId,
+                                  'adresse' => $adresse, 'ville' => $ville]));
+            } catch (Throwable $t) {
+                $pdo->rollBack();
+                throw $t;
+            }
+
         case 'validate_all_certain':
             // Batch : valide tous les "certain" non encore validés
             $batch = (string)($_POST['batch'] ?? '');
