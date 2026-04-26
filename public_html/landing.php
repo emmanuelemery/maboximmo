@@ -854,6 +854,49 @@ try {
     <?php endif; ?>
   </div>
 
+  <?php
+  // ─────────────────────────────────────────────────────────────────────────
+  // Modules externes — visibles UNIQUEMENT pour les super admins (role_id=1).
+  // GED et MAIL sont des SaaS hébergés sur des sous-domaines dédiés
+  // (ged.maboximmo.fr / mail.maboximmo.fr), pas dans le monolithe MaBoxImmo.
+  // Tu peux y accéder via SSO ou directement avec ton compte super admin.
+  // ─────────────────────────────────────────────────────────────────────────
+  if ($roleId === 1):
+  ?>
+  <div class="services-wrap" style="margin-top:24px">
+    <div class="services-label">🔐 Modules externes (super admin)</div>
+    <div class="services-scroll"><div class="services-grid">
+
+      <div class="service-card">
+        <div class="service-icon">📁</div>
+        <div class="service-name">GED</div>
+        <div class="service-desc">
+          Gestion documentaire intelligente : OCR, classement IA, recherche par
+          immeuble/locataire/fournisseur. Module SaaS multi-tenant.
+        </div>
+        <div class="service-footer">
+          <span class="service-status">✓ Production</span>
+          <a href="https://ged.maboximmo.fr/admin/ged_admin.html" target="_blank" rel="noopener" class="service-btn">Accéder ↗</a>
+        </div>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">📬</div>
+        <div class="service-name">MAIL</div>
+        <div class="service-desc">
+          Tri intelligent des emails entrants (Outlook/Gmail), analyse IA,
+          classement métier, déclenchement automatique des actions.
+        </div>
+        <div class="service-footer">
+          <span class="service-status">⚙ Beta</span>
+          <a href="https://mail.maboximmo.fr/admin/mail_login.html" target="_blank" rel="noopener" class="service-btn">Accéder ↗</a>
+        </div>
+      </div>
+
+    </div></div>
+  </div>
+  <?php endif; ?>
+
 </div>
 
 <div class="footer">© 2026 MaBoxImmo — Tous droits réservés</div>
