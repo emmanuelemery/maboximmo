@@ -855,16 +855,17 @@ try {
   </div>
 
   <?php
+  // DEBUG temporaire : log le role_id pour diagnostiquer pourquoi la section
+  // ne s'affiche pas chez Emmanuel (id_role=1 dans BDD).
+  // À retirer après diagnostic.
+  echo "<!-- DEBUG: roleId=" . htmlspecialchars((string)$roleId)
+       . " session.id_role=" . htmlspecialchars((string)($_SESSION['id_role'] ?? 'null'))
+       . " session.test_role_id=" . htmlspecialchars((string)($_SESSION['test_role_id'] ?? 'null'))
+       . " in_array_check=" . (in_array($roleId, [1, 7, 8], true) ? 'true' : 'false')
+       . " -->";
   // ─────────────────────────────────────────────────────────────────────────
-  // Modules externes — visibles pour les rôles admin :
-  //   role_id=1 : super admin (dev/owner)
-  //   role_id=7 : admin société
-  //   role_id=8 : admin agence
-  // Pattern aligné sur le check $isAdmin présent dans admin_dashboard.php
-  // et autres pages admin du legacy.
-  //
-  // GED et MAIL sont des SaaS hébergés sur des sous-domaines dédiés
-  // (ged.maboximmo.fr / mail.maboximmo.fr), pas dans le monolithe MaBoxImmo.
+  // Modules externes — visibles pour les rôles admin (role_id 1, 7, 8).
+  // GED et MAIL sont des SaaS sur sous-domaines dédiés.
   // ─────────────────────────────────────────────────────────────────────────
   if (in_array($roleId, [1, 7, 8], true)):
   ?>
