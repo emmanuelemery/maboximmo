@@ -830,7 +830,7 @@ try {
 
   <!-- SERVICES -->
   <div class="services-wrap">
-    <div class="services-label">Vos services</div>
+    <div class="services-label">Vos services [TEST 26/04 14h]</div>
     <?php if (!empty($userServices)): ?>
     <div class="services-scroll"><div class="services-grid">
       <?php foreach ($userServices as $slug => $config): ?>
