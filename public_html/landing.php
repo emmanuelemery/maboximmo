@@ -856,12 +856,17 @@ try {
 
   <?php
   // ─────────────────────────────────────────────────────────────────────────
-  // Modules externes — visibles UNIQUEMENT pour les super admins (role_id=1).
+  // Modules externes — visibles pour les rôles admin :
+  //   role_id=1 : super admin (dev/owner)
+  //   role_id=7 : admin société
+  //   role_id=8 : admin agence
+  // Pattern aligné sur le check $isAdmin présent dans admin_dashboard.php
+  // et autres pages admin du legacy.
+  //
   // GED et MAIL sont des SaaS hébergés sur des sous-domaines dédiés
   // (ged.maboximmo.fr / mail.maboximmo.fr), pas dans le monolithe MaBoxImmo.
-  // Tu peux y accéder via SSO ou directement avec ton compte super admin.
   // ─────────────────────────────────────────────────────────────────────────
-  if ($roleId === 1):
+  if (in_array($roleId, [1, 7, 8], true)):
   ?>
   <div class="services-wrap" style="margin-top:24px">
     <div class="services-label">🔐 Modules externes (super admin)</div>
