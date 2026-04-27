@@ -204,19 +204,18 @@ ob_start();
                             if ($row && $hasDateModif && !empty($row['date_modification'])) {
                                 $dateStr = 'Maj: ' . date('d/m/Y', strtotime($row['date_modification']));
                             }
-                            $moisRef = sprintf('%04d-%02d-01', $year, $m);
-                            $url = 'rh_salaire_detail.php?id_user=' . $idUser . '&mois_ref=' . $moisRef;
+                            $url = 'rh_salaires_user.php?mois=' . $m . '&annee=' . $year;
                         ?>
-                        <a class="item" href="<?= h($url) ?>" style="text-decoration:none;color:inherit">
+                        <div class="item">
                             <div class="item-left">
                                 <div class="item-title"><?= h(mois_fr($m)) ?></div>
                                 <div class="item-meta"><?= $dateStr ?: 'Salaire ' . (int)$year ?></div>
                             </div>
                             <div class="row">
                                 <span class="status <?= $statusClass ?>"><?= h($status) ?></span>
-                                <span class="btn" aria-hidden="true">Voir</span>
+                                <a class="btn" href="<?= h($url) ?>">Voir</a>
                             </div>
-                        </a>
+                        </div>
                         <?php endfor; ?>
                     </div>
                 </div>
