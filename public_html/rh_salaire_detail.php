@@ -433,12 +433,14 @@ $periode_label = ($mois_ref === '0000-00-00') ? 'Modèle' : ($mois_noms[$mois_se
 $nowYear = (int)$now->format('Y');
 $pillYears = [$nowYear-2, $nowYear-1, $nowYear];
 
-// Pills mois : les 3 derniers + select pour les autres
+// Pills mois : m-1, m courant, m+1 (mois en cours toujours encadré)
 $curMois = (int)$now->format('n');
 $pillMonths = [];
-for ($pm = $curMois - 2; $pm <= $curMois; $pm++) {
-    $m = $pm <= 0 ? $pm + 12 : $pm;
-    if ($m >= 1 && $m <= 12) $pillMonths[] = $m;
+for ($pm = $curMois - 1; $pm <= $curMois + 1; $pm++) {
+    $m = $pm;
+    if ($m <= 0)  $m += 12;
+    if ($m > 12)  $m -= 12;
+    $pillMonths[] = $m;
 }
 
 // Navigation user
@@ -563,6 +565,16 @@ $layout_extra_css = <<<'EXTRACSS'
     /* Modals upload */
     .upload-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(26,24,22,0.45); backdrop-filter:blur(4px); z-index:1000; align-items:center; justify-content:center; }
     .upload-modal.show { display:flex; }
+
+    /* Modal aperçu doc */
+    .doc-preview-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(26,24,22,0.55);backdrop-filter:blur(4px);z-index:2000;align-items:center;justify-content:center}
+    .doc-preview-modal.show{display:flex}
+    .doc-preview-box{background:#fff;border-radius:14px;box-shadow:6px 6px 18px rgba(0,0,0,.25);width:92vw;max-width:1100px;height:88vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
+    .doc-preview-head{padding:12px 18px;border-bottom:1px solid #e4e6ec;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .doc-preview-title{font-family:'Sora',sans-serif;font-size:14px;font-weight:700;color:#3a3830;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .doc-preview-actions{display:flex;gap:8px;align-items:center}
+    .doc-preview-body{flex:1;overflow:hidden;background:#f0f1f3}
+    .doc-preview-iframe{width:100%;height:100%;border:0;display:block}
     .modal-box { background:var(--bg-primary); border-radius:18px; box-shadow:6px 6px 18px #c0bcb6,-4px -4px 10px var(--shadow-light),0 0 0 1px rgba(196,192,186,0.35); padding:24px; max-width:400px; width:90%; position:relative; }
     .modal-box-title { font-family:'DM Mono',monospace; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.22em; color:#7a9060; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid rgba(196,192,186,0.4); }
     .modal-close-btn { position:absolute; top:14px; right:16px; width:26px; height:26px; border-radius:50%; background:var(--bg-primary); box-shadow:3px 3px 6px var(--shadow-dark),-3px -3px 8px var(--shadow-light); border:none; cursor:pointer; font-size:13px; color:#8a8680; display:flex; align-items:center; justify-content:center; line-height:1; transition:color 0.15s; }
@@ -726,6 +738,27 @@ function toggleKpi() {
 }
 function openDoc(url) {
     window.open(url, \'_blank\');
+}
+function previewDoc(url, name) {
+    var titleEl = document.getElementById(\'doc-preview-title\');
+    var iframeEl = document.getElementById(\'doc-preview-iframe\');
+    var dlEl = document.getElementById(\'doc-preview-dl\');
+    if (titleEl) titleEl.textContent = name || \'Aperçu document\';
+    if (iframeEl) iframeEl.src = url;
+    if (dlEl) dlEl.href = url.replace(/[?&]inline=1/g, \'\').replace(/[?&]$/, \'\');
+    var modal = document.getElementById(\'doc-preview-modal\');
+    if (modal) modal.classList.add(\'show\');
+    document.addEventListener(\'keydown\', _docPreviewEscHandler);
+}
+function closeDocPreview() {
+    var iframeEl = document.getElementById(\'doc-preview-iframe\');
+    var modal = document.getElementById(\'doc-preview-modal\');
+    if (iframeEl) iframeEl.src = \'\';
+    if (modal) modal.classList.remove(\'show\');
+    document.removeEventListener(\'keydown\', _docPreviewEscHandler);
+}
+function _docPreviewEscHandler(e) {
+    if (e.key === \'Escape\') closeDocPreview();
 }
 function toggleModele(checked) {
     const params = new URLSearchParams(window.location.search);
@@ -1023,6 +1056,9 @@ ob_start();
                         <div class="doc-item">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#7a9060" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                             <span class="doc-item-name" title="<?=h($doc['original_name'])?>"><?=h($doc['original_name'])?></span>
+                            <button type="button" onclick="previewDoc('api/rh_salaire_doc_download.php?id=<?=(int)$doc['id']?>&inline=1', '<?=h(addslashes($doc['original_name']))?>')" class="doc-btn" title="Visualiser dans une fenêtre">
+                                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </button>
                             <a href="api/rh_salaire_doc_download.php?id=<?=(int)$doc['id']?>" download class="doc-btn" title="Télécharger">
                                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                 DL
@@ -1203,6 +1239,25 @@ ob_start();
     </div>
 </div>
 <?php endforeach; ?>
+
+<!-- Modal aperçu document (PDF / image inline) -->
+<div id="doc-preview-modal" class="doc-preview-modal" onclick="if(event.target===this)closeDocPreview()">
+    <div class="doc-preview-box">
+        <div class="doc-preview-head">
+            <div class="doc-preview-title" id="doc-preview-title">Aperçu document</div>
+            <div class="doc-preview-actions">
+                <a id="doc-preview-dl" href="#" download class="v2-btn" title="Télécharger">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    DL
+                </a>
+                <button type="button" onclick="closeDocPreview()" class="modal-close-btn" title="Fermer">×</button>
+            </div>
+        </div>
+        <div class="doc-preview-body">
+            <iframe id="doc-preview-iframe" class="doc-preview-iframe" src="" title="Aperçu du document"></iframe>
+        </div>
+    </div>
+</div>
 
 <?php
 $layout_content = ob_get_clean();
