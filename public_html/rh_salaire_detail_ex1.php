@@ -285,7 +285,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_FILES['doc_file'])) {
         http_response_code(400); exit('Type de fichier non autorisé');
     }
 
-    $uploadsDir = __DIR__ . '/uploads/salaires';
+    $uploadsDir = dirname(__DIR__) . '/../uploads/salaires';
     if (!is_dir($uploadsDir)) {
         if (!@mkdir($uploadsDir, 0777, true)) {
             http_response_code(400); exit('Impossible de créer le dossier');
@@ -1023,11 +1023,11 @@ ob_start();
                         <div class="doc-item">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#7a9060" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                             <span class="doc-item-name" title="<?=h($doc['original_name'])?>"><?=h($doc['original_name'])?></span>
-                            <a href="api/rh_salaire_doc_download.php?id=<?=(int)$doc['id']?>" download class="doc-btn" title="Télécharger">
+                            <a href="<?=h($doc['file_path'])?>" download class="doc-btn" title="Télécharger">
                                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                 DL
                             </a>
-                            <button onclick="printDoc('api/rh_salaire_doc_download.php?id=<?=(int)$doc['id']?>&inline=1')" class="doc-btn" title="Imprimer">
+                            <button onclick="printDoc('<?=h($doc['file_path'])?>')" class="doc-btn" title="Imprimer">
                                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                             </button>
                             <button onclick="transferDoc('<?=h(addslashes($doc['original_name']))?>')" class="doc-btn" title="Transférer">
@@ -1133,7 +1133,7 @@ ob_start();
                                        class="<?=$hasDoc?'has-doc':''?>"
                                        value="<?=h(fmt_val($sal[$fname]??null, $meta['type']))?>"
                                        placeholder="<?=$meta['type']==='money'?'0,00':'0'?>"
-                                       <?=$hasDoc?'onclick="openDoc(\'api/rh_salaire_doc_download.php?id='.(int)$fieldDoc['id'].'&inline=1\')" title="Cliquer pour ouvrir le document joint" style="cursor:pointer"':''?>
+                                       <?=$hasDoc?'onclick="openDoc(\''.h($fieldDoc['file_path']).'\')" title="Cliquer pour ouvrir le document joint" style="cursor:pointer"':''?>
                                        onchange="autoSaveField('<?=$fname?>', this.value)">
                                 <?php endif; ?>
                                 <?php if (!$isImmat): ?>
