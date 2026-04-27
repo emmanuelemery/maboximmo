@@ -66,7 +66,7 @@ try {
 $alertMonth = (int)$now->format('n');
 $alertYear = (int)$now->format('Y');
 $detailUrl      = 'rh_salaires_user.php?mois=' . $alertMonth . '&annee=' . $alertYear;
-$moisEnCoursUrl = 'rh_salaires.php?mois='      . $alertMonth . '&annee=' . $alertYear . '&scope=me';
+$moisEnCoursUrl = 'rh_salaire_open_or_create.php?mois=' . $alertMonth . '&annee=' . $alertYear;
 
 /* ── Layout variables ── */
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
@@ -93,8 +93,9 @@ $layout_extra_css = <<<'EXTRACSS'
     .btn:hover{background:rgba(72,120,166,.15)}
     .btn-ghost{border-color:#d4d7de;background:#ffffff;color:#1a1816}
     .list{margin-top:16px;display:grid;gap:10px}
-    .item{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid #e4e6ec;border-radius:10px;background:#ffffff;box-shadow:3px 3px 8px #d4d7de,-3px -3px 8px #fff;transition:transform .15s}
-    .item:hover{transform:translateY(-1px);box-shadow:4px 4px 12px #d4d7de,-4px -4px 12px #fff}
+    .item{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid #e4e6ec;border-radius:10px;background:#ffffff;box-shadow:3px 3px 8px #d4d7de,-3px -3px 8px #fff;transition:transform .15s;flex-wrap:wrap;gap:8px}
+    a.item:hover{transform:translateY(-1px);box-shadow:4px 4px 12px #d4d7de,-4px -4px 12px #fff}
+    .item-disabled{opacity:.6;cursor:not-allowed;background:#f7f8fa}
     .item-left{display:flex;flex-direction:column;gap:4px}
     .item-title{font-weight:700;font-size:14px;color:#2f587d}
     .item-meta{font-size:11px;color:#8a8680}
@@ -136,9 +137,9 @@ ob_start();
 
             <div class="grid">
                 <div class="card">
-                    <div class="row" style="justify-content:space-between">
+                    <div class="row" style="justify-content:space-between;flex-wrap:wrap">
                         <div style="font-weight:700;font-size:13px">📌 Mon modèle de salaire</div>
-                        <div style="display:flex;gap:8px;">
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
                             <a class="btn" href="<?= h($moisEnCoursUrl) ?>" title="Voir le salaire réel du mois en cours (limité à mes données)">+ Ouvrir le mois en cours</a>
                             <a class="btn btn-ghost" href="<?= h($detailUrl) ?>" title="Voir la page modèle (structure du salaire)">📋 Voir modèle</a>
                         </div>
@@ -206,7 +207,9 @@ ob_start();
                             }
                             $moisRef = sprintf('%04d-%02d-01', $year, $m);
                             $url = 'rh_salaire_detail.php?id_user=' . $idUser . '&mois_ref=' . $moisRef;
+                            $hasRow = $row !== null;
                         ?>
+                        <?php if ($hasRow): ?>
                         <a class="item" href="<?= h($url) ?>" style="text-decoration:none;color:inherit">
                             <div class="item-left">
                                 <div class="item-title"><?= h(mois_fr($m)) ?></div>
@@ -217,6 +220,17 @@ ob_start();
                                 <span class="btn" aria-hidden="true">Voir</span>
                             </div>
                         </a>
+                        <?php else: ?>
+                        <div class="item item-disabled" title="Salaire non créé — utilisez « Ouvrir le mois en cours » pour démarrer">
+                            <div class="item-left">
+                                <div class="item-title"><?= h(mois_fr($m)) ?></div>
+                                <div class="item-meta"><?= 'Salaire ' . (int)$year ?></div>
+                            </div>
+                            <div class="row">
+                                <span class="status <?= $statusClass ?>"><?= h($status) ?></span>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                         <?php endfor; ?>
                     </div>
                 </div>
