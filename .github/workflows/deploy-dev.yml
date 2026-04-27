@@ -39,6 +39,8 @@ jobs:
             **/.DS_Store
             **/uploads/**
             **/tcpdf_cache/**
+            **/config/smtp.php
             **/config/smtp_local.php
+            **/config/registres.php
             **/config/ubiflow_credentials.local.php
             **/db_config.php
