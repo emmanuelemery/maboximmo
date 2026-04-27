@@ -293,7 +293,27 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_FILES['doc_file'])) {
         @chmod($uploadsDir, 0777);
     }
 
-    $newName = $sal['id'] . '_' . $categorie . '_' . time() . '.' . $ext;
+    // Naming structuré : YYYYMMDD_userId-userSlug_categorie_YYYYMM_HHMMSS.ext
+    // Ex : 20260427_8-eemery_stationnement_202604_143520.pdf
+    $nowParis    = new DateTime('now', new DateTimeZone('Europe/Paris'));
+    $datePart    = $nowParis->format('Ymd');
+    $timePart    = $nowParis->format('His');
+    $moisSalPart = preg_replace('/[^0-9]/', '', substr((string)$mois_ref, 0, 7)); // YYYYMM
+    if (strlen($moisSalPart) !== 6) { $moisSalPart = '000000'; }
+
+    $rawSlug  = strtolower(trim(mb_substr((string)($user['prenom'] ?? ''), 0, 1) . (string)($user['nom'] ?? '')));
+    if (function_exists('iconv')) {
+        $translit = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $rawSlug);
+        if ($translit !== false) { $rawSlug = $translit; }
+    }
+    $userSlug = preg_replace('/[^a-z0-9]/', '', $rawSlug);
+    if ($userSlug === '') { $userSlug = 'user'; }
+    $userPart = $idUser . '-' . $userSlug;
+
+    $catSafe  = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$categorie);
+    if ($catSafe === '') { $catSafe = 'doc'; }
+
+    $newName    = $datePart . '_' . $userPart . '_' . $catSafe . '_' . $moisSalPart . '_' . $timePart . '.' . $ext;
     $uploadPath = $uploadsDir . '/' . $newName;
 
     if (!@move_uploaded_file($file['tmp_name'], $uploadPath)) {
