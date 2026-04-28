@@ -1503,7 +1503,7 @@ function sendEmailToUser(idUser, mois, annee) {
 function createOneSalary(idUser, mois, annee, nomComplet, moisNom, anneeLabel) {
     if (MONTH_LOCKED) { alert(\'Mois cloture\'); return; }
     if (!confirm(\'Creation de la paie de \' + nomComplet + \'\\ndu mois de \' + moisNom + \' \' + anneeLabel + \'\\n\\nConfirmer ?\')) return;
-    fetch(\'api/create_missing_salaries.php\', {
+    fetch(\'/MaBoxImmo2026/public_html/api/create_missing_salaries.php\', {
         method: \'POST\',
         headers: Object.assign({\'Content-Type\': \'application/json\'}, CSRF_HEADERS),
         body: JSON.stringify({mois: mois, annee: annee, id_user: idUser, notify: false})
@@ -1512,7 +1512,7 @@ function createOneSalary(idUser, mois, annee, nomComplet, moisNom, anneeLabel) {
     .then(data => {
         if (data.success) {
             const moisRef = String(annee) + \'-\' + String(mois).padStart(2, \'0\') + \'-01\';
-            window.location.href = \'rh_salaire_detail.php?id_user=\' + idUser + \'&mois_ref=\' + encodeURIComponent(moisRef);
+            window.location.href = \'/MaBoxImmo2026/public_html/rh_salaire_detail.php?id_user=\' + idUser + \'&mois_ref=\' + encodeURIComponent(moisRef);
         } else {
             alert(\'Erreur: \' + data.message);
         }
@@ -1524,7 +1524,7 @@ function createMissingSalariesOnly(mois, annee, agenceScope = 0) {
     if (MONTH_LOCKED) { alert(\'Mois cloture\'); return; }
     if (!confirm(\'Creer tous les salaires manquants sans envoyer de notifications ?\')) return;
 
-    fetch(\'api/create_missing_salaries.php\', {
+    fetch(\'/MaBoxImmo2026/public_html/api/create_missing_salaries.php\', {
         method: \'POST\',
         headers: Object.assign({\'Content-Type\': \'application/json\'}, CSRF_HEADERS),
         body: JSON.stringify({mois: mois, annee: annee, agence_id: agenceScope, notify: false})
@@ -1545,7 +1545,7 @@ function createMissingSalaries(mois, annee, agenceScope = 0) {
     if (MONTH_LOCKED) { alert(\'Mois cloture\'); return; }
     if (!confirm(\'Creer tous les salaires manquants et envoyer les avis de cloture a chaque utilisateur ?\')) return;
 
-    fetch(\'api/create_missing_salaries.php\', {
+    fetch(\'/MaBoxImmo2026/public_html/api/create_missing_salaries.php\', {
         method: \'POST\',
         headers: Object.assign({\'Content-Type\': \'application/json\'}, CSRF_HEADERS),
         body: JSON.stringify({mois: mois, annee: annee, agence_id: agenceScope, notify: true})
