@@ -119,8 +119,6 @@ if (!$dt) {
 $mois_sel = (int)$dt->format('n');
 $annee_sel = (int)$dt->format('Y');
  $monthClosed = rh_is_salary_month_closed($pdo, sprintf('%04d-%02d', $annee_sel, $mois_sel));
-// Verrou per-user : termine_user=1 → seul l'admin peut encore agir.
-$payValidated = false; // recalculé après chargement de $sal
 
 if ($idUser <= 0) {
     die('id_user manquant');
@@ -160,10 +158,6 @@ $sal = $stmtSal->fetch(PDO::FETCH_ASSOC);
 if (!$sal) $sal = ['id'=>null, 'id_user'=>$idUserLegacy, 'mois_reference'=>$mois_ref];
 // Injecter l'immatriculation depuis le profil user (lecture seule)
 $sal['vehicule_immat'] = $user['vehicule_immat'] ?? '';
-
-// Verrou per-user : si termine_user=1 et qu'on n'est pas admin → lecture seule
-$payValidated = (int)($sal['termine_user'] ?? 0) === 1;
-$payLockedForUser = $payValidated && $roleId !== 1;
 
 // Get current user info for navigation
 $currentUserId = current_user_id();
@@ -228,41 +222,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['download_all_docs'])) {
     http_response_code(400); exit('ZIP non disponible');
 }
 
-// Handle validation paye user (verrou per-user)
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['validate_pay'])) {
-    verify_csrf();
-    if ($monthClosed) { http_response_code(403); exit('Mois clôturé'); }
-    if (!$isSelf && $roleId !== 1) {
-        http_response_code(403); exit('Action réservée à l\'utilisateur ou à l\'administrateur');
-    }
-    if (!$sal['id']) {
-        $i = $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, termine_user) VALUES (?, ?, 1)");
-        $i->execute([$idUserLegacy, $mois_ref]);
-    } else {
-        $pdo->prepare("UPDATE salaires SET termine_user=1 WHERE id=?")->execute([$sal['id']]);
-    }
-    http_response_code(200); exit('OK');
-}
-
-// Handle déverrouillage paye (admin only)
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['unlock_pay'])) {
-    verify_csrf();
-    if ($roleId !== 1) { http_response_code(403); exit('Réservé admin'); }
-    if ($monthClosed) { http_response_code(403); exit('Mois clôturé'); }
-    if ($sal['id']) {
-        $pdo->prepare("UPDATE salaires SET termine_user=0 WHERE id=?")->execute([$sal['id']]);
-    }
-    http_response_code(200); exit('OK');
-}
-
 // Handle document deletion
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['delete_doc'])) {
     verify_csrf();    if ($monthClosed) {
         http_response_code(403);
         exit('Mois clôturé');
-    }
-    if ($payLockedForUser) {
-        http_response_code(403); exit('Paye validée — modification réservée à l\'admin');
     }
     $docId = (int)$_POST['delete_doc'];
     $stmtDoc = $pdo->prepare("SELECT * FROM salaires_documents WHERE id=? AND id_salaire=?");
@@ -285,9 +249,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_FILES['doc_file'])) {
     verify_csrf();    if ($monthClosed) {
         http_response_code(403);
         exit('Mois clôturé');
-    }
-    if ($payLockedForUser) {
-        http_response_code(403); exit('Paye validée — modification réservée à l\'admin');
     }
     $categorie = $_POST['doc_categorie']??'';
 
@@ -423,10 +384,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_field'])) {
     if ($monthClosed) {
         http_response_code(403);
         exit('Mois clôturé');
-    }
-    if ($payLockedForUser) {
-        http_response_code(403);
-        exit('Paye validée — modification réservée à l\'admin');
     }
     $field = $_POST['save_field']??'';
     $value = $_POST['value']??null;
@@ -718,13 +675,9 @@ $layout_extra_js = '<meta name="csrf-token" content="' . $_csrf_token_for_js . '
 . '<script>
 const _CSRF = document.querySelector(\'meta[name="csrf-token"]\')?.content || \'\';
 const MONTH_LOCKED = ' . ($monthClosed ? 'true' : 'false') . ';
-const PAY_VALIDATED = ' . ($payValidated ? 'true' : 'false') . ';
-const IS_ADMIN = ' . ($roleId === 1 ? 'true' : 'false') . ';
-const PAY_LOCKED_FOR_USER = PAY_VALIDATED && !IS_ADMIN;
 let saveTimeout = {};
 function autoSaveField(fieldName, value) {
     if (MONTH_LOCKED) return;
-    if (PAY_LOCKED_FOR_USER) return;
     clearTimeout(saveTimeout[fieldName]);
     const statusEl = document.getElementById(`status-${fieldName}`);
     if (statusEl) {
@@ -962,28 +915,6 @@ function downloadAllDocs() {
     form.submit();
     document.body.removeChild(form);
 }
-function validatePay() {
-    if (MONTH_LOCKED) { alert(\'Mois clôturé.\'); return; }
-    if (!confirm(\'Validation définitive de la paye de ce mois.\\nVous ne pourrez plus la modifier — seul l\\\'admin pourra encore agir.\\n\\nConfirmer ?\')) return;
-    const fd = new FormData();
-    fd.append(\'validate_pay\', \'1\');
-    fd.append(\'csrf_token\', _CSRF);
-    fetch(window.location.pathname + window.location.search, {method:\'POST\', body:fd})
-    .then(r => r.text().then(t => ({ok:r.ok, text:t})))
-    .then(({ok,text}) => { if (ok) location.reload(); else alert(\'Erreur : \' + text); })
-    .catch(e => alert(\'Erreur : \' + e.message));
-}
-function unlockPay() {
-    if (!IS_ADMIN) return;
-    if (!confirm(\'Déverrouiller la paye ? Le collaborateur pourra à nouveau la modifier.\')) return;
-    const fd = new FormData();
-    fd.append(\'unlock_pay\', \'1\');
-    fd.append(\'csrf_token\', _CSRF);
-    fetch(window.location.pathname + window.location.search, {method:\'POST\', body:fd})
-    .then(r => r.text().then(t => ({ok:r.ok, text:t})))
-    .then(({ok,text}) => { if (ok) location.reload(); else alert(\'Erreur : \' + text); })
-    .catch(e => alert(\'Erreur : \' + e.message));
-}
 </script>';
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1012,7 +943,6 @@ ob_start();
                         — User #<?=$idUser?>
                         — Salaire #<?=$sal['id']??'À créer'?>
                         <?php if ($monthClosed): ?>&nbsp;<span class="v2-badge locked">&#128274; Clôturé</span><?php endif; ?>
-                        <?php if ($payValidated): ?>&nbsp;<span class="v2-badge locked">&#128274; Paye validée</span><?php endif; ?>
                     </span>
                 </div>
             </div>
@@ -1024,7 +954,6 @@ ob_start();
                     — User #<?=$idUser?>
                     — Salaire #<?=$sal['id']??'À créer'?>
                     <?php if ($monthClosed): ?>&nbsp;<span class="v2-badge locked">&#128274; Clôturé</span><?php endif; ?>
-                    <?php if ($payValidated): ?>&nbsp;<span class="v2-badge locked">&#128274; Paye validée</span><?php endif; ?>
                 </span>
             </div>
             <?php endif; ?>
@@ -1126,27 +1055,6 @@ ob_start();
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         Historique
                     </a>
-                    <?php if (!$payValidated && ($isSelf || $roleId === 1) && !$monthClosed): ?>
-                    <button type="button"
-                            class="v2-btn danger"
-                            onclick="validatePay()"
-                            title="Validation définitive — vous ne pourrez plus modifier">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        Valider la paye de ce mois
-                    </button>
-                    <?php elseif ($payValidated && $roleId === 1): ?>
-                    <button type="button"
-                            class="v2-btn primary"
-                            onclick="unlockPay()"
-                            title="Déverrouiller la paye (admin)">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-                        Déverrouiller la paye
-                    </button>
-                    <?php elseif ($payValidated): ?>
-                    <span class="v2-btn" style="cursor:default;opacity:.85" title="Paye validée — modification réservée à l'admin">
-                        &#128274; Paye validée
-                    </span>
-                    <?php endif; ?>
                 </div>
 
             </div>
@@ -1181,11 +1089,9 @@ ob_start();
                             <button onclick="transferDoc('<?=h(addslashes($doc['original_name']))?>')" class="doc-btn" title="Transférer">
                                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                             </button>
-                            <?php if (!$payLockedForUser): ?>
                             <button onclick="deleteDoc(<?=$doc['id']?>, '<?=h(addslashes($doc['original_name']))?>')" class="doc-btn danger" title="Supprimer">
                                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                             </button>
-                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                         <?php endforeach; ?>
@@ -1221,7 +1127,7 @@ ob_start();
                     <?php endif; ?>
                     <?php if (!empty($uploadBtns) || $isIK || $isPrimes): ?>
                     <div class="upload-btns">
-                        <?php foreach ($uploadBtns as $fname => $lbl): if ($payLockedForUser) continue; ?>
+                        <?php foreach ($uploadBtns as $fname => $lbl): ?>
                         <button class="v2-btn" onclick="openUploadModal('<?=$fname?>')" title="Joindre un document <?=$lbl?>">
                             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                             <?=$lbl?>
@@ -1255,7 +1161,7 @@ ob_start();
                 <?php if ($title === 'Rémunération de base'): ?><div class="sec-collapsible" id="collapsible-base"><?php endif; ?>
                 <div class="<?=$isIK?'fields-grid-ik':($title==='Rémunération de base'?'fields-grid-4':'fields-grid')?>" style="margin-bottom:16px">
                         <?php foreach($fields as $fname => $meta):
-                            $isProtected = ($agenceScope > 0 && in_array($fname, $adminOnlyFields, true)) || !empty($meta['readonly']) || $payLockedForUser;
+                            $isProtected = ($agenceScope > 0 && in_array($fname, $adminOnlyFields, true)) || !empty($meta['readonly']);
                             $colSpan = ($isIK && isset($ikPlacement[$fname])) ? ' style="'.$ikPlacement[$fname].'"' : '';
                             // Document chargé pour ce champ ?
                             $fieldDoc = $docs_by_cat[$fname][0] ?? null;
@@ -1291,7 +1197,6 @@ ob_start();
                                           class="auto-resize-textarea"
                                           placeholder="Commentaire..."
                                           oninput="autoResizeTextarea(this)"
-                                          <?=$payLockedForUser?'readonly':''?>
                                           onchange="autoSaveField('comment_<?=$fname?>', this.value)"><?=h($sal['comment_'.$fname]??'')?></textarea>
                                 <div class="save-status" id="status-<?=$fname?>"></div>
                                 <?php endif; ?>
