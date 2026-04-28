@@ -61,14 +61,6 @@ function db(bool $forceReconnect = false): PDO
     ];
 
     $pdo = new PDO($dsn, $username, $password, $options);
-
-    // Aligne le fuseau MySQL sur Europe/Paris (gère DST automatiquement).
-    // Évite le décalage UTC↔Paris sur CURRENT_TIMESTAMP, NOW(), DATE_SUB(NOW(),…).
-    try {
-        $offset = (new DateTime('now', new DateTimeZone('Europe/Paris')))->format('P');
-        $pdo->exec("SET time_zone = '{$offset}'");
-    } catch (Throwable) {}
-
     return $pdo;
 }
 
