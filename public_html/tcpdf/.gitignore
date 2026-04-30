@@ -1,0 +1,34 @@
+# Allègement TCPDF pour git/déploiement
+# On garde le core + polices latines (helvetica, dejavusans, courier, times)
+# qui suffisent largement pour les PDF français du projet (RH, contrats, etc.).
+
+# Examples + tools : non utilisés en prod
+examples/
+tools/
+
+# Polices CJK (Asian) — pas utilisées dans le projet
+fonts/cid0cs.*
+fonts/cid0ct.*
+fonts/cid0jp.*
+fonts/cid0kr.*
+
+# Polices arabes — pas utilisées
+fonts/aealarabiya.*
+fonts/aefurat.*
+fonts/ae_fonts_2.0/
+
+# TTF source (les .php compilés suffisent)
+fonts/dejavu-fonts-ttf-2.33/
+fonts/dejavu-fonts-ttf-2.34/
+fonts/freefont-20120503/
+
+# Polices Free* (alternatives FSF) — non utilisées (on a helvetica/dejavu)
+fonts/freemono*
+fonts/freesans*
+fonts/freeserif*
+
+# Documentation / build artifacts
+CHANGELOG.TXT
+LICENSE.TXT
+README.md
+composer.json
