@@ -565,15 +565,6 @@ ob_start();
             <button type="button" class="diff-btn ghost" onclick="ubiflowForceResend('<?= e($slug) ?>', this)" title="Ignore la garde anti-doublons">
                 ↻ Force
             </button>
-            <?php if ($roleId === 1): /* Admin uniquement : viewer du fichier exporté */ ?>
-            <a href="/public_html/admin/admin_ubiflow_view_export.php?slug=<?= e($slug) ?>"
-               target="_blank"
-               class="diff-btn ghost"
-               style="background:#fef3c7;border-color:#fcd34d;color:#92400e;text-decoration:none;display:inline-flex;align-items:center;gap:4px;"
-               title="Admin · Voir le XML envoyé à Ubiflow (LBC/SeLoger/Bien'ici)">
-                📄 Voir XML
-            </a>
-            <?php endif; ?>
         </div>
         <div style="display:flex;justify-content:flex-end;padding-top:6px;">
             <button type="button" class="diff-btn ghost" style="flex:0 0 auto;font-size:10px;padding:5px 12px;"
