@@ -588,7 +588,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
         $subject = "Salaires & Congés — $socName — $moisLabel $anneePost";
         $body = "$bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $socName ($moisLabel $anneePost).\n\nCordialement,\nRégie EMERY";
 
-        $ok = send_mail($to, $subject, $body, [$pdfPath], false, '', 'salaire@maboximmo.fr');
+        // ─── DEV / LOCAL : pas d'envoi réel — on logue + on conserve le PDF ───
+        // Détection environnement : dev.maboximmo.fr ou localhost = mode test
+        // (ne JAMAIS spammer le comptable depuis dev). Sur prod, envoi normal.
+        $hostNow = (string)($_SERVER['HTTP_HOST'] ?? '');
+        $isDevOrLocal = (
+            str_contains($hostNow, 'dev.maboximmo')
+            || str_contains($hostNow, 'localhost')
+            || str_contains($hostNow, '127.0.0.1')
+        );
+
+        if ($isDevOrLocal) {
+            // Mode test : pas d'envoi mail, on simule l'OK pour journaliser le PDF
+            $ok = true;
+            $devMessage = ' (mode test dev — mail NON envoyé, PDF conservé pour téléchargement)';
+        } else {
+            $ok = send_mail($to, $subject, $body, [$pdfPath], false, '', 'salaire@maboximmo.fr');
+            $devMessage = '';
+        }
 
         // Workflow log : conserver le PDF et journaliser l'envoi (par agence)
         $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
@@ -599,13 +616,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
                 $pdfContent, basename($pdfPath));
             rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_ENVOI,
                 $relPath, basename($pdfPath), strlen($pdfContent), $to,
-                (int)current_user_id(), 'ok');
+                (int)current_user_id(), 'ok',
+                null,
+                $isDevOrLocal ? '🧪 Mode test (mail non envoyé)' : null);
         }
 
         if (is_file($pdfPath)) { @unlink($pdfPath); }
 
         if ($ok) {
-            $_SESSION['message_ok'] = 'PDF envoyé au comptable ✅';
+            $_SESSION['message_ok'] = 'PDF envoyé au comptable ✅' . $devMessage;
         } else {
             $_SESSION['message_err'] = 'Erreur lors de l\'envoi du mail au comptable.';
         }
@@ -1874,10 +1893,16 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
             // répercutée ici pour la cohérence.
             $previewMoisLabel = mois_fr((int)$mois_sel);
             $previewSocName   = (string)($societeInfo['nom'] ?? 'Société');
+            $previewComptable = trim((string)($societeInfo['comptable_nom'] ?? ''));
+            $previewBonjour   = $previewComptable !== '' ? 'Bonjour ' . trim((string)preg_split('/\s+/', $previewComptable)[0]) : 'Bonjour';
             $previewSubject   = "Salaires & Congés — {$previewSocName} — {$previewMoisLabel} {$annee_sel}";
-            $previewBody      = "Bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSocName} ({$previewMoisLabel} {$annee_sel}).\n\nCordialement,\nRégie EMERY";
+            $previewBody      = "{$previewBonjour},\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSocName} ({$previewMoisLabel} {$annee_sel}).\n\nCordialement,\nRégie EMERY";
             $previewTo        = (string)($societeInfo['comptable_email'] ?? '');
             $previewFrom      = 'salaire@maboximmo.fr';
+            // Mode test : pas d'envoi réel sur dev/localhost
+            $previewIsDev = str_contains((string)($_SERVER['HTTP_HOST'] ?? ''), 'dev.maboximmo')
+                         || str_contains((string)($_SERVER['HTTP_HOST'] ?? ''), 'localhost')
+                         || str_contains((string)($_SERVER['HTTP_HOST'] ?? ''), '127.0.0.1');
             ?>
             <div class="workflow-actions">
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" class="workflow-step" id="comptable-form">
@@ -1914,14 +1939,23 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                 <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">PIÈCE JOINTE :</strong> <code style="background:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">salaires_conges_<?=h($societe_sel)?>_*.pdf</code></div>
                             </div>
                             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;background:#fff;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;font-family:'Manrope',sans-serif;"><?=h($previewBody)?></div>
-                            <div style="margin-top:14px;padding:10px 14px;background:#fef9c3;border-radius:8px;font-size:11px;color:#854d0e;line-height:1.5;">
-                                💡 Le PDF (registre des salaires et congés du mois sélectionné) sera généré et joint à l'envoi. Il n'est pas possible de modifier le texte du mail depuis cette interface — pour personnaliser, modifier le code de <code>rh_salaires.php</code> (lignes ~582-583).
-                            </div>
+                            <?php if ($previewIsDev): ?>
+                                <div style="margin-top:14px;padding:12px 16px;background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;font-size:12px;color:#854d0e;line-height:1.5;">
+                                    🧪 <strong>Mode test (dev/localhost)</strong> — le mail NE SERA PAS envoyé au comptable.
+                                    Le PDF sera quand même généré, conservé dans la timeline et téléchargeable pour vérification.
+                                </div>
+                            <?php else: ?>
+                                <div style="margin-top:14px;padding:10px 14px;background:#fef9c3;border-radius:8px;font-size:11px;color:#854d0e;line-height:1.5;">
+                                    💡 Le PDF (registre des salaires et congés du mois sélectionné) sera généré et joint à l'envoi.
+                                </div>
+                            <?php endif; ?>
                         </div>
                         <div style="padding:14px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#f8fafc;border-radius:0 0 14px 14px;">
                             <button type="button" onclick="fermerPreviewMail()" style="padding:9px 18px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
-                            <?php if ($previewTo !== ''): ?>
-                                <button type="button" onclick="confirmerEnvoiMail()" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">📤 Envoyer définitivement</button>
+                            <?php if ($previewTo !== '' || $previewIsDev): ?>
+                                <button type="button" onclick="confirmerEnvoiMail()" style="padding:9px 18px;border-radius:8px;background:<?= $previewIsDev ? '#eab308' : '#16a34a' ?>;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">
+                                    <?= $previewIsDev ? '🧪 Tester (sans envoyer)' : '📤 Envoyer définitivement' ?>
+                                </button>
                             <?php else: ?>
                                 <a href="/societe.php" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">⚙️ Renseigner l'email comptable</a>
                             <?php endif; ?>
