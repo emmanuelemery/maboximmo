@@ -540,7 +540,7 @@ $COLS_ACTIONS = [
   'ik_montant'                        => ['label'=>'IK €','type'=>'money'],
 ];
 
-$currentQS = qs_keep(['mois','annee','societe']);
+$currentQS = qs_keep(['mois','annee','societe','agence']);
 
 if (
     $_SERVER['REQUEST_METHOD'] === 'POST'
@@ -557,8 +557,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
     $societeId = (int)($_POST['societe_id'] ?? 0);
     $moisPost = (int)($_POST['mois'] ?? date('n'));
     $anneePost = (int)($_POST['annee'] ?? date('Y'));
+    // Le workflow comptable est PAR AGENCE : le PDF doit contenir uniquement
+    // les users de l'agence sélectionnée. agenceScope (gestion_salaires=1) prime
+    // sur le POST pour empêcher tout bricolage côté client.
+    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
     if ($societeId <= 0) {
         $_SESSION['message_err'] = 'Sélectionnez une société avant l\'envoi.';
+        header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
+        exit;
+    }
+    if ($idAgenceLog <= 0) {
+        $_SESSION['message_err'] = 'Sélectionnez une agence avant l\'envoi (le PDF est généré par agence, pas pour toute la société).';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
@@ -575,9 +584,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
     $moisLabel = mois_fr($moisPost);
 
     try {
-        $pdfContent = rh_generate_salaires_conges_pdf($pdo, $moisPost, $anneePost, $agenceScope);
+        // PDF scopé sur l'agence : le 4e param de rh_generate_salaires_conges_pdf
+        // applique "AND u.id_agence = X" → uniquement les users de l'agence cible.
+        $pdfContent = rh_generate_salaires_conges_pdf($pdo, $moisPost, $anneePost, $idAgenceLog);
         $tmp = sys_get_temp_dir();
-        $pdfPath = $tmp . DIRECTORY_SEPARATOR . 'salaires_conges_' . $societeId . '_' . time() . '.pdf';
+        $pdfPath = $tmp . DIRECTORY_SEPARATOR . 'salaires_conges_' . $societeId . '_ag' . $idAgenceLog . '_' . time() . '.pdf';
         file_put_contents($pdfPath, $pdfContent);
 
         // Mail personnalisé avec prénom du comptable si renseigné
@@ -598,17 +609,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
             || str_contains($hostNow, '127.0.0.1')
         );
 
+        // Emmanuel toujours en copie des envois comptable (suivi central)
+        $ccDirection = 'emmanuel.emery@regie-emery.com';
+
         if ($isDevOrLocal) {
             // Mode test : pas d'envoi mail, on simule l'OK pour journaliser le PDF
             $ok = true;
             $devMessage = ' (mode test dev — mail NON envoyé, PDF conservé pour téléchargement)';
         } else {
-            $ok = send_mail($to, $subject, $body, [$pdfPath], false, '', 'salaire@maboximmo.fr');
+            $ok = send_mail($to, $subject, $body, [$pdfPath], false, $ccDirection, 'salaire@maboximmo.fr');
             $devMessage = '';
         }
 
         // Workflow log : conserver le PDF et journaliser l'envoi (par agence)
-        $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+        // ($idAgenceLog déjà calculé en début de handler)
+        $loggedOk = false;
         if ($idAgenceLog > 0 && $ok) {
             $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
             $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_ENVOI,
@@ -619,12 +634,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
                 (int)current_user_id(), 'ok',
                 null,
                 $isDevOrLocal ? '🧪 Mode test (mail non envoyé)' : null);
+            $loggedOk = true;
         }
 
         if (is_file($pdfPath)) { @unlink($pdfPath); }
 
-        if ($ok) {
-            $_SESSION['message_ok'] = 'PDF envoyé au comptable ✅' . $devMessage;
+        if ($ok && $loggedOk) {
+            $_SESSION['message_ok'] = 'PDF envoyé au comptable et archivé dans l\'historique ✅' . $devMessage;
+        } elseif ($ok && !$loggedOk) {
+            // Mail parti (ou simulé en dev) mais pas archivé → agence absente
+            $_SESSION['message_err'] = '⚠️ PDF traité mais NON archivé : aucune agence sélectionnée. '
+                . 'Sélectionne une agence avant l\'envoi pour conserver le PDF dans l\'historique.';
         } else {
             $_SESSION['message_err'] = 'Erreur lors de l\'envoi du mail au comptable.';
         }
@@ -1908,6 +1928,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" class="workflow-step" id="comptable-form">
                     <h4>1. Envoyer au comptable</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
+                    <input type="hidden" name="agence" value="<?=h((string)$agenceWf)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
@@ -1935,8 +1956,9 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                         <?php endif; ?>
                                     <?php endif; ?>
                                 </div>
+                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">CC :</strong> <strong style="color:#0f172a;">emmanuel.emery@regie-emery.com</strong> <span style="color:#64748b;">(Direction — copie systématique)</span></div>
                                 <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">SUJET :</strong> <?=h($previewSubject)?></div>
-                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">PIÈCE JOINTE :</strong> <code style="background:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">salaires_conges_<?=h($societe_sel)?>_*.pdf</code></div>
+                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">PIÈCE JOINTE :</strong> <code style="background:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">salaires_conges_<?=h($societe_sel)?>_ag<?=h((string)$agenceWf)?>_*.pdf</code></div>
                             </div>
                             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;background:#fff;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;font-family:'Manrope',sans-serif;"><?=h($previewBody)?></div>
                             <?php if ($previewIsDev): ?>
@@ -1977,6 +1999,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>2. Importer le projet</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
+                    <input type="hidden" name="agence" value="<?=h((string)$agenceWf)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
@@ -1986,6 +2009,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>3. Importer les bulletins</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
+                    <input type="hidden" name="agence" value="<?=h((string)$agenceWf)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
