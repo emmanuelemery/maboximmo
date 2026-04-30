@@ -12,11 +12,12 @@ if (!$pdo) { http_response_code(500); exit('Erreur: PDO non disponible'); }
 $roleId       = current_role_id();
 $userId       = current_user_id();
 $userAgenceId = current_agence_id();
+$congeAgenceScope = function_exists('can_manage_salaires_agence') ? can_manage_salaires_agence() : 0;
 
-if ($roleId !== 1) {
-    header("Location: /MaBoxImmo2026/public_html/landing.php");
-    exit();
-}
+// "Admin société" = role 1 (super admin) OU gestion_salaires=1 sur son agence.
+// Eux seuls peuvent exporter et basculer sur d'autres sociétés/agences.
+// Les autres users accèdent à l'historique de leur propre agence (lecture seule).
+$isCongesAdmin = ($roleId === 1) || ($congeAgenceScope > 0);
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function mois_fr($m) { $n=[1=>'Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']; return $n[(int)$m]??''; }
@@ -29,6 +30,18 @@ $selectedMonth = (!empty($_GET['month']) && $_GET['month'] !== 'tous') ? (int)$_
 $filterSociete = (!empty($_GET['societe']) && $_GET['societe'] !== 'toutes') ? (int)$_GET['societe'] : 'toutes';
 $filterAgence  = (!empty($_GET['agence'])  && $_GET['agence']  !== 'toutes') ? (int)$_GET['agence']  : 'toutes';
 $filterUser    = (!empty($_GET['user'])    && $_GET['user']    !== 'tous')   ? (int)$_GET['user']    : 'tous';
+
+// Sécurité multi-tenant : un user non-admin ne peut consulter QUE l'historique
+// de sa propre agence — peu importe les paramètres GET qu'il bricole.
+if (!$isCongesAdmin) {
+    if ($userAgenceId > 0) {
+        $filterAgence = $userAgenceId;
+    } else {
+        // Pas d'agence connue → fallback sur l'user lui-même
+        $filterUser = $userId;
+    }
+    $filterSociete = 'toutes'; // ignoré, car filterAgence prime de toute façon
+}
 
 // Calcul des pills mois (-3 → +3 autour du mois courant)
 $moisFr = [1=>'Janv',2=>'Févr',3=>'Mars',4=>'Avr',5=>'Mai',6=>'Juin',
@@ -161,10 +174,14 @@ $layout_head_kpis = '
 <div class="ph-kpi"><span class="ph-kpi-label">Validées</span><span class="ph-kpi-value" style="color:#3a7a6a">' . $statusCounts['validé'] . '</span></div>
 <div class="ph-kpi"><span class="ph-kpi-label">Refusées</span><span class="ph-kpi-value" style="color:#8a5040">' . $statusCounts['refusé'] . '</span></div>';
 
-$layout_head_actions = '
+// Exports réservés à l'admin société. Le user normal accède en lecture seule.
+$layout_head_actions = '';
+if ($isCongesAdmin) {
+    $layout_head_actions = '
 <button class="ph-btn" onclick="exportPDF()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Export PDF</button>
 <button class="ph-btn" onclick="exportExcel()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg> Export Excel</button>
 <a class="ph-btn" href="exporter_conges_user_annuel_pdf.php?annee=' . $selectedYear . '" target="_blank"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg> PDF par user</a>';
+}
 
 $layout_extra_css = <<<'EXTRACSS'
 <style>
@@ -388,8 +405,9 @@ EXTRAJS;
 ob_start();
 ?>
 
-<!-- Scope société / agence / user -->
+<!-- Scope société / agence / user (admin uniquement — non-admin = scope agence forcé) -->
 <div class="ph-scope" style="margin-bottom:20px">
+    <?php if ($isCongesAdmin): ?>
     <div class="ph-scope-row">
         <span class="ph-scope-label">Sté</span>
         <div class="ph-scope-btns">
@@ -415,6 +433,14 @@ ob_start();
                 <?= h($ag['nom_agence']) ?>
             </a>
             <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+    <?php else: ?>
+    <div class="ph-scope-row">
+        <span class="ph-scope-label">Agc</span>
+        <div class="ph-scope-btns">
+            <span class="ph-scope-pill active" style="cursor:default;">Mon agence (lecture seule)</span>
         </div>
     </div>
     <?php endif; ?>

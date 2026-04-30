@@ -12,6 +12,14 @@ try {
 
     require_login();
 
+    // Export congés réservé à l'admin société (role 1 OU gestion_salaires=1).
+    $roleId = current_role_id();
+    $congesExportScope = function_exists('can_manage_salaires_agence') ? can_manage_salaires_agence() : 0;
+    if ($roleId !== 1 && $congesExportScope <= 0) {
+        http_response_code(403);
+        exit('Accès refusé : export réservé à l\'admin société.');
+    }
+
     $pdo = $GLOBALS['pdo'] ?? null;
     if (!$pdo) {
         http_response_code(500);

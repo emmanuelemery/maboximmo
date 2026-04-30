@@ -15,6 +15,17 @@ $roleId   = current_role_id();
 $userId   = current_user_id();
 $congeAgenceScope = can_manage_salaires_agence();
 
+// "Admin société" = role 1 (super admin) OU gestion_salaires=1 sur son agence.
+// Eux seuls peuvent valider/exporter. Les autres users voient le calendrier
+// global et peuvent créer un congé + consulter leur historique d'agence.
+$isCongesAdmin = ($roleId === 1) || ($congeAgenceScope > 0);
+
+// Récupère l'agence du user connecté pour le filtre historique côté non-admin.
+$userAgenceId = 0;
+$stUa = $pdo->prepare("SELECT id_agence FROM users WHERE id = ? LIMIT 1");
+$stUa->execute([$userId]);
+$userAgenceId = (int)($stUa->fetchColumn() ?: 0);
+
 // ── Filtres URL ─────────────────────────────────────────────────────────
 $curY  = (int)date('Y');
 $curM  = (int)date('m');
@@ -71,10 +82,13 @@ $sql = "SELECT c.*, u.id as user_id, u.prenom, u.nom, u.couleur,
 
 $params = [$weekEnd->format('Y-m-d'), $weekStart->format('Y-m-d')];
 
-if ($filterSociete !== 'toutes') { $sql .= " AND u.id_societe = ?"; $params[] = $filterSociete; }
-if ($filterAgence  !== 'toutes') { $sql .= " AND u.id_agence = ?";  $params[] = $filterAgence;  }
-if ($congeAgenceScope > 0 && $roleId !== 1) {
-    $sql .= " AND u.id_agence = ?"; $params[] = $congeAgenceScope;
+// Calendrier visible globalement : aucun filtre forcé sur l'agence/société du
+// user connecté. Tout le monde voit qui est en congé partout (planification
+// transverse). Seuls les filtres GET volontaires s'appliquent, et uniquement
+// pour les admins société (les non-admins n'ont pas accès aux selects).
+if ($isCongesAdmin) {
+    if ($filterSociete !== 'toutes') { $sql .= " AND u.id_societe = ?"; $params[] = $filterSociete; }
+    if ($filterAgence  !== 'toutes') { $sql .= " AND u.id_agence = ?";  $params[] = $filterAgence;  }
 }
 
 $sql .= " ORDER BY c.date_debut";
@@ -180,18 +194,20 @@ $layout_head_kpis = <<<HTML
 </div>
 HTML;
 
+// Bouton "+ Congé" et "Historique" visibles pour TOUS les users.
+// "PDF mois" et "Validation" réservés à l'admin société.
 $layout_head_actions = '<button class="ph-btn primary" onclick="openAddModal()">+ Congé</button>';
-if ($roleId === 1) {
+if ($isCongesAdmin) {
     $layout_head_actions .= '
 <button class="ph-btn" onclick="exportMoisPDF()">PDF mois</button>
-<a class="ph-btn" href="rh_conges_validation.php">Validation' . ($kpiAttente > 0 ? ' <span style="color:#8a5040;font-weight:700">(' . $kpiAttente . ')</span>' : '') . '</a>
-<a class="ph-btn" href="rh_conges_historiq.php">Historique</a>';
+<a class="ph-btn" href="rh_conges_validation.php">Validation' . ($kpiAttente > 0 ? ' <span style="color:#8a5040;font-weight:700">(' . $kpiAttente . ')</span>' : '') . '</a>';
 } else {
     $layout_head_actions .= '
 <span class="ph-btn dispo"></span>
-<span class="ph-btn dispo"></span>
 <span class="ph-btn dispo"></span>';
 }
+$layout_head_actions .= '
+<a class="ph-btn" href="rh_conges_historiq.php">Historique</a>';
 
 $layout_extra_css = <<<'EXTRACSS'
 <style>
@@ -589,7 +605,7 @@ ob_start();
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Créer un congé
         </button>
-        <?php if ($roleId === 1): ?>
+        <?php if ($isCongesAdmin): ?>
         <button class="v2-btn" onclick="exportMoisPDF()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             Export mois PDF
@@ -601,11 +617,11 @@ ob_start();
             <span style="background:#8a5040;color:#fff;border-radius:999px;font-size:9px;padding:1px 6px;font-family:'DM Mono',monospace;"><?= $kpiAttente ?></span>
             <?php endif; ?>
         </a>
+        <?php endif; ?>
         <a class="v2-btn" href="rh_conges_historiq.php">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             Historique
         </a>
-        <?php endif; ?>
     </div>
 </div>
 
