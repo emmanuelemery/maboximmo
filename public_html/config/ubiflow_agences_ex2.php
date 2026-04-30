@@ -16,7 +16,7 @@ declare(strict_types=1);
  *   lyon         (id=3)  → 69007  — Société 1
  *   vienne       (id=1)  → 38200  — Société 1  (créée depuis l'audit V2)
  *   rio (Riom)   (id=5)  → 63200  — Société 2 (Emery Immo)
- *   chamalieres  (id=6)  → 63400  — Société 2 (activée 2026-04-30, ag631375)
+ *   chamalieres  (id=6)  → 63400  — Société 2
  *
  * Pour ajouter une agence :
  *   1. Créer l'agence dans MaBoxImmo (table `agences`).
@@ -83,17 +83,16 @@ if (!function_exists('ubiflow_agences_all')) {
                 'actif'       => true,
             ],
 
-            // Chamalières : activée 2026-04-30 (Succession Servajean).
-            // Compte FTP Ubiflow ag631375 — credentials dans
-            // config/ubiflow_credentials.local.php (UBIFLOW_FTP_USER_CHAMALIERES / PASS).
+            // Chamalières : en attente de commande LeBonCoin (13/04/2026).
+            // Passer actif=true et ajouter les credentials dès réception.
             'chamalieres' => [
                 'id_agence'   => 6,
-                'login_ftp'   => 'ag631375',
+                'login_ftp'   => 'emery_immo_chamalieres', // à remplacer par ag{N} dès credentials reçus
                 'nom'         => 'EMERY IMMO CHAMALIERES',
                 'code_postal' => '63400',
                 'ville'       => 'CHAMALIERES',
                 'id_societe'  => 2,
-                'actif'       => true,
+                'actif'       => false,
             ],
 
             // ═══════════════════════════════════════════════════════
