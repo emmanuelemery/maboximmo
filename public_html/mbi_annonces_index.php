@@ -86,7 +86,15 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
     </div>
 
     <?php if (empty($list['items'])): ?>
-      <div class="mbi-empty">Aucune annonce diffusée pour le moment.</div>
+      <div class="mbi-empty">
+        Aucune annonce diffusée pour le moment.
+        <?php if (defined('APP_DEBUG') && APP_DEBUG && !empty($list['debug_error'])): ?>
+          <pre style="margin-top:20px; padding:16px; background:#fee2e2; color:#991b1b; border-radius:8px; text-align:left; font-size:12px; overflow:auto;">
+[DEBUG SQL ERROR]
+<?= htmlspecialchars($list['debug_error']) ?>
+          </pre>
+        <?php endif; ?>
+      </div>
     <?php else: ?>
       <div class="mbi-grid">
         <?php foreach ($list['items'] as $a): ?>

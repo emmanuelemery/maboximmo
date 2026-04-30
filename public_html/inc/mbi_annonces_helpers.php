@@ -224,12 +224,16 @@ if (!function_exists('mbi_annonces_fetch_list')) {
             LIMIT $perPage OFFSET $offset
         ";
 
+        $debugError = '';
         try {
             $st = $pdo->prepare($sql);
             $st->execute($params);
             $items = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
-            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] fetch failed: ' . $e->getMessage());
+            if (defined('APP_DEBUG') && APP_DEBUG) {
+                error_log('[mbi_annonces] fetch failed: ' . $e->getMessage());
+                $debugError = $e->getMessage();
+            }
             $items = [];
         }
 
@@ -239,6 +243,7 @@ if (!function_exists('mbi_annonces_fetch_list')) {
             'page' => $page,
             'per_page' => $perPage,
             'total_pages' => max(1, (int)ceil($total / $perPage)),
+            'debug_error' => $debugError,
         ];
     }
 }
