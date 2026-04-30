@@ -933,11 +933,15 @@ require_once $_sbFile;
           'vente'=>['💶','Vente'], 'location'=>['🔑','Location'], 'gestion'=>['🏢','Gestion'],
         ];
 
-        $curType    = (int)($b['id_type_bien'] ?? 0);
-        // Code stable du type courant (les IDs auto-increment ne sont pas portables entre dev/prod)
-        $curTypeCode = '';
+        // Code stable du type courant : on lit directement _type_bien_code
+        // calculé par bien_form_loader via COALESCE(bien_types.code, base_types_bien.code).
+        // Source de vérité : bien_types (via biens.id_bien_type), fallback legacy.
+        // Les IDs auto-increment ne sont pas portables entre dev/prod (et types_bien_legacy
+        // a des ids différents de bien_types) — on travaille en code stable uniquement.
+        $curTypeCode = strtolower(trim((string)($b['_type_bien_code'] ?? '')));
+        $curType     = 0;
         foreach ($typesBienList as $_t) {
-            if ((int)$_t['id'] === $curType) { $curTypeCode = (string)$_t['code']; break; }
+            if ((string)$_t['code'] === $curTypeCode) { $curType = (int)$_t['id']; break; }
         }
         $curSType   = (string)($b['sous_type_bien'] ?? '');
         $curUsage   = (string)($b['usage_bien'] ?? '');
