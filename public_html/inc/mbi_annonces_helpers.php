@@ -44,11 +44,16 @@ if (!function_exists('mbi_annonces_filters_from_get')) {
         $page = max(1, (int)($get['page'] ?? 1));
         $perPage = max(6, min(48, (int)($get['per_page'] ?? 24)));
 
+        $allowedCategories = ['', 'habitation', 'entreprise', 'professionnel', 'commerce', 'investissement', 'annexe'];
+        $categorie = (string)($get['categorie'] ?? '');
+        if (!in_array($categorie, $allowedCategories, true)) $categorie = '';
+
         return [
             'q'            => trim((string)($get['q'] ?? '')),
             'ville'        => trim((string)($get['ville'] ?? '')),
             'code_postal'  => trim((string)($get['code_postal'] ?? '')),
             'transaction'  => $tx,
+            'categorie'    => $categorie,
             'type_bien'    => trim((string)($get['type_bien'] ?? '')),
             'prix_min'     => max(0, (int)($get['prix_min'] ?? 0)),
             'prix_max'     => max(0, (int)($get['prix_max'] ?? 0)),
@@ -107,6 +112,16 @@ if (!function_exists('mbi_annonces_fetch_list')) {
             $where[] = '(tb.code = ? OR tb.libelle LIKE ?)';
             $params[] = $filters['type_bien'];
             $params[] = '%' . $filters['type_bien'] . '%';
+        }
+
+        // Catégorie : "entreprise" = professionnel + commerce (locaux, bureaux, entrepôts, fonds, baux).
+        if ($filters['categorie'] !== '') {
+            if ($filters['categorie'] === 'entreprise') {
+                $where[] = "tb.categorie IN ('professionnel','commerce')";
+            } else {
+                $where[] = 'tb.categorie = ?';
+                $params[] = $filters['categorie'];
+            }
         }
 
         if ($filters['prix_min'] > 0) {
@@ -188,6 +203,7 @@ if (!function_exists('mbi_annonces_fetch_list')) {
                 b.prix_vente_estime, b.loyer_hc, b.charges_locatives,
                 tb.code           AS type_bien_code,
                 tb.libelle        AS type_bien_libelle,
+                tb.categorie      AS type_bien_categorie,
                 ag.nom_agence,
                 ag.slug           AS agence_slug,
                 (
@@ -297,7 +313,7 @@ if (!function_exists('mbi_annonces_fetch_detail')) {
                 CASE WHEN b.adresse_visible_public = 1 THEN b.adresse_2 ELSE NULL END AS adresse_2,
                 b.latitude, b.longitude, b.precision_geoloc,
                 b.bien_en_copropriete, b.copro_nb_lots,
-                tb.code AS type_bien_code, tb.libelle AS type_bien_libelle,
+                tb.code AS type_bien_code, tb.libelle AS type_bien_libelle, tb.categorie AS type_bien_categorie,
                 ag.id AS agence_id, ag.nom_agence, ag.slug AS agence_slug,
                 ag.logo_url AS agence_logo_url, ag.telephone AS agence_telephone, ag.email AS agence_email,
                 ag.adresse_1 AS agence_adresse_1, ag.code_postal AS agence_code_postal, ag.ville AS agence_ville,

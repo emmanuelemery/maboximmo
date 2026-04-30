@@ -21,6 +21,7 @@ $qsBase = array_filter([
     'ville'       => $filters['ville'],
     'code_postal' => $filters['code_postal'],
     'transaction' => $filters['transaction'],
+    'categorie'   => $filters['categorie'],
     'type_bien'   => $filters['type_bien'],
     'prix_min'    => $filters['prix_min'] > 0 ? $filters['prix_min'] : '',
     'prix_max'    => $filters['prix_max'] > 0 ? $filters['prix_max'] : '',
@@ -38,9 +39,15 @@ $linkPage = function (int $p) use ($baseAction, $qsBase): string {
 
 // Titre / meta dynamiques selon filtres principaux
 $titleParts = [];
-if ($filters['transaction'] === 'vente') $titleParts[] = 'À vendre';
-elseif ($filters['transaction'] === 'location') $titleParts[] = 'À louer';
-else $titleParts[] = 'Annonces immobilières';
+if ($filters['categorie'] === 'entreprise') {
+    $titleParts[] = 'Immobilier d\'entreprise';
+    if ($filters['transaction'] === 'vente') $titleParts[] = '— à vendre';
+    elseif ($filters['transaction'] === 'location') $titleParts[] = '— à louer';
+} else {
+    if ($filters['transaction'] === 'vente') $titleParts[] = 'À vendre';
+    elseif ($filters['transaction'] === 'location') $titleParts[] = 'À louer';
+    else $titleParts[] = 'Annonces immobilières';
+}
 if ($filters['ville'] !== '') $titleParts[] = 'à ' . ucfirst(mb_strtolower($filters['ville']));
 $pageTitle = implode(' ', $titleParts) . ' — MaBoxImmo';
 
@@ -60,7 +67,15 @@ $mbiJsonLd = mbi_annonces_breadcrumb_jsonld([
     ['name' => 'Recherche',  'url' => $baseAction],
 ]);
 
-$mbiNavActive = $filters['transaction'] === 'vente' ? 'acheter' : ($filters['transaction'] === 'location' ? 'louer' : 'home');
+if ($filters['categorie'] === 'entreprise') {
+    $mbiNavActive = 'entreprise';
+} elseif ($filters['transaction'] === 'vente') {
+    $mbiNavActive = 'acheter';
+} elseif ($filters['transaction'] === 'location') {
+    $mbiNavActive = 'louer';
+} else {
+    $mbiNavActive = 'home';
+}
 $mbiBodyClass = 'mbi-page-search';
 
 include __DIR__ . '/inc/mbi_annonces_header.php';
@@ -69,6 +84,9 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
 <section class="mbi-search-bar mbi-search-bar-compact">
   <div class="mbi-container">
     <form class="mbi-search mbi-search-compact" method="get" action="<?= h($baseAction) ?>" role="search" aria-label="Rechercher un bien">
+      <?php if ($filters['categorie'] !== ''): ?>
+        <input type="hidden" name="categorie" value="<?= h($filters['categorie']) ?>">
+      <?php endif; ?>
       <div class="mbi-search-field mbi-search-field-loc">
         <label for="mbi-q-loc">Où ?</label>
         <input id="mbi-q-loc" name="ville" type="text" autocomplete="off" placeholder="Ville, code postal" value="<?= h($filters['ville']) ?>">
@@ -104,6 +122,7 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
       <form method="get" action="<?= h($baseAction) ?>" id="mbi-filters-form">
         <input type="hidden" name="ville" value="<?= h($filters['ville']) ?>">
         <input type="hidden" name="transaction" value="<?= h($filters['transaction']) ?>">
+        <input type="hidden" name="categorie" value="<?= h($filters['categorie']) ?>">
         <input type="hidden" name="type_bien" value="<?= h($filters['type_bien']) ?>">
 
         <h3 class="mbi-filters-title">Filtres</h3>

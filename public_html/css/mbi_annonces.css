@@ -86,17 +86,21 @@
   flex: 1;
 }
 .mbi-nav-link {
-  padding: 10px 16px;
+  padding: 10px 14px;
   border-radius: var(--mbi-radius-full);
   font-weight: 500; font-size: 14px;
   color: var(--mbi-ink-soft);
   transition: background .15s, color .15s;
+  white-space: nowrap;
 }
 .mbi-nav-link:hover { background: var(--mbi-bg-soft); color: var(--mbi-ink); }
 .mbi-nav-link.is-active { color: var(--mbi-primary); font-weight: 600; }
 .mbi-header-actions { flex: 0 0 auto; }
 
-@media (max-width: 768px) {
+@media (max-width: 1100px) {
+  .mbi-nav-link { padding: 8px 10px; font-size: 13px; }
+}
+@media (max-width: 900px) {
   .mbi-nav { display: none; }
 }
 
@@ -122,24 +126,47 @@
 .mbi-btn-block { display: flex; width: 100%; margin-top: 8px; }
 .mbi-btn-search { padding: 12px 22px; }
 
-/* ===== Hero ===== */
+/* ===== Hero (avec photo immersive) =====
+   Pour personnaliser le visuel : déposer un fichier 1920×800px (jpg/webp)
+   à /images/mbi_annonces_hero.jpg — il remplacera Home.png automatiquement.
+   ============================================================= */
 .mbi-hero {
-  background: linear-gradient(180deg, var(--mbi-bg) 0%, var(--mbi-bg-soft) 100%);
-  padding: 64px 0 80px;
+  position: relative;
+  padding: 96px 0 120px;
   text-align: center;
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(20,20,30,0.55) 0%, rgba(20,20,30,0.35) 50%, rgba(20,20,30,0.55) 100%),
+    url('/images/mbi_annonces_hero.jpg') center/cover no-repeat,
+    url('/images/Home.png') center/cover no-repeat,
+    #2a2a2a;
+  background-blend-mode: normal, normal, normal, normal;
+  min-height: 460px;
+  display: flex;
+  align-items: center;
+}
+.mbi-hero-inner {
+  width: 100%;
+  position: relative;
+  z-index: 2;
 }
 .mbi-hero-title {
-  font-size: clamp(32px, 5vw, 56px);
+  font-size: clamp(34px, 5.5vw, 60px);
   font-weight: 800;
   letter-spacing: -0.03em;
-  line-height: 1.1;
+  line-height: 1.05;
   margin: 0 0 16px;
+  color: #fff;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.35);
 }
 .mbi-hero-subtitle {
-  font-size: clamp(15px, 2vw, 18px);
-  color: var(--mbi-ink-soft);
-  margin: 0 0 40px;
+  font-size: clamp(15px, 2vw, 19px);
+  color: rgba(255,255,255,0.92);
+  margin: 0 0 36px;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.3);
 }
+.mbi-hero .mbi-link-more { color: rgba(255,255,255,0.92); }
+.mbi-hero .mbi-link-more:hover { color: #fff; }
 
 /* ===== Search bar (Airbnb style) ===== */
 .mbi-search {

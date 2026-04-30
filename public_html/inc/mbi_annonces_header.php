@@ -19,10 +19,11 @@ $robots    = (string)($mbiMeta['robots']      ?? 'index, follow');
 $image     = (string)($mbiMeta['image']       ?? '');
 
 $navItems = [
-    'acheter' => ['Acheter', app_url('/mbi_annonces_recherche.php?transaction=vente')],
-    'louer'   => ['Louer',   app_url('/mbi_annonces_recherche.php?transaction=location')],
-    'estimer' => ['Estimer', app_url('/mbi_annonces_recherche.php?tri=recent#estimer')],
-    'pro'     => ['Espace Pro', app_url('/agence_portail.php')],
+    'acheter'    => ['Acheter',                app_url('/mbi_annonces_recherche.php?transaction=vente')],
+    'louer'      => ['Louer',                  app_url('/mbi_annonces_recherche.php?transaction=location')],
+    'entreprise' => ['Immobilier d\'entreprise', app_url('/mbi_annonces_recherche.php?categorie=entreprise')],
+    'estimer'    => ['Estimer',                app_url('/mbi_annonces_recherche.php?tri=recent#estimer')],
+    'pro'        => ['Espace Pro',             app_url('/agence_portail.php')],
 ];
 ?><!doctype html>
 <html lang="fr">
@@ -58,7 +59,7 @@ $navItems = [
     </nav>
 
     <div class="mbi-header-actions">
-      <a class="mbi-btn mbi-btn-ghost" href="<?= h(app_url('/default.php')) ?>">Se connecter</a>
+      <a class="mbi-btn mbi-btn-ghost" href="<?= h(app_url('/login.php')) ?>">Se connecter</a>
     </div>
   </div>
 </header>

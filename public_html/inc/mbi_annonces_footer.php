@@ -21,7 +21,7 @@
       <ul class="mbi-footer-links">
         <li><a href="<?= h(app_url('/agence_portail.php')) ?>">Espace Pro</a></li>
         <li><a href="<?= h(app_url('/agence_inscription.php')) ?>">Devenir agence MBI</a></li>
-        <li><a href="<?= h(app_url('/default.php')) ?>">Se connecter</a></li>
+        <li><a href="<?= h(app_url('/login.php')) ?>">Se connecter</a></li>
       </ul>
     </div>
 

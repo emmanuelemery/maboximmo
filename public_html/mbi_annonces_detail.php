@@ -48,7 +48,16 @@ $mbiJsonLd = mbi_annonces_jsonld($row, $canonical, $imageAbsUrls)
                ['name' => $h1,          'url' => mbi_annonces_url_detail($annonceId, (string)($row['annonce_slug'] ?? ''))],
            ]);
 
-$mbiNavActive = ($row['type_transaction'] ?? '') === 'vente' ? 'acheter' : ((($row['type_transaction'] ?? '')) === 'location' ? 'louer' : 'home');
+$cat = (string)($row['type_bien_categorie'] ?? '');
+if (in_array($cat, ['professionnel', 'commerce'], true)) {
+    $mbiNavActive = 'entreprise';
+} elseif (($row['type_transaction'] ?? '') === 'vente') {
+    $mbiNavActive = 'acheter';
+} elseif (($row['type_transaction'] ?? '') === 'location') {
+    $mbiNavActive = 'louer';
+} else {
+    $mbiNavActive = 'home';
+}
 $mbiBodyClass = 'mbi-page-detail';
 
 $contactOk = isset($_GET['contact_ok']) && $_GET['contact_ok'] === '1';
