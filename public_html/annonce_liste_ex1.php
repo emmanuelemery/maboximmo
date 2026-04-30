@@ -112,8 +112,8 @@ $sql = "
         COALESCE(i.adresse_1,   b.adresse_1)   AS adresse_1,
         COALESCE(i.code_postal, b.code_postal) AS code_postal,
         COALESCE(i.ville,       b.ville)       AS ville,
-        COALESCE(bt.code,    tbl.code)    AS type_code,
-        COALESCE(bt.libelle, tbl.libelle) AS type_libelle,
+        tb.code                 AS type_code,
+        tb.libelle              AS type_libelle,
         ag.nom_agence,
         s.nom                   AS societe_nom,
         CONCAT(u.prenom, ' ', u.nom) AS commercial_nom,
@@ -122,10 +122,7 @@ $sql = "
     FROM annonces a
     JOIN biens b        ON b.id  = a.id_bien
     LEFT JOIN immeubles i ON i.id = b.id_immeuble
-    -- Migration 20260430_bien_types : types_bien renommée en types_bien_legacy.
-    -- Source de vérité = bien_types (via biens.id_bien_type), fallback legacy.
-    LEFT JOIN bien_types        bt  ON bt.id  = b.id_bien_type
-    LEFT JOIN types_bien_legacy tbl ON tbl.id = b.id_type_bien
+    LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
     LEFT JOIN agences  ag ON ag.id = a.id_agence
     LEFT JOIN societes s  ON s.id  = a.id_societe
     LEFT JOIN users    u  ON u.id  = a.id_user
