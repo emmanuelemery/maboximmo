@@ -275,12 +275,13 @@ function rh_extract_text_from_file(string $path, string $mime, array &$meta = nu
         'pages' => 0,
     ];
 
-    if (!$meta['shell_exec']) {
-        return '';
-    }
+    // Note : on NE return PAS si shell_exec est désactivé. Le fallback PHP pur
+    // (smalot/pdfparser) ci-dessous fonctionne sans shell_exec et couvre la
+    // plupart des cas. shell_exec n'est requis que pour pdftotext (rapide) et
+    // tesseract (OCR scannés). Sur Hostinger shared, c'est souvent désactivé.
 
     if ($mime === 'application/pdf') {
-        if ($binPdftotext) {
+        if ($binPdftotext && $meta['shell_exec']) {
             $cmd = rh_shell_quote($binPdftotext) . ' -layout ' . rh_shell_quote($path) . ' - ' . $nullRedir;
             $text = (string)@shell_exec($cmd);
             if (!rh_text_is_blank($text)) {
@@ -319,7 +320,7 @@ function rh_extract_text_from_file(string $path, string $mime, array &$meta = nu
             return '';
         }
 
-        if (rh_text_is_blank($text) && $binPdftoppm && $binTess) {
+        if (rh_text_is_blank($text) && $binPdftoppm && $binTess && $meta['shell_exec']) {
             $tmp = sys_get_temp_dir();
             $prefix = $tmp . DIRECTORY_SEPARATOR . 'cg_' . uniqid();
             $cmd = rh_shell_quote($binPdftoppm) . ' -gray -r 400 -f 1 -l 2 -png ' . rh_shell_quote($path) . ' ' . rh_shell_quote($prefix) . ' ' . $nullRedir;
@@ -341,7 +342,7 @@ function rh_extract_text_from_file(string $path, string $mime, array &$meta = nu
             }
         }
 
-        if (rh_text_is_blank($text) && $binTess) {
+        if (rh_text_is_blank($text) && $binTess && $meta['shell_exec']) {
             $text = rh_try_tesseract($path, $langs, $psms);
             if (!rh_text_is_blank($text)) {
                 $meta['engine'] = 'tesseract';
@@ -352,7 +353,7 @@ function rh_extract_text_from_file(string $path, string $mime, array &$meta = nu
             $meta['scanned_blocked'] = true;
             return '';
         }
-        if ($binTess) {
+        if ($binTess && $meta['shell_exec']) {
             $text = rh_try_tesseract($path, $langs, $psms);
             if (!rh_text_is_blank($text)) {
                 $meta['engine'] = 'tesseract';
