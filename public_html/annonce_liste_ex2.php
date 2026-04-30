@@ -88,9 +88,6 @@ $sql = "
         a.etat_publication,
         a.visible_portails,
         a.visible_site,
-        COALESCE(a.visible_maboximmo, 0)  AS visible_maboximmo,
-        COALESCE(a.visible_site_perso, 0) AS visible_site_perso,
-        a.slug AS annonce_slug,
         a.prix,
         a.loyer,
         a.loyer_cc,
@@ -175,7 +172,6 @@ $nbDiffusees   = array_sum(array_map(fn($r) =>
 $nbBrouillon   = array_sum(array_map(fn($r) =>
     ($r['etat_publication'] === 'brouillon' || $r['statut'] === 'brouillon') ? 1 : 0, $rows));
 $nbPortails    = array_sum(array_map(fn($r) => (int)($r['visible_portails'] ?? 0) === 1 ? 1 : 0, $rows));
-$nbMaboximmo   = array_sum(array_map(fn($r) => (int)($r['visible_maboximmo'] ?? 0) === 1 ? 1 : 0, $rows));
 
 $pageTitle    = 'Mes annonces';
 $pageSubtitle = 'Ma Box Agency · Annonces · ' . $totalAnnonces . ' résultat(s)';
@@ -195,18 +191,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   .al-btn-ghost { background:#fff; color:#64748b; border-color:#cbd5e1; }
 
   .al-row { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px 14px 10px 10px;
-            display:grid; grid-template-columns: 72px 1fr auto auto auto auto auto auto; gap:12px; align-items:center; margin-bottom:8px; }
-
-  /* Voyants canaux de diffusion (MBI / Site / Portails) */
-  .al-canaux { display:flex; gap:3px; padding:3px 6px; background:rgba(15,23,42,.03); border-radius:99px; }
-  .al-c-dot { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; font-size:11px; border-radius:50%; text-decoration:none; transition: transform .1s; }
-  .al-c-dot:hover { transform: scale(1.15); }
-  .al-c-mbi-on  { background:#fee2e2; color:#991b1b; box-shadow:0 0 0 1px #dc2626 inset; }
-  .al-c-mbi-off { background:#f1f5f9; color:#cbd5e1; }
-  .al-c-web-on  { background:#dbeafe; color:#1e40af; box-shadow:0 0 0 1px #3b82f6 inset; }
-  .al-c-web-off { background:#f1f5f9; color:#cbd5e1; }
-  .al-c-lbc-on  { background:#dcfce7; color:#166534; box-shadow:0 0 0 1px #16a34a inset; }
-  .al-c-lbc-off { background:#f1f5f9; color:#cbd5e1; }
+            display:grid; grid-template-columns: 72px 1fr auto auto auto auto auto; gap:12px; align-items:center; margin-bottom:8px; }
   .al-thumb { width:72px; height:54px; border-radius:6px; overflow:hidden; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:20px; }
   .al-thumb img { width:100%; height:100%; object-fit:cover; }
   .al-ref { font-family:monospace; font-size:10px; color:#64748b; }
@@ -243,7 +228,6 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
     <div class="al-kpi"><div class="al-kpi-nb" style="color:#166534;"><?= $nbDiffusees ?></div><div class="al-kpi-lbl">Diffusées</div></div>
     <div class="al-kpi"><div class="al-kpi-nb" style="color:#78350f;"><?= $nbBrouillon ?></div><div class="al-kpi-lbl">Brouillon</div></div>
     <div class="al-kpi"><div class="al-kpi-nb" style="color:#0369a1;"><?= $nbPortails ?></div><div class="al-kpi-lbl">Visible portails</div></div>
-    <div class="al-kpi"><div class="al-kpi-nb" style="color:#dc2626;"><?= $nbMaboximmo ?></div><div class="al-kpi-lbl">🏢 Diffusées MBI</div></div>
   </div>
 
   <!-- Filtres — submit automatique au changement -->
@@ -357,33 +341,6 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
             <?= $c['ic'] ?>
           </a>
         <?php endforeach; ?>
-      </div>
-
-      <?php
-        $cMbi  = (int)($a['visible_maboximmo']  ?? 0) === 1;
-        $cWeb  = (int)($a['visible_site_perso'] ?? 0) === 1;
-        $cLbc  = (int)($a['visible_portails']   ?? 0) === 1;
-        $isPub = in_array((string)$a['etat_publication'], ['diffusee','publiee'], true)
-              || in_array((string)$a['statut'], ['publiee','active','en_ligne'], true);
-        $mbiUrl = $cMbi && $isPub
-            ? app_url('/mbi_annonces_detail.php?id=' . (int)$a['annonce_id']
-                . (!empty($a['annonce_slug']) ? '&slug=' . rawurlencode((string)$a['annonce_slug']) : ''))
-            : '';
-      ?>
-      <!-- Voyants canaux de diffusion -->
-      <div class="al-canaux" title="Canaux de diffusion sélectionnés">
-        <?php if ($mbiUrl !== ''): ?>
-          <a href="<?= ae($mbiUrl) ?>" target="_blank" rel="noopener"
-             class="al-c-dot al-c-mbi-on"
-             title="MaBoxImmo · diffusée · cliquer pour voir la fiche publique →">🏢</a>
-        <?php else: ?>
-          <span class="al-c-dot <?= $cMbi ? 'al-c-mbi-on' : 'al-c-mbi-off' ?>"
-                title="MaBoxImmo <?= $cMbi ? ($isPub ? '✓ diffusée' : '⏳ sera visible dès publication') : '✗ non diffusée' ?>">🏢</span>
-        <?php endif; ?>
-        <span class="al-c-dot <?= $cWeb ? 'al-c-web-on' : 'al-c-web-off' ?>"
-              title="Site perso agence <?= $cWeb ? '✓' : '✗' ?>">🌐</span>
-        <span class="al-c-dot <?= $cLbc ? 'al-c-lbc-on' : 'al-c-lbc-off' ?>"
-              title="Portails (LeBonCoin via Ubiflow) <?= $cLbc ? '✓' : '✗' ?>">📰</span>
       </div>
 
       <div class="al-price"><?= ae($priceStr) ?></div>
