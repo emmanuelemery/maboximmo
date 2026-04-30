@@ -25,15 +25,10 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
 {
     if ($idBien <= 0) return null;
 
-    // Migration 20260430_bien_types : la nouvelle table `bien_types` est
-    // la source de vérité (via biens.id_bien_type). Fallback gracieux sur
-    // base_types_bien pour les biens dont id_bien_type ne serait pas
-    // encore backfillé (cas résiduel post-migration).
     $sql = "
         SELECT
             b.*,
-            COALESCE(bt.code,    btb.code)    AS _type_bien_code,
-            COALESCE(bt.libelle, btb.label)   AS _type_bien_libelle,
+            tb.code AS _type_bien_code,
             i.adresse_1 AS _imm_adresse_1,
             i.adresse_2 AS _imm_adresse_2,
             i.code_postal AS _imm_code_postal,
@@ -42,9 +37,8 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
             i.latitude AS _imm_latitude,
             i.longitude AS _imm_longitude
         FROM biens b
-        LEFT JOIN bien_types       bt  ON bt.id  = b.id_bien_type
-        LEFT JOIN base_types_bien  btb ON btb.id = b.id_type_bien
-        LEFT JOIN immeubles        i   ON i.id   = b.id_immeuble
+        LEFT JOIN base_types_bien tb ON tb.id = b.id_type_bien
+        LEFT JOIN immeubles  i  ON i.id  = b.id_immeuble
         WHERE b.id = :id
         " . ($idSociete !== null ? " AND (b.id_societe = :soc OR b.id_societe IS NULL)" : "") . "
         LIMIT 1
@@ -201,35 +195,25 @@ function bien_form_populate_post(array $loaded): void
  */
 function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int $idTypeBienDefault = null, ?int $idUser = null): int
 {
-    require_once __DIR__ . '/bien_type_helper.php';
-
-    // Migration 20260430_bien_types : on travaille en priorité sur bien_types.
-    // Le code par défaut "appartement" est le 1er ordre d'affichage. On
-    // résout aussi l'id legacy correspondant pour alimenter id_type_bien
-    // (rétrocompat / FK historique préservée).
-    $idBienType = bien_type_default_id($pdo);
-    $resolved   = bien_type_resolve($pdo, bien_type_code_by_id($pdo, $idBienType));
-    $idTypeBienLegacy = $resolved['id_type_bien']; // legacy
-    if ($idTypeBienDefault !== null && $idTypeBienDefault > 0) {
-        // Override explicite (rare) : conserver l'id legacy passé en argument.
-        $idTypeBienLegacy = $idTypeBienDefault;
+    if ($idTypeBienDefault === null || $idTypeBienDefault <= 0) {
+        // Récupère le premier type actif (en général : appartement)
+        $idTypeBienDefault = (int)($pdo->query("SELECT id FROM base_types_bien WHERE actif = 1 ORDER BY ordre_defaut, id LIMIT 1")->fetchColumn() ?: 1);
     }
 
     // Référence temporaire unique (modifiable ensuite par l'utilisateur)
     $tempRef = 'TMP-' . date('ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 5));
 
     $stmt = $pdo->prepare("
-        INSERT INTO biens (id_societe, id_agence, id_user_actuel, id_type_bien, id_bien_type, statut_bien, reference_bien, designation, date_creation)
-        VALUES (:soc, :ag, :usr, :type, :type_new, 'brouillon', :ref, :des, NOW())
+        INSERT INTO biens (id_societe, id_agence, id_user_actuel, id_type_bien, statut_bien, reference_bien, designation, date_creation)
+        VALUES (:soc, :ag, :usr, :type, 'brouillon', :ref, :des, NOW())
     ");
     $stmt->execute([
-        ':soc'      => $idSociete,
-        ':ag'       => $idAgence,
-        ':usr'      => $idUser ?: null,
-        ':type'     => $idTypeBienLegacy,
-        ':type_new' => $idBienType ?: null,
-        ':ref'      => $tempRef,
-        ':des'      => 'Brouillon créé le ' . date('d/m/Y H:i'),
+        ':soc'  => $idSociete,
+        ':ag'   => $idAgence,
+        ':usr'  => $idUser ?: null,
+        ':type' => $idTypeBienDefault,
+        ':ref'  => $tempRef,
+        ':des'  => 'Brouillon créé le ' . date('d/m/Y H:i'),
     ]);
     $bienId = (int)$pdo->lastInsertId();
 

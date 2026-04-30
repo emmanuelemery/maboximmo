@@ -22,12 +22,6 @@ declare(strict_types=1);
 // =====================================================================
 // 1. TYPE DE BIEN : code interne → code_type Ubiflow
 // =====================================================================
-// SOURCE DE VÉRITÉ : table `bien_types` (colonne `code_type_ubiflow`).
-// La requête SQL (cf §5) joint bien_types et expose t_code_type_ubiflow
-// directement. Cette constante reste en place comme FALLBACK pour les
-// biens dont id_bien_type n'a pas encore été backfillé (rétrocompat
-// après migration 20260430_bien_types) et pour usage hors-flux Ubiflow.
-//
 // Référence : https://sw.ubiflow.net/types_objets.php?univers=IMMO&filiation=O
 const UBIFLOW_CODE_TYPE = [
     // Habitation particuliers
@@ -206,26 +200,17 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
     // CORRECTION #2 (audit V2) : un type inconnu ne doit PAS être émis avec
     // code_type=0 (Ubiflow ignore cette valeur et rejette silencieusement).
     // Le helper retourne null → l'exporter doit sauter la ligne.
-    //
-    // Source de vérité : t_code_type_ubiflow exposé par le JOIN sur bien_types
-    // (cf §5 SQL). Fallback sur la constante UBIFLOW_CODE_TYPE pour les biens
-    // dont id_bien_type n'aurait pas encore été backfillé (cas résiduel post
-    // migration 20260430_bien_types).
     $typeCodeInterne = strtolower(trim((string) ($row['t_code'] ?? '')));
-    $codeType        = isset($row['t_code_type_ubiflow']) && (int)$row['t_code_type_ubiflow'] > 0
-        ? (int)$row['t_code_type_ubiflow']
-        : (UBIFLOW_CODE_TYPE[$typeCodeInterne] ?? 0);
-
-    if ($typeCodeInterne === '' || $codeType === 0) {
+    if ($typeCodeInterne === '' || !isset(UBIFLOW_CODE_TYPE[$typeCodeInterne])) {
         error_log(sprintf(
-            '[ubiflow] Type bien inconnu, annonce ignorée — id_annonce=%s ref=%s t_code=%s code_type=%d',
+            '[ubiflow] Type bien inconnu, annonce ignorée — id_annonce=%s ref=%s t_code=%s',
             $row['a_id'] ?? '?',
             $row['a_reference_annonce'] ?? '?',
-            $typeCodeInterne ?: '(vide)',
-            $codeType
+            $typeCodeInterne ?: '(vide)'
         ));
         return ['_skipped' => true, '_reason' => 'type_inconnu', 'annonce' => [], 'bien' => [], 'prestation' => [], 'diagnostiques' => [], 'photos' => []];
     }
+    $codeType = UBIFLOW_CODE_TYPE[$typeCodeInterne];
 
     $bien = [
         'code_type'           => (string) $codeType,
@@ -572,14 +557,8 @@ SELECT
     b.risque_inondation_g_score   AS b_risque_inondation_g_score,
     b.risque_inondation_p_score   AS b_risque_inondation_p_score,
 
-    -- Source de vérité = bien_types (via biens.id_bien_type).
-    -- Fallback graceful sur types_bien_legacy.code/libelle si l'ancienne FK
-    -- biens.id_type_bien existe encore et que id_bien_type n'a pas été backfillé.
-    -- t_code_type_ubiflow est exposé directement depuis bien_types pour que
-    -- build_ubiflow_annonce() évite la résolution PHP via UBIFLOW_CODE_TYPE.
-    COALESCE(bt.code,    tbl.code)    AS t_code,
-    COALESCE(bt.libelle, tbl.libelle) AS t_libelle,
-    bt.code_type_ubiflow              AS t_code_type_ubiflow,
+    t.code              AS t_code,
+    t.libelle           AS t_libelle,
 
     d.date_diagnostic   AS dpe_date_diagnostic,
     d.conso_energie_primaire AS dpe_conso_primaire,
@@ -591,11 +570,10 @@ SELECT
     d.dpe_vierge             AS dpe_vierge_diag
 
 FROM annonces a
-INNER JOIN biens             b   ON b.id   = a.id_bien
-LEFT  JOIN immeubles         i   ON i.id   = b.id_immeuble
-LEFT  JOIN bien_types        bt  ON bt.id  = b.id_bien_type
-LEFT  JOIN types_bien_legacy tbl ON tbl.id = b.id_type_bien
-LEFT  JOIN dpe_diags         d   ON d.id_bien = b.id AND d.est_diag_principal = 1
+INNER JOIN biens      b ON b.id = a.id_bien
+LEFT  JOIN immeubles  i ON i.id = b.id_immeuble
+LEFT  JOIN types_bien t ON t.id = b.id_type_bien
+LEFT  JOIN dpe_diags  d ON d.id_bien = b.id AND d.est_diag_principal = 1
 {$where}
 ORDER BY a.id
 SQL;

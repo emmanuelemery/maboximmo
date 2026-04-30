@@ -412,14 +412,11 @@ if ($section === 'descriptif') {
             }
         }
     }
-    // Migration 20260430_bien_types : dropdown des types alimenté depuis
-    // la nouvelle table `bien_types` (référentiel unifié LBC/SeLoger/FNAIM).
-    // On conserve les clés (id, code, label) attendues par le template Twig,
-    // donc bien_types.libelle est aliasé en `label`.
     try {
-        $st = $pdo->query("SELECT id, code, libelle AS label FROM bien_types WHERE actif = 1 ORDER BY ordre_affichage ASC, libelle ASC");
+        $st = $pdo->query("SELECT id, code, label FROM base_types_bien ORDER BY ordre_defaut ASC, label ASC");
         $typesBienList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        // Renommer 'fonds_commerce' en 'Commerce' (présentation UI)
+        // Filtrer 'loft' + renommer 'fonds_commerce' en 'Commerce'
+        $typesBienList = array_values(array_filter($typesBienList, static fn($t) => ($t['code'] ?? '') !== 'loft'));
         foreach ($typesBienList as &$_t) {
             if (($_t['code'] ?? '') === 'fonds_commerce') $_t['label'] = 'Commerce';
         }
@@ -430,16 +427,7 @@ if ($section === 'descriptif') {
         $st->execute([$editingBienId]);
         $descPhotos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable $e) {}
-    // Label du type pour affichage : priorité bien_types via id_bien_type,
-    // fallback sur base_types_bien via id_type_bien legacy.
-    if (!empty($bienLoaded['id_bien_type'])) {
-        try {
-            $st = $pdo->prepare("SELECT libelle FROM bien_types WHERE id = ? LIMIT 1");
-            $st->execute([(int)$bienLoaded['id_bien_type']]);
-            $typeBienLabel = (string)($st->fetchColumn() ?: '');
-        } catch (Throwable $e) {}
-    }
-    if (empty($typeBienLabel) && !empty($bienLoaded['id_type_bien'])) {
+    if (!empty($bienLoaded['id_type_bien'])) {
         try {
             $st = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
             $st->execute([(int)$bienLoaded['id_type_bien']]);
@@ -2511,18 +2499,10 @@ require_once $_sbFile;
                       }
                   }
 
-                  // Label du type de bien : priorité bien_types (id_bien_type),
-                  // fallback base_types_bien (id_type_bien legacy).
+                  // Label du type de bien : récupéré via base_types_bien.label (id_type_bien)
                   $typeBienLibelle = '';
                   $typeBienEmoji   = '🏷️';
-                  if (!empty($b['id_bien_type'])) {
-                      try {
-                          $stTb = $pdo->prepare("SELECT libelle FROM bien_types WHERE id = ? LIMIT 1");
-                          $stTb->execute([(int)$b['id_bien_type']]);
-                          $typeBienLibelle = (string)$stTb->fetchColumn();
-                      } catch (Throwable) {}
-                  }
-                  if ($typeBienLibelle === '' && !empty($b['id_type_bien'])) {
+                  if (!empty($b['id_type_bien'])) {
                       try {
                           $stTb = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
                           $stTb->execute([(int)$b['id_type_bien']]);

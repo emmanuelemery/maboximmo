@@ -35,9 +35,8 @@ if (isset($_GET['view']) && in_array($_GET['view'], ['cards', 'list'], true)) {
 }
 
 /* ── Types de biens (pour le filtre) ───────────────────── */
-// Migration 20260430_bien_types : référentiel unifié bien_types.
 try {
-    $stmtTypes = $pdo->query("SELECT id, code, libelle FROM bien_types WHERE actif = 1 ORDER BY ordre_affichage ASC, libelle ASC");
+    $stmtTypes = $pdo->query("SELECT id, code, libelle FROM types_bien ORDER BY libelle ASC");
     $typesBien = $stmtTypes->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
     $typesBien = [];

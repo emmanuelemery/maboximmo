@@ -565,27 +565,20 @@ foreach ($protectedFields as $f) {
     }
 }
 
-// Résolution finale : type_bien (code stable) → ids en base (nouveau + legacy).
+// Résolution finale : type_bien (code stable) → id_type_bien (id local en base).
 // Doit rester APRÈS protectedFields, sinon le unset id_type_bien (absent du POST
 // quand le frontend envoie type_bien) écraserait la valeur résolue ici.
-//
-// Migration 20260430_bien_types : on alimente DEUX colonnes en cohérence :
-//   - biens.id_bien_type → FK vers bien_types (référentiel unifié, source de
-//     vérité pour LBC/SeLoger/FNAIM)
-//   - biens.id_type_bien → FK historique vers types_bien_legacy (préservée
-//     pour permettre un rollback du code sans toucher à la BDD)
-// Cf. inc/bien_type_helper.php pour la logique de mapping (incl. fallback
-// sémantique pour les codes nouveaux absents en legacy : studio→appartement,
-// villa→maison, etc.).
 $typeBienCode = $str('type_bien');
 if ($typeBienCode !== '') {
-    require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
-    $resolved = bien_type_resolve($pdo, $typeBienCode);
-    if ($resolved['id_bien_type'] !== null) {
-        $data['id_bien_type'] = $resolved['id_bien_type'];
-    }
-    if ($resolved['id_type_bien'] !== null) {
-        $data['id_type_bien'] = $resolved['id_type_bien'];
+    // Bug 2026-04-23 : dropdown bien_detail utilise base_types_bien, donc la résolution
+    // code → id doit se faire sur la même table pour éviter l'inversion systématique
+    // au rafraîchissement (ex : Appartement devenait Maison car id=2 dans types_bien
+    // = Appartement mais id=2 dans base_types_bien = Maison).
+    $stmtT = $pdo->prepare("SELECT id FROM base_types_bien WHERE code = ? LIMIT 1");
+    $stmtT->execute([$typeBienCode]);
+    $tbId = (int)$stmtT->fetchColumn();
+    if ($tbId > 0) {
+        $data['id_type_bien'] = $tbId;
     }
 }
 

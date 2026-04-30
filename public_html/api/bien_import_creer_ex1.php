@@ -92,16 +92,14 @@ if (empty($designation)) {
     $designation = self_designation($typeBien, $ville, $surface);
 }
 
-// ── Résolution des 2 ids (nouveau + legacy) depuis le code ───────────
-require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
-$resolved   = bien_type_resolve($pdo, (string)$typeBien);
-$typeBienId = $resolved['id_type_bien'];
-$idBienType = $resolved['id_bien_type'];
-if ($typeBienId === null) {
-    // Fallback "appartement" si rien n'a matché en legacy
-    $fallback   = bien_type_resolve($pdo, 'appartement');
-    $typeBienId = $fallback['id_type_bien'] ?? 2;
-    if ($idBienType === null) $idBienType = $fallback['id_bien_type'];
+// ── Résolution id_type_bien depuis le code ───────────────────
+$stmtType = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+$stmtType->execute([$typeBien]);
+$typeBienId = (int)($stmtType->fetchColumn() ?: 0);
+if ($typeBienId <= 0) {
+    // Fallback "appartement"
+    $stmtType->execute(['appartement']);
+    $typeBienId = (int)($stmtType->fetchColumn() ?: 2);
 }
 
 // ── INSERT bien ──────────────────────────────────────────────
@@ -110,7 +108,7 @@ try {
     $stmt = $pdo->prepare("
         INSERT INTO biens (
             id_societe, id_agence,
-            id_type_bien, id_bien_type, reference_bien, designation,
+            id_type_bien, reference_bien, designation,
             adresse_1, code_postal, ville,
             surface_habitable, surface_terrain,
             nb_pieces, nb_chambres,
@@ -121,7 +119,7 @@ try {
             date_creation, date_modification
         ) VALUES (
             :id_societe, :id_agence,
-            :id_type_bien, :id_bien_type, :reference, :designation,
+            :id_type_bien, :reference, :designation,
             :adresse_1, :code_postal, :ville,
             :surface, :surface_terrain,
             :nb_pieces, :nb_chambres,
@@ -139,7 +137,6 @@ try {
         ':id_societe'        => $societeId,
         ':id_agence'         => $agenceId ?: null,
         ':id_type_bien'      => $typeBienId,
-        ':id_bien_type'      => $idBienType,
         ':reference'         => $reference ?: null,
         ':designation'       => $designation,
         ':adresse_1'         => $adresse1 ?: null,

@@ -498,16 +498,12 @@ try {
     }
     if (!empty($fields['type_bien'])) {
         try {
-            // Migration 20260430_bien_types : double-écriture id_type_bien (legacy) + id_bien_type (nouveau)
-            require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
-            $resolved = bien_type_resolve($pdo, (string)$fields['type_bien']);
-            if (!empty($resolved['id_type_bien'])) {
+            $tStmt = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+            $tStmt->execute([$fields['type_bien']]);
+            $tId = (int)$tStmt->fetchColumn();
+            if ($tId > 0) {
                 $setParts[] = "`id_type_bien` = COALESCE(NULLIF(`id_type_bien`, 1), :v_idtb)";
-                $setParams[':v_idtb'] = $resolved['id_type_bien'];
-            }
-            if (!empty($resolved['id_bien_type'])) {
-                $setParts[] = "`id_bien_type` = COALESCE(`id_bien_type`, :v_idbt)";
-                $setParams[':v_idbt'] = $resolved['id_bien_type'];
+                $setParams[':v_idtb'] = $tId;
             }
         } catch (Throwable) {}
     }

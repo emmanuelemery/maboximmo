@@ -79,15 +79,13 @@ try {
         }
     }
 
-    // ─── 2. Résolution des 2 ids (nouveau + legacy) depuis le code ──
-    require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
+    // ─── 2. Résolution de l'id_type_bien depuis le code ─────────
     $typeBienCode = $str('type_bien_code') ?: $str('type_bien');
-    $idTypeBien   = null;
-    $idBienType   = null;
+    $idTypeBien = null;
     if ($typeBienCode !== '') {
-        $resolved   = bien_type_resolve($pdo, $typeBienCode);
-        $idBienType = $resolved['id_bien_type'];
-        $idTypeBien = $resolved['id_type_bien'];
+        $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+        $stmtT->execute([$typeBienCode]);
+        $idTypeBien = (int)$stmtT->fetchColumn() ?: null;
     }
 
     // ─── 3. Récupération du user (pour initiales dans la ref) ──
@@ -121,7 +119,7 @@ try {
     $stmtB = $pdo->prepare("
         INSERT INTO biens (
             reference_bien, slug, statut_bien,
-            id_societe, id_agence, id_user_actuel, id_proprietaire, id_type_bien, id_bien_type,
+            id_societe, id_agence, id_user_actuel, id_proprietaire, id_type_bien,
             adresse_1, adresse_2, code_postal, ville, latitude, longitude,
             etage, lot_principal,
             surface_habitable, nb_pieces, nb_chambres, nb_salles_bain, nb_wc,
@@ -132,7 +130,7 @@ try {
             date_creation, date_modification
         ) VALUES (
             :ref, :slug, 'brouillon',
-            :soc, :age, :usr, :pro, :tb, :tb_new,
+            :soc, :age, :usr, :pro, :tb,
             :a1, :a2, :cp, :v, :lat, :lng,
             :etg, :lot,
             :sh, :np, :nc, :nsb, :nwc,
@@ -151,7 +149,6 @@ try {
         ':usr'       => $userId ?: null,
         ':pro'       => $proprioId ?: null,
         ':tb'        => $idTypeBien,
-        ':tb_new'    => $idBienType,
         ':a1'        => $str('adresse_1') ?: null,
         ':a2'        => $str('adresse_2') ?: null,
         ':cp'        => $str('code_postal') ?: null,

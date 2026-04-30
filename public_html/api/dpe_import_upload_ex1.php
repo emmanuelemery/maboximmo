@@ -350,18 +350,15 @@ try {
                 $setParts[] = "`$col` = COALESCE(NULLIF(`$col`, ''), :v_$col)";
                 $setParams[":v_$col"] = $val;
             }
-            // type_bien : double-écriture (legacy + nouveau référentiel)
+            // type_bien : trouver l'id à partir du code
             if (!empty($fields['type_bien'])) {
                 try {
-                    require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
-                    $resolved = bien_type_resolve($pdo, (string)$fields['type_bien']);
-                    if (!empty($resolved['id_type_bien'])) {
+                    $tStmt = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+                    $tStmt->execute([$fields['type_bien']]);
+                    $tId = (int)$tStmt->fetchColumn();
+                    if ($tId > 0) {
                         $setParts[] = "`id_type_bien` = COALESCE(NULLIF(`id_type_bien`, 1), :v_idtb)";
-                        $setParams[':v_idtb'] = $resolved['id_type_bien'];
-                    }
-                    if (!empty($resolved['id_bien_type'])) {
-                        $setParts[] = "`id_bien_type` = COALESCE(`id_bien_type`, :v_idbt)";
-                        $setParams[':v_idbt'] = $resolved['id_bien_type'];
+                        $setParams[':v_idtb'] = $tId;
                     }
                 } catch (Throwable) {}
             }

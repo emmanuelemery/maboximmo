@@ -92,15 +92,13 @@ try {
         }
     }
 
-    // ─── 2. Résolution des 2 ids (nouveau + legacy) ──
-    require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
-    $typeCode   = $str('type_bien_code') ?: $str('type_bien');
+    // ─── 2. Résolution id_type_bien ──
+    $typeCode = $str('type_bien_code') ?: $str('type_bien');
     $idTypeBien = null;
-    $idBienType = null;
     if ($typeCode !== '') {
-        $resolved   = bien_type_resolve($pdo, $typeCode);
-        $idBienType = $resolved['id_bien_type'];
-        $idTypeBien = $resolved['id_type_bien'];
+        $stmt = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
+        $stmt->execute([$typeCode]);
+        $idTypeBien = (int)$stmt->fetchColumn() ?: null;
     }
 
     // ─── 3. Environnement flat (pour biens.exposition etc.) ──
@@ -150,7 +148,6 @@ try {
         UPDATE biens SET
             id_proprietaire = :pro,
             id_type_bien    = COALESCE(:tb, id_type_bien),
-            id_bien_type    = COALESCE(:tb_new, id_bien_type),
             adresse_1       = :a1,
             adresse_2       = :a2,
             code_postal     = :cp,
@@ -198,7 +195,6 @@ try {
     ")->execute([
         ':pro'      => $proprioId ?: null,
         ':tb'       => $idTypeBien,
-        ':tb_new'   => $idBienType,
         ':a1'       => $str('adresse_1') ?: null,
         ':a2'       => $str('adresse_2') ?: null,
         ':cp'       => $str('code_postal') ?: null,

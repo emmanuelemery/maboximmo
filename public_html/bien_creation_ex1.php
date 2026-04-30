@@ -27,37 +27,21 @@ $bienId = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['i
 
 if ($bienId <= 0) {
     try {
-        require_once __DIR__ . '/inc/bien_type_helper.php';
-
-        // Migration 20260430_bien_types : on alimente les DEUX colonnes
-        //   - id_bien_type (nouvelle, source de vérité)
-        //   - id_type_bien (legacy, FK fk_biens_type → types_bien_legacy)
-        $defaultIdBienType = bien_type_default_id($pdo); // Premier actif (appartement)
-        $defaultCode       = $defaultIdBienType > 0 ? bien_type_code_by_id($pdo, $defaultIdBienType) : '';
-        $resolvedDefault   = $defaultCode !== '' ? bien_type_resolve($pdo, $defaultCode) : ['id_bien_type' => null, 'id_type_bien' => null];
-        $defaultTypeIdLegacy = $resolvedDefault['id_type_bien']; // Legacy
-        // Fallback ultime pour les instances qui n'auraient pas encore migré :
-        // on essaie types_bien_legacy puis types_bien (avant rename).
-        if ($defaultTypeIdLegacy === null) {
-            try {
-                $defaultTypeIdLegacy = (int)$pdo->query("SELECT id FROM types_bien_legacy ORDER BY id ASC LIMIT 1")->fetchColumn() ?: null;
-            } catch (Throwable) {
-                try { $defaultTypeIdLegacy = (int)$pdo->query("SELECT id FROM types_bien ORDER BY id ASC LIMIT 1")->fetchColumn() ?: null; } catch (Throwable) {}
-            }
-        }
+        // FK fk_biens_type oblige un id_type_bien valide (NULL refusé sur
+        // certaines instances). On prend le premier type disponible — l'user
+        // le changera via le select "id_type_bien" dans la section Identification.
+        $defaultTypeId = null;
+        try {
+            $defaultTypeId = (int)$pdo->query("SELECT id FROM types_bien ORDER BY id ASC LIMIT 1")->fetchColumn() ?: null;
+        } catch (Throwable) { /* table peut être absente */ }
 
         $cols = ['id_societe', 'id_agence', 'id_user_actuel', 'statut_bien', 'date_creation', 'date_modification'];
         $vals = [$societeId ?: null, $agenceId ?: null, $userId ?: null, 'brouillon'];
         $ph   = ['?', '?', '?', '?', 'NOW()', 'NOW()'];
 
-        if ($defaultTypeIdLegacy) {
+        if ($defaultTypeId) {
             $cols[] = 'id_type_bien';
-            $vals[] = $defaultTypeIdLegacy;
-            $ph[]   = '?';
-        }
-        if ($defaultIdBienType) {
-            $cols[] = 'id_bien_type';
-            $vals[] = $defaultIdBienType;
+            $vals[] = $defaultTypeId;
             $ph[]   = '?';
         }
 
