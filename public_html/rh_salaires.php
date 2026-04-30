@@ -1060,7 +1060,7 @@ $layout_head_kpis = '
 ';
 
 $layout_head_actions = '
-    <a href="exporter_salaires_pdf.php?mois='.$mois_sel.'&annee='.$annee_sel.'&societe='.$societe_sel.($agenceScope > 0 ? '&agence='.$agenceScope : '').'"
+    <a href="exporter_salaires_pdf.php?mois='.$mois_sel.'&annee='.$annee_sel.'&societe='.$societe_sel.'&agence='.($agenceScope > 0 ? $agenceScope : urlencode((string)$agence_sel)).'"
        target="_blank" class="ph-btn" title="Export PDF">Export</a>
     <a href="exporter_salaires_conges_pdf.php?mois='.$mois_sel.'&annee='.$annee_sel.'"
        target="_blank" class="ph-btn primary" title="Salaires et Congés">Sal&amp;Cong</a>
@@ -1814,7 +1814,7 @@ ob_start();
 
     <!-- Boutons : 3 par ligne, alignés à gauche -->
     <div class="action-strip-btns">
-        <a href="exporter_salaires_pdf.php?mois=<?=$mois_sel?>&annee=<?=$annee_sel?>&societe=<?=$societe_sel?><?=$agenceScope > 0 ? '&agence='.$agenceScope : ''?>"
+        <a href="exporter_salaires_pdf.php?mois=<?=$mois_sel?>&annee=<?=$annee_sel?>&societe=<?=$societe_sel?>&agence=<?=$agenceScope > 0 ? $agenceScope : urlencode((string)$agence_sel)?>"
            target="_blank" class="v2-btn">Export PDF</a>
 
         <?php if ($roleId === 1 || $agenceScope > 0): ?>

@@ -19,7 +19,10 @@ require_login();
 
 $roleId      = current_role_id();
 $agenceScope = can_manage_salaires_agence();
-if (!in_array($roleId, [1, 2, 3], true)) {
+// Seul l'admin (role 1) OU un gestionnaire d'agence (gestion_salaires=1, agenceScope>0)
+// peut exporter le PDF multi-users. Les autres rôles n'ont pas accès à un export
+// global (sécurité multi-tenant : pas de fuite d'agence à agence).
+if ($roleId !== 1 && $agenceScope <= 0) {
     http_response_code(403);
     exit('Accès refusé');
 }
@@ -72,6 +75,7 @@ if (!class_exists('TCPDF')) {
 $mois = (int)($_GET['mois'] ?? date('n'));
 $annee = (int)($_GET['annee'] ?? date('Y'));
 $societe_id = !empty($_GET['societe']) && $_GET['societe'] !== 'toutes' ? (int)$_GET['societe'] : null;
+$agence_id  = !empty($_GET['agence'])  && $_GET['agence']  !== 'toutes' ? (int)$_GET['agence']  : null;
 
 $mois_ref = sprintf('%04d-%02d-01', $annee, $mois);
 
@@ -136,11 +140,19 @@ $params = [':mr' => $mois_ref];
 
 if ($agenceScope > 0) {
     // Gestionnaire agence : forcer le filtre sur son agence, ignorer les autres filtres
+    // (impératif multi-tenant : pas de fuite vers d'autres agences)
     $sql .= " AND u.id_agence = :agence_scope";
     $params[':agence_scope'] = $agenceScope;
-} elseif ($societe_id !== null) {
-    $sql .= " AND u.id_societe = :societe_id";
-    $params[':societe_id'] = $societe_id;
+} else {
+    // Admin (role 1) : filtres optionnels sur société et/ou agence depuis l'URL
+    if ($societe_id !== null) {
+        $sql .= " AND u.id_societe = :societe_id";
+        $params[':societe_id'] = $societe_id;
+    }
+    if ($agence_id !== null) {
+        $sql .= " AND u.id_agence = :agence_id";
+        $params[':agence_id'] = $agence_id;
+    }
 }
 
 $sql .= " ORDER BY soc.nom ASC, etab.nom_agence ASC, u.nom ASC, u.prenom ASC";
