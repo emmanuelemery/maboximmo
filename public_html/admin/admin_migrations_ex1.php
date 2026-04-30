@@ -182,54 +182,12 @@ require_once __DIR__ . '/../inc/header.php';
     <div class="mig-empty">
       Aucune migration trouvée dans <code>inc/migrations/</code>.
     </div>
-  <?php else:
-    // ─── Tri : non-appliquées EN HAUT (ordre croissant), appliquées en bas (ordre croissant) ───
-    // Permet de voir immédiatement ce qui reste à appliquer sans scroller.
-    $pendingMigs = []; $partialMigs = []; $appliedMigs = [];
-    foreach ($migrations as $id => $mig) {
-      $row = $applied[$id] ?? null;
-      if (!$row)                              $pendingMigs[$id] = $mig;
-      elseif ((int)$row['statements_err'] > 0) $partialMigs[$id] = $mig;
-      else                                     $appliedMigs[$id] = $mig;
-    }
-    ksort($pendingMigs); ksort($partialMigs); ksort($appliedMigs);
-    $orderedMigs = $pendingMigs + $partialMigs + $appliedMigs;
-
-    $nbPending = count($pendingMigs);
-    $nbPartial = count($partialMigs);
-    $nbApplied = count($appliedMigs);
-  ?>
-
-    <?php if ($nbPending > 0 || $nbPartial > 0): ?>
-      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400e;">
-        🔔 <strong><?= $nbPending + $nbPartial ?> migration<?= ($nbPending + $nbPartial) > 1 ? 's' : '' ?></strong> à traiter
-        (<?= $nbPending ?> en attente<?php if ($nbPartial > 0): ?>, <?= $nbPartial ?> partielles<?php endif; ?>)
-        — affichées en premier ci-dessous, ordre chronologique croissant.
-        <span style="margin-left:8px;color:#a16207;">·  <?= $nbApplied ?> migration<?= $nbApplied > 1 ? 's' : '' ?> déjà appliquée<?= $nbApplied > 1 ? 's' : '' ?>.</span>
-      </div>
-    <?php else: ?>
-      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#166534;">
-        ✅ Toutes les migrations sont appliquées (<?= $nbApplied ?>). Rien à faire.
-      </div>
-    <?php endif; ?>
-
-    <?php $_currentSection = null; foreach ($orderedMigs as $id => $mig):
+  <?php else: ?>
+    <?php foreach ($migrations as $id => $mig):
       $row = $applied[$id] ?? null;
       $status = 'pending';
       if ($row) $status = ((int)$row['statements_err'] > 0) ? 'partial' : 'applied';
       $statements = admin_split_sql((string)$mig['sql']);
-
-      // Séparateur visuel entre les sections
-      if ($_currentSection !== $status) {
-        $_currentSection = $status;
-        if ($status === 'applied' && ($nbPending > 0 || $nbPartial > 0)):
-    ?>
-      <div style="margin:24px 0 12px;padding:8px 0;border-top:2px dashed #cbd5e1;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:700;">
-        ↓ Migrations déjà appliquées (historique)
-      </div>
-    <?php
-        endif;
-      }
     ?>
       <div class="mig-card">
         <div class="mig-head">
