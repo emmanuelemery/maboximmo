@@ -290,30 +290,6 @@ function rh_extract_text_from_file(string $path, string $mime, array &$meta = nu
             }
         }
 
-        // Fallback PHP pur via smalot/pdfparser (lib Composer)
-        // Utilisé quand pdftotext n'est pas dispo (Hostinger shared hosting,
-        // pas de binaire Poppler installé). Couvre 95 % des PDF avec texte
-        // — échoue uniquement sur les PDF scannés (images sans couche texte).
-        if (rh_text_is_blank($text)) {
-            $autoload = __DIR__ . '/../../vendor/autoload.php';
-            if (is_file($autoload) && class_exists('Smalot\\PdfParser\\Parser', false) === false) {
-                @require_once $autoload;
-            }
-            if (class_exists('Smalot\\PdfParser\\Parser')) {
-                try {
-                    $parser = new \Smalot\PdfParser\Parser();
-                    $pdf = $parser->parseFile($path);
-                    $textPhp = $pdf->getText();
-                    if (!rh_text_is_blank($textPhp)) {
-                        $text = $textPhp;
-                        $meta['engine'] = 'smalot/pdfparser';
-                    }
-                } catch (Throwable $e) {
-                    error_log('[rh_extract_text] smalot/pdfparser : ' . $e->getMessage());
-                }
-            }
-        }
-
         if (rh_text_is_blank($text) && !rh_allow_scanned_ocr()) {
             $meta['scanned_blocked'] = true;
             return '';
