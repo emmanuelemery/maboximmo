@@ -2,23 +2,6 @@
 # MaBoxImmo — .htaccess sécurité
 # ══════════════════════════════════════════════════════════════════════
 
-# ── Compat layer : URLs avec /public_html/ ───────────────────────────
-# Sur Hostinger (prod + dev), DocumentRoot = /public_html/ donc les URLs
-# sont accessibles à la racine du domaine (ex. maboximmo.fr/admin/foo.php).
-# Mais ~80 % des liens internes du code historiquement préfixent
-# /public_html/ (legacy hérité du chemin local XAMPP). Cette règle
-# rewrite les URLs avec /public_html/ vers la racine — internal rewrite,
-# l'utilisateur ne voit aucune redirection.
-#
-# Restreint aux domaines maboximmo.fr (prod + dev) : sur localhost XAMPP,
-# l'URL est localhost/MaBoxImmo2026/public_html/... et le path public_html
-# est légitime → la règle ne se déclenche pas.
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteCond %{HTTP_HOST} maboximmo\.fr$ [NC]
-    RewriteRule ^public_html/(.*)$ /$1 [L]
-</IfModule>
-
 # ── Page d'accueil par défaut ────────────────────────────────────────
 DirectoryIndex default.php index.php
 
@@ -53,10 +36,7 @@ DirectoryIndex default.php index.php
 </IfModule>
 
 # ── Page d'erreur 404 personnalisée ──────────────────────────────────
-# Path absolu depuis DocumentRoot (Hostinger : /public_html/ → /404.php
-# mappe vers /public_html/404.php). Sur XAMPP local, il faut ajuster le
-# path en /MaBoxImmo2026/public_html/404.php (cf .htaccess local-only).
-ErrorDocument 404 /404.php
+ErrorDocument 404 /MaBoxImmo2026/public_html/404.php
 
 # ── Cache navigateur (assets statiques) ──────────────────────────────
 <IfModule mod_expires.c>
