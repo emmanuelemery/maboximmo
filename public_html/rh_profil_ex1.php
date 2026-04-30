@@ -242,9 +242,19 @@ function renderDocZone(string $categorie, string $icon, string $label, array $do
         // rh_documents unifiée : filename + file_path officiels
         $nomFichier  = $doc['filename'] ?? $doc['nom_fichier'] ?? '';
         $nomOriginal = $doc['original_name'] ?? $doc['nom_original'] ?? $nomFichier;
-        // L'accès passe TOUJOURS par l'API qui gère auth + droits + path security.
-        // Le lien direct vers /uploads/ est bloqué par le serveur en prod (404).
-        $url = 'api/rh_doc_serve.php?id=' . (int)($doc['id'] ?? 0);
+        // Priorité à file_path si défini (migration rh_user_documents → rh_documents),
+        // sinon fallback sur la convention historique /uploads/rh_docs/<user_id>/
+        $filePath = (string)($doc['file_path'] ?? '');
+        if ($filePath !== '') {
+            // Normalise en URL relative : retire chemin absolu Windows, garde depuis /uploads/
+            if (preg_match('#(/uploads/[^\s]+)#', str_replace('\\', '/', $filePath), $m)) {
+                $url = '.' . $m[1];
+            } else {
+                $url = $filePath;
+            }
+        } else {
+            $url = $doc['_url'] ?? ('./uploads/rh_docs/' . (int)$userId . '/' . $nomFichier);
+        }
         $ext         = strtolower(pathinfo($nomFichier, PATHINFO_EXTENSION));
         $fileIcon    = $ext === 'pdf' ? '📄' : '🖼️';
         $sizeBytes   = (int)($doc['taille'] ?? $doc['file_size'] ?? 0);
@@ -1198,7 +1208,7 @@ ob_start();
                 <?php foreach ($userDocsActive as $doc):
                     $ext = strtolower(pathinfo($doc['filename'] ?? '', PATHINFO_EXTENSION));
                     $icon = match($ext) { 'pdf' => '📄', 'jpg','jpeg','png' => '🖼️', default => '📎' };
-                    $url = 'api/rh_doc_serve.php?id=' . (int)($doc['id'] ?? 0);
+                    $url = './uploads/rh_docs/' . $userId . '/' . ($doc['filename'] ?? '');
                     $dateStr = !empty($doc['upload_date']) ? date('d/m/Y', strtotime($doc['upload_date'])) : '—';
                     $typeLabel = h($doc['label'] ?? $doc['type_document'] ?? $doc['categorie'] ?? '—');
                 ?>
@@ -1232,7 +1242,7 @@ ob_start();
               </thead>
               <tbody>
               <?php foreach ($userDocsArchived as $doc):
-                  $url = 'api/rh_doc_serve.php?id=' . (int)($doc['id'] ?? 0);
+                  $url = './uploads/rh_docs/' . $userId . '/' . ($doc['filename'] ?? '');
                   $archDate = !empty($doc['archived_at']) ? date('d/m/Y H:i', strtotime($doc['archived_at'])) : '—';
               ?>
                 <tr style="border-bottom:1px solid #fdf2e6" data-doc-id="<?= (int)$doc['id'] ?>">
