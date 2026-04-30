@@ -11,13 +11,22 @@ if (!$pdo) { http_response_code(500); exit('Erreur: PDO non disponible'); }
 
 $roleId       = current_role_id();
 $userId       = current_user_id();
-$userAgenceId = current_agence_id();
 $congeAgenceScope = function_exists('can_manage_salaires_agence') ? can_manage_salaires_agence() : 0;
 
-// "Admin société" = role 1 (super admin) OU gestion_salaires=1 sur son agence.
-// Eux seuls peuvent exporter et basculer sur d'autres sociétés/agences.
-// Les autres users accèdent à l'historique de leur propre agence (lecture seule).
-$isCongesAdmin = ($roleId === 1) || ($congeAgenceScope > 0);
+// 2 notions distinctes :
+//   - $isSuperAdmin (role=1) : voit TOUTES les agences, peut bricoler les filtres
+//   - $isCongesAdmin (role=1 OU gestion_salaires=1) : a accès aux boutons
+//     export/valider, MAIS son périmètre data reste limité à son agence
+//     (sauf super admin). Cf. demande : "que les users de l'agence du user
+//     connecté".
+$isSuperAdmin  = ($roleId === 1);
+$isCongesAdmin = $isSuperAdmin || ($congeAgenceScope > 0);
+
+// Récupère l'agence RÉELLE du user en BDD (plus fiable que la session, qui
+// peut être trompée par le mode test admin ou ne pas avoir id_agence settée).
+$stUa = $pdo->prepare("SELECT id_agence FROM users WHERE id = ? LIMIT 1");
+$stUa->execute([$userId]);
+$userAgenceId = (int)($stUa->fetchColumn() ?: 0);
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function mois_fr($m) { $n=[1=>'Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']; return $n[(int)$m]??''; }
@@ -31,16 +40,19 @@ $filterSociete = (!empty($_GET['societe']) && $_GET['societe'] !== 'toutes') ? (
 $filterAgence  = (!empty($_GET['agence'])  && $_GET['agence']  !== 'toutes') ? (int)$_GET['agence']  : 'toutes';
 $filterUser    = (!empty($_GET['user'])    && $_GET['user']    !== 'tous')   ? (int)$_GET['user']    : 'tous';
 
-// Sécurité multi-tenant : un user non-admin ne peut consulter QUE l'historique
-// de sa propre agence — peu importe les paramètres GET qu'il bricole.
-if (!$isCongesAdmin) {
+// 🔒 Sécurité multi-tenant : SEUL le super admin (role=1) voit toutes les
+// agences. Tout autre user (y compris gestion_salaires=1) ne voit QUE
+// l'historique des users de SA propre agence — peu importe les paramètres
+// GET qu'il bricole. Si pas d'agence connue → fallback sur l'user lui-même.
+if (!$isSuperAdmin) {
     if ($userAgenceId > 0) {
-        $filterAgence = $userAgenceId;
+        $filterAgence  = $userAgenceId;
+        $filterSociete = 'toutes'; // ignoré, filterAgence prime
     } else {
-        // Pas d'agence connue → fallback sur l'user lui-même
-        $filterUser = $userId;
+        $filterUser    = $userId;
+        $filterAgence  = 'toutes';
+        $filterSociete = 'toutes';
     }
-    $filterSociete = 'toutes'; // ignoré, car filterAgence prime de toute façon
 }
 
 // Calcul des pills mois (-3 → +3 autour du mois courant)
@@ -405,9 +417,20 @@ EXTRAJS;
 ob_start();
 ?>
 
-<!-- Scope société / agence / user (admin uniquement — non-admin = scope agence forcé) -->
+<?php
+// Nom lisible de l'agence du user (pour le label "Mon agence")
+$myAgenceName = '';
+if (!$isSuperAdmin && $userAgenceId > 0) {
+    foreach ($allAgences as $ag) {
+        if ((int)$ag['id'] === $userAgenceId) { $myAgenceName = (string)$ag['nom_agence']; break; }
+    }
+}
+?>
+<!-- Scope société / agence / user
+     - Super admin (role=1) : peut bricoler Sté + Agc librement
+     - Tout autre user (y compris gestion_salaires=1) : Agc figée sur la sienne -->
 <div class="ph-scope" style="margin-bottom:20px">
-    <?php if ($isCongesAdmin): ?>
+    <?php if ($isSuperAdmin): ?>
     <div class="ph-scope-row">
         <span class="ph-scope-label">Sté</span>
         <div class="ph-scope-btns">
@@ -440,7 +463,9 @@ ob_start();
     <div class="ph-scope-row">
         <span class="ph-scope-label">Agc</span>
         <div class="ph-scope-btns">
-            <span class="ph-scope-pill active" style="cursor:default;">Mon agence (lecture seule)</span>
+            <span class="ph-scope-pill active" style="cursor:default;">
+                <?= $myAgenceName !== '' ? h($myAgenceName) : 'Mon périmètre' ?>
+            </span>
         </div>
     </div>
     <?php endif; ?>
