@@ -109,7 +109,7 @@ if (!function_exists('mbi_annonces_fetch_list')) {
         }
 
         if ($filters['type_bien'] !== '') {
-            $where[] = '(tb.code = ? OR tb.libelle LIKE ?)';
+            $where[] = '(COALESCE(bt.code, tbl.code) = ? OR COALESCE(bt.libelle, tbl.libelle) LIKE ?)';
             $params[] = $filters['type_bien'];
             $params[] = '%' . $filters['type_bien'] . '%';
         }
@@ -117,9 +117,9 @@ if (!function_exists('mbi_annonces_fetch_list')) {
         // Catégorie : "entreprise" = professionnel + commerce (locaux, bureaux, entrepôts, fonds, baux).
         if ($filters['categorie'] !== '') {
             if ($filters['categorie'] === 'entreprise') {
-                $where[] = "tb.categorie IN ('professionnel','commerce')";
+                $where[] = "COALESCE(bt.categorie, tbl.categorie) IN ('professionnel','commerce')";
             } else {
-                $where[] = 'tb.categorie = ?';
+                $where[] = 'COALESCE(bt.categorie, tbl.categorie) = ?';
                 $params[] = $filters['categorie'];
             }
         }
@@ -171,7 +171,8 @@ if (!function_exists('mbi_annonces_fetch_list')) {
             FROM annonces a
             INNER JOIN biens b ON b.id = a.id_bien
             LEFT JOIN immeubles i ON i.id = b.id_immeuble
-            LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+            LEFT JOIN bien_types        bt  ON bt.id  = b.id_bien_type
+            LEFT JOIN types_bien_legacy tbl ON tbl.id = b.id_type_bien
         ";
 
         try {
@@ -201,9 +202,9 @@ if (!function_exists('mbi_annonces_fetch_list')) {
                 b.ville, b.code_postal,
                 b.dpe_classe, b.ges_classe,
                 b.prix_vente_estime, b.loyer_hc, b.charges_locatives,
-                tb.code           AS type_bien_code,
-                tb.libelle        AS type_bien_libelle,
-                tb.categorie      AS type_bien_categorie,
+                COALESCE(bt.code, tbl.code)           AS type_bien_code,
+                COALESCE(bt.libelle, tbl.libelle)     AS type_bien_libelle,
+                COALESCE(bt.categorie, tbl.categorie) AS type_bien_categorie,
                 ag.nom_agence,
                 ag.slug           AS agence_slug,
                 (
@@ -313,14 +314,17 @@ if (!function_exists('mbi_annonces_fetch_detail')) {
                 CASE WHEN b.adresse_visible_public = 1 THEN b.adresse_2 ELSE NULL END AS adresse_2,
                 b.latitude, b.longitude, b.precision_geoloc,
                 b.bien_en_copropriete, b.copro_nb_lots,
-                tb.code AS type_bien_code, tb.libelle AS type_bien_libelle, tb.categorie AS type_bien_categorie,
+                COALESCE(bt.code, tbl.code)           AS type_bien_code,
+                COALESCE(bt.libelle, tbl.libelle)     AS type_bien_libelle,
+                COALESCE(bt.categorie, tbl.categorie) AS type_bien_categorie,
                 ag.id AS agence_id, ag.nom_agence, ag.slug AS agence_slug,
                 ag.logo_url AS agence_logo_url, ag.telephone AS agence_telephone, ag.email AS agence_email,
                 ag.adresse_1 AS agence_adresse_1, ag.code_postal AS agence_code_postal, ag.ville AS agence_ville,
                 s.nom AS societe_nom
             FROM annonces a
             INNER JOIN biens b ON b.id = a.id_bien
-            LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+            LEFT JOIN bien_types        bt  ON bt.id  = b.id_bien_type
+            LEFT JOIN types_bien_legacy tbl ON tbl.id = b.id_type_bien
             LEFT JOIN agences ag ON ag.id = a.id_agence
             LEFT JOIN societes s ON s.id = a.id_societe
             WHERE a.id = ?
@@ -591,15 +595,21 @@ if (!function_exists('mbi_annonces_fetch_types_bien_with_annonces')) {
             $statuses = mbi_annonces_active_statuses();
             $in = implode(',', array_fill(0, count($statuses), '?'));
             $st = $pdo->prepare("
-                SELECT tb.id, tb.code, tb.libelle, COUNT(a.id) AS nb
-                FROM types_bien tb
-                INNER JOIN biens b ON b.id_type_bien = tb.id
-                INNER JOIN annonces a ON a.id_bien = b.id
+                SELECT
+                  COALESCE(bt.id, tbl.id)           AS id,
+                  COALESCE(bt.code, tbl.code)       AS code,
+                  COALESCE(bt.libelle, tbl.libelle) AS libelle,
+                  COUNT(a.id)                       AS nb
+                FROM annonces a
+                INNER JOIN biens b ON b.id = a.id_bien
+                LEFT JOIN bien_types        bt  ON bt.id  = b.id_bien_type
+                LEFT JOIN types_bien_legacy tbl ON tbl.id = b.id_type_bien
                 WHERE a.visible_maboximmo = 1
                   AND a.statut IN ($in)
                   AND b.statut_bien IN ('actif','publie')
-                GROUP BY tb.id
-                ORDER BY tb.libelle ASC
+                GROUP BY COALESCE(bt.code, tbl.code), COALESCE(bt.libelle, tbl.libelle)
+                HAVING code IS NOT NULL
+                ORDER BY libelle ASC
             ");
             $st->execute($statuses);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
