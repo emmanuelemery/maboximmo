@@ -79,17 +79,26 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function mois_fr($m) { $n=[1=>'Janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']; return $n[(int)$m]??''; }
 function euro($v) { return number_format((float)$v, 2, ',', ' ').' €'; }
 
-// Récupère tous les champs salaire
+// Récupère tous les champs salaire (séparés en montants vs commentaires)
 $allFields = [];
+$commentFields = [];   // colonnes comment_<champ> à charger SEPARÉMENT
 try {
     $stmt = $pdo->query("SHOW COLUMNS FROM salaires");
     $cols = $stmt->fetchAll(PDO::FETCH_ASSOC);
     foreach ($cols as $col) {
         $field = $col['Field'];
-        // Exclure certains champs
-        $excludeFields = ['id', 'id_user', 'mois_reference', 'termine_user', 'mois_cloture', 'commentaire_general', 'commentaire_admin', 'date_entree', 'numero_securite_sociale', 'ik_montant'];
-        if (!in_array($field, $excludeFields)) {
-            // Déterminer le type de champ
+        $excludeFields = ['id', 'id_user', 'mois_reference', 'termine_user', 'mois_cloture',
+                          'commentaire_general', 'commentaire_admin', 'date_entree',
+                          'numero_securite_sociale', 'ik_montant', 'salaire_modele', 'date_creation',
+                          'commentaires_user', 'salaire_base_commentaire'];
+        if (in_array($field, $excludeFields)) continue;
+        // Détecte les colonnes texte de commentaire (TEXT type ou préfixe comment_/commentaire_)
+        $isComment = str_starts_with($field, 'comment_')
+                  || str_starts_with($field, 'commentaire_')
+                  || stripos((string)$col['Type'], 'text') !== false;
+        if ($isComment) {
+            $commentFields[$field] = true;
+        } else {
             $type = ($field === 'ik_nb_km') ? 'number' : 'money';
             $allFields[$field] = ['label' => ucwords(str_replace('_', ' ', $field)), 'type' => $type];
         }
@@ -99,7 +108,8 @@ try {
 }
 
 // Requête principale: récupère les salaires avec users et societes
-$fieldsList = !empty($allFields) ? ", " . implode(", ", array_map(fn($f) => "s.`$f`", array_keys($allFields))) : "";
+$colsAll = array_merge(array_keys($allFields), array_keys($commentFields));
+$fieldsList = !empty($colsAll) ? ", " . implode(", ", array_map(fn($f) => "s.`$f`", $colsAll)) : "";
 $sql = "
     SELECT
         u.id as id_user,
@@ -255,11 +265,29 @@ try {
                     // Utiliser une position fixe pour aligner les valeurs
                     // Label élargi (30→70 mm) + montant aligné à droite à X=125
                     // pour absorber les libellés longs (Commission Ca Nouvelles Affaires, etc.)
+                    $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);
+                    $pdf->SetTextColor($isInactive ? 170 : 90, $isInactive ? 170 : 90, $isInactive ? 170 : 90);
                     $pdf->SetX(50);
                     $pdf->SetY($pdf->GetY());
                     $pdf->Cell(70, 5, '• ' . h($label), 0, 0, 'L');
                     $pdf->SetX(125);
                     $pdf->Cell(0, 5, $formatted, 0, 1, 'R');
+
+                    // Commentaire associé (colonne comment_<fieldName> ou commentaire_<fieldName>)
+                    // affiché sur toute la largeur, italique gris, sous le champ.
+                    $commentValue = '';
+                    foreach (['comment_' . $fieldName, 'commentaire_' . $fieldName] as $colKey) {
+                        if (!empty($user[$colKey]) && trim((string)$user[$colKey]) !== '') {
+                            $commentValue = trim((string)$user[$colKey]);
+                            break;
+                        }
+                    }
+                    if ($commentValue !== '') {
+                        $pdf->SetFont('dejavusans', 'I', 8);
+                        $pdf->SetTextColor(120, 120, 120);
+                        $pdf->SetX(60);
+                        $pdf->MultiCell(135, 4, '↳ ' . $commentValue, 0, 'L');
+                    }
                 }
             } else {
                 $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);

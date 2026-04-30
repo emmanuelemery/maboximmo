@@ -71,6 +71,19 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                 $cellH = 4.0;   // mm
                 $x0    = 145;   // position à droite (page A4 portrait, marge droite ~15mm)
 
+                // Hauteur estimée du calendrier : 1 ligne titre + 1 header + max 6 lignes
+                // = 4 + 3.2 + 6*4 = ~31 mm.
+                // Si on n'a pas la place sur la page courante, on saute le calendrier
+                // (évite qu'il se redessine déclenché à cheval entre 2 pages, ou en haut
+                // de la page suivante alors que les congés du user sont déjà passés).
+                $pageHeight = $pdf->getPageHeight();
+                $bottomMargin = $pdf->getBreakMargin() ?: 20;
+                $availableHeight = $pageHeight - $bottomMargin - $startY;
+                $calendarHeight = 4 + 3.2 + 6 * $cellH; // ~31 mm
+                if ($availableHeight < $calendarHeight) {
+                    return $startY; // pas assez de place → on n'affiche pas le calendrier
+                }
+
                 // Calcul des jours en congé du mois
                 $congesDays = [];
                 $monthStart = mktime(0, 0, 0, $mois, 1, $annee);
@@ -169,20 +182,34 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
 
         // ── Colonnes salaire ──
         $allFields = [];
+        $commentFields = [];   // colonnes comment_<champ> à charger SEPARÉMENT pour
+                               // ne pas les confondre avec des montants (sinon le filtre
+                               // (float)"texte"==0 les exclut + traités à tort comme money).
         $stmt = $pdo->query("SHOW COLUMNS FROM salaires");
         $excludeFields = ['id','id_user','mois_reference','termine_user','mois_cloture',
                           'commentaire_general','commentaire_admin','date_entree',
-                          'numero_securite_sociale','ik_montant','salaire_modele','date_creation'];
+                          'numero_securite_sociale','ik_montant','salaire_modele','date_creation',
+                          'commentaires_user', 'salaire_base_commentaire'];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $col) {
             $f = $col['Field'];
-            if (!in_array($f, $excludeFields, true)) {
+            if (in_array($f, $excludeFields, true)) continue;
+            // Détecte les colonnes texte de commentaire (text type) ou nom préfixé
+            // par "comment_" / "commentaire_" (sauf généraux déjà exclus).
+            $isComment = str_starts_with($f, 'comment_')
+                      || str_starts_with($f, 'commentaire_')
+                      || stripos((string)$col['Type'], 'text') !== false;
+            if ($isComment) {
+                $commentFields[$f] = true;
+            } else {
                 $allFields[$f] = ['label' => ucwords(str_replace('_', ' ', $f)),
                                   'type'  => ($f === 'ik_nb_km') ? 'number' : 'money'];
             }
         }
 
-        $fieldsList = !empty($allFields)
-            ? ", " . implode(", ", array_map(fn($f) => "s.`$f`", array_keys($allFields)))
+        // SELECT inclut les champs montants ET les commentaires (séparément)
+        $cols = array_merge(array_keys($allFields), array_keys($commentFields));
+        $fieldsList = !empty($cols)
+            ? ", " . implode(", ", array_map(fn($f) => "s.`$f`", $cols))
             : "";
 
         // ── Requête salaires ──
@@ -332,8 +359,28 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                             // Largeur label élargie (30→70 mm) pour absorber les libellés longs
                             // type "Commission Ca Nouvelles Affaires" qui débordaient sur le montant.
                             // Montant aligné à droite à partir de X=125 → garde une zone de 35 mm pour les chiffres.
+                            $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);
+                            $pdf->SetTextColor($isInactive ? 170 : 90, $isInactive ? 170 : 90, $isInactive ? 170 : 90);
                             $pdf->SetX(50); $pdf->Cell(70, 5, '• ' . $label, 0, 0, 'L');
                             $pdf->SetX(125); $pdf->Cell(0, 5, $formatted, 0, 1, 'R');
+
+                            // Commentaire associé : colonne `comment_<fieldName>` ou
+                            // `commentaire_<fieldName>` (selon historique). Affiché sur
+                            // toute la largeur, en italique gris, indenté.
+                            $commentValue = '';
+                            foreach (['comment_' . $fieldName, 'commentaire_' . $fieldName] as $colKey) {
+                                if (!empty($user[$colKey]) && trim((string)$user[$colKey]) !== '') {
+                                    $commentValue = trim((string)$user[$colKey]);
+                                    break;
+                                }
+                            }
+                            if ($commentValue !== '') {
+                                $pdf->SetFont('dejavusans', 'I', 8);
+                                $pdf->SetTextColor(120, 120, 120);
+                                $pdf->SetX(60); // indenté sous le bullet
+                                $pdf->MultiCell(135, 4, '↳ ' . $commentValue, 0, 'L');
+                                // MultiCell repositionne Y, mais X est remis à 0 → repasser au flux normal
+                            }
                         }
                     } else {
                         $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);
@@ -391,26 +438,29 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                             $pdf->SetFont('dejavusans', '', 8.5);
                             $pdf->SetTextColor(50, 50, 50);
 
+                            // Note : largeur valeurs limitée à 60 mm (au lieu de 0=full)
+                            // pour rester à GAUCHE du calendrier mensuel (X=145).
+                            // Total largeur bloc décompte : 20 (spacer) + 55 (label) + 60 (valeur) = X=20→135.
                             $pdf->Cell(20, 4.5, '', 0, 0);
                             $pdf->Cell(55, 4.5, 'Année ' . $cycleYear . ' acquis', 0, 0, 'L');
                             $pdf->SetFont('dejavusans', 'B', 8.5);
-                            $pdf->Cell(0, 4.5, number_format($basePrev, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(60, 4.5, number_format($basePrev, 2, ',', ' ') . ' j', 0, 1, 'R');
 
                             $pdf->SetFont('dejavusans', '', 8.5);
                             $pdf->Cell(20, 4.5, '', 0, 0);
                             $pdf->Cell(55, 4.5, 'Année ' . ($cycleYear + 1) . ' acquis (depuis 01/06)', 0, 0, 'L');
                             $pdf->SetFont('dejavusans', 'B', 8.5);
-                            $pdf->Cell(0, 4.5, number_format($acquired, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(60, 4.5, number_format($acquired, 2, ',', ' ') . ' j', 0, 1, 'R');
 
                             $pdf->SetDrawColor(200, 200, 200);
-                            $pdf->Line(20, $pdf->GetY(), 190, $pdf->GetY());
+                            $pdf->Line(20, $pdf->GetY(), 135, $pdf->GetY());
                             $pdf->Ln(1);
 
                             $pdf->Cell(20, 4.5, '', 0, 0);
                             $pdf->SetFont('dejavusans', 'B', 9);
                             $pdf->SetTextColor(0, 0, 0);
                             $pdf->Cell(55, 4.5, 'Total acquis', 0, 0, 'L');
-                            $pdf->Cell(0, 4.5, number_format($totalAcq, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(60, 4.5, number_format($totalAcq, 2, ',', ' ') . ' j', 0, 1, 'R');
                             $pdf->Ln(1);
 
                             $pdf->Cell(20, 4.5, '', 0, 0);
@@ -418,13 +468,13 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                             $pdf->SetTextColor(80, 80, 80);
                             $pdf->Cell(55, 4.5, 'Jours pris', 0, 0, 'L');
                             $pdf->SetFont('dejavusans', 'B', 8.5);
-                            $pdf->Cell(0, 4.5, number_format($pris, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(60, 4.5, number_format($pris, 2, ',', ' ') . ' j', 0, 1, 'R');
 
                             $pdf->SetTextColor($restant < 0 ? 200 : 0, $restant < 0 ? 0 : 120, 0);
                             $pdf->Cell(20, 4.5, '', 0, 0);
                             $pdf->SetFont('dejavusans', 'B', 9);
                             $pdf->Cell(55, 4.5, 'Solde restant', 0, 0, 'L');
-                            $pdf->Cell(0, 4.5, number_format($restant, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(60, 4.5, number_format($restant, 2, ',', ' ') . ' j', 0, 1, 'R');
                             $pdf->SetTextColor(0, 0, 0);
                             $pdf->SetDrawColor(0, 0, 0);
                         }
