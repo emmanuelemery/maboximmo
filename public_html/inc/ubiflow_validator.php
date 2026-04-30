@@ -43,6 +43,14 @@ function ubiflow_minimum_rules(): array
         ['key' => 'designation',        'label' => 'Désignation commerciale',     'scope' => 'bien',    'section' => 'identification'],
         ['key' => 'description',        'label' => 'Description / texte annonce', 'scope' => 'annonce', 'section' => 'identification', 'min_len' => 100],
 
+        // ── Négociateur attribué (obligatoire pour diffusion portails) ──
+        // LBC affiche le contact négociateur sur la page de l'annonce. Sans
+        // user attribué, l'export ne peut pas remplir le bloc <contact> et
+        // l'annonce remonterait au contact agence générique. Refus de diffusion.
+        ['key' => 'id_user',            'label' => 'Négociateur attribué (mobile + email visibles sur LBC)',
+         'scope' => 'annonce', 'section' => 'identification',
+         'required_when' => fn($b,$a) => (int)($a['visible_portails'] ?? 0) === 1],
+
         // ── Localisation ──
         ['key' => 'code_postal',        'label' => 'Code postal',                 'scope' => 'imm',     'section' => 'localisation'],
         ['key' => 'ville',              'label' => 'Ville',                       'scope' => 'imm',     'section' => 'localisation'],

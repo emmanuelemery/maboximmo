@@ -404,6 +404,33 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
     ];
 
     // -----------------------------------------------------------------
+    // CONTACT (négociateur attribué — visible côté LBC sur l'annonce)
+    // -----------------------------------------------------------------
+    // Refus de diffusion si pas de négociateur attribué : on signale le skip
+    // au caller (inc/ubiflow_build.php le compte dans 'skipped'). Cohérent
+    // avec la règle bloquante du validator (id_user obligatoire si
+    // visible_portails=1) qui bloque déjà la validation côté UI.
+    $idUserNeg = (int)($row['a_id_user'] ?? 0);
+    if ($idUserNeg <= 0) {
+        error_log(sprintf(
+            '[ubiflow] Annonce ignorée — pas de négociateur attribué (id_annonce=%s, ref=%s)',
+            $row['a_id'] ?? '?',
+            $row['a_reference_annonce'] ?? '?'
+        ));
+        return ['_skipped' => true, '_reason' => 'negociateur_manquant', 'annonce' => [], 'bien' => [], 'prestation' => [], 'diagnostiques' => [], 'photos' => [], 'contact' => []];
+    }
+
+    $contact = [
+        'reference' => ubi_str((string)$idUserNeg),
+        'nom'       => ubi_str($row['u_neg_nom'] ?? null),
+        'prenom'    => ubi_str($row['u_neg_prenom'] ?? null),
+        'email'     => ubi_str($row['u_neg_email'] ?? null),
+        'telephone' => ubi_str($row['u_neg_mobile'] ?? null),
+        'mobile'    => ubi_str($row['u_neg_mobile'] ?? null),
+        'fixe'      => ubi_str($row['u_neg_fixe'] ?? null),
+    ];
+
+    // -----------------------------------------------------------------
     // PHOTOS (liste ordonnée d'URLs)
     // -----------------------------------------------------------------
     $photosClean = [];
@@ -417,6 +444,7 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
         'bien'          => array_filter($bien,          static fn($v) => $v !== null && $v !== ''),
         'prestation'    => array_filter($prestation,    static fn($v) => $v !== null && $v !== ''),
         'diagnostiques' => array_filter($diagnostiques, static fn($v) => $v !== null && $v !== ''),
+        'contact'       => array_filter($contact,       static fn($v) => $v !== null && $v !== ''),
         'photos'        => $photosClean,
     ];
 }
@@ -588,7 +616,15 @@ SELECT
     d.montant_depenses_max   AS dpe_depenses_max,
     d.date_indice_prix       AS dpe_date_indice_prix,
     d.dpe_version            AS dpe_version_diag,
-    d.dpe_vierge             AS dpe_vierge_diag
+    d.dpe_vierge             AS dpe_vierge_diag,
+
+    -- Négociateur attribué à l'annonce (visible sur LBC via <contact>)
+    a.id_user             AS a_id_user,
+    u_neg.prenom          AS u_neg_prenom,
+    u_neg.nom             AS u_neg_nom,
+    u_neg.email           AS u_neg_email,
+    u_neg.telephone       AS u_neg_mobile,
+    u_neg.telephone_pro   AS u_neg_fixe
 
 FROM annonces a
 INNER JOIN biens             b   ON b.id   = a.id_bien
@@ -596,6 +632,7 @@ LEFT  JOIN immeubles         i   ON i.id   = b.id_immeuble
 LEFT  JOIN bien_types        bt  ON bt.id  = b.id_bien_type
 LEFT  JOIN types_bien_legacy tbl ON tbl.id = b.id_type_bien
 LEFT  JOIN dpe_diags         d   ON d.id_bien = b.id AND d.est_diag_principal = 1
+LEFT  JOIN users             u_neg ON u_neg.id = a.id_user
 {$where}
 ORDER BY a.id
 SQL;

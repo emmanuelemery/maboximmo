@@ -73,6 +73,11 @@ if (!function_exists('ubiflow_build_flux_xml')) {
                 $appendGroup($dom, $bienNode, 'diagnostiques', $data['diagnostiques']);
             }
             $appendGroup($dom, $annonceNode, 'prestation', $data['prestation']);
+            // Bloc <contact> : négociateur attribué (mobile + fixe + email)
+            // → repris par LBC pour l'affichage du contact sur la page annonce
+            if (!empty($data['contact'])) {
+                $appendGroup($dom, $annonceNode, 'contact', $data['contact']);
+            }
             $clientNode->appendChild($annonceNode);
             $count++;
         }
