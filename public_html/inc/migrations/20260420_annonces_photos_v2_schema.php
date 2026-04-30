@@ -25,10 +25,10 @@
  *
  * Rejeu
  * -----
- * Au 2e run, le RENAME plantera (source inexistante) mais le runner
- * continue au statement suivant. Le CREATE TABLE IF NOT EXISTS est
- * idempotent. La migration sera marquée "partielle" (1 OK · 1 ERR) ;
- * c'est normal et inoffensif.
+ * Idempotente depuis 2026-04-30 : le RENAME est gardé par information_schema
+ * (ne se déclenche que si l'ancienne table existe encore et que la cible legacy
+ * n'existe pas). Le CREATE TABLE IF NOT EXISTS est nativement idempotent.
+ * La migration peut être rejouée sans risque ni statut "partielle".
  *
  * Code touché côté PHP (déjà commit d3a695a) :
  *   - config/ubiflow_mapping.php : ubiflow_get_photos utilise un JOIN
@@ -44,8 +44,31 @@ return [
     'description' => "Renomme l'ancienne `annonces_photos` (copies physiques) en backup `annonces_photos_legacy_20260420` et crée la nouvelle table de liaison N:N (id_annonce, id_biens_photo, ordre) attendue par bien_detail_v2. Corrige le bug où les photos d'un bien ne remontaient jamais dans la Card Photos de l'annonce.",
     'created_at'  => '2026-04-20',
     'sql' => <<<'SQL'
-RENAME TABLE `annonces_photos` TO `annonces_photos_legacy_20260420`;
+-- ────────────────────────────────────────────────────────────────────
+-- 1. RENAME idempotent : seulement si la source existe encore en BASE TABLE
+--    (la nouvelle annonces_photos peut exister mais elle est différente :
+--    si la legacy existe déjà → on n'a rien à renommer).
+-- ────────────────────────────────────────────────────────────────────
+SET @old_exists := (SELECT COUNT(*) FROM `information_schema`.`TABLES`
+  WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'annonces_photos' AND `TABLE_TYPE` = 'BASE TABLE');
 
+SET @legacy_exists := (SELECT COUNT(*) FROM `information_schema`.`TABLES`
+  WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'annonces_photos_legacy_20260420' AND `TABLE_TYPE` = 'BASE TABLE');
+
+-- Heuristique : on renomme si la legacy n'existe pas (1er run). Si elle existe,
+-- la migration a déjà eu lieu — on no-op.
+SET @do_rename := (@old_exists = 1 AND @legacy_exists = 0);
+
+SET @sql := IF(@do_rename = 1,
+  'RENAME TABLE `annonces_photos` TO `annonces_photos_legacy_20260420`',
+  'DO 1');
+PREPARE _mig_aphv2 FROM @sql;
+EXECUTE _mig_aphv2;
+DEALLOCATE PREPARE _mig_aphv2;
+
+-- ────────────────────────────────────────────────────────────────────
+-- 2. CREATE nouvelle annonces_photos (idempotent natif)
+-- ────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `annonces_photos` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `id_annonce` INT UNSIGNED NOT NULL,
