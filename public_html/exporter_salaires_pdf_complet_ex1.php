@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 error_reporting(E_ALL);
-ini_set('display_errors', '0');
+ini_set('display_errors', '1');
 ini_set('log_errors', '1');
 ob_start();
 session_start();
@@ -17,8 +17,7 @@ try {
 
 require_login();
 
-$roleId      = current_role_id();
-$agenceScope = can_manage_salaires_agence();
+$roleId = current_role_id();
 if (!in_array($roleId, [1, 2, 3], true)) {
     http_response_code(403);
     exit('Accès refusé');
@@ -86,10 +85,8 @@ try {
     $cols = $stmt->fetchAll(PDO::FETCH_ASSOC);
     foreach ($cols as $col) {
         $field = $col['Field'];
-        // Exclure certains champs
         $excludeFields = ['id', 'id_user', 'mois_reference', 'termine_user', 'mois_cloture', 'commentaire_general', 'commentaire_admin', 'date_entree', 'numero_securite_sociale', 'ik_montant'];
         if (!in_array($field, $excludeFields)) {
-            // Déterminer le type de champ
             $type = ($field === 'ik_nb_km') ? 'number' : 'money';
             $allFields[$field] = ['label' => ucwords(str_replace('_', ' ', $field)), 'type' => $type];
         }
@@ -103,7 +100,6 @@ $fieldsList = !empty($allFields) ? ", " . implode(", ", array_map(fn($f) => "s.`
 $sql = "
     SELECT
         u.id as id_user,
-        u.actif,
         CONCAT(IFNULL(u.prenom, ''), ' ', IFNULL(u.nom, '')) AS nom_complet,
         soc.nom as societe_nom,
         etab.nom_agence as agence_nom,
@@ -119,16 +115,12 @@ $sql = "
     LEFT JOIN agences etab ON u.id_agence = etab.id
     LEFT JOIN salaires s ON (s.id_user = u.id OR s.id_user = u.id_legacy)
         AND s.mois_reference = :mr
-    WHERE s.id IS NOT NULL AND u.est_salarie = 1
+    WHERE u.actif = 1 AND s.id IS NOT NULL
 ";
 
 $params = [':mr' => $mois_ref];
 
-if ($agenceScope > 0) {
-    // Gestionnaire agence : forcer le filtre sur son agence, ignorer les autres filtres
-    $sql .= " AND u.id_agence = :agence_scope";
-    $params[':agence_scope'] = $agenceScope;
-} elseif ($societe_id !== null) {
+if ($societe_id !== null) {
     $sql .= " AND u.id_societe = :societe_id";
     $params[':societe_id'] = $societe_id;
 }
@@ -149,6 +141,16 @@ if (empty($salaires)) {
     http_response_code(404);
     exit('Aucun salaire trouvé pour cette période');
 }
+
+// Get all documents for this period
+$stmtAllDocs = $pdo->prepare("
+    SELECT sd.* FROM salaires_documents sd
+    LEFT JOIN salaires s ON sd.id_salaire = s.id
+    WHERE s.mois_reference = :mr
+    ORDER BY sd.id_user, sd.categorie, sd.original_name
+");
+$stmtAllDocs->execute([':mr' => $mois_ref]);
+$allDocuments = $stmtAllDocs->fetchAll(PDO::FETCH_ASSOC);
 
 // Groupe les salaires par société > agence > utilisateur
 $grouped = [];
@@ -186,7 +188,7 @@ class SalairesPDF extends TCPDF {
 try {
     $pdf = new SalairesPDF('P', 'mm', 'A4', true, 'UTF-8', false);
     $pdf->SetCreator('MaBoxImmo');
-    $pdf->SetTitle('Export Salaires');
+    $pdf->SetTitle('Export Salaires Complet');
     $pdf->setPrintHeader(false);
     $pdf->setPrintFooter(true);
     $pdf->SetMargins(12, 12, 12);
@@ -221,15 +223,9 @@ try {
 
         // Parcours les utilisateurs
         foreach ($users as $user) {
-            $isInactive = (int)$user['actif'] === 0;
-            $isValidated = (int)$user['termine_user'] === 1;
-
-            // Nom de l'utilisateur
-            $pdf->SetFont('dejavusans', $isInactive ? 'BI' : 'B', 10);
-            $pdf->SetTextColor($isInactive ? 160 : 70, $isInactive ? 160 : 70, $isInactive ? 160 : 70);
-            $lockStatus = $isValidated ? '(V)' : '(X)';
-            $userName = $lockStatus . ' ' . h($user['nom_complet']) . ($isInactive ? ' (parti de la société)' : '');
-            $pdf->Cell(0, 6, '    ' . $userName, 0, 1, 'L');
+            $pdf->SetFont('dejavusans', 'B', 10);
+            $pdf->SetTextColor(70, 70, 70);
+            $pdf->Cell(0, 6, '    ' . h($user['nom_complet']), 0, 1, 'L');
 
             // Récupère les champs renseignés
             $filledFields = [];
@@ -242,37 +238,38 @@ try {
 
             // Affiche les champs
             if (!empty($filledFields)) {
-                $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);
-                $pdf->SetTextColor($isInactive ? 170 : 90, $isInactive ? 170 : 90, $isInactive ? 170 : 90);
+                $pdf->SetFont('dejavusans', '', 9);
+                $pdf->SetTextColor(90, 90, 90);
                 foreach ($filledFields as $fieldName => $value) {
                     $label = ucwords(str_replace('_', ' ', $fieldName));
-                    // Format based on field type
                     if ($allFields[$fieldName]['type'] === 'number') {
                         $formatted = number_format((float)$value, 2, ',', ' ');
                     } else {
                         $formatted = euro($value);
                     }
-                    // Utiliser une position fixe pour aligner les valeurs
-                    $pdf->SetX(50);
-                    $pdf->SetY($pdf->GetY());
-                    $pdf->Cell(30, 5, '• ' . h($label), 0, 0, 'L');
-                    $pdf->SetX(95);
-                    $pdf->Cell(0, 5, $formatted, 0, 1, 'L');
+                    $pdf->Cell(0, 5, '      • ' . h($label) . ': ' . $formatted, 0, 1, 'L');
                 }
             } else {
-                $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);
-                $pdf->SetTextColor($isInactive ? 170 : 150, $isInactive ? 170 : 150, $isInactive ? 170 : 150);
+                $pdf->SetFont('dejavusans', '', 9);
+                $pdf->SetTextColor(150, 150, 150);
                 $pdf->Cell(0, 5, '      (Aucun champ renseigné)', 0, 1, 'L');
             }
 
             // Commentaire général
             if (!empty($user['commentaire_general'])) {
                 $pdf->SetFont('dejavusans', 'I', 9);
-                $pdf->SetTextColor($isInactive ? 170 : 120, $isInactive ? 170 : 120, $isInactive ? 170 : 120);
+                $pdf->SetTextColor(120, 120, 120);
                 $comment = trim((string)$user['commentaire_general']);
                 $pdf->MultiCell(0, 4, '      Note: ' . h($comment), 0, 'L');
             }
 
+            // Commentaire admin (visible uniquement si l'utilisateur est admin)
+            if ($roleId === 1 && !empty($user['commentaire_admin'])) {
+                $pdf->SetFont('dejavusans', 'I', 9);
+                $pdf->SetTextColor(200, 160, 0);
+                $comment = trim((string)$user['commentaire_admin']);
+                $pdf->MultiCell(0, 4, '      Admin: ' . h($comment), 0, 'L');
+            }
 
             $pdf->Ln(2);
         }
@@ -283,10 +280,87 @@ try {
     }
 
     $pdf->Ln(4);
-}
+    }
+
+    // ========== DOCUMENTS EN ANNEXE ==========
+    if (!empty($allDocuments)) {
+        $pdf->AddPage();
+        $pdf->SetFont('dejavusans', 'B', 14);
+        $pdf->SetTextColor(30, 30, 30);
+        $pdf->Cell(0, 10, 'ANNEXE - DOCUMENTS JUSTIFICATIFS', 0, 1, 'C');
+        $pdf->Ln(6);
+
+        $docCount = 0;
+        $docsPerPage = 2;
+        $currentRow = 0;
+
+        // Group documents by user
+        $docsByUser = [];
+        foreach ($allDocuments as $doc) {
+            $userId = $doc['id_user'];
+            if (!isset($docsByUser[$userId])) {
+                $docsByUser[$userId] = [];
+            }
+            $docsByUser[$userId][] = $doc;
+        }
+
+        foreach ($docsByUser as $userId => $userDocs) {
+            // Find user name
+            $userName = '';
+            foreach ($salaires as $sal) {
+                if ($sal['id_user'] == $userId) {
+                    $userName = $sal['nom_complet'];
+                    break;
+                }
+            }
+
+            foreach ($userDocs as $doc) {
+                // Check if we need a new page
+                if ($currentRow >= $docsPerPage) {
+                    $pdf->AddPage();
+                    $currentRow = 0;
+                }
+
+                // Document header
+                $pdf->SetFont('dejavusans', 'B', 10);
+                $pdf->SetTextColor(35, 35, 35);
+                $pdf->SetFillColor(238, 242, 248);
+
+                $y = $pdf->GetY();
+                $pageHeight = $pdf->GetPageHeight();
+                $halfPageHeight = ($pageHeight - 24 - 12) / 2; // Account for margins and footer
+
+                $pdf->Cell(0, 6, h($userName) . ' - ' . h($doc['categorie']), 0, 1, 'L', true);
+                $pdf->SetFont('dejavusans', '', 9);
+                $pdf->SetTextColor(90, 90, 90);
+                $pdf->Cell(0, 5, 'Document: ' . h($doc['original_name']), 0, 1, 'L');
+                $pdf->Ln(4);
+
+                // Try to display file if it's an image
+                $filePath = __DIR__ . $doc['file_path'];
+                if (is_file($filePath) && in_array(strtolower(pathinfo($filePath, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'gif'])) {
+                    // Calculate image dimensions to fit in half page
+                    $maxWidth = 180; // A4 width minus margins
+                    $maxHeight = ($halfPageHeight - 20); // Leave some space for text
+
+                    $pdf->Image($filePath, 12, $pdf->GetY(), $maxWidth, $maxHeight, '', '', 'T', false, 300, '', false, false, 0, false, false, true);
+
+                    // Move to next half page
+                    $pdf->SetY($y + $halfPageHeight);
+                } else {
+                    $pdf->SetFont('dejavusans', '', 8);
+                    $pdf->SetTextColor(150, 150, 150);
+                    $pdf->MultiCell(0, 4, '[Document non affichable - fichier: ' . h($doc['original_name']) . ']', 0, 'L');
+                    $pdf->SetY($y + $halfPageHeight);
+                }
+
+                $currentRow++;
+            }
+        }
+    }
 
     // Sortie PDF
-    $baseName = 'SALAIRES_' . $annee . '_' . str_pad((string)$mois, 2, '0', STR_PAD_LEFT) . '.pdf';
+    $baseName = 'SALAIRES_COMPLET_' . $annee . '_' . str_pad((string)$mois, 2, '0', STR_PAD_LEFT) . '.pdf';
     if (ob_get_length()) ob_end_clean();
     header('Content-Type: application/pdf');
     header('Content-Disposition: attachment; filename="' . $baseName . '"');
@@ -300,6 +374,7 @@ try {
     echo "ERREUR PDF: " . htmlspecialchars($e->getMessage()) . "\n\n";
     echo htmlspecialchars($e->getTraceAsString());
     echo '</pre>';
-    error_log("Erreur export PDF: " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
+    error_log("Erreur export PDF complet: " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
     exit;
 }
+?>

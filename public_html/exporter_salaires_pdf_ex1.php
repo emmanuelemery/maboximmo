@@ -119,7 +119,7 @@ $sql = "
     LEFT JOIN agences etab ON u.id_agence = etab.id
     LEFT JOIN salaires s ON (s.id_user = u.id OR s.id_user = u.id_legacy)
         AND s.mois_reference = :mr
-    WHERE s.id IS NOT NULL AND u.est_salarie = 1
+    WHERE s.id IS NOT NULL
 ";
 
 $params = [':mr' => $mois_ref];

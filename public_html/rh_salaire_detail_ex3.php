@@ -177,9 +177,9 @@ if ($roleId === 2) { // Manager
 
 // Get users based on role
 if ($roleId === 1) { // Admin: all users
-    $stmtAllUsers = $pdo->query("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND est_salarie=1 ORDER BY nom");
+    $stmtAllUsers = $pdo->query("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 ORDER BY nom");
 } elseif ($roleId === 2) { // Manager: only users from their agency
-    $stmtAllUsers = $pdo->prepare("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND est_salarie=1 AND id_agence=? ORDER BY nom");
+    $stmtAllUsers = $pdo->prepare("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND id_agence=? ORDER BY nom");
     $stmtAllUsers->execute([$currentUserAgencyId]);
 } else { // Employee: can't navigate
     $stmtAllUsers = $pdo->prepare("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE id=? ORDER BY nom");

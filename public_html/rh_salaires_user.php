@@ -122,7 +122,7 @@ $sal = $stmtSal->fetch(PDO::FETCH_ASSOC);
 if (!$sal) $sal = ['id'=>null, 'id_user'=>$idUserLegacy, 'mois_reference'=>$mois_ref];
 
 // Get all users
-$stmtAllUsers = $pdo->query("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 ORDER BY nom");
+$stmtAllUsers = $pdo->query("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND est_salarie=1 ORDER BY nom");
 $allUsers = $stmtAllUsers->fetchAll(PDO::FETCH_ASSOC);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

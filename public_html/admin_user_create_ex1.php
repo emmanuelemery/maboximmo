@@ -29,7 +29,6 @@ if (is_post()) {
     $id_agence = post('id_agence') !== '' ? (int)post('id_agence') : null;
     $telephone = trim((string)post('telephone'));
     $actif = post('actif') === '1' ? 1 : 0;
-    $est_salarie = post('est_salarie') === '0' ? 0 : 1;  // défaut Oui
     $password = (string)post('password');
 
     if ($nom === '') $errors[] = "Le nom est obligatoire.";
@@ -57,9 +56,9 @@ if (is_post()) {
     if (!$errors) {
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $sql = "INSERT INTO users
-            (id_role, id_societe, id_agence, nom, prenom, username, email, telephone, mot_de_passe, actif, est_salarie, date_creation, date_modification)
+            (id_role, id_societe, id_agence, nom, prenom, username, email, telephone, mot_de_passe, actif, date_creation, date_modification)
             VALUES
-            (:id_role, :id_societe, :id_agence, :nom, :prenom, :username, :email, :telephone, :mot_de_passe, :actif, :est_salarie, NOW(), NOW())";
+            (:id_role, :id_societe, :id_agence, :nom, :prenom, :username, :email, :telephone, :mot_de_passe, :actif, NOW(), NOW())";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
             ':id_role' => $id_role,
@@ -72,7 +71,6 @@ if (is_post()) {
             ':telephone' => $telephone !== '' ? $telephone : null,
             ':mot_de_passe' => $hash,
             ':actif' => $actif,
-            ':est_salarie' => $est_salarie,
         ]);
 
         $success = "Utilisateur créé avec succès.";
@@ -177,13 +175,6 @@ include __DIR__ . '/inc/header.php';
                             <select name="actif">
                                 <option value="1" <?= (post('actif') !== '0') ? 'selected' : '' ?>>Oui</option>
                                 <option value="0" <?= (post('actif') === '0') ? 'selected' : '' ?>>Non</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label>Salarié</label>
-                            <select name="est_salarie" title="Si Non : exclu des fiches de paie / liste salaires / exports PDF (prestataires externes, comptes techniques)">
-                                <option value="1" <?= (post('est_salarie') !== '0') ? 'selected' : '' ?>>Oui</option>
-                                <option value="0" <?= (post('est_salarie') === '0') ? 'selected' : '' ?>>Non — exclure des salaires</option>
                             </select>
                         </div>
                     </div>

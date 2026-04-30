@@ -227,7 +227,7 @@ function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef): array 
     SELECT u.id, u.prenom, u.nom, u.id_legacy, s.*
     FROM users u
     LEFT JOIN salaires s ON (s.id_user = u.id OR (u.id_legacy IS NOT NULL AND s.id_user = u.id_legacy)) AND s.mois_reference = :mr
-    WHERE u.actif = 1 AND u.est_salarie = 1 AND u.id_societe = :soc
+    WHERE u.actif = 1 AND u.id_societe = :soc
     ORDER BY u.nom, u.prenom
   ");
   $stmt->execute([':mr' => $moisRef, ':soc' => $societeId]);
@@ -736,7 +736,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
     $missingRib = [];
     $moisLabel = mois_fr($moisPost);
 
-    $stmtUsers = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE actif = 1 AND est_salarie = 1 AND id_societe = ?");
+    $stmtUsers = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE actif = 1 AND id_societe = ?");
     $stmtUsers->execute([$societeId]);
     $userRows = $stmtUsers->fetchAll(PDO::FETCH_ASSOC);
     $userMap = [];
@@ -889,7 +889,7 @@ if ($modeles_only) {
         FROM users u
         LEFT JOIN salaires s ON (s.id_user=u.id OR (s.id_user=u.id_legacy AND u.id_legacy IS NOT NULL)) AND s.mois_reference='0000-00-00' AND s.salaire_modele=1
         LEFT JOIN societes soc ON u.id_societe = soc.id
-        WHERE u.actif=1 AND u.est_salarie=1 AND (soc.nom IS NULL OR soc.nom != 'Externe')";
+        WHERE u.actif=1 AND (soc.nom IS NULL OR soc.nom != 'Externe')";
     $p = [];
 } else {
     $sql = "
@@ -898,7 +898,7 @@ if ($modeles_only) {
         FROM users u
         LEFT JOIN salaires s ON (s.id_user=u.id OR (s.id_user=u.id_legacy AND u.id_legacy IS NOT NULL)) AND s.mois_reference=:mr
         LEFT JOIN societes soc ON u.id_societe = soc.id
-        WHERE u.actif=1 AND u.est_salarie=1 AND (soc.nom IS NULL OR soc.nom != 'Externe')";
+        WHERE u.actif=1 AND (soc.nom IS NULL OR soc.nom != 'Externe')";
     $p = [':mr' => $mois_ref];
 }
 
