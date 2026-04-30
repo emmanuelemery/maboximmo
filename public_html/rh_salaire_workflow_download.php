@@ -69,10 +69,16 @@ if (!is_file($realPath) || !is_readable($realPath)) {
 $filename = $row['fichier_nom_original'] ?: basename($realPath);
 $mime = mime_content_type($realPath) ?: 'application/octet-stream';
 
+// Mode "inline" : affichage dans le navigateur (iframe popup) plutôt que téléchargement.
+// Sécurité : on garde X-Frame-Options:SAMEORIGIN pour empêcher l'embed cross-domain.
+$inline = !empty($_GET['inline']);
+$disposition = $inline ? 'inline' : 'attachment';
+
 header('Content-Type: ' . $mime);
-header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
+header('Content-Disposition: ' . $disposition . '; filename="' . str_replace('"', '', $filename) . '"');
 header('Content-Length: ' . filesize($realPath));
 header('Cache-Control: private, max-age=0, no-cache');
+header('X-Frame-Options: SAMEORIGIN');
 
 readfile($realPath);
 exit;

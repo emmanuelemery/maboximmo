@@ -2194,12 +2194,20 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                 <span style="color:#94a3b8;font-size:11px;">
                                     <?= h(rh_wf_human_size((int)$wfRow['fichier_taille'])) ?>
                                 </span>
-                                <?php if (!empty($wfRow['fichier_path'])): ?>
-                                    <a href="rh_salaire_workflow_download.php?id=<?= (int)$wfRow['id'] ?>"
-                                       target="_blank"
-                                       style="padding:4px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
-                                        📎 Télécharger
-                                    </a>
+                                <?php if (!empty($wfRow['fichier_path'])):
+                                    $wfFileLabel = h($wfRow['fichier_nom_original'] ?: ('document_' . $wfRow['id'] . '.pdf'));
+                                ?>
+                                    <span style="display:inline-flex;gap:6px;">
+                                        <button type="button"
+                                            onclick="ouvrirWfPreview(<?= (int)$wfRow['id'] ?>, '<?= addslashes($wfFileLabel) ?>')"
+                                            style="padding:4px 10px;border-radius:6px;background:#7c3aed;color:#fff;border:none;cursor:pointer;font-size:11px;font-weight:600;">
+                                            👁 Voir
+                                        </button>
+                                        <a href="rh_salaire_workflow_download.php?id=<?= (int)$wfRow['id'] ?>"
+                                           style="padding:4px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
+                                            📎 Télécharger
+                                        </a>
+                                    </span>
                                 <?php else: ?>
                                     <span style="color:#cbd5e1;font-size:11px;">—</span>
                                 <?php endif; ?>
@@ -2213,6 +2221,37 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                     </div>
                 <?php endif; ?>
             </div>
+
+            <!-- ─── Modal visualisation PDF (timeline workflow) ─────────── -->
+            <div id="wf-preview-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)fermerWfPreview()">
+                <div style="background:#fff;border-radius:14px;max-width:1100px;width:100%;height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+                    <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                        <h3 id="wf-preview-title" style="margin:0;font-size:15px;color:#0f172a;font-weight:700;">📄 Visualisation</h3>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <a id="wf-preview-download" href="#" style="padding:6px 14px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:12px;font-weight:600;">📎 Télécharger</a>
+                            <button type="button" onclick="fermerWfPreview()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:#64748b;line-height:1;">×</button>
+                        </div>
+                    </div>
+                    <iframe id="wf-preview-iframe" src="about:blank" style="flex:1;width:100%;border:0;border-radius:0 0 14px 14px;"></iframe>
+                </div>
+            </div>
+            <script>
+            function ouvrirWfPreview(logId, label) {
+                document.getElementById('wf-preview-title').textContent = '📄 ' + label;
+                document.getElementById('wf-preview-iframe').src = 'rh_salaire_workflow_download.php?id=' + logId + '&inline=1';
+                document.getElementById('wf-preview-download').href = 'rh_salaire_workflow_download.php?id=' + logId;
+                document.getElementById('wf-preview-modal').style.display = 'flex';
+            }
+            function fermerWfPreview() {
+                document.getElementById('wf-preview-modal').style.display = 'none';
+                document.getElementById('wf-preview-iframe').src = 'about:blank';
+            }
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && document.getElementById('wf-preview-modal').style.display === 'flex') {
+                    fermerWfPreview();
+                }
+            });
+            </script>
         <?php endif; ?>
     </div>
 </div>
