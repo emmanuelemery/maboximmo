@@ -10,7 +10,6 @@ require_once __DIR__ . '/inc/rh_salaires_parser.php';
 require_once __DIR__ . '/inc/rh_salaires_conges_pdf.php';
 require_once __DIR__ . '/inc/rh_sepa.php';
 require_once __DIR__ . '/inc/mailer.php';
-require_once __DIR__ . '/inc/rh_salaire_workflow.php';
 require_login();
 
 $roleId = current_role_id();
@@ -580,28 +579,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
         $pdfPath = $tmp . DIRECTORY_SEPARATOR . 'salaires_conges_' . $societeId . '_' . time() . '.pdf';
         file_put_contents($pdfPath, $pdfContent);
 
-        // Mail personnalisé avec prénom du comptable si renseigné
-        $comptableNom = trim((string)($societe['comptable_nom'] ?? ''));
-        $bonjour = $comptableNom !== ''
-            ? 'Bonjour ' . trim((string)preg_split('/\s+/', $comptableNom)[0])
-            : 'Bonjour';
         $subject = "Salaires & Congés — $socName — $moisLabel $anneePost";
-        $body = "$bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $socName ($moisLabel $anneePost).\n\nCordialement,\nRégie EMERY";
+        $body = "Bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $socName ($moisLabel $anneePost).\n\nCordialement,\nRégie EMERY";
 
         $ok = send_mail($to, $subject, $body, [$pdfPath], false, '', 'salaire@maboximmo.fr');
-
-        // Workflow log : conserver le PDF et journaliser l'envoi (par agence)
-        $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-        if ($idAgenceLog > 0 && $ok) {
-            $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_ENVOI,
-                rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_ENVOI),
-                $pdfContent, basename($pdfPath));
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_ENVOI,
-                $relPath, basename($pdfPath), strlen($pdfContent), $to,
-                (int)current_user_id(), 'ok');
-        }
-
         if (is_file($pdfPath)) { @unlink($pdfPath); }
 
         if ($ok) {
@@ -679,22 +660,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
         json_encode($parsed['data'] ?? [], JSON_UNESCAPED_UNICODE),
         current_user_id()
     ]);
-
-    // Workflow log : copier le PDF dans uploads/rh_salaires/{soc}/{ag}/{mois}/projet/
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-    if ($idAgenceLog > 0) {
-        $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET,
-                $iter, $content, $file['name']);
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET,
-                $relPath, $file['name'], strlen($content), null,
-                (int)current_user_id(), 'ok',
-                null, $compare['ok'] ? 'Comparaison OK' : 'Écarts détectés');
-        }
-    }
 
     $_SESSION['message_ok'] = $compare['ok'] ? 'Projet comptable validé ✅' : 'Comparaison terminée, vérifiez les écarts.';
     header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
@@ -850,23 +815,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
         $sepaPathRel,
         current_user_id()
     ]);
-
-    // Workflow log : copier le PDF des bulletins
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-    if ($idAgenceLog > 0) {
-        $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS,
-                $iter, $content, $file['name']);
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS,
-                $relPath, $file['name'], strlen($content), null,
-                (int)current_user_id(), $sepaErr ? 'error' : 'ok',
-                $sepaErr ?: null,
-                'Total net : ' . number_format($totalNet, 2, ',', ' ') . ' €');
-        }
-    }
 
     if ($sepaErr) {
         $_SESSION['message_err'] = 'Bulletins importés, mais ' . $sepaErr;
@@ -1825,13 +1773,8 @@ ob_start();
 
 </div>
 
-<?php
-// Workflow comptable : visible pour admin (roleId=1) ET pour gestion_salaires=1 (Géraldine, Alexandra).
-// Les autres users (collaborateurs simples) ne voient rien du workflow.
-$canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
-?>
-<!-- ── Workflow comptable ── -->
-<?php if ($canSeeWorkflow): ?>
+<!-- ── Workflow comptable — titre visible pour tous ; déroulement admin uniquement ── -->
+<?php if ($roleId === 1): ?>
 <div class="section-header" style="cursor:pointer" onclick="toggleSection('workflow-card','workflow-chevron')">
     <div class="section-title">
         <span class="line-l"></span>
@@ -1842,22 +1785,22 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
         <span class="line-r"></span>
     </div>
 </div>
+<?php else: ?>
+<div class="section-header" style="opacity:.45;cursor:default">
+    <div class="section-title">
+        <span class="line-l"></span>
+        <span class="sec-txt">Workflow comptable <small style="font-size:10px;color:#94a3b8;font-weight:400;">— réservé à l'admin</small></span>
+        <span class="line-r"></span>
+    </div>
+</div>
+<?php endif; ?>
+<?php if ($roleId === 1): ?>
 <div class="v2-card collapsible collapsed" id="workflow-card" style="margin-bottom:20px">
     <div class="v2-card-body">
-        <?php
-        // Le workflow est par AGENCE : on exige qu'une agence soit sélectionnée
-        // (chaque agence a son comptable et ses users distincts).
-        $agenceWf = $agenceScope > 0 ? (int)$agenceScope : (ctype_digit((string)$agence_sel) ? (int)$agence_sel : 0);
-        ?>
         <?php if ($societe_sel === 'toutes'): ?>
             <div class="v2-alert info">
                 <span class="v2-alert-dot"></span>
-                Sélectionnez une société puis une agence pour activer le workflow comptable.
-            </div>
-        <?php elseif ($agenceWf <= 0): ?>
-            <div class="v2-alert info">
-                <span class="v2-alert-dot"></span>
-                Sélectionnez une <strong>agence</strong> pour activer le workflow comptable (chaque agence a son propre comptable et ses propres salariés).
+                Selectionnez une societe pour activer le workflow comptable.
             </div>
         <?php else: ?>
             <div class="workflow-info" style="margin-bottom:16px">
@@ -2030,71 +1973,6 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
-
-            <!-- ─── HISTORIQUE DES ÉCHANGES (workflow_log) ─────────────── -->
-            <?php
-            $moisRefWf = sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel);
-            $wfHistory = rh_wf_history($pdo, $agenceWf, $moisRefWf);
-            ?>
-            <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #e5e7eb;">
-                <h4 style="margin:0 0 12px;font-size:13px;color:#475569;">📜 Historique des échanges — <?= h(mois_fr((int)$mois_sel)) ?> <?= h($annee_sel) ?></h4>
-                <?php if (empty($wfHistory)): ?>
-                    <div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:14px;font-size:12px;color:#64748b;text-align:center;">
-                        Aucun échange enregistré pour ce mois. La timeline se construit au fil des envois et imports.
-                    </div>
-                <?php else: ?>
-                    <div style="display:flex;flex-direction:column;gap:6px;">
-                        <?php foreach ($wfHistory as $wfRow):
-                            $typeLabel = RH_WF_TYPES_LABELS[$wfRow['type_action']] ?? $wfRow['type_action'];
-                            $iconBg = match($wfRow['type_action']) {
-                                'envoi_comptable'   => '#dbeafe',
-                                'import_projet'     => '#fef9c3',
-                                'import_bulletins'  => '#dcfce7',
-                                default             => '#f1f5f9',
-                            };
-                            $statusClass = $wfRow['status'] === 'ok' ? 'color:#16a34a;' : ($wfRow['status'] === 'error' ? 'color:#dc2626;' : 'color:#64748b;');
-                        ?>
-                            <div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:12px;align-items:center;padding:10px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;">
-                                <span style="background:<?= $iconBg ?>;padding:4px 10px;border-radius:99px;font-weight:700;font-size:11px;white-space:nowrap;">
-                                    <?= h($typeLabel) ?> #<?= (int)$wfRow['iteration'] ?>
-                                </span>
-                                <span style="color:#64748b;">
-                                    <?= h(date('d/m/Y H:i', strtotime((string)$wfRow['date_action']))) ?>
-                                    <?php if (!empty($wfRow['user_nom'])): ?>
-                                        · <strong style="color:#0f172a;"><?= h($wfRow['user_nom']) ?></strong>
-                                    <?php endif; ?>
-                                    <?php if ($wfRow['type_action'] === 'envoi_comptable' && !empty($wfRow['destinataire'])): ?>
-                                        · → <code style="font-size:11px;background:#f1f5f9;padding:1px 6px;border-radius:4px;"><?= h($wfRow['destinataire']) ?></code>
-                                    <?php endif; ?>
-                                    <?php if (!empty($wfRow['commentaire'])): ?>
-                                        <span style="color:#94a3b8;font-size:11px;">— <?= h($wfRow['commentaire']) ?></span>
-                                    <?php endif; ?>
-                                </span>
-                                <span style="<?= $statusClass ?>font-weight:700;font-size:11px;">
-                                    <?= $wfRow['status'] === 'ok' ? '✓' : ($wfRow['status'] === 'error' ? '✗' : '⏳') ?>
-                                </span>
-                                <span style="color:#94a3b8;font-size:11px;">
-                                    <?= h(rh_wf_human_size((int)$wfRow['fichier_taille'])) ?>
-                                </span>
-                                <?php if (!empty($wfRow['fichier_path'])): ?>
-                                    <a href="rh_salaire_workflow_download.php?id=<?= (int)$wfRow['id'] ?>"
-                                       target="_blank"
-                                       style="padding:4px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
-                                        📎 Télécharger
-                                    </a>
-                                <?php else: ?>
-                                    <span style="color:#cbd5e1;font-size:11px;">—</span>
-                                <?php endif; ?>
-                            </div>
-                            <?php if (!empty($wfRow['error_msg'])): ?>
-                                <div style="font-size:11px;color:#991b1b;background:#fef2f2;padding:6px 12px;border-radius:6px;margin-left:24px;">
-                                    ⚠ <?= h($wfRow['error_msg']) ?>
-                                </div>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
         <?php endif; ?>
     </div>
 </div>
