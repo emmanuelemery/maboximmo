@@ -224,8 +224,11 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                             $formatted = $allFields[$fieldName]['type'] === 'number'
                                 ? number_format((float)$value, 2, ',', ' ')
                                 : euro($value);
-                            $pdf->SetX(50); $pdf->Cell(30, 5, '• ' . $label, 0, 0, 'L');
-                            $pdf->SetX(95); $pdf->Cell(0,  5, $formatted, 0, 1, 'L');
+                            // Largeur label élargie (30→70 mm) pour absorber les libellés longs
+                            // type "Commission Ca Nouvelles Affaires" qui débordaient sur le montant.
+                            // Montant aligné à droite à partir de X=125 → garde une zone de 35 mm pour les chiffres.
+                            $pdf->SetX(50); $pdf->Cell(70, 5, '• ' . $label, 0, 0, 'L');
+                            $pdf->SetX(125); $pdf->Cell(0, 5, $formatted, 0, 1, 'R');
                         }
                     } else {
                         $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);

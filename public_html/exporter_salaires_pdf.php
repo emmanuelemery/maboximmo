@@ -253,11 +253,13 @@ try {
                         $formatted = euro($value);
                     }
                     // Utiliser une position fixe pour aligner les valeurs
+                    // Label élargi (30→70 mm) + montant aligné à droite à X=125
+                    // pour absorber les libellés longs (Commission Ca Nouvelles Affaires, etc.)
                     $pdf->SetX(50);
                     $pdf->SetY($pdf->GetY());
-                    $pdf->Cell(30, 5, '• ' . h($label), 0, 0, 'L');
-                    $pdf->SetX(95);
-                    $pdf->Cell(0, 5, $formatted, 0, 1, 'L');
+                    $pdf->Cell(70, 5, '• ' . h($label), 0, 0, 'L');
+                    $pdf->SetX(125);
+                    $pdf->Cell(0, 5, $formatted, 0, 1, 'R');
                 }
             } else {
                 $pdf->SetFont('dejavusans', $isInactive ? 'I' : '', 9);
