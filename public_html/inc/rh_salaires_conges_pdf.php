@@ -62,6 +62,111 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
             }
         }
 
+        // Mini-calendrier mensuel dessiné à droite des congés.
+        // Les jours en congé sont surlignés (orange clair), weekends grisés.
+        // Retourne le Y de fin (pour repositionner le curseur).
+        if (!function_exists('rh_pdf_mini_calendrier')) {
+            function rh_pdf_mini_calendrier(TCPDF $pdf, int $mois, int $annee, array $userConges, float $startY): float {
+                $cellW = 6.5;   // mm
+                $cellH = 4.0;   // mm
+                $x0    = 145;   // position à droite (page A4 portrait, marge droite ~15mm)
+
+                // Calcul des jours en congé du mois
+                $congesDays = [];
+                $monthStart = mktime(0, 0, 0, $mois, 1, $annee);
+                $monthEnd   = mktime(0, 0, 0, $mois + 1, 1, $annee) - 1;
+                foreach ($userConges as $leave) {
+                    $start = max(strtotime($leave['date_debut']), $monthStart);
+                    $end   = min(strtotime($leave['date_fin']),   $monthEnd);
+                    if ($start > $end) continue;
+                    for ($t = $start; $t <= $end; $t += 86400) {
+                        $congesDays[(int)date('j', $t)] = true;
+                    }
+                }
+
+                $daysInMonth = (int)date('t', $monthStart);
+                $firstDow    = (int)date('N', $monthStart); // 1=Lun ... 7=Dim
+
+                // Sauvegarde l'état du curseur PDF + couleurs
+                $saveX = $pdf->GetX(); $saveY = $pdf->GetY();
+                $pdf->SetDrawColor(200, 200, 200);
+                $pdf->SetLineWidth(0.1);
+
+                // Header : titre du mois (compact)
+                $pdf->SetXY($x0, $startY);
+                $pdf->SetFont('dejavusans', 'B', 6.5);
+                $pdf->SetTextColor(80, 80, 80);
+                $pdf->SetFillColor(245, 245, 245);
+                $pdf->Cell($cellW * 7, $cellH, strtoupper(mois_fr($mois)) . ' ' . $annee, 0, 1, 'C', true);
+
+                // Header : jours de la semaine
+                $headers = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+                $headerY = $pdf->GetY();
+                $pdf->SetFont('dejavusans', 'B', 5.5);
+                $pdf->SetTextColor(110, 110, 110);
+                foreach ($headers as $i => $h) {
+                    $pdf->SetXY($x0 + $i * $cellW, $headerY);
+                    $pdf->Cell($cellW, $cellH * 0.8, $h, 0, 0, 'C');
+                }
+                $y = $headerY + ($cellH * 0.8);
+
+                // Cases du mois
+                $pdf->SetFont('dejavusans', '', 6);
+                $dow = $firstDow - 1; // 0=Lundi
+                $pdf->SetXY($x0, $y);
+
+                // Pad les jours avant le 1er
+                for ($i = 0; $i < $dow; $i++) {
+                    $pdf->Cell($cellW, $cellH, '', 'LRTB', 0, 'C');
+                }
+
+                for ($d = 1; $d <= $daysInMonth; $d++) {
+                    $isConge   = isset($congesDays[$d]);
+                    $isWeekend = ($dow >= 5);
+
+                    if ($isConge) {
+                        $pdf->SetFillColor(255, 180, 100);   // orange — jour en congé
+                        $pdf->SetTextColor(120, 60, 0);
+                        $pdf->SetFont('dejavusans', 'B', 6);
+                    } elseif ($isWeekend) {
+                        $pdf->SetFillColor(240, 240, 240);   // gris — weekend
+                        $pdf->SetTextColor(150, 150, 150);
+                        $pdf->SetFont('dejavusans', '', 6);
+                    } else {
+                        $pdf->SetFillColor(255, 255, 255);   // blanc — jour ouvré
+                        $pdf->SetTextColor(60, 60, 60);
+                        $pdf->SetFont('dejavusans', '', 6);
+                    }
+
+                    $pdf->Cell($cellW, $cellH, (string)$d, 'LRTB', 0, 'C', true);
+
+                    $dow++;
+                    if ($dow === 7) {
+                        $dow = 0;
+                        $y += $cellH;
+                        $pdf->SetXY($x0, $y);
+                    }
+                }
+                if ($dow !== 0) {
+                    // padder la fin de la dernière ligne
+                    $pdf->SetFillColor(255, 255, 255);
+                    while ($dow < 7) {
+                        $pdf->Cell($cellW, $cellH, '', 'LRTB', 0, 'C');
+                        $dow++;
+                    }
+                    $y += $cellH;
+                }
+
+                // Restaure curseur et couleurs par défaut
+                $pdf->SetXY($saveX, $saveY);
+                $pdf->SetTextColor(0, 0, 0);
+                $pdf->SetFillColor(255, 255, 255);
+                $pdf->SetDrawColor(0, 0, 0);
+
+                return $y;
+            }
+        }
+
         // ── Colonnes salaire ──
         $allFields = [];
         $stmt = $pdo->query("SHOW COLUMNS FROM salaires");
@@ -250,6 +355,9 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                     $pdf->Cell(0, 5, '      Congés — ' . mois_fr($mois) . ' ' . $annee, 0, 1, 'L', true);
                     $pdf->SetFillColor(255, 255, 255);
 
+                    // Mémoriser Y avant le bloc texte des congés (pour aligner le calendrier à droite)
+                    $congesStartY = $pdf->GetY();
+
                     if (!empty($userConges)) {
                         $pdf->SetFont('dejavusans', '', 9);
                         $pdf->SetTextColor(0, 0, 0);
@@ -325,6 +433,15 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                         $pdf->SetTextColor(150, 150, 150);
                         $pdf->Cell(0, 5, '      (Aucun congé ce mois)', 0, 1, 'L');
                     }
+
+                    // ─── Mini-calendrier mensuel à droite des congés ────────────
+                    // Pourquoi : visualisation rapide des jours pris vs jours
+                    // travaillés. Les jours en congé sont colorés (orange), le
+                    // weekend en gris léger, jours fériés non gérés (rare mensuel).
+                    $endY = $pdf->GetY();
+                    $miniCalEndY = rh_pdf_mini_calendrier($pdf, $mois, $annee, $userConges, $congesStartY);
+                    // Repositionner Y au plus bas entre le bloc texte et le calendrier
+                    $pdf->SetY(max($endY, $miniCalEndY));
 
                     $pdf->Ln(3);
                 }
