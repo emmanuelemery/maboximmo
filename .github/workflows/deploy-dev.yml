@@ -18,7 +18,71 @@ jobs:
       - name: Écrit le SHA du commit dans git_version.txt
         run: echo "${{ github.sha }}" > public_html/git_version.txt
 
-      - name: Déploiement FTP vers public_html/dev
+      # Retry automatique sur l'upload FTP (timeouts fréquents avec Hostinger,
+      # surtout sur de gros pushs comme TCPDF). 3 tentatives max via le pattern
+      # continue-on-error + steps conditionnels. Évite les re-trigger manuels.
+      - name: Déploiement FTP — tentative principale
+        if: always()
+        id: deploy_main
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ftp.maboximmo.fr
+          port: 21
+          protocol: ftp
+          username: u630423897.maboximmo
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./public_html/
+          server-dir: /dev/
+          state-name: .ftp-deploy-sync-dev-v3-20260420
+          log-level: verbose
+          exclude: |
+            **/.git/**
+            **/.gitignore
+            **/.gitattributes
+            **/.github/**
+            **/node_modules/**
+            **/.DS_Store
+            **/uploads/**
+            **/tcpdf_cache/**
+            **/config/smtp.php
+            **/config/smtp_local.php
+            **/config/registres.php
+            **/config/ubiflow_credentials.local.php
+            **/db_config.php
+
+      - name: Retry #2 si échec
+        if: steps.deploy_main.outcome == 'failure'
+        id: deploy_retry1
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ftp.maboximmo.fr
+          port: 21
+          protocol: ftp
+          username: u630423897.maboximmo
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./public_html/
+          server-dir: /dev/
+          state-name: .ftp-deploy-sync-dev-v3-20260420
+          log-level: verbose
+          exclude: |
+            **/.git/**
+            **/.gitignore
+            **/.gitattributes
+            **/.github/**
+            **/node_modules/**
+            **/.DS_Store
+            **/uploads/**
+            **/tcpdf_cache/**
+            **/config/smtp.php
+            **/config/smtp_local.php
+            **/config/registres.php
+            **/config/ubiflow_credentials.local.php
+            **/db_config.php
+
+      - name: Retry #3 si échec persistant
+        if: steps.deploy_main.outcome == 'failure' && steps.deploy_retry1.outcome == 'failure'
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ftp.maboximmo.fr

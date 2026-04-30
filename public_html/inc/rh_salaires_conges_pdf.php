@@ -420,8 +420,15 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                         $pdf->SetFont('dejavusans', 'B', 9);
                         $pdf->SetTextColor(60, 60, 60);
                         $pdf->Cell(0, 5, '      Total mois : ' . $totalDays . ' jour' . ($totalDays > 1 ? 's' : ''), 0, 1, 'L');
+                    } else {
+                        $pdf->SetFont('dejavusans', 'I', 9);
+                        $pdf->SetTextColor(150, 150, 150);
+                        $pdf->Cell(0, 5, '      (Aucun congé ce mois)', 0, 1, 'L');
+                    }
 
-                        if (isset($userBalances[$uid])) {
+                    // Décompte annuel : TOUJOURS affiché (vérification permanente),
+                    // qu'il y ait eu des congés sur le mois ou non.
+                    if (isset($userBalances[$uid])) {
                             $bal          = $userBalances[$uid];
                             $basePrev     = (float)$bal['conge_a_prendre'];
                             $acquired     = (float)$bal['conge_en_acquisition'];
@@ -438,60 +445,55 @@ if (!function_exists('rh_generate_salaires_conges_pdf')) {
                             $pdf->SetFont('dejavusans', '', 8.5);
                             $pdf->SetTextColor(50, 50, 50);
 
-                            // Note : largeur valeurs limitée à 60 mm (au lieu de 0=full)
-                            // pour rester à GAUCHE du calendrier mensuel (X=145).
-                            // Total largeur bloc décompte : 20 (spacer) + 55 (label) + 60 (valeur) = X=20→135.
-                            $pdf->Cell(20, 4.5, '', 0, 0);
-                            $pdf->Cell(55, 4.5, 'Année ' . $cycleYear . ' acquis', 0, 0, 'L');
+                            // Largeur réduite (10+50+50 = X=10→110) pour bien séparer du calendrier (X=145).
+                            // Marge ~35 mm entre la fin des chiffres et le bord du calendrier.
+                            $pdf->Cell(10, 4.5, '', 0, 0);
+                            $pdf->Cell(50, 4.5, 'Année ' . $cycleYear . ' acquis', 0, 0, 'L');
                             $pdf->SetFont('dejavusans', 'B', 8.5);
-                            $pdf->Cell(60, 4.5, number_format($basePrev, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(50, 4.5, number_format($basePrev, 2, ',', ' ') . ' j', 0, 1, 'R');
 
                             $pdf->SetFont('dejavusans', '', 8.5);
-                            $pdf->Cell(20, 4.5, '', 0, 0);
-                            $pdf->Cell(55, 4.5, 'Année ' . ($cycleYear + 1) . ' acquis (depuis 01/06)', 0, 0, 'L');
+                            $pdf->Cell(10, 4.5, '', 0, 0);
+                            $pdf->Cell(50, 4.5, 'Année ' . ($cycleYear + 1) . ' acquis (depuis 01/06)', 0, 0, 'L');
                             $pdf->SetFont('dejavusans', 'B', 8.5);
-                            $pdf->Cell(60, 4.5, number_format($acquired, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(50, 4.5, number_format($acquired, 2, ',', ' ') . ' j', 0, 1, 'R');
 
                             $pdf->SetDrawColor(200, 200, 200);
-                            $pdf->Line(20, $pdf->GetY(), 135, $pdf->GetY());
+                            $pdf->Line(10, $pdf->GetY(), 110, $pdf->GetY());
                             $pdf->Ln(1);
 
-                            $pdf->Cell(20, 4.5, '', 0, 0);
+                            $pdf->Cell(10, 4.5, '', 0, 0);
                             $pdf->SetFont('dejavusans', 'B', 9);
                             $pdf->SetTextColor(0, 0, 0);
-                            $pdf->Cell(55, 4.5, 'Total acquis', 0, 0, 'L');
-                            $pdf->Cell(60, 4.5, number_format($totalAcq, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(50, 4.5, 'Total acquis', 0, 0, 'L');
+                            $pdf->Cell(50, 4.5, number_format($totalAcq, 2, ',', ' ') . ' j', 0, 1, 'R');
                             $pdf->Ln(1);
 
-                            $pdf->Cell(20, 4.5, '', 0, 0);
+                            $pdf->Cell(10, 4.5, '', 0, 0);
                             $pdf->SetFont('dejavusans', '', 8.5);
                             $pdf->SetTextColor(80, 80, 80);
-                            $pdf->Cell(55, 4.5, 'Jours pris', 0, 0, 'L');
+                            $pdf->Cell(50, 4.5, 'Jours pris', 0, 0, 'L');
                             $pdf->SetFont('dejavusans', 'B', 8.5);
-                            $pdf->Cell(60, 4.5, number_format($pris, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(50, 4.5, number_format($pris, 2, ',', ' ') . ' j', 0, 1, 'R');
 
                             $pdf->SetTextColor($restant < 0 ? 200 : 0, $restant < 0 ? 0 : 120, 0);
-                            $pdf->Cell(20, 4.5, '', 0, 0);
+                            $pdf->Cell(10, 4.5, '', 0, 0);
                             $pdf->SetFont('dejavusans', 'B', 9);
-                            $pdf->Cell(55, 4.5, 'Solde restant', 0, 0, 'L');
-                            $pdf->Cell(60, 4.5, number_format($restant, 2, ',', ' ') . ' j', 0, 1, 'R');
+                            $pdf->Cell(50, 4.5, 'Solde restant', 0, 0, 'L');
+                            $pdf->Cell(50, 4.5, number_format($restant, 2, ',', ' ') . ' j', 0, 1, 'R');
                             $pdf->SetTextColor(0, 0, 0);
                             $pdf->SetDrawColor(0, 0, 0);
-                        }
-                    } else {
-                        $pdf->SetFont('dejavusans', 'I', 9);
-                        $pdf->SetTextColor(150, 150, 150);
-                        $pdf->Cell(0, 5, '      (Aucun congé ce mois)', 0, 1, 'L');
                     }
 
-                    // ─── Mini-calendrier mensuel à droite des congés ────────────
-                    // Pourquoi : visualisation rapide des jours pris vs jours
-                    // travaillés. Les jours en congé sont colorés (orange), le
-                    // weekend en gris léger, jours fériés non gérés (rare mensuel).
-                    $endY = $pdf->GetY();
-                    $miniCalEndY = rh_pdf_mini_calendrier($pdf, $mois, $annee, $userConges, $congesStartY);
-                    // Repositionner Y au plus bas entre le bloc texte et le calendrier
-                    $pdf->SetY(max($endY, $miniCalEndY));
+                    // ─── Mini-calendrier mensuel à droite ────────────────────────
+                    // Affiché UNIQUEMENT si le user a des congés sur le mois (sinon
+                    // inutile — pas de jours à surligner). Le décompte annuel reste
+                    // toujours affiché plus haut pour vérification permanente.
+                    if (!empty($userConges)) {
+                        $endY = $pdf->GetY();
+                        $miniCalEndY = rh_pdf_mini_calendrier($pdf, $mois, $annee, $userConges, $congesStartY);
+                        $pdf->SetY(max($endY, $miniCalEndY));
+                    }
 
                     $pdf->Ln(3);
                 }
