@@ -172,6 +172,40 @@ function rh_wf_can_access(PDO $pdo, int $idUser, int $idAgenceCible): bool
 }
 
 /**
+ * Slugifie un nom (agence, société…) pour usage dans un nom de fichier.
+ * Garde les accents (UTF-8 OK sur disque & dans les attachments PHPMailer),
+ * remplace seulement les caractères incompatibles avec un filename.
+ *
+ * Ex : "Régie Émery — Chaponost" → "Régie_Émery_Chaponost"
+ */
+function rh_wf_slug_filename(string $s): string
+{
+    $s = trim($s);
+    if ($s === '') return 'inconnu';
+    // Retire les caractères interdits sur la plupart des FS (Windows + *nix)
+    $s = preg_replace('/[\/\\\\:*?"<>|]+/u', '', $s) ?? $s;
+    // Tirets longs/em-dashes → simple tiret
+    $s = str_replace(['—', '–'], '-', $s);
+    // Espaces (et runs de séparateurs) → underscore
+    $s = preg_replace('/\s+/u', '_', $s) ?? $s;
+    $s = preg_replace('/_+/', '_', $s) ?? $s;
+    return trim($s, '_-') ?: 'inconnu';
+}
+
+/**
+ * Construit le nom de fichier standard pour un PDF Salaires & Congés
+ * d'une agence donnée pour un mois donné.
+ *
+ * Format : Salaires_congés_<NOM_AGENCE>_<YYYY-MM>.pdf
+ * Ex     : Salaires_congés_REGIE_EMERY_CHAPONOST_2026-04.pdf
+ */
+function rh_wf_pdf_filename(string $nomAgence, int $annee, int $mois): string
+{
+    $slug = rh_wf_slug_filename(mb_strtoupper($nomAgence, 'UTF-8'));
+    return sprintf('Salaires_congés_%s_%04d-%02d.pdf', $slug, $annee, $mois);
+}
+
+/**
  * Helper d'affichage : taille humanisée.
  */
 function rh_wf_human_size(?int $bytes): string

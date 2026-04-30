@@ -580,15 +580,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
-    $socName = (string)($societe['nom'] ?? 'Société');
+    // Nom de l'agence pour le filename + le sujet du mail
+    $stmtAg = $pdo->prepare("SELECT nom_agence FROM agences WHERE id = ? LIMIT 1");
+    $stmtAg->execute([$idAgenceLog]);
+    $nomAgence = (string)($stmtAg->fetchColumn() ?: ('Agence_' . $idAgenceLog));
+
+    $socName   = (string)($societe['nom'] ?? 'Société');
     $moisLabel = mois_fr($moisPost);
 
     try {
         // PDF scopé sur l'agence : le 4e param de rh_generate_salaires_conges_pdf
         // applique "AND u.id_agence = X" → uniquement les users de l'agence cible.
         $pdfContent = rh_generate_salaires_conges_pdf($pdo, $moisPost, $anneePost, $idAgenceLog);
+        // Nom standardisé : Salaires_congés_<NOM_AGENCE>_<YYYY-MM>.pdf
+        $pdfFilename = rh_wf_pdf_filename($nomAgence, $anneePost, $moisPost);
         $tmp = sys_get_temp_dir();
-        $pdfPath = $tmp . DIRECTORY_SEPARATOR . 'salaires_conges_' . $societeId . '_ag' . $idAgenceLog . '_' . time() . '.pdf';
+        $pdfPath = $tmp . DIRECTORY_SEPARATOR . $pdfFilename;
         file_put_contents($pdfPath, $pdfContent);
 
         // Mail personnalisé avec prénom du comptable si renseigné
@@ -596,8 +603,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
         $bonjour = $comptableNom !== ''
             ? 'Bonjour ' . trim((string)preg_split('/\s+/', $comptableNom)[0])
             : 'Bonjour';
-        $subject = "Salaires & Congés — $socName — $moisLabel $anneePost";
-        $body = "$bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $socName ($moisLabel $anneePost).\n\nCordialement,\nRégie EMERY";
+        $subject = "Salaires & Congés — $nomAgence — $moisLabel $anneePost";
+        $body = "$bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $nomAgence ($moisLabel $anneePost).\n\nCordialement,\nRégie EMERY";
 
         // ─── DEV / LOCAL : pas d'envoi réel — on logue + on conserve le PDF ───
         // Détection environnement : dev.maboximmo.fr ou localhost = mode test
@@ -1913,10 +1920,21 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
             // répercutée ici pour la cohérence.
             $previewMoisLabel = mois_fr((int)$mois_sel);
             $previewSocName   = (string)($societeInfo['nom'] ?? 'Société');
+            // Nom de l'agence active pour le sujet + le filename prévisionnel
+            $previewAgenceNom = '';
+            if ($agenceWf > 0) {
+                foreach ($agences as $a) {
+                    if ((int)$a['id'] === $agenceWf) { $previewAgenceNom = (string)$a['nom_agence']; break; }
+                }
+            }
+            $previewSubjectLabel = $previewAgenceNom !== '' ? $previewAgenceNom : $previewSocName;
             $previewComptable = trim((string)($societeInfo['comptable_nom'] ?? ''));
             $previewBonjour   = $previewComptable !== '' ? 'Bonjour ' . trim((string)preg_split('/\s+/', $previewComptable)[0]) : 'Bonjour';
-            $previewSubject   = "Salaires & Congés — {$previewSocName} — {$previewMoisLabel} {$annee_sel}";
-            $previewBody      = "{$previewBonjour},\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSocName} ({$previewMoisLabel} {$annee_sel}).\n\nCordialement,\nRégie EMERY";
+            $previewSubject   = "Salaires & Congés — {$previewSubjectLabel} — {$previewMoisLabel} {$annee_sel}";
+            $previewBody      = "{$previewBonjour},\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSubjectLabel} ({$previewMoisLabel} {$annee_sel}).\n\nCordialement,\nRégie EMERY";
+            $previewFilename  = $previewAgenceNom !== ''
+                ? rh_wf_pdf_filename($previewAgenceNom, (int)$annee_sel, (int)$mois_sel)
+                : 'salaires_conges_*.pdf';
             $previewTo        = (string)($societeInfo['comptable_email'] ?? '');
             $previewFrom      = 'salaire@maboximmo.fr';
             // Mode test : pas d'envoi réel sur dev/localhost
@@ -1958,7 +1976,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                 </div>
                                 <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">CC :</strong> <strong style="color:#0f172a;">emmanuel.emery@regie-emery.com</strong> <span style="color:#64748b;">(Direction — copie systématique)</span></div>
                                 <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">SUJET :</strong> <?=h($previewSubject)?></div>
-                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">PIÈCE JOINTE :</strong> <code style="background:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">salaires_conges_<?=h($societe_sel)?>_ag<?=h((string)$agenceWf)?>_*.pdf</code></div>
+                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">PIÈCE JOINTE :</strong> <code style="background:#fff;padding:2px 6px;border-radius:4px;font-size:11px;"><?=h($previewFilename)?></code></div>
                             </div>
                             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;background:#fff;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;font-family:'Manrope',sans-serif;"><?=h($previewBody)?></div>
                             <?php if ($previewIsDev): ?>
