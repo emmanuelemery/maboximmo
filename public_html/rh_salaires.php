@@ -1961,55 +1961,97 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
             </div>
 
             <?php if ($projetData): ?>
-                <div class="workflow-step" style="margin-top:12px">
-                    <h4>Comparaison projet comptable</h4>
-                    <div class="compare-detail">
-                        Total attendu : <strong><?=number_format((float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> &euro;</strong>
-                        &nbsp;&middot;&nbsp;
-                        Total PDF : <strong><?=number_format((float)($projetData['total_pdf'] ?? 0), 2, ',', ' ')?> &euro;</strong>
-                        &nbsp;
-                        <?php if (!empty($projetData['ok'])): ?>
-                            <span class="v2-badge ok">OK</span>
-                        <?php else: ?>
-                            <span class="v2-badge bad">Differences</span>
-                        <?php endif; ?>
-                    </div>
-                    <?php if (!empty($projetData['missing'])): ?>
-                        <div class="compare-detail">Manquants : <?=h(implode(', ', $projetData['missing']))?></div>
+                <div class="workflow-step" style="margin-top:12px;display:flex;align-items:center;gap:14px;">
+                    <h4 style="margin:0;">Comparaison projet comptable</h4>
+                    <span style="font-size:12px;color:#64748b;">
+                        Attendu <strong style="color:#0f172a;"><?=number_format((float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> €</strong>
+                        &nbsp;·&nbsp;
+                        PDF <strong style="color:#0f172a;"><?=number_format((float)($projetData['total_pdf'] ?? 0), 2, ',', ' ')?> €</strong>
+                    </span>
+                    <?php if (!empty($projetData['ok'])): ?>
+                        <span class="v2-badge ok">OK</span>
+                    <?php else: ?>
+                        <span class="v2-badge bad">Différences</span>
                     <?php endif; ?>
-                    <?php if (!empty($projetData['extra'])): ?>
-                        <div class="compare-detail">En trop : <?=h(implode(', ', $projetData['extra']))?></div>
-                    <?php endif; ?>
-                    <table class="compare-table">
-                        <thead>
-                            <tr>
-                                <th>Collaborateur</th>
-                                <th>Brut attendu</th>
-                                <th>Brut PDF</th>
-                                <th>Ecart</th>
-                                <th>Statut</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach (($projetData['rows'] ?? []) as $row): ?>
-                                <?php $diff = $row['brut_diff'] ?? null; ?>
-                                <tr>
-                                    <td><?=h($row['name'] ?? '')?></td>
-                                    <td><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> &euro;</td>
-                                    <td><?=($row['pdf_brut'] === null ? '-' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' &euro;')?></td>
-                                    <td><?=($diff === null ? '-' : number_format((float)$diff, 2, ',', ' '))?></td>
-                                    <td>
-                                        <?php if (($row['status'] ?? '') === 'ok'): ?>
-                                            <span class="v2-badge ok">OK</span>
-                                        <?php else: ?>
-                                            <span class="v2-badge bad"><?=h($row['status'] ?? '')?></span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                    <button type="button"
+                            onclick="ouvrirRapportComparaison()"
+                            style="padding:8px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto;">
+                        📊 Voir le rapport ligne par ligne
+                    </button>
                 </div>
+
+                <!-- Modal rapport de comparaison -->
+                <div id="rapport-comparaison-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)fermerRapportComparaison()">
+                    <div style="background:#fff;border-radius:14px;max-width:920px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+                        <div style="padding:18px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#fff;z-index:1;">
+                            <h3 style="margin:0;font-size:17px;color:#0f172a;">📊 Rapport de comparaison — projet comptable</h3>
+                            <button type="button" onclick="fermerRapportComparaison()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;">×</button>
+                        </div>
+                        <div style="padding:20px 24px;">
+                            <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 24px;font-size:13px;">
+                                <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Total attendu</span><br><strong style="color:#0f172a;font-size:15px;"><?=number_format((float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> €</strong></div>
+                                <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Total PDF projet</span><br><strong style="color:#0f172a;font-size:15px;"><?=number_format((float)($projetData['total_pdf'] ?? 0), 2, ',', ' ')?> €</strong></div>
+                                <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Écart total</span><br><strong style="<?=!empty($projetData['ok'])?'color:#16a34a':'color:#dc2626'?>;font-size:15px;"><?=number_format((float)($projetData['total_pdf'] ?? 0) - (float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> €</strong></div>
+                                <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Statut</span><br><?php if (!empty($projetData['ok'])): ?><span class="v2-badge ok">✓ Cohérent</span><?php else: ?><span class="v2-badge bad">⚠ Différences</span><?php endif; ?></div>
+                            </div>
+
+                            <?php if (!empty($projetData['missing'])): ?>
+                                <div style="background:#fef2f2;border-left:4px solid #dc2626;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:12px;color:#991b1b;">
+                                    <strong>Salariés manquants dans le PDF du comptable :</strong> <?=h(implode(', ', $projetData['missing']))?>
+                                </div>
+                            <?php endif; ?>
+                            <?php if (!empty($projetData['extra'])): ?>
+                                <div style="background:#fef9c3;border-left:4px solid #eab308;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:12px;color:#854d0e;">
+                                    <strong>Salariés en trop dans le PDF du comptable :</strong> <?=h(implode(', ', $projetData['extra']))?>
+                                </div>
+                            <?php endif; ?>
+
+                            <table class="compare-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                                <thead>
+                                    <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+                                        <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Collaborateur</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut attendu</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut PDF</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Écart</th>
+                                        <th style="padding:8px 10px;text-align:center;color:#64748b;font-weight:600;">Statut</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach (($projetData['rows'] ?? []) as $row):
+                                        $diff = $row['brut_diff'] ?? null;
+                                        $isOk = ($row['status'] ?? '') === 'ok';
+                                    ?>
+                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$isOk?'background:#fffbeb;':''?>">
+                                            <td style="padding:8px 10px;"><strong><?=h($row['name'] ?? '')?></strong></td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> €</td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=($row['pdf_brut'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' €')?></td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;<?=($diff !== null && abs((float)$diff) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;')?>">
+                                                <?=($diff === null ? '—' : (((float)$diff > 0 ? '+' : '') . number_format((float)$diff, 2, ',', ' ')))?>
+                                            </td>
+                                            <td style="padding:8px 10px;text-align:center;">
+                                                <?php if ($isOk): ?>
+                                                    <span class="v2-badge ok">✓ OK</span>
+                                                <?php else: ?>
+                                                    <span class="v2-badge bad">⚠ <?=h($row['status'] ?? '')?></span>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                            <p style="margin-top:14px;font-size:11px;color:#94a3b8;">
+                                💡 La comparaison est calculée à l'import du PDF projet. Si tu importes une nouvelle version, ce rapport est mis à jour automatiquement (la dernière comparaison s'affiche).
+                            </p>
+                        </div>
+                        <div style="padding:14px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;border-radius:0 0 14px 14px;display:flex;justify-content:flex-end;">
+                            <button type="button" onclick="fermerRapportComparaison()" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                function ouvrirRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'flex'; }
+                function fermerRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'none'; }
+                </script>
             <?php endif; ?>
 
             <?php if ($bulletinsRow): ?>
