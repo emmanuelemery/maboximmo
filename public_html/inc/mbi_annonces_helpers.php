@@ -208,10 +208,10 @@ if (!function_exists('mbi_annonces_fetch_list')) {
                 ag.nom_agence,
                 ag.slug           AS agence_slug,
                 (
-                  SELECT ap.url_photo
-                  FROM annonces_photos ap
-                  WHERE ap.id_annonce = a.id
-                  ORDER BY ap.principale DESC, ap.ordre_affichage ASC, ap.id ASC
+                  SELECT bp.url_photo
+                  FROM biens_photos bp
+                  WHERE bp.id_bien = b.id
+                  ORDER BY bp.ordre ASC, bp.id ASC
                   LIMIT 1
                 ) AS photo_url,
                 NULL AS photo_w,
@@ -336,38 +336,35 @@ if (!function_exists('mbi_annonces_fetch_detail')) {
 }
 
 if (!function_exists('mbi_annonces_fetch_photos')) {
+    /**
+     * Récupère les photos d'une annonce via le bien associé.
+     * Sur dev, annonces_photos est une table de jointure → on lit biens_photos
+     * directement (source de vérité unique).
+     */
     function mbi_annonces_fetch_photos(PDO $pdo, int $annonceId): array
     {
         if ($annonceId <= 0) return [];
-        // Tente d'abord avec colonnes SEO (migration_annonces_photos_seo.sql).
-        // Fallback sur les colonnes minimales si la migration n'est pas appliquée.
         try {
             $st = $pdo->prepare("
-                SELECT id, url_photo, url_webp, largeur, hauteur, variante,
-                       titre, alt_photo, caption, principale, ordre_affichage
-                FROM annonces_photos
-                WHERE id_annonce = ?
-                ORDER BY ordre_affichage ASC, principale DESC, id ASC
+                SELECT
+                  bp.id, bp.url_photo,
+                  NULL AS url_webp, NULL AS largeur, NULL AS hauteur,
+                  'original' AS variante,
+                  bp.titre, bp.alt_photo,
+                  NULL AS caption,
+                  CASE WHEN bp.ordre = 1 THEN 1 ELSE 0 END AS principale,
+                  bp.ordre AS ordre_affichage
+                FROM annonces a
+                INNER JOIN biens b ON b.id = a.id_bien
+                INNER JOIN biens_photos bp ON bp.id_bien = b.id
+                WHERE a.id = ?
+                ORDER BY bp.ordre ASC, bp.id ASC
             ");
             $st->execute([$annonceId]);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        } catch (Throwable) {
-            // Fallback : colonnes minimales toujours présentes
-            try {
-                $st = $pdo->prepare("
-                    SELECT id, url_photo, NULL AS url_webp, NULL AS largeur, NULL AS hauteur,
-                           'original' AS variante, titre, alt_photo, NULL AS caption,
-                           principale, ordre_affichage
-                    FROM annonces_photos
-                    WHERE id_annonce = ?
-                    ORDER BY ordre_affichage ASC, principale DESC, id ASC
-                ");
-                $st->execute([$annonceId]);
-                return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-            } catch (Throwable $e2) {
-                if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] photos failed: ' . $e2->getMessage());
-                return [];
-            }
+        } catch (Throwable $e) {
+            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] photos failed: ' . $e->getMessage());
+            return [];
         }
     }
 }
