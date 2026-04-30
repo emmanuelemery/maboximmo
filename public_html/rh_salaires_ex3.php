@@ -1811,78 +1811,15 @@ ob_start();
                 <div>Reception bulletins : <strong>salaire@maboximmo.fr</strong></div>
             </div>
 
-            <?php
-            // Preview du mail au comptable : subject/body construits identiquement
-            // au bloc d'envoi (lignes ~582-583) — toute modif là-bas doit être
-            // répercutée ici pour la cohérence.
-            $previewMoisLabel = mois_fr((int)$mois_sel);
-            $previewSocName   = (string)($societeInfo['nom'] ?? 'Société');
-            $previewSubject   = "Salaires & Congés — {$previewSocName} — {$previewMoisLabel} {$annee_sel}";
-            $previewBody      = "Bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSocName} ({$previewMoisLabel} {$annee_sel}).\n\nCordialement,\nRégie EMERY";
-            $previewTo        = (string)($societeInfo['comptable_email'] ?? '');
-            $previewFrom      = 'salaire@maboximmo.fr';
-            ?>
             <div class="workflow-actions">
-                <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" class="workflow-step" id="comptable-form">
+                <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" class="workflow-step">
                     <h4>1. Envoyer au comptable</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="hidden" name="send_to_comptable" value="1">
-                    <button type="button" class="workflow-step-btn" onclick="ouvrirPreviewMail()">👁️ Prévisualiser puis envoyer</button>
+                    <button type="submit" name="send_to_comptable" value="1" class="workflow-step-btn">Envoyer PDF</button>
                 </form>
-
-                <!-- Modal preview du mail comptable -->
-                <div id="preview-mail-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)fermerPreviewMail()">
-                    <div style="background:#fff;border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.4);">
-                        <div style="padding:18px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-                            <h3 style="margin:0;font-size:17px;color:#0f172a;">📨 Prévisualisation du mail au comptable</h3>
-                            <button type="button" onclick="fermerPreviewMail()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;">×</button>
-                        </div>
-                        <div style="padding:20px 24px;">
-                            <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:14px;font-size:13px;line-height:1.6;">
-                                <div><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">DE :</strong> <?=h($previewFrom)?></div>
-                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">À :</strong>
-                                    <?php if ($previewTo === ''): ?>
-                                        <span style="color:#dc2626;">⚠️ Email comptable manquant — renseigne-le sur la fiche société avant l'envoi.</span>
-                                    <?php else: ?>
-                                        <strong style="color:#0f172a;"><?=h($previewTo)?></strong>
-                                        <?php if (!empty($societeInfo['comptable_nom'])): ?>
-                                            <span style="color:#64748b;">(<?=h($societeInfo['comptable_nom'])?><?=!empty($societeInfo['comptable_societe']) ? ' · ' . h($societeInfo['comptable_societe']) : ''?>)</span>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
-                                </div>
-                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">SUJET :</strong> <?=h($previewSubject)?></div>
-                                <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">PIÈCE JOINTE :</strong> <code style="background:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">salaires_conges_<?=h($societe_sel)?>_*.pdf</code></div>
-                            </div>
-                            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;background:#fff;font-size:13px;color:#0f172a;line-height:1.7;white-space:pre-wrap;font-family:'Manrope',sans-serif;"><?=h($previewBody)?></div>
-                            <div style="margin-top:14px;padding:10px 14px;background:#fef9c3;border-radius:8px;font-size:11px;color:#854d0e;line-height:1.5;">
-                                💡 Le PDF (registre des salaires et congés du mois sélectionné) sera généré et joint à l'envoi. Il n'est pas possible de modifier le texte du mail depuis cette interface — pour personnaliser, modifier le code de <code>rh_salaires.php</code> (lignes ~582-583).
-                            </div>
-                        </div>
-                        <div style="padding:14px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#f8fafc;border-radius:0 0 14px 14px;">
-                            <button type="button" onclick="fermerPreviewMail()" style="padding:9px 18px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
-                            <?php if ($previewTo !== ''): ?>
-                                <button type="button" onclick="confirmerEnvoiMail()" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">📤 Envoyer définitivement</button>
-                            <?php else: ?>
-                                <a href="/societe.php" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">⚙️ Renseigner l'email comptable</a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <script>
-                function ouvrirPreviewMail() {
-                    document.getElementById('preview-mail-modal').style.display = 'flex';
-                }
-                function fermerPreviewMail() {
-                    document.getElementById('preview-mail-modal').style.display = 'none';
-                }
-                function confirmerEnvoiMail() {
-                    document.getElementById('comptable-form').submit();
-                }
-                </script>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>2. Importer le projet</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">

@@ -186,10 +186,6 @@ if (is_post()) {
             'pays'                => trim((string)post('pays', 'France')),
             'telephone'           => trim((string)post('telephone', '')),
             'email'               => trim((string)post('email', '')),
-            'comptable_email'     => trim((string)post('comptable_email', '')),
-            'comptable_nom'       => trim((string)post('comptable_nom', '')),
-            'comptable_telephone' => trim((string)post('comptable_telephone', '')),
-            'comptable_societe'   => trim((string)post('comptable_societe', '')),
             'site_web'            => trim((string)post('site_web', '')),
             // Réseaux sociaux
             'facebook_url'        => trim((string)post('facebook_url', '')),
@@ -1789,40 +1785,6 @@ $pageTitle = 'Fiche société';
                 <span class="rs-input-icon">✉️</span>
                 <input type="email" name="email" class="rs-input"
                        value="<?= h($v['email'] ?? '') ?>" placeholder="contact@agence.fr">
-              </div>
-            </div>
-            <div class="rs-field">
-              <label class="rs-label">📊 E-mail comptable
-                <span style="font-weight:400;color:#94a3b8;font-size:11px;">(envoi PDF salaires/congés)</span>
-              </label>
-              <div class="rs-input-wrap">
-                <span class="rs-input-icon">📊</span>
-                <input type="email" name="comptable_email" class="rs-input"
-                       value="<?= h($v['comptable_email'] ?? '') ?>" placeholder="comptable@cabinet-comptable.fr">
-              </div>
-            </div>
-            <div class="rs-field">
-              <label class="rs-label">👤 Nom du comptable</label>
-              <div class="rs-input-wrap">
-                <span class="rs-input-icon">👤</span>
-                <input type="text" name="comptable_nom" class="rs-input"
-                       value="<?= h($v['comptable_nom'] ?? '') ?>" placeholder="ex. Marie-Charlotte SAGNOL" maxlength="120">
-              </div>
-            </div>
-            <div class="rs-field">
-              <label class="rs-label">📞 Tél. comptable</label>
-              <div class="rs-input-wrap">
-                <span class="rs-input-icon">📞</span>
-                <input type="tel" name="comptable_telephone" class="rs-input"
-                       value="<?= h($v['comptable_telephone'] ?? '') ?>" placeholder="ex. 04 73 00 00 00" maxlength="50">
-              </div>
-            </div>
-            <div class="rs-field">
-              <label class="rs-label">🏢 Cabinet comptable</label>
-              <div class="rs-input-wrap">
-                <span class="rs-input-icon">🏢</span>
-                <input type="text" name="comptable_societe" class="rs-input"
-                       value="<?= h($v['comptable_societe'] ?? '') ?>" placeholder="ex. In Extenso" maxlength="190">
               </div>
             </div>
             <div class="rs-field">
