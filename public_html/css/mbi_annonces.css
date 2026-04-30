@@ -127,8 +127,10 @@
 .mbi-btn-search { padding: 12px 22px; }
 
 /* ===== Hero (avec photo immersive) =====
-   Pour personnaliser le visuel : déposer un fichier 1920×800px (jpg/webp)
-   à /images/mbi_annonces_hero.jpg — il remplacera Home.png automatiquement.
+   Priorité d'affichage (le 1er trouvé l'emporte) :
+   1. /images/mbi_annonces_hero.jpg  (fichier perso, à uploader si voulu)
+   2. CDN Unsplash — maison moderne lumineuse (fallback par défaut)
+   3. /images/Home.png                (fallback ultime)
    ============================================================= */
 .mbi-hero {
   position: relative;
@@ -136,12 +138,12 @@
   text-align: center;
   color: #fff;
   background:
-    linear-gradient(180deg, rgba(20,20,30,0.55) 0%, rgba(20,20,30,0.35) 50%, rgba(20,20,30,0.55) 100%),
+    linear-gradient(180deg, rgba(20,20,30,0.55) 0%, rgba(20,20,30,0.30) 50%, rgba(20,20,30,0.60) 100%),
     url('/images/mbi_annonces_hero.jpg') center/cover no-repeat,
+    url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1920&q=80') center/cover no-repeat,
     url('/images/Home.png') center/cover no-repeat,
     #2a2a2a;
-  background-blend-mode: normal, normal, normal, normal;
-  min-height: 460px;
+  min-height: 520px;
   display: flex;
   align-items: center;
 }
