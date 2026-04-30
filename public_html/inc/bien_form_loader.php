@@ -27,13 +27,36 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
 
     // Migration 20260430_bien_types : la nouvelle table `bien_types` est
     // la source de vérité (via biens.id_bien_type). Fallback gracieux sur
-    // base_types_bien pour les biens dont id_bien_type ne serait pas
+    // la table legacy pour les biens dont id_bien_type ne serait pas
     // encore backfillé (cas résiduel post-migration).
+    //
+    // CRITIQUE : le JOIN legacy doit utiliser la MÊME table que celle où
+    // bien_type_helper.bien_type_resolve() écrit id_type_bien — sinon les
+    // ids ne correspondent pas (constaté : base_types_bien.appartement=1
+    // alors que types_bien.appartement=2 → JOIN faux → bouton type incohérent
+    // après autosave). Source de vérité legacy = types_bien_legacy (ou
+    // types_bien si la migration de rename n'est pas encore appliquée).
+    $legacyTable = 'types_bien_legacy';
+    $legacyLabelCol = 'libelle';
+    try {
+        $exists = (bool)$pdo->query("SHOW TABLES LIKE 'types_bien_legacy'")->fetchColumn();
+        if (!$exists) {
+            $existsOld = (bool)$pdo->query("SHOW TABLES LIKE 'types_bien'")->fetchColumn();
+            if ($existsOld) {
+                $legacyTable = 'types_bien';
+            } else {
+                // Dernier fallback : base_types_bien (col label, pas libelle)
+                $legacyTable = 'base_types_bien';
+                $legacyLabelCol = 'label';
+            }
+        }
+    } catch (Throwable) {}
+
     $sql = "
         SELECT
             b.*,
             COALESCE(bt.code,    btb.code)    AS _type_bien_code,
-            COALESCE(bt.libelle, btb.label)   AS _type_bien_libelle,
+            COALESCE(bt.libelle, btb.{$legacyLabelCol})   AS _type_bien_libelle,
             i.adresse_1 AS _imm_adresse_1,
             i.adresse_2 AS _imm_adresse_2,
             i.code_postal AS _imm_code_postal,
@@ -43,7 +66,7 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
             i.longitude AS _imm_longitude
         FROM biens b
         LEFT JOIN bien_types       bt  ON bt.id  = b.id_bien_type
-        LEFT JOIN base_types_bien  btb ON btb.id = b.id_type_bien
+        LEFT JOIN {$legacyTable}   btb ON btb.id = b.id_type_bien
         LEFT JOIN immeubles        i   ON i.id   = b.id_immeuble
         WHERE b.id = :id
         " . ($idSociete !== null ? " AND (b.id_societe = :soc OR b.id_societe IS NULL)" : "") . "

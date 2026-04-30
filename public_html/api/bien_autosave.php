@@ -581,12 +581,34 @@ $typeBienCode = $str('type_bien');
 if ($typeBienCode !== '') {
     require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
     $resolved = bien_type_resolve($pdo, $typeBienCode);
-    if ($resolved['id_bien_type'] !== null) {
-        $data['id_bien_type'] = $resolved['id_bien_type'];
+
+    // CRITIQUE : on FORCE l'écriture des deux colonnes même si l'une retourne
+    // null. Sans ça, l'ancienne valeur reste en BDD (cas observé : user clique
+    // "Appartement" → id_type_bien mis à jour vers legacy.appartement, mais
+    // id_bien_type ne change pas → reste sur l'ancien type "maison" → le
+    // COALESCE(bt.code, btb.code) au reload prend bt.code='maison' en priorité.
+    //
+    // Garde : ne pas tenter d'écrire id_bien_type si la colonne n'existe pas
+    // (instances pré-migration 20260430_bien_types). On détecte une seule fois
+    // par requête et on cache via static.
+    static $hasIdBienTypeCol = null;
+    if ($hasIdBienTypeCol === null) {
+        try {
+            $hasIdBienTypeCol = (bool)$pdo->query("SHOW COLUMNS FROM biens LIKE 'id_bien_type'")->fetchColumn();
+        } catch (Throwable) { $hasIdBienTypeCol = false; }
     }
-    if ($resolved['id_type_bien'] !== null) {
-        $data['id_type_bien'] = $resolved['id_type_bien'];
+    if ($hasIdBienTypeCol) {
+        $data['id_bien_type'] = $resolved['id_bien_type']; // peut être NULL si pas trouvé
     }
+    $data['id_type_bien'] = $resolved['id_type_bien']; // peut être NULL si pas trouvé
+
+    error_log(sprintf(
+        '[bien_autosave] type_bien resolution — code=%s id_bien_type=%s id_type_bien=%s (col_new_exists=%s)',
+        $typeBienCode,
+        $resolved['id_bien_type'] === null ? 'NULL' : (string)$resolved['id_bien_type'],
+        $resolved['id_type_bien'] === null ? 'NULL' : (string)$resolved['id_type_bien'],
+        $hasIdBienTypeCol ? '1' : '0'
+    ));
 }
 
 // ══════════════════════════════════════════════════════════════
