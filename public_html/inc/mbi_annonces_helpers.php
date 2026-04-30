@@ -181,7 +181,7 @@ if (!function_exists('mbi_annonces_fetch_list')) {
             $stC->execute($params);
             $total = (int)$stC->fetchColumn();
         } catch (Throwable $e) {
-            if (APP_DEBUG ?? false) error_log('[mbi_annonces] count failed: ' . $e->getMessage());
+            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] count failed: ' . $e->getMessage());
             return ['items' => [], 'total' => 0, 'page' => $page, 'per_page' => $perPage, 'total_pages' => 1];
         }
 
@@ -208,31 +208,15 @@ if (!function_exists('mbi_annonces_fetch_list')) {
                 ag.nom_agence,
                 ag.slug           AS agence_slug,
                 (
-                  SELECT COALESCE(ap.url_webp, ap.url_photo)
+                  SELECT ap.url_photo
                   FROM annonces_photos ap
-                  WHERE ap.id_annonce = a.id AND ap.variante IN ('medium','large','original')
-                  ORDER BY (ap.variante='medium') DESC, (ap.variante='large') DESC, ap.principale DESC, ap.ordre_affichage ASC, ap.id ASC
+                  WHERE ap.id_annonce = a.id
+                  ORDER BY ap.principale DESC, ap.ordre_affichage ASC, ap.id ASC
                   LIMIT 1
                 ) AS photo_url,
-                (
-                  SELECT ap.largeur FROM annonces_photos ap
-                  WHERE ap.id_annonce = a.id AND ap.variante IN ('medium','large','original')
-                  ORDER BY (ap.variante='medium') DESC, (ap.variante='large') DESC, ap.principale DESC, ap.ordre_affichage ASC, ap.id ASC
-                  LIMIT 1
-                ) AS photo_w,
-                (
-                  SELECT ap.hauteur FROM annonces_photos ap
-                  WHERE ap.id_annonce = a.id AND ap.variante IN ('medium','large','original')
-                  ORDER BY (ap.variante='medium') DESC, (ap.variante='large') DESC, ap.principale DESC, ap.ordre_affichage ASC, ap.id ASC
-                  LIMIT 1
-                ) AS photo_h,
-                (
-                  SELECT COALESCE(ap.caption, ap.alt_photo, ap.titre)
-                  FROM annonces_photos ap
-                  WHERE ap.id_annonce = a.id AND ap.variante IN ('medium','large','original')
-                  ORDER BY (ap.variante='medium') DESC, (ap.variante='large') DESC, ap.principale DESC, ap.ordre_affichage ASC, ap.id ASC
-                  LIMIT 1
-                ) AS photo_alt
+                NULL AS photo_w,
+                NULL AS photo_h,
+                NULL AS photo_alt
             $joinFrom
             LEFT JOIN agences ag ON ag.id = a.id_agence
             $whereClause
@@ -245,7 +229,7 @@ if (!function_exists('mbi_annonces_fetch_list')) {
             $st->execute($params);
             $items = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
-            if (APP_DEBUG ?? false) error_log('[mbi_annonces] fetch failed: ' . $e->getMessage());
+            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] fetch failed: ' . $e->getMessage());
             $items = [];
         }
 
@@ -340,7 +324,7 @@ if (!function_exists('mbi_annonces_fetch_detail')) {
             $row = $st->fetch(PDO::FETCH_ASSOC);
             return $row ?: null;
         } catch (Throwable $e) {
-            if (APP_DEBUG ?? false) error_log('[mbi_annonces] detail failed: ' . $e->getMessage());
+            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] detail failed: ' . $e->getMessage());
             return null;
         }
     }
@@ -350,6 +334,8 @@ if (!function_exists('mbi_annonces_fetch_photos')) {
     function mbi_annonces_fetch_photos(PDO $pdo, int $annonceId): array
     {
         if ($annonceId <= 0) return [];
+        // Tente d'abord avec colonnes SEO (migration_annonces_photos_seo.sql).
+        // Fallback sur les colonnes minimales si la migration n'est pas appliquée.
         try {
             $st = $pdo->prepare("
                 SELECT id, url_photo, url_webp, largeur, hauteur, variante,
@@ -360,9 +346,23 @@ if (!function_exists('mbi_annonces_fetch_photos')) {
             ");
             $st->execute([$annonceId]);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        } catch (Throwable $e) {
-            if (APP_DEBUG ?? false) error_log('[mbi_annonces] photos failed: ' . $e->getMessage());
-            return [];
+        } catch (Throwable) {
+            // Fallback : colonnes minimales toujours présentes
+            try {
+                $st = $pdo->prepare("
+                    SELECT id, url_photo, NULL AS url_webp, NULL AS largeur, NULL AS hauteur,
+                           'original' AS variante, titre, alt_photo, NULL AS caption,
+                           principale, ordre_affichage
+                    FROM annonces_photos
+                    WHERE id_annonce = ?
+                    ORDER BY ordre_affichage ASC, principale DESC, id ASC
+                ");
+                $st->execute([$annonceId]);
+                return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable $e2) {
+                if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] photos failed: ' . $e2->getMessage());
+                return [];
+            }
         }
     }
 }
@@ -582,7 +582,7 @@ if (!function_exists('mbi_annonces_fetch_agences_with_annonces')) {
             $st->execute($statuses);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
-            if (APP_DEBUG ?? false) error_log('[mbi_annonces] agences list failed: ' . $e->getMessage());
+            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] agences list failed: ' . $e->getMessage());
             return [];
         }
     }
@@ -614,7 +614,7 @@ if (!function_exists('mbi_annonces_fetch_types_bien_with_annonces')) {
             $st->execute($statuses);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
-            if (APP_DEBUG ?? false) error_log('[mbi_annonces] types_bien list failed: ' . $e->getMessage());
+            if (defined('APP_DEBUG') && APP_DEBUG) error_log('[mbi_annonces] types_bien list failed: ' . $e->getMessage());
             return [];
         }
     }
