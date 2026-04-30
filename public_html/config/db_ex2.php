@@ -108,19 +108,7 @@ function db_reconnect_fresh(): PDO
 }
 
 // ── Credentials FTP Ubiflow (fichier non versionné) ──────────────────
-// Cherche dans plusieurs emplacements (premier trouvé gagne) :
-//   1. /home/u630423897/ubiflow_credentials.local.php  (Hostinger root, recommandé prod)
-//   2. /home/u630423897/domains/maboximmo.fr/ubiflow_credentials.local.php (alternative)
-//   3. public_html/config/ubiflow_credentials.local.php (legacy / local XAMPP)
-$_possibleUbifCreds = [
-    '/home/u630423897/ubiflow_credentials.local.php',
-    __DIR__ . '/../../ubiflow_credentials.local.php',
-    __DIR__ . '/../../../ubiflow_credentials.local.php',
-    __DIR__ . '/ubiflow_credentials.local.php',
-];
-foreach ($_possibleUbifCreds as $_ubifCred) {
-    if (is_file($_ubifCred) && is_readable($_ubifCred)) {
-        require_once $_ubifCred;
-        break;
-    }
+$_ubifCred = __DIR__ . '/ubiflow_credentials.local.php';
+if (is_file($_ubifCred)) {
+    require_once $_ubifCred;
 }
