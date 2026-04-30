@@ -123,6 +123,13 @@ try {
                     $appendGroup($dom, $bienNode, 'diagnostiques', $data['diagnostiques']);
                 }
                 $appendGroup($dom, $annonceNode, 'prestation', $data['prestation']);
+                // Bloc <contact> : négociateur attribué (mobile + fixe + email)
+                // → repris par LBC pour l'affichage du contact sur la page annonce.
+                // (Idem inc/ubiflow_build.php qui duplique cette logique pour
+                //  la diffusion unitaire depuis api/annonce_diffuser.php.)
+                if (!empty($data['contact'])) {
+                    $appendGroup($dom, $annonceNode, 'contact', $data['contact']);
+                }
                 $clientNode->appendChild($annonceNode);
                 $count++;
             }
