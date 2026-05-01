@@ -20,7 +20,10 @@
 </IfModule>
 
 # ── Page d'accueil par défaut ────────────────────────────────────────
-DirectoryIndex default.php index.php
+# Priorité : portail public d'annonces (mbi_annonces_index.php).
+# Fallback : default.php (portail pro), puis index.php (redirect 302 vers
+# mbi_annonces_index.php au cas où Apache lit cet index avant default).
+DirectoryIndex mbi_annonces_index.php default.php index.php
 
 # ── Protection des fichiers de configuration ─────────────────────────
 # Empêche le téléchargement direct des fichiers sensibles via URL.
