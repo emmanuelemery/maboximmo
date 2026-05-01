@@ -230,11 +230,10 @@
   min-height: 720px;
   padding: 45px 6vw 28px;
   overflow: hidden;
-  /* UNE seule image (pas de cascade) + couleur fallback unie → first paint instant
-     sans flash multi-images. Pas de ::before avec backdrop-filter (= source du
-     strobe de double compositing GPU). */
+  /* UNE seule image + couleur fallback unie → first paint instant.
+     Path relatif au fichier CSS (../images/) → marche sur local XAMPP ET prod. */
   background-color: #eef2f6;
-  background-image: url('/images/maboximmo_puzzle_fond_seul.png');
+  background-image: url('../images/maboximmo_puzzle_fond_seul.png');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -280,6 +279,9 @@
   -webkit-backdrop-filter: blur(18px);
           backdrop-filter: blur(18px);
   padding: 18px;
+  /* GPU layer pour stabiliser le compositing du backdrop-filter au paint initial */
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .mbi-fcard-title {
