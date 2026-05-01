@@ -53,6 +53,9 @@ $sbLinkAgence  = './rh_agence_user.php';
     <div class="sb-group info">
         <div class="sb-section">Mes infos</div>
         <ul class="sb-nav">
+            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbUserActive('ged_dashboard.php') ?><?= $sbUserActive('ged_inbox.php') ?>">
+                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
+            </a></li>
             <li><a href="./rh_dashboard_user.php" class="<?= $sbUserActive('rh_dashboard_user.php') ?>">
                 <span class="sb-icon">🏠</span><span class="sb-label">Tableau de bord</span>
             </a></li>
@@ -67,20 +70,6 @@ $sbLinkAgence  = './rh_agence_user.php';
             </a></li>
             <li><a href="<?= $sbLinkAgence ?>" class="<?= $sbUserActive(basename($sbLinkAgence)) ?>">
                 <span class="sb-icon">🏢</span><span class="sb-label">Mon agence</span>
-            </a></li>
-        </ul>
-    </div>
-
-    <div class="sb-divider"></div>
-
-    <!-- ═══════════════════════════
-         OUTILS MABOXIMMO
-    ═══════════════════════════ -->
-    <div class="sb-group">
-        <div class="sb-section">Outils MaBoxImmo</div>
-        <ul class="sb-nav">
-            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbUserActive('ged_dashboard.php') ?>">
-                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
             </a></li>
         </ul>
     </div>

@@ -9,6 +9,7 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
 
     <div class="mbi-sidebar-section">Principal</div>
     <ul class="mbi-nav">
+        <li><a href="modules/ged/ged_dashboard.php" <?=(in_array($currentPage, ['ged_dashboard.php','ged_inbox.php'], true) ? 'class="active"' : '')?>>📦 Ma GED Box</a></li>
         <li><a href="dashboard_syndic.php" <?=($currentPage === 'dashboard_syndic.php' ? 'class="active"' : '')?>>⊞ Dashboard</a></li>
         <li><a href="landing.php">← Retour Accueil</a></li>
     </ul>
@@ -26,11 +27,6 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
     <ul class="mbi-nav">
         <li><a href="docs_syndic.php" <?=($currentPage === 'docs_syndic.php' ? 'class="active"' : '')?>>📁 Documents</a></li>
         <li><a href="archives_syndic.php" <?=($currentPage === 'archives_syndic.php' ? 'class="active"' : '')?>>🗂️ Archives</a></li>
-    </ul>
-
-    <div class="mbi-sidebar-section">Outils MaBoxImmo</div>
-    <ul class="mbi-nav">
-        <li><a href="modules/ged/ged_dashboard.php" <?=($currentPage === 'ged_dashboard.php' ? 'class="active"' : '')?>>📦 Ma GED Box</a></li>
     </ul>
 
     <div class="mbi-sidebar-section">Compte</div>

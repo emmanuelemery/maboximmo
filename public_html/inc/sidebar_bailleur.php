@@ -34,6 +34,9 @@ $sbActive = static function (string ...$pages) use ($currentPage): string {
     <div class="sb-group nav">
         <div class="sb-section">Gestion</div>
         <ul class="sb-nav">
+            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbActive('ged_dashboard.php', 'ged_inbox.php') ?>">
+                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
+            </a></li>
             <li><a href="./bailleur_dashboard.php" class="<?= $sbActive('bailleur_dashboard.php') ?>">
                 <span class="sb-icon">📊</span><span class="sb-label">Dashboard</span>
             </a></li>
@@ -125,20 +128,6 @@ $sbActive = static function (string ...$pages) use ($currentPage): string {
             </a></li>
             <li><a href="./investisseur/contacts.php" class="<?= $sbActive('contacts.php') && strpos($_SERVER['SCRIPT_NAME'] ?? '', '/investisseur/') !== false ? 'active' : '' ?>">
                 <span class="sb-icon">👤</span><span class="sb-label">Contacts &amp; partages</span>
-            </a></li>
-        </ul>
-    </div>
-
-    <div class="sb-divider"></div>
-
-    <!-- ═══════════════════════════
-         OUTILS MABOXIMMO
-    ═══════════════════════════ -->
-    <div class="sb-group">
-        <div class="sb-section">Outils MaBoxImmo</div>
-        <ul class="sb-nav">
-            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbActive('ged_dashboard.php') ? 'active' : '' ?>">
-                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
             </a></li>
         </ul>
     </div>

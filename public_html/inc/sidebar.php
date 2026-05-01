@@ -66,6 +66,12 @@ function renderSidebarSection(string $title, string $icon, array $items, string 
  */
 $sectionNavigation = [
     [
+        'label' => 'Ma GED Box',
+        'url'   => '/public_html/modules/ged/ged_dashboard.php',
+        'page'  => 'ged_dashboard.php',
+        'icon'  => '📦',
+    ],
+    [
         'label' => 'Ma Box Agency',
         'url'   => '/public_html/agency/dashboard.php',
         'page'  => 'dashboard.php',
@@ -278,16 +284,6 @@ $sectionSuperAdmin = [
         <?php endif; ?>
 
         <?php
-        $sectionOutils = [
-            [
-                'label' => 'Ma GED Box',
-                'url'   => '/public_html/modules/ged/ged_dashboard.php',
-                'page'  => 'ged_dashboard.php',
-                'icon'  => '📦',
-            ],
-        ];
-        renderSidebarSection('Outils MaBoxImmo', '🧰', $sectionOutils, $currentPage);
-
         $sectionCompte = [
             [
                 'label' => 'Paramètres',
