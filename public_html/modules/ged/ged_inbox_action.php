@@ -13,6 +13,15 @@ declare(strict_types=1);
  *   preview   : GET id → stream le fichier local en quarantaine (PDF/image inline)
  */
 
+// ── Mode défensif JSON : suppress display_errors AVANT bootstrap pour éviter
+//    les warnings HTML qui parasiteraient la réponse JSON et casseraient le parse client.
+$__action = $_REQUEST['action'] ?? '';
+if ($__action !== 'preview') {
+    @ini_set('display_errors', '0');
+    error_reporting(E_ALL);
+    ob_start();
+}
+
 require_once __DIR__ . '/../../inc/bootstrap.php';
 require_login();
 require_once __DIR__ . '/ged_functions.php';
@@ -24,6 +33,23 @@ $userId = current_user_id();
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $agenceId  = (int)($_SESSION['id_agence']  ?? 0);
 $isAdmin   = in_array(current_role_id(), [1, 7, 8], true);
+
+// ── Filet de sécurité : si fatal error, on renvoie quand même du JSON ────────
+register_shutdown_function(function () use ($__action) {
+    if ($__action === 'preview') return;
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        while (ob_get_level()) @ob_end_clean();
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'ok'      => false,
+            'message' => 'Erreur fatale serveur : ' . $err['message'] . ' @ ' . basename($err['file']) . ':' . $err['line'],
+        ], JSON_UNESCAPED_UNICODE);
+    }
+});
 
 // ── Action `preview` (GET) ──────────────────────────────────────────────────
 if ($action === 'preview') {
@@ -61,10 +87,17 @@ if ($action === 'preview') {
 }
 
 // ── Toutes les autres actions retournent du JSON ────────────────────────────
+// On vide tout buffer accumulé (warnings HTML éventuels) avant d'écrire le JSON.
+while (ob_get_level()) @ob_end_clean();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, must-revalidate, private');
 
 function inbox_respond(bool $ok, string $msg = '', array $extra = []): void {
+    while (ob_get_level()) @ob_end_clean();
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
     echo json_encode(array_merge(['ok' => $ok, 'message' => $msg], $extra), JSON_UNESCAPED_UNICODE);
     exit;
 }

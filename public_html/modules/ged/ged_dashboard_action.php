@@ -9,15 +9,41 @@ declare(strict_types=1);
  *   - validate / reject / reanalyze / ocr_free / ocr_premium
  */
 
+// Mode défensif JSON : aucun warning HTML ne doit polluer la réponse.
+@ini_set('display_errors', '0');
+error_reporting(E_ALL);
+ob_start();
+
 require_once __DIR__ . '/../../inc/bootstrap.php';
 require_login();
 require_once __DIR__ . '/ged_functions.php';
 
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        while (ob_get_level()) @ob_end_clean();
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'ok'      => false,
+            'message' => 'Erreur fatale serveur : ' . $err['message'] . ' @ ' . basename($err['file']) . ':' . $err['line'],
+        ], JSON_UNESCAPED_UNICODE);
+    }
+});
+
+while (ob_get_level()) @ob_end_clean();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, must-revalidate, private');
 
 function ged_respond(bool $ok, string $message = '', array $extra = []): void
 {
+    while (ob_get_level()) @ob_end_clean();
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
     echo json_encode(array_merge(['ok' => $ok, 'message' => $message], $extra), JSON_UNESCAPED_UNICODE);
     exit;
 }
