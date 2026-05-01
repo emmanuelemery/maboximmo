@@ -71,9 +71,17 @@ try {
     $bien = $st->fetch(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable) { $bien = []; }
 
-// Charge les photos pour le sélecteur de photo héro
+// Charge les photos pour le sélecteur de photo héro (schéma réel biens_photos)
 try {
-    $st = $pdo->prepare("SELECT id, COALESCE(legende, alt_text, caption, '') AS lib, ordre FROM biens_photos WHERE id_bien = :b ORDER BY ordre, id");
+    $st = $pdo->prepare("
+        SELECT id,
+               COALESCE(NULLIF(categorie, ''), '') AS categorie,
+               COALESCE(NULLIF(description_ia, ''), nom_original, '') AS lib,
+               ordre, url_photo
+        FROM biens_photos
+        WHERE id_bien = :b
+        ORDER BY ordre, id
+    ");
     $st->execute([':b' => $idBien]);
     $photos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable) { $photos = []; }
@@ -374,8 +382,14 @@ $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
         <select id="hero" name="photo_hero_id_personnalise">
           <option value="">— auto (1ʳᵉ photo ou suggestion IA) —</option>
           <?php foreach ($photos as $p): ?>
+            <?php
+              $libParts = [];
+              $libParts[] = '#' . (int)$p['ordre'];
+              if (!empty($p['categorie'])) $libParts[] = mb_strtolower((string)$p['categorie']);
+              if (!empty($p['lib']))       $libParts[] = '« ' . mb_substr((string)$p['lib'], 0, 40) . ' »';
+            ?>
             <option value="<?= (int)$p['id'] ?>" <?= $formHero === (int)$p['id'] ? 'selected' : '' ?>>
-              Photo #<?= (int)$p['id'] ?><?= $p['lib'] !== '' ? ' — ' . mbisedit_h(mb_substr((string)$p['lib'], 0, 40)) : '' ?>
+              <?= mbisedit_h(implode(' · ', $libParts)) ?>
             </option>
           <?php endforeach; ?>
         </select>

@@ -163,12 +163,19 @@ if (!function_exists('mbi_supports_resoudre_photo_path')) {
     /**
      * Renvoie le chemin absolu d'une photo si elle existe sur le disque,
      * sinon null (le template affichera un placeholder).
+     *
+     * Schéma réel `biens_photos` : champ unique `url_photo` (relatif depuis
+     * public_html/), ex: "uploads/biens/<id_societe>/<id_bien>/01_<hash>.jpg".
+     * Les autres candidats (url_webp, url, chemin, file, path) sont gardés
+     * comme fallback pour compatibilité avec d'éventuelles autres tables.
      */
     function mbi_supports_resoudre_photo_path(array $photo): ?string
     {
         $candidats = [
+            $photo['url_photo']     ?? null,   // ← schéma réel biens_photos
             $photo['url_webp']      ?? null,
             $photo['url']           ?? null,
+            $photo['url_lbc']       ?? null,
             $photo['chemin']        ?? null,
             $photo['file']          ?? null,
             $photo['path']          ?? null,
@@ -176,8 +183,15 @@ if (!function_exists('mbi_supports_resoudre_photo_path')) {
         $rootPublic = __DIR__ . '/..';
         foreach ($candidats as $rel) {
             if (!is_string($rel) || $rel === '') continue;
+            // Tente d'abord en relatif depuis public_html
             $abs = $rel[0] === '/' ? ($rootPublic . $rel) : ($rootPublic . '/' . $rel);
             if (is_file($abs) && is_readable($abs)) return $abs;
+            // Tente en strippant un éventuel préfixe public_html/ ou /public_html/
+            $stripped = preg_replace('#^/?public_html/#', '', $rel);
+            if (is_string($stripped) && $stripped !== $rel) {
+                $abs2 = $rootPublic . '/' . ltrim($stripped, '/');
+                if (is_file($abs2) && is_readable($abs2)) return $abs2;
+            }
         }
         return null;
     }
@@ -185,24 +199,32 @@ if (!function_exists('mbi_supports_resoudre_photo_path')) {
 
 if (!function_exists('mbi_supports_photo_hero')) {
     /**
-     * Renvoie la photo héro :
-     *   - photo dont is_hero/hero = 1, OU
-     *   - photo avec id = $heroIdPreference (issu du score IA), OU
-     *   - 1re photo de la liste
-     * @param array $photos    Liste biens_photos
-     * @param ?int  $preferenceId  ID préféré (suggéré par l'IA via le score)
+     * Renvoie la photo héro selon priorité :
+     *   1. photo avec id = $preferenceId (suggérée par l'IA via le score / éditeur)
+     *   2. photo avec is_hero/hero = 1 (compat éventuelle autre table)
+     *   3. photo avec ordre = 1 (convention biens_photos : 1ère photo = héro)
+     *   4. 1re photo de la liste (fallback)
+     * @param array $photos       Liste biens_photos
+     * @param ?int  $preferenceId  ID préféré (suggéré par l'IA ou via l'éditeur)
      */
     function mbi_supports_photo_hero(array $photos, ?int $preferenceId = null): ?array
     {
         if (empty($photos)) return null;
+        // 1. Préférence explicite (éditeur / IA)
         if ($preferenceId !== null && $preferenceId > 0) {
             foreach ($photos as $p) {
                 if ((int)($p['id'] ?? 0) === $preferenceId) return $p;
             }
         }
+        // 2. Champ is_hero/hero (compat schémas alternatifs)
         foreach ($photos as $p) {
             if ((int)($p['is_hero'] ?? $p['hero'] ?? 0) === 1) return $p;
         }
+        // 3. Convention biens_photos : ordre = 1
+        foreach ($photos as $p) {
+            if ((int)($p['ordre'] ?? 0) === 1) return $p;
+        }
+        // 4. Fallback
         return $photos[0];
     }
 }
