@@ -36,15 +36,18 @@ require_once __DIR__ . '/mbi_supports_score_ia.php';
 if (!function_exists('mbi_supports_score_calculer')) {
 
     /**
-     * @param int    $id_bien
-     * @param int    $id_user        User déclencheur
-     * @param string $mode           'deterministe' | 'ia' | 'hybride'
+     * @param int     $id_bien
+     * @param int     $id_user        User déclencheur
+     * @param string  $mode           'deterministe' | 'ia' | 'hybride'
+     * @param ?string $modele         Alias 'haiku' / 'sonnet' / 'opus' ou ID complet.
+     *                                Null = MBI_SUPPORTS_SCORE_MODEL (haiku par défaut).
      * @return array{ok:bool, score_id:int, score:?int, statut:string, erreur:?string, data:array}
      */
-    function mbi_supports_score_calculer(int $id_bien, int $id_user, string $mode = 'hybride'): array
+    function mbi_supports_score_calculer(int $id_bien, int $id_user, string $mode = 'hybride', ?string $modele = null): array
     {
         $modesValides = ['deterministe', 'ia', 'hybride'];
         if (!in_array($mode, $modesValides, true)) $mode = 'hybride';
+        $modeleId = mbi_supports_ia_modele_id($modele);
 
         $pdo = $GLOBALS['pdo'] ?? db();
 
@@ -66,7 +69,7 @@ if (!function_exists('mbi_supports_score_calculer')) {
         $idAgence  = (int)($bien['id_agence']  ?? 0);
 
         try {
-            $scoreId = mbi_supports_score_insert_draft($pdo, $id_bien, $id_user, $idSociete, $idAgence, $mode);
+            $scoreId = mbi_supports_score_insert_draft($pdo, $id_bien, $id_user, $idSociete, $idAgence, $mode, $modeleId);
         } catch (Throwable $e) {
             error_log('[mbi_supports_score INSERT draft] ' . $e->getMessage());
             return [
@@ -97,7 +100,7 @@ if (!function_exists('mbi_supports_score_calculer')) {
         $iaErreur     = null;
 
         if ($mode === 'ia' || $mode === 'hybride') {
-            $ia = mbi_supports_ia_analyser($bien, $photos, $deterministe);
+            $ia = mbi_supports_ia_analyser($bien, $photos, $deterministe, $modeleId);
             if ($ia['ok']) {
                 $iaData       = $ia['data'];
                 $iaModele     = $ia['modele'];
@@ -113,7 +116,7 @@ if (!function_exists('mbi_supports_score_calculer')) {
         // 6. UPDATE final
         try {
             mbi_supports_score_finaliser($pdo, $scoreId, $deterministe, $iaData, [
-                'modele_ia'        => $iaModele ?? MBI_SUPPORTS_SCORE_MODEL,
+                'modele_ia'        => $iaModele ?? $modeleId,
                 'cout_centimes'    => $iaCout,
                 'confidence_score' => $iaConfidence,
                 'derniere_erreur'  => $iaErreur,
@@ -243,7 +246,7 @@ if (!function_exists('mbi_supports_score_load_photos')) {
 }
 
 if (!function_exists('mbi_supports_score_insert_draft')) {
-    function mbi_supports_score_insert_draft(PDO $pdo, int $id_bien, int $id_user, int $id_societe, int $id_agence, string $mode): int
+    function mbi_supports_score_insert_draft(PDO $pdo, int $id_bien, int $id_user, int $id_societe, int $id_agence, string $mode, ?string $modele = null): int
     {
         $st = $pdo->prepare("
             INSERT INTO bien_score_commercial
@@ -260,7 +263,7 @@ if (!function_exists('mbi_supports_score_insert_draft')) {
             ':ag'   => $id_agence,
             ':mode' => $mode,
             ':pv'   => MBI_SUPPORTS_SCORE_PROMPT_VERSION,
-            ':mod'  => MBI_SUPPORTS_SCORE_MODEL,
+            ':mod'  => $modele ?? MBI_SUPPORTS_SCORE_MODEL,
         ]);
         return (int)$pdo->lastInsertId();
     }

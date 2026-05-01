@@ -29,6 +29,8 @@ $idBien = isset($_GET['id_bien']) && ctype_digit((string)$_GET['id_bien'])
 $doCalc = isset($_GET['calc']) && $_GET['calc'] === '1';
 $mode   = $_GET['mode'] ?? 'hybride';
 if (!in_array($mode, ['deterministe','ia','hybride'], true)) $mode = 'hybride';
+$modeleAlias = (string)($_GET['modele'] ?? 'haiku');
+if (!in_array($modeleAlias, ['haiku','sonnet','opus'], true)) $modeleAlias = 'haiku';
 
 $result   = null;
 $score    = null;
@@ -37,7 +39,7 @@ $bienInfo = null;
 
 // ─── Calcul si demandé ─────────────────────────────────────────────────────
 if ($idBien > 0 && $doCalc) {
-    $result = mbi_supports_score_calculer($idBien, current_user_id(), $mode);
+    $result = mbi_supports_score_calculer($idBien, current_user_id(), $mode, $modeleAlias);
 }
 
 // ─── Lecture du dernier score ──────────────────────────────────────────────
@@ -208,8 +210,15 @@ $iaCommentaire = (string)($snapshot['ia_commentaire'] ?? '');
     <label>Mode
       <select name="mode">
         <option value="hybride"      <?=$mode==='hybride'?'selected':''?>>Hybride (déterministe + IA)</option>
-        <option value="deterministe" <?=$mode==='deterministe'?'selected':''?>>Déterministe seul</option>
-        <option value="ia"           <?=$mode==='ia'?'selected':''?>>IA seule (déterministe quand même calculé)</option>
+        <option value="deterministe" <?=$mode==='deterministe'?'selected':''?>>Déterministe seul (gratuit)</option>
+        <option value="ia"           <?=$mode==='ia'?'selected':''?>>IA seule</option>
+      </select>
+    </label>
+    <label>Modèle IA
+      <select name="modele">
+        <option value="haiku"  <?=$modeleAlias==='haiku' ?'selected':''?>>Haiku 4.5  — quasi gratuit (~0.1¢)</option>
+        <option value="sonnet" <?=$modeleAlias==='sonnet'?'selected':''?>>Sonnet 4.6 — équilibré (~0.5¢)</option>
+        <option value="opus"   <?=$modeleAlias==='opus'  ?'selected':''?>>Opus 4.7   — premium (~2¢)</option>
       </select>
     </label>
     <button class="btn btn-secondary" type="submit">Voir score actuel</button>

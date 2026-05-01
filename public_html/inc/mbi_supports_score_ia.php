@@ -42,27 +42,52 @@ declare(strict_types=1);
 if (!defined('MBI_SUPPORTS_SCORE_PROMPT_VERSION')) {
     define('MBI_SUPPORTS_SCORE_PROMPT_VERSION', '2026-05-01.v1');
 }
+// Modèle par défaut : Haiku 4.5 (5× moins cher que Sonnet) — adapté à la
+// phase test/début. Surchageable via paramètre $modele de l'API publique.
 if (!defined('MBI_SUPPORTS_SCORE_MODEL')) {
-    define('MBI_SUPPORTS_SCORE_MODEL', 'claude-sonnet-4-6');
+    define('MBI_SUPPORTS_SCORE_MODEL', 'claude-haiku-4-5');
+}
+
+/**
+ * Mappe un alias court (haiku / sonnet / opus) vers l'ID modèle Anthropic complet.
+ * Renvoie l'alias inchangé s'il est déjà un ID complet (claude-…).
+ * Renvoie le modèle par défaut si null/vide.
+ */
+if (!function_exists('mbi_supports_ia_modele_id')) {
+    function mbi_supports_ia_modele_id(?string $alias): string
+    {
+        $alias = trim((string)$alias);
+        if ($alias === '') return MBI_SUPPORTS_SCORE_MODEL;
+        return match (strtolower($alias)) {
+            'haiku'  => 'claude-haiku-4-5',
+            'sonnet' => 'claude-sonnet-4-6',
+            'opus'   => 'claude-opus-4-7',
+            default  => str_starts_with($alias, 'claude-') ? $alias : MBI_SUPPORTS_SCORE_MODEL,
+        };
+    }
 }
 
 if (!function_exists('mbi_supports_ia_analyser')) {
 
     /**
-     * @param array $bien          Données du bien (clés tolérantes)
-     * @param array $photos        Liste bien_photos
-     * @param array $deterministe  Sortie de mbi_supports_rules_calcul()
+     * @param array  $bien          Données du bien (clés tolérantes)
+     * @param array  $photos        Liste bien_photos
+     * @param array  $deterministe  Sortie de mbi_supports_rules_calcul()
+     * @param ?string $modele       Alias 'haiku' / 'sonnet' / 'opus' ou ID complet.
+     *                              Null = MBI_SUPPORTS_SCORE_MODEL (haiku par défaut).
      * @return array
      */
-    function mbi_supports_ia_analyser(array $bien, array $photos, array $deterministe): array
+    function mbi_supports_ia_analyser(array $bien, array $photos, array $deterministe, ?string $modele = null): array
     {
+        $modeleId = mbi_supports_ia_modele_id($modele);
+
         // 1. Récupère la clé Anthropic (réutilise le helper GED)
         $apiKey = mbi_supports_ia_anthropic_key();
         if ($apiKey === '') {
             return [
                 'ok'            => false,
                 'data'          => null,
-                'modele'        => MBI_SUPPORTS_SCORE_MODEL,
+                'modele'        => $modeleId,
                 'cout_centimes' => 0,
                 'confidence'    => null,
                 'erreur'        => 'no_api_key',
@@ -76,7 +101,7 @@ if (!function_exists('mbi_supports_ia_analyser')) {
 
         // 3. Appel API Anthropic
         $payload = [
-            'model'       => MBI_SUPPORTS_SCORE_MODEL,
+            'model'       => $modeleId,
             'max_tokens'  => 1500,
             'temperature' => 0.0,
             'system'      => $sys,
@@ -104,7 +129,7 @@ if (!function_exists('mbi_supports_ia_analyser')) {
             return [
                 'ok'            => false,
                 'data'          => null,
-                'modele'        => MBI_SUPPORTS_SCORE_MODEL,
+                'modele'        => $modeleId,
                 'cout_centimes' => 0,
                 'confidence'    => null,
                 'erreur'        => "anthropic_http_{$code}: " . ($err ?: substr((string)$raw, 0, 300)),
@@ -119,7 +144,7 @@ if (!function_exists('mbi_supports_ia_analyser')) {
             return [
                 'ok'            => false,
                 'data'          => null,
-                'modele'        => MBI_SUPPORTS_SCORE_MODEL,
+                'modele'        => $modeleId,
                 'cout_centimes' => 0,
                 'confidence'    => null,
                 'erreur'        => 'reponse_vide',
@@ -132,7 +157,7 @@ if (!function_exists('mbi_supports_ia_analyser')) {
             return [
                 'ok'            => false,
                 'data'          => null,
-                'modele'        => MBI_SUPPORTS_SCORE_MODEL,
+                'modele'        => $modeleId,
                 'cout_centimes' => mbi_supports_ia_estimer_cout($body),
                 'confidence'    => null,
                 'erreur'        => 'json_invalide',
@@ -146,7 +171,7 @@ if (!function_exists('mbi_supports_ia_analyser')) {
         return [
             'ok'            => true,
             'data'          => $data,
-            'modele'        => MBI_SUPPORTS_SCORE_MODEL,
+            'modele'        => $modeleId,
             'cout_centimes' => mbi_supports_ia_estimer_cout($body),
             'confidence'    => isset($data['confidence']) ? (int)$data['confidence'] : null,
             'erreur'        => null,
