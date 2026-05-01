@@ -79,7 +79,8 @@ function ged_h(?string $s, int $max = 80): string
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ma GED Box — MaBoxImmo</title>
 <meta name="robots" content="<?= htmlspecialchars($robots) ?>">
-<link rel="stylesheet" href="<?= app_url('/assets/css/ged.css') ?>?v=1">
+<?php $__vCss = @filemtime(dirname(__DIR__, 2) . '/assets/css/ged.css') ?: time(); ?>
+<link rel="stylesheet" href="<?= app_url('/assets/css/ged.css') ?>?v=<?= $__vCss ?>">
 </head>
 <body class="<?= htmlspecialchars($bodyClass) ?>">
 
@@ -285,7 +286,8 @@ if (is_file($layoutTop)) {
 
 </div>
 
-<script src="<?= app_url('/assets/js/ged.js') ?>?v=1"></script>
+<?php $__vJs = @filemtime(dirname(__DIR__, 2) . '/assets/js/ged.js') ?: time(); ?>
+<script src="<?= app_url('/assets/js/ged.js') ?>?v=<?= $__vJs ?>"></script>
 
 <?php
 $layoutBottom = __DIR__ . '/../../inc/agency_layout_bottom.php';

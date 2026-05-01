@@ -81,8 +81,16 @@ if ($current) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ma GED Box — Inbox</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="stylesheet" href="<?= app_url('/assets/css/ged.css') ?>?v=1">
-<link rel="stylesheet" href="<?= app_url('/assets/css/ged_inbox.css') ?>?v=1">
+<?php
+// Cache busters basés sur mtime — invalide automatiquement le cache à chaque modif fichier
+$assetsRoot = dirname(__DIR__, 2) . '/assets';
+$vGedCss      = @filemtime($assetsRoot . '/css/ged.css')      ?: time();
+$vGedInboxCss = @filemtime($assetsRoot . '/css/ged_inbox.css') ?: time();
+$vGedJs       = @filemtime($assetsRoot . '/js/ged.js')        ?: time();
+$vGedInboxJs  = @filemtime($assetsRoot . '/js/ged_inbox.js')  ?: time();
+?>
+<link rel="stylesheet" href="<?= app_url('/assets/css/ged.css') ?>?v=<?= $vGedCss ?>">
+<link rel="stylesheet" href="<?= app_url('/assets/css/ged_inbox.css') ?>?v=<?= $vGedInboxCss ?>">
 </head>
 <body class="<?= htmlspecialchars($bodyClass) ?>">
 
@@ -266,8 +274,8 @@ if (is_file($layoutTop)) require $layoutTop;
 
 </div>
 
-<script src="<?= app_url('/assets/js/ged.js') ?>?v=1"></script>
-<script src="<?= app_url('/assets/js/ged_inbox.js') ?>?v=1"></script>
+<script src="<?= app_url('/assets/js/ged.js') ?>?v=<?= $vGedJs ?>"></script>
+<script src="<?= app_url('/assets/js/ged_inbox.js') ?>?v=<?= $vGedInboxJs ?>"></script>
 
 <?php
 $layoutBottom = __DIR__ . '/../../inc/agency_layout_bottom.php';
