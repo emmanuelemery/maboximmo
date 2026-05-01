@@ -2816,9 +2816,6 @@ require_once $_sbFile;
         </div>
       </section>
 
-      <!-- Ma Box Communication (Lot 6 — include isolé) -->
-      <?php @include __DIR__ . '/inc/mbi_supports_card_bien.php'; ?>
-
       <!-- Card 6 : Historique des annonces du bien -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Historique des annonces">
         <div class="v2-card-label">📜 Historique <span class="v2-count"><?= count($annoncesHistorique) ?></span></div>

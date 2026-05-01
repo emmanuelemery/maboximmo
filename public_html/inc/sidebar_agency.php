@@ -137,6 +137,9 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <li><a href="./agency_dashboard_diffusion.php" class="<?= sbActive('agency_dashboard_diffusion.php') ?>">
                 <span class="sb-icon">📡</span><span class="sb-label">Diffusion</span>
             </a></li>
+            <li><a href="./mbi_supports_dashboard.php" class="<?= sbActive('mbi_supports_dashboard.php') ?><?= sbActive('mbi_supports_score.php') ?><?= sbActive('mbi_supports_critique.php') ?><?= sbActive('mbi_supports_pdf.php') ?>">
+                <span class="sb-icon">📰</span><span class="sb-label">Ma Box Communication</span>
+            </a></li>
             <li><a href="./agency_taches.php" class="<?= sbActive('agency_taches.php') ?>">
                 <span class="sb-icon">✅</span><span class="sb-label">Tâches</span>
             </a></li>
