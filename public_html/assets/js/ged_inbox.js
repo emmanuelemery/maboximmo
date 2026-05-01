@@ -48,8 +48,28 @@
         fd.append('file', file);
 
         fetch(ACTION_URL, { method:'POST', body:fd, credentials:'same-origin' })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
+            .then(function (r) {
+                // Diagnostic : on garde le texte brut pour debug si le parse JSON foire
+                return r.text().then(function (text) {
+                    return { status: r.status, text: text, headers: r.headers.get('content-type') };
+                });
+            })
+            .then(function (resp) {
+                var data = null;
+                try { data = JSON.parse(resp.text); }
+                catch (e) {
+                    console.group('[GED upload] Réponse non-JSON');
+                    console.log('Status:', resp.status);
+                    console.log('Content-Type:', resp.headers);
+                    console.log('Body (1000 premiers chars):', resp.text.substring(0, 1000));
+                    console.log('Body complet ↓');
+                    console.log(resp.text);
+                    console.groupEnd();
+                    var preview = resp.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200);
+                    alert('Réponse serveur invalide (status ' + resp.status + ').\n\nDébut de la réponse : "' + preview + '..."\n\nDétails complets dans la console (F12).');
+                    resetDropzone();
+                    return;
+                }
                 if (data.ok) {
                     if (window.gedToast) window.gedToast('Document analysé : ' + (data.engine || '') + ' / ' + (data.model || ''), 'success');
                     setTimeout(function () { location.href = '?id=' + data.analysis_id; }, 400);
@@ -59,6 +79,7 @@
                 }
             })
             .catch(function (err) {
+                console.error('[GED upload] Erreur fetch:', err);
                 alert('Erreur réseau : ' + err.message);
                 resetDropzone();
             });

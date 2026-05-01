@@ -13,17 +13,39 @@ declare(strict_types=1);
  *   preview   : GET id → stream le fichier local en quarantaine (PDF/image inline)
  */
 
-// ── Mode défensif JSON : suppress display_errors AVANT bootstrap pour éviter
-//    les warnings HTML qui parasiteraient la réponse JSON et casseraient le parse client.
+// ── Mode défensif JSON ULTRA STRICT ──────────────────────────────────────────
 $__action = $_REQUEST['action'] ?? '';
-if ($__action !== 'preview') {
+$__isJson = ($__action !== 'preview');
+
+if ($__isJson) {
     @ini_set('display_errors', '0');
-    error_reporting(E_ALL);
+    @ini_set('html_errors', '0');
+    error_reporting(0);
+    if (function_exists('ob_get_level')) {
+        while (ob_get_level()) @ob_end_clean();
+    }
     ob_start();
 }
 
 require_once __DIR__ . '/../../inc/bootstrap.php';
-require_login();
+
+// Bootstrap force display_errors=1 en mode dev → on ré-écrase pour les endpoints JSON
+if ($__isJson) {
+    @ini_set('display_errors', '0');
+    @ini_set('html_errors', '0');
+    error_reporting(0);
+}
+
+// AJAX-aware auth check : si pas loggé, JSON 401 plutôt que redirect HTML
+if ($__isJson && empty($_SESSION['user_id'])) {
+    while (ob_get_level()) @ob_end_clean();
+    http_response_code(401);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => false, 'message' => 'Session expirée — reconnecte-toi.', 'auth' => false]);
+    exit;
+}
+
+require_login(); // safety net (au cas où user_id existe mais session invalide)
 require_once __DIR__ . '/ged_functions.php';
 require_once __DIR__ . '/ged_storage.php';
 require_once __DIR__ . '/ged_storage_local.php';
