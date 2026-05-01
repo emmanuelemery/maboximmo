@@ -830,7 +830,7 @@ try {
 
   <!-- SERVICES -->
   <div class="services-wrap">
-    <div class="services-label">Vos services</div>
+    <div class="services-label">Vos services [TEST 26/04 14h]</div>
     <?php if (!empty($userServices)): ?>
     <div class="services-scroll"><div class="services-grid">
       <?php foreach ($userServices as $slug => $config): ?>
@@ -853,6 +853,55 @@ try {
     </div>
     <?php endif; ?>
   </div>
+
+  <?php
+  // DEBUG temporaire : log le role_id pour diagnostiquer pourquoi la section
+  // ne s'affiche pas chez Emmanuel (id_role=1 dans BDD).
+  // À retirer après diagnostic.
+  echo "<!-- DEBUG: roleId=" . htmlspecialchars((string)$roleId)
+       . " session.id_role=" . htmlspecialchars((string)($_SESSION['id_role'] ?? 'null'))
+       . " session.test_role_id=" . htmlspecialchars((string)($_SESSION['test_role_id'] ?? 'null'))
+       . " in_array_check=" . (in_array($roleId, [1, 7, 8], true) ? 'true' : 'false')
+       . " -->";
+  // ─────────────────────────────────────────────────────────────────────────
+  // Modules externes — visibles pour les rôles admin (role_id 1, 7, 8).
+  // GED et MAIL sont des SaaS sur sous-domaines dédiés.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (in_array($roleId, [1, 7, 8], true)):
+  ?>
+  <div class="services-wrap" style="margin-top:24px">
+    <div class="services-label">🔐 Modules externes (super admin)</div>
+    <div class="services-scroll"><div class="services-grid">
+
+      <div class="service-card">
+        <div class="service-icon">📁</div>
+        <div class="service-name">GED</div>
+        <div class="service-desc">
+          Gestion documentaire intelligente : OCR, classement IA, recherche par
+          immeuble/locataire/fournisseur. Module SaaS multi-tenant.
+        </div>
+        <div class="service-footer">
+          <span class="service-status">✓ Production</span>
+          <a href="https://ged.maboximmo.fr/admin/ged_admin.html" target="_blank" rel="noopener" class="service-btn">Accéder ↗</a>
+        </div>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">📬</div>
+        <div class="service-name">MAIL</div>
+        <div class="service-desc">
+          Tri intelligent des emails entrants (Outlook/Gmail), analyse IA,
+          classement métier, déclenchement automatique des actions.
+        </div>
+        <div class="service-footer">
+          <span class="service-status">⚙ Beta</span>
+          <a href="https://mail.maboximmo.fr/admin/mail_login.html" target="_blank" rel="noopener" class="service-btn">Accéder ↗</a>
+        </div>
+      </div>
+
+    </div></div>
+  </div>
+  <?php endif; ?>
 
 </div>
 
