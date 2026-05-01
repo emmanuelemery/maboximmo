@@ -3,8 +3,9 @@
 <footer class="mbi-footer" role="contentinfo">
   <div class="mbi-container mbi-footer-inner">
     <div class="mbi-footer-col">
-      <div class="mbi-footer-title">MaBoxImmo</div>
-      <p class="mbi-footer-text">Le portail immobilier des agences MaBoxImmo. Annonces vérifiées, contact direct avec les professionnels.</p>
+      <div class="mbi-footer-title">Ma Box Immo</div>
+      <p class="mbi-footer-text"><em>Chaque pièce à son module, ensemble ils construisent votre réussite.</em></p>
+      <p class="mbi-footer-text">Le portail immobilier des agences Ma Box Immo. Annonces vérifiées, contact direct avec les professionnels.</p>
     </div>
 
     <div class="mbi-footer-col">

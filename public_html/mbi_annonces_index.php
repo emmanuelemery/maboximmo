@@ -39,7 +39,7 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
 <section class="mbi-hero" aria-labelledby="mbi-hero-title">
   <div class="mbi-container mbi-hero-inner">
     <h1 id="mbi-hero-title" class="mbi-hero-title">Trouvez votre bien idéal</h1>
-    <p class="mbi-hero-subtitle">Le portail immobilier pensé pour particuliers et professionnels.</p>
+    <p class="mbi-hero-subtitle">Chaque pièce à son module, ensemble ils construisent votre réussite.</p>
 
     <form class="mbi-search" method="get" action="<?= h(app_url('/mbi_annonces_recherche.php')) ?>" role="search" aria-label="Rechercher un bien">
       <div class="mbi-search-field mbi-search-field-loc">

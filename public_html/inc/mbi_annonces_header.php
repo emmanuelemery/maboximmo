@@ -47,9 +47,21 @@ $navItems = [
 
 <header class="mbi-header" role="banner">
   <div class="mbi-container mbi-header-inner">
-    <a class="mbi-brand" href="<?= h(app_url('/mbi_annonces_index.php')) ?>" aria-label="MaBoxImmo — Accueil">
-      <span class="mbi-brand-mark" aria-hidden="true">M</span>
-      <span class="mbi-brand-text">MaBoxImmo</span>
+    <a class="mbi-brand" href="<?= h(app_url('/mbi_annonces_index.php')) ?>" aria-label="Ma Box Immo — Accueil">
+      <?php
+        // Logo officiel : si /images/logos/mbi_logo.png existe, on l'utilise.
+        // Sinon fallback en composé (pin doré + texte navy).
+        $logoFile = __DIR__ . '/../images/logos/mbi_logo.png';
+        if (is_file($logoFile)):
+      ?>
+        <img class="mbi-brand-logo" src="<?= h(asset_url('/images/logos/mbi_logo.png')) ?>" alt="Ma Box Immo" width="160" height="48">
+      <?php else: ?>
+        <span class="mbi-brand-mark" aria-hidden="true">📍</span>
+        <span class="mbi-brand-text">
+          <span class="mbi-brand-name">MA BOX IMMO</span>
+          <span class="mbi-brand-sub">Immobilier</span>
+        </span>
+      <?php endif; ?>
     </a>
 
     <nav class="mbi-nav" aria-label="Navigation principale">

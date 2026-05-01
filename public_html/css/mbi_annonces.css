@@ -5,28 +5,46 @@
    ===================================================================== */
 
 :root {
-  --mbi-ink:        #222222;
-  --mbi-ink-soft:   #555555;
-  --mbi-ink-muted:  #888888;
+  /* Charte officielle Ma Box Immo (cf. design_brand_kit_mbi.md) */
+  --mbi-navy:       #243B5C;   /* Primaire texte logo, titres */
+  --mbi-navy-dark:  #182843;   /* Hover navy */
+  --mbi-navy-soft:  #E6EBF2;   /* Bg navy ultra clair */
+  --mbi-gold:       #D4A047;   /* Accent or (pin logo) */
+  --mbi-gold-dark:  #B6862F;   /* Hover or */
+  --mbi-gold-soft:  #FAF1DD;   /* Bg or ultra clair */
+  --mbi-cream:      #F5E9DA;   /* Sable promotionnel */
+
+  /* Sémantique */
+  --mbi-ink:        #243B5C;   /* Texte principal = navy */
+  --mbi-ink-soft:   #5A6B7D;   /* Slate gris secondaire */
+  --mbi-ink-muted:  #8a8680;
   --mbi-bg:         #ffffff;
-  --mbi-bg-soft:    #f7f7f7;
-  --mbi-bg-alt:     #fafafa;
-  --mbi-border:     #ebebeb;
-  --mbi-border-strong: #d0d0d0;
-  --mbi-primary:    #ef4444;
-  --mbi-primary-dark: #d73d3d;
-  --mbi-primary-soft: #fef2f2;
+  --mbi-bg-soft:    #f8f6f2;
+  --mbi-bg-alt:     var(--mbi-cream);
+  --mbi-border:     #e8e4dd;
+  --mbi-border-strong: #cfc9be;
+
+  /* Couleur d'action — passe au navy (au lieu du rouge) */
+  --mbi-primary:      var(--mbi-navy);
+  --mbi-primary-dark: var(--mbi-navy-dark);
+  --mbi-primary-soft: var(--mbi-navy-soft);
+
+  /* Couleur d'accent secondaire — l'or */
+  --mbi-accent:       var(--mbi-gold);
+  --mbi-accent-dark:  var(--mbi-gold-dark);
+  --mbi-accent-soft:  var(--mbi-gold-soft);
+
   --mbi-success:    #10b981;
   --mbi-radius-sm:  8px;
   --mbi-radius-md:  12px;
   --mbi-radius-lg:  16px;
   --mbi-radius-xl:  24px;
   --mbi-radius-full: 9999px;
-  --mbi-shadow-sm:  0 1px 2px rgba(0,0,0,.04);
-  --mbi-shadow-md:  0 4px 12px rgba(0,0,0,.08);
-  --mbi-shadow-lg:  0 12px 32px rgba(0,0,0,.10);
+  --mbi-shadow-sm:  0 1px 2px rgba(36,59,92,.04);
+  --mbi-shadow-md:  0 4px 12px rgba(36,59,92,.08);
+  --mbi-shadow-lg:  0 12px 32px rgba(36,59,92,.10);
   --mbi-font:       'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --mbi-h-header:   72px;
+  --mbi-h-header:   80px;
 }
 
 * { box-sizing: border-box; }
@@ -68,19 +86,35 @@
   width: 100%;
 }
 .mbi-brand {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 12px;
   font-weight: 700; font-size: 18px;
-  color: var(--mbi-primary);
+  color: var(--mbi-navy);
   flex: 0 0 auto;
+  text-decoration: none;
 }
+.mbi-brand-logo {
+  height: 48px; width: auto; display: block;
+  object-fit: contain;
+}
+/* Fallback si pas d'image logo : pin SVG inline + texte */
 .mbi-brand-mark {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px;
-  background: var(--mbi-primary); color: #fff;
+  width: 40px; height: 40px;
+  background: var(--mbi-gold); color: #fff;
   border-radius: var(--mbi-radius-md);
   font-weight: 800; font-size: 18px;
 }
-.mbi-brand-text { letter-spacing: -0.02em; }
+.mbi-brand-text {
+  display: flex; flex-direction: column; line-height: 1;
+}
+.mbi-brand-name {
+  font-weight: 800; letter-spacing: 0.04em; font-size: 17px;
+  color: var(--mbi-navy);
+}
+.mbi-brand-sub {
+  font-size: 9px; letter-spacing: 0.32em; color: var(--mbi-gold);
+  margin-top: 4px; text-transform: uppercase; font-weight: 600;
+}
 .mbi-nav {
   display: flex; align-items: center; gap: 4px;
   flex: 1;
@@ -94,7 +128,7 @@
   white-space: nowrap;
 }
 .mbi-nav-link:hover { background: var(--mbi-bg-soft); color: var(--mbi-ink); }
-.mbi-nav-link.is-active { color: var(--mbi-primary); font-weight: 600; }
+.mbi-nav-link.is-active { color: var(--mbi-gold); font-weight: 700; }
 .mbi-header-actions { flex: 0 0 auto; }
 
 @media (max-width: 1100px) {
@@ -116,9 +150,14 @@
 }
 .mbi-btn:active { transform: scale(0.98); }
 .mbi-btn-primary {
-  background: var(--mbi-primary); color: #fff;
+  background: var(--mbi-gold); color: #fff;
+  letter-spacing: 0.02em;
 }
-.mbi-btn-primary:hover { background: var(--mbi-primary-dark); }
+.mbi-btn-primary:hover { background: var(--mbi-gold-dark); }
+.mbi-btn-navy {
+  background: var(--mbi-navy); color: #fff;
+}
+.mbi-btn-navy:hover { background: var(--mbi-navy-dark); }
 .mbi-btn-ghost {
   background: transparent; color: var(--mbi-ink); border-color: var(--mbi-border-strong);
 }
@@ -252,7 +291,7 @@
   font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 0;
 }
 .mbi-link {
-  color: var(--mbi-primary); font-weight: 500; font-size: 14px;
+  color: var(--mbi-gold); font-weight: 600; font-size: 14px;
 }
 .mbi-link:hover { text-decoration: underline; }
 
@@ -297,7 +336,7 @@
   box-shadow: var(--mbi-shadow-sm);
   text-transform: uppercase; letter-spacing: 0.03em;
 }
-.mbi-badge-new { background: var(--mbi-primary); color: #fff; }
+.mbi-badge-new { background: var(--mbi-gold); color: #fff; }
 .mbi-badge-excl { left: auto; right: 12px; background: #1a1a1a; color: #fff; }
 
 .mbi-card-body { padding: 14px 4px 4px; }
@@ -410,7 +449,7 @@
   background: var(--mbi-bg-soft); color: var(--mbi-ink-soft);
 }
 .mbi-tag-excl { background: #1a1a1a; color: #fff; }
-.mbi-tag-new  { background: var(--mbi-primary); color: #fff; }
+.mbi-tag-new  { background: var(--mbi-gold); color: #fff; }
 .mbi-tag-cc   { background: #fef3c7; color: #92400e; }
 
 .mbi-detail-title {
@@ -512,7 +551,7 @@
 .mbi-aside-agence-title { font-weight: 700; font-size: 16px; }
 .mbi-aside-agence-loc { color: var(--mbi-ink-soft); font-size: 13px; margin-top: 2px; }
 .mbi-aside-links { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.mbi-aside-links a { color: var(--mbi-primary); font-weight: 500; font-size: 14px; }
+.mbi-aside-links a { color: var(--mbi-gold); font-weight: 600; font-size: 14px; }
 .mbi-aside-links a:hover { text-decoration: underline; }
 
 /* ===== Form contact ===== */
