@@ -231,10 +231,10 @@ function mbisupp_h(string|int|float|null $v): string {
     <div class="card">
       <h2>Téléchargement</h2>
       <p>
-        <a class="btn btn-primary" href="<?=mbisupp_h(app_url($result['fichier_pdf']))?>" target="_blank">
+        <a class="btn btn-primary" href="<?=mbisupp_h(app_url('/mbi_supports_pdf_download.php?id=' . $result['support_id']))?>" target="_blank">
           Ouvrir le PDF
         </a>
-        <a class="btn" style="background:#eef1f5;color:var(--navy);" href="<?=mbisupp_h(app_url($result['fichier_pdf']))?>" download>
+        <a class="btn" style="background:#eef1f5;color:var(--navy);" href="<?=mbisupp_h(app_url('/mbi_supports_pdf_download.php?id=' . $result['support_id'] . '&dl=1'))?>">
           Télécharger
         </a>
       </p>
@@ -282,7 +282,8 @@ function mbisupp_h(string|int|float|null $v): string {
               <td style="font-size:11px; color:var(--muted);"><?=mbisupp_h($h['mentions_version'])?></td>
               <td>
                 <?php if (!empty($h['fichier_pdf_path'])): ?>
-                  <a href="<?=mbisupp_h(app_url($h['fichier_pdf_path']))?>" target="_blank">Ouvrir</a>
+                  <a href="<?=mbisupp_h(app_url('/mbi_supports_pdf_download.php?id=' . $h['id']))?>" target="_blank">Ouvrir</a>
+                  · <a href="<?=mbisupp_h(app_url('/mbi_supports_pdf_download.php?id=' . $h['id'] . '&dl=1'))?>">DL</a>
                 <?php else: ?>
                   —
                 <?php endif; ?>
