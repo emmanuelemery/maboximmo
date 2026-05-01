@@ -17,6 +17,9 @@ declare(strict_types=1);
  * Accès : admin uniquement (rôle 1, 7, 8 ou super-admin).
  */
 
+@set_time_limit(300);
+@ini_set('memory_limit', '256M');
+
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
 require_login();
@@ -27,6 +30,20 @@ if (!$isAdmin) {
     http_response_code(403);
     exit('Admin uniquement');
 }
+
+// Filet de sécurité : si fatal error, on l'affiche au lieu d'un 500 muet
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        if (!headers_sent()) header('Content-Type: text/html; charset=utf-8');
+        echo '<pre style="background:#fee;color:#900;padding:20px;font:13px monospace;border:2px solid #c00">';
+        echo "❌ ERREUR FATALE PHP\n\n";
+        echo 'Type    : ' . $err['type'] . "\n";
+        echo 'Fichier : ' . htmlspecialchars($err['file']) . ':' . $err['line'] . "\n";
+        echo 'Message : ' . htmlspecialchars($err['message']) . "\n";
+        echo '</pre>';
+    }
+});
 
 $pdo = $GLOBALS['pdo'];
 $confirm = isset($_GET['confirm']) && $_GET['confirm'] === '1';
@@ -128,16 +145,64 @@ if (!is_dir($uploadsRoot)) {
 
     // ── INSERT effectif si confirm=1 ─────────────────────────────────────
     if (!$dryRun && !empty($rowsToAdd)) {
-        $stmt = $pdo->prepare("
-            INSERT INTO biens_photos (id_bien, url_photo, titre, alt_photo, ordre, created_at)
-            VALUES (:id_bien, :url_photo, :titre, :alt_photo, :ordre, NOW())
-        ");
-        foreach ($rowsToAdd as $row) {
+        // 1. Détecte les colonnes RÉELLES de la table biens_photos en prod
+        //    (le schéma peut différer entre dev et prod : pas de created_at,
+        //    contraintes NOT NULL différentes, etc.)
+        $tableCols = [];
+        try {
+            foreach ($pdo->query("SHOW COLUMNS FROM biens_photos") as $c) {
+                $tableCols[$c['Field']] = $c;
+            }
+        } catch (Throwable $e) {
+            $results['errors'][] = "SHOW COLUMNS échec : " . $e->getMessage();
+            $tableCols = [];
+        }
+        $results['table_cols_detected'] = array_keys($tableCols);
+
+        // 2. Sélectionne SEULEMENT les colonnes qu'on veut ajouter ET qui existent
+        $candidatesToInsert = ['id_bien', 'url_photo', 'titre', 'alt_photo', 'ordre'];
+        $insertCols = [];
+        foreach ($candidatesToInsert as $col) {
+            if (isset($tableCols[$col])) $insertCols[] = $col;
+        }
+        // created_at en plus si la colonne existe ET n'a pas de DEFAULT (sinon on laisse MySQL gérer)
+        $needsCreatedAt = isset($tableCols['created_at'])
+            && (($tableCols['created_at']['Default'] ?? null) === null)
+            && (($tableCols['created_at']['Null'] ?? 'YES') === 'NO');
+
+        if (empty($insertCols)) {
+            $results['errors'][] = "Aucune colonne d'insertion détectée — table biens_photos absente ou sans colonnes attendues.";
+        } else {
+            $colsList     = implode(', ', $insertCols) . ($needsCreatedAt ? ', created_at' : '');
+            $placeholders = ':' . implode(', :', $insertCols) . ($needsCreatedAt ? ', NOW()' : '');
+            $sqlInsert    = "INSERT INTO biens_photos ({$colsList}) VALUES ({$placeholders})";
+            $results['insert_sql_used'] = $sqlInsert;
+
             try {
-                $stmt->execute($row);
-                $results['photos_added']++;
+                $stmt = $pdo->prepare($sqlInsert);
             } catch (Throwable $e) {
-                $results['errors'][] = "INSERT failed for {$row['url_photo']}: " . $e->getMessage();
+                $results['errors'][] = "PREPARE échec : " . $e->getMessage() . " | SQL: {$sqlInsert}";
+                $stmt = null;
+            }
+
+            if ($stmt) {
+                foreach ($rowsToAdd as $row) {
+                    try {
+                        // Filtre les paramètres pour ne passer QUE ceux dans insertCols
+                        $params = [];
+                        foreach ($insertCols as $c) {
+                            $params[$c] = $row[$c] ?? null;
+                        }
+                        $stmt->execute($params);
+                        $results['photos_added']++;
+                    } catch (Throwable $e) {
+                        $msg = $e->getMessage();
+                        // On garde max 10 erreurs détaillées pour ne pas exploser la page
+                        if (count($results['errors']) < 10) {
+                            $results['errors'][] = "INSERT failed for {$row['url_photo']}: {$msg}";
+                        }
+                    }
+                }
             }
         }
     }
@@ -216,6 +281,17 @@ header('Content-Type: text/html; charset=utf-8');
     <p style="font-size:12px; color:#6b7280; margin-top:10px">
         Ces rows pointent vers des fichiers qui n'existent plus sur le disque. Elles ne sont PAS supprimées par ce script (action manuelle si besoin).
     </p>
+</div>
+<?php endif; ?>
+
+<?php if (!empty($results['table_cols_detected'])): ?>
+<div class="card">
+    <h2 style="font-size:16px; margin:0 0 10px">🔍 Colonnes détectées dans biens_photos (prod)</h2>
+    <pre><?= htmlspecialchars(implode(', ', $results['table_cols_detected'])) ?></pre>
+    <?php if (!empty($results['insert_sql_used'])): ?>
+        <p style="font-size:12px; color:#6b7280; margin-top:6px">SQL d'insertion adapté au schéma :</p>
+        <pre style="font-size:11px"><?= htmlspecialchars((string)$results['insert_sql_used']) ?></pre>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
 
