@@ -40,7 +40,14 @@ if ($mbiSupPdo instanceof PDO) {
     } catch (Throwable) {}
 
     try {
-        $st = $mbiSupPdo->prepare("SELECT COUNT(*) FROM mbi_supports_commerciaux WHERE id_bien = :b AND deleted_at IS NULL");
+        // Compte uniquement les supports VALIDÉS (officiels) pour ne pas polluer
+        // l'affichage avec les brouillons en cours d'édition.
+        $st = $mbiSupPdo->prepare("
+            SELECT COUNT(*) FROM mbi_supports_commerciaux
+            WHERE id_bien = :b
+              AND statut IN ('valide','diffuse','archive')
+              AND deleted_at IS NULL
+        ");
         $st->execute([':b' => $editingBienId]);
         $mbiSupNbSupports = (int)$st->fetchColumn();
     } catch (Throwable) {}

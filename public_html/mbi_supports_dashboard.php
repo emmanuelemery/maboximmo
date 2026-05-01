@@ -115,20 +115,36 @@ if ($idBien > 0) {
     if ($bien) {
         $score    = mbi_supports_score_get_dernier($idBien);
         $critique = mbi_supports_critic_check($idBien, $type);
+        // Par défaut : on n'affiche que les supports validés (officiels).
+        // ?show_drafts=1 → on inclut aussi les brouillons et erreurs.
+        $showDrafts = isset($_GET['show_drafts']) && $_GET['show_drafts'] === '1';
+        $whereStatut = $showDrafts
+            ? "1=1"
+            : "statut IN ('valide','diffuse','archive')";
         try {
             $st = $pdo->prepare("
                 SELECT id, type_support, version, statut, angle_marketing,
                        fichier_pdf_path, nom_fichier, is_interne, date_generation,
-                       mentions_version
+                       date_validation, mentions_version
                 FROM mbi_supports_commerciaux
-                WHERE id_bien = :b AND deleted_at IS NULL
+                WHERE id_bien = :b AND deleted_at IS NULL AND {$whereStatut}
                 ORDER BY date_generation DESC, id DESC LIMIT 30
             ");
             $st->execute([':b' => $idBien]);
             $supports = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable) { $supports = []; }
+
+        // Compteur des brouillons en cours (pour affichage)
+        $nbDrafts = 0;
+        try {
+            $st = $pdo->prepare("SELECT COUNT(*) FROM mbi_supports_commerciaux WHERE id_bien = :b AND statut = 'draft' AND deleted_at IS NULL");
+            $st->execute([':b' => $idBien]);
+            $nbDrafts = (int)$st->fetchColumn();
+        } catch (Throwable) {}
     }
 }
+$showDrafts = isset($_GET['show_drafts']) && $_GET['show_drafts'] === '1';
+$nbDrafts = $nbDrafts ?? 0;
 
 function mbisd_h(string|int|float|null $v): string {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
@@ -514,9 +530,24 @@ $pointsFaibles = $score && !empty($score['points_faibles_json']) ? json_decode((
 
     <!-- ── HISTORIQUE ─────────────────────────────────────────────── -->
     <div class="card" style="margin-top:20px;">
-      <h2>Historique des supports (<?= count($supports) ?>)</h2>
+      <h2 style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span>Historique des supports (<?= count($supports) ?>)</span>
+        <?php if ($nbDrafts > 0 && !$showDrafts): ?>
+          <a href="?id_bien=<?= $idBien ?>&type=<?= mbisd_h($type) ?>&show_drafts=1"
+             style="font-size:11px; background:#fff7e8; color:#8a6422; padding:3px 10px; border-radius:999px; text-decoration:none; font-weight:600;">
+            + voir <?= $nbDrafts ?> brouillon<?= $nbDrafts > 1 ? 's' : '' ?> en cours
+          </a>
+        <?php elseif ($showDrafts): ?>
+          <a href="?id_bien=<?= $idBien ?>&type=<?= mbisd_h($type) ?>"
+             style="font-size:11px; background:#eef1f5; color:var(--navy); padding:3px 10px; border-radius:999px; text-decoration:none; font-weight:600;">
+            ← masquer brouillons
+          </a>
+        <?php endif; ?>
+      </h2>
       <?php if (empty($supports)): ?>
-        <p class="empty">Aucun support généré pour ce bien.</p>
+        <p class="empty">
+          <?= $showDrafts ? 'Aucun support trouvé.' : 'Aucun support validé. Génère puis valide un support pour qu\'il apparaisse ici.' ?>
+        </p>
       <?php else: ?>
         <table class="histo">
           <thead>

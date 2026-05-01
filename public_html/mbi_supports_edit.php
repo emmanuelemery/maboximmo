@@ -78,9 +78,26 @@ try {
     $photos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable) { $photos = []; }
 
-// ─── POST : régénération avec surcharges ───────────────────────────────
+// ─── POST : action "valider" (fige la version, alimente l'historique) ──
 $msgGen = null;
 $nouveauSupportId = null;
+if (($_POST['action'] ?? '') === 'valider') {
+    try {
+        $up = $pdo->prepare("UPDATE mbi_supports_commerciaux
+                             SET statut = 'valide', date_validation = NOW(), updated_at = NOW()
+                             WHERE id = :id AND statut = 'draft'");
+        $up->execute([':id' => $supportId]);
+        $msgGen = ['ok' => true, 'msg' => 'Affiche validée — visible dans l\'historique.'];
+        // Recharge le support (pour reflèter le nouveau statut dans la page)
+        $st = $pdo->prepare("SELECT * FROM mbi_supports_commerciaux WHERE id = :id LIMIT 1");
+        $st->execute([':id' => $supportId]);
+        $support = $st->fetch(PDO::FETCH_ASSOC) ?: $support;
+    } catch (Throwable $e) {
+        $msgGen = ['ok' => false, 'msg' => 'Erreur validation : ' . $e->getMessage()];
+    }
+}
+
+// ─── POST : régénération avec surcharges ───────────────────────────────
 if (($_POST['action'] ?? '') === 'regenerer') {
     $opts = [
         'force_export'              => true,        // l'éditeur fait toujours sauter le bloc dur
@@ -94,11 +111,18 @@ if (($_POST['action'] ?? '') === 'regenerer') {
     $brief = trim((string)($_POST['orientation_user'] ?? ''));
     $r = mbi_supports_pdf_generer($idBien, $type, $brief !== '' ? $brief : null, $opts);
     if ($r['ok']) {
-        $msgGen = ['ok' => true, 'msg' => "Nouvelle version v{$r['version']} générée"];
-        // Redirige vers l'éditeur du nouveau support pour que l'iframe se rafraîchisse
+        // Si c'est le même support_id (mode UPDATE drafts) : on reste sur la même URL
+        // Sinon (création nouvelle version après validation) : on redirige
         $nouveauSupportId = (int)$r['support_id'];
-        header('Location: ' . app_url('/mbi_supports_edit.php?id=' . $nouveauSupportId));
-        exit;
+        if ($nouveauSupportId !== $supportId) {
+            header('Location: ' . app_url('/mbi_supports_edit.php?id=' . $nouveauSupportId));
+            exit;
+        }
+        $msgGen = ['ok' => true, 'msg' => "Brouillon mis à jour — l'aperçu PDF est rafraîchi."];
+        // Recharge le support
+        $st = $pdo->prepare("SELECT * FROM mbi_supports_commerciaux WHERE id = :id LIMIT 1");
+        $st->execute([':id' => $supportId]);
+        $support = $st->fetch(PDO::FETCH_ASSOC) ?: $support;
     } else {
         $msgGen = ['ok' => false, 'msg' => 'Erreur : ' . ($r['erreur'] ?? '?')];
     }
@@ -236,7 +260,33 @@ $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
 
 <div class="topbar">
   <div>
-    <div class="title">📰 <?= mbisedit_h($support['titre_support'] ?? 'Support') ?></div>
+    <div class="title">📰 <?= mbisedit_h($support['titre_support'] ?? 'Support') ?>
+      <?php
+        $statutAff = (string)$support['statut'];
+        $statutColor = match($statutAff) {
+            'draft'         => '#8a6422', // orange
+            'valide'        => '#1a5e36', // vert
+            'diffuse'       => '#1a5e36',
+            'archive'       => '#6b7280',
+            'erreur'        => '#7a2828',
+            default         => '#6b7280',
+        };
+        $statutLib = match($statutAff) {
+            'draft'   => 'BROUILLON',
+            'valide'  => 'VALIDÉ',
+            'diffuse' => 'DIFFUSÉ',
+            'archive' => 'ARCHIVÉ',
+            'erreur'  => 'ERREUR',
+            default   => strtoupper($statutAff),
+        };
+      ?>
+      <span style="display:inline-block; margin-left:8px; padding:3px 10px;
+             border-radius:999px; font-size:10px; font-weight:700;
+             background:<?= $statutColor ?>22; color:<?= $statutColor ?>;
+             vertical-align:middle;">
+        <?= mbisedit_h($statutLib) ?>
+      </span>
+    </div>
     <div class="meta">
       Bien #<?= $idBien ?> · <?= mbisedit_h($bien['reference_bien'] ?? '—') ?> ·
       <?= mbisedit_h($type) ?> · v<?= (int)$support['version'] ?> ·
@@ -354,10 +404,30 @@ $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
       </div>
 
       <div class="actions">
-        <button class="btn btn-primary" type="submit">🔄 Régénérer le PDF (nouvelle version)</button>
+        <?php if ((string)$support['statut'] === 'draft'): ?>
+          <button class="btn btn-primary" type="submit">🔄 Régénérer le brouillon</button>
+        <?php else: ?>
+          <button class="btn btn-primary" type="submit">📄 Créer une nouvelle version</button>
+        <?php endif; ?>
         <a class="btn btn-secondary" href="<?= mbisedit_h($urlDashboard) ?>">Retour</a>
       </div>
     </form>
+
+    <?php if ((string)$support['statut'] === 'draft'): ?>
+      <!-- Bouton VALIDER (formulaire séparé) -->
+      <form method="post" action="" style="margin-top:14px;">
+        <input type="hidden" name="action" value="valider">
+        <button class="btn" type="submit"
+                style="width:100%; background:#1a5e36; color:#fff; padding:12px; font-size:14px;"
+                onclick="return confirm('Valider cette version ? Elle sera figée dans l\'historique officiel.');">
+          ✓ Valider l'affiche (figer dans l'historique)
+        </button>
+        <p style="font-size:11px; color:var(--muted); margin-top:6px; text-align:center;">
+          Tant que le support est en brouillon, "Régénérer" met à jour le même fichier (pas de pollution d'historique).
+          La validation fige la version et l'inscrit officiellement.
+        </p>
+      </form>
+    <?php endif; ?>
   </div>
 
   <!-- ── COL PDF ── -->

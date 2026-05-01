@@ -113,24 +113,77 @@ if (!function_exists('mbi_supports_pdf_generer')) {
         $anglesValides = ['famille','investisseur','premium','premier_achat','generique','autre'];
         if (!in_array($angle, $anglesValides, true)) $angle = 'generique';
 
-        // 4. Numéro de version (V+1 du dernier support du même type sur ce bien)
-        try {
-            $st = $pdo->prepare("
-                SELECT COALESCE(MAX(version), 0) FROM mbi_supports_commerciaux
-                WHERE id_bien = :b AND type_support = :t AND deleted_at IS NULL
-            ");
-            $st->execute([':b' => $id_bien, ':t' => $type_support]);
-            $version = ((int)$st->fetchColumn()) + 1;
-        } catch (Throwable) {
-            $version = 1;
+        // 4. Numéro de version + mode UPDATE si support source en draft
+        // → Régénération sur un brouillon : on UPDATE la même ligne (pas de pollution
+        //   d'historique). On crée une nouvelle ligne uniquement si le support source
+        //   est validé OU si on génère depuis zéro.
+        $modeUpdate = false;
+        $version = 1;
+        $supportId = 0;
+
+        if ($idSourceSupport > 0) {
+            try {
+                $st = $pdo->prepare("SELECT statut, version FROM mbi_supports_commerciaux WHERE id = :id AND deleted_at IS NULL LIMIT 1");
+                $st->execute([':id' => $idSourceSupport]);
+                $sourceInfo = $st->fetch(PDO::FETCH_ASSOC);
+                if ($sourceInfo && $sourceInfo['statut'] === 'draft') {
+                    // On reste sur la même ligne en draft
+                    $modeUpdate = true;
+                    $supportId  = $idSourceSupport;
+                    $version    = (int)$sourceInfo['version'];
+                }
+            } catch (Throwable) {}
+        }
+
+        if (!$modeUpdate) {
+            // Nouvelle version : V+1 de la plus haute version validée du même type
+            // (les brouillons ne comptent pas pour le numéro de version officiel)
+            try {
+                $st = $pdo->prepare("
+                    SELECT COALESCE(MAX(version), 0) FROM mbi_supports_commerciaux
+                    WHERE id_bien = :b AND type_support = :t
+                      AND statut IN ('valide','diffuse','archive')
+                      AND deleted_at IS NULL
+                ");
+                $st->execute([':b' => $id_bien, ':t' => $type_support]);
+                $version = ((int)$st->fetchColumn()) + 1;
+            } catch (Throwable) {
+                $version = 1;
+            }
         }
 
         $isInterne = ($type_support === 'fiche_visite_interne');
         $nomFichier = mbi_supports_nom_fichier($bien, $type_support, $version, $isInterne);
 
-        // 5. Pré-INSERT en draft (audit même si plantage)
+        // 5. Pré-INSERT en draft OU réutilisation de la ligne existante
         try {
-            $supportId = mbi_supports_pdf_insert_draft($pdo, [
+            if ($modeUpdate) {
+                // Met à jour les surcharges + nom_fichier sur la ligne existante
+                $up = $pdo->prepare("
+                    UPDATE mbi_supports_commerciaux SET
+                      angle_marketing            = :angle,
+                      orientation_user           = :brief,
+                      titre_personnalise         = :titre,
+                      accroche                   = :accroche,
+                      description_personnalisee  = :desc,
+                      photo_hero_id_personnalise = :hero,
+                      nom_fichier                = :nom,
+                      derniere_erreur            = NULL,
+                      updated_at                 = NOW()
+                    WHERE id = :id
+                ");
+                $up->execute([
+                    ':angle'    => $angle,
+                    ':brief'    => $orientation_user,
+                    ':titre'    => $surcharges['titre_personnalise'] ?? null,
+                    ':accroche' => $surcharges['accroche'] ?? null,
+                    ':desc'     => $surcharges['description_personnalisee'] ?? null,
+                    ':hero'     => $surcharges['photo_hero_id_personnalise'] ?? null,
+                    ':nom'      => $nomFichier,
+                    ':id'       => $supportId,
+                ]);
+            } else {
+                $supportId = mbi_supports_pdf_insert_draft($pdo, [
                 'id_bien'         => $id_bien,
                 'id_annonce'      => null,
                 'id_mandat'       => $mandat['id'] ?? null,
@@ -152,7 +205,8 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'accroche'                   => $surcharges['accroche']                   ?? null,
                 'description_personnalisee'  => $surcharges['description_personnalisee']  ?? null,
                 'photo_hero_id_personnalise' => $surcharges['photo_hero_id_personnalise'] ?? null,
-            ]);
+                ]);
+            }
         } catch (Throwable $e) {
             error_log('[mbi_supports_pdf draft] ' . $e->getMessage());
             return ['ok'=>false,'support_id'=>0,'version'=>$version,'fichier_pdf'=>'',

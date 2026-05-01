@@ -349,15 +349,21 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
             $pdf->MultiCell($pageW - 36, 4, implode(' · ', $partsCopro), 0, 'L');
         }
 
-        // Négociateur en bas
+        // Négociateur en bas (doré discret à droite)
         if ($negociateur) {
             $nego = trim(($negociateur['prenom'] ?? '') . ' ' . ($negociateur['nom'] ?? ''));
             $tel  = trim((string)($negociateur['telephone'] ?? ''));
             $pdf->SetFont('dejavusans', 'B', 10);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY(18, $piedY + 36);
+            $pdf->SetXY(18, $piedY + 35);
             $pdf->Cell($pageW - 36, 4, 'Votre contact : ' . $nego . ($tel ? ' · ' . $tel : ''), 0, 0, 'R');
         }
+
+        // "Partenaire MaBoxImmo" en doré italique discret (en bas à gauche)
+        $pdf->SetFont('dejavusans', 'I', 8);
+        $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+        $pdf->SetXY(18, $piedY + 36);
+        $pdf->Cell(80, 4, 'Partenaire MaBoxImmo', 0, 0, 'L');
     }
 }
 
