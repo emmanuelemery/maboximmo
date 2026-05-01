@@ -215,7 +215,25 @@ if (!function_exists('mbi_supports_slug')) {
     function mbi_supports_slug(string $s): string
     {
         $s = mb_strtolower($s, 'UTF-8');
-        $s = transliterator_transliterate('Any-Latin; Latin-ASCII; [^a-zA-Z0-9 _-] Remove', $s) ?: $s;
+
+        // Translittération : intl si disponible, sinon iconv, sinon fallback ASCII
+        if (function_exists('transliterator_transliterate')) {
+            $t = transliterator_transliterate('Any-Latin; Latin-ASCII; [^a-zA-Z0-9 _-] Remove', $s);
+            if (is_string($t) && $t !== '') $s = $t;
+        } elseif (function_exists('iconv')) {
+            $t = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
+            if (is_string($t) && $t !== '') $s = $t;
+        } else {
+            // Remplacements manuels des accents les plus courants
+            $s = strtr($s, [
+                'à'=>'a','á'=>'a','â'=>'a','ä'=>'a','ã'=>'a','å'=>'a',
+                'ç'=>'c','è'=>'e','é'=>'e','ê'=>'e','ë'=>'e',
+                'ì'=>'i','í'=>'i','î'=>'i','ï'=>'i',
+                'ñ'=>'n','ò'=>'o','ó'=>'o','ô'=>'o','ö'=>'o','õ'=>'o',
+                'ù'=>'u','ú'=>'u','û'=>'u','ü'=>'u','ý'=>'y','ÿ'=>'y',
+            ]);
+        }
+
         $s = preg_replace('/[^a-z0-9]+/', '-', $s) ?? $s;
         return trim((string)$s, '-');
     }
