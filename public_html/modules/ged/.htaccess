@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GED MaBoxImmo — règles Apache spécifiques au module
+# Fichier : public_html/modules/ged/.htaccess
+#
+# Objectif : autoriser les uploads de PDF/images vers ged_inbox_action.php.
+# Hostinger active mod_security par défaut avec des règles agressives qui
+# bloquent les uploads multipart de fichiers PDF/JPG vers les endpoints PHP
+# (réponse : 404 "Page introuvable" — la requête n'atteint jamais PHP).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Désactive mod_security uniquement sur ce dossier ────────────────────────
+<IfModule mod_security.c>
+    SecRuleEngine Off
+    SecFilterScanPOST Off
+</IfModule>
+
+<IfModule mod_security2.c>
+    SecRuleEngine Off
+</IfModule>
+
+# ── Si Hostinger utilise LiteSpeed (équivalent SecRuleEngine via mod_security) ─
+<IfModule LiteSpeed>
+    SecRuleEngine Off
+</IfModule>
+
+# ── Augmente limites upload (PDF scannés peuvent dépasser 10 Mo) ──────────────
+# php_value fonctionne uniquement si mod_php (rare sur Hostinger). Sinon
+# placer ces lignes dans /home/u630423897/.user.ini ou via panel Hostinger.
+<IfModule mod_php.c>
+    php_value upload_max_filesize 50M
+    php_value post_max_size       60M
+    php_value max_execution_time  300
+    php_value max_input_time      300
+</IfModule>
+<IfModule mod_php7.c>
+    php_value upload_max_filesize 50M
+    php_value post_max_size       60M
+</IfModule>
+<IfModule mod_php8.c>
+    php_value upload_max_filesize 50M
+    php_value post_max_size       60M
+</IfModule>
+
+# ── Sécurité : bloque l'accès direct aux scripts CLI internes ────────────────
+# (déjà protégés en PHP par le check `PHP_SAPI !== 'cli'`, ceinture+bretelles)
+<FilesMatch "^(test_|check_)[a-z_]+\.php$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── Cache court pour les CSS/JS générés (si jamais ils étaient ici) ──────────
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>
