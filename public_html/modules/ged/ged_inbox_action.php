@@ -14,8 +14,34 @@ declare(strict_types=1);
  */
 
 // ── Mode défensif JSON ULTRA STRICT ──────────────────────────────────────────
+$__contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+$__isJsonBody  = stripos($__contentType, 'application/json') !== false;
+
+// Si payload JSON (upload base64), $_REQUEST['action'] sera vide.
+// On lit le body pour pré-extraire l'action (avant bootstrap).
 $__action = $_REQUEST['action'] ?? '';
+if ($__action === '' && $__isJsonBody && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $__rawBody = file_get_contents('php://input');
+    if (is_string($__rawBody) && $__rawBody !== '') {
+        $__pre = json_decode($__rawBody, true);
+        if (is_array($__pre)) {
+            $__action = (string)($__pre['action'] ?? '');
+            // Mémorise le body brut pour ne pas re-lire php://input dans la suite
+            $GLOBALS['__GED_JSON_BODY'] = $__rawBody;
+        }
+    }
+}
+
 $__isJson = ($__action !== 'preview');
+
+// Trace minimale pour debug serveur (n'expose rien de sensible)
+@error_log(sprintf(
+    '[ged_inbox_action] %s ct=%s action=%s ip=%s',
+    $_SERVER['REQUEST_METHOD'] ?? '?',
+    substr($__contentType, 0, 50),
+    $__action ?: '(none)',
+    $_SERVER['REMOTE_ADDR'] ?? '?'
+));
 
 if ($__isJson) {
     @ini_set('display_errors', '0');
@@ -134,15 +160,65 @@ try {
 
         // ── Upload + analyse IA ─────────────────────────────────────────────
         case 'upload': {
-            if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                inbox_respond(false, 'Fichier upload manquant ou erreur');
-            }
-            $tmp  = (string)$_FILES['file']['tmp_name'];
-            $name = (string)$_FILES['file']['name'];
-            $ext  = strtolower((string)pathinfo($name, PATHINFO_EXTENSION)) ?: 'bin';
+            // 2 modes : JSON base64 (prod, contourne WAF) ou multipart $_FILES (local/CLI fallback)
+            $tmp  = null;
+            $name = '';
+            $cleanupTmp = false; // true si on a créé un tempnam à supprimer
 
+            if ($__isJsonBody) {
+                // Body JSON déjà lu en pré-bootstrap → réutilise
+                $rawBody = $GLOBALS['__GED_JSON_BODY'] ?? null;
+                if ($rawBody === null) {
+                    $rawBody = (string)file_get_contents('php://input');
+                }
+                $payload = json_decode((string)$rawBody, true);
+                if (!is_array($payload)) {
+                    inbox_respond(false, 'JSON body invalide ou vide');
+                }
+                $name        = trim((string)($payload['filename']       ?? ''));
+                $sizeClient  = (int)($payload['size']                    ?? 0);
+                $b64         = (string)($payload['content_base64']      ?? '');
+
+                if ($name === '')        inbox_respond(false, 'filename manquant');
+                if ($b64  === '')        inbox_respond(false, 'content_base64 manquant');
+                if ($sizeClient > 20 * 1024 * 1024) inbox_respond(false, 'Fichier trop volumineux (max 20 Mo).');
+
+                // base64_decode strict (rejette tout caractère hors alphabet base64)
+                $bin = base64_decode($b64, true);
+                if ($bin === false || $bin === '') {
+                    inbox_respond(false, 'Décodage base64 invalide');
+                }
+                $sizeReal = strlen($bin);
+                if ($sizeReal > 20 * 1024 * 1024) {
+                    inbox_respond(false, 'Contenu décodé > 20 Mo, refusé');
+                }
+                // Sanity : tolère 5% d'écart entre size annoncé et size réel (charset, BOM, etc.)
+                if ($sizeClient > 0 && abs($sizeReal - $sizeClient) > max(1024, $sizeClient * 0.05)) {
+                    inbox_respond(false, "Taille incohérente : annoncé {$sizeClient}, réel {$sizeReal}");
+                }
+
+                $tmp = tempnam(sys_get_temp_dir(), 'gedup_');
+                if ($tmp === false || @file_put_contents($tmp, $bin) === false) {
+                    if ($tmp !== false) @unlink($tmp);
+                    inbox_respond(false, 'Impossible d\'écrire le fichier temporaire serveur');
+                }
+                $cleanupTmp = true;
+                @error_log("[ged_inbox_action] upload JSON base64 ok : {$name} ({$sizeReal} octets) → {$tmp}");
+
+            } else {
+                // Mode multipart classique (local + curl + CLI tests)
+                if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                    inbox_respond(false, 'Fichier upload manquant ou erreur (multipart $_FILES vide)');
+                }
+                $tmp  = (string)$_FILES['file']['tmp_name'];
+                $name = (string)$_FILES['file']['name'];
+                @error_log("[ged_inbox_action] upload multipart ok : {$name}");
+            }
+
+            $ext = strtolower((string)pathinfo($name, PATHINFO_EXTENSION)) ?: 'bin';
             $allowed = ['pdf','jpg','jpeg','png','webp','heic'];
             if (!in_array($ext, $allowed, true)) {
+                if ($cleanupTmp && $tmp) @unlink($tmp);
                 inbox_respond(false, "Extension non autorisée : {$ext}");
             }
 
@@ -221,6 +297,9 @@ try {
                 'date_doc2'  => $dateDoc,
             ]);
             $insertedId = (int)$pdo->lastInsertId();
+
+            // Cleanup du tempnam JSON upload si on en a créé un
+            if ($cleanupTmp && $tmp && is_file($tmp)) @unlink($tmp);
 
             inbox_respond(true, 'Document analysé et ajouté à la file', [
                 'analysis_id' => $insertedId,

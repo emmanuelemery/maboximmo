@@ -37,19 +37,45 @@
         }
     }
 
+    var MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 Mo
+
     function uploadFile(file) {
+        if (file.size > MAX_UPLOAD_BYTES) {
+            alert('Fichier trop volumineux (' + (Math.round(file.size / 1024 / 1024 * 10) / 10) + ' Mo). Max 20 Mo.');
+            resetDropzone();
+            return;
+        }
+
         if (dz)    dz.classList.add('uploading');
         if (dzProg) dzProg.style.display = 'block';
         if (dzFill) { dzFill.classList.add('indeterminate'); dzFill.style.width = ''; }
-        if (dzText) dzText.textContent = 'Analyse IA en cours… (~5-10s)';
+        if (dzText) dzText.textContent = 'Lecture du fichier…';
 
-        var fd = new FormData();
-        fd.append('action', 'upload');
-        fd.append('file', file);
+        // Lecture en base64 via FileReader (contourne mod_security qui bloque
+        // les uploads multipart de PDF sur Hostinger shared hosting).
+        var reader = new FileReader();
+        reader.onload = function (e) {
+            var dataUrl = e.target.result;        // "data:application/pdf;base64,JVBERi0..."
+            var commaIdx = dataUrl.indexOf(',');
+            var base64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl;
 
-        fetch(ACTION_URL, { method:'POST', body:fd, credentials:'same-origin' })
+            if (dzText) dzText.textContent = 'Analyse IA en cours… (~5-10s)';
+
+            var payload = {
+                action:         'upload',
+                filename:       file.name,
+                mime_type:      file.type || 'application/octet-stream',
+                size:           file.size,
+                content_base64: base64
+            };
+
+            fetch(ACTION_URL, {
+                method:      'POST',
+                credentials: 'same-origin',
+                headers:     { 'Content-Type': 'application/json' },
+                body:        JSON.stringify(payload)
+            })
             .then(function (r) {
-                // Diagnostic : on garde le texte brut pour debug si le parse JSON foire
                 return r.text().then(function (text) {
                     return { status: r.status, text: text, headers: r.headers.get('content-type') };
                 });
@@ -57,7 +83,7 @@
             .then(function (resp) {
                 var data = null;
                 try { data = JSON.parse(resp.text); }
-                catch (e) {
+                catch (parseErr) {
                     console.group('[GED upload] Réponse non-JSON');
                     console.log('Status:', resp.status);
                     console.log('Content-Type:', resp.headers);
@@ -66,7 +92,7 @@
                     console.log(resp.text);
                     console.groupEnd();
                     var preview = resp.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200);
-                    alert('Réponse serveur invalide (status ' + resp.status + ').\n\nDébut de la réponse : "' + preview + '..."\n\nDétails complets dans la console (F12).');
+                    alert('Réponse serveur invalide (status ' + resp.status + ').\n\nDébut : "' + preview + '..."\n\nDétails console (F12).');
                     resetDropzone();
                     return;
                 }
@@ -83,6 +109,12 @@
                 alert('Erreur réseau : ' + err.message);
                 resetDropzone();
             });
+        };
+        reader.onerror = function () {
+            alert('Erreur lecture du fichier (FileReader).');
+            resetDropzone();
+        };
+        reader.readAsDataURL(file);
     }
 
     function resetDropzone() {
