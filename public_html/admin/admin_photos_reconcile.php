@@ -93,16 +93,23 @@ if (!is_dir($uploadsRoot)) {
                     continue;
                 }
 
+                // Extrait l'ordre depuis le filename "NN_hash.jpg" si présent,
+                // sinon fallback sur l'ordre alphabétique du tri.
+                $ordre = $idx + 1;
+                if (preg_match('/^(\d+)_/', $fname, $m)) {
+                    $ordre = (int)$m[1];
+                }
+
                 $results['photos_to_add']++;
                 $rowsToAdd[] = [
                     'id_bien'   => $idBien,
                     'url_photo' => $urlPhoto,
                     'titre'     => null,
                     'alt_photo' => null,
-                    'ordre'     => $idx + 1,
+                    'ordre'     => $ordre,
                 ];
                 if (count($results['samples_added']) < 5) {
-                    $results['samples_added'][] = $urlPhoto;
+                    $results['samples_added'][] = $urlPhoto . " (ordre={$ordre})";
                 }
             }
         }
