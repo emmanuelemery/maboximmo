@@ -78,108 +78,205 @@ $mbiBodyClass = 'mbi-page-home';
 include __DIR__ . '/inc/mbi_annonces_header.php';
 ?>
 
-<section class="mbi-hero mbi-hero-glass" aria-labelledby="mbi-hero-title">
-  <div class="mbi-container mbi-hero-inner">
-    <h1 id="mbi-hero-title" class="mbi-hero-title">Trouvez votre bien idéal</h1>
-    <p class="mbi-hero-subtitle">Cliquez pour filtrer instantanément — pas besoin de "Rechercher".</p>
+<?php
+  // Détermine les ranges de prix selon transaction (vente par défaut si pas choisi)
+  $isLocation = $filters['transaction'] === 'location';
+  $venteRanges = [
+    ['min' => 0,      'max' => 50000,  'label' => '0 à 50 000 €'],
+    ['min' => 50000,  'max' => 100000, 'label' => '50 000 à 100 000 €'],
+    ['min' => 100000, 'max' => 150000, 'label' => '100 000 à 150 000 €'],
+    ['min' => 150000, 'max' => 200000, 'label' => '150 000 à 200 000 €'],
+    ['min' => 200000, 'max' => 250000, 'label' => '200 000 à 250 000 €'],
+    ['min' => 250000, 'max' => 300000, 'label' => '250 000 à 300 000 €'],
+    ['min' => 300000, 'max' => 0,      'label' => '+ de 300 000 €'],
+  ];
+  $locationRanges = [
+    ['min' => 50,   'max' => 250,  'label' => '50 à 250 €'],
+    ['min' => 250,  'max' => 450,  'label' => '250 à 450 €'],
+    ['min' => 450,  'max' => 650,  'label' => '450 à 650 €'],
+    ['min' => 650,  'max' => 800,  'label' => '650 à 800 €'],
+    ['min' => 800,  'max' => 1000, 'label' => '800 à 1000 €'],
+    ['min' => 1000, 'max' => 0,    'label' => '+ de 1000 €'],
+  ];
+  $priceRanges = $isLocation ? $locationRanges : $venteRanges;
 
-    <div class="mbi-hf-wrap" role="group" aria-label="Filtres">
+  // Index courant (-1 si aucune range sélectionnée)
+  $currentPriceIdx = -1;
+  foreach ($priceRanges as $i => $r) {
+    if ((int)$filters['prix_min'] === $r['min'] && (int)$filters['prix_max'] === $r['max']) {
+      $currentPriceIdx = $i;
+      break;
+    }
+  }
+  $currentPriceLabel = $currentPriceIdx >= 0 ? $priceRanges[$currentPriceIdx]['label'] : 'Tous les budgets';
 
-      <!-- ─── Bloc Transaction (1 col × 2 rows) ─── -->
-      <div class="mbi-hfblock mbi-hfblock-tx" aria-label="Transaction">
-        <a class="mbi-hfbtn <?= mbi_filter_active($filters, 'transaction', 'location') ? 'active' : '' ?>"
-           href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'location') ? null : 'location'])) ?>">
-          🔑 Location
-        </a>
-        <a class="mbi-hfbtn <?= mbi_filter_active($filters, 'transaction', 'vente') ? 'active' : '' ?>"
-           href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'vente') ? null : 'vente'])) ?>">
-          🏷️ Vente
-        </a>
-      </div>
+  // Index pour les flèches up/down
+  $prevIdx = max(0, ($currentPriceIdx <= 0 ? 0 : $currentPriceIdx - 1));
+  $nextIdx = min(count($priceRanges) - 1, ($currentPriceIdx < 0 ? 0 : $currentPriceIdx + 1));
+  $prevRange = $priceRanges[$prevIdx];
+  $nextRange = $priceRanges[$nextIdx];
 
-      <!-- ─── Bloc Type de bien (3 cols × 2 rows) ─── -->
-      <div class="mbi-hfblock mbi-hfblock-3x2" aria-label="Type de bien">
-        <?php
-          $typesList = [
-            ['code' => 'appartement',     'icon' => '🏢', 'label' => 'Appartement'],
-            ['code' => 'maison',          'icon' => '🏠', 'label' => 'Maison'],
-            ['code' => 'local_commercial','icon' => '🏪', 'label' => 'Local'],
-            ['code' => 'entrepot',        'icon' => '🏭', 'label' => 'Entrepôt'],
-            ['code' => 'parking',         'icon' => '🅿️', 'label' => 'Parking'],
-            ['code' => 'terrain',         'icon' => '🌳', 'label' => 'Terrain'],
-          ];
-          foreach ($typesList as $t):
-            $isActive = mbi_filter_active($filters, 'type_bien', $t['code']);
-        ?>
-          <a class="mbi-hfbtn <?= $isActive ? 'active' : '' ?>"
-             href="<?= h(mbi_filter_url($filters, ['type_bien' => $isActive ? null : $t['code']])) ?>">
-            <?= $t['icon'] ?> <?= h($t['label']) ?>
+  $priceUpUrl = mbi_filter_url($filters, [
+    'prix_min' => $prevRange['min'] ?: null,
+    'prix_max' => $prevRange['max'] ?: null,
+  ]);
+  $priceDownUrl = mbi_filter_url($filters, [
+    'prix_min' => $nextRange['min'] ?: null,
+    'prix_max' => $nextRange['max'] ?: null,
+  ]);
+
+  // 8 dernières annonces pour la barre miniatures
+  $miniList = mbi_annonces_fetch_list($pdo, array_merge($filters, ['per_page' => 8, 'page' => 1]));
+
+  // Modules bar : visible uniquement aux pros loggés
+  $isLogged = !empty($_SESSION['user_id'] ?? null);
+?>
+
+<section class="mbi-hero2" aria-labelledby="mbi-hero-title">
+  <div class="mbi-hero2-inner">
+
+    <h1 id="mbi-hero-title" class="mbi-hero2-title">Trouvez votre bien idéal</h1>
+    <p class="mbi-hero2-sub">Cliquez pour filtrer instantanément</p>
+    <div class="mbi-hero2-line"></div>
+
+    <!-- ═══ ZONE FILTRES — 4 glass cards alignées ═══ -->
+    <div class="mbi-search-area">
+
+      <!-- ── Bloc 1 — Transaction (1 col × 2 rows) ── -->
+      <div class="mbi-glass-card">
+        <div class="mbi-fcard-title">↔ Transaction</div>
+        <div class="mbi-fcard-grid mbi-fcard-grid-1col">
+          <a class="mbi-fcardbtn <?= mbi_filter_active($filters, 'transaction', 'location') ? 'active' : '' ?>"
+             href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'location') ? null : 'location'])) ?>">
+            <span class="mbi-fcardbtn-ic">🔑</span>LOCATION
           </a>
-        <?php endforeach; ?>
-      </div>
-
-      <!-- ─── Bloc Département (3 cols × 2 rows) ─── -->
-      <div class="mbi-hfblock mbi-hfblock-3x2" aria-label="Département">
-        <?php
-          $depts = [
-            ['cp' => '69', 'label' => 'Rhône'],
-            ['cp' => '42', 'label' => 'Loire'],
-            ['cp' => '38', 'label' => 'Isère'],
-            ['cp' => '63', 'label' => 'Puy-de-Dôme'],
-            ['cp' => '43', 'label' => 'Haute-Loire'],
-            ['cp' => '03', 'label' => 'Allier'],
-          ];
-          foreach ($depts as $d):
-            $isActive = mbi_filter_active($filters, 'code_postal', $d['cp']);
-        ?>
-          <a class="mbi-hfbtn <?= $isActive ? 'active' : '' ?>"
-             href="<?= h(mbi_filter_url($filters, ['code_postal' => $isActive ? null : $d['cp']])) ?>">
-            <?= h($d['label']) ?> <small>(<?= h($d['cp']) ?>)</small>
+          <a class="mbi-fcardbtn <?= mbi_filter_active($filters, 'transaction', 'vente') ? 'active' : '' ?>"
+             href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'vente') ? null : 'vente'])) ?>">
+            <span class="mbi-fcardbtn-ic">🏠</span>VENTE
           </a>
-        <?php endforeach; ?>
+        </div>
       </div>
 
-      <!-- ─── Bloc Prix (3 cols × 2 rows) — selon transaction choisie ─── -->
-      <?php
-        if ($filters['transaction'] === 'location') {
-          $prixRanges = [
-            [50,   250,  '50-250 €'],
-            [250,  450,  '250-450 €'],
-            [450,  650,  '450-650 €'],
-            [650,  800,  '650-800 €'],
-            [800,  1000, '800-1k €'],
-            [1000, 0,    '+ 1k €'],
-          ];
-          $prixLabel = 'Prix location';
-        } else {
-          // vente OU pas encore choisi → afficher prix vente par défaut
-          $prixRanges = [
-            [0,      50000,  '< 50K€'],
-            [50000,  100000, '50-100K€'],
-            [100000, 150000, '100-150K€'],
-            [150000, 200000, '150-200K€'],
-            [200000, 300000, '200-300K€'],
-            [300000, 0,      '+ 300K€'],
-          ];
-          $prixLabel = 'Prix vente';
-        }
-      ?>
-      <div class="mbi-hfblock mbi-hfblock-3x2" aria-label="<?= h($prixLabel) ?>">
-        <?php foreach ($prixRanges as [$min, $max, $label]):
-          $isActive = mbi_filter_range_active($filters, $min, $max);
-          $url = mbi_filter_url($filters, $isActive
-              ? ['prix_min' => null, 'prix_max' => null]
-              : ['prix_min' => $min ?: null, 'prix_max' => $max ?: null]);
-        ?>
-          <a class="mbi-hfbtn <?= $isActive ? 'active' : '' ?>" href="<?= h($url) ?>"><?= h($label) ?></a>
-        <?php endforeach; ?>
+      <!-- ── Bloc 2 — Type de bien (3 cols × 2 rows) ── -->
+      <div class="mbi-glass-card">
+        <div class="mbi-fcard-title">🏢 Type de bien</div>
+        <div class="mbi-fcard-grid mbi-fcard-grid-3col">
+          <?php
+            $typesList = [
+              ['code' => 'appartement',     'icon' => '🏢', 'label' => 'Appartement'],
+              ['code' => 'maison',          'icon' => '🏡', 'label' => 'Maison'],
+              ['code' => 'local_commercial','icon' => '🏪', 'label' => 'Local commercial'],
+              ['code' => 'entrepot',        'icon' => '🏭', 'label' => 'Entrepôt'],
+              ['code' => 'parking',         'icon' => '🅿️', 'label' => 'Parking'],
+              ['code' => 'terrain',         'icon' => '🌳', 'label' => 'Terrain'],
+            ];
+            foreach ($typesList as $t):
+              $isActive = mbi_filter_active($filters, 'type_bien', $t['code']);
+          ?>
+            <a class="mbi-fcardbtn <?= $isActive ? 'active' : '' ?>"
+               href="<?= h(mbi_filter_url($filters, ['type_bien' => $isActive ? null : $t['code']])) ?>">
+              <span class="mbi-fcardbtn-ic"><?= $t['icon'] ?></span><?= h($t['label']) ?>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
+      <!-- ── Bloc 3 — Département (3 cols × 2 rows) ── -->
+      <div class="mbi-glass-card">
+        <div class="mbi-fcard-title">📍 Département</div>
+        <div class="mbi-fcard-grid mbi-fcard-grid-3col">
+          <?php
+            $depts = [
+              ['cp' => '69', 'label' => 'Rhône'],
+              ['cp' => '42', 'label' => 'Loire'],
+              ['cp' => '38', 'label' => 'Isère'],
+              ['cp' => '63', 'label' => 'Puy-de-Dôme'],
+              ['cp' => '43', 'label' => 'Haute-Loire'],
+              ['cp' => '03', 'label' => 'Allier'],
+            ];
+            foreach ($depts as $d):
+              $isActive = mbi_filter_active($filters, 'code_postal', $d['cp']);
+          ?>
+            <a class="mbi-fcardbtn mbi-fcardbtn-dept <?= $isActive ? 'active' : '' ?>"
+               href="<?= h(mbi_filter_url($filters, ['code_postal' => $isActive ? null : $d['cp']])) ?>">
+              <?= h($d['label']) ?>
+              <span class="mbi-fcardbtn-cp"><?= h($d['cp']) ?></span>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
+      <!-- ── Bloc 4 — Budget (price card avec flèches) ── -->
+      <div class="mbi-glass-card mbi-price-card">
+        <div class="mbi-fcard-title">Budget <small>(<?= $isLocation ? '€/mois' : '€' ?>)</small></div>
+        <div class="mbi-price-box">
+          <a class="mbi-price-arrow" href="<?= h($priceUpUrl) ?>" aria-label="Budget précédent">⌃</a>
+          <div class="mbi-price-value"><?= h($currentPriceLabel) ?></div>
+          <a class="mbi-price-arrow" href="<?= h($priceDownUrl) ?>" aria-label="Budget suivant">⌄</a>
+        </div>
+        <div class="mbi-price-chip"><?= h($currentPriceLabel) ?></div>
+        <div class="mbi-price-sublabel">Sélection actuelle</div>
       </div>
 
     </div>
 
     <?php if ($anyFilterActive): ?>
-      <a class="mbi-hf-reset" href="<?= h(app_url('/mbi_annonces_index.php')) ?>">↺ Tout effacer</a>
+      <a class="mbi-clear-btn" href="<?= h(app_url('/mbi_annonces_index.php')) ?>">↻ Tout effacer</a>
     <?php endif; ?>
+
+    <!-- ═══ MINI BARRE — 8 annonces avec flèches ═══ -->
+    <?php if (!empty($miniList['items'])): ?>
+    <div class="mbi-mini-bar">
+      <button class="mbi-mini-arrow" type="button" aria-label="Précédent" onclick="document.getElementById('mbi-mini-listings').scrollBy({left:-320,behavior:'smooth'})">‹</button>
+      <div class="mbi-mini-listings" id="mbi-mini-listings">
+        <?php foreach (array_slice($miniList['items'], 0, 8) as $a):
+          $href = mbi_annonces_url_detail((int)$a['annonce_id'], (string)($a['annonce_slug'] ?? ''));
+          $imgSrc = !empty($a['photo_url'])
+            ? app_url('/' . ltrim((string)$a['photo_url'], '/'))
+            : app_url('/images/Home.png');
+          $isNew = false;
+          $dml = (string)($a['date_mise_en_ligne'] ?? '');
+          if ($dml !== '' && strtotime($dml) !== false) {
+            $isNew = (time() - strtotime($dml)) < (7 * 86400);
+          }
+          $typeLabel = (string)($a['type_bien_libelle'] ?? 'Bien');
+          $priceLabel = mbi_annonces_price_label($a);
+        ?>
+          <a class="mbi-mini-prop" href="<?= h($href) ?>">
+            <span class="mbi-mini-badge"><?= !empty($a['exclusivite']) ? 'EXCLUSIVITÉ' : ($isNew ? 'NOUVEAU' : '') ?></span>
+            <img src="<?= h($imgSrc) ?>" alt="<?= h($typeLabel) ?>" loading="lazy">
+            <div class="mbi-mini-info">
+              <span class="mbi-mini-type"><?= h(mb_strtoupper(mb_substr($typeLabel, 0, 18))) ?></span>
+              <strong class="mbi-mini-price"><?= h($priceLabel) ?></strong>
+            </div>
+          </a>
+        <?php endforeach; ?>
+      </div>
+      <button class="mbi-mini-arrow" type="button" aria-label="Suivant" onclick="document.getElementById('mbi-mini-listings').scrollBy({left:320,behavior:'smooth'})">›</button>
+    </div>
+    <?php endif; ?>
+
+    <!-- ═══ MODULES BAR (logged-in pros only) ═══ -->
+    <?php if ($isLogged): ?>
+    <div class="mbi-modules-bar">
+      <a class="mbi-module-btn" href="<?= h(app_url('/rh_dashboard.php')) ?>">
+        <span>👥</span> Ressources humaines
+      </a>
+      <a class="mbi-module-btn" href="<?= h(app_url('/agency_dashboard.php')) ?>">
+        <span>🏢</span> Agency
+      </a>
+      <a class="mbi-module-btn" href="<?= h(app_url('/agency_dashboard_diffusion.php')) ?>">
+        <span>📣</span> Diffuser annonces
+      </a>
+      <a class="mbi-module-btn" href="<?= h(app_url('/modules/ged/ged_dashboard.php')) ?>">
+        <span>📁</span> GED
+      </a>
+      <a class="mbi-module-btn" href="<?= h(app_url('/mail_dashboard.php')) ?>">
+        <span>✉️</span> Mail Box
+      </a>
+    </div>
+    <?php endif; ?>
+
   </div>
 </section>
 

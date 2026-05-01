@@ -209,6 +209,362 @@
 .mbi-hero .mbi-link-more { color: rgba(255,255,255,0.92); }
 .mbi-hero .mbi-link-more:hover { color: #fff; }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ *  HERO V3 — Layout cousin (4 glass cards + mini bar + modules)
+ *  Palette pétrol/teal sur fond image hero
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --mbi-petrol:      #087c82;
+  --mbi-petrol-dark: #045b60;
+  --mbi-glass:       rgba(255, 255, 255, 0.42);
+  --mbi-glass-strong:rgba(255, 255, 255, 0.62);
+  --mbi-border-glass:rgba(255, 255, 255, 0.72);
+  --mbi-text-dark:   #0d1933;
+  --mbi-muted-dark:  #516070;
+  --mbi-shadow-hero: 0 18px 45px rgba(15, 35, 55, 0.18);
+}
+
+.mbi-hero2 {
+  position: relative;
+  min-height: 720px;
+  padding: 45px 6vw 28px;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(225, 241, 247, 0.22), rgba(225, 241, 247, 0.35)),
+    url('/images/mbi_annonces_hero_69.png') center/cover no-repeat,
+    url('/images/mbi_annonces_hero_63.png') center/cover no-repeat,
+    url('/images/mbi_annonces_hero.jpg')    center/cover no-repeat,
+    url('/images/mbi_annonces_fonds_cube_3.png') center/cover no-repeat,
+    var(--mbi-navy);
+}
+.mbi-hero2::before {
+  content: "";
+  position: absolute; inset: 0; z-index: 0;
+  -webkit-backdrop-filter: blur(5px);
+          backdrop-filter: blur(5px);
+  background: rgba(255,255,255,0.08);
+}
+.mbi-hero2-inner {
+  position: relative; z-index: 1;
+  max-width: 1500px; margin: 0 auto;
+  text-align: center;
+}
+.mbi-hero2-title {
+  font-size: clamp(34px, 4vw, 56px);
+  font-weight: 800; letter-spacing: -1px;
+  margin: 0 0 10px;
+  color: var(--mbi-text-dark);
+}
+.mbi-hero2-sub {
+  margin: 0 0 26px;
+  color: var(--mbi-muted-dark);
+  font-size: 20px;
+}
+.mbi-hero2-line {
+  width: 62px; height: 2px;
+  background: var(--mbi-petrol);
+  margin: 0 auto 30px;
+}
+
+/* ── Search area : 4 glass cards alignées ── */
+.mbi-search-area {
+  display: grid;
+  grid-template-columns: 0.75fr 1.6fr 1.35fr 0.7fr;
+  gap: 14px;
+  align-items: stretch;
+  transform: scale(0.92);
+  transform-origin: top center;
+  margin-bottom: -8px;
+}
+
+.mbi-glass-card {
+  background: var(--mbi-glass);
+  border: 1px solid var(--mbi-border-glass);
+  border-radius: 22px;
+  box-shadow: var(--mbi-shadow-hero);
+  -webkit-backdrop-filter: blur(18px);
+          backdrop-filter: blur(18px);
+  padding: 18px;
+}
+
+.mbi-fcard-title {
+  text-align: left;
+  font-weight: 700;
+  margin-bottom: 14px;
+  font-size: 15px;
+  color: var(--mbi-text-dark);
+}
+.mbi-fcard-title small {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--mbi-muted-dark);
+}
+
+.mbi-fcard-grid {
+  display: grid;
+  gap: 10px;
+}
+.mbi-fcard-grid-1col { grid-template-columns: 1fr; }
+.mbi-fcard-grid-3col { grid-template-columns: repeat(3, 1fr); }
+
+.mbi-fcardbtn {
+  border: 1px solid rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.42);
+  border-radius: 14px;
+  padding: 15px 10px;
+  min-height: 82px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.8),
+    0 8px 20px rgba(0,0,0,0.08);
+  transition: all 0.2s ease;
+  color: var(--mbi-text-dark);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.mbi-fcardbtn-ic {
+  display: block;
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+.mbi-fcardbtn:hover,
+.mbi-fcardbtn.active {
+  background: linear-gradient(145deg, rgba(8,124,130,0.92), rgba(6,94,98,0.78));
+  color: white;
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.95);
+}
+.mbi-fcardbtn.active .mbi-fcardbtn-ic {
+  filter: drop-shadow(0 3px 8px rgba(255,255,255,0.35));
+}
+
+/* Département : code dans un cercle */
+.mbi-fcardbtn-dept {
+  font-size: 12px;
+}
+.mbi-fcardbtn-cp {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--mbi-petrol);
+  font-size: 13px; font-weight: 700;
+  color: var(--mbi-petrol);
+  background: rgba(255,255,255,0.5);
+}
+.mbi-fcardbtn-dept.active .mbi-fcardbtn-cp,
+.mbi-fcardbtn-dept:hover .mbi-fcardbtn-cp {
+  border-color: white; color: white;
+  background: rgba(255,255,255,0.18);
+}
+
+/* Price card */
+.mbi-price-card { display: flex; flex-direction: column; }
+.mbi-price-box {
+  background: rgba(255,255,255,0.52);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.75);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+  margin-bottom: 12px;
+}
+.mbi-price-arrow {
+  display: grid; place-items: center;
+  height: 40px; cursor: pointer;
+  font-size: 24px;
+  color: var(--mbi-petrol);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.mbi-price-arrow:hover {
+  background: rgba(8,124,130,0.1);
+  color: var(--mbi-petrol-dark);
+}
+.mbi-price-value {
+  padding: 18px 8px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--mbi-petrol);
+  background: rgba(255,255,255,0.36);
+  text-align: center;
+  border-top: 1px solid rgba(255,255,255,0.6);
+  border-bottom: 1px solid rgba(255,255,255,0.6);
+}
+.mbi-price-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin: 0 auto;
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid #12b7b0;
+  background: rgba(255,255,255,0.45);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mbi-petrol-dark);
+}
+.mbi-price-sublabel {
+  margin-top: 6px; text-align: center;
+  font-size: 11px; color: var(--mbi-muted-dark);
+}
+
+.mbi-clear-btn {
+  display: inline-block;
+  margin: 16px auto 24px;
+  border: 1px solid rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.55);
+  border-radius: 12px;
+  padding: 10px 28px;
+  color: var(--mbi-petrol-dark);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+  -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(12px);
+  transition: all 0.15s;
+}
+.mbi-clear-btn:hover {
+  background: rgba(255,255,255,0.8);
+  transform: translateY(-1px);
+}
+
+/* ── Mini barre annonces (8 vignettes + flèches) ── */
+.mbi-mini-bar {
+  margin: 18px auto 18px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.42);
+  border: 1px solid rgba(255,255,255,0.75);
+  -webkit-backdrop-filter: blur(18px);
+          backdrop-filter: blur(18px);
+  box-shadow: var(--mbi-shadow-hero);
+  display: flex; align-items: center; gap: 12px;
+  max-width: 1500px;
+}
+.mbi-mini-arrow {
+  flex: 0 0 auto;
+  width: 38px; height: 38px;
+  border-radius: 50%; border: none;
+  background: rgba(255,255,255,0.68);
+  cursor: pointer;
+  font-size: 24px; line-height: 1;
+  color: var(--mbi-petrol);
+  transition: all 0.15s;
+}
+.mbi-mini-arrow:hover {
+  background: white;
+  color: var(--mbi-petrol-dark);
+  transform: scale(1.05);
+}
+.mbi-mini-listings {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px;
+  width: 100%;
+  scroll-snap-type: x mandatory;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.mbi-mini-listings::-webkit-scrollbar { height: 4px; }
+.mbi-mini-prop {
+  height: 130px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: white;
+  position: relative;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.12);
+  text-align: left;
+  text-decoration: none;
+  scroll-snap-align: start;
+}
+.mbi-mini-prop img {
+  width: 100%; height: 80px;
+  object-fit: cover; display: block;
+}
+.mbi-mini-badge {
+  position: absolute; top: 6px; left: 6px;
+  background: var(--mbi-petrol);
+  color: white;
+  font-size: 9px; font-weight: 800;
+  border-radius: 5px;
+  padding: 4px 6px;
+  letter-spacing: 0.5px;
+}
+.mbi-mini-badge:empty { display: none; }
+.mbi-mini-info {
+  padding: 5px 7px;
+  font-size: 10px; line-height: 1.2;
+}
+.mbi-mini-type {
+  display: block;
+  color: var(--mbi-muted-dark);
+  font-size: 9px;
+  letter-spacing: 0.4px;
+}
+.mbi-mini-price {
+  display: block;
+  color: var(--mbi-petrol);
+  font-size: 13px;
+  margin-top: 3px;
+}
+
+/* ── Modules bar (logged-in pros only) ── */
+.mbi-modules-bar {
+  width: 82%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 8px 12px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.38);
+  border: 1px solid rgba(255,255,255,0.75);
+  -webkit-backdrop-filter: blur(16px);
+          backdrop-filter: blur(16px);
+  box-shadow: 0 10px 28px rgba(15,35,55,0.14);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+.mbi-module-btn {
+  height: 44px;
+  border-radius: 13px;
+  border: 1px solid rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.42);
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  font-size: 13px; font-weight: 700;
+  color: var(--mbi-text-dark);
+  text-decoration: none;
+  transition: 0.2s ease;
+}
+.mbi-module-btn span { font-size: 20px; }
+.mbi-module-btn:hover {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,0.78);
+  color: var(--mbi-petrol-dark);
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .mbi-search-area { grid-template-columns: 1fr 1fr; }
+  .mbi-mini-listings { grid-template-columns: repeat(4, 1fr); }
+  .mbi-modules-bar { width: 100%; grid-template-columns: repeat(3, 1fr); }
+  .mbi-module-btn { font-size: 11px; }
+}
+@media (max-width: 700px) {
+  .mbi-search-area { grid-template-columns: 1fr; transform: none; }
+  .mbi-mini-listings { grid-template-columns: repeat(2, 1fr); }
+  .mbi-modules-bar { grid-template-columns: 1fr 1fr; }
+  .mbi-hero2 { padding-inline: 18px; }
+}
+
 /* ── Hero glassmorphism filters (compact 2-rows centré) ────────────────── */
 /* Utilise le fond mbi_annonces_fonds_cube_3.png en priorité */
 .mbi-hero-glass {
@@ -229,6 +585,17 @@
   margin-top: 32px;
   max-width: 1200px;
   margin-left: auto; margin-right: auto;
+
+  /* Panneau blanc flouté à 75 % (frosted glass) pour lisibilité sur image hero */
+  background: rgba(255, 255, 255, 0.75);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+          backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 20px;
+  padding: 18px 20px;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .mbi-hfblock {
