@@ -345,15 +345,25 @@ if (!function_exists('mbi_annonces_fetch_photos')) {
     {
         if ($annonceId <= 0) return [];
         try {
+            // SCHEMA-COMPATIBLE : on n'utilise QUE les colonnes universelles de
+            // biens_photos (id, id_bien, url_photo, ordre). Les autres
+            // (titre, alt_photo, url_webp, largeur, hauteur, caption) sont
+            // émises en NULL via des alias SQL — comme ça la requête tourne
+            // que la table ait ou non ces colonnes (cas prod vs dev).
+            // Le rendu côté HTML gère déjà NULL avec fallback sur le titre annonce.
             $st = $pdo->prepare("
                 SELECT
-                  bp.id, bp.url_photo,
-                  NULL AS url_webp, NULL AS largeur, NULL AS hauteur,
-                  'original' AS variante,
-                  bp.titre, bp.alt_photo,
+                  bp.id,
+                  bp.url_photo,
+                  bp.ordre AS ordre_affichage,
+                  NULL AS url_webp,
+                  NULL AS largeur,
+                  NULL AS hauteur,
+                  NULL AS titre,
+                  NULL AS alt_photo,
                   NULL AS caption,
-                  CASE WHEN bp.ordre = 1 THEN 1 ELSE 0 END AS principale,
-                  bp.ordre AS ordre_affichage
+                  'original' AS variante,
+                  CASE WHEN bp.ordre = 1 THEN 1 ELSE 0 END AS principale
                 FROM annonces a
                 INNER JOIN biens b ON b.id = a.id_bien
                 INNER JOIN biens_photos bp ON bp.id_bien = b.id
