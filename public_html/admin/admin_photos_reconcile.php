@@ -52,7 +52,9 @@ $dryRun  = !$confirm;
 $uploadsRoot = dirname(__DIR__) . '/uploads/biens';
 $results = [
     'biens_scanned'        => 0,
+    'biens_orphan_disk'    => 0,    // dossiers /uploads/biens/X/Y/ où Y n'existe pas dans biens
     'files_found'          => 0,
+    'files_skipped_orphan' => 0,    // fichiers ignorés car bien orphelin
     'photos_already_in_db' => 0,
     'photos_to_add'        => 0,
     'photos_added'         => 0,
@@ -60,6 +62,7 @@ $results = [
     'errors'               => [],
     'samples_added'        => [],
     'samples_orphan'       => [],
+    'samples_orphan_dirs'  => [],
 ];
 
 if (!is_dir($uploadsRoot)) {
@@ -70,6 +73,12 @@ if (!is_dir($uploadsRoot)) {
     foreach ($pdo->query("SELECT id, id_bien, url_photo FROM biens_photos") as $r) {
         $key = (int)$r['id_bien'] . '|' . (string)$r['url_photo'];
         $existing[$key] = $r;
+    }
+
+    // Set des biens qui existent réellement (pour skip les dossiers orphelins disque)
+    $validBienIds = [];
+    foreach ($pdo->query("SELECT id FROM biens") as $r) {
+        $validBienIds[(int)$r['id']] = true;
     }
 
     // Scan filesystem : /uploads/biens/{id_soc}/{id_bien}/*.jpg
@@ -87,6 +96,27 @@ if (!is_dir($uploadsRoot)) {
             if ($idBien <= 0) continue;
 
             $results['biens_scanned']++;
+
+            // Skip les biens orphelins (dossier disque mais bien supprimé en BDD)
+            // → INSERT planterait sur foreign key constraint
+            if (!isset($validBienIds[$idBien])) {
+                $results['biens_orphan_disk']++;
+                $orphanFiles = 0;
+                foreach (new DirectoryIterator($bienDir->getPathname()) as $f) {
+                    if ($f->isDot() || !$f->isFile()) continue;
+                    $ext = strtolower($f->getExtension());
+                    if (in_array($ext, ['jpg','jpeg','png','webp'], true)
+                        && !str_contains($f->getFilename(), '.lbc.')
+                        && !str_contains($f->getFilename(), '.thumb.')) {
+                        $orphanFiles++;
+                    }
+                }
+                $results['files_skipped_orphan'] += $orphanFiles;
+                if (count($results['samples_orphan_dirs']) < 5) {
+                    $results['samples_orphan_dirs'][] = "uploads/biens/{$idSoc}/{$idBien}/ ({$orphanFiles} fichiers orphelins)";
+                }
+                continue; // saute ce bien entier
+            }
             $files = [];
             foreach (new DirectoryIterator($bienDir->getPathname()) as $f) {
                 if ($f->isDot() || !$f->isFile()) continue;
@@ -258,7 +288,11 @@ header('Content-Type: text/html; charset=utf-8');
 <div class="card">
     <h2 style="font-size:16px; margin:0 0 14px">📊 Statistiques</h2>
     <div class="row"><span class="lbl">Biens scannés (dossiers)</span> <span class="val"><?= $results['biens_scanned'] ?></span></div>
-    <div class="row"><span class="lbl">Fichiers images trouvés sur disque</span> <span class="val"><?= $results['files_found'] ?></span></div>
+    <?php if (($results['biens_orphan_disk'] ?? 0) > 0): ?>
+    <div class="row"><span class="lbl warn">⚠ Dossiers /biens/X/Y/ orphelins (bien supprimé de la table biens)</span> <span class="val"><?= $results['biens_orphan_disk'] ?></span></div>
+    <div class="row"><span class="lbl warn">⚠ Fichiers ignorés (dans biens orphelins)</span> <span class="val"><?= $results['files_skipped_orphan'] ?></span></div>
+    <?php endif; ?>
+    <div class="row"><span class="lbl">Fichiers images trouvés sur disque (biens valides)</span> <span class="val"><?= $results['files_found'] ?></span></div>
     <div class="row"><span class="lbl ok">✓ Photos déjà référencées en BDD</span> <span class="val"><?= $results['photos_already_in_db'] ?></span></div>
     <div class="row"><span class="lbl warn">⚠ Photos à ajouter (manquent en BDD)</span> <span class="val"><?= $results['photos_to_add'] ?></span></div>
     <?php if (!$dryRun): ?>
@@ -271,6 +305,18 @@ header('Content-Type: text/html; charset=utf-8');
 <div class="card">
     <h2 style="font-size:16px; margin:0 0 10px">📸 Échantillon — photos à ajouter (5 premières)</h2>
     <pre><?php foreach ($results['samples_added'] as $u) echo htmlspecialchars($u) . "\n"; ?></pre>
+</div>
+<?php endif; ?>
+
+<?php if (!empty($results['samples_orphan_dirs'])): ?>
+<div class="card" style="border-left: 3px solid #f59e0b">
+    <h2 style="font-size:16px; margin:0 0 10px; color:#92400e">⚠ Dossiers orphelins disque — bien supprimé en BDD (5 premières)</h2>
+    <pre><?php foreach ($results['samples_orphan_dirs'] as $u) echo htmlspecialchars($u) . "\n"; ?></pre>
+    <p style="font-size:12px; color:#6b7280; margin-top:8px">
+        Ces dossiers contiennent des photos sur le disque mais le bien correspondant n'existe plus dans la table `biens`.
+        Le script les ignore automatiquement (l'INSERT planterait sur la FK).
+        Tu peux les supprimer du disque manuellement via FTP si tu veux faire le ménage.
+    </p>
 </div>
 <?php endif; ?>
 
