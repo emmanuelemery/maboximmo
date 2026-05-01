@@ -127,13 +127,8 @@
 .mbi-btn-search { padding: 12px 22px; }
 
 /* ===== Hero (avec photo immersive) =====
-   Cascade d'affichage (le 1er fichier trouvé l'emporte) :
-   1. /images/mbi_annonces_hero.jpg     (perso, prioritaire)
-   2. /images/mbi_annonces_hero.png     (perso, variante png)
-   3. /images/mbi_annonces_hero_69.png  (variante département 69 / Lyon)
-   4. /images/mbi_annonces_hero_63.png  (variante département 63 / Puy-de-Dôme)
-   5. CDN Unsplash maison moderne       (défaut sympa)
-   6. /images/Home.png                  (fallback ultime)
+   Cascade d'affichage (le 1er fichier trouvé l'emporte).
+   Photos uploadées par MaBoxImmo dans /public_html/images/.
    ============================================================= */
 .mbi-hero {
   position: relative;
@@ -142,12 +137,11 @@
   color: #fff;
   background:
     linear-gradient(180deg, rgba(20,20,30,0.55) 0%, rgba(20,20,30,0.30) 50%, rgba(20,20,30,0.60) 100%),
-    url('/images/mbi_annonces_hero.jpg') center/cover no-repeat,
-    url('/images/mbi_annonces_hero.png') center/cover no-repeat,
     url('/images/mbi_annonces_hero_69.png') center/cover no-repeat,
     url('/images/mbi_annonces_hero_63.png') center/cover no-repeat,
-    url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1920&q=80') center/cover no-repeat,
-    url('/images/Home.png') center/cover no-repeat,
+    url('/images/mbi_annonces_hero.jpg')    center/cover no-repeat,
+    url('/images/mbi_annonces_hero.png')    center/cover no-repeat,
+    url('/images/Home.png')                 center/cover no-repeat,
     #2a2a2a;
   min-height: 520px;
   display: flex;
