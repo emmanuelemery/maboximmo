@@ -1,0 +1,152 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * GED MaBoxImmo — Inbox UI (Gmail-like, doc à doc)
+ * Fichier : assets/css/ged_inbox.css
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.ged-inbox-page {
+    padding: 16px 20px;
+    background: var(--aged-bg, #f5f6fa);
+    min-height: calc(100vh - 60px);
+}
+
+.ged-inbox-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+}
+.ged-inbox-header h1 { font-size: 22px; font-weight: 600; color: #1f2937; margin: 0; }
+.ged-inbox-sub { color: #6b7280; font-size: 13px; margin-top: 4px; }
+.ged-inbox-actions-top { display: flex; gap: 8px; }
+
+/* ═══════════ DROPZONE ═══════════ */
+.ged-inbox-dropzone {
+    background: #fff; border: 2px dashed #cbd5e1; border-radius: 12px;
+    padding: 24px; margin-bottom: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: all 0.15s; cursor: pointer; text-align: center;
+}
+.ged-inbox-dropzone.drag-over {
+    border-color: #2563eb; background: #eff6ff;
+}
+.ged-inbox-dropzone.uploading {
+    border-color: #f59e0b; background: #fffbeb;
+}
+.ged-inbox-dropzone .dz-icon { font-size: 32px; margin-bottom: 6px; }
+.ged-inbox-dropzone .dz-text { font-size: 14px; color: #374151; }
+.ged-inbox-dropzone .dz-link { color: #2563eb; text-decoration: underline; cursor: pointer; }
+
+.dz-progress { width: 100%; max-width: 400px; margin-top: 12px; }
+.dz-progress-bar {
+    width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;
+}
+.dz-progress-fill {
+    height: 100%; width: 0; background: #2563eb;
+    transition: width 0.3s ease; border-radius: 3px;
+}
+.dz-progress-fill.indeterminate {
+    width: 30%;
+    animation: dz-indeterminate 1.4s ease-in-out infinite;
+}
+@keyframes dz-indeterminate {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+}
+.dz-progress-text { font-size: 12px; color: #6b7280; margin-top: 6px; }
+
+/* ═══════════ FILE VIDE ═══════════ */
+.ged-inbox-empty {
+    background: #fff; border-radius: 12px; padding: 80px 20px;
+    text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.ged-inbox-empty .empty-icon { font-size: 64px; margin-bottom: 12px; }
+.ged-inbox-empty h2 { font-size: 22px; color: #1f2937; margin: 0 0 8px; }
+.ged-inbox-empty p { color: #6b7280; font-size: 14px; margin: 0; }
+
+/* ═══════════ CARTE DOC COURANT ═══════════ */
+.ged-inbox-card {
+    background: #fff; border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 0; overflow: hidden; min-height: 600px;
+    transition: opacity 0.18s, transform 0.18s;
+}
+.ged-inbox-card.transitioning {
+    opacity: 0.4; transform: translateX(-12px);
+    pointer-events: none;
+}
+
+/* ── Preview gauche ── */
+.ged-inbox-preview {
+    background: #f3f4f6; display: flex; flex-direction: column;
+    border-right: 1px solid #e5e7eb;
+}
+.preview-header {
+    padding: 10px 14px; background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.preview-name {
+    font-size: 13px; color: #374151; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.preview-iframe {
+    flex: 1; width: 100%; border: 0; background: #fff; min-height: 540px;
+}
+.preview-placeholder {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #9ca3af; padding: 40px 20px; text-align: center;
+}
+.preview-placeholder > div:first-child { font-size: 64px; margin-bottom: 10px; }
+
+/* ── Form droite ── */
+.ged-inbox-form {
+    padding: 18px 22px; display: flex; flex-direction: column; gap: 18px;
+    overflow-y: auto; max-height: calc(100vh - 180px);
+}
+.form-section h3 {
+    font-size: 13px; font-weight: 600; color: #374151;
+    margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.4px;
+}
+
+.ged-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.ged-field label {
+    font-size: 11px; font-weight: 600; color: #6b7280;
+    text-transform: uppercase; letter-spacing: 0.3px;
+}
+.ged-field input,
+.ged-field select {
+    padding: 7px 10px; border: 1px solid #e5e7eb; border-radius: 6px;
+    font-size: 13px; background: #fff; color: #1f2937;
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+.ged-field input:focus,
+.ged-field select:focus {
+    outline: none; border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+}
+.ged-field-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ged-field-row .ged-field { min-width: 140px; }
+
+/* ── Actions ── */
+.form-actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    border-top: 1px solid #e5e7eb; padding-top: 14px; margin-top: 4px;
+}
+.form-actions .aged-btn { padding: 8px 14px; font-size: 13px; }
+.form-actions .aged-btn.b-primary { padding: 8px 18px; }
+
+.form-help {
+    font-size: 11px; color: #9ca3af; text-align: right;
+}
+.form-help kbd {
+    background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 3px;
+    padding: 1px 5px; font-family: ui-monospace, monospace;
+    font-size: 10px; color: #374151;
+}
+
+/* ═══════════ RESPONSIVE ═══════════ */
+@media (max-width: 1100px) {
+    .ged-inbox-card { grid-template-columns: 1fr; }
+    .ged-inbox-preview { border-right: 0; border-bottom: 1px solid #e5e7eb; }
+    .preview-iframe { min-height: 360px; }
+    .ged-inbox-form { max-height: none; }
+}

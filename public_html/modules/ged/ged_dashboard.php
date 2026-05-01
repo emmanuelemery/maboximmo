@@ -100,6 +100,11 @@ if (is_file($layoutTop)) {
                 Confiance moyenne : <strong><?= htmlspecialchars((string)$stats['avg_conf']) ?>%</strong>
             </div>
         </div>
+        <div>
+            <a class="aged-btn b-primary" href="<?= app_url('/modules/ged/ged_inbox.php') ?>">
+                <span class="b-emoji">📥</span> Ouvrir l'inbox de validation
+            </a>
+        </div>
     </div>
 
     <?php if ($loadError !== null): ?>

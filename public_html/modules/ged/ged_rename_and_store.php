@@ -187,3 +187,94 @@ function gedRenameAndStore(string $localPath, array $extraction, array $context)
         'mime'              => $up['mime'],
     ];
 }
+
+/**
+ * Variante : promeut une analyse de la quarantaine LOCALE vers le DRIVE final.
+ *
+ * Workflow : à la validation côté UI, le fichier est en `storage/ged/00_A_CLASSER_IA/...`
+ * (driver local, quarantaine post-upload). Cette fonction :
+ *   1. Récupère le fichier local via le driver source (généralement local)
+ *   2. Appelle gedRenameAndStore() qui upload vers le driver default (Drive en prod)
+ *   3. Supprime le fichier local de quarantaine
+ *
+ * @param int   $analysisId  ID de la ligne ged_analyses (status='to_validate')
+ * @param array $context     ['ref_societe', 'ref_agence', 'objet_type', 'objet_id']
+ *                           — peut overrider les valeurs déjà en BDD
+ * @return array Idem gedRenameAndStore.
+ */
+function gedRenameAndStoreFromAnalysis(int $analysisId, array $context = []): array
+{
+    $pdo = $GLOBALS['pdo'] ?? null;
+    if (!$pdo instanceof PDO) {
+        if (function_exists('db')) { $pdo = db(); $GLOBALS['pdo'] = $pdo; }
+        else throw new RuntimeException('PDO non disponible.');
+    }
+
+    $row = $pdo->prepare("SELECT * FROM ged_analyses WHERE id = ?");
+    $row->execute([$analysisId]);
+    $a = $row->fetch(PDO::FETCH_ASSOC);
+    if (!$a) throw new RuntimeException("Analyse #{$analysisId} introuvable.");
+
+    if (empty($a['storage_file_id'])) {
+        throw new RuntimeException("Analyse #{$analysisId} : aucun fichier physique attaché (storage_file_id vide). Re-uploade le doc.");
+    }
+
+    // 1. Driver source = celui qui était stocké en BDD au moment de l'upload (typiquement 'local')
+    $srcDriverName = $a['storage_driver'] ?: 'local';
+    if ($srcDriverName === 'local') {
+        require_once __DIR__ . '/ged_storage_local.php';
+        $base = defined('GED_STORAGE_LOCAL_BASE') ? (string)GED_STORAGE_LOCAL_BASE
+              : dirname(__DIR__, 3) . '/storage/ged';
+        $srcDriver = new GedStorageLocal($base);
+    } else {
+        // Si déjà sur Drive : pas besoin de promouvoir, on stoppe.
+        throw new RuntimeException("Analyse #{$analysisId} déjà stockée sur '{$srcDriverName}', promotion non nécessaire.");
+    }
+
+    // 2. Télécharge en temp local
+    $tmp = tempnam(sys_get_temp_dir(), 'gedval_') . '.' . ($a['extension'] ?: 'bin');
+    $srcDriver->download((string)$a['storage_file_id'], $tmp);
+
+    try {
+        // 3. Reconstruit le tableau extraction depuis les colonnes BDD
+        $extraction = [
+            'type_document'      => $a['suggested_filename'] ? null : null, // sera dérivé
+            'module'             => $a['suggested_module'],
+            'niveau_2'           => $a['suggested_level_2'],
+            'niveau_3'           => $a['suggested_level_3'],
+            'date_document'      => $a['date_document'],
+            'tiers_principal'    => $a['tiers_nom'],
+            'fournisseur'        => $a['detected_fournisseur'],
+            'description_courte' => null,
+            'confiance_globale'  => $a['confidence_score'] !== null ? (float)$a['confidence_score'] : null,
+        ];
+        // Récupère type_document depuis ai_raw_response si dispo
+        if (!empty($a['ai_raw_response'])) {
+            $raw = json_decode((string)$a['ai_raw_response'], true);
+            if (is_array($raw)) {
+                $extraction['type_document']      = $raw['type_document']      ?? $extraction['type_document'];
+                $extraction['description_courte'] = $raw['description_courte'] ?? $extraction['description_courte'];
+                $extraction['tiers_principal']    = $raw['tiers_principal']    ?? $extraction['tiers_principal'];
+            }
+        }
+
+        $ctx = array_merge([
+            'analysis_id'  => $analysisId,
+            'ref_societe'  => $a['ref_societe'] ?: 'RE',
+            'ref_agence'   => $a['ref_agence']  ?: 'AGLYON',
+            'objet_type'   => $a['objet_type']  ?: 'IMB',
+            'objet_id'     => (int)($a['objet_id'] ?: 1),
+            'is_validated' => true,
+        ], $context);
+
+        $result = gedRenameAndStore($tmp, $extraction, $ctx);
+
+        // 4. Cleanup : supprime la version locale de quarantaine (le fichier vit maintenant sur Drive)
+        try { $srcDriver->delete((string)$a['storage_file_id']); } catch (Throwable) {}
+
+        return $result;
+
+    } finally {
+        @unlink($tmp);
+    }
+}

@@ -46,8 +46,30 @@ try {
     switch ($action) {
         case 'validate':
             if ($analysisId <= 0) ged_respond(false, 'analysis_id manquant');
+            // 1. Marque comme validé en BDD
             $ok = gedValidateAnalysis($analysisId, $userId);
-            ged_respond($ok, $ok ? 'Analyse validée' : 'Analyse introuvable ou déjà validée');
+            if (!$ok) ged_respond(false, 'Analyse introuvable ou déjà validée');
+
+            // 2. Si un fichier physique est attaché → renomme + upload Drive (best-effort)
+            $promoted = null; $promoteError = null;
+            try {
+                require_once __DIR__ . '/ged_rename_and_store.php';
+                $stmt = ged_get_pdo()->prepare("SELECT storage_file_id, storage_driver FROM ged_analyses WHERE id = ?");
+                $stmt->execute([$analysisId]);
+                $r = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($r && !empty($r['storage_file_id']) && ($r['storage_driver'] === 'local' || $r['storage_driver'] === null)) {
+                    $promoted = gedRenameAndStoreFromAnalysis($analysisId);
+                }
+            } catch (Throwable $e) {
+                $promoteError = $e->getMessage();
+                error_log('[ged validate promote] ' . $e->getMessage());
+            }
+
+            ged_respond(true, 'Analyse validée' . ($promoted ? ' + classée sur Drive' : ''), [
+                'promoted'      => $promoted !== null,
+                'promote_error' => $promoteError,
+                'nom_renomme'   => $promoted['nom_renomme'] ?? null,
+            ]);
 
         case 'reject':
             if ($analysisId <= 0) ged_respond(false, 'analysis_id manquant');
