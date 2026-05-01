@@ -430,16 +430,52 @@
   text-decoration: none;
   -webkit-backdrop-filter: blur(12px);
           backdrop-filter: blur(12px);
-  transition: all 0.15s;
+  transition: opacity 0.15s, transform 0.15s, background 0.15s;
+}
+.mbi-clear-btn.hide {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  /* garde l'espace réservé → pas de saut d'écran */
+}
+.mbi-clear-btn.show {
+  visibility: visible;
+  opacity: 1;
 }
 .mbi-clear-btn:hover {
   background: rgba(255,255,255,0.8);
   transform: translateY(-1px);
 }
 
-/* ── Mini barre annonces (8 vignettes + flèches) ── */
+/* ── Compteur "X annonces" (TOUJOURS visible au-dessus de la mini barre) ── */
+.mbi-results-count {
+  display: flex; align-items: baseline; justify-content: center;
+  gap: 12px;
+  margin: 8px auto 14px;
+  padding: 14px 28px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.75);
+  border-radius: 16px;
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(15, 35, 55, 0.12);
+  max-width: 580px;
+  text-align: center;
+}
+.mbi-rc-num {
+  font-size: 36px; font-weight: 800;
+  color: var(--mbi-petrol);
+  line-height: 1;
+}
+.mbi-rc-lbl {
+  font-size: 14px;
+  color: var(--mbi-text-dark);
+  font-weight: 600;
+}
+
+/* ── Mini barre annonces (TOUJOURS visible — réserve sa hauteur fixe) ── */
 .mbi-mini-bar {
-  margin: 18px auto 18px;
+  margin: 8px auto 18px;
   padding: 14px 18px;
   border-radius: 20px;
   background: rgba(255,255,255,0.42);
@@ -449,6 +485,25 @@
   box-shadow: var(--mbi-shadow-hero);
   display: flex; align-items: center; gap: 12px;
   max-width: 1500px;
+  min-height: 158px; /* hauteur fixe pour éviter sauts d'écran si 0 annonce */
+}
+
+/* État "0 annonce" dans la mini barre */
+.mbi-mini-empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 14px;
+  text-align: center;
+}
+.mbi-mini-empty-icon { font-size: 36px; margin-bottom: 6px; opacity: 0.65; }
+.mbi-mini-empty-msg {
+  font-size: 14px; font-weight: 700;
+  color: var(--mbi-text-dark);
+  margin-bottom: 4px;
+}
+.mbi-mini-empty-hint {
+  font-size: 12px;
+  color: var(--mbi-muted-dark);
 }
 .mbi-mini-arrow {
   flex: 0 0 auto;

@@ -220,41 +220,58 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
 
     </div>
 
-    <?php if ($anyFilterActive): ?>
-      <a class="mbi-clear-btn" href="<?= h(app_url('/mbi_annonces_index.php')) ?>">↻ Tout effacer</a>
-    <?php endif; ?>
+    <!-- Bouton "Tout effacer" toujours rendu (visibility hidden si pas de filtre actif → réserve l'espace) -->
+    <a class="mbi-clear-btn <?= $anyFilterActive ? 'show' : 'hide' ?>" href="<?= h(app_url('/mbi_annonces_index.php')) ?>">↻ Tout effacer</a>
 
-    <!-- ═══ MINI BARRE — 8 annonces avec flèches ═══ -->
-    <?php if (!empty($miniList['items'])): ?>
-    <div class="mbi-mini-bar">
-      <button class="mbi-mini-arrow" type="button" aria-label="Précédent" onclick="document.getElementById('mbi-mini-listings').scrollBy({left:-320,behavior:'smooth'})">‹</button>
-      <div class="mbi-mini-listings" id="mbi-mini-listings">
-        <?php foreach (array_slice($miniList['items'], 0, 8) as $a):
-          $href = mbi_annonces_url_detail((int)$a['annonce_id'], (string)($a['annonce_slug'] ?? ''));
-          $imgSrc = !empty($a['photo_url'])
-            ? app_url('/' . ltrim((string)$a['photo_url'], '/'))
-            : app_url('/images/Home.png');
-          $isNew = false;
-          $dml = (string)($a['date_mise_en_ligne'] ?? '');
-          if ($dml !== '' && strtotime($dml) !== false) {
-            $isNew = (time() - strtotime($dml)) < (7 * 86400);
-          }
-          $typeLabel = (string)($a['type_bien_libelle'] ?? 'Bien');
-          $priceLabel = mbi_annonces_price_label($a);
-        ?>
-          <a class="mbi-mini-prop" href="<?= h($href) ?>">
-            <span class="mbi-mini-badge"><?= !empty($a['exclusivite']) ? 'EXCLUSIVITÉ' : ($isNew ? 'NOUVEAU' : '') ?></span>
-            <img src="<?= h($imgSrc) ?>" alt="<?= h($typeLabel) ?>" loading="lazy">
-            <div class="mbi-mini-info">
-              <span class="mbi-mini-type"><?= h(mb_strtoupper(mb_substr($typeLabel, 0, 18))) ?></span>
-              <strong class="mbi-mini-price"><?= h($priceLabel) ?></strong>
-            </div>
-          </a>
-        <?php endforeach; ?>
-      </div>
-      <button class="mbi-mini-arrow" type="button" aria-label="Suivant" onclick="document.getElementById('mbi-mini-listings').scrollBy({left:320,behavior:'smooth'})">›</button>
+    <!-- ═══ COMPTEUR — toujours visible, taille fixe ═══ -->
+    <?php $totalAnnonces = (int)$miniList['total']; ?>
+    <div class="mbi-results-count">
+      <span class="mbi-rc-num"><?= $totalAnnonces ?></span>
+      <span class="mbi-rc-lbl"><?= $totalAnnonces > 1 ? 'annonces' : 'annonce' ?>
+        <?= $anyFilterActive ? 'correspondent à votre recherche' : 'disponibles' ?></span>
     </div>
-    <?php endif; ?>
+
+    <!-- ═══ MINI BARRE — TOUJOURS rendue (réserve sa hauteur même si 0 annonce) ═══ -->
+    <div class="mbi-mini-bar">
+      <button class="mbi-mini-arrow" type="button" aria-label="Précédent"
+              onclick="document.getElementById('mbi-mini-listings').scrollBy({left:-320,behavior:'smooth'})">‹</button>
+
+      <?php if (!empty($miniList['items'])): ?>
+        <div class="mbi-mini-listings" id="mbi-mini-listings">
+          <?php foreach (array_slice($miniList['items'], 0, 8) as $a):
+            $href = mbi_annonces_url_detail((int)$a['annonce_id'], (string)($a['annonce_slug'] ?? ''));
+            $imgSrc = !empty($a['photo_url'])
+              ? app_url('/' . ltrim((string)$a['photo_url'], '/'))
+              : app_url('/images/Home.png');
+            $isNew = false;
+            $dml = (string)($a['date_mise_en_ligne'] ?? '');
+            if ($dml !== '' && strtotime($dml) !== false) {
+              $isNew = (time() - strtotime($dml)) < (7 * 86400);
+            }
+            $typeLabel = (string)($a['type_bien_libelle'] ?? 'Bien');
+            $priceLabel = mbi_annonces_price_label($a);
+          ?>
+            <a class="mbi-mini-prop" href="<?= h($href) ?>">
+              <span class="mbi-mini-badge"><?= !empty($a['exclusivite']) ? 'EXCLUSIVITÉ' : ($isNew ? 'NOUVEAU' : '') ?></span>
+              <img src="<?= h($imgSrc) ?>" alt="<?= h($typeLabel) ?>" loading="lazy">
+              <div class="mbi-mini-info">
+                <span class="mbi-mini-type"><?= h(mb_strtoupper(mb_substr($typeLabel, 0, 18))) ?></span>
+                <strong class="mbi-mini-price"><?= h($priceLabel) ?></strong>
+              </div>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      <?php else: ?>
+        <div class="mbi-mini-empty">
+          <div class="mbi-mini-empty-icon">🔍</div>
+          <div class="mbi-mini-empty-msg">Aucune annonce ne correspond à vos critères</div>
+          <div class="mbi-mini-empty-hint">Essayez d'élargir vos filtres ou cliquez "Tout effacer"</div>
+        </div>
+      <?php endif; ?>
+
+      <button class="mbi-mini-arrow" type="button" aria-label="Suivant"
+              onclick="document.getElementById('mbi-mini-listings') && document.getElementById('mbi-mini-listings').scrollBy({left:320,behavior:'smooth'})">›</button>
+    </div>
 
     <!-- ═══ MODULES BAR (logged-in pros only) ═══ -->
     <?php if ($isLogged): ?>
