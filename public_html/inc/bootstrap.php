@@ -94,20 +94,29 @@ $OPENAI_TEXT_MODEL = getenv('OPENAI_TEXT_MODEL')
 
 /**
  * Chargement config Anthropic (Claude API) optionnelle
- * Convention : tous les configs API vivent dans /home/u630423897/ (Hostinger)
- *              ou dans u630423897/ (local XAMPP, sibling de public_html)
+ * Convention de SÉCURITÉ : la config doit être HORS webroot.
+ *   ✓ /home/u630423897/anthropic_config.php (Hostinger prod/dev)
+ *   ✓ project_root/u630423897/anthropic_config.php (local XAMPP, sibling de public_html)
+ *   ✗ public_html/anthropic_config.php (à NE JAMAIS utiliser — web-accessible)
+ *
+ * Ordre des candidats : sécurisé > legacy. Premier trouvé gagne.
  */
 $possibleAnthropicConfigs = [
-    __DIR__ . '/../anthropic_config.php',
-    __DIR__ . '/../maboximmo_anthropic_config.php',
-    __DIR__ . '/../../anthropic_config.php',
-    __DIR__ . '/../../maboximmo_anthropic_config.php',
+    // 1. Hors webroot — emplacements canoniques (Hostinger)
+    '/home/u630423897/anthropic_config.php',
+    '/home/u630423897/maboximmo_anthropic_config.php',
+    // 2. Hors webroot — sous-dossier u630423897/ (XAMPP local et Hostinger sub)
     __DIR__ . '/../../u630423897/anthropic_config.php',
     __DIR__ . '/../../u630423897/maboximmo_anthropic_config.php',
     __DIR__ . '/../../u630423897/dev_anthropic_config.php',
-    '/home/u630423897/anthropic_config.php',
-    '/home/u630423897/maboximmo_anthropic_config.php',
     '/home/u630423897/u630423897/anthropic_config.php',
+    // 3. Project root (encore acceptable, hors webroot)
+    __DIR__ . '/../../anthropic_config.php',
+    __DIR__ . '/../../maboximmo_anthropic_config.php',
+    // 4. ⚠️ Legacy DANGEREUX — public_html/. Garde en dernier recours uniquement,
+    //    à supprimer dès que possible (web-accessible, leak potentiel).
+    __DIR__ . '/../anthropic_config.php',
+    __DIR__ . '/../maboximmo_anthropic_config.php',
 ];
 
 foreach ($possibleAnthropicConfigs as $candidate) {
