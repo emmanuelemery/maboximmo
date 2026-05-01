@@ -229,7 +229,7 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
 
         // Photos
         try {
-            $st = $pdo->prepare("SELECT * FROM bien_photos WHERE id_bien = :id ORDER BY id ASC");
+            $st = $pdo->prepare("SELECT * FROM biens_photos WHERE id_bien = :id ORDER BY id ASC");
             $st->execute([':id' => $id_bien]);
             $photos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable) { $photos = []; }
@@ -270,7 +270,7 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
         }
 
         // Détecte la copropriété
-        $estCopro = (int)($bien['copropriete'] ?? $bien['est_copro'] ?? $bien['en_copropriete'] ?? 0) === 1;
+        $estCopro = (int)($bien['bien_en_copropriete'] ?? $bien['copropriete'] ?? $bien['est_copro'] ?? $bien['en_copropriete'] ?? 0) === 1;
 
         return [
             'bien'        => $bien,
@@ -416,6 +416,22 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
         $nego    = $ctx['negociateur'] ?? null;
 
         switch ($rid) {
+            // ── DPE / GES (fallback compatible schéma sans dpe_statut) ────
+            case 'dpe_statut_valide':
+                $statut = strtolower(trim((string)($bien['dpe_statut'] ?? '')));
+                if (in_array($statut, ['present','en_cours','non_soumis'], true)) {
+                    return [true, null];
+                }
+                // Fallback : si pas de champ dpe_statut mais dpe_classe rempli → considéré "present"
+                $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
+                if ($dpe !== '' && $dpe !== '—' && $dpe !== 'N/A') {
+                    return [true, null];
+                }
+                if ($statut === 'manquant' || $statut === '') {
+                    return [false, 'Statut DPE non renseigné (et aucune classe DPE)'];
+                }
+                return [false, "Statut DPE invalide : « {$statut} »"];
+
             // ── Mandat / autorisation ─────────────────────────────────────
             case 'mandat_actif_existe':
                 if (!is_array($mandat) || empty($mandat)) return [false, 'Aucun mandat actif rattaché'];
@@ -489,39 +505,55 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 if ($dpe !== '' || in_array($statut, ['en_cours','non_soumis'], true)) return [true, null];
                 return [false, 'Étiquettes DPE/GES manquantes (et pas de motif structuré)'];
 
-            // ── Honoraires ────────────────────────────────────────────────
+            // ── Honoraires (schéma réel : honoraires_inclus + honoraires_detail) ──
             case 'honoraires_renseignes':
             case 'honoraires_montant':
-                $m = $bien['honoraires_montant'] ?? $bien['montant_honoraires'] ?? $bien['honoraires'] ?? null;
-                $ok = $m !== null && (float)$m > 0;
-                return [$ok, $ok ? null : 'Honoraires non renseignés'];
+                // Plusieurs schémas possibles : honoraires_montant explicite OU
+                // honoraires_inclus / honoraires_detail (schéma actuel MBI)
+                $hMontant = $bien['honoraires_montant'] ?? $bien['montant_honoraires'] ?? $bien['honoraires'] ?? null;
+                if ($hMontant !== null && (float)$hMontant > 0) return [true, null];
+                $hInclus  = trim((string)($bien['honoraires_inclus']  ?? ''));
+                $hDetail  = trim((string)($bien['honoraires_detail']  ?? ''));
+                $ok = ($hInclus !== '') || ($hDetail !== '');
+                return [$ok, $ok ? null : 'Honoraires non renseignés (ni montant, ni inclus, ni détail)'];
 
             case 'honoraires_charge_definie':
-                $c = (string)($bien['honoraires_charge'] ?? $bien['honoraires_a_charge'] ?? '');
-                $ok = in_array(strtolower(trim($c)), ['acquereur','acheteur','vendeur','partage','partagee','partagés'], true);
-                return [$ok, $ok ? null : 'Charge des honoraires non définie (acquéreur/vendeur/partagée)'];
+                // Charge explicite OU honoraires_inclus (qui porte généralement l'info)
+                $c = strtolower(trim((string)($bien['honoraires_charge'] ?? $bien['honoraires_a_charge'] ?? '')));
+                if (in_array($c, ['acquereur','acheteur','vendeur','partage','partagee','partagés'], true)) {
+                    return [true, null];
+                }
+                $hInclus = trim((string)($bien['honoraires_inclus'] ?? ''));
+                if ($hInclus !== '') return [true, null];
+                return [false, 'Charge des honoraires non définie (acquéreur/vendeur/partagée)'];
 
             case 'prix_avec_honoraires':
-                $prix = $bien['prix_vente'] ?? $bien['prix'] ?? 0;
+                $prix = $bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? 0;
                 return [(float)$prix > 0, 'Prix de présentation honoraires inclus à afficher'];
 
             case 'prix_hors_honoraires_si_charge_acq':
+                // Détecte la charge depuis honoraires_charge OU honoraires_inclus
                 $charge = strtolower(trim((string)($bien['honoraires_charge'] ?? '')));
-                if ($charge !== 'acquereur' && $charge !== 'acheteur') return [true, null];
+                $inclus = strtolower(trim((string)($bien['honoraires_inclus'] ?? '')));
+                $estChargeAcq = in_array($charge, ['acquereur','acheteur'], true)
+                             || str_contains($inclus, 'acqu')
+                             || str_contains($inclus, 'achet');
+                if (!$estChargeAcq) return [true, null];
                 $prixHors = $bien['prix_hors_honoraires'] ?? $bien['prix_net_vendeur'] ?? null;
-                $ok = !empty($prixHors);
-                return [$ok, $ok ? null : 'Honoraires charge acquéreur → afficher aussi le prix hors honoraires'];
+                if (!empty($prixHors)) return [true, null];
+                // Tolérant V1 : on signale comme alerte plutôt que bloc dur si pas de champ séparé
+                return [true, 'Idéalement afficher aussi le prix hors honoraires (charge acquéreur)'];
 
             case 'tva_mention_particulier':
                 // V1 : mention attendue sur le support → toujours OK côté data
                 return [true, null];
 
             case 'honoraires_coherence_prix':
-                $prix    = (float)($bien['prix_vente'] ?? $bien['prix'] ?? 0);
+                $prix    = (float)($bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? 0);
                 $hono    = (float)($bien['honoraires_montant'] ?? 0);
                 $net     = (float)($bien['prix_hors_honoraires'] ?? $bien['prix_net_vendeur'] ?? 0);
                 if ($prix <= 0 || $net <= 0 || $hono <= 0) return [true, null];
-                $ok = abs(($net + $hono) - $prix) < max(50.0, $prix * 0.005); // tolérance 0.5% ou 50€
+                $ok = abs(($net + $hono) - $prix) < max(50.0, $prix * 0.005);
                 return [$ok, $ok ? null : 'Incohérence prix vs (net vendeur + honoraires)'];
 
             case 'honoraires_bareme':
@@ -530,9 +562,12 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 return [$ok, $ok ? null : 'Lien barème honoraires non configuré pour l\'agence'];
 
             case 'honoraires_detail':
-                // Pour fiche client : mêmes éléments + mode de calcul (V1 = simplification)
-                $hono = (float)($bien['honoraires_montant'] ?? 0);
-                return [$hono > 0, $hono > 0 ? null : 'Détail honoraires manquant'];
+                // Détail = montant explicite OU honoraires_detail rempli OU honoraires_inclus rempli
+                $hMontant = (float)($bien['honoraires_montant'] ?? 0);
+                $hDetail  = trim((string)($bien['honoraires_detail'] ?? ''));
+                $hInclus  = trim((string)($bien['honoraires_inclus'] ?? ''));
+                $ok = $hMontant > 0 || $hDetail !== '' || $hInclus !== '';
+                return [$ok, $ok ? null : 'Détail des honoraires manquant'];
 
             // ── Agence / négociateur / carte pro ──────────────────────────
             case 'negociateur_rattache':

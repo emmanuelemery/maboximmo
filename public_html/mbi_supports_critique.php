@@ -269,8 +269,9 @@ function mbisupc_h(string|int|float|null $v): string {
         <?php endif; ?>
         <?php if (!empty($bien['ville'])): ?><span><?=mbisupc_h($bien['ville'])?></span><?php endif; ?>
         <?php if (!empty($bien['surface_habitable'])): ?><span><?=mbisupc_h($bien['surface_habitable'])?> m²</span><?php endif; ?>
-        <?php if (!empty($bien['prix_vente'])): ?>
-          <span><?=mbisupc_h(number_format((float)$bien['prix_vente'], 0, ',', ' '))?> €</span>
+        <?php $_prixB = (float)($bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? 0); ?>
+        <?php if ($_prixB > 0): ?>
+          <span><?=mbisupc_h(number_format($_prixB, 0, ',', ' '))?> €</span>
         <?php endif; ?>
         <span>Photos : <?=$nbPhotos?></span>
         <span>Copro : <?=$estCopro?'oui':'non'?></span>

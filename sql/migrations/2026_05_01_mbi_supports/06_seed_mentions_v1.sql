@@ -39,8 +39,7 @@ VALUES
       { "code": "NEGOCIATEUR_RATTACHE",  "regle": "negociateur_rattache" },
       { "code": "CARTE_PRO",             "regle": "carte_pro_valide" },
       { "code": "PHOTO_EXPLOITABLE",     "regle": "au_moins_une_photo_exploitable" },
-      { "code": "DPE_STATUT_VALIDE",     "champ": "biens.dpe_statut",
-        "predicat": "in:present,en_cours,non_soumis" }
+      { "code": "DPE_STATUT_VALIDE",     "regle": "dpe_statut_valide" }
     ],
     "alertes": [
       { "code": "PHOTO_PRINCIPALE_SOMBRE",     "regle": "luminosite_photo_hero_basse" },

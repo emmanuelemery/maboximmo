@@ -218,7 +218,7 @@ if (!function_exists('mbi_supports_ia_user_prompt')) {
             'annee_construction'=> $bien['annee_construction'] ?? null,
             'ville'             => $bien['ville'] ?? null,
             'code_postal'       => $bien['code_postal'] ?? null,
-            'prix'              => $bien['prix_vente'] ?? $bien['prix'] ?? null,
+            'prix'              => $bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? null,
             'dpe'               => $bien['dpe_classe'] ?? $bien['dpe'] ?? null,
             'ges'               => $bien['ges_classe'] ?? $bien['ges'] ?? null,
             'copropriete'       => (int)($bien['copropriete'] ?? $bien['est_copro'] ?? 0) === 1,

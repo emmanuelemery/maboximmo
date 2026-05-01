@@ -45,7 +45,7 @@ if ($idBien > 0) {
     $score      = mbi_supports_score_get_dernier($idBien);
     $historique = mbi_supports_score_historique($idBien, 10);
     try {
-        $st = $pdo->prepare("SELECT id, reference_bien, designation, ville, code_postal, prix_vente, surface_habitable, dpe_classe, ges_classe FROM biens WHERE id = :id LIMIT 1");
+        $st = $pdo->prepare("SELECT id, reference_bien, designation, ville, code_postal, prix_vente_estime, surface_habitable, dpe_classe, ges_classe FROM biens WHERE id = :id LIMIT 1");
         $st->execute([':id' => $idBien]);
         $bienInfo = $st->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) {
@@ -294,8 +294,9 @@ $iaCommentaire = (string)($snapshot['ia_commentaire'] ?? '');
           <?php if (!empty($bienInfo['surface_habitable'])): ?>
             <span><?=mbisup_h($bienInfo['surface_habitable'])?> m²</span>
           <?php endif; ?>
-          <?php if (!empty($bienInfo['prix_vente'])): ?>
-            <span><?=mbisup_h(number_format((float)$bienInfo['prix_vente'], 0, ',', ' '))?> €</span>
+          <?php $_prixS = (float)($bienInfo['prix_vente_estime'] ?? $bienInfo['prix_vente'] ?? 0); ?>
+          <?php if ($_prixS > 0): ?>
+            <span><?=mbisup_h(number_format($_prixS, 0, ',', ' '))?> €</span>
           <?php endif; ?>
         </div>
 

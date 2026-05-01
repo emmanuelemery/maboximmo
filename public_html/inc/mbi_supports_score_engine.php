@@ -232,7 +232,7 @@ if (!function_exists('mbi_supports_score_load_photos')) {
     function mbi_supports_score_load_photos(PDO $pdo, int $id_bien): array
     {
         try {
-            $st = $pdo->prepare("SELECT * FROM bien_photos WHERE id_bien = :id ORDER BY id ASC");
+            $st = $pdo->prepare("SELECT * FROM biens_photos WHERE id_bien = :id ORDER BY id ASC");
             $st->execute([':id' => $id_bien]);
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {

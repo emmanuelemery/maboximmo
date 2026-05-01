@@ -37,7 +37,7 @@ if (!function_exists('mbi_supports_rules_calcul')) {
      * de ses photos. Aucun appel externe.
      *
      * @param array $bien    Ligne SELECT * FROM biens (clés tolérantes)
-     * @param array $photos  Liste SELECT * FROM bien_photos WHERE id_bien=…
+     * @param array $photos  Liste SELECT * FROM biens_photos WHERE id_bien=…
      * @return array{
      *   total:int,
      *   breakdown: array<string, array{libelle:string, max:int, points:float, details:array<string,mixed>}>,
@@ -295,7 +295,7 @@ if (!function_exists('mbi_supports_score_bloc_completude')) {
 if (!function_exists('mbi_supports_score_bloc_prix')) {
     function mbi_supports_score_bloc_prix(array $bien): array
     {
-        $prix    = (float)($bien['prix_vente'] ?? $bien['prix'] ?? $bien['prix_total'] ?? 0);
+        $prix    = (float)($bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? $bien['prix_total'] ?? 0);
         $surface = (float)($bien['surface_habitable'] ?? $bien['surface'] ?? 0);
         $prixM2  = ($prix > 0 && $surface > 0) ? round($prix / $surface, 0) : null;
 
@@ -328,7 +328,7 @@ if (!function_exists('mbi_supports_score_bloc_documents')) {
         $hasDossierCopro = !empty($bien['dossier_copro_url'] ?? $bien['has_dossier_copro'] ?? '');
 
         // Si non copro, on neutralise le 3e item (3 pts répartis)
-        $estCopro = (int)($bien['copropriete'] ?? $bien['est_copro'] ?? $bien['en_copropriete'] ?? 0) === 1;
+        $estCopro = (int)($bien['bien_en_copropriete'] ?? $bien['copropriete'] ?? $bien['est_copro'] ?? $bien['en_copropriete'] ?? 0) === 1;
 
         $ptsErp  = $hasErp  ? 4.0 : 0.0;  // 4 pts (le plus critique)
         $ptsPlan = $hasPlan ? 3.0 : 0.0;
