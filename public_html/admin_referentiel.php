@@ -22,7 +22,7 @@ $hierarchy = [
         'niveau' => 1,
         'nom'    => 'Service',
         'desc'   => 'Plus haut niveau fonctionnel du portail. Une grande brique de l\'écosystème MaBoxImmo.',
-        'exemples' => ['Ma Box Immo', 'Ma Box Agency', 'Ma Box RH', 'Ma Box Syndic'],
+        'exemples' => ['Ma Box Immo', 'Ma Box Agency', 'Ma Box RH', 'Ma Box Syndic', 'Ma Box Communication'],
         'color'  => '#2d5f6b',
     ],
     [
@@ -81,7 +81,7 @@ $lexique = [
         ['terme' => 'Dépôt de garantie',   'def' => 'Somme versée par le locataire à l\'entrée dans les lieux, restituable.'],
     ],
     'Concepts MaBoxImmo' => [
-        ['terme' => 'Service',       'def' => 'Niveau 1 — plus haut niveau fonctionnel (Ma Box Agency, Ma Box RH…).'],
+        ['terme' => 'Service',       'def' => 'Niveau 1 — plus haut niveau fonctionnel (Ma Box Agency, Ma Box RH, Ma Box Communication…).'],
         ['terme' => 'Module',        'def' => 'Niveau 2 — fonctionnalité métier dans un service (Mandats, Biens…).'],
         ['terme' => 'Page',          'def' => 'Niveau 3 — écran précis (liste, détail, formulaire).'],
         ['terme' => 'Composant',     'def' => 'Niveau 4 — élément d\'interface (tableau, formulaire, bouton…).'],
