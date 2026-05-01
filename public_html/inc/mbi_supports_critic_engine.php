@@ -247,6 +247,29 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
             $mandat = $st->fetch(PDO::FETCH_ASSOC) ?: null;
         } catch (Throwable) { $mandat = null; }
 
+        // Annonce active (priorité aux statuts actifs ; fallback dernière non-brouillon)
+        $annonce = null;
+        try {
+            $st = $pdo->prepare("
+                SELECT * FROM annonces
+                WHERE id_bien = :id
+                ORDER BY
+                  CASE statut
+                    WHEN 'actif' THEN 1
+                    WHEN 'active' THEN 1
+                    WHEN 'publie' THEN 2
+                    WHEN 'publiee' THEN 2
+                    WHEN 'diffuse' THEN 3
+                    WHEN 'diffusee' THEN 3
+                    ELSE 9
+                  END,
+                  date_modification DESC, id DESC
+                LIMIT 1
+            ");
+            $st->execute([':id' => $id_bien]);
+            $annonce = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable) { $annonce = null; }
+
         // Agence
         $agence = null;
         $idAgence = (int)($bien['id_agence'] ?? 0);
@@ -276,6 +299,7 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
             'bien'        => $bien,
             'photos'      => $photos,
             'mandat'      => $mandat,
+            'annonce'     => $annonce,
             'agence'      => $agence,
             'negociateur' => $negociateur,
             'est_copro'   => $estCopro,

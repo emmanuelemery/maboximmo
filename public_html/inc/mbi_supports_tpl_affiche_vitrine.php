@@ -209,16 +209,43 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
                 $i++;
             }
             $blockY = $boxY + $boxH + 10;
-        } else {
-            // Fallback : description courte si pas de points forts IA
-            $desc = (string)($bien['description'] ?? $bien['descriptif'] ?? '');
-            if ($desc !== '') {
-                $pdf->SetFont('dejavusans', '', 12);
-                $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
-                $pdf->SetXY($marginX, $blockY);
-                $pdf->MultiCell($contentW, 6, mb_substr($desc, 0, 500), 0, 'L');
-                $blockY = $pdf->GetY() + 6;
-            }
+        }
+
+        // ── Texte de l'annonce / description du bien ─────────────────────
+        // Source en cascade (déjà résolue par le générateur) :
+        //   1. surcharge éditeur (description_personnalisee)
+        //   2. annonce.description / annonce.texte_ia
+        //   3. bien.description
+        $descCommerciale = (string)($bien['_annonce_description'] ?? $bien['description'] ?? $bien['descriptif'] ?? '');
+        if ($descCommerciale !== '') {
+            $hasAtouts = !empty($pointsForts);
+            $hasAnnonce = !empty($bien['_annonce_description']);
+
+            // Titre de section (selon source)
+            $pdf->SetFont('dejavusans', 'B', 12);
+            $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
+            $pdf->SetXY($marginX, $blockY);
+            $titreSection = $hasAnnonce ? 'L\'ANNONCE' : 'DESCRIPTION';
+            $pdf->Cell($contentW, 6, $titreSection, 0, 1, 'L');
+            $blockY = $pdf->GetY() + 1;
+
+            // Trait or court
+            $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
+            $pdf->SetLineWidth(0.6);
+            $pdf->Line($marginX, $blockY, $marginX + 30, $blockY);
+            $pdf->SetLineWidth(0.2);
+            $blockY += 4;
+
+            // Texte
+            $pdf->SetFont('dejavusans', '', 11);
+            $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
+            $pdf->SetXY($marginX, $blockY);
+            // Sur A3 on peut se permettre 800 chars (3-4 paragraphes)
+            $maxLen = $hasAtouts ? 600 : 900;
+            $extrait = mb_substr($descCommerciale, 0, $maxLen);
+            if (mb_strlen($descCommerciale) > $maxLen) $extrait .= '...';
+            $pdf->MultiCell($contentW, 5.5, $extrait, 0, 'J');
+            $blockY = $pdf->GetY() + 6;
         }
 
         // ─────────────────────────────────────────────────────────────

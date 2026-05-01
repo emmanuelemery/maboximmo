@@ -71,6 +71,24 @@ if (!function_exists('mbi_supports_pdf_generer')) {
         $agence      = $critique['contexte']['agence']      ?? [];
         $negociateur = $critique['contexte']['negociateur'] ?? [];
         $mandat      = $critique['contexte']['mandat']      ?? null;
+        $annonce     = $critique['contexte']['annonce']     ?? null;
+
+        // Si une annonce existe pour le bien, on enrichit le bien effectif :
+        // - bien.designation < annonce.titre / titre_ia / titre_seo (si dispo)
+        // - bien.description < annonce.description / texte_ia (texte commercial rédigé)
+        // Les surcharges éditeur restent prioritaires (appliquées plus loin).
+        if (is_array($annonce)) {
+            $titreA = trim((string)($annonce['titre_ia'] ?? $annonce['titre'] ?? $annonce['titre_seo'] ?? ''));
+            if ($titreA !== '') $bien['_annonce_titre'] = $titreA;
+            $descA = trim((string)($annonce['description'] ?? $annonce['texte_ia'] ?? ''));
+            if ($descA !== '') {
+                $bien['_annonce_description'] = $descA;
+                // Le bien.description du PDF = description annonce si plus longue / non vide
+                if (mb_strlen($descA) > mb_strlen((string)($bien['description'] ?? ''))) {
+                    $bien['description'] = $descA;
+                }
+            }
+        }
 
         // Si on régénère depuis un support source (édition), récupère ses surcharges
         $surcharges = [];
@@ -222,6 +240,7 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'agence'      => $agence,
                 'negociateur' => $negociateur,
                 'mandat'      => $mandat,
+                'annonce'     => $annonce,
                 'style'       => $style,
                 'critique'    => $critique,
                 'score'       => $dernierScore,
