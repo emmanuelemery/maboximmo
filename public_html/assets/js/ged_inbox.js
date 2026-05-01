@@ -7,6 +7,9 @@
     'use strict';
 
     var ACTION_URL = './ged_inbox_action.php';
+    // Endpoint upload séparé dans /api/ — Hostinger WAF ne bloque pas /api/
+    // (pareil que api/bien_import_upload.php qui marche en prod en multipart)
+    var UPLOAD_URL = '/api/ged_inbox_upload.php';
     var dz       = document.getElementById('ged-dropzone');
     var dzInput  = document.getElementById('ged-file-input');
     var dzProg   = document.getElementById('dz-progress');
@@ -49,72 +52,52 @@
         if (dz)    dz.classList.add('uploading');
         if (dzProg) dzProg.style.display = 'block';
         if (dzFill) { dzFill.classList.add('indeterminate'); dzFill.style.width = ''; }
-        if (dzText) dzText.textContent = 'Lecture du fichier…';
+        if (dzText) dzText.textContent = 'Analyse IA en cours… (~5-10s)';
 
-        // Lecture en base64 via FileReader (contourne mod_security qui bloque
-        // les uploads multipart de PDF sur Hostinger shared hosting).
-        var reader = new FileReader();
-        reader.onload = function (e) {
-            var dataUrl = e.target.result;        // "data:application/pdf;base64,JVBERi0..."
-            var commaIdx = dataUrl.indexOf(',');
-            var base64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl;
+        // Multipart classique vers /api/ — même pattern que api/bien_import_upload.php
+        // qui upload des PDFs en prod sans pb. mod_security est plus permissif sur /api/.
+        var fd = new FormData();
+        fd.append('file', file);
 
-            if (dzText) dzText.textContent = 'Analyse IA en cours… (~5-10s)';
-
-            var payload = {
-                action:         'upload',
-                filename:       file.name,
-                mime_type:      file.type || 'application/octet-stream',
-                size:           file.size,
-                content_base64: base64
-            };
-
-            fetch(ACTION_URL, {
-                method:      'POST',
-                credentials: 'same-origin',
-                headers:     { 'Content-Type': 'application/json' },
-                body:        JSON.stringify(payload)
-            })
-            .then(function (r) {
-                return r.text().then(function (text) {
-                    return { status: r.status, text: text, headers: r.headers.get('content-type') };
-                });
-            })
-            .then(function (resp) {
-                var data = null;
-                try { data = JSON.parse(resp.text); }
-                catch (parseErr) {
-                    console.group('[GED upload] Réponse non-JSON');
-                    console.log('Status:', resp.status);
-                    console.log('Content-Type:', resp.headers);
-                    console.log('Body (1000 premiers chars):', resp.text.substring(0, 1000));
-                    console.log('Body complet ↓');
-                    console.log(resp.text);
-                    console.groupEnd();
-                    var preview = resp.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200);
-                    alert('Réponse serveur invalide (status ' + resp.status + ').\n\nDébut : "' + preview + '..."\n\nDétails console (F12).');
-                    resetDropzone();
-                    return;
-                }
-                if (data.ok) {
-                    if (window.gedToast) window.gedToast('Document analysé : ' + (data.engine || '') + ' / ' + (data.model || ''), 'success');
-                    setTimeout(function () { location.href = '?id=' + data.analysis_id; }, 400);
-                } else {
-                    alert('Erreur upload : ' + (data.message || 'inconnue'));
-                    resetDropzone();
-                }
-            })
-            .catch(function (err) {
-                console.error('[GED upload] Erreur fetch:', err);
-                alert('Erreur réseau : ' + err.message);
-                resetDropzone();
+        fetch(UPLOAD_URL, {
+            method:      'POST',
+            credentials: 'same-origin',
+            body:        fd
+        })
+        .then(function (r) {
+            return r.text().then(function (text) {
+                return { status: r.status, text: text, headers: r.headers.get('content-type') };
             });
-        };
-        reader.onerror = function () {
-            alert('Erreur lecture du fichier (FileReader).');
+        })
+        .then(function (resp) {
+            var data = null;
+            try { data = JSON.parse(resp.text); }
+            catch (parseErr) {
+                console.group('[GED upload] Réponse non-JSON');
+                console.log('Status:', resp.status);
+                console.log('Content-Type:', resp.headers);
+                console.log('Body (1000 premiers chars):', resp.text.substring(0, 1000));
+                console.log('Body complet ↓');
+                console.log(resp.text);
+                console.groupEnd();
+                var preview = resp.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200);
+                alert('Réponse serveur invalide (status ' + resp.status + ').\n\nDébut : "' + preview + '..."\n\nDétails console (F12).');
+                resetDropzone();
+                return;
+            }
+            if (data.ok) {
+                if (window.gedToast) window.gedToast('Document analysé : ' + (data.engine || '') + ' / ' + (data.model || ''), 'success');
+                setTimeout(function () { location.href = '?id=' + data.analysis_id; }, 400);
+            } else {
+                alert('Erreur upload : ' + (data.message || 'inconnue'));
+                resetDropzone();
+            }
+        })
+        .catch(function (err) {
+            console.error('[GED upload] Erreur fetch:', err);
+            alert('Erreur réseau : ' + err.message);
             resetDropzone();
-        };
-        reader.readAsDataURL(file);
+        });
     }
 
     function resetDropzone() {
