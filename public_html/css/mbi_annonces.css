@@ -209,7 +209,122 @@
 .mbi-hero .mbi-link-more { color: rgba(255,255,255,0.92); }
 .mbi-hero .mbi-link-more:hover { color: #fff; }
 
-/* ── Filtres bouton instantanés (page d'accueil) ────────────────────────── */
+/* ── Hero glassmorphism filters (compact 2-rows centré) ────────────────── */
+/* Utilise le fond mbi_annonces_fonds_cube_3.png en priorité */
+.mbi-hero-glass {
+  background:
+    linear-gradient(180deg, rgba(36,59,92,0.55) 0%, rgba(36,59,92,0.75) 100%),
+    url('/images/mbi_annonces_fonds_cube_3.png') center/cover no-repeat,
+    url('/images/mbi_annonces_fonds_cube.png') center/cover no-repeat,
+    url('/images/mbi_annonces_fonds_logo.png') center/cover no-repeat,
+    var(--mbi-navy);
+  padding: 60px 0 70px;
+}
+
+.mbi-hf-wrap {
+  display: flex; flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  align-items: stretch;
+  margin-top: 32px;
+  max-width: 1200px;
+  margin-left: auto; margin-right: auto;
+}
+
+.mbi-hfblock {
+  display: grid;
+  gap: 6px;
+  grid-template-rows: repeat(2, 1fr);
+}
+.mbi-hfblock-tx       { grid-template-columns: 1fr;          min-width: 130px; }
+.mbi-hfblock-3x2      { grid-template-columns: repeat(3, 1fr); min-width: 320px; }
+
+/* ── Boutons effet vitré 3D (glassmorphism) ── */
+.mbi-hfbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+          backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.45);
+  box-shadow:
+    0 4px 16px rgba(0,0,0,0.18),
+    inset 0 1px 0 rgba(255,255,255,0.35),
+    inset 0 -1px 0 rgba(0,0,0,0.1);
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+  text-align: center;
+  cursor: pointer;
+}
+.mbi-hfbtn small {
+  opacity: 0.75;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 2px;
+}
+.mbi-hfbtn:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.55);
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 24px rgba(0,0,0,0.25),
+    inset 0 1px 0 rgba(255,255,255,0.45);
+}
+.mbi-hfbtn.active {
+  background: linear-gradient(180deg, var(--mbi-gold) 0%, var(--mbi-gold-dark, #b88835) 100%);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+  box-shadow:
+    0 6px 20px rgba(212,160,71,0.55),
+    inset 0 1px 0 rgba(255,255,255,0.4),
+    inset 0 -2px 0 rgba(0,0,0,0.15);
+}
+.mbi-hfbtn.active:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+}
+
+.mbi-hf-reset {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(10px);
+          backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  font-size: 13px; font-weight: 600;
+  text-decoration: none;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  transition: all 0.15s;
+}
+.mbi-hf-reset:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Responsive : tablette → blocs s'enroulent */
+@media (max-width: 980px) {
+  .mbi-hf-wrap { gap: 10px; }
+  .mbi-hfblock-3x2 { min-width: 280px; }
+  .mbi-hfbtn { font-size: 12px; padding: 9px 8px; }
+}
+@media (max-width: 600px) {
+  .mbi-hfblock-tx,
+  .mbi-hfblock-3x2 { min-width: 100%; }
+  .mbi-hero-glass { padding: 40px 0 50px; }
+}
+
+/* ── Filtres bouton instantanés (page d'accueil) — DEPRECATED v1 ───────── */
 .mbi-filters {
   background: var(--mbi-bg);
   padding: 28px 0 12px;
