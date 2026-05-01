@@ -243,6 +243,19 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
     <?php endif; ?>
 
     <!-- ═══════════════════════════
+         OUTILS MABOXIMMO (modules transverses)
+    ═══════════════════════════ -->
+    <div class="sb-divider"></div>
+    <div class="sb-group">
+        <div class="sb-section">Outils MaBoxImmo</div>
+        <ul class="sb-nav">
+            <li><a href="./modules/ged/ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?>">
+                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
+            </a></li>
+        </ul>
+    </div>
+
+    <!-- ═══════════════════════════
          COMPTE
     ═══════════════════════════ -->
     <div class="sb-divider"></div>

@@ -28,6 +28,11 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
         <li><a href="archives_syndic.php" <?=($currentPage === 'archives_syndic.php' ? 'class="active"' : '')?>>🗂️ Archives</a></li>
     </ul>
 
+    <div class="mbi-sidebar-section">Outils MaBoxImmo</div>
+    <ul class="mbi-nav">
+        <li><a href="modules/ged/ged_dashboard.php" <?=($currentPage === 'ged_dashboard.php' ? 'class="active"' : '')?>>📦 Ma GED Box</a></li>
+    </ul>
+
     <div class="mbi-sidebar-section">Compte</div>
     <ul class="mbi-nav">
         <li><a href="parametres.php" <?=($currentPage === 'parametres.php' ? 'class="active"' : '')?>>⚙️ Paramètres</a></li>

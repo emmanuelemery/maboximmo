@@ -74,6 +74,20 @@ $sbLinkAgence  = './rh_agence_user.php';
     <div class="sb-divider"></div>
 
     <!-- ═══════════════════════════
+         OUTILS MABOXIMMO
+    ═══════════════════════════ -->
+    <div class="sb-group">
+        <div class="sb-section">Outils MaBoxImmo</div>
+        <ul class="sb-nav">
+            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbUserActive('ged_dashboard.php') ?>">
+                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
+            </a></li>
+        </ul>
+    </div>
+
+    <div class="sb-divider"></div>
+
+    <!-- ═══════════════════════════
          COMPTE
     ═══════════════════════════ -->
     <div class="sb-group account">

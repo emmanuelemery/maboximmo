@@ -1,0 +1,30 @@
+{
+    "_doc": "Facture plombier DUPONT PLOMBERIE n° 2025-0742, destinataire MaBoxImmo - SCI DUPONT",
+    "fields_strict": {
+        "type_document":  "FACTURE",
+        "date_document":  "2026-04-15",
+        "date_echeance":  "2026-05-15",
+        "numero_document":"2025-0742",
+        "montant_ht":     375.50,
+        "montant_ttc":    463.60,
+        "devise":         "EUR",
+        "iban":           "FR7610278061450001234567891",
+        "bic":            "CMCIFR2A"
+    },
+    "fields_oneof": {
+        "module":         ["FOURNISSEURS", "COMPTA", "BAILLEUR", "SYNDIC"],
+        "emetteur_nom":   ["DUPONT PLOMBERIE", "Dupont Plomberie"],
+        "fournisseur":    ["DUPONT PLOMBERIE", "Dupont Plomberie"],
+        "emetteur_siret": ["12345678900012", "123 456 789 00012", "123456789 00012"],
+        "destinataire_nom": ["MaBoxImmo - SCI DUPONT", "MaBoxImmo", "SCI DUPONT", "SCI Dupont"]
+    },
+    "fields_must_be_null": [],
+    "fields_ignored": [
+        "description_courte", "action_proposee", "champs_confiance",
+        "tiers_principal", "note_qualite_image", "destinataire_siret",
+        "immeuble", "bien_reference", "mandat_numero",
+        "niveau_2", "niveau_3", "date_emission", "periode_debut",
+        "periode_fin", "montant_tva"
+    ],
+    "confiance_globale": { "min": 85, "max": 100 }
+}

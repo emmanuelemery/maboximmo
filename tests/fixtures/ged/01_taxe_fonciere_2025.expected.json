@@ -1,0 +1,27 @@
+{
+    "_doc": "Avis de taxe foncière DGFiP 2025 — DUPONT, immeuble 24 rue de la République Saint-Étienne",
+    "fields_strict": {
+        "date_document": "2025-09-01",
+        "date_echeance": "2025-10-15",
+        "montant_ttc":   1771.0,
+        "devise":        "EUR",
+        "iban":          "FR7630001007941234567890123",
+        "bic":           "BDFEFRPPCCT"
+    },
+    "fields_oneof": {
+        "type_document": ["TAXE_FONCIERE", "AVIS_IMPOT", "TAXE", "AVIS_TAXE_FONCIERE"],
+        "module":        ["COMPTA", "ADMIN"],
+        "emetteur_nom":  ["DGFiP", "Direction Générale des Finances Publiques", "Trésor Public", "DGFIP", "DGFP"],
+        "destinataire_nom": ["DUPONT Jean-Pierre", "DUPONT", "Jean-Pierre DUPONT"],
+        "numero_document": ["2025 TF 42 567890", "1234567890123", "2025TF42567890"]
+    },
+    "fields_must_be_null": [],
+    "fields_ignored": [
+        "description_courte", "action_proposee", "champs_confiance",
+        "tiers_principal", "note_qualite_image", "emetteur_siret",
+        "destinataire_siret", "fournisseur", "immeuble", "bien_reference",
+        "mandat_numero", "niveau_2", "niveau_3", "date_emission",
+        "periode_debut", "periode_fin", "montant_ht", "montant_tva"
+    ],
+    "confiance_globale": { "min": 80, "max": 100 }
+}

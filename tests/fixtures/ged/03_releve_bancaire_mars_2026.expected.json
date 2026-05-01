@@ -1,0 +1,28 @@
+{
+    "_doc": "Relevé bancaire Crédit Mutuel mars 2026 — SCI DUPONT IMMOBILIER",
+    "fields_strict": {
+        "periode_debut": "2026-03-01",
+        "periode_fin":   "2026-03-31",
+        "iban":          "FR7610278061450001234567891",
+        "bic":           "CMCIFR2A",
+        "devise":        "EUR"
+    },
+    "fields_oneof": {
+        "type_document": ["RELEVE_BANCAIRE", "RELEVE_DE_COMPTE", "RELEVE", "RELEVE_COMPTE"],
+        "module":        ["COMPTA"],
+        "niveau_2":      ["Banque", "Comptabilité", "Compta"],
+        "niveau_3":      ["Relevés", "Relevé", "Relevés bancaires"],
+        "emetteur_nom":  ["Crédit Mutuel", "CRÉDIT MUTUEL", "CREDIT MUTUEL"],
+        "destinataire_nom": ["SCI DUPONT IMMOBILIER", "SCI Dupont Immobilier", "SCI DUPONT"]
+    },
+    "fields_must_be_null": [],
+    "fields_ignored": [
+        "description_courte", "action_proposee", "champs_confiance",
+        "tiers_principal", "note_qualite_image",
+        "emetteur_siret", "destinataire_siret", "fournisseur",
+        "immeuble", "bien_reference", "mandat_numero",
+        "date_document", "date_emission", "date_echeance",
+        "numero_document", "montant_ht", "montant_ttc", "montant_tva"
+    ],
+    "confiance_globale": { "min": 80, "max": 100 }
+}

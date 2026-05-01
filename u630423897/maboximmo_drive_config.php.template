@@ -1,0 +1,52 @@
+<?php
+/**
+ * GED MaBoxImmo — Configuration Google Drive
+ * Fichier réel : u630423897/maboximmo_drive_config.php (NON versionné)
+ * Template : u630423897/maboximmo_drive_config.php.template (versionné)
+ *
+ * Hostinger : ce fichier vit hors webroot (/home/u630423897/) — non accessible HTTP.
+ *
+ * ─── Comment obtenir les credentials ──────────────────────────────────────────
+ *
+ * 1. Console GCP : https://console.cloud.google.com
+ *    - Créer un projet "MaBoxImmo-GED"
+ *    - APIs & Services → Bibliothèque → activer "Google Drive API"
+ *
+ * 2. Identifiants OAuth 2.0
+ *    - APIs & Services → Identifiants → Créer des identifiants → ID client OAuth 2.0
+ *    - Type : Application Web
+ *    - URI de redirection autorisé : https://developers.google.com/oauthplayground
+ *    - Récupérer client_id + client_secret
+ *
+ * 3. Refresh token via OAuth Playground
+ *    - https://developers.google.com/oauthplayground
+ *    - Engrenage en haut à droite : cocher "Use your own OAuth credentials"
+ *    - Coller client_id + client_secret
+ *    - Étape 1 : sélectionner scope "https://www.googleapis.com/auth/drive"
+ *    - Authoriser via le compte admin du Drive MaBoxImmo
+ *    - Étape 2 : "Exchange authorization code for tokens" → récupérer le refresh_token
+ *
+ * 4. ID du dossier racine "MaBoxImmo"
+ *    - Ouvrir le dossier dans drive.google.com
+ *    - L'ID est dans l'URL : https://drive.google.com/drive/folders/{ID_ICI}
+ *
+ * 5. (Optionnel) ID du Shared Drive si vous utilisez un Drive partagé d'organisation
+ *    - drive.google.com → Drive partagés → ouvrir → ID dans l'URL
+ *    - Laisser vide ou null si MaBoxImmo est juste un dossier dans Mon Drive
+ *
+ * ─── Sécurité ─────────────────────────────────────────────────────────────────
+ *
+ * - Ne jamais committer le fichier réel
+ * - Permissions Linux : chmod 600 maboximmo_drive_config.php
+ * - Le refresh_token est aussi sensible qu'un mot de passe
+ * - Scope minimal recommandé : drive.file (ne voit que les fichiers créés par l'app)
+ *   Pour MaBoxImmo on utilise drive (full access) car on doit indexer un Drive existant.
+ */
+
+define('GOOGLE_DRIVE_CLIENT_ID',      'PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com');
+define('GOOGLE_DRIVE_CLIENT_SECRET',  'PASTE_YOUR_CLIENT_SECRET_HERE');
+define('GOOGLE_DRIVE_REFRESH_TOKEN',  'PASTE_YOUR_REFRESH_TOKEN_HERE');
+define('GOOGLE_DRIVE_ROOT_FOLDER_ID', 'PASTE_FOLDER_ID_OF_MaBoxImmo');
+
+// Optionnel — uniquement si Shared Drive d'organisation :
+// define('GOOGLE_DRIVE_DRIVE_ID', 'PASTE_SHARED_DRIVE_ID');

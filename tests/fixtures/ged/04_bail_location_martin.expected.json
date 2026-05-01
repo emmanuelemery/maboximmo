@@ -1,0 +1,36 @@
+{
+    "_doc": "Bail location loi 89 — Bailleur DUPONT, Locataire MARTIN, T3 24 rue République Saint-Étienne",
+    "fields_strict": {
+        "date_document": "2026-04-28",
+        "periode_debut": "2026-05-01",
+        "periode_fin":   "2029-04-30",
+        "montant_ht":    720.0,
+        "montant_ttc":   805.0,
+        "devise":        "EUR"
+    },
+    "fields_oneof": {
+        "type_document":  ["BAIL", "CONTRAT_LOCATION", "CONTRAT_DE_LOCATION", "BAIL_HABITATION"],
+        "module":         ["BAILLEUR"],
+        "niveau_2":       ["Baux", "Bail"],
+        "niveau_3":       ["Contrats", "Contrat"],
+        "emetteur_nom":   ["DUPONT Jean-Pierre", "Jean-Pierre DUPONT", "DUPONT"],
+        "destinataire_nom": ["MARTIN Sophie", "Sophie MARTIN", "MARTIN"],
+        "tiers_principal": [
+            "MARTIN Sophie", "Sophie MARTIN", "MARTIN",
+            "DUPONT Jean-Pierre", "Jean-Pierre DUPONT", "DUPONT"
+        ]
+    },
+    "fields_must_be_null": [
+        "iban",
+        "bic",
+        "emetteur_siret",
+        "destinataire_siret"
+    ],
+    "fields_ignored": [
+        "description_courte", "action_proposee", "champs_confiance",
+        "note_qualite_image", "fournisseur",
+        "immeuble", "bien_reference", "mandat_numero",
+        "date_emission", "date_echeance", "numero_document", "montant_tva"
+    ],
+    "confiance_globale": { "min": 75, "max": 100 }
+}

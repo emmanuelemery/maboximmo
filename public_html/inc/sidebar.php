@@ -278,6 +278,16 @@ $sectionSuperAdmin = [
         <?php endif; ?>
 
         <?php
+        $sectionOutils = [
+            [
+                'label' => 'Ma GED Box',
+                'url'   => '/public_html/modules/ged/ged_dashboard.php',
+                'page'  => 'ged_dashboard.php',
+                'icon'  => '📦',
+            ],
+        ];
+        renderSidebarSection('Outils MaBoxImmo', '🧰', $sectionOutils, $currentPage);
+
         $sectionCompte = [
             [
                 'label' => 'Paramètres',

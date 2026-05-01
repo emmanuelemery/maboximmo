@@ -1,0 +1,30 @@
+{
+    "_doc": "STRESS TEST — email + attestation illisible. Doit déclencher manual_review (confiance < 50). Aucune valeur fantaisiste autorisée (test anti-hallucination).",
+    "fields_strict": {},
+    "fields_oneof": {
+        "module": ["ADMIN", "BAILLEUR", null]
+    },
+    "fields_must_be_null": [
+        "montant_ht",
+        "montant_ttc",
+        "montant_tva",
+        "iban",
+        "bic",
+        "numero_document",
+        "emetteur_siret",
+        "destinataire_siret",
+        "mandat_numero",
+        "bien_reference",
+        "date_echeance",
+        "periode_debut",
+        "periode_fin"
+    ],
+    "fields_ignored": [
+        "type_document", "niveau_2", "niveau_3",
+        "description_courte", "action_proposee", "champs_confiance",
+        "tiers_principal", "note_qualite_image",
+        "emetteur_nom", "destinataire_nom", "fournisseur",
+        "immeuble", "date_document", "date_emission", "devise"
+    ],
+    "confiance_globale": { "min": 0, "max": 50 }
+}

@@ -1,0 +1,189 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * GED MaBoxImmo — Renommage effectif + stockage.
+ * Fichier : modules/ged/ged_rename_and_store.php
+ *
+ * Corrige LE bug majeur de l'ancienne version :
+ *   l'ancienne stockait `suggested_filename` en BDD mais ne renommait JAMAIS le
+ *   fichier physique. Cette fonction effectue VRAIMENT la copie + persiste les
+ *   colonnes storage_*, nom_renomme, sha256.
+ *
+ * Pipeline :
+ *   1. Calcule le nom canonique via gedBuildFilename()
+ *   2. Détermine le folder cible (00_A_CLASSER_IA si pas de validation, sinon
+ *      02_SYNDIC / 03_GESTION_LOCATIVE / etc. selon module)
+ *   3. ensureFolder + upload via le driver actif (local/google_drive)
+ *   4. UPDATE ged_analyses : storage_*, nom_renomme, sha256, confidence_score
+ */
+
+require_once __DIR__ . '/ged_storage.php';
+require_once __DIR__ . '/ged_naming.php';
+
+/**
+ * Mapping module métier → dossier Drive racine (cf. prompt maître §3).
+ * Dossier 00_A_CLASSER_IA = quarantaine pré-validation.
+ */
+const GED_MODULE_TO_FOLDER = [
+    'SYNDIC'       => '02_SYNDIC',
+    'BAILLEUR'     => '03_GESTION_LOCATIVE',
+    'AGENCE'       => '04_REGISTRE_MANDATS',
+    'COMPTA'       => '05_COMPTABILITE',
+    'FOURNISSEURS' => '05_COMPTABILITE',
+    'RH'           => '07_RH',
+    'ADMIN'        => '01_REFERENTIEL',
+];
+
+/**
+ * Renomme + stocke un document selon une analyse extraite.
+ *
+ * @param string $localPath        Chemin du fichier local source.
+ * @param array  $extraction       Résultat de gedExtractDocument()['data'].
+ * @param array  $context          [
+ *   'analysis_id'  => int,        // ID ged_analyses à updater
+ *   'ref_societe'  => string,     // ex 'RE'
+ *   'ref_agence'   => string,     // ex 'AGLYON'
+ *   'objet_type'   => string,     // IMB|BIEN|MDT|CTX|EMP|FOUR
+ *   'objet_id'     => int,
+ *   'is_validated' => bool,       // false → goes to 00_A_CLASSER_IA
+ * ]
+ * @return array{
+ *   nom_renomme:string,
+ *   storage_driver:string,
+ *   storage_file_id:string,
+ *   storage_folder_id:?string,
+ *   sha256:string,
+ *   size:int,
+ *   mime:string
+ * }
+ * @throws RuntimeException
+ */
+function gedRenameAndStore(string $localPath, array $extraction, array $context): array
+{
+    if (!is_file($localPath)) {
+        throw new InvalidArgumentException("Fichier source introuvable : {$localPath}");
+    }
+    foreach (['analysis_id', 'ref_societe', 'ref_agence', 'objet_type', 'objet_id'] as $req) {
+        if (!isset($context[$req])) {
+            throw new InvalidArgumentException("gedRenameAndStore : context.{$req} manquant.");
+        }
+    }
+    $isValidated = (bool)($context['is_validated'] ?? false);
+
+    // ── 1. Nom canonique ────────────────────────────────────────────────────
+    $type = !empty($extraction['type_document'])
+        ? (string)$extraction['type_document']
+        : 'DOC';
+    $date = !empty($extraction['date_document'])
+        ? (string)$extraction['date_document']
+        : date('Y-m-d');
+
+    $tiers = $extraction['tiers_principal']
+          ?? $extraction['fournisseur']
+          ?? $extraction['emetteur_nom']
+          ?? null;
+    $description = $extraction['description_courte'] ?? null;
+
+    $ext = strtolower((string)pathinfo($localPath, PATHINFO_EXTENSION)) ?: 'bin';
+
+    $canonName = gedBuildFilename([
+        'type'        => $type,
+        'date'        => $date,
+        'ref_societe' => (string)$context['ref_societe'],
+        'ref_agence'  => (string)$context['ref_agence'],
+        'objet_type'  => (string)$context['objet_type'],
+        'objet_id'    => (int)$context['objet_id'],
+        'tiers'       => is_string($tiers) ? $tiers : null,
+        'description' => is_string($description) ? $description : null,
+        'version'     => 1,
+        'ext'         => $ext,
+    ]);
+
+    // ── 2. Dossier cible ────────────────────────────────────────────────────
+    $module = !empty($extraction['module']) ? strtoupper((string)$extraction['module']) : 'ADMIN';
+    $rootFolder = $isValidated
+        ? (GED_MODULE_TO_FOLDER[$module] ?? '01_REFERENTIEL')
+        : '00_A_CLASSER_IA';
+
+    // Sous-dossier par année (cf. arborescence prompt §3 + bonne pratique)
+    $year = substr($date, 0, 4);
+    if (!preg_match('/^\d{4}$/', $year)) $year = date('Y');
+
+    // ── 3. Upload via driver ────────────────────────────────────────────────
+    $driver = ged_storage_default();
+    $folderId = $driver->ensureFolder($rootFolder);
+    $folderId = $driver->ensureFolder($year, $folderId);
+
+    $up = $driver->upload($localPath, $canonName, $folderId);
+
+    // ── 4. Persistance BDD ──────────────────────────────────────────────────
+    $pdo = $GLOBALS['pdo'] ?? null;
+    if (!$pdo instanceof PDO) {
+        // Lazy-load db() si bootstrap pas encore exécuté
+        if (function_exists('db')) {
+            $pdo = db();
+            $GLOBALS['pdo'] = $pdo;
+        } else {
+            throw new RuntimeException('PDO non disponible — appelle bootstrap.php ou db() d\'abord.');
+        }
+    }
+
+    $stmt = $pdo->prepare("
+        UPDATE ged_analyses SET
+            sha256            = :sha,
+            storage_driver    = :driver,
+            storage_file_id   = :file_id,
+            storage_folder_id = :folder_id,
+            storage_size      = :size,
+            storage_mime      = :mime,
+            objet_type        = :objet_type,
+            objet_id          = :objet_id,
+            ref_societe       = :ref_soc,
+            ref_agence        = :ref_ag,
+            tiers_nom         = :tiers,
+            nom_original      = :nom_ori,
+            nom_renomme       = :nom_canon,
+            extension         = :ext,
+            date_document     = :date_doc,
+            suggested_module  = :module,
+            suggested_level_2 = :niv2,
+            suggested_level_3 = :niv3,
+            suggested_filename = :nom_canon,
+            confidence_score  = :conf,
+            updated_at        = NOW()
+        WHERE id = :aid
+    ");
+    $stmt->execute([
+        'sha'        => $up['sha256'],
+        'driver'     => $driver->getName(),
+        'file_id'    => $up['file_id'],
+        'folder_id'  => $up['folder_id'],
+        'size'       => $up['size'],
+        'mime'       => $up['mime'],
+        'objet_type' => (string)$context['objet_type'],
+        'objet_id'   => (int)$context['objet_id'],
+        'ref_soc'    => (string)$context['ref_societe'],
+        'ref_ag'     => (string)$context['ref_agence'],
+        'tiers'      => is_string($tiers) ? mb_substr($tiers, 0, 255) : null,
+        'nom_ori'    => mb_substr(basename($localPath), 0, 255),
+        'nom_canon'  => $canonName,
+        'ext'        => $ext,
+        'date_doc'   => preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ? $date : null,
+        'module'     => $module,
+        'niv2'       => isset($extraction['niveau_2']) ? mb_substr((string)$extraction['niveau_2'], 0, 100) : null,
+        'niv3'       => isset($extraction['niveau_3']) ? mb_substr((string)$extraction['niveau_3'], 0, 100) : null,
+        'conf'       => isset($extraction['confiance_globale']) ? (float)$extraction['confiance_globale'] : null,
+        'aid'        => (int)$context['analysis_id'],
+    ]);
+
+    return [
+        'nom_renomme'       => $canonName,
+        'storage_driver'    => $driver->getName(),
+        'storage_file_id'   => $up['file_id'],
+        'storage_folder_id' => $up['folder_id'],
+        'sha256'            => $up['sha256'],
+        'size'              => $up['size'],
+        'mime'              => $up['mime'],
+    ];
+}

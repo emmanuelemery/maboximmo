@@ -132,6 +132,20 @@ $sbActive = static function (string ...$pages) use ($currentPage): string {
     <div class="sb-divider"></div>
 
     <!-- ═══════════════════════════
+         OUTILS MABOXIMMO
+    ═══════════════════════════ -->
+    <div class="sb-group">
+        <div class="sb-section">Outils MaBoxImmo</div>
+        <ul class="sb-nav">
+            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbActive('ged_dashboard.php') ? 'active' : '' ?>">
+                <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
+            </a></li>
+        </ul>
+    </div>
+
+    <div class="sb-divider"></div>
+
+    <!-- ═══════════════════════════
          COMPTE
     ═══════════════════════════ -->
     <div class="sb-group account">

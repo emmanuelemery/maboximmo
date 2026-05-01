@@ -14,6 +14,20 @@ db_config_dev.php
 .env.local
 .env.*.local
 
+# ── GED Google Drive credentials (NE JAMAIS committer le .php — seul le .template) ──
+u630423897/maboximmo_drive_config.php
+u630423897/dev_maboximmo_drive_config.php
+
+# ── GED Anthropic API key (Claude Sonnet 4.6) ──
+u630423897/anthropic_config.php
+u630423897/dev_anthropic_config.php
+u630423897/maboximmo_anthropic_config.php
+
+# ── GED storage local (driver dev XAMPP) ──
+storage/ged/
+storage/ged_test_*/
+storage/ged_socle_*/
+
 # ── Logs ──
 *.log
 logs/
@@ -39,6 +53,7 @@ public_html__backup*/
 # ── SQL dumps & gros fichiers ──
 *.sql
 !sql/migration_*.sql
+!sql/ged/*.sql
 !public_html/sql_migrations_tiers/*.sql
 *.zip
 *.tar.gz
@@ -53,6 +68,7 @@ public_html__backup*/
 # ── SQL dumps volumineux ──
 sql/*.sql
 !sql/migration_*.sql
+!sql/ged/*.sql
 
 # ── Claude settings ──
 .claude/
