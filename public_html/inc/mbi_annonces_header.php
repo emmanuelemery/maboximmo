@@ -39,8 +39,14 @@ $navItems = [
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="<?= h(asset_url('/css/variables.css')) ?>">
-  <link rel="stylesheet" href="<?= h(asset_url('/css/mbi_annonces.css')) ?>">
+  <?php
+    // Cache buster basé sur mtime — invalide auto à chaque modif fichier CSS
+    $__mbiCssRoot = dirname(__DIR__) . '/css';
+    $__vVar = @filemtime($__mbiCssRoot . '/variables.css')   ?: time();
+    $__vCss = @filemtime($__mbiCssRoot . '/mbi_annonces.css') ?: time();
+  ?>
+  <link rel="stylesheet" href="<?= h(asset_url('/css/variables.css')) ?>?v=<?= $__vVar ?>">
+  <link rel="stylesheet" href="<?= h(asset_url('/css/mbi_annonces.css')) ?>?v=<?= $__vCss ?>">
   <?= $mbiJsonLd ?>
 </head>
 <body class="mbi-body <?= h($mbiBodyClass) ?>">
