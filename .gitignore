@@ -69,6 +69,7 @@ public_html__backup*/
 sql/*.sql
 !sql/migration_*.sql
 !sql/ged/*.sql
+!sql/migrations/**/*.sql
 
 # ── Claude settings ──
 .claude/

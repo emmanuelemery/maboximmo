@@ -1,0 +1,45 @@
+-- =============================================================================
+-- Module : Ma Box Communication (mbi_supports)
+-- Lot 1 / 5 — DPE statut structuré sur la table `biens` (BROUILLON)
+-- Date   : 2026-05-01
+-- Statut : ⚠️ NON EXÉCUTABLE — À ADAPTER APRÈS INSPECTION DU SCHÉMA RÉEL.
+-- =============================================================================
+--
+-- POURQUOI CE FICHIER EST EN BROUILLON COMMENTÉ :
+--
+--   Le moteur critique a besoin d'un statut DPE structuré (motif sans texte
+--   libre) pour autoriser le contournement du bloc dur quand le DPE est
+--   "en cours" ou "non soumis".
+--
+--   Avant toute exécution, IL FAUT :
+--
+--     1. Inspecter le schéma actuel de `biens` :
+--          SHOW COLUMNS FROM `biens` LIKE '%dpe%';
+--          SHOW COLUMNS FROM `biens` LIKE '%ges%';
+--
+--     2. Vérifier si un champ équivalent existe déjà
+--        (ex. `dpe_classe`, `dpe_value`, `dpe_etat`, `statut_dpe`, etc.).
+--
+--     3. Si un équivalent existe → adapter le code applicatif au champ
+--        existant et NE PAS créer ce nouveau champ.
+--
+--     4. Si rien n'existe → décommenter et adapter le bloc ALTER TABLE
+--        ci-dessous (notamment le AFTER `dpe_classe`).
+--
+-- =============================================================================
+--
+-- BLOC ALTER (à décommenter et adapter manuellement après inspection) :
+--
+-- ALTER TABLE `biens`
+--   ADD COLUMN `dpe_statut` ENUM('present','en_cours','non_soumis','manquant')
+--     NOT NULL DEFAULT 'manquant'
+--     COMMENT 'Statut structuré DPE — pilote le bloc dur de l''assistant critique'
+--     AFTER `dpe_classe`,             -- ⚠️ À AJUSTER selon le vrai nom du champ DPE existant
+--   ADD COLUMN `dpe_motif_absence` VARCHAR(255) NULL
+--     COMMENT 'Précision optionnelle si en_cours / non_soumis'
+--     AFTER `dpe_statut`,
+--   ADD INDEX `idx_dpe_statut` (`dpe_statut`);
+--
+-- =============================================================================
+-- ⚠️ NE PAS EXÉCUTER TEL QUEL — voir checklist ci-dessus.
+-- =============================================================================
