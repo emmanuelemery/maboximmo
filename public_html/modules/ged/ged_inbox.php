@@ -155,7 +155,7 @@ if (is_file($layoutTop)) require $layoutTop;
                 </div>
                 <?php if (!empty($a['storage_file_id']) && $a['storage_driver'] === 'local'): ?>
                     <iframe class="preview-iframe"
-                            src="<?= app_url('/modules/ged/ged_inbox_action.php') ?>?action=preview&id=<?= (int)$a['id'] ?>"
+                            src="<?= app_url('/api/ged_inbox_preview.php') ?>?id=<?= (int)$a['id'] ?>"
                             title="Aperçu document"></iframe>
                 <?php else: ?>
                     <div class="preview-placeholder">
