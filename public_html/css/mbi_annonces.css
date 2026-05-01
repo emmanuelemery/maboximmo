@@ -320,7 +320,10 @@
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.8),
     0 8px 20px rgba(0,0,0,0.08);
-  transition: all 0.2s ease;
+  /* Transitions ciblées (pas 'all') + GPU layer pour éviter flash compositing */
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  transform: translateZ(0);
+  will-change: transform;
   color: var(--mbi-text-dark);
   font-weight: 600;
   font-size: 13px;
@@ -474,18 +477,19 @@
 }
 
 /* ── Mini barre annonces (TOUJOURS visible — réserve sa hauteur fixe) ── */
+/* Note : pas de backdrop-filter ici (le hero en a déjà un en arrière-plan).
+   Background plus opaque pour la lisibilité sans flash de re-compositing. */
 .mbi-mini-bar {
   margin: 8px auto 18px;
   padding: 14px 18px;
   border-radius: 20px;
-  background: rgba(255,255,255,0.42);
+  background: rgba(255,255,255,0.62);
   border: 1px solid rgba(255,255,255,0.75);
-  -webkit-backdrop-filter: blur(18px);
-          backdrop-filter: blur(18px);
   box-shadow: var(--mbi-shadow-hero);
   display: flex; align-items: center; gap: 12px;
   max-width: 1500px;
-  min-height: 158px; /* hauteur fixe pour éviter sauts d'écran si 0 annonce */
+  min-height: 158px;
+  transform: translateZ(0); /* GPU layer = pas de flash au paint initial */
 }
 
 /* État "0 annonce" dans la mini barre */
@@ -540,6 +544,7 @@
   text-align: left;
   text-decoration: none;
   scroll-snap-align: start;
+  transform: translateZ(0); /* GPU layer */
 }
 .mbi-mini-prop img {
   width: 100%; height: 80px;
@@ -597,7 +602,8 @@
   font-size: 13px; font-weight: 700;
   color: var(--mbi-text-dark);
   text-decoration: none;
-  transition: 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transform: translateZ(0);
 }
 .mbi-module-btn span { font-size: 20px; }
 .mbi-module-btn:hover {
