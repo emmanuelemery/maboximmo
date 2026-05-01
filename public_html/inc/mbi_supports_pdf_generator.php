@@ -72,6 +72,26 @@ if (!function_exists('mbi_supports_pdf_generer')) {
         $negociateur = $critique['contexte']['negociateur'] ?? [];
         $mandat      = $critique['contexte']['mandat']      ?? null;
 
+        // Si on régénère depuis un support source (édition), récupère ses surcharges
+        $surcharges = [];
+        $idSourceSupport = (int)($options['source_support_id'] ?? 0);
+        if ($idSourceSupport > 0) {
+            try {
+                $st = $pdo->prepare("SELECT * FROM mbi_supports_commerciaux WHERE id = :id LIMIT 1");
+                $st->execute([':id' => $idSourceSupport]);
+                $surcharges = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable) { $surcharges = []; }
+        }
+        // Surcharges directes via options (POST de l'éditeur)
+        foreach (['titre_personnalise','accroche','description_personnalisee','photo_hero_id_personnalise'] as $k) {
+            if (isset($options[$k]) && $options[$k] !== '') {
+                $surcharges[$k] = $options[$k];
+            }
+        }
+        if (!empty($surcharges)) {
+            $bien = mbi_supports_appliquer_surcharges($bien, $surcharges);
+        }
+
         // 2. Style applicable
         $idSociete = (int)($bien['id_societe'] ?? 0);
         $idAgence  = (int)($bien['id_agence']  ?? 0);
@@ -83,8 +103,10 @@ if (!function_exists('mbi_supports_pdf_generer')) {
 
         // 3. Dernier score (utile pour photo héro suggérée + angle)
         $dernierScore = mbi_supports_score_get_dernier($id_bien);
-        $heroIdSugg = $dernierScore && !empty($dernierScore['photo_hero_id'])
-            ? (int)$dernierScore['photo_hero_id'] : null;
+        // Photo héro : surcharge éditeur > photo IA suggérée
+        $heroIdSugg = !empty($bien['_photo_hero_id_force'])
+            ? (int)$bien['_photo_hero_id_force']
+            : ($dernierScore && !empty($dernierScore['photo_hero_id']) ? (int)$dernierScore['photo_hero_id'] : null);
         $angle = $options['angle_marketing']
             ?? ($dernierScore['angle_recommande'] ?? null)
             ?? 'generique';
@@ -125,6 +147,11 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'version'         => $version,
                 'source_generation' => 'mixte',
                 'nom_fichier'     => $nomFichier,
+                // Surcharges propagées (pour édition continue)
+                'titre_personnalise'         => $surcharges['titre_personnalise']         ?? null,
+                'accroche'                   => $surcharges['accroche']                   ?? null,
+                'description_personnalisee'  => $surcharges['description_personnalisee']  ?? null,
+                'photo_hero_id_personnalise' => $surcharges['photo_hero_id_personnalise'] ?? null,
             ]);
         } catch (Throwable $e) {
             error_log('[mbi_supports_pdf draft] ' . $e->getMessage());
@@ -251,7 +278,8 @@ if (!function_exists('mbi_supports_pdf_insert_draft')) {
         $cols = ['id_bien','id_annonce','id_mandat','id_user','id_societe','id_agence',
                  'type_support','titre_support','angle_marketing','orientation_user',
                  'score_commercial_id','mentions_version','is_interne','version',
-                 'source_generation','nom_fichier'];
+                 'source_generation','nom_fichier',
+                 'titre_personnalise','accroche','description_personnalisee','photo_hero_id_personnalise'];
         $placeholders = ':' . implode(', :', $cols);
         $sql = "INSERT INTO mbi_supports_commerciaux (`" . implode('`,`', $cols) . "`, statut, created_at, updated_at)
                 VALUES ({$placeholders}, 'draft', NOW(), NOW())";

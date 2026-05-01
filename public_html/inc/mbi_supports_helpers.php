@@ -239,6 +239,40 @@ if (!function_exists('mbi_supports_slug')) {
     }
 }
 
+if (!function_exists('mbi_supports_appliquer_surcharges')) {
+    /**
+     * Applique les surcharges d'un support sur le bien chargé.
+     * Retourne un nouveau tableau "bien effectif" avec les valeurs
+     * personnalisées du support en priorité (sinon valeurs du bien).
+     *
+     * @param array $bien    Ligne biens chargée
+     * @param array $support Ligne mbi_supports_commerciaux (peut être null/empty)
+     * @return array  bien effectif (jamais modifie l'original)
+     */
+    function mbi_supports_appliquer_surcharges(array $bien, array $support): array
+    {
+        $eff = $bien;
+
+        if (!empty($support['titre_personnalise'])) {
+            $eff['designation'] = (string)$support['titre_personnalise'];
+        }
+        if (!empty($support['description_personnalisee'])) {
+            $eff['description'] = (string)$support['description_personnalisee'];
+            $eff['descriptif']  = (string)$support['description_personnalisee'];
+        }
+        if (!empty($support['accroche'])) {
+            $eff['_accroche'] = (string)$support['accroche'];
+        }
+        if (!empty($support['photo_hero_id_personnalise'])) {
+            $eff['_photo_hero_id_force'] = (int)$support['photo_hero_id_personnalise'];
+        }
+        if (!empty($support['angle_marketing'])) {
+            $eff['_angle_marketing'] = (string)$support['angle_marketing'];
+        }
+        return $eff;
+    }
+}
+
 if (!function_exists('mbi_supports_nom_fichier')) {
     function mbi_supports_nom_fichier(array $bien, string $type_support, int $version, bool $isInterne = false): string
     {

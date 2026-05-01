@@ -70,6 +70,11 @@ $dashUrl = function_exists('app_url')
     ? app_url('/mbi_supports_dashboard.php?id_bien=' . $editingBienId)
     : '/mbi_supports_dashboard.php?id_bien=' . $editingBienId;
 
+// URL raccourci : génère + redirige vers éditeur
+$genUrlBase = function_exists('app_url')
+    ? app_url('/mbi_supports_dashboard.php?id_bien=' . $editingBienId . '&go_generer=')
+    : '/mbi_supports_dashboard.php?id_bien=' . $editingBienId . '&go_generer=';
+
 $scoreNum = $mbiSupScore ? (int)$mbiSupScore['score'] : null;
 $scoreColor = match (true) {
     $scoreNum === null => '#6b7280',
@@ -154,31 +159,31 @@ $scoreColor = match (true) {
 
       </div>
 
-      <!-- Boutons de génération -->
+      <!-- Boutons de génération : génère + ouvre l'éditeur direct -->
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:14px;">
-        <a href="<?= htmlspecialchars($dashUrl . '&type=affiche_vitrine') ?>"
+        <a href="<?= htmlspecialchars($genUrlBase . 'affiche_vitrine') ?>"
            style="display:block; padding:14px 16px; border:2px solid #243B5C; color:#243B5C; background:#fff; border-radius:12px; text-decoration:none; text-align:center; font-weight:600; transition:all 0.15s;"
            onmouseover="this.style.background='#243B5C'; this.style.color='#fff';"
            onmouseout="this.style.background='#fff'; this.style.color='#243B5C';">
           <div style="font-size:24px; margin-bottom:4px;">📰</div>
           <div style="font-size:14px;">Affiche vitrine</div>
-          <div style="font-size:11px; opacity:0.7; margin-top:2px;">A4 portrait — photo héro + prix</div>
+          <div style="font-size:11px; opacity:0.7; margin-top:2px;">Génère + édite l'accroche</div>
         </a>
-        <a href="<?= htmlspecialchars($dashUrl . '&type=fiche_client') ?>"
+        <a href="<?= htmlspecialchars($genUrlBase . 'fiche_client') ?>"
            style="display:block; padding:14px 16px; border:2px solid #243B5C; color:#243B5C; background:#fff; border-radius:12px; text-decoration:none; text-align:center; font-weight:600; transition:all 0.15s;"
            onmouseover="this.style.background='#243B5C'; this.style.color='#fff';"
            onmouseout="this.style.background='#fff'; this.style.color='#243B5C';">
           <div style="font-size:24px; margin-bottom:4px;">📄</div>
           <div style="font-size:14px;">Fiche client</div>
-          <div style="font-size:11px; opacity:0.7; margin-top:2px;">Multi-page — descriptif + galerie</div>
+          <div style="font-size:11px; opacity:0.7; margin-top:2px;">Multi-page éditable</div>
         </a>
-        <a href="<?= htmlspecialchars($dashUrl . '&type=fiche_visite_interne') ?>"
+        <a href="<?= htmlspecialchars($genUrlBase . 'fiche_visite_interne') ?>"
            style="display:block; padding:14px 16px; border:2px solid #a85858; color:#a85858; background:#fff; border-radius:12px; text-decoration:none; text-align:center; font-weight:600; transition:all 0.15s;"
            onmouseover="this.style.background='#a85858'; this.style.color='#fff';"
            onmouseout="this.style.background='#fff'; this.style.color='#a85858';">
           <div style="font-size:24px; margin-bottom:4px;">🔒</div>
           <div style="font-size:14px;">Fiche visite interne</div>
-          <div style="font-size:11px; opacity:0.7; margin-top:2px;">Filigrane — coaching négo</div>
+          <div style="font-size:11px; opacity:0.7; margin-top:2px;">Coaching négo · filigrane</div>
         </a>
       </div>
 

@@ -49,35 +49,38 @@ if ($idBien > 0 && (($_GET['action'] ?? '') === 'recalculer_score')) {
         : ['ok'=>false, 'msg'=>'Échec recalcul : ' . ($r['erreur'] ?? '?')];
 }
 
-// ─── Action : Générer un support ──────────────────────────────────────
+// ─── Action : Générer un support → ouvre directement l'éditeur ────────
+// Accepte POST (formulaire dashboard) ET GET shortcut (liens depuis la card bien_detail)
+$goGet = (string)($_GET['go_generer'] ?? '');
+if ($idBien > 0 && $goGet !== '' && in_array($goGet, $typesValides, true)) {
+    $_POST['action'] = 'generer';
+    $_POST['type']   = $goGet;
+}
 if ($idBien > 0 && ($_POST['action'] ?? '') === 'generer') {
     $typeGen = (string)($_POST['type'] ?? $type);
     if (!in_array($typeGen, $typesValides, true)) $typeGen = $type;
     $angle  = (string)($_POST['angle'] ?? '');
     $brief  = trim((string)($_POST['orientation_user'] ?? ''));
-    $force  = !empty($_POST['force']);
-    $opts = [];
-    if ($force)        $opts['force_export']    = true;
+
+    // Toujours force_export depuis le dashboard : l'éditeur affiche les
+    // manquements en bandeau info — l'utilisateur peut tout ajuster avant
+    // que le bien ne sorte vraiment en diffusion.
+    $opts = ['force_export' => true];
     if ($angle !== '') $opts['angle_marketing'] = $angle;
 
     $r = mbi_supports_pdf_generer($idBien, $typeGen, $brief !== '' ? $brief : null, $opts);
-    if ($r['ok']) {
-        $msgGen = [
-            'ok' => true,
-            'msg' => "PDF généré (v{$r['version']}, {$typeGen})",
-            'support_id' => $r['support_id'],
-            'fichier' => $r['fichier_pdf'],
-        ];
-    } else {
-        $msgGen = [
-            'ok' => false,
-            'msg' => $r['statut'] === 'refuse'
-                ? 'Génération refusée — voir critique ci-dessous'
-                : ('Erreur : ' . ($r['erreur'] ?? '?')),
-            'support_id' => null, 'fichier' => null,
-        ];
+    if ($r['ok'] && !empty($r['support_id'])) {
+        // Redirige vers l'éditeur du support créé
+        header('Location: ' . app_url('/mbi_supports_edit.php?id=' . (int)$r['support_id']));
+        exit;
     }
-    $type = $typeGen; // bascule la vue critique sur le type qu'on vient de demander
+    // Sinon erreur technique — on reste sur le dashboard avec le message
+    $msgGen = [
+        'ok' => false,
+        'msg' => 'Erreur technique : ' . ($r['erreur'] ?? '?'),
+        'support_id' => null, 'fichier' => null,
+    ];
+    $type = $typeGen;
 }
 
 // ─── Lectures ─────────────────────────────────────────────────────────
