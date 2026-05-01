@@ -215,8 +215,10 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'erreur'     => null,
             ];
         } catch (Throwable $e) {
-            error_log('[mbi_supports_pdf render] ' . $e->getMessage());
-            mbi_supports_pdf_marquer_erreur($pdo, $supportId, $e->getMessage());
+            error_log('[mbi_supports_pdf render] ' . $e->getMessage()
+                . ' @ ' . $e->getFile() . ':' . $e->getLine()
+                . "\n" . $e->getTraceAsString());
+            mbi_supports_pdf_marquer_erreur($pdo, $supportId, $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
             return [
                 'ok'         => false,
                 'support_id' => $supportId,
