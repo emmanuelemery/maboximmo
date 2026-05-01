@@ -39,7 +39,8 @@ $navItems = [
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-  <!-- Preload de l'image hero pour first paint sans strobe (chargée AVANT la CSS) -->
+  <!-- Preload des 2 images hero pour first paint sans strobe (Lyon en hero, puzzle dans le panel filtres) -->
+  <link rel="preload" as="image" href="<?= h(asset_url('/images/mbi_annonces_hero_69.png')) ?>" fetchpriority="high">
   <link rel="preload" as="image" href="<?= h(asset_url('/images/maboximmo_puzzle_fond_seul.png')) ?>" fetchpriority="high">
   <?php
     // Cache buster basé sur mtime — invalide auto à chaque modif fichier CSS

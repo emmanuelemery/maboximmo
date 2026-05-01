@@ -230,10 +230,9 @@
   min-height: 720px;
   padding: 45px 6vw 28px;
   overflow: hidden;
-  /* UNE seule image + couleur fallback unie → first paint instant.
-     Path relatif au fichier CSS (../images/) → marche sur local XAMPP ET prod. */
-  background-color: #eef2f6;
-  background-image: url('../images/maboximmo_puzzle_fond_seul.png');
+  /* Hero = photo de Lyon (cityscape) — UNE seule image, pas de cascade */
+  background-color: var(--mbi-navy);
+  background-image: url('../images/mbi_annonces_hero_69.png');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -247,12 +246,15 @@
   font-size: clamp(34px, 4vw, 56px);
   font-weight: 800; letter-spacing: -1px;
   margin: 0 0 10px;
-  color: var(--mbi-text-dark);
+  /* Blanc sur la photo Lyon avec ombre pour lisibilité */
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.4);
 }
 .mbi-hero2-sub {
   margin: 0 0 26px;
-  color: var(--mbi-muted-dark);
+  color: rgba(255,255,255,0.92);
   font-size: 20px;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.5);
 }
 .mbi-hero2-line {
   width: 62px; height: 2px;
@@ -260,7 +262,7 @@
   margin: 0 auto 30px;
 }
 
-/* ── Search area : 4 glass cards alignées ── */
+/* ── Search area : 4 glass cards sur fond PUZZLE (panel translucide) ── */
 .mbi-search-area {
   display: grid;
   grid-template-columns: 0.75fr 1.6fr 1.35fr 0.7fr;
@@ -269,6 +271,18 @@
   transform: scale(0.92);
   transform-origin: top center;
   margin-bottom: -8px;
+
+  /* Panel : puzzle comme fond + padding + bordure arrondie */
+  padding: 22px;
+  border-radius: 24px;
+  background-color: rgba(255, 255, 255, 0.45);
+  background-image: url('../images/maboximmo_puzzle_fond_seul.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-blend-mode: lighten;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 18px 50px rgba(15, 35, 55, 0.28);
 }
 
 .mbi-glass-card {
