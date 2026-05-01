@@ -94,11 +94,20 @@ $OPENAI_TEXT_MODEL = getenv('OPENAI_TEXT_MODEL')
 
 /**
  * Chargement config Anthropic (Claude API) optionnelle
+ * Convention : tous les configs API vivent dans /home/u630423897/ (Hostinger)
+ *              ou dans u630423897/ (local XAMPP, sibling de public_html)
  */
 $possibleAnthropicConfigs = [
     __DIR__ . '/../anthropic_config.php',
+    __DIR__ . '/../maboximmo_anthropic_config.php',
     __DIR__ . '/../../anthropic_config.php',
+    __DIR__ . '/../../maboximmo_anthropic_config.php',
+    __DIR__ . '/../../u630423897/anthropic_config.php',
+    __DIR__ . '/../../u630423897/maboximmo_anthropic_config.php',
+    __DIR__ . '/../../u630423897/dev_anthropic_config.php',
     '/home/u630423897/anthropic_config.php',
+    '/home/u630423897/maboximmo_anthropic_config.php',
+    '/home/u630423897/u630423897/anthropic_config.php',
 ];
 
 foreach ($possibleAnthropicConfigs as $candidate) {
