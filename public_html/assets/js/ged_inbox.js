@@ -87,7 +87,13 @@
             }
             if (data.ok) {
                 if (window.gedToast) window.gedToast('Document analysé : ' + (data.engine || '') + ' / ' + (data.model || ''), 'success');
-                setTimeout(function () { location.href = '?id=' + data.analysis_id; }, 400);
+                setTimeout(function () {
+                    // Redirect absolu sur la même page avec ?id=<analysisId> — robuste
+                    // contre les configs serveur où un href relatif tombe sur la racine.
+                    var url = new URL(window.location.href);
+                    url.searchParams.set('id', String(data.analysis_id));
+                    location.href = url.toString();
+                }, 400);
             } else {
                 alert('Erreur upload : ' + (data.message || 'inconnue'));
                 resetDropzone();
@@ -168,10 +174,18 @@
                 }
                 // Charge le suivant
                 if (data.next_id) {
-                    setTimeout(function () { location.href = '?id=' + data.next_id; }, 300);
+                    setTimeout(function () {
+                        var u = new URL(window.location.href);
+                        u.searchParams.set('id', String(data.next_id));
+                        location.href = u.toString();
+                    }, 300);
                 } else {
-                    // Plus de doc à valider
-                    setTimeout(function () { location.href = location.pathname; }, 300);
+                    // Plus de doc à valider — vers la page inbox sans id
+                    setTimeout(function () {
+                        var u = new URL(window.location.href);
+                        u.searchParams.delete('id');
+                        location.href = u.toString();
+                    }, 300);
                 }
             })
             .catch(function (err) {
