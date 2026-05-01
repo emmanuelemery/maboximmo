@@ -39,6 +39,8 @@ $navItems = [
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <!-- Preload de l'image hero pour first paint sans strobe (chargée AVANT la CSS) -->
+  <link rel="preload" as="image" href="<?= h(asset_url('/images/maboximmo_puzzle_fond_seul.png')) ?>" fetchpriority="high">
   <?php
     // Cache buster basé sur mtime — invalide auto à chaque modif fichier CSS
     $__mbiCssRoot = dirname(__DIR__) . '/css';
