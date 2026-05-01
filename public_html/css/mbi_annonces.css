@@ -209,6 +209,68 @@
 .mbi-hero .mbi-link-more { color: rgba(255,255,255,0.92); }
 .mbi-hero .mbi-link-more:hover { color: #fff; }
 
+/* ── Filtres bouton instantanés (page d'accueil) ────────────────────────── */
+.mbi-filters {
+  background: var(--mbi-bg);
+  padding: 28px 0 12px;
+  border-bottom: 1px solid var(--mbi-border);
+}
+.mbi-fgrp { margin-bottom: 22px; }
+.mbi-flabel {
+  font-size: 12px; font-weight: 700; color: var(--mbi-navy);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin: 0 0 10px;
+}
+.mbi-fbtns { display: grid; gap: 8px; }
+.mbi-fbtns.mbi-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.mbi-fbtns.mbi-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.mbi-fbtns.mbi-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+.mbi-fbtn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 14px; border-radius: 10px;
+  background: #fff; border: 1.5px solid var(--mbi-border);
+  color: var(--mbi-navy); font-size: 14px; font-weight: 600;
+  text-decoration: none; cursor: pointer;
+  transition: all 0.15s ease; text-align: center;
+  min-height: 44px;
+}
+.mbi-fbtn:hover {
+  border-color: var(--mbi-gold);
+  color: var(--mbi-navy);
+  background: #fffaf0;
+  transform: translateY(-1px);
+}
+.mbi-fbtn.active {
+  background: var(--mbi-navy);
+  color: #fff;
+  border-color: var(--mbi-navy);
+  box-shadow: 0 2px 8px rgba(36,59,92,0.25);
+}
+.mbi-fbtn.active:hover {
+  background: var(--mbi-navy-dark, #1a2c45);
+  color: #fff;
+}
+.mbi-fbtn-ic { font-size: 16px; line-height: 1; }
+
+.mbi-flink-reset {
+  display: inline-block; padding: 8px 16px;
+  color: var(--mbi-gold); font-weight: 600; font-size: 13px;
+  text-decoration: none; border-radius: 6px;
+}
+.mbi-flink-reset:hover { background: rgba(212,160,71,0.1); }
+
+@media (max-width: 800px) {
+  .mbi-fbtns.mbi-cols-3,
+  .mbi-fbtns.mbi-cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .mbi-fbtn { font-size: 13px; padding: 10px 8px; }
+}
+@media (max-width: 480px) {
+  .mbi-fbtns.mbi-cols-2,
+  .mbi-fbtns.mbi-cols-3,
+  .mbi-fbtns.mbi-cols-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ===== Search bar (Airbnb style) ===== */
 .mbi-search {
   background: var(--mbi-bg);
