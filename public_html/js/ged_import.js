@@ -154,6 +154,7 @@
           <td><span class="gimp-score ${scoreClass(sc)}">${sc}</span></td>
           <td><span class="gimp-status gimp-status-${escapeHtml(it.status)}">${escapeHtml(it.status)}</span></td>
           <td class="gimp-row-actions">
+            ${renderViewLink(it)}
             <a href="#" data-action="open"     data-id="${it.id}">✏️ Éditer</a>
             <a href="#" data-action="validate" data-id="${it.id}" style="color:#16a34a">✓ Valider</a>
             <a href="#" data-action="ignore"   data-id="${it.id}" style="color:#dc2626">✗ Ignorer</a>
@@ -166,6 +167,22 @@
   function badgeLvl(val, level) {
     if (!val) return '<span class="gimp-lvl gimp-lvl-empty">—</span>';
     return '<span class="gimp-lvl gimp-lvl-' + level + '">' + escapeHtml(val) + '</span>';
+  }
+
+  // V2.5 — icône "voir document" (preview/téléchargement, support emails .eml/.msg)
+  function renderViewLink(it) {
+    const ext = String(it.file_extension || '').toLowerCase();
+    const id  = parseInt(it.id, 10) || 0;
+    const previewUrl = '/api/ged_import_preview.php?item_id=' + id;
+    if (ext === 'eml') {
+      // Aperçu HTML inline + lien direct .eml
+      return '<a href="' + previewUrl + '&as=html" target="_blank" rel="noopener" title="Ouvrir le mail (HTML)" style="color:#0ea5e9;margin-right:6px">📧 Voir</a>';
+    }
+    if (ext === 'msg') {
+      return '<a href="' + previewUrl + '&disposition=attachment" target="_blank" rel="noopener" title="Télécharger le .msg (Outlook)" style="color:#0ea5e9;margin-right:6px">📧 .msg</a>';
+    }
+    // Tous les autres : ouvre dans nouvel onglet (inline si supporté, sinon download)
+    return '<a href="' + previewUrl + '" target="_blank" rel="noopener" title="Voir / télécharger le document" style="color:#0ea5e9;margin-right:6px">👁 Voir</a>';
   }
 
   // ── Modal édition ─────────────────────────────────────────────
