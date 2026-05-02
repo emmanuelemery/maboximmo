@@ -306,7 +306,7 @@ require_once __DIR__ . '/inc/header.php';
           <label>Référence entité</label>
           <input type="text" id="gimp-input-ref-entite" placeholder="ex. 2004 (n° immeuble)">
         </div>
-        <div>
+        <div class="gimp-field" id="gimp-field-nom-entite">
           <label>Nom entité (15 car. max)</label>
           <input type="text" id="gimp-input-nom-entite" placeholder="ex. PARC GARIGL">
         </div>

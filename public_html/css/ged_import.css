@@ -363,3 +363,92 @@
 .gnv-list li.is-active { background: #e0f2fe; font-weight: 700; }
 .gnv-list small { font-family: monospace; color: #94a3b8; font-size: 10px; }
 .gnv-empty { color: #94a3b8; font-style: italic; font-size: 13px; }
+
+/* ─── V2.5 — entity_placeholder (DOSSIER, SOCIETE, BANQUE, ...) ─────
+   Boutons cascade marqués comme "entité à nommer" + highlight du champ
+   nom_entite quand l'utilisateur en clique un.
+   ─────────────────────────────────────────────────────────────── */
+.gimp-cascade-btn.is-entity-placeholder {
+  border-color: #c084fc;
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  color: #6b21a8;
+  position: relative;
+}
+.gimp-cascade-btn.is-entity-placeholder:hover {
+  background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+  border-color: #a855f7;
+}
+.gimp-cascade-btn.is-entity-placeholder.is-selected {
+  background: #a855f7;
+  color: #fff;
+  border-color: #7e22ce;
+}
+.gimp-cascade-entity-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: .85;
+}
+
+/* Highlight pulsé du champ nom_entite quand un placeholder est cliqué */
+.gimp-field.is-entity-required input,
+.gimp-field.is-entity-required textarea,
+.gimp-field.is-entity-required > input {
+  border-color: #a855f7 !important;
+  box-shadow: 0 0 0 0 rgba(168, 85, 247, .55);
+  animation: gimpEntityPulse 1.4s ease-out 3;
+  background: #faf5ff;
+}
+.gimp-field.is-entity-required {
+  position: relative;
+}
+.gimp-field.is-entity-required::after {
+  content: '📝 Saisis le nom de cette entité';
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  background: #a855f7;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(168, 85, 247, .35);
+}
+@keyframes gimpEntityPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(168, 85, 247, .55); }
+  70%  { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(168, 85, 247, 0); }
+}
+
+/* Toast d'invitation à saisir le nom d'entité */
+.gimp-entity-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(126, 34, 206, .35);
+  z-index: 9999;
+  max-width: 360px;
+  line-height: 1.4;
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform .35s ease, opacity .35s ease;
+}
+.gimp-entity-toast code {
+  background: rgba(255, 255, 255, .25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.gimp-entity-toast.is-out {
+  transform: translateY(20px);
+  opacity: 0;
+}

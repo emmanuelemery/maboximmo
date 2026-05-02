@@ -244,14 +244,18 @@
       const sel = currentItem[selectedKey];
       container.innerHTML = j.options.map(opt => {
         const isSel = (opt.code === sel) ? ' is-selected' : '';
-        return '<button type="button" class="gimp-cascade-btn' + isSel + '" data-level="' + level + '" data-code="' + escapeHtml(opt.code) + '">' + escapeHtml(opt.label) + '</button>';
+        const isEntity = parseInt(opt.is_entity_placeholder || 0, 10) === 1;
+        const entityCls = isEntity ? ' is-entity-placeholder' : '';
+        const entityAttr = isEntity ? ' data-entity-placeholder="1"' : '';
+        const entityIcon = isEntity ? '<span class="gimp-cascade-entity-icon" title="À nommer (instance)">📝</span>' : '';
+        return '<button type="button" class="gimp-cascade-btn' + isSel + entityCls + '" data-level="' + level + '" data-code="' + escapeHtml(opt.code) + '"' + entityAttr + '>' + escapeHtml(opt.label) + entityIcon + '</button>';
       }).join('');
     } catch (err) {
       container.innerHTML = '<div class="gimp-cascade-empty" style="color:#dc2626">Erreur : ' + escapeHtml(err.message) + '</div>';
     }
   }
 
-  async function pickLevel(level, code) {
+  async function pickLevel(level, code, isEntity) {
     if (!currentItem) return;
     const key = 'selected_n' + level;
     currentItem[key] = code;
@@ -261,6 +265,33 @@
     await renderLevelButtons(level);
     for (let i = level + 1; i <= 5; i++) await renderLevelButtons(i);
     updateCanonicalPreview();
+    // V2.5 : si le code cliqué est une entité à nommer, met en avant nom_entite
+    if (isEntity) promptForEntityName(code);
+  }
+
+  // V2.5 — entity_placeholder : highlight + scroll + toast vers nom_entite
+  function promptForEntityName(code) {
+    const input = $('#gimp-input-nom-entite');
+    if (!input) return;
+    const wrap = input.closest('.gimp-field') || input.parentElement;
+    if (wrap) {
+      wrap.classList.remove('is-entity-required'); // reset l'animation si déjà active
+      // force reflow pour relancer l'anim CSS
+      void wrap.offsetWidth;
+      wrap.classList.add('is-entity-required');
+      setTimeout(() => wrap.classList.remove('is-entity-required'), 4500);
+    }
+    try { input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+    setTimeout(() => { try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); } }, 350);
+    flashEntityHint(code);
+  }
+  function flashEntityHint(code) {
+    const t = document.createElement('div');
+    t.className = 'gimp-entity-toast';
+    t.innerHTML = '💡 <strong>' + escapeHtml(code) + '</strong> — saisis le nom de cette entité (ex : <code>DURAND_VS_BAILLEUR</code>)';
+    document.body.appendChild(t);
+    setTimeout(() => t.classList.add('is-out'), 3500);
+    setTimeout(() => t.remove(), 4200);
   }
 
   async function pickN6(value) {
@@ -626,7 +657,8 @@
       }
       const cb = e.target.closest('.gimp-cascade-btn');
       if (cb) {
-        await pickLevel(parseInt(cb.dataset.level, 10), cb.dataset.code);
+        const isEntity = cb.dataset.entityPlaceholder === '1';
+        await pickLevel(parseInt(cb.dataset.level, 10), cb.dataset.code, isEntity);
         return;
       }
     });

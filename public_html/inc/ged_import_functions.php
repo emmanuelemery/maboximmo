@@ -478,10 +478,20 @@ function ged_import_get_levels_for(int $levelNumber, array $parents = []): array
         }
     }
 
-    $sql = "SELECT code, label, position FROM ged_level_codes WHERE {$where} ORDER BY position ASC, label ASC";
-    $st = ged_import_pdo()->prepare($sql);
-    $st->execute($params);
-    return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    // V2.5 : retourne aussi is_entity_placeholder si la colonne existe (try/catch fallback)
+    try {
+        $sql = "SELECT code, label, position, is_entity_placeholder
+                FROM ged_level_codes WHERE {$where} ORDER BY position ASC, label ASC";
+        $st = ged_import_pdo()->prepare($sql);
+        $st->execute($params);
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable) {
+        // Migration v2_21 pas appliquée → fallback sans le flag
+        $sql = "SELECT code, label, position FROM ged_level_codes WHERE {$where} ORDER BY position ASC, label ASC";
+        $st = ged_import_pdo()->prepare($sql);
+        $st->execute($params);
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
 }
 
 /**
