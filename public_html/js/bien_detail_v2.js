@@ -2131,21 +2131,55 @@
       const lightbox   = document.getElementById('v2-photo-lightbox');
       const lbImg      = document.getElementById('v2-lightbox-img');
       const lbCaption  = document.getElementById('v2-lightbox-caption');
+      const lbCounter  = document.getElementById('v2-lightbox-counter');
       const lbClose    = lightbox?.querySelector('.v2-lightbox-close');
+      const lbPrev     = lightbox?.querySelector('.v2-lightbox-prev');
+      const lbNext     = lightbox?.querySelector('.v2-lightbox-next');
 
+      let lbIndex = 0;
+
+      function lbCollectPhotos() {
+        return Array.from(document.querySelectorAll('.v2-photo-tile'))
+          .map(t => ({ url: t.dataset.url || '', name: t.dataset.name || '' }))
+          .filter(p => p.url);
+      }
+      function lbShow(i) {
+        if (!lightbox || !lbImg) return;
+        const photos = lbCollectPhotos();
+        if (!photos.length) return;
+        // Cycle (wrap-around)
+        const n = photos.length;
+        lbIndex = ((i % n) + n) % n;
+        const cur = photos[lbIndex];
+        lbImg.src = cur.url;
+        lbImg.alt = cur.name;
+        if (lbCaption) lbCaption.textContent = cur.name;
+        if (lbCounter) lbCounter.textContent = (lbIndex + 1) + ' / ' + n;
+        const single = (n <= 1);
+        if (lbPrev) lbPrev.style.display = single ? 'none' : '';
+        if (lbNext) lbNext.style.display = single ? 'none' : '';
+      }
       function openLightbox(url, name) {
         if (!lightbox || !lbImg) return;
-        lbImg.src = url;
-        lbImg.alt = name || '';
-        if (lbCaption) lbCaption.textContent = name || '';
+        const photos = lbCollectPhotos();
+        const idx = Math.max(0, photos.findIndex(p => p.url === url));
+        lbShow(idx);
         lightbox.hidden = false;
       }
       function closeLightbox() { if (lightbox) lightbox.hidden = true; }
 
       if (lightbox) {
         lbClose?.addEventListener('click', closeLightbox);
+        lbPrev?.addEventListener('click', (e) => { e.stopPropagation(); lbShow(lbIndex - 1); });
+        lbNext?.addEventListener('click', (e) => { e.stopPropagation(); lbShow(lbIndex + 1); });
         lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+        // Capture-phase pour passer DEVANT le keydown du Stage (qui fait prev/next des cards)
+        document.addEventListener('keydown', (e) => {
+          if (lightbox.hidden) return;
+          if (e.key === 'Escape')      { closeLightbox(); e.preventDefault(); e.stopPropagation(); }
+          else if (e.key === 'ArrowLeft')  { lbShow(lbIndex - 1); e.preventDefault(); e.stopPropagation(); }
+          else if (e.key === 'ArrowRight') { lbShow(lbIndex + 1); e.preventDefault(); e.stopPropagation(); }
+        }, true);
       }
 
       if (photosGrid) {

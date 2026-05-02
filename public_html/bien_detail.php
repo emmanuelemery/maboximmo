@@ -955,7 +955,10 @@ require_once $_sbFile;
       <!-- Lightbox pour agrandir les photos -->
       <div id="v2-photo-lightbox" class="v2-lightbox" hidden>
         <button type="button" class="v2-lightbox-close" aria-label="Fermer">✕</button>
+        <button type="button" class="v2-lightbox-nav v2-lightbox-prev" aria-label="Précédente">‹</button>
+        <button type="button" class="v2-lightbox-nav v2-lightbox-next" aria-label="Suivante">›</button>
         <img id="v2-lightbox-img" src="" alt="">
+        <div class="v2-lightbox-counter" id="v2-lightbox-counter"></div>
         <div id="v2-lightbox-caption" class="v2-lightbox-caption"></div>
       </div>
 

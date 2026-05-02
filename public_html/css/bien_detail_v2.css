@@ -1721,10 +1721,49 @@ input.v2-input.is-from-dpe {
 }
 .v2-lightbox[hidden] { display: none; }
 .v2-lightbox img {
-  max-width: 90vw;
+  max-width: 92vw;
   max-height: 82vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}
+.v2-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.90);
+  border: none;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  color: #243B5C;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, transform .15s;
+  z-index: 1001;
+}
+.v2-lightbox-nav:hover { background: #fff; transform: translateY(-50%) scale(1.08); }
+.v2-lightbox-nav:disabled { opacity: .35; cursor: not-allowed; }
+.v2-lightbox-prev { left: 24px; }
+.v2-lightbox-next { right: 24px; }
+.v2-lightbox-counter {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 4px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 600;
 }
 .v2-lightbox-close {
   position: absolute;
