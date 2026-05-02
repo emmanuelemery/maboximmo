@@ -2311,27 +2311,37 @@
             fd.append('id_photo', id);
             fd.append('csrf_token', data.csrfToken || '');
             fd.append('force', '1');
+            console.log('[analyze-all] POST', analyzeUrl, 'id_photo=' + id);
             const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
+            console.log('[analyze-all] HTTP', r.status, r.statusText);
+            const txt = await r.text();
+            console.log('[analyze-all] body len=', txt.length, 'preview:', txt.slice(0, 300));
             let j;
-            try { j = await r.json(); } catch (_) {
-              const txt = await r.text().catch(() => '');
-              throw new Error('Réponse non-JSON (HTTP ' + r.status + ') ' + txt.slice(0, 120));
+            try { j = JSON.parse(txt); } catch (_) {
+              throw new Error('Réponse non-JSON (HTTP ' + r.status + ') ' + txt.slice(0, 200));
             }
-            if (!j.ok) throw new Error(j.error || 'Erreur');
+            if (!j.ok) throw new Error(j.error || 'Erreur API : ' + JSON.stringify(j).slice(0, 200));
+            // Vérifie le statut individuel de la photo (j.ok=true même si toutes les analyses échouent)
+            const indiv = (j.results && j.results[0]) || {};
+            if (indiv.ok === false) {
+              throw new Error(indiv.error || 'Photo non analysée (raison non précisée)');
+            }
             tile.dataset.statut = 'ok';
             done++;
           } catch (err) {
             ko++;
+            console.error('[analyze-all] photo #' + id + ' KO:', err);
             if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + (err.message || 'Erreur') + '</span>';
           }
         }
         allBtns.forEach(b => { b.innerHTML = original; b.disabled = false; b.dataset.busy = ''; });
 
-        if (ko > 0 && done === 0) {
-          alert('Analyse en erreur sur toutes les photos.\nVérifie la console réseau (F12) pour le détail.');
-        } else {
+        console.log('[analyze-all] terminé : done=' + done + ' ko=' + ko);
+        if (done === 0 && ko > 0) {
+          alert('Analyse en erreur sur toutes les photos.\nOuvre la console (F12) pour voir le détail.');
+        } else if (done > 0) {
           // Recharge pour afficher les blocs critique générés côté serveur (PHP)
-          setTimeout(() => window.location.reload(), 400);
+          setTimeout(() => window.location.reload(), 600);
         }
       });
 
