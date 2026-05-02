@@ -23,6 +23,14 @@ $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $agenceId  = (int)($_SESSION['id_agence']  ?? 0);
 $isAdmin   = in_array($roleId, [1, 7, 8], true);
 
+// Établissements (pour presets ref_agence)
+$etabs = [];
+try {
+    $etabs = $pdo->query("SELECT id, nom, sigle FROM etablissements ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable) {
+    $etabs = [];
+}
+
 // Compteur total + récup de l'analyse courante (la plus prioritaire à valider)
 $where  = "status IN ('to_validate','manual_review')";
 $params = [];
@@ -54,6 +62,17 @@ if ($currentId > 0) {
     $stCur->execute($params);
 }
 $current = $stCur->fetch(PDO::FETCH_ASSOC);
+
+// Liste courte à gauche (navigation rapide) — 150px
+$stList = $pdo->prepare("
+    SELECT id, nom_original, suggested_filename, confidence_score, ia_engine, created_at
+    FROM ged_analyses
+    WHERE {$where}
+    ORDER BY created_at ASC
+    LIMIT 50
+");
+$stList->execute(array_diff_key($params, ['id' => true])); // enlève l'id si présent
+$queueList = $stList->fetchAll(PDO::FETCH_ASSOC);
 
 // Position dans la file
 $position = 0;
@@ -116,6 +135,9 @@ if (is_file($layoutTop)) require $layoutTop;
             <a href="<?= app_url('/modules/ged/ged_dashboard.php') ?>" class="aged-btn">
                 <span class="b-emoji">📊</span> Dashboard
             </a>
+            <a href="<?= app_url('/modules/ged/import_releves_banque_zip.php') ?>" class="aged-btn">
+                <span class="b-emoji">🏦</span> Import ZIP relevés banque
+            </a>
         </div>
     </div>
 
@@ -123,15 +145,45 @@ if (is_file($layoutTop)) require $layoutTop;
     <div class="ged-inbox-dropzone" id="ged-dropzone">
         <div class="dz-icon">📤</div>
         <div class="dz-text">
-            <strong>Dépose un fichier ici</strong> (PDF, JPG, PNG) ou
-            <label class="dz-link">
-                <input type="file" id="ged-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none">
-                clique pour choisir
-            </label>
+            <div style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap">
+                <div>
+                    <strong>Dépose un fichier ici</strong> (PDF, JPG, PNG) ou
+                    <label class="dz-link">
+                        <input type="file" id="ged-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple style="display:none">
+                        clique pour choisir des fichiers
+                    </label>
+                    <span style="opacity:.7">·</span>
+                    <label class="dz-link">
+                        <input type="file" id="ged-folder-input" webkitdirectory directory multiple style="display:none">
+                        choisir un dossier
+                    </label>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <label style="font-size:12px;color:#4b5563;font-weight:600">Orientation IA</label>
+                    <select id="ged-orientation" style="padding:6px 10px;border:1px solid #d4d7de;border-radius:10px;font-size:12px">
+                        <option value="">Auto (recommandé)</option>
+                        <option value="SYNDIC">SYNDIC</option>
+                        <option value="BAILLEUR">BAILLEUR</option>
+                        <option value="COMPTA">COMPTA</option>
+                        <option value="RH">RH</option>
+                        <option value="AGENCE">AGENCE</option>
+                        <option value="FOURNISSEURS">FOURNISSEURS</option>
+                        <option value="ADMIN">ADMIN</option>
+                    </select>
+                    <label style="font-size:12px;color:#6b7280;display:flex;align-items:center;gap:6px">
+                        <input type="checkbox" id="ged-auto-orientation" checked>
+                        auto par nom de dossier
+                    </label>
+                </div>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:#6b7280;line-height:1.35">
+                Conseil PDF scanné : vise <strong>150–200 DPI</strong> (gris) et active “<strong>OCR</strong>”/“<strong>Optimiser</strong>” avant upload.
+                Les scans trop lourds ralentissent fortement l’analyse.
+            </div>
         </div>
         <div class="dz-progress" id="dz-progress" style="display:none">
             <div class="dz-progress-bar"><div class="dz-progress-fill" id="dz-fill"></div></div>
-            <div class="dz-progress-text" id="dz-text">Analyse IA en cours…</div>
+            <div class="dz-progress-text" id="dz-text">Classement (éco) en cours…</div>
         </div>
     </div>
 
@@ -144,26 +196,55 @@ if (is_file($layoutTop)) require $layoutTop;
             <p>Tous les documents sont validés. Drop un nouveau fichier ci-dessus pour ajouter à la file.</p>
         </div>
 
-    <?php else:
+<?php else:
         $a = $current;
         $aiRaw = !empty($a['ai_raw_response']) ? json_decode((string)$a['ai_raw_response'], true) : [];
         if (!is_array($aiRaw)) $aiRaw = [];
+        $isQueued = (($a['ia_engine'] ?? '') === 'queued') || (($aiRaw['_status'] ?? '') === 'queued');
     ?>
 
-        <!-- ── CARTE DOC COURANT ── -->
-        <div class="ged-inbox-card" id="ged-card" data-analysis-id="<?= (int)$a['id'] ?>">
+        <!-- ── WORKSPACE 3 colonnes : liste / preview / form ── -->
+        <div class="ged-inbox-workspace" id="ged-card" data-analysis-id="<?= (int)$a['id'] ?>" data-analysis-queued="<?= $isQueued ? '1' : '0' ?>">
+
+            <!-- Colonne gauche : liste docs (150px) -->
+            <div class="ged-inbox-queue" aria-label="Liste des documents à valider">
+                <div class="queue-head">
+                    <div class="queue-count"><?= (int)$pendingCount ?> restant<?= $pendingCount > 1 ? 's' : '' ?></div>
+                    <div class="queue-sub">Liste (50 max)</div>
+                </div>
+                <div class="queue-list">
+                    <?php foreach ($queueList as $q):
+                        $qid = (int)($q['id'] ?? 0);
+                        $qName = (string)($q['nom_original'] ?? $q['suggested_filename'] ?? ('#' . $qid));
+                        $qName = $qName !== '' ? $qName : ('#' . $qid);
+                        $isActive = $qid === (int)$a['id'];
+                        $qConfRaw = $q['confidence_score'] ?? null;
+                        $qQueued  = (($q['ia_engine'] ?? '') === 'queued');
+                        $qConfTxt = ($qConfRaw !== null) ? (string)round((float)$qConfRaw) . '%' : ($qQueued ? '…' : '–');
+                        $qConfVal = ($qConfRaw !== null) ? (float)$qConfRaw : null;
+                        $qConfClass = ($qConfVal === null) ? 'c-na' : (($qConfVal >= 75) ? 'c-high' : (($qConfVal >= 50) ? 'c-mid' : 'c-low'));
+                    ?>
+                        <a class="queue-item<?= $isActive ? ' is-active' : '' ?>"
+                           href="<?= app_url('/modules/ged/ged_inbox.php') ?>?id=<?= $qid ?>"
+                           title="<?= htmlspecialchars($qName) ?>">
+                            <span class="qi-name"><?= htmlspecialchars($qName) ?></span>
+                            <span class="qi-conf <?= htmlspecialchars($qConfClass) ?>"><?= htmlspecialchars($qConfTxt) ?></span>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
 
             <!-- Preview gauche -->
             <div class="ged-inbox-preview">
                 <div class="preview-header">
                     <span class="preview-name"><?= htmlspecialchars($a['nom_original'] ?? $a['suggested_filename'] ?? 'Document') ?></span>
-                    <span class="aged-conf <?= ($a['confidence_score'] ?? 0) >= 85 ? 'c-high' : (($a['confidence_score'] ?? 0) >= 60 ? 'c-mid' : 'c-low') ?>">
+                    <span class="aged-conf <?= ($a['confidence_score'] ?? 0) >= 75 ? 'c-high' : (($a['confidence_score'] ?? 0) >= 50 ? 'c-mid' : 'c-low') ?>">
                         <?= $a['confidence_score'] !== null ? round((float)$a['confidence_score']) . '%' : '–' ?>
                     </span>
                 </div>
                 <?php if (!empty($a['storage_file_id']) && $a['storage_driver'] === 'local'): ?>
                     <iframe class="preview-iframe"
-                            src="<?= app_url('/api/ged_inbox_preview.php') ?>?id=<?= (int)$a['id'] ?>"
+                            src="<?= app_url('/api/ged_inbox_preview.php') ?>?id=<?= (int)$a['id'] ?>#toolbar=0&navpanes=0&scrollbar=1"
                             title="Aperçu document"></iframe>
                 <?php else: ?>
                     <div class="preview-placeholder">
@@ -175,8 +256,57 @@ if (is_file($layoutTop)) require $layoutTop;
 
             <!-- Form droite -->
             <div class="ged-inbox-form">
+                <?php if ($isQueued): ?>
+                    <div class="form-section" style="border:1px solid #fde68a;background:#fffbeb;border-radius:14px;padding:12px 14px;margin-bottom:12px">
+                        <div style="font-weight:800;color:#92400e;margin-bottom:4px">⏳ Analyse en cours</div>
+                        <div style="font-size:12px;color:#92400e;line-height:1.4">
+                            Analyse (IA avancée) : lancée en tâche de fond (cron GED). Cela peut prendre 1–3 minutes sur un PDF lourd. La page se rafraîchit automatiquement.
+                            Si ça ne bouge pas, vérifie que le cron <code>/api/cron_ged_jobs.php</code> tourne bien.
+                            Si ça reste bloqué, clique <strong>Skip</strong> puis reviens plus tard.
+                        </div>
+                    </div>
+                <?php endif; ?>
                 <div class="form-section">
-                    <h3>📋 Classement IA suggéré</h3>
+                    <?php
+                        $analysisLevel = (string)($aiRaw['_analysis_level'] ?? ($a['ia_engine'] ?? ''));
+                        $analysisEngine = (string)($aiRaw['_engine'] ?? ($a['ocr_engine'] ?? ''));
+                        $titleDetected = (string)($aiRaw['description_courte'] ?? $aiRaw['title'] ?? '');
+                        $confScore = $a['confidence_score'] !== null ? (float)$a['confidence_score'] : null;
+                        $needsAdvanced = ($confScore === null) || ($confScore < 75.0);
+                        $advLabel = ($confScore !== null && $confScore < 50.0) ? 'Analyser avec IA renforcée' : 'Analyser avec IA avancée';
+                    ?>
+
+                    <div class="ged-analysis-meta" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 10px">
+                        <span class="ged-chip" title="Niveau d'analyse utilisé">
+                            Analyse : <strong><?= htmlspecialchars($analysisLevel !== '' ? $analysisLevel : '—') ?></strong>
+                        </span>
+                        <?php if ($analysisEngine !== ''): ?>
+                            <span class="ged-chip" title="Moteur / méthode">
+                                Méthode : <strong><?= htmlspecialchars($analysisEngine) ?></strong>
+                            </span>
+                        <?php endif; ?>
+                        <?php if ($titleDetected !== ''): ?>
+                            <span class="ged-chip" title="Titre détecté">
+                                Titre : <strong><?= htmlspecialchars($titleDetected) ?></strong>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+
+                    <h3>📋 Classement suggéré</h3>
+
+                    <div class="ged-quick-actions" aria-label="Raccourcis de classement">
+                        <button type="button" class="ged-quick-btn" id="btn-quick-releve-banque">🏦 Relevé Banque</button>
+                        <button type="button" class="ged-quick-btn" id="btn-quick-taxe-fonciere">🏛️ Taxe foncière</button>
+                        <button type="button" class="ged-quick-btn" id="btn-quick-diagnostic">🔬 Diagnostic / DPE</button>
+                    </div>
+
+                    <div class="ged-field">
+                        <label>Nom proposé (low-cost)</label>
+                        <input type="text" value="<?= htmlspecialchars($a['suggested_filename'] ?? '') ?>" readonly>
+                        <div style="margin-top:6px;font-size:12px;color:#6b7280;line-height:1.35">
+                            Proposé pour contrôle uniquement. Le nom final GED est construit au moment du <strong>Valider</strong>.
+                        </div>
+                    </div>
 
                     <div class="ged-field">
                         <label>Type de document</label>
@@ -185,20 +315,35 @@ if (is_file($layoutTop)) require $layoutTop;
 
                     <div class="ged-field-row">
                         <div class="ged-field">
-                            <label>Module</label>
-                            <select name="suggested_module">
-                                <?php foreach (['', 'RH','COMPTA','BAILLEUR','SYNDIC','AGENCE','FOURNISSEURS','ADMIN'] as $m): ?>
-                                    <option value="<?= $m ?>" <?= ($a['suggested_module'] ?? '') === $m ? 'selected' : '' ?>><?= $m ?: '—' ?></option>
+                            <label>Module (métier)</label>
+                            <?php $curMod = (string)($a['suggested_module'] ?? ''); ?>
+                            <input type="hidden" name="suggested_module" id="ged-suggested-module" value="<?= htmlspecialchars($curMod) ?>">
+                            <div class="ged-mod-buttons" role="group" aria-label="Modules">
+                                <?php foreach (['SYNDIC','BAILLEUR','COMPTA','RH','AGENCE'] as $m): ?>
+                                    <button type="button"
+                                            class="ged-mod-btn<?= $curMod === $m ? ' is-active' : '' ?>"
+                                            data-mod="<?= $m ?>"><?= $m ?></button>
                                 <?php endforeach; ?>
-                            </select>
+                                <select class="ged-mod-other" id="ged-mod-other" title="Autres modules">
+                                    <option value="">Autres…</option>
+                                    <?php foreach (['FOURNISSEURS','ADMIN'] as $m): ?>
+                                        <option value="<?= $m ?>" <?= $curMod === $m ? 'selected' : '' ?>><?= $m ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                         </div>
+                    </div>
+
+                    <div class="ged-field-row">
                         <div class="ged-field">
                             <label>Niveau 2</label>
                             <input type="text" name="suggested_level_2" value="<?= htmlspecialchars($a['suggested_level_2'] ?? '') ?>">
+                            <div class="ged-chips" id="ged-level2-chips" aria-label="Suggestions niveau 2"></div>
                         </div>
                         <div class="ged-field">
                             <label>Niveau 3</label>
                             <input type="text" name="suggested_level_3" value="<?= htmlspecialchars($a['suggested_level_3'] ?? '') ?>">
+                            <div class="ged-chips" id="ged-level3-chips" aria-label="Suggestions niveau 3"></div>
                         </div>
                     </div>
 
@@ -207,7 +352,7 @@ if (is_file($layoutTop)) require $layoutTop;
                             <label>Date document</label>
                             <input type="date" name="date_document" value="<?= htmlspecialchars($a['date_document'] ?? '') ?>">
                         </div>
-                        <div class="ged-field">
+                        <div class="ged-field" id="ged-montant-wrap">
                             <label>Montant TTC (€)</label>
                             <input type="number" step="0.01" name="detected_montant" value="<?= htmlspecialchars($a['detected_montant'] ?? '') ?>">
                         </div>
@@ -215,7 +360,43 @@ if (is_file($layoutTop)) require $layoutTop;
 
                     <div class="ged-field">
                         <label>Tiers principal</label>
-                        <input type="text" name="tiers_nom" value="<?= htmlspecialchars($a['tiers_nom'] ?? $aiRaw['tiers_principal'] ?? '') ?>">
+                        <div class="ged-tier-kind" role="group" aria-label="Type de tiers principal">
+                            <button type="button" class="ged-tier-btn is-active" data-kind="SDC">SDC</button>
+                            <button type="button" class="ged-tier-btn" data-kind="BAILLEUR">BAILLEUR</button>
+                        </div>
+                        <div class="ged-tier-search">
+                            <input type="text" id="ged-tier-search" placeholder="Rechercher (nom, référence, adresse…)">
+                            <div class="ged-tier-results" id="ged-tier-results" style="display:none"></div>
+                        </div>
+                        <div class="ged-tier-picked" id="ged-tier-picked" style="display:none"></div>
+                    </div>
+
+                    <div class="ged-field">
+                        <label>Tiers (pour le nom de fichier)</label>
+                        <input type="text" name="tiers_nom" id="ged-tiers-nom" value="<?= htmlspecialchars($a['tiers_nom'] ?? $aiRaw['tiers_principal'] ?? '') ?>">
+                        <?php
+                            $tierCandidates = [];
+                            foreach ([
+                                $a['tiers_nom'] ?? null,
+                                $aiRaw['tiers_principal'] ?? null,
+                                $aiRaw['fournisseur'] ?? null,
+                                $aiRaw['emetteur_nom'] ?? null,
+                            ] as $cand) {
+                                $cand = is_string($cand) ? trim($cand) : '';
+                                if ($cand === '' || mb_strlen($cand) < 2) continue;
+                                $tierCandidates[] = $cand;
+                            }
+                            $tierCandidates = array_values(array_unique($tierCandidates));
+                        ?>
+                        <?php if ($tierCandidates): ?>
+                            <div class="ged-chips" aria-label="Suggestions tiers">
+                                <?php foreach (array_slice($tierCandidates, 0, 6) as $cand): ?>
+                                    <button type="button" class="ged-chip" data-fill="#ged-tiers-nom" data-value="<?= htmlspecialchars($cand) ?>">
+                                        <?= htmlspecialchars(mb_strlen($cand) > 22 ? mb_substr($cand, 0, 21) . '…' : $cand) ?>
+                                    </button>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -246,10 +427,48 @@ if (is_file($layoutTop)) require $layoutTop;
                             <input type="text" name="ref_societe" value="<?= htmlspecialchars($a['ref_societe'] ?? 'RE') ?>" required>
                         </div>
                         <div class="ged-field">
-                            <label>Réf. agence</label>
-                            <input type="text" name="ref_agence" value="<?= htmlspecialchars($a['ref_agence'] ?? 'AGLYON') ?>" required>
+                            <label>Agence (référence GED)</label>
+                            <div class="ged-agence-row">
+                                <div class="ged-ag-btns" aria-label="Agences rapides">
+                                    <?php foreach (array_slice($etabs, 0, 6) as $e):
+                                        $sigle = trim((string)($e['sigle'] ?? ''));
+                                        $nom   = trim((string)($e['nom'] ?? ''));
+                                        $code  = $sigle !== '' ? ('AG' . strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $sigle))) : ('AG' . strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $nom)));
+                                        $code  = substr($code, 0, 12);
+                                    ?>
+                                        <button type="button" class="ged-ag-btn" data-ag="<?= htmlspecialchars($code) ?>" title="<?= htmlspecialchars($nom) ?>">
+                                            <?= htmlspecialchars($code) ?>
+                                        </button>
+                                    <?php endforeach; ?>
+                                </div>
+                                <select id="ged-agence-preset" title="Preset ref_agence">
+                                    <option value="">Presets…</option>
+                                    <?php foreach ($etabs as $e):
+                                        $sigle = trim((string)($e['sigle'] ?? ''));
+                                        $nom   = trim((string)($e['nom'] ?? ''));
+                                        $code  = $sigle !== '' ? ('AG' . strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $sigle))) : ('AG' . strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $nom)));
+                                        $code  = substr($code, 0, 12);
+                                    ?>
+                                        <option value="<?= htmlspecialchars($code) ?>" <?= ($a['ref_agence'] ?? '') === $code ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($nom ?: $code) ?> → <?= htmlspecialchars($code) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <input type="text" name="ref_agence" id="ged-ref-agence" value="<?= htmlspecialchars($a['ref_agence'] ?? 'AGLYON') ?>" required>
+                            </div>
                         </div>
                     </div>
+                </div>
+
+                <div class="form-actions form-actions-analysis">
+                    <button class="aged-btn b-primary" type="button" id="btn-classer" <?= $isQueued ? 'disabled' : '' ?>>
+                        <span class="b-emoji">🗂</span> Classer (éco)
+                    </button>
+                    <?php if ($needsAdvanced): ?>
+                        <button class="aged-btn" type="button" id="btn-analyze-advanced" <?= $isQueued ? 'disabled' : '' ?>>
+                            <span class="b-emoji">✨</span> <?= htmlspecialchars($advLabel) ?>
+                        </button>
+                    <?php endif; ?>
                 </div>
 
                 <div class="form-actions">
@@ -259,7 +478,7 @@ if (is_file($layoutTop)) require $layoutTop;
                     <button class="aged-btn" type="button" id="btn-skip">
                         <span class="b-emoji">⏭</span> Skip
                     </button>
-                    <button class="aged-btn b-primary" type="button" id="btn-validate">
+                    <button class="aged-btn b-primary" type="button" id="btn-validate" <?= $isQueued ? 'disabled' : '' ?>>
                         <span class="b-emoji">✅</span> Valider &amp; suivant
                     </button>
                 </div>
