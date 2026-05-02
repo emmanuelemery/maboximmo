@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../inc/bootstrap.php';
 require_login();
-require_once __DIR__ . '/ged_functions.php';
+require_once __DIR__ . '/ged_functions_legacy.php'; // archivé Phase 1.1 — fusion Phase 2/3
 
 $pageTitle  = 'Ma GED Box — Analyse IA des documents';
 $bodyClass  = 'aged-body';

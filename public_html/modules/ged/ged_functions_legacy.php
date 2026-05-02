@@ -2,8 +2,24 @@
 declare(strict_types=1);
 
 /**
+ * ⚠️ LEGACY — modules/ged/ged_functions_legacy.php (ex ged_functions.php)
+ * ================================================================================
+ *
+ * Module legacy d'analyses IA branché sur table `ged_analyses`. Conservé tel quel
+ * pour ne pas casser : ged_dashboard*, ged_inbox*, ged_jobs.php, api/ged_inbox_upload.php.
+ *
+ * Décision projet (cf. memory feedback_ged_decisions_finales_2026-05-02) :
+ *   - GARDER inc/ged_functions.php (V2, snake_case, arborescence dossiers)
+ *   - ARCHIVER ce fichier sous _legacy (étape 1.1 du plan Phase 1)
+ *   - INTERDICTION d'inclure les deux ensemble
+ *   - Fusion / réécriture des fonctions camelCase (gedAnalyzeDocument, gedBuildPrompt,
+ *     gedListQueue, etc.) prévue Phase 2/3 — pas de refacto pour l'instant.
+ *
+ * Ne PAS réintroduire ce fichier dans de nouveaux callers — utiliser inc/ged_functions.php.
+ *
+ * — Bloc historique conservé ci-dessous —
+ *
  * GED MaBoxImmo — Fonctions métier (rename de agent_functions.php)
- * Fichier : modules/ged/ged_functions.php
  *
  * Mêmes fonctions qu'agent_functions.php, table cible = ged_analyses (la table
  * agent_ged_analyses devient une VIEW de compat depuis 001_*.sql).
