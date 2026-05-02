@@ -141,6 +141,23 @@ try {
             api_respond(true, ['level' => $level, 'options' => $opts]);
             break;
 
+        case 'add_level':
+            // V2.5 : ajout à la volée d'un code N3/N4/N5 depuis la modal d'import (super admin only)
+            if ($method !== 'POST') throw new RuntimeException('POST requis');
+            $level = (int)($_POST['level'] ?? 0);
+            if ($level < 3 || $level > 5) throw new RuntimeException('level entre 3 et 5 (ajout à la volée)');
+            $parents = [
+                'n1' => (string)($_POST['n1'] ?? ''),
+                'n2' => (string)($_POST['n2'] ?? ''),
+                'n3' => (string)($_POST['n3'] ?? ''),
+                'n4' => (string)($_POST['n4'] ?? ''),
+            ];
+            $code  = (string)($_POST['code']  ?? '');
+            $label = isset($_POST['label']) ? (string)$_POST['label'] : null;
+            $row = ged_import_add_level_code($level, $parents, $code, $label);
+            api_respond(true, ['level' => $level, 'row' => $row]);
+            break;
+
         case 'update_item':
             if ($method !== 'POST') throw new RuntimeException('POST requis');
             $itemId = (int)($_POST['item_id'] ?? 0);

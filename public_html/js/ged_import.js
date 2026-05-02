@@ -242,7 +242,7 @@
       }
       const selectedKey = 'selected_n' + level;
       const sel = currentItem[selectedKey];
-      container.innerHTML = j.options.map(opt => {
+      const buttonsHtml = j.options.map(opt => {
         const isSel = (opt.code === sel) ? ' is-selected' : '';
         const isEntity = parseInt(opt.is_entity_placeholder || 0, 10) === 1;
         const entityCls = isEntity ? ' is-entity-placeholder' : '';
@@ -250,9 +250,67 @@
         const entityIcon = isEntity ? '<span class="gimp-cascade-entity-icon" title="À nommer (instance)">📝</span>' : '';
         return '<button type="button" class="gimp-cascade-btn' + isSel + entityCls + '" data-level="' + level + '" data-code="' + escapeHtml(opt.code) + '"' + entityAttr + '>' + escapeHtml(opt.label) + entityIcon + '</button>';
       }).join('');
+      // V2.5 : champ "+ Ajouter" en tête sur N3/N4/N5
+      const addHtml = (level >= 3 && level <= 5) ? renderAddLevelInput(level) : '';
+      container.innerHTML = addHtml + buttonsHtml;
     } catch (err) {
       container.innerHTML = '<div class="gimp-cascade-empty" style="color:#dc2626">Erreur : ' + escapeHtml(err.message) + '</div>';
     }
+  }
+
+  // V2.5 — champ "+ Ajouter" pour créer un code N3/N4/N5 à la volée
+  function renderAddLevelInput(level) {
+    const ph = level === 3 ? 'ex. DOSSIER_NEUF, FACTURE…'
+             : level === 4 ? 'ex. JURIDIQUE, FACTURES…'
+             : 'ex. ANNEE, DOSSIERS, MOIS…';
+    return ''
+      + '<form class="gimp-cascade-add" data-add-level="' + level + '" autocomplete="off">'
+      +   '<input type="text" class="gimp-cascade-add-input" data-add-input="' + level + '" '
+      +     'placeholder="' + ph + '" maxlength="80" spellcheck="false">'
+      +   '<button type="submit" class="gimp-cascade-add-btn" title="Ajouter ce niveau">+</button>'
+      + '</form>';
+  }
+
+  async function submitAddLevel(level, rawCode) {
+    if (!currentItem) return;
+    const code = (rawCode || '').trim();
+    if (code === '') return;
+    const parents = {
+      n1: currentItem.selected_n1 || '',
+      n2: currentItem.selected_n2 || '',
+      n3: currentItem.selected_n3 || '',
+      n4: currentItem.selected_n4 || '',
+    };
+    const required = ['n1','n2','n3','n4'][level - 2];
+    if (required && !parents[required]) {
+      alert('Choisis d\'abord N' + (level - 1) + ' avant d\'ajouter un N' + level);
+      return;
+    }
+    const fd = new FormData();
+    fd.append('action', 'add_level');
+    fd.append('level', String(level));
+    fd.append('n1', parents.n1);
+    fd.append('n2', parents.n2);
+    fd.append('n3', parents.n3);
+    fd.append('n4', parents.n4);
+    fd.append('code', code);
+    try {
+      const j = await api('add_level', { method: 'POST', formData: fd });
+      const newCode = (j.row && j.row.code) ? j.row.code : code;
+      // Auto-sélectionne le code fraîchement créé (déclenche le re-render des niveaux suivants)
+      await pickLevel(level, newCode, false);
+      // Petit toast de confirmation
+      flashOkLight('✓ N' + level + ' « ' + newCode + ' » ajouté');
+    } catch (err) {
+      alert('❌ Ajout N' + level + ' impossible : ' + err.message);
+    }
+  }
+  function flashOkLight(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#16a34a;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9999';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2200);
   }
 
   async function pickLevel(level, code, isEntity) {
@@ -661,6 +719,27 @@
         await pickLevel(parseInt(cb.dataset.level, 10), cb.dataset.code, isEntity);
         return;
       }
+      // V2.5 : bouton "+" du champ d'ajout de niveau N3/N4/N5
+      const addBtn = e.target.closest('.gimp-cascade-add-btn');
+      if (addBtn) {
+        e.preventDefault();
+        const form = addBtn.closest('.gimp-cascade-add');
+        if (!form) return;
+        const lvl = parseInt(form.dataset.addLevel, 10);
+        const input = form.querySelector('.gimp-cascade-add-input');
+        await submitAddLevel(lvl, input ? input.value : '');
+        return;
+      }
+    });
+
+    // V2.5 : Enter dans le champ "+ Ajouter" déclenche le submit (sans rechargement de page)
+    document.body.addEventListener('submit', async (e) => {
+      const f = e.target.closest('.gimp-cascade-add');
+      if (!f) return;
+      e.preventDefault();
+      const lvl = parseInt(f.dataset.addLevel, 10);
+      const input = f.querySelector('.gimp-cascade-add-input');
+      await submitAddLevel(lvl, input ? input.value : '');
     });
 
     const closeBtn = $('#gimp-modal-close');

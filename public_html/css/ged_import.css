@@ -452,3 +452,61 @@
   transform: translateY(20px);
   opacity: 0;
 }
+
+/* ─── V2.5 — Champ "+ Ajouter" pour créer un niveau N3/N4/N5 à la volée ───
+   Affiché en tête de chaque ligne de cascade N3/N4/N5 dans la modal d'import.
+   Visuel vert pour signifier "ajout possible ici". Saisie → submit → INSERT
+   ged_level_codes → auto-sélection du nouveau code.
+   ─────────────────────────────────────────────────────────────────────── */
+.gimp-cascade-add {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  margin-right: 8px;
+  margin-bottom: 4px;
+  border: 1.5px dashed #16a34a;
+  border-radius: 999px;
+  background: #f0fdf4;
+  overflow: hidden;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+  vertical-align: middle;
+}
+.gimp-cascade-add:hover,
+.gimp-cascade-add:focus-within {
+  border-color: #15803d;
+  border-style: solid;
+  background: #dcfce7;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, .15);
+}
+.gimp-cascade-add-input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: #14532d;
+  min-width: 180px;
+  width: 200px;
+}
+.gimp-cascade-add-input::placeholder {
+  color: #86efac;
+  font-style: italic;
+}
+.gimp-cascade-add-btn {
+  border: 0;
+  background: #16a34a;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.gimp-cascade-add-btn:hover {
+  background: #15803d;
+}
+.gimp-cascade-add-btn:active {
+  background: #14532d;
+}

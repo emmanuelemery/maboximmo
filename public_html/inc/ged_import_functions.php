@@ -495,6 +495,116 @@ function ged_import_get_levels_for(int $levelNumber, array $parents = []): array
 }
 
 /**
+ * V2.5 — Ajoute un nouveau code de niveau (N3/N4/N5) à la volée depuis la modal d'import.
+ *
+ * Sécurité : appelable uniquement par super admin (vérifié côté API).
+ * Idempotent : si le code existe déjà pour ce path, on renvoie la ligne existante (UNIQUE KEY).
+ *
+ * @param int $levelNumber 3, 4 ou 5
+ * @param array $parents ['n1'=>..., 'n2'=>..., 'n3'=>..., 'n4'=>...]
+ * @param string $code Code raw (sera normalisé MAJUSCULES_AVEC_UNDERSCORES)
+ * @param string|null $label Libellé humain (si null = code humanisé)
+ * @return array Ligne créée ou existante : [code, label, position, is_entity_placeholder]
+ */
+function ged_import_add_level_code(int $levelNumber, array $parents, string $code, ?string $label = null): array
+{
+    if ($levelNumber < 3 || $levelNumber > 5) {
+        throw new RuntimeException('Niveau invalide (3-5 uniquement pour ajout à la volée)');
+    }
+
+    // Normalisation : MAJUSCULES, accents retirés, alphanum + underscore uniquement
+    $codeNorm = $code;
+    $codeNorm = trim($codeNorm);
+    if ($codeNorm === '') throw new RuntimeException('Code vide');
+    if (function_exists('iconv')) {
+        $tr = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $codeNorm);
+        if ($tr !== false) $codeNorm = $tr;
+    }
+    $codeNorm = preg_replace('/[^A-Za-z0-9]+/', '_', $codeNorm);
+    $codeNorm = trim($codeNorm, '_');
+    $codeNorm = strtoupper($codeNorm);
+    if (strlen($codeNorm) === 0)  throw new RuntimeException('Code invalide après normalisation');
+    if (strlen($codeNorm) > 80)   throw new RuntimeException('Code trop long (max 80 caractères)');
+
+    // Vérification des parents requis pour ce niveau
+    $required = ['n1', 'n2', 'n3', 'n4']; // pour level 3 : n1+n2 ; level 4 : n1+n2+n3 ; level 5 : n1..n4
+    $needed = array_slice($required, 0, $levelNumber - 1);
+    foreach ($needed as $key) {
+        if (empty($parents[$key])) {
+            throw new RuntimeException("Parent {$key} requis pour niveau {$levelNumber}");
+        }
+    }
+
+    $labelClean = $label !== null ? trim($label) : '';
+    if ($labelClean === '') {
+        // Humanise : DOSSIER_TRAVAUX → "Dossier travaux"
+        $labelClean = ucfirst(strtolower(str_replace('_', ' ', $codeNorm)));
+    }
+    if (strlen($labelClean) > 180) $labelClean = substr($labelClean, 0, 180);
+
+    $pdo = ged_import_pdo();
+
+    // Calcul de la prochaine position (max + 1)
+    $whereParts = ['level_number = ?'];
+    $whereParams = [$levelNumber];
+    foreach (['n1', 'n2', 'n3', 'n4'] as $i => $key) {
+        if ($levelNumber > $i + 1) {
+            $whereParts[] = "parent_{$key} = ?";
+            $whereParams[] = $parents[$key];
+        }
+    }
+    $whereSql = implode(' AND ', $whereParts);
+    $stMax = $pdo->prepare("SELECT COALESCE(MAX(position), 0) + 1 FROM ged_level_codes WHERE {$whereSql}");
+    $stMax->execute($whereParams);
+    $position = (int)$stMax->fetchColumn();
+
+    // INSERT IGNORE (UNIQUE KEY assure l'idempotence)
+    $stIns = $pdo->prepare("
+        INSERT IGNORE INTO ged_level_codes
+            (tenant_id, level_number, parent_n1, parent_n2, parent_n3, parent_n4, code, label, position, is_active)
+        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    ");
+    $stIns->execute([
+        $levelNumber,
+        $parents['n1'] ?? null,
+        $parents['n2'] ?? null,
+        $parents['n3'] ?? null,
+        $parents['n4'] ?? null,
+        $codeNorm,
+        $labelClean,
+        $position,
+    ]);
+
+    // Récupère la ligne (créée ou pré-existante)
+    $whereParts2 = $whereParts;
+    $whereParams2 = $whereParams;
+    $whereParts2[] = 'code = ?';
+    $whereParams2[] = $codeNorm;
+    $whereSql2 = implode(' AND ', $whereParts2);
+    try {
+        $stGet = $pdo->prepare("SELECT code, label, position, is_entity_placeholder FROM ged_level_codes WHERE {$whereSql2} LIMIT 1");
+        $stGet->execute($whereParams2);
+        $row = $stGet->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable) {
+        $stGet = $pdo->prepare("SELECT code, label, position FROM ged_level_codes WHERE {$whereSql2} LIMIT 1");
+        $stGet->execute($whereParams2);
+        $row = $stGet->fetch(PDO::FETCH_ASSOC);
+    }
+    if (!$row) throw new RuntimeException('Insertion échouée');
+
+    if (function_exists('ged_audit')) {
+        ged_audit('import_add_level_code', 'ged_level_codes', null, null, [
+            'level_number' => $levelNumber,
+            'parents' => $parents,
+            'code' => $codeNorm,
+            'label' => $labelClean,
+        ]);
+    }
+
+    return $row;
+}
+
+/**
  * Liste les items d'un batch, avec filtres optionnels.
  */
 function ged_import_list_items(int $batchId, array $filters = []): array
