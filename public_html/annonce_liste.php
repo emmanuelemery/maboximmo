@@ -120,8 +120,13 @@ $sql = "
         ag.nom_agence,
         s.nom                   AS societe_nom,
         CONCAT(u.prenom, ' ', u.nom) AS commercial_nom,
-        (SELECT COUNT(*) FROM biens_photos bp WHERE bp.id_bien = b.id) AS nb_photos,
-        (SELECT bp.url_photo FROM biens_photos bp WHERE bp.id_bien = b.id ORDER BY bp.ordre ASC, bp.id ASC LIMIT 1) AS photo_url
+        (SELECT COUNT(*) FROM annonces_photos ap WHERE ap.id_annonce = a.id) AS nb_photos,
+        (SELECT bp.url_photo
+           FROM annonces_photos ap
+           JOIN biens_photos    bp ON bp.id = ap.id_biens_photo
+          WHERE ap.id_annonce = a.id
+          ORDER BY ap.ordre ASC, ap.id ASC
+          LIMIT 1) AS photo_url
     FROM annonces a
     JOIN biens b        ON b.id  = a.id_bien
     LEFT JOIN immeubles i ON i.id = b.id_immeuble
