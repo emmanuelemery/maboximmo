@@ -197,71 +197,11 @@ require_once __DIR__ . '/inc/header.php';
         </div>
       <?php endfor; ?>
 
-      <!-- N6 libre + autocomplete -->
+      <!-- N6 libre -->
       <div class="gimp-cascade">
-        <div class="gimp-cascade-title">Niveau N6 (libre, suggestions IA)</div>
+        <div class="gimp-cascade-title">Niveau N6 (libre)</div>
         <div class="gimp-cascade-n6">
-          <div class="gimp-n6-wrap">
-            <input type="text" id="gimp-input-n6" autocomplete="off"
-                   placeholder="ex. PV_SIGNE, DEVIS_PORTAIL, FACTURE_ASCENSEUR…">
-            <div id="gimp-n6-suggestions" class="gimp-n6-suggestions" style="display:none"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ─── Phase 2 V2 : Scores granulaires + raisons + doublons + validation ─── -->
-
-      <!-- Score global -->
-      <div class="gimp-score-global-block" id="gimp-score-global-wrap" style="display:none">
-        <div class="gimp-score-global-circle" id="gimp-score-global-circle">—</div>
-        <div class="gimp-score-global-text">
-          <strong id="gimp-score-global-label">Score global</strong>
-          <small id="gimp-score-global-help">Plus le score est élevé, plus la classification est fiable.</small>
-        </div>
-      </div>
-
-      <!-- 5 scores granulaires -->
-      <div class="gimp-scores-grid" id="gimp-scores-grid" style="display:none">
-        <?php foreach (['type'=>'Type', 'entity'=>'Entité', 'date'=>'Date', 'structure'=>'Structure', 'destination'=>'Destination'] as $k => $lbl): ?>
-          <div class="gimp-score-cell" data-score-key="<?= $h($k) ?>">
-            <div class="gimp-score-cell-label"><?= $h($lbl) ?></div>
-            <div class="gimp-score-cell-bar">
-              <div class="gimp-score-cell-bar-fill" data-bar-fill style="width:0%"></div>
-            </div>
-            <div class="gimp-score-cell-value" data-score-val>0</div>
-          </div>
-        <?php endforeach; ?>
-      </div>
-
-      <!-- Raisons à revoir (cumulables, JSON) -->
-      <div class="gimp-review-block" id="gimp-review-block" style="display:none">
-        <div class="gimp-review-block-title">⚠️ Pourquoi ce document est à revoir</div>
-        <div class="gimp-review-reasons" id="gimp-review-reasons"></div>
-      </div>
-
-      <!-- Doublons potentiels (find_duplicates_smart) -->
-      <div class="gimp-dupes-block" id="gimp-dupes-block" style="display:none">
-        <div class="gimp-dupes-title" id="gimp-dupes-title">Vérification doublons…</div>
-        <div id="gimp-dupes-content"></div>
-      </div>
-
-      <!-- Validation par champ (avec bouton global "Tout valider") -->
-      <div class="gimp-validate-block">
-        <div class="gimp-validate-title">
-          ✅ Validation par champ
-          <button type="button" id="gimp-validate-toggle-all" class="gimp-validate-toggle-all">✓ Tout valider</button>
-        </div>
-        <div class="gimp-validate-grid">
-          <?php foreach ([
-              'n1'=>'N1 (module)', 'n2'=>'N2 (rubrique)',
-              'entity'=>'Entité métier', 'date'=>'Date document',
-              'title'=>'Titre humain', 'destination'=>'Destination GED'
-          ] as $k => $lbl): ?>
-            <label class="gimp-validate-checkbox" data-validate-field="<?= $h($k) ?>">
-              <input type="checkbox" data-validate-input="<?= $h($k) ?>">
-              <span><?= $h($lbl) ?></span>
-            </label>
-          <?php endforeach; ?>
+          <input type="text" id="gimp-input-n6" placeholder="ex. PV_SIGNE, DEVIS_PORTAIL, FACTURE_ASCENSEUR…">
         </div>
       </div>
 

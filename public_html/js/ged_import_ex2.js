@@ -6,7 +6,6 @@
   'use strict';
 
   const API = '/api/ged_import_admin.php';
-  const API_V2 = '/api/ged_naming.php'; // Phase 2 : moteur intelligent V2
   const $   = (sel, root) => (root || document).querySelector(sel);
   const $$  = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
@@ -37,8 +36,7 @@
   }
   async function api(action, opts) {
     opts = opts || {};
-    const baseUrl = opts.baseUrl || API;
-    const url = baseUrl + (opts.method === 'POST' ? '' : '?action=' + encodeURIComponent(action) + (opts.qs || ''));
+    const url = API + (opts.method === 'POST' ? '' : '?action=' + encodeURIComponent(action) + (opts.qs || ''));
     const init = {
       method: opts.method || 'GET',
       credentials: 'same-origin',
@@ -57,7 +55,6 @@
     if (!j.ok) throw new Error(j.error || 'Erreur API');
     return j;
   }
-  function apiV2(action, opts) { return api(action, Object.assign({}, opts, { baseUrl: API_V2 })); }
 
   // ── Upload ─────────────────────────────────────────────────────
   async function handleUpload(evt) {
@@ -184,14 +181,8 @@
     $('#gimp-input-date').value      = '';
     $('#gimp-input-n6').value        = item.selected_n6 || '';
 
-    // Reset des checkboxes de validation par champ
-    resetValidateChecks();
-
     // Cascade : charge N1 (toujours), puis N2 si N1 défini, etc.
     await renderCascade();
-
-    // Phase 2 V2 : check doublons en parallèle (non bloquant)
-    checkDuplicates();
 
     $('#gimp-modal-bg').classList.add('is-open');
   }
@@ -303,226 +294,6 @@
     $('#gimp-destination-preview').textContent = ['n1','n2','n3','n4','n5','n6'].map(n =>
       currentItem['selected_' + n] ? seg(currentItem['selected_' + n]).toLowerCase() : null
     ).filter(Boolean).join('/');
-
-    // Phase 2 V2 : appel async pour scores granulaires + raisons
-    refreshScoresAndReasons();
-  }
-
-  // ─── Phase 2 V2 : scores granulaires + raisons + doublons ──────────
-  let _scoresTimer = null;
-  function refreshScoresAndReasons() {
-    if (!currentItem) return;
-    clearTimeout(_scoresTimer);
-    _scoresTimer = setTimeout(async () => {
-      try {
-        // Save d'abord pour persister + recompute côté serveur (autorité)
-        const fd = new FormData();
-        fd.append('action', 'recompute_item_scores');
-        fd.append('item_id', currentItem.id);
-        const j = await apiV2('recompute_item_scores', { method: 'POST', formData: fd });
-        renderScoresGrid(j.scores || {});
-        renderReviewReasons(j.needs_review_reason || []);
-      } catch (err) {
-        console.error('refreshScores KO:', err.message);
-      }
-    }, 350);
-  }
-
-  function renderScoresGrid(scores) {
-    const wrap = $('#gimp-scores-grid');
-    if (!wrap) return;
-    wrap.style.display = '';
-    const map = {
-      type:        scores.score_type || 0,
-      entity:      scores.score_entity || 0,
-      date:        scores.score_date || 0,
-      structure:   scores.score_structure || 0,
-      destination: scores.score_destination || 0,
-    };
-    Object.entries(map).forEach(([k, v]) => {
-      const cell = wrap.querySelector('[data-score-key="' + k + '"]');
-      if (!cell) return;
-      const fill = cell.querySelector('[data-bar-fill]');
-      const valEl = cell.querySelector('[data-score-val]');
-      const cls = scoreFillClass(v);
-      if (fill) {
-        fill.className = 'gimp-score-cell-bar-fill ' + cls;
-        fill.style.width = Math.min(100, Math.max(0, v)) + '%';
-      }
-      if (valEl) valEl.textContent = v;
-    });
-
-    // Score global
-    const sg = scores.score_global || 0;
-    const wrapGlobal = $('#gimp-score-global-wrap');
-    const circle = $('#gimp-score-global-circle');
-    const help = $('#gimp-score-global-help');
-    if (wrapGlobal) {
-      wrapGlobal.style.display = '';
-      const cls = sg >= 100 ? 'full' : sg >= 80 ? 'high' : sg >= 50 ? 'medium' : 'low';
-      circle.className = 'gimp-score-global-circle ' + cls;
-      circle.textContent = sg;
-      help.textContent = sg >= 90
-        ? '🟢 Validation auto possible (score ≥ 90)'
-        : sg >= 70
-          ? '🟡 Validation recommandée (score 70-90)'
-          : '🔴 À REVOIR — vérifie les champs en orange';
-    }
-  }
-  function scoreFillClass(v) {
-    if (v >= 100) return 'gimp-score-fill-full';
-    if (v >= 80)  return 'gimp-score-fill-high';
-    if (v >= 50)  return 'gimp-score-fill-medium';
-    return 'gimp-score-fill-low';
-  }
-
-  function renderReviewReasons(reasons) {
-    const block = $('#gimp-review-block');
-    const list = $('#gimp-review-reasons');
-    if (!block || !list) return;
-    if (!reasons || reasons.length === 0) {
-      block.style.display = 'none';
-      return;
-    }
-    block.style.display = '';
-    const labels = {
-      low_confidence:  '🔴 Confiance faible',
-      missing_entity:  '⚠️ Entité manquante',
-      unknown_date:    '📅 Date inconnue/estimée',
-      ambiguous_type:  '❓ Type ambigu (N1/N2)',
-      duplicate:       '🔁 Doublon potentiel',
-      manual_flag:     '🚩 Marqué à revoir manuellement',
-    };
-    list.innerHTML = reasons.map(r => {
-      const label = labels[r] || r;
-      const isBad = (r === 'low_confidence' || r === 'duplicate');
-      return '<span class="gimp-review-reason' + (isBad ? ' bad' : '') + '">' + escapeHtml(label) + '</span>';
-    }).join('');
-  }
-
-  async function checkDuplicates() {
-    if (!currentItem) return;
-    const block = $('#gimp-dupes-block');
-    const title = $('#gimp-dupes-title');
-    const content = $('#gimp-dupes-content');
-    if (!block) return;
-    block.style.display = '';
-    block.className = 'gimp-dupes-block risk-none';
-    title.textContent = '🔍 Vérification doublons en cours…';
-    content.innerHTML = '';
-    try {
-      const j = await apiV2('find_duplicates_smart', { qs: '&item_id=' + currentItem.id });
-      block.className = 'gimp-dupes-block risk-' + (j.risk || 'none');
-      const counts = {
-        hash:    (j.hash_matches || []).length,
-        similar: (j.similar || []).length,
-      };
-      if (j.risk === 'high') {
-        title.textContent = '🚨 ' + counts.hash + ' DOUBLON(S) EXACT(S) (hash identique)';
-        content.innerHTML = '<ul class="gimp-dupes-list">' + (j.hash_matches || []).map(d =>
-          '<li><strong>' + escapeHtml(d.name_display || '#' + d.id) + '</strong> · <code>' + escapeHtml(d.name_canonical || '') + '</code></li>'
-        ).join('') + '</ul>';
-      } else if (j.risk === 'medium') {
-        title.textContent = '⚠️ ' + counts.similar + ' document(s) similaire(s) (même taille + MIME + entité ± date)';
-        content.innerHTML = '<ul class="gimp-dupes-list">' + (j.similar || []).map(d =>
-          '<li>' + escapeHtml(d.name_display || '#' + d.id) + ' <small>(' + escapeHtml(d.entity_type || '') + ' #' + d.entity_id + ')</small></li>'
-        ).join('') + '</ul>';
-      } else if (j.risk === 'low') {
-        title.textContent = '✓ Aucun doublon détecté (vérification basique : taille uniquement)';
-      } else {
-        title.textContent = '✓ Aucun doublon détecté';
-      }
-    } catch (err) {
-      block.className = 'gimp-dupes-block risk-medium';
-      title.textContent = '⚠️ Vérification doublons impossible : ' + err.message;
-    }
-  }
-
-  // ─── Autocomplete N6 ───────────────────────────────────────────
-  let _n6Timer = null;
-  function bindN6Autocomplete() {
-    const input = $('#gimp-input-n6');
-    const sugg  = $('#gimp-n6-suggestions');
-    if (!input || !sugg) return;
-
-    input.addEventListener('input', () => {
-      const q = input.value.trim();
-      clearTimeout(_n6Timer);
-      if (q.length < 2) { sugg.style.display = 'none'; return; }
-      _n6Timer = setTimeout(async () => {
-        try {
-          const n1 = currentItem && currentItem.selected_n1 ? currentItem.selected_n1 : '';
-          const j = await apiV2('n6_autocomplete', {
-            qs: '&q=' + encodeURIComponent(q) + '&n1=' + encodeURIComponent(n1) + '&limit=10'
-          });
-          const list = j.suggestions || [];
-          if (!list.length) { sugg.style.display = 'none'; return; }
-          sugg.innerHTML = list.map(s =>
-            '<div class="gimp-n6-suggestion" data-code="' + escapeHtml(s.code) + '">'
-              + '<span>' + escapeHtml(s.label || s.code) + '</span>'
-              + '<span class="gimp-n6-source gimp-n6-source-' + escapeHtml(s.source || 'history') + '">'
-              + escapeHtml(s.source || '') + '</span>'
-            + '</div>'
-          ).join('');
-          sugg.style.display = '';
-        } catch (err) { sugg.style.display = 'none'; }
-      }, 220);
-    });
-
-    sugg.addEventListener('click', (e) => {
-      const item = e.target.closest('.gimp-n6-suggestion');
-      if (!item) return;
-      input.value = item.dataset.code || '';
-      sugg.style.display = 'none';
-      // Déclenche le pickN6 (recalcul canonical + scores)
-      pickN6(input.value);
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.gimp-n6-wrap')) sugg.style.display = 'none';
-    });
-  }
-
-  // ─── Validation par champ + bouton "Tout valider" ──────────────
-  function bindValidateField() {
-    const checks = $$('.gimp-validate-checkbox input[data-validate-input]');
-    const toggle = $('#gimp-validate-toggle-all');
-
-    checks.forEach(cb => {
-      cb.addEventListener('change', () => {
-        const lbl = cb.closest('.gimp-validate-checkbox');
-        if (lbl) lbl.classList.toggle('is-checked', cb.checked);
-        updateToggleAllState();
-      });
-    });
-
-    if (toggle) {
-      toggle.addEventListener('click', () => {
-        const allChecked = checks.every(cb => cb.checked);
-        const newState = !allChecked;
-        checks.forEach(cb => {
-          cb.checked = newState;
-          const lbl = cb.closest('.gimp-validate-checkbox');
-          if (lbl) lbl.classList.toggle('is-checked', newState);
-        });
-        updateToggleAllState();
-      });
-    }
-  }
-  function updateToggleAllState() {
-    const checks = $$('.gimp-validate-checkbox input[data-validate-input]');
-    const toggle = $('#gimp-validate-toggle-all');
-    if (!toggle) return;
-    const allChecked = checks.length > 0 && checks.every(cb => cb.checked);
-    toggle.classList.toggle('is-all-checked', allChecked);
-    toggle.textContent = allChecked ? '✓ Tout validé' : '✓ Tout valider';
-  }
-  function resetValidateChecks() {
-    $$('.gimp-validate-checkbox input[data-validate-input]').forEach(cb => {
-      cb.checked = false;
-      cb.closest('.gimp-validate-checkbox')?.classList.remove('is-checked');
-    });
-    updateToggleAllState();
   }
 
   async function saveItem(closeAfter) {
@@ -648,9 +419,5 @@
       $('#' + id)?.addEventListener('input', updateCanonicalPreview);
     });
     $('#gimp-input-n6')?.addEventListener('input', (e) => pickN6(e.target.value));
-
-    // Phase 2 V2 : autocomplete N6 + validation par champ
-    bindN6Autocomplete();
-    bindValidateField();
   });
 })();
