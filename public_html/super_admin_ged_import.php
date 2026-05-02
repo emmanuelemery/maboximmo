@@ -80,6 +80,12 @@ require_once __DIR__ . '/inc/header.php';
           <button type="submit" class="gimp-btn gimp-btn-primary">📤 Importer</button>
         </div>
       </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:14px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#475569">
+          <input type="checkbox" id="gimp-mode-quick" style="cursor:pointer">
+          <span>⚡ <strong>Mode rapide</strong> — TITLE/N6 optionnels, validation possible avec N1+N2+entité</span>
+        </label>
+      </div>
     </form>
   </div>
 
@@ -127,6 +133,13 @@ require_once __DIR__ . '/inc/header.php';
         <option value="100">= 100</option>
         <option value="80">≥ 80</option>
         <option value="50">≥ 50</option>
+      </select>
+
+      <select id="gimp-filter-mode" title="Filtre Mode (rapide / normalisé / à revoir)">
+        <option value="">— Tous modes —</option>
+        <option value="quick">⚡ Quick (rapide)</option>
+        <option value="normalized">📝 Normalisé</option>
+        <option value="to_review">⚠️ À revoir</option>
       </select>
 
       <input type="text" id="gimp-filter-ext" placeholder="Ext (pdf, jpg…)" style="width:90px">
@@ -314,6 +327,9 @@ require_once __DIR__ . '/inc/header.php';
       <span style="flex:1"></span>
       <button type="button" id="gimp-save-btn" class="gimp-btn gimp-btn-ghost">💾 Sauvegarder</button>
       <button type="button" id="gimp-save-next-btn" class="gimp-btn gimp-btn-primary">💾 Sauver &amp; fermer</button>
+      <button type="button" id="gimp-validate-quick-btn" class="gimp-btn"
+              style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;display:none"
+              title="Valide même si TITLE/N6 incomplets — nécessite N1+N2+entité validés">⚡ Valider rapidement</button>
       <button type="button" id="gimp-validate-btn" class="gimp-btn gimp-btn-success">✓ Valider et créer doc</button>
     </div>
   </div>

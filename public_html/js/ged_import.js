@@ -78,6 +78,9 @@
     const fd = new FormData();
     fd.append('batch_name', batchName);
     fd.append('source_type', folderInput && folderInput.files.length > 0 ? 'upload_folder' : 'upload_files');
+    // Phase 3 : mode quick si toggle coché
+    const modeQuick = $('#gimp-mode-quick');
+    fd.append('default_mode', (modeQuick && modeQuick.checked) ? 'quick' : 'normalized');
     files.forEach((f, i) => {
       fd.append('files[]', f, f.name);
       // webkitRelativePath = chemin si upload dossier
@@ -104,6 +107,7 @@
       min_score: $('#gimp-filter-score')?.value || '',
       ext:       $('#gimp-filter-ext')?.value || '',
       search:    $('#gimp-filter-search')?.value || '',
+      mode:      $('#gimp-filter-mode')?.value || '',
     };
     const qs = '&batch_id=' + currentBatchId + '&' + new URLSearchParams(filters).toString();
     const j = await api('list_items', { qs: qs });
@@ -131,11 +135,13 @@
     }
     const rows = items.map(it => {
       const sc = parseInt(it.confidence_score || 0, 10);
+      const isQuick = (it.mode === 'quick' || it.status === 'classified_quick');
+      const quickBadge = isQuick ? '<span style="background:#f59e0b;color:#fff;padding:1px 7px;border-radius:99px;font-size:9px;font-weight:700;margin-left:4px" title="Mode rapide">⚡ QUICK</span>' : '';
       return `
         <tr class="gimp-row gimp-row-${escapeHtml(it.status)}" data-id="${it.id}">
           <td><input type="checkbox" class="gimp-row-check" data-id="${it.id}"></td>
           <td class="gimp-cell-name">
-            <strong>${escapeHtml(it.title_user || it.old_filename)}</strong>
+            <strong>${escapeHtml(it.title_user || it.old_filename)}${quickBadge}</strong>
             <code>${escapeHtml(it.old_folder_path || '')}/${escapeHtml(it.old_filename)}</code>
           </td>
           <td>${badgeLvl(it.selected_n1, 1)}</td>
@@ -516,6 +522,18 @@
     const allChecked = checks.length > 0 && checks.every(cb => cb.checked);
     toggle.classList.toggle('is-all-checked', allChecked);
     toggle.textContent = allChecked ? '✓ Tout validé' : '✓ Tout valider';
+    // Gate du bouton "⚡ Valider rapidement" : visible si N1 + N2 + entité validés
+    updateValidateQuickGate();
+  }
+  function updateValidateQuickGate() {
+    const btn = $('#gimp-validate-quick-btn');
+    if (!btn) return;
+    const need = ['n1', 'n2', 'entity'];
+    const ok = need.every(field => {
+      const cb = document.querySelector('.gimp-validate-checkbox input[data-validate-input="' + field + '"]');
+      return cb && cb.checked;
+    });
+    btn.style.display = ok ? '' : 'none';
   }
   function resetValidateChecks() {
     $$('.gimp-validate-checkbox input[data-validate-input]').forEach(cb => {
@@ -626,6 +644,26 @@
       validateItem(currentItem.id);
       closeModal();
     });
+    $('#gimp-validate-quick-btn')?.addEventListener('click', async () => {
+      if (!currentItem) return;
+      if (!confirm('Validation rapide : créer le document avec mode=quick ?\n\n• name_file = uuid.ext (pas renommage physique)\n• name_canonical généré en arrière-plan\n• Statut = classified_quick (différent de validated)\n\nNécessite N1 + N2 + entité validés (gate UI déjà OK).')) return;
+      try {
+        const fd = new FormData();
+        fd.append('action', 'validate_quick');
+        fd.append('item_id', currentItem.id);
+        const j = await api('validate_quick', { method: 'POST', formData: fd });
+        flashOkLight('⚡ Validé rapide → doc #' + j.document_id);
+        closeModal();
+        await reloadItems();
+      } catch (err) { alert('❌ ' + err.message); }
+    });
+    function flashOkLight(msg) {
+      const t = document.createElement('div');
+      t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#f59e0b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9999';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 2200);
+    }
     $('#gimp-ignore-btn')?.addEventListener('click',   () => {
       if (!currentItem) return;
       ignoreItem(currentItem.id);
@@ -634,7 +672,7 @@
     $('#gimp-validate-all-btn')?.addEventListener('click', validateAllAuto);
 
     // Filtres tableau
-    ['gimp-filter-status', 'gimp-filter-n1', 'gimp-filter-score', 'gimp-filter-ext'].forEach(id => {
+    ['gimp-filter-status', 'gimp-filter-n1', 'gimp-filter-score', 'gimp-filter-ext', 'gimp-filter-mode'].forEach(id => {
       $('#' + id)?.addEventListener('change', reloadItems);
     });
     $('#gimp-filter-search')?.addEventListener('input', () => {

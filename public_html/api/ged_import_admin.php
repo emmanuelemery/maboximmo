@@ -49,8 +49,15 @@ try {
             $batchName = trim((string)($_POST['batch_name'] ?? ''));
             if ($batchName === '') $batchName = 'Import ' . date('Y-m-d H:i');
             $sourceType = (string)($_POST['source_type'] ?? 'upload_files');
+            $defaultMode = (string)($_POST['default_mode'] ?? 'normalized');
+            if (!in_array($defaultMode, ['normalized', 'quick'], true)) $defaultMode = 'normalized';
 
             $batchId = ged_import_create_batch($batchName, $sourceType);
+            // Persiste le default_mode du batch (rétrocompat : col existe seulement après v2_20)
+            try {
+                ged_import_pdo()->prepare("UPDATE ged_import_batches SET default_mode = ? WHERE id = ?")
+                    ->execute([$defaultMode, $batchId]);
+            } catch (Throwable) { /* col absente, on ignore */ }
             $batch = ged_import_get_batch($batchId);
             $storageDir = dirname(__DIR__) . '/uploads/ged_import/' . $batch['uuid'];
 
@@ -82,6 +89,13 @@ try {
                     }
                     try {
                         $itemId = ged_import_add_item($batchId, $fileEntry, $relPath, $storageDir);
+                        // Propage le mode du batch sur chaque item créé (best-effort)
+                        if ($defaultMode === 'quick') {
+                            try {
+                                ged_import_pdo()->prepare("UPDATE ged_import_items SET mode = 'quick' WHERE id = ?")
+                                    ->execute([$itemId]);
+                            } catch (Throwable) {}
+                        }
                         $created[] = $itemId;
                     } catch (Throwable $e) {
                         $errors[] = ['name' => $files['name'][$i], 'error' => $e->getMessage()];
@@ -90,10 +104,11 @@ try {
             }
 
             api_respond(true, [
-                'batch_id'   => $batchId,
-                'batch_uuid' => $batch['uuid'],
-                'created'    => $created,
-                'errors'     => $errors,
+                'batch_id'     => $batchId,
+                'batch_uuid'   => $batch['uuid'],
+                'default_mode' => $defaultMode,
+                'created'      => $created,
+                'errors'       => $errors,
             ]);
             break;
 
@@ -106,6 +121,7 @@ try {
                 'min_score' => (string)($_GET['min_score'] ?? ''),
                 'ext'       => (string)($_GET['ext']       ?? ''),
                 'search'    => (string)($_GET['search']    ?? ''),
+                'mode'      => (string)($_GET['mode']      ?? ''),
             ];
             $items = ged_import_list_items($batchId, $filters);
             $batch = ged_import_get_batch($batchId);
@@ -150,6 +166,16 @@ try {
             if ($itemId <= 0) throw new RuntimeException('item_id requis');
             $docId = ged_import_validate_item($itemId);
             api_respond(true, ['document_id' => $docId]);
+            break;
+
+        case 'validate_quick':
+            // Validation rapide : ne demande que N1+N2+entité ; le reste est optionnel.
+            // Crée le document avec mode='quick' et name_file=uuid.ext (pas de renommage physique).
+            if ($method !== 'POST') throw new RuntimeException('POST requis');
+            $itemId = (int)($_POST['item_id'] ?? 0);
+            if ($itemId <= 0) throw new RuntimeException('item_id requis');
+            $docId = ged_import_validate_item_quick($itemId);
+            api_respond(true, ['document_id' => $docId, 'mode' => 'quick']);
             break;
 
         case 'validate_bulk':

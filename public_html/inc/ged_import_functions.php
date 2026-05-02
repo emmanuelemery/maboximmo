@@ -357,6 +357,99 @@ function ged_import_validate_item(int $itemId): int
     return $docId;
 }
 
+/**
+ * Validation rapide ("mode quick") :
+ *   - Conditions minimales : validated_n1 + validated_n2 + validated_entity = 1
+ *     (vérifié dans l'API avant appel)
+ *   - Crée le ged_documents avec :
+ *       • mode = 'quick'
+ *       • name_file = uuid.ext (pas de renommage physique)
+ *       • name_canonical généré en arrière-plan
+ *       • status_doc = 'active'
+ *   - Marque l'import_item : status = 'classified_quick', mode = 'quick'
+ *
+ * @return int document_id créé
+ */
+function ged_import_validate_item_quick(int $itemId): int
+{
+    $pdo = ged_import_pdo();
+    $st = $pdo->prepare("SELECT * FROM ged_import_items WHERE id = ?");
+    $st->execute([$itemId]);
+    $item = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$item) throw new RuntimeException("Item {$itemId} introuvable");
+
+    // Garde-fou : N1 + N2 obligatoires (entité optionnelle si pas applicable)
+    if (empty($item['selected_n1']) || empty($item['selected_n2'])) {
+        throw new RuntimeException('Validation rapide : N1 + N2 requis');
+    }
+
+    $uuid = ged_generate_uuid();
+    $ext  = (string)($item['file_extension'] ?? '');
+    $nameFile = $uuid . ($ext !== '' ? ('.' . $ext) : '');
+
+    // Génère name_canonical en arrière-plan (pour traçabilité, mais le fichier
+    // physique reste en uuid.ext sur le storage).
+    $canonical = (string)($item['name_canonical'] ?? '');
+    if ($canonical === '') {
+        $canonical = ged_import_normalize_segment(pathinfo($item['old_filename'], PATHINFO_FILENAME));
+    }
+
+    // Titre humain : utilise title_user si rempli, sinon old_filename
+    $nameDisplay = trim((string)($item['title_user'] ?? '')) ?: (string)($item['old_filename'] ?? 'Document');
+
+    $metadata = [
+        'old_filename'    => $item['old_filename'],
+        'old_folder_path' => $item['old_folder_path'],
+        'import_batch_id' => $item['batch_id'],
+        'import_item_id'  => $item['id'],
+        'import_mode'     => 'quick',
+        'selected_levels' => [
+            'n1' => $item['selected_n1'],
+            'n2' => $item['selected_n2'],
+            'n3' => $item['selected_n3'],
+            'n4' => $item['selected_n4'],
+            'n5' => $item['selected_n5'],
+            'n6' => $item['selected_n6'],
+        ],
+        'proposed_destination' => $item['proposed_destination'],
+    ];
+
+    $pdo->prepare("
+        INSERT INTO ged_documents
+            (uuid, tenant_id, name_display, name_canonical, name_file,
+             document_type, source_module, storage_provider, mime_type, size_bytes, hash_sha256,
+             metadata, security_level, status, version,
+             confidence_score, mode, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'local', ?, ?, ?, ?, 'interne', 'active', 1, ?, 'quick', ?, ?)
+    ")->execute([
+        $uuid, $item['tenant_id'],
+        $nameDisplay, $canonical, $nameFile,
+        $item['selected_n6'] ?: $item['selected_n4'] ?: $item['selected_n2'],
+        $item['selected_n1'],
+        $item['mime_type'], $item['size_bytes'], $item['hash_sha256'],
+        json_encode($metadata, JSON_UNESCAPED_UNICODE),
+        (int)($item['confidence_score'] ?? 0),
+        ged_current_user_id(), ged_current_user_id(),
+    ]);
+    $docId = (int)$pdo->lastInsertId();
+
+    $pdo->prepare("
+        UPDATE ged_import_items
+        SET status = 'classified_quick', mode = 'quick',
+            created_document_id = ?, final_destination = ?
+        WHERE id = ?
+    ")->execute([$docId, $item['proposed_destination'], $itemId]);
+
+    ged_import_update_batch_counters((int)$item['batch_id']);
+    ged_audit('import_validate_quick', 'document', $docId, null, [
+        'item_id' => $itemId,
+        'name_file' => $nameFile,
+        'canonical' => $canonical,
+    ]);
+
+    return $docId;
+}
+
 // ─── Lookups niveaux (cascade UI) ──────────────────────────────────────
 
 /**
@@ -419,6 +512,17 @@ function ged_import_list_items(int $batchId, array $filters = []): array
         $where[] = "(old_filename LIKE ? OR name_display LIKE ? OR title_user LIKE ?)";
         $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], (string)$filters['search']) . '%';
         $params[] = $like; $params[] = $like; $params[] = $like;
+    }
+    // Filtre Mode : 'quick' | 'normalized' | 'to_review' (ce dernier = status spécial)
+    if (!empty($filters['mode'])) {
+        $modeFilter = (string)$filters['mode'];
+        if ($modeFilter === 'to_review') {
+            $where[] = "(status = 'to_review' OR needs_review_reason IS NOT NULL)";
+        } elseif ($modeFilter === 'quick') {
+            $where[] = "(mode = 'quick' OR status = 'classified_quick')";
+        } elseif ($modeFilter === 'normalized') {
+            $where[] = "(mode = 'normalized' AND status <> 'to_review')";
+        }
     }
 
     $sql = "SELECT * FROM ged_import_items WHERE " . implode(' AND ', $where) .
