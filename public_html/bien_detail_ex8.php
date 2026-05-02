@@ -855,25 +855,17 @@ require_once $_sbFile;
 
       <!-- Card 5 : PHOTOS -->
       <section class="v2-card is-prev" role="tabpanel" aria-label="Photos du bien">
-        <?php
-          // Comptage des photos qui ont besoin d'une analyse :
-          // - jamais analysées (analyse_statut != 'ok')
-          // - OU analysées en commercial mais sans critique IA (legacy avant migration critique)
-          $nbAnalyser = 0;
-          foreach ($docsPhotos as $pp) {
-              $statutOk = (($pp['analyse_statut'] ?? '') === 'ok');
-              $aCritique = (($pp['critique_niveau'] ?? '') !== '');
-              if (!$statutOk || !$aCritique) $nbAnalyser++;
-          }
-        ?>
         <div class="v2-card-label">
           📸 Photos <span class="v2-count" id="v2-count-photos"><?= count($docsPhotos) ?></span>
-          <?php if (!empty($docsPhotos)): ?>
+          <?php if (!empty($docsPhotos)):
+              $nbAnalyser = 0;
+              foreach ($docsPhotos as $pp) { if (($pp['analyse_statut'] ?? '') !== 'ok') $nbAnalyser++; }
+          ?>
             <button type="button"
                     class="v2-btn-analyze-all"
                     data-analyze-all-photos="1"
                     data-bien-id="<?= (int)$editingBienId ?>"
-                    title="Analyser toutes les photos qui n'ont pas encore de critique de prise de vue">
+                    title="Analyser toutes les photos non encore analysées (commercial + critique de prise de vue)">
               🤖 Analyser toutes <span class="v2-analyze-all-count"><?= $nbAnalyser ?></span>
             </button>
           <?php endif; ?>
@@ -886,14 +878,8 @@ require_once $_sbFile;
             </div>
           <?php else: ?>
             <div class="v2-photos-doc-grid">
-              <?php foreach ($docsPhotos as $p):
-                $needsAnalyse = (($p['analyse_statut'] ?? '') !== 'ok') || (($p['critique_niveau'] ?? '') === '');
-              ?>
-                <div class="v2-photo-tile"
-                     data-id="<?= (int)$p['id'] ?>"
-                     data-url="<?= h($p['url']) ?>"
-                     data-name="<?= h($p['nom_original']) ?>"
-                     data-statut="<?= $needsAnalyse ? '' : 'ok' ?>">
+              <?php foreach ($docsPhotos as $p): ?>
+                <div class="v2-photo-tile" data-id="<?= (int)$p['id'] ?>" data-url="<?= h($p['url']) ?>" data-name="<?= h($p['nom_original']) ?>" data-statut="<?= h((string)($p['analyse_statut'] ?? '')) ?>">
                   <div class="v2-photo-tile-img-wrap">
                     <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
                     <div class="v2-photo-tile-actions">
@@ -921,11 +907,12 @@ require_once $_sbFile;
                         || !empty($p['critique_points_faibles'])
                         || ($p['critique_conseil'] ?? '') !== '';
                   ?>
-                  <?php if ($hasCritique):
-                    $niv = (string)($p['critique_niveau'] ?? '');
-                    $nivIcon  = ['bon' => '🟢', 'moyen' => '🟡', 'mauvais' => '🔴'][$niv] ?? '⚪';
-                    $nivLabel = ['bon' => 'Bonne photo', 'moyen' => 'À améliorer', 'mauvais' => 'À refaire'][$niv] ?? 'Non évaluée';
-                  ?>
+                  <?php if ($hasCritique): ?>
+                    <?php
+                      $niv = (string)($p['critique_niveau'] ?? '');
+                      $nivIcon  = ['bon' => '🟢', 'moyen' => '🟡', 'mauvais' => '🔴'][$niv] ?? '⚪';
+                      $nivLabel = ['bon' => 'Bonne photo', 'moyen' => 'À améliorer', 'mauvais' => 'À refaire'][$niv] ?? 'Non évaluée';
+                    ?>
                     <div class="v2-photo-tile-critique critique-niveau-<?= h($niv ?: 'na') ?>" data-photo-critique="<?= (int)$p['id'] ?>">
                       <div class="critique-header">
                         <span class="critique-icon"><?= $nivIcon ?></span>
