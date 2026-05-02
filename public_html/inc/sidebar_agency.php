@@ -106,6 +106,23 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <li><a href="./modules/ged/ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?><?= sbActive('ged_inbox.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
             </a></li>
+            <?php if ($isSuperAdmin): /* V2.5 — accès rapide aux pages d'admin GED V2 */ ?>
+            <li><a href="./modules/ged/ged_inbox.php" class="<?= sbActive('ged_inbox.php') ?>" style="padding-left:32px">
+                <span class="sb-icon" style="opacity:.7">📨</span><span class="sb-label" style="font-size:12px">Inbox validation</span>
+            </a></li>
+            <li><a href="./super_admin_ged_import.php" class="<?= sbActive('super_admin_ged_import.php') ?>" style="padding-left:32px">
+                <span class="sb-icon" style="opacity:.7">📥</span><span class="sb-label" style="font-size:12px">Import GED</span>
+            </a></li>
+            <li><a href="./super_admin_ged_niveaux.php" class="<?= sbActive('super_admin_ged_niveaux.php') ?>" style="padding-left:32px">
+                <span class="sb-icon" style="opacity:.7">🗂️</span><span class="sb-label" style="font-size:12px">Niveaux N1→N5</span>
+            </a></li>
+            <li><a href="./admin/admin_ged_arborescence.php" class="<?= sbActive('admin_ged_arborescence.php') ?>" style="padding-left:32px">
+                <span class="sb-icon" style="opacity:.7">🌳</span><span class="sb-label" style="font-size:12px">Arborescence (par entité)</span>
+            </a></li>
+            <li><a href="./super_admin_coffre_acces.php" class="<?= sbActive('super_admin_coffre_acces.php') ?>" style="padding-left:32px">
+                <span class="sb-icon" style="opacity:.7">🔒</span><span class="sb-label" style="font-size:12px">Coffre accès</span>
+            </a></li>
+            <?php endif; ?>
             <?php foreach ($navServices as $key => $cfg): ?>
                 <?php sbRenderServiceNav($key, $cfg); ?>
             <?php endforeach; ?>

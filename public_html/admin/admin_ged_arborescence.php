@@ -133,6 +133,7 @@ $appLayout = true;
 $pageTitle = 'GED — Arborescence';
 $bodyClass = '';
 require_once __DIR__ . '/../inc/header.php';
+require_once __DIR__ . '/../inc/ged_help_button.php'; // V2.5 — bouton "Guide GED" topbar
 
 $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 ?>

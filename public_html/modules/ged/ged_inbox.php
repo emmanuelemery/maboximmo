@@ -499,6 +499,7 @@ if (is_file($layoutTop)) require $layoutTop;
 <?php
 $layoutBottom = __DIR__ . '/../../inc/agency_layout_bottom.php';
 if (is_file($layoutBottom)) require $layoutBottom;
+require_once __DIR__ . '/../../inc/ged_help_button.php'; // V2.5 — bouton "Guide GED" topbar
 ?>
 
 </body>

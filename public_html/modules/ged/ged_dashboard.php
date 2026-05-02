@@ -89,6 +89,7 @@ $layoutTop = __DIR__ . '/../../inc/agency_layout_top.php';
 if (is_file($layoutTop)) {
     require $layoutTop;
 }
+require_once __DIR__ . '/../../inc/ged_help_button.php'; // V2.5 — bouton "Guide GED" topbar
 ?>
 
 <div class="aged-page">
