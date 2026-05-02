@@ -2199,117 +2199,23 @@
               const j = await r.json();
               if (!j.ok) throw new Error(j.error || 'Erreur analyse');
               const res = (j.results && j.results[0]) || {};
-              renderPhotoAi(tile, res);
-              tile.dataset.statut = 'ok';
+              const cat = res.categorie || '';
+              const desc = res.description || '';
+              if (aiBox) {
+                const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+                let html = '';
+                if (cat)  html += '<span class="v2-photo-tile-ai-cat">🏷️ ' + escapeHtml(cat) + '</span>';
+                if (desc) html += '<div class="v2-photo-tile-ai-desc">' + escapeHtml(desc) + '</div>';
+                if (!html) html = '<span class="v2-photo-tile-ai-empty">📝 Aucun résultat</span>';
+                aiBox.innerHTML = html;
+              }
               btn.disabled = false; btn.textContent = '🤖';
-              updateAnalyzeAllCount();
             } catch (err) {
               if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + err.message + '</span>';
               btn.disabled = false; btn.textContent = '🤖';
             }
           }
         });
-
-        // ── Helpers de rendu (commercial + critique) ──
-        function escapeHtml(s) {
-          return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-        }
-        function renderPhotoAi(tile, res) {
-          const aiBox = tile.querySelector('[data-photo-ai]');
-          const cat = res.categorie || '';
-          const desc = res.description || '';
-          if (aiBox) {
-            let html = '';
-            if (cat)  html += '<span class="v2-photo-tile-ai-cat">🏷️ ' + escapeHtml(cat) + '</span>';
-            if (desc) html += '<div class="v2-photo-tile-ai-desc">' + escapeHtml(desc) + '</div>';
-            if (!html) html = '<span class="v2-photo-tile-ai-empty">📝 Aucun résultat</span>';
-            aiBox.innerHTML = html;
-          }
-          const cri = res.critique || null;
-          if (!cri) return;
-          const niveau = (cri.niveau || '').toLowerCase();
-          const icon  = ({bon:'🟢', moyen:'🟡', mauvais:'🔴'})[niveau] || '⚪';
-          const label = ({bon:'Bonne photo', moyen:'À améliorer', mauvais:'À refaire'})[niveau] || 'Non évaluée';
-          const pf = Array.isArray(cri.points_forts)   ? cri.points_forts   : [];
-          const pw = Array.isArray(cri.points_faibles) ? cri.points_faibles : [];
-          const conseil = cri.conseil || '';
-          let html = '<div class="critique-header"><span class="critique-icon">' + icon + '</span>'
-                   + '<span class="critique-label">📸 Prise de vue : ' + escapeHtml(label) + '</span></div>';
-          if (pf.length) {
-            html += '<div class="critique-section critique-forts"><div class="critique-section-title">✅ Points forts</div><ul>';
-            pf.forEach(x => { html += '<li>' + escapeHtml(x) + '</li>'; });
-            html += '</ul></div>';
-          }
-          if (pw.length) {
-            html += '<div class="critique-section critique-faibles"><div class="critique-section-title">⚠️ À améliorer</div><ul>';
-            pw.forEach(x => { html += '<li>' + escapeHtml(x) + '</li>'; });
-            html += '</ul></div>';
-          }
-          if (conseil) {
-            html += '<div class="critique-conseil">💡 ' + escapeHtml(conseil) + '</div>';
-          }
-          let cBox = tile.querySelector('[data-photo-critique]');
-          if (!cBox) {
-            cBox = document.createElement('div');
-            cBox.className = 'v2-photo-tile-critique critique-niveau-' + (niveau || 'na');
-            cBox.setAttribute('data-photo-critique', tile.dataset.id || '');
-            tile.appendChild(cBox);
-          } else {
-            cBox.className = 'v2-photo-tile-critique critique-niveau-' + (niveau || 'na');
-          }
-          cBox.innerHTML = html;
-        }
-        function updateAnalyzeAllCount() {
-          const all = document.querySelectorAll('.v2-photo-tile');
-          let pending = 0;
-          all.forEach(t => { if ((t.dataset.statut || '') !== 'ok') pending++; });
-          const cnt = document.querySelector('#v2-analyze-all-photos .v2-analyze-all-count');
-          if (cnt) cnt.textContent = String(pending);
-          const btn = document.getElementById('v2-analyze-all-photos');
-          if (btn && pending === 0) btn.disabled = true;
-        }
-
-        // ── Bouton global "Analyser toutes les photos" ──
-        const btnAll = document.getElementById('v2-analyze-all-photos');
-        if (btnAll) {
-          btnAll.addEventListener('click', async () => {
-            const tiles = Array.from(document.querySelectorAll('.v2-photo-tile'));
-            const todo = tiles.filter(t => (t.dataset.statut || '') !== 'ok');
-            if (!todo.length) return;
-            const original = btnAll.innerHTML;
-            btnAll.disabled = true;
-            const analyzeUrl = (data.bienDetailUrl ? data.bienDetailUrl.replace('/bien_detail.php', '') : '') + '/api/bien_photo_analyze.php';
-            let done = 0, ko = 0;
-            for (const tile of todo) {
-              const id = parseInt(tile.dataset.id, 10) || 0;
-              if (id <= 0) continue;
-              btnAll.innerHTML = '⏳ Analyse… ' + (done + 1) + '/' + todo.length;
-              const aiBox = tile.querySelector('[data-photo-ai]');
-              if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty">⏳ Analyse en cours…</span>';
-              try {
-                const fd = new FormData();
-                fd.append('id_photo', id);
-                fd.append('csrf_token', data.csrfToken || '');
-                fd.append('force', '1');
-                const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
-                const j = await r.json();
-                if (!j.ok) throw new Error(j.error || 'Erreur');
-                const res = (j.results && j.results[0]) || {};
-                renderPhotoAi(tile, res);
-                tile.dataset.statut = 'ok';
-                done++;
-              } catch (err) {
-                ko++;
-                if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + err.message + '</span>';
-              }
-              updateAnalyzeAllCount();
-            }
-            btnAll.innerHTML = original;
-            btnAll.disabled = false;
-            updateAnalyzeAllCount();
-            if (ko > 0) alert('Analyse terminée : ' + done + ' OK, ' + ko + ' en erreur. Réessaie pour les erreurs.');
-          });
-        }
       }
 
       // ── Dropzone Photos (glisser/cliquer, multi-fichiers) ──

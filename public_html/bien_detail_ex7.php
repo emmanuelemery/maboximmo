@@ -153,36 +153,17 @@ $mandatTypes = ['mandat', 'mandat_vente', 'mandat_gestion', 'mandat_location', '
 $docsPhotos = [];
 if ($section === 'documents') {
     try {
-        // SELECT tolérant : on tente d'inclure les colonnes critique (migration 2026-05-02)
-        // et on retombe sur l'ancien schéma si la migration n'a pas encore été appliquée.
-        try {
-            $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia,
-                        critique_niveau, critique_points_forts, critique_points_faibles, critique_conseil, analyse_statut
-                FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
-            $st->execute([$editingBienId]);
-            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable) {
-            $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia
-                FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
-            $st->execute([$editingBienId]);
-            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
-        }
-        foreach ($rows as $p) {
-            $pf = !empty($p['critique_points_forts'])   ? (json_decode((string)$p['critique_points_forts'],   true) ?: []) : [];
-            $pw = !empty($p['critique_points_faibles']) ? (json_decode((string)$p['critique_points_faibles'], true) ?: []) : [];
+        $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
+        $st->execute([$editingBienId]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
             $docsPhotos[] = [
-                'id'                       => (int)$p['id'],
-                'url'                      => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
-                'nom_original'             => (string)($p['nom_original'] ?? ''),
-                'largeur'                  => (int)($p['largeur'] ?? 0),
-                'hauteur'                  => (int)($p['hauteur'] ?? 0),
-                'categorie'                => (string)($p['categorie'] ?? ''),
-                'description_ia'           => (string)($p['description_ia'] ?? ''),
-                'critique_niveau'          => (string)($p['critique_niveau'] ?? ''),
-                'critique_points_forts'    => is_array($pf) ? $pf : [],
-                'critique_points_faibles'  => is_array($pw) ? $pw : [],
-                'critique_conseil'         => (string)($p['critique_conseil'] ?? ''),
-                'analyse_statut'           => (string)($p['analyse_statut'] ?? ''),
+                'id'             => (int)$p['id'],
+                'url'            => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
+                'nom_original'   => (string)($p['nom_original'] ?? ''),
+                'largeur'        => (int)($p['largeur'] ?? 0),
+                'hauteur'        => (int)($p['hauteur'] ?? 0),
+                'categorie'      => (string)($p['categorie'] ?? ''),
+                'description_ia' => (string)($p['description_ia'] ?? ''),
             ];
         }
     } catch (Throwable $e) {}
@@ -855,20 +836,7 @@ require_once $_sbFile;
 
       <!-- Card 5 : PHOTOS -->
       <section class="v2-card is-prev" role="tabpanel" aria-label="Photos du bien">
-        <div class="v2-card-label">
-          📸 Photos <span class="v2-count" id="v2-count-photos"><?= count($docsPhotos) ?></span>
-          <?php if (!empty($docsPhotos)):
-              $nbAnalyser = 0;
-              foreach ($docsPhotos as $pp) { if (($pp['analyse_statut'] ?? '') !== 'ok') $nbAnalyser++; }
-          ?>
-            <button type="button" id="v2-analyze-all-photos"
-                    class="v2-btn-analyze-all"
-                    data-bien-id="<?= (int)$editingBienId ?>"
-                    title="Analyser toutes les photos non encore analysées (commercial + critique de prise de vue)">
-              🤖 Analyser toutes <span class="v2-analyze-all-count"><?= $nbAnalyser ?></span>
-            </button>
-          <?php endif; ?>
-        </div>
+        <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-count-photos"><?= count($docsPhotos) ?></span></div>
         <div class="v2-card-body" id="v2-photos-container">
           <?php if (empty($docsPhotos)): ?>
             <div class="v2-doc-empty">
@@ -878,12 +846,12 @@ require_once $_sbFile;
           <?php else: ?>
             <div class="v2-photos-doc-grid">
               <?php foreach ($docsPhotos as $p): ?>
-                <div class="v2-photo-tile" data-id="<?= (int)$p['id'] ?>" data-url="<?= h($p['url']) ?>" data-name="<?= h($p['nom_original']) ?>" data-statut="<?= h((string)($p['analyse_statut'] ?? '')) ?>">
+                <div class="v2-photo-tile" data-id="<?= (int)$p['id'] ?>" data-url="<?= h($p['url']) ?>" data-name="<?= h($p['nom_original']) ?>">
                   <div class="v2-photo-tile-img-wrap">
                     <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
                     <div class="v2-photo-tile-actions">
                       <button type="button" class="v2-photo-tile-btn" data-action="zoom" title="Agrandir">🔍</button>
-                      <button type="button" class="v2-photo-tile-btn" data-action="analyze" title="Analyser à l'IA (commercial + critique de prise de vue)">🤖</button>
+                      <button type="button" class="v2-photo-tile-btn" data-action="analyze" title="Analyser à l'IA (catégorie + description)">🤖</button>
                       <button type="button" class="v2-photo-tile-btn danger" data-action="delete" title="Supprimer">🗑️</button>
                     </div>
                   </div>
@@ -899,51 +867,6 @@ require_once $_sbFile;
                       <span class="v2-photo-tile-ai-empty">📝 Pas encore analysée — clique 🤖</span>
                     <?php endif; ?>
                   </div>
-
-                  <?php
-                    $hasCritique = ($p['critique_niveau'] ?? '') !== ''
-                        || !empty($p['critique_points_forts'])
-                        || !empty($p['critique_points_faibles'])
-                        || ($p['critique_conseil'] ?? '') !== '';
-                  ?>
-                  <?php if ($hasCritique): ?>
-                    <?php
-                      $niv = (string)($p['critique_niveau'] ?? '');
-                      $nivIcon  = ['bon' => '🟢', 'moyen' => '🟡', 'mauvais' => '🔴'][$niv] ?? '⚪';
-                      $nivLabel = ['bon' => 'Bonne photo', 'moyen' => 'À améliorer', 'mauvais' => 'À refaire'][$niv] ?? 'Non évaluée';
-                    ?>
-                    <div class="v2-photo-tile-critique critique-niveau-<?= h($niv ?: 'na') ?>" data-photo-critique="<?= (int)$p['id'] ?>">
-                      <div class="critique-header">
-                        <span class="critique-icon"><?= $nivIcon ?></span>
-                        <span class="critique-label">📸 Prise de vue : <?= h($nivLabel) ?></span>
-                      </div>
-                      <?php if (!empty($p['critique_points_forts'])): ?>
-                        <div class="critique-section critique-forts">
-                          <div class="critique-section-title">✅ Points forts</div>
-                          <ul>
-                            <?php foreach ($p['critique_points_forts'] as $pf): ?>
-                              <li><?= h((string)$pf) ?></li>
-                            <?php endforeach; ?>
-                          </ul>
-                        </div>
-                      <?php endif; ?>
-                      <?php if (!empty($p['critique_points_faibles'])): ?>
-                        <div class="critique-section critique-faibles">
-                          <div class="critique-section-title">⚠️ À améliorer</div>
-                          <ul>
-                            <?php foreach ($p['critique_points_faibles'] as $pw): ?>
-                              <li><?= h((string)$pw) ?></li>
-                            <?php endforeach; ?>
-                          </ul>
-                        </div>
-                      <?php endif; ?>
-                      <?php if (($p['critique_conseil'] ?? '') !== ''): ?>
-                        <div class="critique-conseil">
-                          💡 <?= h((string)$p['critique_conseil']) ?>
-                        </div>
-                      <?php endif; ?>
-                    </div>
-                  <?php endif; ?>
                 </div>
               <?php endforeach; ?>
             </div>
