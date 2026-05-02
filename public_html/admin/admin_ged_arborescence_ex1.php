@@ -93,19 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ─── Lecture arbre + détection présence colonnes métier (ALTER 06) ─
+// ─── Lecture arbre ───────────────────────────────────────────
 $includeArchived = !empty($_GET['archived']);
 $tree = ged_get_tree(ged_current_tenant_id(), $includeArchived);
-
-// Charge folder_kind + entity_type pour chaque dossier (LEFT JOIN sur l'arbre déjà construit)
-$folderMeta = [];
-try {
-    $rowsMeta = $pdo->query("SELECT id, folder_kind, is_virtual, entity_type, entity_id, storage_path
-                              FROM ged_folders WHERE is_archived IN (0,1)")->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($rowsMeta as $rm) $folderMeta[(int)$rm['id']] = $rm;
-} catch (Throwable) {
-    // colonnes ALTER 06 pas encore appliquées
-}
 
 // Compteur docs par dossier (LEFT JOIN agrégé)
 $docsByFolder = [];
@@ -165,11 +155,6 @@ $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   .ged-badge.system { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
   .ged-badge.module { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
   .ged-badge.docs   { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
-  .ged-badge.kind-business_view { background: #ecfeff; color: #0369a1; border: 1px solid #67e8f9; }
-  .ged-badge.kind-storage_folder { background: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; }
-  .ged-badge.kind-system          { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-  .ged-badge.virtual { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-style: italic; }
-  .ged-badge.entity { background: #fef3c7; color: #78350f; border: 1px solid #fde68a; }
   .ged-row-actions a { font-size: 11px; color: #0369a1; text-decoration: none; margin-right: 8px; }
   .ged-row-actions a:hover { text-decoration: underline; }
   .ged-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -212,26 +197,18 @@ $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
       <?php if (empty($tree)): ?>
         <div style="color:#94a3b8;font-size:13px;font-style:italic;">Aucun dossier. Le seed a-t-il été appliqué ?</div>
       <?php else:
-        $renderTree = static function (array $nodes) use (&$renderTree, &$docsByFolder, &$folderMeta, $h): void {
+        $renderTree = static function (array $nodes) use (&$renderTree, &$docsByFolder, $h): void {
           echo '<ul class="ged-tree">';
           foreach ($nodes as $n) {
             $isArch = (int)$n['is_archived'] === 1;
             $isSys  = (int)$n['is_system'] === 1;
             $count  = (int)($docsByFolder[$n['id']] ?? 0);
-            $meta   = $folderMeta[(int)$n['id']] ?? [];
-            $kind   = (string)($meta['folder_kind'] ?? '');
-            $isVirt = isset($meta['is_virtual']) ? (int)$meta['is_virtual'] : null;
-            $eType  = (string)($meta['entity_type'] ?? '');
-            $eId    = (int)($meta['entity_id'] ?? 0);
             ?>
             <li>
               <div class="ged-node<?= $isArch ? ' archived' : '' ?>">
                 <span style="color:#94a3b8">└─</span>
                 <span class="ged-name"><?= $h($n['name_display']) ?></span>
                 <span class="ged-slug"><?= $h($n['slug']) ?></span>
-                <?php if ($kind !== ''): ?><span class="ged-badge kind-<?= $h($kind) ?>" title="Type de dossier"><?= $h($kind) ?></span><?php endif; ?>
-                <?php if ($isVirt === 1): ?><span class="ged-badge virtual" title="Dossier virtuel : pas matérialisé sur Drive">virtuel</span><?php endif; ?>
-                <?php if ($eType !== '' && $eId > 0): ?><span class="ged-badge entity" title="Lié à une entité métier"><?= $h($eType) ?>#<?= $eId ?></span><?php endif; ?>
                 <?php if ($isSys): ?><span class="ged-badge system" title="Dossier système, modification réservée au super admin">SYS</span><?php endif; ?>
                 <?php if (!empty($n['module'])): ?><span class="ged-badge module"><?= $h($n['module']) ?></span><?php endif; ?>
                 <?php if ($count > 0): ?><span class="ged-badge docs"><?= $count ?> doc<?= $count > 1 ? 's' : '' ?></span><?php endif; ?>

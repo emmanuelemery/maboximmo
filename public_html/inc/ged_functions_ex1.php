@@ -419,250 +419,36 @@ function ged_get_tree(?int $tenant_id = null, bool $includeArchived = false): ar
 }
 
 /**
- * Génère un nom canonique stable pour un document — format MÉTIER MBI.
+ * Génère un nom canonique stable pour un document.
+ * Format : {TYPE}_{SLUG_LIBRE}_{YYYY-MM}_{ENTITY_TYPE}{ENTITY_ID}
  *
- * Format : TYPE_DATE_ENTITE_AGENCE_SOCIETE
- * Exemple : BAIL_2026-05-01_BIEN_12_RUE_VICTOR_HUGO_LYON_RE
- *
- * @param string      $type        Type de doc (BAIL, FACT, EDL, MANDAT…)
- * @param string|null $date        Date du doc (parseable strtotime, sortie YYYY-MM-DD)
- * @param string|null $entityLabel Label métier de l'entité (ex: "12 Rue Victor Hugo Lyon")
- * @param string|null $agenceCode  Code agence (ex: "RE")
- * @param string|null $societeCode Code société (ex: "EM")
- *
- * Le user ne saisit JAMAIS le name_canonical : il est généré automatiquement
- * à partir des entités liées + métadonnées du document.
+ * Ex : FACT_ORANGE_2026-03_BIEN42 ou MAIL_RELANCE_2026-04_TIERS108
  */
 function ged_generate_canonical_name(
     string $type,
-    ?string $date = null,
-    ?string $entityLabel = null,
-    ?string $agenceCode = null,
-    ?string $societeCode = null
+    ?string $date,
+    ?string $entity_type,
+    ?int $entity_id,
+    string $slug
 ): string {
     $parts = [];
-
     $type = strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', $type) ?: 'DOC');
     $parts[] = $type;
 
+    $slugClean = ged_slugify($slug);
+    if ($slugClean !== '') $parts[] = strtoupper($slugClean);
+
     if ($date) {
-        $ts = strtotime((string)$date);
-        if ($ts) $parts[] = date('Y-m-d', $ts);
+        $ts = strtotime($date);
+        if ($ts) $parts[] = date('Y-m', $ts);
     }
 
-    if ($entityLabel !== null && $entityLabel !== '') {
-        $entitySlug = ged_slugify($entityLabel);
-        $entitySlug = strtoupper(str_replace('_', '_', $entitySlug));
-        if ($entitySlug !== '') $parts[] = $entitySlug;
+    if ($entity_type && $entity_id) {
+        $et = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $entity_type));
+        $parts[] = $et . (int)$entity_id;
     }
 
-    if ($agenceCode !== null && $agenceCode !== '') {
-        $parts[] = strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', $agenceCode));
-    }
-    if ($societeCode !== null && $societeCode !== '') {
-        $parts[] = strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', $societeCode));
-    }
-
-    return implode('_', array_filter($parts, static fn($s) => $s !== ''));
-}
-
-/**
- * Instancie un template d'arborescence (ged_folder_templates) sous un dossier
- * parent existant pour une entité métier (propriétaire, bien, locataire).
- *
- * Crée le dossier-racine "{LABEL}" sous $parentFolderId, puis tous les
- * sous-dossiers définis dans ged_folder_template_nodes.
- *
- * Idempotent : si un dossier portant le même slug existe déjà sous le parent,
- * il est réutilisé (on n'en recrée pas un doublon).
- *
- * @param string $templateCode  Code du template (ex: 'TPL_PROPRIETAIRE')
- * @param int    $parentFolderId ID du dossier parent (ex: 01_PROPRIETAIRES)
- * @param string $entityLabel   Label humain de l'entité (ex: "DUPONT Jean")
- * @param string $entityType    Type métier (ex: "proprietaire", "bien", "locataire")
- * @param int    $entityId      ID dans la table métier (proprietaires.id, biens.id, …)
- * @return int                  ID du dossier racine de l'entité (créé ou réutilisé)
- */
-function ged_instantiate_template_for_entity(
-    string $templateCode,
-    int $parentFolderId,
-    string $entityLabel,
-    string $entityType,
-    int $entityId
-): int {
-    $pdo = ged_pdo();
-
-    // 1. Récupère le template
-    $st = $pdo->prepare("SELECT id, module FROM ged_folder_templates WHERE code = ? AND is_active = 1 LIMIT 1");
-    $st->execute([$templateCode]);
-    $tpl = $st->fetch(PDO::FETCH_ASSOC);
-    if (!$tpl) throw new RuntimeException("Template introuvable ou inactif : {$templateCode}");
-
-    $module = (string)($tpl['module'] ?? 'GESTION_LOCATIVE');
-    $tplId = (int)$tpl['id'];
-
-    // 2. Slug de l'entité racine (ex: "DUPONT Jean" → "dupont_jean")
-    $entitySlug = ged_slugify($entityLabel);
-    if ($entitySlug === '') $entitySlug = strtolower($entityType) . '_' . $entityId;
-
-    // 3. Cherche si le dossier racine existe déjà (idempotence)
-    $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = ? LIMIT 1");
-    $st->execute([$parentFolderId, $entitySlug]);
-    $rootId = (int)($st->fetchColumn() ?: 0);
-
-    if ($rootId === 0) {
-        $rootId = ged_create_folder([
-            'parent_id'      => $parentFolderId,
-            'name_display'   => $entityLabel,
-            'slug'           => $entitySlug,
-            'module'         => $module,
-            'scope'          => 'entity',
-            'source_type'    => 'auto',
-            'entity_type'    => $entityType,
-            'entity_id'      => $entityId,
-        ]);
-        // Met folder_kind = business_view (le helper crée en business_view par défaut
-        // mais si la migration ALTER vient de passer, force le bon type)
-        try {
-            $pdo->prepare("UPDATE ged_folders SET folder_kind = 'business_view', is_virtual = 1 WHERE id = ?")
-                ->execute([$rootId]);
-        } catch (Throwable) {}
-    }
-
-    // 4. Instancie les nœuds du template (sous-dossiers fixes : 01_ADMIN, 02_MANDATS, …)
-    $nodes = $pdo->prepare("
-        SELECT slug, name_display, position, parent_node_id, depth
-        FROM ged_folder_template_nodes
-        WHERE template_id = ?
-        ORDER BY depth ASC, position ASC, id ASC
-    ");
-    $nodes->execute([$tplId]);
-    $nodeRows = $nodes->fetchAll(PDO::FETCH_ASSOC);
-
-    // V1 : tous les nodes sont à plat sous le root (depth 0). Pour V2 : récursif.
-    foreach ($nodeRows as $node) {
-        $childSlug = (string)$node['slug'];
-        $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = ? LIMIT 1");
-        $st->execute([$rootId, $childSlug]);
-        if ((int)$st->fetchColumn() > 0) continue; // déjà créé
-
-        $childId = ged_create_folder([
-            'parent_id'      => $rootId,
-            'name_display'   => (string)$node['name_display'],
-            'slug'           => $childSlug,
-            'module'         => $module,
-            'scope'          => 'entity',
-            'source_type'    => 'auto',
-            'entity_type'    => $entityType,
-            'entity_id'      => $entityId,
-            'position'       => (int)$node['position'],
-        ]);
-        try {
-            $pdo->prepare("UPDATE ged_folders SET folder_kind = 'business_view', is_virtual = 1 WHERE id = ?")
-                ->execute([$childId]);
-        } catch (Throwable) {}
-    }
-
-    ged_audit('instantiate_template', 'folder', $rootId, null, [
-        'template_code' => $templateCode,
-        'entity_type'   => $entityType,
-        'entity_id'     => $entityId,
-        'entity_label'  => $entityLabel,
-    ]);
-
-    return $rootId;
-}
-
-/**
- * Lie un document à une entité métier (proprietaire, bien, locataire, mandat,
- * fournisseur, sinistre, etc.) via ged_document_links — sans dupliquer le doc.
- *
- * Un même document peut être lié à plusieurs entités (apparition dans
- * plusieurs vues métier). Chaque lien a un link_role (principal/secondaire).
- *
- * @param int    $documentId ID du document (ged_documents.id)
- * @param string $entityType "proprietaire" | "bien" | "locataire" | "mandat" | "fournisseur" | "sinistre" | …
- * @param int    $entityId   ID dans la table métier
- * @param string $linkRole   "principal" (défaut) | "secondaire" | "piece_jointe" | "reference"
- * @return int               ID du lien créé (ou existant)
- */
-function ged_link_document_to_entity(
-    int $documentId,
-    string $entityType,
-    int $entityId,
-    string $linkRole = 'principal'
-): int {
-    if ($documentId <= 0 || $entityType === '' || $entityId <= 0) {
-        throw new InvalidArgumentException('Paramètres invalides pour ged_link_document_to_entity');
-    }
-    $pdo = ged_pdo();
-    $tenant = ged_current_tenant_id();
-
-    // Idempotence : (document_id, entity_type, entity_id, relation_type) en UNIQUE.
-    // On utilise relation_type = 'main' pour rester compat ; link_role en colonne séparée.
-    $relationType = 'main';
-
-    $st = $pdo->prepare("SELECT id FROM ged_document_links
-                         WHERE document_id = ? AND entity_type = ? AND entity_id = ? AND relation_type = ?
-                         LIMIT 1");
-    $st->execute([$documentId, $entityType, $entityId, $relationType]);
-    $existing = (int)($st->fetchColumn() ?: 0);
-    if ($existing > 0) {
-        // Met à jour link_role si différent
-        try {
-            $pdo->prepare("UPDATE ged_document_links SET link_role = ? WHERE id = ?")
-                ->execute([$linkRole, $existing]);
-        } catch (Throwable) {}
-        return $existing;
-    }
-
-    try {
-        $pdo->prepare("
-            INSERT INTO ged_document_links
-                (tenant_id, document_id, entity_type, entity_id, relation_type, link_role, is_validated)
-            VALUES (?, ?, ?, ?, ?, ?, 1)
-        ")->execute([$tenant, $documentId, $entityType, $entityId, $relationType, $linkRole]);
-    } catch (PDOException $e) {
-        // Si link_role n'existe pas (migration 06 pas appliquée), retry sans
-        $pdo->prepare("
-            INSERT INTO ged_document_links
-                (tenant_id, document_id, entity_type, entity_id, relation_type, is_validated)
-            VALUES (?, ?, ?, ?, ?, 1)
-        ")->execute([$tenant, $documentId, $entityType, $entityId, $relationType]);
-    }
-
-    $linkId = (int)$pdo->lastInsertId();
-    ged_audit('link_document', 'document', $documentId, null, [
-        'entity_type' => $entityType,
-        'entity_id'   => $entityId,
-        'link_role'   => $linkRole,
-    ]);
-    return $linkId;
-}
-
-/**
- * Renvoie tous les documents liés à une entité métier donnée.
- *
- * @return array Liste de documents (jointure ged_documents + ged_document_links)
- */
-function ged_get_documents_for_entity(string $entityType, int $entityId, ?int $limit = 100): array
-{
-    $pdo = ged_pdo();
-    $sql = "
-        SELECT d.id, d.uuid, d.name_display, d.name_canonical, d.name_file,
-               d.document_type, d.source_module, d.mime_type, d.size_bytes,
-               d.confidence_score, d.status, d.version,
-               d.folder_id, d.created_at,
-               l.link_role, l.is_validated, l.confidence AS link_confidence
-        FROM ged_document_links l
-        JOIN ged_documents d ON d.id = l.document_id
-        WHERE l.entity_type = ? AND l.entity_id = ?
-          AND d.status <> 'deleted'
-        ORDER BY d.created_at DESC, d.id DESC
-        LIMIT " . max(1, (int)$limit);
-    $st = $pdo->prepare($sql);
-    $st->execute([$entityType, $entityId]);
-    return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    return implode('_', array_filter($parts));
 }
 
 /**
