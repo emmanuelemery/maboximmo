@@ -75,6 +75,8 @@ require_login(); // safety net (au cas où user_id existe mais session invalide)
 require_once __DIR__ . '/ged_functions.php';
 require_once __DIR__ . '/ged_storage.php';
 require_once __DIR__ . '/ged_storage_local.php';
+require_once __DIR__ . '/ged_classer.php';
+require_once __DIR__ . '/ged_jobs.php';
 
 $action = $_REQUEST['action'] ?? '';
 $userId = current_user_id();
@@ -148,6 +150,25 @@ function inbox_respond(bool $ok, string $msg = '', array $extra = []): void {
     }
     echo json_encode(array_merge(['ok' => $ok, 'message' => $msg], $extra), JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+function inbox_respond_and_continue(bool $ok, string $msg = '', array $extra = []): void
+{
+    // Réponse immédiate pour éviter les timeouts (OCR/IA peuvent durer)
+    while (ob_get_level()) @ob_end_clean();
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    echo json_encode(array_merge(['ok' => $ok, 'message' => $msg], $extra), JSON_UNESCAPED_UNICODE);
+
+    // Flush + libère le client; le script peut continuer (php-fpm)
+    if (function_exists('fastcgi_finish_request')) {
+        @fastcgi_finish_request();
+    } else {
+        @flush();
+    }
+    @ignore_user_abort(true);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -234,12 +255,15 @@ try {
             // 2. Extraction IA
             require_once __DIR__ . '/ged_extraction.php';
             $absLocal = $base . '/' . $up['file_id'];
-            $extr = gedExtractDocument($absLocal);
+            $forcedService = isset($_POST['forced_service']) ? trim((string)$_POST['forced_service']) : null;
+            if ($forcedService === '') $forcedService = null;
+            $extr = gedExtractDocument($absLocal, $forcedService);
 
             $ai = $extr['data'] ?? [];
 
             // 3. INSERT ged_analyses (status=to_validate)
-            $pdo = ged_get_pdo();
+            // Après OCR/IA, la connexion MySQL a pu timeout (mutualisé → wait_timeout bas).
+            $pdo = function_exists('db_keepalive') ? db_keepalive() : ged_get_pdo();
             $stmt = $pdo->prepare("
                 INSERT INTO ged_analyses (
                     document_id, document_table, source_type,
@@ -309,6 +333,269 @@ try {
             ]);
         }
 
+        // ── Classer (low-cost) : re-lance une analyse minimale sans IA premium ─
+        case 'classer': {
+            $analysisId = (int)($_POST['analysis_id'] ?? 0);
+            if ($analysisId <= 0) inbox_respond(false, 'analysis_id manquant');
+
+            $forcedService = isset($_POST['forced_service']) ? trim((string)$_POST['forced_service']) : '';
+            if ($forcedService === '') $forcedService = null;
+
+            $pdo = ged_get_pdo();
+            $where = "id = :id";
+            $params = ['id' => $analysisId];
+            if (!$isAdmin && $societeId > 0) {
+                $where .= " AND id_societe = :sid";
+                $params['sid'] = $societeId;
+            }
+            $st = $pdo->prepare("
+                SELECT id, storage_driver, storage_file_id, nom_original, extension, ai_raw_response
+                FROM ged_analyses
+                WHERE {$where}
+            ");
+            $st->execute($params);
+            $r = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$r || empty($r['storage_file_id'])) inbox_respond(false, 'Analyse introuvable ou fichier manquant');
+            if (!empty($r['storage_driver']) && $r['storage_driver'] !== 'local') {
+                inbox_respond(false, 'Classer disponible uniquement si le fichier est en quarantaine locale');
+            }
+
+            $base = dirname(__DIR__, 3) . '/storage/ged';
+            $abs  = $base . '/' . $r['storage_file_id'];
+            if (!is_file($abs)) inbox_respond(false, 'Fichier local introuvable (quarantaine)');
+
+            $orig = (string)($r['nom_original'] ?? '');
+            if ($orig === '') {
+                $orig = 'document.' . ((string)($r['extension'] ?? 'bin') ?: 'bin');
+            }
+
+            $class = gedClasserLowCost($abs, $orig);
+            $conf  = isset($class['confidence']) ? (float)$class['confidence'] : 0.0;
+
+            $module  = isset($class['module']) ? (string)$class['module'] : null;
+            $niv2    = isset($class['niveau_2']) ? (string)$class['niveau_2'] : null;
+            $niv3    = isset($class['niveau_3']) ? (string)$class['niveau_3'] : null;
+            $typeDoc = isset($class['type_document']) ? (string)$class['type_document'] : null;
+            $tiers   = isset($class['tiers_principal']) ? (string)$class['tiers_principal'] : null;
+
+            $dateDoc = isset($class['date_document']) && is_string($class['date_document']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $class['date_document'])
+                ? (string)$class['date_document'] : null;
+            $montant = isset($class['montant_ttc']) && $class['montant_ttc'] !== null ? (float)$class['montant_ttc'] : null;
+
+            if ($forcedService !== null) {
+                $module = $forcedService;
+            }
+
+            $analysisLevel = (string)($class['analysis_level'] ?? 'classer_v1');
+            $engine        = (string)($class['engine'] ?? 'filename_only');
+
+            $rawPrev = json_decode((string)($r['ai_raw_response'] ?? ''), true);
+            if (!is_array($rawPrev)) $rawPrev = [];
+
+            $aiRaw = $rawPrev;
+            $aiRaw['_status']         = 'ready';
+            $aiRaw['_analysis_level'] = $analysisLevel;
+            $aiRaw['_engine']         = $engine;
+            $aiRaw['_cost']           = 'low';
+            $aiRaw['type_document']   = $typeDoc ? strtoupper($typeDoc) : null;
+            $aiRaw['module']          = $module ? strtoupper((string)$module) : null;
+            $aiRaw['niveau_2']        = $niv2;
+            $aiRaw['niveau_3']        = $niv3;
+            $aiRaw['date_document']   = $dateDoc;
+            $aiRaw['montant_ttc']     = $montant;
+            $aiRaw['tiers_principal'] = $tiers;
+            $aiRaw['banque_detectee'] = $class['banque_detectee'] ?? null;
+            $aiRaw['description_courte'] = $class['title'] ?? null;
+            $aiRaw['confiance_globale']  = $conf;
+            $aiRaw['forced_service']  = $forcedService;
+
+            $status = $conf >= 75.0 ? 'to_validate' : 'manual_review';
+
+            $upd = $pdo->prepare("
+                UPDATE ged_analyses SET
+                    ocr_engine = :ocr_eng,
+                    ocr_text   = :ocr_text,
+                    ia_engine  = :ia_eng,
+                    suggested_module  = :module,
+                    suggested_level_2 = :n2,
+                    suggested_level_3 = :n3,
+                    suggested_filename = :sfn,
+                    detected_montant  = :montant,
+                    detected_date     = :date_doc,
+                    date_document     = :date_doc2,
+                    suggested_action  = :action,
+                    confidence_score  = :conf,
+                    status            = :status,
+                    ai_raw_response   = :ai_raw,
+                    updated_at        = NOW()
+                WHERE id = :id
+            ");
+            $upd->execute([
+                'ocr_eng'   => mb_substr($engine, 0, 50),
+                'ocr_text'  => isset($class['raw_text']) ? mb_substr((string)$class['raw_text'], 0, 65535) : null,
+                'ia_eng'    => mb_substr($analysisLevel, 0, 50),
+                'module'    => $module !== null ? mb_substr((string)$module, 0, 50) : null,
+                'n2'        => $niv2 !== null ? mb_substr((string)$niv2, 0, 100) : null,
+                'n3'        => $niv3 !== null ? mb_substr((string)$niv3, 0, 100) : null,
+                'sfn'       => isset($class['suggested_filename']) ? mb_substr((string)$class['suggested_filename'], 0, 255) : null,
+                'montant'   => $montant,
+                'date_doc'  => $dateDoc,
+                'date_doc2' => $dateDoc,
+                'action'    => $conf >= 75.0 ? 'Classer (éco) — prêt à valider' : 'Classer (éco) — à vérifier',
+                'conf'      => $conf,
+                'status'    => $status,
+                'ai_raw'    => json_encode($aiRaw, JSON_UNESCAPED_UNICODE),
+                'id'        => $analysisId,
+            ]);
+
+            inbox_respond(true, 'Classé (éco)', [
+                'next_id'       => $analysisId,
+                'analysis_level'=> $analysisLevel,
+                'engine'        => $engine,
+                'confidence'    => $conf,
+            ]);
+        }
+
+        // ── Analyse IA avancée (sur clic utilisateur uniquement) ────────────
+        case 'analyze_advanced': {
+            $analysisId = (int)($_POST['analysis_id'] ?? 0);
+            if ($analysisId <= 0) inbox_respond(false, 'analysis_id manquant');
+
+            $forcedService = isset($_POST['forced_service']) ? trim((string)$_POST['forced_service']) : '';
+            if ($forcedService === '') $forcedService = null;
+
+            $pdo = ged_get_pdo();
+            $where = "id = :id";
+            $params = ['id' => $analysisId];
+            if (!$isAdmin && $societeId > 0) {
+                $where .= " AND id_societe = :sid";
+                $params['sid'] = $societeId;
+            }
+            $st = $pdo->prepare("
+                SELECT id, storage_driver, storage_file_id, ai_raw_response
+                FROM ged_analyses
+                WHERE {$where}
+            ");
+            $st->execute($params);
+            $r = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$r || empty($r['storage_file_id'])) inbox_respond(false, 'Analyse introuvable ou fichier manquant');
+            if (!empty($r['storage_driver']) && $r['storage_driver'] !== 'local') {
+                inbox_respond(false, 'Analyse IA avancée disponible uniquement si le fichier est en quarantaine locale');
+            }
+
+            $base = dirname(__DIR__, 3) . '/storage/ged';
+            $abs  = $base . '/' . $r['storage_file_id'];
+            if (!is_file($abs)) inbox_respond(false, 'Fichier local introuvable (quarantaine)');
+
+            // Marque la ligne comme "queued" en conservant les champs déjà extraits
+            $rawPrev = json_decode((string)($r['ai_raw_response'] ?? ''), true);
+            if (!is_array($rawPrev)) $rawPrev = [];
+            $rawPrev['_status'] = 'queued';
+            $rawPrev['_analysis_level'] = 'ai_advanced_v1';
+            $rawPrev['forced_service'] = $forcedService;
+
+            $pdo->prepare("
+                UPDATE ged_analyses
+                SET ia_engine = 'queued',
+                    suggested_action = 'Analyse IA avancée en cours…',
+                    status = 'manual_review',
+                    ai_raw_response = ?,
+                    updated_at = NOW()
+                WHERE id = ?
+            ")->execute([json_encode($rawPrev, JSON_UNESCAPED_UNICODE), $analysisId]);
+
+            // Enqueue job BDD (exécution via cron worker). Fallback : si la migration n'est
+            // pas encore appliquée, on garde le comportement best-effort inline.
+            try {
+                $jobId = ged_jobs_enqueue('ged_analyze_advanced', $analysisId, [
+                    'forced_service' => $forcedService,
+                    'requested_by'   => (int)$userId,
+                    'requested_at'   => date('c'),
+                ], 5, null, 3);
+
+                inbox_respond(true, 'Analyse IA avancée mise en file (cron)', [
+                    'job_id'  => $jobId,
+                    'next_id' => $analysisId,
+                ]);
+            } catch (Throwable $queueErr) {
+                @error_log('[ged_inbox_action analyze_advanced] enqueue failed → fallback inline: ' . $queueErr->getMessage());
+
+                // Répond immédiatement (évite timeouts), puis continue l'analyse IA.
+                inbox_respond_and_continue(true, 'Analyse IA avancée lancée (fallback)', ['next_id' => $analysisId]);
+
+                try {
+                    require_once __DIR__ . '/ged_extraction.php';
+                    $extr = gedExtractDocument($abs, $forcedService);
+                    $ai   = $extr['data'] ?? [];
+                    if (!is_array($ai)) $ai = [];
+
+                    $ai['_analysis_level'] = 'ai_advanced_v1';
+                    $ai['forced_service']  = $forcedService;
+
+                    $pdo = function_exists('db_keepalive') ? db_keepalive() : $pdo;
+                    $dateDoc = !empty($ai['date_document']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$ai['date_document'])
+                        ? (string)$ai['date_document'] : null;
+
+                    $upd = $pdo->prepare("
+                        UPDATE ged_analyses SET
+                            ocr_engine = :ocr_eng,
+                            ocr_text   = :ocr_text,
+                            ia_engine  = :ia_eng,
+                            suggested_module  = :module,
+                            suggested_level_2 = :n2,
+                            suggested_level_3 = :n3,
+                            detected_immeuble = :immeuble,
+                            detected_fournisseur = :fournisseur,
+                            detected_montant  = :montant,
+                            detected_date     = :date_doc,
+                            suggested_action  = :action,
+                            confidence_score  = :conf,
+                            ai_raw_response   = :ai_raw,
+                            date_document     = :date_doc2,
+                            status            = :status,
+                            updated_at        = NOW()
+                        WHERE id = :id
+                    ");
+                    $status = ($extr['ok'] ?? false) ? 'to_validate' : 'manual_review';
+                    $upd->execute([
+                        'ocr_eng'   => $extr['path_engine'] ?? 'unknown',
+                        'ocr_text'  => isset($extr['raw_text']) ? mb_substr((string)$extr['raw_text'], 0, 65535) : null,
+                        'ia_eng'    => $extr['model_used'] ?? 'unknown',
+                        'module'    => isset($ai['module'])      ? mb_substr((string)$ai['module'], 0, 50)       : null,
+                        'n2'        => isset($ai['niveau_2'])    ? mb_substr((string)$ai['niveau_2'], 0, 100)    : null,
+                        'n3'        => isset($ai['niveau_3'])    ? mb_substr((string)$ai['niveau_3'], 0, 100)    : null,
+                        'immeuble'  => isset($ai['immeuble'])    ? mb_substr((string)$ai['immeuble'], 0, 255)    : null,
+                        'fournisseur'=> isset($ai['fournisseur']) ? mb_substr((string)$ai['fournisseur'], 0, 255) : null,
+                        'montant'   => isset($ai['montant_ttc']) ? (float)$ai['montant_ttc']
+                                    : (isset($ai['montant_ht']) ? (float)$ai['montant_ht'] : null),
+                        'date_doc'  => $dateDoc,
+                        'action'    => isset($ai['action_proposee']) ? (string)$ai['action_proposee'] : null,
+                        'conf'      => isset($ai['confiance_globale']) ? (float)$ai['confiance_globale'] : null,
+                        'ai_raw'    => json_encode($ai, JSON_UNESCAPED_UNICODE),
+                        'date_doc2' => $dateDoc,
+                        'status'    => $status,
+                        'id'        => $analysisId,
+                    ]);
+                } catch (Throwable $e2) {
+                    @error_log('[ged_inbox_action analyze_advanced fallback] ' . $e2->getMessage());
+                    try {
+                        $pdo = function_exists('db_keepalive') ? db_keepalive() : $pdo;
+                        $pdo->prepare("
+                            UPDATE ged_analyses
+                            SET status='manual_review',
+                                suggested_action = 'Analyse IA avancée en erreur — validation manuelle',
+                                ia_engine = 'failed',
+                                ai_raw_response = ?,
+                                updated_at = NOW()
+                            WHERE id = ?
+                        ")->execute([json_encode(['_error' => $e2->getMessage()], JSON_UNESCAPED_UNICODE), $analysisId]);
+                    } catch (Throwable) { /* ignore */ }
+                }
+
+                exit;
+            }
+        }
+
         // ── Validation : update fields → rename + Drive upload (background) ─
         case 'validate': {
             $analysisId = (int)($_POST['analysis_id'] ?? 0);
@@ -329,6 +616,9 @@ try {
                 'ref_societe'       => $_POST['ref_societe'] ?? null,
                 'ref_agence'        => $_POST['ref_agence']  ?? null,
             ];
+            if (empty($fields['objet_id']) || (int)$fields['objet_id'] <= 0) {
+                inbox_respond(false, 'ID objet invalide (doit être > 0)');
+            }
             // Sync user-edited type_document into ai_raw_response.type_document
             $newType = isset($_POST['type_document']) ? trim((string)$_POST['type_document']) : '';
 
@@ -366,11 +656,45 @@ try {
                 $stChk->execute([$analysisId]);
                 $r = $stChk->fetch(PDO::FETCH_ASSOC);
                 if ($r && !empty($r['storage_file_id']) && ($r['storage_driver'] === 'local' || $r['storage_driver'] === null)) {
+                    // Marque une tentative de sync Drive (même si la config Drive n'est pas prête, on garde une trace)
+                    $pdo->prepare("
+                        UPDATE ged_analyses
+                        SET drive_sync_status = 'pending',
+                            drive_sync_error = NULL,
+                            drive_sync_attempts = COALESCE(drive_sync_attempts, 0) + 1,
+                            drive_sync_last_attempt_at = NOW()
+                        WHERE id = ?
+                    ")->execute([$analysisId]);
+
                     $promoted = gedRenameAndStoreFromAnalysis($analysisId);
+
+                    // Si le driver actif n'est PAS Drive, on considère la sync Drive comme non effectuée.
+                    if (!empty($promoted['storage_driver']) && $promoted['storage_driver'] !== 'google_drive') {
+                        $pdo->prepare("
+                            UPDATE ged_analyses
+                            SET drive_sync_status = 'error',
+                                drive_sync_error  = ?
+                            WHERE id = ?
+                        ")->execute([
+                            "Driver actif = {$promoted['storage_driver']} (Drive non configuré ou désactivé).",
+                            $analysisId,
+                        ]);
+                    }
                 }
             } catch (Throwable $e) {
                 $promoteError = $e->getMessage();
                 error_log('[ged_inbox validate] ' . $e->getMessage());
+                try {
+                    $pdo->prepare("
+                        UPDATE ged_analyses
+                        SET drive_sync_status = 'error',
+                            drive_sync_error  = ?,
+                            drive_sync_last_attempt_at = NOW()
+                        WHERE id = ?
+                    ")->execute([mb_substr($promoteError, 0, 2000), $analysisId]);
+                } catch (Throwable) {
+                    // ignore (best-effort)
+                }
             }
 
             // 4. Récupère le prochain doc à valider (pour optimistic UI)

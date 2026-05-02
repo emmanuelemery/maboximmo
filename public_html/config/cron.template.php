@@ -7,9 +7,11 @@
  *
  * Usage côté endpoint :
  *   api/cron_recap_annonces.php attend ?token=XXX et compare à CRON_RECAP_TOKEN.
+ *   api/cron_ged_jobs.php attend ?token=XXX et compare à CRON_GED_TOKEN.
  *
  * Usage côté cron Hostinger (hPanel → Avancé → Tâches Cron) :
  *   0 9 * * *  curl -s "https://maboximmo.fr/api/cron_recap_annonces.php?token=REMPLACE_PAR_TON_TOKEN" > /dev/null
+ *   Toutes les 2 minutes : curl -s "https://maboximmo.fr/api/cron_ged_jobs.php?token=REMPLACE_PAR_TON_TOKEN&limit=3" > /dev/null
  */
 declare(strict_types=1);
 
@@ -17,6 +19,9 @@ declare(strict_types=1);
 // Génère en CLI : openssl rand -hex 32
 // OU en PHP : bin2hex(random_bytes(32))
 define('CRON_RECAP_TOKEN', 'REMPLACE_PAR_TON_TOKEN_SECRET_ALEATOIRE');
+
+// Token pour le worker GED (jobs asynchrones) : analyse IA avancée, etc.
+define('CRON_GED_TOKEN', 'REMPLACE_PAR_TON_TOKEN_SECRET_ALEATOIRE');
 
 // Email super-admin qui reçoit le récap global (ne pas laisser vide)
 define('CRON_RECAP_ADMIN_EMAIL', 'emmanuel.emery@regie-emery.com');
