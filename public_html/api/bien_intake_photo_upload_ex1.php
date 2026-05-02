@@ -65,67 +65,25 @@ try {
         exit(json_encode(['ok' => false, 'error' => $res['error'] ?? 'Échec ajout photo', 'bien_id' => $bienId]));
     }
 
-    // ── Analyse IA Vision : commercial (catégorie + description) + critique prise de vue ──
-    // Synchrone : l'utilisateur voit le résultat immédiatement à la fin de l'upload.
-    // Si l'analyse échoue, la photo reste en analyse_statut='pending' (default colonne)
-    // → rattrapée par le bouton global "Analyser toutes" ou par le cron retry.
+    // ── Analyse IA Vision : description courte + catégorie ──
     $analyse = ['ok' => false];
     $photoAbs = dirname(__DIR__) . '/' . $res['url'];
     if (is_file($photoAbs) && empty($res['duplicate'])) {
         try {
             $analyse = analyserPhotoBien($photoAbs);
             if ($analyse['ok']) {
-                $cat  = $analyse['commercial']['categorie']   ?? ($analyse['categorie']   ?? null);
-                $desc = $analyse['commercial']['description'] ?? ($analyse['description'] ?? null);
-                $cri  = $analyse['critique'] ?? null;
-
-                // Tente d'écrire commercial + critique. En cas d'absence des colonnes
-                // critique (migration non passée), retombe sur l'UPDATE legacy commercial-only.
-                $saved = false;
-                try {
-                    $pdo->prepare("
-                        UPDATE biens_photos
-                        SET categorie = ?, description_ia = ?, description_ia_date = NOW(),
-                            critique_niveau = ?, critique_points_forts = ?, critique_points_faibles = ?,
-                            critique_conseil = ?, critique_ia_date = NOW(),
-                            analyse_statut = 'ok', analyse_erreur = NULL
-                        WHERE id = ?
-                    ")->execute([
-                        $cat,
-                        $desc,
-                        !empty($cri['niveau']) ? $cri['niveau'] : null,
-                        !empty($cri['points_forts'])   ? json_encode($cri['points_forts'],   JSON_UNESCAPED_UNICODE) : null,
-                        !empty($cri['points_faibles']) ? json_encode($cri['points_faibles'], JSON_UNESCAPED_UNICODE) : null,
-                        !empty($cri['conseil']) ? $cri['conseil'] : null,
-                        (int)$res['id'],
-                    ]);
-                    $saved = true;
-                } catch (Throwable $e1) {
-                    // Fallback : colonnes critique pas encore en BDD
-                    try {
-                        $pdo->prepare("
-                            UPDATE biens_photos
-                            SET categorie = ?, description_ia = ?, description_ia_date = NOW()
-                            WHERE id = ?
-                        ")->execute([$cat, $desc, (int)$res['id']]);
-                        $saved = true;
-                    } catch (Throwable $e2) {
-                        error_log('[bien_intake_photo] update legacy: ' . $e2->getMessage());
-                    }
-                }
-            } else {
-                // Analyse a échoué : marque le statut error pour cron retry
-                try {
-                    $pdo->prepare("UPDATE biens_photos SET analyse_statut='error', analyse_erreur=? WHERE id=?")
-                        ->execute([substr((string)($analyse['error'] ?? 'erreur inconnue'), 0, 500), (int)$res['id']]);
-                } catch (Throwable) {}
+                $pdo->prepare("
+                    UPDATE biens_photos
+                    SET categorie = ?, description_ia = ?, description_ia_date = NOW()
+                    WHERE id = ?
+                ")->execute([
+                    $analyse['categorie'] ?? null,
+                    $analyse['description'] ?? null,
+                    (int)$res['id'],
+                ]);
             }
         } catch (Throwable $e) {
             error_log('[bien_intake_photo] vision: ' . $e->getMessage());
-            try {
-                $pdo->prepare("UPDATE biens_photos SET analyse_statut='error', analyse_erreur=? WHERE id=?")
-                    ->execute([substr($e->getMessage(), 0, 500), (int)$res['id']]);
-            } catch (Throwable) {}
         }
     }
 
@@ -162,9 +120,8 @@ try {
         'ordre'     => $res['ordre'] ?? null,
         'duplicate' => $res['duplicate'] ?? false,
         'annonce_linked' => $annonceLinked,
-        'categorie'   => $analyse['ok'] ? ($analyse['commercial']['categorie']   ?? ($analyse['categorie']   ?? null)) : null,
-        'description' => $analyse['ok'] ? ($analyse['commercial']['description'] ?? ($analyse['description'] ?? null)) : null,
-        'critique'    => $analyse['ok'] ? ($analyse['critique'] ?? null) : null,
+        'categorie' => $analyse['ok'] ? ($analyse['categorie'] ?? null) : null,
+        'description' => $analyse['ok'] ? ($analyse['description'] ?? null) : null,
     ]);
 } catch (Throwable $e) {
     http_response_code(500);

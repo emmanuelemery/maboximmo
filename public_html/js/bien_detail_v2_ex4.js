@@ -2131,55 +2131,21 @@
       const lightbox   = document.getElementById('v2-photo-lightbox');
       const lbImg      = document.getElementById('v2-lightbox-img');
       const lbCaption  = document.getElementById('v2-lightbox-caption');
-      const lbCounter  = document.getElementById('v2-lightbox-counter');
       const lbClose    = lightbox?.querySelector('.v2-lightbox-close');
-      const lbPrev     = lightbox?.querySelector('.v2-lightbox-prev');
-      const lbNext     = lightbox?.querySelector('.v2-lightbox-next');
 
-      let lbIndex = 0;
-
-      function lbCollectPhotos() {
-        return Array.from(document.querySelectorAll('.v2-photo-tile'))
-          .map(t => ({ url: t.dataset.url || '', name: t.dataset.name || '' }))
-          .filter(p => p.url);
-      }
-      function lbShow(i) {
-        if (!lightbox || !lbImg) return;
-        const photos = lbCollectPhotos();
-        if (!photos.length) return;
-        // Cycle (wrap-around)
-        const n = photos.length;
-        lbIndex = ((i % n) + n) % n;
-        const cur = photos[lbIndex];
-        lbImg.src = cur.url;
-        lbImg.alt = cur.name;
-        if (lbCaption) lbCaption.textContent = cur.name;
-        if (lbCounter) lbCounter.textContent = (lbIndex + 1) + ' / ' + n;
-        const single = (n <= 1);
-        if (lbPrev) lbPrev.style.display = single ? 'none' : '';
-        if (lbNext) lbNext.style.display = single ? 'none' : '';
-      }
       function openLightbox(url, name) {
         if (!lightbox || !lbImg) return;
-        const photos = lbCollectPhotos();
-        const idx = Math.max(0, photos.findIndex(p => p.url === url));
-        lbShow(idx);
+        lbImg.src = url;
+        lbImg.alt = name || '';
+        if (lbCaption) lbCaption.textContent = name || '';
         lightbox.hidden = false;
       }
       function closeLightbox() { if (lightbox) lightbox.hidden = true; }
 
       if (lightbox) {
         lbClose?.addEventListener('click', closeLightbox);
-        lbPrev?.addEventListener('click', (e) => { e.stopPropagation(); lbShow(lbIndex - 1); });
-        lbNext?.addEventListener('click', (e) => { e.stopPropagation(); lbShow(lbIndex + 1); });
         lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
-        // Capture-phase pour passer DEVANT le keydown du Stage (qui fait prev/next des cards)
-        document.addEventListener('keydown', (e) => {
-          if (lightbox.hidden) return;
-          if (e.key === 'Escape')      { closeLightbox(); e.preventDefault(); e.stopPropagation(); }
-          else if (e.key === 'ArrowLeft')  { lbShow(lbIndex - 1); e.preventDefault(); e.stopPropagation(); }
-          else if (e.key === 'ArrowRight') { lbShow(lbIndex + 1); e.preventDefault(); e.stopPropagation(); }
-        }, true);
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
       }
 
       if (photosGrid) {
@@ -2233,174 +2199,24 @@
               const j = await r.json();
               if (!j.ok) throw new Error(j.error || 'Erreur analyse');
               const res = (j.results && j.results[0]) || {};
-              renderPhotoAi(tile, res);
-              tile.dataset.statut = 'ok';
+              const cat = res.categorie || '';
+              const desc = res.description || '';
+              if (aiBox) {
+                const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+                let html = '';
+                if (cat)  html += '<span class="v2-photo-tile-ai-cat">🏷️ ' + escapeHtml(cat) + '</span>';
+                if (desc) html += '<div class="v2-photo-tile-ai-desc">' + escapeHtml(desc) + '</div>';
+                if (!html) html = '<span class="v2-photo-tile-ai-empty">📝 Aucun résultat</span>';
+                aiBox.innerHTML = html;
+              }
               btn.disabled = false; btn.textContent = '🤖';
-              updateAnalyzeAllCount();
             } catch (err) {
               if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + err.message + '</span>';
               btn.disabled = false; btn.textContent = '🤖';
             }
           }
         });
-
-        // ── Helpers de rendu (commercial + critique) ──
-        function escapeHtml(s) {
-          return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-        }
-        function renderPhotoAi(tile, res) {
-          const aiBox = tile.querySelector('[data-photo-ai]');
-          const cat = res.categorie || '';
-          const desc = res.description || '';
-          if (aiBox) {
-            let html = '';
-            if (cat)  html += '<span class="v2-photo-tile-ai-cat">🏷️ ' + escapeHtml(cat) + '</span>';
-            if (desc) html += '<div class="v2-photo-tile-ai-desc">' + escapeHtml(desc) + '</div>';
-            if (!html) html = '<span class="v2-photo-tile-ai-empty">📝 Aucun résultat</span>';
-            aiBox.innerHTML = html;
-          }
-          const cri = res.critique || null;
-          if (!cri) return;
-          const niveau = (cri.niveau || '').toLowerCase();
-          const icon  = ({bon:'🟢', moyen:'🟡', mauvais:'🔴'})[niveau] || '⚪';
-          const label = ({bon:'Bonne photo', moyen:'À améliorer', mauvais:'À refaire'})[niveau] || 'Non évaluée';
-          const pf = Array.isArray(cri.points_forts)   ? cri.points_forts   : [];
-          const pw = Array.isArray(cri.points_faibles) ? cri.points_faibles : [];
-          const conseil = cri.conseil || '';
-          let html = '<div class="critique-header"><span class="critique-icon">' + icon + '</span>'
-                   + '<span class="critique-label">📸 Prise de vue : ' + escapeHtml(label) + '</span></div>';
-          if (pf.length) {
-            html += '<div class="critique-section critique-forts"><div class="critique-section-title">✅ Points forts</div><ul>';
-            pf.forEach(x => { html += '<li>' + escapeHtml(x) + '</li>'; });
-            html += '</ul></div>';
-          }
-          if (pw.length) {
-            html += '<div class="critique-section critique-faibles"><div class="critique-section-title">⚠️ À améliorer</div><ul>';
-            pw.forEach(x => { html += '<li>' + escapeHtml(x) + '</li>'; });
-            html += '</ul></div>';
-          }
-          if (conseil) {
-            html += '<div class="critique-conseil">💡 ' + escapeHtml(conseil) + '</div>';
-          }
-          let cBox = tile.querySelector('[data-photo-critique]');
-          if (!cBox) {
-            cBox = document.createElement('div');
-            cBox.className = 'v2-photo-tile-critique critique-niveau-' + (niveau || 'na');
-            cBox.setAttribute('data-photo-critique', tile.dataset.id || '');
-            tile.appendChild(cBox);
-          } else {
-            cBox.className = 'v2-photo-tile-critique critique-niveau-' + (niveau || 'na');
-          }
-          cBox.innerHTML = html;
-        }
-        function updateAnalyzeAllCount() {
-          const all = document.querySelectorAll('.v2-photo-tile');
-          let pending = 0;
-          all.forEach(t => { if ((t.dataset.statut || '') !== 'ok') pending++; });
-          // Met à jour TOUTES les copies du bouton (le slider/onglets clone le label).
-          document.querySelectorAll('[data-analyze-all-photos] .v2-analyze-all-count').forEach(el => {
-            el.textContent = String(pending);
-          });
-          if (pending === 0) {
-            document.querySelectorAll('[data-analyze-all-photos]').forEach(b => { b.disabled = true; });
-          }
-        }
       }
-
-      // ── Bouton global "Analyser toutes les photos" ──
-      // Délégation au niveau body : le bouton est dupliqué par le slider de cards
-      // (.v2-stage-tab clone l'innerHTML du .v2-card-label). Sans délégation, seul
-      // l'exemplaire original capte le listener et le clic sur la copie ne fait rien.
-      // stopPropagation pour ne pas déclencher le switch d'onglet du slider.
-      //
-      // Concurrence : N photos analysées en parallèle (par défaut 3) — gain x3
-      // sur le temps total, sans surcharger l'API Anthropic (rate limit confortable
-      // à ce niveau).
-      const ANALYZE_CONCURRENCY = 3;
-      document.body.addEventListener('click', async (e) => {
-        const btnAll = e.target.closest('[data-analyze-all-photos]');
-        if (!btnAll) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (btnAll.dataset.busy === '1') return;
-
-        const tiles = Array.from(document.querySelectorAll('.v2-photo-tile'));
-        const todo = tiles.filter(t => (t.dataset.statut || '') !== 'ok');
-        if (!todo.length) {
-          alert('Toutes les photos sont déjà analysées.');
-          return;
-        }
-
-        // Verrouille toutes les copies du bouton pendant le run
-        const allBtns = Array.from(document.querySelectorAll('[data-analyze-all-photos]'));
-        const original = btnAll.innerHTML;
-        allBtns.forEach(b => { b.dataset.busy = '1'; b.disabled = true; });
-
-        const analyzeUrl = (data.bienDetailUrl ? data.bienDetailUrl.replace('/bien_detail.php', '') : '') + '/api/bien_photo_analyze.php';
-        const total = todo.length;
-        let done = 0, ko = 0;
-
-        const updateProgress = () => {
-          const progress = '⏳ Analyse… ' + (done + ko) + '/' + total;
-          allBtns.forEach(b => { b.innerHTML = progress; });
-        };
-        updateProgress();
-
-        // Marque toutes les tiles "à traiter" comme en cours immédiatement
-        todo.forEach(tile => {
-          const aiBox = tile.querySelector('[data-photo-ai]');
-          if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty">⏳ Analyse en cours…</span>';
-        });
-
-        // Worker pool : N consommateurs concurrents qui pickent dans la queue
-        const queue = todo.slice();
-        const processOne = async (tile) => {
-          const id = parseInt(tile.dataset.id, 10) || 0;
-          if (id <= 0) return;
-          const aiBox = tile.querySelector('[data-photo-ai]');
-          try {
-            const fd = new FormData();
-            fd.append('id_photo', id);
-            fd.append('csrf_token', data.csrfToken || '');
-            fd.append('force', '1');
-            const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
-            const txt = await r.text();
-            let j;
-            try { j = JSON.parse(txt); } catch (_) {
-              throw new Error('Réponse non-JSON (HTTP ' + r.status + ') ' + txt.slice(0, 160));
-            }
-            if (!j.ok) throw new Error(j.error || 'Erreur API');
-            const indiv = (j.results && j.results[0]) || {};
-            if (indiv.ok === false) throw new Error(indiv.error || 'Photo non analysée');
-            tile.dataset.statut = 'ok';
-            done++;
-          } catch (err) {
-            ko++;
-            console.error('[analyze-all] photo #' + id + ' KO:', err);
-            if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + (err.message || 'Erreur') + '</span>';
-          }
-          updateProgress();
-        };
-        const worker = async () => {
-          while (queue.length) {
-            const tile = queue.shift();
-            if (!tile) break;
-            await processOne(tile);
-          }
-        };
-        const concurrency = Math.min(ANALYZE_CONCURRENCY, total);
-        await Promise.all(Array.from({length: concurrency}, () => worker()));
-
-        allBtns.forEach(b => { b.innerHTML = original; b.disabled = false; b.dataset.busy = ''; });
-        console.log('[analyze-all] terminé : done=' + done + ' ko=' + ko);
-
-        if (done === 0 && ko > 0) {
-          alert('Analyse en erreur sur toutes les photos.\nOuvre la console (F12) pour voir le détail.');
-        } else if (done > 0) {
-          // Recharge pour afficher les blocs critique générés côté serveur (PHP)
-          setTimeout(() => window.location.reload(), 400);
-        }
-      });
 
       // ── Dropzone Photos (glisser/cliquer, multi-fichiers) ──
       const dz = document.getElementById('v2-photo-drop');

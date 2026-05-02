@@ -9,6 +9,8 @@
  *
  * Idempotent : INSERT IGNORE (uk_version sur version) — re-jouable sans casse.
  * Avant insertion : desactive toute version active precedente.
+ * Apres insertion : force la v1 a actif=1 (corrige le bug initial qui
+ * laissait la BDD sans version active si la migration etait re-jouee).
  */
 
 return [
@@ -191,6 +193,11 @@ VALUES
    0,
    'Loi Hoguet n°70-9 / Loi ALUR n°2014-366 / Loi Climat n°2021-1104 / Décret 2020-1610 + arrêtés DPE 2021 / Code consommation / Code copropriété / Code environnement L125-5 / Arrêté honoraires 10 janvier 2017',
    'Brouillon fonctionnel — à valider juridiquement avant passage en production stricte.',
-   NULL)
+   NULL);
+
+-- Garde-fou : meme si l'INSERT IGNORE ci-dessus a ete saute (v1 deja
+-- presente), on force la v1 a actif=1 pour eviter de laisser la BDD
+-- sans aucune version active (le UPDATE initial avait tout desactive).
+UPDATE `mbi_supports_mentions_versions` SET `actif` = 1 WHERE `version` = '2026-05-01.v1';
 SQL,
 ];
