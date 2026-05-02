@@ -861,8 +861,9 @@ require_once $_sbFile;
               $nbAnalyser = 0;
               foreach ($docsPhotos as $pp) { if (($pp['analyse_statut'] ?? '') !== 'ok') $nbAnalyser++; }
           ?>
-            <button type="button" id="v2-analyze-all-photos"
+            <button type="button"
                     class="v2-btn-analyze-all"
+                    data-analyze-all-photos="1"
                     data-bien-id="<?= (int)$editingBienId ?>"
                     title="Analyser toutes les photos non encore analysées (commercial + critique de prise de vue)">
               🤖 Analyser toutes <span class="v2-analyze-all-count"><?= $nbAnalyser ?></span>

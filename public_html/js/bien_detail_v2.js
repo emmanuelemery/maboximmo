@@ -2263,54 +2263,77 @@
           const all = document.querySelectorAll('.v2-photo-tile');
           let pending = 0;
           all.forEach(t => { if ((t.dataset.statut || '') !== 'ok') pending++; });
-          const cnt = document.querySelector('#v2-analyze-all-photos .v2-analyze-all-count');
-          if (cnt) cnt.textContent = String(pending);
-          const btn = document.getElementById('v2-analyze-all-photos');
-          if (btn && pending === 0) btn.disabled = true;
-        }
-
-        // ── Bouton global "Analyser toutes les photos" ──
-        const btnAll = document.getElementById('v2-analyze-all-photos');
-        if (btnAll) {
-          btnAll.addEventListener('click', async () => {
-            const tiles = Array.from(document.querySelectorAll('.v2-photo-tile'));
-            const todo = tiles.filter(t => (t.dataset.statut || '') !== 'ok');
-            if (!todo.length) return;
-            const original = btnAll.innerHTML;
-            btnAll.disabled = true;
-            const analyzeUrl = (data.bienDetailUrl ? data.bienDetailUrl.replace('/bien_detail.php', '') : '') + '/api/bien_photo_analyze.php';
-            let done = 0, ko = 0;
-            for (const tile of todo) {
-              const id = parseInt(tile.dataset.id, 10) || 0;
-              if (id <= 0) continue;
-              btnAll.innerHTML = '⏳ Analyse… ' + (done + 1) + '/' + todo.length;
-              const aiBox = tile.querySelector('[data-photo-ai]');
-              if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty">⏳ Analyse en cours…</span>';
-              try {
-                const fd = new FormData();
-                fd.append('id_photo', id);
-                fd.append('csrf_token', data.csrfToken || '');
-                fd.append('force', '1');
-                const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
-                const j = await r.json();
-                if (!j.ok) throw new Error(j.error || 'Erreur');
-                const res = (j.results && j.results[0]) || {};
-                renderPhotoAi(tile, res);
-                tile.dataset.statut = 'ok';
-                done++;
-              } catch (err) {
-                ko++;
-                if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + err.message + '</span>';
-              }
-              updateAnalyzeAllCount();
-            }
-            btnAll.innerHTML = original;
-            btnAll.disabled = false;
-            updateAnalyzeAllCount();
-            if (ko > 0) alert('Analyse terminée : ' + done + ' OK, ' + ko + ' en erreur. Réessaie pour les erreurs.');
+          // Met à jour TOUTES les copies du bouton (le slider/onglets clone le label).
+          document.querySelectorAll('[data-analyze-all-photos] .v2-analyze-all-count').forEach(el => {
+            el.textContent = String(pending);
           });
+          if (pending === 0) {
+            document.querySelectorAll('[data-analyze-all-photos]').forEach(b => { b.disabled = true; });
+          }
         }
       }
+
+      // ── Bouton global "Analyser toutes les photos" ──
+      // Délégation au niveau body : le bouton est dupliqué par le slider de cards
+      // (.v2-stage-tab clone l'innerHTML du .v2-card-label). Sans délégation, seul
+      // l'exemplaire original capte le listener et le clic sur la copie ne fait rien.
+      // stopPropagation pour ne pas déclencher le switch d'onglet du slider.
+      document.body.addEventListener('click', async (e) => {
+        const btnAll = e.target.closest('[data-analyze-all-photos]');
+        if (!btnAll) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (btnAll.dataset.busy === '1') return;
+
+        const tiles = Array.from(document.querySelectorAll('.v2-photo-tile'));
+        const todo = tiles.filter(t => (t.dataset.statut || '') !== 'ok');
+        if (!todo.length) {
+          alert('Toutes les photos sont déjà analysées.');
+          return;
+        }
+
+        // Verrouille toutes les copies du bouton pendant le run
+        const allBtns = Array.from(document.querySelectorAll('[data-analyze-all-photos]'));
+        const original = btnAll.innerHTML;
+        allBtns.forEach(b => { b.dataset.busy = '1'; b.disabled = true; });
+
+        const analyzeUrl = (data.bienDetailUrl ? data.bienDetailUrl.replace('/bien_detail.php', '') : '') + '/api/bien_photo_analyze.php';
+        let done = 0, ko = 0;
+        for (const tile of todo) {
+          const id = parseInt(tile.dataset.id, 10) || 0;
+          if (id <= 0) continue;
+          const progress = '⏳ Analyse… ' + (done + ko + 1) + '/' + todo.length;
+          allBtns.forEach(b => { b.innerHTML = progress; });
+          const aiBox = tile.querySelector('[data-photo-ai]');
+          if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty">⏳ Analyse en cours…</span>';
+          try {
+            const fd = new FormData();
+            fd.append('id_photo', id);
+            fd.append('csrf_token', data.csrfToken || '');
+            fd.append('force', '1');
+            const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
+            let j;
+            try { j = await r.json(); } catch (_) {
+              const txt = await r.text().catch(() => '');
+              throw new Error('Réponse non-JSON (HTTP ' + r.status + ') ' + txt.slice(0, 120));
+            }
+            if (!j.ok) throw new Error(j.error || 'Erreur');
+            tile.dataset.statut = 'ok';
+            done++;
+          } catch (err) {
+            ko++;
+            if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + (err.message || 'Erreur') + '</span>';
+          }
+        }
+        allBtns.forEach(b => { b.innerHTML = original; b.disabled = false; b.dataset.busy = ''; });
+
+        if (ko > 0 && done === 0) {
+          alert('Analyse en erreur sur toutes les photos.\nVérifie la console réseau (F12) pour le détail.');
+        } else {
+          // Recharge pour afficher les blocs critique générés côté serveur (PHP)
+          setTimeout(() => window.location.reload(), 400);
+        }
+      });
 
       // ── Dropzone Photos (glisser/cliquer, multi-fichiers) ──
       const dz = document.getElementById('v2-photo-drop');
