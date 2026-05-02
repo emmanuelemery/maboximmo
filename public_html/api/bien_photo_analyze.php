@@ -45,6 +45,8 @@ try {
 
     $pdo       = db();
     $societeId = (int)($_SESSION['id_societe'] ?? 0);
+    // Super admin (id_role=1) : bypass du scope société (peut analyser toute photo).
+    $isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     $idPhoto   = isset($_POST['id_photo']) && ctype_digit((string)$_POST['id_photo']) ? (int)$_POST['id_photo'] : 0;
     $idBien    = isset($_POST['id_bien'])  && ctype_digit((string)$_POST['id_bien'])  ? (int)$_POST['id_bien']  : 0;
     $force     = !empty($_POST['force']);
@@ -68,7 +70,7 @@ try {
         $st->execute([$idPhoto]);
         $r = $st->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new RuntimeException('Photo introuvable');
-        if ($societeId > 0 && (int)$r['id_societe'] !== $societeId) {
+        if (!$isSuperAdmin && $societeId > 0 && (int)$r['id_societe'] !== $societeId) {
             throw new RuntimeException('Accès refusé');
         }
         $rows = [$r];
@@ -122,7 +124,7 @@ try {
             }
         }
         // Vérif scope sur le premier
-        if ($rows && $societeId > 0 && (int)$rows[0]['id_societe'] !== $societeId) {
+        if (!$isSuperAdmin && $rows && $societeId > 0 && (int)$rows[0]['id_societe'] !== $societeId) {
             throw new RuntimeException('Accès refusé');
         }
     }
