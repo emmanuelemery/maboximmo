@@ -57,6 +57,17 @@ WHERE `slug` = '05_biens'
   AND `module` = 'GESTION_LOCATIVE'
   AND `entity_type` = 'proprietaire';
 
+-- ─── 2bis. Met à jour le path_cache des dossiers renommés + descendants ─
+-- Sinon les anciens paths "test_dupont_jean/05_biens/..." restent en cache
+-- alors que le slug est passé à 05_immeubles. REPLACE est compatible MySQL 5.7+.
+UPDATE `ged_folders`
+SET `path_cache` = REPLACE(`path_cache`, '/05_biens/', '/05_immeubles/')
+WHERE `path_cache` LIKE '%/05_biens/%';
+
+UPDATE `ged_folders`
+SET `path_cache` = REPLACE(`path_cache`, '/05_biens', '/05_immeubles')
+WHERE `path_cache` LIKE '%/05_biens';
+
 -- ─── 3. Créer le template TPL_IMMEUBLE ─────────────────────────────────
 INSERT IGNORE INTO `ged_folder_templates`
   (`tenant_id`, `module`, `code`, `name`, `description`, `is_default`, `is_active`)

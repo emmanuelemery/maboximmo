@@ -126,20 +126,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flash = ['type' => 'success', 'msg' => "✅ Scénario joué : 4 arborescences créées (proprio → immeuble → bien → locataire) + 1 document lié à 4 entités. Doc #{$docId}, canonical=<code>{$canonical}</code>"];
         }
         elseif ($action === 'cleanup') {
-            // Supprime les documents fictifs (status='deleted' soft delete propre)
-            $pdo->prepare("UPDATE ged_documents SET status='deleted', deleted_at=NOW()
-                           WHERE name_display = ?")->execute([TEST_DOC_NAME]);
-            // Supprime les liens fictifs
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'proprietaire' AND entity_id = ?")->execute([TEST_PROPRIO_ID]);
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'immeuble'    AND entity_id = ?")->execute([TEST_IMMEUBLE_ID]);
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'bien'         AND entity_id = ?")->execute([TEST_BIEN_ID]);
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'locataire'    AND entity_id = ?")->execute([TEST_LOC_ID]);
-            // Supprime les dossiers fictifs (récursif via entity_id, soft delete par sécurité)
-            $pdo->prepare("UPDATE ged_folders SET is_archived=1
-                           WHERE entity_type IN ('proprietaire','immeuble','bien','locataire')
-                             AND entity_id IN (?, ?, ?, ?)")
+            // Cleanup HARD : DELETE physique pour permettre un vrai re-run propre
+            // (l'idempotence par slug+parent réutilise sinon les vieux dossiers
+            //  archivés et la nouvelle structure ne se construit pas correctement).
+
+            // 1. Liens documents-entités fictives
+            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type IN ('proprietaire','immeuble','bien','locataire')
+                           AND entity_id IN (?, ?, ?, ?)")
                 ->execute([TEST_PROPRIO_ID, TEST_IMMEUBLE_ID, TEST_BIEN_ID, TEST_LOC_ID]);
-            $flash = ['type' => 'success', 'msg' => "🧹 Données de test archivées (soft delete)."];
+
+            // 2. Documents fictifs (DELETE physique car aucun fichier réel)
+            $pdo->prepare("DELETE FROM ged_documents WHERE name_display = ?")->execute([TEST_DOC_NAME]);
+
+            // 3. Identifie le dossier racine du proprio fictif + tous ses descendants
+            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE entity_type = 'proprietaire' AND entity_id = ?");
+            $st->execute([TEST_PROPRIO_ID]);
+            $proprioRoots = $st->fetchAll(PDO::FETCH_COLUMN);
+
+            // 4. Récupère tous les descendants (parcours large via path_cache LIKE)
+            $allFolderIds = [];
+            foreach ($proprioRoots as $rootId) {
+                $rootId = (int)$rootId;
+                $allFolderIds[] = $rootId;
+                // Récupère le slug du root pour faire un LIKE sur path_cache
+                $stSlug = $pdo->prepare("SELECT path_cache FROM ged_folders WHERE id = ?");
+                $stSlug->execute([$rootId]);
+                $rootPath = (string)($stSlug->fetchColumn() ?: '');
+                if ($rootPath !== '') {
+                    $stDesc = $pdo->prepare("SELECT id FROM ged_folders WHERE path_cache LIKE ?");
+                    $stDesc->execute([$rootPath . '/%']);
+                    foreach ($stDesc->fetchAll(PDO::FETCH_COLUMN) as $did) $allFolderIds[] = (int)$did;
+                }
+            }
+
+            // 5. Ajoute aussi tous les dossiers liés aux entités test (sécurité)
+            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE entity_type IN ('immeuble','bien','locataire')
+                                 AND entity_id IN (?, ?, ?)");
+            $st->execute([TEST_IMMEUBLE_ID, TEST_BIEN_ID, TEST_LOC_ID]);
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $did) $allFolderIds[] = (int)$did;
+            $allFolderIds = array_unique($allFolderIds);
+
+            // 6. DELETE physique des dossiers (en partant des plus profonds)
+            if (!empty($allFolderIds)) {
+                $placeholders = implode(',', array_fill(0, count($allFolderIds), '?'));
+                $pdo->prepare("DELETE FROM ged_folders WHERE id IN ({$placeholders})")
+                    ->execute($allFolderIds);
+            }
+
+            $flash = ['type' => 'success', 'msg' => "🧹 Cleanup HARD : " . count($allFolderIds) . " dossiers supprimés physiquement. Tu peux relancer le scénario propre."];
         }
     } catch (Throwable $e) {
         $flash = ['type' => 'error', 'msg' => '❌ ' . $e->getMessage()];
