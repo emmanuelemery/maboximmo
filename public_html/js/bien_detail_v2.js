@@ -2312,6 +2312,11 @@
       // (.v2-stage-tab clone l'innerHTML du .v2-card-label). Sans délégation, seul
       // l'exemplaire original capte le listener et le clic sur la copie ne fait rien.
       // stopPropagation pour ne pas déclencher le switch d'onglet du slider.
+      //
+      // Concurrence : N photos analysées en parallèle (par défaut 3) — gain x3
+      // sur le temps total, sans surcharger l'API Anthropic (rate limit confortable
+      // à ce niveau).
+      const ANALYZE_CONCURRENCY = 3;
       document.body.addEventListener('click', async (e) => {
         const btnAll = e.target.closest('[data-analyze-all-photos]');
         if (!btnAll) return;
@@ -2332,34 +2337,41 @@
         allBtns.forEach(b => { b.dataset.busy = '1'; b.disabled = true; });
 
         const analyzeUrl = (data.bienDetailUrl ? data.bienDetailUrl.replace('/bien_detail.php', '') : '') + '/api/bien_photo_analyze.php';
+        const total = todo.length;
         let done = 0, ko = 0;
-        for (const tile of todo) {
-          const id = parseInt(tile.dataset.id, 10) || 0;
-          if (id <= 0) continue;
-          const progress = '⏳ Analyse… ' + (done + ko + 1) + '/' + todo.length;
+
+        const updateProgress = () => {
+          const progress = '⏳ Analyse… ' + (done + ko) + '/' + total;
           allBtns.forEach(b => { b.innerHTML = progress; });
+        };
+        updateProgress();
+
+        // Marque toutes les tiles "à traiter" comme en cours immédiatement
+        todo.forEach(tile => {
           const aiBox = tile.querySelector('[data-photo-ai]');
           if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty">⏳ Analyse en cours…</span>';
+        });
+
+        // Worker pool : N consommateurs concurrents qui pickent dans la queue
+        const queue = todo.slice();
+        const processOne = async (tile) => {
+          const id = parseInt(tile.dataset.id, 10) || 0;
+          if (id <= 0) return;
+          const aiBox = tile.querySelector('[data-photo-ai]');
           try {
             const fd = new FormData();
             fd.append('id_photo', id);
             fd.append('csrf_token', data.csrfToken || '');
             fd.append('force', '1');
-            console.log('[analyze-all] POST', analyzeUrl, 'id_photo=' + id);
             const r = await fetch(analyzeUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
-            console.log('[analyze-all] HTTP', r.status, r.statusText);
             const txt = await r.text();
-            console.log('[analyze-all] body len=', txt.length, 'preview:', txt.slice(0, 300));
             let j;
             try { j = JSON.parse(txt); } catch (_) {
-              throw new Error('Réponse non-JSON (HTTP ' + r.status + ') ' + txt.slice(0, 200));
+              throw new Error('Réponse non-JSON (HTTP ' + r.status + ') ' + txt.slice(0, 160));
             }
-            if (!j.ok) throw new Error(j.error || 'Erreur API : ' + JSON.stringify(j).slice(0, 200));
-            // Vérifie le statut individuel de la photo (j.ok=true même si toutes les analyses échouent)
+            if (!j.ok) throw new Error(j.error || 'Erreur API');
             const indiv = (j.results && j.results[0]) || {};
-            if (indiv.ok === false) {
-              throw new Error(indiv.error || 'Photo non analysée (raison non précisée)');
-            }
+            if (indiv.ok === false) throw new Error(indiv.error || 'Photo non analysée');
             tile.dataset.statut = 'ok';
             done++;
           } catch (err) {
@@ -2367,15 +2379,26 @@
             console.error('[analyze-all] photo #' + id + ' KO:', err);
             if (aiBox) aiBox.innerHTML = '<span class="v2-photo-tile-ai-empty" style="color:#dc2626;">❌ ' + (err.message || 'Erreur') + '</span>';
           }
-        }
-        allBtns.forEach(b => { b.innerHTML = original; b.disabled = false; b.dataset.busy = ''; });
+          updateProgress();
+        };
+        const worker = async () => {
+          while (queue.length) {
+            const tile = queue.shift();
+            if (!tile) break;
+            await processOne(tile);
+          }
+        };
+        const concurrency = Math.min(ANALYZE_CONCURRENCY, total);
+        await Promise.all(Array.from({length: concurrency}, () => worker()));
 
+        allBtns.forEach(b => { b.innerHTML = original; b.disabled = false; b.dataset.busy = ''; });
         console.log('[analyze-all] terminé : done=' + done + ' ko=' + ko);
+
         if (done === 0 && ko > 0) {
           alert('Analyse en erreur sur toutes les photos.\nOuvre la console (F12) pour voir le détail.');
         } else if (done > 0) {
           // Recharge pour afficher les blocs critique générés côté serveur (PHP)
-          setTimeout(() => window.location.reload(), 600);
+          setTimeout(() => window.location.reload(), 400);
         }
       });
 
