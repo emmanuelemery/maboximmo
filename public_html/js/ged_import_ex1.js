@@ -9,17 +9,7 @@
   const $   = (sel, root) => (root || document).querySelector(sel);
   const $$  = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
-  // batch_id : 1) attribut data-batch-id sur .gimp-wrap, 2) param URL ?batch_id=, 3) 0
-  function detectBatchId() {
-    const wrap = document.querySelector('.gimp-wrap');
-    let id = wrap ? parseInt(wrap.dataset.batchId || '0', 10) : 0;
-    if (!id) {
-      const m = window.location.search.match(/[?&]batch_id=(\d+)/);
-      if (m) id = parseInt(m[1], 10) || 0;
-    }
-    return id;
-  }
-  let currentBatchId = detectBatchId();
+  let currentBatchId = parseInt(document.body.dataset.batchId || '0', 10) || 0;
   let currentItem = null;
   let currentItems = [];
 
