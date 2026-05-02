@@ -1,0 +1,142 @@
+/* ─────────────────────────────────────────────────────────────────
+   Ma GED Box V1.1 — CSS dédié super_admin_ged_niveaux (cascade + drag&drop)
+   Design moderne, badges colorés par niveau, drag visible.
+   ───────────────────────────────────────────────────────────────── */
+
+.gnvx-wrap { max-width: 1500px; margin: 0 auto; padding: 24px 20px; }
+.gnvx-wrap h1 { font-size: 24px; color: #0f172a; margin: 0 0 4px;
+  background: linear-gradient(135deg, #0ea5e9 0%, #243B5C 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; }
+.gnvx-wrap .sub { color: #64748b; font-size: 13px; margin: 0 0 18px; }
+
+.gnvx-flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
+.gnvx-flash.success { background: #f0fdf4; border-left: 4px solid #16a34a; color: #14532d; }
+.gnvx-flash.warning { background: #fffbeb; border-left: 4px solid #f59e0b; color: #92400e; }
+.gnvx-flash.error   { background: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b; }
+
+.gnvx-toolbar {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 10px 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e5e7eb; border-radius: 10px;
+}
+.gnvx-toolbar small { color: #64748b; font-size: 12px; }
+
+/* ─── Grille colonnes N1→N6 ─────────────────────────────────── */
+.gnvx-cols {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(6, minmax(220px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+@media (max-width: 1300px) { .gnvx-cols { grid-template-columns: repeat(3, minmax(220px, 1fr)); } }
+@media (max-width: 700px)  { .gnvx-cols { grid-template-columns: 1fr; } }
+
+.gnvx-col {
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+  padding: 12px 14px; min-height: 200px;
+  transition: box-shadow .15s, border-color .15s;
+}
+.gnvx-col:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
+.gnvx-col-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #e5e7eb;
+}
+.gnvx-col-title { font-size: 13px; font-weight: 800; color: #0f172a; }
+.gnvx-col-title small { font-weight: 400; color: #94a3b8; font-size: 10px; display: block; }
+
+/* Badge niveau coloré */
+.gnvx-badge-level {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 11px; font-weight: 700; letter-spacing: .03em;
+}
+.gnvx-badge-level-1 { background: #dbeafe; color: #1e40af; }
+.gnvx-badge-level-2 { background: #ddd6fe; color: #5b21b6; }
+.gnvx-badge-level-3 { background: #fef3c7; color: #92400e; }
+.gnvx-badge-level-4 { background: #fce7f3; color: #9d174d; }
+.gnvx-badge-level-5 { background: #d1fae5; color: #065f46; }
+.gnvx-badge-level-6 { background: #f1f5f9; color: #334155; border: 1px dashed #cbd5e1; }
+
+/* Items dans la colonne */
+.gnvx-list { list-style: none; padding: 0; margin: 0; }
+.gnvx-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  font-size: 13px; color: #0f172a;
+  border: 1px solid transparent; background: #fafbfc;
+  margin-bottom: 4px;
+  transition: all .12s;
+  user-select: none;
+}
+.gnvx-item:hover { background: #f1f5f9; border-color: #cbd5e1; }
+.gnvx-item.is-active { background: #e0f2fe; border-color: #0ea5e9; font-weight: 700; }
+.gnvx-item.is-archived { opacity: .45; }
+.gnvx-item.is-archived .gnvx-item-label { text-decoration: line-through; }
+
+/* Drag handle */
+.gnvx-drag-handle {
+  cursor: grab; color: #cbd5e1; font-size: 14px; line-height: 1;
+  padding: 0 4px;
+}
+.gnvx-drag-handle:active { cursor: grabbing; color: #475569; }
+
+.gnvx-item-label { flex: 1; }
+.gnvx-item-code { font-family: monospace; font-size: 10px; color: #94a3b8; }
+
+.gnvx-item-actions {
+  display: flex; gap: 4px; opacity: 0; transition: opacity .12s;
+}
+.gnvx-item:hover .gnvx-item-actions { opacity: 1; }
+.gnvx-action-btn {
+  border: none; background: transparent; cursor: pointer; font-size: 12px;
+  padding: 2px 4px; border-radius: 4px; line-height: 1;
+}
+.gnvx-action-btn:hover { background: #cbd5e1; }
+
+/* Drag & drop visual feedback */
+.gnvx-item.gnvx-dragging {
+  opacity: .4; border: 2px dashed #0ea5e9; background: #f0f9ff;
+}
+.gnvx-list.gnvx-drag-over {
+  background: #f0f9ff; border-radius: 8px; padding: 4px;
+  outline: 2px dashed #0ea5e9; outline-offset: -2px;
+}
+
+/* Form ajout en bas de colonne */
+.gnvx-add-form {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e5e7eb;
+}
+.gnvx-add-form input, .gnvx-add-form button {
+  width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px;
+  font-size: 11px; font-family: inherit; box-sizing: border-box;
+  margin-bottom: 4px;
+}
+.gnvx-add-form button {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #fff; border: none; cursor: pointer; font-weight: 700;
+}
+.gnvx-add-form button:hover { opacity: .9; }
+
+.gnvx-empty {
+  color: #94a3b8; font-style: italic; font-size: 12px;
+  padding: 16px 8px; text-align: center;
+}
+.gnvx-locked {
+  color: #cbd5e1; font-size: 11px; font-style: italic;
+  padding: 16px 8px; text-align: center;
+}
+
+/* Tip */
+.gnvx-tip {
+  padding: 10px 14px; background: #f0f9ff; border-left: 4px solid #0ea5e9;
+  border-radius: 8px; font-size: 12px; color: #0c4a6e; margin-top: 16px;
+}
+
+/* Bouton recalcul */
+.gnvx-btn-recalc {
+  padding: 8px 14px; border: none; border-radius: 8px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #fff; cursor: pointer; font-size: 12px; font-weight: 700;
+}
+.gnvx-btn-recalc:hover { opacity: .92; }

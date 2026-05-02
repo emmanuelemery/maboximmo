@@ -105,124 +105,77 @@ $bodyClass = '';
 require_once __DIR__ . '/inc/header.php';
 ?>
 <link rel="stylesheet" href="/css/ged_import.css?v=<?= @filemtime(__DIR__ . '/css/ged_import.css') ?: time() ?>">
-<link rel="stylesheet" href="/css/ged_admin.css?v=<?= @filemtime(__DIR__ . '/css/ged_admin.css') ?: time() ?>">
 
-<div class="gnvx-wrap">
+<div class="gnv-wrap">
   <h1>🏷️ GED — Gestion des niveaux N1→N6</h1>
-  <p class="sub">Cascade visuelle. Drag &amp; drop pour réordonner ou changer de parent. N6 reste libre (saisi à l'import).</p>
+  <p class="sub">Cascade visuelle. Clique un niveau pour voir ses enfants. N6 reste libre (pas de référentiel obligatoire).</p>
 
   <?php if ($flash): ?>
-    <div class="gnvx-flash <?= $h($flash['type']) ?>"><?= $flash['msg'] ?></div>
+    <div class="gimp-flash <?= $h($flash['type']) ?>"><?= $flash['msg'] ?></div>
   <?php endif; ?>
 
-  <div class="gnvx-toolbar">
-    <small>📍 Cliquez un niveau pour explorer ses enfants. Glissez les items pour les réordonner. ⚙️ pour archiver, 🗑️ pour supprimer (si vide).</small>
-    <span style="flex:1"></span>
-    <button type="button" id="gnvx-btn-recalc" class="gnvx-btn-recalc" title="Recalcule tous les path_cache + depth dans ged_folders">♻️ Recalculer arborescence</button>
-  </div>
-
-  <div class="gnvx-cols">
+  <div style="display:grid;grid-template-columns:repeat(<?= count($cols) ?>, 1fr);gap:14px">
     <?php for ($lvl = 1; $lvl <= 5; $lvl++):
-      if (!isset($cols[$lvl])) {
-        // Colonne vide (verrouillée tant qu'on n'a pas sélectionné le niveau parent)
-        ?>
-        <div class="gnvx-col">
-          <div class="gnvx-col-header">
-            <div class="gnvx-col-title">
-              <span class="gnvx-badge-level gnvx-badge-level-<?= $lvl ?>">N<?= $lvl ?></span>
-              <small>verrouillé</small>
-            </div>
-          </div>
-          <div class="gnvx-locked">— Sélectionne un niveau N<?= $lvl - 1 ?> ci-contre —</div>
-        </div>
-        <?php
-        continue;
-      }
+      if (!isset($cols[$lvl])) continue;
       $items = $cols[$lvl];
-      $selected = ['n1'=>$selN1,'n2'=>$selN2,'n3'=>$selN3,'n4'=>$selN4,'n5'=>''][('n' . $lvl)];
-      // Data-attributs de la liste : parent_n1..parent_n4 (utilisé par drag & drop pour le move)
-      $listParents = '';
-      for ($p = 1; $p < $lvl; $p++) {
-        $listParents .= ' data-parent-n' . $p . '="' . $h($parents['n' . $p] ?? '') . '"';
-      }
+      $selected = ['n1'=>$selN1,'n2'=>$selN2,'n3'=>$selN3,'n4'=>$selN4,'n5'=>'']['n' . $lvl];
     ?>
-      <div class="gnvx-col">
-        <div class="gnvx-col-header">
-          <div class="gnvx-col-title">
-            <span class="gnvx-badge-level gnvx-badge-level-<?= $lvl ?>">N<?= $lvl ?></span>
-            <?php if ($lvl > 1): ?>
-              <small>sous <code><?= $h($parents['n' . ($lvl - 1)] ?? '') ?></code></small>
-            <?php else: ?>
-              <small>Modules métier racine</small>
-            <?php endif; ?>
-          </div>
-          <small style="color:#94a3b8;font-size:10px"><?= count($items) ?> items</small>
-        </div>
-        <ul class="gnvx-list" data-level="<?= $lvl ?>"<?= $listParents ?>>
+      <div class="gnv-card">
+        <h2>N<?= $lvl ?> <?= $lvl > 1 ? '<small style="font-weight:400;font-size:11px;color:#94a3b8">sous '.$h($parents['n'.($lvl-1)]).'</small>' : '' ?></h2>
+        <ul class="gnv-list">
           <?php if (empty($items)): ?>
-            <li class="gnvx-empty">Aucun niveau — ajoute-en un ci-dessous.</li>
+            <li class="gnv-empty">Aucun niveau — ajoute-en un ci-dessous.</li>
           <?php else:
             foreach ($items as $it):
               $childParams = $parents;
               $childParams['n' . $lvl] = $it['code'];
-              for ($i = $lvl + 1; $i <= 4; $i++) $childParams['n' . $i] = '';
+              for ($i = $lvl + 1; $i <= 4; $i++) $childParams['n' . $i] = ''; // reset descendants
               $url = '?' . http_build_query(array_filter([
                 'n1' => $childParams['n1'], 'n2' => $childParams['n2'],
                 'n3' => $childParams['n3'], 'n4' => $childParams['n4']
               ]));
               $isActive = $selected === $it['code'];
-              $isArchived = !((int)$it['is_active']);
             ?>
-              <li class="gnvx-item <?= $isActive ? 'is-active' : '' ?> <?= $isArchived ? 'is-archived' : '' ?>"
-                  data-id="<?= (int)$it['id'] ?>"
-                  data-level="<?= $lvl ?>"
-                  data-code="<?= $h($it['code']) ?>"
-                  data-label="<?= $h($it['label']) ?>"
-                  onclick="if(!event.target.closest('.gnvx-action-btn,.gnvx-drag-handle')) window.location='<?= $h($url) ?>'">
-                <span class="gnvx-drag-handle" title="Glisser pour réordonner">⋮⋮</span>
-                <span class="gnvx-item-label"><?= $h($it['label']) ?></span>
-                <span class="gnvx-item-code"><?= $h($it['code']) ?></span>
-                <span class="gnvx-item-actions">
-                  <?php if ($isArchived): ?>
-                    <button type="button" class="gnvx-action-btn" data-btn-action="unarchive" data-id="<?= (int)$it['id'] ?>" title="Désarchiver">✓</button>
-                  <?php else: ?>
-                    <button type="button" class="gnvx-action-btn" data-btn-action="archive"   data-id="<?= (int)$it['id'] ?>" title="Archiver">⚙️</button>
-                  <?php endif; ?>
-                  <button type="button" class="gnvx-action-btn" data-btn-action="delete" data-id="<?= (int)$it['id'] ?>" title="Supprimer (si vide)">🗑️</button>
-                </span>
+              <li class="<?= $isActive ? 'is-active' : '' ?>" onclick="window.location='<?= $h($url) ?>'">
+                <span><?= $h($it['label']) ?> <small><?= $h($it['code']) ?></small></span>
+                <form method="POST" style="display:inline" onclick="event.stopPropagation()">
+                  <input type="hidden" name="action" value="toggle_active">
+                  <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
+                  <button type="submit" class="gimp-btn <?= $it['is_active'] ? 'gimp-btn-ghost' : 'gimp-btn-danger' ?>" style="padding:2px 6px;font-size:10px" title="Bascule actif/inactif">
+                    <?= $it['is_active'] ? '✓' : '✗' ?>
+                  </button>
+                </form>
               </li>
             <?php endforeach;
           endif; ?>
         </ul>
 
         <!-- Form ajout d'un niveau -->
-        <form method="POST" class="gnvx-add-form">
+        <form method="POST" style="margin-top:14px;border-top:1px dashed #e5e7eb;padding-top:10px">
           <input type="hidden" name="action" value="add_level">
           <input type="hidden" name="level" value="<?= $lvl ?>">
           <?php if ($lvl > 1): ?><input type="hidden" name="parent_n1" value="<?= $h($selN1) ?>"><?php endif; ?>
           <?php if ($lvl > 2): ?><input type="hidden" name="parent_n2" value="<?= $h($selN2) ?>"><?php endif; ?>
           <?php if ($lvl > 3): ?><input type="hidden" name="parent_n3" value="<?= $h($selN3) ?>"><?php endif; ?>
           <?php if ($lvl > 4): ?><input type="hidden" name="parent_n4" value="<?= $h($selN4) ?>"><?php endif; ?>
-          <input type="text" name="code" placeholder="CODE (ex: TRAVAUX)" required>
-          <input type="text" name="label" placeholder="Libellé humain" required>
-          <input type="number" name="position" placeholder="Position" value="50">
-          <button type="submit">+ Ajouter N<?= $lvl ?></button>
+          <input type="text" name="code" placeholder="CODE (ex: TRAVAUX)" required
+                 style="width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;margin-bottom:4px">
+          <input type="text" name="label" placeholder="Libellé humain" required
+                 style="width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;margin-bottom:4px">
+          <input type="number" name="position" placeholder="Position" value="50"
+                 style="width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;margin-bottom:4px">
+          <button type="submit" class="gimp-btn gimp-btn-primary" style="width:100%;padding:5px;font-size:11px">+ Ajouter N<?= $lvl ?></button>
         </form>
       </div>
     <?php endfor; ?>
   </div>
 
-  <div class="gnvx-tip">
+  <div style="margin-top:20px;padding:12px 16px;background:#f0f9ff;border:1px solid #67e8f9;border-radius:8px;font-size:12px;color:#0c4a6e">
     💡 <strong>N6 = libre.</strong> Pas de référentiel à gérer ici, l'utilisateur le saisit librement
     dans la modal d'import (suggestions sauvegardées pour réutilisation future).
-    <br>
-    🖱️ <strong>Drag &amp; drop</strong> : glisse un item dans sa colonne pour réordonner. Glisse-le
-    dans une autre colonne (sous un autre parent) pour le déplacer (changement de parent).
   </div>
 
   <p style="text-align:center;margin-top:18px;font-size:12px;color:#64748b">
     → <a href="/super_admin_ged_import.php" style="color:#0369a1">📥 Aller à la page d'import</a>
   </p>
 </div>
-
-<script src="/js/ged_admin_niveaux.js?v=<?= @filemtime(__DIR__ . '/js/ged_admin_niveaux.js') ?: time() ?>"></script>
