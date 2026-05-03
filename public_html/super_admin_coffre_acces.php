@@ -39,7 +39,7 @@ $appLayout = true;
 $pageTitle = 'Coffre accès sécurisé';
 $bodyClass = '';
 require_once __DIR__ . '/inc/header.php';
-require_once __DIR__ . '/inc/ged_help_button.php'; // V2.5 — bouton "Guide GED" topbar
+require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + container
 ?>
 <link rel="stylesheet" href="/css/ged_import.css?v=<?= @filemtime(__DIR__ . '/css/ged_import.css') ?: time() ?>">
 <style>

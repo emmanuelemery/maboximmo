@@ -215,6 +215,7 @@ $appLayout = true;
 $pageTitle = 'GED — Test métier';
 $bodyClass = '';
 @require_once __DIR__ . '/inc/header.php';
+@require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + container
 ?>
 <style>
   .gtm-wrap { max-width: 1300px; margin: 0 auto; padding: 24px 20px; }
