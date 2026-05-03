@@ -123,6 +123,9 @@ if (!function_exists('sbActiveSection')) {
             <li><a href="./super_admin_ged_niveaux.php" class="<?= sbActive('super_admin_ged_niveaux.php') ?>">
                 <span class="sb-icon">🗂️</span><span class="sb-label">Niveaux N1→N6</span>
             </a></li>
+            <li><a href="./super_admin_ged_modele.php" class="<?= sbActive('super_admin_ged_modele.php') ?>">
+                <span class="sb-icon">🌐</span><span class="sb-label">Modèle général (vue)</span>
+            </a></li>
             <li><a href="./super_admin_coffre_acces.php" class="<?= sbActive('super_admin_coffre_acces.php') ?>">
                 <span class="sb-icon">🔒</span><span class="sb-label">Coffre accès</span>
             </a></li>

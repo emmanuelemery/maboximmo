@@ -202,7 +202,11 @@ $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
       </a></li>
       <li><a href="./super_admin_ged_niveaux.php">
         <span class="gedh-link-icon">🗂️</span>
-        <span>Niveaux N1→N6</span>
+        <span>Niveaux N1→N6 (édition)</span>
+      </a></li>
+      <li><a href="./super_admin_ged_modele.php">
+        <span class="gedh-link-icon">🌐</span>
+        <span>Modèle général (vue arborescente)</span>
       </a></li>
       <li><a href="./super_admin_coffre_acces.php">
         <span class="gedh-link-icon">🔒</span>
