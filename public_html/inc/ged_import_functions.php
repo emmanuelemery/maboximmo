@@ -558,18 +558,19 @@ function ged_import_add_level_code(int $levelNumber, array $parents, string $cod
     $stMax->execute($whereParams);
     $position = (int)$stMax->fetchColumn();
 
-    // INSERT IGNORE (UNIQUE KEY assure l'idempotence)
+    // V2.5 : INSERT IGNORE avec '' au lieu de NULL — l'UNIQUE KEY uk_ged_level_codes_path
+    // n'est effective qu'en absence de NULL (cf. migration v2_23_strict_uniqueness).
     $stIns = $pdo->prepare("
         INSERT IGNORE INTO ged_level_codes
             (tenant_id, level_number, parent_n1, parent_n2, parent_n3, parent_n4, code, label, position, is_active)
-        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     ");
     $stIns->execute([
         $levelNumber,
-        $parents['n1'] ?? null,
-        $parents['n2'] ?? null,
-        $parents['n3'] ?? null,
-        $parents['n4'] ?? null,
+        (string)($parents['n1'] ?? ''),
+        (string)($parents['n2'] ?? ''),
+        (string)($parents['n3'] ?? ''),
+        (string)($parents['n4'] ?? ''),
         $codeNorm,
         $labelClean,
         $position,

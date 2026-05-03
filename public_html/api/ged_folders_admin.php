@@ -104,11 +104,12 @@ try {
             $row = $st->fetch(PDO::FETCH_ASSOC);
             if (!$row) throw new RuntimeException('Niveau introuvable');
 
+            // V2.5 : '' au lieu de NULL pour respecter l'UNIQUE strict (cf. v2_23 migration)
             $newParents = [
-                'parent_n1' => trim((string)($_POST['new_parent_n1'] ?? '')) ?: null,
-                'parent_n2' => trim((string)($_POST['new_parent_n2'] ?? '')) ?: null,
-                'parent_n3' => trim((string)($_POST['new_parent_n3'] ?? '')) ?: null,
-                'parent_n4' => trim((string)($_POST['new_parent_n4'] ?? '')) ?: null,
+                'parent_n1' => trim((string)($_POST['new_parent_n1'] ?? '')),
+                'parent_n2' => trim((string)($_POST['new_parent_n2'] ?? '')),
+                'parent_n3' => trim((string)($_POST['new_parent_n3'] ?? '')),
+                'parent_n4' => trim((string)($_POST['new_parent_n4'] ?? '')),
             ];
 
             $sets = [];

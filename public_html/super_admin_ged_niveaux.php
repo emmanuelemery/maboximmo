@@ -42,13 +42,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     (tenant_id, level_number, parent_n1, parent_n2, parent_n3, parent_n4, code, label, position, is_active)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             ");
+            // V2.5 : insertion de '' au lieu de NULL pour que UNIQUE KEY uk_ged_level_codes_path
+            // soit effectif (cf. migration 20260503_ged_v2_23_strict_uniqueness.php)
             $st->execute([
-                ged_current_tenant_id(),
+                (int)(ged_current_tenant_id() ?? 0),
                 $level,
-                $_POST['parent_n1'] ?? null,
-                $_POST['parent_n2'] ?? null,
-                $_POST['parent_n3'] ?? null,
-                $_POST['parent_n4'] ?? null,
+                trim((string)($_POST['parent_n1'] ?? '')),
+                trim((string)($_POST['parent_n2'] ?? '')),
+                trim((string)($_POST['parent_n3'] ?? '')),
+                trim((string)($_POST['parent_n4'] ?? '')),
                 $code,
                 $label,
                 (int)($_POST['position'] ?? 0),
