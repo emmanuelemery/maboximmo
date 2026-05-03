@@ -126,6 +126,9 @@ if (!function_exists('sbActiveSection')) {
             <li><a href="./super_admin_coffre_acces.php" class="<?= sbActive('super_admin_coffre_acces.php') ?>">
                 <span class="sb-icon">🔒</span><span class="sb-label">Coffre accès</span>
             </a></li>
+            <li><a href="./super_admin_ged_bootstrap_tiers.php" class="<?= sbActive('super_admin_ged_bootstrap_tiers.php') ?>">
+                <span class="sb-icon">🌱</span><span class="sb-label">Bootstrap tiers→GED</span>
+            </a></li>
             <li><a href="./super_admin_ged_guide.php" target="_blank" rel="noopener" class="<?= sbActive('super_admin_ged_guide.php') ?>">
                 <span class="sb-icon">📖</span><span class="sb-label">Guide complet</span>
             </a></li>

@@ -208,6 +208,10 @@ $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
         <span class="gedh-link-icon">🔒</span>
         <span>Coffre accès (mots de passe)</span>
       </a></li>
+      <li><a href="./super_admin_ged_bootstrap_tiers.php">
+        <span class="gedh-link-icon">🌱</span>
+        <span>Bootstrap tiers bailleurs → GED</span>
+      </a></li>
       <li><a href="./admin/admin_migrations.php">
         <span class="gedh-link-icon">🛠️</span>
         <span>Migrations BDD</span>
