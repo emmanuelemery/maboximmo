@@ -58,10 +58,10 @@ ALTER TABLE `ged_level_codes`
   MODIFY COLUMN `parent_n3`  VARCHAR(80)        NOT NULL DEFAULT '',
   MODIFY COLUMN `parent_n4`  VARCHAR(80)        NOT NULL DEFAULT '';
 
--- 4) Recrée l'UNIQUE KEY (l'ancien tolérait les NULL)
-ALTER TABLE `ged_level_codes` DROP INDEX `uk_ged_level_codes_path`;
+-- 4) Recrée l'UNIQUE KEY (l'ancien tolérait les NULL) — idempotent MariaDB 10.4+
+ALTER TABLE `ged_level_codes` DROP INDEX IF EXISTS `uk_ged_level_codes_path`;
 ALTER TABLE `ged_level_codes`
-  ADD UNIQUE KEY `uk_ged_level_codes_path` (`tenant_id`, `level_number`, `parent_n1`, `parent_n2`, `parent_n3`, `parent_n4`, `code`);
+  ADD UNIQUE KEY IF NOT EXISTS `uk_ged_level_codes_path` (`tenant_id`, `level_number`, `parent_n1`, `parent_n2`, `parent_n3`, `parent_n4`, `code`);
 
 -- 5) Vérification : doit retourner 0 (sinon = doublon résiduel, ALTER aurait planté)
 -- Cette ligne est juste là pour traçabilité dans les logs admin_migrations.

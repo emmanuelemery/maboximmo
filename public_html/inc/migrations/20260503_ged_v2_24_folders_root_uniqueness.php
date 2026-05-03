@@ -53,22 +53,23 @@ return [
 UPDATE `ged_folders` SET `parent_id` = NULL WHERE `parent_id` = 0;
 
 -- 3) Ajout des colonnes générées STORED (sentinelles 0 pour NULL)
+-- IF NOT EXISTS rend la migration idempotente (MariaDB 10.0.2+)
 ALTER TABLE `ged_folders`
-  ADD COLUMN `parent_id_norm` BIGINT UNSIGNED
+  ADD COLUMN IF NOT EXISTS `parent_id_norm` BIGINT UNSIGNED
     GENERATED ALWAYS AS (IFNULL(`parent_id`, 0)) STORED
     COMMENT 'Sentinelle 0 pour racines NULL — permet UNIQUE strict via uk_ged_folders_norm_parent_slug';
 
 ALTER TABLE `ged_folders`
-  ADD COLUMN `tenant_id_norm` INT UNSIGNED
+  ADD COLUMN IF NOT EXISTS `tenant_id_norm` INT UNSIGNED
     GENERATED ALWAYS AS (IFNULL(`tenant_id`, 0)) STORED
     COMMENT 'Sentinelle 0 pour tenant global NULL — permet UNIQUE strict cohérent avec v2_23';
 
--- 4) Création de l'UNIQUE KEY effective (sans NULL possible)
+-- 4) Création de l'UNIQUE KEY effective (sans NULL possible) — idempotent MariaDB 10.4+
 -- Note : on filtre sur is_archived=0 indirectement via le suffixage de slug
 -- imposé par 008_cleanup (slug = 'xxx_archived_<id>') → les archivés ne créent
 -- jamais de collision dans cet index.
 ALTER TABLE `ged_folders`
-  ADD UNIQUE KEY `uk_ged_folders_norm_parent_slug` (`tenant_id_norm`, `parent_id_norm`, `slug`);
+  ADD UNIQUE KEY IF NOT EXISTS `uk_ged_folders_norm_parent_slug` (`tenant_id_norm`, `parent_id_norm`, `slug`);
 
 -- 5) Conservation de l'ancien UNIQUE uk_ged_folders_parent_slug
 --    Il devient secondaire (pour les non-NULL il est équivalent).
