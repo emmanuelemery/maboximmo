@@ -9,7 +9,7 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
 
     <div class="mbi-sidebar-section">Principal</div>
     <ul class="mbi-nav">
-        <li><a href="modules/ged/ged_dashboard.php" <?=(in_array($currentPage, ['ged_dashboard.php','ged_inbox.php'], true) ? 'class="active"' : '')?>>📦 Ma GED Box</a></li>
+        <li><a href="ged_dashboard.php" <?=($currentPage === 'ged_dashboard.php' ? 'class="active"' : '')?>>📦 Ma GED Box</a></li>
         <li><a href="dashboard_syndic.php" <?=($currentPage === 'dashboard_syndic.php' ? 'class="active"' : '')?>>⊞ Dashboard</a></li>
         <li><a href="landing.php">← Retour Accueil</a></li>
     </ul>

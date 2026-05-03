@@ -67,7 +67,7 @@ function renderSidebarSection(string $title, string $icon, array $items, string 
 $sectionNavigation = [
     [
         'label' => 'Ma GED Box',
-        'url'   => '/public_html/modules/ged/ged_dashboard.php',
+        'url'   => '/ged_dashboard.php',
         'page'  => 'ged_dashboard.php',
         'icon'  => '📦',
     ],

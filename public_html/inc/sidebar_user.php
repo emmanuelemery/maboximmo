@@ -53,7 +53,7 @@ $sbLinkAgence  = './rh_agence_user.php';
     <div class="sb-group info">
         <div class="sb-section">Mes infos</div>
         <ul class="sb-nav">
-            <li><a href="./modules/ged/ged_dashboard.php" class="<?= $sbUserActive('ged_dashboard.php') ?><?= $sbUserActive('ged_inbox.php') ?>">
+            <li><a href="./ged_dashboard.php" class="<?= $sbUserActive('ged_dashboard.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
             </a></li>
             <li><a href="./rh_dashboard_user.php" class="<?= $sbUserActive('rh_dashboard_user.php') ?>">
