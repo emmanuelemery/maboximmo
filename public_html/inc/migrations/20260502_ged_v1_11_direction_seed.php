@@ -27,7 +27,7 @@ return [
 -- N1 — 01_DIRECTION (position 0 pour le placer en premier dans la cascade)
 -- ════════════════════════════════════════════════════════════════════════
 INSERT IGNORE INTO `ged_level_codes` (`tenant_id`, `level_number`, `code`, `label`, `position`) VALUES
-  (NULL, 1, '01_DIRECTION', '01 - Direction', 0);
+  (NULL, 1, '01_DIRECTION', '👑 Direction', 0);
 
 -- ════════════════════════════════════════════════════════════════════════
 -- N2 — 24 sous-rubriques sous 01_DIRECTION
