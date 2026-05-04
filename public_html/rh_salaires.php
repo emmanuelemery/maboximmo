@@ -1266,10 +1266,13 @@ $layout_extra_css = <<<'EXTRACSS'
         border-radius: 14px;
         box-shadow: 5px 5px 12px var(--shadow-dark, #d4d7de), -5px -5px 12px var(--shadow-light, #fff);
         padding: 14px;
+        display: flex; flex-direction: column; align-items: center; text-align: center;
+        min-height: 130px;
     }
     .workflow-step h4 {
         font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500;
-        text-transform: uppercase; letter-spacing: 0.2em; color: #a8a49e; margin-bottom: 10px;
+        text-transform: uppercase; letter-spacing: 0.2em; color: #a8a49e; margin: 0 0 12px;
+        text-align: left; align-self: stretch;
     }
     .workflow-step input[type=file] { width: 100%; font-size: 11px; color: #6a6660; margin-bottom: 10px; display: block; }
     .workflow-step-btn {
@@ -1279,8 +1282,14 @@ $layout_extra_css = <<<'EXTRACSS'
         background: var(--bg-primary, #ffffff); color: #36577d;
         box-shadow: 4px 4px 10px var(--shadow-dark, #d4d7de), -4px -4px 10px var(--shadow-light, #fff);
         transition: box-shadow 0.15s;
+        margin-top: auto; /* Aligne le bouton sur le bas de la card */
     }
     .workflow-step-btn:active { box-shadow: inset 3px 3px 7px var(--shadow-dark, #d4d7de), inset -3px -3px 8px var(--shadow-light, #fff); }
+    .workflow-step-btn.is-success {
+        background: #16a34a; color: #fff;
+        box-shadow: 4px 4px 10px rgba(22,163,74,0.35), -2px -2px 6px rgba(255,255,255,0.6);
+    }
+    .workflow-step-btn.is-success:active { box-shadow: inset 3px 3px 7px rgba(22,163,74,0.4); }
     .workflow-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 8px; }
     .workflow-info div { font-size: 12px; color: #6a6660; }
     .workflow-info strong { color: #1a1816; }
@@ -2014,23 +2023,22 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                     document.getElementById('comptable-form').submit();
                 }
                 </script>
-                <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step" style="<?= $projetRow ? 'padding:10px 12px;' : '' ?>">
-                    <h4 style="<?= $projetRow ? 'font-size:12px;margin:0 0 6px;' : '' ?>">2. <?= $projetRow ? 'Réimporter' : 'Importer' ?> le projet</h4>
+                <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
+                    <h4>2. <?= $projetRow ? 'Réimporter' : 'Importer' ?> le projet</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
                     <input type="hidden" name="agence" value="<?=h((string)$agenceWf)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="file" name="projet_pdf" accept="application/pdf" required style="<?= $projetRow ? 'font-size:11px;' : '' ?>">
-                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn" style="<?= $projetRow ? 'padding:5px 10px;font-size:11px;' : '' ?>"><?= $projetRow ? 'Réimporter' : 'Importer' ?></button>
+                    <input type="file" name="projet_pdf" accept="application/pdf" required>
+                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn"><?= $projetRow ? 'Réimporter' : 'Importer' ?></button>
                 </form>
 
                 <?php if ($projetRow): ?>
                 <!-- Bouton Valider le projet (apparait apres import) -->
-                <div class="workflow-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-                    <h4 style="color:#15803d;">2bis. Valider le projet</h4>
-                    <button type="button" onclick="ouvrirValidationModal()"
-                            style="padding:9px 16px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">
+                <div class="workflow-step">
+                    <h4>2bis. Valider le projet</h4>
+                    <button type="button" onclick="ouvrirValidationModal()" class="workflow-step-btn is-success">
                         ✅ Valider et envoyer au comptable
                     </button>
                 </div>
@@ -2046,8 +2054,15 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                 <p style="margin:0 0 10px;font-size:12px;color:#64748b;">
                                     Le PDF du projet sera envoyé en pièce jointe au comptable de la société, avec ton commentaire dans le corps du mail.
                                 </p>
-                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Commentaire (optionnel)</label>
-                                <textarea name="commentaire" rows="6" placeholder="Ex: J'ai relevé un écart sur la prime de Mme X, peux-tu vérifier..." style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>
+                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Message au comptable (modifiable)</label>
+                                <textarea name="commentaire" rows="7" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;">Bonjour,
+
+C'est OK pour ce projet, merci de valider et envoyer les bulletins dans digiposte.
+
+Je reste dans l'attente des bulletins définitifs pour mon dossier.
+
+À plus tard,
+Emmanuel</textarea>
                                 <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                                 <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
                                 <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">

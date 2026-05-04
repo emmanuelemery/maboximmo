@@ -90,17 +90,18 @@ $stAg->execute([(int)$cmp['id_agence']]);
 $nomAgence = (string)($stAg->fetchColumn() ?: ('Agence_' . $cmp['id_agence']));
 $moisLabel = mois_fr((int)$cmp['mois']);
 
-// Mail
-$comptableNom = trim((string)($societe['comptable_nom'] ?? ''));
-$bonjour = $comptableNom !== ''
-    ? 'Bonjour ' . trim((string)preg_split('/\s+/', $comptableNom)[0])
-    : 'Bonjour';
+// Mail : le commentaire saisi par l'agent EST le corps du mail (controle total).
+// Si vide, fallback sur un message generique.
 $subject = "Validation projet salaires — $nomAgence — $moisLabel " . (int)$cmp['annee'];
-$body = "$bonjour,\n\nJ'ai bien reçu et validé votre projet de paie pour $nomAgence sur $moisLabel " . (int)$cmp['annee'] . ".\n";
 if ($commentaire !== '') {
-    $body .= "\nCommentaire :\n" . $commentaire . "\n";
+    $body = $commentaire;
+} else {
+    $comptableNom = trim((string)($societe['comptable_nom'] ?? ''));
+    $bonjour = $comptableNom !== ''
+        ? 'Bonjour ' . trim((string)preg_split('/\s+/', $comptableNom)[0])
+        : 'Bonjour';
+    $body = "$bonjour,\n\nC'est OK pour ce projet ($nomAgence — $moisLabel " . (int)$cmp['annee'] . "), merci de valider et envoyer les bulletins dans digiposte.\n\nJe reste dans l'attente des bulletins définitifs pour mon dossier.\n\nÀ plus tard,\nEmmanuel";
 }
-$body .= "\nLe PDF du projet original est joint en référence.\n\nCordialement,\nRégie EMERY";
 
 $hostNow = (string)($_SERVER['HTTP_HOST'] ?? '');
 $isDevOrLocal = (
