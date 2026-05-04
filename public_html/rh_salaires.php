@@ -2476,8 +2476,8 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                         <a href="<?=h($projetRow['file_path'])?>" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:600;">↗ Ouvrir nouvel onglet</a>
                                     <?php endif; ?>
                                 </div>
-                                <?php if (!empty($projetRow['file_path'])): ?>
-                                    <iframe src="<?=h($projetRow['file_path'])?>#toolbar=1&navpanes=0&scrollbar=1" style="flex:1;width:100%;border:none;"></iframe>
+                                <?php if (!empty($projetRow['file_path']) && !empty($projetRow['id'])): ?>
+                                    <iframe src="rh_compare_pdf_view.php?id=<?=(int)$projetRow['id']?>#toolbar=1&navpanes=0&scrollbar=1" style="flex:1;width:100%;border:none;"></iframe>
                                 <?php else: ?>
                                     <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">PDF source indisponible</div>
                                 <?php endif; ?>
@@ -2571,6 +2571,16 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                            style="padding:4px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
                                             📎 Télécharger
                                         </a>
+                                        <form method="post" action="rh_salaire_workflow_delete.php" style="display:inline;margin:0;"
+                                              onsubmit="return confirm('Supprimer cette version (#<?= (int)$wfRow['iteration'] ?>) ?\n\nLe PDF sera retiré de l\'historique.');">
+                                            <input type="hidden" name="csrf_token" value="<?= h($_SESSION['csrf_token'] ?? '') ?>">
+                                            <input type="hidden" name="id" value="<?= (int)$wfRow['id'] ?>">
+                                            <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                                            <button type="submit"
+                                                style="padding:4px 8px;border-radius:6px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-size:11px;font-weight:600;">
+                                                🗑
+                                            </button>
+                                        </form>
                                     </span>
                                 <?php else: ?>
                                     <span style="color:#cbd5e1;font-size:11px;">—</span>
