@@ -25,6 +25,15 @@ require_once __DIR__ . '/inc/rh_salaire_workflow.php';
 require_once __DIR__ . '/inc/mailer.php';
 require_login();
 
+// Helper local : mois_fr() est defini dans rh_salaires.php mais pas exposé
+// dans un include partage. On le redeclare ici pour autonomie de l'endpoint.
+if (!function_exists('mois_fr')) {
+    function mois_fr(int $m): string {
+        $n = [1=>'Janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+        return $n[$m] ?? '';
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     exit('Method not allowed');
@@ -125,26 +134,40 @@ if (!$ok) {
     exit;
 }
 
-// Workflow log : sauvegarder une copie du PDF dans validation_projet/ + log
-$moisRefLog = sprintf('%04d-%02d-01', (int)$cmp['annee'], (int)$cmp['mois']);
-$content = @file_get_contents($realPdf);
-$relPath = null;
-if ($content !== false) {
-    $iter = rh_wf_next_iteration($pdo, (int)$cmp['id_agence'], $moisRefLog, RH_WF_TYPE_VALIDATION);
-    $relPath = rh_wf_save_file(
-        (int)$cmp['id_societe'], (int)$cmp['id_agence'], $moisRefLog, RH_WF_TYPE_VALIDATION,
-        $iter, $content, $cmp['file_name'] ?: basename($realPdf)
+// Workflow log : sauvegarder une copie du PDF dans validation_projet/ + log.
+// Wrap dans try/catch : si la migration SQL #3 (ajout 'validation_projet'
+// a l'enum type_action) n'a pas ete appliquee, l'INSERT echouera. On ne
+// veut pas faire planter la page (le mail est deja parti) -> on log
+// l'erreur et on prevent l'utilisateur via message_warn.
+$logWarning = null;
+try {
+    $moisRefLog = sprintf('%04d-%02d-01', (int)$cmp['annee'], (int)$cmp['mois']);
+    $content = @file_get_contents($realPdf);
+    $relPath = null;
+    if ($content !== false) {
+        $iter = rh_wf_next_iteration($pdo, (int)$cmp['id_agence'], $moisRefLog, RH_WF_TYPE_VALIDATION);
+        $relPath = rh_wf_save_file(
+            (int)$cmp['id_societe'], (int)$cmp['id_agence'], $moisRefLog, RH_WF_TYPE_VALIDATION,
+            $iter, $content, $cmp['file_name'] ?: basename($realPdf)
+        );
+    }
+    $cmtForLog = $commentaire !== '' ? mb_substr($commentaire, 0, 480) : 'Validation sans commentaire';
+    rh_wf_log_action(
+        $pdo, (int)$cmp['id_societe'], (int)$cmp['id_agence'], $moisRefLog, RH_WF_TYPE_VALIDATION,
+        $relPath, $cmp['file_name'], $content !== false ? strlen($content) : null, $comptableEmail,
+        $userId, 'ok',
+        $isDevOrLocal ? '🧪 Mode test (mail non envoyé)' : null,
+        $cmtForLog
     );
+} catch (Throwable $e) {
+    error_log('[rh_salaire_validate_projet] Workflow log failed : ' . $e->getMessage());
+    $logWarning = 'Mail envoyé mais historique non écrit (migration SQL #3 manquante ?) — erreur : ' . $e->getMessage();
 }
-$cmtForLog = $commentaire !== '' ? mb_substr($commentaire, 0, 480) : 'Validation sans commentaire';
-rh_wf_log_action(
-    $pdo, (int)$cmp['id_societe'], (int)$cmp['id_agence'], $moisRefLog, RH_WF_TYPE_VALIDATION,
-    $relPath, $cmp['file_name'], $content !== false ? strlen($content) : null, $comptableEmail,
-    $userId, 'ok',
-    $isDevOrLocal ? '🧪 Mode test (mail non envoyé)' : null,
-    $cmtForLog
-);
 
-$_SESSION['message_ok'] = 'Projet validé et envoyé au comptable ✅' . $devMessage;
+if ($logWarning) {
+    $_SESSION['message_err'] = '⚠️ ' . $logWarning;
+} else {
+    $_SESSION['message_ok'] = 'Projet validé et envoyé au comptable ✅' . $devMessage;
+}
 header('Location: ' . $redirect);
 exit;
