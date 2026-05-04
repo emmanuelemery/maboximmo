@@ -2335,13 +2335,14 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 </div>
 
                 <!-- Modal rapport de comparaison -->
-                <div id="rapport-comparaison-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)fermerRapportComparaison()">
-                    <div style="background:#fff;border-radius:14px;max-width:920px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4);">
-                        <div style="padding:18px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#fff;z-index:1;">
+                <div id="rapport-comparaison-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRapportComparaison()">
+                    <div style="background:#fff;border-radius:14px;max-width:1600px;width:97vw;height:94vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+                        <div style="padding:14px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#fff;flex-shrink:0;">
                             <h3 style="margin:0;font-size:17px;color:#0f172a;">📊 Rapport de comparaison — projet comptable</h3>
                             <button type="button" onclick="fermerRapportComparaison()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;">×</button>
                         </div>
-                        <div style="padding:20px 24px;">
+                        <div style="display:flex;flex:1;min-height:0;">
+                            <div style="flex:0 0 46%;overflow-y:auto;padding:20px 24px;border-right:1px solid #e5e7eb;">
                             <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 24px;font-size:13px;">
                                 <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Total attendu</span><br><strong style="color:#0f172a;font-size:15px;"><?=number_format((float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> €</strong></div>
                                 <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Total PDF projet</span><br><strong style="color:#0f172a;font-size:15px;"><?=number_format((float)($projetData['total_pdf'] ?? 0), 2, ',', ' ')?> €</strong></div>
@@ -2463,11 +2464,26 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                             <?php endif; ?>
 
                             <p style="margin-top:14px;font-size:11px;color:#94a3b8;">
-                                💡 Cliquer sur une ligne pour voir le détail des écarts ligne par ligne. Comparaison par <strong>agence</strong> via matricule paie. Re-importez le PDF pour rafraîchir.
+                                💡 Comparaison par <strong>agence</strong> via matricule paie. PDF source à droite, scrollable. Re-importez le PDF pour rafraîchir.
                             </p>
                             <style>tr.hidden { display: none; }</style>
+                            </div>
+                            <!-- Colonne droite : visualisation PDF source -->
+                            <div style="flex:1;display:flex;flex-direction:column;background:#f8fafc;min-width:0;">
+                                <div style="padding:8px 16px;border-bottom:1px solid #e5e7eb;background:#fff;font-size:12px;color:#475569;display:flex;justify-content:space-between;align-items:center;">
+                                    <span><strong>📄 PDF source :</strong> <?=h($projetRow['file_name'] ?? 'document.pdf')?></span>
+                                    <?php if (!empty($projetRow['file_path'])): ?>
+                                        <a href="<?=h($projetRow['file_path'])?>" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:600;">↗ Ouvrir nouvel onglet</a>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if (!empty($projetRow['file_path'])): ?>
+                                    <iframe src="<?=h($projetRow['file_path'])?>#toolbar=1&navpanes=0&scrollbar=1" style="flex:1;width:100%;border:none;"></iframe>
+                                <?php else: ?>
+                                    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">PDF source indisponible</div>
+                                <?php endif; ?>
+                            </div>
                         </div>
-                        <div style="padding:14px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;border-radius:0 0 14px 14px;display:flex;justify-content:flex-end;">
+                        <div style="padding:12px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;flex-shrink:0;">
                             <button type="button" onclick="fermerRapportComparaison()" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">Fermer</button>
                         </div>
                     </div>
