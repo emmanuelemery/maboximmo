@@ -75,21 +75,21 @@ if (!function_exists('rh_bulletin_label_map')) {
         // ("67Salaire" -> 7 et S sont tous deux \w, pas de \b). On accepte
         // chiffres/ponctuation autour, mais pas de lettres.
         return [
-            'Salaire de base'      => ['/(?<!\p{L})Salaire\s+de\s+base(?!\p{L})/iu'],
+            'Salaire de base'      => ['/(?<!\p{L})Salaire\s+de\s+base(?!\p{L})/iu', '/(?<!\p{L})Salaire\s+apprenti(?:\s|\(|$)/iu'],
             'Prime ancienneté'     => ['/(?<!\p{L})Prime\s+anciennet[eé](?!\p{L})/iu'],
-            'Avantage en nature'   => ['/(?<!\p{L})Avantage\s+en\s+nature(?!\p{L})/iu'],
-            'Heures supp'          => ['/(?<!\p{L})Heures?\s+supp/iu'],
-            'Commissions CA'       => ['/(?<!\p{L})Commissions?\s+CA(?!\p{L})/iu'],
+            'Avantage en nature'   => ['/(?<!\p{L})Avantage\s+en\s+nature(?!\p{L})/iu', '/(?<!\p{L})Avantage\s+en\s+nature\s+v[eé]hicule(?!\p{L})/iu'],
+            'Heures supp'          => ['/(?<!\p{L})Heures?\s+suppl/iu', '/(?<!\p{L})Heures?\s+structurelles(?!\p{L})/iu'],
+            'Commissions CA'       => ['/(?<!\p{L})Commissions?\s+CA(?!\s+NA)(?!\p{L})/iu'],
             'Commissions NA'       => ['/(?<!\p{L})Commissions?\s+CA\s+NA(?!\p{L})/iu', '/(?<!\p{L})Commissions?\s+nouvelles?\s+affaires(?!\p{L})/iu'],
             'Prime administrative' => ['/(?<!\p{L})Prime\s+administrative(?!\p{L})/iu'],
-            'Prime exceptionnelle' => ['/(?<!\p{L})Prime\s+exceptionnelle(?!\p{L})/iu'],
+            'Prime exceptionnelle' => ['/(?<!\p{L})Prime\s+exceptionnelle(?!\p{L})/iu', '/(?<!\p{L})Prime\s+Estimation(?!\p{L})/iu'],
             'Treizieme mois'       => ['/(?<!\p{L})Treizi[eèé]me\s+mois(?!\p{L})/iu'],
-            'Indemnité km'         => ['/(?<!\p{L})Indemn(?:it[eé]|ite)\s+kilom/iu', '/(?<!\p{L})Indemn(?:it[eé]|ite)\s+km(?!\p{L})/iu', '/(?<!\p{L})IK(?!\p{L})/iu'],
-            'Remboursement achat'  => ['/(?<!\p{L})Remboursement\s+achat(?!\p{L})/iu'],
-            'Frais professionnels' => ['/(?<!\p{L})Frais\s+professionnels(?!\p{L})/iu', '/(?<!\p{L})Remboursement\s+de\s+frais\s+professionnels(?!\p{L})/iu'],
+            'Indemnité km'         => ['/(?<!\p{L})Ind[eé]mnit[eé]\s+kilom[eé]trique(?!\p{L})/iu', '/(?<!\p{L})Indemn(?:it[eé]|ite)\s+kilom/iu', '/(?<!\p{L})Indemn(?:it[eé]|ite)\s+km(?!\p{L})/iu', '/(?<!\p{L})IK(?!\p{L})/iu'],
+            'Remboursement achat'  => ['/(?<!\p{L})Remboursement\s+Achats?\s+salari[eé](?!\p{L})/iu', '/(?<!\p{L})Remboursement\s+achats?(?!\p{L})/iu'],
+            'Frais professionnels' => ['/(?<!\p{L})Remboursement\s+(?:de\s+)?frais\s+professionnels(?!\p{L})/iu', '/(?<!\p{L})Frais\s+professionnels(?!\p{L})/iu'],
             'Frais reception'      => ['/(?<!\p{L})Frais\s+r[eé]ception(?!\p{L})/iu'],
-            'Stationnement'        => ['/(?<!\p{L})Stationnement(?!\p{L})/iu', '/(?<!\p{L})Remboursement\s+frais\s+de\s+stationnement(?!\p{L})/iu'],
-            'Frais deplacement'    => ['/(?<!\p{L})Frais\s+d[eé]placement(?!\p{L})/iu', '/(?<!\p{L})Remboursement\s+frais\s+de\s+d[eé]placement(?!\p{L})/iu'],
+            'Stationnement'        => ['/(?<!\p{L})Remboursement\s+frais\s+de\s+stationnement(?!\p{L})/iu', '/(?<!\p{L})Stationnement(?!\p{L})/iu'],
+            'Frais deplacement'    => ['/(?<!\p{L})Remboursement\s+frais\s+de\s+d[eé]placement(?!\p{L})/iu', '/(?<!\p{L})Frais\s+d[eé]placement(?!\p{L})/iu'],
         ];
     }
 }

@@ -2392,7 +2392,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                             </td>
                                         </tr>
                                         <?php if (!empty($lineDiffs)): ?>
-                                        <tr id="detail-row-<?=$idxRow?>" class="hidden">
+                                        <tr id="detail-row-<?=$idxRow?>">
                                             <td colspan="5" style="padding:0 10px 10px 24px;background:#fafafa;">
                                                 <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;">
                                                     <thead>
