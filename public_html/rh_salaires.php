@@ -2138,13 +2138,13 @@ Emmanuel</textarea>
                                 </div>
                             <?php endif; ?>
 
-                            <table class="compare-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <table class="compare-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
                                 <thead>
                                     <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
                                         <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Collaborateur (matricule)</th>
-                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut attendu</th>
-                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut PDF</th>
-                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Écart</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;white-space:nowrap;">Brut attendu</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;white-space:nowrap;">Brut PDF</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;white-space:nowrap;">Écart</th>
                                         <th style="padding:8px 10px;text-align:center;color:#64748b;font-weight:600;">Statut</th>
                                     </tr>
                                 </thead>
@@ -2156,9 +2156,9 @@ Emmanuel</textarea>
                                     ?>
                                         <tr style="border-bottom:1px solid #f1f5f9;<?=!$isOk?'background:#fffbeb;':''?>cursor:pointer;" onclick="document.getElementById('detail-row-<?=$idxRow?>').classList.toggle('hidden');">
                                             <td style="padding:8px 10px;"><strong><?=h($row['name'] ?? '')?></strong> <span style="color:#94a3b8;font-size:11px;">(mat <?=h($row['matricule'] ?? '?')?>)</span></td>
-                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> €</td>
-                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=($row['pdf_brut'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' €')?></td>
-                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;<?=($diff !== null && abs((float)$diff) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;')?>">
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> €</td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=($row['pdf_brut'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' €')?></td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;white-space:nowrap;min-width:80px;<?=($diff !== null && abs((float)$diff) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;')?>">
                                                 <?=($diff === null ? '—' : (((float)$diff > 0 ? '+' : '') . number_format((float)$diff, 2, ',', ' ')))?>
                                             </td>
                                             <td style="padding:8px 10px;text-align:center;">
@@ -2172,14 +2172,14 @@ Emmanuel</textarea>
                                         <?php if (!empty($lineDiffs)): ?>
                                         <tr id="detail-row-<?=$idxRow?>">
                                             <td colspan="5" style="padding:0 10px 10px 24px;background:#fafafa;">
-                                                <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;">
+                                                <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;table-layout:auto;">
                                                     <thead>
                                                         <tr style="color:#64748b;border-bottom:1px solid #e5e7eb;">
                                                             <th style="padding:5px 8px;text-align:left;font-weight:600;">Ligne MBI</th>
                                                             <th style="padding:5px 8px;text-align:left;font-weight:600;">Ligne PDF correspondante</th>
-                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Attendu</th>
-                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">PDF</th>
-                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Écart</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Attendu</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">PDF</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Écart</th>
                                                             <th style="padding:5px 8px;text-align:center;font-weight:600;">Statut</th>
                                                         </tr>
                                                     </thead>
@@ -2191,9 +2191,9 @@ Emmanuel</textarea>
                                                         <tr style="border-bottom:1px solid #f1f5f9;<?=!$ldOk?'background:#fef9c3;':''?>">
                                                             <td style="padding:4px 8px;color:#0f172a;"><?=h($ld['label'] ?? '')?></td>
                                                             <td style="padding:4px 8px;color:#475569;font-style:italic;"><?=$ld['pdf_label'] !== null ? h($ld['pdf_label']) : '<span style="color:#cbd5e1;">— absent du PDF</span>'?></td>
-                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=number_format((float)($ld['expected'] ?? 0), 2, ',', ' ')?> €</td>
-                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=$ld['pdf'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$ld['pdf'], 2, ',', ' ') . ' €'?></td>
-                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;<?=$ld['diff'] !== null && abs((float)$ld['diff']) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;'?>">
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=number_format((float)($ld['expected'] ?? 0), 2, ',', ' ')?> €</td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=$ld['pdf'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$ld['pdf'], 2, ',', ' ') . ' €'?></td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:80px;<?=$ld['diff'] !== null && abs((float)$ld['diff']) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;'?>">
                                                                 <?=$ld['diff'] === null ? '—' : (((float)$ld['diff'] > 0 ? '+' : '') . number_format((float)$ld['diff'], 2, ',', ' '))?>
                                                             </td>
                                                             <td style="padding:4px 8px;text-align:center;">
@@ -2217,8 +2217,8 @@ Emmanuel</textarea>
                                     <thead>
                                         <tr style="color:#64748b;border-bottom:1px solid #bfdbfe;">
                                             <th style="padding:5px 8px;text-align:left;font-weight:600;">Salarié</th>
-                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Jours MBI</th>
-                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Jours PDF</th>
+                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Jours MBI</th>
+                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Jours PDF</th>
                                             <th style="padding:5px 8px;text-align:left;font-weight:600;">Détails PDF</th>
                                             <th style="padding:5px 8px;text-align:center;font-weight:600;">Statut</th>
                                         </tr>
@@ -2229,8 +2229,8 @@ Emmanuel</textarea>
                                     ?>
                                         <tr style="border-bottom:1px solid #f1f5f9;<?=!$cgOk?'background:#fef9c3;':''?>">
                                             <td style="padding:4px 8px;"><?=h($cg['name'] ?? '')?> <span style="color:#94a3b8;">(mat <?=h($cg['matricule'] ?? '?')?>)</span></td>
-                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=number_format((float)($cg['mbi_jours'] ?? 0), 1, ',', ' ')?> j</td>
-                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=number_format((float)($cg['pdf_jours'] ?? 0), 1, ',', ' ')?> j</td>
+                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:70px;"><?=number_format((float)($cg['mbi_jours'] ?? 0), 1, ',', ' ')?> j</td>
+                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:70px;"><?=number_format((float)($cg['pdf_jours'] ?? 0), 1, ',', ' ')?> j</td>
                                             <td style="padding:4px 8px;color:#475569;font-style:italic;"><?=empty($cg['pdf_details']) ? '<span style="color:#cbd5e1;">—</span>' : h(implode(' · ', $cg['pdf_details']))?></td>
                                             <td style="padding:4px 8px;text-align:center;<?=$cgOk ? 'color:#16a34a;' : 'color:#dc2626;'?>font-weight:700;"><?=$cgOk ? '✓' : '⚠'?></td>
                                         </tr>
