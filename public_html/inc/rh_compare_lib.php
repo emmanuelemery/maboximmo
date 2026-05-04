@@ -12,11 +12,13 @@ declare(strict_types=1);
 if (!function_exists('rh_expected_salary_lines')) {
     function rh_expected_salary_lines(array $u): array {
       $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-      $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-      $anci_val = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
       $lines = [
         'Salaire de base' => $brut,
-        'Prime ancienneté' => $anci_val,
+        // 'Prime ancienneté' désactivée du compare auto : la formule
+        // brut × anciennete × 1% / 12 ne correspond pas au barème CCN
+        // immobilier réellement appliqué par le comptable (32€/tranche
+        // de 3 ans, avec plafonds). À ré-activer quand un champ
+        // salaires.prime_anciennete_montant sera saisi à la main.
         'Avantage en nature' => !empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0,
         'Heures supp' => !empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0,
         'Commissions CA' => !empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0,
@@ -37,12 +39,11 @@ if (!function_exists('rh_expected_salary_lines')) {
 
 if (!function_exists('rh_expected_brut_total')) {
     function rh_expected_brut_total(array $u): float {
+      // Prime ancienneté NON incluse (formule auto désactivée, voir
+      // rh_expected_salary_lines).
       $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-      $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-      $anci_val = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
       return $brut
            + (!empty($u['treizieme_mois']) ? (float)$u['treizieme_mois'] : 0)
-           + $anci_val
            + (!empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0)
            + (!empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0)
            + (!empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0)
