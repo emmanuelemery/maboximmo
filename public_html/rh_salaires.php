@@ -2014,16 +2014,56 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                     document.getElementById('comptable-form').submit();
                 }
                 </script>
-                <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
-                    <h4>2. Importer le projet</h4>
+                <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step" style="<?= $projetRow ? 'padding:10px 12px;' : '' ?>">
+                    <h4 style="<?= $projetRow ? 'font-size:12px;margin:0 0 6px;' : '' ?>">2. <?= $projetRow ? 'Réimporter' : 'Importer' ?> le projet</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
                     <input type="hidden" name="agence" value="<?=h((string)$agenceWf)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="file" name="projet_pdf" accept="application/pdf" required>
-                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn">Importer</button>
+                    <input type="file" name="projet_pdf" accept="application/pdf" required style="<?= $projetRow ? 'font-size:11px;' : '' ?>">
+                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn" style="<?= $projetRow ? 'padding:5px 10px;font-size:11px;' : '' ?>"><?= $projetRow ? 'Réimporter' : 'Importer' ?></button>
                 </form>
+
+                <?php if ($projetRow): ?>
+                <!-- Bouton Valider le projet (apparait apres import) -->
+                <div class="workflow-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
+                    <h4 style="color:#15803d;">2bis. Valider le projet</h4>
+                    <button type="button" onclick="ouvrirValidationModal()"
+                            style="padding:9px 16px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">
+                        ✅ Valider et envoyer au comptable
+                    </button>
+                </div>
+                <!-- Modal validation : saisie du commentaire -->
+                <div id="validation-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerValidationModal()">
+                    <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+                        <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                            <h3 style="margin:0;font-size:15px;color:#15803d;">✅ Valider le projet — envoi au comptable</h3>
+                            <button type="button" onclick="fermerValidationModal()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
+                        </div>
+                        <form method="post" action="rh_salaire_validate_projet.php">
+                            <div style="padding:18px 20px;">
+                                <p style="margin:0 0 10px;font-size:12px;color:#64748b;">
+                                    Le PDF du projet sera envoyé en pièce jointe au comptable de la société, avec ton commentaire dans le corps du mail.
+                                </p>
+                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Commentaire (optionnel)</label>
+                                <textarea name="commentaire" rows="6" placeholder="Ex: J'ai relevé un écart sur la prime de Mme X, peux-tu vérifier..." style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>
+                                <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+                                <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
+                                <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                            </div>
+                            <div style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;gap:8px;">
+                                <button type="button" onclick="fermerValidationModal()" style="padding:9px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
+                                <button type="submit" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">✅ Valider et envoyer</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <script>
+                function ouvrirValidationModal() { document.getElementById('validation-modal').style.display = 'flex'; }
+                function fermerValidationModal() { document.getElementById('validation-modal').style.display = 'none'; }
+                </script>
+                <?php endif; ?>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>3. Importer les bulletins</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">

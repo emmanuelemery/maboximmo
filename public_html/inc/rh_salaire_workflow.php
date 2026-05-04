@@ -19,14 +19,16 @@ declare(strict_types=1);
  *   - tracer qui a fait quoi (triggered_by → users.id)
  */
 
-const RH_WF_TYPE_ENVOI     = 'envoi_comptable';
-const RH_WF_TYPE_PROJET    = 'import_projet';
-const RH_WF_TYPE_BULLETINS = 'import_bulletins';
+const RH_WF_TYPE_ENVOI      = 'envoi_comptable';
+const RH_WF_TYPE_PROJET     = 'import_projet';
+const RH_WF_TYPE_BULLETINS  = 'import_bulletins';
+const RH_WF_TYPE_VALIDATION = 'validation_projet';
 
 const RH_WF_TYPES_LABELS = [
-    RH_WF_TYPE_ENVOI     => '📤 Envoi au comptable',
-    RH_WF_TYPE_PROJET    => '📥 Projet reçu',
-    RH_WF_TYPE_BULLETINS => '📋 Bulletins finaux',
+    RH_WF_TYPE_ENVOI      => '📤 Envoi au comptable',
+    RH_WF_TYPE_PROJET     => '📥 Projet reçu',
+    RH_WF_TYPE_BULLETINS  => '📋 Bulletins finaux',
+    RH_WF_TYPE_VALIDATION => '✅ Validation au comptable',
 ];
 
 /**
