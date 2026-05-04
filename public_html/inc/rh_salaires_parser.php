@@ -225,16 +225,28 @@ if (!function_exists('rh_parse_bulletins_text')) {
                 }
             }
 
-            // Lignes "Absence Congés payés (DD-MM-AAAA - DD-MM-AAAA)" pour check congés
+            // Lignes "Absence Congés payés (DD-MM-AAAA - DD-MM-AAAA)" pour check congés.
+            // Le nombre de jours est calculé à partir des dates (jours ouvrés
+            // lun-ven) plutôt qu'extrait de la ligne : la sortie smalot colle
+            // montant+taux+jours sans séparateur ("131,2465,62022,00") donc
+            // impossible à parser par regex de manière fiable.
             $absences = [];
             foreach ($lines as $line) {
-                if (preg_match('/Absence\s+Cong[eé]s\s+pay[eé]s\s*\(([^)]+)\)/iu', $line, $am)) {
-                    $jours = null;
-                    if (preg_match('/(\d+(?:[\.,]\d+)?)\s*,\s*\d+/', $line, $jm)) {
-                        $jours = (float)str_replace(',', '.', $jm[1]);
+                if (preg_match('/Absence\s+Cong[eé]s\s+pay[eé]s\s*\(\s*(\d{2})-(\d{2})-(\d{4})\s*[-–]\s*(\d{2})-(\d{2})-(\d{4})\s*\)/iu', $line, $am)) {
+                    $startTs = mktime(0, 0, 0, (int)$am[2], (int)$am[1], (int)$am[3]);
+                    $endTs   = mktime(0, 0, 0, (int)$am[5], (int)$am[4], (int)$am[6]);
+                    $jours = 0.0;
+                    if ($startTs !== false && $endTs !== false && $startTs <= $endTs) {
+                        $cur = $startTs;
+                        while ($cur <= $endTs) {
+                            $dow = (int)date('N', $cur); // 1=lun ... 7=dim
+                            if ($dow < 6) $jours += 1.0;
+                            $cur = strtotime('+1 day', $cur);
+                        }
                     }
+                    $periode = sprintf('%s-%s-%s -> %s-%s-%s', $am[1], $am[2], $am[3], $am[4], $am[5], $am[6]);
                     $absences[] = [
-                        'periode' => trim($am[1]),
+                        'periode' => $periode,
                         'jours'   => $jours,
                         'raw'     => preg_replace('/\s+/', ' ', trim($line)),
                     ];
