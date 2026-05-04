@@ -40,13 +40,6 @@ if (!function_exists('rh_expected_salary_lines')) {
 }
 
 if (!function_exists('rh_expected_brut_total')) {
-    // Total BRUT FISCAL attendu : doit matcher la ligne "**** BRUT FISCAL ****"
-    // du PDF. Les remboursements de frais (achat, IK, frais pro, reception,
-    // stationnement, deplacement) ne sont PAS du brut salarial — ils sont
-    // payes en complement, apres le brut, et ne figurent pas dans le BRUT
-    // FISCAL du bulletin. Les inclure ici provoquait un faux ecart au total
-    // alors que toutes les lignes individuelles matchaient (cas Celine GOUBE
-    // 2026-05 : -89,89 € sur le total = montant Remboursement achat).
     function rh_expected_brut_total(array $u): float {
       $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
       return $brut
@@ -56,8 +49,14 @@ if (!function_exists('rh_expected_brut_total')) {
            + (!empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0)
            + (!empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0)
            + (!empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0)
+           + (!empty($u['frais_professionnels']) ? (float)$u['frais_professionnels'] : 0)
+           + (!empty($u['frais_reception']) ? (float)$u['frais_reception'] : 0)
            + (!empty($u['prime_admin']) ? (float)$u['prime_admin'] : 0)
-           + (!empty($u['prime_exceptionnelle']) ? (float)$u['prime_exceptionnelle'] : 0);
+           + (!empty($u['prime_exceptionnelle']) ? (float)$u['prime_exceptionnelle'] : 0)
+           + (!empty($u['stationnement']) ? (float)$u['stationnement'] : 0)
+           + (!empty($u['frais_deplacement']) ? (float)$u['frais_deplacement'] : 0)
+           + (!empty($u['remboursement_achat']) ? (float)$u['remboursement_achat'] : 0)
+           + (!empty($u['total_ik']) ? (float)$u['total_ik'] : 0);
     }
 }
 

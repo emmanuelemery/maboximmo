@@ -1490,37 +1490,7 @@ function toggleSection(cardId, chevronId) {
     if (!card) return;
     card.classList.toggle(\'collapsed\');
     if (chevron) chevron.classList.toggle(\'collapsed\');
-    // Persiste l\'etat ouvert/ferme : le user veut decider quand fermer,
-    // sinon il doit rouvrir a chaque rechargement (ex. apres POST workflow).
-    try {
-        const isCollapsed = card.classList.contains(\'collapsed\');
-        localStorage.setItem(\'rhSalaires.section.\' + cardId, isCollapsed ? \'1\' : \'0\');
-    } catch (e) { /* localStorage indisponible : ignore */ }
 }
-
-// Restaure l\'etat persiste des sections collapsibles au chargement.
-// Par defaut le markup serveur les rend "collapsed" ; on ne les ouvre que
-// si le user les avait laissees ouvertes lors de sa derniere interaction.
-document.addEventListener(\'DOMContentLoaded\', function () {
-    try {
-        const sections = [
-            { card: \'workflow-card\', chevron: \'workflow-chevron\' }
-        ];
-        sections.forEach(function (s) {
-            const card    = document.getElementById(s.card);
-            const chevron = document.getElementById(s.chevron);
-            if (!card) return;
-            const stored = localStorage.getItem(\'rhSalaires.section.\' + s.card);
-            if (stored === \'0\') {
-                card.classList.remove(\'collapsed\');
-                if (chevron) chevron.classList.remove(\'collapsed\');
-            } else if (stored === \'1\') {
-                card.classList.add(\'collapsed\');
-                if (chevron) chevron.classList.add(\'collapsed\');
-            }
-        });
-    } catch (e) { /* ignore */ }
-});
 
 function toggleModeles(checked) {
     const form = document.getElementById(\'filter-form\');
