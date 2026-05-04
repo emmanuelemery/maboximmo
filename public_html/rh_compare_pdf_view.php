@@ -59,11 +59,14 @@ if (!is_file($realPath) || !is_readable($realPath)) {
 
 $filename = $row['file_name'] ?: basename($realPath);
 
+// Strip d'eventuels headers Content-Disposition deja poses par Apache/Hostinger
+header_remove('Content-Disposition');
 header('Content-Type: application/pdf');
 header('Content-Disposition: inline; filename="' . str_replace('"', '', $filename) . '"');
 header('Content-Length: ' . filesize($realPath));
 header('Cache-Control: private, max-age=0, no-cache');
 header('X-Frame-Options: SAMEORIGIN');
+header('X-Content-Type-Options: nosniff');
 
 readfile($realPath);
 exit;

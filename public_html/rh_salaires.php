@@ -2248,7 +2248,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                         <div style="padding:12px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;">
                             <?php if (!empty($projetRow['id'])): ?>
                                 <form method="post" action="rh_compare_recompute.php" style="margin:0;">
-                                    <input type="hidden" name="csrf_token" value="<?= h($_SESSION['csrf_token'] ?? '') ?>">
+                                    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
                                     <input type="hidden" name="id" value="<?= (int)$projetRow['id'] ?>">
                                     <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
                                     <button type="submit" style="padding:9px 16px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;" title="Recalculer la comparaison avec les valeurs MBI actuelles (sans re-uploader le PDF)">
@@ -2356,7 +2356,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                         </a>
                                         <form method="post" action="rh_salaire_workflow_delete.php" style="display:inline;margin:0;"
                                               onsubmit="return confirm('Supprimer cette version (#<?= (int)$wfRow['iteration'] ?>) ?\n\nLe PDF sera retiré de l\'historique.');">
-                                            <input type="hidden" name="csrf_token" value="<?= h($_SESSION['csrf_token'] ?? '') ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
                                             <input type="hidden" name="id" value="<?= (int)$wfRow['id'] ?>">
                                             <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
                                             <button type="submit"
