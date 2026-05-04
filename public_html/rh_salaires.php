@@ -224,11 +224,15 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
 }
 
 function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef): array {
+  // Clé de matching : users.matricule_paie (logiciel de paie comptable),
+  // alimenté via la migration 2026_05_04_users_matricule_paie. Les salariés
+  // sans matricule sont ignorés du comparateur.
   $stmt = $pdo->prepare("
-    SELECT u.id, u.prenom, u.nom, u.id_legacy, s.*
+    SELECT u.id, u.matricule_paie, u.prenom, u.nom, u.id_legacy, s.*
     FROM users u
     LEFT JOIN salaires s ON (s.id_user = u.id OR (u.id_legacy IS NOT NULL AND s.id_user = u.id_legacy)) AND s.mois_reference = :mr
     WHERE u.actif = 1 AND u.est_salarie = 1 AND u.id_societe = :soc
+      AND u.matricule_paie IS NOT NULL AND u.matricule_paie <> ''
     ORDER BY u.nom, u.prenom
   ");
   $stmt->execute([':mr' => $moisRef, ':soc' => $societeId]);
@@ -236,10 +240,11 @@ function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef): array 
   $map = [];
   foreach ($rows as $row) {
       $name = trim(($row['prenom'] ?? '') . ' ' . ($row['nom'] ?? ''));
-      $key = function_exists('rh_normalize_name') ? rh_normalize_name($name) : strtoupper($name);
+      $key = (string)($row['matricule_paie'] ?? '');
       if ($key === '') continue;
       $map[$key] = [
           'name' => $name,
+          'matricule' => $key,
           'lines' => rh_expected_salary_lines($row),
           'total_brut' => rh_expected_brut_total($row),
       ];
@@ -698,15 +703,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
         exit;
     }
 
+    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+
+    // Archivage workflow_log AVANT extraction : garantit que le PDF apparait
+    // dans "Historique des échanges" même si le parsing échoue (ex. extraction
+    // PDF impossible sur prod sans pdftotext / vendor).
+    $relPathLog = null;
+    $contentSize = null;
+    if ($idAgenceLog > 0) {
+        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET);
+        $content = @file_get_contents($destPath);
+        if ($content !== false) {
+            $contentSize = strlen($content);
+            $relPathLog = rh_wf_save_file($societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET,
+                $iter, $content, $file['name']);
+        }
+    }
+
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
     if (empty($parsed['ok'])) {
-        $_SESSION['message_err'] = 'Extraction PDF impossible.';
+        if ($idAgenceLog > 0 && $relPathLog) {
+            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET,
+                $relPathLog, $file['name'], $contentSize, null,
+                (int)current_user_id(), 'error',
+                'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
+                'PDF archivé — reparse manuel possible.');
+        }
+        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé dans l\'historique.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
     $expected = rh_load_expected_map($pdo, $societeId, $moisRef);
     $employees = $parsed['data']['employees'] ?? [];
     $compare = rh_compare_bulletins_expected($expected, $employees);
@@ -726,20 +755,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
         current_user_id()
     ]);
 
-    // Workflow log : copier le PDF dans uploads/rh_salaires/{soc}/{ag}/{mois}/projet/
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-    if ($idAgenceLog > 0) {
-        $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET,
-                $iter, $content, $file['name']);
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET,
-                $relPath, $file['name'], strlen($content), null,
-                (int)current_user_id(), 'ok',
-                null, $compare['ok'] ? 'Comparaison OK' : 'Écarts détectés');
-        }
+    if ($idAgenceLog > 0 && $relPathLog) {
+        rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET,
+            $relPathLog, $file['name'], $contentSize, null,
+            (int)current_user_id(), 'ok',
+            null, $compare['ok'] ? 'Comparaison OK' : 'Écarts détectés');
     }
 
     $_SESSION['message_ok'] = $compare['ok'] ? 'Projet comptable validé ✅' : 'Comparaison terminée, vérifiez les écarts.';
@@ -782,15 +802,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
         exit;
     }
 
+    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+
+    // Archivage workflow_log AVANT extraction : PDF visible dans
+    // "Historique des échanges" même en cas d'échec parser.
+    $relPathLog = null;
+    $contentSize = null;
+    if ($idAgenceLog > 0) {
+        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS);
+        $content = @file_get_contents($destPath);
+        if ($content !== false) {
+            $contentSize = strlen($content);
+            $relPathLog = rh_wf_save_file($societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                $iter, $content, $file['name']);
+        }
+    }
+
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
     if (empty($parsed['ok'])) {
-        $_SESSION['message_err'] = 'Extraction PDF impossible.';
+        if ($idAgenceLog > 0 && $relPathLog) {
+            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                $relPathLog, $file['name'], $contentSize, null,
+                (int)current_user_id(), 'error',
+                'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
+                'PDF archivé — reparse manuel possible.');
+        }
+        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé dans l\'historique.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
     $expected = rh_load_expected_map($pdo, $societeId, $moisRef);
     $employees = $parsed['data']['employees'] ?? [];
     $compare = rh_compare_bulletins_expected($expected, $employees);
@@ -817,13 +860,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
     $missingRib = [];
     $moisLabel = mois_fr($moisPost);
 
-    $stmtUsers = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE actif = 1 AND est_salarie = 1 AND id_societe = ?");
+    // Mapping users : clé = matricule_paie (cohérent avec les clés du parser).
+    $stmtUsers = $pdo->prepare("SELECT id, prenom, nom, matricule_paie FROM users WHERE actif = 1 AND est_salarie = 1 AND id_societe = ? AND matricule_paie IS NOT NULL AND matricule_paie <> ''");
     $stmtUsers->execute([$societeId]);
     $userRows = $stmtUsers->fetchAll(PDO::FETCH_ASSOC);
     $userMap = [];
     foreach ($userRows as $ur) {
         $name = trim(($ur['prenom'] ?? '') . ' ' . ($ur['nom'] ?? ''));
-        $key = function_exists('rh_normalize_name') ? rh_normalize_name($name) : strtoupper($name);
+        $key = (string)($ur['matricule_paie'] ?? '');
         if ($key !== '') {
             $userMap[$key] = ['id' => (int)$ur['id'], 'name' => $name];
         }
@@ -897,21 +941,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
         current_user_id()
     ]);
 
-    // Workflow log : copier le PDF des bulletins
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-    if ($idAgenceLog > 0) {
-        $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS,
-                $iter, $content, $file['name']);
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS,
-                $relPath, $file['name'], strlen($content), null,
-                (int)current_user_id(), $sepaErr ? 'error' : 'ok',
-                $sepaErr ?: null,
-                'Total net : ' . number_format($totalNet, 2, ',', ' ') . ' €');
-        }
+    // Workflow log final : le fichier a déjà été archivé en début de handler ;
+    // ici on inscrit juste l'action avec le résultat (compare + SEPA).
+    if ($idAgenceLog > 0 && $relPathLog) {
+        rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS,
+            $relPathLog, $file['name'], $contentSize, null,
+            (int)current_user_id(), $sepaErr ? 'error' : 'ok',
+            $sepaErr ?: null,
+            'Total net : ' . number_format($totalNet, 2, ',', ' ') . ' €');
     }
 
     if ($sepaErr) {
