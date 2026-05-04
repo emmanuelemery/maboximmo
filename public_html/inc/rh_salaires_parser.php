@@ -21,7 +21,13 @@ if (!function_exists('rh_parse_amount')) {
 if (!function_exists('rh_extract_last_amount')) {
     function rh_extract_last_amount(string $line): ?float
     {
-        if (preg_match('/(-?\d[\d\s]*[,\.]\d{2})\s*$/u', $line, $m)) {
+        // Capture le DERNIER montant en fin de ligne, en distinguant 2 formats :
+        //   A) "1923,08" (suite de chiffres collés + virgule + 2 décimales)
+        //   B) "1 234 567,89" (groupes de 3 chiffres séparés par espace/NBSP)
+        // L'ancien regex `\d[\d\s]*[,\.]\d{2}` capturait trop large sur les
+        // lignes multi-colonnes type "Salaire de base 151,67 12,6794 1923,08"
+        // -> il avalait "6794    1923,08" comme un seul nombre.
+        if (preg_match('/(-?(?:\d{1,3}(?:[\s\xC2\xA0]\d{3})+|\d+)[,\.]\d{2})\s*$/u', $line, $m)) {
             return rh_parse_amount($m[1]);
         }
         return null;
@@ -55,7 +61,7 @@ if (!function_exists('rh_bulletin_label_map')) {
             'Commissions NA' => ['/\bCommissions?\s+CA\s+NA\b/i', '/\bCommissions?\s+nouvelles?\s+affaires\b/i'],
             'Prime administrative' => ['/\bPrime\s+administrative\b/i'],
             'Prime exceptionnelle' => ['/\bPrime\s+exceptionnelle\b/i'],
-            'Treizieme mois' => ['/\bTreizi[eè]me\s+mois\b/i'],
+            'Treizieme mois' => ['/\bTreizi[eèé]me\s+mois\b/iu'],
             'Indemnité km' => ['/\bIndemn(?:it[eé]|ite)\s+kilom/i', '/\bIndemn(?:it[eé]|ite)\s+km\b/i', '/\bIK\b/i'],
             'Remboursement achat' => ['/\bRemboursement\s+achat\b/i'],
             'Frais professionnels' => ['/\bFrais\s+professionnels\b/i'],
@@ -166,13 +172,37 @@ if (!function_exists('rh_parse_bulletins_text')) {
                         if (preg_match($pat, $line)) {
                             $amt = rh_extract_last_amount($line);
                             if ($amt !== null) {
+                                // Capture aussi la ligne PDF brute pour traçabilité
+                                // (ex. "Heures structurelles à 125 % | 17,33 | 23,63 | 409,54").
+                                $rawLine = preg_replace('/\s+/', ' ', $line);
+                                $rawLine = preg_replace('/\s*-?\d[\d\s,\.]*$/u', '', $rawLine);
+                                $rawLine = trim($rawLine);
                                 if (!isset($items[$label]) || abs($amt) > 0) {
-                                    $items[$label] = $amt;
+                                    $items[$label] = [
+                                        'amount'   => $amt,
+                                        'pdf_label' => $rawLine !== '' ? $rawLine : $label,
+                                    ];
                                 }
                             }
                             break;
                         }
                     }
+                }
+            }
+
+            // Lignes "Absence Congés payés (DD-MM-AAAA - DD-MM-AAAA)" pour check congés
+            $absences = [];
+            foreach ($lines as $line) {
+                if (preg_match('/Absence\s+Cong[eé]s\s+pay[eé]s\s*\(([^)]+)\)/iu', $line, $am)) {
+                    $jours = null;
+                    if (preg_match('/(\d+(?:[\.,]\d+)?)\s*,\s*\d+/', $line, $jm)) {
+                        $jours = (float)str_replace(',', '.', $jm[1]);
+                    }
+                    $absences[] = [
+                        'periode' => trim($am[1]),
+                        'jours'   => $jours,
+                        'raw'     => preg_replace('/\s+/', ' ', trim($line)),
+                    ];
                 }
             }
 
@@ -183,6 +213,7 @@ if (!function_exists('rh_parse_bulletins_text')) {
                 'net'             => $net,
                 'net_avant_impot' => $netAvant,
                 'items'           => $items,
+                'absences_cp'     => $absences,
             ];
         }
 

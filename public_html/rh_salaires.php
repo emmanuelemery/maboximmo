@@ -151,6 +151,7 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
   $extra = [];
   $totalExpected = 0.0;
   $totalPdf = 0.0;
+  $allOk = true;
 
   foreach ($expectedByKey as $key => $exp) {
     $totalExpected += $exp['total_brut'];
@@ -158,6 +159,7 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
         $missing[] = $exp['name'];
         $rows[] = [
             'name' => $exp['name'],
+            'matricule' => $exp['matricule'] ?? $key,
             'expected_brut' => $exp['total_brut'],
             'pdf_brut' => null,
             'brut_diff' => null,
@@ -175,16 +177,33 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
     $lineDiffs = [];
     $rowOk = true;
     foreach ($exp['lines'] as $label => $amount) {
-        $pdfAmount = $pdf['items'][$label] ?? null;
-        if ($pdfAmount === null) {
+        $pdfItem = $pdf['items'][$label] ?? null;
+        if ($pdfItem === null) {
             $rowOk = false;
-            $lineDiffs[] = ['label'=>$label,'expected'=>$amount,'pdf'=>null,'diff'=>null,'status'=>'missing'];
+            $lineDiffs[] = [
+                'label'     => $label,
+                'pdf_label' => null,
+                'expected'  => $amount,
+                'pdf'       => null,
+                'diff'      => null,
+                'status'    => 'missing',
+            ];
             continue;
         }
+        // Compat ascendante : ancien parser stockait juste le montant (float).
+        $pdfAmount = is_array($pdfItem) ? ($pdfItem['amount'] ?? null) : (float)$pdfItem;
+        $pdfLabel  = is_array($pdfItem) ? ($pdfItem['pdf_label'] ?? $label) : $label;
         $diff = (float)$pdfAmount - (float)$amount;
         $status = (abs($diff) <= $tol) ? 'ok' : 'diff';
         if ($status !== 'ok') $rowOk = false;
-        $lineDiffs[] = ['label'=>$label,'expected'=>$amount,'pdf'=>$pdfAmount,'diff'=>$diff,'status'=>$status];
+        $lineDiffs[] = [
+            'label'     => $label,
+            'pdf_label' => $pdfLabel,
+            'expected'  => $amount,
+            'pdf'       => $pdfAmount,
+            'diff'      => $diff,
+            'status'    => $status,
+        ];
     }
 
     $brutDiff = null;
@@ -198,6 +217,7 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
     if (!$rowOk) $allOk = false;
     $rows[] = [
         'name' => $exp['name'],
+        'matricule' => $exp['matricule'] ?? $key,
         'expected_brut' => $exp['total_brut'],
         'pdf_brut' => $pdfBrut,
         'brut_diff' => $brutDiff,
@@ -208,7 +228,7 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
 
   foreach ($parsedEmployees as $key => $pdf) {
       if (!isset($expectedByKey[$key])) {
-          $extra[] = $pdf['name'] ?? $key;
+          $extra[] = ($pdf['name'] ?? $key) . ' (mat ' . $key . ')';
           $allOk = false;
       }
   }
@@ -223,19 +243,26 @@ function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmploy
   ];
 }
 
-function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef): array {
+function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef, int $agenceId = 0): array {
   // Clé de matching : users.matricule_paie (logiciel de paie comptable),
   // alimenté via la migration 2026_05_04_users_matricule_paie. Les salariés
   // sans matricule sont ignorés du comparateur.
+  // Si $agenceId > 0 : restriction à cette agence (mode dispatch par agence).
+  $where = "u.actif = 1 AND u.est_salarie = 1 AND u.id_societe = :soc
+            AND u.matricule_paie IS NOT NULL AND u.matricule_paie <> ''";
+  $params = [':mr' => $moisRef, ':soc' => $societeId];
+  if ($agenceId > 0) {
+      $where .= " AND u.id_agence = :ag";
+      $params[':ag'] = $agenceId;
+  }
   $stmt = $pdo->prepare("
-    SELECT u.id, u.matricule_paie, u.prenom, u.nom, u.id_legacy, s.*
+    SELECT u.id, u.matricule_paie, u.id_agence, u.prenom, u.nom, u.id_legacy, s.*
     FROM users u
     LEFT JOIN salaires s ON (s.id_user = u.id OR (u.id_legacy IS NOT NULL AND s.id_user = u.id_legacy)) AND s.mois_reference = :mr
-    WHERE u.actif = 1 AND u.est_salarie = 1 AND u.id_societe = :soc
-      AND u.matricule_paie IS NOT NULL AND u.matricule_paie <> ''
+    WHERE $where
     ORDER BY u.nom, u.prenom
   ");
-  $stmt->execute([':mr' => $moisRef, ':soc' => $societeId]);
+  $stmt->execute($params);
   $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
   $map = [];
   foreach ($rows as $row) {
@@ -245,11 +272,117 @@ function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef): array 
       $map[$key] = [
           'name' => $name,
           'matricule' => $key,
+          'id_user' => (int)$row['id'],
+          'id_agence' => (int)($row['id_agence'] ?? 0),
           'lines' => rh_expected_salary_lines($row),
           'total_brut' => rh_expected_brut_total($row),
       ];
   }
   return $map;
+}
+
+/**
+ * Dispatche les bulletins parsés du PDF vers leur agence d'appartenance via
+ * matricule -> users.id_agence. Retourne :
+ *   [ id_agence => ['employees' => [matricule => emp...], 'agence_label' => '..'] ]
+ * Les matricules orphelins (non trouvés en BDD) sont placés sous la clé 0.
+ */
+function rh_dispatch_bulletins_by_agence(PDO $pdo, int $societeId, array $parsedEmployees): array {
+    if (empty($parsedEmployees)) return [];
+    $matricules = array_keys($parsedEmployees);
+    $in = implode(',', array_fill(0, count($matricules), '?'));
+    $stmt = $pdo->prepare("
+        SELECT u.matricule_paie, u.id_agence, a.nom_agence AS agence_nom
+        FROM users u
+        LEFT JOIN agences a ON a.id = u.id_agence
+        WHERE u.id_societe = ? AND u.matricule_paie IN ($in)
+    ");
+    $stmt->execute(array_merge([$societeId], $matricules));
+    $resolution = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $resolution[$r['matricule_paie']] = [
+            'id_agence'   => (int)$r['id_agence'],
+            'agence_nom'  => $r['agence_nom'] ?? '',
+        ];
+    }
+    $groups = [];
+    foreach ($parsedEmployees as $matricule => $emp) {
+        $info = $resolution[$matricule] ?? null;
+        $idAg = $info ? (int)$info['id_agence'] : 0;
+        if (!isset($groups[$idAg])) {
+            $groups[$idAg] = [
+                'agence_label' => $info['agence_nom'] ?? ($idAg === 0 ? 'Matricules orphelins (BDD)' : ('Agence #' . $idAg)),
+                'employees'    => [],
+            ];
+        }
+        $groups[$idAg]['employees'][$matricule] = $emp;
+    }
+    return $groups;
+}
+
+/**
+ * Calcule pour chaque user de l'expected map les jours de congés payés
+ * validés sur le mois cible, et croise avec les lignes "Absence Congés payés"
+ * détectées dans le PDF parsé.
+ */
+function rh_compute_conges_summary(PDO $pdo, array $expectedMap, int $moisPost, int $anneePost, array $parsedEmployees): array {
+    $summary = [];
+    if (empty($expectedMap)) return $summary;
+    $first = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $last = date('Y-m-t', strtotime($first));
+    $userIds = array_filter(array_map(fn($e) => (int)($e['id_user'] ?? 0), $expectedMap));
+    if (empty($userIds)) return $summary;
+    $in = implode(',', array_fill(0, count($userIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT id_user, date_debut, date_fin, demi_journee_debut, demi_journee_fin
+        FROM conges
+        WHERE id_user IN ($in)
+          AND statut = 'validé' AND motif = 'conges_payes'
+          AND date_debut <= ? AND date_fin >= ?
+    ");
+    $stmt->execute(array_merge(array_values($userIds), [$last, $first]));
+    $byUser = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byUser[(int)$r['id_user']][] = $r;
+    }
+    foreach ($expectedMap as $matricule => $exp) {
+        $userId = (int)($exp['id_user'] ?? 0);
+        $rows = $byUser[$userId] ?? [];
+        $jours = 0.0;
+        foreach ($rows as $r) {
+            $dStart = max($r['date_debut'], $first);
+            $dEnd = min($r['date_fin'], $last);
+            $cur = strtotime($dStart);
+            $end = strtotime($dEnd);
+            while ($cur <= $end) {
+                $jours += 1.0;
+                $cur = strtotime('+1 day', $cur);
+            }
+            if ($r['demi_journee_debut'] !== 'non' && $r['date_debut'] >= $first) $jours -= 0.5;
+            if ($r['demi_journee_fin'] !== 'non' && $r['date_fin'] <= $last) $jours -= 0.5;
+        }
+        // Compte les "Absence Congés payés" dans le PDF (via parser absences_cp)
+        $pdfDays = 0.0;
+        $pdfDetails = [];
+        $pdfEmp = $parsedEmployees[$matricule] ?? null;
+        if ($pdfEmp && !empty($pdfEmp['absences_cp'])) {
+            foreach ($pdfEmp['absences_cp'] as $abs) {
+                if ($abs['jours'] !== null) {
+                    $pdfDays += (float)$abs['jours'];
+                }
+                $pdfDetails[] = $abs['periode'] . ($abs['jours'] !== null ? ' (' . $abs['jours'] . 'j)' : '');
+            }
+        }
+        $summary[$matricule] = [
+            'name'      => $exp['name'],
+            'matricule' => $matricule,
+            'mbi_jours' => $jours,
+            'pdf_jours' => $pdfDays,
+            'pdf_details' => $pdfDetails,
+            'ok' => abs($jours - $pdfDays) <= 0.5 || ($jours == 0 && $pdfDays == 0),
+        ];
+    }
+    return $summary;
 }
 
 // Handle email sending
@@ -506,15 +639,27 @@ if ($societe_sel !== 'toutes') {
     $stmtSocInfo->execute([(int)$societe_sel]);
     $societeInfo = $stmtSocInfo->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
-    $stmtProj->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    // Si une agence est sélectionnée, on affiche son rapport spécifique.
+    // Sinon on charge la dernière comparaison toutes agences confondues.
+    if ($agenceScope > 0) {
+        $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND id_agence = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
+        $stmtProj->execute([(int)$societe_sel, $agenceScope, (int)$mois_sel, (int)$annee_sel]);
+    } else {
+        $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
+        $stmtProj->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    }
     $projetRow = $stmtProj->fetch(PDO::FETCH_ASSOC) ?: null;
     if ($projetRow) {
         $projetData = json_decode($projetRow['compare_json'] ?? '', true) ?: null;
     }
 
-    $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
-    $stmtBull->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    if ($agenceScope > 0) {
+        $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND id_agence = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
+        $stmtBull->execute([(int)$societe_sel, $agenceScope, (int)$mois_sel, (int)$annee_sel]);
+    } else {
+        $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
+        $stmtBull->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    }
     $bulletinsRow = $stmtBull->fetch(PDO::FETCH_ASSOC) ?: null;
     if ($bulletinsRow) {
         $bulletinsData = json_decode($bulletinsRow['compare_json'] ?? '', true) ?: null;
@@ -704,65 +849,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
     }
 
     $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-
-    // Archivage workflow_log AVANT extraction : garantit que le PDF apparait
-    // dans "Historique des échanges" même si le parsing échoue (ex. extraction
-    // PDF impossible sur prod sans pdftotext / vendor).
-    $relPathLog = null;
-    $contentSize = null;
-    if ($idAgenceLog > 0) {
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $contentSize = strlen($content);
-            $relPathLog = rh_wf_save_file($societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET,
-                $iter, $content, $file['name']);
-        }
-    }
 
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
     if (empty($parsed['ok'])) {
-        if ($idAgenceLog > 0 && $relPathLog) {
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET,
-                $relPathLog, $file['name'], $contentSize, null,
-                (int)current_user_id(), 'error',
-                'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
-                'PDF archivé — reparse manuel possible.');
+        // Si extraction KO et qu'aucune agence n'est sélectionnée, on log au
+        // moins l'erreur au niveau société (agence=NULL fallback impossible
+        // côté workflow_log qui requiert id_agence). On note dans message_err.
+        if ($agenceScope > 0) {
+            $iter = rh_wf_next_iteration($pdo, $agenceScope, $moisRef, RH_WF_TYPE_PROJET);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $agenceScope, $moisRef, RH_WF_TYPE_PROJET,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    rh_wf_log_action($pdo, $societeId, $agenceScope, $moisRef, RH_WF_TYPE_PROJET,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
+                        'PDF archivé — reparse manuel possible.');
+                }
+            }
         }
-        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé dans l\'historique.';
+        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé sur disque.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $expected = rh_load_expected_map($pdo, $societeId, $moisRef);
+    // Dispatch automatique des bulletins par agence via matricule->user->id_agence.
     $employees = $parsed['data']['employees'] ?? [];
-    $compare = rh_compare_bulletins_expected($expected, $employees);
+    $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
 
-    $stmt = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, mois, annee, type, file_name, file_path, total_pdf_brut, total_expected_brut, compare_ok, compare_json, parsed_json, created_by) VALUES (?, ?, ?, 'projet', ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $societeId,
-        $moisPost,
-        $anneePost,
-        $file['name'],
-        '/uploads/salaires_comptable/' . $destName,
-        $compare['total_pdf'],
-        $compare['total_expected'],
-        $compare['ok'] ? 1 : 0,
-        json_encode($compare, JSON_UNESCAPED_UNICODE),
-        json_encode($parsed['data'] ?? [], JSON_UNESCAPED_UNICODE),
-        current_user_id()
-    ]);
-
-    if ($idAgenceLog > 0 && $relPathLog) {
-        rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_PROJET,
-            $relPathLog, $file['name'], $contentSize, null,
-            (int)current_user_id(), 'ok',
-            null, $compare['ok'] ? 'Comparaison OK' : 'Écarts détectés');
+    // Si une agence est sélectionnée dans le scope, on restreint aux bulletins
+    // de cette agence (mode legacy par-agence). Sinon on traite toutes les
+    // agences détectées (mode import unifié).
+    if ($agenceScope > 0) {
+        $groups = array_intersect_key($groups, [$agenceScope => true]);
+        if (empty($groups)) {
+            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée.';
+            header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
+            exit;
+        }
     }
 
-    $_SESSION['message_ok'] = $compare['ok'] ? 'Projet comptable validé ✅' : 'Comparaison terminée, vérifiez les écarts.';
+    $insertedAgences = [];
+    foreach ($groups as $idAgence => $group) {
+        if ($idAgence <= 0) continue; // skip orphelins
+        $expected = rh_load_expected_map($pdo, $societeId, $moisRef, (int)$idAgence);
+        $compare = rh_compare_bulletins_expected($expected, $group['employees']);
+        $conges = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+        $compare['conges'] = $conges;
+
+        $stmt = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, id_agence, mois, annee, type, file_name, file_path, total_pdf_brut, total_expected_brut, compare_ok, compare_json, parsed_json, created_by) VALUES (?, ?, ?, ?, 'projet', ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $societeId,
+            (int)$idAgence,
+            $moisPost,
+            $anneePost,
+            $file['name'],
+            '/uploads/salaires_comptable/' . $destName,
+            $compare['total_pdf'],
+            $compare['total_expected'],
+            $compare['ok'] ? 1 : 0,
+            json_encode($compare, JSON_UNESCAPED_UNICODE),
+            json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE),
+            current_user_id()
+        ]);
+
+        // Workflow log : 1 entrée par agence, pointant vers le même PDF source
+        $iter = rh_wf_next_iteration($pdo, (int)$idAgence, $moisRef, RH_WF_TYPE_PROJET);
+        $content = @file_get_contents($destPath);
+        if ($content !== false) {
+            $relPathLog = rh_wf_save_file($societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_PROJET,
+                $iter, $content, $file['name']);
+            if ($relPathLog) {
+                rh_wf_log_action($pdo, $societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_PROJET,
+                    $relPathLog, $file['name'], strlen($content), null,
+                    (int)current_user_id(), 'ok',
+                    null,
+                    $compare['ok']
+                        ? ($group['agence_label'] . ' · Comparaison OK')
+                        : ($group['agence_label'] . ' · Écarts détectés (' . count($compare['rows']) . ' salariés)'));
+            }
+        }
+        $insertedAgences[] = $group['agence_label'];
+    }
+
+    // Orphelins : matricules du PDF non rattachés à une agence en BDD
+    $orphans = $groups[0]['employees'] ?? [];
+    if (!empty($orphans)) {
+        $orphanNames = [];
+        foreach ($orphans as $mat => $emp) {
+            $orphanNames[] = ($emp['name'] ?? 'mat ' . $mat) . ' (mat ' . $mat . ')';
+        }
+        $_SESSION['message_warn'] = 'Bulletins non rattachés à une agence (matricule absent en BDD) : ' . implode(', ', $orphanNames);
+    }
+
+    if (!empty($insertedAgences)) {
+        $_SESSION['message_ok'] = 'Projet comptable importé pour : ' . implode(', ', $insertedAgences);
+    } elseif (empty($orphans)) {
+        $_SESSION['message_err'] = 'Aucun bulletin valide détecté dans le PDF.';
+    }
     header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
     exit;
 }
@@ -803,51 +990,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
     }
 
     $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-
-    // Archivage workflow_log AVANT extraction : PDF visible dans
-    // "Historique des échanges" même en cas d'échec parser.
-    $relPathLog = null;
-    $contentSize = null;
-    if ($idAgenceLog > 0) {
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $contentSize = strlen($content);
-            $relPathLog = rh_wf_save_file($societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS,
-                $iter, $content, $file['name']);
-        }
-    }
+    $moisLabel = mois_fr($moisPost);
 
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
     if (empty($parsed['ok'])) {
-        if ($idAgenceLog > 0 && $relPathLog) {
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS,
-                $relPathLog, $file['name'], $contentSize, null,
-                (int)current_user_id(), 'error',
-                'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
-                'PDF archivé — reparse manuel possible.');
+        if ($agenceScope > 0) {
+            $iter = rh_wf_next_iteration($pdo, $agenceScope, $moisRef, RH_WF_TYPE_BULLETINS);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $agenceScope, $moisRef, RH_WF_TYPE_BULLETINS,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    rh_wf_log_action($pdo, $societeId, $agenceScope, $moisRef, RH_WF_TYPE_BULLETINS,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
+                        'PDF archivé — reparse manuel possible.');
+                }
+            }
         }
-        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé dans l\'historique.';
+        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé sur disque.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $expected = rh_load_expected_map($pdo, $societeId, $moisRef);
     $employees = $parsed['data']['employees'] ?? [];
-    $compare = rh_compare_bulletins_expected($expected, $employees);
-    $totalNet = 0.0;
-    foreach ($employees as $emp) {
-        if (isset($emp['net']) && $emp['net'] !== null) {
-            $totalNet += (float)$emp['net'];
+    $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
+
+    if ($agenceScope > 0) {
+        $groups = array_intersect_key($groups, [$agenceScope => true]);
+        if (empty($groups)) {
+            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée.';
+            header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
+            exit;
         }
     }
-
-    $stmt = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, mois, annee, type, file_name, file_path, total_pdf_net, compare_ok, compare_json, parsed_json, sepa_path, created_by) VALUES (?, ?, ?, 'bulletins', ?, ?, ?, ?, ?, ?, ?, ?)");
-
-    $sepaPathRel = null;
-    $sepaErr = null;
 
     $bank = [];
     if ($societeId > 0) {
@@ -856,105 +1034,124 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
         $bank = $stmtBank->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
-    $transfers = [];
-    $missingRib = [];
-    $moisLabel = mois_fr($moisPost);
+    $stmtIns = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, id_agence, mois, annee, type, file_name, file_path, total_pdf_net, compare_ok, compare_json, parsed_json, sepa_path, created_by) VALUES (?, ?, ?, ?, 'bulletins', ?, ?, ?, ?, ?, ?, ?, ?)");
 
-    // Mapping users : clé = matricule_paie (cohérent avec les clés du parser).
-    $stmtUsers = $pdo->prepare("SELECT id, prenom, nom, matricule_paie FROM users WHERE actif = 1 AND est_salarie = 1 AND id_societe = ? AND matricule_paie IS NOT NULL AND matricule_paie <> ''");
-    $stmtUsers->execute([$societeId]);
-    $userRows = $stmtUsers->fetchAll(PDO::FETCH_ASSOC);
-    $userMap = [];
-    foreach ($userRows as $ur) {
-        $name = trim(($ur['prenom'] ?? '') . ' ' . ($ur['nom'] ?? ''));
-        $key = (string)($ur['matricule_paie'] ?? '');
-        if ($key !== '') {
-            $userMap[$key] = ['id' => (int)$ur['id'], 'name' => $name];
-        }
-    }
+    $insertedAgences = [];
+    $sepaErrors = [];
+    foreach ($groups as $idAgence => $group) {
+        if ($idAgence <= 0) continue;
+        $expected = rh_load_expected_map($pdo, $societeId, $moisRef, (int)$idAgence);
+        $compare = rh_compare_bulletins_expected($expected, $group['employees']);
+        $conges = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+        $compare['conges'] = $conges;
 
-    foreach ($employees as $key => $emp) {
-        $net = $emp['net'] ?? null;
-        if ($net === null) {
-            continue;
+        $totalNetAg = 0.0;
+        foreach ($group['employees'] as $emp) {
+            if (isset($emp['net']) && $emp['net'] !== null) {
+                $totalNetAg += (float)$emp['net'];
+            }
         }
-        $u = $userMap[$key] ?? null;
-        if (!$u) {
-            $missingRib[] = $emp['name'] ?? $key;
-            continue;
-        }
-        $rib = rh_bank_get($pdo, (int)$u['id']);
-        if (empty($rib['iban'])) {
-            $missingRib[] = $u['name'];
-            continue;
-        }
-        $transfers[] = [
-            'name' => $u['name'],
-            'iban' => $rib['iban'],
-            'bic' => $rib['bic'] ?? '',
-            'amount' => (float)$net,
-            'remittance' => 'Salaire ' . $moisLabel . ' ' . $anneePost,
-        ];
-    }
 
-    if (!empty($missingRib)) {
-        $sepaErr = 'RIB manquant pour: ' . implode(', ', $missingRib);
-    }
-    if (!$bank || empty($bank['iban'])) {
-        $sepaErr = 'RIB émetteur manquant (societe).';
-    }
+        // SEPA par agence
+        $transfers = [];
+        $missingRib = [];
+        foreach ($group['employees'] as $matricule => $emp) {
+            $net = $emp['net'] ?? null;
+            if ($net === null) continue;
+            $expEntry = $expected[$matricule] ?? null;
+            if (!$expEntry) {
+                $missingRib[] = ($emp['name'] ?? 'mat ' . $matricule);
+                continue;
+            }
+            $rib = rh_bank_get($pdo, (int)$expEntry['id_user']);
+            if (empty($rib['iban'])) {
+                $missingRib[] = $expEntry['name'];
+                continue;
+            }
+            $transfers[] = [
+                'name' => $expEntry['name'],
+                'iban' => $rib['iban'],
+                'bic'  => $rib['bic'] ?? '',
+                'amount' => (float)$net,
+                'remittance' => 'Salaire ' . $moisLabel . ' ' . $anneePost,
+            ];
+        }
+        $sepaPathRel = null;
+        $sepaErr = null;
+        if (!empty($missingRib)) $sepaErr = 'RIB manquant: ' . implode(', ', $missingRib);
+        if (!$bank || empty($bank['iban'])) $sepaErr = 'RIB émetteur manquant (societe).';
+        if (!$sepaErr && !empty($transfers)) {
+            $sepaXml = rh_generate_sepa_xml([
+                'name' => $bank['nom'] ?? '',
+                'iban' => $bank['iban'] ?? '',
+                'bic'  => $bank['bic'] ?? '',
+            ], $transfers, [
+                'message_id' => 'SAL-' . date('Ymd-His') . '-AG' . $idAgence,
+                'payment_id' => 'SAL-' . $anneePost . sprintf('%02d', $moisPost) . '-AG' . $idAgence,
+            ]);
+            if (!empty($sepaXml)) {
+                $exportDir = __DIR__ . '/exports/sepa';
+                if (!is_dir($exportDir)) @mkdir($exportDir, 0777, true);
+                $sepaName = 'sepa_salaires_' . $societeId . '_ag' . $idAgence . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.xml';
+                $sepaAbs = $exportDir . '/' . $sepaName;
+                $sepaPathRel = '/exports/sepa/' . $sepaName;
+                file_put_contents($sepaAbs, $sepaXml);
+            }
+        } elseif (!$sepaErr) {
+            $sepaErr = 'Aucune ligne valide pour SEPA.';
+        }
+        if ($sepaErr) $sepaErrors[$group['agence_label']] = $sepaErr;
 
-    if (!$sepaErr && !empty($transfers)) {
-        $sepaXml = rh_generate_sepa_xml([
-            'name' => $bank['nom'] ?? '',
-            'iban' => $bank['iban'] ?? '',
-            'bic' => $bank['bic'] ?? '',
-        ], $transfers, [
-            'message_id' => 'SAL-' . date('Ymd-His'),
-            'payment_id' => 'SAL-' . $anneePost . sprintf('%02d', $moisPost),
+        $stmtIns->execute([
+            $societeId,
+            (int)$idAgence,
+            $moisPost,
+            $anneePost,
+            $file['name'],
+            '/uploads/salaires_comptable/' . $destName,
+            $totalNetAg,
+            $compare['ok'] ? 1 : 0,
+            json_encode($compare, JSON_UNESCAPED_UNICODE),
+            json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE),
+            $sepaPathRel,
+            current_user_id()
         ]);
 
-        if (!empty($sepaXml)) {
-            $exportDir = __DIR__ . '/exports/sepa';
-            if (!is_dir($exportDir)) {
-                @mkdir($exportDir, 0777, true);
+        $iter = rh_wf_next_iteration($pdo, (int)$idAgence, $moisRef, RH_WF_TYPE_BULLETINS);
+        $content = @file_get_contents($destPath);
+        if ($content !== false) {
+            $relPathLog = rh_wf_save_file($societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_BULLETINS,
+                $iter, $content, $file['name']);
+            if ($relPathLog) {
+                rh_wf_log_action($pdo, $societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_BULLETINS,
+                    $relPathLog, $file['name'], strlen($content), null,
+                    (int)current_user_id(), $sepaErr ? 'error' : 'ok',
+                    $sepaErr ?: null,
+                    $group['agence_label'] . ' · Net total ' . number_format($totalNetAg, 2, ',', ' ') . ' €');
             }
-            $sepaName = 'sepa_salaires_' . $societeId . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.xml';
-            $sepaAbs = $exportDir . '/' . $sepaName;
-            $sepaPathRel = '/exports/sepa/' . $sepaName;
-            file_put_contents($sepaAbs, $sepaXml);
         }
-    } elseif (!$sepaErr) {
-        $sepaErr = 'Aucune ligne valide pour générer le SEPA.';
-    }
-    $stmt->execute([
-        $societeId,
-        $moisPost,
-        $anneePost,
-        $file['name'],
-        '/uploads/salaires_comptable/' . $destName,
-        $totalNet,
-        $compare['ok'] ? 1 : 0,
-        json_encode($compare, JSON_UNESCAPED_UNICODE),
-        json_encode($parsed['data'] ?? [], JSON_UNESCAPED_UNICODE),
-        $sepaPathRel,
-        current_user_id()
-    ]);
-
-    // Workflow log final : le fichier a déjà été archivé en début de handler ;
-    // ici on inscrit juste l'action avec le résultat (compare + SEPA).
-    if ($idAgenceLog > 0 && $relPathLog) {
-        rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRef, RH_WF_TYPE_BULLETINS,
-            $relPathLog, $file['name'], $contentSize, null,
-            (int)current_user_id(), $sepaErr ? 'error' : 'ok',
-            $sepaErr ?: null,
-            'Total net : ' . number_format($totalNet, 2, ',', ' ') . ' €');
+        $insertedAgences[] = $group['agence_label'];
     }
 
-    if ($sepaErr) {
-        $_SESSION['message_err'] = 'Bulletins importés, mais ' . $sepaErr;
+    if (!empty($insertedAgences)) {
+        $msg = 'Bulletins importés pour : ' . implode(', ', $insertedAgences);
+        if (!empty($sepaErrors)) {
+            $msg .= ' — SEPA partiels: ' . implode(' | ', array_map(fn($k, $v) => "$k: $v", array_keys($sepaErrors), $sepaErrors));
+            $_SESSION['message_err'] = $msg;
+        } else {
+            $_SESSION['message_ok'] = $msg . ' ✅';
+        }
     } else {
-        $_SESSION['message_ok'] = 'Bulletins importés ✅';
+        $_SESSION['message_err'] = 'Aucun bulletin valide détecté dans le PDF.';
+    }
+
+    $orphans = $groups[0]['employees'] ?? [];
+    if (!empty($orphans)) {
+        $orphanNames = [];
+        foreach ($orphans as $mat => $emp) {
+            $orphanNames[] = ($emp['name'] ?? 'mat ' . $mat) . ' (mat ' . $mat . ')';
+        }
+        $_SESSION['message_warn'] = 'Bulletins non rattachés à une agence : ' . implode(', ', $orphanNames);
     }
 
     header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
@@ -2122,7 +2319,7 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                             <table class="compare-table" style="width:100%;border-collapse:collapse;font-size:12px;">
                                 <thead>
                                     <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
-                                        <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Collaborateur</th>
+                                        <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Collaborateur (matricule)</th>
                                         <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut attendu</th>
                                         <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut PDF</th>
                                         <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Écart</th>
@@ -2130,12 +2327,13 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach (($projetData['rows'] ?? []) as $row):
+                                    <?php foreach (($projetData['rows'] ?? []) as $idxRow => $row):
                                         $diff = $row['brut_diff'] ?? null;
                                         $isOk = ($row['status'] ?? '') === 'ok';
+                                        $lineDiffs = $row['line_diffs'] ?? [];
                                     ?>
-                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$isOk?'background:#fffbeb;':''?>">
-                                            <td style="padding:8px 10px;"><strong><?=h($row['name'] ?? '')?></strong></td>
+                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$isOk?'background:#fffbeb;':''?>cursor:pointer;" onclick="document.getElementById('detail-row-<?=$idxRow?>').classList.toggle('hidden');">
+                                            <td style="padding:8px 10px;"><strong><?=h($row['name'] ?? '')?></strong> <span style="color:#94a3b8;font-size:11px;">(mat <?=h($row['matricule'] ?? '?')?>)</span></td>
                                             <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> €</td>
                                             <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=($row['pdf_brut'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' €')?></td>
                                             <td style="padding:8px 10px;text-align:right;font-family:monospace;<?=($diff !== null && abs((float)$diff) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;')?>">
@@ -2149,12 +2347,81 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
+                                        <?php if (!empty($lineDiffs)): ?>
+                                        <tr id="detail-row-<?=$idxRow?>" class="hidden">
+                                            <td colspan="5" style="padding:0 10px 10px 24px;background:#fafafa;">
+                                                <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;">
+                                                    <thead>
+                                                        <tr style="color:#64748b;border-bottom:1px solid #e5e7eb;">
+                                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Ligne MBI</th>
+                                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Ligne PDF correspondante</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Attendu</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">PDF</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Écart</th>
+                                                            <th style="padding:5px 8px;text-align:center;font-weight:600;">Statut</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    <?php foreach ($lineDiffs as $ld):
+                                                        $ldOk = ($ld['status'] ?? '') === 'ok';
+                                                        $ldStatus = $ld['status'] ?? '';
+                                                    ?>
+                                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$ldOk?'background:#fef9c3;':''?>">
+                                                            <td style="padding:4px 8px;color:#0f172a;"><?=h($ld['label'] ?? '')?></td>
+                                                            <td style="padding:4px 8px;color:#475569;font-style:italic;"><?=$ld['pdf_label'] !== null ? h($ld['pdf_label']) : '<span style="color:#cbd5e1;">— absent du PDF</span>'?></td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=number_format((float)($ld['expected'] ?? 0), 2, ',', ' ')?> €</td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=$ld['pdf'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$ld['pdf'], 2, ',', ' ') . ' €'?></td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;<?=$ld['diff'] !== null && abs((float)$ld['diff']) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;'?>">
+                                                                <?=$ld['diff'] === null ? '—' : (((float)$ld['diff'] > 0 ? '+' : '') . number_format((float)$ld['diff'], 2, ',', ' '))?>
+                                                            </td>
+                                                            <td style="padding:4px 8px;text-align:center;">
+                                                                <?=$ldOk ? '<span style="color:#16a34a;font-weight:700;">✓</span>' : '<span style="color:#dc2626;font-weight:700;">⚠ ' . h($ldStatus) . '</span>'?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                    </tbody>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                        <?php endif; ?>
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
+
+                            <?php if (!empty($projetData['conges'])): ?>
+                            <div style="margin-top:18px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;">
+                                <h4 style="margin:0 0 10px;font-size:13px;color:#1e40af;">🏖 Congés du mois (MBI ↔ PDF)</h4>
+                                <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                                    <thead>
+                                        <tr style="color:#64748b;border-bottom:1px solid #bfdbfe;">
+                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Salarié</th>
+                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Jours MBI</th>
+                                            <th style="padding:5px 8px;text-align:right;font-weight:600;">Jours PDF</th>
+                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Détails PDF</th>
+                                            <th style="padding:5px 8px;text-align:center;font-weight:600;">Statut</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($projetData['conges'] as $cg):
+                                        $cgOk = !empty($cg['ok']);
+                                    ?>
+                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$cgOk?'background:#fef9c3;':''?>">
+                                            <td style="padding:4px 8px;"><?=h($cg['name'] ?? '')?> <span style="color:#94a3b8;">(mat <?=h($cg['matricule'] ?? '?')?>)</span></td>
+                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=number_format((float)($cg['mbi_jours'] ?? 0), 1, ',', ' ')?> j</td>
+                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;"><?=number_format((float)($cg['pdf_jours'] ?? 0), 1, ',', ' ')?> j</td>
+                                            <td style="padding:4px 8px;color:#475569;font-style:italic;"><?=empty($cg['pdf_details']) ? '<span style="color:#cbd5e1;">—</span>' : h(implode(' · ', $cg['pdf_details']))?></td>
+                                            <td style="padding:4px 8px;text-align:center;<?=$cgOk ? 'color:#16a34a;' : 'color:#dc2626;'?>font-weight:700;"><?=$cgOk ? '✓' : '⚠'?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <?php endif; ?>
+
                             <p style="margin-top:14px;font-size:11px;color:#94a3b8;">
-                                💡 La comparaison est calculée à l'import du PDF projet. Si tu importes une nouvelle version, ce rapport est mis à jour automatiquement (la dernière comparaison s'affiche).
+                                💡 Cliquer sur une ligne pour voir le détail des écarts ligne par ligne. Comparaison par <strong>agence</strong> via matricule paie. Re-importez le PDF pour rafraîchir.
                             </p>
+                            <style>tr.hidden { display: none; }</style>
                         </div>
                         <div style="padding:14px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;border-radius:0 0 14px 14px;display:flex;justify-content:flex-end;">
                             <button type="button" onclick="fermerRapportComparaison()" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">Fermer</button>
