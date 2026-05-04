@@ -99,291 +99,13 @@ function fmt_val($v, $type){
   return (string)$v;
 }
 
-function rh_expected_salary_lines(array $u): array {
-  $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-  $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-  $anci_val = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
-  $lines = [
-    'Salaire de base' => $brut,
-    'Prime ancienneté' => $anci_val,
-    'Avantage en nature' => !empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0,
-    'Heures supp' => !empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0,
-    'Commissions CA' => !empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0,
-    'Commissions NA' => !empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0,
-    'Prime administrative' => !empty($u['prime_admin']) ? (float)$u['prime_admin'] : 0,
-    'Prime exceptionnelle' => !empty($u['prime_exceptionnelle']) ? (float)$u['prime_exceptionnelle'] : 0,
-    'Treizieme mois' => !empty($u['treizieme_mois']) ? (float)$u['treizieme_mois'] : 0,
-    'Indemnité km' => !empty($u['total_ik']) ? (float)$u['total_ik'] : 0,
-    'Remboursement achat' => !empty($u['remboursement_achat']) ? (float)$u['remboursement_achat'] : 0,
-    'Frais professionnels' => !empty($u['frais_professionnels']) ? (float)$u['frais_professionnels'] : 0,
-    'Frais reception' => !empty($u['frais_reception']) ? (float)$u['frais_reception'] : 0,
-    'Stationnement' => !empty($u['stationnement']) ? (float)$u['stationnement'] : 0,
-    'Frais deplacement' => !empty($u['frais_deplacement']) ? (float)$u['frais_deplacement'] : 0,
-  ];
-  return array_filter($lines, fn($v) => abs((float)$v) > 0.009);
-}
-
-function rh_expected_brut_total(array $u): float {
-  $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-  $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-  $anci_val = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
-  $total = $brut
-         + (!empty($u['treizieme_mois']) ? (float)$u['treizieme_mois'] : 0)
-         + $anci_val
-         + (!empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0)
-         + (!empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0)
-         + (!empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0)
-         + (!empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0)
-         + (!empty($u['frais_professionnels']) ? (float)$u['frais_professionnels'] : 0)
-         + (!empty($u['frais_reception']) ? (float)$u['frais_reception'] : 0)
-         + (!empty($u['prime_admin']) ? (float)$u['prime_admin'] : 0)
-         + (!empty($u['prime_exceptionnelle']) ? (float)$u['prime_exceptionnelle'] : 0)
-         + (!empty($u['stationnement']) ? (float)$u['stationnement'] : 0)
-         + (!empty($u['frais_deplacement']) ? (float)$u['frais_deplacement'] : 0)
-         + (!empty($u['remboursement_achat']) ? (float)$u['remboursement_achat'] : 0)
-         + (!empty($u['total_ik']) ? (float)$u['total_ik'] : 0);
-  return $total;
-}
-
-function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmployees, float $tol = 0.02): array {
-  $rows = [];
-  $missing = [];
-  $extra = [];
-  $totalExpected = 0.0;
-  $totalPdf = 0.0;
-  $allOk = true;
-
-  foreach ($expectedByKey as $key => $exp) {
-    $totalExpected += $exp['total_brut'];
-    if (!isset($parsedEmployees[$key])) {
-        $missing[] = $exp['name'];
-        $rows[] = [
-            'name' => $exp['name'],
-            'matricule' => $exp['matricule'] ?? $key,
-            'expected_brut' => $exp['total_brut'],
-            'pdf_brut' => null,
-            'brut_diff' => null,
-            'status' => 'missing',
-            'line_diffs' => []
-        ];
-        $allOk = false;
-        continue;
-    }
-    $pdf = $parsedEmployees[$key];
-    $pdfBrut = isset($pdf['brut']) ? (float)$pdf['brut'] : null;
-    if ($pdfBrut !== null) {
-        $totalPdf += $pdfBrut;
-    }
-    $lineDiffs = [];
-    $rowOk = true;
-    foreach ($exp['lines'] as $label => $amount) {
-        $pdfItem = $pdf['items'][$label] ?? null;
-        if ($pdfItem === null) {
-            $rowOk = false;
-            $lineDiffs[] = [
-                'label'     => $label,
-                'pdf_label' => null,
-                'expected'  => $amount,
-                'pdf'       => null,
-                'diff'      => null,
-                'status'    => 'missing',
-            ];
-            continue;
-        }
-        // Compat ascendante : ancien parser stockait juste le montant (float).
-        $pdfAmount = is_array($pdfItem) ? ($pdfItem['amount'] ?? null) : (float)$pdfItem;
-        $pdfLabel  = is_array($pdfItem) ? ($pdfItem['pdf_label'] ?? $label) : $label;
-        $diff = (float)$pdfAmount - (float)$amount;
-        $status = (abs($diff) <= $tol) ? 'ok' : 'diff';
-        if ($status !== 'ok') $rowOk = false;
-        $lineDiffs[] = [
-            'label'     => $label,
-            'pdf_label' => $pdfLabel,
-            'expected'  => $amount,
-            'pdf'       => $pdfAmount,
-            'diff'      => $diff,
-            'status'    => $status,
-        ];
-    }
-
-    $brutDiff = null;
-    if ($pdfBrut === null) {
-        $rowOk = false;
-    } else {
-        $brutDiff = $pdfBrut - $exp['total_brut'];
-        if (abs($brutDiff) > $tol) $rowOk = false;
-    }
-
-    if (!$rowOk) $allOk = false;
-    $rows[] = [
-        'name' => $exp['name'],
-        'matricule' => $exp['matricule'] ?? $key,
-        'expected_brut' => $exp['total_brut'],
-        'pdf_brut' => $pdfBrut,
-        'brut_diff' => $brutDiff,
-        'status' => $rowOk ? 'ok' : 'diff',
-        'line_diffs' => $lineDiffs
-    ];
-  }
-
-  foreach ($parsedEmployees as $key => $pdf) {
-      if (!isset($expectedByKey[$key])) {
-          $extra[] = ($pdf['name'] ?? $key) . ' (mat ' . $key . ')';
-          $allOk = false;
-      }
-  }
-
-  return [
-    'ok' => $allOk && empty($missing) && empty($extra),
-    'rows' => $rows,
-    'missing' => $missing,
-    'extra' => $extra,
-    'total_expected' => $totalExpected,
-    'total_pdf' => $totalPdf,
-  ];
-}
-
-function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef, int $agenceId = 0): array {
-  // Clé de matching : users.matricule_paie (logiciel de paie comptable),
-  // alimenté via la migration 2026_05_04_users_matricule_paie. Les salariés
-  // sans matricule sont ignorés du comparateur.
-  // Si $agenceId > 0 : restriction à cette agence (mode dispatch par agence).
-  $where = "u.actif = 1 AND u.est_salarie = 1 AND u.id_societe = :soc
-            AND u.matricule_paie IS NOT NULL AND u.matricule_paie <> ''";
-  $params = [':mr' => $moisRef, ':soc' => $societeId];
-  if ($agenceId > 0) {
-      $where .= " AND u.id_agence = :ag";
-      $params[':ag'] = $agenceId;
-  }
-  $stmt = $pdo->prepare("
-    SELECT u.id, u.matricule_paie, u.id_agence, u.prenom, u.nom, u.id_legacy, s.*
-    FROM users u
-    LEFT JOIN salaires s ON (s.id_user = u.id OR (u.id_legacy IS NOT NULL AND s.id_user = u.id_legacy)) AND s.mois_reference = :mr
-    WHERE $where
-    ORDER BY u.nom, u.prenom
-  ");
-  $stmt->execute($params);
-  $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-  $map = [];
-  foreach ($rows as $row) {
-      $name = trim(($row['prenom'] ?? '') . ' ' . ($row['nom'] ?? ''));
-      $key = (string)($row['matricule_paie'] ?? '');
-      if ($key === '') continue;
-      $map[$key] = [
-          'name' => $name,
-          'matricule' => $key,
-          'id_user' => (int)$row['id'],
-          'id_agence' => (int)($row['id_agence'] ?? 0),
-          'lines' => rh_expected_salary_lines($row),
-          'total_brut' => rh_expected_brut_total($row),
-      ];
-  }
-  return $map;
-}
-
-/**
- * Dispatche les bulletins parsés du PDF vers leur agence d'appartenance via
- * matricule -> users.id_agence. Retourne :
- *   [ id_agence => ['employees' => [matricule => emp...], 'agence_label' => '..'] ]
- * Les matricules orphelins (non trouvés en BDD) sont placés sous la clé 0.
- */
-function rh_dispatch_bulletins_by_agence(PDO $pdo, int $societeId, array $parsedEmployees): array {
-    if (empty($parsedEmployees)) return [];
-    $matricules = array_keys($parsedEmployees);
-    $in = implode(',', array_fill(0, count($matricules), '?'));
-    $stmt = $pdo->prepare("
-        SELECT u.matricule_paie, u.id_agence, a.nom_agence AS agence_nom
-        FROM users u
-        LEFT JOIN agences a ON a.id = u.id_agence
-        WHERE u.id_societe = ? AND u.matricule_paie IN ($in)
-    ");
-    $stmt->execute(array_merge([$societeId], $matricules));
-    $resolution = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $resolution[$r['matricule_paie']] = [
-            'id_agence'   => (int)$r['id_agence'],
-            'agence_nom'  => $r['agence_nom'] ?? '',
-        ];
-    }
-    $groups = [];
-    foreach ($parsedEmployees as $matricule => $emp) {
-        $info = $resolution[$matricule] ?? null;
-        $idAg = $info ? (int)$info['id_agence'] : 0;
-        if (!isset($groups[$idAg])) {
-            $groups[$idAg] = [
-                'agence_label' => $info['agence_nom'] ?? ($idAg === 0 ? 'Matricules orphelins (BDD)' : ('Agence #' . $idAg)),
-                'employees'    => [],
-            ];
-        }
-        $groups[$idAg]['employees'][$matricule] = $emp;
-    }
-    return $groups;
-}
-
-/**
- * Calcule pour chaque user de l'expected map les jours de congés payés
- * validés sur le mois cible, et croise avec les lignes "Absence Congés payés"
- * détectées dans le PDF parsé.
- */
-function rh_compute_conges_summary(PDO $pdo, array $expectedMap, int $moisPost, int $anneePost, array $parsedEmployees): array {
-    $summary = [];
-    if (empty($expectedMap)) return $summary;
-    $first = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-    $last = date('Y-m-t', strtotime($first));
-    $userIds = array_filter(array_map(fn($e) => (int)($e['id_user'] ?? 0), $expectedMap));
-    if (empty($userIds)) return $summary;
-    $in = implode(',', array_fill(0, count($userIds), '?'));
-    $stmt = $pdo->prepare("
-        SELECT id_user, date_debut, date_fin, demi_journee_debut, demi_journee_fin
-        FROM conges
-        WHERE id_user IN ($in)
-          AND statut = 'validé' AND motif = 'conges_payes'
-          AND date_debut <= ? AND date_fin >= ?
-    ");
-    $stmt->execute(array_merge(array_values($userIds), [$last, $first]));
-    $byUser = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $byUser[(int)$r['id_user']][] = $r;
-    }
-    foreach ($expectedMap as $matricule => $exp) {
-        $userId = (int)($exp['id_user'] ?? 0);
-        $rows = $byUser[$userId] ?? [];
-        $jours = 0.0;
-        foreach ($rows as $r) {
-            $dStart = max($r['date_debut'], $first);
-            $dEnd = min($r['date_fin'], $last);
-            $cur = strtotime($dStart);
-            $end = strtotime($dEnd);
-            while ($cur <= $end) {
-                $jours += 1.0;
-                $cur = strtotime('+1 day', $cur);
-            }
-            if ($r['demi_journee_debut'] !== 'non' && $r['date_debut'] >= $first) $jours -= 0.5;
-            if ($r['demi_journee_fin'] !== 'non' && $r['date_fin'] <= $last) $jours -= 0.5;
-        }
-        // Compte les "Absence Congés payés" dans le PDF (via parser absences_cp)
-        $pdfDays = 0.0;
-        $pdfDetails = [];
-        $pdfEmp = $parsedEmployees[$matricule] ?? null;
-        if ($pdfEmp && !empty($pdfEmp['absences_cp'])) {
-            foreach ($pdfEmp['absences_cp'] as $abs) {
-                if ($abs['jours'] !== null) {
-                    $pdfDays += (float)$abs['jours'];
-                }
-                $pdfDetails[] = $abs['periode'] . ($abs['jours'] !== null ? ' (' . $abs['jours'] . 'j)' : '');
-            }
-        }
-        $summary[$matricule] = [
-            'name'      => $exp['name'],
-            'matricule' => $matricule,
-            'mbi_jours' => $jours,
-            'pdf_jours' => $pdfDays,
-            'pdf_details' => $pdfDetails,
-            'ok' => abs($jours - $pdfDays) <= 0.5 || ($jours == 0 && $pdfDays == 0),
-        ];
-    }
-    return $summary;
-}
+require_once __DIR__ . '/inc/rh_compare_lib.php';
+// Fonctions metier extraites dans rh_compare_lib.php pour reutilisation par
+// d'autres endpoints (rh_compare_recompute.php). Definitions ci-dessous
+// supprimees, l'include declare :
+//   rh_expected_salary_lines, rh_expected_brut_total,
+//   rh_compare_bulletins_expected, rh_load_expected_map,
+//   rh_dispatch_bulletins_by_agence, rh_compute_conges_summary
 
 // Handle email sending
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['send_email_user'])) {
@@ -2335,8 +2057,8 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 </div>
 
                 <!-- Modal rapport de comparaison -->
-                <div id="rapport-comparaison-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRapportComparaison()">
-                    <div style="background:#fff;border-radius:14px;max-width:1600px;width:97vw;height:94vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+                <div id="rapport-comparaison-modal" class="rh-compare-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRapportComparaison()">
+                    <div style="background:#fff;border-radius:14px;width:100%;max-width:min(1600px, calc(100vw - 30px));height:94vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
                         <div style="padding:14px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#fff;flex-shrink:0;">
                             <h3 style="margin:0;font-size:17px;color:#0f172a;">📊 Rapport de comparaison — projet comptable</h3>
                             <button type="button" onclick="fermerRapportComparaison()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;">×</button>
@@ -2483,11 +2205,32 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                 <?php endif; ?>
                             </div>
                         </div>
-                        <div style="padding:12px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;flex-shrink:0;">
+                        <div style="padding:12px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;">
+                            <?php if (!empty($projetRow['id'])): ?>
+                                <form method="post" action="rh_compare_recompute.php" style="margin:0;">
+                                    <input type="hidden" name="csrf_token" value="<?= h($_SESSION['csrf_token'] ?? '') ?>">
+                                    <input type="hidden" name="id" value="<?= (int)$projetRow['id'] ?>">
+                                    <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                                    <button type="submit" style="padding:9px 16px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;" title="Recalculer la comparaison avec les valeurs MBI actuelles (sans re-uploader le PDF)">
+                                        🔄 Recalculer
+                                    </button>
+                                </form>
+                            <?php else: ?>
+                                <span></span>
+                            <?php endif; ?>
                             <button type="button" onclick="fermerRapportComparaison()" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">Fermer</button>
                         </div>
                     </div>
                 </div>
+                <style>
+                    /* Sur ecran avec sidebar gauche fixe (>= 1100px), on decale la
+                       popup pour garder la sidebar visible et la popup centree
+                       dans la zone de contenu. Sur petit ecran (sidebar masquee
+                       ou mode mobile), on prend toute la largeur. */
+                    @media (min-width: 1100px) {
+                        .rh-compare-modal { padding-left: 260px !important; }
+                    }
+                </style>
                 <script>
                 function ouvrirRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'flex'; }
                 function fermerRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'none'; }
