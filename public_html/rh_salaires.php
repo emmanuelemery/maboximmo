@@ -850,43 +850,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
 
     $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
 
+    // Agence "active" pour le logging et le filtrage : scope forcé (manager)
+    // OU agence sélectionnée via tab AGC (admin). Si admin a cliqué "Toutes",
+    // $idAgenceForLog reste 0 -> import unifié multi-agences.
+    $idAgenceForLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
-    if (empty($parsed['ok'])) {
-        // Si extraction KO et qu'aucune agence n'est sélectionnée, on log au
-        // moins l'erreur au niveau société (agence=NULL fallback impossible
-        // côté workflow_log qui requiert id_agence). On note dans message_err.
-        if ($agenceScope > 0) {
-            $iter = rh_wf_next_iteration($pdo, $agenceScope, $moisRef, RH_WF_TYPE_PROJET);
+    $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+
+    // Cas d'échec : extraction KO OU aucun matricule détecté.
+    // Dans les 2 cas on archive le PDF dans workflow_log si on a une agence.
+    if (empty($parsed['ok']) || empty($employees)) {
+        $errMsg = empty($parsed['ok'])
+            ? 'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')'
+            : 'Aucun matricule détecté dans le PDF (engine=' . ($meta['engine'] ?? 'aucun') . ', texte=' . ($meta['text_len'] ?? 0) . ' car).';
+        if ($idAgenceForLog > 0) {
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET);
             $content = @file_get_contents($destPath);
             if ($content !== false) {
-                $relPathLog = rh_wf_save_file($societeId, $agenceScope, $moisRef, RH_WF_TYPE_PROJET,
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
                     $iter, $content, $file['name']);
                 if ($relPathLog) {
-                    rh_wf_log_action($pdo, $societeId, $agenceScope, $moisRef, RH_WF_TYPE_PROJET,
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
                         $relPathLog, $file['name'], strlen($content), null,
                         (int)current_user_id(), 'error',
-                        'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
-                        'PDF archivé — reparse manuel possible.');
+                        $errMsg,
+                        'PDF archivé dans l\'historique — reparse manuel possible.');
                 }
             }
         }
-        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé sur disque.';
+        $_SESSION['message_err'] = $errMsg . ' Le PDF est archivé.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
     // Dispatch automatique des bulletins par agence via matricule->user->id_agence.
-    $employees = $parsed['data']['employees'] ?? [];
     $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
 
-    // Si une agence est sélectionnée dans le scope, on restreint aux bulletins
-    // de cette agence (mode legacy par-agence). Sinon on traite toutes les
-    // agences détectées (mode import unifié).
-    if ($agenceScope > 0) {
-        $groups = array_intersect_key($groups, [$agenceScope => true]);
+    // Si une agence est sélectionnée (scope forcé OU tab AGC), on restreint
+    // aux bulletins de cette agence. Sinon on traite toutes les agences
+    // détectées (mode import unifié multi-agences via tab "Toutes").
+    if ($idAgenceForLog > 0) {
+        $groups = array_intersect_key($groups, [$idAgenceForLog => true]);
         if (empty($groups)) {
-            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée.';
+            // Le PDF contient des bulletins mais aucun pour cette agence : on
+            // l'archive quand même pour traçabilité.
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    $matsList = implode(', ', array_keys($employees));
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        'PDF importé sur la mauvaise agence : matricules détectés (' . $matsList . ') ne correspondent à aucun salarié de cette agence.',
+                        'PDF archivé. Re-uploader sur l\'agence concernée ou via le tab "Toutes".');
+                }
+            }
+            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée. Matricules détectés : ' . implode(', ', array_keys($employees)) . '. Utilise le tab "Toutes" pour un dispatch multi-agences.';
             header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
             exit;
         }
@@ -992,36 +1016,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
     $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
     $moisLabel = mois_fr($moisPost);
 
+    $idAgenceForLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
-    if (empty($parsed['ok'])) {
-        if ($agenceScope > 0) {
-            $iter = rh_wf_next_iteration($pdo, $agenceScope, $moisRef, RH_WF_TYPE_BULLETINS);
+    $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+
+    if (empty($parsed['ok']) || empty($employees)) {
+        $errMsg = empty($parsed['ok'])
+            ? 'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')'
+            : 'Aucun matricule détecté dans le PDF (engine=' . ($meta['engine'] ?? 'aucun') . ', texte=' . ($meta['text_len'] ?? 0) . ' car).';
+        if ($idAgenceForLog > 0) {
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS);
             $content = @file_get_contents($destPath);
             if ($content !== false) {
-                $relPathLog = rh_wf_save_file($societeId, $agenceScope, $moisRef, RH_WF_TYPE_BULLETINS,
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
                     $iter, $content, $file['name']);
                 if ($relPathLog) {
-                    rh_wf_log_action($pdo, $societeId, $agenceScope, $moisRef, RH_WF_TYPE_BULLETINS,
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
                         $relPathLog, $file['name'], strlen($content), null,
                         (int)current_user_id(), 'error',
-                        'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')',
-                        'PDF archivé — reparse manuel possible.');
+                        $errMsg,
+                        'PDF archivé dans l\'historique — reparse manuel possible.');
                 }
             }
         }
-        $_SESSION['message_err'] = 'Extraction PDF impossible — le PDF a été archivé sur disque.';
+        $_SESSION['message_err'] = $errMsg . ' Le PDF est archivé.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $employees = $parsed['data']['employees'] ?? [];
     $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
 
-    if ($agenceScope > 0) {
-        $groups = array_intersect_key($groups, [$agenceScope => true]);
+    if ($idAgenceForLog > 0) {
+        $groups = array_intersect_key($groups, [$idAgenceForLog => true]);
         if (empty($groups)) {
-            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée.';
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    $matsList = implode(', ', array_keys($employees));
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        'PDF importé sur la mauvaise agence : matricules détectés (' . $matsList . ') ne correspondent à aucun salarié de cette agence.',
+                        'PDF archivé. Re-uploader sur l\'agence concernée ou via le tab "Toutes".');
+                }
+            }
+            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée. Matricules détectés : ' . implode(', ', array_keys($employees)) . '. Utilise le tab "Toutes" pour un dispatch multi-agences.';
             header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
             exit;
         }
