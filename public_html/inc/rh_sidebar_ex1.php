@@ -87,27 +87,6 @@ if ($sidebarUserId > 0 && isset($GLOBALS['pdo'])) {
         </div>
     </a>
 
-    <?php
-    // ── Sélecteur de société (super admin / role 7) — pattern identique à sidebar_agency ──
-    if (in_array($roleId, [1, 7], true) && isset($GLOBALS['pdo'])):
-        try {
-            $allSoc = $GLOBALS['pdo']->query("SELECT id, nom FROM societes WHERE nom != 'Externe' ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable) { $allSoc = []; }
-        $currentSocId = (int)($_SESSION['id_societe'] ?? 0);
-        if (!empty($allSoc)):
-    ?>
-    <div style="padding:4px 12px 8px;margin-bottom:4px;">
-        <select onchange="if(this.value)fetch('api/switch_societe.php?id_societe='+this.value).then(()=>location.reload())"
-                style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid #d4d7de;font-size:11px;background:#f8f7f5;">
-            <?php foreach ($allSoc as $s): ?>
-            <option value="<?= (int)$s['id'] ?>" <?= ((int)$s['id']) === $currentSocId ? 'selected' : '' ?>>
-                <?= htmlspecialchars((string)$s['nom']) ?>
-            </option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-    <?php endif; endif; ?>
-
     <!-- ═══════════════════════════
          R1 — NAVIGATION (tous)
     ═══════════════════════════ -->
