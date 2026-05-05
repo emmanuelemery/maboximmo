@@ -146,50 +146,9 @@ $stmtDocs = $pdo->prepare("
 $stmtDocs->execute([$viewUserId]);
 $allDocs = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
 
-// ── Documents Société (rh_documents avec categorie='societe') ────────────────
-// LOT 4.B : les docs officiels (KBIS, carte pro, garant, RC, barème) sont
-// stockés dans rh_documents avec id_societe et accessibles à TOUS les users
-// de la société (peu importe qui a uploadé).
-//
-// Cible : super admin ayant choisi une société → cette société.
-//         Sinon → société de la session.
-//         Si super admin sans société sélectionnée → aucun doc Société chargé.
-$societeIdPourSocDocs = ($roleId === 1 && $societe_sel !== 'toutes' && ctype_digit((string)$societe_sel))
-    ? (int)$societe_sel
-    : (int)($_SESSION['id_societe'] ?? 0);
-
-if ($societeIdPourSocDocs > 0) {
-    try {
-        $stSoc = $pdo->prepare("
-            SELECT
-                id,
-                'societe' AS categorie,
-                COALESCE(sous_categorie, type_document) AS sous_categorie,
-                original_name, filename, upload_date, uploaded_by,
-                0 AS confidentiel,
-                COALESCE(obligatoire, 0) AS obligatoire,
-                numero, emetteur, date_validite, ocr_confidence, ocr_at
-            FROM rh_documents
-            WHERE categorie = 'societe' AND id_societe = :s AND actif = 1
-              AND (archived_at IS NULL)
-            ORDER BY upload_date DESC
-        ");
-        $stSoc->execute([':s' => $societeIdPourSocDocs]);
-        foreach ($stSoc->fetchAll(PDO::FETCH_ASSOC) as $d) {
-            // Évite les doublons si l'user courant est déjà dans cette société
-            $alreadyIn = false;
-            foreach ($allDocs as $a) {
-                if ((string)($a['id'] ?? '') === (string)$d['id']) { $alreadyIn = true; break; }
-            }
-            if (!$alreadyIn) $allDocs[] = $d;
-        }
-    } catch (Throwable $e) {
-        error_log('[rh_documents/soc_docs] ' . $e->getMessage());
-    }
-}
-
-// ── Documents administratifs société (table `documents`, legacy) ─────────────
-// Conservé pour rétrocompatibilité avec les docs déjà chargés via admin_documents.php
+// ── Documents administratifs société (table `documents`) ─────────────────────
+// Injectés dans la rubrique "societe" pour que la colonne Société
+// affiche aussi les Kbis, assurances, etc. chargés via admin_documents.php
 $userSocieteId = (int)($_SESSION['id_societe'] ?? 0);
 if ($userSocieteId > 0) {
     try {
@@ -399,28 +358,11 @@ $_rubriquesJson = json_encode(
     array_map(fn($r) => ['label' => $r['label'], 'types' => $r['types']], $rubriques),
     JSON_UNESCAPED_UNICODE
 );
-// Société cible pour l'upload de docs Société
-$_societeIdPourUploadSoc = (int)$societeIdPourSocDocs;
-$_societeNomPourUploadSoc = '';
-if ($_societeIdPourUploadSoc > 0 && $roleId === 1) {
-    foreach ($societes as $s) {
-        if ((int)$s['id'] === $_societeIdPourUploadSoc) {
-            $_societeNomPourUploadSoc = (string)$s['nom'];
-            break;
-        }
-    }
-}
-$_societeAdminSansSelection = ($roleId === 1 && $_societeIdPourUploadSoc === 0) ? 'true' : 'false';
-$_societeNomEsc = addslashes($_societeNomPourUploadSoc);
-
 $layout_extra_js = <<<EXTRAJS
 <meta name="csrf-token" content="{$csrfToken}">
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const VIEW_USER_ID = {$viewUserId};
-const SOC_DOCS_TARGET_ID  = {$_societeIdPourUploadSoc};
-const SOC_DOCS_TARGET_NOM = "{$_societeNomEsc}";
-const SOC_ADMIN_NO_SELECT = {$_societeAdminSansSelection};
 
 const RUBRIQUES = {$_rubriquesJson};
 
@@ -475,22 +417,9 @@ async function submitUpload() {
     fd.append('csrf_token', CSRF);
     fd.append('file', selectedFile);
     fd.append('user_id', VIEW_USER_ID);
-    const rubVal = document.getElementById('modal-rubrique').value;
-    fd.append('rubrique', rubVal);
+    fd.append('rubrique', document.getElementById('modal-rubrique').value);
     fd.append('type_doc',  document.getElementById('modal-type').value);
     fd.append('nom_affiche', document.getElementById('modal-nom').value.trim() || selectedFile.name);
-    // LOT 4.B : pour les docs Société, on impose la société cible (sélectionnée
-    // par le super admin via le filtre, ou la société de la session pour les autres).
-    if (rubVal === 'societe') {
-        if (SOC_ADMIN_NO_SELECT) {
-            showToast('Sélectionne d\'abord une société dans le filtre du haut', true);
-            btn.disabled = false; btn.textContent = 'Envoyer';
-            return;
-        }
-        if (SOC_DOCS_TARGET_ID > 0) {
-            fd.append('id_societe', SOC_DOCS_TARGET_ID);
-        }
-    }
     showToast('🔍 Analyse IA en cours (5-15 sec)…');
     btn.textContent = '⏳ Analyse IA…';
     try {

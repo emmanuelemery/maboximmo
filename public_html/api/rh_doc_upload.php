@@ -119,6 +119,22 @@ $uStmt = $pdo->prepare("SELECT id_societe, id_agence FROM users WHERE id = ?");
 $uStmt->execute([$targetUserId]);
 $uRow = $uStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+// LOT 4.B : pour la rubrique Société, on autorise une cible société explicite
+// (super admin choisissant une société différente de la sienne). Scope check :
+// non-admin ne peut écrire que sur sa société.
+$idSocieteCible = (int)($uRow['id_societe'] ?? 0);
+if ($rubrique === 'societe' && isset($_POST['id_societe']) && ctype_digit((string)$_POST['id_societe'])) {
+    $idSocPost = (int)$_POST['id_societe'];
+    $idSocSession = (int)($_SESSION['id_societe'] ?? 0);
+    if ($roleId === 1 || ($idSocSession > 0 && $idSocPost === $idSocSession)) {
+        $idSocieteCible = $idSocPost;
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Société cible non autorisée']);
+        exit;
+    }
+}
+$uRow['id_societe'] = $idSocieteCible ?: null;
+
 try {
     $stmt = $pdo->prepare("INSERT INTO rh_documents
         (id_user, id_societe, id_agence, categorie, sous_categorie, type_document,
