@@ -32,22 +32,10 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         $score       = $ctx['score']       ?? null;
         $critique    = $ctx['critique']    ?? [];
         $mentionsTextes = $critique['mentions_textes'] ?? [];
-        // Rédaction IA (Lot 2) — accroche / paragraphe / atouts générés selon l'angle
-        $iaRed       = is_array($ctx['ia_redaction'] ?? null) ? ($ctx['ia_redaction']['data'] ?? []) : [];
-        $iaAccroche  = trim((string)($iaRed['accroche']   ?? ''));
-        $iaParagraph = trim((string)($iaRed['paragraphe'] ?? ''));
-        $iaAtouts    = is_array($iaRed['atouts'] ?? null) ? $iaRed['atouts'] : [];
 
         $cP = $style['rgb_primaire']   ?? [36, 59, 92];
         $cS = $style['rgb_secondaire'] ?? [212, 160, 71];
         $cT = $style['rgb_texte']      ?? [31, 41, 55];
-
-        // Palette par angle marketing (Lot 3) — accent secondaire varié
-        // L'angle vient soit de $ctx['angle'], soit du score recommandé.
-        $angle = (string)($ctx['angle'] ?? 'generique');
-        $anglePal = mbi_supports_tpl_angle_palette($angle, $cS);
-        $cAngle   = $anglePal['rgb'];     // RGB pour bandeau / badge
-        $libAngle = $anglePal['libelle']; // libellé à imprimer
 
         // ─── A3 portrait (297 × 420 mm) ─────────────────────────────────
         $pdf = new TCPDF('P', 'mm', 'A3', true, 'UTF-8');
@@ -98,29 +86,14 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         $pdf->Cell($contentW, 7, mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '   ·   ' . $loc : '')), 0, 0, 'L');
 
         // ─────────────────────────────────────────────────────────────
-        // 2. BADGE D'ANGLE (toujours présent — Lot 3) + RUBAN coup de cœur
+        // 2. RUBAN "COUP DE CŒUR" si score ≥ 80
         // ─────────────────────────────────────────────────────────────
-        // Badge d'angle en haut à droite, sur fond couleur de l'angle.
-        if ($angle !== 'generique' && $libAngle !== '') {
-            $badgeW = 90;
-            $badgeH = 16;
-            $badgeX = $pageW - $badgeW - 14;
-            $badgeY = 18;
-            $pdf->SetFillColor($cAngle[0], $cAngle[1], $cAngle[2]);
-            $pdf->Rect($badgeX, $badgeY, $badgeW, $badgeH, 'F');
-            $pdf->SetFont('dejavusans', 'B', 11);
-            $pdf->SetTextColor(255, 255, 255);
-            $pdf->SetXY($badgeX, $badgeY);
-            $pdf->Cell($badgeW, $badgeH, mb_strtoupper($libAngle), 0, 0, 'C');
-        }
-
-        // Ruban "★ Coup de cœur" (sous le badge d'angle si les deux présents)
         $scoreNum = $score ? (int)($score['score'] ?? 0) : 0;
         if ($scoreNum >= 80) {
             $rubanW = 80;
             $rubanH = 18;
             $rubanX = $pageW - $rubanW - 14;
-            $rubanY = ($angle !== 'generique' && $libAngle !== '') ? 38 : 18;
+            $rubanY = 18;
             $pdf->SetFillColor($cS[0], $cS[1], $cS[2]);
             $pdf->Rect($rubanX, $rubanY, $rubanW, $rubanH, 'F');
             $pdf->SetFont('dejavusans', 'B', 12);
@@ -133,11 +106,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         // 3. ACCROCHE COMMERCIALE (grande italique navy)
         // ─────────────────────────────────────────────────────────────
         $blockY = $heroH + 14;
-        // Priorité : surcharge éditeur > accroche IA > designation bien
         $accroche = trim((string)($bien['_accroche'] ?? ''));
-        if ($accroche === '' && $iaAccroche !== '') {
-            $accroche = $iaAccroche;
-        }
         if ($accroche === '') {
             $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110);
         }
@@ -205,12 +174,11 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         $blockY += (($row + ($col > 0 ? 1 : 0)) * ($cellH + 4)) + 10;
 
         // ─────────────────────────────────────────────────────────────
-        // 6. VOS ATOUTS — atouts IA rédaction prioritaires, fallback sur score
+        // 6. VOS ATOUTS — points forts du score IA
         // ─────────────────────────────────────────────────────────────
-        $pointsForts = $iaAtouts;
-        if (empty($pointsForts) && $score && !empty($score['points_forts_json'])) {
-            $pointsForts = json_decode((string)$score['points_forts_json'], true) ?: [];
-        }
+        $pointsForts = $score && !empty($score['points_forts_json'])
+            ? (json_decode((string)$score['points_forts_json'], true) ?: [])
+            : [];
 
         if (!empty($pointsForts)) {
             $boxY = $blockY;
@@ -244,18 +212,11 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         }
 
         // ── Texte de l'annonce / description du bien ─────────────────────
-        // Source en cascade :
+        // Source en cascade (déjà résolue par le générateur) :
         //   1. surcharge éditeur (description_personnalisee)
-        //   2. paragraphe IA rédigé pour l'angle courant (Lot 2)
-        //   3. annonce.description / annonce.texte_ia
-        //   4. bien.description
-        $descCommerciale = (string)($bien['_annonce_description'] ?? '');
-        if ($descCommerciale === '' && $iaParagraph !== '') {
-            $descCommerciale = $iaParagraph;
-        }
-        if ($descCommerciale === '') {
-            $descCommerciale = (string)($bien['description'] ?? $bien['descriptif'] ?? '');
-        }
+        //   2. annonce.description / annonce.texte_ia
+        //   3. bien.description
+        $descCommerciale = (string)($bien['_annonce_description'] ?? $bien['description'] ?? $bien['descriptif'] ?? '');
         if ($descCommerciale !== '') {
             $hasAtouts = !empty($pointsForts);
             $hasAnnonce = !empty($bien['_annonce_description']);
@@ -312,25 +273,6 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers V2 (placeholder, badge, pied) — adaptés A3
 // ─────────────────────────────────────────────────────────────────────────
-
-if (!function_exists('mbi_supports_tpl_angle_palette')) {
-    /**
-     * Palette par angle marketing — accent secondaire et libellé pour le badge.
-     * Renvoie ['rgb' => [r,g,b], 'libelle' => 'Pour la famille', …]
-     * @param array $cSDefault Couleur secondaire de la charte (fallback)
-     */
-    function mbi_supports_tpl_angle_palette(string $angle, array $cSDefault): array
-    {
-        $palettes = [
-            'famille'        => ['rgb' => [42, 122, 95],  'libelle' => 'Pour la famille'],   // vert sapin
-            'investisseur'   => ['rgb' => [66, 96, 140],  'libelle' => 'Investisseur'],      // bleu acier
-            'premium'        => ['rgb' => [165, 124, 50], 'libelle' => 'Premium'],           // or profond
-            'premier_achat'  => ['rgb' => [192, 102, 70], 'libelle' => 'Primo-accédant'],    // terracotta
-        ];
-        if (isset($palettes[$angle])) return $palettes[$angle];
-        return ['rgb' => $cSDefault, 'libelle' => ''];
-    }
-}
 
 if (!function_exists('mbi_supports_tpl_v2_placeholder')) {
     function mbi_supports_tpl_v2_placeholder(TCPDF $pdf, float $x, float $y, float $w, float $h, array $color): void
