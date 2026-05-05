@@ -451,6 +451,9 @@ function onRubChange(forceType = null) {
         sel.appendChild(opt);
     });
     if (forceType) sel.value = forceType;
+    // Affiche/cache le select société (admin uniquement, rubrique societe)
+    const grp = document.getElementById('modal-societe-group');
+    if (grp) grp.style.display = (rubKey === 'societe') ? 'flex' : 'none';
 }
 
 // ── Drop zone ─────────────────────────────────────────────────────────────────
@@ -479,17 +482,23 @@ async function submitUpload() {
     fd.append('rubrique', rubVal);
     fd.append('type_doc',  document.getElementById('modal-type').value);
     fd.append('nom_affiche', document.getElementById('modal-nom').value.trim() || selectedFile.name);
-    // LOT 4.B : pour les docs Société, on impose la société cible (sélectionnée
-    // par le super admin via le filtre, ou la société de la session pour les autres).
+    // LOT 4.B : pour les docs Société, on impose la société cible.
+    // Priorité 1 : select société de la modale (super admin)
+    // Priorité 2 : SOC_DOCS_TARGET_ID (filtre haut de page ou session)
     if (rubVal === 'societe') {
-        if (SOC_ADMIN_NO_SELECT) {
-            showToast('Sélectionne d\'abord une société dans le filtre du haut', true);
-            btn.disabled = false; btn.textContent = 'Envoyer';
+        let idSocCible = 0;
+        const selSoc = document.getElementById('modal-societe');
+        if (selSoc && selSoc.value) {
+            idSocCible = parseInt(selSoc.value, 10) || 0;
+        } else if (SOC_DOCS_TARGET_ID > 0) {
+            idSocCible = SOC_DOCS_TARGET_ID;
+        }
+        if (idSocCible <= 0) {
+            showToast('Choisis une société dans le sélecteur ci-dessus', true);
+            btn.disabled = false; btn.textContent = 'Téléverser';
             return;
         }
-        if (SOC_DOCS_TARGET_ID > 0) {
-            fd.append('id_societe', SOC_DOCS_TARGET_ID);
-        }
+        fd.append('id_societe', idSocCible);
     }
     showToast('🔍 Analyse IA en cours (5-15 sec)…');
     btn.textContent = '⏳ Analyse IA…';
@@ -1327,6 +1336,22 @@ async function applyConflicts(candId) {
         <?php endforeach; ?>
       </select>
     </div>
+    <?php if ($roleId === 1 && !empty($societes)): ?>
+    <div class="form-group" id="modal-societe-group" style="display:none">
+      <label class="form-label">Société cible <span style="color:#8a5040;">*</span></label>
+      <select class="form-control" id="modal-societe">
+        <option value="">— Choisir une société —</option>
+        <?php foreach ($societes as $s): ?>
+          <option value="<?= (int)$s['id'] ?>" <?= ((int)($societeIdPourSocDocs ?? 0) === (int)$s['id']) ? 'selected' : '' ?>>
+            <?= h($s['nom']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+      <div style="font-size:11px; color:#8a5040; margin-top:4px;">
+        Pour les docs Société (Kbis, carte pro, RC, garant, barème), précise à quelle société ce document appartient.
+      </div>
+    </div>
+    <?php endif; ?>
     <div class="form-group">
       <label class="form-label">Type de document</label>
       <select class="form-control" id="modal-type"></select>
