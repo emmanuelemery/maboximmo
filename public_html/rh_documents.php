@@ -168,7 +168,8 @@ if ($societeIdPourSocDocs > 0) {
                 original_name, filename, upload_date, uploaded_by,
                 0 AS confidentiel,
                 COALESCE(obligatoire, 0) AS obligatoire,
-                numero, emetteur, date_validite, ocr_confidence, ocr_at
+                numero, emetteur, date_validite, ocr_confidence, ocr_at,
+                activite_code
             FROM rh_documents
             WHERE categorie = 'societe' AND id_societe = :s AND actif = 1
               AND (archived_at IS NULL)
@@ -185,6 +186,42 @@ if ($societeIdPourSocDocs > 0) {
         }
     } catch (Throwable $e) {
         error_log('[rh_documents/soc_docs] ' . $e->getMessage());
+    }
+}
+
+// ── Documents Agence (rh_documents avec categorie='agence') ──────────────────
+// Cible : agence sélectionnée par le filtre haut, sinon agence de la session
+// (manager / collaborateur).
+$agenceIdPourAgenceDocs = ($roleId === 1 && $agence_sel !== 'toutes' && ctype_digit((string)$agence_sel))
+    ? (int)$agence_sel
+    : (int)($_SESSION['id_agence'] ?? 0);
+
+if ($agenceIdPourAgenceDocs > 0) {
+    try {
+        $stAg = $pdo->prepare("
+            SELECT
+                id,
+                'agence' AS categorie,
+                COALESCE(sous_categorie, type_document) AS sous_categorie,
+                original_name, filename, upload_date, uploaded_by,
+                0 AS confidentiel,
+                COALESCE(obligatoire, 0) AS obligatoire,
+                numero, emetteur, date_validite, ocr_confidence, ocr_at
+            FROM rh_documents
+            WHERE categorie = 'agence' AND id_agence = :a AND actif = 1
+              AND (archived_at IS NULL)
+            ORDER BY upload_date DESC
+        ");
+        $stAg->execute([':a' => $agenceIdPourAgenceDocs]);
+        foreach ($stAg->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $alreadyIn = false;
+            foreach ($allDocs as $a) {
+                if ((string)($a['id'] ?? '') === (string)$d['id']) { $alreadyIn = true; break; }
+            }
+            if (!$alreadyIn) $allDocs[] = $d;
+        }
+    } catch (Throwable $e) {
+        error_log('[rh_documents/agence_docs] ' . $e->getMessage());
     }
 }
 
@@ -427,6 +464,15 @@ const RUBRIQUES = {$_rubriquesJson};
 // ── Modal ─────────────────────────────────────────────────────────────────────
 let selectedFile = null;
 
+// Sélection pills société/agence dans la modale (input hidden tient la valeur)
+function pickPill(kind, btn) {
+    const grpId = 'modal-' + kind + '-pills';
+    document.querySelectorAll('#' + grpId + ' .ph-scope-pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const hidden = document.getElementById('modal-' + kind);
+    if (hidden) hidden.value = btn.dataset.id || '';
+}
+
 function openModal(rubrique = 'personne', typeDoc = null) {
     document.getElementById('modal-rubrique').value = rubrique;
     onRubChange(typeDoc);
@@ -451,9 +497,11 @@ function onRubChange(forceType = null) {
         sel.appendChild(opt);
     });
     if (forceType) sel.value = forceType;
-    // Affiche/cache le select société (admin uniquement, rubrique societe)
-    const grp = document.getElementById('modal-societe-group');
-    if (grp) grp.style.display = (rubKey === 'societe') ? 'flex' : 'none';
+    // Affiche/cache les sélecteurs société/agence selon la rubrique
+    const grpSoc = document.getElementById('modal-societe-group');
+    if (grpSoc) grpSoc.style.display = (rubKey === 'societe') ? 'flex' : 'none';
+    const grpAg = document.getElementById('modal-agence-group');
+    if (grpAg) grpAg.style.display = (rubKey === 'agence') ? 'flex' : 'none';
 }
 
 // ── Drop zone ─────────────────────────────────────────────────────────────────
@@ -482,23 +530,23 @@ async function submitUpload() {
     fd.append('rubrique', rubVal);
     fd.append('type_doc',  document.getElementById('modal-type').value);
     fd.append('nom_affiche', document.getElementById('modal-nom').value.trim() || selectedFile.name);
-    // LOT 4.B : pour les docs Société, on impose la société cible.
-    // Priorité 1 : select société de la modale (super admin)
-    // Priorité 2 : SOC_DOCS_TARGET_ID (filtre haut de page ou session)
+    // LOT 4.B : société/agence cible selon la rubrique (boutons pills + input hidden)
     if (rubVal === 'societe') {
-        let idSocCible = 0;
-        const selSoc = document.getElementById('modal-societe');
-        if (selSoc && selSoc.value) {
-            idSocCible = parseInt(selSoc.value, 10) || 0;
-        } else if (SOC_DOCS_TARGET_ID > 0) {
-            idSocCible = SOC_DOCS_TARGET_ID;
-        }
+        const idSocCible = parseInt((document.getElementById('modal-societe')?.value || '0'), 10) || 0;
         if (idSocCible <= 0) {
-            showToast('Choisis une société dans le sélecteur ci-dessus', true);
+            showToast('Choisis une société (boutons ci-dessus)', true);
             btn.disabled = false; btn.textContent = 'Téléverser';
             return;
         }
         fd.append('id_societe', idSocCible);
+    } else if (rubVal === 'agence') {
+        const idAgCible = parseInt((document.getElementById('modal-agence')?.value || '0'), 10) || 0;
+        if (idAgCible <= 0) {
+            showToast('Choisis une agence (boutons ci-dessus)', true);
+            btn.disabled = false; btn.textContent = 'Téléverser';
+            return;
+        }
+        fd.append('id_agence', idAgCible);
     }
     showToast('🔍 Analyse IA en cours (5-15 sec)…');
     btn.textContent = '⏳ Analyse IA…';
@@ -1339,16 +1387,37 @@ async function applyConflicts(candId) {
     <?php if ($roleId === 1 && !empty($societes)): ?>
     <div class="form-group" id="modal-societe-group" style="display:none">
       <label class="form-label">Société cible <span style="color:#8a5040;">*</span></label>
-      <select class="form-control" id="modal-societe">
-        <option value="">— Choisir une société —</option>
+      <input type="hidden" id="modal-societe" value="<?= (int)($societeIdPourSocDocs ?? 0) ?>">
+      <div class="ph-scope-btns" id="modal-societe-pills" style="gap:8px; flex-wrap:wrap;">
         <?php foreach ($societes as $s): ?>
-          <option value="<?= (int)$s['id'] ?>" <?= ((int)($societeIdPourSocDocs ?? 0) === (int)$s['id']) ? 'selected' : '' ?>>
+          <button type="button" class="ph-scope-pill <?= ((int)($societeIdPourSocDocs ?? 0) === (int)$s['id']) ? 'active' : '' ?>"
+                  data-id="<?= (int)$s['id'] ?>"
+                  onclick="pickPill('societe', this)">
             <?= h($s['nom']) ?>
-          </option>
+          </button>
         <?php endforeach; ?>
-      </select>
-      <div style="font-size:11px; color:#8a5040; margin-top:4px;">
-        Pour les docs Société (Kbis, carte pro, RC, garant, barème), précise à quelle société ce document appartient.
+      </div>
+      <div style="font-size:11px; color:#8a5040; margin-top:6px;">
+        Kbis, carte pro CPI, 4 RC pro et 4 garanties financières (T/G/S/M) — répliqué sur toutes les agences de la société.
+      </div>
+    </div>
+    <?php endif; ?>
+    <?php if (($roleId === 1 || (int)($_SESSION['id_agence'] ?? 0) > 0) && !empty($agences)): ?>
+    <div class="form-group" id="modal-agence-group" style="display:none">
+      <label class="form-label">Agence cible <span style="color:#8a5040;">*</span></label>
+      <input type="hidden" id="modal-agence" value="<?= (int)($agenceIdPourAgenceDocs ?? 0) ?>">
+      <div class="ph-scope-btns" id="modal-agence-pills" style="gap:8px; flex-wrap:wrap;">
+        <?php foreach ($agences as $a): ?>
+          <button type="button" class="ph-scope-pill <?= ((int)($agenceIdPourAgenceDocs ?? 0) === (int)$a['id']) ? 'active' : '' ?>"
+                  data-id="<?= (int)$a['id'] ?>"
+                  data-societe="<?= (int)$a['id_societe'] ?>"
+                  onclick="pickPill('agence', this)">
+            <?= h($a['nom_agence']) ?>
+          </button>
+        <?php endforeach; ?>
+      </div>
+      <div style="font-size:11px; color:#8a5040; margin-top:6px;">
+        Barème honoraires et assurance MRI sont propres à chaque agence (établissement).
       </div>
     </div>
     <?php endif; ?>

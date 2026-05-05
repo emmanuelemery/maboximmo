@@ -40,18 +40,41 @@ require_once __DIR__ . '/agence_doc_officiel_ocr.php';
 if (!function_exists('rh_doc_societe_hook_apres_upload')) {
 
     /**
-     * Mapping rh_doc_types.type_key → mon type OCR Sonnet (cf. agence_doc_ocr_extraire).
+     * Mapping rh_doc_types.type_key → type OCR Sonnet (cf. agence_doc_ocr_extraire).
      * Retourne null si le type ne déclenche pas d'OCR.
+     *
+     * Les 4 RCP par activité (rcp_transaction/gestion/syndic/marchand) utilisent
+     * tous le même prompt OCR 'rc_pro'. Idem pour les 4 GF par activité.
      */
     function rh_doc_societe_type_to_ocr(string $typeDoc): ?string
     {
+        if (in_array($typeDoc, ['rcp_transaction','rcp_gestion','rcp_syndic','rcp_marchand','rcp'], true)) {
+            return 'rc_pro';
+        }
+        if (in_array($typeDoc, ['gf_transaction','gf_gestion','gf_syndic','gf_marchand','garant_financier'], true)) {
+            return 'garant_financier';
+        }
         return match ($typeDoc) {
             'kbis'              => 'kbis',
             'carte_pro'         => 'carte_pro',
-            'garant_financier'  => 'garant_financier',
-            'rcp'               => 'rc_pro',
             'bareme_honoraires' => 'bareme_honoraires',
+            'assurance_mri'     => 'rc_pro',  // V1 : on réutilise le prompt rc_pro pour MRI (assureur + n° + date)
             default             => null,
+        };
+    }
+
+    /**
+     * Extrait le code activité (T/G/S/M) depuis le type_key d'un RCP ou GF.
+     * Retourne null pour les autres types.
+     */
+    function rh_doc_societe_activite_code(string $typeDoc): ?string
+    {
+        return match (true) {
+            str_ends_with($typeDoc, '_transaction') => 'T',
+            str_ends_with($typeDoc, '_gestion')     => 'G',
+            str_ends_with($typeDoc, '_syndic')      => 'S',
+            str_ends_with($typeDoc, '_marchand')    => 'M',
+            default                                  => null,
         };
     }
 
@@ -62,12 +85,14 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             'ocr_ok'              => false,
             'ocr_erreur'          => null,
             'type_mappe'          => null,
+            'activite_code'       => null,
+            'cible_niveau'        => null,  // 'societe' ou 'agence'
             'agences_repliquees'  => 0,
         ];
 
         // Charge le doc fraîchement uploadé
         try {
-            $st = $pdo->prepare("SELECT id, id_societe, categorie, sous_categorie, type_document, file_path
+            $st = $pdo->prepare("SELECT id, id_societe, id_agence, categorie, sous_categorie, type_document, file_path
                                  FROM rh_documents WHERE id = :id LIMIT 1");
             $st->execute([':id' => $rhDocId]);
             $doc = $st->fetch(PDO::FETCH_ASSOC);
@@ -79,19 +104,29 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             $resultat['ocr_erreur'] = 'doc_introuvable';
             return $resultat;
         }
-        if ($doc['categorie'] !== 'societe') {
-            // Pas un doc société → on ne fait rien
+        if (!in_array($doc['categorie'], ['societe', 'agence'], true)) {
+            // Pas un doc société/agence → on ne fait rien
             return $resultat;
         }
+        $resultat['cible_niveau'] = $doc['categorie'];
 
         // Détermine le type OCR depuis sous_categorie ou type_document
         $rhType = (string)($doc['sous_categorie'] ?? $doc['type_document'] ?? '');
         $ocrType = rh_doc_societe_type_to_ocr($rhType);
         if ($ocrType === null) {
-            // Type société mais hors scope OCR (ex: convention, assurance_soc, entete)
+            // Type hors scope OCR (ex: convention, assurance_soc, entete)
             return $resultat;
         }
-        $resultat['type_mappe'] = $ocrType;
+        $resultat['type_mappe']    = $ocrType;
+        $resultat['activite_code'] = rh_doc_societe_activite_code($rhType);
+
+        // Persiste le code activité (T/G/S/M) sur la ligne rh_documents
+        if ($resultat['activite_code'] !== null) {
+            try {
+                $upA = $pdo->prepare("UPDATE rh_documents SET activite_code = :a WHERE id = :id");
+                $upA->execute([':a' => $resultat['activite_code'], ':id' => $rhDocId]);
+            } catch (Throwable) {}
+        }
 
         $filePath = (string)($doc['file_path'] ?? '');
         if ($filePath === '' || !is_file($filePath)) {
@@ -140,17 +175,87 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
         }
 
         // Si OCR OK → réplication vers agences.*
+        // - rubrique societe : update TOUTES les agences de la société
+        // - rubrique agence  : update uniquement l'agence ciblée
         if ($resultat['ocr_ok']) {
-            $idSoc = (int)($doc['id_societe'] ?? 0);
-            if ($idSoc > 0) {
-                $resultat['agences_repliquees'] = rh_doc_societe_repliquer_vers_agences(
-                    $pdo, $idSoc, $rhDocId, $ocrType
-                );
+            if ($doc['categorie'] === 'societe') {
+                $idSoc = (int)($doc['id_societe'] ?? 0);
+                if ($idSoc > 0) {
+                    $resultat['agences_repliquees'] = rh_doc_societe_repliquer_vers_agences(
+                        $pdo, $idSoc, $rhDocId, $ocrType
+                    );
+                }
+            } elseif ($doc['categorie'] === 'agence') {
+                $idAg = (int)($doc['id_agence'] ?? 0);
+                if ($idAg > 0) {
+                    $resultat['agences_repliquees'] = rh_doc_agence_repliquer_une_agence(
+                        $pdo, $idAg, $rhDocId, $rhType
+                    );
+                }
             }
         }
 
         $resultat['ok'] = true;
         return $resultat;
+    }
+
+    /**
+     * Réplication agence-niveau : UPDATE de UNE seule agence avec les valeurs OCR.
+     * Utilisé pour bareme_honoraires et assurance_mri.
+     *
+     * @return int 1 si l'agence a été mise à jour, 0 sinon
+     */
+    function rh_doc_agence_repliquer_une_agence(PDO $pdo, int $idAgence, int $rhDocId, string $rhType): int
+    {
+        try {
+            $st = $pdo->prepare("SELECT numero, emetteur, date_validite, file_path
+                                 FROM rh_documents WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rhDocId]);
+            $doc = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable) { return 0; }
+        if (!$doc) return 0;
+
+        $patch = [];
+        if ($rhType === 'bareme_honoraires') {
+            if (!empty($doc['file_path'])) {
+                $rel = preg_replace('#^.*?/public_html/#', '/', (string)$doc['file_path']) ?: $doc['file_path'];
+                $patch['bareme_url_doc'] = $rel;
+            }
+        } elseif ($rhType === 'assurance_mri') {
+            $patch['mri_assureur'] = $doc['emetteur']      ?? null;
+            $patch['mri_numero']   = $doc['numero']        ?? null;
+            $patch['mri_validite'] = $doc['date_validite'] ?? null;
+        } else {
+            return 0;
+        }
+        if (empty($patch)) return 0;
+
+        // Filtre colonnes existantes
+        try {
+            $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agences'");
+            $st->execute();
+            $existing = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        } catch (Throwable) { $existing = []; }
+        $patch = array_intersect_key($patch, array_flip($existing));
+        if (empty($patch)) return 0;
+
+        try {
+            $sets = [];
+            $params = [':id' => $idAgence];
+            foreach ($patch as $col => $val) {
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $col)) continue;
+                $sets[] = "`{$col}` = :v_{$col}";
+                $params[":v_{$col}"] = $val;
+            }
+            $sql = "UPDATE agences SET " . implode(', ', $sets) . " WHERE id = :id";
+            $st = $pdo->prepare($sql);
+            $st->execute($params);
+            return $st->rowCount();
+        } catch (Throwable $e) {
+            error_log('[rh_doc_agence_repliquer UPDATE agences] ' . $e->getMessage());
+            return 0;
+        }
     }
 
     /**
