@@ -6,7 +6,6 @@ session_start();
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
 require_once __DIR__ . '/../inc/rh_document_extractor.php';
-require_once __DIR__ . '/../inc/rh_doc_societe_ocr_hook.php';
 
 require_login();
 verify_csrf_any();
@@ -181,22 +180,6 @@ try {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Hook OCR Sonnet pour les docs OFFICIELS Société (LOT 4.B refonte)
-    // Types : kbis, carte_pro, garant_financier, rcp, bareme_honoraires
-    // → OCR Claude Sonnet → UPDATE rh_documents.{numero,emetteur,date_validite,...}
-    // → Réplication vers TOUTES les agences de cette société (carte_pro_*, kbis_*, ...)
-    // ─────────────────────────────────────────────────────────────
-    $societeHook = null;
-    if ($rubrique === 'societe') {
-        try {
-            $societeHook = rh_doc_societe_hook_apres_upload($pdo, $newId);
-        } catch (Throwable $shEx) {
-            error_log('[rh_doc_upload/societe_hook] ' . $shEx->getMessage());
-            $societeHook = ['ok' => false, 'ocr_erreur' => $shEx->getMessage()];
-        }
-    }
-
     echo json_encode([
         'success' => true,
         'id'      => $newId,
@@ -211,7 +194,6 @@ try {
             'candidates'  => $rhdxApply['candidates']   ?? [],
             'error'       => $rhdxResult['error']       ?? null,
         ],
-        'societe' => $societeHook, // null si pas un doc société, sinon résultat hook
     ], JSON_UNESCAPED_UNICODE);
 } catch (Exception $e) {
     @unlink($filePath);
