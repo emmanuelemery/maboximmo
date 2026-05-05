@@ -24,7 +24,6 @@ require_login();
 
 $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
-$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $annonceId = isset($_GET['id_annonce']) && ctype_digit((string)$_GET['id_annonce']) ? (int)$_GET['id_annonce'] : 0;
 if ($annonceId <= 0) {
@@ -48,7 +47,7 @@ if (!$row) {
     http_response_code(404);
     exit('<h1>404 — Annonce introuvable.</h1>');
 }
-if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
     http_response_code(403);
     exit('<h1>403 — Hors scope société.</h1>');
 }

@@ -19,14 +19,13 @@ verify_csrf_any('ajouter_bien');
 
 $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
-$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $annonceId = isset($_POST['_annonce_id']) && ctype_digit((string)$_POST['_annonce_id']) ? (int)$_POST['_annonce_id'] : 0;
 if ($annonceId <= 0) {
     exit(json_encode(['ok' => false, 'error' => 'Aucune annonce à sauvegarder']));
 }
 
-// Verif scope (super admin role=1 bypasse)
+// Verif scope
 try {
     $st = $pdo->prepare("
         SELECT a.id, b.id_societe
@@ -38,7 +37,7 @@ try {
     $st->execute([$annonceId]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     if (!$row) exit(json_encode(['ok' => false, 'error' => 'Annonce introuvable']));
-    if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+    if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
     }

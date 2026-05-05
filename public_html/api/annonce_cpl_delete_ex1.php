@@ -1,5 +1,5 @@
 <?php
-// api/annonce_cpl_update.php — Met à jour libelle / montant d'une ligne complément de loyer.
+// api/annonce_cpl_delete.php — Supprime une ligne de complément de loyer.
 // Recalcule le total et met à jour annonces.complement_loyer.
 declare(strict_types=1);
 
@@ -19,7 +19,6 @@ verify_csrf_any('ajouter_bien');
 
 $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
-$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $ligneId = isset($_POST['id']) && ctype_digit((string)$_POST['id']) ? (int)$_POST['id'] : 0;
 if ($ligneId <= 0) {
@@ -37,34 +36,18 @@ try {
     $st->execute([$ligneId]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     if (!$row) exit(json_encode(['ok' => false, 'error' => 'Ligne introuvable']));
-    if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+    if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
     }
     $annonceId = (int)$row['id_annonce'];
 
-    $fields = [];
-    $params = [];
-    if (array_key_exists('libelle', $_POST)) {
-        $fields[] = 'libelle = ?';
-        $params[] = substr(trim((string)$_POST['libelle']), 0, 255);
-    }
-    if (array_key_exists('montant', $_POST)) {
-        $fields[] = 'montant = ?';
-        $params[] = $_POST['montant'] === '' ? 0 : (float)$_POST['montant'];
-    }
-    if (!$fields) {
-        exit(json_encode(['ok' => false, 'error' => 'Aucun champ à mettre à jour']));
-    }
-    $params[] = $ligneId;
-    $pdo->prepare("UPDATE annonces_complement_loyer_lignes SET " . implode(', ', $fields) . " WHERE id = ?")
-        ->execute($params);
+    $pdo->prepare("DELETE FROM annonces_complement_loyer_lignes WHERE id = ?")->execute([$ligneId]);
 
     // Sync complement_loyer selon mode (0 si reference/minore/libre, SUM si majore)
     require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
     $applied = complement_loyer_sync_from_mode($pdo, $annonceId);
 
-    // Total brut lignes (pour affichage informatif même en mode bloqué)
     $stT = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM annonces_complement_loyer_lignes WHERE id_annonce = ?");
     $stT->execute([$annonceId]);
     $totalLignes = (float)$stT->fetchColumn();
@@ -80,7 +63,7 @@ try {
         'complement_loyer' => $applied,
     ]));
 } catch (Throwable $e) {
-    error_log('[annonce_cpl_update] ' . $e->getMessage());
+    error_log('[annonce_cpl_delete] ' . $e->getMessage());
     http_response_code(500);
     exit(json_encode(['ok' => false, 'error' => $e->getMessage()]));
 }
