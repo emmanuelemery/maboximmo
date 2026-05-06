@@ -139,6 +139,14 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
             'honoraires_location_bail'  => ['entity'=>'annonce','table'=>'annonces','column'=>'honoraires_location_bail','label'=>'Honoraires bail (€ TTC)','type'=>'number','hint'=>'Plafond ALUR appliqué automatiquement'],
             'honoraires_etat_des_lieux' => ['entity'=>'annonce','table'=>'annonces','column'=>'honoraires_etat_des_lieux','label'=>'Honoraires état des lieux (€ TTC)','type'=>'number','hint'=>'Plafond ALUR appliqué automatiquement'],
 
+            // Loyer + dépôt (location uniquement, sur l'annonce)
+            'loyer_hc'         => ['entity'=>'annonce','table'=>'annonces','column'=>'loyer','label'=>'Loyer hors charges (€/mois)','type'=>'number','hint'=>'Loyer mensuel hors charges','required'=>true],
+            'loyer_cc'         => ['entity'=>'annonce','table'=>'annonces','column'=>'loyer_cc','label'=>'Loyer charges comprises (€/mois)','type'=>'number','hint'=>'Calculé automatiquement après saisie loyer + charges'],
+            'depot_garantie'   => ['entity'=>'annonce','table'=>'annonces','column'=>'depot_garantie','label'=>'Dépôt de garantie (€)','type'=>'number','hint'=>'1 mois de loyer HC pour vide, 2 mois pour meublé','required'=>true],
+            'meuble'           => ['entity'=>'annonce','table'=>'annonces','column'=>'meuble','label'=>'Logement meublé','type'=>'checkbox','hint'=>'Cocher si location meublée (impacte le dépôt de garantie)'],
+            'loyer_mode'       => ['entity'=>'annonce','table'=>'annonces','column'=>'loyer_mode','label'=>'Mode du loyer','type'=>'select',
+                                    'options'=>['libre'=>'Libre','majore'=>'Majoré (zone encadrée)','reference'=>'Référence (zone encadrée)','minore'=>'Minoré'],'required'=>true],
+
             // Carte pro / agence
             'carte_pro_numero'      => ['entity'=>'agence','table'=>'agences','column'=>'carte_pro_numero','label'=>'Numéro carte pro','type'=>'text','required'=>true],
             'carte_pro_validite'    => ['entity'=>'agence','table'=>'agences','column'=>'carte_pro_validite','label'=>'Date de validité carte pro','type'=>'date','hint'=>'Doit être dans le futur'],
@@ -181,8 +189,11 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
         // Surface : libellé adapté en entreprise
         $surfaceField = $tx === 'entreprise' ? $f['surface_utile'] : $f['surface_habitable'];
 
-        // Prix : pas de prix vente en location
-        $prixFields = ($tx === 'location') ? [] : [$f['prix_vente']];
+        // Prix vente / loyer selon la transaction
+        $prixFields = match ($tx) {
+            'location' => [$f['loyer_hc'], $f['depot_garantie'], $f['meuble']],
+            default    => [$f['prix_vente']], // vente + entreprise
+        };
 
         // Adresse / ville : toujours
         $adresseFields = [$f['ville'], $f['code_postal']];
@@ -199,7 +210,11 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
         return [
 
             // Bien — transaction & informations de base
-            'PRIX_DEFINI'          => $prixFields ?: [$f['prix_vente']], // fallback pour code générique
+            // PRIX_DEFINI : remplacé en location par LOYER_DEFINI (cf. critic engine).
+            // En vente, demande prix_vente. En location, ce code n'est plus émis.
+            'PRIX_DEFINI'          => $tx === 'location' ? [] : [$f['prix_vente']],
+            'LOYER_DEFINI'         => $tx === 'location' ? [$f['loyer_hc']] : [],
+            'DEPOT_GARANTIE_DEFINI'=> $tx === 'location' ? [$f['depot_garantie'], $f['meuble']] : [],
             'SURFACE_DEFINIE'      => [$surfaceField],
             'TYPE_BIEN_DEFINI'     => [$f['id_type_bien']],
             'ADRESSE_VILLE'        => $adresseFields,

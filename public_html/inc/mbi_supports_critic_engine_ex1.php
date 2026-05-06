@@ -92,84 +92,25 @@ if (!function_exists('mbi_supports_critic_check')) {
         $blocsDurs = [];
         $alertes   = [];
 
-        // ── Détection contexte transaction (vente / location) ─────────────
-        // Le seed V1 cible la vente. Pour les biens en location, certaines
-        // règles vente-only n'ont aucun sens (PRIX_DEFINI sur biens.prix_vente,
-        // honoraires charge acquéreur/vendeur, prix hors honoraires, etc.).
-        // → on les skippe et on ajoute une règle LOYER_DEFINI à la place.
-        $txTransaction = strtolower(trim((string)(
-            ($ctx['annonce']['type_transaction'] ?? null)
-            ?? ($ctx['bien']['type_transaction']  ?? null)
-            ?? ''
-        )));
-        $estLocation   = ($txTransaction === 'location');
-        $ctx['_tx_transaction'] = $txTransaction; // dispo pour les règles custom
-
-        // Codes spécifiques VENTE qui n'ont pas de sens en location.
-        $codesVenteOnly = [
-            'PRIX_DEFINI',
-            'AFFICHE_PRIX_HONORAIRES',
-            'HONO_PRIX_HONO_INCLUS',
-            'HONO_PRIX_HORS_HONO',
-            'HONO_INCOHERENCE_PRIX',
-            'HONO_TVA_NON_APPLICABLE',
-        ];
-
-        // Helper : applique le filtre transaction avant d'évaluer une règle
-        $evalAvecFiltre = function (array $r, string $niveau) use (&$blocsDurs, &$alertes, $ctx, $estLocation, $codesVenteOnly): void {
-            if ($estLocation && in_array((string)($r['code'] ?? ''), $codesVenteOnly, true)) {
-                return;
-            }
-            mbi_supports_critic_eval($r, $ctx, $niveau, $blocsDurs, $alertes);
-        };
-
         // 3. Bloc dur transverse
         foreach (($regles['transverse']['bloc_dur'] ?? []) as $r) {
-            $evalAvecFiltre($r, 'bloc_dur');
+            mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
         }
         // 3.b Alertes transverses
         foreach (($regles['transverse']['alertes'] ?? []) as $r) {
-            $evalAvecFiltre($r, 'alerte');
-        }
-
-        // 3.c Règles spécifiques LOCATION (ajoutées dynamiquement) :
-        // - LOYER_DEFINI : annonces.loyer doit être > 0
-        if ($estLocation) {
-            $loyer = (float)(
-                ($ctx['annonce']['loyer']    ?? 0)
-                ?: ($ctx['annonce']['loyer_cc'] ?? 0)
-            );
-            if ($loyer <= 0) {
-                $blocsDurs['LOYER_DEFINI'] = [
-                    'code'    => 'LOYER_DEFINI',
-                    'libelle' => 'Loyer renseigné (HC ou CC)',
-                    'niveau'  => 'bloc_dur',
-                    'detail'  => 'annonces.loyer doit être > 0 pour une location',
-                    'champ'   => 'annonces.loyer',
-                ];
-            }
-            $depot = (float)($ctx['annonce']['depot_garantie'] ?? 0);
-            if ($depot <= 0) {
-                $blocsDurs['DEPOT_GARANTIE_DEFINI'] = [
-                    'code'    => 'DEPOT_GARANTIE_DEFINI',
-                    'libelle' => 'Dépôt de garantie',
-                    'niveau'  => 'bloc_dur',
-                    'detail'  => 'Dépôt de garantie doit être renseigné en location',
-                    'champ'   => 'annonces.depot_garantie',
-                ];
-            }
+            mbi_supports_critic_eval($r, $ctx, 'alerte', $blocsDurs, $alertes);
         }
 
         // 4. Bloc dur spécifique au type_support
         $perType = $regles['par_type_support'][$type_support] ?? null;
         if (is_array($perType)) {
             foreach (($perType['bloc_dur'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'bloc_dur');
+                mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
             }
             // Bloc dur conditionnel : si en copropriété
             if (!empty($perType['bloc_dur_si_copro']) && $ctx['est_copro']) {
                 foreach ($perType['bloc_dur_si_copro'] as $r) {
-                    $evalAvecFiltre($r, 'bloc_dur');
+                    mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
                 }
             }
         }
@@ -179,38 +120,38 @@ if (!function_exists('mbi_supports_critic_check')) {
         $isInterne = ($type_support === 'fiche_visite_interne');
         if (!$isInterne) {
             foreach (($regles['specifiques']['honoraires']['bloc_dur'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'bloc_dur');
+                mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
             }
             foreach (($regles['specifiques']['honoraires']['alertes'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'alerte');
+                mbi_supports_critic_eval($r, $ctx, 'alerte', $blocsDurs, $alertes);
             }
         }
 
         // 5.b Copropriété (si en copro et pas interne)
         if (!$isInterne && $ctx['est_copro']) {
             foreach (($regles['specifiques']['copropriete']['bloc_dur_si_en_copro'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'bloc_dur');
+                mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
             }
             foreach (($regles['specifiques']['copropriete']['alertes'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'alerte');
+                mbi_supports_critic_eval($r, $ctx, 'alerte', $blocsDurs, $alertes);
             }
         }
 
         // 5.c Risques (bloc dur seulement sur certains supports)
         $risquesBlocDur = $regles['specifiques']['risques']['bloc_dur_par_support'][$type_support] ?? [];
         foreach ($risquesBlocDur as $r) {
-            $evalAvecFiltre($r, 'bloc_dur');
+            mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
         }
         if (!$isInterne) {
             foreach (($regles['specifiques']['risques']['alertes'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'alerte');
+                mbi_supports_critic_eval($r, $ctx, 'alerte', $blocsDurs, $alertes);
             }
         }
 
         // 5.d Mandat de diffusion (transverse, sauf interne)
         if (!$isInterne) {
             foreach (($regles['specifiques']['mandat_diffusion']['bloc_dur'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'bloc_dur');
+                mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
             }
         }
 
@@ -218,7 +159,7 @@ if (!function_exists('mbi_supports_critic_check')) {
         $supportsPublics = ['affiche_vitrine','fiche_client','dossier_presentation','email','reseaux_sociaux'];
         if (in_array($type_support, $supportsPublics, true)) {
             foreach (($regles['specifiques']['carte_pro']['bloc_dur_supports_publics'] ?? []) as $r) {
-                $evalAvecFiltre($r, 'bloc_dur');
+                mbi_supports_critic_eval($r, $ctx, 'bloc_dur', $blocsDurs, $alertes);
             }
         }
 
@@ -588,18 +529,11 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 if ($dpe !== '' || in_array($statut, ['en_cours','non_soumis'], true)) return [true, null];
                 return [false, 'Étiquettes DPE/GES manquantes (et pas de motif structuré)'];
 
-            // ── Honoraires (vente / location selon le contexte) ──────────────
+            // ── Honoraires (schéma réel : honoraires_inclus + honoraires_detail) ──
             case 'honoraires_renseignes':
             case 'honoraires_montant':
-                $tx = strtolower(trim((string)($ctx['_tx_transaction'] ?? '')));
-                if ($tx === 'location') {
-                    // Honoraires location ALUR (annonces.honoraires_location_bail / etat_des_lieux)
-                    $hBail = (float)($ctx['annonce']['honoraires_location_bail']  ?? 0);
-                    $hEdl  = (float)($ctx['annonce']['honoraires_etat_des_lieux'] ?? 0);
-                    if ($hBail > 0 || $hEdl > 0) return [true, null];
-                    return [false, 'Honoraires location ALUR non renseignés (bail + état des lieux)'];
-                }
-                // Vente / entreprise — schéma honoraires_montant + honoraires_inclus + honoraires_detail
+                // Plusieurs schémas possibles : honoraires_montant explicite OU
+                // honoraires_inclus / honoraires_detail (schéma actuel MBI)
                 $hMontant = $bien['honoraires_montant'] ?? $bien['montant_honoraires'] ?? $bien['honoraires'] ?? null;
                 if ($hMontant !== null && (float)$hMontant > 0) return [true, null];
                 $hInclus  = trim((string)($bien['honoraires_inclus']  ?? ''));
@@ -608,10 +542,7 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 return [$ok, $ok ? null : 'Honoraires non renseignés (ni montant, ni inclus, ni détail)'];
 
             case 'honoraires_charge_definie':
-                // Non applicable en location (l'ALUR définit la charge réglementairement)
-                if (strtolower(trim((string)($ctx['_tx_transaction'] ?? ''))) === 'location') {
-                    return [true, null];
-                }
+                // Charge explicite OU honoraires_inclus (qui porte généralement l'info)
                 $c = strtolower(trim((string)($bien['honoraires_charge'] ?? $bien['honoraires_a_charge'] ?? '')));
                 if (in_array($c, ['acquereur','acheteur','vendeur','partage','partagee','partagés'], true)) {
                     return [true, null];
@@ -621,18 +552,11 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 return [false, 'Charge des honoraires non définie (acquéreur/vendeur/partagée)'];
 
             case 'prix_avec_honoraires':
-                // Non applicable en location
-                if (strtolower(trim((string)($ctx['_tx_transaction'] ?? ''))) === 'location') {
-                    return [true, null];
-                }
                 $prix = $bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? 0;
                 return [(float)$prix > 0, 'Prix de présentation honoraires inclus à afficher'];
 
             case 'prix_hors_honoraires_si_charge_acq':
-                // Non applicable en location
-                if (strtolower(trim((string)($ctx['_tx_transaction'] ?? ''))) === 'location') {
-                    return [true, null];
-                }
+                // Détecte la charge depuis honoraires_charge OU honoraires_inclus
                 $charge = strtolower(trim((string)($bien['honoraires_charge'] ?? '')));
                 $inclus = strtolower(trim((string)($bien['honoraires_inclus'] ?? '')));
                 $estChargeAcq = in_array($charge, ['acquereur','acheteur'], true)
@@ -641,6 +565,7 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 if (!$estChargeAcq) return [true, null];
                 $prixHors = $bien['prix_hors_honoraires'] ?? $bien['prix_net_vendeur'] ?? null;
                 if (!empty($prixHors)) return [true, null];
+                // Tolérant V1 : on signale comme alerte plutôt que bloc dur si pas de champ séparé
                 return [true, 'Idéalement afficher aussi le prix hors honoraires (charge acquéreur)'];
 
             case 'tva_mention_particulier':
