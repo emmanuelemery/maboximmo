@@ -337,18 +337,46 @@ $layout_head_kpis = '
 <div class="ph-kpi"><div class="ph-kpi-val">' . $rubCount . '</div><div class="ph-kpi-lbl">Rubriques</div></div>
 ';
 
-// Actions
-$layout_head_actions = '
-<a href="rh_documents.php" class="ph-btn primary">Documents</a>
-' . ($roleId === 1 ? '<a href="rh_documents_config.php" class="ph-btn">Config</a>' : '<span class="ph-btn dispo">—</span>') . '
-<span class="ph-btn dispo">—</span>
-<span class="ph-btn dispo">—</span>
-';
+// Actions topbar — réservées à l'admin uniquement (paramétrage), fond vert amande
+$layout_head_actions = '';
+if ($roleId === 1) {
+    $layout_head_actions = '
+    <a href="rh_documents_config.php" class="ph-btn-admin">⚙️ Config types</a>
+    ';
+}
 
 // Extra CSS
 $layout_extra_css = <<<'EXTRACSS'
 <style>
     /* ── Override local supprimé — tokens.css est déjà en blanc ── */
+
+    /* ── Boutons admin topbar (vert amande) ── */
+    .ph-btn-admin {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 18px;
+        background: #B8D8B0;        /* vert amande */
+        color: #1a3d28;             /* vert très foncé pour contraste lisible */
+        border-radius: 10px;
+        font-family: 'Sora', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
+        letter-spacing: 0.02em;
+        box-shadow: 2px 2px 6px rgba(74,96,56,0.25), inset 0 1px 0 rgba(255,255,255,0.4);
+        transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        white-space: nowrap;
+    }
+    .ph-btn-admin:hover {
+        transform: translateY(-1px);
+        background: #A8C9A0;
+        box-shadow: 3px 3px 10px rgba(74,96,56,0.35);
+    }
+    .ph-btn-admin:active {
+        transform: translateY(0);
+        box-shadow: inset 1px 1px 4px rgba(74,96,56,0.3);
+    }
 
     /* ── Page head (identique rh_salaires) ── */
     .page-head {
@@ -649,32 +677,43 @@ ob_start();
      (RIB, CNI, justif domicile, carte vitale, carte grise…)
 ════════════════════════════════════════════════════════════ -->
 <style>
+/* ── Analyse IA compactée 2026-05-06 — encart horizontal discret ── */
 .rhdx-card {
     background: #ffffff;
-    border-radius: 16px;
-    box-shadow: 6px 6px 14px #d4d7de, -6px -6px 14px #fff;
-    padding: 22px 26px;
-    margin-bottom: 22px;
+    border-radius: 12px;
+    box-shadow: 3px 3px 8px #d4d7de, -3px -3px 8px #fff;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
-.rhdx-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.rhdx-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
 .rhdx-head-ico {
-    width: 46px; height: 46px; border-radius: 12px;
+    width: 30px; height: 30px; border-radius: 8px;
     background: linear-gradient(135deg, #4878a6, #2f587d);
-    color: #fff; font-size: 22px;
+    color: #fff; font-size: 14px;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
 }
-.rhdx-head h3 { font-size: 15px; font-weight: 700; color: #2f587d; margin-bottom: 3px; }
-.rhdx-head p  { font-size: 12px; color: #8a8680; line-height: 1.5; }
+.rhdx-head h3 { font-size: 12px; font-weight: 700; color: #2f587d; margin: 0; }
+.rhdx-head p  { font-size: 10px; color: #8a8680; line-height: 1.3; margin: 0; }
 
 .rhdx-dropzone {
-    border: 2px dashed #d4d7de;
-    border-radius: 12px;
-    padding: 32px 20px;
+    border: 1.5px dashed #d4d7de;
+    border-radius: 8px;
+    padding: 8px 14px;
     text-align: center;
     background: #ffffff;
     cursor: pointer;
     transition: all .2s;
+    flex: 1 1 220px;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 .rhdx-dropzone:hover,
 .rhdx-dropzone.dragging {
@@ -682,9 +721,9 @@ ob_start();
     background: #fafbfc;
     transform: translateY(-2px);
 }
-.rhdx-dropzone-ico { font-size: 36px; opacity: .6; margin-bottom: 8px; }
-.rhdx-dropzone-txt { font-size: 13px; color: #6a6660; font-weight: 600; }
-.rhdx-dropzone-hint { font-size: 11px; color: #a8a49e; margin-top: 4px; }
+.rhdx-dropzone-ico { font-size: 18px; opacity: .65; margin: 0; }
+.rhdx-dropzone-txt { font-size: 11px; color: #6a6660; font-weight: 600; margin: 0; }
+.rhdx-dropzone-hint { font-size: 9px; color: #a8a49e; margin: 0 0 0 6px; }
 .rhdx-dropzone input[type=file] { display: none; }
 
 .rhdx-progress {
@@ -875,15 +914,15 @@ ob_start();
     <div class="rhdx-head">
         <div class="rhdx-head-ico">🔍</div>
         <div>
-            <h3>Analyse automatique de document</h3>
-            <p>Déposez un document (CNI, RIB, justificatif de domicile, carte vitale, carte grise…) et l'IA extrait automatiquement les informations.</p>
+            <h3>Analyse IA</h3>
+            <p>CNI, RIB, justif. domicile, carte vitale, carte grise…</p>
         </div>
     </div>
 
     <div class="rhdx-dropzone" id="rhdxDropzone">
-        <div class="rhdx-dropzone-ico">📥</div>
-        <div class="rhdx-dropzone-txt">Cliquez ou glissez un document ici</div>
-        <div class="rhdx-dropzone-hint">PDF, JPG, PNG, WEBP · max 10 Mo</div>
+        <span class="rhdx-dropzone-ico">📥</span>
+        <span class="rhdx-dropzone-txt">Cliquez ou glissez un document</span>
+        <span class="rhdx-dropzone-hint">PDF/JPG/PNG · max 10 Mo</span>
         <input type="file" id="rhdxFileInput" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic">
     </div>
 
