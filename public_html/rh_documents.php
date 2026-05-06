@@ -454,42 +454,22 @@ $_rubriquesJson = json_encode(
     array_map(fn($r) => ['label' => $r['label'], 'types' => $r['types']], $rubriques),
     JSON_UNESCAPED_UNICODE
 );
-// Société cible pour l'upload de docs Société
+// Cibles upload : Société + Agence (récupérées des pills Sté/Agc en haut)
 $_societeIdPourUploadSoc = (int)$societeIdPourSocDocs;
-$_societeNomPourUploadSoc = '';
-if ($_societeIdPourUploadSoc > 0 && $roleId === 1) {
-    foreach ($societes as $s) {
-        if ((int)$s['id'] === $_societeIdPourUploadSoc) {
-            $_societeNomPourUploadSoc = (string)$s['nom'];
-            break;
-        }
-    }
-}
-$_societeAdminSansSelection = ($roleId === 1 && $_societeIdPourUploadSoc === 0) ? 'true' : 'false';
-$_societeNomEsc = addslashes($_societeNomPourUploadSoc);
+$_agenceIdPourUploadAg   = (int)$agenceIdPourAgenceDocs;
 
 $layout_extra_js = <<<EXTRAJS
 <meta name="csrf-token" content="{$csrfToken}">
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
-const VIEW_USER_ID = {$viewUserId};
-const SOC_DOCS_TARGET_ID  = {$_societeIdPourUploadSoc};
-const SOC_DOCS_TARGET_NOM = "{$_societeNomEsc}";
-const SOC_ADMIN_NO_SELECT = {$_societeAdminSansSelection};
+const VIEW_USER_ID         = {$viewUserId};
+const SOC_DOCS_TARGET_ID   = {$_societeIdPourUploadSoc};
+const AGENCE_DOCS_TARGET_ID= {$_agenceIdPourUploadAg};
 
 const RUBRIQUES = {$_rubriquesJson};
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 let selectedFile = null;
-
-// Sélection pills société/agence dans la modale (input hidden tient la valeur)
-function pickPill(kind, btn) {
-    const grpId = 'modal-' + kind + '-pills';
-    document.querySelectorAll('#' + grpId + ' .ph-scope-pill').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const hidden = document.getElementById('modal-' + kind);
-    if (hidden) hidden.value = btn.dataset.id || '';
-}
 
 function openModal(rubrique = 'personne', typeDoc = null) {
     document.getElementById('modal-rubrique').value = rubrique;
@@ -515,11 +495,6 @@ function onRubChange(forceType = null) {
         sel.appendChild(opt);
     });
     if (forceType) sel.value = forceType;
-    // Affiche/cache les sélecteurs société/agence selon la rubrique
-    const grpSoc = document.getElementById('modal-societe-group');
-    if (grpSoc) grpSoc.style.display = (rubKey === 'societe') ? 'flex' : 'none';
-    const grpAg = document.getElementById('modal-agence-group');
-    if (grpAg) grpAg.style.display = (rubKey === 'agence') ? 'flex' : 'none';
 }
 
 // ── Drop zone ─────────────────────────────────────────────────────────────────
@@ -548,23 +523,22 @@ async function submitUpload() {
     fd.append('rubrique', rubVal);
     fd.append('type_doc',  document.getElementById('modal-type').value);
     fd.append('nom_affiche', document.getElementById('modal-nom').value.trim() || selectedFile.name);
-    // LOT 4.B : société/agence cible selon la rubrique (boutons pills + input hidden)
+    // LOT 4.B : société/agence cible récupérée depuis les pills Sté/Agc
+    // du page-head (filtres haut de page). Bloquant si pas sélectionné.
     if (rubVal === 'societe') {
-        const idSocCible = parseInt((document.getElementById('modal-societe')?.value || '0'), 10) || 0;
-        if (idSocCible <= 0) {
-            showToast('Choisis une société (boutons ci-dessus)', true);
+        if (SOC_DOCS_TARGET_ID <= 0) {
+            showToast('Sélectionne une société dans la barre Sté en haut de page', true);
             btn.disabled = false; btn.textContent = 'Téléverser';
             return;
         }
-        fd.append('id_societe', idSocCible);
+        fd.append('id_societe', SOC_DOCS_TARGET_ID);
     } else if (rubVal === 'agence') {
-        const idAgCible = parseInt((document.getElementById('modal-agence')?.value || '0'), 10) || 0;
-        if (idAgCible <= 0) {
-            showToast('Choisis une agence (boutons ci-dessus)', true);
+        if (AGENCE_DOCS_TARGET_ID <= 0) {
+            showToast('Sélectionne une agence dans la barre Agc en haut de page', true);
             btn.disabled = false; btn.textContent = 'Téléverser';
             return;
         }
-        fd.append('id_agence', idAgCible);
+        fd.append('id_agence', AGENCE_DOCS_TARGET_ID);
     }
     showToast('🔍 Analyse IA en cours (5-15 sec)…');
     btn.textContent = '⏳ Analyse IA…';
@@ -1402,43 +1376,9 @@ async function applyConflicts(candId) {
         <?php endforeach; ?>
       </select>
     </div>
-    <?php if ($roleId === 1 && !empty($societes)): ?>
-    <div class="form-group" id="modal-societe-group" style="display:none">
-      <label class="form-label">Société cible <span style="color:#8a5040;">*</span></label>
-      <input type="hidden" id="modal-societe" value="<?= (int)($societeIdPourSocDocs ?? 0) ?>">
-      <div class="ph-scope-btns" id="modal-societe-pills" style="gap:8px; flex-wrap:wrap;">
-        <?php foreach ($societes as $s): ?>
-          <button type="button" class="ph-scope-pill <?= ((int)($societeIdPourSocDocs ?? 0) === (int)$s['id']) ? 'active' : '' ?>"
-                  data-id="<?= (int)$s['id'] ?>"
-                  onclick="pickPill('societe', this)">
-            <?= h($s['nom']) ?>
-          </button>
-        <?php endforeach; ?>
-      </div>
-      <div style="font-size:11px; color:#8a5040; margin-top:6px;">
-        Kbis, carte pro CPI, 4 RC pro et 4 garanties financières (T/G/S/M) — répliqué sur toutes les agences de la société.
-      </div>
-    </div>
-    <?php endif; ?>
-    <?php if (($roleId === 1 || (int)($_SESSION['id_agence'] ?? 0) > 0) && !empty($agences)): ?>
-    <div class="form-group" id="modal-agence-group" style="display:none">
-      <label class="form-label">Agence cible <span style="color:#8a5040;">*</span></label>
-      <input type="hidden" id="modal-agence" value="<?= (int)($agenceIdPourAgenceDocs ?? 0) ?>">
-      <div class="ph-scope-btns" id="modal-agence-pills" style="gap:8px; flex-wrap:wrap;">
-        <?php foreach ($agences as $a): ?>
-          <button type="button" class="ph-scope-pill <?= ((int)($agenceIdPourAgenceDocs ?? 0) === (int)$a['id']) ? 'active' : '' ?>"
-                  data-id="<?= (int)$a['id'] ?>"
-                  data-societe="<?= (int)$a['id_societe'] ?>"
-                  onclick="pickPill('agence', this)">
-            <?= h($a['nom_agence']) ?>
-          </button>
-        <?php endforeach; ?>
-      </div>
-      <div style="font-size:11px; color:#8a5040; margin-top:6px;">
-        Barème honoraires et assurance MRI sont propres à chaque agence (établissement).
-      </div>
-    </div>
-    <?php endif; ?>
+    <?php /* Société/Agence cibles : récupérées automatiquement des pills haut
+             (Sté/Agc) — voir SOC_DOCS_TARGET_ID / AGENCE_DOCS_TARGET_ID injectés
+             en JS. Plus de sélecteur en doublon dans la modale. */ ?>
     <div class="form-group">
       <label class="form-label">Type de document</label>
       <select class="form-control" id="modal-type"></select>
