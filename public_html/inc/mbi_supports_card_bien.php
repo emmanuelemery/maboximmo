@@ -429,34 +429,64 @@ $scoreColor = match (true) {
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Enregistrement…'; }
 
     const data = new FormData(form);
+    let httpStatus = 0;
+    let rawText = '';
     try {
       const r = await fetch('api/mbi_supports_completer_save.php', {
         method: 'POST', body: data, credentials: 'same-origin',
       });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'Erreur inconnue');
+      httpStatus = r.status;
+      rawText = await r.text();
+      console.log('[completer_save] HTTP', httpStatus, 'body:', rawText);
+      let j;
+      try { j = JSON.parse(rawText); }
+      catch (parseErr) { throw new Error('Réponse non-JSON (HTTP ' + httpStatus + ') — voir console'); }
+      if (!j.ok) throw new Error(j.error || ('Erreur HTTP ' + httpStatus));
+
+      // ── Comptage saved / ignored ──
+      let savedCount = 0;
+      Object.values(j.saved || {}).forEach(arr => savedCount += (Array.isArray(arr) ? arr.length : 0));
+      const ignoredCount = (j.ignored || []).length;
+      const ignoredDetails = (j.ignored || []).map(i => i.key + ' (' + i.reason + ')').join(', ');
 
       msg.style.display = 'block';
+      if (savedCount === 0 && ignoredCount === 0) {
+        // Aucun champ envoyé : le user a cliqué sans rien remplir
+        msg.style.background = '#fff7ed';
+        msg.style.color = '#9a3412';
+        msg.style.border = '1px solid #fed7aa';
+        msg.textContent = '⚠ Aucun champ rempli. Saisis au moins une valeur.';
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Sauvegarder + Re-vérifier'; }
+        return;
+      }
       if (j.peut_exporter) {
         msg.style.background = '#ecfdf5';
         msg.style.color = '#065f46';
         msg.style.border = '1px solid #a7f3d0';
-        msg.textContent = '✓ Toutes les mentions sont OK. La page va se recharger.';
-        setTimeout(() => location.reload(), 900);
+        msg.textContent = `✓ ${savedCount} champ(s) sauvegardé(s) · toutes les mentions sont OK. La page va se recharger.`;
+        setTimeout(() => location.reload(), 1200);
       } else {
         const reste = (j.blocs_durs_violes || []).length;
         msg.style.background = '#fff7ed';
         msg.style.color = '#9a3412';
         msg.style.border = '1px solid #fed7aa';
-        msg.textContent = `✓ Sauvegardé. Il reste ${reste} mention${reste > 1 ? 's' : ''} à corriger. La page va se recharger pour rafraîchir le formulaire.`;
-        setTimeout(() => location.reload(), 1400);
+        let txt = `✓ ${savedCount} champ(s) sauvegardé(s).`;
+        if (ignoredCount > 0) txt += ` ⚠ ${ignoredCount} ignoré(s) : ${ignoredDetails}.`;
+        txt += ` Il reste ${reste} mention${reste > 1 ? 's' : ''} à corriger.`;
+        msg.textContent = txt;
+        setTimeout(() => location.reload(), 2500);
       }
     } catch (err) {
       msg.style.display = 'block';
       msg.style.background = '#fef2f2';
       msg.style.color = '#991b1b';
       msg.style.border = '1px solid #fecaca';
-      msg.textContent = 'Erreur : ' + err.message;
+      let detail = err.message;
+      if (httpStatus === 419) detail += ' — token CSRF invalide (recharge la page : Ctrl+F5)';
+      else if (httpStatus === 401) detail += ' — session expirée (recharge la page)';
+      else if (httpStatus === 403) detail += ' — pas le droit d\'écrire (scope société)';
+      else if (rawText && rawText.length < 300) detail += ' — Réponse serveur : ' + rawText.substring(0, 200);
+      msg.textContent = '❌ ' + detail;
       if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Sauvegarder + Re-vérifier'; }
     }
   });
