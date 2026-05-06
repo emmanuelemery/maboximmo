@@ -26,8 +26,12 @@ UPDATE `rh_doc_types` SET `actif` = 0
   WHERE `rubrique` = 'societe' AND `type_key` IN ('rcp', 'garant_financier');
 
 -- ─── 2. Déplacement barème honoraires : société → agence ─────────────────────
-UPDATE `rh_doc_types` SET `rubrique` = 'agence', `ordre` = 1
-  WHERE `type_key` = 'bareme_honoraires';
+-- Si le seed PHP au runtime a déjà inséré ('agence', 'bareme_honoraires'),
+-- un UPDATE sur l'ancienne ('societe', 'bareme_honoraires') tomberait sur
+-- la contrainte unique uk_rub_key. On supprime l'ancienne ligne societe ;
+-- l'INSERT IGNORE plus bas garantit la présence de la nouvelle ligne agence.
+DELETE FROM `rh_doc_types`
+  WHERE `rubrique` = 'societe' AND `type_key` = 'bareme_honoraires';
 
 -- ─── 3. Seed 4 sous-types RCP par activité (rubrique societe) ────────────────
 INSERT IGNORE INTO `rh_doc_types`
