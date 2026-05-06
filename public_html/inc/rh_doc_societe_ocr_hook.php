@@ -128,6 +128,53 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             } catch (Throwable) {}
         }
 
+        // Persiste les champs OCR détaillés (titulaire, émetteur, adresses, dates, montants…)
+        // Voir migration 20260506_3_rh_documents_ocr_detail.
+        // Ne touche que les colonnes existantes dans la table (idempotent face aux migrations
+        // partiellement appliquées).
+        $ocrData = $ocr['data'] ?? [];
+        if (is_array($ocrData) && !empty($ocrData)) {
+            $colonnesDetail = [
+                'numero_client', 'adresse_emetteur', 'raison_sociale',
+                'forme_juridique', 'siret', 'siren', 'tva_intra', 'capital_social', 'code_ape',
+                'date_effet', 'date_echeance', 'date_anniversaire',
+                'montant_franchise', 'montant_plafond_2', 'nature_garantie',
+            ];
+            try {
+                $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'");
+                $st->execute();
+                $existingCols = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            } catch (Throwable) { $existingCols = []; }
+
+            $sets = [];
+            $params = [':id' => $rhDocId];
+            foreach ($colonnesDetail as $col) {
+                if (!in_array(strtolower($col), $existingCols, true)) continue;
+                if (!array_key_exists($col, $ocrData)) continue;
+                $sets[] = "`{$col}` = :v_{$col}";
+                $params[":v_{$col}"] = $ocrData[$col];
+            }
+            // dirigeants_json (tableau)
+            if (in_array('dirigeants_json', $existingCols, true) && !empty($ocrData['dirigeants'])) {
+                $sets[] = "`dirigeants_json` = :v_dirigeants";
+                $params[':v_dirigeants'] = json_encode($ocrData['dirigeants'], JSON_UNESCAPED_UNICODE);
+            }
+            // metadata_json (fourre-tout)
+            if (in_array('metadata_json', $existingCols, true) && !empty($ocrData['metadata'])) {
+                $sets[] = "`metadata_json` = :v_metadata";
+                $params[':v_metadata'] = json_encode($ocrData['metadata'], JSON_UNESCAPED_UNICODE);
+            }
+            if (!empty($sets)) {
+                try {
+                    $upDetail = $pdo->prepare("UPDATE rh_documents SET " . implode(', ', $sets) . " WHERE id = :id");
+                    $upDetail->execute($params);
+                } catch (Throwable $e) {
+                    error_log('[rh_doc_societe_hook UPDATE detail] ' . $e->getMessage());
+                }
+            }
+        }
+
         $filePath = (string)($doc['file_path'] ?? '');
         if ($filePath === '' || !is_file($filePath)) {
             $resultat['ocr_erreur'] = 'fichier_introuvable: ' . $filePath;

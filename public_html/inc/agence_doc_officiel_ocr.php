@@ -162,64 +162,116 @@ if (!function_exists('agence_doc_ocr_system_prompt')) {
 if (!function_exists('agence_doc_ocr_user_prompt')) {
     function agence_doc_ocr_user_prompt(string $typeDoc): string
     {
+        // Enrichi 2026-05-06 : capture détaillée pour chaque type de doc.
+        // Tous les champs sont optionnels (null si non trouvé). Le hook range
+        // les champs structurés dans rh_documents.* et le surplus dans
+        // metadata_json (free-form).
         $schemas = [
             'carte_pro' => [
-                "Document : CARTE PROFESSIONNELLE d'un agent immobilier (carte T transaction et/ou G gestion).",
-                'Schéma JSON :',
+                "Document : CARTE PROFESSIONNELLE d'un agent immobilier (CPI Hoguet — T transaction, G gestion, S syndic).",
+                'Schéma JSON (extrait LE PLUS DÉTAILLÉ POSSIBLE — ne saute aucun champ visible) :',
                 '{',
-                '  "numero":         "string|null",     // ex: CPI 6901 2018 000 012 345',
-                '  "type_carte":     "T|G|TG|null",     // T=transaction, G=gestion, TG=les deux',
-                '  "titulaire":      "string|null",     // raison sociale ou nom du titulaire',
-                '  "emetteur":       "string|null",     // CCI émettrice (ex: CCI Lyon Métropole)',
-                '  "date_emission":  "YYYY-MM-DD|null",',
-                '  "date_validite":  "YYYY-MM-DD|null", // date de fin de validité (importante !)',
-                '  "confidence":     int                // 0-100',
+                '  "numero":           "string|null",   // ex: CPI 6901 2018 000 012 345',
+                '  "type_carte":       "T|G|S|TG|TGS|null",',
+                '  "titulaire":        "string|null",   // raison sociale figurant sur la carte',
+                '  "raison_sociale":   "string|null",   // identique au titulaire le plus souvent',
+                '  "forme_juridique":  "string|null",   // SARL, SAS, SCI, EURL... si visible',
+                '  "siret":            "string|null",',
+                '  "siren":            "string|null",',
+                '  "adresse_titulaire":"string|null",   // siège social',
+                '  "emetteur":         "string|null",   // CCI émettrice (ex: CCI Lyon Métropole)',
+                '  "adresse_emetteur": "string|null",   // adresse complète de la CCI',
+                '  "date_emission":    "YYYY-MM-DD|null",',
+                '  "date_validite":    "YYYY-MM-DD|null", // date de fin de validité (CRITIQUE)',
+                '  "garantie_financiere_attestee_par": "string|null", // garant cité au dos',
+                '  "rc_pro_attestee_par":              "string|null", // assureur cité au dos',
+                '  "confidence":       int',
                 '}',
             ],
             'kbis' => [
-                "Document : EXTRAIT KBIS d'une société (registre du commerce).",
-                'Schéma JSON :',
+                "Document : EXTRAIT KBIS d'une société (registre du commerce et des sociétés).",
+                'Schéma JSON (extrait COMPLET — capturer toutes les infos visibles) :',
                 '{',
-                '  "numero":         "string|null",     // n° RCS (ex: 123 456 789)',
-                '  "raison_sociale": "string|null",',
-                '  "emetteur":       "string|null",     // greffe du tribunal',
-                '  "date_emission":  "YYYY-MM-DD|null", // date d\'émission de l\'extrait (≤ 3 mois recommandé)',
-                '  "date_validite":  null,              // KBIS n\'a pas de date de fin officielle',
-                '  "confidence":     int',
+                '  "numero":              "string|null",   // n° RCS / SIREN (souvent identique)',
+                '  "raison_sociale":      "string|null",',
+                '  "forme_juridique":     "string|null",   // SARL, SAS, SCI...',
+                '  "capital_social":      number|null,     // en €',
+                '  "siret":               "string|null",   // 14 chiffres',
+                '  "siren":               "string|null",   // 9 chiffres',
+                '  "tva_intra":           "string|null",   // FR + 11 chiffres',
+                '  "code_ape":            "string|null",   // ex: 6831Z',
+                '  "adresse_titulaire":   "string|null",   // siège social complet',
+                '  "emetteur":            "string|null",   // greffe du tribunal de commerce',
+                '  "date_emission":       "YYYY-MM-DD|null", // date d\'émission de l\'extrait',
+                '  "date_immatriculation":"YYYY-MM-DD|null", // date d\'immatriculation au RCS',
+                '  "date_validite":       null,              // KBIS pas de validité (recommandé ≤ 3 mois)',
+                '  "dirigeants":          [                  // liste des gérants/dirigeants',
+                '    {"nom":"string","prenom":"string","fonction":"Gérant|Président|...","date_nomination":"YYYY-MM-DD|null"}',
+                '  ],',
+                '  "activite_principale": "string|null",   // texte de l\'objet social',
+                '  "confidence":          int',
                 '}',
             ],
             'garant_financier' => [
-                "Document : ATTESTATION DE GARANTIE FINANCIÈRE (Galian, Socaf, etc.).",
-                'Schéma JSON :',
+                "Document : ATTESTATION DE GARANTIE FINANCIÈRE (Galian, Socaf, MMA, etc.) au titre de la loi Hoguet.",
+                'Schéma JSON (extrait DÉTAILLÉ — toutes les valeurs financières et dates) :',
                 '{',
-                '  "numero":         "string|null",     // n° de contrat / police',
-                '  "emetteur":       "string|null",     // nom du garant (Galian, Socaf, …)',
-                '  "montant_garantie":number|null,      // plafond en €',
-                '  "date_emission":  "YYYY-MM-DD|null",',
-                '  "date_validite":  "YYYY-MM-DD|null", // fin de validité de la garantie',
-                '  "confidence":     int',
+                '  "numero":            "string|null",   // n° de contrat / police',
+                '  "numero_client":     "string|null",   // n° de client chez le garant (≠ n° contrat parfois)',
+                '  "emetteur":          "string|null",   // nom du garant (Galian, Socaf, MMA Caution, …)',
+                '  "adresse_emetteur":  "string|null",   // adresse complète siège du garant',
+                '  "raison_sociale":    "string|null",   // société garantie (titulaire de la garantie)',
+                '  "siret":             "string|null",',
+                '  "adresse_titulaire": "string|null",',
+                '  "montant_garantie":  number|null,     // plafond principal en € (transaction)',
+                '  "montant_plafond_2": number|null,     // 2e plafond (gestion ou syndic) si distinct',
+                '  "nature_garantie":   "string|null",   // ex: "Transaction sur immeubles + gestion immobilière"',
+                '  "date_emission":     "YYYY-MM-DD|null", // date émission attestation',
+                '  "date_effet":        "YYYY-MM-DD|null", // début de couverture',
+                '  "date_echeance":     "YYYY-MM-DD|null", // = date_validite, fin de couverture',
+                '  "date_anniversaire": "YYYY-MM-DD|null", // si renouvellement annuel mentionné',
+                '  "date_validite":     "YYYY-MM-DD|null", // alias date_echeance',
+                '  "confidence":        int',
                 '}',
             ],
             'rc_pro' => [
-                "Document : ATTESTATION D'ASSURANCE RESPONSABILITÉ CIVILE PROFESSIONNELLE.",
-                'Schéma JSON :',
+                "Document : ATTESTATION D'ASSURANCE RC PROFESSIONNELLE (au titre de la loi Hoguet).",
+                'Schéma JSON (extrait DÉTAILLÉ) :',
                 '{',
-                '  "numero":         "string|null",     // n° de contrat',
-                '  "emetteur":       "string|null",     // assureur (MMA, AXA, Allianz, …)',
-                '  "date_emission":  "YYYY-MM-DD|null",',
-                '  "date_validite":  "YYYY-MM-DD|null", // fin de validité',
-                '  "confidence":     int',
+                '  "numero":            "string|null",   // n° de contrat',
+                '  "numero_client":     "string|null",   // n° de client chez l\'assureur',
+                '  "emetteur":          "string|null",   // assureur (MMA, AXA, Allianz, Generali, …)',
+                '  "adresse_emetteur":  "string|null",   // adresse complète assureur',
+                '  "raison_sociale":    "string|null",   // société assurée',
+                '  "siret":             "string|null",',
+                '  "adresse_titulaire": "string|null",',
+                '  "montant_garantie":  number|null,     // plafond global ou par sinistre',
+                '  "montant_plafond_2": number|null,     // 2e plafond si dommages corporels distincts',
+                '  "montant_franchise": number|null,     // franchise par sinistre',
+                '  "nature_garantie":   "string|null",   // périmètre (transaction, gestion, syndic, expertise...)',
+                '  "date_emission":     "YYYY-MM-DD|null",',
+                '  "date_effet":        "YYYY-MM-DD|null",',
+                '  "date_echeance":     "YYYY-MM-DD|null",',
+                '  "date_anniversaire": "YYYY-MM-DD|null",',
+                '  "date_validite":     "YYYY-MM-DD|null", // alias date_echeance',
+                '  "confidence":        int',
                 '}',
             ],
             'bareme_honoraires' => [
-                "Document : BARÈME DES HONORAIRES affiché en agence (loi Hoguet, arrêté du 10/01/2017).",
+                "Document : BARÈME DES HONORAIRES affiché en agence (loi Hoguet, arrêté 10/01/2017 modifié 26/01/2022).",
                 'Schéma JSON :',
                 '{',
-                '  "numero":         null,',
-                '  "emetteur":       "string|null",     // nom de l\'agence',
-                '  "date_emission":  "YYYY-MM-DD|null", // date de mise à jour du barème',
-                '  "date_validite":  null,              // pas d\'expiration stricte',
-                '  "confidence":     int',
+                '  "numero":          null,',
+                '  "emetteur":        "string|null",   // nom de l\'agence',
+                '  "raison_sociale":  "string|null",',
+                '  "adresse_titulaire":"string|null",',
+                '  "date_emission":   "YYYY-MM-DD|null", // date de mise à jour du barème',
+                '  "date_validite":   null,             // pas d\'expiration stricte',
+                '  "metadata_bareme": {                 // structure libre des tarifs visibles',
+                '    "transaction": [{"tranche":"...","taux":"...","montant_min":number|null}],',
+                '    "gestion":     {"taux_loyer":"X%","etat_des_lieux":"...","autres":"..."}',
+                '  },',
+                '  "confidence":      int',
                 '}',
             ],
         ];
@@ -227,7 +279,8 @@ if (!function_exists('agence_doc_ocr_user_prompt')) {
         if (!isset($schemas[$typeDoc])) {
             return "Type de document inconnu. Renvoie {\"confidence\":0}.";
         }
-        return implode("\n", $schemas[$typeDoc]);
+        return implode("\n", $schemas[$typeDoc])
+             . "\n\nIMPORTANT : capture absolument TOUS les champs visibles. Si tu détectes des informations utiles non listées dans le schéma (numéro de notification, références internes, organismes d'agrément, garanties additionnelles…), AJOUTE-les dans une clé \"metadata_extra\" en plus du schéma demandé. Mieux vaut trop d'info que pas assez — le hook backend trie ce qui est utile.";
     }
 }
 
@@ -236,29 +289,74 @@ if (!function_exists('agence_doc_ocr_normalize')) {
     {
         $isoDate = static function ($v): ?string {
             if (!is_string($v) || $v === '' || $v === 'null') return null;
-            // Tolère YYYY-MM-DD strict
             return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
         };
-        $strOrNull = static function ($v): ?string {
+        $strOrNull = static function ($v, int $maxLen = 250): ?string {
             if (!is_string($v)) return null;
             $v = trim($v);
-            return ($v === '' || $v === 'null') ? null : mb_substr($v, 0, 250);
+            return ($v === '' || $v === 'null') ? null : mb_substr($v, 0, $maxLen);
         };
         $numOrNull = static function ($v): ?float {
             if (is_numeric($v)) return (float)$v;
             return null;
         };
 
-        return [
-            'numero'           => $strOrNull($data['numero']           ?? null),
-            'type_carte'       => $strOrNull($data['type_carte']       ?? null),
-            'titulaire'        => $strOrNull($data['titulaire']        ?? null),
-            'raison_sociale'   => $strOrNull($data['raison_sociale']   ?? null),
-            'emetteur'         => $strOrNull($data['emetteur']         ?? null),
-            'date_emission'    => $isoDate ($data['date_emission']    ?? null),
-            'date_validite'    => $isoDate ($data['date_validite']    ?? null),
-            'montant_garantie' => $numOrNull($data['montant_garantie'] ?? null),
-            'confidence'       => max(0, min(100, (int)($data['confidence'] ?? 0))),
+        // Champs structurés (mappés sur des colonnes rh_documents.*)
+        $structured = [
+            'numero'             => $strOrNull($data['numero']             ?? null),
+            'numero_client'      => $strOrNull($data['numero_client']      ?? null),
+            'type_carte'         => $strOrNull($data['type_carte']         ?? null, 10),
+            'titulaire'          => $strOrNull($data['titulaire']          ?? null),
+            'raison_sociale'     => $strOrNull($data['raison_sociale']     ?? null),
+            'forme_juridique'    => $strOrNull($data['forme_juridique']    ?? null, 50),
+            'siret'              => $strOrNull($data['siret']              ?? null, 20),
+            'siren'              => $strOrNull($data['siren']              ?? null, 15),
+            'tva_intra'          => $strOrNull($data['tva_intra']          ?? null, 20),
+            'capital_social'    => $numOrNull($data['capital_social']     ?? null),
+            'code_ape'           => $strOrNull($data['code_ape']           ?? null, 10),
+            'adresse_titulaire'  => $strOrNull($data['adresse_titulaire']  ?? null, 500),
+            'emetteur'           => $strOrNull($data['emetteur']           ?? null),
+            'adresse_emetteur'   => $strOrNull($data['adresse_emetteur']   ?? null, 500),
+            'date_emission'      => $isoDate ($data['date_emission']       ?? null),
+            'date_effet'         => $isoDate ($data['date_effet']          ?? null),
+            'date_echeance'      => $isoDate ($data['date_echeance']       ?? null),
+            'date_anniversaire'  => $isoDate ($data['date_anniversaire']   ?? null),
+            'date_validite'      => $isoDate ($data['date_validite']       ?? $data['date_echeance'] ?? null),
+            'montant_garantie'   => $numOrNull($data['montant_garantie']   ?? null),
+            'montant_plafond_2'  => $numOrNull($data['montant_plafond_2']  ?? null),
+            'montant_franchise'  => $numOrNull($data['montant_franchise']  ?? null),
+            'nature_garantie'    => $strOrNull($data['nature_garantie']    ?? null, 500),
+            'confidence'         => max(0, min(100, (int)($data['confidence'] ?? 0))),
         ];
+
+        // Dirigeants (KBIS) : tableau d'objets
+        $dirigeants = [];
+        if (isset($data['dirigeants']) && is_array($data['dirigeants'])) {
+            foreach ($data['dirigeants'] as $d) {
+                if (!is_array($d)) continue;
+                $dirigeants[] = [
+                    'nom'             => $strOrNull($d['nom']             ?? null, 100),
+                    'prenom'          => $strOrNull($d['prenom']          ?? null, 100),
+                    'fonction'        => $strOrNull($d['fonction']        ?? null, 100),
+                    'date_nomination' => $isoDate ($d['date_nomination']  ?? null),
+                ];
+            }
+        }
+        $structured['dirigeants'] = $dirigeants;
+
+        // Metadata fourre-tout : tout ce qu'on n'a pas mappé + champs supplémentaires IA
+        $reservedKeys = array_keys($structured);
+        $metadata = [];
+        foreach ($data as $k => $v) {
+            if (!in_array($k, $reservedKeys, true)) {
+                $metadata[$k] = $v;
+            }
+        }
+        if (isset($data['metadata_extra']) && is_array($data['metadata_extra'])) {
+            $metadata = array_merge($metadata, $data['metadata_extra']);
+        }
+        $structured['metadata'] = $metadata;
+
+        return $structured;
     }
 }
