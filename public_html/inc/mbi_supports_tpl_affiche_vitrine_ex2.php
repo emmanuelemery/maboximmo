@@ -437,7 +437,7 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
         // Négociateur en bas (doré discret à droite)
         if ($negociateur) {
             $nego = trim(($negociateur['prenom'] ?? '') . ' ' . ($negociateur['nom'] ?? ''));
-            $tel  = trim((string)($negociateur['telephone_pro'] ?? ''));
+            $tel  = trim((string)($negociateur['telephone'] ?? ''));
             $pdf->SetFont('dejavusans', 'B', 10);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
             $pdf->SetXY(18, $piedY + 35);
@@ -514,7 +514,7 @@ if (!function_exists('mbi_supports_tpl_pied_mentions')) {
 
         if ($negociateur) {
             $nego = trim(($negociateur['prenom'] ?? '') . ' ' . ($negociateur['nom'] ?? ''));
-            $tel  = trim((string)($negociateur['telephone_pro'] ?? ''));
+            $tel  = trim((string)($negociateur['telephone'] ?? ''));
             $mail = trim((string)($negociateur['email']     ?? ''));
             $lignes[] = 'Négociateur : ' . $nego . ($tel ? ' · ' . $tel : '') . ($mail ? ' · ' . $mail : '');
         }

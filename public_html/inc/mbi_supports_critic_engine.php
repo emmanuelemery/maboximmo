@@ -345,7 +345,8 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
         $idNego = (int)($bien['id_user_actuel'] ?? $bien['id_user_negociateur'] ?? 0);
         if ($idNego > 0) {
             try {
-                $st = $pdo->prepare("SELECT id, nom, prenom, email, telephone FROM users WHERE id = :id LIMIT 1");
+                // Récupère telephone_pro (diffusion) — pas telephone (perso, jamais diffusé)
+                $st = $pdo->prepare("SELECT id, nom, prenom, email, telephone_pro FROM users WHERE id = :id LIMIT 1");
                 $st->execute([':id' => $idNego]);
                 $negociateur = $st->fetch(PDO::FETCH_ASSOC) ?: null;
             } catch (Throwable) { $negociateur = null; }
@@ -675,8 +676,9 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
 
             case 'negociateur_coordonnees_completes':
                 if (!is_array($nego)) return [false, 'Négociateur absent'];
-                $ok = !empty($nego['email']) && !empty($nego['telephone']);
-                return [$ok, $ok ? null : 'Email ou téléphone du négociateur manquant'];
+                // Le téléphone diffusable = telephone_pro (pas le perso)
+                $ok = !empty($nego['email']) && !empty($nego['telephone_pro']);
+                return [$ok, $ok ? null : 'Email ou téléphone PRO du négociateur manquant'];
 
             case 'negociateur_presentation_dossier':
                 // V1 : présentation = quelques champs minimaux

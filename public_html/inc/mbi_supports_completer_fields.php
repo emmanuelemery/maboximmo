@@ -173,9 +173,9 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
             // ERP / risques
             'erp_present'           => ['entity'=>'bien','table'=>'biens','column'=>'erp_present','label'=>'État des risques (ERP) joint au dossier','type'=>'checkbox','required'=>true],
 
-            // Négociateur
+            // Négociateur — téléphone PRO uniquement (jamais le perso pour la diffusion)
             'nego_email'            => ['entity'=>'user','table'=>'users','column'=>'email','label'=>'Email négociateur','type'=>'text'],
-            'nego_telephone'        => ['entity'=>'user','table'=>'users','column'=>'telephone','label'=>'Téléphone négociateur','type'=>'text'],
+            'nego_telephone'        => ['entity'=>'user','table'=>'users','column'=>'telephone_pro','label'=>'Téléphone PRO négociateur','type'=>'text','hint'=>'Téléphone professionnel uniquement — le perso n\'est jamais diffusé'],
         ];
 
         // ── Champs typés selon contexte de transaction ────────────────────
