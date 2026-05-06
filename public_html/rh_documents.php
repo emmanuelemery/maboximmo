@@ -1221,7 +1221,17 @@ async function applyConflicts(candId) {
       <!-- Filtres STE / AGC / Col — hauteur fixe : les 3 lignes toujours rendues -->
       <div class="ph-scope">
 
-        <?php if ($roleId === 1): ?>
+        <?php if ($roleId === 1 && empty($societes)): ?>
+        <!-- Diagnostic admin : aucune société visible (BDD locale pauvre ?) -->
+        <div class="ph-scope-row">
+          <span class="ph-scope-label">Sté</span>
+          <div class="ph-scope-btns">
+            <span style="font-size:11px; color:#a85858; padding:4px 10px; background:#fef2f2; border-radius:6px;">
+              ⚠ Aucune société en BDD (vérifier <code>societes WHERE nom != 'Externe'</code>)
+            </span>
+          </div>
+        </div>
+        <?php elseif ($roleId === 1): ?>
         <!-- Ligne STÉ (toujours visible) -->
         <div class="ph-scope-row">
           <span class="ph-scope-label">Sté</span>
