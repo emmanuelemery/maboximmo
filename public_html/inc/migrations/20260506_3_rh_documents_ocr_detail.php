@@ -39,26 +39,11 @@ ALTER TABLE `rh_documents`
   ADD COLUMN IF NOT EXISTS `metadata_json`     JSON NULL          COMMENT 'OCR : tous les champs additionnels capturés mais non structurés';
 
 -- Index utiles pour les requêtes ultérieures (cron alertes anniv, etc.)
-SET @stmt := IF(
-  (SELECT COUNT(*) FROM information_schema.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'
-      AND INDEX_NAME = 'idx_rh_docs_anniversaire') = 0,
-  'CREATE INDEX `idx_rh_docs_anniversaire` ON `rh_documents` (`date_anniversaire`)',
-  'SELECT 1'
-);
-PREPARE stmt FROM @stmt;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @stmt := IF(
-  (SELECT COUNT(*) FROM information_schema.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'
-      AND INDEX_NAME = 'idx_rh_docs_siret') = 0,
-  'CREATE INDEX `idx_rh_docs_siret` ON `rh_documents` (`siret`)',
-  'SELECT 1'
-);
-PREPARE stmt FROM @stmt;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
+-- CREATE INDEX IF NOT EXISTS supporté par MariaDB 10.0.2+ et MySQL 8.0+.
+-- Le pattern PREPARE/EXECUTE laissait des result sets non consommés qui
+-- cassaient les statements suivants côté PDO ("Cannot execute queries
+-- while other unbuffered queries are active").
+CREATE INDEX IF NOT EXISTS `idx_rh_docs_anniversaire` ON `rh_documents` (`date_anniversaire`);
+CREATE INDEX IF NOT EXISTS `idx_rh_docs_siret`        ON `rh_documents` (`siret`);
 SQL,
 ];

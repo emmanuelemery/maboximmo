@@ -44,18 +44,8 @@ ALTER TABLE `rh_documents`
   ADD COLUMN IF NOT EXISTS `alerte_60j_envoyee_at`  TIMESTAMP      NULL;
 
 -- Index sur date_validite pour le cron alertes (uniquement docs actifs et non archivés)
--- Note : on ne peut pas utiliser CREATE INDEX IF NOT EXISTS dans toutes les versions MySQL,
--- on tente la création avec gestion silencieuse via PROCEDURE.
-SET @stmt := IF(
-  (SELECT COUNT(*) FROM information_schema.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'
-      AND INDEX_NAME = 'idx_rh_docs_validite_alertes') = 0,
-  'CREATE INDEX `idx_rh_docs_validite_alertes` ON `rh_documents` (`date_validite`, `actif`)',
-  'SELECT 1'
-);
-PREPARE stmt FROM @stmt;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
+-- Supporté par MariaDB 10.0.2+ et MySQL 8.0+ (XAMPP récent OK).
+CREATE INDEX IF NOT EXISTS `idx_rh_docs_validite_alertes` ON `rh_documents` (`date_validite`, `actif`);
 
 -- Seed des 3 types Société manquants (INSERT IGNORE = idempotent)
 -- Réutilise la table rh_doc_types créée par rh_doc_types_load() au runtime.
