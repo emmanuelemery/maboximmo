@@ -256,6 +256,7 @@ $scoreColor = match (true) {
     </header>
 
     <form id="mbiSupCompleterForm" style="padding:20px 24px 8px;">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(function_exists('csrf_token') ? csrf_token('ajouter_bien') : '') ?>">
       <input type="hidden" name="id_bien" value="<?= (int)$editingBienId ?>">
       <input type="hidden" name="type_support" value="affiche_vitrine">
 
