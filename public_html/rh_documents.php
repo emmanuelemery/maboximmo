@@ -66,12 +66,30 @@ $viewUserName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''
 
 if (($roleId === 1 || $agenceScope > 0) && isset($_GET['user_id'])) {
     $candidate = (int)$_GET['user_id'];
-    // Vérifier que le candidat est dans la liste autorisée
-    foreach ($usersList as $u) {
-        if ((int)$u['id'] === $candidate) {
-            $viewUserId   = $candidate;
-            $viewUserName = trim(($u['prenom'] ?? '') . ' ' . ($u['nom'] ?? ''));
-            break;
+
+    if ($roleId === 1) {
+        // Super admin : peut visualiser N'IMPORTE QUEL user actif, même hors
+        // de la scope société/agence courante (ex. clic depuis rh_profil.php
+        // sur un collaborateur d'une autre société).
+        try {
+            $stU = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE id = ? AND actif = 1 LIMIT 1");
+            $stU->execute([$candidate]);
+            $u = $stU->fetch(PDO::FETCH_ASSOC);
+            if ($u) {
+                $viewUserId   = $candidate;
+                $viewUserName = trim(($u['prenom'] ?? '') . ' ' . ($u['nom'] ?? ''));
+            }
+        } catch (Throwable) {}
+    } else {
+        // Manager (role 2 ou scope agence) : restreint à $usersList déjà
+        // filtré par sa scope. Empêche un manager de voir un user d'une
+        // autre agence/société.
+        foreach ($usersList as $u) {
+            if ((int)$u['id'] === $candidate) {
+                $viewUserId   = $candidate;
+                $viewUserName = trim(($u['prenom'] ?? '') . ' ' . ($u['nom'] ?? ''));
+                break;
+            }
         }
     }
 } else {

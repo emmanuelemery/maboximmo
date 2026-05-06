@@ -142,7 +142,7 @@ if ($sidebarUserId > 0 && isset($GLOBALS['pdo'])) {
             <li><a href="./rh_salaires_user_list.php" class="<?= sbActive('rh_salaires_user_list.php') ?>">
                 <span class="sb-icon">💶</span><span class="sb-label">Mes salaires</span>
             </a></li>
-            <li><a href="./rh_documents.php?id_user=<?= $sidebarUserId ?>" class="<?= sbActive('rh_documents.php') ?>">
+            <li><a href="./rh_documents.php?user_id=<?= $sidebarUserId ?>" class="<?= sbActive('rh_documents.php') ?>">
                 <span class="sb-icon">📁</span><span class="sb-label">Mes documents</span>
             </a></li>
             <li><a href="./rh_indemnite_km.php" class="<?= sbActive('rh_indemnite_km.php') ?>">
