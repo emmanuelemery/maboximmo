@@ -163,32 +163,39 @@ if (!function_exists('mbi_supports_image_ia_build_prompt')) {
             $accroche = trim($accroche);
         }
 
-        // Style et palette par angle marketing
+        // Style et palette par angle marketing — STRICT, renforcé 2026-05-06
+        // gpt-image-1 a tendance à ignorer les nuances → on insiste avec
+        // hex codes répétés, mots-clés visuels concrets, et negative prompt.
         $stylePalette = match ($angle) {
             'famille' => [
-                'mood'    => 'warm and inviting, family-friendly atmosphere, soft natural light',
-                'palette' => 'warm cream, soft sage green (#A8C9A1), oak wood tones, brushed gold accents',
-                'tone'    => 'reassuring, lifestyle-oriented, gentle',
+                'mood'    => 'warm cozy family home — Scandinavian-meets-Provence vibe, soft natural daylight',
+                'palette' => 'DOMINANT colors: warm cream (#FAF1E0) + sage green (#7A9B6F / #A8C9A1) + oak wood beige (#C9A57B). NO terracotta, NO orange, NO red.',
+                'tone'    => 'reassuring, lifestyle-oriented, gentle — like Maisons du Monde catalog',
+                'forbidden' => 'AVOID: orange, terracotta, red tones, bright neon colors, dark navy',
             ],
             'investisseur' => [
-                'mood'    => 'sleek, professional, financial confidence',
-                'palette' => 'navy blue (#243B5C), steel grey, clean white, slate accents',
-                'tone'    => 'rational, precise, trust-inducing, data-driven aesthetic',
+                'mood'    => 'sleek financial professional — Bloomberg meets architecture digest',
+                'palette' => 'DOMINANT colors: deep navy blue (#243B5C / #1a3458) + cool steel grey (#6B7785) + clean ivory (#F5F2EB) + minimal slate accents. NO warm tones at all.',
+                'tone'    => 'rational, precise, data-driven — like a private banking brochure',
+                'forbidden' => 'AVOID: warm beiges, terracotta, orange, gold accents, decorative plants',
             ],
             'premium' => [
-                'mood'    => 'luxurious, refined, exclusive',
-                'palette' => 'deep navy (#1a2536), antique gold (#A57C32), ivory, marble textures',
-                'tone'    => 'sober elegance, signature feel, high-end',
+                'mood'    => 'haute couture real estate — Christian Liaigre interior magazine',
+                'palette' => 'DOMINANT colors: deep midnight navy (#1a2536) + antique gold (#A57C32 / #C8A05C) + warm ivory (#F2EBDD) + soft marble grey textures. NO bright colors, NO terracotta.',
+                'tone'    => 'sober elegance, signature feel, exclusivity — Goyard, Hermès aesthetic',
+                'forbidden' => 'AVOID: terracotta, orange, bright greens, casual vibes, sun rays clichés',
             ],
             'premier_achat' => [
-                'mood'    => 'fresh, optimistic, accessible',
-                'palette' => 'terracotta (#C06646), cream, warm beige, soft coral, light wood',
-                'tone'    => 'welcoming, modern, journey-oriented',
+                'mood'    => 'optimistic first-home journey — sunny, hopeful, accessible',
+                'palette' => 'DOMINANT colors: terracotta (#C06646) + cream (#FAF1E0) + soft coral (#E8A88C) + warm beige (#D9C9A8) + light wood. This is the ONLY angle where terracotta is welcome.',
+                'tone'    => 'welcoming, journey-oriented, hopeful — Pinterest moodboard',
+                'forbidden' => 'AVOID: cold blues, navy, gold luxury accents',
             ],
             default => [
                 'mood'    => 'modern professional real estate',
-                'palette' => 'navy blue (#243B5C), antique gold (#D4A047), white, light grey',
+                'palette' => 'DOMINANT colors: navy blue (#243B5C) + antique gold (#D4A047) + white + light grey',
                 'tone'    => 'sober, factual, trustworthy',
+                'forbidden' => 'AVOID: garish colors',
             ],
         };
 
@@ -198,36 +205,38 @@ if (!function_exists('mbi_supports_image_ia_build_prompt')) {
         $prompt = <<<PROMPT
 Design a high-end real estate window display poster, A3 LANDSCAPE format (3:2 ratio), in French context.
 
-PURPOSE: Window-display poster shown in a real estate agency window, designed to attract walking pedestrians. The poster will be PRINTED at A3 size (420mm × 297mm).
+PURPOSE: Window-display poster for a real estate agency in {$ville}, France. Will be PRINTED at A3 (420mm × 297mm) and displayed behind glass.
 
-VISUAL STYLE:
-- {$stylePalette['mood']}
-- Color palette: {$stylePalette['palette']}
+═══ STRICT VISUAL DIRECTION FOR ANGLE: {$angle} ═══
+- Mood: {$stylePalette['mood']}
+- Color palette (THIS IS NON-NEGOTIABLE — use ONLY these tones): {$stylePalette['palette']}
 - Tone: {$stylePalette['tone']}
-- Editorial magazine layout, refined typography, lots of white space
-- NO photographic content of the property itself (a real photo will be inserted later by the developer in a reserved zone — do NOT generate any building, room, or interior)
-- Instead, suggest the property MOOD with: minimalist abstract architectural shapes, geometric patterns, soft gradients, decorative objects (plants, light rays), or stylized icons
+- {$stylePalette['forbidden']}
 
-LAYOUT REQUIREMENTS (CRITICAL):
-- LEFT THIRD of the poster: reserved for the actual property photo — leave this area visually CALM and EMPTY (subtle gradient or solid color), so the developer can paste the real photo there
-- CENTER & RIGHT: the design and accroche
-- A 80-pixel-tall band at the BOTTOM must remain CALM (low contrast, no design elements) — for legal mentions added later
+═══ LAYOUT (CRITICAL — must be respected) ═══
+- LEFT 35% of the poster: KEEP EMPTY, CALM, with only subtle gradient or solid background color from the palette. NO design elements here. The developer will paste a real property photo on top.
+- CENTER & RIGHT 65%: this is where ALL the visual design goes — accroche text, decorative shapes, geometric patterns, abstract architectural elements, plants/icons
+- BOTTOM BAND (last 80 pixels): MUST stay calm and low-contrast — NO design, NO shapes — for legal mentions added later in PHP
 
-TEXT TO INCLUDE (large, elegant typography):
-- Main accroche (1 short line, in French): "{$accroche}"
-- Property type: {$type}
-- Location: {$ville}
+═══ TEXT TO INCLUDE ═══
+Render this text in elegant French serif typography (think Didot, Playfair, Tiempos):
+- Main headline (large): "{$accroche}"
+- Subtitle (smaller): {$type} • {$ville}
 
-DO NOT INCLUDE:
-- Real photos of buildings/rooms (will be added by developer)
-- Legal mentions (carte pro, garant, RC pro — added by developer)
-- Price (will be added by developer)
-- Logo of any agency (will be added by developer)
-- Any QR code or website URL
+═══ STRICTLY FORBIDDEN — DO NOT GENERATE ═══
+- Real photographs of buildings, houses, rooms, interiors (the real photo will be inserted later)
+- Any legal text (no carte pro number, no garant, no RC pro, no DPE)
+- Any price or amount in euros
+- Any agency logo or website URL
+- Any QR code
+- Any real estate cliché (no key icons, no house outlines, no "for sale" signs)
+
+═══ STYLE REFERENCE ═══
+Editorial magazine layout — like a curated French interior design magazine cover (Côté Maison, AD France, Marie Claire Maison) crossed with a luxury boutique window installation. Minimalist, lots of white space, refined typography, geometric / botanical accents.
 
 {$atoutsTxt}
 
-OUTPUT: a single PNG image, A3 landscape (3:2), printable quality. Style = a curated French real estate magazine cover (Côté Maison, AD France) crossed with a luxury boutique window. Make it BEAUTIFUL and DIFFERENTIATED — avoid cliché real estate templates.
+OUTPUT: single PNG image, A3 landscape (3:2 ratio), high quality. Make it ELEGANT, DIFFERENTIATED from typical real estate templates, and STRICTLY following the color palette specified for the "{$angle}" angle.
 PROMPT;
 
         return $prompt;

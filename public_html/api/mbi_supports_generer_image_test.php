@@ -31,12 +31,14 @@ require_login();
 
 require_once dirname(__DIR__) . '/inc/mbi_supports_image_ia.php';
 require_once dirname(__DIR__) . '/inc/mbi_supports_redaction_ia.php';
+require_once dirname(__DIR__) . '/inc/mbi_supports_image_compose.php';
 
 $pdo       = $GLOBALS['pdo'];
 $idBien    = isset($_GET['id_bien']) && ctype_digit((string)$_GET['id_bien']) ? (int)$_GET['id_bien'] : 0;
 $angle     = (string)($_GET['angle']  ?? 'famille');
 $format    = (string)($_GET['format'] ?? 'png');
 $useHaiku  = !empty($_GET['use_haiku']) && $_GET['use_haiku'] !== '0';
+$skipCompose = !empty($_GET['raw']) && $_GET['raw'] !== '0';  // ?raw=1 → renvoie l'image IA brute (sans photo+bandeau)
 
 if ($idBien <= 0) {
     http_response_code(400);
@@ -121,13 +123,76 @@ if ($bytes === false || @file_put_contents($absPath, $bytes) === false) {
 }
 $tailleKo = round(filesize($absPath) / 1024);
 
+// ── Composition option B : photo réelle + bandeau mentions ──
+$composedAbs = $absPath;
+$composedRel = $relUrl;
+$composeOk   = false;
+$composeErr  = null;
+
+if (!$skipCompose) {
+    // Charge la photo principale du bien
+    $photoPath = null;
+    try {
+        $stP = $pdo->prepare("SELECT url_photo FROM biens_photos WHERE id_bien = :b AND (exploitable = 1 OR exploitable IS NULL) ORDER BY ordre ASC, id ASC LIMIT 1");
+        $stP->execute([':b' => $idBien]);
+        $url = (string)($stP->fetchColumn() ?: '');
+        if ($url !== '') {
+            $rootPublic = dirname(__DIR__);
+            $abs = $url[0] === '/' ? ($rootPublic . $url) : ($rootPublic . '/' . $url);
+            if (is_file($abs) && is_readable($abs)) $photoPath = $abs;
+        }
+    } catch (Throwable) {}
+
+    // Charge le contexte agence + nego pour le bandeau
+    $agence = [
+        'nom_agence'         => $bien['nom_agence']   ?? '',
+        'ville'              => $bien['ville_agence'] ?? '',
+        'telephone'          => null,
+        'carte_pro_numero'   => null,
+        'garant_financier'   => null,
+        'rc_pro'             => null,
+    ];
+    if (!empty($bien['id_agence'])) {
+        try {
+            $stA = $pdo->prepare("SELECT nom_agence, ville, telephone, carte_pro_numero, garant_financier, rc_pro FROM agences WHERE id = :id LIMIT 1");
+            $stA->execute([':id' => (int)$bien['id_agence']]);
+            $a = $stA->fetch(PDO::FETCH_ASSOC) ?: [];
+            $agence = array_merge($agence, $a);
+        } catch (Throwable) {}
+    }
+
+    $nego = [];
+    if (!empty($bien['id_user_actuel'])) {
+        try {
+            $stN = $pdo->prepare("SELECT nom, prenom, email, telephone_pro FROM users WHERE id = :id LIMIT 1");
+            $stN->execute([':id' => (int)$bien['id_user_actuel']]);
+            $nego = $stN->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable) {}
+    }
+
+    $compResp = mbi_supports_image_composer($absPath, $photoPath, [
+        'bien'        => $bien,
+        'agence'      => $agence,
+        'negociateur' => $nego,
+    ]);
+    if ($compResp['ok']) {
+        $composedAbs = $compResp['fichier_path'];
+        $composedRel = '/uploads/supports/drafts/' . basename($composedAbs);
+        $composeOk   = true;
+    } else {
+        $composeErr = $compResp['erreur'] ?? '?';
+    }
+}
+
 // ── Sortie ─────────────────────────────────────────────────────────
 if ($format === 'json') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'ok'            => true,
-        'url'           => $relUrl,
-        'fichier'       => $fname,
+        'url_ia'        => $relUrl,
+        'url_finale'    => $composedRel,
+        'compose_ok'    => $composeOk,
+        'compose_erreur'=> $composeErr,
         'taille_ko'     => $tailleKo,
         'modele'        => $resp['modele'],
         'cout_centimes' => $resp['cout_centimes'],
@@ -139,11 +204,15 @@ if ($format === 'json') {
     exit;
 }
 
-// format=png : retour direct du binaire
+// format=png : retour direct du binaire (image composée par défaut, IA brute si ?raw=1)
+$finalBytes = ($skipCompose || !$composeOk) ? $bytes : @file_get_contents($composedAbs);
 header('Content-Type: image/png');
-header('Content-Disposition: inline; filename="' . $fname . '"');
-header('X-Image-Url: ' . $relUrl);
+header('Content-Disposition: inline; filename="' . basename($composedAbs) . '"');
+header('X-Image-Url-IA: ' . $relUrl);
+header('X-Image-Url-Finale: ' . $composedRel);
+header('X-Compose-Ok: ' . ($composeOk ? '1' : '0'));
+if ($composeErr) header('X-Compose-Erreur: ' . $composeErr);
 header('X-Cout-Centimes: ' . (int)$resp['cout_centimes']);
 header('X-Duree-Sec: ' . $dureeSec);
 header('X-Modele: ' . $resp['modele']);
-echo $bytes;
+echo $finalBytes;
