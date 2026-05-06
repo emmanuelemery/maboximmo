@@ -89,9 +89,31 @@ if ($useHaiku && function_exists('mbi_supports_redaction_ia_generer')) {
     }
 }
 
+// ── Charge la photo principale du bien (pour outpainting si dispo) ──
+$photoPath = null;
+try {
+    $stP = $pdo->prepare("SELECT url_photo FROM biens_photos WHERE id_bien = :b AND (exploitable = 1 OR exploitable IS NULL) ORDER BY ordre ASC, id ASC LIMIT 1");
+    $stP->execute([':b' => $idBien]);
+    $url = (string)($stP->fetchColumn() ?: '');
+    if ($url !== '') {
+        $rootPublic = dirname(__DIR__);
+        $abs = $url[0] === '/' ? ($rootPublic . $url) : ($rootPublic . '/' . $url);
+        if (is_file($abs) && is_readable($abs)) $photoPath = $abs;
+    }
+} catch (Throwable) {}
+
 // ── Génération image gpt-image-1 ──────────────────────────────────
+// Mode OUTPAINTING si photo dispo (photo réelle préservée par mask, IA fait l'ambiance)
+// Mode GENERATIONS si pas de photo (image entièrement IA)
 $t0 = microtime(true);
-$resp = mbi_supports_image_ia_generer($bien, $agence, $angle, $redaction);
+$forceNoPhoto = !empty($_GET['no_photo']) && $_GET['no_photo'] !== '0';
+if ($photoPath !== null && !$forceNoPhoto) {
+    $resp = mbi_supports_image_ia_avec_photo($bien, $agence, $angle, $redaction, $photoPath);
+    $resp['mode'] = 'outpainting';
+} else {
+    $resp = mbi_supports_image_ia_generer($bien, $agence, $angle, $redaction);
+    $resp['mode'] = 'generations';
+}
 $dureeSec = round(microtime(true) - $t0, 1);
 
 if (!$resp['ok']) {
@@ -130,18 +152,9 @@ $composeOk   = false;
 $composeErr  = null;
 
 if (!$skipCompose) {
-    // Charge la photo principale du bien
-    $photoPath = null;
-    try {
-        $stP = $pdo->prepare("SELECT url_photo FROM biens_photos WHERE id_bien = :b AND (exploitable = 1 OR exploitable IS NULL) ORDER BY ordre ASC, id ASC LIMIT 1");
-        $stP->execute([':b' => $idBien]);
-        $url = (string)($stP->fetchColumn() ?: '');
-        if ($url !== '') {
-            $rootPublic = dirname(__DIR__);
-            $abs = $url[0] === '/' ? ($rootPublic . $url) : ($rootPublic . '/' . $url);
-            if (is_file($abs) && is_readable($abs)) $photoPath = $abs;
-        }
-    } catch (Throwable) {}
+    // Si on est en outpainting, la photo est DÉJÀ intégrée par l'IA → on ne la recolle pas
+    // Si on est en generations (pas de photo dispo), on n'a rien à coller non plus
+    $photoPathPourCompose = null; // jamais de re-collage en V2
 
     // Charge le contexte agence + nego pour le bandeau
     $agence = [
@@ -170,7 +183,7 @@ if (!$skipCompose) {
         } catch (Throwable) {}
     }
 
-    $compResp = mbi_supports_image_composer($absPath, $photoPath, [
+    $compResp = mbi_supports_image_composer($absPath, $photoPathPourCompose, [
         'bien'        => $bien,
         'agence'      => $agence,
         'negociateur' => $nego,

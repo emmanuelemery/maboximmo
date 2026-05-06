@@ -50,6 +50,183 @@ if (!function_exists('mbi_supports_image_openai_key')) {
     }
 }
 
+if (!function_exists('mbi_supports_image_ia_avec_photo')) {
+    /**
+     * Génère une affiche avec PHOTO RÉELLE préservée par mask + ambiance IA autour.
+     *
+     * Pattern outpainting :
+     *   - Canvas 1536×1024 paysage avec la photo collée dans une zone 75%×80%
+     *     centrée vers le haut (laisse de la place pour le bandeau bas)
+     *   - Mask : zone photo = opaque (préservée), reste = transparent (à régénérer
+     *     par l'IA selon le prompt)
+     *   - Appel gpt-image-1 endpoint /v1/images/edits avec photo + mask + prompt
+     *
+     * Garantit que la photo n'est JAMAIS retouchée par l'IA (préservation pixel-parfait
+     * via le mask). L'IA ne dessine que dans les marges autour.
+     *
+     * @return array {ok, image_b64, modele, cout_centimes, prompt, erreur, debug}
+     */
+    function mbi_supports_image_ia_avec_photo(
+        array $bien,
+        array $agence,
+        string $angle,
+        ?array $redaction,
+        string $photoPath,
+        ?string $size = null
+    ): array {
+        $modele = MBI_SUPPORTS_IMAGE_MODEL;
+        $size   = $size ?: MBI_SUPPORTS_IMAGE_SIZE_DEFAULT;
+        // Parse W×H depuis size (ex: "1536x1024")
+        [$W, $H] = array_map('intval', explode('x', $size));
+        if ($W <= 0 || $H <= 0) { $W = 1536; $H = 1024; }
+
+        $apiKey = mbi_supports_image_openai_key();
+        if ($apiKey === '') {
+            return ['ok'=>false,'image_b64'=>null,'modele'=>$modele,'cout_centimes'=>0,'prompt'=>'','erreur'=>'no_openai_key'];
+        }
+        if (!extension_loaded('gd')) {
+            return ['ok'=>false,'image_b64'=>null,'modele'=>$modele,'cout_centimes'=>0,'prompt'=>'','erreur'=>'gd_extension_manquante'];
+        }
+        if (!is_file($photoPath) || !is_readable($photoPath)) {
+            return ['ok'=>false,'image_b64'=>null,'modele'=>$modele,'cout_centimes'=>0,'prompt'=>'','erreur'=>'photo_introuvable: ' . $photoPath];
+        }
+
+        // ── 1. Construire canvas et mask ──
+        // Zone photo : 75% large × 80% haut, centrée horizontalement, plutôt vers le haut
+        // pour laisser ~15% de marge basse pour le bandeau légal
+        $photoW = (int) round($W * 0.75);
+        $photoH = (int) round($H * 0.75); // 75% pour laisser marge basse plus généreuse
+        $photoX = (int) round(($W - $photoW) / 2);
+        $photoY = (int) round($H * 0.05);
+
+        // Charge la photo réelle
+        $photoSrc = mbi_supports_image_load_for_canvas($photoPath);
+        if (!$photoSrc) {
+            return ['ok'=>false,'image_b64'=>null,'modele'=>$modele,'cout_centimes'=>0,'prompt'=>'','erreur'=>'photo_decode_fail'];
+        }
+        $pw = imagesx($photoSrc); $ph = imagesy($photoSrc);
+
+        // Canvas final : transparent partout, photo collée en zone centrale
+        $canvas = imagecreatetruecolor($W, $H);
+        imagealphablending($canvas, false);
+        imagesavealpha($canvas, true);
+        $transparent = imagecolorallocatealpha($canvas, 0, 0, 0, 127);
+        imagefilledrectangle($canvas, 0, 0, $W, $H, $transparent);
+        imagealphablending($canvas, true);
+
+        // Cover-fit de la photo dans la zone
+        $scale = max($photoW / $pw, $photoH / $ph);
+        $sw = (int) round($pw * $scale);
+        $sh = (int) round($ph * $scale);
+        $resized = imagecreatetruecolor($sw, $sh);
+        imagecopyresampled($resized, $photoSrc, 0, 0, 0, 0, $sw, $sh, $pw, $ph);
+        $sx = (int) round(($sw - $photoW) / 2);
+        $sy = (int) round(($sh - $photoH) / 2);
+        imagecopy($canvas, $resized, $photoX, $photoY, $sx, $sy, $photoW, $photoH);
+        imagedestroy($photoSrc);
+        imagedestroy($resized);
+
+        // Mask : opaque dans la zone photo (préserver), transparent partout ailleurs (re-générer)
+        // Convention OpenAI : alpha=0 = à éditer, alpha=255 = à conserver
+        $mask = imagecreatetruecolor($W, $H);
+        imagealphablending($mask, false);
+        imagesavealpha($mask, true);
+        $maskTrans = imagecolorallocatealpha($mask, 0, 0, 0, 127); // transparent = à éditer
+        imagefilledrectangle($mask, 0, 0, $W, $H, $maskTrans);
+        imagealphablending($mask, true);
+        $maskOpaque = imagecolorallocate($mask, 255, 255, 255); // opaque = à préserver
+        imagefilledrectangle($mask, $photoX, $photoY, $photoX + $photoW, $photoY + $photoH, $maskOpaque);
+
+        // Sauvegarde temporaire
+        $tmpDir = sys_get_temp_dir() . '/mbi_image_ia_' . bin2hex(random_bytes(3));
+        @mkdir($tmpDir, 0775, true);
+        $canvasPath = $tmpDir . '/canvas.png';
+        $maskPath   = $tmpDir . '/mask.png';
+        imagepng($canvas, $canvasPath);
+        imagepng($mask, $maskPath);
+        imagedestroy($canvas);
+        imagedestroy($mask);
+
+        // ── 2. Appel gpt-image-1 /v1/images/edits (multipart) ──
+        $prompt = mbi_supports_image_ia_build_prompt_outpaint($bien, $agence, $angle, $redaction);
+
+        $postFields = [
+            'model'   => $modele,
+            'prompt'  => $prompt,
+            'n'       => 1,
+            'size'    => $size,
+            'quality' => 'high',
+            'image'   => new CURLFile($canvasPath, 'image/png', 'canvas.png'),
+            'mask'    => new CURLFile($maskPath,   'image/png', 'mask.png'),
+        ];
+
+        $ch = curl_init('https://api.openai.com/v1/images/edits');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $apiKey,
+            ],
+            CURLOPT_POSTFIELDS     => $postFields,
+            CURLOPT_TIMEOUT        => 240, // edits peut prendre plus longtemps que generations
+        ]);
+        $raw  = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+
+        // Cleanup tmp
+        @unlink($canvasPath);
+        @unlink($maskPath);
+        @rmdir($tmpDir);
+
+        if ($raw === false || $code !== 200) {
+            return ['ok'=>false,'image_b64'=>null,'modele'=>$modele,'cout_centimes'=>0,'prompt'=>$prompt,
+                    'erreur'=>"openai_edits_http_{$code}: " . ($err ?: substr((string)$raw, 0, 500))];
+        }
+
+        $body = json_decode((string)$raw, true);
+        $b64  = $body['data'][0]['b64_json'] ?? null;
+        if (!is_string($b64) || $b64 === '') {
+            return ['ok'=>false,'image_b64'=>null,'modele'=>$modele,'cout_centimes'=>0,'prompt'=>$prompt,
+                    'erreur'=>'reponse_vide','raw'=>$body];
+        }
+
+        $coutCentimes = (int) round(match ($size) {
+            '1024x1024' => 19,
+            '1536x1024', '1024x1536' => 27, // edits = un peu plus cher que generations
+            default => 19,
+        });
+
+        return [
+            'ok'            => true,
+            'image_b64'     => $b64,
+            'modele'        => $modele,
+            'cout_centimes' => $coutCentimes,
+            'prompt'        => $prompt,
+            'erreur'        => null,
+            'debug'         => [
+                'photo_zone' => ['x'=>$photoX, 'y'=>$photoY, 'w'=>$photoW, 'h'=>$photoH],
+                'canvas'     => "{$W}x{$H}",
+            ],
+        ];
+    }
+}
+
+if (!function_exists('mbi_supports_image_load_for_canvas')) {
+    function mbi_supports_image_load_for_canvas(string $path)
+    {
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        return match ($ext) {
+            'png'        => @imagecreatefrompng($path),
+            'jpg','jpeg' => @imagecreatefromjpeg($path),
+            'webp'       => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : false,
+            'gif'        => @imagecreatefromgif($path),
+            default      => false,
+        };
+    }
+}
+
 if (!function_exists('mbi_supports_image_ia_generer')) {
 
     /**
@@ -132,6 +309,94 @@ if (!function_exists('mbi_supports_image_ia_generer')) {
             'prompt'        => $prompt,
             'erreur'        => null,
         ];
+    }
+}
+
+if (!function_exists('mbi_supports_image_ia_build_prompt_outpaint')) {
+    /**
+     * Prompt spécifique pour mode OUTPAINTING (photo réelle intégrée + mask).
+     * L'IA dessine UNIQUEMENT autour de la photo (zone transparente du mask),
+     * la photo elle-même est garantie pixel-parfaite par le mask.
+     */
+    function mbi_supports_image_ia_build_prompt_outpaint(array $bien, array $agence, string $angle, ?array $redaction): string
+    {
+        $type   = (string)($bien['type_bien_libelle'] ?? $bien['type'] ?? 'bien immobilier');
+        $surf   = $bien['surface_habitable'] ?? $bien['surface'] ?? null;
+        $ville  = (string)($bien['ville'] ?? '');
+
+        $accroche = '';
+        if (is_array($redaction)) {
+            $accroche = trim((string)($redaction['accroche'] ?? ''));
+        }
+        if ($accroche === '') {
+            $accroche = $type . ' ' . ($surf ? $surf . ' m²' : '') . ($ville ? ' à ' . $ville : '');
+            $accroche = trim($accroche);
+        }
+
+        // Style et palette par angle marketing — STRICT
+        $stylePalette = match ($angle) {
+            'famille' => [
+                'mood'      => 'warm cozy family home — Scandinavian-meets-Provence vibe, soft natural daylight',
+                'palette'   => 'warm cream (#FAF1E0), sage green (#7A9B6F), oak wood beige (#C9A57B). NO terracotta, NO orange, NO red.',
+                'forbidden' => 'AVOID: orange, terracotta, red tones, neon, dark navy.',
+            ],
+            'investisseur' => [
+                'mood'      => 'sleek financial professional — Bloomberg meets architecture digest',
+                'palette'   => 'deep navy (#243B5C), cool steel grey (#6B7785), clean ivory (#F5F2EB), slate accents. NO warm tones.',
+                'forbidden' => 'AVOID: warm beiges, terracotta, orange, gold accents, decorative plants.',
+            ],
+            'premium' => [
+                'mood'      => 'haute couture real estate — Christian Liaigre interior magazine',
+                'palette'   => 'deep midnight navy (#1a2536), antique gold (#A57C32), warm ivory (#F2EBDD), marble grey textures. NO bright colors.',
+                'forbidden' => 'AVOID: terracotta, orange, bright greens, casual vibes.',
+            ],
+            'premier_achat' => [
+                'mood'      => 'optimistic first-home journey — sunny, hopeful, accessible',
+                'palette'   => 'terracotta (#C06646), cream (#FAF1E0), soft coral (#E8A88C), warm beige, light wood.',
+                'forbidden' => 'AVOID: cold blues, navy, gold luxury accents.',
+            ],
+            default => [
+                'mood'      => 'modern professional real estate',
+                'palette'   => 'navy blue (#243B5C), antique gold (#D4A047), white, light grey',
+                'forbidden' => 'AVOID: garish colors',
+            ],
+        };
+
+        // Le prompt parle de la photo MAIS l'IA n'y touche pas (mask la préserve).
+        $prompt = <<<PROMPT
+You are designing a French luxury real estate poster (A3 landscape, for window display).
+
+A REAL PROPERTY PHOTO has been placed in a centered zone (75% width × 75% height) of this canvas. DO NOT modify or redraw the photo — it is preserved by the mask. Your job is to design ONLY the FRAME and AMBIENT BORDERS around it.
+
+═══ STYLE FOR ANGLE: {$angle} ═══
+- Mood: {$stylePalette['mood']}
+- Palette (STRICT): {$stylePalette['palette']}
+- {$stylePalette['forbidden']}
+
+═══ DESIGN INSTRUCTIONS FOR THE BORDERS ═══
+Around the photo, create:
+- A soft elegant FRAME / SHADOW that highlights the photo without overwhelming it
+- Decorative MARGIN ELEMENTS in the palette colors: subtle architectural shapes, geometric patterns, botanical accents, gradient washes
+- An ELEGANT FRENCH HEADLINE (Didot or Playfair serif typography) placed at the TOP of the canvas, above the photo:
+  "{$accroche}"
+- A SUBTLE SUBLINE below the headline: "{$type} • {$ville}"
+- The BOTTOM 15% must remain CALM and LOW-CONTRAST (uniform color from the palette) — for legal mentions added later by another tool
+- Lots of whitespace and breathing room — magazine cover feel
+
+═══ STRICTLY FORBIDDEN ═══
+- Do NOT modify the photo at all (the mask protects it)
+- Do NOT add any legal text (no carte pro number, no garant, no RC pro)
+- Do NOT add any price or amount
+- Do NOT add any agency logo, URL, or QR code
+- Do NOT add fake real estate clichés (key icons, "for sale" banners, generic house outlines)
+
+═══ STYLE REFERENCE ═══
+Magazine layout — like a curated French interior design magazine cover (Côté Maison, AD France) crossed with a luxury boutique window display. Refined, elegant, differentiated.
+
+Make the borders BEAUTIFUL and harmonize with the photo — but the photo itself stays untouched.
+PROMPT;
+
+        return $prompt;
     }
 }
 
