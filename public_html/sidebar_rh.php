@@ -33,6 +33,23 @@ if (!isset($current_page)) {
 // Rôle courant (pour section Administrer)
 $sb_role_id = function_exists('current_role_id') ? (int)current_role_id() : (int)($_SESSION['role_id'] ?? 0);
 
+// Activité RH de la société : si la société n'a pas activite_rh=1, on masque
+// les items RH (salaires / congés). Super admin (role 1) voit tout pour pouvoir
+// administrer toutes les sociétés. Lecture défensive : si la colonne n'existe
+// pas (migration pas appliquée), on considère activite_rh=1 (afficher tout).
+$sb_activite_rh = 1;
+if ($sb_role_id !== 1) {
+    try {
+        $idSocSb = (int)($_SESSION['id_societe'] ?? 0);
+        if ($idSocSb > 0 && isset($GLOBALS['pdo']) && $GLOBALS['pdo'] instanceof PDO) {
+            $stRh = $GLOBALS['pdo']->prepare("SELECT activite_rh FROM societes WHERE id = ? LIMIT 1");
+            $stRh->execute([$idSocSb]);
+            $valRh = $stRh->fetchColumn();
+            if ($valRh !== false) $sb_activite_rh = (int)$valRh;
+        }
+    } catch (Throwable) { /* migration pas appliquée → afficher tout par défaut */ }
+}
+
 // Session data
 $agency_name  = $_SESSION['societe_nom']  ?? 'Agence';
 $user_name    = ($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? '');
@@ -309,6 +326,7 @@ if (count($parts_name) >= 2) {
             <span class="sb-item-lbl">Ma Box Net</span>
         </a>
 
+        <?php if ($sb_activite_rh === 1): // Masque tout le bloc RH si la société n'a pas activite_rh ?>
         <div class="sb-sep" style="margin: 6px 0;"></div>
 
         <!-- Ressources Humaines -->
@@ -358,6 +376,7 @@ if (count($parts_name) >= 2) {
             </svg>
             <span class="sb-item-lbl">Emails RH</span>
         </a>
+        <?php endif; // fin du bloc RH conditionné par $sb_activite_rh ?>
 
         <?php if ($sb_role_id === 1): ?>
         <div class="sb-sep" style="margin: 8px 0 4px;"></div>
@@ -400,6 +419,14 @@ if (count($parts_name) >= 2) {
                 <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
             </svg>
             <span class="sb-item-lbl" style="<?= $current_page === 'tiers_nouveau' ? 'color:#2d5f6b;font-weight:700;' : 'color:#5a8a95;' ?>">Nouveau tiers</span>
+        </a>
+        <a href="admin/admin_societes_docs_officiels.php" class="sb-item <?= $current_page === 'admin_docs_officiels' ? 'active' : '' ?>"
+           style="<?= $current_page === 'admin_docs_officiels' ? 'background:rgba(168,88,88,0.12);box-shadow:4px 4px 10px #c8c4be,-4px -4px 10px var(--shadow-light);' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="<?= $current_page === 'admin_docs_officiels' ? '#a85858' : '#c87870' ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            <span class="sb-item-lbl" style="<?= $current_page === 'admin_docs_officiels' ? 'color:#a85858;font-weight:700;' : 'color:#b07068;' ?>">Docs officiels (KBIS, RCP, GF...)</span>
         </a>
         <?php endif; ?>
     </div>

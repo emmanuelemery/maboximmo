@@ -28,6 +28,45 @@ if ((int)($_SESSION['id_role'] ?? 0) !== 1) {
 
 $pdo = $GLOBALS['pdo'];
 
+// Vérifie que la migration 20260508_4 a tourné (colonnes activite_* + table societe_activites_docs)
+function check_migration_activites_appliquee(PDO $pdo): array
+{
+    $missing = [];
+    try {
+        $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
+                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societes' AND COLUMN_NAME = 'activite_immobilier'");
+        $st->execute();
+        if ((int)$st->fetchColumn() === 0) $missing[] = 'societes.activite_immobilier (et autres flags activités)';
+    } catch (Throwable) { $missing[] = 'check societes.activite_immobilier impossible'; }
+    try {
+        $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES
+                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societe_activites_docs'");
+        $st->execute();
+        if ((int)$st->fetchColumn() === 0) $missing[] = 'table societe_activites_docs';
+    } catch (Throwable) { $missing[] = 'check societe_activites_docs impossible'; }
+    return $missing;
+}
+
+$migrationMissing = check_migration_activites_appliquee($pdo);
+if (!empty($migrationMissing)) {
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Migration requise</title>';
+    echo '<style>body{font-family:system-ui;max-width:760px;margin:60px auto;padding:0 20px;line-height:1.6}'
+       . 'h1{color:#0f172a}.box{background:#fffbeb;border-left:4px solid #f59e0b;padding:18px 24px;border-radius:10px;margin:24px 0}'
+       . '.btn{display:inline-block;padding:10px 22px;background:#0ea5e9;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;margin-right:10px}'
+       . 'code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px}ul{margin:8px 0}</style></head><body>';
+    echo '<h1>⚠️ Migration requise</h1>';
+    echo '<div class="box">';
+    echo '<strong>Cette page nécessite la migration <code>20260508_4_activites_par_societe_agence</code></strong> qui n\'est pas encore appliquée. Éléments manquants :<ul>';
+    foreach ($migrationMissing as $m) echo '<li><code>' . htmlspecialchars($m) . '</code></li>';
+    echo '</ul></div>';
+    echo '<p><a href="admin_migrations_apply_all.php" class="btn">🚀 Appliquer toutes les migrations en attente</a>';
+    echo '<a href="admin_migrations.php" class="btn" style="background:#64748b">📋 Page Migrations BDD</a></p>';
+    echo '<p style="margin-top:30px;font-size:13px;color:#64748b">Une fois la migration appliquée, recharge cette page.</p>';
+    echo '</body></html>';
+    exit;
+}
+
 // Activités exercées par les sociétés Hoguet
 const ACTIVITES = ['transaction', 'gestion', 'syndic', 'marchand'];
 const ACTIVITES_LABELS = [
