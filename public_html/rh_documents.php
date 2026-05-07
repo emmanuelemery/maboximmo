@@ -32,6 +32,21 @@ if ($roleId === 1) {
     $agences  = $pdo->query("SELECT id, nom_agence, id_societe FROM agences WHERE actif=1 ORDER BY nom_agence ASC")->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// DEBUG TEMPORAIRE — diagnostic pills filtre Sté/Agc/Col invisibles (2026-05-07).
+// Imprime un commentaire HTML dans la source de la page. Voir View Source ou F12.
+// Retirer une fois le bug confirmé/corrigé.
+$_dbg_session_role  = $_SESSION['id_role']      ?? 'unset';
+$_dbg_test_role     = $_SESSION['test_role_id'] ?? 'unset';
+echo '<!-- RH_DOC_DEBUG '
+   . 'roleId=' . $roleId
+   . ' agenceScope=' . $agenceScope
+   . ' societes_count=' . count($societes)
+   . ' agences_count=' . count($agences)
+   . ' session_id_role=' . htmlspecialchars((string)$_dbg_session_role, ENT_QUOTES, 'UTF-8')
+   . ' session_test_role_id=' . htmlspecialchars((string)$_dbg_test_role, ENT_QUOTES, 'UTF-8')
+   . ' will_render_pills=' . (($roleId === 1 || $agenceScope > 0) ? 'YES' : 'NO')
+   . ' -->';
+
 // Sélections GET
 $societe_sel = $_GET['societe'] ?? 'toutes';
 $agence_sel  = $agenceScope > 0 ? (string)$agenceScope : ($_GET['agence'] ?? 'toutes');
