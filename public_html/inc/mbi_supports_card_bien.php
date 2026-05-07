@@ -532,6 +532,21 @@ $scoreColor = match (true) {
 
       <div id="mbiSup4AnglesError" style="display:none; padding:10px 12px; border-radius:8px; margin-top:14px; font-size:13px; background:#fef2f2; color:#991b1b; border:1px solid #fecaca;"></div>
 
+      <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
+        <div style="margin-top:14px; padding:10px 12px; border:1px dashed #c87870; border-radius:8px; background:#fff7f5;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:12px; color:#7f1d1d;">
+            <input type="checkbox" id="mbiSup4AnglesForce" style="width:16px; height:16px;">
+            <span>
+              <strong>🔓 Forcer l'export (super admin)</strong>
+              <span style="display:block; color:#9a2922; margin-top:2px;">
+                Bypass les blocs durs de la critique IA (carte pro, garant, mandat, etc.).
+                Utile pour générer rapidement quand les docs officiels ne sont pas encore en BDD.
+              </span>
+            </span>
+          </label>
+        </div>
+      <?php endif; ?>
+
       <div style="display:flex; justify-content:flex-end; gap:10px; padding-top:14px; border-top:1px solid #e5e7eb; margin-top:14px;">
         <button type="button" onclick="mbiSup4AnglesClose()"
                 style="padding:9px 18px; background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer;">
@@ -595,6 +610,8 @@ $scoreColor = match (true) {
       fd.append('id_bien', String(ID_BIEN));
       fd.append('type', 'affiche_vitrine');
       fd.append('modele_ia', 'haiku');
+      const forceEl = document.getElementById('mbiSup4AnglesForce');
+      if (forceEl && forceEl.checked) fd.append('force', '1');
       const r = await fetch('api/mbi_supports_generer_4_angles.php', {
         method: 'POST', body: fd, credentials: 'same-origin',
       });
