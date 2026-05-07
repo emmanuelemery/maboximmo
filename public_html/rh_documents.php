@@ -32,20 +32,6 @@ if ($roleId === 1) {
     $agences  = $pdo->query("SELECT id, nom_agence, id_societe FROM agences WHERE actif=1 ORDER BY nom_agence ASC")->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// DEBUG TEMPORAIRE — diagnostic pills filtre Sté/Agc/Col invisibles (2026-05-07).
-// Imprime un commentaire HTML dans la source de la page. Voir View Source ou F12.
-// Retirer une fois le bug confirmé/corrigé.
-$_dbg_session_role  = $_SESSION['id_role']      ?? 'unset';
-$_dbg_test_role     = $_SESSION['test_role_id'] ?? 'unset';
-echo '<!-- RH_DOC_DEBUG '
-   . 'roleId=' . $roleId
-   . ' agenceScope=' . $agenceScope
-   . ' societes_count=' . count($societes)
-   . ' agences_count=' . count($agences)
-   . ' session_id_role=' . htmlspecialchars((string)$_dbg_session_role, ENT_QUOTES, 'UTF-8')
-   . ' session_test_role_id=' . htmlspecialchars((string)$_dbg_test_role, ENT_QUOTES, 'UTF-8')
-   . ' will_render_pills=' . (($roleId === 1 || $agenceScope > 0) ? 'YES' : 'NO')
-   . ' -->';
 
 // Sélections GET
 $societe_sel = $_GET['societe'] ?? 'toutes';
@@ -393,15 +379,30 @@ $layout_extra_css = <<<'EXTRACSS'
         box-shadow: inset 1px 1px 4px rgba(74,96,56,0.3);
     }
 
-    /* ── Page head (identique rh_salaires) ── */
+    /* ── Page head (identique rh_salaires) ──
+     * Robuste contre overrides CSS globaux : utilise un préfixe -local
+     * pour éviter tout conflit avec d'autres .page-head du site
+     * (liste_layout.css, maboximmo_v2.css, bien_detail_v2.css en ont
+     * chacun une version différente qui peut clipper les pills si l'un
+     * d'entre eux est chargé par accident sur cette page).
+     * !important sur display+direction pour neutraliser flex-direction:column
+     * éventuel d'une media query. min-height au lieu de height pour que
+     * les pills ne soient jamais clippées par overflow.
+     */
     .page-head {
-        display:flex; align-items:center;
-        height:110px; flex-shrink:0; gap:0;
-        border-bottom:1px solid rgba(196,192,186,0.3); margin-bottom:4px;
-        padding:14px 0 12px; overflow:hidden;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center;
+        flex-wrap: wrap;
+        min-height: 110px;
+        flex-shrink: 0;
+        gap: 0;
+        border-bottom: 1px solid rgba(196,192,186,0.3);
+        margin-bottom: 4px;
+        padding: 14px 0 12px;
     }
     /* Quand il n'y a pas de ph-scope (user simple), hauteur réduite */
-    .page-head.no-scope { height:56px; }
+    .page-head.no-scope { min-height: 56px; }
     .page-head-module { font-family:'DM Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:0.22em; color:#a8a49e; margin-bottom:4px; }
     .page-head-row { display:flex; align-items:center; gap:10px; }
     .page-head-title { font-family:'Sora'; font-size:20px; font-weight:700; color:#1a1816; }
