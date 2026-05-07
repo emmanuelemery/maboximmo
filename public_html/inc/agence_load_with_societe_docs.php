@@ -28,9 +28,42 @@ declare(strict_types=1);
  *   // via JOIN societes (transparent pour les anciens readers).
  */
 
+if (!function_exists('societe_load_activites_docs')) {
+    /**
+     * Charge le détail RCP + GF par activité pour une société.
+     * Retourne un array indexé par activité : ['transaction' => [...], 'gestion' => [...], ...].
+     */
+    function societe_load_activites_docs(PDO $pdo, int $idSociete): array
+    {
+        if ($idSociete <= 0) return [];
+        try {
+            $st = $pdo->prepare("
+                SELECT activite, rc_pro_assureur, rc_pro_numero, rc_pro_validite, rc_pro_montant,
+                       garant_nom, garant_numero, garant_validite, garant_montant
+                FROM societe_activites_docs
+                WHERE id_societe = :id
+            ");
+            $st->execute([':id' => $idSociete]);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+            $map = [];
+            foreach ($rows as $r) { $map[$r['activite']] = $r; }
+            return $map;
+        } catch (Throwable) {
+            return [];
+        }
+    }
+}
+
 if (!function_exists('agence_load_with_societe_docs')) {
     /**
      * Charge UNE agence + merge des colonnes officielles depuis sa société.
+     *
+     * Champs ajoutés au tableau retourné :
+     *   - Colonnes racine (KBIS, carte pro CPI) depuis societes
+     *   - 'activites' : map des RCP/GF par activité (T/G/S/M) si renseignées
+     *     dans societe_activites_docs. Format :
+     *     ['transaction' => ['rc_pro_assureur'=>..., 'garant_nom'=>...], ...]
+     *   - 'activites_actives' : flags depuis societes (transaction/gestion/...)
      *
      * @return array|null L'agence enrichie, ou null si introuvable.
      */
@@ -65,7 +98,21 @@ if (!function_exists('agence_load_with_societe_docs')) {
             $st = $pdo->prepare($sql);
             $st->execute([':id' => $idAgence]);
             $row = $st->fetch(PDO::FETCH_ASSOC);
-            return $row ?: null;
+            if (!$row) return null;
+
+            // Enrichit avec les RCP/GF par activité + flags activités société
+            $idSoc = (int)($row['id_societe'] ?? 0);
+            $row['activites'] = societe_load_activites_docs($pdo, $idSoc);
+            // Lecture sécurisée des flags activités (peut-être absents si migration pas appliquée)
+            try {
+                $st2 = $pdo->prepare("SELECT activite_immobilier, activite_transaction, activite_gestion, activite_syndic, activite_marchand, activite_rh FROM societes WHERE id = :id");
+                $st2->execute([':id' => $idSoc]);
+                $row['activites_actives'] = $st2->fetch(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable) {
+                $row['activites_actives'] = [];
+            }
+
+            return $row;
         } catch (Throwable $e) {
             // Fallback gracieux : si certaines colonnes n'existent pas encore
             // (migration pas appliquée), on retourne juste l'agence brute.
