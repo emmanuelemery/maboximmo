@@ -221,16 +221,20 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             error_log('[rh_doc_societe_hook UPDATE rh_documents] ' . $e->getMessage());
         }
 
-        // Si OCR OK → réplication vers agences.*
-        // - rubrique societe : update TOUTES les agences de la société
-        // - rubrique agence  : update uniquement l'agence ciblée
+        // Si OCR OK → écriture sur la table métier appropriée (refactor 2026-05-08)
+        // - categorie 'societe' (KBIS, CPI, GF, RC pro, barème) : UPDATE societes.*
+        //   (single source of truth — les agences héritent via JOIN au runtime)
+        // - categorie 'agence'  (MRI, barème spécifique agence) : UPDATE agences.*
         if ($resultat['ocr_ok']) {
             if ($doc['categorie'] === 'societe') {
                 $idSoc = (int)($doc['id_societe'] ?? 0);
                 if ($idSoc > 0) {
-                    $resultat['agences_repliquees'] = rh_doc_societe_repliquer_vers_agences(
+                    $resultat['societe_mise_a_jour'] = rh_doc_societe_ecrire_societe(
                         $pdo, $idSoc, $rhDocId, $ocrType
                     );
+                    // Compteur "agences_repliquees" gardé pour rétrocompat avec
+                    // les callers qui l'affichent — vaut 1 si l'UPDATE société a réussi.
+                    $resultat['agences_repliquees'] = $resultat['societe_mise_a_jour'];
                 }
             } elseif ($doc['categorie'] === 'agence') {
                 $idAg = (int)($doc['id_agence'] ?? 0);
@@ -306,12 +310,16 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
     }
 
     /**
-     * Lit le doc le plus récent (le rh_doc_id qu'on vient d'updater) et
-     * UPDATE toutes les agences de la société avec les valeurs OCR.
+     * Écrit les valeurs OCR sur la SOCIÉTÉ (single source of truth depuis le
+     * refactor 2026-05-08). Les agences héritent au runtime via JOIN societes
+     * dans agence_load_with_societe_docs() — plus de réplication N→1.
      *
-     * @return int Nombre d'agences mises à jour
+     * Les colonnes officielles ont été ajoutées sur societes par la migration
+     * 20260508_2_societes_colonnes_officielles.
+     *
+     * @return int 1 si la société a été mise à jour, 0 sinon
      */
-    function rh_doc_societe_repliquer_vers_agences(PDO $pdo, int $idSociete, int $rhDocId, string $ocrType): int
+    function rh_doc_societe_ecrire_societe(PDO $pdo, int $idSociete, int $rhDocId, string $ocrType): int
     {
         try {
             $st = $pdo->prepare("SELECT numero, emetteur, montant_garantie, date_emission, date_validite, file_path
@@ -338,12 +346,13 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
                 $patch['garant_montant']   = $doc['montant_garantie'];
                 break;
             case 'rc_pro':
-                $patch['rc_pro']          = $doc['emetteur'];
-                $patch['rc_pro_validite'] = $doc['date_validite'];
+                $patch['rc_pro']           = $doc['emetteur'];
+                $patch['rc_pro_numero']    = $doc['numero'];
+                $patch['rc_pro_validite']  = $doc['date_validite'];
+                $patch['rc_pro_montant']   = $doc['montant_garantie'];
                 break;
             case 'bareme_honoraires':
                 if (!empty($doc['file_path'])) {
-                    // file_path est absolu, on le convertit en chemin relatif depuis public_html
                     $rel = preg_replace('#^.*?/public_html/#', '/', (string)$doc['file_path']) ?: $doc['file_path'];
                     $patch['bareme_url_doc'] = $rel;
                 }
@@ -353,10 +362,12 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
         }
         if (empty($patch)) return 0;
 
-        // Filtre les colonnes existantes
+        // Filtre les colonnes existantes sur societes (rejouable même si la
+        // migration n'est pas encore appliquée — les colonnes inconnues sont
+        // simplement ignorées au lieu de planter).
         try {
             $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agences'");
+                                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societes'");
             $st->execute();
             $existing = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
         } catch (Throwable) { $existing = []; }
@@ -365,19 +376,29 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
 
         try {
             $sets = [];
-            $params = [':id_societe' => $idSociete];
+            $params = [':id' => $idSociete];
             foreach ($patch as $col => $val) {
                 if (!preg_match('/^[a-zA-Z0-9_]+$/', $col)) continue;
                 $sets[] = "`{$col}` = :v_{$col}";
                 $params[":v_{$col}"] = $val;
             }
-            $sql = "UPDATE agences SET " . implode(', ', $sets) . " WHERE id_societe = :id_societe";
+            $sql = "UPDATE societes SET " . implode(', ', $sets) . " WHERE id = :id";
             $st = $pdo->prepare($sql);
             $st->execute($params);
-            return $st->rowCount();
+            return $st->rowCount() > 0 ? 1 : 0;
         } catch (Throwable $e) {
-            error_log('[rh_doc_societe_repliquer UPDATE agences] ' . $e->getMessage());
+            error_log('[rh_doc_societe_ecrire_societe UPDATE societes] ' . $e->getMessage());
             return 0;
         }
+    }
+
+    /**
+     * Alias deprecated — anciens callers qui invoquaient la fonction de
+     * réplication N agences. Redirige vers la version single-row société.
+     * @deprecated Utiliser rh_doc_societe_ecrire_societe() à la place.
+     */
+    function rh_doc_societe_repliquer_vers_agences(PDO $pdo, int $idSociete, int $rhDocId, string $ocrType): int
+    {
+        return rh_doc_societe_ecrire_societe($pdo, $idSociete, $rhDocId, $ocrType);
     }
 }

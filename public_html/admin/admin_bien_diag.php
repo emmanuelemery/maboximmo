@@ -57,14 +57,11 @@ if (function_exists('mbi_supports_resoudre_photo_path')) {
     }
 }
 
-// Agence
+// Agence — chargement enrichi avec colonnes officielles depuis societes
+require_once __DIR__ . '/../inc/agence_load_with_societe_docs.php';
 $agence = [];
 if (!empty($bien['id_agence'])) {
-    try {
-        $st = $pdo->prepare("SELECT * FROM agences WHERE id = :id LIMIT 1");
-        $st->execute([':id' => (int)$bien['id_agence']]);
-        $agence = $st->fetch(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable) {}
+    $agence = agence_load_with_societe_docs($pdo, (int)$bien['id_agence']) ?: [];
 }
 
 // Annonce

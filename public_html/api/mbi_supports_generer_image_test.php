@@ -167,10 +167,11 @@ if (!$skipCompose) {
     ];
     if (!empty($bien['id_agence'])) {
         try {
-            $stA = $pdo->prepare("SELECT nom_agence, ville, telephone, carte_pro_numero, garant_financier, rc_pro FROM agences WHERE id = :id LIMIT 1");
-            $stA->execute([':id' => (int)$bien['id_agence']]);
-            $a = $stA->fetch(PDO::FETCH_ASSOC) ?: [];
-            $agence = array_merge($agence, $a);
+            // Refactor 2026-05-08 : docs officiels (carte_pro/garant/rc_pro) au
+            // niveau société. Helper qui JOIN societes pour ramener les valeurs.
+            require_once __DIR__ . '/../inc/agence_load_with_societe_docs.php';
+            $a = agence_load_with_societe_docs($pdo, (int)$bien['id_agence']);
+            if ($a) $agence = array_merge($agence, $a);
         } catch (Throwable) {}
     }
 

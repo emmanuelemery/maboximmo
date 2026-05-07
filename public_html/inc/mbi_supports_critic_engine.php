@@ -329,15 +329,14 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
             $annonce = $st->fetch(PDO::FETCH_ASSOC) ?: null;
         } catch (Throwable) { $annonce = null; }
 
-        // Agence
+        // Agence — chargement enrichi avec colonnes officielles depuis societes
+        // (refactor 2026-05-08 : KBIS/CPI/RCP/GF = niveau société, agences héritent
+        // via JOIN au runtime au lieu d'une réplication N→1).
+        require_once __DIR__ . '/agence_load_with_societe_docs.php';
         $agence = null;
         $idAgence = (int)($bien['id_agence'] ?? 0);
         if ($idAgence > 0) {
-            try {
-                $st = $pdo->prepare("SELECT * FROM agences WHERE id = :id LIMIT 1");
-                $st->execute([':id' => $idAgence]);
-                $agence = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-            } catch (Throwable) { $agence = null; }
+            $agence = agence_load_with_societe_docs($pdo, $idAgence);
         }
 
         // Négociateur (user)
