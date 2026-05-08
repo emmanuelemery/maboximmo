@@ -385,9 +385,89 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             $sql = "UPDATE societes SET " . implode(', ', $sets) . " WHERE id = :id";
             $st = $pdo->prepare($sql);
             $st->execute($params);
-            return $st->rowCount() > 0 ? 1 : 0;
+            $okSociete = $st->rowCount() > 0 ? 1 : 0;
+
+            // Aussi : alimente societes_couvertures pour les types par activité
+            // (rcp_transaction, rcp_gestion, rcp_syndic, rcp_marchand, gf_*).
+            // C'est la BONNE table consommée par societe.php → onglet Financier
+            // ET par le helper agence_load_with_societe_docs() pour les affiches.
+            // Le UPDATE societes.* ci-dessus est garde pour retro-compat lecture.
+            rh_doc_societe_ecrire_couverture($pdo, $idSociete, $rhDocId);
+
+            return $okSociete;
         } catch (Throwable $e) {
             error_log('[rh_doc_societe_ecrire_societe UPDATE societes] ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Alimente societes_couvertures depuis un rh_documents OCR-isé.
+     * Mapping type_document → (type, activite) :
+     *   rcp_transaction → (rcp, transaction)
+     *   rcp_gestion     → (rcp, gestion)
+     *   rcp_syndic      → (rcp, syndic)
+     *   rcp_marchand    → (rcp, multi)  -- pas dans l'ENUM, mappé sur multi
+     *   gf_transaction  → (garantie_financiere, transaction) ... idem
+     *
+     * UPSERT en mode COMPLÉMENT : ne touche que les colonnes nouvellement extraites
+     * (COALESCE preserve les saisies manuelles précédentes si elles sont là).
+     */
+    function rh_doc_societe_ecrire_couverture(PDO $pdo, int $idSociete, int $rhDocId): int
+    {
+        try {
+            $st = $pdo->prepare("SELECT type_document, numero, emetteur, montant_garantie, date_validite
+                                 FROM rh_documents WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rhDocId]);
+            $doc = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable) { return 0; }
+        if (!$doc) return 0;
+
+        $type = (string)$doc['type_document'];
+        // Mapping type_document → (couverture_type, couverture_activite)
+        $mapping = [
+            'rcp_transaction' => ['rcp', 'transaction'],
+            'rcp_gestion'     => ['rcp', 'gestion'],
+            'rcp_syndic'      => ['rcp', 'syndic'],
+            'rcp_marchand'    => ['rcp', 'multi'],
+            'gf_transaction'  => ['garantie_financiere', 'transaction'],
+            'gf_gestion'      => ['garantie_financiere', 'gestion'],
+            'gf_syndic'       => ['garantie_financiere', 'syndic'],
+            'gf_marchand'     => ['garantie_financiere', 'multi'],
+        ];
+        if (!isset($mapping[$type])) return 0; // Pas un doc activité (KBIS, CPI, barème → géré ailleurs)
+        [$couvType, $couvAct] = $mapping[$type];
+
+        // UPSERT (PRIMARY KEY sur id_societe + type + activite)
+        try {
+            $st = $pdo->prepare("
+                INSERT INTO societes_couvertures
+                  (id_societe, type, activite, compagnie, numero_police, montant,
+                   date_expiration, est_active, version_num, updated_at)
+                VALUES
+                  (:id_soc, :type, :act, :compagnie, :numero, :montant,
+                   :date_exp, 1, 1, NOW())
+                ON DUPLICATE KEY UPDATE
+                  compagnie       = COALESCE(VALUES(compagnie),       compagnie),
+                  numero_police   = COALESCE(VALUES(numero_police),   numero_police),
+                  montant         = COALESCE(VALUES(montant),         montant),
+                  date_expiration = COALESCE(VALUES(date_expiration), date_expiration),
+                  est_active      = 1,
+                  updated_at      = NOW()
+            ");
+            $st->execute([
+                ':id_soc'    => $idSociete,
+                ':type'      => $couvType,
+                ':act'       => $couvAct,
+                ':compagnie' => $doc['emetteur'] ?: null,
+                ':numero'    => $doc['numero']   ?: null,
+                ':montant'   => $doc['montant_garantie'] !== null ? (float)$doc['montant_garantie'] : null,
+                ':date_exp'  => $doc['date_validite'] ?: null,
+            ]);
+            return 1;
+        } catch (Throwable $e) {
+            // Table societes_couvertures n'existe pas (env très ancien) ou autre erreur
+            error_log('[rh_doc_societe_ecrire_couverture] ' . $e->getMessage());
             return 0;
         }
     }
