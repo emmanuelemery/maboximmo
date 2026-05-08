@@ -150,31 +150,10 @@ if (!$confirm) {
     exit;
 }
 
-// Détection cross-env : le fichier est sur Hostinger mais on est sur localhost ?
-// Si oui, l'OCR va planter car PHP local ne peut pas lire le PDF distant.
-// Solution : redirection vers la même page mais sur dev.maboximmo.fr.
-$filePathDoc  = (string)($doc['file_path'] ?? '');
-$isHttpsLocal = !empty($_SERVER['HTTP_HOST']) && (
-    str_contains((string)$_SERVER['HTTP_HOST'], 'localhost') ||
-    str_contains((string)$_SERVER['HTTP_HOST'], '127.0.0.1')
-);
-$isFilePathDev = str_contains($filePathDoc, '/public_html/dev/');
-$isFilePathProd= !$isFilePathDev && str_contains($filePathDoc, '/public_html/');
-
-if ($isHttpsLocal && ($isFilePathDev || $isFilePathProd)) {
-    $remoteHost = $isFilePathDev ? 'https://dev.maboximmo.fr' : 'https://maboximmo.fr';
-    $remoteUrl  = $remoteHost . '/admin/admin_relancer_ocr_doc.php?id=' . $idDoc . '&confirm=1';
-    echo '<div class="box warn">';
-    echo '<strong>⚠️ Tu es sur localhost mais le fichier est sur ' . htmlspecialchars($remoteHost) . '</strong><br><br>';
-    echo 'Le PHP local ne peut pas lire le PDF (qui est sur le serveur Hostinger).<br>';
-    echo 'Relance l\'OCR directement depuis l\'environnement où le fichier existe :';
-    echo '</div>';
-    echo '<p><a href="' . htmlspecialchars($remoteUrl) . '" target="_blank" class="btn danger">🚀 Relancer sur ' . htmlspecialchars($remoteHost) . '</a> ';
-    echo '<a href="" class="btn" style="background:#64748b">Retour à la liste</a></p>';
-    echo '<p style="font-size:12px;color:#94a3b8;margin-top:20px">Astuce : pour les docs de dev, browse <code>dev.maboximmo.fr/admin/admin_relancer_ocr_doc.php</code> directement, tu pourras relancer en 1 clic sans cette redirection.</p>';
-    echo '</body></html>';
-    exit;
-}
+// Note cross-env : si on est sur localhost et que le fichier est sur Hostinger,
+// l'OCR va automatiquement le télécharger via HTTPS via la fonction
+// agence_doc_ocr_resolve_local_or_fetch() (cf. agence_doc_officiel_ocr.php).
+// Aucune action manuelle nécessaire — local marche partout.
 
 // Exécution
 echo "<div class='box'>Lancement OCR sur doc #{$idDoc}...</div>";

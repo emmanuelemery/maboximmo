@@ -41,15 +41,94 @@ if (!defined('AGENCE_DOC_OCR_MODEL')) {
     define('AGENCE_DOC_OCR_MODEL', 'claude-sonnet-4-6');
 }
 
+if (!function_exists('agence_doc_ocr_resolve_local_or_fetch')) {
+    /**
+     * Si le fichier n'est pas accessible en local (cas localhost qui pointe sur
+     * BDD dev mais pas sur le filesystem Hostinger), on le télécharge via HTTPS
+     * depuis dev.maboximmo.fr ou maboximmo.fr et on retourne le chemin temp.
+     *
+     * Le caller doit unlink le fichier temp après usage. Si le fichier existe
+     * déjà en local, on le retourne tel quel sans télécharger.
+     *
+     * @return array{path:string,is_temp:bool,erreur:?string}
+     */
+    function agence_doc_ocr_resolve_local_or_fetch(string $cheminAbsolu): array
+    {
+        if (is_file($cheminAbsolu) && is_readable($cheminAbsolu)) {
+            return ['path' => $cheminAbsolu, 'is_temp' => false, 'erreur' => null];
+        }
+
+        // Détecte l'env d'origine depuis le chemin Hostinger
+        $normalized = $cheminAbsolu;
+        while (preg_match('#/[^/]+/\.\./#', $normalized)) {
+            $new = preg_replace('#/[^/]+/\.\./#', '/', $normalized);
+            if ($new === $normalized) break;
+            $normalized = $new;
+        }
+        if (str_contains($normalized, '/public_html/dev/')) {
+            $base = 'https://dev.maboximmo.fr';
+            $rel  = preg_replace('#^.*?/public_html/dev/#', '/', $normalized) ?: $normalized;
+        } elseif (str_contains($normalized, '/public_html/')) {
+            $base = 'https://maboximmo.fr';
+            $rel  = preg_replace('#^.*?/public_html/#', '/', $normalized) ?: $normalized;
+        } else {
+            return ['path' => '', 'is_temp' => false, 'erreur' => 'fichier_introuvable: ' . $cheminAbsolu];
+        }
+        $url = $base . $rel;
+
+        // Téléchargement HTTPS via cURL → temp file
+        $tmpPath = sys_get_temp_dir() . '/mbi_ocr_' . bin2hex(random_bytes(6)) . '.pdf';
+        $fp = @fopen($tmpPath, 'w');
+        if (!$fp) {
+            return ['path' => '', 'is_temp' => false, 'erreur' => 'tmp_fopen_failed'];
+        }
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_FILE           => $fp,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $ok   = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        @fclose($fp);
+
+        if (!$ok || $code !== 200 || !is_file($tmpPath) || filesize($tmpPath) === 0) {
+            @unlink($tmpPath);
+            return ['path' => '', 'is_temp' => false,
+                    'erreur' => sprintf('http_fetch_failed code=%d url=%s err=%s', $code, $url, $err ?: 'none')];
+        }
+        return ['path' => $tmpPath, 'is_temp' => true, 'erreur' => null];
+    }
+}
+
 if (!function_exists('agence_doc_ocr_extraire')) {
 
     function agence_doc_ocr_extraire(string $cheminAbsolu, string $typeDoc): array
     {
         $modele = AGENCE_DOC_OCR_MODEL;
 
-        if (!is_file($cheminAbsolu) || !is_readable($cheminAbsolu)) {
+        // Résolution cross-env : si le fichier n'est pas en local (cas localhost
+        // qui ne voit pas le filesystem Hostinger), on le télécharge via HTTPS
+        // depuis dev/prod et on travaille sur un fichier temp.
+        $resolved = agence_doc_ocr_resolve_local_or_fetch($cheminAbsolu);
+        if ($resolved['erreur'] !== null) {
+            return ['ok'=>false,'data'=>null,'modele'=>$modele,'cout_centimes'=>0,'confidence'=>0,'raw_json'=>null,
+                    'erreur'=>$resolved['erreur']];
+        }
+        $cheminLocal = $resolved['path'];
+        $tempToCleanup = $resolved['is_temp'] ? $cheminLocal : null;
+
+        // Sécurité supplémentaire au cas où resolve_local_or_fetch retourne
+        // un chemin "valide" mais inexistant
+        if (!is_file($cheminLocal) || !is_readable($cheminLocal)) {
+            if ($tempToCleanup) @unlink($tempToCleanup);
             return ['ok'=>false,'data'=>null,'modele'=>$modele,'cout_centimes'=>0,'confidence'=>0,'raw_json'=>null,'erreur'=>'fichier_introuvable'];
         }
+
+        $cheminAbsolu = $cheminLocal; // continue avec le fichier local (potentiellement temp)
 
         $apiKey = mbi_supports_ia_anthropic_key();
         if ($apiKey === '') {
@@ -111,6 +190,7 @@ if (!function_exists('agence_doc_ocr_extraire')) {
         curl_close($ch);
 
         if ($raw === false || $code !== 200) {
+            if ($tempToCleanup) @unlink($tempToCleanup);
             return ['ok'=>false,'data'=>null,'modele'=>$modele,'cout_centimes'=>0,'confidence'=>0,'raw_json'=>null,
                     'erreur'=>"anthropic_http_{$code}: " . ($err ?: substr((string)$raw, 0, 300))];
         }
@@ -118,15 +198,20 @@ if (!function_exists('agence_doc_ocr_extraire')) {
         $body = json_decode((string)$raw, true);
         $text = $body['content'][0]['text'] ?? '';
         if (!is_string($text) || $text === '') {
+            if ($tempToCleanup) @unlink($tempToCleanup);
             return ['ok'=>false,'data'=>null,'modele'=>$modele,'cout_centimes'=>0,'confidence'=>0,'raw_json'=>$body,'erreur'=>'reponse_vide'];
         }
 
         $data = mbi_supports_ia_extract_json($text);
         if ($data === null) {
+            if ($tempToCleanup) @unlink($tempToCleanup);
             return ['ok'=>false,'data'=>null,'modele'=>$modele,
                     'cout_centimes'=>mbi_supports_ia_estimer_cout($body),
                     'confidence'=>0,'raw_json'=>$body,'erreur'=>'json_invalide'];
         }
+
+        // Cleanup temp file (succès)
+        if ($tempToCleanup) @unlink($tempToCleanup);
 
         $normalised = agence_doc_ocr_normalize($data, $typeDoc);
 
