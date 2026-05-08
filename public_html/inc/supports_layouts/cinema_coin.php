@@ -1,0 +1,307 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * Layout : cinema_coin (A3 LANDSCAPE — V3 rounded+shadow+titreXL)
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ *   1. Photo héro PLEIN CADRE (full bleed) en fond
+ *   2. Bandeau réf / ville haut-gauche dans une carte arrondie translucide
+ *   3. Carte info à droite (rounded + shadow + watermark + trait or signature)
+ *   4. Mosaïque thumbs en bas-gauche (rounded + shadow + cadre or)
+ *   5. Pied navy fin avec mentions agence
+ *
+ * Idéal : 1 photo dominante, biens premium, accroche courte.
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
+
+    function mbi_supports_layout_cinema_coin_build(array $ctx): TCPDF
+    {
+        if (function_exists('mb_internal_encoding')) {
+            @mb_internal_encoding('UTF-8');
+        }
+
+        $bien        = $ctx['bien']        ?? [];
+        $photos      = $ctx['photos']      ?? [];
+        $style       = $ctx['style']       ?? [];
+        $score       = $ctx['score']       ?? null;
+        $critique    = $ctx['critique']    ?? [];
+        $mentionsTextes = $critique['mentions_textes'] ?? [];
+
+        $iaRed       = is_array($ctx['ia_redaction'] ?? null) ? ($ctx['ia_redaction']['data'] ?? []) : [];
+        $iaAccroche  = trim((string)($iaRed['accroche']   ?? ''));
+        $iaAtouts    = is_array($iaRed['atouts'] ?? null) ? $iaRed['atouts'] : [];
+
+        $cP = $style['rgb_primaire']   ?? [36, 59, 92];
+        $cS = $style['rgb_secondaire'] ?? [212, 160, 71];
+        $cT = $style['rgb_texte']      ?? [31, 41, 55];
+
+        $angle    = (string)($ctx['angle'] ?? 'generique');
+        $anglePal = mbi_supports_tpl_angle_palette($angle, $cS);
+        $cAngle   = $anglePal['rgb'];
+        $libAngle = $anglePal['libelle'];
+
+        // Couleur titre XL : accent angle si défini, sinon navy
+        $cTitre = ($angle !== 'generique' && $libAngle !== '') ? $cAngle : $cP;
+
+        $nbPhotos = (int)($ctx['nb_photos'] ?? 3);
+        if ($nbPhotos < 1) $nbPhotos = 1;
+        if ($nbPhotos > 3) $nbPhotos = 3;
+
+        $pdf = new TCPDF('L', 'mm', 'A3', true, 'UTF-8');
+        $pdf->SetCreator('MaBoxImmo - Ma Box Communication');
+        $pdf->SetTitle('Affiche vitrine A3 H — cinema coin');
+        $pdf->SetMargins(0, 0, 0);
+        $pdf->SetAutoPageBreak(false);
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetFont('dejavusans', '', 11);
+        $pdf->AddPage();
+
+        $pageW = 420;
+        $pageH = 297;
+        $piedH = 18;
+        $photoH = $pageH - $piedH;
+
+        // ─── 1. PHOTO HÉRO PLEIN CADRE (full bleed, pas de rounded) ───
+        $hero = mbi_supports_photo_hero($photos, $ctx['photo_hero_id_suggestion'] ?? null);
+        $heroPath = $hero ? mbi_supports_resoudre_photo_path($hero) : null;
+
+        if ($heroPath !== null) {
+            try {
+                $pdf->Image($heroPath, 0, 0, $pageW, $photoH, '', '', '', false, 250, '', false, false, 0, 'CM', false, false);
+            } catch (Throwable) {
+                mbi_supports_tpl_v2_placeholder($pdf, 0, 0, $pageW, $photoH, $cP);
+            }
+        } else {
+            mbi_supports_tpl_v2_placeholder($pdf, 0, 0, $pageW, $photoH, $cP);
+        }
+
+        // Voile droite (lisibilité carte info)
+        $pdf->SetAlpha(0.18);
+        $pdf->SetFillColor(0, 0, 0);
+        $pdf->Rect(220, 0, $pageW - 220, $photoH, 'F');
+        $pdf->SetAlpha(1.0);
+
+        // ─── 2. CARTE RÉF / VILLE haut-gauche (rounded translucide) ───
+        $ref = (string)($bien['reference_bien'] ?? ('#' . ($bien['id'] ?? '')));
+        $loc = trim((string)($bien['code_postal'] ?? '') . ' ' . ($bien['ville'] ?? ''));
+        $refTxt = mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''), 'UTF-8');
+
+        mbi_supports_tpl_card_round_shadow($pdf, 18, 18, 220, 28, 6.0, [10, 18, 32], 0.65, true, $cS);
+
+        $pdf->SetFont('dejavusans', 'B', 13);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetXY(28, 24);
+        $pdf->Cell(200, 6, $refTxt, 0, 0, 'L');
+
+        $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
+        if ($typeBien !== '') {
+            $pdf->SetFont('dejavusans', '', 9);
+            $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+            $pdf->SetXY(28, 32);
+            $pdf->Cell(200, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
+        }
+
+        // ─── 3. CARTE INFO TRANSLUCIDE coin droit (rounded + shadow + watermark) ───
+        $cx = 235;
+        $cy = 24;
+        $cw = 170;
+        $ch = 240;
+        $cr = 8.0;
+
+        mbi_supports_tpl_card_round_shadow($pdf, $cx, $cy, $cw, $ch, $cr, [255, 255, 255], 0.94, true, $cS);
+
+        // Watermark puzzle filigrane (clip arrondi)
+        $watermarkPath = __DIR__ . '/../../images/mbi_affiche_watermark.jpg';
+        if (is_file($watermarkPath) && is_readable($watermarkPath)) {
+            try {
+                $pdf->StartTransform();
+                $pdf->RoundedRect($cx, $cy, $cw, $ch, $cr, '1111', 'CNZ');
+                $pdf->SetAlpha(0.13);
+                $pdf->Image($watermarkPath, $cx, $cy, $cw, $ch, '', '', '', false, 250, '', false, false, 0, 'CM', false, false);
+                $pdf->SetAlpha(1.0);
+                $pdf->StopTransform();
+            } catch (Throwable) {
+                $pdf->SetAlpha(1.0);
+            }
+        }
+
+        $px = $cx + 12;
+        $pw = $cw - 22;
+        $py = $cy + 10;
+
+        // Badge angle (rounded)
+        if ($angle !== 'generique' && $libAngle !== '') {
+            mbi_supports_tpl_card_round_shadow($pdf, $px, $py, $pw, 9, 4.5, $cAngle, 1.0, true);
+            $pdf->SetFont('dejavusans', 'B', 9);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($px, $py);
+            $pdf->Cell($pw, 9, mb_strtoupper($libAngle, 'UTF-8'), 0, 0, 'C');
+            $py += 9 + 6;
+        }
+
+        // Coup de coeur (rounded)
+        $scoreNum = $score ? (int)($score['score'] ?? 0) : 0;
+        if ($scoreNum >= 80) {
+            mbi_supports_tpl_card_round_shadow($pdf, $px, $py, $pw, 8, 4.0, $cS, 1.0, true);
+            $pdf->SetFont('dejavusans', 'B', 9);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($px, $py);
+            $pdf->Cell($pw, 8, '★  COUP DE CŒUR', 0, 0, 'C');
+            $py += 8 + 5;
+        }
+
+        // ─── TITRE XL (accroche) avec ombre portée + couleur d'accent angle ───
+        $accroche = trim((string)($bien['_accroche'] ?? ''));
+        if ($accroche === '' && $iaAccroche !== '') $accroche = $iaAccroche;
+        if ($accroche === '') {
+            $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110, 'UTF-8');
+        }
+
+        // Mesure : on met le titre XL en MultiCell pour wrap, avec text_shadow simulé
+        // Pour MultiCell + ombre, on fait 2 passes (ombre puis texte)
+        $pdf->SetAlpha(0.35);
+        $pdf->SetFont('dejavusans', 'BI', 17);
+        $pdf->SetTextColor(10, 18, 32);
+        $pdf->SetXY($px + 1.4, $py + 1.8);
+        $pdf->MultiCell($pw, 7.5, '« ' . $accroche . ' »', 0, 'L');
+        $pdf->SetAlpha(1.0);
+
+        $pdf->SetFont('dejavusans', 'BI', 17);
+        $pdf->SetTextColor($cTitre[0], $cTitre[1], $cTitre[2]);
+        $pdf->SetXY($px, $py);
+        $pdf->MultiCell($pw, 7.5, '« ' . $accroche . ' »', 0, 'L');
+        $py = $pdf->GetY() + 4;
+
+        // ─── PRIX XL or avec ombre ───
+        $prix = mbi_supports_get_prix($bien);
+        mbi_supports_tpl_text_shadow(
+            $pdf, $px, $py, $pw, 16,
+            mbi_supports_format_prix($prix),
+            $cS, 'dejavusans', 'B', 36, 'L', false, 1.6, 2.2
+        );
+        $py += 16;
+
+        $charge = mbi_supports_tpl_charge_honoraires($bien);
+        if ($charge !== '') {
+            $pdf->SetFont('dejavusans', '', 9);
+            $pdf->SetTextColor(110, 116, 130);
+            $pdf->SetXY($px, $py);
+            $pdf->Cell($pw, 4, $charge, 0, 1, 'L');
+            $py += 4;
+        }
+        $py += 4;
+
+        // Trait or fin séparateur
+        $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
+        $pdf->SetLineWidth(0.8);
+        $pdf->Line($px, $py, $px + 35, $py);
+        $pdf->SetLineWidth(0.2);
+        $py += 6;
+
+        // Caracs principales (mini-cards rounded)
+        $surf  = mbi_supports_get_surface($bien);
+        $nbPcs = $bien['nb_pieces'] ?? $bien['nombre_pieces'] ?? null;
+        $etage = $bien['etage'] ?? null;
+        $expo  = $bien['exposition'] ?? $bien['orientation'] ?? null;
+
+        $caracs = [];
+        if ($surf !== null)            $caracs[] = ['M²', mbi_supports_format_surface($surf)];
+        if ($nbPcs)                    $caracs[] = ['Pces', (string)$nbPcs];
+        if ($etage !== null && (string)$etage !== '') $caracs[] = ['Étage', (string)$etage];
+        if ($expo)                     $caracs[] = ['Expo', mb_strtoupper(mb_substr((string)$expo, 0, 5, 'UTF-8'), 'UTF-8')];
+
+        if (!empty($caracs)) {
+            $nbC = count($caracs);
+            $cellW = ($pw - (($nbC - 1) * 3)) / $nbC;
+            foreach ($caracs as $i => $it) {
+                $x = $px + ($i * ($cellW + 3));
+                mbi_supports_tpl_carac_mini(
+                    $pdf, $x, $py, $cellW, 17,
+                    $it[0], $it[1], $cP, $cT,
+                    [248, 250, 252], null, $cP, true
+                );
+            }
+            $py += 17 + 6;
+        }
+
+        // Étiquettes DPE / GES (rounded + shadow via helper)
+        $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
+        $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
+        if ($dpe !== '' || $ges !== '') {
+            mbi_supports_tpl_dpe_ges($pdf, $px, $py, $pw, $dpe, $ges);
+            $py += 26 + 4;
+        }
+
+        // Atouts
+        $pointsForts = $iaAtouts;
+        if (empty($pointsForts) && $score && !empty($score['points_forts_json'])) {
+            $pointsForts = json_decode((string)$score['points_forts_json'], true) ?: [];
+        }
+        if (!empty($pointsForts)) {
+            foreach (array_slice($pointsForts, 0, 3) as $pf) {
+                if ($py > $cy + $ch - 10) break;
+                $pdf->SetXY($px, $py);
+                $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+                $pdf->SetFont('dejavusans', 'B', 11);
+                $pdf->Cell(6, 6, '✓', 0, 0, 'L');
+                $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
+                $pdf->SetFont('dejavusans', '', 10);
+                $pdf->SetXY($px + 6, $py);
+                $pdf->MultiCell($pw - 6, 5, mb_substr((string)$pf, 0, 95, 'UTF-8'), 0, 'L');
+                $py = $pdf->GetY() + 2;
+            }
+        }
+
+        $mentionDpe = '';
+        if (!empty($mentionsTextes['dpe_en_cours']))    $mentionDpe = $mentionsTextes['dpe_en_cours'];
+        if (!empty($mentionsTextes['dpe_non_soumis']))  $mentionDpe = $mentionsTextes['dpe_non_soumis'];
+        if ($mentionDpe !== '' && $py < $cy + $ch - 10) {
+            $pdf->SetFont('dejavusans', 'I', 7.5);
+            $pdf->SetTextColor(120, 80, 30);
+            $pdf->SetXY($px, $cy + $ch - 9);
+            $pdf->MultiCell($pw, 3.5, $mentionDpe, 0, 'L');
+        }
+
+        // ─── 4. MOSAÏQUE THUMBS bas-gauche (rounded + bordure or + shadow) ───
+        $heroId = (int)($hero['id'] ?? 0);
+        $idsManuel = $ctx['photos_ids_secondaires'] ?? null;
+        $autres = [];
+        if (is_array($idsManuel) && !empty($idsManuel)) {
+            $byId = [];
+            foreach ($photos as $p) $byId[(int)($p['id'] ?? 0)] = $p;
+            foreach ($idsManuel as $idP) {
+                $idP = (int)$idP;
+                if ($idP <= 0 || $idP === $heroId || !isset($byId[$idP])) continue;
+                $autres[] = $byId[$idP];
+                if (count($autres) >= ($nbPhotos - 1)) break;
+            }
+        } else {
+            foreach ($photos as $p) {
+                if ((int)($p['id'] ?? 0) === $heroId) continue;
+                $autres[] = $p;
+                if (count($autres) >= ($nbPhotos - 1)) break;
+            }
+        }
+
+        if ($nbPhotos > 1 && !empty($autres)) {
+            $tw = 44; $th = 32; $tg = 6;
+            $tx0 = 22;
+            $ty  = $photoH - $th - 14;
+            foreach ($autres as $i => $p) {
+                $tpath = mbi_supports_resoudre_photo_path($p);
+                $tx = $tx0 + $i * ($tw + $tg);
+                mbi_supports_tpl_image_round($pdf, $tpath, $tx, $ty, $tw, $th, 4.0, true, $cS, 0.7);
+            }
+        }
+
+        // ─── 5. PIED NAVY fin ───
+        mbi_supports_tpl_pied_landscape($pdf, $ctx, $cP, $cS, $pageW, $pageH, $piedH);
+
+        return $pdf;
+    }
+}
