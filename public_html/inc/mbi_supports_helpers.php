@@ -149,22 +149,25 @@ if (!function_exists('mbi_supports_get_prix')) {
 
 if (!function_exists('mbi_supports_est_location')) {
     /**
-     * Détection robuste : true si la transaction est une location.
-     * Multi-sources (type_transaction, type_commercialisation, présence du loyer).
+     * Lecture directe du champ canonique : biens.type_commercialisation
+     *   - 'location' ou 'gestion' → location
+     *   - 'vente' → vente
+     * Fallback type_transaction si type_commercialisation est vide.
      */
     function mbi_supports_est_location(array $bien): bool
     {
-        $loyerCC = (float)($bien['_annonce_loyer_cc'] ?? 0);
-        $loyer   = (float)($bien['_annonce_loyer']    ?? 0);
-        if ($loyerCC > 0 || $loyer > 0) return true;
+        $tc = strtolower(trim((string)($bien['type_commercialisation'] ?? '')));
+        if ($tc === 'location' || $tc === 'gestion') return true;
+        if ($tc === 'vente')  return false;
 
-        $type = strtolower((string)(
+        // Fallback : type_transaction (sur bien ou annonce)
+        $tt = strtolower((string)(
             $bien['type_transaction']
             ?? $bien['_annonce_type_transaction']
-            ?? $bien['type_commercialisation']
             ?? ''
         ));
-        return str_contains($type, 'location') || str_contains($type, 'gestion');
+        if (str_contains($tt, 'location')) return true;
+        return false;
     }
 }
 
