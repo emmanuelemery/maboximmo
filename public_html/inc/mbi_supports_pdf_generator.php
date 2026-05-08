@@ -95,6 +95,10 @@ if (!function_exists('mbi_supports_pdf_generer')) {
             $bien['_annonce_honoraires_bail']  = (float)($annonce['honoraires_location_bail']    ?? 0);
             $bien['_annonce_honoraires_edl']   = (float)($annonce['honoraires_etat_des_lieux']   ?? 0);
             $bien['_annonce_depot_garantie']   = (float)($annonce['depot_garantie']              ?? 0);
+            // Fallback type_transaction (parfois sur annonces, parfois sur biens)
+            if (!empty($annonce['type_transaction']) && empty($bien['type_transaction'])) {
+                $bien['_annonce_type_transaction'] = (string)$annonce['type_transaction'];
+            }
         }
 
         // Si on régénère depuis un support source (édition), récupère ses surcharges

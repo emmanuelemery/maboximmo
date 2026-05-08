@@ -147,20 +147,36 @@ if (!function_exists('mbi_supports_get_prix')) {
     }
 }
 
+if (!function_exists('mbi_supports_est_location')) {
+    /**
+     * Détection robuste : true si la transaction est une location.
+     * Multi-sources (type_transaction, type_commercialisation, présence du loyer).
+     */
+    function mbi_supports_est_location(array $bien): bool
+    {
+        $loyerCC = (float)($bien['_annonce_loyer_cc'] ?? 0);
+        $loyer   = (float)($bien['_annonce_loyer']    ?? 0);
+        if ($loyerCC > 0 || $loyer > 0) return true;
+
+        $type = strtolower((string)(
+            $bien['type_transaction']
+            ?? $bien['_annonce_type_transaction']
+            ?? $bien['type_commercialisation']
+            ?? ''
+        ));
+        return str_contains($type, 'location') || str_contains($type, 'gestion');
+    }
+}
+
 if (!function_exists('mbi_supports_get_prix_ou_loyer')) {
     /**
-     * Retourne le prix de vente OU le loyer selon le type de transaction du bien.
-     * Loyer = annonce.loyer_cc (charges comprises) en priorité, sinon annonce.loyer.
-     * Format de retour :
-     *   ['valeur' => float|null, 'type' => 'vente'|'location'|'unknown',
-     *    'suffixe' => string ('/mois CC' pour loyer CC, '/mois' pour HC, '' pour vente)]
+     * Retourne le prix de vente OU le loyer selon détection automatique.
+     * Format : ['valeur' => float|null, 'type' => 'vente'|'location'|'unknown',
+     *          'suffixe' => '/mois CC'|'/mois HC'|'']
      */
     function mbi_supports_get_prix_ou_loyer(array $bien): array
     {
-        $type = strtolower((string)($bien['type_transaction'] ?? ''));
-        $estLocation = str_contains($type, 'location');
-
-        if ($estLocation) {
+        if (mbi_supports_est_location($bien)) {
             $loyerCC = (float)($bien['_annonce_loyer_cc'] ?? 0);
             $loyer   = (float)($bien['_annonce_loyer']    ?? 0);
             if ($loyerCC > 0) {
@@ -176,7 +192,7 @@ if (!function_exists('mbi_supports_get_prix_ou_loyer')) {
         if ($p > 0) {
             return ['valeur' => $p, 'type' => 'vente', 'suffixe' => ''];
         }
-        return ['valeur' => null, 'type' => $type !== '' ? $type : 'unknown', 'suffixe' => ''];
+        return ['valeur' => null, 'type' => 'unknown', 'suffixe' => ''];
     }
 }
 
@@ -201,14 +217,18 @@ if (!function_exists('mbi_supports_get_conditions_financieres')) {
      */
     function mbi_supports_get_conditions_financieres(array $bien): array
     {
-        $type = strtolower((string)($bien['type_transaction'] ?? ''));
-        $estLocation = str_contains($type, 'location');
+        $estLocation = mbi_supports_est_location($bien);
         $lignes = [];
 
         if ($estLocation) {
             $loyer   = (float)($bien['_annonce_loyer']    ?? 0);
             $loyerCC = (float)($bien['_annonce_loyer_cc'] ?? 0);
-            $charges = ($loyerCC > 0 && $loyer > 0 && $loyerCC > $loyer) ? ($loyerCC - $loyer) : 0;
+            // Charges : source canonique = biens.charges_locatives
+            // Fallback : loyer_cc - loyer si biens.charges_locatives vide
+            $charges = (float)($bien['charges_locatives'] ?? 0);
+            if ($charges <= 0 && $loyerCC > 0 && $loyer > 0 && $loyerCC > $loyer) {
+                $charges = $loyerCC - $loyer;
+            }
             $hBail   = (float)($bien['_annonce_honoraires_bail'] ?? 0);
             $hEdl    = (float)($bien['_annonce_honoraires_edl']  ?? 0);
             $depot   = (float)($bien['_annonce_depot_garantie']  ?? 0);
@@ -243,8 +263,7 @@ if (!function_exists('mbi_supports_get_honoraires_ligne')) {
      */
     function mbi_supports_get_honoraires_ligne(array $bien): string
     {
-        $type = strtolower((string)($bien['type_transaction'] ?? ''));
-        $estLocation = str_contains($type, 'location');
+        $estLocation = mbi_supports_est_location($bien);
 
         if ($estLocation) {
             $hBail = (float)($bien['_annonce_honoraires_bail']  ?? 0);
