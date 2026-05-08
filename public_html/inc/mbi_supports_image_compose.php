@@ -114,10 +114,25 @@ if (!function_exists('mbi_supports_image_composer')) {
         if (!empty($agence['telephone'])) $l1 .= ' · ' . $agence['telephone'];
 
         // Ligne 2 : carte pro + garant + RC
+        // Refactor 2026-05-08 : RCP/GF par activité (T pour vente, G pour location).
+        $typeTrIc = strtolower((string)($bien['type_transaction'] ?? ''));
+        $activiteCibleIc = match (true) {
+            str_contains($typeTrIc, 'vente'),
+            str_contains($typeTrIc, 'cession') => 'transaction',
+            str_contains($typeTrIc, 'location') => 'gestion',
+            default => null,
+        };
+        $rcpActIc = ($activiteCibleIc && !empty($agence['activites'][$activiteCibleIc]['rc_pro_assureur']))
+            ? (string)$agence['activites'][$activiteCibleIc]['rc_pro_assureur'] : '';
+        $gfActIc  = ($activiteCibleIc && !empty($agence['activites'][$activiteCibleIc]['garant_nom']))
+            ? (string)$agence['activites'][$activiteCibleIc]['garant_nom'] : '';
+
         $parts2 = [];
         if (!empty($agence['carte_pro_numero'])) $parts2[] = 'Carte pro ' . $agence['carte_pro_numero'];
-        if (!empty($agence['garant_financier'])) $parts2[] = 'Garant ' . $agence['garant_financier'];
-        if (!empty($agence['rc_pro']))           $parts2[] = 'RC Pro ' . $agence['rc_pro'];
+        $garantDisp = $gfActIc ?: (string)($agence['garant_financier'] ?? '');
+        $rcProDisp  = $rcpActIc ?: (string)($agence['rc_pro'] ?? '');
+        if ($garantDisp !== '') $parts2[] = 'Garant ' . $garantDisp;
+        if ($rcProDisp  !== '') $parts2[] = 'RC Pro ' . $rcProDisp;
         $l2 = implode('  ·  ', $parts2);
 
         // Ligne 3 : DPE/GES + Prix (si dispo) + négociateur

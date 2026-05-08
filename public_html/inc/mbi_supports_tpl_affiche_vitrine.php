@@ -408,9 +408,27 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
         $pdf->Cell($pageW - 36, 5, $coord, 0, 1, 'L');
 
         // Carte pro / garant / RC pro
+        // Refactor 2026-05-08 : pioche la bonne RCP/GF selon l'activité du bien.
+        // - Vente → activité Transaction (T)
+        // - Location → activité Gestion (G)
+        // - Fallback : valeur générique au niveau société (helper agence_load_with_societe_docs).
+        $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
+        $activiteCible = match (true) {
+            str_contains($typeTr, 'vente'),
+            str_contains($typeTr, 'cession') => 'transaction',
+            str_contains($typeTr, 'location') => 'gestion',
+            default => null,
+        };
+        $rcpAct = ($activiteCible && !empty($agence['activites'][$activiteCible]['rc_pro_assureur']))
+            ? (string)$agence['activites'][$activiteCible]['rc_pro_assureur']
+            : '';
+        $gfAct  = ($activiteCible && !empty($agence['activites'][$activiteCible]['garant_nom']))
+            ? (string)$agence['activites'][$activiteCible]['garant_nom']
+            : '';
+
         $cartePro = trim((string)($agence['carte_pro_numero'] ?? $agence['carte_pro'] ?? ''));
-        $garant   = trim((string)($agence['garant_financier'] ?? $agence['garantie_financiere'] ?? ''));
-        $rcPro    = trim((string)($agence['rc_pro']           ?? $agence['assurance_rc_pro'] ?? ''));
+        $garant   = trim($gfAct ?: (string)($agence['garant_financier'] ?? $agence['garantie_financiere'] ?? ''));
+        $rcPro    = trim($rcpAct ?: (string)($agence['rc_pro']           ?? $agence['assurance_rc_pro'] ?? ''));
         $infos = array_filter([
             $cartePro !== '' ? 'Carte pro ' . $cartePro : '',
             $garant   !== '' ? 'Garant ' . $garant : '',
@@ -503,9 +521,22 @@ if (!function_exists('mbi_supports_tpl_pied_mentions')) {
         $pdf->Line(15, $pdf->GetY(), 195, $pdf->GetY());
         $pdf->Ln(1);
 
+        // Pied fiche client : pioche RCP/GF selon activité du bien (vente=T, location=G)
+        $typeTrFc = strtolower((string)($ctx['bien']['type_transaction'] ?? ''));
+        $activiteCibleFc = match (true) {
+            str_contains($typeTrFc, 'vente'),
+            str_contains($typeTrFc, 'cession') => 'transaction',
+            str_contains($typeTrFc, 'location') => 'gestion',
+            default => null,
+        };
+        $rcpActFc = ($activiteCibleFc && !empty($agence['activites'][$activiteCibleFc]['rc_pro_assureur']))
+            ? (string)$agence['activites'][$activiteCibleFc]['rc_pro_assureur'] : '';
+        $gfActFc  = ($activiteCibleFc && !empty($agence['activites'][$activiteCibleFc]['garant_nom']))
+            ? (string)$agence['activites'][$activiteCibleFc]['garant_nom'] : '';
+
         $cartePro = trim((string)($agence['carte_pro_numero'] ?? $agence['carte_pro'] ?? ''));
-        $garant   = trim((string)($agence['garant_financier'] ?? $agence['garantie_financiere'] ?? ''));
-        $rcPro    = trim((string)($agence['rc_pro']           ?? $agence['assurance_rc_pro'] ?? ''));
+        $garant   = trim($gfActFc  ?: (string)($agence['garant_financier'] ?? $agence['garantie_financiere'] ?? ''));
+        $rcPro    = trim($rcpActFc ?: (string)($agence['rc_pro']           ?? $agence['assurance_rc_pro'] ?? ''));
 
         $lignes = [];
         if ($cartePro !== '') $lignes[] = 'Carte professionnelle n° ' . $cartePro;
