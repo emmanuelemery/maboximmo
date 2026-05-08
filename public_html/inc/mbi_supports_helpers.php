@@ -147,6 +147,79 @@ if (!function_exists('mbi_supports_get_prix')) {
     }
 }
 
+if (!function_exists('mbi_supports_get_prix_ou_loyer')) {
+    /**
+     * Retourne le prix de vente OU le loyer selon le type de transaction du bien.
+     * Loyer = annonce.loyer_cc (charges comprises) en priorité, sinon annonce.loyer.
+     * Format de retour :
+     *   ['valeur' => float|null, 'type' => 'vente'|'location'|'unknown',
+     *    'suffixe' => string ('/mois CC' pour loyer CC, '/mois' pour HC, '' pour vente)]
+     */
+    function mbi_supports_get_prix_ou_loyer(array $bien): array
+    {
+        $type = strtolower((string)($bien['type_transaction'] ?? ''));
+        $estLocation = str_contains($type, 'location');
+
+        if ($estLocation) {
+            $loyerCC = (float)($bien['_annonce_loyer_cc'] ?? 0);
+            $loyer   = (float)($bien['_annonce_loyer']    ?? 0);
+            if ($loyerCC > 0) {
+                return ['valeur' => $loyerCC, 'type' => 'location', 'suffixe' => ' /mois CC'];
+            }
+            if ($loyer > 0) {
+                return ['valeur' => $loyer, 'type' => 'location', 'suffixe' => ' /mois HC'];
+            }
+            return ['valeur' => null, 'type' => 'location', 'suffixe' => ''];
+        }
+
+        $p = (float)($bien['prix_vente_estime'] ?? $bien['prix_vente'] ?? $bien['prix'] ?? 0);
+        if ($p > 0) {
+            return ['valeur' => $p, 'type' => 'vente', 'suffixe' => ''];
+        }
+        return ['valeur' => null, 'type' => $type !== '' ? $type : 'unknown', 'suffixe' => ''];
+    }
+}
+
+if (!function_exists('mbi_supports_format_prix_complet')) {
+    /**
+     * Format prix complet avec suffixe (ex: "1 250 € /mois CC", "450 000 €")
+     */
+    function mbi_supports_format_prix_complet(array $infoPrix): string
+    {
+        if (($infoPrix['valeur'] ?? null) === null) return '— €';
+        return mbi_supports_format_prix($infoPrix['valeur']) . ($infoPrix['suffixe'] ?? '');
+    }
+}
+
+if (!function_exists('mbi_supports_get_honoraires_ligne')) {
+    /**
+     * Retourne la ligne d'honoraires à afficher selon vente / location.
+     * Vente : "Honoraires inclus : ..." ou "Honoraires charge ..." (ancien helper)
+     * Location ALUR : "Honoraires bail X € · État des lieux Y €"
+     */
+    function mbi_supports_get_honoraires_ligne(array $bien): string
+    {
+        $type = strtolower((string)($bien['type_transaction'] ?? ''));
+        $estLocation = str_contains($type, 'location');
+
+        if ($estLocation) {
+            $hBail = (float)($bien['_annonce_honoraires_bail']  ?? 0);
+            $hEdl  = (float)($bien['_annonce_honoraires_edl']   ?? 0);
+            $parts = [];
+            if ($hBail > 0) $parts[] = 'Honoraires bail ' . number_format($hBail, 0, ',', ' ') . ' €';
+            if ($hEdl  > 0) $parts[] = 'État des lieux ' . number_format($hEdl, 0, ',', ' ') . ' €';
+            return $parts ? implode(' · ', $parts) . ' (à charge du locataire)' : '';
+        }
+
+        // Vente — fallback sur l'ancienne logique
+        $inclus = trim((string)($bien['honoraires_inclus'] ?? ''));
+        if ($inclus !== '') return 'Honoraires inclus : ' . $inclus;
+        $charge = trim((string)($bien['honoraires_charge'] ?? ''));
+        if ($charge !== '') return 'Honoraires à charge ' . $charge;
+        return '';
+    }
+}
+
 if (!function_exists('mbi_supports_get_surface')) {
     function mbi_supports_get_surface(array $bien): ?float
     {

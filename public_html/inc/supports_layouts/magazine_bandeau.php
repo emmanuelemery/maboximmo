@@ -131,13 +131,14 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         }
 
         // Carte titre annonce haut-gauche en overlay (rounded translucide noir)
-        // Priorité : titre annonce > référence bien
+        // Largeur : toute la zone photo héro (moins padding)
         $titreAnnonce = trim((string)($bien['_annonce_titre'] ?? ''));
         $ref = (string)($bien['reference_bien'] ?? ('#' . ($bien['id'] ?? '')));
         $loc = trim((string)($bien['code_postal'] ?? '') . ' ' . ($bien['ville'] ?? ''));
         $refSous = trim('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''));
 
-        $cardW = 260;
+        // Largeur = toute la zone photo héro - padding (16mm marges intérieures)
+        $cardW = $hpW - 12;
         $cardH = $titreAnnonce !== '' ? 32 : 28;
         mbi_supports_tpl_card_round_shadow($pdf, $padX + 6, $padTop + 6, $cardW, $cardH, 5.0, [10, 18, 32], 0.65, true, $cS);
 
@@ -237,22 +238,23 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $cy = $pdf->GetY() + 3;
         }
 
-        // Prix XL or avec ombre
-        $prix = mbi_supports_get_prix($bien);
+        // PRIX ou LOYER XL or avec ombre — selon type_transaction
+        $infoPrix = mbi_supports_get_prix_ou_loyer($bien);
         mbi_supports_tpl_text_shadow(
             $pdf, $bpx, $cy, $colLW, 17,
-            mbi_supports_format_prix($prix),
-            [255, 232, 168], 'dejavusans', 'B', 42, 'L', false, 1.8, 2.4
+            mbi_supports_format_prix_complet($infoPrix),
+            [255, 232, 168], 'dejavusans', 'B', 38, 'L', false, 1.8, 2.4
         );
         $cy += 17;
 
-        $charge = mbi_supports_tpl_charge_honoraires($bien);
+        // Honoraires : adaptés vente / location ALUR
+        $charge = mbi_supports_get_honoraires_ligne($bien);
         if ($charge !== '') {
-            $pdf->SetFont('dejavusans', '', 9);
+            $pdf->SetFont('dejavusans', '', 10);
             $pdf->SetTextColor(220, 222, 230);
             $pdf->SetXY($bpx, $cy);
-            $pdf->Cell($colLW, 4, $charge, 0, 1, 'L');
-            $cy += 4;
+            $pdf->MultiCell($colLW, 4.5, $charge, 0, 'L');
+            $cy = $pdf->GetY();
         }
         $cy += 5;
 
@@ -270,12 +272,13 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $cy += 5.5;
 
             // Texte de l'annonce : 13.5pt pour grosse lisibilité vitrine
-            $pdf->SetFont('dejavusans', '', 13.5);
+            // Texte annonce : 17pt (+25% par rapport à 13.5)
+            $pdf->SetFont('dejavusans', '', 17);
             $pdf->SetTextColor(232, 234, 245);
             $pdf->SetXY($bpx, $cy);
-            $extrait = mb_substr($descCommerciale, 0, 420, 'UTF-8');
-            if (mb_strlen($descCommerciale, 'UTF-8') > 420) $extrait .= '...';
-            $pdf->MultiCell($colLW, 6.2, $extrait, 0, 'J');
+            $extrait = mb_substr($descCommerciale, 0, 380, 'UTF-8');
+            if (mb_strlen($descCommerciale, 'UTF-8') > 380) $extrait .= '...';
+            $pdf->MultiCell($colLW, 7.5, $extrait, 0, 'J');
         }
 
         // ── Colonne DROITE : caracs + DPE + atouts ────────────────────
@@ -295,10 +298,10 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         if (!empty($caracs)) {
             $nbC = count($caracs);
             $cellW = ($colRW - (($nbC - 1) * 4)) / $nbC;
-            $cellH = 30;
+            $cellH = 32;
             foreach ($caracs as $i => $it) {
                 $x = $colRX + ($i * ($cellW + 4));
-                // Mini bloc bg blanc 14% rounded + ombre légère
+                // Mini bloc bg blanc rounded + ombre
                 $pdf->SetAlpha(0.18);
                 $pdf->SetFillColor(15, 23, 42);
                 $pdf->RoundedRect($x + 1.0, $ry + 1.5, $cellW, $cellH, 4.0, '1111', 'F');
@@ -307,25 +310,26 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
                 $pdf->RoundedRect($x, $ry, $cellW, $cellH, 4.0, '1111', 'F');
                 $pdf->SetAlpha(1.0);
 
+                // Label en haut-gauche (small)
                 $pdf->SetFont('dejavusans', '', 9);
                 $pdf->SetTextColor(200, 206, 220);
                 $pdf->SetXY($x + 5, $ry + 3);
                 $pdf->Cell($cellW - 10, 5, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
-                $pdf->SetFont('dejavusans', 'B', 22);
+
+                // Valeur : XL plein hauteur, alignée à DROITE
+                $pdf->SetFont('dejavusans', 'B', 26);
                 $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetXY($x + 5, $ry + 9);
-                $pdf->Cell($cellW - 10, $cellH - 10, $it[1], 0, 0, 'L');
+                $pdf->SetXY($x + 5, $ry);
+                $pdf->Cell($cellW - 10, $cellH, $it[1], 0, 0, 'R');
             }
             $ry += $cellH + 6;
         }
 
-        // DPE / GES rounded shadow (couleurs claires sur fond navy via header)
+        // DPE / GES — étiquettes officielles barre 7 segments A→G (toujours affichées)
         $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
         $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
-        if ($dpe !== '' || $ges !== '') {
-            mbi_supports_tpl_dpe_ges($pdf, $colRX, $ry, $colRW, $dpe, $ges, [200, 206, 220]);
-            $ry += 26 + 4;
-        }
+        mbi_supports_tpl_dpe_ges($pdf, $colRX, $ry, $colRW, $dpe, $ges, [200, 206, 220]);
+        $ry += 22; // 2 barres de 8mm + gap 4mm + ~2mm marge
 
         // Atouts ✓
         $pointsForts = $iaAtouts;

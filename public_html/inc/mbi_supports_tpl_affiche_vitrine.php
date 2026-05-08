@@ -300,64 +300,115 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
         ?array $bgRgb = null, ?array $textRgb = null, ?array $valRgb = null,
         bool $shadow = false,
         float $labelSize = 9.0,
-        float $valueSize = 22.0,
+        float $valueSize = 28.0,
         float $rad = 4.0
     ): void {
         if ($bgRgb !== null) {
             mbi_supports_tpl_card_round_shadow($pdf, $x, $y, $w, $h, $rad, $bgRgb, 1.0, $shadow);
         }
+        // Label en haut-gauche
         $pdf->SetFont('dejavusans', '', $labelSize);
         $pdf->SetTextColor(...($textRgb ?? [120, 126, 140]));
         $pdf->SetXY($x + 5, $y + 3);
         $pdf->Cell($w - 10, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
 
+        // Valeur : chiffre plein hauteur, aligné à droite (taille auto pour remplir)
         $pdf->SetFont('dejavusans', 'B', $valueSize);
         $pdf->SetTextColor(...($valRgb ?? $cP));
-        $pdf->SetXY($x + 5, $y + 8);
-        $pdf->Cell($w - 10, $h - 10, $value, 0, 0, 'L');
+        $pdf->SetXY($x + 5, $y);
+        $pdf->Cell($w - 10, $h, $value, 0, 0, 'R');
     }
 }
 
-if (!function_exists('mbi_supports_tpl_dpe_ges')) {
+if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
     /**
-     * Étiquettes DPE / GES côte à côte, pastilles ARRONDIES couleurs ADEME + ombres.
+     * Affiche une barre DPE ou GES avec les 7 segments A→G (couleurs ADEME).
+     * Le segment correspondant à la classe du bien est mis en relief :
+     *   - hauteur agrandie (+1.5mm)
+     *   - lettre blanche bold plus grande
+     *   - ombre portée
+     *
+     * @param string $type    'DPE' | 'GES' (label affiché à gauche)
+     * @param string $classe  'A'..'G' ou '' (vierge)
+     * @param array $textRgbHeader  couleur du label
      */
-    function mbi_supports_tpl_dpe_ges(
-        TCPDF $pdf, float $x, float $y, float $w, string $dpe, string $ges,
+    function mbi_supports_tpl_dpe_ges_barre(
+        TCPDF $pdf, float $x, float $y, float $w, float $h,
+        string $type, string $classe,
         ?array $textRgbHeader = null
     ): void {
         $couleurs = [
             'A' => [0, 159, 58],   'B' => [80, 183, 62],  'C' => [196, 216, 61],
             'D' => [255, 240, 53], 'E' => [245, 181, 61], 'F' => [232, 90, 58], 'G' => [210, 44, 46],
         ];
-        $cellW = 28; $cellH = 22; $gap = 6; $rad = 4;
+        $lettres = ['A','B','C','D','E','F','G'];
 
-        $pdf->SetFont('dejavusans', 'B', 7);
+        // Header : "DPE" ou "GES" à gauche
+        $headerW = 14;
+        $pdf->SetFont('dejavusans', 'B', 9);
         $pdf->SetTextColor(...($textRgbHeader ?? [120, 126, 140]));
-        $pdf->SetXY($x, $y);
-        $pdf->Cell($cellW + $gap + $cellW, 4, 'DPE  ·  GES', 0, 0, 'L');
+        $pdf->SetXY($x, $y + ($h - 4) / 2);
+        $pdf->Cell($headerW, 4, $type, 0, 0, 'L');
 
-        $py = $y + 4;
+        $barX = $x + $headerW;
+        $barW = $w - $headerW;
+        $segW = $barW / 7;
+        $segH = $h - 1; // hauteur barre standard
 
-        $cDPE = $couleurs[$dpe] ?? [200, 200, 200];
-        mbi_supports_tpl_card_round_shadow($pdf, $x, $py, $cellW, $cellH, $rad, $cDPE, 1.0, true);
-        $pdf->SetFont('dejavusans', 'B', 16);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetXY($x, $py + 2);
-        $pdf->Cell($cellW, 12, $dpe !== '' ? $dpe : '—', 0, 0, 'C');
-        $pdf->SetFont('dejavusans', 'B', 6);
-        $pdf->SetXY($x, $py + 14);
-        $pdf->Cell($cellW, 5, 'DPE', 0, 0, 'C');
+        // Dessine les 7 segments
+        for ($i = 0; $i < 7; $i++) {
+            $L = $lettres[$i];
+            $cRGB = $couleurs[$L];
+            $sx = $barX + $i * $segW;
+            $sy = $y + 0.5;
+            $isActive = ($classe === $L);
+            $thisH = $isActive ? $segH + 1.5 : $segH;
+            $thisY = $isActive ? $sy - 0.75 : $sy;
 
-        $cGES = $couleurs[$ges] ?? [200, 200, 200];
-        mbi_supports_tpl_card_round_shadow($pdf, $x + $cellW + $gap, $py, $cellW, $cellH, $rad, $cGES, 1.0, true);
-        $pdf->SetFont('dejavusans', 'B', 16);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetXY($x + $cellW + $gap, $py + 2);
-        $pdf->Cell($cellW, 12, $ges !== '' ? $ges : '—', 0, 0, 'C');
-        $pdf->SetFont('dejavusans', 'B', 6);
-        $pdf->SetXY($x + $cellW + $gap, $py + 14);
-        $pdf->Cell($cellW, 5, 'GES', 0, 0, 'C');
+            // Ombre portée pour le segment actif
+            if ($isActive) {
+                $pdf->SetAlpha(0.30);
+                $pdf->SetFillColor(15, 23, 42);
+                $pdf->RoundedRect($sx + 0.8, $thisY + 1.2, $segW - 1, $thisH, 1.5, '1111', 'F');
+                $pdf->SetAlpha(1.0);
+            }
+
+            $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
+            $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 1.5, '1111', 'F');
+
+            // Lettre dans le segment
+            $fs = $isActive ? 11 : 8;
+            $pdf->SetFont('dejavusans', 'B', $fs);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($sx, $thisY);
+            $pdf->Cell($segW, $thisH, $L, 0, 0, 'C');
+        }
+
+        // Si vierge → indication discrète
+        if ($classe === '') {
+            $pdf->SetFont('dejavusans', 'I', 6.5);
+            $pdf->SetTextColor(...($textRgbHeader ?? [150, 156, 170]));
+            $pdf->SetXY($barX, $y + $segH + 0.5);
+            $pdf->Cell($barW, 3, 'classe non renseignée', 0, 0, 'R');
+        }
+    }
+}
+
+if (!function_exists('mbi_supports_tpl_dpe_ges')) {
+    /**
+     * Affiche les 2 barres DPE et GES empilées (style ADEME officiel adapté A3 H).
+     * Hauteur totale ≈ 22mm (2 barres 8mm + gap 6mm pour mention vierge).
+     *
+     * Compatible avec l'ancienne signature (type, classe → barre).
+     */
+    function mbi_supports_tpl_dpe_ges(
+        TCPDF $pdf, float $x, float $y, float $w, string $dpe, string $ges,
+        ?array $textRgbHeader = null
+    ): void {
+        $barH = 8.0;
+        $gap  = 4.0;
+        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $y, $w, $barH, 'DPE', $dpe, $textRgbHeader);
+        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $y + $barH + $gap, $w, $barH, 'GES', $ges, $textRgbHeader);
     }
 }
 

@@ -89,6 +89,12 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                     $bien['description'] = $descA;
                 }
             }
+            // Loyer + honoraires location ALUR (utilisés par get_prix_ou_loyer + get_honoraires_ligne)
+            $bien['_annonce_loyer']            = (float)($annonce['loyer']                       ?? 0);
+            $bien['_annonce_loyer_cc']         = (float)($annonce['loyer_cc']                    ?? 0);
+            $bien['_annonce_honoraires_bail']  = (float)($annonce['honoraires_location_bail']    ?? 0);
+            $bien['_annonce_honoraires_edl']   = (float)($annonce['honoraires_etat_des_lieux']   ?? 0);
+            $bien['_annonce_depot_garantie']   = (float)($annonce['depot_garantie']              ?? 0);
         }
 
         // Si on régénère depuis un support source (édition), récupère ses surcharges

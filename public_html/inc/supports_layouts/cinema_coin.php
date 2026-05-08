@@ -197,22 +197,23 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
             $py += 2;
         }
 
-        // ─── PRIX XL or avec ombre ───
-        $prix = mbi_supports_get_prix($bien);
+        // ─── PRIX/LOYER XL or avec ombre — selon type_transaction ───
+        $infoPrix = mbi_supports_get_prix_ou_loyer($bien);
         mbi_supports_tpl_text_shadow(
             $pdf, $px, $py, $pw, 16,
-            mbi_supports_format_prix($prix),
-            $cS, 'dejavusans', 'B', 36, 'L', false, 1.6, 2.2
+            mbi_supports_format_prix_complet($infoPrix),
+            $cS, 'dejavusans', 'B', 32, 'L', false, 1.6, 2.2
         );
         $py += 16;
 
-        $charge = mbi_supports_tpl_charge_honoraires($bien);
+        // Honoraires adaptés vente / location ALUR
+        $charge = mbi_supports_get_honoraires_ligne($bien);
         if ($charge !== '') {
             $pdf->SetFont('dejavusans', '', 9);
             $pdf->SetTextColor(110, 116, 130);
             $pdf->SetXY($px, $py);
-            $pdf->Cell($pw, 4, $charge, 0, 1, 'L');
-            $py += 4;
+            $pdf->MultiCell($pw, 4, $charge, 0, 'L');
+            $py = $pdf->GetY() + 1;
         }
         $py += 4;
 
@@ -250,13 +251,11 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
             $py += 28 + 6;
         }
 
-        // Étiquettes DPE / GES (rounded + shadow via helper)
+        // Étiquettes DPE / GES officielles (barre 7 segments A→G, toujours affichées)
         $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
         $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
-        if ($dpe !== '' || $ges !== '') {
-            mbi_supports_tpl_dpe_ges($pdf, $px, $py, $pw, $dpe, $ges);
-            $py += 26 + 4;
-        }
+        mbi_supports_tpl_dpe_ges($pdf, $px, $py, $pw, $dpe, $ges);
+        $py += 22 + 3;
 
         // Atouts
         $pointsForts = $iaAtouts;
