@@ -521,30 +521,41 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 return [true, null];
 
             case 'autorisation_diffusion_signee':
-                if (!is_array($mandat)) return [false, 'Mandat absent'];
-                $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
-                $ok = !empty($autoris) && (int)$autoris !== 0;
-                if ($ok) return [true, null];
-                // RÈGLE MÉTIER 2026-05-08 (user) : un mandat de gestion locative
-                // implique automatiquement l'autorisation de diffusion (le bailleur
-                // confie la mise en location → la diffusion en fait partie).
-                $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
-                if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
+                // RÈGLE MÉTIER 2026-05-08 (user) — autorisation IMPLICITE pour :
+                //   1. Bien en LOCATION : si on a le bien en location chez nous,
+                //      l'autorisation de diffusion va de soi (sinon on ne l'aurait
+                //      pas en location). Pas besoin de mandat pour valider.
+                //   2. Mandat de gestion locative ou de gestion : idem, le mandat
+                //      engage le bailleur sur la diffusion.
+                $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
+                if (str_contains($typeTr, 'location')) {
                     return [true, null];
                 }
-                return [false, 'Autorisation de diffusion non signée'];
+                if (is_array($mandat) && !empty($mandat)) {
+                    $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
+                    if (!empty($autoris) && (int)$autoris !== 0) return [true, null];
+                    $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
+                    if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
+                        return [true, null];
+                    }
+                }
+                return [false, is_array($mandat) ? 'Autorisation de diffusion non signée' : 'Mandat absent'];
 
             case 'autorisation_diffusion_couvre_canaux':
-                // V1 simplifié : on retombe sur la règle précédente
-                if (!is_array($mandat)) return [false, 'Mandat absent'];
-                $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
-                if (!empty($autoris)) return [true, null];
-                // Même règle : mandat gestion → autorisation auto
-                $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
-                if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
+                // Même règle : location → OK auto, sinon vérifie le mandat
+                $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
+                if (str_contains($typeTr, 'location')) {
                     return [true, null];
                 }
-                return [false, 'Périmètre de diffusion à vérifier sur le mandat'];
+                if (is_array($mandat) && !empty($mandat)) {
+                    $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
+                    if (!empty($autoris)) return [true, null];
+                    $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
+                    if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
+                        return [true, null];
+                    }
+                }
+                return [false, is_array($mandat) ? 'Périmètre de diffusion à vérifier sur le mandat' : 'Mandat absent'];
 
             case 'mandat_numero_registre':
                 if (!is_array($mandat)) return [false, 'Mandat absent'];
