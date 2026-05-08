@@ -107,14 +107,32 @@ if (($_POST['action'] ?? '') === 'valider') {
 
 // ─── POST : régénération avec surcharges ───────────────────────────────
 if (($_POST['action'] ?? '') === 'regenerer') {
+    $nbPh = isset($_POST['nb_photos']) && ctype_digit((string)$_POST['nb_photos'])
+        ? max(1, min(3, (int)$_POST['nb_photos']))
+        : null;
+
+    // photos_secondaires_ids_json : array d'ids depuis JS (ou vide pour auto)
+    $photosSecPost = trim((string)($_POST['photos_secondaires_ids_json'] ?? ''));
+    $photosSecJson = null;
+    if ($photosSecPost !== '') {
+        $arr = json_decode($photosSecPost, true);
+        if (is_array($arr)) {
+            $arr = array_values(array_filter(array_map('intval', $arr), fn($v) => $v > 0));
+            // Max 2 secondaires (1 héro + 2 thumbs = 3 photos total max)
+            $photosSecJson = $arr ? json_encode(array_slice($arr, 0, 2), JSON_UNESCAPED_UNICODE) : null;
+        }
+    }
+
     $opts = [
-        'force_export'              => true,        // l'éditeur fait toujours sauter le bloc dur
-        'titre_personnalise'        => trim((string)($_POST['titre_personnalise']        ?? '')),
-        'accroche'                  => trim((string)($_POST['accroche']                  ?? '')),
-        'description_personnalisee' => trim((string)($_POST['description_personnalisee'] ?? '')),
-        'photo_hero_id_personnalise'=> (int)($_POST['photo_hero_id_personnalise']        ?? 0) ?: null,
-        'angle_marketing'           => trim((string)($_POST['angle_marketing']           ?? '')),
-        'source_support_id'         => $supportId,
+        'force_export'                => true,
+        'titre_personnalise'          => trim((string)($_POST['titre_personnalise']          ?? '')),
+        'accroche'                    => trim((string)($_POST['accroche']                    ?? '')),
+        'description_personnalisee'   => trim((string)($_POST['description_personnalisee']   ?? '')),
+        'photo_hero_id_personnalise'  => (int)($_POST['photo_hero_id_personnalise']          ?? 0) ?: null,
+        'angle_marketing'             => trim((string)($_POST['angle_marketing']             ?? '')),
+        'nb_photos'                   => $nbPh,
+        'photos_secondaires_ids_json' => $photosSecJson,
+        'source_support_id'           => $supportId,
     ];
     $brief = trim((string)($_POST['orientation_user'] ?? ''));
     $r = mbi_supports_pdf_generer($idBien, $type, $brief !== '' ? $brief : null, $opts);
@@ -147,6 +165,18 @@ $formAccroche = (string)($support['accroche']                 ?? '');
 $formDesc    = (string)($support['description_personnalisee'] ?? '');
 $formHero    = (int)($support['photo_hero_id_personnalise']   ?? 0);
 $formAngle   = (string)($support['angle_marketing']           ?? '');
+$formNbPh    = isset($support['nb_photos']) && $support['nb_photos'] !== null
+    ? (int)$support['nb_photos']
+    : 0; // 0 = auto (default 3 dans le template, max 3)
+
+// Pré-remplissage des photos secondaires sélectionnées
+$formPhotosSec = [];
+if (!empty($support['photos_secondaires_ids_json'])) {
+    $tmp = json_decode((string)$support['photos_secondaires_ids_json'], true);
+    if (is_array($tmp)) {
+        $formPhotosSec = array_values(array_filter(array_map('intval', $tmp), fn($v) => $v > 0));
+    }
+}
 
 // Suggestion : si aucune surcharge sauvée, on peut suggérer la valeur du bien
 $suggDesc = (string)($bien['description'] ?? '');
@@ -262,6 +292,58 @@ $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
   .badges { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
   .badge { padding:3px 9px; border-radius:999px; font-size:11px; font-weight:600;
            background:#eef1f5; color:var(--navy); }
+
+  /* Galerie photos */
+  .photo-grid {
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:6px;
+  }
+  .photo-card {
+    position:relative; border:2px solid var(--border); border-radius:8px;
+    overflow:hidden; background:#000; cursor:pointer; transition:border-color .15s;
+  }
+  .photo-card.is-hero { border-color:var(--or); box-shadow:0 0 0 2px rgba(212,160,71,.25); }
+  .photo-card.is-secondaire { border-color:var(--navy); }
+  .photo-card img {
+    width:100%; height:80px; object-fit:cover; display:block; opacity:0.92;
+  }
+  .photo-card .pc-overlay {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    justify-content:space-between; padding:4px 6px;
+    background:linear-gradient(180deg, rgba(0,0,0,0.4) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.55) 100%);
+    pointer-events:none;
+  }
+  .photo-card .pc-top { display:flex; justify-content:space-between; gap:4px; }
+  .photo-card .pc-bot { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .photo-card .pc-tag {
+    background:rgba(0,0,0,0.6); color:#fff; padding:1px 5px; border-radius:4px;
+    font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;
+  }
+  .photo-card .pc-tag.hero { background:var(--or); color:#fff; }
+  .photo-card .pc-tag.sec  { background:var(--navy); color:#fff; }
+  .photo-card .pc-controls {
+    display:flex; gap:4px; pointer-events:auto;
+  }
+  .photo-card .pc-controls label {
+    background:rgba(255,255,255,0.92); padding:2px 6px; border-radius:4px;
+    font-size:10px; font-weight:600; color:var(--navy); cursor:pointer;
+    display:flex; align-items:center; gap:3px;
+    text-transform:none; letter-spacing:0;
+  }
+  .photo-card .pc-controls input { margin:0; cursor:pointer; }
+  .photo-card .pc-controls input[type="checkbox"]:disabled + span { opacity:0.4; }
+  .photo-counter {
+    margin-top:6px; font-size:11px; color:var(--muted); display:flex;
+    justify-content:space-between; align-items:center;
+  }
+  .photo-counter strong { color:var(--navy); }
+  .photo-counter.full strong { color:var(--vert); }
+
+  /* Group nb_photos + galerie */
+  .photo-group { background:#f7f8fa; padding:14px; border-radius:10px; margin-bottom:14px; }
+  .photo-group label.field-label {
+    display:block; font-size:11px; font-weight:600; color:var(--muted);
+    text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;
+  }
 </style>
 </head>
 <body>
@@ -377,37 +459,88 @@ $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
         <div class="hint">Si vide, utilise la description du bien.</div>
       </div>
 
-      <div class="field">
-        <label for="hero">Photo héro</label>
-        <select id="hero" name="photo_hero_id_personnalise">
-          <option value="">— auto (1ʳᵉ photo ou suggestion IA) —</option>
-          <?php foreach ($photos as $p): ?>
-            <?php
-              $libParts = [];
-              $libParts[] = '#' . (int)$p['ordre'];
-              if (!empty($p['categorie'])) $libParts[] = mb_strtolower((string)$p['categorie']);
-              if (!empty($p['lib']))       $libParts[] = '« ' . mb_substr((string)$p['lib'], 0, 40) . ' »';
-            ?>
-            <option value="<?= (int)$p['id'] ?>" <?= $formHero === (int)$p['id'] ? 'selected' : '' ?>>
-              <?= mbisedit_h(implode(' · ', $libParts)) ?>
-            </option>
+      <div class="photo-group">
+        <label class="field-label">Photos sur l'affiche A3</label>
+
+        <!-- Sélecteur nb_photos (max 3 — héro + 2 thumbs) -->
+        <select id="nbph" name="nb_photos" style="margin-bottom:10px;">
+          <?php
+            $nbphChoices = [
+                0 => '— auto (3 par défaut) —',
+                1 => '1 photo — mode cinéma pur (héro plein cadre, sans thumb)',
+                2 => '2 photos (héro + 1 thumb)',
+                3 => '3 photos (héro + 2 thumbs) — recommandé',
+            ];
+          ?>
+          <?php foreach ($nbphChoices as $val => $lib): ?>
+            <option value="<?= (int)$val ?>" <?= $formNbPh === (int)$val ? 'selected' : '' ?>><?= mbisedit_h($lib) ?></option>
           <?php endforeach; ?>
         </select>
-        <div class="hint"><?= count($photos) ?> photo<?= count($photos) > 1 ? 's' : '' ?> disponible<?= count($photos) > 1 ? 's' : '' ?> sur ce bien.</div>
+
+        <input type="hidden" id="photos_secondaires_ids_json" name="photos_secondaires_ids_json" value="">
+
+        <?php if (empty($photos)): ?>
+          <div class="hint" style="color:var(--orange);">⚠ Aucune photo sur ce bien — ajoute des photos avant de générer l'affiche.</div>
+        <?php else: ?>
+          <div class="photo-grid" id="photoGrid">
+            <?php foreach ($photos as $p): ?>
+              <?php
+                $idP   = (int)$p['id'];
+                $isHero = ($formHero === $idP);
+                $isSec  = in_array($idP, $formPhotosSec, true);
+                $rawUrl = (string)($p['url_photo'] ?? '');
+                // url_photo est relatif à public_html (ex: "uploads/biens/<soc>/<bien>/01_xxx.jpg")
+                $imgUrl = $rawUrl !== '' ? '/' . ltrim($rawUrl, '/') : '';
+                $cat = trim((string)($p['categorie'] ?? ''));
+              ?>
+              <div class="photo-card<?= $isHero ? ' is-hero' : ($isSec ? ' is-secondaire' : '') ?>" data-id="<?= $idP ?>">
+                <?php if ($imgUrl !== ''): ?>
+                  <img src="<?= mbisedit_h($imgUrl) ?>" alt="Photo <?= $idP ?>" loading="lazy">
+                <?php else: ?>
+                  <div style="height:80px; background:#ddd; display:flex; align-items:center; justify-content:center; color:#888; font-size:10px;">Sans aperçu</div>
+                <?php endif; ?>
+                <div class="pc-overlay">
+                  <div class="pc-top">
+                    <span class="pc-tag">#<?= (int)($p['ordre'] ?? 0) ?: '?' ?></span>
+                    <?php if ($isHero): ?><span class="pc-tag hero">Héro</span><?php elseif ($isSec): ?><span class="pc-tag sec">✓</span><?php endif; ?>
+                  </div>
+                  <div class="pc-bot">
+                    <div class="pc-controls">
+                      <label title="Choisir comme photo principale">
+                        <input type="radio" name="photo_hero_id_personnalise" value="<?= $idP ?>" class="hero-radio" <?= $isHero ? 'checked' : '' ?>>
+                        <span>Héro</span>
+                      </label>
+                      <label title="Inclure dans la mosaïque">
+                        <input type="checkbox" class="sec-cb" data-id="<?= $idP ?>" <?= $isSec ? 'checked' : '' ?>>
+                        <span>Inclure</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+          <div class="photo-counter" id="photoCounter">
+            <span><?= count($photos) ?> photo<?= count($photos) > 1 ? 's' : '' ?> dispo · cliquer une carte = la cocher</span>
+            <span><strong id="photoCountTxt">0</strong> sélectionnée(s) sur <strong id="photoCountMax">2</strong> max</span>
+          </div>
+        <?php endif; ?>
       </div>
 
       <div class="field">
-        <label for="angle">Angle marketing</label>
+        <label for="angle">Cible / angle marketing</label>
         <select id="angle" name="angle_marketing">
           <?php
             $angles = ['' => '— inchangé —','famille'=>'Famille','investisseur'=>'Investisseur',
-                       'premium'=>'Premium','premier_achat'=>'Premier achat','generique'=>'Générique','autre'=>'Autre'];
+                       'premium'=>'Premium','premier_achat'=>'1er achat (primo-accédant)','generique'=>'Générique','autre'=>'Autre'];
           ?>
           <?php foreach ($angles as $val => $lib): ?>
             <option value="<?= $val ?>" <?= $formAngle === $val ? 'selected' : '' ?>><?= mbisedit_h($lib) ?></option>
           <?php endforeach; ?>
         </select>
+        <div class="hint">Le ton de l'IA et la palette du badge s'adaptent à la cible.</div>
       </div>
+
 
       <div class="field">
         <label for="brief">Brief libre IA (optionnel)</label>
@@ -457,5 +590,95 @@ $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
   </div>
 
 </div>
+
+<script>
+(function() {
+  var grid    = document.getElementById('photoGrid');
+  var nbphSel = document.getElementById('nbph');
+  var hidden  = document.getElementById('photos_secondaires_ids_json');
+  var counter = document.getElementById('photoCountTxt');
+  var maxTxt  = document.getElementById('photoCountMax');
+  var counterBox = document.getElementById('photoCounter');
+  if (!grid || !nbphSel) return;
+
+  // Limite max secondaires = nb_photos - 1 (default = 2 si auto)
+  function maxSec() {
+    var n = parseInt(nbphSel.value, 10);
+    if (!n || n < 1) n = 3; // auto
+    return Math.max(0, Math.min(2, n - 1));
+  }
+
+  function getHeroId() {
+    var r = document.querySelector('input[name="photo_hero_id_personnalise"]:checked');
+    return r ? parseInt(r.value, 10) : null;
+  }
+
+  function syncCards() {
+    var heroId = getHeroId();
+    var max    = maxSec();
+    var cbs    = grid.querySelectorAll('.sec-cb');
+
+    // Décocher la checkbox correspondant au héro et désactiver
+    cbs.forEach(function(cb) {
+      var id = parseInt(cb.dataset.id, 10);
+      if (heroId !== null && id === heroId) {
+        cb.checked = false;
+        cb.disabled = true;
+      } else {
+        cb.disabled = false;
+      }
+    });
+
+    // Limiter le nombre cochées à max
+    var checked = Array.prototype.slice.call(cbs).filter(function(c) { return c.checked; });
+    if (checked.length > max) {
+      // Décocher les derniers cochés
+      checked.slice(max).forEach(function(c) { c.checked = false; });
+    }
+
+    // Recalculer l'état visuel des cards
+    var ids = [];
+    grid.querySelectorAll('.photo-card').forEach(function(card) {
+      var id   = parseInt(card.dataset.id, 10);
+      var rad  = card.querySelector('.hero-radio');
+      var cb   = card.querySelector('.sec-cb');
+      var isH  = rad && rad.checked;
+      var isS  = cb && cb.checked;
+      card.classList.toggle('is-hero', !!isH);
+      card.classList.toggle('is-secondaire', !!isS && !isH);
+
+      // Met à jour le tag overlay
+      var top = card.querySelector('.pc-top');
+      var tags = top.querySelectorAll('.pc-tag.hero, .pc-tag.sec');
+      tags.forEach(function(t) { t.remove(); });
+      if (isH) {
+        var tg = document.createElement('span');
+        tg.className = 'pc-tag hero';
+        tg.textContent = 'Héro';
+        top.appendChild(tg);
+      } else if (isS) {
+        var tg2 = document.createElement('span');
+        tg2.className = 'pc-tag sec';
+        tg2.textContent = '✓';
+        top.appendChild(tg2);
+      }
+
+      if (isS && !isH) ids.push(id);
+    });
+
+    hidden.value = JSON.stringify(ids);
+    if (counter) counter.textContent = String(ids.length);
+    if (maxTxt)  maxTxt.textContent  = String(max);
+    if (counterBox) counterBox.classList.toggle('full', ids.length === max && max > 0);
+  }
+
+  grid.addEventListener('change', syncCards);
+  nbphSel.addEventListener('change', syncCards);
+
+  // Sync initiale
+  syncCards();
+})();
+</script>
+
 </body>
 </html>

@@ -3,20 +3,22 @@ declare(strict_types=1);
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * Template : Affiche vitrine — A3 portrait (V2.1 — fix Unicode + A3)
+ * Template : Affiche vitrine — A3 LANDSCAPE (V3 — cinéma overlay coin)
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Format : A3 portrait (297×420 mm) par défaut — affichage vitrine grand format
+ * Format : A3 paysage (420 × 297 mm) — non négociable (validé user 2026-05-08).
  * Police : dejavusans (Unicode complet, gère «, », ★, ✓, m², €, etc.)
  *
- * Layout :
- *   1. Photo héro pleine largeur (190 mm) + gradient overlay bas
- *   2. Ruban "★ COUP DE CŒUR" doré si score IA ≥ 80
- *   3. Accroche commerciale en grand italique navy
- *   4. Prix XL doré + mention honoraires
- *   5. Caractéristiques : badges colorés cercle navy + lettre or
- *   6. Section "VOS ATOUTS" avec ✓ dorés (puise dans points_forts du score IA)
- *   7. Pied mentions légales fond navy + trait or
+ * Layout "cinéma overlay coin" :
+ *   1. Photo héro PLEIN CADRE (full bleed) en fond
+ *   2. Bandeau réf / ville en haut-gauche (blanc + ombre)
+ *   3. Carte info translucide à droite (blanc 92% + watermark puzzle filigrane)
+ *      contenant : badge angle, accroche, prix, caracs, étiquettes DPE/GES, atouts
+ *   4. Mosaïque thumbs en bas-gauche (0 à 4 selon nb_photos)
+ *   5. Pied navy fin avec mentions agence (cartepro, garant, rcpro, contact)
+ *
+ * Watermark puzzle attendu à : public_html/images/mbi_affiche_watermark.jpg
+ * (si absent, la carte info reste propre — pas d'erreur).
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -32,108 +34,162 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         $score       = $ctx['score']       ?? null;
         $critique    = $ctx['critique']    ?? [];
         $mentionsTextes = $critique['mentions_textes'] ?? [];
-        // Rédaction IA (Lot 2) — accroche / paragraphe / atouts générés selon l'angle
+
+        // Rédaction IA — accroche / paragraphe / atouts
         $iaRed       = is_array($ctx['ia_redaction'] ?? null) ? ($ctx['ia_redaction']['data'] ?? []) : [];
         $iaAccroche  = trim((string)($iaRed['accroche']   ?? ''));
-        $iaParagraph = trim((string)($iaRed['paragraphe'] ?? ''));
         $iaAtouts    = is_array($iaRed['atouts'] ?? null) ? $iaRed['atouts'] : [];
 
-        $cP = $style['rgb_primaire']   ?? [36, 59, 92];
-        $cS = $style['rgb_secondaire'] ?? [212, 160, 71];
+        // Couleurs charte (fallback navy + or MaBoxImmo)
+        $cP = $style['rgb_primaire']   ?? [36, 59, 92];   // navy
+        $cS = $style['rgb_secondaire'] ?? [212, 160, 71]; // or
         $cT = $style['rgb_texte']      ?? [31, 41, 55];
 
-        // Palette par angle marketing (Lot 3) — accent secondaire varié
-        // L'angle vient soit de $ctx['angle'], soit du score recommandé.
-        $angle = (string)($ctx['angle'] ?? 'generique');
+        // Palette par angle marketing
+        $angle    = (string)($ctx['angle'] ?? 'generique');
         $anglePal = mbi_supports_tpl_angle_palette($angle, $cS);
-        $cAngle   = $anglePal['rgb'];     // RGB pour bandeau / badge
-        $libAngle = $anglePal['libelle']; // libellé à imprimer
+        $cAngle   = $anglePal['rgb'];
+        $libAngle = $anglePal['libelle'];
 
-        // ─── A3 portrait (297 × 420 mm) ─────────────────────────────────
-        $pdf = new TCPDF('P', 'mm', 'A3', true, 'UTF-8');
+        // Nombre TOTAL de photos sur l'affiche : 1 (cinéma pur) à 3 max (héro + 2 thumbs)
+        $nbPhotos = (int)($ctx['nb_photos'] ?? 3);
+        if ($nbPhotos < 1) $nbPhotos = 1;
+        if ($nbPhotos > 3) $nbPhotos = 3;
+
+        // ─── A3 LANDSCAPE (420 × 297 mm) ────────────────────────────────
+        $pdf = new TCPDF('L', 'mm', 'A3', true, 'UTF-8');
         $pdf->SetCreator('MaBoxImmo - Ma Box Communication');
-        $pdf->SetTitle('Affiche vitrine');
+        $pdf->SetTitle('Affiche vitrine A3 H');
         $pdf->SetMargins(0, 0, 0);
         $pdf->SetAutoPageBreak(false);
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
-        // Police Unicode obligatoire pour les caractères spéciaux (★, ✓, «, »)
         $pdf->SetFont('dejavusans', '', 11);
         $pdf->AddPage();
 
-        $pageW = 297;
-        $pageH = 420;
-        $marginX = 18;
-        $contentW = $pageW - 2 * $marginX;
+        $pageW = 420;
+        $pageH = 297;
+        $piedH = 18;
+        $photoH = $pageH - $piedH; // 279 mm
 
         // ─────────────────────────────────────────────────────────────
-        // 1. PHOTO HÉRO PLEINE LARGEUR (0 → 190 mm)
+        // 1. PHOTO HÉRO PLEIN CADRE (fond cinéma)
         // ─────────────────────────────────────────────────────────────
-        $heroH = 190;
         $hero = mbi_supports_photo_hero($photos, $ctx['photo_hero_id_suggestion'] ?? null);
         $heroPath = $hero ? mbi_supports_resoudre_photo_path($hero) : null;
 
         if ($heroPath !== null) {
             try {
-                $pdf->Image($heroPath, 0, 0, $pageW, $heroH, '', '', '', false, 250, '', false, false, 0, 'CM', false, false);
+                $pdf->Image($heroPath, 0, 0, $pageW, $photoH, '', '', '', false, 250, '', false, false, 0, 'CM', false, false);
             } catch (Throwable) {
-                mbi_supports_tpl_v2_placeholder($pdf, 0, 0, $pageW, $heroH, $cP);
+                mbi_supports_tpl_v2_placeholder($pdf, 0, 0, $pageW, $photoH, $cP);
             }
         } else {
-            mbi_supports_tpl_v2_placeholder($pdf, 0, 0, $pageW, $heroH, $cP);
+            mbi_supports_tpl_v2_placeholder($pdf, 0, 0, $pageW, $photoH, $cP);
         }
 
-        // Gradient overlay bas (effet premium + lisibilité texte)
-        $pdf->SetAlpha(0.65);
+        // Gradient sombre subtil sur la moitié droite + le bas (lisibilité carte info + thumbs)
+        // Voile gauche-droite très léger pour faire ressortir la carte info
+        $pdf->SetAlpha(0.15);
         $pdf->SetFillColor(0, 0, 0);
-        $pdf->Rect(0, $heroH - 42, $pageW, 42, 'F');
+        $pdf->Rect(220, 0, $pageW - 220, $photoH, 'F');
         $pdf->SetAlpha(1.0);
 
-        // Ref + ville en blanc (bas du gradient)
-        $pdf->SetFont('dejavusans', 'B', 12);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetXY($marginX, $heroH - 18);
+        // Voile bas (40 mm) pour lisibilité du bandeau réf + thumbs
+        $pdf->SetAlpha(0.45);
+        $pdf->SetFillColor(0, 0, 0);
+        $pdf->Rect(0, $photoH - 50, 230, 50, 'F');
+        $pdf->SetAlpha(1.0);
+
+        // ─────────────────────────────────────────────────────────────
+        // 2. RÉFÉRENCE + VILLE en haut-gauche (blanc avec halo)
+        // ─────────────────────────────────────────────────────────────
         $ref = (string)($bien['reference_bien'] ?? ('#' . ($bien['id'] ?? '')));
         $loc = trim((string)($bien['code_postal'] ?? '') . ' ' . ($bien['ville'] ?? ''));
-        $pdf->Cell($contentW, 7, mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '   ·   ' . $loc : '')), 0, 0, 'L');
+        $refTxt = mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '   ·   ' . $loc : ''));
 
-        // ─────────────────────────────────────────────────────────────
-        // 2. BADGE D'ANGLE (toujours présent — Lot 3) + RUBAN coup de cœur
-        // ─────────────────────────────────────────────────────────────
-        // Badge d'angle en haut à droite, sur fond couleur de l'angle.
-        if ($angle !== 'generique' && $libAngle !== '') {
-            $badgeW = 90;
-            $badgeH = 16;
-            $badgeX = $pageW - $badgeW - 14;
-            $badgeY = 18;
-            $pdf->SetFillColor($cAngle[0], $cAngle[1], $cAngle[2]);
-            $pdf->Rect($badgeX, $badgeY, $badgeW, $badgeH, 'F');
-            $pdf->SetFont('dejavusans', 'B', 11);
-            $pdf->SetTextColor(255, 255, 255);
-            $pdf->SetXY($badgeX, $badgeY);
-            $pdf->Cell($badgeW, $badgeH, mb_strtoupper($libAngle), 0, 0, 'C');
+        // Halo sombre derrière le texte pour lisibilité quoi qu'il arrive sur la photo
+        $pdf->SetAlpha(0.55);
+        $pdf->SetFillColor(0, 0, 0);
+        $pdf->Rect(0, 0, 230, 32, 'F');
+        $pdf->SetAlpha(1.0);
+
+        $pdf->SetFont('dejavusans', 'B', 14);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetXY(20, 12);
+        $pdf->Cell(200, 8, $refTxt, 0, 0, 'L');
+
+        // Type bien sous-titre (Appartement / Maison...)
+        $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
+        if ($typeBien !== '') {
+            $pdf->SetFont('dejavusans', '', 10);
+            $pdf->SetTextColor(220, 222, 230);
+            $pdf->SetXY(20, 21);
+            $pdf->Cell(200, 5, mb_strtoupper($typeBien), 0, 0, 'L');
         }
 
-        // Ruban "★ Coup de cœur" (sous le badge d'angle si les deux présents)
+        // ─────────────────────────────────────────────────────────────
+        // 3. CARTE INFO TRANSLUCIDE (overlay coin droit)
+        // ─────────────────────────────────────────────────────────────
+        $cx = 237;
+        $cy = 24;
+        $cw = 167;
+        $ch = 240;
+
+        // Fond blanc semi-opaque
+        $pdf->SetAlpha(0.93);
+        $pdf->SetFillColor(255, 255, 255);
+        $pdf->Rect($cx, $cy, $cw, $ch, 'F');
+        $pdf->SetAlpha(1.0);
+
+        // Watermark puzzle (filigrane discret) — si fichier dispo
+        $watermarkPath = __DIR__ . '/../images/mbi_affiche_watermark.jpg';
+        if (is_file($watermarkPath) && is_readable($watermarkPath)) {
+            try {
+                $pdf->SetAlpha(0.12);
+                $pdf->Image($watermarkPath, $cx, $cy, $cw, $ch, '', '', '', false, 250, '', false, false, 0, 'CM', false, false);
+                $pdf->SetAlpha(1.0);
+            } catch (Throwable) {
+                $pdf->SetAlpha(1.0);
+            }
+        }
+
+        // Trait or à gauche (signature de marque)
+        $pdf->SetFillColor($cS[0], $cS[1], $cS[2]);
+        $pdf->Rect($cx, $cy, 2, $ch, 'F');
+
+        // Padding intérieur de la carte
+        $px = $cx + 10;
+        $pw = $cw - 18;
+        $py = $cy + 8;
+
+        // Badge angle marketing (haut de la carte)
+        if ($angle !== 'generique' && $libAngle !== '') {
+            $bw = $pw;
+            $bh = 9;
+            $pdf->SetFillColor($cAngle[0], $cAngle[1], $cAngle[2]);
+            $pdf->Rect($px, $py, $bw, $bh, 'F');
+            $pdf->SetFont('dejavusans', 'B', 9);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($px, $py);
+            $pdf->Cell($bw, $bh, mb_strtoupper($libAngle), 0, 0, 'C');
+            $py += $bh + 6;
+        }
+
+        // Ruban "★ Coup de cœur" si score IA ≥ 80
         $scoreNum = $score ? (int)($score['score'] ?? 0) : 0;
         if ($scoreNum >= 80) {
-            $rubanW = 80;
-            $rubanH = 18;
-            $rubanX = $pageW - $rubanW - 14;
-            $rubanY = ($angle !== 'generique' && $libAngle !== '') ? 38 : 18;
+            $bh = 8;
             $pdf->SetFillColor($cS[0], $cS[1], $cS[2]);
-            $pdf->Rect($rubanX, $rubanY, $rubanW, $rubanH, 'F');
-            $pdf->SetFont('dejavusans', 'B', 12);
+            $pdf->Rect($px, $py, $pw, $bh, 'F');
+            $pdf->SetFont('dejavusans', 'B', 9);
             $pdf->SetTextColor(255, 255, 255);
-            $pdf->SetXY($rubanX, $rubanY);
-            $pdf->Cell($rubanW, $rubanH, '★  COUP DE CŒUR', 0, 0, 'C');
+            $pdf->SetXY($px, $py);
+            $pdf->Cell($pw, $bh, '★  COUP DE CŒUR', 0, 0, 'C');
+            $py += $bh + 5;
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // 3. ACCROCHE COMMERCIALE (grande italique navy)
-        // ─────────────────────────────────────────────────────────────
-        $blockY = $heroH + 14;
-        // Priorité : surcharge éditeur > accroche IA > designation bien
+        // ── Accroche italique navy ────────────────────────────────────
         $accroche = trim((string)($bien['_accroche'] ?? ''));
         if ($accroche === '' && $iaAccroche !== '') {
             $accroche = $iaAccroche;
@@ -141,191 +197,365 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         if ($accroche === '') {
             $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110);
         }
-        $pdf->SetFont('dejavusans', 'BI', 24);
+        $pdf->SetFont('dejavusans', 'BI', 16);
         $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
-        $pdf->SetXY($marginX, $blockY);
-        $pdf->MultiCell($contentW, 11, '« ' . $accroche . ' »', 0, 'L');
-        $blockY = $pdf->GetY() + 6;
+        $pdf->SetXY($px, $py);
+        $pdf->MultiCell($pw, 7, '« ' . $accroche . ' »', 0, 'L');
+        $py = $pdf->GetY() + 4;
 
-        // ─────────────────────────────────────────────────────────────
-        // 4. PRIX XL DORÉ + mention honoraires
-        // ─────────────────────────────────────────────────────────────
+        // ── Prix XL doré ──────────────────────────────────────────────
         $prix = mbi_supports_get_prix($bien);
-        $pdf->SetFont('dejavusans', 'B', 54);
+        $pdf->SetFont('dejavusans', 'B', 36);
         $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-        $pdf->SetXY($marginX, $blockY);
-        $pdf->Cell($contentW, 20, mbi_supports_format_prix($prix), 0, 1, 'L');
+        $pdf->SetXY($px, $py);
+        $pdf->Cell($pw, 14, mbi_supports_format_prix($prix), 0, 1, 'L');
+        $py += 14;
 
         $charge = mbi_supports_tpl_charge_honoraires($bien);
         if ($charge !== '') {
-            $pdf->SetFont('dejavusans', '', 12);
+            $pdf->SetFont('dejavusans', '', 9);
             $pdf->SetTextColor(110, 116, 130);
-            $pdf->SetX($marginX);
-            $pdf->Cell($contentW, 6, $charge, 0, 1, 'L');
+            $pdf->SetXY($px, $py);
+            $pdf->Cell($pw, 4, $charge, 0, 1, 'L');
+            $py += 4;
         }
-        $blockY = $pdf->GetY() + 6;
+        $py += 4;
 
         // Trait or fin séparateur
         $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
-        $pdf->SetLineWidth(1.2);
-        $pdf->Line($marginX, $blockY, $marginX + 70, $blockY);
+        $pdf->SetLineWidth(0.8);
+        $pdf->Line($px, $py, $px + 35, $py);
         $pdf->SetLineWidth(0.2);
-        $blockY += 10;
+        $py += 6;
 
-        // ─────────────────────────────────────────────────────────────
-        // 5. CARACTÉRISTIQUES — badges colorés (jusqu'à 6, 3 par ligne)
-        // ─────────────────────────────────────────────────────────────
+        // ── Caracs principales : ligne 1 (4 mini-blocs) ───────────────
         $surf  = mbi_supports_get_surface($bien);
         $nbPcs = $bien['nb_pieces'] ?? $bien['nombre_pieces'] ?? null;
         $etage = $bien['etage'] ?? null;
         $expo  = $bien['exposition'] ?? $bien['orientation'] ?? null;
-        $dpe   = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
-        $ges   = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
-        $estCopro = (int)($bien['bien_en_copropriete'] ?? 0) === 1;
-        $coproLots = $bien['copro_nb_lots'] ?? null;
 
-        $items = [];
-        if ($surf !== null)            $items[] = ['M2',     mbi_supports_format_surface($surf)];
-        if ($nbPcs)                    $items[] = ['Pces', (string)$nbPcs];
-        if ($dpe !== '' || $ges !== '')$items[] = ['DPE/GES', ($dpe ?: '—') . ' / ' . ($ges ?: '—')];
-        if ($etage !== null && $etage !== '') $items[] = ['Etage', (string)$etage];
-        if ($expo)                     $items[] = ['Expo',   (string)$expo];
-        if ($estCopro && $coproLots)   $items[] = ['Copro',  $coproLots . ' lots'];
+        $caracs = [];
+        if ($surf !== null)            $caracs[] = ['M²', mbi_supports_format_surface($surf)];
+        if ($nbPcs)                    $caracs[] = ['Pces', (string)$nbPcs];
+        if ($etage !== null && (string)$etage !== '') $caracs[] = ['Étage', (string)$etage];
+        if ($expo)                     $caracs[] = ['Expo', mb_strtoupper(mb_substr((string)$expo, 0, 5))];
 
-        $cellW = ($contentW - 8) / 3;
-        $cellH = 22;
-        $col = 0; $row = 0;
-        foreach ($items as $it) {
-            $x = $marginX + ($col * ($cellW + 4));
-            $y = $blockY + ($row * ($cellH + 4));
-            mbi_supports_tpl_v2_badge($pdf, $x, $y, $cellW, $cellH, $it[0], $it[1], $cP, $cS, $cT);
-            $col++;
-            if ($col === 3) { $col = 0; $row++; }
+        if (!empty($caracs)) {
+            $nbC = count($caracs);
+            $cellW = ($pw - (($nbC - 1) * 3)) / $nbC;
+            foreach ($caracs as $i => $it) {
+                $x = $px + ($i * ($cellW + 3));
+                mbi_supports_tpl_carac_mini($pdf, $x, $py, $cellW, 16, $it[0], $it[1], $cP, $cT);
+            }
+            $py += 16 + 5;
         }
-        $blockY += (($row + ($col > 0 ? 1 : 0)) * ($cellH + 4)) + 10;
 
-        // ─────────────────────────────────────────────────────────────
-        // 6. VOS ATOUTS — atouts IA rédaction prioritaires, fallback sur score
-        // ─────────────────────────────────────────────────────────────
+        // ── Étiquettes DPE / GES (cercles colorés officiels) ──────────
+        $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
+        $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
+        if ($dpe !== '' || $ges !== '') {
+            mbi_supports_tpl_dpe_ges($pdf, $px, $py, $pw, $dpe, $ges);
+            $py += 22 + 4;
+        }
+
+        // ── Atouts ✓ (3 max) ──────────────────────────────────────────
         $pointsForts = $iaAtouts;
         if (empty($pointsForts) && $score && !empty($score['points_forts_json'])) {
             $pointsForts = json_decode((string)$score['points_forts_json'], true) ?: [];
         }
-
         if (!empty($pointsForts)) {
-            $boxY = $blockY;
-            $boxH = 10 + (min(3, count($pointsForts)) * 9) + 4;
-            $pdf->SetFillColor(252, 248, 240);
-            $pdf->Rect($marginX, $boxY, $contentW, $boxH, 'F');
-            $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetLineWidth(0.8);
-            $pdf->Line($marginX, $boxY, $marginX, $boxY + $boxH);
-            $pdf->SetLineWidth(0.2);
-
-            $pdf->SetFont('dejavusans', 'B', 13);
-            $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY($marginX + 6, $boxY + 4);
-            $pdf->Cell($contentW - 12, 6, mb_strtoupper('Vos atouts'), 0, 1, 'L');
-
             $i = 0;
             foreach (array_slice($pointsForts, 0, 3) as $pf) {
-                $pdf->SetXY($marginX + 6, $boxY + 12 + ($i * 9));
-                // checkmark or
+                if ($py > $cy + $ch - 10) break;
+                $pdf->SetXY($px, $py);
                 $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-                $pdf->SetFont('dejavusans', 'B', 14);
-                $pdf->Cell(7, 7, '✓', 0, 0, 'L');
-                // texte
+                $pdf->SetFont('dejavusans', 'B', 11);
+                $pdf->Cell(6, 6, '✓', 0, 0, 'L');
                 $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
-                $pdf->SetFont('dejavusans', '', 13);
-                $pdf->Cell($contentW - 18, 7, mb_substr((string)$pf, 0, 110), 0, 0, 'L');
+                $pdf->SetFont('dejavusans', '', 10);
+                $pdf->SetXY($px + 6, $py);
+                $pdf->MultiCell($pw - 6, 5, mb_substr((string)$pf, 0, 95), 0, 'L');
+                $py = $pdf->GetY() + 2;
                 $i++;
             }
-            $blockY = $boxY + $boxH + 10;
         }
 
-        // ── Texte de l'annonce / description du bien ─────────────────────
-        // Source en cascade :
-        //   1. surcharge éditeur (description_personnalisee)
-        //   2. paragraphe IA rédigé pour l'angle courant (Lot 2)
-        //   3. annonce.description / annonce.texte_ia
-        //   4. bien.description
-        $descCommerciale = (string)($bien['_annonce_description'] ?? '');
-        if ($descCommerciale === '' && $iaParagraph !== '') {
-            $descCommerciale = $iaParagraph;
-        }
-        if ($descCommerciale === '') {
-            $descCommerciale = (string)($bien['description'] ?? $bien['descriptif'] ?? '');
-        }
-        if ($descCommerciale !== '') {
-            $hasAtouts = !empty($pointsForts);
-            $hasAnnonce = !empty($bien['_annonce_description']);
-
-            // Titre de section (selon source)
-            $pdf->SetFont('dejavusans', 'B', 12);
-            $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
-            $pdf->SetXY($marginX, $blockY);
-            $titreSection = $hasAnnonce ? 'L\'ANNONCE' : 'DESCRIPTION';
-            $pdf->Cell($contentW, 6, $titreSection, 0, 1, 'L');
-            $blockY = $pdf->GetY() + 1;
-
-            // Trait or court
-            $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetLineWidth(0.6);
-            $pdf->Line($marginX, $blockY, $marginX + 30, $blockY);
-            $pdf->SetLineWidth(0.2);
-            $blockY += 4;
-
-            // Texte
-            $pdf->SetFont('dejavusans', '', 11);
-            $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
-            $pdf->SetXY($marginX, $blockY);
-            // Sur A3 on peut se permettre 800 chars (3-4 paragraphes)
-            $maxLen = $hasAtouts ? 600 : 900;
-            $extrait = mb_substr($descCommerciale, 0, $maxLen);
-            if (mb_strlen($descCommerciale) > $maxLen) $extrait .= '...';
-            $pdf->MultiCell($contentW, 5.5, $extrait, 0, 'J');
-            $blockY = $pdf->GetY() + 6;
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        // 7. Mention DPE en cours / non soumis si applicable
-        // ─────────────────────────────────────────────────────────────
+        // Mention DPE en cours / non soumis si applicable (en bas de la carte)
         $mentionDpe = '';
         if (!empty($mentionsTextes['dpe_en_cours']))    $mentionDpe = $mentionsTextes['dpe_en_cours'];
         if (!empty($mentionsTextes['dpe_non_soumis']))  $mentionDpe = $mentionsTextes['dpe_non_soumis'];
-        if ($mentionDpe !== '') {
-            $pdf->SetFont('dejavusans', 'I', 10);
+        if ($mentionDpe !== '' && $py < $cy + $ch - 10) {
+            $pdf->SetFont('dejavusans', 'I', 7.5);
             $pdf->SetTextColor(120, 80, 30);
-            $pdf->SetXY($marginX, $blockY);
-            $pdf->MultiCell($contentW, 5, $mentionDpe, 0, 'L');
+            $pdf->SetXY($px, $cy + $ch - 9);
+            $pdf->MultiCell($pw, 3.5, $mentionDpe, 0, 'L');
         }
 
         // ─────────────────────────────────────────────────────────────
-        // 8. PIED mentions légales (toujours en bas, fond navy)
+        // 4. MOSAÏQUE THUMBS en bas-gauche (selon nb_photos)
         // ─────────────────────────────────────────────────────────────
-        mbi_supports_tpl_v2_pied($pdf, $ctx, $cP, $cS, $pageW, $pageH);
+        $heroId = (int)($hero['id'] ?? 0);
+        // Sélection des thumbs : sélection manuelle (photos_ids_secondaires) > auto (ordre BDD)
+        $idsManuel = $ctx['photos_ids_secondaires'] ?? null;
+        $autres = [];
+        if (is_array($idsManuel) && !empty($idsManuel)) {
+            // Ordre = ordre fourni par l'utilisateur, exclut le héro, limite nb_photos-1
+            $byId = [];
+            foreach ($photos as $p) {
+                $byId[(int)($p['id'] ?? 0)] = $p;
+            }
+            foreach ($idsManuel as $idP) {
+                $idP = (int)$idP;
+                if ($idP <= 0 || $idP === $heroId) continue;
+                if (!isset($byId[$idP])) continue;
+                $autres[] = $byId[$idP];
+                if (count($autres) >= ($nbPhotos - 1)) break;
+            }
+        } else {
+            // Auto : ordre BDD (ordre, id), exclut héro, limite nb_photos-1
+            foreach ($photos as $p) {
+                if ((int)($p['id'] ?? 0) === $heroId) continue;
+                $autres[] = $p;
+                if (count($autres) >= ($nbPhotos - 1)) break;
+            }
+        }
+
+        if ($nbPhotos > 1 && !empty($autres)) {
+            $tw = 42;
+            $th = 30;
+            $tg = 5;
+            $tx0 = 20;
+            $ty  = $photoH - $th - 10;
+
+            // Ligne fine or au-dessus pour signature
+            $pdf->SetFillColor($cS[0], $cS[1], $cS[2]);
+            $pdf->Rect($tx0, $ty - 4, ($tw + $tg) * count($autres) - $tg, 0.8, 'F');
+
+            foreach ($autres as $i => $p) {
+                $tpath = mbi_supports_resoudre_photo_path($p);
+                $tx = $tx0 + $i * ($tw + $tg);
+                if ($tpath !== null) {
+                    try {
+                        $pdf->Image($tpath, $tx, $ty, $tw, $th, '', '', '', false, 250, '', false, false, 0, 'CM', false, false);
+                    } catch (Throwable) {
+                        $pdf->SetFillColor(220, 224, 232);
+                        $pdf->Rect($tx, $ty, $tw, $th, 'F');
+                    }
+                } else {
+                    $pdf->SetFillColor(220, 224, 232);
+                    $pdf->Rect($tx, $ty, $tw, $th, 'F');
+                }
+                // Cadre or fin autour
+                $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
+                $pdf->SetLineWidth(0.4);
+                $pdf->Rect($tx, $ty, $tw, $th, 'D');
+                $pdf->SetLineWidth(0.2);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // 5. PIED NAVY fin (mentions agence)
+        // ─────────────────────────────────────────────────────────────
+        mbi_supports_tpl_pied_landscape($pdf, $ctx, $cP, $cS, $pageW, $pageH, $piedH);
 
         return $pdf;
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Helpers V2 (placeholder, badge, pied) — adaptés A3
-// ─────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════
+// Helpers spécifiques landscape
+// ═════════════════════════════════════════════════════════════════════════
+
+if (!function_exists('mbi_supports_tpl_carac_mini')) {
+    /**
+     * Mini-bloc caractéristique : label tiny gris en haut + valeur bold navy en bas.
+     * Pas de fond — la carte info translucide assure la lisibilité.
+     */
+    function mbi_supports_tpl_carac_mini(TCPDF $pdf, float $x, float $y, float $w, float $h, string $label, string $value, array $cP, array $cT): void
+    {
+        // Trait or fin à gauche
+        // (volontairement minimaliste pour la densité de la carte)
+        $pdf->SetFont('dejavusans', '', 7.5);
+        $pdf->SetTextColor(120, 126, 140);
+        $pdf->SetXY($x, $y);
+        $pdf->Cell($w, 4, mb_strtoupper($label), 0, 0, 'L');
+
+        $pdf->SetFont('dejavusans', 'B', 14);
+        $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
+        $pdf->SetXY($x, $y + 5);
+        $pdf->Cell($w, 9, $value, 0, 0, 'L');
+    }
+}
+
+if (!function_exists('mbi_supports_tpl_dpe_ges')) {
+    /**
+     * Étiquettes DPE et GES côte à côte sous forme de pastilles colorées
+     * avec la lettre officielle. Couleurs ADEME.
+     */
+    function mbi_supports_tpl_dpe_ges(TCPDF $pdf, float $x, float $y, float $w, string $dpe, string $ges): void
+    {
+        $couleurs = [
+            'A' => [0, 159, 58],    // vert foncé
+            'B' => [80, 183, 62],   // vert clair
+            'C' => [196, 216, 61],  // jaune-vert
+            'D' => [255, 240, 53],  // jaune
+            'E' => [245, 181, 61],  // orange clair
+            'F' => [232, 90, 58],   // orange foncé
+            'G' => [210, 44, 46],   // rouge
+        ];
+        $cellW = 28;
+        $cellH = 22;
+        $gap   = 6;
+
+        // Wrapper "DPE | GES"
+        $pdf->SetFont('dejavusans', 'B', 7);
+        $pdf->SetTextColor(120, 126, 140);
+        $pdf->SetXY($x, $y);
+        $pdf->Cell($cellW + $gap + $cellW, 4, 'DPE  ·  GES', 0, 0, 'L');
+
+        $py = $y + 4;
+
+        // DPE
+        $cDPE = $couleurs[$dpe] ?? [200, 200, 200];
+        $pdf->SetFillColor($cDPE[0], $cDPE[1], $cDPE[2]);
+        $pdf->Rect($x, $py, $cellW, $cellH, 'F');
+        $pdf->SetFont('dejavusans', 'B', 16);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetXY($x, $py + 2);
+        $pdf->Cell($cellW, 12, $dpe !== '' ? $dpe : '—', 0, 0, 'C');
+        $pdf->SetFont('dejavusans', 'B', 6);
+        $pdf->SetXY($x, $py + 14);
+        $pdf->Cell($cellW, 5, 'DPE', 0, 0, 'C');
+
+        // GES
+        $cGES = $couleurs[$ges] ?? [200, 200, 200];
+        $pdf->SetFillColor($cGES[0], $cGES[1], $cGES[2]);
+        $pdf->Rect($x + $cellW + $gap, $py, $cellW, $cellH, 'F');
+        $pdf->SetFont('dejavusans', 'B', 16);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetXY($x + $cellW + $gap, $py + 2);
+        $pdf->Cell($cellW, 12, $ges !== '' ? $ges : '—', 0, 0, 'C');
+        $pdf->SetFont('dejavusans', 'B', 6);
+        $pdf->SetXY($x + $cellW + $gap, $py + 14);
+        $pdf->Cell($cellW, 5, 'GES', 0, 0, 'C');
+    }
+}
+
+if (!function_exists('mbi_supports_tpl_pied_landscape')) {
+    /**
+     * Pied navy fin pour A3 landscape (18 mm).
+     * Densité optimisée : agence sur 1 ligne + mentions sur 1 ligne + contact négo.
+     */
+    function mbi_supports_tpl_pied_landscape(TCPDF $pdf, array $ctx, array $cP, array $cS, float $pageW, float $pageH, float $piedH): void
+    {
+        $agence      = $ctx['agence']      ?? [];
+        $bien        = $ctx['bien']        ?? [];
+        $negociateur = $ctx['negociateur'] ?? [];
+
+        $piedY = $pageH - $piedH;
+        $pdf->SetFillColor($cP[0], $cP[1], $cP[2]);
+        $pdf->Rect(0, $piedY, $pageW, $piedH, 'F');
+
+        // Trait or fin haut du pied
+        $pdf->SetFillColor($cS[0], $cS[1], $cS[2]);
+        $pdf->Rect(0, $piedY, $pageW, 1.2, 'F');
+
+        // Pioche RCP/GF selon activité du bien (vente=T, location=G)
+        $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
+        $activiteCible = match (true) {
+            str_contains($typeTr, 'vente'),
+            str_contains($typeTr, 'cession') => 'transaction',
+            str_contains($typeTr, 'location') => 'gestion',
+            default => null,
+        };
+        $rcpAct = ($activiteCible && !empty($agence['activites'][$activiteCible]['rc_pro_assureur']))
+            ? (string)$agence['activites'][$activiteCible]['rc_pro_assureur'] : '';
+        $gfAct  = ($activiteCible && !empty($agence['activites'][$activiteCible]['garant_nom']))
+            ? (string)$agence['activites'][$activiteCible]['garant_nom'] : '';
+
+        $cartePro = trim((string)($agence['carte_pro_numero'] ?? $agence['carte_pro'] ?? ''));
+        $garant   = trim($gfAct  ?: (string)($agence['garant_financier'] ?? $agence['garantie_financiere'] ?? ''));
+        $rcPro    = trim($rcpAct ?: (string)($agence['rc_pro']           ?? $agence['assurance_rc_pro'] ?? ''));
+
+        // ── Ligne 1 : Nom agence (gauche) + Contact négociateur (droite)
+        $nomAg = (string)($agence['nom_agence'] ?? $agence['nom'] ?? 'Agence');
+        $pdf->SetFont('dejavusans', 'B', 12);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetXY(20, $piedY + 3.5);
+        $pdf->Cell($pageW / 2 - 24, 5, $nomAg, 0, 0, 'L');
+
+        if ($negociateur) {
+            $nego = trim(($negociateur['prenom'] ?? '') . ' ' . ($negociateur['nom'] ?? ''));
+            $tel  = trim((string)($negociateur['telephone_pro'] ?? ''));
+            $mail = trim((string)($negociateur['email'] ?? ''));
+            $partsNego = array_filter([$nego, $tel, $mail]);
+            $pdf->SetFont('dejavusans', 'B', 10);
+            $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+            $pdf->SetXY($pageW / 2, $piedY + 3.8);
+            $pdf->Cell($pageW / 2 - 20, 5, '✦ ' . implode('  ·  ', $partsNego), 0, 0, 'R');
+        }
+
+        // ── Ligne 2 : adresse agence + tel + email (gauche)
+        $coord = trim(
+            (string)($agence['adresse'] ?? '') . ' · ' .
+            trim((string)($agence['code_postal'] ?? '') . ' ' . ($agence['ville'] ?? '')) . ' · ' .
+            ($agence['telephone'] ?? '') . ' · ' .
+            ($agence['email'] ?? ''),
+            ' ·'
+        );
+        $pdf->SetFont('dejavusans', '', 8.5);
+        $pdf->SetTextColor(220, 222, 230);
+        $pdf->SetXY(20, $piedY + 9);
+        $pdf->Cell($pageW - 40, 4, $coord, 0, 0, 'L');
+
+        // ── Ligne 3 : carte pro + garant + RC pro (gauche)
+        $infos = array_filter([
+            $cartePro !== '' ? 'Carte pro ' . $cartePro : '',
+            $garant   !== '' ? 'Garant ' . $garant : '',
+            $rcPro    !== '' ? 'RC Pro ' . $rcPro : '',
+        ]);
+        if (!empty($infos)) {
+            $pdf->SetFont('dejavusans', '', 7.5);
+            $pdf->SetTextColor(180, 186, 200);
+            $pdf->SetXY(20, $piedY + 13);
+            $pdf->Cell($pageW - 130, 4, implode('  ·  ', $infos), 0, 0, 'L');
+        }
+
+        // Copro mention (droite ligne 3) si applicable
+        if ((int)($bien['bien_en_copropriete'] ?? 0) === 1) {
+            $copLots = $bien['copro_nb_lots'] ?? null;
+            $copChg  = $bien['copro_quote_part_charges'] ?? $bien['copro_charges_annuelles'] ?? null;
+            $copProc = (int)($bien['copro_procedure'] ?? 0) === 1;
+            $partsCopro = ['Copro ' . ($copLots ?: '?') . ' lots'];
+            if ($copChg) $partsCopro[] = '~' . number_format((float)$copChg, 0, ',', ' ') . ' €/an';
+            $partsCopro[] = $copProc ? 'L611-1 en cours' : 'sans L611-1';
+            $pdf->SetFont('dejavusans', '', 7.5);
+            $pdf->SetTextColor(180, 186, 200);
+            $pdf->SetXY($pageW - 110, $piedY + 13);
+            $pdf->Cell(90, 4, implode(' · ', $partsCopro), 0, 0, 'R');
+        }
+
+        // "Partenaire MaBoxImmo" tout en bas (italique or)
+        $pdf->SetFont('dejavusans', 'I', 6.5);
+        $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+        $pdf->SetXY($pageW - 60, $piedY + $piedH - 4);
+        $pdf->Cell(40, 3, 'Partenaire MaBoxImmo', 0, 0, 'R');
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Helpers conservés (palette angle, placeholder, badge legacy, pieds legacy)
+// — réutilisés par fiche_client.php et autres templates
+// ═════════════════════════════════════════════════════════════════════════
 
 if (!function_exists('mbi_supports_tpl_angle_palette')) {
-    /**
-     * Palette par angle marketing — accent secondaire et libellé pour le badge.
-     * Renvoie ['rgb' => [r,g,b], 'libelle' => 'Pour la famille', …]
-     * @param array $cSDefault Couleur secondaire de la charte (fallback)
-     */
     function mbi_supports_tpl_angle_palette(string $angle, array $cSDefault): array
     {
         $palettes = [
-            'famille'        => ['rgb' => [42, 122, 95],  'libelle' => 'Pour la famille'],   // vert sapin
-            'investisseur'   => ['rgb' => [66, 96, 140],  'libelle' => 'Investisseur'],      // bleu acier
-            'premium'        => ['rgb' => [165, 124, 50], 'libelle' => 'Premium'],           // or profond
-            'premier_achat'  => ['rgb' => [192, 102, 70], 'libelle' => 'Primo-accédant'],    // terracotta
+            'famille'        => ['rgb' => [42, 122, 95],  'libelle' => 'Pour la famille'],
+            'investisseur'   => ['rgb' => [66, 96, 140],  'libelle' => 'Investisseur'],
+            'premium'        => ['rgb' => [165, 124, 50], 'libelle' => 'Premium'],
+            'premier_achat'  => ['rgb' => [192, 102, 70], 'libelle' => 'Primo-accédant'],
         ];
         if (isset($palettes[$angle])) return $palettes[$angle];
         return ['rgb' => $cSDefault, 'libelle' => ''];
@@ -344,7 +574,7 @@ if (!function_exists('mbi_supports_tpl_v2_placeholder')) {
         }
         $pdf->SetFont('dejavusans', 'B', 18);
         $pdf->SetTextColor($color[0], $color[1], $color[2]);
-        $pdf->SetXY($x, $y + ($h/2) - 5);
+        $pdf->SetXY($x, $y + ($h / 2) - 5);
         $pdf->Cell($w, 10, 'PHOTO À AJOUTER', 0, 0, 'C');
     }
 }
@@ -352,24 +582,18 @@ if (!function_exists('mbi_supports_tpl_v2_placeholder')) {
 if (!function_exists('mbi_supports_tpl_v2_badge')) {
     function mbi_supports_tpl_v2_badge(TCPDF $pdf, float $x, float $y, float $w, float $h, string $label, string $value, array $cP, array $cS, array $cT): void
     {
-        // Cercle navy à gauche
         $cR = $h / 2 - 1;
         $pdf->SetFillColor($cP[0], $cP[1], $cP[2]);
         $pdf->Circle($x + $cR + 1, $y + $cR + 1, $cR, 0, 360, 'F');
-
-        // Label dans le cercle (or)
         $pdf->SetFont('dejavusans', 'B', 9);
         $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
         $pdf->SetXY($x, $y + 2);
         $pdf->Cell($cR * 2 + 2, $cR * 2 - 2, mb_substr($label, 0, 5), 0, 0, 'C');
-
-        // Texte à droite : caption + valeur
         $textX = $x + $cR * 2 + 5;
         $pdf->SetFont('dejavusans', '', 9);
         $pdf->SetTextColor(110, 116, 130);
         $pdf->SetXY($textX, $y + 2);
         $pdf->Cell($w - $cR * 2 - 6, 5, mb_strtoupper($label), 0, 0, 'L');
-
         $pdf->SetFont('dejavusans', 'B', 14);
         $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
         $pdf->SetXY($textX, $y + 9);
@@ -378,6 +602,11 @@ if (!function_exists('mbi_supports_tpl_v2_badge')) {
 }
 
 if (!function_exists('mbi_supports_tpl_v2_pied')) {
+    /**
+     * Pied legacy A3 portrait (44 mm) — conservé pour fiche_client.php
+     * et compatibilité ascendante. L'affiche vitrine A3 H utilise désormais
+     * mbi_supports_tpl_pied_landscape() (18 mm).
+     */
     function mbi_supports_tpl_v2_pied(TCPDF $pdf, array $ctx, array $cP, array $cS, float $pageW = 210, float $pageH = 297): void
     {
         $agence = $ctx['agence'] ?? [];
@@ -388,30 +617,21 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
         $piedY = $pageH - $piedH;
         $pdf->SetFillColor($cP[0], $cP[1], $cP[2]);
         $pdf->Rect(0, $piedY, $pageW, $piedH, 'F');
-
-        // Trait or fin en haut du pied
         $pdf->SetFillColor($cS[0], $cS[1], $cS[2]);
         $pdf->Rect(0, $piedY, $pageW, 1.6, 'F');
 
-        // Nom agence
         $pdf->SetFont('dejavusans', 'B', 14);
         $pdf->SetTextColor(255, 255, 255);
         $pdf->SetXY(18, $piedY + 5);
         $nomAg = (string)($agence['nom_agence'] ?? $agence['nom'] ?? 'Agence');
         $pdf->Cell(180, 7, $nomAg, 0, 1, 'L');
 
-        // Coordonnées
         $pdf->SetFont('dejavusans', '', 10);
         $pdf->SetTextColor(220, 222, 230);
         $pdf->SetXY(18, $piedY + 14);
         $coord = trim((string)($agence['adresse'] ?? '') . ' · ' . trim((string)($agence['code_postal'] ?? '') . ' ' . ($agence['ville'] ?? '')) . ' · ' . ($agence['telephone'] ?? '') . ' · ' . ($agence['email'] ?? ''), ' ·');
         $pdf->Cell($pageW - 36, 5, $coord, 0, 1, 'L');
 
-        // Carte pro / garant / RC pro
-        // Refactor 2026-05-08 : pioche la bonne RCP/GF selon l'activité du bien.
-        // - Vente → activité Transaction (T)
-        // - Location → activité Gestion (G)
-        // - Fallback : valeur générique au niveau société (helper agence_load_with_societe_docs).
         $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
         $activiteCible = match (true) {
             str_contains($typeTr, 'vente'),
@@ -420,11 +640,9 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
             default => null,
         };
         $rcpAct = ($activiteCible && !empty($agence['activites'][$activiteCible]['rc_pro_assureur']))
-            ? (string)$agence['activites'][$activiteCible]['rc_pro_assureur']
-            : '';
+            ? (string)$agence['activites'][$activiteCible]['rc_pro_assureur'] : '';
         $gfAct  = ($activiteCible && !empty($agence['activites'][$activiteCible]['garant_nom']))
-            ? (string)$agence['activites'][$activiteCible]['garant_nom']
-            : '';
+            ? (string)$agence['activites'][$activiteCible]['garant_nom'] : '';
 
         $cartePro = trim((string)($agence['carte_pro_numero'] ?? $agence['carte_pro'] ?? ''));
         $garant   = trim($gfAct ?: (string)($agence['garant_financier'] ?? $agence['garantie_financiere'] ?? ''));
@@ -434,13 +652,11 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
             $garant   !== '' ? 'Garant ' . $garant : '',
             $rcPro    !== '' ? 'RC Pro ' . $rcPro : '',
         ]);
-
         $pdf->SetFont('dejavusans', '', 8.5);
         $pdf->SetTextColor(180, 185, 200);
         $pdf->SetXY(18, $piedY + 21);
         $pdf->MultiCell($pageW - 36, 4, implode(' · ', $infos), 0, 'L');
 
-        // Copro mention si applicable
         if ((int)($bien['bien_en_copropriete'] ?? 0) === 1) {
             $copLots = $bien['copro_nb_lots'] ?? null;
             $copChg  = $bien['copro_quote_part_charges'] ?? null;
@@ -452,7 +668,6 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
             $pdf->MultiCell($pageW - 36, 4, implode(' · ', $partsCopro), 0, 'L');
         }
 
-        // Négociateur en bas (doré discret à droite)
         if ($negociateur) {
             $nego = trim(($negociateur['prenom'] ?? '') . ' ' . ($negociateur['nom'] ?? ''));
             $tel  = trim((string)($negociateur['telephone_pro'] ?? ''));
@@ -462,7 +677,6 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
             $pdf->Cell($pageW - 36, 4, 'Votre contact : ' . $nego . ($tel ? ' · ' . $tel : ''), 0, 0, 'R');
         }
 
-        // "Partenaire MaBoxImmo" en doré italique discret (en bas à gauche)
         $pdf->SetFont('dejavusans', 'I', 8);
         $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
         $pdf->SetXY(18, $piedY + 36);
@@ -470,9 +684,9 @@ if (!function_exists('mbi_supports_tpl_v2_pied')) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Helpers conservés (utilisés par fiche_client.php aussi)
-// ─────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════
+// Helpers conservés pour fiche_client.php
+// ═════════════════════════════════════════════════════════════════════════
 
 if (!function_exists('mbi_supports_tpl_placeholder')) {
     function mbi_supports_tpl_placeholder(TCPDF $pdf, float $x, float $y, float $w, float $h, array $color): void
@@ -512,7 +726,6 @@ if (!function_exists('mbi_supports_tpl_charge_honoraires')) {
 if (!function_exists('mbi_supports_tpl_pied_mentions')) {
     function mbi_supports_tpl_pied_mentions(TCPDF $pdf, array $ctx, array $cP, array $cT): void
     {
-        // Pour la fiche client (pied multi-page léger, pas le pied vitrine plein)
         $agence    = $ctx['agence']    ?? [];
         $negociateur = $ctx['negociateur'] ?? [];
 
@@ -521,7 +734,6 @@ if (!function_exists('mbi_supports_tpl_pied_mentions')) {
         $pdf->Line(15, $pdf->GetY(), 195, $pdf->GetY());
         $pdf->Ln(1);
 
-        // Pied fiche client : pioche RCP/GF selon activité du bien (vente=T, location=G)
         $typeTrFc = strtolower((string)($ctx['bien']['type_transaction'] ?? ''));
         $activiteCibleFc = match (true) {
             str_contains($typeTrFc, 'vente'),
