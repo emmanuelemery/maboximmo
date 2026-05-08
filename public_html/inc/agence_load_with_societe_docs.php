@@ -94,22 +94,34 @@ if (!function_exists('agence_load_with_societe_docs')) {
     {
         if ($idAgence <= 0) return null;
         try {
+            // COALESCE étendu pour rattraper le mismatch de noms entre :
+            //  - api/societe_doc_analyze.php qui écrit dans societes.numero_carte_t /
+            //    cci_carte_t / carte_t_date_expiration (anciens noms historiques)
+            //  - migration 20260508_2 qui a ajouté carte_pro_numero / carte_pro_cci /
+            //    carte_pro_validite (nouveaux noms canoniques)
+            // Le helper expose toujours les noms canoniques (carte_pro_*) en sortie,
+            // mais lit les 2 sources pour ne rater aucune valeur OCR existante.
             $sql = "
                 SELECT a.*,
-                  -- Colonnes officielles depuis societes (override les éventuelles
-                  -- valeurs résiduelles sur agences.* via COALESCE prio société).
+                  -- RC pro : société prio, fallback agence
                   COALESCE(s.rc_pro,             a.rc_pro)             AS rc_pro,
                   COALESCE(s.rc_pro_numero,      NULL)                 AS rc_pro_numero,
                   COALESCE(s.rc_pro_validite,    a.rc_pro_validite)    AS rc_pro_validite,
                   COALESCE(s.rc_pro_montant,     NULL)                 AS rc_pro_montant,
-                  COALESCE(s.carte_pro_numero,   a.carte_pro_numero)   AS carte_pro_numero,
-                  COALESCE(s.carte_pro_cci,      a.carte_pro_cci)      AS carte_pro_cci,
-                  COALESCE(s.carte_pro_validite, a.carte_pro_validite) AS carte_pro_validite,
-                  COALESCE(s.garant_financier,   a.garant_financier)   AS garant_financier,
-                  COALESCE(s.garant_validite,    a.garant_validite)    AS garant_validite,
-                  COALESCE(s.garant_montant,     a.garant_montant)     AS garant_montant,
+
+                  -- Carte pro CPI : alias entre noms canoniques et anciens
+                  COALESCE(s.carte_pro_numero,   s.numero_carte_t,          a.carte_pro_numero)   AS carte_pro_numero,
+                  COALESCE(s.carte_pro_cci,      s.cci_carte_t,             a.carte_pro_cci)      AS carte_pro_cci,
+                  COALESCE(s.carte_pro_validite, s.carte_t_date_expiration, a.carte_pro_validite) AS carte_pro_validite,
+
+                  -- Garantie financière : alias garant_financier ↔ garantie_financiere
+                  COALESCE(s.garant_financier,   s.garantie_financiere,     a.garant_financier)   AS garant_financier,
+                  COALESCE(s.garant_validite,    a.garant_validite)         AS garant_validite,
+                  COALESCE(s.garant_montant,     a.garant_montant)          AS garant_montant,
+
                   COALESCE(s.kbis_numero,        a.kbis_numero)        AS kbis_numero,
                   COALESCE(s.kbis_date,          a.kbis_date)          AS kbis_date,
+
                   s.bareme_url     AS societe_bareme_url,
                   s.bareme_url_doc AS societe_bareme_url_doc,
                   s.nom            AS societe_nom
@@ -126,6 +138,33 @@ if (!function_exists('agence_load_with_societe_docs')) {
             // Enrichit avec les RCP/GF par activité + flags activités société
             $idSoc = (int)($row['id_societe'] ?? 0);
             $row['activites'] = societe_load_activites_docs($pdo, $idSoc);
+
+            // Si les champs FLAT rc_pro / garant_financier sont vides (cas
+            // typique : OCR a écrit dans societes_couvertures par activité mais
+            // pas sur les colonnes flat de societes), on les remplit avec la
+            // première activité disponible. Le critic_engine et les readers
+            // legacy lisent les champs flat ; on assure la cohérence.
+            if (empty($row['rc_pro']) && !empty($row['activites'])) {
+                foreach (['transaction', 'gestion', 'syndic', 'multi'] as $act) {
+                    if (!empty($row['activites'][$act]['rc_pro_assureur'])) {
+                        $row['rc_pro']           = $row['activites'][$act]['rc_pro_assureur'];
+                        $row['rc_pro_numero']    = $row['activites'][$act]['rc_pro_numero']    ?? null;
+                        $row['rc_pro_validite']  = $row['activites'][$act]['rc_pro_validite']  ?? null;
+                        $row['rc_pro_montant']   = $row['activites'][$act]['rc_pro_montant']   ?? null;
+                        break;
+                    }
+                }
+            }
+            if (empty($row['garant_financier']) && !empty($row['activites'])) {
+                foreach (['transaction', 'gestion', 'syndic', 'multi'] as $act) {
+                    if (!empty($row['activites'][$act]['garant_nom'])) {
+                        $row['garant_financier'] = $row['activites'][$act]['garant_nom'];
+                        $row['garant_validite']  = $row['activites'][$act]['garant_validite']  ?? null;
+                        $row['garant_montant']   = $row['activites'][$act]['garant_montant']   ?? null;
+                        break;
+                    }
+                }
+            }
             // Lecture sécurisée des flags activités (peut-être absents si migration pas appliquée)
             try {
                 $st2 = $pdo->prepare("SELECT activite_immobilier, activite_transaction, activite_gestion, activite_syndic, activite_marchand, activite_rh FROM societes WHERE id = :id");
