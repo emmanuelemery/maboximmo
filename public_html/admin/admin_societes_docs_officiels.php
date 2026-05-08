@@ -231,7 +231,34 @@ function rhd_label(string $t): string {
 }
 
 function rhd_url(string $fp): string {
-    return $fp === '' ? '' : (preg_replace('#^.*?/public_html/#', '/', $fp) ?: '');
+    if ($fp === '') return '';
+
+    // 1. Résout les artefacts `/foo/../` (exemple : .../dev/api/../uploads/...)
+    //    → on obtient un chemin canonique sans réf relatives.
+    $normalized = $fp;
+    while (preg_match('#/[^/]+/\.\./#', $normalized)) {
+        $new = preg_replace('#/[^/]+/\.\./#', '/', $normalized);
+        if ($new === $normalized) break; // évite boucle infinie
+        $normalized = $new;
+    }
+
+    // 2. Détecte l'env d'origine depuis le path. Sur Hostinger les chemins
+    //    absolus contiennent /public_html/dev/ pour dev et /public_html/ pour prod.
+    //    On en déduit l'URL HTTPS publique correspondante (utile quand on browse
+    //    cette page depuis localhost — les fichiers physiques sont sur Hostinger).
+    if (str_contains($normalized, '/public_html/dev/')) {
+        $base = 'https://dev.maboximmo.fr';
+        $rel  = preg_replace('#^.*?/public_html/dev/#', '/', $normalized) ?: $normalized;
+    } elseif (str_contains($normalized, '/public_html/')) {
+        $base = 'https://maboximmo.fr';
+        $rel  = preg_replace('#^.*?/public_html/#', '/', $normalized) ?: $normalized;
+    } else {
+        // Path local (XAMPP) ou autre — on retourne tel quel, le browser fera son boulot
+        $base = '';
+        $rel  = $normalized;
+    }
+
+    return $base . $rel;
 }
 
 header('Content-Type: text/html; charset=utf-8');
