@@ -86,24 +86,39 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
         $pdf->Rect(220, 0, $pageW - 220, $photoH, 'F');
         $pdf->SetAlpha(1.0);
 
-        // ─── 2. CARTE RÉF / VILLE haut-gauche (rounded translucide) ───
+        // ─── 2. CARTE TITRE ANNONCE haut-gauche (rounded translucide) ───
+        // Priorité : titre annonce > référence bien
+        $titreAnnonce = trim((string)($bien['_annonce_titre'] ?? ''));
         $ref = (string)($bien['reference_bien'] ?? ('#' . ($bien['id'] ?? '')));
         $loc = trim((string)($bien['code_postal'] ?? '') . ' ' . ($bien['ville'] ?? ''));
-        $refTxt = mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''), 'UTF-8');
+        $refSous = trim('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''));
 
-        mbi_supports_tpl_card_round_shadow($pdf, 18, 18, 220, 28, 6.0, [10, 18, 32], 0.65, true, $cS);
+        $cardW = 240;
+        $cardH = $titreAnnonce !== '' ? 32 : 28;
+        mbi_supports_tpl_card_round_shadow($pdf, 18, 18, $cardW, $cardH, 6.0, [10, 18, 32], 0.65, true, $cS);
 
-        $pdf->SetFont('dejavusans', 'B', 13);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetXY(28, 24);
-        $pdf->Cell(200, 6, $refTxt, 0, 0, 'L');
-
-        $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
-        if ($typeBien !== '') {
-            $pdf->SetFont('dejavusans', '', 9);
+        if ($titreAnnonce !== '') {
+            $pdf->SetFont('dejavusans', 'B', 14);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY(28, 22);
+            $pdf->MultiCell($cardW - 20, 6, mb_substr($titreAnnonce, 0, 70, 'UTF-8'), 0, 'L');
+            $pdf->SetFont('dejavusans', '', 8.5);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY(28, 32);
-            $pdf->Cell(200, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
+            $pdf->SetXY(28, 18 + $cardH - 7);
+            $pdf->Cell($cardW - 20, 4, mb_strtoupper($refSous, 'UTF-8'), 0, 0, 'L');
+        } else {
+            $pdf->SetFont('dejavusans', 'B', 13);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY(28, 24);
+            $pdf->Cell($cardW - 20, 6, mb_strtoupper($refSous, 'UTF-8'), 0, 0, 'L');
+
+            $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
+            if ($typeBien !== '') {
+                $pdf->SetFont('dejavusans', '', 9);
+                $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+                $pdf->SetXY(28, 32);
+                $pdf->Cell($cardW - 20, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
+            }
         }
 
         // ─── 3. CARTE INFO TRANSLUCIDE coin droit (rounded + shadow + watermark) ───

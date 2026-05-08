@@ -130,37 +130,50 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             }
         }
 
-        // Carte réf / ville haut-gauche en overlay (rounded translucide noir)
+        // Carte titre annonce haut-gauche en overlay (rounded translucide noir)
+        // Priorité : titre annonce > référence bien
+        $titreAnnonce = trim((string)($bien['_annonce_titre'] ?? ''));
         $ref = (string)($bien['reference_bien'] ?? ('#' . ($bien['id'] ?? '')));
         $loc = trim((string)($bien['code_postal'] ?? '') . ' ' . ($bien['ville'] ?? ''));
-        $refTxt = mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''), 'UTF-8');
+        $refSous = trim('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''));
 
-        mbi_supports_tpl_card_round_shadow($pdf, $padX + 6, $padTop + 6, 215, 28, 5.0, [10, 18, 32], 0.6, true, $cS);
-        $pdf->SetFont('dejavusans', 'B', 13);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetXY($padX + 14, $padTop + 12);
-        $pdf->Cell(200, 5, $refTxt, 0, 0, 'L');
+        $cardW = 260;
+        $cardH = $titreAnnonce !== '' ? 32 : 28;
+        mbi_supports_tpl_card_round_shadow($pdf, $padX + 6, $padTop + 6, $cardW, $cardH, 5.0, [10, 18, 32], 0.65, true, $cS);
 
-        $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
-        if ($typeBien !== '') {
-            $pdf->SetFont('dejavusans', '', 9);
+        if ($titreAnnonce !== '') {
+            // Titre annonce en grand
+            $pdf->SetFont('dejavusans', 'B', 14);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($padX + 14, $padTop + 10);
+            $pdf->MultiCell($cardW - 16, 6, mb_substr($titreAnnonce, 0, 70, 'UTF-8'), 0, 'L');
+            // Réf en sous-titre or
+            $pdf->SetFont('dejavusans', '', 8.5);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY($padX + 14, $padTop + 20);
-            $pdf->Cell(200, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
+            $pdf->SetXY($padX + 14, $padTop + 6 + $cardH - 7);
+            $pdf->Cell($cardW - 16, 4, mb_strtoupper($refSous, 'UTF-8'), 0, 0, 'L');
+        } else {
+            // Fallback : réf en grand
+            $pdf->SetFont('dejavusans', 'B', 13);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($padX + 14, $padTop + 12);
+            $pdf->Cell($cardW - 16, 5, mb_strtoupper($refSous, 'UTF-8'), 0, 0, 'L');
+
+            $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
+            if ($typeBien !== '') {
+                $pdf->SetFont('dejavusans', '', 9);
+                $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
+                $pdf->SetXY($padX + 14, $padTop + 20);
+                $pdf->Cell($cardW - 16, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
+            }
         }
 
-        // Badge angle : déplacé sur la carte réf (sous le bloc réf, à droite) pour ne pas
-        // chevaucher les thumbs en haut-droite de la zone photo.
+        // Badge angle : positionné sous la carte titre/réf (jamais dans les thumbs)
         if ($angle !== 'generique' && $libAngle !== '') {
             $bw = 78;
             $bh = 12;
-            $bx = $padX + 6 + 215 + 6; // juste à droite de la carte réf
-            $by = $padTop + 6;
-            // Si dépasse la zone héro (qui se termine à $padX + $hpW), on rabat sous la carte réf
-            if ($bx + $bw > $padX + $hpW - 4) {
-                $bx = $padX + 6;
-                $by = $padTop + 6 + 28 + 4; // sous la carte réf
-            }
+            $bx = $padX + 6;
+            $by = $padTop + 6 + $cardH + 4;
             mbi_supports_tpl_card_round_shadow($pdf, $bx, $by, $bw, $bh, 5.0, $cAngle, 1.0, true);
             $pdf->SetFont('dejavusans', 'B', 10);
             $pdf->SetTextColor(255, 255, 255);
