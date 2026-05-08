@@ -210,18 +210,34 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
         mbi_supports_tpl_text_shadow(
             $pdf, $px, $py, $pw, 16,
             mbi_supports_format_prix_complet($infoPrix),
-            $cS, 'dejavusans', 'B', 32, 'L', false, 1.6, 2.2
+            $cS, 'dejavusans', 'B', 30, 'L', false, 1.6, 2.2
         );
         $py += 16;
 
-        // Honoraires adaptés vente / location ALUR
-        $charge = mbi_supports_get_honoraires_ligne($bien);
-        if ($charge !== '') {
-            $pdf->SetFont('dejavusans', '', 9);
-            $pdf->SetTextColor(110, 116, 130);
+        // ─── Conditions financières (location : loyer + charges + hono + dépôt) ───
+        $lignesCF = mbi_supports_get_conditions_financieres($bien);
+        if (!empty($lignesCF)) {
+            $pdf->SetFont('dejavusans', 'B', 8);
+            $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
             $pdf->SetXY($px, $py);
-            $pdf->MultiCell($pw, 4, $charge, 0, 'L');
-            $py = $pdf->GetY() + 1;
+            $pdf->Cell($pw, 4, mb_strtoupper(($infoPrix['type'] ?? '') === 'location' ? 'Conditions ALUR' : 'Conditions', 'UTF-8'), 0, 1, 'L');
+            $py += 4.5;
+
+            // 1 colonne dans le coin droit (cinéma) — labels gris + valeurs navy
+            $pdf->SetFont('dejavusans', '', 9);
+            foreach ($lignesCF as $cf) {
+                if ($py > $cy + $ch - 60) break; // garde de la place pour DPE + atouts
+                [$lab, $val] = $cf;
+                $pdf->SetTextColor(110, 116, 130);
+                $pdf->SetXY($px, $py);
+                $pdf->Cell($pw * 0.55, 4, $lab . ' :', 0, 0, 'L');
+                $pdf->SetFont('dejavusans', 'B', 9);
+                $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
+                $pdf->SetXY($px + $pw * 0.55, $py);
+                $pdf->Cell($pw * 0.45, 4, $val, 0, 0, 'R');
+                $pdf->SetFont('dejavusans', '', 9);
+                $py += 4.5;
+            }
         }
         $py += 4;
 

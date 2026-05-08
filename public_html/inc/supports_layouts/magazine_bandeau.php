@@ -249,20 +249,46 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         mbi_supports_tpl_text_shadow(
             $pdf, $bpx, $cy, $colLW, 17,
             mbi_supports_format_prix_complet($infoPrix),
-            [255, 232, 168], 'dejavusans', 'B', 38, 'L', false, 1.8, 2.4
+            [255, 232, 168], 'dejavusans', 'B', 36, 'L', false, 1.8, 2.4
         );
         $cy += 17;
 
-        // Honoraires : adaptés vente / location ALUR
-        $charge = mbi_supports_get_honoraires_ligne($bien);
-        if ($charge !== '') {
-            $pdf->SetFont('dejavusans', '', 10);
-            $pdf->SetTextColor(220, 222, 230);
+        // ─── CONDITIONS FINANCIÈRES (bloc dédié) ──────────────────────
+        // Vente : prix net + honoraires
+        // Location : loyer HC + charges + honoraires bail + EDL + dépôt
+        $lignesCF = mbi_supports_get_conditions_financieres($bien);
+        if (!empty($lignesCF)) {
+            // Petit titre "CONDITIONS"
+            $pdf->SetFont('dejavusans', 'B', 8.5);
+            $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
             $pdf->SetXY($bpx, $cy);
-            $pdf->MultiCell($colLW, 4.5, $charge, 0, 'L');
-            $cy = $pdf->GetY();
+            $pdf->Cell($colLW, 4, mb_strtoupper(($infoPrix['type'] ?? '') === 'location' ? 'Conditions ALUR' : 'Conditions', 'UTF-8'), 0, 1, 'L');
+            $cy += 4.5;
+
+            // Lignes en 2 colonnes pour gagner de la place (max 3 par colonne)
+            $nb = count($lignesCF);
+            $perCol = (int)ceil($nb / 2);
+            $colCFW = $colLW / 2 - 4;
+
+            $pdf->SetFont('dejavusans', '', 11);
+            for ($i = 0; $i < $nb; $i++) {
+                $col = $i < $perCol ? 0 : 1;
+                $row = $i < $perCol ? $i : ($i - $perCol);
+                $lx  = $bpx + $col * ($colCFW + 8);
+                $ly  = $cy + $row * 5;
+                [$lab, $val] = $lignesCF[$i];
+                $pdf->SetTextColor(200, 206, 220);
+                $pdf->SetXY($lx, $ly);
+                $pdf->Cell($colCFW * 0.55, 4.5, $lab . ' :', 0, 0, 'L');
+                $pdf->SetTextColor(255, 255, 255);
+                $pdf->SetFont('dejavusans', 'B', 11);
+                $pdf->SetXY($lx + $colCFW * 0.55, $ly);
+                $pdf->Cell($colCFW * 0.45, 4.5, $val, 0, 0, 'L');
+                $pdf->SetFont('dejavusans', '', 11);
+            }
+            $cy += $perCol * 5 + 3;
         }
-        $cy += 5;
+        $cy += 4;
 
         // Descriptif L'ANNONCE
         $descCommerciale = (string)($bien['_annonce_description'] ?? '');
@@ -278,13 +304,13 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $cy += 5.5;
 
             // Texte de l'annonce : 13.5pt pour grosse lisibilité vitrine
-            // Texte annonce : 17pt (+25% par rapport à 13.5)
-            $pdf->SetFont('dejavusans', '', 17);
+            // Texte annonce : 12pt — réduit pour laisser place aux conditions financières
+            $pdf->SetFont('dejavusans', '', 12);
             $pdf->SetTextColor(232, 234, 245);
             $pdf->SetXY($bpx, $cy);
-            $extrait = mb_substr($descCommerciale, 0, 380, 'UTF-8');
-            if (mb_strlen($descCommerciale, 'UTF-8') > 380) $extrait .= '...';
-            $pdf->MultiCell($colLW, 7.5, $extrait, 0, 'J');
+            $extrait = mb_substr($descCommerciale, 0, 320, 'UTF-8');
+            if (mb_strlen($descCommerciale, 'UTF-8') > 320) $extrait .= '...';
+            $pdf->MultiCell($colLW, 5.2, $extrait, 0, 'J');
         }
 
         // ── Colonne DROITE : caracs + DPE + atouts ────────────────────

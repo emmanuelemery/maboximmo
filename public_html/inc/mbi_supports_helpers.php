@@ -191,6 +191,50 @@ if (!function_exists('mbi_supports_format_prix_complet')) {
     }
 }
 
+if (!function_exists('mbi_supports_get_conditions_financieres')) {
+    /**
+     * Retourne le détail des conditions financières à afficher sur l'affiche.
+     * Format vente : prix + honoraires (charge/inclus) + détail.
+     * Format location : loyer HC + charges + honoraires bail + EDL + dépôt garantie.
+     *
+     * @return array Liste de paires [label, valeur] dans l'ordre d'affichage.
+     */
+    function mbi_supports_get_conditions_financieres(array $bien): array
+    {
+        $type = strtolower((string)($bien['type_transaction'] ?? ''));
+        $estLocation = str_contains($type, 'location');
+        $lignes = [];
+
+        if ($estLocation) {
+            $loyer   = (float)($bien['_annonce_loyer']    ?? 0);
+            $loyerCC = (float)($bien['_annonce_loyer_cc'] ?? 0);
+            $charges = ($loyerCC > 0 && $loyer > 0 && $loyerCC > $loyer) ? ($loyerCC - $loyer) : 0;
+            $hBail   = (float)($bien['_annonce_honoraires_bail'] ?? 0);
+            $hEdl    = (float)($bien['_annonce_honoraires_edl']  ?? 0);
+            $depot   = (float)($bien['_annonce_depot_garantie']  ?? 0);
+
+            if ($loyer > 0)   $lignes[] = ['Loyer HC',  number_format($loyer, 0, ',', ' ') . ' € /mois'];
+            if ($charges > 0) $lignes[] = ['Charges',   number_format($charges, 0, ',', ' ') . ' € /mois'];
+            if ($hBail > 0)   $lignes[] = ['Honoraires bail',     number_format($hBail, 2, ',', ' ') . ' €'];
+            if ($hEdl > 0)    $lignes[] = ['État des lieux',      number_format($hEdl,  2, ',', ' ') . ' €'];
+            if ($depot > 0)   $lignes[] = ['Dépôt de garantie',   number_format($depot, 0, ',', ' ') . ' €'];
+            return $lignes;
+        }
+
+        // Vente
+        $hMontant = (float)($bien['honoraires_montant'] ?? 0);
+        $hCharge  = trim((string)($bien['honoraires_charge'] ?? ''));
+        $hInclus  = trim((string)($bien['honoraires_inclus'] ?? ''));
+        $prixHors = (float)($bien['prix_hors_honoraires'] ?? $bien['prix_net_vendeur'] ?? 0);
+
+        if ($prixHors > 0) $lignes[] = ['Prix net vendeur',     number_format($prixHors, 0, ',', ' ') . ' €'];
+        if ($hMontant > 0) $lignes[] = ['Honoraires',           number_format($hMontant, 0, ',', ' ') . ' €'];
+        if ($hCharge !== '') $lignes[] = ['À la charge',        ucfirst($hCharge)];
+        if ($hInclus !== '') $lignes[] = ['Honoraires inclus',  ucfirst($hInclus)];
+        return $lignes;
+    }
+}
+
 if (!function_exists('mbi_supports_get_honoraires_ligne')) {
     /**
      * Retourne la ligne d'honoraires à afficher selon vente / location.
