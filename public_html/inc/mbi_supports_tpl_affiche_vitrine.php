@@ -26,6 +26,12 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
 
     function mbi_supports_tpl_affiche_vitrine_build(array $ctx): TCPDF
     {
+        // Force UTF-8 pour mb_strtoupper / mb_substr sur tous les serveurs
+        // (sans ça, certaines configs PHP cassent les accents en "??")
+        if (function_exists('mb_internal_encoding')) {
+            @mb_internal_encoding('UTF-8');
+        }
+
         $bien        = $ctx['bien']        ?? [];
         $photos      = $ctx['photos']      ?? [];
         $agence      = $ctx['agence']      ?? [];
@@ -106,7 +112,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         // ─────────────────────────────────────────────────────────────
         $ref = (string)($bien['reference_bien'] ?? ('#' . ($bien['id'] ?? '')));
         $loc = trim((string)($bien['code_postal'] ?? '') . ' ' . ($bien['ville'] ?? ''));
-        $refTxt = mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '   ·   ' . $loc : ''));
+        $refTxt = mb_strtoupper('Réf ' . $ref . ($loc !== '' ? '   ·   ' . $loc : ''), 'UTF-8');
 
         // Halo sombre derrière le texte pour lisibilité quoi qu'il arrive sur la photo
         $pdf->SetAlpha(0.55);
@@ -125,7 +131,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
             $pdf->SetFont('dejavusans', '', 10);
             $pdf->SetTextColor(220, 222, 230);
             $pdf->SetXY(20, 21);
-            $pdf->Cell(200, 5, mb_strtoupper($typeBien), 0, 0, 'L');
+            $pdf->Cell(200, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -172,7 +178,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
             $pdf->SetFont('dejavusans', 'B', 9);
             $pdf->SetTextColor(255, 255, 255);
             $pdf->SetXY($px, $py);
-            $pdf->Cell($bw, $bh, mb_strtoupper($libAngle), 0, 0, 'C');
+            $pdf->Cell($bw, $bh, mb_strtoupper($libAngle, 'UTF-8'), 0, 0, 'C');
             $py += $bh + 6;
         }
 
@@ -195,7 +201,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
             $accroche = $iaAccroche;
         }
         if ($accroche === '') {
-            $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110);
+            $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110, 'UTF-8');
         }
         $pdf->SetFont('dejavusans', 'BI', 16);
         $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
@@ -238,7 +244,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
         if ($surf !== null)            $caracs[] = ['M²', mbi_supports_format_surface($surf)];
         if ($nbPcs)                    $caracs[] = ['Pces', (string)$nbPcs];
         if ($etage !== null && (string)$etage !== '') $caracs[] = ['Étage', (string)$etage];
-        if ($expo)                     $caracs[] = ['Expo', mb_strtoupper(mb_substr((string)$expo, 0, 5))];
+        if ($expo)                     $caracs[] = ['Expo', mb_strtoupper(mb_substr((string)$expo, 0, 5, 'UTF-8'), 'UTF-8')];
 
         if (!empty($caracs)) {
             $nbC = count($caracs);
@@ -274,7 +280,7 @@ if (!function_exists('mbi_supports_tpl_affiche_vitrine_build')) {
                 $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
                 $pdf->SetFont('dejavusans', '', 10);
                 $pdf->SetXY($px + 6, $py);
-                $pdf->MultiCell($pw - 6, 5, mb_substr((string)$pf, 0, 95), 0, 'L');
+                $pdf->MultiCell($pw - 6, 5, mb_substr((string)$pf, 0, 95, 'UTF-8'), 0, 'L');
                 $py = $pdf->GetY() + 2;
                 $i++;
             }
@@ -378,7 +384,7 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
         $pdf->SetFont('dejavusans', '', 7.5);
         $pdf->SetTextColor(120, 126, 140);
         $pdf->SetXY($x, $y);
-        $pdf->Cell($w, 4, mb_strtoupper($label), 0, 0, 'L');
+        $pdf->Cell($w, 4, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
 
         $pdf->SetFont('dejavusans', 'B', 14);
         $pdf->SetTextColor($cP[0], $cP[1], $cP[2]);
@@ -588,12 +594,12 @@ if (!function_exists('mbi_supports_tpl_v2_badge')) {
         $pdf->SetFont('dejavusans', 'B', 9);
         $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
         $pdf->SetXY($x, $y + 2);
-        $pdf->Cell($cR * 2 + 2, $cR * 2 - 2, mb_substr($label, 0, 5), 0, 0, 'C');
+        $pdf->Cell($cR * 2 + 2, $cR * 2 - 2, mb_substr($label, 0, 5, 'UTF-8'), 0, 0, 'C');
         $textX = $x + $cR * 2 + 5;
         $pdf->SetFont('dejavusans', '', 9);
         $pdf->SetTextColor(110, 116, 130);
         $pdf->SetXY($textX, $y + 2);
-        $pdf->Cell($w - $cR * 2 - 6, 5, mb_strtoupper($label), 0, 0, 'L');
+        $pdf->Cell($w - $cR * 2 - 6, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
         $pdf->SetFont('dejavusans', 'B', 14);
         $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
         $pdf->SetXY($textX, $y + 9);
@@ -704,7 +710,7 @@ if (!function_exists('mbi_supports_tpl_card')) {
         $pdf->SetFont('dejavusans', '', 8);
         $pdf->SetTextColor(110, 116, 130);
         $pdf->SetXY($x + 2, $y + 2);
-        $pdf->Cell($w - 4, 5, mb_strtoupper($label), 0, 0, 'L');
+        $pdf->Cell($w - 4, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
         $pdf->SetFont('dejavusans', 'B', 14);
         $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
         $pdf->SetXY($x + 2, $y + 9);
