@@ -94,17 +94,25 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
         $refSous = trim('Réf ' . $ref . ($loc !== '' ? '  ·  ' . $loc : ''));
 
         $cardW = 240;
-        $cardH = $titreAnnonce !== '' ? 32 : 28;
+        $cardH = $titreAnnonce !== '' ? 44 : 28;
         mbi_supports_tpl_card_round_shadow($pdf, 18, 18, $cardW, $cardH, 6.0, [10, 18, 32], 0.65, true, $cS);
 
         if ($titreAnnonce !== '') {
-            $pdf->SetFont('dejavusans', 'B', 14);
+            // Adapte la hauteur de la carte pour titre 22pt
+            // (cardH déjà calculé selon présence titre, mais on agrandit ici)
+            $pdf->SetAlpha(0.45);
+            $pdf->SetFont('dejavusans', 'B', 22);
+            $pdf->SetTextColor(0, 0, 0);
+            $pdf->SetXY(28 + 1.2, 22 + 1.6);
+            $pdf->MultiCell($cardW - 20, 9, mb_substr($titreAnnonce, 0, 90, 'UTF-8'), 0, 'L');
+            $pdf->SetAlpha(1.0);
+            $pdf->SetFont('dejavusans', 'B', 22);
             $pdf->SetTextColor(255, 255, 255);
             $pdf->SetXY(28, 22);
-            $pdf->MultiCell($cardW - 20, 6, mb_substr($titreAnnonce, 0, 70, 'UTF-8'), 0, 'L');
-            $pdf->SetFont('dejavusans', '', 8.5);
+            $pdf->MultiCell($cardW - 20, 9, mb_substr($titreAnnonce, 0, 90, 'UTF-8'), 0, 'L');
+            $pdf->SetFont('dejavusans', '', 9);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY(28, 18 + $cardH - 7);
+            $pdf->SetXY(28, 18 + $cardH - 8);
             $pdf->Cell($cardW - 20, 4, mb_strtoupper($refSous, 'UTF-8'), 0, 0, 'L');
         } else {
             $pdf->SetFont('dejavusans', 'B', 13);
@@ -230,25 +238,29 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
         $etage = $bien['etage'] ?? null;
         $expo  = $bien['exposition'] ?? $bien['orientation'] ?? null;
 
+        // Valeurs SANS unité (label porte déjà l'unité) → permet très gros chiffres
+        $surfTxt = $surf !== null
+            ? rtrim(rtrim(number_format($surf, 2, ',', ' '), '0'), ',')
+            : null;
         $caracs = [];
-        if ($surf !== null)            $caracs[] = ['M²', mbi_supports_format_surface($surf)];
+        if ($surfTxt !== null)         $caracs[] = ['M²', $surfTxt];
         if ($nbPcs)                    $caracs[] = ['Pces', (string)$nbPcs];
         if ($etage !== null && (string)$etage !== '') $caracs[] = ['Étage', (string)$etage];
-        if ($expo)                     $caracs[] = ['Expo', mb_strtoupper(mb_substr((string)$expo, 0, 5, 'UTF-8'), 'UTF-8')];
 
         if (!empty($caracs)) {
             $nbC = count($caracs);
             $cellW = ($pw - (($nbC - 1) * 3)) / $nbC;
+            $cellH = 36;
             foreach ($caracs as $i => $it) {
                 $x = $px + ($i * ($cellW + 3));
                 mbi_supports_tpl_carac_mini(
-                    $pdf, $x, $py, $cellW, 28,
+                    $pdf, $x, $py, $cellW, $cellH,
                     $it[0], $it[1], $cP, $cT,
                     [248, 250, 252], null, $cP, true,
-                    9.0, 22.0
+                    10.0, 44.0
                 );
             }
-            $py += 28 + 6;
+            $py += $cellH + 6;
         }
 
         // Étiquettes DPE / GES officielles (barre 7 segments A→G, toujours affichées)

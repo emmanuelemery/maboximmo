@@ -139,19 +139,25 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
 
         // Largeur = toute la zone photo héro - padding (16mm marges intérieures)
         $cardW = $hpW - 12;
-        $cardH = $titreAnnonce !== '' ? 32 : 28;
-        mbi_supports_tpl_card_round_shadow($pdf, $padX + 6, $padTop + 6, $cardW, $cardH, 5.0, [10, 18, 32], 0.65, true, $cS);
+        $cardH = $titreAnnonce !== '' ? 44 : 28;
+        mbi_supports_tpl_card_round_shadow($pdf, $padX + 6, $padTop + 6, $cardW, $cardH, 6.0, [10, 18, 32], 0.65, true, $cS);
 
         if ($titreAnnonce !== '') {
-            // Titre annonce en grand
-            $pdf->SetFont('dejavusans', 'B', 14);
+            // TITRE annonce en très gros (22pt, ombre portée subtile pour relief)
+            $pdf->SetAlpha(0.45);
+            $pdf->SetFont('dejavusans', 'B', 22);
+            $pdf->SetTextColor(0, 0, 0);
+            $pdf->SetXY($padX + 14 + 1.2, $padTop + 12 + 1.6);
+            $pdf->MultiCell($cardW - 16, 9, mb_substr($titreAnnonce, 0, 90, 'UTF-8'), 0, 'L');
+            $pdf->SetAlpha(1.0);
+            $pdf->SetFont('dejavusans', 'B', 22);
             $pdf->SetTextColor(255, 255, 255);
-            $pdf->SetXY($padX + 14, $padTop + 10);
-            $pdf->MultiCell($cardW - 16, 6, mb_substr($titreAnnonce, 0, 70, 'UTF-8'), 0, 'L');
+            $pdf->SetXY($padX + 14, $padTop + 12);
+            $pdf->MultiCell($cardW - 16, 9, mb_substr($titreAnnonce, 0, 90, 'UTF-8'), 0, 'L');
             // Réf en sous-titre or
-            $pdf->SetFont('dejavusans', '', 8.5);
+            $pdf->SetFont('dejavusans', '', 9);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY($padX + 14, $padTop + 6 + $cardH - 7);
+            $pdf->SetXY($padX + 14, $padTop + 6 + $cardH - 8);
             $pdf->Cell($cardW - 16, 4, mb_strtoupper($refSous, 'UTF-8'), 0, 0, 'L');
         } else {
             // Fallback : réf en grand
@@ -289,35 +295,40 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         $etage = $bien['etage'] ?? null;
         $expo  = $bien['exposition'] ?? $bien['orientation'] ?? null;
 
+        // Valeurs SANS unité (le label porte déjà l'unité) → permet de très gros chiffres
+        $surfTxt = $surf !== null
+            ? rtrim(rtrim(number_format($surf, 2, ',', ' '), '0'), ',')
+            : null;
         $caracs = [];
-        if ($surf !== null)            $caracs[] = ['M²', mbi_supports_format_surface($surf)];
+        if ($surfTxt !== null)         $caracs[] = ['M²', $surfTxt];
         if ($nbPcs)                    $caracs[] = ['Pces', (string)$nbPcs];
         if ($etage !== null && (string)$etage !== '') $caracs[] = ['Étage', (string)$etage];
-        if ($expo)                     $caracs[] = ['Expo', mb_strtoupper(mb_substr((string)$expo, 0, 5, 'UTF-8'), 'UTF-8')];
+        // Expo en mini : on ne la met pas dans la mini-card pour ne pas tout réduire
+        // (s'affiche dans le titre headline)
 
         if (!empty($caracs)) {
             $nbC = count($caracs);
             $cellW = ($colRW - (($nbC - 1) * 4)) / $nbC;
-            $cellH = 32;
+            $cellH = 38;
             foreach ($caracs as $i => $it) {
                 $x = $colRX + ($i * ($cellW + 4));
-                // Mini bloc bg blanc rounded + ombre
-                $pdf->SetAlpha(0.18);
+                // Ombre + fond blanc translucide rounded
+                $pdf->SetAlpha(0.22);
                 $pdf->SetFillColor(15, 23, 42);
-                $pdf->RoundedRect($x + 1.0, $ry + 1.5, $cellW, $cellH, 4.0, '1111', 'F');
-                $pdf->SetAlpha(0.14);
+                $pdf->RoundedRect($x + 1.2, $ry + 1.8, $cellW, $cellH, 5.0, '1111', 'F');
+                $pdf->SetAlpha(0.16);
                 $pdf->SetFillColor(255, 255, 255);
-                $pdf->RoundedRect($x, $ry, $cellW, $cellH, 4.0, '1111', 'F');
+                $pdf->RoundedRect($x, $ry, $cellW, $cellH, 5.0, '1111', 'F');
                 $pdf->SetAlpha(1.0);
 
-                // Label en haut-gauche (small)
-                $pdf->SetFont('dejavusans', '', 9);
+                // Label en haut-gauche
+                $pdf->SetFont('dejavusans', '', 10);
                 $pdf->SetTextColor(200, 206, 220);
-                $pdf->SetXY($x + 5, $ry + 3);
+                $pdf->SetXY($x + 5, $ry + 3.5);
                 $pdf->Cell($cellW - 10, 5, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
 
-                // Valeur : XL plein hauteur, alignée à DROITE
-                $pdf->SetFont('dejavusans', 'B', 26);
+                // Valeur XXL : chiffre énorme, plein hauteur, aligné à DROITE
+                $pdf->SetFont('dejavusans', 'B', 50);
                 $pdf->SetTextColor(255, 255, 255);
                 $pdf->SetXY($x + 5, $ry);
                 $pdf->Cell($cellW - 10, $cellH, $it[1], 0, 0, 'R');
