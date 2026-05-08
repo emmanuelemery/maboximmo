@@ -198,7 +198,53 @@ foreach ($rows as $r) {
     $activitesDocs[(int)$r['id_societe']][$r['activite']] = $r;
 }
 
+// Charge les rh_documents existants par société pour les afficher en lecture
+// (PDF déjà uploadés — l'utilisateur n'a pas à les re-uploader, juste compléter
+// les champs manuellement si l'OCR n'a pas tout extrait).
+$rhDocsParSoc = [];
+try {
+    $stRhd = $pdo->query("
+        SELECT id, id_societe, type_document, emetteur, numero, date_validite,
+               montant_garantie, ocr_at, ocr_confidence, file_path, upload_date
+        FROM rh_documents
+        WHERE actif = 1
+          AND categorie IN ('societe', 'agence')
+          AND id_societe IS NOT NULL
+        ORDER BY id_societe, type_document, upload_date DESC
+    ");
+    foreach ($stRhd->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $rhDocsParSoc[(int)$r['id_societe']][$r['type_document']][] = $r;
+    }
+} catch (Throwable) {}
+
 $csrf = csrf_token();
+
+// Helper : libellé court pour type_document rh_documents
+function rhd_label(string $type): string {
+    return match ($type) {
+        'kbis' => 'KBIS',
+        'carte_pro' => 'Carte pro CPI',
+        'rcp_transaction' => 'RCP Transaction',
+        'rcp_gestion' => 'RCP Gestion',
+        'rcp_syndic' => 'RCP Syndic',
+        'rcp_marchand' => 'RCP Marchand',
+        'gf_transaction' => 'GF Transaction',
+        'gf_gestion' => 'GF Gestion',
+        'gf_syndic' => 'GF Syndic',
+        'gf_marchand' => 'GF Marchand',
+        'bareme_honoraires' => 'Barème honoraires',
+        'assurance_mri' => 'MRI',
+        default => $type,
+    };
+}
+
+// Helper : transforme un file_path absolu en URL servable
+function rhd_view_url(string $filePath): string {
+    if ($filePath === '') return '';
+    // Convertit /home/.../public_html/path/to/file.pdf → /path/to/file.pdf
+    $rel = preg_replace('#^.*?/public_html/#', '/', $filePath);
+    return $rel ?: '';
+}
 
 header('Content-Type: text/html; charset=utf-8');
 ?><!DOCTYPE html>
@@ -216,6 +262,17 @@ header('Content-Type: text/html; charset=utf-8');
   .societe-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
   .societe-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
   .societe-id { font-family: monospace; font-size: 11px; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; }
+
+  /* PDF deja uploades */
+  .docs-existants { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 12px 14px; margin: 12px 0 16px; }
+  .docs-existants-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #0369a1; font-weight: 700; margin-bottom: 8px; }
+  .docs-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .doc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; }
+  .doc-chip.ocr-ok { border-color: #86efac; background: #f0fdf4; color: #166534; }
+  .doc-chip.ocr-ko { border-color: #fca5a5; background: #fef2f2; color: #991b1b; }
+  .doc-chip a { text-decoration: none; color: inherit; }
+  .doc-chip-ico { font-size: 14px; }
+  .doc-chip-meta { font-size: 10px; color: #64748b; margin-left: 4px; }
 
   /* Activités */
   .activites { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 18px; padding: 12px 14px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; }
@@ -274,6 +331,36 @@ header('Content-Type: text/html; charset=utf-8');
     <?= htmlspecialchars((string)$s['nom']) ?>
     <span class="societe-id">id=<?= $idS ?></span>
   </h2>
+
+  <!-- Documents PDF déjà uploadés (rh_documents) - lecture seule, pas besoin de re-charger -->
+  <?php
+    $rhdSoc = $rhDocsParSoc[$idS] ?? [];
+    if (!empty($rhdSoc)):
+  ?>
+  <div class="docs-existants">
+    <div class="docs-existants-title">📎 PDF déjà uploadés (pas besoin de re-charger) — clique pour ouvrir / relancer OCR si vide</div>
+    <div class="docs-list">
+      <?php foreach ($rhdSoc as $type => $listeDocs):
+            // On prend le plus récent par type (1er de la liste car ORDER BY upload_date DESC)
+            $d = $listeDocs[0];
+            $hasOcr = !empty($d['ocr_at']) && (int)$d['ocr_confidence'] >= 50;
+            $cls    = $hasOcr ? 'ocr-ok' : 'ocr-ko';
+            $url    = rhd_view_url((string)($d['file_path'] ?? ''));
+            $confTxt = !empty($d['ocr_at']) ? ((int)$d['ocr_confidence'] . '% OCR') : 'OCR à relancer';
+      ?>
+      <span class="doc-chip <?= $cls ?>">
+        <span class="doc-chip-ico"><?= $hasOcr ? '✅' : '⚠️' ?></span>
+        <strong><?= htmlspecialchars(rhd_label($type)) ?></strong>
+        <?php if ($url !== ''): ?>
+          <a href="<?= htmlspecialchars($url) ?>" target="_blank" title="Ouvrir le PDF">📄</a>
+        <?php endif; ?>
+        <a href="admin_relancer_ocr_doc.php?id=<?= (int)$d['id'] ?>" title="Relancer l'OCR sur ce doc">🔄</a>
+        <span class="doc-chip-meta"><?= htmlspecialchars($confTxt) ?></span>
+      </span>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <!-- Activités cochables -->
   <div class="activites">
