@@ -1916,6 +1916,22 @@ $pageTitle = 'Fiche société';
 
     <!-- ══════════════ ONGLET 6 — DOCUMENTS ══════════════ -->
     <div class="rs-panel <?= $activeTab === 'documents' ? 'active' : '' ?>" id="panel-documents">
+
+      <!-- Bandeau actions admin (super admin uniquement) -->
+      <?php if ((int)current_role_id() === 1): ?>
+      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="font-size:18px;">✏️</span>
+        <div style="flex:1;min-width:240px;">
+          <div style="font-size:13px;font-weight:700;color:#92400e;">Saisie manuelle des couvertures</div>
+          <div style="font-size:11px;color:#a16207;margin-top:2px;">Ouvre un éditeur qui charge ce qui est extrait par l'IA et te laisse compléter les champs manquants — utile si l'OCR a échoué ou pour saisir en masse plusieurs sociétés.</div>
+        </div>
+        <a href="admin/admin_societes_docs_officiels.php?sa_id=<?= (int)$societeId ?>"
+           style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;background:#0ea5e9;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;white-space:nowrap;">
+          ✏️ Saisie manuelle →
+        </a>
+      </div>
+      <?php endif; ?>
+
       <?php
         // Helper de rendu de la panel "Analyse IA" sous chaque document.
         // Affiche : badge statut + bouton (ré)analyser + textarea commentaire.

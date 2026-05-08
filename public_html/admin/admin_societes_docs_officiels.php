@@ -2,18 +2,18 @@
 declare(strict_types=1);
 
 /**
- * ADMIN — Saisie manuelle des documents officiels par société + activités
+ * ADMIN — Saisie manuelle des docs officiels par société
  *
- * Permet à un super admin de :
- *   - Cocher les activités exercées par chaque société (Transaction, Gestion,
- *     Syndic, Marchand, Immobilier, RH)
- *   - Saisir les docs racine société (KBIS + Carte pro CPI)
- *   - Saisir UNE attestation RCP + UNE attestation Garantie financière par
- *     activité COCHÉE (donc max 4 RCP + 4 GF par société)
+ * Bypass de l'OCR Sonnet : remplit directement les attestations RCP + GF par
+ * activité dans `societes_couvertures` (la table existante depuis 2026-04-11),
+ * + KBIS / Carte pro CPI sur `societes.*` directement.
  *
- * Bypass de l'OCR Sonnet : utile quand l'OCR a échoué ou pour gain de temps.
+ * Cas d'usage : OCR a échoué (timeout, scan dégradé), ou on veut éviter le
+ * coût IA pour des docs qu'on connaît déjà par cœur.
  *
  * URL : /admin/admin_societes_docs_officiels.php
+ *      ou ?sa_id=N pour focus sur une société
+ *
  * Sécurité : super admin (role_id = 1) uniquement.
  */
 
@@ -28,46 +28,7 @@ if ((int)($_SESSION['id_role'] ?? 0) !== 1) {
 
 $pdo = $GLOBALS['pdo'];
 
-// Vérifie que la migration 20260508_4 a tourné (colonnes activite_* + table societe_activites_docs)
-function check_migration_activites_appliquee(PDO $pdo): array
-{
-    $missing = [];
-    try {
-        $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
-                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societes' AND COLUMN_NAME = 'activite_immobilier'");
-        $st->execute();
-        if ((int)$st->fetchColumn() === 0) $missing[] = 'societes.activite_immobilier (et autres flags activités)';
-    } catch (Throwable) { $missing[] = 'check societes.activite_immobilier impossible'; }
-    try {
-        $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES
-                             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societe_activites_docs'");
-        $st->execute();
-        if ((int)$st->fetchColumn() === 0) $missing[] = 'table societe_activites_docs';
-    } catch (Throwable) { $missing[] = 'check societe_activites_docs impossible'; }
-    return $missing;
-}
-
-$migrationMissing = check_migration_activites_appliquee($pdo);
-if (!empty($migrationMissing)) {
-    header('Content-Type: text/html; charset=utf-8');
-    echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Migration requise</title>';
-    echo '<style>body{font-family:system-ui;max-width:760px;margin:60px auto;padding:0 20px;line-height:1.6}'
-       . 'h1{color:#0f172a}.box{background:#fffbeb;border-left:4px solid #f59e0b;padding:18px 24px;border-radius:10px;margin:24px 0}'
-       . '.btn{display:inline-block;padding:10px 22px;background:#0ea5e9;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;margin-right:10px}'
-       . 'code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px}ul{margin:8px 0}</style></head><body>';
-    echo '<h1>⚠️ Migration requise</h1>';
-    echo '<div class="box">';
-    echo '<strong>Cette page nécessite la migration <code>20260508_4_activites_par_societe_agence</code></strong> qui n\'est pas encore appliquée. Éléments manquants :<ul>';
-    foreach ($migrationMissing as $m) echo '<li><code>' . htmlspecialchars($m) . '</code></li>';
-    echo '</ul></div>';
-    echo '<p><a href="admin_migrations_apply_all.php" class="btn">🚀 Appliquer toutes les migrations en attente</a>';
-    echo '<a href="admin_migrations.php" class="btn" style="background:#64748b">📋 Page Migrations BDD</a></p>';
-    echo '<p style="margin-top:30px;font-size:13px;color:#64748b">Une fois la migration appliquée, recharge cette page.</p>';
-    echo '</body></html>';
-    exit;
-}
-
-// Activités exercées par les sociétés Hoguet
+// Activités exercées (matchent l'ENUM de societes_couvertures.activite)
 const ACTIVITES = ['transaction', 'gestion', 'syndic', 'marchand'];
 const ACTIVITES_LABELS = [
     'transaction' => 'Transaction',
@@ -76,9 +37,18 @@ const ACTIVITES_LABELS = [
     'marchand'    => 'Marchand de biens',
 ];
 
-$flash = null;
+// Note : `marchand` n'est pas dans l'ENUM societes_couvertures (qui a transaction/
+// gestion/syndic/location/neuf/multi). Pour le UPSERT on mappe marchand → multi
+// en attendant une migration ALTER ENUM, sinon la PRIMARY KEY rejette la valeur.
+function mapper_activite_pour_couvertures(string $a): string
+{
+    return $a === 'marchand' ? 'multi' : $a;
+}
 
-// ─── POST : sauvegarde d'une société ───
+$flash    = null;
+$focusSoc = (int)($_GET['sa_id'] ?? 0); // focus sur une société particulière
+
+// ─── POST : sauvegarde ───
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $idSoc = (int)($_POST['id_societe'] ?? 0);
@@ -86,92 +56,123 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
 
-            // 1. Société : flags activités + docs racine (KBIS, carte pro CPI)
-            $sql = "UPDATE societes SET
-                activite_immobilier  = :imm,
-                activite_transaction = :tr,
-                activite_gestion     = :ge,
-                activite_syndic      = :sy,
-                activite_marchand    = :ma,
-                activite_rh          = :rh,
-                kbis_numero          = :kbis_num,
-                kbis_date            = :kbis_date,
-                carte_pro_numero     = :cpi_num,
-                carte_pro_cci        = :cpi_cci,
-                carte_pro_validite   = :cpi_val
-              WHERE id = :id";
-            $st = $pdo->prepare($sql);
-            $st->execute([
-                ':id'       => $idSoc,
-                ':imm'      => !empty($_POST['activite_immobilier'])  ? 1 : 0,
-                ':tr'       => !empty($_POST['activite_transaction']) ? 1 : 0,
-                ':ge'       => !empty($_POST['activite_gestion'])     ? 1 : 0,
-                ':sy'       => !empty($_POST['activite_syndic'])      ? 1 : 0,
-                ':ma'       => !empty($_POST['activite_marchand'])    ? 1 : 0,
-                ':rh'       => !empty($_POST['activite_rh'])          ? 1 : 0,
-                ':kbis_num' => trim((string)($_POST['kbis_numero']      ?? '')) ?: null,
-                ':kbis_date'=> trim((string)($_POST['kbis_date']        ?? '')) ?: null,
-                ':cpi_num'  => trim((string)($_POST['carte_pro_numero']  ?? '')) ?: null,
-                ':cpi_cci'  => trim((string)($_POST['carte_pro_cci']     ?? '')) ?: null,
-                ':cpi_val'  => trim((string)($_POST['carte_pro_validite']?? '')) ?: null,
-            ]);
+            // 1. Société : flags activités + KBIS + Carte pro CPI
+            //    (on ne touche que les colonnes qui existent — defensive)
+            $colonnesPossibles = [
+                'activite_immobilier', 'activite_transaction', 'activite_gestion',
+                'activite_syndic', 'activite_marchand', 'activite_rh',
+                'kbis_numero', 'kbis_date',
+                'carte_pro_numero', 'carte_pro_cci', 'carte_pro_validite',
+                // Variante avec les noms historiques de societe.php
+                'numero_carte_t', 'cci_carte_t', 'carte_t_date_expiration',
+            ];
+            try {
+                $stCols = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societes'");
+                $stCols->execute();
+                $existingCols = array_map('strtolower', $stCols->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            } catch (Throwable) { $existingCols = []; }
 
-            // 2. RCP + GF par activité — UPSERT sur societe_activites_docs
-            $upsertSad = $pdo->prepare("
-                INSERT INTO societe_activites_docs
-                  (id_societe, activite,
-                   rc_pro_assureur, rc_pro_numero, rc_pro_validite, rc_pro_montant,
-                   garant_nom, garant_numero, garant_validite, garant_montant,
-                   updated_by)
+            $sets   = [];
+            $params = [':id' => $idSoc];
+
+            $applyIfExists = function (string $col, $value) use (&$sets, &$params, $existingCols) {
+                if (in_array(strtolower($col), $existingCols, true)) {
+                    $sets[]              = "`{$col}` = :{$col}";
+                    $params[":{$col}"]   = $value;
+                }
+            };
+
+            $applyIfExists('activite_immobilier',  !empty($_POST['activite_immobilier'])  ? 1 : 0);
+            $applyIfExists('activite_transaction', !empty($_POST['activite_transaction']) ? 1 : 0);
+            $applyIfExists('activite_gestion',     !empty($_POST['activite_gestion'])     ? 1 : 0);
+            $applyIfExists('activite_syndic',      !empty($_POST['activite_syndic'])      ? 1 : 0);
+            $applyIfExists('activite_marchand',    !empty($_POST['activite_marchand'])    ? 1 : 0);
+            $applyIfExists('activite_rh',          !empty($_POST['activite_rh'])          ? 1 : 0);
+
+            $kbisNum  = trim((string)($_POST['kbis_numero']         ?? '')) ?: null;
+            $kbisDate = trim((string)($_POST['kbis_date']           ?? '')) ?: null;
+            $cpiNum   = trim((string)($_POST['carte_pro_numero']    ?? '')) ?: null;
+            $cpiCci   = trim((string)($_POST['carte_pro_cci']       ?? '')) ?: null;
+            $cpiVal   = trim((string)($_POST['carte_pro_validite']  ?? '')) ?: null;
+
+            $applyIfExists('kbis_numero',         $kbisNum);
+            $applyIfExists('kbis_date',           $kbisDate);
+            $applyIfExists('carte_pro_numero',    $cpiNum);
+            $applyIfExists('carte_pro_cci',       $cpiCci);
+            $applyIfExists('carte_pro_validite',  $cpiVal);
+            // Compat avec les noms historiques de societe.php
+            $applyIfExists('numero_carte_t',          $cpiNum);
+            $applyIfExists('cci_carte_t',             $cpiCci);
+            $applyIfExists('carte_t_date_expiration', $cpiVal);
+
+            if (!empty($sets)) {
+                $sql = "UPDATE societes SET " . implode(', ', $sets) . " WHERE id = :id";
+                $pdo->prepare($sql)->execute($params);
+            }
+
+            // 2. RCP + GF par activité — UPSERT en mode COMPLÉMENT
+            //    COALESCE(VALUES(col), col) : la saisie manuelle vient compléter
+            //    les valeurs existantes (issues de l'OCR ou d'une saisie précédente).
+            //    Si un champ est laissé vide dans le form, on PRÉSERVE la valeur
+            //    en base — pas d'écrasement intempestif des extractions IA.
+            $upsertCouv = $pdo->prepare("
+                INSERT INTO societes_couvertures
+                  (id_societe, type, activite, compagnie, numero_police, montant,
+                   date_expiration, est_active, version_num, updated_at)
                 VALUES
-                  (:id_soc, :act,
-                   :rcp_a, :rcp_n, :rcp_v, :rcp_m,
-                   :gf_n, :gf_num, :gf_v, :gf_m,
-                   :user)
+                  (:id_soc, :type, :act, :compagnie, :numero, :montant,
+                   :date_exp, 1, 1, NOW())
                 ON DUPLICATE KEY UPDATE
-                  rc_pro_assureur = VALUES(rc_pro_assureur),
-                  rc_pro_numero   = VALUES(rc_pro_numero),
-                  rc_pro_validite = VALUES(rc_pro_validite),
-                  rc_pro_montant  = VALUES(rc_pro_montant),
-                  garant_nom      = VALUES(garant_nom),
-                  garant_numero   = VALUES(garant_numero),
-                  garant_validite = VALUES(garant_validite),
-                  garant_montant  = VALUES(garant_montant),
-                  updated_by      = VALUES(updated_by)
+                  compagnie       = COALESCE(VALUES(compagnie),       compagnie),
+                  numero_police   = COALESCE(VALUES(numero_police),   numero_police),
+                  montant         = COALESCE(VALUES(montant),         montant),
+                  date_expiration = COALESCE(VALUES(date_expiration), date_expiration),
+                  est_active      = 1,
+                  updated_at      = NOW()
             ");
 
-            $userIdEdit = (int)($_SESSION['user_id'] ?? 0);
-
             foreach (ACTIVITES as $act) {
-                $rcp_a = trim((string)($_POST["rcp_{$act}_assureur"] ?? ''));
-                $rcp_n = trim((string)($_POST["rcp_{$act}_numero"]   ?? ''));
-                $rcp_v = trim((string)($_POST["rcp_{$act}_validite"] ?? ''));
-                $rcp_m = trim((string)($_POST["rcp_{$act}_montant"]  ?? ''));
-                $gf_n  = trim((string)($_POST["gf_{$act}_nom"]       ?? ''));
-                $gf_num= trim((string)($_POST["gf_{$act}_numero"]    ?? ''));
-                $gf_v  = trim((string)($_POST["gf_{$act}_validite"]  ?? ''));
-                $gf_m  = trim((string)($_POST["gf_{$act}_montant"]   ?? ''));
+                $actDb = mapper_activite_pour_couvertures($act);
 
-                // Skip si rien rempli pour cette activité
-                if ($rcp_a === '' && $rcp_n === '' && $gf_n === '' && $gf_num === '') continue;
+                // RC pro — upsert si AU MOINS un champ rempli (sinon on touche pas)
+                $rcpA = trim((string)($_POST["rcp_{$act}_assureur"] ?? ''));
+                $rcpN = trim((string)($_POST["rcp_{$act}_numero"]   ?? ''));
+                $rcpV = trim((string)($_POST["rcp_{$act}_validite"] ?? ''));
+                $rcpM = trim((string)($_POST["rcp_{$act}_montant"]  ?? ''));
+                if ($rcpA !== '' || $rcpN !== '' || $rcpV !== '' || $rcpM !== '') {
+                    $upsertCouv->execute([
+                        ':id_soc'    => $idSoc,
+                        ':type'      => 'rcp',
+                        ':act'       => $actDb,
+                        ':compagnie' => $rcpA ?: null,
+                        ':numero'    => $rcpN ?: null,
+                        ':montant'   => $rcpM !== '' ? (float)str_replace([' ', ','], ['', '.'], $rcpM) : null,
+                        ':date_exp'  => $rcpV ?: null,
+                    ]);
+                }
 
-                $upsertSad->execute([
-                    ':id_soc' => $idSoc,
-                    ':act'    => $act,
-                    ':rcp_a'  => $rcp_a ?: null,
-                    ':rcp_n'  => $rcp_n ?: null,
-                    ':rcp_v'  => $rcp_v ?: null,
-                    ':rcp_m'  => $rcp_m !== '' ? (float)str_replace([' ', ','], ['', '.'], $rcp_m) : null,
-                    ':gf_n'   => $gf_n  ?: null,
-                    ':gf_num' => $gf_num?: null,
-                    ':gf_v'   => $gf_v  ?: null,
-                    ':gf_m'   => $gf_m  !== '' ? (float)str_replace([' ', ','], ['', '.'], $gf_m) : null,
-                    ':user'   => $userIdEdit ?: null,
-                ]);
+                // Garantie financière
+                $gfN   = trim((string)($_POST["gf_{$act}_nom"]      ?? ''));
+                $gfNum = trim((string)($_POST["gf_{$act}_numero"]   ?? ''));
+                $gfV   = trim((string)($_POST["gf_{$act}_validite"] ?? ''));
+                $gfM   = trim((string)($_POST["gf_{$act}_montant"]  ?? ''));
+                if ($gfN !== '' || $gfNum !== '' || $gfV !== '' || $gfM !== '') {
+                    $upsertCouv->execute([
+                        ':id_soc'    => $idSoc,
+                        ':type'      => 'garantie_financiere',
+                        ':act'       => $actDb,
+                        ':compagnie' => $gfN ?: null,
+                        ':numero'    => $gfNum ?: null,
+                        ':montant'   => $gfM !== '' ? (float)str_replace([' ', ','], ['', '.'], $gfM) : null,
+                        ':date_exp'  => $gfV ?: null,
+                    ]);
+                }
             }
 
             $pdo->commit();
-            $flash = ['ok' => true, 'msg' => '✅ Société #' . $idSoc . ' enregistrée. Toutes ses agences héritent automatiquement.'];
+            $flash = ['ok' => true, 'msg' => '✅ Société #' . $idSoc . ' enregistrée. Voir le résultat sur '
+                . '<a href="../societe.php?sa_id=' . $idSoc . '#financier" target="_blank">societe.php → Financier</a>.'];
         } catch (Throwable $e) {
             $pdo->rollBack();
             $flash = ['ok' => false, 'msg' => '❌ Erreur : ' . htmlspecialchars($e->getMessage())];
@@ -180,90 +181,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ─── Chargement données ───
-$societes = $pdo->query("
-    SELECT id, nom,
-           activite_immobilier, activite_transaction, activite_gestion,
-           activite_syndic, activite_marchand, activite_rh,
-           carte_pro_numero, carte_pro_cci, carte_pro_validite,
-           kbis_numero, kbis_date
-    FROM societes
-    WHERE nom != 'Externe'
-    ORDER BY nom
-")->fetchAll(PDO::FETCH_ASSOC);
+$socWhere = $focusSoc > 0 ? 'id = ' . $focusSoc : "nom != 'Externe'";
 
-// Charge les activités docs en map [id_societe][activite] = row
-$activitesDocs = [];
-$rows = $pdo->query("SELECT * FROM societe_activites_docs ORDER BY id_societe, activite")->fetchAll(PDO::FETCH_ASSOC);
-foreach ($rows as $r) {
-    $activitesDocs[(int)$r['id_societe']][$r['activite']] = $r;
-}
+// Lecture défensive : on prend `*` pour ne pas planter si certaines colonnes manquent
+$societes = $pdo->query("SELECT * FROM societes WHERE $socWhere ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
 
-// Charge les rh_documents existants par société pour les afficher en lecture
-// (PDF déjà uploadés — l'utilisateur n'a pas à les re-uploader, juste compléter
-// les champs manuellement si l'OCR n'a pas tout extrait).
-$rhDocsParSoc = [];
+// Charge couvertures actives, indexé par [id_societe][type][activite]
+$couvertures = [];
 try {
-    $stRhd = $pdo->query("
-        SELECT id, id_societe, type_document, emetteur, numero, date_validite,
-               montant_garantie, ocr_at, ocr_confidence, file_path, upload_date
+    $rows = $pdo->query("
+        SELECT id_societe, type, activite, compagnie, numero_police, montant,
+               date_expiration
+        FROM societes_couvertures
+        WHERE est_active = 1
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $actDb = $r['activite'] === 'multi' ? 'marchand' : $r['activite'];
+        $couvertures[(int)$r['id_societe']][$r['type']][$actDb] = $r;
+    }
+} catch (Throwable) {}
+
+// rh_documents par société (chips de visualisation)
+$rhDocs = [];
+try {
+    $rows = $pdo->query("
+        SELECT id, id_societe, type_document, ocr_at, ocr_confidence, file_path, upload_date
         FROM rh_documents
-        WHERE actif = 1
-          AND categorie IN ('societe', 'agence')
+        WHERE actif = 1 AND categorie IN ('societe', 'agence')
           AND id_societe IS NOT NULL
         ORDER BY id_societe, type_document, upload_date DESC
-    ");
-    foreach ($stRhd->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $rhDocsParSoc[(int)$r['id_societe']][$r['type_document']][] = $r;
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $rhDocs[(int)$r['id_societe']][$r['type_document']][] = $r;
     }
 } catch (Throwable) {}
 
 $csrf = csrf_token();
 
-// Helper : libellé court pour type_document rh_documents
-function rhd_label(string $type): string {
-    return match ($type) {
-        'kbis' => 'KBIS',
-        'carte_pro' => 'Carte pro CPI',
-        'rcp_transaction' => 'RCP Transaction',
-        'rcp_gestion' => 'RCP Gestion',
-        'rcp_syndic' => 'RCP Syndic',
-        'rcp_marchand' => 'RCP Marchand',
-        'gf_transaction' => 'GF Transaction',
-        'gf_gestion' => 'GF Gestion',
-        'gf_syndic' => 'GF Syndic',
-        'gf_marchand' => 'GF Marchand',
-        'bareme_honoraires' => 'Barème honoraires',
-        'assurance_mri' => 'MRI',
-        default => $type,
+function rhd_label(string $t): string {
+    return match ($t) {
+        'kbis' => 'KBIS', 'carte_pro' => 'Carte pro CPI',
+        'rcp_transaction' => 'RCP T', 'rcp_gestion' => 'RCP G',
+        'rcp_syndic' => 'RCP S', 'rcp_marchand' => 'RCP M',
+        'gf_transaction' => 'GF T', 'gf_gestion' => 'GF G',
+        'gf_syndic' => 'GF S', 'gf_marchand' => 'GF M',
+        'bareme_honoraires' => 'Barème', 'assurance_mri' => 'MRI',
+        default => $t,
     };
 }
 
-// Helper : transforme un file_path absolu en URL servable
-function rhd_view_url(string $filePath): string {
-    if ($filePath === '') return '';
-    // Convertit /home/.../public_html/path/to/file.pdf → /path/to/file.pdf
-    $rel = preg_replace('#^.*?/public_html/#', '/', $filePath);
-    return $rel ?: '';
+function rhd_url(string $fp): string {
+    return $fp === '' ? '' : (preg_replace('#^.*?/public_html/#', '/', $fp) ?: '');
 }
 
 header('Content-Type: text/html; charset=utf-8');
 ?><!DOCTYPE html>
 <html lang="fr"><head>
 <meta charset="utf-8">
-<title>Docs officiels par société + activités</title>
+<title>Saisie manuelle docs officiels</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 1500px; margin: 24px auto; padding: 0 20px; line-height: 1.5; background: #f5f7fa; color: #0f172a; }
   h1 { margin-bottom: 6px; }
-  .sub { color: #64748b; font-size: 13px; margin-bottom: 20px; }
+  .sub { color: #64748b; font-size: 13px; margin-bottom: 14px; }
+  .infobox { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 10px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 13px; color: #92400e; }
   .flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; font-size: 14px; }
   .flash.ok { background: #f0fdf4; border-left: 4px solid #16a34a; color: #14532d; }
+  .flash.ok a { color: #14532d; font-weight: 700; }
   .flash.ko { background: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b; }
-
   .societe-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
   .societe-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
   .societe-id { font-family: monospace; font-size: 11px; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; }
-
-  /* PDF deja uploades */
   .docs-existants { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 12px 14px; margin: 12px 0 16px; }
   .docs-existants-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #0369a1; font-weight: 700; margin-bottom: 8px; }
   .docs-list { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -271,57 +258,55 @@ header('Content-Type: text/html; charset=utf-8');
   .doc-chip.ocr-ok { border-color: #86efac; background: #f0fdf4; color: #166534; }
   .doc-chip.ocr-ko { border-color: #fca5a5; background: #fef2f2; color: #991b1b; }
   .doc-chip a { text-decoration: none; color: inherit; }
-  .doc-chip-ico { font-size: 14px; }
   .doc-chip-meta { font-size: 10px; color: #64748b; margin-left: 4px; }
-
-  /* Activités */
   .activites { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 18px; padding: 12px 14px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; }
   .activites-label { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; align-self: center; margin-right: 6px; }
-  .check-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 99px; font-size: 13px; cursor: pointer; user-select: none; transition: all 0.15s; }
+  .check-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 99px; font-size: 13px; cursor: pointer; user-select: none; }
   .check-pill input { margin: 0; }
-  .check-pill:hover { border-color: #94a3b8; }
-  .check-pill.has-input input:checked + span { font-weight: 700; }
-  .check-pill input:checked ~ * { color: #0f766e; }
   .check-pill:has(input:checked) { background: #f0fdfa; border-color: #14b8a6; }
-
-  /* Sections principales */
+  .check-pill input:checked + span { font-weight: 700; color: #0f766e; }
   .grid-haut { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
   .group { background: #f8fafc; border-radius: 10px; padding: 14px 16px; border: 1px solid #e2e8f0; }
   .group h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; margin: 0 0 12px; font-weight: 700; }
-
-  /* Activités RCP/GF */
-  .activite-block { border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-top: 12px; transition: all 0.2s; background: #fff; }
+  .activite-block { border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-top: 12px; background: #fff; transition: all 0.2s; }
   .activite-block.active { border-color: #14b8a6; background: #f0fdfa; }
   .activite-block.disabled { opacity: 0.45; }
   .activite-block h4 { font-size: 14px; margin: 0 0 12px; color: #0f766e; font-weight: 700; }
   .activite-block.disabled h4 { color: #94a3b8; }
   .activite-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-  /* Champs */
   .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
   .field label { font-size: 11px; color: #64748b; font-weight: 600; }
   .field input { padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 13px; background: #fff; }
   .field input:focus { outline: none; border-color: #0ea5e9; box-shadow: 0 0 0 2px rgba(14,165,233,0.15); }
-
-  /* Actions */
-  .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
-  .btn { padding: 9px 20px; border-radius: 8px; border: none; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
-  .btn-primary { background: #0ea5e9; color: #fff; }
-  .btn-primary:hover { background: #0284c7; }
+  .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn { padding: 9px 20px; border-radius: 8px; border: none; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: #0ea5e9; color: #fff; } .btn-primary:hover { background: #0284c7; }
+  .btn-back { background: #fff; color: #475569; border: 1px solid #cbd5e1; } .btn-back:hover { background: #f8fafc; }
   .help { font-size: 11px; color: #94a3b8; font-style: italic; }
 </style>
 </head><body>
 
-<h1>📋 Documents officiels par société + activités</h1>
-<p class="sub">Coche les activités exercées par chaque société, puis saisis pour chacune l'assureur RC pro et le garant financier. Les agences héritent automatiquement.</p>
+<h1>✏️ Saisie manuelle docs officiels</h1>
+<p class="sub">Permet de remplir directement les attestations sans passer par l'analyse IA d'un PDF (utile quand l'OCR a échoué ou quand on a les valeurs à la main). Les données sont stockées dans <code>societes_couvertures</code> — la même table que l'onglet Financier de la fiche société.</p>
+
+<div class="infobox">
+  💡 <strong>UI complète</strong> : la fiche société à <code>societe.php?sa_id=N</code> →
+  onglet 📑 Financier affiche déjà ces attestations en lecture/édition. Cette
+  page est prévue pour les saisies en masse ou quand l'OCR est en panne.
+</div>
 
 <?php if ($flash): ?>
   <div class="flash <?= $flash['ok'] ? 'ok' : 'ko' ?>"><?= $flash['msg'] ?></div>
 <?php endif; ?>
 
+<?php if ($focusSoc > 0): ?>
+  <p><a href="?" class="btn btn-back">← Voir toutes les sociétés</a></p>
+<?php endif; ?>
+
 <?php foreach ($societes as $s):
     $idS = (int)$s['id'];
-    $actsS = $activitesDocs[$idS] ?? [];
+    $couvS = $couvertures[$idS] ?? ['rcp' => [], 'garantie_financiere' => []];
+    $rhdS  = $rhDocs[$idS] ?? [];
 ?>
 <form method="post" class="societe-card" data-societe-id="<?= $idS ?>">
   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
@@ -330,31 +315,25 @@ header('Content-Type: text/html; charset=utf-8');
   <h2 class="societe-title">
     <?= htmlspecialchars((string)$s['nom']) ?>
     <span class="societe-id">id=<?= $idS ?></span>
+    <a href="../societe.php?sa_id=<?= $idS ?>#financier" target="_blank" style="margin-left:auto;font-size:12px;color:#0ea5e9;text-decoration:none;font-weight:600;">→ Voir fiche société</a>
   </h2>
 
-  <!-- Documents PDF déjà uploadés (rh_documents) - lecture seule, pas besoin de re-charger -->
-  <?php
-    $rhdSoc = $rhDocsParSoc[$idS] ?? [];
-    if (!empty($rhdSoc)):
-  ?>
+  <?php if (!empty($rhdS)): ?>
   <div class="docs-existants">
-    <div class="docs-existants-title">📎 PDF déjà uploadés (pas besoin de re-charger) — clique pour ouvrir / relancer OCR si vide</div>
+    <div class="docs-existants-title">📎 PDF déjà uploadés (pas besoin de re-charger) — clique pour ouvrir / 🔄 relancer OCR</div>
     <div class="docs-list">
-      <?php foreach ($rhdSoc as $type => $listeDocs):
-            // On prend le plus récent par type (1er de la liste car ORDER BY upload_date DESC)
+      <?php foreach ($rhdS as $type => $listeDocs):
             $d = $listeDocs[0];
             $hasOcr = !empty($d['ocr_at']) && (int)$d['ocr_confidence'] >= 50;
-            $cls    = $hasOcr ? 'ocr-ok' : 'ocr-ko';
-            $url    = rhd_view_url((string)($d['file_path'] ?? ''));
+            $cls = $hasOcr ? 'ocr-ok' : 'ocr-ko';
+            $url = rhd_url((string)($d['file_path'] ?? ''));
             $confTxt = !empty($d['ocr_at']) ? ((int)$d['ocr_confidence'] . '% OCR') : 'OCR à relancer';
       ?>
       <span class="doc-chip <?= $cls ?>">
-        <span class="doc-chip-ico"><?= $hasOcr ? '✅' : '⚠️' ?></span>
+        <span><?= $hasOcr ? '✅' : '⚠️' ?></span>
         <strong><?= htmlspecialchars(rhd_label($type)) ?></strong>
-        <?php if ($url !== ''): ?>
-          <a href="<?= htmlspecialchars($url) ?>" target="_blank" title="Ouvrir le PDF">📄</a>
-        <?php endif; ?>
-        <a href="admin_relancer_ocr_doc.php?id=<?= (int)$d['id'] ?>" title="Relancer l'OCR sur ce doc">🔄</a>
+        <?php if ($url !== ''): ?><a href="<?= htmlspecialchars($url) ?>" target="_blank" title="Ouvrir le PDF">📄</a><?php endif; ?>
+        <a href="admin_relancer_ocr_doc.php?id=<?= (int)$d['id'] ?>" title="Relancer OCR">🔄</a>
         <span class="doc-chip-meta"><?= htmlspecialchars($confTxt) ?></span>
       </span>
       <?php endforeach; ?>
@@ -362,54 +341,57 @@ header('Content-Type: text/html; charset=utf-8');
   </div>
   <?php endif; ?>
 
-  <!-- Activités cochables -->
   <div class="activites">
     <span class="activites-label">Activités exercées :</span>
-    <label class="check-pill"><input type="checkbox" name="activite_immobilier" <?= !empty($s['activite_immobilier']) ? 'checked' : '' ?>><span>🏠 Immobilier</span></label>
-    <label class="check-pill act-toggle" data-act="transaction"><input type="checkbox" name="activite_transaction" <?= !empty($s['activite_transaction']) ? 'checked' : '' ?>><span>📑 Transaction</span></label>
-    <label class="check-pill act-toggle" data-act="gestion"><input type="checkbox" name="activite_gestion" <?= !empty($s['activite_gestion']) ? 'checked' : '' ?>><span>🏘️ Gestion locative</span></label>
-    <label class="check-pill act-toggle" data-act="syndic"><input type="checkbox" name="activite_syndic" <?= !empty($s['activite_syndic']) ? 'checked' : '' ?>><span>🏢 Syndic</span></label>
-    <label class="check-pill act-toggle" data-act="marchand"><input type="checkbox" name="activite_marchand" <?= !empty($s['activite_marchand']) ? 'checked' : '' ?>><span>💼 Marchand de biens</span></label>
-    <label class="check-pill"><input type="checkbox" name="activite_rh" <?= !empty($s['activite_rh']) ? 'checked' : '' ?>><span>👥 RH</span></label>
+    <label class="check-pill"><input type="checkbox" name="activite_immobilier" <?= !empty($s['activite_immobilier'] ?? null) ? 'checked' : '' ?>><span>🏠 Immobilier</span></label>
+    <label class="check-pill act-toggle" data-act="transaction"><input type="checkbox" name="activite_transaction" <?= !empty($s['activite_transaction'] ?? null) ? 'checked' : '' ?>><span>📑 Transaction</span></label>
+    <label class="check-pill act-toggle" data-act="gestion"><input type="checkbox" name="activite_gestion" <?= !empty($s['activite_gestion'] ?? null) ? 'checked' : '' ?>><span>🏘️ Gestion</span></label>
+    <label class="check-pill act-toggle" data-act="syndic"><input type="checkbox" name="activite_syndic" <?= !empty($s['activite_syndic'] ?? null) ? 'checked' : '' ?>><span>🏢 Syndic</span></label>
+    <label class="check-pill act-toggle" data-act="marchand"><input type="checkbox" name="activite_marchand" <?= !empty($s['activite_marchand'] ?? null) ? 'checked' : '' ?>><span>💼 Marchand</span></label>
+    <label class="check-pill"><input type="checkbox" name="activite_rh" <?= !empty($s['activite_rh'] ?? null) ? 'checked' : '' ?>><span>👥 RH</span></label>
   </div>
 
-  <!-- KBIS + Carte pro CPI (au niveau racine société) -->
   <div class="grid-haut">
     <div class="group">
       <h3>📜 KBIS</h3>
-      <div class="field"><label>N° RCS</label><input type="text" name="kbis_numero" value="<?= htmlspecialchars((string)($s['kbis_numero'] ?? '')) ?>" placeholder="ex : 123 456 789 RCS Lyon"></div>
+      <div class="field"><label>N° RCS</label><input type="text" name="kbis_numero" value="<?= htmlspecialchars((string)($s['kbis_numero'] ?? '')) ?>"></div>
       <div class="field"><label>Date émission</label><input type="date" name="kbis_date" value="<?= htmlspecialchars((string)($s['kbis_date'] ?? '')) ?>"></div>
     </div>
     <div class="group">
       <h3>🪪 Carte pro CPI (Hoguet)</h3>
-      <div class="field"><label>N° CPI</label><input type="text" name="carte_pro_numero" value="<?= htmlspecialchars((string)($s['carte_pro_numero'] ?? '')) ?>" placeholder="ex : CPI 6901 2018 000 031 709"></div>
-      <div class="field"><label>CCI émettrice</label><input type="text" name="carte_pro_cci" value="<?= htmlspecialchars((string)($s['carte_pro_cci'] ?? '')) ?>" placeholder="ex : CCI Lyon Métropole"></div>
-      <div class="field"><label>Validité (date fin)</label><input type="date" name="carte_pro_validite" value="<?= htmlspecialchars((string)($s['carte_pro_validite'] ?? '')) ?>"></div>
+      <?php
+        $cpiNum = (string)($s['carte_pro_numero'] ?? $s['numero_carte_t'] ?? '');
+        $cpiCci = (string)($s['carte_pro_cci']    ?? $s['cci_carte_t']    ?? '');
+        $cpiVal = (string)($s['carte_pro_validite']?? $s['carte_t_date_expiration'] ?? '');
+      ?>
+      <div class="field"><label>N° CPI</label><input type="text" name="carte_pro_numero" value="<?= htmlspecialchars($cpiNum) ?>"></div>
+      <div class="field"><label>CCI émettrice</label><input type="text" name="carte_pro_cci" value="<?= htmlspecialchars($cpiCci) ?>"></div>
+      <div class="field"><label>Validité</label><input type="date" name="carte_pro_validite" value="<?= htmlspecialchars($cpiVal) ?>"></div>
     </div>
   </div>
 
-  <!-- 4 blocs RCP + GF par activité (T/G/S/M) -->
   <?php foreach (ACTIVITES as $act):
-      $isActive = !empty($s["activite_{$act}"]);
-      $row = $actsS[$act] ?? [];
-      $emoji = ['transaction'=>'📑','gestion'=>'🏘️','syndic'=>'🏢','marchand'=>'💼'][$act];
+      $isActive = !empty($s["activite_{$act}"] ?? null);
+      $rcpRow   = $couvS['rcp'][$act] ?? [];
+      $gfRow    = $couvS['garantie_financiere'][$act] ?? [];
+      $emoji    = ['transaction'=>'📑','gestion'=>'🏘️','syndic'=>'🏢','marchand'=>'💼'][$act];
   ?>
   <div class="activite-block <?= $isActive ? 'active' : 'disabled' ?>" data-activite="<?= $act ?>">
     <h4><?= $emoji ?> <?= ACTIVITES_LABELS[$act] ?></h4>
     <div class="activite-row">
       <div>
         <strong style="font-size:11px;color:#475569;">🛡️ RC Pro <?= ACTIVITES_LABELS[$act] ?></strong>
-        <div class="field"><label>Assureur</label><input type="text" name="rcp_<?= $act ?>_assureur" value="<?= htmlspecialchars((string)($row['rc_pro_assureur'] ?? '')) ?>" placeholder="ex : AXA, MMA, Allianz"></div>
-        <div class="field"><label>N° contrat</label><input type="text" name="rcp_<?= $act ?>_numero" value="<?= htmlspecialchars((string)($row['rc_pro_numero'] ?? '')) ?>"></div>
-        <div class="field"><label>Validité</label><input type="date" name="rcp_<?= $act ?>_validite" value="<?= htmlspecialchars((string)($row['rc_pro_validite'] ?? '')) ?>"></div>
-        <div class="field"><label>Plafond garantie (€)</label><input type="text" name="rcp_<?= $act ?>_montant" value="<?= htmlspecialchars((string)($row['rc_pro_montant'] ?? '')) ?>" placeholder="ex : 8000000"></div>
+        <div class="field"><label>Assureur (compagnie)</label><input type="text" name="rcp_<?= $act ?>_assureur" value="<?= htmlspecialchars((string)($rcpRow['compagnie'] ?? '')) ?>" placeholder="ex : Galian-SMABTP"></div>
+        <div class="field"><label>N° police</label><input type="text" name="rcp_<?= $act ?>_numero" value="<?= htmlspecialchars((string)($rcpRow['numero_police'] ?? '')) ?>"></div>
+        <div class="field"><label>Validité</label><input type="date" name="rcp_<?= $act ?>_validite" value="<?= htmlspecialchars((string)($rcpRow['date_expiration'] ?? '')) ?>"></div>
+        <div class="field"><label>Plafond garantie (€)</label><input type="text" name="rcp_<?= $act ?>_montant" value="<?= htmlspecialchars((string)($rcpRow['montant'] ?? '')) ?>"></div>
       </div>
       <div>
         <strong style="font-size:11px;color:#475569;">💰 Garantie financière <?= ACTIVITES_LABELS[$act] ?></strong>
-        <div class="field"><label>Garant</label><input type="text" name="gf_<?= $act ?>_nom" value="<?= htmlspecialchars((string)($row['garant_nom'] ?? '')) ?>" placeholder="ex : Galian, Socaf"></div>
-        <div class="field"><label>N° contrat</label><input type="text" name="gf_<?= $act ?>_numero" value="<?= htmlspecialchars((string)($row['garant_numero'] ?? '')) ?>"></div>
-        <div class="field"><label>Validité</label><input type="date" name="gf_<?= $act ?>_validite" value="<?= htmlspecialchars((string)($row['garant_validite'] ?? '')) ?>"></div>
-        <div class="field"><label>Plafond garantie (€)</label><input type="text" name="gf_<?= $act ?>_montant" value="<?= htmlspecialchars((string)($row['garant_montant'] ?? '')) ?>" placeholder="ex : 110000"></div>
+        <div class="field"><label>Garant (compagnie)</label><input type="text" name="gf_<?= $act ?>_nom" value="<?= htmlspecialchars((string)($gfRow['compagnie'] ?? '')) ?>" placeholder="ex : Galian-SMABTP"></div>
+        <div class="field"><label>N° police</label><input type="text" name="gf_<?= $act ?>_numero" value="<?= htmlspecialchars((string)($gfRow['numero_police'] ?? '')) ?>"></div>
+        <div class="field"><label>Validité</label><input type="date" name="gf_<?= $act ?>_validite" value="<?= htmlspecialchars((string)($gfRow['date_expiration'] ?? '')) ?>"></div>
+        <div class="field"><label>Plafond garantie (€)</label><input type="text" name="gf_<?= $act ?>_montant" value="<?= htmlspecialchars((string)($gfRow['montant'] ?? '')) ?>"></div>
       </div>
     </div>
   </div>
@@ -417,19 +399,15 @@ header('Content-Type: text/html; charset=utf-8');
 
   <div class="actions">
     <button type="submit" class="btn btn-primary">💾 Enregistrer cette société</button>
-    <span class="help">Toutes ses agences héritent automatiquement (helper agence_load_with_societe_docs).</span>
+    <a href="../societe.php?sa_id=<?= $idS ?>#financier" class="btn btn-back">→ Voir résultat sur la fiche</a>
+    <span class="help">Données écrites dans societes_couvertures (mêmes que la fiche société).</span>
   </div>
 </form>
 <?php endforeach; ?>
 
-<?php if (empty($societes)): ?>
-  <div class="flash ko">Aucune société trouvée. Vérifie la table <code>societes</code>.</div>
-<?php endif; ?>
-
 <script>
-// Toggle visuel : si on décoche une activité, le bloc RCP/GF associé devient grisé
 document.querySelectorAll('.act-toggle input').forEach(cb => {
-    const updateBlock = () => {
+    const update = () => {
         const act = cb.closest('.act-toggle').dataset.act;
         const block = cb.closest('form').querySelector('.activite-block[data-activite="' + act + '"]');
         if (block) {
@@ -437,7 +415,7 @@ document.querySelectorAll('.act-toggle input').forEach(cb => {
             block.classList.toggle('disabled', !cb.checked);
         }
     };
-    cb.addEventListener('change', updateBlock);
+    cb.addEventListener('change', update);
 });
 </script>
 

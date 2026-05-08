@@ -30,27 +30,50 @@ declare(strict_types=1);
 
 if (!function_exists('societe_load_activites_docs')) {
     /**
-     * Charge le détail RCP + GF par activité pour une société.
-     * Retourne un array indexé par activité : ['transaction' => [...], 'gestion' => [...], ...].
+     * Charge le détail RCP + GF par activité pour une société depuis la table
+     * EXISTANTE `societes_couvertures` (créée par migration_societes_couvertures.sql,
+     * 2026-04-11). Source de vérité depuis le départ — alimentée par l'analyse
+     * IA des docs upload via societe.php → onglet Documents.
+     *
+     * Schéma `societes_couvertures` :
+     *   - id_societe + type ('rcp' | 'garantie_financiere') + activite
+     *     ('transaction'/'gestion'/'syndic'/'location'/'neuf'/'multi')
+     *   - compagnie, numero_police, montant, date_debut, date_expiration
+     *   - est_active (0/1) — versions archivées vs version courante
+     *
+     * Retourne un array indexé par activité, format compatible avec les readers
+     * qui consomment $agence['activites'][T|G|S|M] :
+     *   ['transaction' => ['rc_pro_assureur'=>..., 'garant_nom'=>...], ...]
      */
     function societe_load_activites_docs(PDO $pdo, int $idSociete): array
     {
         if ($idSociete <= 0) return [];
+        $map = [];
         try {
             $st = $pdo->prepare("
-                SELECT activite, rc_pro_assureur, rc_pro_numero, rc_pro_validite, rc_pro_montant,
-                       garant_nom, garant_numero, garant_validite, garant_montant
-                FROM societe_activites_docs
-                WHERE id_societe = :id
+                SELECT type, activite, compagnie, numero_police, montant,
+                       date_debut, date_expiration
+                FROM societes_couvertures
+                WHERE id_societe = :id AND est_active = 1
             ");
             $st->execute([':id' => $idSociete]);
-            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
-            $map = [];
-            foreach ($rows as $r) { $map[$r['activite']] = $r; }
-            return $map;
-        } catch (Throwable) {
-            return [];
-        }
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) {
+                $act = $c['activite'];
+                if (!isset($map[$act])) $map[$act] = [];
+                if ($c['type'] === 'rcp') {
+                    $map[$act]['rc_pro_assureur'] = $c['compagnie'];
+                    $map[$act]['rc_pro_numero']   = $c['numero_police'];
+                    $map[$act]['rc_pro_validite'] = $c['date_expiration'];
+                    $map[$act]['rc_pro_montant']  = $c['montant'];
+                } elseif ($c['type'] === 'garantie_financiere') {
+                    $map[$act]['garant_nom']      = $c['compagnie'];
+                    $map[$act]['garant_numero']   = $c['numero_police'];
+                    $map[$act]['garant_validite'] = $c['date_expiration'];
+                    $map[$act]['garant_montant']  = $c['montant'];
+                }
+            }
+        } catch (Throwable) { /* table n'existe pas → map vide, fallback sur générique */ }
+        return $map;
     }
 }
 
