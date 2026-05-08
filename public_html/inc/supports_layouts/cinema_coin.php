@@ -226,12 +226,13 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
             foreach ($caracs as $i => $it) {
                 $x = $px + ($i * ($cellW + 3));
                 mbi_supports_tpl_carac_mini(
-                    $pdf, $x, $py, $cellW, 17,
+                    $pdf, $x, $py, $cellW, 28,
                     $it[0], $it[1], $cP, $cT,
-                    [248, 250, 252], null, $cP, true
+                    [248, 250, 252], null, $cP, true,
+                    9.0, 22.0
                 );
             }
-            $py += 17 + 6;
+            $py += 28 + 6;
         }
 
         // Étiquettes DPE / GES (rounded + shadow via helper)

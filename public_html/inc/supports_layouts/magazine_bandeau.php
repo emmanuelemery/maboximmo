@@ -250,19 +250,19 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $descCommerciale = (string)($bien['description'] ?? $bien['descriptif'] ?? '');
         }
         if ($descCommerciale !== '') {
-            $pdf->SetFont('dejavusans', 'B', 9);
+            $pdf->SetFont('dejavusans', 'B', 10);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
             $pdf->SetXY($bpx, $cy);
-            $pdf->Cell($colLW, 4.5, mb_strtoupper("L'annonce", 'UTF-8'), 0, 1, 'L');
-            $cy += 5;
+            $pdf->Cell($colLW, 5, mb_strtoupper("L'annonce", 'UTF-8'), 0, 1, 'L');
+            $cy += 5.5;
 
-            // Texte de l'annonce : 11pt pour bonne lisibilité
-            $pdf->SetFont('dejavusans', '', 11);
+            // Texte de l'annonce : 13.5pt pour grosse lisibilité vitrine
+            $pdf->SetFont('dejavusans', '', 13.5);
             $pdf->SetTextColor(232, 234, 245);
             $pdf->SetXY($bpx, $cy);
             $extrait = mb_substr($descCommerciale, 0, 420, 'UTF-8');
             if (mb_strlen($descCommerciale, 'UTF-8') > 420) $extrait .= '...';
-            $pdf->MultiCell($colLW, 5.2, $extrait, 0, 'J');
+            $pdf->MultiCell($colLW, 6.2, $extrait, 0, 'J');
         }
 
         // ── Colonne DROITE : caracs + DPE + atouts ────────────────────
@@ -281,25 +281,29 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
 
         if (!empty($caracs)) {
             $nbC = count($caracs);
-            $cellW = ($colRW - (($nbC - 1) * 3)) / $nbC;
+            $cellW = ($colRW - (($nbC - 1) * 4)) / $nbC;
+            $cellH = 30;
             foreach ($caracs as $i => $it) {
-                $x = $colRX + ($i * ($cellW + 3));
-                // Mini bloc bg blanc 12% rounded + texte clair
-                $pdf->SetAlpha(0.12);
+                $x = $colRX + ($i * ($cellW + 4));
+                // Mini bloc bg blanc 14% rounded + ombre légère
+                $pdf->SetAlpha(0.18);
+                $pdf->SetFillColor(15, 23, 42);
+                $pdf->RoundedRect($x + 1.0, $ry + 1.5, $cellW, $cellH, 4.0, '1111', 'F');
+                $pdf->SetAlpha(0.14);
                 $pdf->SetFillColor(255, 255, 255);
-                $pdf->RoundedRect($x, $ry, $cellW, 19, 3.0, '1111', 'F');
+                $pdf->RoundedRect($x, $ry, $cellW, $cellH, 4.0, '1111', 'F');
                 $pdf->SetAlpha(1.0);
 
-                $pdf->SetFont('dejavusans', '', 7);
+                $pdf->SetFont('dejavusans', '', 9);
                 $pdf->SetTextColor(200, 206, 220);
-                $pdf->SetXY($x + 4, $ry + 2);
-                $pdf->Cell($cellW - 8, 4, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
-                $pdf->SetFont('dejavusans', 'B', 14);
+                $pdf->SetXY($x + 5, $ry + 3);
+                $pdf->Cell($cellW - 10, 5, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
+                $pdf->SetFont('dejavusans', 'B', 22);
                 $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetXY($x + 4, $ry + 7);
-                $pdf->Cell($cellW - 8, 9, $it[1], 0, 0, 'L');
+                $pdf->SetXY($x + 5, $ry + 9);
+                $pdf->Cell($cellW - 10, $cellH - 10, $it[1], 0, 0, 'L');
             }
-            $ry += 24;
+            $ry += $cellH + 6;
         }
 
         // DPE / GES rounded shadow (couleurs claires sur fond navy via header)

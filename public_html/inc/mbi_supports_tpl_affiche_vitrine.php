@@ -298,20 +298,23 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
         string $label, string $value,
         array $cP, array $cT,
         ?array $bgRgb = null, ?array $textRgb = null, ?array $valRgb = null,
-        bool $shadow = false
+        bool $shadow = false,
+        float $labelSize = 9.0,
+        float $valueSize = 22.0,
+        float $rad = 4.0
     ): void {
         if ($bgRgb !== null) {
-            mbi_supports_tpl_card_round_shadow($pdf, $x, $y, $w, $h, 3.0, $bgRgb, 1.0, $shadow);
+            mbi_supports_tpl_card_round_shadow($pdf, $x, $y, $w, $h, $rad, $bgRgb, 1.0, $shadow);
         }
-        $pdf->SetFont('dejavusans', '', 7.5);
+        $pdf->SetFont('dejavusans', '', $labelSize);
         $pdf->SetTextColor(...($textRgb ?? [120, 126, 140]));
-        $pdf->SetXY($x + 4, $y + 2);
-        $pdf->Cell($w - 8, 4, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
+        $pdf->SetXY($x + 5, $y + 3);
+        $pdf->Cell($w - 10, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
 
-        $pdf->SetFont('dejavusans', 'B', 14);
+        $pdf->SetFont('dejavusans', 'B', $valueSize);
         $pdf->SetTextColor(...($valRgb ?? $cP));
-        $pdf->SetXY($x + 4, $y + 6);
-        $pdf->Cell($w - 8, 9, $value, 0, 0, 'L');
+        $pdf->SetXY($x + 5, $y + 8);
+        $pdf->Cell($w - 10, $h - 10, $value, 0, 0, 'L');
     }
 }
 
