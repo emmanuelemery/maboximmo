@@ -136,15 +136,37 @@ if (!$doc) {
     echo '<div class="box fail">❌ Doc introuvable (id=' . $idDoc . ')</div></body></html>'; exit;
 }
 
+// Détection : OCR déjà payé ? (ocr_json non null) → on peut re-appliquer le
+// mapping structuré sans re-payer Sonnet. Économie ~25 cts par doc.
+$ocrJsonExists = !empty($doc['ocr_json']);
+$replayOnly    = isset($_GET['replay']) && $_GET['replay'] === '1';
+
 if (!$confirm) {
     echo '<div class="box warn">';
-    echo '<strong>Relancer l\'OCR sur le doc #' . $idDoc . '</strong><br>';
+    echo '<strong>Relancer le doc #' . $idDoc . '</strong><br>';
     echo 'Type : <code>' . htmlspecialchars((string)$doc['type_document']) . '</code><br>';
     echo 'Catégorie : <code>' . htmlspecialchars((string)$doc['categorie']) . '</code><br>';
     echo 'Fichier : <code>' . htmlspecialchars(basename((string)$doc['file_path'])) . '</code><br>';
-    echo 'Coût estimé : ~25 centimes (Claude Sonnet 4.6)';
+    if ($ocrJsonExists) {
+        echo 'OCR déjà payé : <strong style="color:#16a34a">✅ raw_json présent en BDD</strong> '
+           . '(conf ' . (int)($doc['ocr_confidence'] ?? 0) . '%)<br>';
+    } else {
+        echo 'OCR déjà payé : <strong style="color:#dc2626">❌ aucun raw_json en BDD</strong><br>';
+    }
     echo '</div>';
-    echo '<p><a href="?id=' . $idDoc . '&confirm=1" class="btn danger">🚀 LANCER</a> ';
+
+    if ($ocrJsonExists) {
+        echo '<div class="box ok" style="margin-top:14px">';
+        echo '<strong>💡 OCR déjà payé pour ce doc</strong> — tu peux re-appliquer le mapping structuré '
+           . '(UPDATE rh_documents + societes + societes_couvertures) <strong>sans re-payer Sonnet</strong>. '
+           . 'Coût : 0 cts.';
+        echo '</div>';
+        echo '<p><a href="?id=' . $idDoc . '&replay=1&confirm=1" class="btn" style="background:#16a34a">'
+           . '♻️ RE-APPLIQUER MAPPING (gratuit)</a></p>';
+    }
+
+    echo '<p style="margin-top:14px"><a href="?id=' . $idDoc . '&confirm=1" class="btn danger">'
+       . '🚀 LANCER OCR (~25 cts)</a> ';
     echo '<a href="" class="btn" style="background:#64748b">Annuler</a></p>';
     echo '</body></html>';
     exit;
@@ -155,8 +177,76 @@ if (!$confirm) {
 // agence_doc_ocr_resolve_local_or_fetch() (cf. agence_doc_officiel_ocr.php).
 // Aucune action manuelle nécessaire — local marche partout.
 
-// Exécution
-echo "<div class='box'>Lancement OCR sur doc #{$idDoc}...</div>";
+// Mode REPLAY : OCR déjà payé, on re-applique juste le mapping structuré
+if ($replayOnly && $ocrJsonExists) {
+    echo "<div class='box'>♻️ Re-application du mapping structuré (sans OCR — économie 25 cts)...</div>";
+    @ob_flush(); flush();
+
+    // Re-décode le raw_json sauvegardé pour reconstruire les valeurs
+    $rawJson = json_decode((string)$doc['ocr_json'], true);
+    $text    = $rawJson['content'][0]['text'] ?? '';
+    $data    = $text !== '' ? mbi_supports_ia_extract_json($text) : null;
+
+    if (!$data) {
+        echo '<div class="box fail">❌ Impossible de re-extraire les données depuis ocr_json. Le raw_json est peut-être corrompu.</div>';
+        echo '<p><a href="?id=' . $idDoc . '&confirm=1" class="btn danger">🚀 Lancer un OCR neuf (~25 cts)</a></p>';
+        echo '</body></html>'; exit;
+    }
+
+    // Détermine le type OCR à partir du type_document
+    $ocrType = rh_doc_societe_type_to_ocr((string)$doc['type_document']);
+    if ($ocrType === null) {
+        echo '<div class="box fail">❌ Type document non mappable vers un OCR type : <code>'
+           . htmlspecialchars((string)$doc['type_document']) . '</code></div>';
+        echo '</body></html>'; exit;
+    }
+
+    // Normalise les données et UPDATE rh_documents (champs principaux)
+    $normalised = agence_doc_ocr_normalize($data, $ocrType);
+    try {
+        $up = $pdo->prepare("
+            UPDATE rh_documents SET
+              numero            = :numero,
+              emetteur          = :emetteur,
+              montant_garantie  = :montant,
+              date_emission     = :date_em,
+              date_validite     = :date_val,
+              ocr_at            = :ocr_at
+            WHERE id = :id
+        ");
+        $up->execute([
+            ':numero'   => $normalised['numero']   ?? null,
+            ':emetteur' => $normalised['emetteur'] ?? null,
+            ':montant'  => $normalised['montant_garantie'] ?? null,
+            ':date_em'  => $normalised['date_emission']    ?? null,
+            ':date_val' => $normalised['date_validite']    ?? null,
+            ':ocr_at'   => date('Y-m-d H:i:s'),
+            ':id'       => $idDoc,
+        ]);
+    } catch (Throwable $e) {
+        echo '<div class="box fail">❌ Erreur UPDATE rh_documents : ' . htmlspecialchars($e->getMessage()) . '</div>';
+        echo '</body></html>'; exit;
+    }
+
+    // Propage sur societes + societes_couvertures
+    $idSoc = (int)($doc['id_societe'] ?? 0);
+    if ($idSoc > 0 && $doc['categorie'] === 'societe') {
+        rh_doc_societe_ecrire_societe($pdo, $idSoc, $idDoc, $ocrType);
+    }
+
+    echo '<div class="box ok">';
+    echo '<strong>✅ Mapping re-appliqué sans coût IA</strong><br>';
+    echo 'Émetteur : <code>' . htmlspecialchars((string)($normalised['emetteur'] ?? '—')) . '</code><br>';
+    echo 'Numéro : <code>' . htmlspecialchars((string)($normalised['numero'] ?? '—')) . '</code><br>';
+    echo 'Validité : <code>' . htmlspecialchars((string)($normalised['date_validite'] ?? '—')) . '</code>';
+    echo '</div>';
+    echo '<p><a href="" class="btn">↺ Retour à la liste</a></p>';
+    echo '</body></html>';
+    exit;
+}
+
+// Mode OCR neuf : appel Sonnet (coûte 25 cts)
+echo "<div class='box'>Lancement OCR sur doc #{$idDoc}... (coût ~25 cts)</div>";
 @ob_flush(); flush();
 
 $res = rh_doc_societe_hook_apres_upload($pdo, $idDoc);

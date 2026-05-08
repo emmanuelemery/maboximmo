@@ -128,66 +128,36 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             } catch (Throwable) {}
         }
 
-        // Persiste les champs OCR détaillés (titulaire, émetteur, adresses, dates, montants…)
-        // Voir migration 20260506_3_rh_documents_ocr_detail.
-        // Ne touche que les colonnes existantes dans la table (idempotent face aux migrations
-        // partiellement appliquées).
-        $ocrData = $ocr['data'] ?? [];
-        if (is_array($ocrData) && !empty($ocrData)) {
-            $colonnesDetail = [
-                'numero_client', 'adresse_emetteur', 'raison_sociale',
-                'forme_juridique', 'siret', 'siren', 'tva_intra', 'capital_social', 'code_ape',
-                'date_effet', 'date_echeance', 'date_anniversaire',
-                'montant_franchise', 'montant_plafond_2', 'nature_garantie',
-            ];
-            try {
-                $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'");
-                $st->execute();
-                $existingCols = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
-            } catch (Throwable) { $existingCols = []; }
-
-            $sets = [];
-            $params = [':id' => $rhDocId];
-            foreach ($colonnesDetail as $col) {
-                if (!in_array(strtolower($col), $existingCols, true)) continue;
-                if (!array_key_exists($col, $ocrData)) continue;
-                $sets[] = "`{$col}` = :v_{$col}";
-                $params[":v_{$col}"] = $ocrData[$col];
-            }
-            // dirigeants_json (tableau)
-            if (in_array('dirigeants_json', $existingCols, true) && !empty($ocrData['dirigeants'])) {
-                $sets[] = "`dirigeants_json` = :v_dirigeants";
-                $params[':v_dirigeants'] = json_encode($ocrData['dirigeants'], JSON_UNESCAPED_UNICODE);
-            }
-            // metadata_json (fourre-tout)
-            if (in_array('metadata_json', $existingCols, true) && !empty($ocrData['metadata'])) {
-                $sets[] = "`metadata_json` = :v_metadata";
-                $params[':v_metadata'] = json_encode($ocrData['metadata'], JSON_UNESCAPED_UNICODE);
-            }
-            if (!empty($sets)) {
-                try {
-                    $upDetail = $pdo->prepare("UPDATE rh_documents SET " . implode(', ', $sets) . " WHERE id = :id");
-                    $upDetail->execute($params);
-                } catch (Throwable $e) {
-                    error_log('[rh_doc_societe_hook UPDATE detail] ' . $e->getMessage());
-                }
-            }
-        }
-
         $filePath = (string)($doc['file_path'] ?? '');
-        if ($filePath === '' || !is_file($filePath)) {
-            $resultat['ocr_erreur'] = 'fichier_introuvable: ' . $filePath;
+        if ($filePath === '') {
+            $resultat['ocr_erreur'] = 'file_path_vide';
             return $resultat;
         }
 
-        // OCR Sonnet
+        // ─────────────────────────────────────────────────────────────────
+        // OCR Sonnet — coûte ~25 cts par doc.
+        // agence_doc_ocr_extraire() gère le cas cross-env (fichier sur Hostinger
+        // remote vs localhost) via HTTP fetch automatique. Pas de check is_file()
+        // ici, sinon on bloque l'OCR sur localhost alors que le HTTP fetch peut
+        // résoudre le cas.
+        // ─────────────────────────────────────────────────────────────────
+        // Reconnect DB au cas où la connexion aurait timeout (OCR peut durer 10-30s)
+        if (function_exists('db_keepalive')) {
+            try { $pdo = db_keepalive(); } catch (Throwable) {}
+        }
+
         $ocr = agence_doc_ocr_extraire($filePath, $ocrType);
         $resultat['ocr_ok']     = (bool)($ocr['ok'] ?? false);
         $resultat['ocr_erreur'] = $ocr['erreur'] ?? null;
 
-        // UPDATE rh_documents avec les champs OCR (qu'il y ait succès ou non,
-        // pour tracer l'audit). Si OCR KO, ocr_at reste NULL.
+        // CRITIQUE : sauvegarder le raw_json EN PREMIER, avant tout autre UPDATE.
+        // Si une étape ultérieure plante (timeout DB, FK violation, etc.), au
+        // moins on a la réponse brute Sonnet en BDD pour pouvoir replayer le
+        // mapping structuré sans re-payer l'OCR.
+        // Reconnect au cas où la connexion ait droppé pendant le call HTTP Anthropic.
+        if (function_exists('db_keepalive')) {
+            try { $pdo = db_keepalive(); } catch (Throwable) {}
+        }
         $data = $ocr['data'] ?? [];
         try {
             $up = $pdo->prepare("
@@ -218,7 +188,56 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
                 ':id'         => $rhDocId,
             ]);
         } catch (Throwable $e) {
-            error_log('[rh_doc_societe_hook UPDATE rh_documents] ' . $e->getMessage());
+            error_log('[rh_doc_societe_hook UPDATE rh_documents CORE] ' . $e->getMessage());
+            $resultat['save_erreur'] = 'core_update_failed: ' . $e->getMessage();
+            // On NE retourne PAS — on continue à essayer les autres updates
+        }
+
+        // Persiste les champs OCR détaillés (titulaire, émetteur, adresses, dates, montants…)
+        // Voir migration 20260506_3_rh_documents_ocr_detail.
+        // Ne touche que les colonnes existantes dans la table (idempotent face aux migrations
+        // partiellement appliquées).
+        // CORRIGE BUG : ce bloc était AVANT l'OCR donc utilisait $ocr non-défini → toujours vide.
+        $ocrData = $ocr['data'] ?? [];
+        if (is_array($ocrData) && !empty($ocrData)) {
+            $colonnesDetail = [
+                'numero_client', 'adresse_emetteur', 'raison_sociale',
+                'forme_juridique', 'siret', 'siren', 'tva_intra', 'capital_social', 'code_ape',
+                'date_effet', 'date_echeance', 'date_anniversaire',
+                'montant_franchise', 'montant_plafond_2', 'nature_garantie',
+            ];
+            try {
+                $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'");
+                $st->execute();
+                $existingCols = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            } catch (Throwable) { $existingCols = []; }
+
+            $sets = [];
+            $params = [':id' => $rhDocId];
+            foreach ($colonnesDetail as $col) {
+                if (!in_array(strtolower($col), $existingCols, true)) continue;
+                if (!array_key_exists($col, $ocrData)) continue;
+                $sets[] = "`{$col}` = :v_{$col}";
+                $params[":v_{$col}"] = $ocrData[$col];
+            }
+            if (in_array('dirigeants_json', $existingCols, true) && !empty($ocrData['dirigeants'])) {
+                $sets[] = "`dirigeants_json` = :v_dirigeants";
+                $params[':v_dirigeants'] = json_encode($ocrData['dirigeants'], JSON_UNESCAPED_UNICODE);
+            }
+            if (in_array('metadata_json', $existingCols, true) && !empty($ocrData['metadata'])) {
+                $sets[] = "`metadata_json` = :v_metadata";
+                $params[':v_metadata'] = json_encode($ocrData['metadata'], JSON_UNESCAPED_UNICODE);
+            }
+            if (!empty($sets)) {
+                try {
+                    $upDetail = $pdo->prepare("UPDATE rh_documents SET " . implode(', ', $sets) . " WHERE id = :id");
+                    $upDetail->execute($params);
+                } catch (Throwable $e) {
+                    error_log('[rh_doc_societe_hook UPDATE detail] ' . $e->getMessage());
+                    // Non-bloquant — on a deja l'essentiel via UPDATE CORE ci-dessus
+                }
+            }
         }
 
         // Si OCR OK → écriture sur la table métier appropriée (refactor 2026-05-08)
