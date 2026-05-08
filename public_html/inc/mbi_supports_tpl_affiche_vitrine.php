@@ -82,6 +82,39 @@ if (!function_exists('mbi_supports_tpl_card_round_shadow')) {
     }
 }
 
+if (!function_exists('mbi_supports_tpl_titre_headline')) {
+    /**
+     * Construit un titre headline auto pour les affiches A3 H.
+     * Format : TYPE · NB_PIÈCES · VILLE  (ex: "APPARTEMENT · 3 PIÈCES · LYON 7")
+     * Tombe sur la designation si pas assez de données.
+     */
+    function mbi_supports_tpl_titre_headline(array $bien): string
+    {
+        $parts = [];
+        $typeBien = trim((string)($bien['type_bien_libelle'] ?? $bien['type'] ?? ''));
+        if ($typeBien !== '') $parts[] = mb_strtoupper($typeBien, 'UTF-8');
+
+        $nbPcs = $bien['nb_pieces'] ?? $bien['nombre_pieces'] ?? null;
+        if ($nbPcs) {
+            $n = (int)$nbPcs;
+            $parts[] = $n . ' PIÈCE' . ($n > 1 ? 'S' : '');
+        }
+
+        $ville = trim((string)($bien['ville'] ?? ''));
+        if ($ville !== '') $parts[] = mb_strtoupper($ville, 'UTF-8');
+
+        if (count($parts) >= 2) {
+            return implode('  ·  ', $parts);
+        }
+        // Fallback designation
+        $des = trim((string)($bien['designation'] ?? ''));
+        if ($des !== '' && !str_starts_with($des, 'Bien créé')) {
+            return mb_strtoupper(mb_substr($des, 0, 60, 'UTF-8'), 'UTF-8');
+        }
+        return mb_strtoupper('Bien à découvrir', 'UTF-8');
+    }
+}
+
 if (!function_exists('mbi_supports_tpl_text_shadow')) {
     /**
      * Texte avec ombre portée + couleur — pour titres XL (accroche, prix géant, etc).

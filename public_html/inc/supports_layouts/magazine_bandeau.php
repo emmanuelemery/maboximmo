@@ -149,12 +149,18 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $pdf->Cell(200, 5, mb_strtoupper($typeBien, 'UTF-8'), 0, 0, 'L');
         }
 
-        // Badge angle haut-droite (rounded shadow)
+        // Badge angle : déplacé sur la carte réf (sous le bloc réf, à droite) pour ne pas
+        // chevaucher les thumbs en haut-droite de la zone photo.
         if ($angle !== 'generique' && $libAngle !== '') {
-            $bw = 80;
-            $bh = 14;
-            $bx = $pageW - $bw - $padX - 10;
+            $bw = 78;
+            $bh = 12;
+            $bx = $padX + 6 + 215 + 6; // juste à droite de la carte réf
             $by = $padTop + 6;
+            // Si dépasse la zone héro (qui se termine à $padX + $hpW), on rabat sous la carte réf
+            if ($bx + $bw > $padX + $hpW - 4) {
+                $bx = $padX + 6;
+                $by = $padTop + 6 + 28 + 4; // sous la carte réf
+            }
             mbi_supports_tpl_card_round_shadow($pdf, $bx, $by, $bw, $bh, 5.0, $cAngle, 1.0, true);
             $pdf->SetFont('dejavusans', 'B', 10);
             $pdf->SetTextColor(255, 255, 255);
@@ -191,25 +197,32 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         $colRW = $bpw * 0.36;
         $colRX = $bpx + $colLW + ($bpw * 0.04);
 
-        // ── Colonne GAUCHE : titre XL + prix + descriptif ─────────────
-        $accroche = trim((string)($bien['_accroche'] ?? ''));
-        if ($accroche === '' && $iaAccroche !== '') $accroche = $iaAccroche;
-        if ($accroche === '') {
-            $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110, 'UTF-8');
-        }
+        // ── Colonne GAUCHE : TITRE XL + accroche sous-titre + prix + descriptif ──
 
-        // TITRE XL (accroche) avec ombre portée + couleur or sur fond navy
-        $pdf->SetAlpha(0.50);
-        $pdf->SetFont('dejavusans', 'BI', 24);
+        // TITRE XL HEADLINE (type · pièces · ville) — gros, ombre portée, or vif
+        $titreH = mbi_supports_tpl_titre_headline($bien);
+        $pdf->SetAlpha(0.55);
+        $pdf->SetFont('dejavusans', 'B', 30);
         $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetXY($bpx + 1.6, $bpy + 2.2);
-        $pdf->MultiCell($colLW, 9.5, '« ' . $accroche . ' »', 0, 'L');
+        $pdf->SetXY($bpx + 2.0, $bpy + 2.5);
+        $pdf->MultiCell($colLW, 11, $titreH, 0, 'L');
         $pdf->SetAlpha(1.0);
-        $pdf->SetFont('dejavusans', 'BI', 24);
+        $pdf->SetFont('dejavusans', 'B', 30);
         $pdf->SetTextColor($cTitre[0], $cTitre[1], $cTitre[2]);
         $pdf->SetXY($bpx, $bpy);
-        $pdf->MultiCell($colLW, 9.5, '« ' . $accroche . ' »', 0, 'L');
-        $cy = $pdf->GetY() + 4;
+        $pdf->MultiCell($colLW, 11, $titreH, 0, 'L');
+        $cy = $pdf->GetY() + 3;
+
+        // ACCROCHE en italique sous-titre (taille intermédiaire blanche)
+        $accroche = trim((string)($bien['_accroche'] ?? ''));
+        if ($accroche === '' && $iaAccroche !== '') $accroche = $iaAccroche;
+        if ($accroche !== '' && !str_starts_with($accroche, 'Bien créé')) {
+            $pdf->SetFont('dejavusans', 'I', 14);
+            $pdf->SetTextColor(232, 234, 245);
+            $pdf->SetXY($bpx, $cy);
+            $pdf->MultiCell($colLW, 6.5, '« ' . $accroche . ' »', 0, 'L');
+            $cy = $pdf->GetY() + 3;
+        }
 
         // Prix XL or avec ombre
         $prix = mbi_supports_get_prix($bien);
@@ -237,18 +250,19 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $descCommerciale = (string)($bien['description'] ?? $bien['descriptif'] ?? '');
         }
         if ($descCommerciale !== '') {
-            $pdf->SetFont('dejavusans', 'B', 8);
+            $pdf->SetFont('dejavusans', 'B', 9);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
             $pdf->SetXY($bpx, $cy);
-            $pdf->Cell($colLW, 4, mb_strtoupper("L'annonce", 'UTF-8'), 0, 1, 'L');
-            $cy += 4.5;
+            $pdf->Cell($colLW, 4.5, mb_strtoupper("L'annonce", 'UTF-8'), 0, 1, 'L');
+            $cy += 5;
 
-            $pdf->SetFont('dejavusans', '', 9.5);
-            $pdf->SetTextColor(220, 222, 230);
+            // Texte de l'annonce : 11pt pour bonne lisibilité
+            $pdf->SetFont('dejavusans', '', 11);
+            $pdf->SetTextColor(232, 234, 245);
             $pdf->SetXY($bpx, $cy);
-            $extrait = mb_substr($descCommerciale, 0, 480, 'UTF-8');
-            if (mb_strlen($descCommerciale, 'UTF-8') > 480) $extrait .= '...';
-            $pdf->MultiCell($colLW, 4.5, $extrait, 0, 'J');
+            $extrait = mb_substr($descCommerciale, 0, 420, 'UTF-8');
+            if (mb_strlen($descCommerciale, 'UTF-8') > 420) $extrait .= '...';
+            $pdf->MultiCell($colLW, 5.2, $extrait, 0, 'J');
         }
 
         // ── Colonne DROITE : caracs + DPE + atouts ────────────────────

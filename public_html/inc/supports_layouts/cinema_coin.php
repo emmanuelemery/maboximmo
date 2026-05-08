@@ -155,27 +155,32 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
             $py += 8 + 5;
         }
 
-        // ─── TITRE XL (accroche) avec ombre portée + couleur d'accent angle ───
-        $accroche = trim((string)($bien['_accroche'] ?? ''));
-        if ($accroche === '' && $iaAccroche !== '') $accroche = $iaAccroche;
-        if ($accroche === '') {
-            $accroche = mb_substr((string)($bien['designation'] ?? 'Bien à découvrir'), 0, 110, 'UTF-8');
-        }
-
-        // Mesure : on met le titre XL en MultiCell pour wrap, avec text_shadow simulé
-        // Pour MultiCell + ombre, on fait 2 passes (ombre puis texte)
+        // ─── TITRE HEADLINE XL (type · pièces · ville) avec ombre + couleur d'accent ───
+        $titreH = mbi_supports_tpl_titre_headline($bien);
         $pdf->SetAlpha(0.35);
-        $pdf->SetFont('dejavusans', 'BI', 17);
+        $pdf->SetFont('dejavusans', 'B', 19);
         $pdf->SetTextColor(10, 18, 32);
         $pdf->SetXY($px + 1.4, $py + 1.8);
-        $pdf->MultiCell($pw, 7.5, '« ' . $accroche . ' »', 0, 'L');
+        $pdf->MultiCell($pw, 7.5, $titreH, 0, 'L');
         $pdf->SetAlpha(1.0);
-
-        $pdf->SetFont('dejavusans', 'BI', 17);
+        $pdf->SetFont('dejavusans', 'B', 19);
         $pdf->SetTextColor($cTitre[0], $cTitre[1], $cTitre[2]);
         $pdf->SetXY($px, $py);
-        $pdf->MultiCell($pw, 7.5, '« ' . $accroche . ' »', 0, 'L');
-        $py = $pdf->GetY() + 4;
+        $pdf->MultiCell($pw, 7.5, $titreH, 0, 'L');
+        $py = $pdf->GetY() + 2;
+
+        // ─── ACCROCHE italique sous-titre ───
+        $accroche = trim((string)($bien['_accroche'] ?? ''));
+        if ($accroche === '' && $iaAccroche !== '') $accroche = $iaAccroche;
+        if ($accroche !== '' && !str_starts_with($accroche, 'Bien créé')) {
+            $pdf->SetFont('dejavusans', 'I', 12);
+            $pdf->SetTextColor($cT[0], $cT[1], $cT[2]);
+            $pdf->SetXY($px, $py);
+            $pdf->MultiCell($pw, 5.5, '« ' . $accroche . ' »', 0, 'L');
+            $py = $pdf->GetY() + 4;
+        } else {
+            $py += 2;
+        }
 
         // ─── PRIX XL or avec ombre ───
         $prix = mbi_supports_get_prix($bien);
