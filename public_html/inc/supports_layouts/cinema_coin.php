@@ -25,7 +25,7 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
         }
 
         $bien        = $ctx['bien']        ?? [];
-        $photos      = $ctx['photos']      ?? [];
+        $photos      = mbi_supports_filtre_photos_reelles($ctx['photos'] ?? []);
         $style       = $ctx['style']       ?? [];
         $score       = $ctx['score']       ?? null;
         $critique    = $ctx['critique']    ?? [];

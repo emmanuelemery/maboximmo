@@ -82,6 +82,33 @@ if (!function_exists('mbi_supports_tpl_card_round_shadow')) {
     }
 }
 
+if (!function_exists('mbi_supports_filtre_photos_reelles')) {
+    /**
+     * Exclut du pool les photos placeholder système (bien_default.jpg, etc.)
+     * qui sont auto-attachées à la création d'un bien et n'ont aucun intérêt
+     * marketing. Si après filtrage il ne reste rien, on retourne le pool
+     * d'origine (mieux vaut afficher le placeholder que rien).
+     */
+    function mbi_supports_filtre_photos_reelles(array $photos): array
+    {
+        $patterns = ['bien_default', 'placeholder', 'no_photo', 'default.jpg'];
+        $filtre = [];
+        foreach ($photos as $p) {
+            $nom  = strtolower((string)($p['nom_original'] ?? ''));
+            $url  = strtolower((string)($p['url_photo']    ?? ''));
+            $skip = false;
+            foreach ($patterns as $pat) {
+                if (str_contains($nom, $pat) || str_contains($url, $pat)) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if (!$skip) $filtre[] = $p;
+        }
+        return $filtre ?: $photos;
+    }
+}
+
 if (!function_exists('mbi_supports_tpl_titre_headline')) {
     /**
      * Construit un titre headline auto pour les affiches A3 H.
