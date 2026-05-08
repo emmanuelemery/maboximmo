@@ -179,6 +179,39 @@ foreach ($fieldsIn as $key => $value) {
 // ─── UPDATE par table (transaction) ──────────────────────────────────────
 $saved = ['biens' => [], 'agences' => [], 'mandats' => [], 'users' => []];
 
+// Si TOUTES les valeurs ont été ignorées (cas typique : le user coche "Oui"
+// sur des champs MANDAT mais aucun mandat n'est rattaché au bien), on
+// retourne un message clair AU LIEU de save silencieux qui boucle.
+if (empty($buckets) && !empty($ignored) && !empty($fieldsIn)) {
+    $missingTargets = [];
+    foreach ($ignored as $ig) {
+        if (str_starts_with((string)($ig['reason'] ?? ''), 'no_target_id_for_')) {
+            $tableManquante = substr($ig['reason'], strlen('no_target_id_for_'));
+            $missingTargets[$tableManquante] = true;
+        }
+    }
+    if (!empty($missingTargets)) {
+        $details = [];
+        if (isset($missingTargets['mandats'])) {
+            $details[] = 'Aucun mandat actif rattaché au bien — crée un mandat avant de cocher cette case (pour un bien en location, un mandat de gestion locative inclut automatiquement l\'autorisation de diffusion).';
+        }
+        if (isset($missingTargets['annonces'])) {
+            $details[] = 'Aucune annonce active sur ce bien.';
+        }
+        if (isset($missingTargets['users'])) {
+            $details[] = 'Aucun négociateur attribué à ce bien.';
+        }
+        mbi_supports_completer_jsend(409, [
+            'ok'                  => false,
+            'error'               => 'no_target_entities',
+            'message'             => implode(' ', $details),
+            'missing_targets'     => array_keys($missingTargets),
+            'ignored'             => $ignored,
+            'help_create_mandat'  => isset($missingTargets['mandats']) ? 'agency_mandant_form.php?id_bien=' . $idBien : null,
+        ]);
+    }
+}
+
 try {
     $pdo->beginTransaction();
     foreach ($buckets as $table => $cols) {

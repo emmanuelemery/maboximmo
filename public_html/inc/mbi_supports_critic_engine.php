@@ -524,13 +524,27 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 if (!is_array($mandat)) return [false, 'Mandat absent'];
                 $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
                 $ok = !empty($autoris) && (int)$autoris !== 0;
-                return [$ok, $ok ? null : 'Autorisation de diffusion non signée'];
+                if ($ok) return [true, null];
+                // RÈGLE MÉTIER 2026-05-08 (user) : un mandat de gestion locative
+                // implique automatiquement l'autorisation de diffusion (le bailleur
+                // confie la mise en location → la diffusion en fait partie).
+                $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
+                if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
+                    return [true, null];
+                }
+                return [false, 'Autorisation de diffusion non signée'];
 
             case 'autorisation_diffusion_couvre_canaux':
                 // V1 simplifié : on retombe sur la règle précédente
                 if (!is_array($mandat)) return [false, 'Mandat absent'];
                 $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
-                return [!empty($autoris), 'Périmètre de diffusion à vérifier sur le mandat'];
+                if (!empty($autoris)) return [true, null];
+                // Même règle : mandat gestion → autorisation auto
+                $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
+                if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
+                    return [true, null];
+                }
+                return [false, 'Périmètre de diffusion à vérifier sur le mandat'];
 
             case 'mandat_numero_registre':
                 if (!is_array($mandat)) return [false, 'Mandat absent'];

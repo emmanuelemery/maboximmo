@@ -441,7 +441,23 @@ $scoreColor = match (true) {
       let j;
       try { j = JSON.parse(rawText); }
       catch (parseErr) { throw new Error('Réponse non-JSON (HTTP ' + httpStatus + ') — voir console'); }
-      if (!j.ok) throw new Error(j.error || ('Erreur HTTP ' + httpStatus));
+      if (!j.ok) {
+        // CAS SPÉCIAL : 409 no_target_entities → message clair + lien création mandat
+        if (httpStatus === 409 && j.error === 'no_target_entities') {
+          msg.style.display = 'block';
+          msg.style.background = '#fff7ed';
+          msg.style.color = '#9a3412';
+          msg.style.border = '1px solid #fed7aa';
+          let html = '⚠ ' + (j.message || 'Cible manquante.');
+          if (j.help_create_mandat) {
+            html += '<br><a href="' + j.help_create_mandat + '" style="display:inline-block;margin-top:8px;padding:6px 14px;background:#0ea5e9;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:12px;">→ Créer un mandat pour ce bien</a>';
+          }
+          msg.innerHTML = html;
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Sauvegarder + Re-vérifier'; }
+          return;
+        }
+        throw new Error(j.error || ('Erreur HTTP ' + httpStatus));
+      }
 
       // ── Comptage saved / ignored ──
       let savedCount = 0;
