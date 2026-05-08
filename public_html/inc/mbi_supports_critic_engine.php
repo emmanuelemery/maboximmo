@@ -517,18 +517,26 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
 
             // ── Mandat / autorisation ─────────────────────────────────────
             case 'mandat_actif_existe':
-                if (!is_array($mandat) || empty($mandat)) return [false, 'Aucun mandat actif rattaché'];
+                // RÈGLE MÉTIER 2026-05-08 (user) : si le BIEN lui-même indique un
+                // MANDAT (champ biens.type_commercialisation = 'vente'/'location'/
+                // 'gestion'), on considère que c'est suffisant — pas besoin d'un
+                // mandat formel dans la table mandats. Cohérent avec le pattern
+                // de saisie sur la Card Caractéristiques.
+                $mandatBien = strtolower((string)($bien['type_commercialisation'] ?? ''));
+                if (in_array($mandatBien, ['vente', 'location', 'gestion'], true)) {
+                    return [true, null];
+                }
+                if (!is_array($mandat) || empty($mandat)) return [false, 'Aucun mandat actif rattaché (ni MANDAT indiqué sur le bien)'];
                 return [true, null];
 
             case 'autorisation_diffusion_signee':
-                // RÈGLE MÉTIER 2026-05-08 (user) — autorisation IMPLICITE pour :
-                //   1. Bien en LOCATION : si on a le bien en location chez nous,
-                //      l'autorisation de diffusion va de soi (sinon on ne l'aurait
-                //      pas en location). Pas besoin de mandat pour valider.
-                //   2. Mandat de gestion locative ou de gestion : idem, le mandat
-                //      engage le bailleur sur la diffusion.
-                $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
-                if (str_contains($typeTr, 'location')) {
+                // RÈGLE MÉTIER 2026-05-08 (user) — autorisation IMPLICITE quand :
+                // Le bien lui-même indique un MANDAT de type 'gestion' ou 'location'
+                // (champ biens.type_commercialisation, visible dans Card Caractéristiques).
+                // Cette indication suffit ; on n'a pas besoin d'un mandat formel
+                // créé dans la table mandats avec une colonne autorisation_diffusion.
+                $mandatBien = strtolower((string)($bien['type_commercialisation'] ?? ''));
+                if ($mandatBien === 'gestion' || $mandatBien === 'location') {
                     return [true, null];
                 }
                 if (is_array($mandat) && !empty($mandat)) {
@@ -542,9 +550,9 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 return [false, is_array($mandat) ? 'Autorisation de diffusion non signée' : 'Mandat absent'];
 
             case 'autorisation_diffusion_couvre_canaux':
-                // Même règle : location → OK auto, sinon vérifie le mandat
-                $typeTr = strtolower((string)($bien['type_transaction'] ?? ''));
-                if (str_contains($typeTr, 'location')) {
+                // Même règle : MANDAT bien = gestion/location → OK auto
+                $mandatBien = strtolower((string)($bien['type_commercialisation'] ?? ''));
+                if ($mandatBien === 'gestion' || $mandatBien === 'location') {
                     return [true, null];
                 }
                 if (is_array($mandat) && !empty($mandat)) {
