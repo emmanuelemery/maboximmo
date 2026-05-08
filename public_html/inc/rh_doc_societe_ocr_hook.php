@@ -78,7 +78,13 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
         };
     }
 
-    function rh_doc_societe_hook_apres_upload(PDO $pdo, int $rhDocId): array
+    /**
+     * @param PDO         $pdo
+     * @param int         $rhDocId
+     * @param string|null $modele Override du modèle OCR ('haiku' ~5cts test, 'sonnet'
+     *                            ~25cts prod, ou model_id complet). null = défaut.
+     */
+    function rh_doc_societe_hook_apres_upload(PDO $pdo, int $rhDocId, ?string $modele = null): array
     {
         $resultat = [
             'ok'                  => false,
@@ -146,7 +152,7 @@ if (!function_exists('rh_doc_societe_hook_apres_upload')) {
             try { $pdo = db_keepalive(); } catch (Throwable) {}
         }
 
-        $ocr = agence_doc_ocr_extraire($filePath, $ocrType);
+        $ocr = agence_doc_ocr_extraire($filePath, $ocrType, $modele);
         $resultat['ocr_ok']     = (bool)($ocr['ok'] ?? false);
         $resultat['ocr_erreur'] = $ocr['erreur'] ?? null;
 

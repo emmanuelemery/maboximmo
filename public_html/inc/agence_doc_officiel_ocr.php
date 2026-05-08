@@ -106,9 +106,28 @@ if (!function_exists('agence_doc_ocr_resolve_local_or_fetch')) {
 
 if (!function_exists('agence_doc_ocr_extraire')) {
 
-    function agence_doc_ocr_extraire(string $cheminAbsolu, string $typeDoc): array
+    /**
+     * @param string      $cheminAbsolu Chemin du PDF/image à analyser
+     * @param string      $typeDoc      'rc_pro', 'kbis', 'carte_pro', 'garant_financier', 'bareme_honoraires'
+     * @param string|null $modele       Override du modèle (null = AGENCE_DOC_OCR_MODEL).
+     *                                  Valeurs courtes acceptées :
+     *                                    'haiku'  → claude-haiku-4-5-20251001 (~5 cts/doc, test)
+     *                                    'sonnet' → claude-sonnet-4-6        (~25 cts/doc, prod)
+     *                                  Ou un model_id complet Anthropic.
+     */
+    function agence_doc_ocr_extraire(string $cheminAbsolu, string $typeDoc, ?string $modele = null): array
     {
-        $modele = AGENCE_DOC_OCR_MODEL;
+        // Résolution du modèle effectif :
+        //   null     → constante par défaut (Sonnet 4.6)
+        //   'haiku'  → Haiku 4.5 (test, moins cher)
+        //   'sonnet' → Sonnet 4.6 (prod, max précision)
+        //   autre    → utilisé tel quel (model_id Anthropic)
+        $modele = match (true) {
+            $modele === null || $modele === ''       => AGENCE_DOC_OCR_MODEL,
+            strtolower($modele) === 'haiku'          => 'claude-haiku-4-5-20251001',
+            strtolower($modele) === 'sonnet'         => 'claude-sonnet-4-6',
+            default                                   => $modele,
+        };
 
         // Résolution cross-env : si le fichier n'est pas en local (cas localhost
         // qui ne voit pas le filesystem Hostinger), on le télécharge via HTTPS

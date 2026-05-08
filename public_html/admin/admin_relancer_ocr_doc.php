@@ -50,6 +50,10 @@ echo '<h1>🔄 Relance OCR Sonnet sur rh_documents</h1>';
 $idDoc   = (int)($_GET['id']      ?? 0);
 $failed  = (bool)($_GET['failed'] ?? 0);
 $confirm = (bool)($_GET['confirm'] ?? 0);
+// Choix du modèle : 'haiku' (test ~5 cts) ou 'sonnet' (prod ~25 cts, défaut)
+$modele  = isset($_GET['modele']) && in_array($_GET['modele'], ['haiku', 'sonnet'], true)
+    ? (string)$_GET['modele']
+    : null; // null = défaut (Sonnet)
 
 // Vue par défaut : liste des docs en échec
 if (!$idDoc && !$failed) {
@@ -103,9 +107,15 @@ if ($failed) {
     $ids = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
 
     if (!$confirm) {
+        $coutHaiku  = count($ids) * 5;
+        $coutSonnet = count($ids) * 25;
         echo '<div class="box warn">🔔 Plan de relance : <strong>' . count($ids) . ' doc(s)</strong> en échec à relancer.<br>';
-        echo 'Coût estimé : <strong>' . count($ids) . ' × ~25 centimes = ~' . (count($ids) * 25) . ' centimes</strong> (Sonnet 4.6).</div>';
-        echo '<p><a href="?failed=1&confirm=1" class="btn danger" onclick="return confirm(\'Relancer les ' . count($ids) . ' OCR ?\')">🚀 LANCER MAINTENANT</a> ';
+        echo '<table style="margin-top:8px;font-size:13px;border-collapse:collapse">';
+        echo '<tr><td style="padding:4px 12px;border:1px solid #e5e7eb">🧪 Haiku 4.5 (test)</td><td style="padding:4px 12px;border:1px solid #e5e7eb"><strong>~' . $coutHaiku . ' cts</strong></td><td style="padding:4px 12px;border:1px solid #e5e7eb">qualité OK pour valider le pipeline</td></tr>';
+        echo '<tr><td style="padding:4px 12px;border:1px solid #e5e7eb">🚀 Sonnet 4.6 (prod)</td><td style="padding:4px 12px;border:1px solid #e5e7eb"><strong>~' . $coutSonnet . ' cts</strong></td><td style="padding:4px 12px;border:1px solid #e5e7eb">précision max, recommandé pour l\'usage final</td></tr>';
+        echo '</table></div>';
+        echo '<p style="display:flex;gap:8px;flex-wrap:wrap"><a href="?failed=1&confirm=1&modele=haiku" class="btn" style="background:#16a34a" onclick="return confirm(\'Relancer ' . count($ids) . ' OCR avec Haiku (~' . $coutHaiku . ' cts) ?\')">🧪 Lancer avec Haiku (~' . $coutHaiku . ' cts)</a> ';
+        echo '<a href="?failed=1&confirm=1&modele=sonnet" class="btn danger" onclick="return confirm(\'Relancer ' . count($ids) . ' OCR avec Sonnet (~' . $coutSonnet . ' cts) ?\')">🚀 Lancer avec Sonnet (~' . $coutSonnet . ' cts)</a> ';
         echo '<a href="" class="btn" style="background:#64748b">Annuler</a></p>';
         echo '</body></html>';
         exit;
@@ -113,7 +123,7 @@ if ($failed) {
 
     foreach ($ids as $id) {
         echo "<div class='box'>Doc #{$id} : ";
-        $r = rh_doc_societe_hook_apres_upload($pdo, $id);
+        $r = rh_doc_societe_hook_apres_upload($pdo, $id, $modele);
         if (!empty($r['ocr_ok'])) {
             echo "<span style='color:#16a34a;font-weight:700'>✅ OCR OK</span> · type={$r['type_mappe']}";
         } else {
@@ -165,9 +175,14 @@ if (!$confirm) {
            . '♻️ RE-APPLIQUER MAPPING (gratuit)</a></p>';
     }
 
-    echo '<p style="margin-top:14px"><a href="?id=' . $idDoc . '&confirm=1" class="btn danger">'
-       . '🚀 LANCER OCR (~25 cts)</a> ';
-    echo '<a href="" class="btn" style="background:#64748b">Annuler</a></p>';
+    echo '<p style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+    echo '<a href="?id=' . $idDoc . '&confirm=1&modele=haiku" class="btn" style="background:#16a34a">'
+       . '🧪 Tester avec Haiku (~5 cts)</a> ';
+    echo '<a href="?id=' . $idDoc . '&confirm=1&modele=sonnet" class="btn danger">'
+       . '🚀 OCR Sonnet (~25 cts, max précision)</a> ';
+    echo '<a href="" class="btn" style="background:#64748b">Annuler</a>';
+    echo '</p>';
+    echo '<p style="font-size:11px;color:#94a3b8;margin-top:8px">Haiku 4.5 = ~5x moins cher, qualité légèrement inférieure mais suffisante pour valider le pipeline. Sonnet 4.6 pour les saisies définitives.</p>';
     echo '</body></html>';
     exit;
 }
@@ -245,11 +260,16 @@ if ($replayOnly && $ocrJsonExists) {
     exit;
 }
 
-// Mode OCR neuf : appel Sonnet (coûte 25 cts)
-echo "<div class='box'>Lancement OCR sur doc #{$idDoc}... (coût ~25 cts)</div>";
+// Mode OCR neuf : appel Sonnet (~25 cts) ou Haiku (~5 cts test)
+$modeleLabel = match ($modele) {
+    'haiku'  => 'Haiku 4.5 (~5 cts)',
+    'sonnet' => 'Sonnet 4.6 (~25 cts)',
+    default  => 'Sonnet 4.6 (par défaut, ~25 cts)',
+};
+echo "<div class='box'>Lancement OCR sur doc #{$idDoc} avec modèle : <strong>" . htmlspecialchars($modeleLabel) . "</strong>...</div>";
 @ob_flush(); flush();
 
-$res = rh_doc_societe_hook_apres_upload($pdo, $idDoc);
+$res = rh_doc_societe_hook_apres_upload($pdo, $idDoc, $modele);
 
 if (!empty($res['ocr_ok'])) {
     echo '<div class="box ok">';
