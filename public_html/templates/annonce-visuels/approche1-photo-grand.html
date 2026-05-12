@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Approche 1 - Photo en Grand</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Aperçu preview */
+    .preview-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 3rem;
+      padding: 2rem;
+      background: #f5f5f5;
+    }
+    .preview-label {
+      font-weight: bold;
+      margin-bottom: 1rem;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-container">
+    <!-- FORMAT A3 HORIZONTAL (297×420mm) -->
+    <div>
+      <div class="preview-label">A3 Horizontal (1122×1587px)</div>
+      <div class="annonce-visual format-a3 approach-photo-grand">
+        <div class="photo-grand__image-container">
+          <img src="https://via.placeholder.com/1122x1200?text=Photo+Immersive" alt="Bien immobilier" class="photo-grand__image">
+          <div class="photo-grand__overlay">
+            <svg class="photo-grand__logo" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="5" width="50" height="50" stroke="white" stroke-width="2"/>
+              <path d="M20 35L30 20L40 35" stroke="white" stroke-width="2" fill="none"/>
+            </svg>
+            <h1 class="photo-grand__title">BEL APPARTEMENT LUMINEUX</h1>
+            <p class="photo-grand__subtitle">3 pièces – 68 m² – Balcon</p>
+          </div>
+        </div>
+        <div class="photo-grand__footer">
+          <div class="photo-grand__details">
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🛏️</span>
+              <span>2 CHAMBRES</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🌳</span>
+              <span>BALCON</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">⬆️</span>
+              <span>ASCENSEUR</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">📦</span>
+              <span>CAVE</span>
+            </div>
+          </div>
+          <div class="photo-grand__price">265 000 € FAI</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT A4 VERTICAL (210×297mm) -->
+    <div>
+      <div class="preview-label">A4 Vertical (794×1123px)</div>
+      <div class="annonce-visual format-a4 approach-photo-grand">
+        <div class="photo-grand__image-container">
+          <img src="https://via.placeholder.com/794x900?text=Photo+Immersive" alt="Bien immobilier" class="photo-grand__image">
+          <div class="photo-grand__overlay">
+            <svg class="photo-grand__logo" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="5" width="50" height="50" stroke="white" stroke-width="2"/>
+              <path d="M20 35L30 20L40 35" stroke="white" stroke-width="2" fill="none"/>
+            </svg>
+            <h1 class="photo-grand__title">BEL APPARTEMENT LUMINEUX</h1>
+            <p class="photo-grand__subtitle">3 pièces – 68 m² – Balcon</p>
+          </div>
+        </div>
+        <div class="photo-grand__footer">
+          <div class="photo-grand__details">
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🛏️</span>
+              <span>2 CHAMBRES</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🌳</span>
+              <span>BALCON</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">⬆️</span>
+              <span>ASCENSEUR</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">📦</span>
+              <span>CAVE</span>
+            </div>
+          </div>
+          <div class="photo-grand__price">265 000 € FAI</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT INSTAGRAM CARRÉ (1080×1080px) -->
+    <div>
+      <div class="preview-label">Instagram Carré (1080×1080px)</div>
+      <div class="annonce-visual format-instagram-square approach-photo-grand">
+        <div class="photo-grand__image-container">
+          <img src="https://via.placeholder.com/1080x900?text=Photo+Immersive" alt="Bien immobilier" class="photo-grand__image">
+          <div class="photo-grand__overlay">
+            <svg class="photo-grand__logo" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="5" width="50" height="50" stroke="white" stroke-width="2"/>
+              <path d="M20 35L30 20L40 35" stroke="white" stroke-width="2" fill="none"/>
+            </svg>
+            <h1 class="photo-grand__title">BEL APPARTEMENT LUMINEUX</h1>
+            <p class="photo-grand__subtitle">3 pièces – 68 m² – Balcon</p>
+          </div>
+        </div>
+        <div class="photo-grand__footer">
+          <div class="photo-grand__details">
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🛏️</span>
+              <span>2 CH</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🌳</span>
+              <span>BALC</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">⬆️</span>
+              <span>ASC</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">📦</span>
+              <span>CAVE</span>
+            </div>
+          </div>
+          <div class="photo-grand__price">265 000 €</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT INSTAGRAM STORY (1080×1920px) -->
+    <div>
+      <div class="preview-label">Instagram Story (1080×1920px)</div>
+      <div class="annonce-visual format-instagram-story approach-photo-grand">
+        <div class="photo-grand__image-container">
+          <img src="https://via.placeholder.com/1080x1500?text=Photo+Immersive" alt="Bien immobilier" class="photo-grand__image">
+          <div class="photo-grand__overlay">
+            <svg class="photo-grand__logo" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="5" width="50" height="50" stroke="white" stroke-width="2"/>
+              <path d="M20 35L30 20L40 35" stroke="white" stroke-width="2" fill="none"/>
+            </svg>
+            <h1 class="photo-grand__title">BEL APPARTEMENT LUMINEUX</h1>
+            <p class="photo-grand__subtitle">3 pièces – 68 m² – Balcon</p>
+          </div>
+        </div>
+        <div class="photo-grand__footer">
+          <div class="photo-grand__details">
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🛏️</span>
+              <span>2 CH</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🌳</span>
+              <span>BALC</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">⬆️</span>
+              <span>ASC</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">📦</span>
+              <span>CAVE</span>
+            </div>
+          </div>
+          <div class="photo-grand__price">265 000 €</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT FACEBOOK/LINKEDIN (1200×628px) -->
+    <div>
+      <div class="preview-label">Facebook/LinkedIn (1200×628px)</div>
+      <div class="annonce-visual format-facebook approach-photo-grand">
+        <div class="photo-grand__image-container">
+          <img src="https://via.placeholder.com/1200x450?text=Photo+Immersive" alt="Bien immobilier" class="photo-grand__image">
+          <div class="photo-grand__overlay">
+            <svg class="photo-grand__logo" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="5" width="50" height="50" stroke="white" stroke-width="2"/>
+              <path d="M20 35L30 20L40 35" stroke="white" stroke-width="2" fill="none"/>
+            </svg>
+            <h1 class="photo-grand__title">BEL APPARTEMENT LUMINEUX</h1>
+            <p class="photo-grand__subtitle">3 pièces – 68 m² – Balcon</p>
+          </div>
+        </div>
+        <div class="photo-grand__footer">
+          <div class="photo-grand__details">
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🛏️</span>
+              <span>2 CH</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">🌳</span>
+              <span>BALC</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">⬆️</span>
+              <span>ASC</span>
+            </div>
+            <div class="photo-grand__detail-item">
+              <span class="photo-grand__detail-icon">📦</span>
+              <span>CAVE</span>
+            </div>
+          </div>
+          <div class="photo-grand__price">265 000 €</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOCUMENTATION INTÉGRATION -->
+  <div style="padding: 2rem; max-width: 1200px; margin: 3rem auto;">
+    <h2>📋 Documentation d'intégration - Approche 1 : Photo en Grand</h2>
+    <h3>Variables PHP à remplacer :</h3>
+    <pre><code>&lt;?php
+$data = [
+  'logo_svg' => '&lt;svg&gt;...&lt;/svg&gt;',  // Logo agence
+  'title' => 'BEL APPARTEMENT LUMINEUX',
+  'subtitle' => '3 pièces – 68 m² – Balcon',
+  'image_url' => 'https://...',
+  'price' => '265 000 €',
+  'details' => [
+    ['icon' => '🛏️', 'label' => '2 CHAMBRES'],
+    ['icon' => '🌳', 'label' => 'BALCON'],
+    // ...
+  ]
+];
+?&gt;</code></pre>
+    <h3>Classe CSS pour format spécifique :</h3>
+    <ul>
+      <li><code>.format-a3</code> - A3 Horizontal vitrine</li>
+      <li><code>.format-a4</code> - A4 Vertical papier/email</li>
+      <li><code>.format-instagram-square</code> - Instagram carré</li>
+      <li><code>.format-instagram-story</code> - Instagram story</li>
+      <li><code>.format-facebook</code> - Facebook/LinkedIn</li>
+    </ul>
+  </div>
+</body>
+</html>

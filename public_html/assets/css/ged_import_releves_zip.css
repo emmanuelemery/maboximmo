@@ -1,0 +1,32 @@
+.ged-imp-wrap { max-width: 1400px; margin: 0 auto; padding: 18px 18px 70px; }
+.ged-imp-head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
+.ged-imp-head h1 { margin:0; font-size: 18px; color:#0f172a; }
+.ged-imp-head .sub { margin-top:6px; font-size:12px; color:#64748b; line-height:1.35; max-width: 900px; }
+.ged-imp-card { background:#fff; border-radius:12px; padding:16px 18px; box-shadow:0 1px 3px rgba(0,0,0,.06); border:1px solid #eef2f7; margin-bottom:14px; }
+.ged-imp-card h2 { margin:0 0 12px; font-size: 14px; color:#0f172a; }
+.ged-imp-grid { display:grid; grid-template-columns: 1fr 1.2fr; gap:14px; align-items:start; }
+.row { display:flex; gap:12px; align-items:flex-end; margin-top:10px; flex-wrap:wrap; }
+.col { flex:1 1 320px; }
+label { display:block; font-size:12px; font-weight:700; color:#334155; margin-bottom:6px; }
+input[type="file"], input[type="month"], input[type="text"], select {
+  width:100%; padding:10px 12px; border:1px solid #d4d7de; border-radius:10px; font-size:13px; background:#fff;
+}
+.hint { font-size:11px; color:#64748b; margin-top:6px; }
+.status { font-size:12px; color:#475569; margin-left:8px; }
+.toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+.table-wrap { overflow:auto; border-radius:10px; border:1px solid #eef2f7; }
+.tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.tbl th { text-align:left; padding:8px; background:#f8fafc; color:#475569; font-size:10px; text-transform:uppercase; border-bottom:1px solid #e5e7eb; position:sticky; top:0; z-index:1; }
+.tbl td { padding:8px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+.tbl tr:hover td { background:#fafafa; }
+.empty { color:#94a3b8; font-size:12px; padding:12px; }
+.badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:10px; font-weight:800; text-transform:uppercase; background:#e2e8f0; color:#0f172a; }
+.badge.b-ready { background:#dcfce7; color:#14532d; }
+.badge.b-error { background:#fee2e2; color:#991b1b; }
+.badge.b-extracting, .badge.b-analyzing, .badge.b-created { background:#dbeafe; color:#1e3a8a; }
+.badge.b-done, .badge.b-importing { background:#e0e7ff; color:#3730a3; }
+.cell-actions { display:flex; gap:6px; align-items:center; }
+.cell-actions .aged-btn { padding:6px 10px; font-size:12px; border-radius:10px; }
+.aged-btn.danger { background:#fff; border-color:#ef4444; color:#b91c1c; }
+.aged-btn.danger:hover { background:#fee2e2; }
+

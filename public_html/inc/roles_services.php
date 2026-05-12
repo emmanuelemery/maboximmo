@@ -77,7 +77,7 @@ function getAvailableServices($roleId) {
             'icon' => '👥',
             'description' => 'Gestion des ressources humaines',
             'couleur' => '#4a6038',
-            'dashboard' => 'rh_dashboard.php'
+            'dashboard' => 'https://rh.maboximmo.com'
         ],
         'agency' => [
             'nom' => 'Agency',

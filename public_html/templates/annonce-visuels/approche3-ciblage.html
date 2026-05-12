@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Approche 3 - Ciblage Spécifique</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .preview-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 3rem;
+      padding: 2rem;
+      background: #f5f5f5;
+    }
+    .preview-label {
+      font-weight: bold;
+      margin-bottom: 1rem;
+      color: #333;
+    }
+
+    /* Couleurs par cible */
+    .target-etudiant { --target-color: #5dbea3; }
+    .target-investisseur { --target-color: #c67c4e; }
+    .target-famille { --target-color: #d4a574; }
+
+    .target-etudiant .target__header {
+      background: linear-gradient(135deg, var(--target-color) 0%, #4a9d85 100%);
+    }
+    .target-investisseur .target__header {
+      background: linear-gradient(135deg, var(--target-color) 0%, #a85a38 100%);
+    }
+    .target-famille .target__header {
+      background: linear-gradient(135deg, var(--target-color) 0%, #b88d5e 100%);
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-container">
+    <!-- FORMAT A3 - ÉTUDIANT -->
+    <div>
+      <div class="preview-label">A3 Horizontal - Étudiant (1122×1587px)</div>
+      <div class="annonce-visual format-a3 approach-target target-etudiant">
+        <div class="target__header">
+          <div class="target__header-icon">🎓</div>
+          <div class="target__header-text">
+            <h2>Étudiant ?</h2>
+            <p>CET APPARTEMENT EST FAIT POUR TOI !</p>
+          </div>
+        </div>
+        <div class="target__content">
+          <div class="target__image">
+            <img src="https://via.placeholder.com/560x900?text=Chambre+Étudiant" alt="Chambre">
+          </div>
+          <div class="target__text">
+            <div class="target__features-list">
+              <div class="target__feature-item">
+                <div class="target__feature-icon">📍</div>
+                <div>
+                  <div class="target__feature-title">À 5 MIN DES FACULTÉS</div>
+                  <div class="target__feature-desc">Transports, commerces, tout à proximité</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">💰</div>
+                <div>
+                  <div class="target__feature-title">LOYER ACCESSIBLE</div>
+                  <div class="target__feature-desc">Idéal pour maîtriser ton budget</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">🛋️</div>
+                <div>
+                  <div class="target__feature-title">MEUBLÉ & ÉQUIPÉ</div>
+                  <div class="target__feature-desc">Pose tes valises on s'occupe du reste !</div>
+                </div>
+              </div>
+            </div>
+            <div style="border-top: 2px solid #5dbea3; padding-top: 1rem; margin-top: auto;">
+              <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem;">💚 COUP DE CŒUR ASSURÉ !</div>
+            </div>
+          </div>
+        </div>
+        <div class="target__footer">
+          <div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 0.3rem;">Studio – 20 m²</div>
+            <div class="target__price">540 € CC / MOIS</div>
+          </div>
+          <a href="#" class="target__link">www.votreagence.fr</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT A4 - ÉTUDIANT -->
+    <div>
+      <div class="preview-label">A4 Vertical - Étudiant (794×1123px)</div>
+      <div class="annonce-visual format-a4 approach-target target-etudiant">
+        <div class="target__header">
+          <div class="target__header-icon">🎓</div>
+          <div class="target__header-text">
+            <h2>Étudiant ?</h2>
+            <p>FAIT POUR TOI !</p>
+          </div>
+        </div>
+        <div class="target__content">
+          <div class="target__image">
+            <img src="https://via.placeholder.com/397x450?text=Chambre" alt="Chambre">
+          </div>
+          <div class="target__text">
+            <div class="target__features-list">
+              <div class="target__feature-item">
+                <div class="target__feature-icon">📍</div>
+                <div>
+                  <div class="target__feature-title">À 5 MIN</div>
+                  <div class="target__feature-desc">Transports & commerces</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">💰</div>
+                <div>
+                  <div class="target__feature-title">LOYER OK</div>
+                  <div class="target__feature-desc">Budget maîtrisé</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">🛋️</div>
+                <div>
+                  <div class="target__feature-title">MEUBLÉ</div>
+                  <div class="target__feature-desc">Prêt à vivre</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="target__footer">
+          <div>
+            <div style="font-size: 0.9rem; opacity: 0.9;">Studio – 20 m²</div>
+            <div class="target__price">540 € CC</div>
+          </div>
+          <a href="#" class="target__link">votreagence.fr</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT INSTAGRAM CARRÉ - INVESTISSEUR -->
+    <div>
+      <div class="preview-label">Instagram Carré - Investisseur (1080×1080px)</div>
+      <div class="annonce-visual format-instagram-square approach-target target-investisseur">
+        <div class="target__header" style="padding: 1.5rem;">
+          <div class="target__header-icon" style="font-size: 2rem;">📈</div>
+          <div class="target__header-text">
+            <h2 style="font-size: 1.5rem;">Investisseur</h2>
+            <p style="font-size: 0.85rem;">Bon rendement garanti</p>
+          </div>
+        </div>
+        <div class="target__content" style="grid-template-columns: 1fr;">
+          <div class="target__text" style="padding: 1.5rem;">
+            <div class="target__features-list" style="gap: 0.75rem;">
+              <div class="target__feature-item">
+                <div class="target__feature-icon" style="width: 28px; height: 28px;">📊</div>
+                <div>
+                  <div class="target__feature-title" style="font-size: 0.9rem;">RENDEMENT 4.5%</div>
+                  <div class="target__feature-desc" style="font-size: 0.75rem;">Locataires stables</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon" style="width: 28px; height: 28px;">🔒</div>
+                <div>
+                  <div class="target__feature-title" style="font-size: 0.9rem;">SÉCURISÉ</div>
+                  <div class="target__feature-desc" style="font-size: 0.75rem;">Zone forte demande</div>
+                </div>
+              </div>
+            </div>
+            <div style="border-top: 2px solid #c67c4e; padding-top: 1rem; margin-top: 1rem;">
+              <div style="font-size: 0.8rem; color: #666;">3 pièces – 68 m²</div>
+              <div style="font-size: 1.2rem; color: #c67c4e; font-weight: bold;">265 000 €</div>
+            </div>
+          </div>
+        </div>
+        <div class="target__footer" style="padding: 1rem;">
+          <a href="#" class="target__link">votreagence.fr</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT INSTAGRAM STORY - FAMILLE -->
+    <div>
+      <div class="preview-label">Instagram Story - Famille (1080×1920px)</div>
+      <div class="annonce-visual format-instagram-story approach-target target-famille">
+        <div class="target__header" style="justify-content: center; text-align: center;">
+          <div style="width: 100%;">
+            <div class="target__header-icon" style="margin: 0 auto 1rem; font-size: 3rem;">👨‍👩‍👧‍👦</div>
+            <h2 style="font-size: 2rem; margin-bottom: 0.5rem;">FAMILLE</h2>
+            <p style="font-size: 1rem;">Le foyer de vos rêves !</p>
+          </div>
+        </div>
+        <div class="target__content" style="grid-template-columns: 1fr;">
+          <div class="target__text">
+            <div class="target__features-list">
+              <div class="target__feature-item">
+                <div class="target__feature-icon">🛏️</div>
+                <div>
+                  <div class="target__feature-title">3 CHAMBRES</div>
+                  <div class="target__feature-desc">Chacun son espace</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">🌳</div>
+                <div>
+                  <div class="target__feature-title">BALCON + CAVE</div>
+                  <div class="target__feature-desc">Rangements & extérieur</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">🏫</div>
+                <div>
+                  <div class="target__feature-title">PRÈS DES ÉCOLES</div>
+                  <div class="target__feature-desc">Environnement familial</div>
+                </div>
+              </div>
+            </div>
+            <div style="border-top: 2px solid #d4a574; padding-top: 1.5rem; margin-top: auto;">
+              <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem;">3 pièces – 68 m²</div>
+              <div style="font-size: 1.8rem; color: #d4a574; font-weight: bold; margin-bottom: 1rem;">265 000 €</div>
+              <div style="text-align: center; padding: 0.75rem; background: rgba(212,165,116,0.1); border-radius: 4px; font-size: 0.9rem; color: #333;">
+                📞 01 23 45 67 89
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT FACEBOOK - INVESTISSEUR -->
+    <div>
+      <div class="preview-label">Facebook - Investisseur (1200×628px)</div>
+      <div class="annonce-visual format-facebook approach-target target-investisseur">
+        <div class="target__header" style="flex: 0 0 40%; padding-right: 2rem;">
+          <div style="margin-bottom: 0.5rem; font-size: 1rem;">📈 INVESTISSEUR</div>
+          <h2 style="font-size: 1.5rem; margin-bottom: 0.5rem;">RENDEMENT 4.5%</h2>
+          <p style="font-size: 0.9rem;">Sécurisé en zone forte demande</p>
+        </div>
+        <div class="target__image" style="flex: 0 0 60%;">
+          <img src="https://via.placeholder.com/720x628?text=Appartement" alt="Bien">
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT A4 - INVESTISSEUR -->
+    <div>
+      <div class="preview-label">A4 Vertical - Investisseur (794×1123px)</div>
+      <div class="annonce-visual format-a4 approach-target target-investisseur">
+        <div class="target__header">
+          <div class="target__header-icon">📈</div>
+          <div class="target__header-text">
+            <h2>Investisseur</h2>
+            <p>BON RENDEMENT ASSURÉ !</p>
+          </div>
+        </div>
+        <div class="target__content">
+          <div class="target__image">
+            <img src="https://via.placeholder.com/397x450?text=Appartement" alt="Bien">
+          </div>
+          <div class="target__text">
+            <div class="target__features-list">
+              <div class="target__feature-item">
+                <div class="target__feature-icon">📊</div>
+                <div>
+                  <div class="target__feature-title">RENDEMENT 4.5%</div>
+                  <div class="target__feature-desc">Locataires stables</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">🔒</div>
+                <div>
+                  <div class="target__feature-title">SÉCURISÉ</div>
+                  <div class="target__feature-desc">Zone forte demande</div>
+                </div>
+              </div>
+              <div class="target__feature-item">
+                <div class="target__feature-icon">💰</div>
+                <div>
+                  <div class="target__feature-title">PRIX COMPÉTITIF</div>
+                  <div class="target__feature-desc">Marge attractive</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="target__footer">
+          <div>
+            <div style="font-size: 0.9rem; opacity: 0.9;">3 pièces – 68 m²</div>
+            <div class="target__price">265 000 €</div>
+          </div>
+          <a href="#" class="target__link">votreagence.fr</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding: 2rem; max-width: 1200px; margin: 3rem auto;">
+    <h2>📋 Documentation - Approche 3 : Ciblage Spécifique</h2>
+    <h3>Cibles supportées :</h3>
+    <ul>
+      <li><code>.target-etudiant</code> - Couleur verte, emoji 🎓, langage jeune</li>
+      <li><code>.target-investisseur</code> - Couleur marron/or, emoji 📈, focus rendement</li>
+      <li><code>.target-famille</code> - Couleur beige chaud, emoji 👨‍👩‍👧‍👦, focus enfants/espace</li>
+    </ul>
+    <h3>Variables PHP :</h3>
+    <pre><code>&lt;?php
+$data = [
+  'target' => 'etudiant|investisseur|famille',
+  'icon' => '🎓',
+  'header_title' => 'Étudiant ?',
+  'header_subtitle' => 'CET APPARTEMENT EST FAIT POUR TOI !',
+  'image_url' => 'https://...',
+  'features' => [
+    ['icon' => '📍', 'title' => 'À 5 MIN DES FACULTÉS', 'desc' => 'Transports...'],
+    // ...
+  ],
+  'price' => '540 € CC / MOIS'
+];
+?&gt;</code></pre>
+  </div>
+</body>
+</html>

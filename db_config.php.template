@@ -1,0 +1,22 @@
+<?php
+// ═══════════════════════════════════════════════════════════════
+// Configuration BDD — développement local pointant sur Hostinger dev
+// ═══════════════════════════════════════════════════════════════
+// Ce fichier est dans .gitignore — tes credentials restent sur ton poste.
+// Copie-le en db_config.php et remplace les 4 valeurs.
+//
+// Pour passer temporairement sur XAMPP local :
+//   Inverse les 2 blocs DEV/LOCAL ci-dessous (commente celui du haut,
+//   décommente celui du bas).
+
+// ── Hostinger dev (par défaut) ─────────────────────────────────
+define('DB_HOST', 'REMPLACE_PAR_HOST_HOSTINGER');   // ex: auth-dbXXX.hstgr.io
+define('DB_NAME', 'REMPLACE_PAR_u630423897_dev_maboximmo');
+define('DB_USER', 'REMPLACE_PAR_UTILISATEUR_DEV');
+define('DB_PASS', 'REMPLACE_PAR_MDP');
+
+// ── XAMPP local (commenté - décommente pour repasser en local) ──
+// define('DB_HOST', '127.0.0.1');
+// define('DB_NAME', 'maboximmo');
+// define('DB_USER', 'root');
+// define('DB_PASS', '');

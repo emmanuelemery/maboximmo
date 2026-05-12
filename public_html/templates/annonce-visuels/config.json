@@ -1,0 +1,305 @@
+{
+  "version": "1.0",
+  "description": "Configuration des templates annonces visuels MaBoxImmo",
+  "timestamp": "2026-05-06",
+
+  "approaches": {
+    "approche1": {
+      "name": "La Photo en Grand",
+      "description": "Photo immersive - émotion visuelle immédiate",
+      "html_file": "approche1-photo-grand.html",
+      "css_file": "styles.css",
+      "icon": "🖼️",
+      "use_cases": [
+        "Bien avec vue exceptionnelle",
+        "Appartement lumineux",
+        "Propriété avec belle terrasse",
+        "Coup de cœur visuel"
+      ],
+      "best_for_properties": {
+        "property_types": ["Appartement", "Studio", "Maison"],
+        "features": ["Vue", "Luminosité", "Balcon", "Terrasse"]
+      },
+      "variables_required": [
+        "logo_svg",
+        "title",
+        "subtitle",
+        "image_url",
+        "price",
+        "details"
+      ],
+      "css_classes": {
+        "main": "approach-photo-grand",
+        "formats": ["format-a3", "format-a4", "format-instagram-square", "format-instagram-story", "format-facebook"]
+      }
+    },
+
+    "approche2": {
+      "name": "L'Argument en Avant",
+      "description": "Vendre un style de vie ou un avantage fort",
+      "html_file": "approche2-argument-avant.html",
+      "css_file": "styles.css",
+      "icon": "💬",
+      "use_cases": [
+        "Vendre une localisation prestige",
+        "Mettre l'accent sur le confort",
+        "Nouvelle résidence sécurisée",
+        "Faibles charges / performance énergétique"
+      ],
+      "best_for_properties": {
+        "property_types": ["Appartement", "Maison"],
+        "features": ["Localisation", "Performance énergétique", "Sécurité", "Confort"]
+      },
+      "variables_required": [
+        "logo_svg",
+        "main_text",
+        "subtitle",
+        "image_url",
+        "price",
+        "features"
+      ],
+      "css_classes": {
+        "main": "approach-argument",
+        "formats": ["format-a3", "format-a4", "format-instagram-square", "format-instagram-story", "format-facebook"]
+      }
+    },
+
+    "approche3": {
+      "name": "Ciblage Spécifique",
+      "description": "Viser une démographie précise (Étudiant/Investisseur/Famille)",
+      "html_file": "approche3-ciblage.html",
+      "css_file": "styles.css",
+      "icon": "🎯",
+      "use_cases": [
+        "Studio étudiant près des facs",
+        "Petit investissement avec bon rendement",
+        "Maison pour jeune famille"
+      ],
+      "available_targets": [
+        {
+          "id": "etudiant",
+          "label": "Étudiant",
+          "icon": "🎓",
+          "color": "#5dbea3",
+          "focus": ["Proximité école/université", "Loyer budget", "Meublé", "Transport facile"],
+          "message": "CET APPARTEMENT EST FAIT POUR TOI !"
+        },
+        {
+          "id": "investisseur",
+          "label": "Investisseur",
+          "icon": "📈",
+          "color": "#c67c4e",
+          "focus": ["Rendement", "Sécurité", "Zone forte demande", "Marge attractive"],
+          "message": "BON RENDEMENT ASSURÉ !"
+        },
+        {
+          "id": "famille",
+          "label": "Famille",
+          "icon": "👨‍👩‍👧‍👦",
+          "color": "#d4a574",
+          "focus": ["Espace", "Enfants", "Écoles proximité", "Calme"],
+          "message": "LE FOYER DE VOS RÊVES !"
+        }
+      ],
+      "best_for_properties": {
+        "etudiant": {
+          "property_types": ["Studio", "T2"],
+          "features": ["Proximité université", "Loyer budget"],
+          "location_keywords": ["faculté", "université", "école"]
+        },
+        "investisseur": {
+          "property_types": ["T2", "T3", "Petite maison"],
+          "features": ["Rendement", "Locataires stables"],
+          "price_range": "150000-400000"
+        },
+        "famille": {
+          "property_types": ["T3", "T4", "Maison"],
+          "features": ["Espace", "Chambres multiples", "Jardin"],
+          "location_keywords": ["école", "parc", "calme"]
+        }
+      },
+      "variables_required": [
+        "logo_svg",
+        "target",
+        "icon",
+        "header_title",
+        "header_subtitle",
+        "image_url",
+        "price",
+        "features"
+      ],
+      "css_classes": {
+        "main": "approach-target",
+        "target_classes": ["target-etudiant", "target-investisseur", "target-famille"],
+        "formats": ["format-a3", "format-a4", "format-instagram-square", "format-instagram-story", "format-facebook"]
+      }
+    },
+
+    "approche4": {
+      "name": "Multi-Photos Premium",
+      "description": "Galerie riche - haut de gamme ou portefeuille",
+      "html_file": "approche4-multi-photos.html",
+      "css_file": "styles.css",
+      "icon": "🖼️🖼️🖼️",
+      "use_cases": [
+        "Haut de gamme avec plusieurs photos",
+        "Vitrines de propriétés exceptionnelles",
+        "Portfolios d'immeubles",
+        "Bien avec plusieurs angles à montrer"
+      ],
+      "best_for_properties": {
+        "property_types": ["Maison prestige", "Immeuble", "Appartement haut de gamme"],
+        "features": ["Galerie riche", "Multiples pièces", "Extérieurs", "Finitions"],
+        "price_range": "500000+"
+      },
+      "variables_required": [
+        "logo_svg",
+        "title",
+        "subtitle",
+        "main_image",
+        "gallery_images",
+        "price",
+        "features"
+      ],
+      "image_recommendations": {
+        "main_image": "1:1 ou paysage (séjour, vue générale)",
+        "gallery_images": "Minimum 3 (chambre, cuisine, extérieur), idéalement 4",
+        "total_images": 5
+      },
+      "css_classes": {
+        "main": "approach-multi",
+        "formats": ["format-a3", "format-a4", "format-instagram-square", "format-instagram-story", "format-facebook"]
+      }
+    }
+  },
+
+  "formats": {
+    "a3": {
+      "name": "A3 Horizontal",
+      "dimensions": "1122×1587px",
+      "aspect_ratio": "297:420mm",
+      "dpi": 150,
+      "usage": "Affichage vitrine agence",
+      "print": true,
+      "digital": true,
+      "css_class": "format-a3"
+    },
+    "a4": {
+      "name": "A4 Vertical",
+      "dimensions": "794×1123px",
+      "aspect_ratio": "210:297mm",
+      "dpi": 150,
+      "usage": "Papier, PDF email, flyers",
+      "print": true,
+      "digital": true,
+      "css_class": "format-a4"
+    },
+    "instagram_square": {
+      "name": "Instagram Carré",
+      "dimensions": "1080×1080px",
+      "aspect_ratio": "1:1",
+      "dpi": null,
+      "usage": "Grille Instagram, Pinterest",
+      "print": false,
+      "digital": true,
+      "platforms": ["instagram", "pinterest", "linkedin"],
+      "css_class": "format-instagram-square"
+    },
+    "instagram_story": {
+      "name": "Instagram Story",
+      "dimensions": "1080×1920px",
+      "aspect_ratio": "9:16",
+      "dpi": null,
+      "usage": "Stories, Reels, contenu vertical",
+      "print": false,
+      "digital": true,
+      "platforms": ["instagram", "tiktok", "snapchat"],
+      "css_class": "format-instagram-story"
+    },
+    "facebook": {
+      "name": "Facebook/LinkedIn",
+      "dimensions": "1200×628px",
+      "aspect_ratio": "1.91:1",
+      "dpi": null,
+      "usage": "Partage réseaux professionnels",
+      "print": false,
+      "digital": true,
+      "platforms": ["facebook", "linkedin"],
+      "css_class": "format-facebook"
+    }
+  },
+
+  "smart_selection": {
+    "rules": [
+      {
+        "condition": "property.has_exceptional_view OR property.is_very_bright",
+        "approach": "approche1",
+        "description": "Une photo exceptionnelle vaut 1000 mots"
+      },
+      {
+        "condition": "property.is_luxury OR property.is_new_building",
+        "approach": "approche2",
+        "description": "Vendre le lifestyle premium"
+      },
+      {
+        "condition": "property.is_student_oriented AND property.price < 600",
+        "approach": "approche3",
+        "target": "etudiant",
+        "description": "Ciblage étudiant pour petit budget"
+      },
+      {
+        "condition": "property.is_investment_focused AND property.has_tenant",
+        "approach": "approche3",
+        "target": "investisseur",
+        "description": "Ciblage investisseur sur rendement"
+      },
+      {
+        "condition": "property.bedrooms >= 3 AND property.has_garden",
+        "approach": "approche3",
+        "target": "famille",
+        "description": "Ciblage famille sur espace"
+      },
+      {
+        "condition": "property.price > 500000 AND property.has_multiple_photos > 5",
+        "approach": "approche4",
+        "description": "Haut de gamme nécessite galerie riche"
+      }
+    ]
+  },
+
+  "color_scheme": {
+    "primary": "#1a3a4a",
+    "accent": "#c9a961",
+    "accent_light": "#e8d5b7",
+    "text": "#333",
+    "text_light": "#666",
+    "bg": "#f9f9f9",
+    "target_etudiant": "#5dbea3",
+    "target_investisseur": "#c67c4e",
+    "target_famille": "#d4a574"
+  },
+
+  "typography": {
+    "display": "'Georgia', serif",
+    "body": "'Segoe UI', Tahoma, Geneva, sans-serif",
+    "sizes": {
+      "title": "2.5rem",
+      "subtitle": "1.8rem",
+      "body": "0.95rem",
+      "small": "0.85rem"
+    }
+  },
+
+  "export_options": {
+    "html": {
+      "format": "HTML5",
+      "encoding": "UTF-8",
+      "inline_css": false
+    },
+    "image": {
+      "formats": ["png", "jpg", "webp"],
+      "requires_tool": "wkhtmltoimage OR puppeteer OR cloud API",
+      "dpi_options": [72, 150, 300]
+    }
+  }
+}
