@@ -139,21 +139,23 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
 
         // Largeur = toute la zone photo héro - padding (16mm marges intérieures)
         $cardW = $hpW - 12;
-        $cardH = $titreAnnonce !== '' ? 44 : 28;
+        $cardH = $titreAnnonce !== '' ? 56 : 28;
         mbi_supports_tpl_card_round_shadow($pdf, $padX + 6, $padTop + 6, $cardW, $cardH, 6.0, [10, 18, 32], 0.65, true, $cS);
 
         if ($titreAnnonce !== '') {
-            // TITRE annonce en très gros (22pt, ombre portée subtile pour relief)
+            // Titre coupé en 2 lignes équilibrées pour pouvoir grossir
+            $titre2L = mbi_supports_couper_2_lignes(mb_substr($titreAnnonce, 0, 100, 'UTF-8'));
+            // TITRE XXL (30pt sur 2 lignes équilibrées, ombre portée pour relief)
             $pdf->SetAlpha(0.45);
-            $pdf->SetFont('dejavusans', 'B', 22);
+            $pdf->SetFont('dejavusans', 'B', 30);
             $pdf->SetTextColor(0, 0, 0);
-            $pdf->SetXY($padX + 14 + 1.2, $padTop + 12 + 1.6);
-            $pdf->MultiCell($cardW - 16, 9, mb_substr($titreAnnonce, 0, 90, 'UTF-8'), 0, 'L');
+            $pdf->SetXY($padX + 14 + 1.4, $padTop + 11 + 2.0);
+            $pdf->MultiCell($cardW - 16, 11, $titre2L, 0, 'L');
             $pdf->SetAlpha(1.0);
-            $pdf->SetFont('dejavusans', 'B', 22);
+            $pdf->SetFont('dejavusans', 'B', 30);
             $pdf->SetTextColor(255, 255, 255);
-            $pdf->SetXY($padX + 14, $padTop + 12);
-            $pdf->MultiCell($cardW - 16, 9, mb_substr($titreAnnonce, 0, 90, 'UTF-8'), 0, 'L');
+            $pdf->SetXY($padX + 14, $padTop + 11);
+            $pdf->MultiCell($cardW - 16, 11, $titre2L, 0, 'L');
             // Réf en sous-titre or
             $pdf->SetFont('dejavusans', '', 9);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
@@ -253,9 +255,9 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         );
         $cy += 17;
 
-        // ─── CONDITIONS FINANCIÈRES (bloc dédié) ──────────────────────
-        // Vente : prix net + honoraires
-        // Location : loyer HC + charges + honoraires bail + EDL + dépôt
+        // ─── CONDITIONS FINANCIÈRES (2 colonnes catégorisées) ─────────
+        // Colonne GAUCHE : Loyer HC, Charges, Dépôt de garantie (ou Prix net + à la charge en vente)
+        // Colonne DROITE : Honoraires bail + État des lieux (ou Honoraires en vente)
         $lignesCF = mbi_supports_get_conditions_financieres($bien);
         if (!empty($lignesCF)) {
             // Petit titre "CONDITIONS"
@@ -263,30 +265,44 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
             $pdf->SetXY($bpx, $cy);
             $pdf->Cell($colLW, 4, mb_strtoupper(($infoPrix['type'] ?? '') === 'location' ? 'Conditions ALUR' : 'Conditions', 'UTF-8'), 0, 1, 'L');
-            $cy += 4.5;
+            $cy += 5;
 
-            // Lignes en 2 colonnes pour gagner de la place (max 3 par colonne)
-            $nb = count($lignesCF);
-            $perCol = (int)ceil($nb / 2);
+            // Catégorise par label (les libellés sont stables, cf. helper)
+            $colGauche = [];
+            $colDroite = [];
+            foreach ($lignesCF as $cf) {
+                [$lab, $val] = $cf;
+                $labLower = mb_strtolower($lab, 'UTF-8');
+                if (str_contains($labLower, 'honoraires') || str_contains($labLower, 'état des lieux')) {
+                    $colDroite[] = $cf;
+                } else {
+                    // Loyer / Charges / Dépôt / Prix net / À la charge → colonne gauche
+                    $colGauche[] = $cf;
+                }
+            }
+
             $colCFW = $colLW / 2 - 4;
 
-            $pdf->SetFont('dejavusans', '', 11);
-            for ($i = 0; $i < $nb; $i++) {
-                $col = $i < $perCol ? 0 : 1;
-                $row = $i < $perCol ? $i : ($i - $perCol);
-                $lx  = $bpx + $col * ($colCFW + 8);
-                $ly  = $cy + $row * 5;
-                [$lab, $val] = $lignesCF[$i];
-                $pdf->SetTextColor(200, 206, 220);
-                $pdf->SetXY($lx, $ly);
-                $pdf->Cell($colCFW * 0.55, 4.5, $lab . ' :', 0, 0, 'L');
-                $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetFont('dejavusans', 'B', 11);
-                $pdf->SetXY($lx + $colCFW * 0.55, $ly);
-                $pdf->Cell($colCFW * 0.45, 4.5, $val, 0, 0, 'L');
-                $pdf->SetFont('dejavusans', '', 11);
-            }
-            $cy += $perCol * 5 + 3;
+            $renderCol = function (array $col, float $x0, float $y0) use ($pdf, $colCFW) {
+                foreach ($col as $i => $cf) {
+                    [$lab, $val] = $cf;
+                    $ly = $y0 + $i * 5.2;
+                    $pdf->SetFont('dejavusans', '', 11);
+                    $pdf->SetTextColor(200, 206, 220);
+                    $pdf->SetXY($x0, $ly);
+                    $pdf->Cell($colCFW * 0.55, 4.5, $lab . ' :', 0, 0, 'L');
+                    $pdf->SetFont('dejavusans', 'B', 11);
+                    $pdf->SetTextColor(255, 255, 255);
+                    $pdf->SetXY($x0 + $colCFW * 0.55, $ly);
+                    $pdf->Cell($colCFW * 0.45, 4.5, $val, 0, 0, 'L');
+                }
+            };
+
+            $renderCol($colGauche, $bpx, $cy);
+            $renderCol($colDroite, $bpx + $colCFW + 8, $cy);
+
+            $nbRows = max(count($colGauche), count($colDroite));
+            $cy += $nbRows * 5.2 + 3;
         }
         $cy += 4;
 

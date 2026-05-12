@@ -82,6 +82,37 @@ if (!function_exists('mbi_supports_tpl_card_round_shadow')) {
     }
 }
 
+if (!function_exists('mbi_supports_couper_2_lignes')) {
+    /**
+     * Coupe un texte en 2 lignes équilibrées par nombre de caractères.
+     * Trouve le mot dont la position est la plus proche du milieu de la chaîne
+     * et insère un saut de ligne juste avant.
+     * Retourne le texte avec un \n inséré (ou le texte original si trop court).
+     */
+    function mbi_supports_couper_2_lignes(string $s): string
+    {
+        $s = trim($s);
+        $mots = preg_split('/\s+/u', $s) ?: [];
+        if (count($mots) < 3) return $s;
+
+        $totalLen = mb_strlen($s, 'UTF-8');
+        $cur = 0;
+        $bestIdx = 1;
+        $bestDiff = $totalLen;
+        for ($i = 1; $i < count($mots); $i++) {
+            $cur += mb_strlen($mots[$i - 1], 'UTF-8') + 1;
+            $diff = abs($cur - ($totalLen - $cur));
+            if ($diff < $bestDiff) {
+                $bestDiff = $diff;
+                $bestIdx = $i;
+            }
+        }
+        $l1 = implode(' ', array_slice($mots, 0, $bestIdx));
+        $l2 = implode(' ', array_slice($mots, $bestIdx));
+        return $l1 . "\n" . $l2;
+    }
+}
+
 if (!function_exists('mbi_supports_filtre_photos_reelles')) {
     /**
      * Exclut du pool les photos placeholder système (bien_default.jpg, etc.)
