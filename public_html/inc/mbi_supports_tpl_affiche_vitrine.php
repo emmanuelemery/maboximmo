@@ -397,53 +397,68 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
             $sy = $y + 0.5;
             $isActive = ($classActive === $L);
 
-            // Cadre actif : +6mm hauteur (vs +2.5 avant) → vraiment plus gros
-            $thisH = $isActive ? $segH + 6.0 : $segH;
-            $thisY = $isActive ? $sy - 3.0 : $sy;
+            // Cadre actif : largement plus gros (hauteur ×2.7, largeur ×1.25)
+            // Pour ne pas écraser les voisins, on n'élargit que vers les côtés
+            // proportionnellement (les voisins se "tassent" légèrement visuellement).
+            $extraH = 12.0;
+            $extraW = 3.0;
+            $thisH = $isActive ? $segH + $extraH : $segH;
+            $thisY = $isActive ? $sy - $extraH / 2 : $sy;
+            $thisX = $isActive ? $sx - $extraW / 2 : $sx;
+            $thisW = $isActive ? $segW + $extraW : $segW;
 
             // Ombre portée uniquement sur le segment actif
             if ($isActive) {
-                $pdf->SetAlpha(0.35);
+                $pdf->SetAlpha(0.38);
                 $pdf->SetFillColor(15, 23, 42);
-                $pdf->RoundedRect($sx + 1.2, $thisY + 2.0, $segW - 1.2, $thisH, 2.0, '1111', 'F');
+                $pdf->RoundedRect($thisX + 1.5, $thisY + 2.5, $thisW - 1.0, $thisH, 2.5, '1111', 'F');
                 $pdf->SetAlpha(1.0);
             }
 
             $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
-            $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 2.0, '1111', 'F');
+            if ($isActive) {
+                $pdf->RoundedRect($thisX, $thisY, $thisW, $thisH, 2.5, '1111', 'F');
+            } else {
+                $pdf->RoundedRect($sx + 0.4, $sy, $segW - 1, $segH, 1.5, '1111', 'F');
+            }
 
-            // Bordure or autour du segment actif (renforce la mise en évidence)
+            // Bordure or épaisse autour du segment actif
             if ($isActive) {
                 $pdf->SetDrawColor(212, 160, 71);
-                $pdf->SetLineWidth(0.7);
-                $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 2.0, '1111', 'D');
+                $pdf->SetLineWidth(1.0);
+                $pdf->RoundedRect($thisX, $thisY, $thisW, $thisH, 2.5, '1111', 'D');
                 $pdf->SetLineWidth(0.2);
             }
 
-            // Lettre : segment actif = 18pt, autres = 8pt
-            $fs = $isActive ? 18 : 8;
+            // Lettre : segment actif = 28pt (×3.5 plus grosse), autres = 8pt
+            $fs = $isActive ? 28 : 8;
             $pdf->SetFont('dejavusans', 'B', $fs);
             $pdf->SetTextColor(255, 255, 255);
-            $pdf->SetXY($sx, $thisY);
-            $pdf->Cell($segW, $thisH, $L, 0, 0, 'C');
+            if ($isActive) {
+                $pdf->SetXY($thisX, $thisY);
+                $pdf->Cell($thisW, $thisH, $L, 0, 0, 'C');
+            } else {
+                $pdf->SetXY($sx, $sy);
+                $pdf->Cell($segW, $segH, $L, 0, 0, 'C');
+            }
 
-            // Cartouche valeur réelle au-dessus du segment actif (seulement si saisie)
+            // Cartouche valeur réelle au-dessus du segment actif
             if ($isActive && $valeur !== null && $valeur > 0 && !$classeVide) {
-                $vx = $sx - 2;
-                $vw = $segW + 4;
-                $vy = $y - 7.0;
+                $vx = $thisX - 2;
+                $vw = $thisW + 4;
+                $vy = $thisY - 9.5;
 
                 $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
-                $cx = $sx + $segW / 2;
-                $pdf->Polygon([$cx - 1.8, $vy + 5.8, $cx + 1.8, $vy + 5.8, $cx, $vy + 8.0], 'F');
+                $cx = $thisX + $thisW / 2;
+                $pdf->Polygon([$cx - 2.2, $vy + 6.5, $cx + 2.2, $vy + 6.5, $cx, $vy + 8.5], 'F');
 
                 mbi_supports_tpl_card_round_shadow(
-                    $pdf, $vx, $vy, $vw, 6.0, 1.3, $cRGB, 1.0, true
+                    $pdf, $vx, $vy, $vw, 6.5, 1.5, $cRGB, 1.0, true
                 );
-                $pdf->SetFont('dejavusans', 'B', 9);
+                $pdf->SetFont('dejavusans', 'B', 11);
                 $pdf->SetTextColor(255, 255, 255);
                 $pdf->SetXY($vx, $vy);
-                $pdf->Cell($vw, 6.0, number_format($valeur, 0, ',', ' '), 0, 0, 'C');
+                $pdf->Cell($vw, 6.5, number_format($valeur, 0, ',', ' '), 0, 0, 'C');
             }
         }
 
@@ -476,10 +491,10 @@ if (!function_exists('mbi_supports_tpl_dpe_ges')) {
         ?float $gesValeur = null
     ): void {
         $barH = 8.0;
-        // Le segment actif déborde de 3mm vers le haut et 3mm vers le bas
-        // Cartouche valeur au-dessus = 7mm. Donc ~10mm de marge top.
-        $yDpe = $y + 9.0;
-        $yGes = $yDpe + 22.0; // 11 (DPE étendu vers le bas) + 11 (cartouche GES + débord haut)
+        // Le segment actif déborde +6mm haut et +6mm bas vs sa version standard
+        // Cartouche valeur encore au-dessus (~10mm). Marges adaptées.
+        $yDpe = $y + 12.0;
+        $yGes = $yDpe + 26.0;
 
         mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yDpe, $w, $barH, 'DPE', $dpe, $textRgbHeader, $dpeValeur, 'kWh/m²/an');
         mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yGes, $w, $barH, 'GES', $ges, $textRgbHeader, $gesValeur, 'kg CO₂/m²/an');
