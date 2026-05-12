@@ -351,6 +351,53 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
     }
 }
 
+if (!function_exists('mbi_supports_dpe_classe_depuis_valeur')) {
+    /**
+     * Déduit la classe DPE (kWh EP/m²/an) selon le barème ADEME logement.
+     * @return string 'A'..'G' ou '' si valeur invalide
+     */
+    function mbi_supports_dpe_classe_depuis_valeur(float $v): string
+    {
+        if ($v <= 0) return '';
+        if ($v <=  70) return 'A';
+        if ($v <= 110) return 'B';
+        if ($v <= 180) return 'C';
+        if ($v <= 250) return 'D';
+        if ($v <= 330) return 'E';
+        if ($v <= 420) return 'F';
+        return 'G';
+    }
+}
+
+if (!function_exists('mbi_supports_ges_classe_depuis_valeur')) {
+    /**
+     * Déduit la classe GES (kg CO2/m²/an) selon le barème ADEME.
+     */
+    function mbi_supports_ges_classe_depuis_valeur(float $v): string
+    {
+        if ($v <= 0)  return '';
+        if ($v <=   6) return 'A';
+        if ($v <=  11) return 'B';
+        if ($v <=  30) return 'C';
+        if ($v <=  50) return 'D';
+        if ($v <=  70) return 'E';
+        if ($v <= 100) return 'F';
+        return 'G';
+    }
+}
+
+if (!function_exists('mbi_supports_classe_normalise')) {
+    /**
+     * Renvoie la classe normalisée (A..G) ou '' si invalide.
+     * "VIERGE", "N/A", "—", null, etc. → ''
+     */
+    function mbi_supports_classe_normalise(?string $c): string
+    {
+        $u = strtoupper(trim((string)$c));
+        return in_array($u, ['A','B','C','D','E','F','G'], true) ? $u : '';
+    }
+}
+
 if (!function_exists('mbi_supports_tpl_dpe_ges_pastille')) {
     /**
      * Affiche UNE pastille DPE ou GES : carré rounded 16x16mm couleur ADEME
@@ -371,9 +418,11 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_pastille')) {
             'D' => [255, 240, 53], 'E' => [245, 181, 61], 'F' => [232, 90, 58], 'G' => [210, 44, 46],
         ];
 
-        $classeVide = ($classe === '');
-        $classActive = $classeVide ? 'G' : $classe;
-        $cRGB = $couleurs[$classActive] ?? [200, 200, 200];
+        // Normalise : "VIERGE", "N/A", null → vide. Puis fallback G si vraiment rien.
+        $classeNorm = mbi_supports_classe_normalise($classe);
+        $classeVide = ($classeNorm === '');
+        $classActive = $classeVide ? 'G' : $classeNorm;
+        $cRGB = $couleurs[$classActive];
 
         // Label "DPE" / "GES" à gauche
         $labW = 14;
@@ -431,9 +480,20 @@ if (!function_exists('mbi_supports_tpl_dpe_ges')) {
         ?float $dpeValeur = null,
         ?float $gesValeur = null
     ): void {
-        $rowH = 20; // 16mm pastille + 4mm gap
-        mbi_supports_tpl_dpe_ges_pastille($pdf, $x, $y,          'DPE', $dpe, $dpeValeur, 'kWh/m²/an',    $textRgbHeader);
-        mbi_supports_tpl_dpe_ges_pastille($pdf, $x, $y + $rowH,  'GES', $ges, $gesValeur, 'kg CO₂/m²/an', $textRgbHeader);
+        // Si la classe est invalide ("VIERGE" etc.) mais qu'on a une valeur,
+        // on déduit la classe depuis le barème ADEME officiel.
+        $dpeNorm = mbi_supports_classe_normalise($dpe);
+        $gesNorm = mbi_supports_classe_normalise($ges);
+        if ($dpeNorm === '' && $dpeValeur !== null && $dpeValeur > 0) {
+            $dpeNorm = mbi_supports_dpe_classe_depuis_valeur($dpeValeur);
+        }
+        if ($gesNorm === '' && $gesValeur !== null && $gesValeur > 0) {
+            $gesNorm = mbi_supports_ges_classe_depuis_valeur($gesValeur);
+        }
+
+        $rowH = 20;
+        mbi_supports_tpl_dpe_ges_pastille($pdf, $x, $y,          'DPE', $dpeNorm, $dpeValeur, 'kWh/m²/an',    $textRgbHeader);
+        mbi_supports_tpl_dpe_ges_pastille($pdf, $x, $y + $rowH,  'GES', $gesNorm, $gesValeur, 'kg CO₂/m²/an', $textRgbHeader);
     }
 }
 
