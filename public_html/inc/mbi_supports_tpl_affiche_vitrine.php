@@ -374,6 +374,10 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
         ];
         $lettres = ['A','B','C','D','E','F','G'];
 
+        // Si classe vide → G est la classe active par défaut (pire scénario par convention)
+        $classeVide = ($classe === '');
+        $classActive = $classeVide ? 'G' : $classe;
+
         // Header "DPE" / "GES" à gauche
         $headerW = 14;
         $pdf->SetFont('dejavusans', 'B', 9);
@@ -384,37 +388,47 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
         $barX = $x + $headerW;
         $barW = $w - $headerW;
         $segW = $barW / 7;
-        $segH = $h - 1; // 7mm pour h=8
+        $segH = $h - 1;
 
         for ($i = 0; $i < 7; $i++) {
             $L = $lettres[$i];
             $cRGB = $couleurs[$L];
             $sx = $barX + $i * $segW;
             $sy = $y + 0.5;
-            $isActive = ($classe === $L);
-            $thisH = $isActive ? $segH + 2.5 : $segH;
-            $thisY = $isActive ? $sy - 1.25 : $sy;
+            $isActive = ($classActive === $L);
+
+            // Cadre actif : +6mm hauteur (vs +2.5 avant) → vraiment plus gros
+            $thisH = $isActive ? $segH + 6.0 : $segH;
+            $thisY = $isActive ? $sy - 3.0 : $sy;
 
             // Ombre portée uniquement sur le segment actif
             if ($isActive) {
-                $pdf->SetAlpha(0.30);
+                $pdf->SetAlpha(0.35);
                 $pdf->SetFillColor(15, 23, 42);
-                $pdf->RoundedRect($sx + 1.0, $thisY + 1.6, $segW - 1.2, $thisH, 1.8, '1111', 'F');
+                $pdf->RoundedRect($sx + 1.2, $thisY + 2.0, $segW - 1.2, $thisH, 2.0, '1111', 'F');
                 $pdf->SetAlpha(1.0);
             }
 
             $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
-            $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 1.5, '1111', 'F');
+            $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 2.0, '1111', 'F');
 
-            // Lettre : SEULE celle du segment actif est grosse (14pt), les autres restent à 8pt
-            $fs = $isActive ? 14 : 8;
+            // Bordure or autour du segment actif (renforce la mise en évidence)
+            if ($isActive) {
+                $pdf->SetDrawColor(212, 160, 71);
+                $pdf->SetLineWidth(0.7);
+                $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 2.0, '1111', 'D');
+                $pdf->SetLineWidth(0.2);
+            }
+
+            // Lettre : segment actif = 18pt, autres = 8pt
+            $fs = $isActive ? 18 : 8;
             $pdf->SetFont('dejavusans', 'B', $fs);
             $pdf->SetTextColor(255, 255, 255);
             $pdf->SetXY($sx, $thisY);
             $pdf->Cell($segW, $thisH, $L, 0, 0, 'C');
 
-            // Cartouche valeur réelle au-dessus du segment actif
-            if ($isActive && $valeur !== null && $valeur > 0) {
+            // Cartouche valeur réelle au-dessus du segment actif (seulement si saisie)
+            if ($isActive && $valeur !== null && $valeur > 0 && !$classeVide) {
                 $vx = $sx - 2;
                 $vw = $segW + 4;
                 $vy = $y - 7.0;
@@ -433,17 +447,17 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
             }
         }
 
-        if ($unite !== '' && $valeur !== null && $valeur > 0) {
+        if ($unite !== '' && $valeur !== null && $valeur > 0 && !$classeVide) {
             $pdf->SetFont('dejavusans', 'I', 6.5);
             $pdf->SetTextColor(...($textRgbHeader ?? [150, 156, 170]));
-            $pdf->SetXY($barX, $y + $segH + 0.8);
+            $pdf->SetXY($barX, $y + $segH + 4.0);
             $pdf->Cell($barW, 3, $unite, 0, 0, 'R');
         }
 
-        if ($classe === '') {
+        if ($classeVide) {
             $pdf->SetFont('dejavusans', 'I', 6.5);
             $pdf->SetTextColor(...($textRgbHeader ?? [150, 156, 170]));
-            $pdf->SetXY($barX, $y + $segH + 0.5);
+            $pdf->SetXY($barX, $y + $segH + 4.0);
             $pdf->Cell($barW, 3, 'classe non renseignée', 0, 0, 'R');
         }
     }
@@ -462,9 +476,10 @@ if (!function_exists('mbi_supports_tpl_dpe_ges')) {
         ?float $gesValeur = null
     ): void {
         $barH = 8.0;
-        $gap  = 4.0;
-        $yDpe = $y + 7.0;
-        $yGes = $yDpe + $barH + 7.0 + $gap;
+        // Le segment actif déborde de 3mm vers le haut et 3mm vers le bas
+        // Cartouche valeur au-dessus = 7mm. Donc ~10mm de marge top.
+        $yDpe = $y + 9.0;
+        $yGes = $yDpe + 22.0; // 11 (DPE étendu vers le bas) + 11 (cartouche GES + débord haut)
 
         mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yDpe, $w, $barH, 'DPE', $dpe, $textRgbHeader, $dpeValeur, 'kWh/m²/an');
         mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yGes, $w, $barH, 'GES', $ges, $textRgbHeader, $gesValeur, 'kg CO₂/m²/an');
