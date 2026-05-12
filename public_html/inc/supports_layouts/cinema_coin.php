@@ -289,7 +289,7 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
             $dpeVal > 0 ? $dpeVal : null,
             $gesVal > 0 ? $gesVal : null
         );
-        $py += 52;
+        $py += 38;
 
         // Atouts
         $pointsForts = $iaAtouts;

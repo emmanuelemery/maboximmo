@@ -389,7 +389,7 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $dpeVal > 0 ? $dpeVal : null,
             $gesVal > 0 ? $gesVal : null
         );
-        $ry += 52; // hauteur du bloc DPE+GES avec segments actifs très étendus
+        $ry += 38; // hauteur du bloc DPE+GES pastilles (16 + 4 + 16 + marge)
 
         // Atouts ✓
         $pointsForts = $iaAtouts;

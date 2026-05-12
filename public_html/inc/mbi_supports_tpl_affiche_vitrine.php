@@ -351,138 +351,79 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
     }
 }
 
-if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
+if (!function_exists('mbi_supports_tpl_dpe_ges_pastille')) {
     /**
-     * Barre DPE ou GES avec les 7 segments A→G (couleurs ADEME).
-     * SEUL le segment de la classe du bien est mis en relief :
-     *   - hauteur élargie (+2.5mm vs segments inactifs)
-     *   - lettre nettement plus grosse (14pt vs 8pt)
-     *   - ombre portée
-     * Les 6 autres segments restent à taille standard.
-     * Si une valeur est fournie, elle est affichée au-dessus du segment actif.
+     * Affiche UNE pastille DPE ou GES : carré rounded 16x16mm couleur ADEME
+     * avec la lettre du bien en gros (28pt bold blanc) + bordure or.
+     * Si classe vide → G (pire scénario par défaut).
+     * Si une valeur est fournie ET la classe est saisie : affiche "180 kWh/m²/an"
+     * à droite de la pastille.
      */
-    function mbi_supports_tpl_dpe_ges_barre(
-        TCPDF $pdf, float $x, float $y, float $w, float $h,
+    function mbi_supports_tpl_dpe_ges_pastille(
+        TCPDF $pdf, float $x, float $y,
         string $type, string $classe,
-        ?array $textRgbHeader = null,
         ?float $valeur = null,
-        string $unite = ''
+        string $unite = '',
+        ?array $textRgbHeader = null
     ): void {
         $couleurs = [
             'A' => [0, 159, 58],   'B' => [80, 183, 62],  'C' => [196, 216, 61],
             'D' => [255, 240, 53], 'E' => [245, 181, 61], 'F' => [232, 90, 58], 'G' => [210, 44, 46],
         ];
-        $lettres = ['A','B','C','D','E','F','G'];
 
-        // Si classe vide → G est la classe active par défaut (pire scénario par convention)
         $classeVide = ($classe === '');
         $classActive = $classeVide ? 'G' : $classe;
+        $cRGB = $couleurs[$classActive] ?? [200, 200, 200];
 
-        // Header "DPE" / "GES" à gauche
-        $headerW = 14;
-        $pdf->SetFont('dejavusans', 'B', 9);
-        $pdf->SetTextColor(...($textRgbHeader ?? [120, 126, 140]));
-        $pdf->SetXY($x, $y + ($h - 4) / 2);
-        $pdf->Cell($headerW, 4, $type, 0, 0, 'L');
+        // Label "DPE" / "GES" à gauche
+        $labW = 14;
+        $pdf->SetFont('dejavusans', 'B', 10);
+        $pdf->SetTextColor(...($textRgbHeader ?? [200, 206, 220]));
+        $pdf->SetXY($x, $y + 5);
+        $pdf->Cell($labW, 6, $type, 0, 0, 'L');
 
-        $barX = $x + $headerW;
-        $barW = $w - $headerW;
-        $segW = $barW / 7;
-        $segH = $h - 1;
+        // Pastille avec la lettre
+        $pw = 16; $ph = 16;
+        $px = $x + $labW;
+        mbi_supports_tpl_card_round_shadow($pdf, $px, $y, $pw, $ph, 3.0, $cRGB, 1.0, true);
 
-        for ($i = 0; $i < 7; $i++) {
-            $L = $lettres[$i];
-            $cRGB = $couleurs[$L];
-            $sx = $barX + $i * $segW;
-            $sy = $y + 0.5;
-            $isActive = ($classActive === $L);
+        // Bordure or pour mise en valeur
+        $pdf->SetDrawColor(212, 160, 71);
+        $pdf->SetLineWidth(0.8);
+        $pdf->RoundedRect($px, $y, $pw, $ph, 3.0, '1111', 'D');
+        $pdf->SetLineWidth(0.2);
 
-            // Cadre actif : largement plus gros (hauteur ×2.7, largeur ×1.25)
-            // Pour ne pas écraser les voisins, on n'élargit que vers les côtés
-            // proportionnellement (les voisins se "tassent" légèrement visuellement).
-            $extraH = 12.0;
-            $extraW = 3.0;
-            $thisH = $isActive ? $segH + $extraH : $segH;
-            $thisY = $isActive ? $sy - $extraH / 2 : $sy;
-            $thisX = $isActive ? $sx - $extraW / 2 : $sx;
-            $thisW = $isActive ? $segW + $extraW : $segW;
+        // Lettre en gros
+        $pdf->SetFont('dejavusans', 'B', 28);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetXY($px, $y);
+        $pdf->Cell($pw, $ph, $classActive, 0, 0, 'C');
 
-            // Ombre portée uniquement sur le segment actif
-            if ($isActive) {
-                $pdf->SetAlpha(0.38);
-                $pdf->SetFillColor(15, 23, 42);
-                $pdf->RoundedRect($thisX + 1.5, $thisY + 2.5, $thisW - 1.0, $thisH, 2.5, '1111', 'F');
-                $pdf->SetAlpha(1.0);
-            }
-
-            $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
-            if ($isActive) {
-                $pdf->RoundedRect($thisX, $thisY, $thisW, $thisH, 2.5, '1111', 'F');
-            } else {
-                $pdf->RoundedRect($sx + 0.4, $sy, $segW - 1, $segH, 1.5, '1111', 'F');
-            }
-
-            // Bordure or épaisse autour du segment actif
-            if ($isActive) {
-                $pdf->SetDrawColor(212, 160, 71);
-                $pdf->SetLineWidth(1.0);
-                $pdf->RoundedRect($thisX, $thisY, $thisW, $thisH, 2.5, '1111', 'D');
-                $pdf->SetLineWidth(0.2);
-            }
-
-            // Lettre : segment actif = 28pt (×3.5 plus grosse), autres = 8pt
-            $fs = $isActive ? 28 : 8;
-            $pdf->SetFont('dejavusans', 'B', $fs);
+        // Valeur + unité à droite (seulement si classe vraiment saisie + valeur > 0)
+        $rx = $px + $pw + 5;
+        if (!$classeVide && $valeur !== null && $valeur > 0) {
+            $pdf->SetFont('dejavusans', 'B', 16);
             $pdf->SetTextColor(255, 255, 255);
-            if ($isActive) {
-                $pdf->SetXY($thisX, $thisY);
-                $pdf->Cell($thisW, $thisH, $L, 0, 0, 'C');
-            } else {
-                $pdf->SetXY($sx, $sy);
-                $pdf->Cell($segW, $segH, $L, 0, 0, 'C');
-            }
+            $pdf->SetXY($rx, $y + 1);
+            $pdf->Cell(36, 8, number_format($valeur, 0, ',', ' '), 0, 0, 'L');
 
-            // Cartouche valeur réelle au-dessus du segment actif
-            if ($isActive && $valeur !== null && $valeur > 0 && !$classeVide) {
-                $vx = $thisX - 2;
-                $vw = $thisW + 4;
-                $vy = $thisY - 9.5;
-
-                $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
-                $cx = $thisX + $thisW / 2;
-                $pdf->Polygon([$cx - 2.2, $vy + 6.5, $cx + 2.2, $vy + 6.5, $cx, $vy + 8.5], 'F');
-
-                mbi_supports_tpl_card_round_shadow(
-                    $pdf, $vx, $vy, $vw, 6.5, 1.5, $cRGB, 1.0, true
-                );
-                $pdf->SetFont('dejavusans', 'B', 11);
-                $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetXY($vx, $vy);
-                $pdf->Cell($vw, 6.5, number_format($valeur, 0, ',', ' '), 0, 0, 'C');
-            }
-        }
-
-        if ($unite !== '' && $valeur !== null && $valeur > 0 && !$classeVide) {
-            $pdf->SetFont('dejavusans', 'I', 6.5);
-            $pdf->SetTextColor(...($textRgbHeader ?? [150, 156, 170]));
-            $pdf->SetXY($barX, $y + $segH + 4.0);
-            $pdf->Cell($barW, 3, $unite, 0, 0, 'R');
-        }
-
-        if ($classeVide) {
-            $pdf->SetFont('dejavusans', 'I', 6.5);
-            $pdf->SetTextColor(...($textRgbHeader ?? [150, 156, 170]));
-            $pdf->SetXY($barX, $y + $segH + 4.0);
-            $pdf->Cell($barW, 3, 'classe non renseignée', 0, 0, 'R');
+            $pdf->SetFont('dejavusans', 'I', 7.5);
+            $pdf->SetTextColor(...($textRgbHeader ?? [180, 186, 200]));
+            $pdf->SetXY($rx, $y + 10);
+            $pdf->Cell(40, 4, $unite, 0, 0, 'L');
+        } elseif ($classeVide) {
+            $pdf->SetFont('dejavusans', 'I', 8);
+            $pdf->SetTextColor(...($textRgbHeader ?? [180, 186, 200]));
+            $pdf->SetXY($rx, $y + 5);
+            $pdf->Cell(40, 5, 'non renseigné', 0, 0, 'L');
         }
     }
 }
 
 if (!function_exists('mbi_supports_tpl_dpe_ges')) {
     /**
-     * Affiche les 2 barres DPE et GES empilées.
-     * Segments standard (8mm). Seule la lettre du segment actif est grossie.
-     * Hauteur totale : 7 (cartouche DPE) + 8 (barre DPE) + 4 (gap) + 7 (cartouche GES) + 8 (barre GES) = 34mm
+     * Affiche les 2 pastilles DPE + GES empilées (compact, sans barre 7 segments).
+     * Hauteur totale : 16 (DPE) + 4 (gap) + 16 (GES) = 36mm
      */
     function mbi_supports_tpl_dpe_ges(
         TCPDF $pdf, float $x, float $y, float $w, string $dpe, string $ges,
@@ -490,14 +431,9 @@ if (!function_exists('mbi_supports_tpl_dpe_ges')) {
         ?float $dpeValeur = null,
         ?float $gesValeur = null
     ): void {
-        $barH = 8.0;
-        // Le segment actif déborde +6mm haut et +6mm bas vs sa version standard
-        // Cartouche valeur encore au-dessus (~10mm). Marges adaptées.
-        $yDpe = $y + 12.0;
-        $yGes = $yDpe + 26.0;
-
-        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yDpe, $w, $barH, 'DPE', $dpe, $textRgbHeader, $dpeValeur, 'kWh/m²/an');
-        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yGes, $w, $barH, 'GES', $ges, $textRgbHeader, $gesValeur, 'kg CO₂/m²/an');
+        $rowH = 20; // 16mm pastille + 4mm gap
+        mbi_supports_tpl_dpe_ges_pastille($pdf, $x, $y,          'DPE', $dpe, $dpeValeur, 'kWh/m²/an',    $textRgbHeader);
+        mbi_supports_tpl_dpe_ges_pastille($pdf, $x, $y + $rowH,  'GES', $ges, $gesValeur, 'kg CO₂/m²/an', $textRgbHeader);
     }
 }
 
