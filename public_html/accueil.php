@@ -1,4 +1,5 @@
 <?php
+// Updated: RH button now directs to rh.maboximmo.com (v2026-05-12)
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/roles_services.php';
