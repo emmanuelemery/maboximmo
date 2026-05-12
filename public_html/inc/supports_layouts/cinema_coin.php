@@ -279,11 +279,17 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
             $py += $cellH + 6;
         }
 
-        // Étiquettes DPE / GES officielles (barre 7 segments A→G, toujours affichées)
+        // Étiquettes DPE / GES officielles (barre 7 segments A→G + valeur réelle)
         $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
         $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
-        mbi_supports_tpl_dpe_ges($pdf, $px, $py, $pw, $dpe, $ges);
-        $py += 22 + 3;
+        $dpeVal = (float)($bien['dpe_valeur'] ?? 0);
+        $gesVal = (float)($bien['ges_valeur'] ?? 0);
+        mbi_supports_tpl_dpe_ges(
+            $pdf, $px, $py, $pw, $dpe, $ges, null,
+            $dpeVal > 0 ? $dpeVal : null,
+            $gesVal > 0 ? $gesVal : null
+        );
+        $py += 36;
 
         // Atouts
         $pointsForts = $iaAtouts;

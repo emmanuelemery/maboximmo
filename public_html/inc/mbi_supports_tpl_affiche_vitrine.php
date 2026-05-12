@@ -323,19 +323,23 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
 if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
     /**
      * Affiche une barre DPE ou GES avec les 7 segments A→G (couleurs ADEME).
-     * Le segment correspondant à la classe du bien est mis en relief :
-     *   - hauteur agrandie (+1.5mm)
-     *   - lettre blanche bold plus grande
-     *   - ombre portée
+     * Le segment de la classe du bien est mis en relief (hauteur +1.5mm,
+     * lettre +3pt, ombre portée). Si une valeur est fournie, elle est
+     * affichée au-dessus du segment actif (ex: "180 kWh/m²/an").
      *
-     * @param string $type    'DPE' | 'GES' (label affiché à gauche)
-     * @param string $classe  'A'..'G' ou '' (vierge)
-     * @param array $textRgbHeader  couleur du label
+     * IMPORTANT : appelant doit réserver 6mm au-dessus de $y si valeur fournie.
+     *
+     * @param string $type     'DPE' | 'GES' (label gauche)
+     * @param string $classe   'A'..'G' ou '' (vierge)
+     * @param ?float $valeur   valeur réelle (kWh ou kg CO2)
+     * @param string $unite    libellé unité (ex: 'kWh/m²/an', 'kg CO₂/m²/an')
      */
     function mbi_supports_tpl_dpe_ges_barre(
         TCPDF $pdf, float $x, float $y, float $w, float $h,
         string $type, string $classe,
-        ?array $textRgbHeader = null
+        ?array $textRgbHeader = null,
+        ?float $valeur = null,
+        string $unite = ''
     ): void {
         $couleurs = [
             'A' => [0, 159, 58],   'B' => [80, 183, 62],  'C' => [196, 216, 61],
@@ -353,7 +357,7 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
         $barX = $x + $headerW;
         $barW = $w - $headerW;
         $segW = $barW / 7;
-        $segH = $h - 1; // hauteur barre standard
+        $segH = $h - 1;
 
         // Dessine les 7 segments
         for ($i = 0; $i < 7; $i++) {
@@ -382,6 +386,36 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
             $pdf->SetTextColor(255, 255, 255);
             $pdf->SetXY($sx, $thisY);
             $pdf->Cell($segW, $thisH, $L, 0, 0, 'C');
+
+            // Valeur réelle au-dessus du segment actif
+            if ($isActive && $valeur !== null && $valeur > 0) {
+                // Cartouche or au-dessus du segment
+                $vx = $sx - 2;
+                $vw = $segW + 4;
+                $vy = $y - 6.5;
+
+                // Petit triangle (flèche) pointant vers le segment
+                $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
+                $cx = $sx + $segW / 2;
+                $pdf->Polygon([$cx - 1.8, $vy + 5.5, $cx + 1.8, $vy + 5.5, $cx, $vy + 7.5], 'F');
+
+                // Cartouche valeur
+                mbi_supports_tpl_card_round_shadow(
+                    $pdf, $vx, $vy, $vw, 5.5, 1.2, $cRGB, 1.0, true
+                );
+                $pdf->SetFont('dejavusans', 'B', 8);
+                $pdf->SetTextColor(255, 255, 255);
+                $pdf->SetXY($vx, $vy);
+                $pdf->Cell($vw, 5.5, number_format($valeur, 0, ',', ' '), 0, 0, 'C');
+            }
+        }
+
+        // Unité à droite de la barre (petite mention)
+        if ($unite !== '' && $valeur !== null && $valeur > 0) {
+            $pdf->SetFont('dejavusans', 'I', 6.5);
+            $pdf->SetTextColor(...($textRgbHeader ?? [150, 156, 170]));
+            $pdf->SetXY($barX, $y + $segH + 0.8);
+            $pdf->Cell($barW, 3, $unite, 0, 0, 'R');
         }
 
         // Si vierge → indication discrète
@@ -397,18 +431,24 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
 if (!function_exists('mbi_supports_tpl_dpe_ges')) {
     /**
      * Affiche les 2 barres DPE et GES empilées (style ADEME officiel adapté A3 H).
-     * Hauteur totale ≈ 22mm (2 barres 8mm + gap 6mm pour mention vierge).
+     * Hauteur totale ≈ 30mm (2 barres 8mm + gap pour cartouches valeur 6mm chacun).
      *
-     * Compatible avec l'ancienne signature (type, classe → barre).
+     * @param ?float $dpeValeur kWh EP/m²/an (biens.dpe_valeur)
+     * @param ?float $gesValeur kg CO2/m²/an (biens.ges_valeur)
      */
     function mbi_supports_tpl_dpe_ges(
         TCPDF $pdf, float $x, float $y, float $w, string $dpe, string $ges,
-        ?array $textRgbHeader = null
+        ?array $textRgbHeader = null,
+        ?float $dpeValeur = null,
+        ?float $gesValeur = null
     ): void {
         $barH = 8.0;
-        $gap  = 4.0;
-        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $y, $w, $barH, 'DPE', $dpe, $textRgbHeader);
-        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $y + $barH + $gap, $w, $barH, 'GES', $ges, $textRgbHeader);
+        $gap  = 12.0; // gap augmenté pour laisser la place au cartouche valeur de la barre GES
+        $yDpe = $y + 7.0; // décalage pour cartouche au-dessus
+        $yGes = $yDpe + $barH + $gap;
+
+        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yDpe, $w, $barH, 'DPE', $dpe, $textRgbHeader, $dpeValeur, 'kWh/m²/an');
+        mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yGes, $w, $barH, 'GES', $ges, $textRgbHeader, $gesValeur, 'kg CO₂/m²/an');
     }
 }
 

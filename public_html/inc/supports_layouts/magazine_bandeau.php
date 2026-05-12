@@ -362,11 +362,17 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $ry += $cellH + 6;
         }
 
-        // DPE / GES — étiquettes officielles barre 7 segments A→G (toujours affichées)
+        // DPE / GES — étiquettes officielles barre 7 segments A→G + valeur kWh/kgCO2
         $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
         $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
-        mbi_supports_tpl_dpe_ges($pdf, $colRX, $ry, $colRW, $dpe, $ges, [200, 206, 220]);
-        $ry += 22; // 2 barres de 8mm + gap 4mm + ~2mm marge
+        $dpeVal = (float)($bien['dpe_valeur'] ?? 0);
+        $gesVal = (float)($bien['ges_valeur'] ?? 0);
+        mbi_supports_tpl_dpe_ges(
+            $pdf, $colRX, $ry, $colRW, $dpe, $ges, [200, 206, 220],
+            $dpeVal > 0 ? $dpeVal : null,
+            $gesVal > 0 ? $gesVal : null
+        );
+        $ry += 36; // 7 (cartouche DPE) + 8 (barre DPE) + 12 (gap+cartouche GES) + 8 (barre GES) + 1 marge
 
         // Atouts ✓
         $pointsForts = $iaAtouts;
