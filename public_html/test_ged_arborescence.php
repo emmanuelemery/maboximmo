@@ -75,6 +75,7 @@ $appLayout = true;
 $pageTitle = 'GED — Test arborescence';
 $bodyClass = '';
 @require_once __DIR__ . '/inc/header.php';
+@require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + container
 ?>
 <style>
   .gtest-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px; font-family: system-ui, sans-serif; }

@@ -16,7 +16,7 @@ ob_start();
 
 require_once __DIR__ . '/../../inc/bootstrap.php';
 require_login();
-require_once __DIR__ . '/ged_functions.php';
+require_once __DIR__ . '/ged_functions_legacy.php'; // archivé Phase 1.1 — fusion Phase 2/3
 
 register_shutdown_function(function () {
     $err = error_get_last();

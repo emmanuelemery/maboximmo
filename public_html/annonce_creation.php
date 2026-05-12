@@ -20,6 +20,7 @@ $pdo       = $GLOBALS['pdo'];
 $userId    = (int)($_SESSION['user_id']    ?? 0);
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $agenceId  = (int)($_SESSION['id_agence']  ?? 0);
+$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $annonceId = isset($_GET['id_annonce']) && ctype_digit((string)$_GET['id_annonce']) ? (int)$_GET['id_annonce'] : 0;
 $bienId    = isset($_GET['id_bien'])    && ctype_digit((string)$_GET['id_bien'])    ? (int)$_GET['id_bien']    : 0;
@@ -32,7 +33,7 @@ if ($annonceId <= 0 && $bienId > 0) {
         $st = $pdo->prepare("SELECT id_societe FROM biens WHERE id = ?");
         $st->execute([$bienId]);
         $bSoc = (int)($st->fetchColumn() ?: 0);
-        if ($societeId > 0 && $bSoc !== $societeId) {
+        if (!$isSuperAdmin && $societeId > 0 && $bSoc !== $societeId) {
             http_response_code(403); exit('Bien hors de votre société.');
         }
 
@@ -167,7 +168,7 @@ try {
     exit('Erreur lecture annonce : ' . htmlspecialchars($e->getMessage()));
 }
 if (!$annonce) exit('Annonce introuvable.');
-if ($societeId > 0 && (int)$annonce['id_societe'] !== $societeId) {
+if (!$isSuperAdmin && $societeId > 0 && (int)$annonce['id_societe'] !== $societeId) {
     http_response_code(403); exit('Annonce hors de votre société.');
 }
 

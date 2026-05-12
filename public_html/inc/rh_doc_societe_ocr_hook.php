@@ -1,0 +1,509 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * inc/rh_doc_societe_ocr_hook.php
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * Hook OCR Sonnet + réplication automatique vers agences.* pour les
+ * documents officiels de la rubrique "Société" uploadés via la page
+ * rh_documents.php.
+ *
+ * Types pris en charge (depuis rh_doc_types) :
+ *   kbis              → KBIS (greffe, n° RCS, date d'émission)
+ *   carte_pro         → Carte professionnelle CPI (CCI, n°, validité)
+ *   garant_financier  → Garantie financière (assureur, n°, plafond, validité)
+ *   rcp               → RC pro (assureur, n° contrat, validité)
+ *   bareme_honoraires → Barème honoraires (date de mise à jour)
+ *
+ * Workflow :
+ *   1. rh_doc_upload.php uploade le PDF/image et fait l'INSERT dans rh_documents
+ *   2. Si rubrique='societe' et type ∈ {5 types} → on hook ici
+ *   3. Appel agence_doc_ocr_extraire() → extraction Sonnet → champs structurés
+ *   4. UPDATE rh_documents SET numero=..., emetteur=..., date_validite=..., ...
+ *   5. Réplication vers TOUTES les agences de cette société :
+ *      UPDATE agences SET carte_pro_*, kbis_*, garant_*, etc.
+ *      WHERE id_societe = $idSociete
+ *
+ * Les supports MBI (affiches, fiches, critic_engine) lisent agences.* et
+ * trouvent automatiquement les valeurs à jour. Source unique côté société.
+ *
+ * API publique :
+ *   rh_doc_societe_hook_apres_upload(PDO $pdo, int $rhDocId): array
+ *     → { ok, ocr_ok, ocr_erreur, type_mappe, agences_repliquees }
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+require_once __DIR__ . '/agence_doc_officiel_ocr.php';
+
+if (!function_exists('rh_doc_societe_hook_apres_upload')) {
+
+    /**
+     * Mapping rh_doc_types.type_key → type OCR Sonnet (cf. agence_doc_ocr_extraire).
+     * Retourne null si le type ne déclenche pas d'OCR.
+     *
+     * Les 4 RCP par activité (rcp_transaction/gestion/syndic/marchand) utilisent
+     * tous le même prompt OCR 'rc_pro'. Idem pour les 4 GF par activité.
+     */
+    function rh_doc_societe_type_to_ocr(string $typeDoc): ?string
+    {
+        if (in_array($typeDoc, ['rcp_transaction','rcp_gestion','rcp_syndic','rcp_marchand','rcp'], true)) {
+            return 'rc_pro';
+        }
+        if (in_array($typeDoc, ['gf_transaction','gf_gestion','gf_syndic','gf_marchand','garant_financier'], true)) {
+            return 'garant_financier';
+        }
+        return match ($typeDoc) {
+            'kbis'              => 'kbis',
+            'carte_pro'         => 'carte_pro',
+            'bareme_honoraires' => 'bareme_honoraires',
+            'assurance_mri'     => 'rc_pro',  // V1 : on réutilise le prompt rc_pro pour MRI (assureur + n° + date)
+            default             => null,
+        };
+    }
+
+    /**
+     * Extrait le code activité (T/G/S/M) depuis le type_key d'un RCP ou GF.
+     * Retourne null pour les autres types.
+     */
+    function rh_doc_societe_activite_code(string $typeDoc): ?string
+    {
+        return match (true) {
+            str_ends_with($typeDoc, '_transaction') => 'T',
+            str_ends_with($typeDoc, '_gestion')     => 'G',
+            str_ends_with($typeDoc, '_syndic')      => 'S',
+            str_ends_with($typeDoc, '_marchand')    => 'M',
+            default                                  => null,
+        };
+    }
+
+    /**
+     * @param PDO         $pdo
+     * @param int         $rhDocId
+     * @param string|null $modele Override du modèle OCR ('haiku' ~5cts test, 'sonnet'
+     *                            ~25cts prod, ou model_id complet). null = défaut.
+     */
+    function rh_doc_societe_hook_apres_upload(PDO $pdo, int $rhDocId, ?string $modele = null): array
+    {
+        $resultat = [
+            'ok'                  => false,
+            'ocr_ok'              => false,
+            'ocr_erreur'          => null,
+            'type_mappe'          => null,
+            'activite_code'       => null,
+            'cible_niveau'        => null,  // 'societe' ou 'agence'
+            'agences_repliquees'  => 0,
+        ];
+
+        // Charge le doc fraîchement uploadé
+        try {
+            $st = $pdo->prepare("SELECT id, id_societe, id_agence, categorie, sous_categorie, type_document, file_path
+                                 FROM rh_documents WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rhDocId]);
+            $doc = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            $resultat['ocr_erreur'] = 'db_select: ' . $e->getMessage();
+            return $resultat;
+        }
+        if (!$doc) {
+            $resultat['ocr_erreur'] = 'doc_introuvable';
+            return $resultat;
+        }
+        if (!in_array($doc['categorie'], ['societe', 'agence'], true)) {
+            // Pas un doc société/agence → on ne fait rien
+            return $resultat;
+        }
+        $resultat['cible_niveau'] = $doc['categorie'];
+
+        // Détermine le type OCR depuis sous_categorie ou type_document
+        $rhType = (string)($doc['sous_categorie'] ?? $doc['type_document'] ?? '');
+        $ocrType = rh_doc_societe_type_to_ocr($rhType);
+        if ($ocrType === null) {
+            // Type hors scope OCR (ex: convention, assurance_soc, entete)
+            return $resultat;
+        }
+        $resultat['type_mappe']    = $ocrType;
+        $resultat['activite_code'] = rh_doc_societe_activite_code($rhType);
+
+        // Persiste le code activité (T/G/S/M) sur la ligne rh_documents
+        if ($resultat['activite_code'] !== null) {
+            try {
+                $upA = $pdo->prepare("UPDATE rh_documents SET activite_code = :a WHERE id = :id");
+                $upA->execute([':a' => $resultat['activite_code'], ':id' => $rhDocId]);
+            } catch (Throwable) {}
+        }
+
+        $filePath = (string)($doc['file_path'] ?? '');
+        if ($filePath === '') {
+            $resultat['ocr_erreur'] = 'file_path_vide';
+            return $resultat;
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // OCR Sonnet — coûte ~25 cts par doc.
+        // agence_doc_ocr_extraire() gère le cas cross-env (fichier sur Hostinger
+        // remote vs localhost) via HTTP fetch automatique. Pas de check is_file()
+        // ici, sinon on bloque l'OCR sur localhost alors que le HTTP fetch peut
+        // résoudre le cas.
+        // ─────────────────────────────────────────────────────────────────
+        // Reconnect DB au cas où la connexion aurait timeout (OCR peut durer 10-30s)
+        if (function_exists('db_keepalive')) {
+            try { $pdo = db_keepalive(); } catch (Throwable) {}
+        }
+
+        $ocr = agence_doc_ocr_extraire($filePath, $ocrType, $modele);
+        $resultat['ocr_ok']     = (bool)($ocr['ok'] ?? false);
+        $resultat['ocr_erreur'] = $ocr['erreur'] ?? null;
+
+        // CRITIQUE : sauvegarder le raw_json EN PREMIER, avant tout autre UPDATE.
+        // Si une étape ultérieure plante (timeout DB, FK violation, etc.), au
+        // moins on a la réponse brute Sonnet en BDD pour pouvoir replayer le
+        // mapping structuré sans re-payer l'OCR.
+        // Reconnect au cas où la connexion ait droppé pendant le call HTTP Anthropic.
+        if (function_exists('db_keepalive')) {
+            try { $pdo = db_keepalive(); } catch (Throwable) {}
+        }
+        $data = $ocr['data'] ?? [];
+        try {
+            $up = $pdo->prepare("
+                UPDATE rh_documents SET
+                  numero            = :numero,
+                  emetteur          = :emetteur,
+                  montant_garantie  = :montant,
+                  date_emission     = :date_em,
+                  date_validite     = :date_val,
+                  ocr_modele        = :ocr_modele,
+                  ocr_confidence    = :ocr_conf,
+                  ocr_cout_centimes = :ocr_cout,
+                  ocr_json          = :ocr_json,
+                  ocr_at            = :ocr_at
+                WHERE id = :id
+            ");
+            $up->execute([
+                ':numero'     => $data['numero']    ?? null,
+                ':emetteur'   => $data['emetteur']  ?? null,
+                ':montant'    => $data['montant_garantie'] ?? null,
+                ':date_em'    => $data['date_emission']    ?? null,
+                ':date_val'   => $data['date_validite']    ?? null,
+                ':ocr_modele' => $ocr['modele'] ?? null,
+                ':ocr_conf'   => $ocr['confidence'] ?? 0,
+                ':ocr_cout'   => $ocr['cout_centimes'] ?? 0,
+                ':ocr_json'   => $ocr['raw_json'] ? json_encode($ocr['raw_json'], JSON_UNESCAPED_UNICODE) : null,
+                ':ocr_at'     => $resultat['ocr_ok'] ? date('Y-m-d H:i:s') : null,
+                ':id'         => $rhDocId,
+            ]);
+        } catch (Throwable $e) {
+            error_log('[rh_doc_societe_hook UPDATE rh_documents CORE] ' . $e->getMessage());
+            $resultat['save_erreur'] = 'core_update_failed: ' . $e->getMessage();
+            // On NE retourne PAS — on continue à essayer les autres updates
+        }
+
+        // Persiste les champs OCR détaillés (titulaire, émetteur, adresses, dates, montants…)
+        // Voir migration 20260506_3_rh_documents_ocr_detail.
+        // Ne touche que les colonnes existantes dans la table (idempotent face aux migrations
+        // partiellement appliquées).
+        // CORRIGE BUG : ce bloc était AVANT l'OCR donc utilisait $ocr non-défini → toujours vide.
+        $ocrData = $ocr['data'] ?? [];
+        if (is_array($ocrData) && !empty($ocrData)) {
+            $colonnesDetail = [
+                'numero_client', 'adresse_emetteur', 'raison_sociale',
+                'forme_juridique', 'siret', 'siren', 'tva_intra', 'capital_social', 'code_ape',
+                'date_effet', 'date_echeance', 'date_anniversaire',
+                'montant_franchise', 'montant_plafond_2', 'nature_garantie',
+            ];
+            try {
+                $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'rh_documents'");
+                $st->execute();
+                $existingCols = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            } catch (Throwable) { $existingCols = []; }
+
+            $sets = [];
+            $params = [':id' => $rhDocId];
+            foreach ($colonnesDetail as $col) {
+                if (!in_array(strtolower($col), $existingCols, true)) continue;
+                if (!array_key_exists($col, $ocrData)) continue;
+                $sets[] = "`{$col}` = :v_{$col}";
+                $params[":v_{$col}"] = $ocrData[$col];
+            }
+            if (in_array('dirigeants_json', $existingCols, true) && !empty($ocrData['dirigeants'])) {
+                $sets[] = "`dirigeants_json` = :v_dirigeants";
+                $params[':v_dirigeants'] = json_encode($ocrData['dirigeants'], JSON_UNESCAPED_UNICODE);
+            }
+            if (in_array('metadata_json', $existingCols, true) && !empty($ocrData['metadata'])) {
+                $sets[] = "`metadata_json` = :v_metadata";
+                $params[':v_metadata'] = json_encode($ocrData['metadata'], JSON_UNESCAPED_UNICODE);
+            }
+            if (!empty($sets)) {
+                try {
+                    $upDetail = $pdo->prepare("UPDATE rh_documents SET " . implode(', ', $sets) . " WHERE id = :id");
+                    $upDetail->execute($params);
+                } catch (Throwable $e) {
+                    error_log('[rh_doc_societe_hook UPDATE detail] ' . $e->getMessage());
+                    // Non-bloquant — on a deja l'essentiel via UPDATE CORE ci-dessus
+                }
+            }
+        }
+
+        // Si OCR OK → écriture sur la table métier appropriée (refactor 2026-05-08)
+        // - categorie 'societe' (KBIS, CPI, GF, RC pro, barème) : UPDATE societes.*
+        //   (single source of truth — les agences héritent via JOIN au runtime)
+        // - categorie 'agence'  (MRI, barème spécifique agence) : UPDATE agences.*
+        if ($resultat['ocr_ok']) {
+            if ($doc['categorie'] === 'societe') {
+                $idSoc = (int)($doc['id_societe'] ?? 0);
+                if ($idSoc > 0) {
+                    $resultat['societe_mise_a_jour'] = rh_doc_societe_ecrire_societe(
+                        $pdo, $idSoc, $rhDocId, $ocrType
+                    );
+                    // Compteur "agences_repliquees" gardé pour rétrocompat avec
+                    // les callers qui l'affichent — vaut 1 si l'UPDATE société a réussi.
+                    $resultat['agences_repliquees'] = $resultat['societe_mise_a_jour'];
+                }
+            } elseif ($doc['categorie'] === 'agence') {
+                $idAg = (int)($doc['id_agence'] ?? 0);
+                if ($idAg > 0) {
+                    $resultat['agences_repliquees'] = rh_doc_agence_repliquer_une_agence(
+                        $pdo, $idAg, $rhDocId, $rhType
+                    );
+                }
+            }
+        }
+
+        $resultat['ok'] = true;
+        return $resultat;
+    }
+
+    /**
+     * Réplication agence-niveau : UPDATE de UNE seule agence avec les valeurs OCR.
+     * Utilisé pour bareme_honoraires et assurance_mri.
+     *
+     * @return int 1 si l'agence a été mise à jour, 0 sinon
+     */
+    function rh_doc_agence_repliquer_une_agence(PDO $pdo, int $idAgence, int $rhDocId, string $rhType): int
+    {
+        try {
+            $st = $pdo->prepare("SELECT numero, emetteur, date_validite, file_path
+                                 FROM rh_documents WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rhDocId]);
+            $doc = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable) { return 0; }
+        if (!$doc) return 0;
+
+        $patch = [];
+        if ($rhType === 'bareme_honoraires') {
+            if (!empty($doc['file_path'])) {
+                $rel = preg_replace('#^.*?/public_html/#', '/', (string)$doc['file_path']) ?: $doc['file_path'];
+                $patch['bareme_url_doc'] = $rel;
+            }
+        } elseif ($rhType === 'assurance_mri') {
+            $patch['mri_assureur'] = $doc['emetteur']      ?? null;
+            $patch['mri_numero']   = $doc['numero']        ?? null;
+            $patch['mri_validite'] = $doc['date_validite'] ?? null;
+        } else {
+            return 0;
+        }
+        if (empty($patch)) return 0;
+
+        // Filtre colonnes existantes
+        try {
+            $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agences'");
+            $st->execute();
+            $existing = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        } catch (Throwable) { $existing = []; }
+        $patch = array_intersect_key($patch, array_flip($existing));
+        if (empty($patch)) return 0;
+
+        try {
+            $sets = [];
+            $params = [':id' => $idAgence];
+            foreach ($patch as $col => $val) {
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $col)) continue;
+                $sets[] = "`{$col}` = :v_{$col}";
+                $params[":v_{$col}"] = $val;
+            }
+            $sql = "UPDATE agences SET " . implode(', ', $sets) . " WHERE id = :id";
+            $st = $pdo->prepare($sql);
+            $st->execute($params);
+            return $st->rowCount();
+        } catch (Throwable $e) {
+            error_log('[rh_doc_agence_repliquer UPDATE agences] ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Écrit les valeurs OCR sur la SOCIÉTÉ (single source of truth depuis le
+     * refactor 2026-05-08). Les agences héritent au runtime via JOIN societes
+     * dans agence_load_with_societe_docs() — plus de réplication N→1.
+     *
+     * Les colonnes officielles ont été ajoutées sur societes par la migration
+     * 20260508_2_societes_colonnes_officielles.
+     *
+     * @return int 1 si la société a été mise à jour, 0 sinon
+     */
+    function rh_doc_societe_ecrire_societe(PDO $pdo, int $idSociete, int $rhDocId, string $ocrType): int
+    {
+        try {
+            $st = $pdo->prepare("SELECT numero, emetteur, montant_garantie, date_emission, date_validite, file_path
+                                 FROM rh_documents WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rhDocId]);
+            $doc = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable) { return 0; }
+        if (!$doc) return 0;
+
+        $patch = [];
+        switch ($ocrType) {
+            case 'carte_pro':
+                $patch['carte_pro_numero']   = $doc['numero'];
+                $patch['carte_pro_cci']      = $doc['emetteur'];
+                $patch['carte_pro_validite'] = $doc['date_validite'];
+                break;
+            case 'kbis':
+                $patch['kbis_numero'] = $doc['numero'];
+                $patch['kbis_date']   = $doc['date_emission'];
+                break;
+            case 'garant_financier':
+                $patch['garant_financier'] = $doc['emetteur'];
+                $patch['garant_validite']  = $doc['date_validite'];
+                $patch['garant_montant']   = $doc['montant_garantie'];
+                break;
+            case 'rc_pro':
+                $patch['rc_pro']           = $doc['emetteur'];
+                $patch['rc_pro_numero']    = $doc['numero'];
+                $patch['rc_pro_validite']  = $doc['date_validite'];
+                $patch['rc_pro_montant']   = $doc['montant_garantie'];
+                break;
+            case 'bareme_honoraires':
+                if (!empty($doc['file_path'])) {
+                    $rel = preg_replace('#^.*?/public_html/#', '/', (string)$doc['file_path']) ?: $doc['file_path'];
+                    $patch['bareme_url_doc'] = $rel;
+                }
+                break;
+            default:
+                return 0;
+        }
+        if (empty($patch)) return 0;
+
+        // Filtre les colonnes existantes sur societes (rejouable même si la
+        // migration n'est pas encore appliquée — les colonnes inconnues sont
+        // simplement ignorées au lieu de planter).
+        try {
+            $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'societes'");
+            $st->execute();
+            $existing = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        } catch (Throwable) { $existing = []; }
+        $patch = array_intersect_key($patch, array_flip($existing));
+        if (empty($patch)) return 0;
+
+        try {
+            $sets = [];
+            $params = [':id' => $idSociete];
+            foreach ($patch as $col => $val) {
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $col)) continue;
+                $sets[] = "`{$col}` = :v_{$col}";
+                $params[":v_{$col}"] = $val;
+            }
+            $sql = "UPDATE societes SET " . implode(', ', $sets) . " WHERE id = :id";
+            $st = $pdo->prepare($sql);
+            $st->execute($params);
+            $okSociete = $st->rowCount() > 0 ? 1 : 0;
+
+            // Aussi : alimente societes_couvertures pour les types par activité
+            // (rcp_transaction, rcp_gestion, rcp_syndic, rcp_marchand, gf_*).
+            // C'est la BONNE table consommée par societe.php → onglet Financier
+            // ET par le helper agence_load_with_societe_docs() pour les affiches.
+            // Le UPDATE societes.* ci-dessus est garde pour retro-compat lecture.
+            rh_doc_societe_ecrire_couverture($pdo, $idSociete, $rhDocId);
+
+            return $okSociete;
+        } catch (Throwable $e) {
+            error_log('[rh_doc_societe_ecrire_societe UPDATE societes] ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Alimente societes_couvertures depuis un rh_documents OCR-isé.
+     * Mapping type_document → (type, activite) :
+     *   rcp_transaction → (rcp, transaction)
+     *   rcp_gestion     → (rcp, gestion)
+     *   rcp_syndic      → (rcp, syndic)
+     *   rcp_marchand    → (rcp, multi)  -- pas dans l'ENUM, mappé sur multi
+     *   gf_transaction  → (garantie_financiere, transaction) ... idem
+     *
+     * UPSERT en mode COMPLÉMENT : ne touche que les colonnes nouvellement extraites
+     * (COALESCE preserve les saisies manuelles précédentes si elles sont là).
+     */
+    function rh_doc_societe_ecrire_couverture(PDO $pdo, int $idSociete, int $rhDocId): int
+    {
+        try {
+            $st = $pdo->prepare("SELECT type_document, numero, emetteur, montant_garantie, date_validite
+                                 FROM rh_documents WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rhDocId]);
+            $doc = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable) { return 0; }
+        if (!$doc) return 0;
+
+        $type = (string)$doc['type_document'];
+        // Mapping type_document → (couverture_type, couverture_activite)
+        $mapping = [
+            'rcp_transaction' => ['rcp', 'transaction'],
+            'rcp_gestion'     => ['rcp', 'gestion'],
+            'rcp_syndic'      => ['rcp', 'syndic'],
+            'rcp_marchand'    => ['rcp', 'multi'],
+            'gf_transaction'  => ['garantie_financiere', 'transaction'],
+            'gf_gestion'      => ['garantie_financiere', 'gestion'],
+            'gf_syndic'       => ['garantie_financiere', 'syndic'],
+            'gf_marchand'     => ['garantie_financiere', 'multi'],
+        ];
+        if (!isset($mapping[$type])) return 0; // Pas un doc activité (KBIS, CPI, barème → géré ailleurs)
+        [$couvType, $couvAct] = $mapping[$type];
+
+        // UPSERT (PRIMARY KEY sur id_societe + type + activite)
+        try {
+            $st = $pdo->prepare("
+                INSERT INTO societes_couvertures
+                  (id_societe, type, activite, compagnie, numero_police, montant,
+                   date_expiration, est_active, version_num, updated_at)
+                VALUES
+                  (:id_soc, :type, :act, :compagnie, :numero, :montant,
+                   :date_exp, 1, 1, NOW())
+                ON DUPLICATE KEY UPDATE
+                  compagnie       = COALESCE(VALUES(compagnie),       compagnie),
+                  numero_police   = COALESCE(VALUES(numero_police),   numero_police),
+                  montant         = COALESCE(VALUES(montant),         montant),
+                  date_expiration = COALESCE(VALUES(date_expiration), date_expiration),
+                  est_active      = 1,
+                  updated_at      = NOW()
+            ");
+            $st->execute([
+                ':id_soc'    => $idSociete,
+                ':type'      => $couvType,
+                ':act'       => $couvAct,
+                ':compagnie' => $doc['emetteur'] ?: null,
+                ':numero'    => $doc['numero']   ?: null,
+                ':montant'   => $doc['montant_garantie'] !== null ? (float)$doc['montant_garantie'] : null,
+                ':date_exp'  => $doc['date_validite'] ?: null,
+            ]);
+            return 1;
+        } catch (Throwable $e) {
+            // Table societes_couvertures n'existe pas (env très ancien) ou autre erreur
+            error_log('[rh_doc_societe_ecrire_couverture] ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Alias deprecated — anciens callers qui invoquaient la fonction de
+     * réplication N agences. Redirige vers la version single-row société.
+     * @deprecated Utiliser rh_doc_societe_ecrire_societe() à la place.
+     */
+    function rh_doc_societe_repliquer_vers_agences(PDO $pdo, int $idSociete, int $rhDocId, string $ocrType): int
+    {
+        return rh_doc_societe_ecrire_societe($pdo, $idSociete, $rhDocId, $ocrType);
+    }
+}

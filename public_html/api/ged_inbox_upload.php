@@ -31,7 +31,7 @@ ob_start();
 require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/auth.php';
 require_login();
-require_once dirname(__DIR__) . '/modules/ged/ged_functions.php';
+require_once dirname(__DIR__) . '/modules/ged/ged_functions_legacy.php'; // archivé Phase 1.1 — fusion Phase 2/3
 require_once dirname(__DIR__) . '/modules/ged/ged_storage.php';
 require_once dirname(__DIR__) . '/modules/ged/ged_storage_local.php';
 require_once dirname(__DIR__) . '/modules/ged/ged_extraction.php';

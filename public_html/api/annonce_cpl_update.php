@@ -19,6 +19,7 @@ verify_csrf_any('ajouter_bien');
 
 $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
+$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $ligneId = isset($_POST['id']) && ctype_digit((string)$_POST['id']) ? (int)$_POST['id'] : 0;
 if ($ligneId <= 0) {
@@ -36,7 +37,7 @@ try {
     $st->execute([$ligneId]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     if (!$row) exit(json_encode(['ok' => false, 'error' => 'Ligne introuvable']));
-    if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+    if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
     }

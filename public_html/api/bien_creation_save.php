@@ -54,7 +54,8 @@ try {
     $stmt->execute([$bienId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) exit(json_encode(['ok' => false, 'error' => 'bien introuvable']));
-    if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+    $isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
+    if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'hors de votre société']));
     }

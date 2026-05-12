@@ -28,6 +28,7 @@ verify_csrf_any('ajouter_bien');
 $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $userId    = (int)($_SESSION['user_id']    ?? 0);
+$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 $annonceId = isset($_POST['_annonce_id']) && ctype_digit((string)$_POST['_annonce_id']) ? (int)$_POST['_annonce_id'] : 0;
 if ($annonceId <= 0) exit(json_encode(['ok' => false, 'error' => 'id_annonce manquant']));
 
@@ -43,7 +44,7 @@ try {
     $st->execute([$annonceId]);
     $annonce = $st->fetch(PDO::FETCH_ASSOC);
     if (!$annonce) exit(json_encode(['ok' => false, 'error' => 'Annonce introuvable']));
-    if ($societeId > 0 && (int)$annonce['b_societe'] !== $societeId) {
+    if (!$isSuperAdmin && $societeId > 0 && (int)$annonce['b_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
     }

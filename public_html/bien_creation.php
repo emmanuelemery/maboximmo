@@ -21,6 +21,7 @@ $pdo       = $GLOBALS['pdo'];
 $userId    = (int)($_SESSION['user_id']    ?? 0);
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $agenceId  = (int)($_SESSION['id_agence']  ?? 0);
+$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 // ── 1. Création immédiate d'un brouillon si aucun id fourni ───────────
 $bienId = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['id'] : 0;
@@ -82,7 +83,7 @@ try {
     exit('Erreur lecture bien : ' . htmlspecialchars($e->getMessage()));
 }
 if (!$bien) { exit('Bien introuvable.'); }
-if ($societeId > 0 && (int)$bien['id_societe'] !== $societeId) {
+if (!$isSuperAdmin && $societeId > 0 && (int)$bien['id_societe'] !== $societeId) {
     http_response_code(403); exit('Bien hors de votre société.');
 }
 

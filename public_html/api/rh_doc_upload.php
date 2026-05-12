@@ -6,6 +6,7 @@ session_start();
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
 require_once __DIR__ . '/../inc/rh_document_extractor.php';
+require_once __DIR__ . '/../inc/rh_doc_societe_ocr_hook.php';
 
 require_login();
 verify_csrf_any();
@@ -48,7 +49,7 @@ $nomAffiche  = trim($_POST['nom_affiche'] ?? '');
 $confidentiel = ($roleId === 1 && !empty($_POST['confidentiel'])) ? 1 : 0;
 $obligatoire  = !empty($_POST['obligatoire']) ? 1 : 0;
 
-$allowedRubriques = ['personne', 'vehicule', 'societe', 'rh', 'divers'];
+$allowedRubriques = ['personne', 'vehicule', 'societe', 'agence', 'rh', 'divers'];
 if (!in_array($rubrique, $allowedRubriques)) $rubrique = 'divers';
 
 if (!isset($_FILES['file'])) {
@@ -118,6 +119,44 @@ $uStmt = $pdo->prepare("SELECT id_societe, id_agence FROM users WHERE id = ?");
 $uStmt->execute([$targetUserId]);
 $uRow = $uStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+// LOT 4.B : pour la rubrique Société, cible société explicite. Pour rubrique
+// Agence, cible agence explicite. Scope check : super admin (role=1) peut
+// écrire partout, les autres uniquement sur leur société/agence courante.
+$idSocieteCible = (int)($uRow['id_societe'] ?? 0);
+$idAgenceCible  = (int)($uRow['id_agence']  ?? 0);
+
+if ($rubrique === 'societe' && isset($_POST['id_societe']) && ctype_digit((string)$_POST['id_societe'])) {
+    $idSocPost = (int)$_POST['id_societe'];
+    $idSocSession = (int)($_SESSION['id_societe'] ?? 0);
+    if ($roleId === 1 || ($idSocSession > 0 && $idSocPost === $idSocSession)) {
+        $idSocieteCible = $idSocPost;
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Société cible non autorisée']);
+        exit;
+    }
+}
+
+if ($rubrique === 'agence' && isset($_POST['id_agence']) && ctype_digit((string)$_POST['id_agence'])) {
+    $idAgPost = (int)$_POST['id_agence'];
+    $idAgSession = (int)($_SESSION['id_agence'] ?? 0);
+    if ($roleId === 1 || ($idAgSession > 0 && $idAgPost === $idAgSession)) {
+        $idAgenceCible = $idAgPost;
+        // Récupère aussi la société de l'agence cible (pour renseigner id_societe sur le doc)
+        try {
+            $stA = $pdo->prepare("SELECT id_societe FROM agences WHERE id = ? LIMIT 1");
+            $stA->execute([$idAgenceCible]);
+            $idSocAg = (int)($stA->fetchColumn() ?: 0);
+            if ($idSocAg > 0) $idSocieteCible = $idSocAg;
+        } catch (Throwable) {}
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Agence cible non autorisée']);
+        exit;
+    }
+}
+
+$uRow['id_societe'] = $idSocieteCible ?: null;
+$uRow['id_agence']  = $idAgenceCible  ?: null;
+
 try {
     $stmt = $pdo->prepare("INSERT INTO rh_documents
         (id_user, id_societe, id_agence, categorie, sous_categorie, type_document,
@@ -180,6 +219,22 @@ try {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // Hook OCR Sonnet pour les docs OFFICIELS Société (LOT 4.B refonte)
+    // Types : kbis, carte_pro, garant_financier, rcp, bareme_honoraires
+    // → OCR Claude Sonnet → UPDATE rh_documents.{numero,emetteur,date_validite,...}
+    // → Réplication vers TOUTES les agences de cette société (carte_pro_*, kbis_*, ...)
+    // ─────────────────────────────────────────────────────────────
+    $societeHook = null;
+    if ($rubrique === 'societe') {
+        try {
+            $societeHook = rh_doc_societe_hook_apres_upload($pdo, $newId);
+        } catch (Throwable $shEx) {
+            error_log('[rh_doc_upload/societe_hook] ' . $shEx->getMessage());
+            $societeHook = ['ok' => false, 'ocr_erreur' => $shEx->getMessage()];
+        }
+    }
+
     echo json_encode([
         'success' => true,
         'id'      => $newId,
@@ -194,6 +249,7 @@ try {
             'candidates'  => $rhdxApply['candidates']   ?? [],
             'error'       => $rhdxResult['error']       ?? null,
         ],
+        'societe' => $societeHook, // null si pas un doc société, sinon résultat hook
     ], JSON_UNESCAPED_UNICODE);
 } catch (Exception $e) {
     @unlink($filePath);

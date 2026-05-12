@@ -103,7 +103,9 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             Navigation
         </div>
         <ul class="sb-nav">
-            <li><a href="./modules/ged/ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?><?= sbActive('ged_inbox.php') ?>">
+            <!-- V2.5 navigation refactor : GED a sa sidebar dédiée + page hub /ged_dashboard.php
+                 Les sous-menus GED V2 (Import/Niveaux/Arbo/Coffre) ne sont plus dupliqués ici. -->
+            <li><a href="./ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
             </a></li>
             <?php foreach ($navServices as $key => $cfg): ?>

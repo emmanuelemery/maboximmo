@@ -36,6 +36,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/mbi_supports_helpers.php';
 require_once __DIR__ . '/mbi_supports_critic_engine.php';
 require_once __DIR__ . '/mbi_supports_score_engine.php';
+// IA rédaction désactivée par décision user 2026-05-12. Le require_once reste commenté
+// pour ne pas charger inutilement le module (l'infra reste en place pour reactivation future).
+// require_once __DIR__ . '/mbi_supports_redaction_ia.php';
 
 if (!function_exists('mbi_supports_pdf_generer')) {
 
@@ -88,6 +91,16 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                     $bien['description'] = $descA;
                 }
             }
+            // Loyer + honoraires location ALUR (utilisés par get_prix_ou_loyer + get_honoraires_ligne)
+            $bien['_annonce_loyer']            = (float)($annonce['loyer']                       ?? 0);
+            $bien['_annonce_loyer_cc']         = (float)($annonce['loyer_cc']                    ?? 0);
+            $bien['_annonce_honoraires_bail']  = (float)($annonce['honoraires_location_bail']    ?? 0);
+            $bien['_annonce_honoraires_edl']   = (float)($annonce['honoraires_etat_des_lieux']   ?? 0);
+            $bien['_annonce_depot_garantie']   = (float)($annonce['depot_garantie']              ?? 0);
+            // Fallback type_transaction (parfois sur annonces, parfois sur biens)
+            if (!empty($annonce['type_transaction']) && empty($bien['type_transaction'])) {
+                $bien['_annonce_type_transaction'] = (string)$annonce['type_transaction'];
+            }
         }
 
         // Si on régénère depuis un support source (édition), récupère ses surcharges
@@ -101,7 +114,7 @@ if (!function_exists('mbi_supports_pdf_generer')) {
             } catch (Throwable) { $surcharges = []; }
         }
         // Surcharges directes via options (POST de l'éditeur)
-        foreach (['titre_personnalise','accroche','description_personnalisee','photo_hero_id_personnalise'] as $k) {
+        foreach (['titre_personnalise','accroche','description_personnalisee','photo_hero_id_personnalise','nb_photos','photos_secondaires_ids_json'] as $k) {
             if (isset($options[$k]) && $options[$k] !== '') {
                 $surcharges[$k] = $options[$k];
             }
@@ -179,15 +192,17 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 // Met à jour les surcharges + nom_fichier sur la ligne existante
                 $up = $pdo->prepare("
                     UPDATE mbi_supports_commerciaux SET
-                      angle_marketing            = :angle,
-                      orientation_user           = :brief,
-                      titre_personnalise         = :titre,
-                      accroche                   = :accroche,
-                      description_personnalisee  = :desc,
-                      photo_hero_id_personnalise = :hero,
-                      nom_fichier                = :nom,
-                      derniere_erreur            = NULL,
-                      updated_at                 = NOW()
+                      angle_marketing              = :angle,
+                      orientation_user             = :brief,
+                      titre_personnalise           = :titre,
+                      accroche                     = :accroche,
+                      description_personnalisee    = :desc,
+                      photo_hero_id_personnalise   = :hero,
+                      nb_photos                    = :nbph,
+                      photos_secondaires_ids_json  = :phsec,
+                      nom_fichier                  = :nom,
+                      derniere_erreur              = NULL,
+                      updated_at                   = NOW()
                     WHERE id = :id
                 ");
                 $up->execute([
@@ -197,6 +212,8 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                     ':accroche' => $surcharges['accroche'] ?? null,
                     ':desc'     => $surcharges['description_personnalisee'] ?? null,
                     ':hero'     => $surcharges['photo_hero_id_personnalise'] ?? null,
+                    ':nbph'     => $surcharges['nb_photos'] ?? null,
+                    ':phsec'    => $surcharges['photos_secondaires_ids_json'] ?? null,
                     ':nom'      => $nomFichier,
                     ':id'       => $supportId,
                 ]);
@@ -219,10 +236,12 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'source_generation' => 'mixte',
                 'nom_fichier'     => $nomFichier,
                 // Surcharges propagées (pour édition continue)
-                'titre_personnalise'         => $surcharges['titre_personnalise']         ?? null,
-                'accroche'                   => $surcharges['accroche']                   ?? null,
-                'description_personnalisee'  => $surcharges['description_personnalisee']  ?? null,
-                'photo_hero_id_personnalise' => $surcharges['photo_hero_id_personnalise'] ?? null,
+                'titre_personnalise'           => $surcharges['titre_personnalise']           ?? null,
+                'accroche'                     => $surcharges['accroche']                     ?? null,
+                'description_personnalisee'    => $surcharges['description_personnalisee']    ?? null,
+                'photo_hero_id_personnalise'   => $surcharges['photo_hero_id_personnalise']   ?? null,
+                'nb_photos'                    => $surcharges['nb_photos']                    ?? null,
+                'photos_secondaires_ids_json'  => $surcharges['photos_secondaires_ids_json']  ?? null,
                 ]);
             }
         } catch (Throwable $e) {
@@ -232,8 +251,32 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                     'erreur'=>'insert_draft_fail: ' . $e->getMessage()];
         }
 
-        // 6. Génère le PDF
+        // 6. Rédaction IA — DÉSACTIVÉE (décision user 2026-05-12)
+        // Le PDF utilise désormais uniquement les textes saisis dans bien + annonce.
+        // L'infra existe (mbi_supports_redaction_ia.php) et peut être réactivée plus tard.
+        $iaRedaction = null;
+
+        // 7. Génère le PDF
         try {
+            // nb_photos : surcharge éditeur > valeur stockée sur le support source > default template (4)
+            $nbPhotosCtx = null;
+            if (isset($surcharges['nb_photos']) && $surcharges['nb_photos'] !== '' && $surcharges['nb_photos'] !== null) {
+                $nbPhotosCtx = (int)$surcharges['nb_photos'];
+            } elseif (isset($options['nb_photos']) && $options['nb_photos'] !== '') {
+                $nbPhotosCtx = (int)$options['nb_photos'];
+            }
+
+            // photos_ids_secondaires : décodage du JSON éditeur si fourni
+            $photosIdsSec = null;
+            $rawSec = $surcharges['photos_secondaires_ids_json']
+                   ?? ($options['photos_secondaires_ids_json'] ?? null);
+            if (is_string($rawSec) && $rawSec !== '') {
+                $decoded = json_decode($rawSec, true);
+                if (is_array($decoded)) {
+                    $photosIdsSec = array_values(array_filter(array_map('intval', $decoded), fn($v) => $v > 0));
+                }
+            }
+
             $context = [
                 'bien'        => $bien,
                 'photos'      => $photos,
@@ -249,6 +292,9 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'photo_hero_id_suggestion' => $heroIdSugg,
                 'version'     => $version,
                 'is_interne'  => $isInterne,
+                'ia_redaction'=> $iaRedaction,
+                'nb_photos'   => $nbPhotosCtx,
+                'photos_ids_secondaires' => $photosIdsSec,
             ];
 
             // Crée le dossier de drafts si absent (idempotent)
@@ -273,6 +319,7 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                         'classe' => $bien['dpe_classe']  ?? null,
                         'statut' => $bien['dpe_statut']  ?? null,
                     ],
+                    'ia_redaction' => $iaRedaction,
                 ], JSON_UNESCAPED_UNICODE),
                 'snapshot_dpe_classe' => $bien['dpe_classe']  ?? null,
                 'snapshot_dpe_statut' => $bien['dpe_statut']  ?? null,
@@ -354,7 +401,8 @@ if (!function_exists('mbi_supports_pdf_insert_draft')) {
                  'type_support','titre_support','angle_marketing','orientation_user',
                  'score_commercial_id','mentions_version','is_interne','version',
                  'source_generation','nom_fichier',
-                 'titre_personnalise','accroche','description_personnalisee','photo_hero_id_personnalise'];
+                 'titre_personnalise','accroche','description_personnalisee','photo_hero_id_personnalise',
+                 'nb_photos','photos_secondaires_ids_json'];
         $placeholders = ':' . implode(', :', $cols);
         $sql = "INSERT INTO mbi_supports_commerciaux (`" . implode('`,`', $cols) . "`, statut, created_at, updated_at)
                 VALUES ({$placeholders}, 'draft', NOW(), NOW())";

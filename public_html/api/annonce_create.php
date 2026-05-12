@@ -20,6 +20,7 @@ $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
 $agenceId  = (int)($_SESSION['id_agence']  ?? 0);
 $userId    = function_exists('current_user_id') ? (int)current_user_id() : 0;
+$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $bienId = isset($_POST['id_bien']) && ctype_digit((string)$_POST['id_bien']) ? (int)$_POST['id_bien'] : 0;
 if ($bienId <= 0) {
@@ -31,7 +32,7 @@ try {
     $st = $pdo->prepare("SELECT id_societe FROM biens WHERE id = ?");
     $st->execute([$bienId]);
     $bienSoc = (int)($st->fetchColumn() ?: 0);
-    if ($societeId > 0 && $bienSoc !== $societeId) {
+    if (!$isSuperAdmin && $societeId > 0 && $bienSoc !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Bien hors de votre société']));
     }
@@ -79,17 +80,33 @@ try {
     $finalAgence = (int)($bienRow['id_agence']      ?? 0) ?: ($agenceId  ?: 0);
     $finalUser   = (int)($bienRow['id_user_actuel'] ?? 0) ?: ($userId    ?: 0);
 
+    // URL tarifs publics par défaut : page barème de la société.
+    // Obligatoire sur tous les supports publics (loi Hoguet) — on pré-remplit
+    // pour qu'aucune annonce ne parte sans le lien.
+    $urlTarifs = null;
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host   = (string)($_SERVER['HTTP_HOST'] ?? '');
+    if ($host !== '' && $finalSoc > 0) {
+        $base = $scheme . '://' . $host;
+        $path = function_exists('app_url') ? app_url('/tarifs.php') : '/tarifs.php';
+        $urlTarifs = $base . $path . '?societe=' . $finalSoc;
+    }
+
     $st = $pdo->prepare("
         INSERT INTO annonces (id_bien, id_societe, id_agence, id_user, etat_publication,
                               visible_portails, visible_maboximmo, visible_site_perso,
+                              url_tarifs_publics,
                               date_creation, date_modification)
-        VALUES (:bien, :soc, :ag, :usr, 'brouillon', 0, 0, 0, NOW(), NOW())
+        VALUES (:bien, :soc, :ag, :usr, 'brouillon', 0, 0, 0,
+                :url_tarifs,
+                NOW(), NOW())
     ");
     $st->execute([
         ':bien' => $bienId,
         ':soc'  => $finalSoc    ?: null,
         ':ag'   => $finalAgence ?: null,
         ':usr'  => $finalUser   ?: null,
+        ':url_tarifs' => $urlTarifs,
     ]);
     $id = (int)$pdo->lastInsertId();
 

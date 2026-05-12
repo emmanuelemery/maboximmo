@@ -623,7 +623,8 @@ SELECT
     u_neg.prenom          AS u_neg_prenom,
     u_neg.nom             AS u_neg_nom,
     u_neg.email           AS u_neg_email,
-    u_neg.telephone       AS u_neg_mobile,
+    -- Diffusion : téléphone PRO uniquement, jamais le perso (RGPD + confidentialité)
+    u_neg.telephone_pro   AS u_neg_mobile,
     u_neg.telephone_pro   AS u_neg_fixe
 
 FROM annonces a

@@ -72,7 +72,7 @@ if ($__isJson && empty($_SESSION['user_id'])) {
 }
 
 require_login(); // safety net (au cas où user_id existe mais session invalide)
-require_once __DIR__ . '/ged_functions.php';
+require_once __DIR__ . '/ged_functions_legacy.php'; // archivé Phase 1.1 — fusion Phase 2/3
 require_once __DIR__ . '/ged_storage.php';
 require_once __DIR__ . '/ged_storage_local.php';
 require_once __DIR__ . '/ged_classer.php';

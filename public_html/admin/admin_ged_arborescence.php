@@ -133,6 +133,7 @@ $appLayout = true;
 $pageTitle = 'GED — Arborescence';
 $bodyClass = '';
 require_once __DIR__ . '/../inc/header.php';
+require_once __DIR__ . '/../inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + container
 
 $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 ?>

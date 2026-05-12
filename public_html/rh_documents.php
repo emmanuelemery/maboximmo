@@ -32,6 +32,7 @@ if ($roleId === 1) {
     $agences  = $pdo->query("SELECT id, nom_agence, id_societe FROM agences WHERE actif=1 ORDER BY nom_agence ASC")->fetchAll(PDO::FETCH_ASSOC);
 }
 
+
 // Sélections GET
 $societe_sel = $_GET['societe'] ?? 'toutes';
 $agence_sel  = $agenceScope > 0 ? (string)$agenceScope : ($_GET['agence'] ?? 'toutes');
@@ -66,12 +67,30 @@ $viewUserName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''
 
 if (($roleId === 1 || $agenceScope > 0) && isset($_GET['user_id'])) {
     $candidate = (int)$_GET['user_id'];
-    // Vérifier que le candidat est dans la liste autorisée
-    foreach ($usersList as $u) {
-        if ((int)$u['id'] === $candidate) {
-            $viewUserId   = $candidate;
-            $viewUserName = trim(($u['prenom'] ?? '') . ' ' . ($u['nom'] ?? ''));
-            break;
+
+    if ($roleId === 1) {
+        // Super admin : peut visualiser N'IMPORTE QUEL user actif, même hors
+        // de la scope société/agence courante (ex. clic depuis rh_profil.php
+        // sur un collaborateur d'une autre société).
+        try {
+            $stU = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE id = ? AND actif = 1 LIMIT 1");
+            $stU->execute([$candidate]);
+            $u = $stU->fetch(PDO::FETCH_ASSOC);
+            if ($u) {
+                $viewUserId   = $candidate;
+                $viewUserName = trim(($u['prenom'] ?? '') . ' ' . ($u['nom'] ?? ''));
+            }
+        } catch (Throwable) {}
+    } else {
+        // Manager (role 2 ou scope agence) : restreint à $usersList déjà
+        // filtré par sa scope. Empêche un manager de voir un user d'une
+        // autre agence/société.
+        foreach ($usersList as $u) {
+            if ((int)$u['id'] === $candidate) {
+                $viewUserId   = $candidate;
+                $viewUserName = trim(($u['prenom'] ?? '') . ' ' . ($u['nom'] ?? ''));
+                break;
+            }
         }
     }
 } else {
@@ -146,9 +165,87 @@ $stmtDocs = $pdo->prepare("
 $stmtDocs->execute([$viewUserId]);
 $allDocs = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
 
-// ── Documents administratifs société (table `documents`) ─────────────────────
-// Injectés dans la rubrique "societe" pour que la colonne Société
-// affiche aussi les Kbis, assurances, etc. chargés via admin_documents.php
+// ── Documents Société (rh_documents avec categorie='societe') ────────────────
+// LOT 4.B : les docs officiels (KBIS, carte pro, garant, RC, barème) sont
+// stockés dans rh_documents avec id_societe et accessibles à TOUS les users
+// de la société (peu importe qui a uploadé).
+//
+// Cible : super admin ayant choisi une société → cette société.
+//         Sinon → société de la session.
+//         Si super admin sans société sélectionnée → aucun doc Société chargé.
+$societeIdPourSocDocs = ($roleId === 1 && $societe_sel !== 'toutes' && ctype_digit((string)$societe_sel))
+    ? (int)$societe_sel
+    : (int)($_SESSION['id_societe'] ?? 0);
+
+if ($societeIdPourSocDocs > 0) {
+    try {
+        $stSoc = $pdo->prepare("
+            SELECT
+                id,
+                'societe' AS categorie,
+                COALESCE(sous_categorie, type_document) AS sous_categorie,
+                original_name, filename, upload_date, uploaded_by,
+                0 AS confidentiel,
+                COALESCE(obligatoire, 0) AS obligatoire,
+                numero, emetteur, date_validite, ocr_confidence, ocr_at,
+                activite_code
+            FROM rh_documents
+            WHERE categorie = 'societe' AND id_societe = :s AND actif = 1
+              AND (archived_at IS NULL)
+            ORDER BY upload_date DESC
+        ");
+        $stSoc->execute([':s' => $societeIdPourSocDocs]);
+        foreach ($stSoc->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            // Évite les doublons si l'user courant est déjà dans cette société
+            $alreadyIn = false;
+            foreach ($allDocs as $a) {
+                if ((string)($a['id'] ?? '') === (string)$d['id']) { $alreadyIn = true; break; }
+            }
+            if (!$alreadyIn) $allDocs[] = $d;
+        }
+    } catch (Throwable $e) {
+        error_log('[rh_documents/soc_docs] ' . $e->getMessage());
+    }
+}
+
+// ── Documents Agence (rh_documents avec categorie='agence') ──────────────────
+// Cible : agence sélectionnée par le filtre haut, sinon agence de la session
+// (manager / collaborateur).
+$agenceIdPourAgenceDocs = ($roleId === 1 && $agence_sel !== 'toutes' && ctype_digit((string)$agence_sel))
+    ? (int)$agence_sel
+    : (int)($_SESSION['id_agence'] ?? 0);
+
+if ($agenceIdPourAgenceDocs > 0) {
+    try {
+        $stAg = $pdo->prepare("
+            SELECT
+                id,
+                'agence' AS categorie,
+                COALESCE(sous_categorie, type_document) AS sous_categorie,
+                original_name, filename, upload_date, uploaded_by,
+                0 AS confidentiel,
+                COALESCE(obligatoire, 0) AS obligatoire,
+                numero, emetteur, date_validite, ocr_confidence, ocr_at
+            FROM rh_documents
+            WHERE categorie = 'agence' AND id_agence = :a AND actif = 1
+              AND (archived_at IS NULL)
+            ORDER BY upload_date DESC
+        ");
+        $stAg->execute([':a' => $agenceIdPourAgenceDocs]);
+        foreach ($stAg->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $alreadyIn = false;
+            foreach ($allDocs as $a) {
+                if ((string)($a['id'] ?? '') === (string)$d['id']) { $alreadyIn = true; break; }
+            }
+            if (!$alreadyIn) $allDocs[] = $d;
+        }
+    } catch (Throwable $e) {
+        error_log('[rh_documents/agence_docs] ' . $e->getMessage());
+    }
+}
+
+// ── Documents administratifs société (table `documents`, legacy) ─────────────
+// Conservé pour rétrocompatibilité avec les docs déjà chargés via admin_documents.php
 $userSocieteId = (int)($_SESSION['id_societe'] ?? 0);
 if ($userSocieteId > 0) {
     try {
@@ -241,28 +338,71 @@ $layout_head_kpis = '
 <div class="ph-kpi"><div class="ph-kpi-val">' . $rubCount . '</div><div class="ph-kpi-lbl">Rubriques</div></div>
 ';
 
-// Actions
-$layout_head_actions = '
-<a href="rh_documents.php" class="ph-btn primary">Documents</a>
-' . ($roleId === 1 ? '<a href="rh_documents_config.php" class="ph-btn">Config</a>' : '<span class="ph-btn dispo">—</span>') . '
-<span class="ph-btn dispo">—</span>
-<span class="ph-btn dispo">—</span>
-';
+// Actions topbar — réservées à l'admin uniquement (paramétrage), fond vert amande
+$layout_head_actions = '';
+if ($roleId === 1) {
+    $layout_head_actions = '
+    <a href="rh_documents_config.php" class="ph-btn-admin">⚙️ Config types</a>
+    ';
+}
 
 // Extra CSS
 $layout_extra_css = <<<'EXTRACSS'
 <style>
     /* ── Override local supprimé — tokens.css est déjà en blanc ── */
 
-    /* ── Page head (identique rh_salaires) ── */
+    /* ── Boutons admin topbar (vert amande) ── */
+    .ph-btn-admin {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 18px;
+        background: #B8D8B0;        /* vert amande */
+        color: #1a3d28;             /* vert très foncé pour contraste lisible */
+        border-radius: 10px;
+        font-family: 'Sora', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
+        letter-spacing: 0.02em;
+        box-shadow: 2px 2px 6px rgba(74,96,56,0.25), inset 0 1px 0 rgba(255,255,255,0.4);
+        transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        white-space: nowrap;
+    }
+    .ph-btn-admin:hover {
+        transform: translateY(-1px);
+        background: #A8C9A0;
+        box-shadow: 3px 3px 10px rgba(74,96,56,0.35);
+    }
+    .ph-btn-admin:active {
+        transform: translateY(0);
+        box-shadow: inset 1px 1px 4px rgba(74,96,56,0.3);
+    }
+
+    /* ── Page head (identique rh_salaires) ──
+     * Robuste contre overrides CSS globaux : utilise un préfixe -local
+     * pour éviter tout conflit avec d'autres .page-head du site
+     * (liste_layout.css, maboximmo_v2.css, bien_detail_v2.css en ont
+     * chacun une version différente qui peut clipper les pills si l'un
+     * d'entre eux est chargé par accident sur cette page).
+     * !important sur display+direction pour neutraliser flex-direction:column
+     * éventuel d'une media query. min-height au lieu de height pour que
+     * les pills ne soient jamais clippées par overflow.
+     */
     .page-head {
-        display:flex; align-items:center;
-        height:110px; flex-shrink:0; gap:0;
-        border-bottom:1px solid rgba(196,192,186,0.3); margin-bottom:4px;
-        padding:14px 0 12px; overflow:hidden;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center;
+        flex-wrap: wrap;
+        min-height: 110px;
+        flex-shrink: 0;
+        gap: 0;
+        border-bottom: 1px solid rgba(196,192,186,0.3);
+        margin-bottom: 4px;
+        padding: 14px 0 12px;
     }
     /* Quand il n'y a pas de ph-scope (user simple), hauteur réduite */
-    .page-head.no-scope { height:56px; }
+    .page-head.no-scope { min-height: 56px; }
     .page-head-module { font-family:'DM Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:0.22em; color:#a8a49e; margin-bottom:4px; }
     .page-head-row { display:flex; align-items:center; gap:10px; }
     .page-head-title { font-family:'Sora'; font-size:20px; font-weight:700; color:#1a1816; }
@@ -358,11 +498,17 @@ $_rubriquesJson = json_encode(
     array_map(fn($r) => ['label' => $r['label'], 'types' => $r['types']], $rubriques),
     JSON_UNESCAPED_UNICODE
 );
+// Cibles upload : Société + Agence (récupérées des pills Sté/Agc en haut)
+$_societeIdPourUploadSoc = (int)$societeIdPourSocDocs;
+$_agenceIdPourUploadAg   = (int)$agenceIdPourAgenceDocs;
+
 $layout_extra_js = <<<EXTRAJS
 <meta name="csrf-token" content="{$csrfToken}">
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
-const VIEW_USER_ID = {$viewUserId};
+const VIEW_USER_ID         = {$viewUserId};
+const SOC_DOCS_TARGET_ID   = {$_societeIdPourUploadSoc};
+const AGENCE_DOCS_TARGET_ID= {$_agenceIdPourUploadAg};
 
 const RUBRIQUES = {$_rubriquesJson};
 
@@ -417,9 +563,27 @@ async function submitUpload() {
     fd.append('csrf_token', CSRF);
     fd.append('file', selectedFile);
     fd.append('user_id', VIEW_USER_ID);
-    fd.append('rubrique', document.getElementById('modal-rubrique').value);
+    const rubVal = document.getElementById('modal-rubrique').value;
+    fd.append('rubrique', rubVal);
     fd.append('type_doc',  document.getElementById('modal-type').value);
     fd.append('nom_affiche', document.getElementById('modal-nom').value.trim() || selectedFile.name);
+    // LOT 4.B : société/agence cible récupérée depuis les pills Sté/Agc
+    // du page-head (filtres haut de page). Bloquant si pas sélectionné.
+    if (rubVal === 'societe') {
+        if (SOC_DOCS_TARGET_ID <= 0) {
+            showToast('Sélectionne une société dans la barre Sté en haut de page', true);
+            btn.disabled = false; btn.textContent = 'Téléverser';
+            return;
+        }
+        fd.append('id_societe', SOC_DOCS_TARGET_ID);
+    } else if (rubVal === 'agence') {
+        if (AGENCE_DOCS_TARGET_ID <= 0) {
+            showToast('Sélectionne une agence dans la barre Agc en haut de page', true);
+            btn.disabled = false; btn.textContent = 'Téléverser';
+            return;
+        }
+        fd.append('id_agence', AGENCE_DOCS_TARGET_ID);
+    }
     showToast('🔍 Analyse IA en cours (5-15 sec)…');
     btn.textContent = '⏳ Analyse IA…';
     try {
@@ -529,32 +693,43 @@ ob_start();
      (RIB, CNI, justif domicile, carte vitale, carte grise…)
 ════════════════════════════════════════════════════════════ -->
 <style>
+/* ── Analyse IA compactée 2026-05-06 — encart horizontal discret ── */
 .rhdx-card {
     background: #ffffff;
-    border-radius: 16px;
-    box-shadow: 6px 6px 14px #d4d7de, -6px -6px 14px #fff;
-    padding: 22px 26px;
-    margin-bottom: 22px;
+    border-radius: 12px;
+    box-shadow: 3px 3px 8px #d4d7de, -3px -3px 8px #fff;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
-.rhdx-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.rhdx-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
 .rhdx-head-ico {
-    width: 46px; height: 46px; border-radius: 12px;
+    width: 30px; height: 30px; border-radius: 8px;
     background: linear-gradient(135deg, #4878a6, #2f587d);
-    color: #fff; font-size: 22px;
+    color: #fff; font-size: 14px;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
 }
-.rhdx-head h3 { font-size: 15px; font-weight: 700; color: #2f587d; margin-bottom: 3px; }
-.rhdx-head p  { font-size: 12px; color: #8a8680; line-height: 1.5; }
+.rhdx-head h3 { font-size: 12px; font-weight: 700; color: #2f587d; margin: 0; }
+.rhdx-head p  { font-size: 10px; color: #8a8680; line-height: 1.3; margin: 0; }
 
 .rhdx-dropzone {
-    border: 2px dashed #d4d7de;
-    border-radius: 12px;
-    padding: 32px 20px;
+    border: 1.5px dashed #d4d7de;
+    border-radius: 8px;
+    padding: 8px 14px;
     text-align: center;
     background: #ffffff;
     cursor: pointer;
     transition: all .2s;
+    flex: 1 1 220px;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 .rhdx-dropzone:hover,
 .rhdx-dropzone.dragging {
@@ -562,9 +737,9 @@ ob_start();
     background: #fafbfc;
     transform: translateY(-2px);
 }
-.rhdx-dropzone-ico { font-size: 36px; opacity: .6; margin-bottom: 8px; }
-.rhdx-dropzone-txt { font-size: 13px; color: #6a6660; font-weight: 600; }
-.rhdx-dropzone-hint { font-size: 11px; color: #a8a49e; margin-top: 4px; }
+.rhdx-dropzone-ico { font-size: 18px; opacity: .65; margin: 0; }
+.rhdx-dropzone-txt { font-size: 11px; color: #6a6660; font-weight: 600; margin: 0; }
+.rhdx-dropzone-hint { font-size: 9px; color: #a8a49e; margin: 0 0 0 6px; }
 .rhdx-dropzone input[type=file] { display: none; }
 
 .rhdx-progress {
@@ -755,15 +930,15 @@ ob_start();
     <div class="rhdx-head">
         <div class="rhdx-head-ico">🔍</div>
         <div>
-            <h3>Analyse automatique de document</h3>
-            <p>Déposez un document (CNI, RIB, justificatif de domicile, carte vitale, carte grise…) et l'IA extrait automatiquement les informations.</p>
+            <h3>Analyse IA</h3>
+            <p>CNI, RIB, justif. domicile, carte vitale, carte grise…</p>
         </div>
     </div>
 
     <div class="rhdx-dropzone" id="rhdxDropzone">
-        <div class="rhdx-dropzone-ico">📥</div>
-        <div class="rhdx-dropzone-txt">Cliquez ou glissez un document ici</div>
-        <div class="rhdx-dropzone-hint">PDF, JPG, PNG, WEBP · max 10 Mo</div>
+        <span class="rhdx-dropzone-ico">📥</span>
+        <span class="rhdx-dropzone-txt">Cliquez ou glissez un document</span>
+        <span class="rhdx-dropzone-hint">PDF/JPG/PNG · max 10 Mo</span>
         <input type="file" id="rhdxFileInput" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic">
     </div>
 
@@ -1062,7 +1237,17 @@ async function applyConflicts(candId) {
       <!-- Filtres STE / AGC / Col — hauteur fixe : les 3 lignes toujours rendues -->
       <div class="ph-scope">
 
-        <?php if ($roleId === 1): ?>
+        <?php if ($roleId === 1 && empty($societes)): ?>
+        <!-- Diagnostic admin : aucune société visible (BDD locale pauvre ?) -->
+        <div class="ph-scope-row">
+          <span class="ph-scope-label">Sté</span>
+          <div class="ph-scope-btns">
+            <span style="font-size:11px; color:#a85858; padding:4px 10px; background:#fef2f2; border-radius:6px;">
+              ⚠ Aucune société en BDD (vérifier <code>societes WHERE nom != 'Externe'</code>)
+            </span>
+          </div>
+        </div>
+        <?php elseif ($roleId === 1): ?>
         <!-- Ligne STÉ (toujours visible) -->
         <div class="ph-scope-row">
           <span class="ph-scope-label">Sté</span>
@@ -1256,6 +1441,9 @@ async function applyConflicts(candId) {
         <?php endforeach; ?>
       </select>
     </div>
+    <?php /* Société/Agence cibles : récupérées automatiquement des pills haut
+             (Sté/Agc) — voir SOC_DOCS_TARGET_ID / AGENCE_DOCS_TARGET_ID injectés
+             en JS. Plus de sélecteur en doublon dans la modale. */ ?>
     <div class="form-group">
       <label class="form-label">Type de document</label>
       <select class="form-control" id="modal-type"></select>

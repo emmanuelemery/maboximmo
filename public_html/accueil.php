@@ -259,16 +259,18 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
         </a>
 
         <!-- Service 2: RH -->
-        <a href="<?=($isLoggedIn && isset($userServices['rh'])) ? 'rh_dashboard.php' : '#'?>" data-service="rh" class="service-card <?=($isLoggedIn) ? (isset($userServices['rh']) ? 'active' : 'locked') : ''?>" onclick="<?=(!$isLoggedIn) ? 'event.preventDefault(); openLoginModal();' : ((!isset($userServices['rh'])) ? 'event.preventDefault();' : '')?>">
+        <a href="<?=($isLoggedIn && isset($userServices['rh'])) ? 'https://rh.maboximmo.com' : '#'?>" data-service="rh" class="service-card <?=($isLoggedIn) ? (isset($userServices['rh']) ? 'active' : 'locked') : ''?>" onclick="<?=(!$isLoggedIn) ? 'event.preventDefault(); openLoginModal();' : ((!isset($userServices['rh'])) ? 'event.preventDefault();' : '')?>" target="_blank" rel="noopener noreferrer">
             <div class="service-icon">👥</div>
-            <div class="service-title">RH</div>
-            <div class="service-desc">Gestion des ressources humaines, salaires, congés et documents.</div>
+            <div class="service-title">RH — Gestion Complète</div>
+            <div class="service-desc">Plateforme RH complète pour la gestion des ressources humaines.</div>
             <div class="service-features">
                 <ul style="list-style:none;padding:0">
+                    <li>✓ Gestion des collaborateurs</li>
+                    <li>✓ Entretiens annuels</li>
+                    <li>✓ Gestion des congés</li>
                     <li>✓ Gestion des salaires</li>
-                    <li>✓ Suivi des congés</li>
-                    <li>✓ Archivage documents</li>
-                    <li>✓ Communications d'équipe</li>
+                    <li>✓ Documents et IK</li>
+                    <li>✓ Gestion des mails</li>
                 </ul>
             </div>
         </a>

@@ -1,0 +1,512 @@
+/* ─────────────────────────────────────────────────────────────────
+   Ma GED Box V1.1 — Page Import (super_admin_ged_import.php)
+   Style compact, badges colorés, modal cascade N1→N6
+   ───────────────────────────────────────────────────────────────── */
+
+.gimp-wrap { max-width: 1500px; margin: 0 auto; padding: 24px 20px; }
+.gimp-wrap h1 { font-size: 22px; color: #0f172a; margin: 0 0 6px; }
+.gimp-wrap .sub { color: #64748b; font-size: 13px; margin: 0 0 18px; }
+
+.gimp-flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; font-size: 13px; }
+.gimp-flash.success { background: #f0fdf4; border-left: 4px solid #16a34a; color: #14532d; }
+.gimp-flash.warning { background: #fffbeb; border-left: 4px solid #f59e0b; color: #92400e; }
+.gimp-flash.error   { background: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b; }
+
+/* ─── Card upload ────────────────────────────────────────────── */
+.gimp-upload {
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+  padding: 16px 20px; margin-bottom: 16px;
+}
+.gimp-upload h2 { font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 12px; }
+.gimp-upload-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
+.gimp-upload-row label { font-size: 11px; font-weight: 600; color: #475569;
+  text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 4px; }
+.gimp-upload-row input[type="text"], .gimp-upload-row input[type="file"] {
+  padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+  font-size: 13px; font-family: inherit;
+}
+.gimp-upload-row input[type="text"] { min-width: 280px; }
+.gimp-upload-btns { display: flex; gap: 8px; }
+.gimp-btn {
+  padding: 9px 16px; border: none; border-radius: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 700; font-family: inherit;
+}
+.gimp-btn-primary { background: #0ea5e9; color: #fff; }
+.gimp-btn-primary:hover { background: #0284c7; }
+.gimp-btn-success { background: #16a34a; color: #fff; }
+.gimp-btn-success:hover { background: #15803d; }
+.gimp-btn-warn { background: #f59e0b; color: #fff; }
+.gimp-btn-ghost { background: #fff; color: #0369a1; border: 1px solid #0ea5e9; }
+.gimp-btn-danger { background: #fff; color: #dc2626; border: 1px solid #fecaca; }
+.gimp-btn:disabled { opacity: .55; cursor: progress; }
+
+/* ─── Filtres + bulk ──────────────────────────────────────────── */
+.gimp-toolbar {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  padding: 10px 14px; background: #f8fafc; border: 1px solid #e5e7eb;
+  border-radius: 8px; margin-bottom: 12px;
+}
+.gimp-toolbar select, .gimp-toolbar input {
+  padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px;
+  font-size: 12px; font-family: inherit;
+}
+.gimp-toolbar input[type="search"] { min-width: 220px; }
+
+/* ─── Tableau ─────────────────────────────────────────────────── */
+.gimp-table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; }
+.gimp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.gimp-table th, .gimp-table td {
+  padding: 8px 10px; text-align: left; border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+.gimp-table th { background: #f8fafc; font-weight: 700; color: #475569;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .03em; position: sticky; top: 0; z-index: 1; }
+.gimp-table tr:hover { background: #fafbfc; }
+.gimp-table tr.gimp-row-validated { opacity: .6; background: #f0fdf4; }
+.gimp-table tr.gimp-row-ignored { opacity: .4; }
+.gimp-table tr.gimp-row-to-review { background: #fffbeb; }
+
+.gimp-cell-name { max-width: 280px; }
+.gimp-cell-name strong { display: block; color: #0f172a; font-size: 12.5px; }
+.gimp-cell-name code { font-family: monospace; font-size: 10px; color: #94a3b8; word-break: break-all; }
+.gimp-cell-canon { font-family: monospace; font-size: 10.5px; color: #475569; max-width: 280px;
+  word-break: break-all; }
+
+/* ─── Badges niveaux ──────────────────────────────────────────── */
+.gimp-lvl {
+  display: inline-block; padding: 1px 7px; border-radius: 99px;
+  font-size: 10px; font-weight: 700; margin-right: 3px; white-space: nowrap;
+}
+.gimp-lvl-1 { background: #dbeafe; color: #1e40af; }
+.gimp-lvl-2 { background: #ddd6fe; color: #5b21b6; }
+.gimp-lvl-3 { background: #fef3c7; color: #92400e; }
+.gimp-lvl-4 { background: #fce7f3; color: #9d174d; }
+.gimp-lvl-5 { background: #d1fae5; color: #065f46; }
+.gimp-lvl-6 { background: #f1f5f9; color: #334155; border: 1px dashed #cbd5e1; }
+.gimp-lvl-empty { background: #f8fafc; color: #cbd5e1; border: 1px dashed #e5e7eb;
+  font-style: italic; }
+
+/* ─── Score ───────────────────────────────────────────────────── */
+.gimp-score {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 11px; font-weight: 700; min-width: 36px; text-align: center;
+}
+.gimp-score-low    { background: #fef2f2; color: #991b1b; }
+.gimp-score-medium { background: #fffbeb; color: #92400e; }
+.gimp-score-high   { background: #d1fae5; color: #065f46; }
+.gimp-score-full   { background: #16a34a; color: #fff; }
+
+/* ─── Statut ──────────────────────────────────────────────────── */
+.gimp-status {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+}
+.gimp-status-imported  { background: #f1f5f9; color: #475569; }
+.gimp-status-proposed  { background: #dbeafe; color: #1e40af; }
+.gimp-status-validated { background: #d1fae5; color: #065f46; }
+.gimp-status-to_review { background: #fef3c7; color: #92400e; }
+.gimp-status-ignored   { background: #fef2f2; color: #991b1b; }
+.gimp-status-error     { background: #7c0a02; color: #fff; }
+
+.gimp-row-actions { white-space: nowrap; }
+.gimp-row-actions a { font-size: 11px; color: #0369a1; text-decoration: none; margin-right: 6px; }
+.gimp-row-actions a:hover { text-decoration: underline; }
+
+/* ─── Modal ──────────────────────────────────────────────────── */
+.gimp-modal-bg {
+  position: fixed; inset: 0; background: rgba(15,23,42,0.55);
+  display: none; align-items: center; justify-content: center; z-index: 1000;
+}
+.gimp-modal-bg.is-open { display: flex; }
+.gimp-modal {
+  background: #fff; border-radius: 12px; width: 920px; max-width: 95vw;
+  max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  display: flex; flex-direction: column;
+}
+.gimp-modal-header {
+  padding: 16px 20px; border-bottom: 1px solid #e5e7eb;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.gimp-modal-header h2 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
+.gimp-modal-close {
+  background: none; border: none; font-size: 22px; color: #64748b;
+  cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.gimp-modal-body { padding: 16px 20px; }
+.gimp-modal-footer {
+  padding: 12px 20px; border-top: 1px solid #e5e7eb;
+  display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  background: #f8fafc;
+}
+
+.gimp-modal-meta {
+  background: #f8fafc; padding: 10px 14px; border-radius: 8px;
+  font-size: 12px; color: #475569; margin-bottom: 14px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px;
+}
+.gimp-modal-meta strong { color: #0f172a; }
+
+/* Cascade niveaux : grille de boutons */
+.gimp-cascade { margin-bottom: 14px; }
+.gimp-cascade-title {
+  font-size: 11px; font-weight: 700; color: #475569;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
+}
+.gimp-cascade-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.gimp-cascade-btn {
+  padding: 6px 12px; border: 1px solid #cbd5e1; background: #fff;
+  border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit;
+  color: #334155; transition: all .12s;
+}
+.gimp-cascade-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+.gimp-cascade-btn.is-selected {
+  background: #0ea5e9; color: #fff; border-color: #0284c7; font-weight: 700;
+}
+.gimp-cascade-empty { color: #94a3b8; font-size: 12px; font-style: italic;
+  padding: 6px 0; }
+
+.gimp-cascade-n6 { display: flex; gap: 6px; }
+.gimp-cascade-n6 input {
+  flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px;
+  font-size: 12px; font-family: inherit;
+}
+
+.gimp-modal-canonical {
+  background: #f0f9ff; border: 1px solid #67e8f9; border-radius: 8px;
+  padding: 10px 14px; margin-top: 10px;
+}
+.gimp-modal-canonical-title {
+  font-size: 11px; font-weight: 700; color: #0c4a6e;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+}
+.gimp-modal-canonical code {
+  font-family: monospace; font-size: 12px; color: #0c4a6e; word-break: break-all;
+}
+
+.gimp-input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.gimp-input-row label { display: block; font-size: 11px; font-weight: 600;
+  color: #475569; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
+.gimp-input-row input {
+  width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px;
+  font-size: 13px; font-family: inherit; box-sizing: border-box;
+}
+
+/* ════════════════════════════════════════════════════════════
+   Phase 2 V2 — Modal enrichie : scores granulaires, raisons,
+   doublons, autocomplete N6, validation par champ
+   ══════════════════════════════════════════════════════════ */
+
+/* ─── Bloc 5 scores granulaires ─────────────────────────── */
+.gimp-scores-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+  margin: 12px 0; padding: 10px 12px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e5e7eb; border-radius: 8px;
+}
+@media (max-width: 700px) { .gimp-scores-grid { grid-template-columns: repeat(2, 1fr); } }
+.gimp-score-cell { text-align: center; }
+.gimp-score-cell-label {
+  font-size: 9px; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px;
+}
+.gimp-score-cell-bar {
+  height: 6px; background: #e5e7eb; border-radius: 99px; overflow: hidden;
+  margin-bottom: 3px;
+}
+.gimp-score-cell-bar-fill {
+  height: 100%; transition: width .2s, background .2s;
+}
+.gimp-score-cell-value { font-size: 14px; font-weight: 800; color: #0f172a; }
+.gimp-score-fill-low    { background: linear-gradient(90deg, #fca5a5, #dc2626); }
+.gimp-score-fill-medium { background: linear-gradient(90deg, #fde68a, #f59e0b); }
+.gimp-score-fill-high   { background: linear-gradient(90deg, #86efac, #16a34a); }
+.gimp-score-fill-full   { background: linear-gradient(90deg, #16a34a, #15803d); }
+
+.gimp-score-global-block {
+  background: #fff; border: 2px solid #e5e7eb; border-radius: 8px;
+  padding: 10px 14px; margin: 12px 0; display: flex; align-items: center; gap: 14px;
+}
+.gimp-score-global-circle {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0;
+}
+.gimp-score-global-circle.low    { background: linear-gradient(135deg, #fca5a5, #dc2626); }
+.gimp-score-global-circle.medium { background: linear-gradient(135deg, #fde68a, #f59e0b); }
+.gimp-score-global-circle.high   { background: linear-gradient(135deg, #86efac, #16a34a); }
+.gimp-score-global-circle.full   { background: linear-gradient(135deg, #16a34a, #15803d); box-shadow: 0 0 0 4px #d1fae5; }
+.gimp-score-global-text strong { font-size: 13px; color: #0f172a; display: block; }
+.gimp-score-global-text small  { font-size: 11px; color: #64748b; }
+
+/* ─── Raisons à revoir (cumulables) ─────────────────────── */
+.gimp-review-block {
+  background: #fffbeb; border-left: 4px solid #f59e0b;
+  border-radius: 8px; padding: 10px 14px; margin: 12px 0;
+}
+.gimp-review-block-title {
+  font-size: 11px; font-weight: 700; color: #92400e;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
+}
+.gimp-review-reasons { display: flex; flex-wrap: wrap; gap: 5px; }
+.gimp-review-reason {
+  display: inline-block; padding: 3px 10px; border-radius: 99px;
+  font-size: 11px; font-weight: 600; background: #fef3c7;
+  color: #92400e; border: 1px solid #fde68a;
+}
+.gimp-review-reason.bad { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+
+/* ─── Doublons potentiels ─────────────────────────────── */
+.gimp-dupes-block {
+  border-radius: 8px; padding: 10px 14px; margin: 12px 0;
+  font-size: 12px;
+}
+.gimp-dupes-block.risk-high {
+  background: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b;
+}
+.gimp-dupes-block.risk-medium {
+  background: #fffbeb; border-left: 4px solid #f59e0b; color: #92400e;
+}
+.gimp-dupes-block.risk-low,
+.gimp-dupes-block.risk-none {
+  background: #f0fdf4; border-left: 4px solid #16a34a; color: #14532d;
+}
+.gimp-dupes-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; margin-bottom: 4px;
+}
+.gimp-dupes-list { margin: 4px 0 0 0; padding: 0 0 0 14px; }
+.gimp-dupes-list li { font-size: 11px; line-height: 1.4; }
+.gimp-dupes-list code { font-family: monospace; font-size: 10px; color: #475569; }
+
+/* ─── Autocomplete N6 ──────────────────────────────────── */
+.gimp-n6-wrap { position: relative; flex: 1; }
+.gimp-n6-suggestions {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+  background: #fff; border: 1px solid #cbd5e1; border-top: none;
+  border-radius: 0 0 6px 6px; max-height: 220px; overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.gimp-n6-suggestion {
+  padding: 6px 10px; cursor: pointer; font-size: 12px; color: #0f172a;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid #f1f5f9;
+}
+.gimp-n6-suggestion:last-child { border-bottom: none; }
+.gimp-n6-suggestion:hover { background: #e0f2fe; }
+.gimp-n6-source {
+  font-size: 9px; padding: 1px 6px; border-radius: 99px; font-weight: 700;
+  text-transform: uppercase;
+}
+.gimp-n6-source-synonym  { background: #ddd6fe; color: #5b21b6; }
+.gimp-n6-source-feedback { background: #d1fae5; color: #065f46; }
+.gimp-n6-source-history  { background: #f1f5f9; color: #475569; }
+
+/* ─── Validation par champ ────────────────────────────── */
+.gimp-validate-block {
+  background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 10px 14px; margin: 12px 0;
+}
+.gimp-validate-title {
+  font-size: 11px; font-weight: 700; color: #475569;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.gimp-validate-toggle-all {
+  font-size: 11px; padding: 3px 10px; border-radius: 4px;
+  background: #0ea5e9; color: #fff; border: none; cursor: pointer; font-weight: 700;
+}
+.gimp-validate-toggle-all:hover { background: #0284c7; }
+.gimp-validate-toggle-all.is-all-checked { background: #16a34a; }
+.gimp-validate-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+@media (max-width: 600px) { .gimp-validate-grid { grid-template-columns: repeat(2, 1fr); } }
+.gimp-validate-checkbox {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 4px; cursor: pointer;
+  font-size: 12px; color: #334155; user-select: none;
+}
+.gimp-validate-checkbox:hover { background: #f1f5f9; }
+.gimp-validate-checkbox.is-checked {
+  background: #d1fae5; color: #065f46; font-weight: 600;
+}
+.gimp-validate-checkbox input { cursor: pointer; }
+
+/* ─── Tableau : indicateurs ⚠️ + score coloré ───────────── */
+.gimp-row-warn {
+  position: relative;
+  border-left: 3px solid #f59e0b;
+}
+.gimp-row-dupe {
+  border-left: 3px solid #dc2626;
+}
+.gimp-table-warn-icon {
+  font-size: 14px; cursor: help;
+}
+
+/* ─── Section niveaux (super_admin_ged_niveaux) ────────────── */
+.gnv-wrap { max-width: 1300px; margin: 0 auto; padding: 24px 20px; }
+.gnv-wrap h1 { font-size: 22px; color: #0f172a; margin: 0 0 6px; }
+.gnv-wrap .sub { color: #64748b; font-size: 13px; margin: 0 0 18px; }
+.gnv-grid { display: grid; grid-template-columns: 220px 1fr; gap: 18px; }
+@media (max-width: 900px) { .gnv-grid { grid-template-columns: 1fr; } }
+.gnv-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 18px; }
+.gnv-card h2 { font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 10px;
+  padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+.gnv-list { list-style: none; padding: 0; margin: 0; }
+.gnv-list li {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; color: #0f172a;
+}
+.gnv-list li:hover { background: #f1f5f9; }
+.gnv-list li.is-active { background: #e0f2fe; font-weight: 700; }
+.gnv-list small { font-family: monospace; color: #94a3b8; font-size: 10px; }
+.gnv-empty { color: #94a3b8; font-style: italic; font-size: 13px; }
+
+/* ─── V2.5 — entity_placeholder (DOSSIER, SOCIETE, BANQUE, ...) ─────
+   Boutons cascade marqués comme "entité à nommer" + highlight du champ
+   nom_entite quand l'utilisateur en clique un.
+   ─────────────────────────────────────────────────────────────── */
+.gimp-cascade-btn.is-entity-placeholder {
+  border-color: #c084fc;
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  color: #6b21a8;
+  position: relative;
+}
+.gimp-cascade-btn.is-entity-placeholder:hover {
+  background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+  border-color: #a855f7;
+}
+.gimp-cascade-btn.is-entity-placeholder.is-selected {
+  background: #a855f7;
+  color: #fff;
+  border-color: #7e22ce;
+}
+.gimp-cascade-entity-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: .85;
+}
+
+/* Highlight pulsé du champ nom_entite quand un placeholder est cliqué */
+.gimp-field.is-entity-required input,
+.gimp-field.is-entity-required textarea,
+.gimp-field.is-entity-required > input {
+  border-color: #a855f7 !important;
+  box-shadow: 0 0 0 0 rgba(168, 85, 247, .55);
+  animation: gimpEntityPulse 1.4s ease-out 3;
+  background: #faf5ff;
+}
+.gimp-field.is-entity-required {
+  position: relative;
+}
+.gimp-field.is-entity-required::after {
+  content: '📝 Saisis le nom de cette entité';
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  background: #a855f7;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(168, 85, 247, .35);
+}
+@keyframes gimpEntityPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(168, 85, 247, .55); }
+  70%  { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(168, 85, 247, 0); }
+}
+
+/* Toast d'invitation à saisir le nom d'entité */
+.gimp-entity-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(126, 34, 206, .35);
+  z-index: 9999;
+  max-width: 360px;
+  line-height: 1.4;
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform .35s ease, opacity .35s ease;
+}
+.gimp-entity-toast code {
+  background: rgba(255, 255, 255, .25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.gimp-entity-toast.is-out {
+  transform: translateY(20px);
+  opacity: 0;
+}
+
+/* ─── V2.5 — Champ "+ Ajouter" pour créer un niveau N3/N4/N5 à la volée ───
+   Affiché en tête de chaque ligne de cascade N3/N4/N5 dans la modal d'import.
+   Visuel vert pour signifier "ajout possible ici". Saisie → submit → INSERT
+   ged_level_codes → auto-sélection du nouveau code.
+   ─────────────────────────────────────────────────────────────────────── */
+.gimp-cascade-add {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  margin-right: 8px;
+  margin-bottom: 4px;
+  border: 1.5px dashed #16a34a;
+  border-radius: 999px;
+  background: #f0fdf4;
+  overflow: hidden;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+  vertical-align: middle;
+}
+.gimp-cascade-add:hover,
+.gimp-cascade-add:focus-within {
+  border-color: #15803d;
+  border-style: solid;
+  background: #dcfce7;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, .15);
+}
+.gimp-cascade-add-input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: #14532d;
+  min-width: 180px;
+  width: 200px;
+}
+.gimp-cascade-add-input::placeholder {
+  color: #86efac;
+  font-style: italic;
+}
+.gimp-cascade-add-btn {
+  border: 0;
+  background: #16a34a;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.gimp-cascade-add-btn:hover {
+  background: #15803d;
+}
+.gimp-cascade-add-btn:active {
+  background: #14532d;
+}

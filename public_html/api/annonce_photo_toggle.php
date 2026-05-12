@@ -18,6 +18,7 @@ verify_csrf_any('ajouter_bien');
 
 $pdo       = $GLOBALS['pdo'];
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
+$isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
 $annonceId = isset($_POST['id_annonce']) && ctype_digit((string)$_POST['id_annonce']) ? (int)$_POST['id_annonce'] : 0;
 $photoId   = isset($_POST['id_biens_photo']) && ctype_digit((string)$_POST['id_biens_photo']) ? (int)$_POST['id_biens_photo'] : 0;
@@ -27,6 +28,7 @@ if ($annonceId <= 0 || $photoId <= 0) {
 }
 
 // Scope : verifier que l'annonce et la photo appartiennent au meme bien + societe
+// (super admin role=1 bypasse le scope société)
 try {
     $st = $pdo->prepare("
         SELECT a.id_bien AS annonce_bien, b.id_societe, bp.id_bien AS photo_bien
@@ -42,7 +44,7 @@ try {
     if ((int)$row['annonce_bien'] !== (int)$row['photo_bien']) {
         exit(json_encode(['ok' => false, 'error' => 'Photo non rattachée au même bien']));
     }
-    if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+    if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
     }

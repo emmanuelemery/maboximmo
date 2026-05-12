@@ -327,6 +327,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
                 <div class="adm-card-desc">Vue globale multi-sociétés réservée au super administrateur.</div>
                 <div class="adm-card-arrow arr-blue">Accéder →</div>
             </a>
+            <a href="admin/admin_societes_docs_officiels.php" class="adm-card blue">
+                <div class="adm-card-ico ico-blue">
+                    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                </div>
+                <div class="adm-card-label">Docs officiels & activités</div>
+                <div class="adm-card-desc">KBIS, carte pro CPI, RC pro & garantie financière par activité (T/G/S/M). Coche les activités exercées par chaque société.</div>
+                <div class="adm-card-arrow arr-blue">Configurer →</div>
+            </a>
         </div>
 
         <!-- UTILISATEURS -->
@@ -490,6 +498,22 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
                 <div class="adm-card-label">Accès Registres</div>
                 <div class="adm-card-desc">Gestion des accès aux registres et journaux système.</div>
                 <div class="adm-card-arrow arr-mauve">Gérer →</div>
+            </a>
+            <a href="admin/admin_relancer_ocr_doc.php" class="adm-card mauve">
+                <div class="adm-card-ico ico-mauve">
+                    <svg viewBox="0 0 24 24" stroke="#7a6898"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+                </div>
+                <div class="adm-card-label">Relance OCR docs</div>
+                <div class="adm-card-desc">Relance manuelle de l'OCR Sonnet sur les rh_documents en échec (timeout, conf=0).</div>
+                <div class="adm-card-arrow arr-mauve">Lancer →</div>
+            </a>
+            <a href="admin/admin_opcache_reset.php" class="adm-card mauve">
+                <div class="adm-card-ico ico-mauve">
+                    <svg viewBox="0 0 24 24" stroke="#7a6898"><path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1.06 6.7 2.82L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+                </div>
+                <div class="adm-card-label">Reset OPcache</div>
+                <div class="adm-card-desc">Force PHP à recharger les fichiers (utile après upload prod via FTP).</div>
+                <div class="adm-card-arrow arr-mauve">Reset →</div>
             </a>
         </div>
 

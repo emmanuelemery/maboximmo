@@ -234,7 +234,7 @@ if (!function_exists('mbi_supports_tpl_fiche_client_build')) {
             $pdf->SetFont('helvetica', '', 10);
             $blocN = [];
             $blocN[] = trim(($negociateur['prenom'] ?? '') . ' ' . ($negociateur['nom'] ?? ''));
-            if (!empty($negociateur['telephone'])) $blocN[] = 'Tél. ' . $negociateur['telephone'];
+            if (!empty($negociateur['telephone_pro'])) $blocN[] = 'Tél. ' . $negociateur['telephone_pro'];
             if (!empty($negociateur['email']))     $blocN[] = $negociateur['email'];
             $pdf->MultiCell(180, 5, implode("\n", array_filter($blocN)), 0, 'L');
         }

@@ -67,18 +67,24 @@ if (!is_file($realPath) || !is_readable($realPath)) {
 }
 
 $filename = $row['fichier_nom_original'] ?: basename($realPath);
-$mime = mime_content_type($realPath) ?: 'application/octet-stream';
+$ext = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+// Hardcode application/pdf pour les .pdf : mime_content_type peut retourner
+// des valeurs inattendues sur Hostinger qui empechent Chrome de rendre inline.
+$mime = $ext === 'pdf' ? 'application/pdf' : (mime_content_type($realPath) ?: 'application/octet-stream');
 
 // Mode "inline" : affichage dans le navigateur (iframe popup) plutôt que téléchargement.
-// Sécurité : on garde X-Frame-Options:SAMEORIGIN pour empêcher l'embed cross-domain.
 $inline = !empty($_GET['inline']);
 $disposition = $inline ? 'inline' : 'attachment';
 
+// Strip d'eventuels headers Content-Disposition deja poses par Apache/Hostinger
+// (qui force parfois attachment sur les PDFs servis directement).
+header_remove('Content-Disposition');
 header('Content-Type: ' . $mime);
 header('Content-Disposition: ' . $disposition . '; filename="' . str_replace('"', '', $filename) . '"');
 header('Content-Length: ' . filesize($realPath));
 header('Cache-Control: private, max-age=0, no-cache');
 header('X-Frame-Options: SAMEORIGIN');
+header('X-Content-Type-Options: nosniff');
 
 readfile($realPath);
 exit;

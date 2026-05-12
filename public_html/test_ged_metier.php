@@ -33,8 +33,10 @@ $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 // ─── Constantes du scénario de test (entités fictives) ────────
 const TEST_PROPRIO_ID    = 999991;
 const TEST_PROPRIO_LABEL = 'TEST DUPONT Jean';
+const TEST_IMMEUBLE_ID   = 999990;
+const TEST_IMMEUBLE_LABEL = '12 Rue Victor Hugo Lyon';
 const TEST_BIEN_ID       = 999992;
-const TEST_BIEN_LABEL    = '12 Rue Victor Hugo Lyon';
+const TEST_BIEN_LABEL    = 'Appartement T3 - 3e étage';
 const TEST_LOC_ID        = 999993;
 const TEST_LOC_LABEL     = 'TEST MARTIN Sophie';
 const TEST_DOC_NAME      = 'Bail signé 2026 — TEST';
@@ -61,34 +63,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $proprioRoot = ged_instantiate_template_for_entity('TPL_PROPRIETAIRE', $proprietairesFolderId,
                 TEST_PROPRIO_LABEL, 'proprietaire', TEST_PROPRIO_ID);
 
-            // 3. Trouve le sous-dossier "05_BIENS" du propriétaire
-            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = '05_biens' LIMIT 1");
+            // 3. Trouve le sous-dossier "05_IMMEUBLES" du propriétaire
+            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = '05_immeubles' LIMIT 1");
             $st->execute([$proprioRoot]);
-            $biensFolderId = (int)($st->fetchColumn() ?: 0);
-            if ($biensFolderId === 0) throw new RuntimeException("Sous-dossier 05_biens du propriétaire introuvable");
+            $immeublesFolderId = (int)($st->fetchColumn() ?: 0);
+            if ($immeublesFolderId === 0) throw new RuntimeException("Sous-dossier 05_immeubles du propriétaire introuvable (applique migration 20260502_ged_v1_08_immeuble_template)");
 
-            // 4. Instanciate TPL_BIEN sous 05_biens
+            // 4. Instanciate TPL_IMMEUBLE sous 05_immeubles (NOUVEAU NIVEAU)
+            $immeubleRoot = ged_instantiate_template_for_entity('TPL_IMMEUBLE', $immeublesFolderId,
+                TEST_IMMEUBLE_LABEL, 'immeuble', TEST_IMMEUBLE_ID);
+
+            // 5. Trouve le sous-dossier "05_BIENS" de l'immeuble
+            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = '05_biens' LIMIT 1");
+            $st->execute([$immeubleRoot]);
+            $biensFolderId = (int)($st->fetchColumn() ?: 0);
+            if ($biensFolderId === 0) throw new RuntimeException("Sous-dossier 05_biens de l'immeuble introuvable");
+
+            // 6. Instanciate TPL_BIEN sous 05_biens (de l'immeuble)
             $bienRoot = ged_instantiate_template_for_entity('TPL_BIEN', $biensFolderId,
                 TEST_BIEN_LABEL, 'bien', TEST_BIEN_ID);
 
-            // 5. Trouve "04_LOCATAIRES" du bien
+            // 7. Trouve "04_LOCATAIRES" du bien
             $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = '04_locataires' LIMIT 1");
             $st->execute([$bienRoot]);
             $locatairesFolderId = (int)($st->fetchColumn() ?: 0);
             if ($locatairesFolderId === 0) throw new RuntimeException("Sous-dossier 04_locataires du bien introuvable");
 
-            // 6. Instanciate TPL_LOCATAIRE
+            // 8. Instanciate TPL_LOCATAIRE
             $locRoot = ged_instantiate_template_for_entity('TPL_LOCATAIRE', $locatairesFolderId,
                 TEST_LOC_LABEL, 'locataire', TEST_LOC_ID);
 
-            // 7. Trouve "02_BAIL" du locataire (sous-dossier où ranger le doc)
+            // 9. Trouve "02_BAIL" du locataire (sous-dossier où ranger le doc)
             $st = $pdo->prepare("SELECT id FROM ged_folders WHERE parent_id = ? AND slug = '02_bail' LIMIT 1");
             $st->execute([$locRoot]);
             $bailFolderId = (int)($st->fetchColumn() ?: 0);
 
-            // 8. Crée un doc FICTIF (pas de fichier physique)
+            // 10. Crée un doc FICTIF (pas de fichier physique)
             $canonical = ged_generate_canonical_name(
-                'BAIL', '2026-05-01', TEST_BIEN_LABEL, 'RE', 'EM'
+                'BAIL', '2026-05-01', TEST_IMMEUBLE_LABEL . ' ' . TEST_BIEN_LABEL, 'RE', 'EM'
             );
             $uuid = ged_generate_uuid();
             $pdo->prepare("
@@ -105,27 +117,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             $docId = (int)$pdo->lastInsertId();
 
-            // 9. Lie le doc aux 3 entités (apparition dans 3 vues)
-            ged_link_document_to_entity($docId, 'proprietaire', TEST_PROPRIO_ID, 'principal');
-            ged_link_document_to_entity($docId, 'bien',         TEST_BIEN_ID,    'secondaire');
-            ged_link_document_to_entity($docId, 'locataire',    TEST_LOC_ID,     'principal');
+            // 11. Lie le doc aux 4 entités (apparition dans 4 vues métier)
+            ged_link_document_to_entity($docId, 'proprietaire', TEST_PROPRIO_ID,   'principal');
+            ged_link_document_to_entity($docId, 'immeuble',     TEST_IMMEUBLE_ID,  'secondaire');
+            ged_link_document_to_entity($docId, 'bien',         TEST_BIEN_ID,      'secondaire');
+            ged_link_document_to_entity($docId, 'locataire',    TEST_LOC_ID,       'principal');
 
-            $flash = ['type' => 'success', 'msg' => "✅ Scénario joué : 3 arborescences créées + 1 document lié à 3 entités. Doc #{$docId}, canonical=<code>{$canonical}</code>"];
+            $flash = ['type' => 'success', 'msg' => "✅ Scénario joué : 4 arborescences créées (proprio → immeuble → bien → locataire) + 1 document lié à 4 entités. Doc #{$docId}, canonical=<code>{$canonical}</code>"];
         }
         elseif ($action === 'cleanup') {
-            // Supprime les documents fictifs (status='deleted' soft delete propre)
-            $pdo->prepare("UPDATE ged_documents SET status='deleted', deleted_at=NOW()
-                           WHERE name_display = ?")->execute([TEST_DOC_NAME]);
-            // Supprime les liens fictifs
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'proprietaire' AND entity_id = ?")->execute([TEST_PROPRIO_ID]);
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'bien'         AND entity_id = ?")->execute([TEST_BIEN_ID]);
-            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type = 'locataire'    AND entity_id = ?")->execute([TEST_LOC_ID]);
-            // Supprime les dossiers fictifs (récursif via entity_id, soft delete par sécurité)
-            $pdo->prepare("UPDATE ged_folders SET is_archived=1
-                           WHERE entity_type IN ('proprietaire','bien','locataire')
-                             AND entity_id IN (?, ?, ?)")
-                ->execute([TEST_PROPRIO_ID, TEST_BIEN_ID, TEST_LOC_ID]);
-            $flash = ['type' => 'success', 'msg' => "🧹 Données de test archivées (soft delete)."];
+            // Cleanup HARD : DELETE physique pour permettre un vrai re-run propre
+            // (l'idempotence par slug+parent réutilise sinon les vieux dossiers
+            //  archivés et la nouvelle structure ne se construit pas correctement).
+
+            // 1. Liens documents-entités fictives
+            $pdo->prepare("DELETE FROM ged_document_links WHERE entity_type IN ('proprietaire','immeuble','bien','locataire')
+                           AND entity_id IN (?, ?, ?, ?)")
+                ->execute([TEST_PROPRIO_ID, TEST_IMMEUBLE_ID, TEST_BIEN_ID, TEST_LOC_ID]);
+
+            // 2. Documents fictifs (DELETE physique car aucun fichier réel)
+            $pdo->prepare("DELETE FROM ged_documents WHERE name_display = ?")->execute([TEST_DOC_NAME]);
+
+            // 3. Identifie le dossier racine du proprio fictif + tous ses descendants
+            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE entity_type = 'proprietaire' AND entity_id = ?");
+            $st->execute([TEST_PROPRIO_ID]);
+            $proprioRoots = $st->fetchAll(PDO::FETCH_COLUMN);
+
+            // 4. Récupère tous les descendants (parcours large via path_cache LIKE)
+            $allFolderIds = [];
+            foreach ($proprioRoots as $rootId) {
+                $rootId = (int)$rootId;
+                $allFolderIds[] = $rootId;
+                // Récupère le slug du root pour faire un LIKE sur path_cache
+                $stSlug = $pdo->prepare("SELECT path_cache FROM ged_folders WHERE id = ?");
+                $stSlug->execute([$rootId]);
+                $rootPath = (string)($stSlug->fetchColumn() ?: '');
+                if ($rootPath !== '') {
+                    $stDesc = $pdo->prepare("SELECT id FROM ged_folders WHERE path_cache LIKE ?");
+                    $stDesc->execute([$rootPath . '/%']);
+                    foreach ($stDesc->fetchAll(PDO::FETCH_COLUMN) as $did) $allFolderIds[] = (int)$did;
+                }
+            }
+
+            // 5. Ajoute aussi tous les dossiers liés aux entités test (sécurité)
+            $st = $pdo->prepare("SELECT id FROM ged_folders WHERE entity_type IN ('immeuble','bien','locataire')
+                                 AND entity_id IN (?, ?, ?)");
+            $st->execute([TEST_IMMEUBLE_ID, TEST_BIEN_ID, TEST_LOC_ID]);
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $did) $allFolderIds[] = (int)$did;
+            $allFolderIds = array_unique($allFolderIds);
+
+            // 6. DELETE physique des dossiers (en partant des plus profonds)
+            if (!empty($allFolderIds)) {
+                $placeholders = implode(',', array_fill(0, count($allFolderIds), '?'));
+                $pdo->prepare("DELETE FROM ged_folders WHERE id IN ({$placeholders})")
+                    ->execute($allFolderIds);
+            }
+
+            $flash = ['type' => 'success', 'msg' => "🧹 Cleanup HARD : " . count($allFolderIds) . " dossiers supprimés physiquement. Tu peux relancer le scénario propre."];
         }
     } catch (Throwable $e) {
         $flash = ['type' => 'error', 'msg' => '❌ ' . $e->getMessage()];
@@ -133,9 +181,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ─── Lecture des vues ─────────────────────────────────────────
-$proprioDocs = ged_get_documents_for_entity('proprietaire', TEST_PROPRIO_ID, 50);
-$bienDocs    = ged_get_documents_for_entity('bien',         TEST_BIEN_ID,    50);
-$locDocs     = ged_get_documents_for_entity('locataire',    TEST_LOC_ID,     50);
+$proprioDocs  = ged_get_documents_for_entity('proprietaire', TEST_PROPRIO_ID,  50);
+$immeubleDocs = ged_get_documents_for_entity('immeuble',     TEST_IMMEUBLE_ID, 50);
+$bienDocs     = ged_get_documents_for_entity('bien',         TEST_BIEN_ID,     50);
+$locDocs      = ged_get_documents_for_entity('locataire',    TEST_LOC_ID,      50);
 
 // Arbres dynamiques (les sous-arbres créés par le scénario)
 $st = $pdo->prepare("SELECT id, name_display, slug, depth, path_cache FROM ged_folders
@@ -143,7 +192,12 @@ $st = $pdo->prepare("SELECT id, name_display, slug, depth, path_cache FROM ged_f
                      ORDER BY depth ASC, position ASC, id ASC");
 $st->execute([TEST_PROPRIO_ID]);
 $proprioFolders = $st->fetchAll(PDO::FETCH_ASSOC);
-$st->execute([TEST_PROPRIO_ID]);
+
+$st = $pdo->prepare("SELECT id, name_display, slug, depth, path_cache FROM ged_folders
+                     WHERE entity_type = 'immeuble' AND entity_id = ? AND is_archived = 0
+                     ORDER BY depth ASC, position ASC, id ASC");
+$st->execute([TEST_IMMEUBLE_ID]);
+$immeubleFolders = $st->fetchAll(PDO::FETCH_ASSOC);
 
 $st = $pdo->prepare("SELECT id, name_display, slug, depth, path_cache FROM ged_folders
                      WHERE entity_type = 'bien' AND entity_id = ? AND is_archived = 0
@@ -161,6 +215,7 @@ $appLayout = true;
 $pageTitle = 'GED — Test métier';
 $bodyClass = '';
 @require_once __DIR__ . '/inc/header.php';
+@require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + container
 ?>
 <style>
   .gtm-wrap { max-width: 1300px; margin: 0 auto; padding: 24px 20px; }
@@ -176,8 +231,9 @@ $bodyClass = '';
   .gtm-flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; font-size: 13px; }
   .gtm-flash.success { background: #f0fdf4; border-left: 4px solid #16a34a; color: #14532d; }
   .gtm-flash.error   { background: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b; }
-  .gtm-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-  @media (max-width: 1100px) { .gtm-row { grid-template-columns: 1fr; } }
+  .gtm-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+  @media (max-width: 1400px) { .gtm-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 800px)  { .gtm-row { grid-template-columns: 1fr; } }
   ul.gtm-tree, ul.gtm-tree ul { list-style: none; padding-left: 14px; margin: 0; font-size: 12.5px; line-height: 1.6; }
   ul.gtm-tree { padding-left: 0; }
   .gtm-folder { font-weight: 600; color: #0f172a; }
@@ -194,15 +250,15 @@ $bodyClass = '';
 </style>
 
 <div class="gtm-wrap">
-  <h1>🧪 GED — Test métier (propriétaire → bien → locataire → document)</h1>
-  <p class="sub">Démonstration : 1 document apparaît dans 3 vues métier différentes via <code>ged_document_links</code> (zéro duplication).</p>
+  <h1>🧪 GED — Test métier (propriétaire → immeuble → bien → locataire → document)</h1>
+  <p class="sub">Démonstration : 1 document apparaît dans 4 vues métier différentes via <code>ged_document_links</code> (zéro duplication).</p>
 
   <?php if ($flash): ?>
     <div class="gtm-flash <?= $h($flash['type']) ?>"><?= $flash['msg'] /* déjà secured */ ?></div>
   <?php endif; ?>
 
   <div class="gtm-warn">
-    ℹ️ Ce test crée 3 entités <strong>fictives</strong> (id 999991, 999992, 999993) et 1 document factice. Aucun fichier physique. Aucun INSERT dans biens/proprietaires/tiers réels. Cleanup possible via le bouton ci-dessous.
+    ℹ️ Ce test crée 4 entités <strong>fictives</strong> (proprio 999991, immeuble 999990, bien 999992, locataire 999993) et 1 document factice. Aucun fichier physique. Aucun INSERT dans biens/proprietaires/tiers réels. Cleanup possible via le bouton ci-dessous.
   </div>
 
   <div class="gtm-toolbar">
@@ -247,6 +303,41 @@ $bodyClass = '';
             </tr>
           <?php endforeach; ?>
           <?php if (empty($proprioDocs)): ?>
+            <tr><td colspan="2" style="color:#94a3b8;font-style:italic">Aucun document lié.</td></tr>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ─── Vue IMMEUBLE ─────────────────────────────── -->
+    <div class="gtm-card">
+      <h2>🏢 Vue Immeuble #<?= TEST_IMMEUBLE_ID ?> (<?= $h(TEST_IMMEUBLE_LABEL) ?>)</h2>
+      <strong style="font-size:12px;color:#475569">Arborescence :</strong>
+      <ul class="gtm-tree">
+        <?php foreach ($immeubleFolders as $f): ?>
+          <li>
+            <span style="color:#cbd5e1"><?= str_repeat('— ', (int)$f['depth']) ?></span>
+            <span class="gtm-folder"><?= $h($f['name_display']) ?></span>
+            <span class="gtm-meta">  · <?= $h($f['path_cache']) ?></span>
+          </li>
+        <?php endforeach; ?>
+        <?php if (empty($immeubleFolders)): ?>
+          <li style="color:#94a3b8;font-style:italic">Aucune. Lance le scénario.</li>
+        <?php endif; ?>
+      </ul>
+      <strong style="font-size:12px;color:#475569;display:block;margin-top:12px">📄 Documents liés (<?= count($immeubleDocs) ?>) :</strong>
+      <table class="gtm-doc-table">
+        <tbody>
+          <?php foreach ($immeubleDocs as $d): ?>
+            <tr>
+              <td>
+                <div class="gtm-doc-name"><?= $h($d['name_display']) ?></div>
+                <div class="gtm-doc-canon"><?= $h($d['name_canonical']) ?></div>
+              </td>
+              <td><span class="gtm-badge <?= $h($d['link_role']) ?>"><?= $h($d['link_role']) ?></span></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($immeubleDocs)): ?>
             <tr><td colspan="2" style="color:#94a3b8;font-style:italic">Aucun document lié.</td></tr>
           <?php endif; ?>
         </tbody>
@@ -325,13 +416,13 @@ $bodyClass = '';
   </div>
 
   <div class="gtm-card">
-    <h2>📊 Vérification : 1 doc, 3 vues, 0 duplication</h2>
+    <h2>📊 Vérification : 1 doc, 4 vues, 0 duplication</h2>
     <p style="font-size:13px;color:#475569">
       Si le scénario a bien tourné, tu dois voir <strong>le même document</strong>
-      "<?= $h(TEST_DOC_NAME) ?>" apparaître dans les 3 colonnes ci-dessus,
-      avec un <code>name_canonical</code> identique. C'est la démonstration que
-      <code>ged_document_links</code> permet une vue multi-entités SANS duplication
-      du document en BDD.
+      "<?= $h(TEST_DOC_NAME) ?>" apparaître dans les 4 colonnes ci-dessus
+      (proprio + immeuble + bien + locataire), avec un <code>name_canonical</code>
+      identique. C'est la démonstration que <code>ged_document_links</code> permet
+      une vue multi-entités SANS duplication du document en BDD.
     </p>
   </div>
 </div>

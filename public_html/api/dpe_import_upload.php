@@ -306,24 +306,37 @@ try {
                 error_log('[dpe_import] sync bien_chauffages/energies failed: ' . $exSync->getMessage());
             }
 
-            // ── Sync : on remonte les valeurs critiques sur la fiche bien ──
-            // Les champs ne sont mis à jour QUE s'ils sont vides (no-overwrite),
-            // pour respecter d'éventuelles saisies manuelles antérieures.
-            $bienSyncMap = [
+            // ── Sync : on remonte les valeurs sur la fiche bien ──
+            // 2 catégories de champs (correctif 2026-05-06) :
+            //
+            // A) ALWAYS_OVERWRITE — champs propres au DPE/diagnostic. Le dernier
+            //    DPE chargé fait foi. Si on charge un nouveau DPE après travaux,
+            //    les classes/conso/dépenses sont actualisées. L'historique reste
+            //    accessible via la table dpe_diags (est_diag_principal=0 pour
+            //    les anciens).
+            //
+            // B) FILL_IF_EMPTY — champs descriptifs du bien (surface, n° lot,
+            //    nb_pieces, étage, menuiseries…). Ne pas écraser une éventuelle
+            //    saisie manuelle de l'agent qui peut différer du DPE (mesure
+            //    Carrez vs estimée, etc.).
+            $always_overwrite = [
                 'dpe_classe'                 => $fields['dpe_classe'] ?? null,
                 'ges_classe'                 => $fields['ges_classe'] ?? null,
                 'dpe_valeur'                 => $fields['dpe_valeur'] ?? null,
                 'ges_valeur'                 => $fields['ges_valeur'] ?? null,
                 'dpe_date_realisation'       => $fields['dpe_date_realisation'] ?? null,
                 'dpe_version'                => $fields['dpe_version'] ?? null,
-                'dpe_vierge'                 => !empty($fields['dpe_vierge']) ? 1 : null,
+                'dpe_vierge'                 => !empty($fields['dpe_vierge']) ? 1 : (isset($fields['dpe_vierge']) ? 0 : null),
                 'dpe_valeur_conso_primaire'  => $fields['dpe_valeur_conso_primaire'] ?? null,
                 'dpe_valeur_conso_finale'    => $fields['dpe_valeur_conso_finale'] ?? null,
                 'dpe_reference_certificat'   => $fields['dpe_reference_certificat'] ?? null,
-                'altitude'                   => $fields['altitude'] ?? null,
                 'date_indice_prix_energies'  => $fields['date_indice_prix_energies'] ?? null,
-                'montant_estime_depenses_min' => $fields['montant_estime_depenses_min'] ?? null,
-                'montant_estime_depenses_max' => $fields['montant_estime_depenses_max'] ?? null,
+                'montant_estime_depenses_min'=> $fields['montant_estime_depenses_min'] ?? null,
+                'montant_estime_depenses_max'=> $fields['montant_estime_depenses_max'] ?? null,
+            ];
+
+            $fill_if_empty = [
+                'altitude'                   => $fields['altitude'] ?? null,
                 'surface_habitable'          => $fields['surface_habitable'] ?? null,
                 'surface_sejour'             => $fields['surface_sejour'] ?? null,
                 'surface_carrez'             => $fields['surface_carrez'] ?? null,
@@ -343,9 +356,18 @@ try {
                 'zone_georisque'             => !empty($fields['zone_georisque']) ? 1 : null,
             ];
 
-            $setParts = [];
+            $setParts  = [];
             $setParams = [];
-            foreach ($bienSyncMap as $col => $val) {
+
+            // A) Overwrite systématique (champs DPE → dernier diag fait foi)
+            foreach ($always_overwrite as $col => $val) {
+                if ($val === null || $val === '') continue;
+                $setParts[] = "`$col` = :v_$col";
+                $setParams[":v_$col"] = $val;
+            }
+
+            // B) Remplit uniquement si vide (champs descriptifs)
+            foreach ($fill_if_empty as $col => $val) {
                 if ($val === null || $val === '') continue;
                 $setParts[] = "`$col` = COALESCE(NULLIF(`$col`, ''), :v_$col)";
                 $setParams[":v_$col"] = $val;

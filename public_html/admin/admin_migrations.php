@@ -104,6 +104,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'apply
                 $errLog[] = '#' . ($idx + 1) . ' — ' . $e->getMessage();
             }
         }
+        // Reset connexion PDO : certaines migrations utilisent PREPARE/EXECUTE
+        // côté MySQL qui laissent des result sets non consommés et bloquent
+        // le prepare suivant ("Cannot execute queries while other unbuffered
+        // queries are active"). On force une connexion fraîche pour le log.
+        try {
+            if (function_exists('db_reconnect_fresh')) {
+                $pdo = db_reconnect_fresh();
+                $GLOBALS['pdo'] = $pdo;
+            } else {
+                // Fallback : drain manuel des result sets pendants
+                while (($extra = $pdo->query('SELECT 1')) && $extra->fetch()) { /* drain */ }
+            }
+        } catch (Throwable) { /* non bloquant pour le log */ }
+
         $pdo->prepare("
             INSERT INTO `_migrations_applied` (id, title, applied_at, applied_by, statements_ok, statements_err, error_log)
             VALUES (?, ?, NOW(), ?, ?, ?, ?)

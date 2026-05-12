@@ -21,10 +21,34 @@ if (!function_exists('rh_parse_amount')) {
 if (!function_exists('rh_extract_last_amount')) {
     function rh_extract_last_amount(string $line): ?float
     {
-        if (preg_match('/(-?\d[\d\s]*[,\.]\d{2})\s*$/u', $line, $m)) {
+        // Cas pdftotext : label puis montant à droite (ex. "Salaire de base ... 1923,08")
+        if (preg_match('/(-?(?:\d{1,3}(?:[\s\xC2\xA0]\d{3})+|\d+)[,\.]\d{2})\s*$/u', $line, $m)) {
             return rh_parse_amount($m[1]);
         }
         return null;
+    }
+}
+
+if (!function_exists('rh_extract_first_amount')) {
+    function rh_extract_first_amount(string $line): ?float
+    {
+        // Cas smalot/pdfparser : montants en début de ligne, label à la fin
+        // (ex. "1923,0812,6794151,67Salaire de base", "2124,04**** BRUT FISCAL ****").
+        // Smalot lit les colonnes du PDF en ordre inverse vs pdftotext.
+        if (preg_match('/^(-?(?:\d{1,3}(?:[\s\xC2\xA0]\d{3})+|\d+)[,\.]\d{2})/u', $line, $m)) {
+            return rh_parse_amount($m[1]);
+        }
+        return null;
+    }
+}
+
+if (!function_exists('rh_extract_amount_anywhere')) {
+    function rh_extract_amount_anywhere(string $line): ?float
+    {
+        // Tente d'abord pdftotext (montant à la fin), puis smalot (montant au début).
+        $amt = rh_extract_last_amount($line);
+        if ($amt !== null) return $amt;
+        return rh_extract_first_amount($line);
     }
 }
 
@@ -46,54 +70,103 @@ if (!function_exists('rh_normalize_name')) {
 if (!function_exists('rh_bulletin_label_map')) {
     function rh_bulletin_label_map(): array
     {
+        // Boundaries (?<!\p{L}) et (?!\p{L}) au lieu de \b : \b échoue sur la
+        // sortie smalot/pdfparser où les montants sont collés au label
+        // ("67Salaire" -> 7 et S sont tous deux \w, pas de \b). On accepte
+        // chiffres/ponctuation autour, mais pas de lettres.
         return [
-            'Salaire de base' => ['/\bSalaire\s+de\s+base\b/i'],
-            'Prime ancienneté' => ['/\bPrime\s+anciennete\b/i', '/\bPrime\s+anciennet[eé]\b/i'],
-            'Avantage en nature' => ['/\bAvantage\s+en\s+nature\b/i'],
-            'Heures supp' => ['/\bHeures?\s+supp/i'],
-            'Commissions CA' => ['/\bCommissions?\s+CA\b/i'],
-            'Commissions NA' => ['/\bCommissions?\s+CA\s+NA\b/i', '/\bCommissions?\s+nouvelles?\s+affaires\b/i'],
-            'Prime administrative' => ['/\bPrime\s+administrative\b/i'],
-            'Prime exceptionnelle' => ['/\bPrime\s+exceptionnelle\b/i'],
-            'Treizieme mois' => ['/\bTreizi[eè]me\s+mois\b/i'],
-            'Indemnité km' => ['/\bIndemn(?:it[eé]|ite)\s+kilom/i', '/\bIndemn(?:it[eé]|ite)\s+km\b/i', '/\bIK\b/i'],
-            'Remboursement achat' => ['/\bRemboursement\s+achat\b/i'],
-            'Frais professionnels' => ['/\bFrais\s+professionnels\b/i'],
-            'Frais reception' => ['/\bFrais\s+reception\b/i', '/\bFrais\s+r[eé]ception\b/i'],
-            'Stationnement' => ['/\bStationnement\b/i'],
-            'Frais deplacement' => ['/\bFrais\s+deplacement\b/i', '/\bFrais\s+d[eé]placement\b/i'],
+            'Salaire de base'      => ['/(?<!\p{L})Salaire\s+de\s+base(?!\p{L})/iu', '/(?<!\p{L})Salaire\s+apprenti(?:\s|\(|$)/iu'],
+            'Prime ancienneté'     => ['/(?<!\p{L})Prime\s+anciennet[eé](?!\p{L})/iu'],
+            'Avantage en nature'   => ['/(?<!\p{L})Avantage\s+en\s+nature(?!\p{L})/iu', '/(?<!\p{L})Avantage\s+en\s+nature\s+v[eé]hicule(?!\p{L})/iu'],
+            'Heures supp'          => ['/(?<!\p{L})Heures?\s+suppl/iu', '/(?<!\p{L})Heures?\s+structurelles(?!\p{L})/iu'],
+            'Commissions CA'       => ['/(?<!\p{L})Commissions?\s+CA(?!\s+NA)(?!\p{L})/iu'],
+            'Commissions NA'       => ['/(?<!\p{L})Commissions?\s+CA\s+NA(?!\p{L})/iu', '/(?<!\p{L})Commissions?\s+nouvelles?\s+affaires(?!\p{L})/iu'],
+            'Prime administrative' => ['/(?<!\p{L})Prime\s+administrative(?!\p{L})/iu'],
+            'Prime exceptionnelle' => ['/(?<!\p{L})Prime\s+exceptionnelle(?!\p{L})/iu', '/(?<!\p{L})Prime\s+Estimation(?!\p{L})/iu'],
+            'Treizieme mois'       => ['/(?<!\p{L})Treizi[eèé]me\s+mois(?!\p{L})/iu'],
+            'Indemnité km'         => ['/(?<!\p{L})Ind[eé]mnit[eé]\s+kilom[eé]trique(?!\p{L})/iu', '/(?<!\p{L})Indemn(?:it[eé]|ite)\s+kilom/iu', '/(?<!\p{L})Indemn(?:it[eé]|ite)\s+km(?!\p{L})/iu', '/(?<!\p{L})IK(?!\p{L})/iu'],
+            'Remboursement achat'  => ['/(?<!\p{L})Remboursement\s+Achats?\s+salari[eé](?!\p{L})/iu', '/(?<!\p{L})Remboursement\s+achats?(?!\p{L})/iu'],
+            'Frais professionnels' => ['/(?<!\p{L})Remboursement\s+(?:de\s+)?frais\s+professionnels(?!\p{L})/iu', '/(?<!\p{L})Frais\s+professionnels(?!\p{L})/iu'],
+            'Frais reception'      => ['/(?<!\p{L})Frais\s+r[eé]ception(?!\p{L})/iu'],
+            'Stationnement'        => ['/(?<!\p{L})Remboursement\s+frais\s+de\s+stationnement(?!\p{L})/iu', '/(?<!\p{L})Stationnement(?!\p{L})/iu'],
+            'Frais deplacement'    => ['/(?<!\p{L})Remboursement\s+frais\s+de\s+d[eé]placement(?!\p{L})/iu', '/(?<!\p{L})Frais\s+d[eé]placement(?!\p{L})/iu'],
         ];
     }
 }
 
+if (!function_exists('rh_looks_like_employee_name')) {
+    function rh_looks_like_employee_name(string $line): bool
+    {
+        // Exclut les en-têtes / libellés du bulletin qui sont en majuscules.
+        $blacklist = '/\b(SARL|REGIE|LOCA[-\s]?IMMO|EMERY\s+IMMOBILIER|IMMOBILIER|CHAMALIERES|RIOM|VIENNE|MIONS|LYON|CHAPONOST|VILLEURBANNE|GRIGNY|COMMUNAY|IRIGNY|TOURDAN|EUPHEMIE|GERZAT|MONTCEL|CHAURIAT|ROMAGNAT|OULLINS|MARTIN|RHONE|FONTAINE|EMILE|JEAN|ROMANET|FOCH|FARGES|VERDUN|LIBERTE|PASTEUR|YVES|PHILIPPE|LASSALLE|SEYTRE|AUDRY|REPUBLIQUE|MARECHAL|PAGNOL|GAZELLE|ANGELIQUE|BELLEVUE|ECOLIERS|CHATAIGNIERS|ROUTE|RUE|IMPASSE|PLACE|CHEMIN|ALLEE|BOULEVARD|AVENUE|LE\s+PONT|SANTE|RETRAITE|FAMILLE|CHOMAGE|ASSURANCE|ACCIDENTS|EXONERATIONS|TOTAL|MONTANT|NET|BRUT|CSG|CRDS|APEC|COTISATIONS|CONTRIBUTIONS|MODE|DATE|EMPLOYEUR|SALARIE|BULLETIN|PROVISOIRE|VERSION|PROFESSIONNELLES|FISCAL|HC\/HS|SOCIAL|TRANCHE|CONVENTION|COLLECTIVE)\b/iu';
+        if (preg_match($blacklist, $line)) return false;
+        // NOM en MAJUSCULES (avec tirets / multiples mots) suivi d'un prénom
+        // Capitalisé qui DOIT contenir au moins une minuscule. Le requirement
+        // d'une minuscule dans le prénom évite les faux positifs sur des
+        // libellés tout-majuscules type "LOCATIF AGENT DE LOCATION".
+        return (bool)preg_match('/^([\p{Lu}][\p{Lu}\-]+(?:\s+[\p{Lu}][\p{Lu}\-]+)*)\s+([\p{Lu}][\p{L}\-]*\p{Ll}[\p{L}\-]*(?:\s+[\p{Lu}][\p{L}\-]*\p{Ll}[\p{L}\-]*)*)$/u', $line);
+    }
+}
+
 if (!function_exists('rh_split_bulletins_by_employee')) {
+    /**
+     * Découpe le texte d'un PDF de bulletins en sections par MATRICULE.
+     * Le matricule (logiciel de paie comptable) est la clé de matching avec
+     * users.matricule_paie en BDD — robuste face aux différences de layout
+     * pdftotext -layout (Windows) vs smalot/pdfparser (Hostinger flow text).
+     */
     function rh_split_bulletins_by_employee(string $text): array
     {
         $text = str_replace("\r", "\n", $text);
         $lines = preg_split('/\n+/', $text);
         $sections = [];
-        $currentKey = '';
+        $currentMat = '';
 
         foreach ($lines as $raw) {
             $line = trim((string)$raw);
             if ($line === '') continue;
 
-            if (preg_match('/\bMatricule\s*:\s*\d+\s+(.+)$/iu', $line, $m)) {
-                $name = trim($m[1] ?? '');
-                $name = preg_replace('/\s{2,}/', ' ', $name);
-                if ($name !== '') {
-                    $key = rh_normalize_name($name);
-                    if ($key !== '') {
-                        $currentKey = $key;
-                        if (!isset($sections[$key])) {
-                            $sections[$key] = ['name' => $name, 'lines' => []];
-                        }
+            // Détection début de bulletin :
+            //   - "Matricule : 37"  (sortie pdftotext)
+            //   - "37:Matricule"    (sortie smalot/pdfparser - colonnes inversées)
+            $matMatched = false;
+            if (preg_match('/\bMatricule\s*:\s*(\d+)\b/iu', $line, $m)) {
+                $currentMat = $m[1];
+                $matMatched = true;
+            } elseif (preg_match('/^(\d+)\s*:\s*Matricule\b/iu', $line, $m)) {
+                $currentMat = $m[1];
+                $matMatched = true;
+            }
+
+            if ($matMatched) {
+                if (!isset($sections[$currentMat])) {
+                    $sections[$currentMat] = [
+                        'matricule' => $currentMat,
+                        'name'      => '',
+                        'lines'     => [],
+                    ];
+                }
+
+                // Layout pdftotext -layout : "Matricule : 37    GOUBE Céline" sur la même ligne.
+                if (preg_match('/\bMatricule\s*:\s*\d+\s+(.+?)$/iu', $line, $m2)) {
+                    $tail = trim(preg_replace('/\s{2,}/', ' ', $m2[1] ?? ''));
+                    if ($sections[$currentMat]['name'] === ''
+                        && $tail !== ''
+                        && rh_looks_like_employee_name($tail)) {
+                        $sections[$currentMat]['name'] = $tail;
                     }
                 }
             }
 
-            if ($currentKey !== '' && isset($sections[$currentKey])) {
-                $sections[$currentKey]['lines'][] = $line;
+            if ($currentMat !== '' && isset($sections[$currentMat])) {
+                $sections[$currentMat]['lines'][] = $line;
+
+                // Layout flow text (smalot/pdfparser) : nom sur une ligne séparée
+                // après "Matricule : <num>".
+                if ($sections[$currentMat]['name'] === ''
+                    && rh_looks_like_employee_name($line)) {
+                    $sections[$currentMat]['name'] = $line;
+                }
             }
         }
         return $sections;
@@ -107,7 +180,7 @@ if (!function_exists('rh_parse_bulletins_text')) {
         $map = rh_bulletin_label_map();
         $employees = [];
 
-        foreach ($sections as $key => $sec) {
+        foreach ($sections as $matricule => $sec) {
             $lines = $sec['lines'];
             $brut = null;
             $net = null;
@@ -116,24 +189,34 @@ if (!function_exists('rh_parse_bulletins_text')) {
 
             foreach ($lines as $line) {
                 if ($brut === null && preg_match('/BRUT\s+FISCAL/i', $line)) {
-                    $amt = rh_extract_last_amount($line);
+                    $amt = rh_extract_amount_anywhere($line);
                     if ($amt !== null) $brut = $amt;
                 }
                 if (preg_match('/NET\s+A\s+PAYER\s+AU\s+SALARIE/i', $line) || preg_match('/NET\s+A\s+PAYER\s*:/i', $line)) {
-                    $amt = rh_extract_last_amount($line);
+                    $amt = rh_extract_amount_anywhere($line);
                     if ($amt !== null) $net = $amt;
                 }
                 if ($netAvant === null && preg_match('/NET\s+A\s+PAYER\s+AVANT\s+IMPOT/i', $line)) {
-                    $amt = rh_extract_last_amount($line);
+                    $amt = rh_extract_amount_anywhere($line);
                     if ($amt !== null) $netAvant = $amt;
                 }
                 foreach ($map as $label => $patterns) {
                     foreach ($patterns as $pat) {
                         if (preg_match($pat, $line)) {
-                            $amt = rh_extract_last_amount($line);
+                            $amt = rh_extract_amount_anywhere($line);
                             if ($amt !== null) {
+                                // Capture aussi la ligne PDF brute pour traçabilité.
+                                // pdftotext: "Salaire de base ... 1923,08" -> strip trailing nums
+                                // smalot:    "1923,08...Salaire de base"   -> strip leading nums
+                                $rawLine = preg_replace('/\s+/', ' ', $line);
+                                $rawLine = preg_replace('/\s*-?\d[\d\s,\.%]*\s*$/u', '', $rawLine); // trailing numerics
+                                $rawLine = preg_replace('/^\s*-?[\d\s,\.%]+/u', '', $rawLine);    // leading numerics
+                                $rawLine = trim($rawLine);
                                 if (!isset($items[$label]) || abs($amt) > 0) {
-                                    $items[$label] = $amt;
+                                    $items[$label] = [
+                                        'amount'   => $amt,
+                                        'pdf_label' => $rawLine !== '' ? $rawLine : $label,
+                                    ];
                                 }
                             }
                             break;
@@ -142,12 +225,42 @@ if (!function_exists('rh_parse_bulletins_text')) {
                 }
             }
 
-            $employees[$key] = [
-                'name' => $sec['name'],
-                'brut' => $brut,
-                'net' => $net,
+            // Lignes "Absence Congés payés (DD-MM-AAAA - DD-MM-AAAA)" pour check congés.
+            // Le nombre de jours est calculé à partir des dates (jours ouvrés
+            // lun-ven) plutôt qu'extrait de la ligne : la sortie smalot colle
+            // montant+taux+jours sans séparateur ("131,2465,62022,00") donc
+            // impossible à parser par regex de manière fiable.
+            $absences = [];
+            foreach ($lines as $line) {
+                if (preg_match('/Absence\s+Cong[eé]s\s+pay[eé]s\s*\(\s*(\d{2})-(\d{2})-(\d{4})\s*[-–]\s*(\d{2})-(\d{2})-(\d{4})\s*\)/iu', $line, $am)) {
+                    $startTs = mktime(0, 0, 0, (int)$am[2], (int)$am[1], (int)$am[3]);
+                    $endTs   = mktime(0, 0, 0, (int)$am[5], (int)$am[4], (int)$am[6]);
+                    $jours = 0.0;
+                    if ($startTs !== false && $endTs !== false && $startTs <= $endTs) {
+                        $cur = $startTs;
+                        while ($cur <= $endTs) {
+                            $dow = (int)date('N', $cur); // 1=lun ... 7=dim
+                            if ($dow < 6) $jours += 1.0;
+                            $cur = strtotime('+1 day', $cur);
+                        }
+                    }
+                    $periode = sprintf('%s-%s-%s -> %s-%s-%s', $am[1], $am[2], $am[3], $am[4], $am[5], $am[6]);
+                    $absences[] = [
+                        'periode' => $periode,
+                        'jours'   => $jours,
+                        'raw'     => preg_replace('/\s+/', ' ', trim($line)),
+                    ];
+                }
+            }
+
+            $employees[$matricule] = [
+                'matricule'       => $matricule,
+                'name'            => $sec['name'] !== '' ? $sec['name'] : ('Matricule ' . $matricule),
+                'brut'            => $brut,
+                'net'             => $net,
                 'net_avant_impot' => $netAvant,
-                'items' => $items,
+                'items'           => $items,
+                'absences_cp'     => $absences,
             ];
         }
 

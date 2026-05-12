@@ -376,6 +376,13 @@ USER;
     if ($response === false)  throw new RuntimeException('Erreur curl : ' . $curlErr);
     if ($httpCode !== 200)    throw new RuntimeException('OpenAI HTTP ' . $httpCode . ' : ' . substr((string)$response, 0, 300));
 
+    // CRITIQUE : reconnect MySQL après le call OpenAI long (10-30s).
+    // Sinon "MySQL server has gone away" sur les UPDATE qui suivent →
+    // OCR payé pour rien, données perdues. Voir feedback_ocr_fonction_unique.
+    if (function_exists('db_keepalive')) {
+        try { $pdo = db_keepalive(); } catch (Throwable) {}
+    }
+
     $api          = json_decode((string)$response, true);
     $content      = (string)($api['choices'][0]['message']['content'] ?? '');
     $refusal      = (string)($api['choices'][0]['message']['refusal'] ?? '');
@@ -409,6 +416,27 @@ USER;
     $extracted = json_decode((string)$content, true);
     if (!is_array($extracted)) {
         throw new RuntimeException('Réponse IA non-JSON (finish=' . $finishReason . ') : ' . substr($content, 0, 300));
+    }
+
+    // CRITIQUE : sauvegarde du JSON brut DÈS QU'ON L'A, avant les UPDATE
+    // structurés qui suivent. Si une étape plante (timeout, FK, colonne
+    // manquante), le raw analysis_json est en BDD → replay possible sans
+    // re-payer l'OCR (coûte 25 cts/doc Sonnet). Voir feedback_ocr_fonction_unique.
+    if (function_exists('db_keepalive')) {
+        try { $pdo = db_keepalive(); } catch (Throwable) {}
+    }
+    try {
+        $rawJsonEarly = json_encode([
+            'extracted'     => $extracted,
+            'raw_content'   => (string)$content,
+            '_save_step'    => 'pre_update_structured',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $pdo->prepare("UPDATE documents SET analysis_json = ?, analyzed_at = NOW() WHERE id = ?")
+            ->execute([$rawJsonEarly, $docId]);
+    } catch (Throwable $e) {
+        error_log('[societe_doc_analyze EARLY raw save] ' . $e->getMessage());
+        // Non-bloquant : on continue, mais le user pourra perdre les données
+        // si la suite plante (rare car db_keepalive vient juste d'être appelée).
     }
 
     // ─── Application des champs extraits ────────────────────────────

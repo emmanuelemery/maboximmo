@@ -40,6 +40,15 @@ if (!$doc) {
     api_error('Document introuvable', 404);
 }
 
+// LOT 4.B — Documents officiels Société : modif/archive/suppression réservées
+// au super admin uniquement. Tout le monde peut UPLOADER (cf. rh_doc_upload.php),
+// mais seul le role 1 peut TOUCHER aux docs déjà uploadés en rubrique société.
+// Justification métier : KBIS, carte pro CPI, garantie financière, RC pro et
+// barème sont des pièces juridiques engageant la responsabilité de la société.
+if (($doc['categorie'] ?? '') === 'societe' && !SecurityGuard::isAdmin()) {
+    api_error('Documents officiels Société : modification réservée à l\'administrateur', 403);
+}
+
 switch ($action) {
     case 'archive':
         $pdo->prepare("UPDATE rh_documents SET archived_at = NOW(), archived_by = ? WHERE id = ?" . SecurityGuard::sqlAnd('id_user'))

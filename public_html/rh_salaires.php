@@ -99,153 +99,13 @@ function fmt_val($v, $type){
   return (string)$v;
 }
 
-function rh_expected_salary_lines(array $u): array {
-  $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-  $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-  $anci_val = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
-  $lines = [
-    'Salaire de base' => $brut,
-    'Prime ancienneté' => $anci_val,
-    'Avantage en nature' => !empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0,
-    'Heures supp' => !empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0,
-    'Commissions CA' => !empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0,
-    'Commissions NA' => !empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0,
-    'Prime administrative' => !empty($u['prime_admin']) ? (float)$u['prime_admin'] : 0,
-    'Prime exceptionnelle' => !empty($u['prime_exceptionnelle']) ? (float)$u['prime_exceptionnelle'] : 0,
-    'Treizieme mois' => !empty($u['treizieme_mois']) ? (float)$u['treizieme_mois'] : 0,
-    'Indemnité km' => !empty($u['total_ik']) ? (float)$u['total_ik'] : 0,
-    'Remboursement achat' => !empty($u['remboursement_achat']) ? (float)$u['remboursement_achat'] : 0,
-    'Frais professionnels' => !empty($u['frais_professionnels']) ? (float)$u['frais_professionnels'] : 0,
-    'Frais reception' => !empty($u['frais_reception']) ? (float)$u['frais_reception'] : 0,
-    'Stationnement' => !empty($u['stationnement']) ? (float)$u['stationnement'] : 0,
-    'Frais deplacement' => !empty($u['frais_deplacement']) ? (float)$u['frais_deplacement'] : 0,
-  ];
-  return array_filter($lines, fn($v) => abs((float)$v) > 0.009);
-}
-
-function rh_expected_brut_total(array $u): float {
-  $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-  $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-  $anci_val = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
-  $total = $brut
-         + (!empty($u['treizieme_mois']) ? (float)$u['treizieme_mois'] : 0)
-         + $anci_val
-         + (!empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0)
-         + (!empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0)
-         + (!empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0)
-         + (!empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0)
-         + (!empty($u['frais_professionnels']) ? (float)$u['frais_professionnels'] : 0)
-         + (!empty($u['frais_reception']) ? (float)$u['frais_reception'] : 0)
-         + (!empty($u['prime_admin']) ? (float)$u['prime_admin'] : 0)
-         + (!empty($u['prime_exceptionnelle']) ? (float)$u['prime_exceptionnelle'] : 0)
-         + (!empty($u['stationnement']) ? (float)$u['stationnement'] : 0)
-         + (!empty($u['frais_deplacement']) ? (float)$u['frais_deplacement'] : 0)
-         + (!empty($u['remboursement_achat']) ? (float)$u['remboursement_achat'] : 0)
-         + (!empty($u['total_ik']) ? (float)$u['total_ik'] : 0);
-  return $total;
-}
-
-function rh_compare_bulletins_expected(array $expectedByKey, array $parsedEmployees, float $tol = 0.02): array {
-  $rows = [];
-  $missing = [];
-  $extra = [];
-  $totalExpected = 0.0;
-  $totalPdf = 0.0;
-
-  foreach ($expectedByKey as $key => $exp) {
-    $totalExpected += $exp['total_brut'];
-    if (!isset($parsedEmployees[$key])) {
-        $missing[] = $exp['name'];
-        $rows[] = [
-            'name' => $exp['name'],
-            'expected_brut' => $exp['total_brut'],
-            'pdf_brut' => null,
-            'brut_diff' => null,
-            'status' => 'missing',
-            'line_diffs' => []
-        ];
-        $allOk = false;
-        continue;
-    }
-    $pdf = $parsedEmployees[$key];
-    $pdfBrut = isset($pdf['brut']) ? (float)$pdf['brut'] : null;
-    if ($pdfBrut !== null) {
-        $totalPdf += $pdfBrut;
-    }
-    $lineDiffs = [];
-    $rowOk = true;
-    foreach ($exp['lines'] as $label => $amount) {
-        $pdfAmount = $pdf['items'][$label] ?? null;
-        if ($pdfAmount === null) {
-            $rowOk = false;
-            $lineDiffs[] = ['label'=>$label,'expected'=>$amount,'pdf'=>null,'diff'=>null,'status'=>'missing'];
-            continue;
-        }
-        $diff = (float)$pdfAmount - (float)$amount;
-        $status = (abs($diff) <= $tol) ? 'ok' : 'diff';
-        if ($status !== 'ok') $rowOk = false;
-        $lineDiffs[] = ['label'=>$label,'expected'=>$amount,'pdf'=>$pdfAmount,'diff'=>$diff,'status'=>$status];
-    }
-
-    $brutDiff = null;
-    if ($pdfBrut === null) {
-        $rowOk = false;
-    } else {
-        $brutDiff = $pdfBrut - $exp['total_brut'];
-        if (abs($brutDiff) > $tol) $rowOk = false;
-    }
-
-    if (!$rowOk) $allOk = false;
-    $rows[] = [
-        'name' => $exp['name'],
-        'expected_brut' => $exp['total_brut'],
-        'pdf_brut' => $pdfBrut,
-        'brut_diff' => $brutDiff,
-        'status' => $rowOk ? 'ok' : 'diff',
-        'line_diffs' => $lineDiffs
-    ];
-  }
-
-  foreach ($parsedEmployees as $key => $pdf) {
-      if (!isset($expectedByKey[$key])) {
-          $extra[] = $pdf['name'] ?? $key;
-          $allOk = false;
-      }
-  }
-
-  return [
-    'ok' => $allOk && empty($missing) && empty($extra),
-    'rows' => $rows,
-    'missing' => $missing,
-    'extra' => $extra,
-    'total_expected' => $totalExpected,
-    'total_pdf' => $totalPdf,
-  ];
-}
-
-function rh_load_expected_map(PDO $pdo, int $societeId, string $moisRef): array {
-  $stmt = $pdo->prepare("
-    SELECT u.id, u.prenom, u.nom, u.id_legacy, s.*
-    FROM users u
-    LEFT JOIN salaires s ON (s.id_user = u.id OR (u.id_legacy IS NOT NULL AND s.id_user = u.id_legacy)) AND s.mois_reference = :mr
-    WHERE u.actif = 1 AND u.est_salarie = 1 AND u.id_societe = :soc
-    ORDER BY u.nom, u.prenom
-  ");
-  $stmt->execute([':mr' => $moisRef, ':soc' => $societeId]);
-  $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-  $map = [];
-  foreach ($rows as $row) {
-      $name = trim(($row['prenom'] ?? '') . ' ' . ($row['nom'] ?? ''));
-      $key = function_exists('rh_normalize_name') ? rh_normalize_name($name) : strtoupper($name);
-      if ($key === '') continue;
-      $map[$key] = [
-          'name' => $name,
-          'lines' => rh_expected_salary_lines($row),
-          'total_brut' => rh_expected_brut_total($row),
-      ];
-  }
-  return $map;
-}
+require_once __DIR__ . '/inc/rh_compare_lib.php';
+// Fonctions metier extraites dans rh_compare_lib.php pour reutilisation par
+// d'autres endpoints (rh_compare_recompute.php). Definitions ci-dessous
+// supprimees, l'include declare :
+//   rh_expected_salary_lines, rh_expected_brut_total,
+//   rh_compare_bulletins_expected, rh_load_expected_map,
+//   rh_dispatch_bulletins_by_agence, rh_compute_conges_summary
 
 // Handle email sending
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['send_email_user'])) {
@@ -501,15 +361,27 @@ if ($societe_sel !== 'toutes') {
     $stmtSocInfo->execute([(int)$societe_sel]);
     $societeInfo = $stmtSocInfo->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
-    $stmtProj->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    // Si une agence est sélectionnée, on affiche son rapport spécifique.
+    // Sinon on charge la dernière comparaison toutes agences confondues.
+    if ($agenceScope > 0) {
+        $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND id_agence = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
+        $stmtProj->execute([(int)$societe_sel, $agenceScope, (int)$mois_sel, (int)$annee_sel]);
+    } else {
+        $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
+        $stmtProj->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    }
     $projetRow = $stmtProj->fetch(PDO::FETCH_ASSOC) ?: null;
     if ($projetRow) {
         $projetData = json_decode($projetRow['compare_json'] ?? '', true) ?: null;
     }
 
-    $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
-    $stmtBull->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    if ($agenceScope > 0) {
+        $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND id_agence = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
+        $stmtBull->execute([(int)$societe_sel, $agenceScope, (int)$mois_sel, (int)$annee_sel]);
+    } else {
+        $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
+        $stmtBull->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+    }
     $bulletinsRow = $stmtBull->fetch(PDO::FETCH_ASSOC) ?: null;
     if ($bulletinsRow) {
         $bulletinsData = json_decode($bulletinsRow['compare_json'] ?? '', true) ?: null;
@@ -698,51 +570,132 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
         exit;
     }
 
+    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+
+    // Agence "active" pour le logging et le filtrage : scope forcé (manager)
+    // OU agence sélectionnée via tab AGC (admin). Si admin a cliqué "Toutes",
+    // $idAgenceForLog reste 0 -> import unifié multi-agences.
+    $idAgenceForLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
-    if (empty($parsed['ok'])) {
-        $_SESSION['message_err'] = 'Extraction PDF impossible.';
+    $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+
+    // Cas d'échec : extraction KO OU aucun matricule détecté.
+    // Dans les 2 cas on archive le PDF dans workflow_log si on a une agence.
+    if (empty($parsed['ok']) || empty($employees)) {
+        $errMsg = empty($parsed['ok'])
+            ? 'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')'
+            : 'Aucun matricule détecté dans le PDF (engine=' . ($meta['engine'] ?? 'aucun') . ', texte=' . ($meta['text_len'] ?? 0) . ' car).';
+        if ($idAgenceForLog > 0) {
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        $errMsg,
+                        'PDF archivé dans l\'historique — reparse manuel possible.');
+                }
+            }
+        }
+        $_SESSION['message_err'] = $errMsg . ' Le PDF est archivé.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-    $expected = rh_load_expected_map($pdo, $societeId, $moisRef);
-    $employees = $parsed['data']['employees'] ?? [];
-    $compare = rh_compare_bulletins_expected($expected, $employees);
+    // Dispatch automatique des bulletins par agence via matricule->user->id_agence.
+    $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
 
-    $stmt = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, mois, annee, type, file_name, file_path, total_pdf_brut, total_expected_brut, compare_ok, compare_json, parsed_json, created_by) VALUES (?, ?, ?, 'projet', ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $societeId,
-        $moisPost,
-        $anneePost,
-        $file['name'],
-        '/uploads/salaires_comptable/' . $destName,
-        $compare['total_pdf'],
-        $compare['total_expected'],
-        $compare['ok'] ? 1 : 0,
-        json_encode($compare, JSON_UNESCAPED_UNICODE),
-        json_encode($parsed['data'] ?? [], JSON_UNESCAPED_UNICODE),
-        current_user_id()
-    ]);
-
-    // Workflow log : copier le PDF dans uploads/rh_salaires/{soc}/{ag}/{mois}/projet/
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-    if ($idAgenceLog > 0) {
-        $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET);
-        $content = @file_get_contents($destPath);
-        if ($content !== false) {
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET,
-                $iter, $content, $file['name']);
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_PROJET,
-                $relPath, $file['name'], strlen($content), null,
-                (int)current_user_id(), 'ok',
-                null, $compare['ok'] ? 'Comparaison OK' : 'Écarts détectés');
+    // Si une agence est sélectionnée (scope forcé OU tab AGC), on restreint
+    // aux bulletins de cette agence. Sinon on traite toutes les agences
+    // détectées (mode import unifié multi-agences via tab "Toutes").
+    if ($idAgenceForLog > 0) {
+        $groups = array_intersect_key($groups, [$idAgenceForLog => true]);
+        if (empty($groups)) {
+            // Le PDF contient des bulletins mais aucun pour cette agence : on
+            // l'archive quand même pour traçabilité.
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    $matsList = implode(', ', array_keys($employees));
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_PROJET,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        'PDF importé sur la mauvaise agence : matricules détectés (' . $matsList . ') ne correspondent à aucun salarié de cette agence.',
+                        'PDF archivé. Re-uploader sur l\'agence concernée ou via le tab "Toutes".');
+                }
+            }
+            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée. Matricules détectés : ' . implode(', ', array_keys($employees)) . '. Utilise le tab "Toutes" pour un dispatch multi-agences.';
+            header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
+            exit;
         }
     }
 
-    $_SESSION['message_ok'] = $compare['ok'] ? 'Projet comptable validé ✅' : 'Comparaison terminée, vérifiez les écarts.';
+    $insertedAgences = [];
+    foreach ($groups as $idAgence => $group) {
+        if ($idAgence <= 0) continue; // skip orphelins
+        $expected = rh_load_expected_map($pdo, $societeId, $moisRef, (int)$idAgence);
+        $compare = rh_compare_bulletins_expected($expected, $group['employees']);
+        $conges = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+        $compare['conges'] = $conges;
+
+        $stmt = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, id_agence, mois, annee, type, file_name, file_path, total_pdf_brut, total_expected_brut, compare_ok, compare_json, parsed_json, created_by) VALUES (?, ?, ?, ?, 'projet', ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $societeId,
+            (int)$idAgence,
+            $moisPost,
+            $anneePost,
+            $file['name'],
+            '/uploads/salaires_comptable/' . $destName,
+            $compare['total_pdf'],
+            $compare['total_expected'],
+            $compare['ok'] ? 1 : 0,
+            json_encode($compare, JSON_UNESCAPED_UNICODE),
+            json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE),
+            current_user_id()
+        ]);
+
+        // Workflow log : 1 entrée par agence, pointant vers le même PDF source
+        $iter = rh_wf_next_iteration($pdo, (int)$idAgence, $moisRef, RH_WF_TYPE_PROJET);
+        $content = @file_get_contents($destPath);
+        if ($content !== false) {
+            $relPathLog = rh_wf_save_file($societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_PROJET,
+                $iter, $content, $file['name']);
+            if ($relPathLog) {
+                rh_wf_log_action($pdo, $societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_PROJET,
+                    $relPathLog, $file['name'], strlen($content), null,
+                    (int)current_user_id(), 'ok',
+                    null,
+                    $compare['ok']
+                        ? ($group['agence_label'] . ' · Comparaison OK')
+                        : ($group['agence_label'] . ' · Écarts détectés (' . count($compare['rows']) . ' salariés)'));
+            }
+        }
+        $insertedAgences[] = $group['agence_label'];
+    }
+
+    // Orphelins : matricules du PDF non rattachés à une agence en BDD
+    $orphans = $groups[0]['employees'] ?? [];
+    if (!empty($orphans)) {
+        $orphanNames = [];
+        foreach ($orphans as $mat => $emp) {
+            $orphanNames[] = ($emp['name'] ?? 'mat ' . $mat) . ' (mat ' . $mat . ')';
+        }
+        $_SESSION['message_warn'] = 'Bulletins non rattachés à une agence (matricule absent en BDD) : ' . implode(', ', $orphanNames);
+    }
+
+    if (!empty($insertedAgences)) {
+        $_SESSION['message_ok'] = 'Projet comptable importé pour : ' . implode(', ', $insertedAgences);
+    } elseif (empty($orphans)) {
+        $_SESSION['message_err'] = 'Aucun bulletin valide détecté dans le PDF.';
+    }
     header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
     exit;
 }
@@ -782,29 +735,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
         exit;
     }
 
+    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $moisLabel = mois_fr($moisPost);
+
+    $idAgenceForLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
+
     $meta = [];
     $parsed = rh_parse_bulletins_file($destPath, $meta);
-    if (empty($parsed['ok'])) {
-        $_SESSION['message_err'] = 'Extraction PDF impossible.';
+    $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+
+    if (empty($parsed['ok']) || empty($employees)) {
+        $errMsg = empty($parsed['ok'])
+            ? 'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')'
+            : 'Aucun matricule détecté dans le PDF (engine=' . ($meta['engine'] ?? 'aucun') . ', texte=' . ($meta['text_len'] ?? 0) . ' car).';
+        if ($idAgenceForLog > 0) {
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        $errMsg,
+                        'PDF archivé dans l\'historique — reparse manuel possible.');
+                }
+            }
+        }
+        $_SESSION['message_err'] = $errMsg . ' Le PDF est archivé.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
 
-    $moisRef = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-    $expected = rh_load_expected_map($pdo, $societeId, $moisRef);
-    $employees = $parsed['data']['employees'] ?? [];
-    $compare = rh_compare_bulletins_expected($expected, $employees);
-    $totalNet = 0.0;
-    foreach ($employees as $emp) {
-        if (isset($emp['net']) && $emp['net'] !== null) {
-            $totalNet += (float)$emp['net'];
+    $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
+
+    if ($idAgenceForLog > 0) {
+        $groups = array_intersect_key($groups, [$idAgenceForLog => true]);
+        if (empty($groups)) {
+            $iter = rh_wf_next_iteration($pdo, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS);
+            $content = @file_get_contents($destPath);
+            if ($content !== false) {
+                $relPathLog = rh_wf_save_file($societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                    $iter, $content, $file['name']);
+                if ($relPathLog) {
+                    $matsList = implode(', ', array_keys($employees));
+                    rh_wf_log_action($pdo, $societeId, $idAgenceForLog, $moisRef, RH_WF_TYPE_BULLETINS,
+                        $relPathLog, $file['name'], strlen($content), null,
+                        (int)current_user_id(), 'error',
+                        'PDF importé sur la mauvaise agence : matricules détectés (' . $matsList . ') ne correspondent à aucun salarié de cette agence.',
+                        'PDF archivé. Re-uploader sur l\'agence concernée ou via le tab "Toutes".');
+                }
+            }
+            $_SESSION['message_err'] = 'Aucun bulletin du PDF ne correspond à l\'agence sélectionnée. Matricules détectés : ' . implode(', ', array_keys($employees)) . '. Utilise le tab "Toutes" pour un dispatch multi-agences.';
+            header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
+            exit;
         }
     }
-
-    $stmt = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, mois, annee, type, file_name, file_path, total_pdf_net, compare_ok, compare_json, parsed_json, sepa_path, created_by) VALUES (?, ?, ?, 'bulletins', ?, ?, ?, ?, ?, ?, ?, ?)");
-
-    $sepaPathRel = null;
-    $sepaErr = null;
 
     $bank = [];
     if ($societeId > 0) {
@@ -813,111 +800,124 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'
         $bank = $stmtBank->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
-    $transfers = [];
-    $missingRib = [];
-    $moisLabel = mois_fr($moisPost);
+    $stmtIns = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe, id_agence, mois, annee, type, file_name, file_path, total_pdf_net, compare_ok, compare_json, parsed_json, sepa_path, created_by) VALUES (?, ?, ?, ?, 'bulletins', ?, ?, ?, ?, ?, ?, ?, ?)");
 
-    $stmtUsers = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE actif = 1 AND est_salarie = 1 AND id_societe = ?");
-    $stmtUsers->execute([$societeId]);
-    $userRows = $stmtUsers->fetchAll(PDO::FETCH_ASSOC);
-    $userMap = [];
-    foreach ($userRows as $ur) {
-        $name = trim(($ur['prenom'] ?? '') . ' ' . ($ur['nom'] ?? ''));
-        $key = function_exists('rh_normalize_name') ? rh_normalize_name($name) : strtoupper($name);
-        if ($key !== '') {
-            $userMap[$key] = ['id' => (int)$ur['id'], 'name' => $name];
-        }
-    }
+    $insertedAgences = [];
+    $sepaErrors = [];
+    foreach ($groups as $idAgence => $group) {
+        if ($idAgence <= 0) continue;
+        $expected = rh_load_expected_map($pdo, $societeId, $moisRef, (int)$idAgence);
+        $compare = rh_compare_bulletins_expected($expected, $group['employees']);
+        $conges = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+        $compare['conges'] = $conges;
 
-    foreach ($employees as $key => $emp) {
-        $net = $emp['net'] ?? null;
-        if ($net === null) {
-            continue;
+        $totalNetAg = 0.0;
+        foreach ($group['employees'] as $emp) {
+            if (isset($emp['net']) && $emp['net'] !== null) {
+                $totalNetAg += (float)$emp['net'];
+            }
         }
-        $u = $userMap[$key] ?? null;
-        if (!$u) {
-            $missingRib[] = $emp['name'] ?? $key;
-            continue;
-        }
-        $rib = rh_bank_get($pdo, (int)$u['id']);
-        if (empty($rib['iban'])) {
-            $missingRib[] = $u['name'];
-            continue;
-        }
-        $transfers[] = [
-            'name' => $u['name'],
-            'iban' => $rib['iban'],
-            'bic' => $rib['bic'] ?? '',
-            'amount' => (float)$net,
-            'remittance' => 'Salaire ' . $moisLabel . ' ' . $anneePost,
-        ];
-    }
 
-    if (!empty($missingRib)) {
-        $sepaErr = 'RIB manquant pour: ' . implode(', ', $missingRib);
-    }
-    if (!$bank || empty($bank['iban'])) {
-        $sepaErr = 'RIB émetteur manquant (societe).';
-    }
+        // SEPA par agence
+        $transfers = [];
+        $missingRib = [];
+        foreach ($group['employees'] as $matricule => $emp) {
+            $net = $emp['net'] ?? null;
+            if ($net === null) continue;
+            $expEntry = $expected[$matricule] ?? null;
+            if (!$expEntry) {
+                $missingRib[] = ($emp['name'] ?? 'mat ' . $matricule);
+                continue;
+            }
+            $rib = rh_bank_get($pdo, (int)$expEntry['id_user']);
+            if (empty($rib['iban'])) {
+                $missingRib[] = $expEntry['name'];
+                continue;
+            }
+            $transfers[] = [
+                'name' => $expEntry['name'],
+                'iban' => $rib['iban'],
+                'bic'  => $rib['bic'] ?? '',
+                'amount' => (float)$net,
+                'remittance' => 'Salaire ' . $moisLabel . ' ' . $anneePost,
+            ];
+        }
+        $sepaPathRel = null;
+        $sepaErr = null;
+        if (!empty($missingRib)) $sepaErr = 'RIB manquant: ' . implode(', ', $missingRib);
+        if (!$bank || empty($bank['iban'])) $sepaErr = 'RIB émetteur manquant (societe).';
+        if (!$sepaErr && !empty($transfers)) {
+            $sepaXml = rh_generate_sepa_xml([
+                'name' => $bank['nom'] ?? '',
+                'iban' => $bank['iban'] ?? '',
+                'bic'  => $bank['bic'] ?? '',
+            ], $transfers, [
+                'message_id' => 'SAL-' . date('Ymd-His') . '-AG' . $idAgence,
+                'payment_id' => 'SAL-' . $anneePost . sprintf('%02d', $moisPost) . '-AG' . $idAgence,
+            ]);
+            if (!empty($sepaXml)) {
+                $exportDir = __DIR__ . '/exports/sepa';
+                if (!is_dir($exportDir)) @mkdir($exportDir, 0777, true);
+                $sepaName = 'sepa_salaires_' . $societeId . '_ag' . $idAgence . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.xml';
+                $sepaAbs = $exportDir . '/' . $sepaName;
+                $sepaPathRel = '/exports/sepa/' . $sepaName;
+                file_put_contents($sepaAbs, $sepaXml);
+            }
+        } elseif (!$sepaErr) {
+            $sepaErr = 'Aucune ligne valide pour SEPA.';
+        }
+        if ($sepaErr) $sepaErrors[$group['agence_label']] = $sepaErr;
 
-    if (!$sepaErr && !empty($transfers)) {
-        $sepaXml = rh_generate_sepa_xml([
-            'name' => $bank['nom'] ?? '',
-            'iban' => $bank['iban'] ?? '',
-            'bic' => $bank['bic'] ?? '',
-        ], $transfers, [
-            'message_id' => 'SAL-' . date('Ymd-His'),
-            'payment_id' => 'SAL-' . $anneePost . sprintf('%02d', $moisPost),
+        $stmtIns->execute([
+            $societeId,
+            (int)$idAgence,
+            $moisPost,
+            $anneePost,
+            $file['name'],
+            '/uploads/salaires_comptable/' . $destName,
+            $totalNetAg,
+            $compare['ok'] ? 1 : 0,
+            json_encode($compare, JSON_UNESCAPED_UNICODE),
+            json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE),
+            $sepaPathRel,
+            current_user_id()
         ]);
 
-        if (!empty($sepaXml)) {
-            $exportDir = __DIR__ . '/exports/sepa';
-            if (!is_dir($exportDir)) {
-                @mkdir($exportDir, 0777, true);
-            }
-            $sepaName = 'sepa_salaires_' . $societeId . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.xml';
-            $sepaAbs = $exportDir . '/' . $sepaName;
-            $sepaPathRel = '/exports/sepa/' . $sepaName;
-            file_put_contents($sepaAbs, $sepaXml);
-        }
-    } elseif (!$sepaErr) {
-        $sepaErr = 'Aucune ligne valide pour générer le SEPA.';
-    }
-    $stmt->execute([
-        $societeId,
-        $moisPost,
-        $anneePost,
-        $file['name'],
-        '/uploads/salaires_comptable/' . $destName,
-        $totalNet,
-        $compare['ok'] ? 1 : 0,
-        json_encode($compare, JSON_UNESCAPED_UNICODE),
-        json_encode($parsed['data'] ?? [], JSON_UNESCAPED_UNICODE),
-        $sepaPathRel,
-        current_user_id()
-    ]);
-
-    // Workflow log : copier le PDF des bulletins
-    $idAgenceLog = $agenceScope > 0 ? $agenceScope : (int)($_POST['agence'] ?? 0);
-    if ($idAgenceLog > 0) {
-        $moisRefLog = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-        $iter = rh_wf_next_iteration($pdo, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS);
+        $iter = rh_wf_next_iteration($pdo, (int)$idAgence, $moisRef, RH_WF_TYPE_BULLETINS);
         $content = @file_get_contents($destPath);
         if ($content !== false) {
-            $relPath = rh_wf_save_file($societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS,
+            $relPathLog = rh_wf_save_file($societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_BULLETINS,
                 $iter, $content, $file['name']);
-            rh_wf_log_action($pdo, $societeId, $idAgenceLog, $moisRefLog, RH_WF_TYPE_BULLETINS,
-                $relPath, $file['name'], strlen($content), null,
-                (int)current_user_id(), $sepaErr ? 'error' : 'ok',
-                $sepaErr ?: null,
-                'Total net : ' . number_format($totalNet, 2, ',', ' ') . ' €');
+            if ($relPathLog) {
+                rh_wf_log_action($pdo, $societeId, (int)$idAgence, $moisRef, RH_WF_TYPE_BULLETINS,
+                    $relPathLog, $file['name'], strlen($content), null,
+                    (int)current_user_id(), $sepaErr ? 'error' : 'ok',
+                    $sepaErr ?: null,
+                    $group['agence_label'] . ' · Net total ' . number_format($totalNetAg, 2, ',', ' ') . ' €');
+            }
         }
+        $insertedAgences[] = $group['agence_label'];
     }
 
-    if ($sepaErr) {
-        $_SESSION['message_err'] = 'Bulletins importés, mais ' . $sepaErr;
+    if (!empty($insertedAgences)) {
+        $msg = 'Bulletins importés pour : ' . implode(', ', $insertedAgences);
+        if (!empty($sepaErrors)) {
+            $msg .= ' — SEPA partiels: ' . implode(' | ', array_map(fn($k, $v) => "$k: $v", array_keys($sepaErrors), $sepaErrors));
+            $_SESSION['message_err'] = $msg;
+        } else {
+            $_SESSION['message_ok'] = $msg . ' ✅';
+        }
     } else {
-        $_SESSION['message_ok'] = 'Bulletins importés ✅';
+        $_SESSION['message_err'] = 'Aucun bulletin valide détecté dans le PDF.';
+    }
+
+    $orphans = $groups[0]['employees'] ?? [];
+    if (!empty($orphans)) {
+        $orphanNames = [];
+        foreach ($orphans as $mat => $emp) {
+            $orphanNames[] = ($emp['name'] ?? 'mat ' . $mat) . ' (mat ' . $mat . ')';
+        }
+        $_SESSION['message_warn'] = 'Bulletins non rattachés à une agence : ' . implode(', ', $orphanNames);
     }
 
     header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
@@ -1266,10 +1266,13 @@ $layout_extra_css = <<<'EXTRACSS'
         border-radius: 14px;
         box-shadow: 5px 5px 12px var(--shadow-dark, #d4d7de), -5px -5px 12px var(--shadow-light, #fff);
         padding: 14px;
+        display: flex; flex-direction: column; align-items: center; text-align: center;
+        min-height: 130px;
     }
     .workflow-step h4 {
         font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500;
-        text-transform: uppercase; letter-spacing: 0.2em; color: #a8a49e; margin-bottom: 10px;
+        text-transform: uppercase; letter-spacing: 0.2em; color: #a8a49e; margin: 0 0 12px;
+        text-align: left; align-self: stretch;
     }
     .workflow-step input[type=file] { width: 100%; font-size: 11px; color: #6a6660; margin-bottom: 10px; display: block; }
     .workflow-step-btn {
@@ -1279,8 +1282,14 @@ $layout_extra_css = <<<'EXTRACSS'
         background: var(--bg-primary, #ffffff); color: #36577d;
         box-shadow: 4px 4px 10px var(--shadow-dark, #d4d7de), -4px -4px 10px var(--shadow-light, #fff);
         transition: box-shadow 0.15s;
+        margin-top: auto; /* Aligne le bouton sur le bas de la card */
     }
     .workflow-step-btn:active { box-shadow: inset 3px 3px 7px var(--shadow-dark, #d4d7de), inset -3px -3px 8px var(--shadow-light, #fff); }
+    .workflow-step-btn.is-success {
+        background: #16a34a; color: #fff;
+        box-shadow: 4px 4px 10px rgba(22,163,74,0.35), -2px -2px 6px rgba(255,255,255,0.6);
+    }
+    .workflow-step-btn.is-success:active { box-shadow: inset 3px 3px 7px rgba(22,163,74,0.4); }
     .workflow-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 8px; }
     .workflow-info div { font-size: 12px; color: #6a6660; }
     .workflow-info strong { color: #1a1816; }
@@ -1481,7 +1490,37 @@ function toggleSection(cardId, chevronId) {
     if (!card) return;
     card.classList.toggle(\'collapsed\');
     if (chevron) chevron.classList.toggle(\'collapsed\');
+    // Persiste l\'etat ouvert/ferme : le user veut decider quand fermer,
+    // sinon il doit rouvrir a chaque rechargement (ex. apres POST workflow).
+    try {
+        const isCollapsed = card.classList.contains(\'collapsed\');
+        localStorage.setItem(\'rhSalaires.section.\' + cardId, isCollapsed ? \'1\' : \'0\');
+    } catch (e) { /* localStorage indisponible : ignore */ }
 }
+
+// Restaure l\'etat persiste des sections collapsibles au chargement.
+// Par defaut le markup serveur les rend "collapsed" ; on ne les ouvre que
+// si le user les avait laissees ouvertes lors de sa derniere interaction.
+document.addEventListener(\'DOMContentLoaded\', function () {
+    try {
+        const sections = [
+            { card: \'workflow-card\', chevron: \'workflow-chevron\' }
+        ];
+        sections.forEach(function (s) {
+            const card    = document.getElementById(s.card);
+            const chevron = document.getElementById(s.chevron);
+            if (!card) return;
+            const stored = localStorage.getItem(\'rhSalaires.section.\' + s.card);
+            if (stored === \'0\') {
+                card.classList.remove(\'collapsed\');
+                if (chevron) chevron.classList.remove(\'collapsed\');
+            } else if (stored === \'1\') {
+                card.classList.add(\'collapsed\');
+                if (chevron) chevron.classList.add(\'collapsed\');
+            }
+        });
+    } catch (e) { /* ignore */ }
+});
 
 function toggleModeles(checked) {
     const form = document.getElementById(\'filter-form\');
@@ -2015,15 +2054,61 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 }
                 </script>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
-                    <h4>2. Importer le projet</h4>
+                    <h4>2. <?= $projetRow ? 'Réimporter' : 'Importer' ?> le projet</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
                     <input type="hidden" name="agence" value="<?=h((string)$agenceWf)?>">
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                     <input type="file" name="projet_pdf" accept="application/pdf" required>
-                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn">Importer</button>
+                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn"><?= $projetRow ? 'Réimporter' : 'Importer' ?></button>
                 </form>
+
+                <?php if ($projetRow): ?>
+                <!-- Bouton Valider le projet (apparait apres import) -->
+                <div class="workflow-step">
+                    <h4>2bis. Valider le projet</h4>
+                    <button type="button" onclick="ouvrirValidationModal()" class="workflow-step-btn is-success">
+                        ✅ Valider et envoyer au comptable
+                    </button>
+                </div>
+                <!-- Modal validation : saisie du commentaire -->
+                <div id="validation-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerValidationModal()">
+                    <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+                        <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                            <h3 style="margin:0;font-size:15px;color:#15803d;">✅ Valider le projet — envoi au comptable</h3>
+                            <button type="button" onclick="fermerValidationModal()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
+                        </div>
+                        <form method="post" action="rh_salaire_validate_projet.php">
+                            <div style="padding:18px 20px;">
+                                <p style="margin:0 0 10px;font-size:12px;color:#64748b;">
+                                    Le PDF du projet sera envoyé en pièce jointe au comptable de la société, avec ton commentaire dans le corps du mail.
+                                </p>
+                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Message au comptable (modifiable)</label>
+                                <textarea name="commentaire" rows="7" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;">Bonjour,
+
+C'est OK pour ce projet, merci de valider et envoyer les bulletins dans digiposte.
+
+Je reste dans l'attente des bulletins définitifs pour mon dossier.
+
+À plus tard,
+Emmanuel</textarea>
+                                <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+                                <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
+                                <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                            </div>
+                            <div style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;gap:8px;">
+                                <button type="button" onclick="fermerValidationModal()" style="padding:9px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
+                                <button type="submit" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">✅ Valider et envoyer</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <script>
+                function ouvrirValidationModal() { document.getElementById('validation-modal').style.display = 'flex'; }
+                function fermerValidationModal() { document.getElementById('validation-modal').style.display = 'none'; }
+                </script>
+                <?php endif; ?>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>3. Importer les bulletins</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
@@ -2057,13 +2142,14 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                 </div>
 
                 <!-- Modal rapport de comparaison -->
-                <div id="rapport-comparaison-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)fermerRapportComparaison()">
-                    <div style="background:#fff;border-radius:14px;max-width:920px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4);">
-                        <div style="padding:18px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#fff;z-index:1;">
+                <div id="rapport-comparaison-modal" class="rh-compare-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRapportComparaison()">
+                    <div style="background:#fff;border-radius:14px;width:100%;max-width:min(1600px, calc(100vw - 30px));height:94vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+                        <div style="padding:14px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#fff;flex-shrink:0;">
                             <h3 style="margin:0;font-size:17px;color:#0f172a;">📊 Rapport de comparaison — projet comptable</h3>
                             <button type="button" onclick="fermerRapportComparaison()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;">×</button>
                         </div>
-                        <div style="padding:20px 24px;">
+                        <div style="display:flex;flex:1;min-height:0;">
+                            <div style="flex:0 0 46%;overflow-y:auto;padding:20px 24px;border-right:1px solid #e5e7eb;">
                             <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 24px;font-size:13px;">
                                 <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Total attendu</span><br><strong style="color:#0f172a;font-size:15px;"><?=number_format((float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> €</strong></div>
                                 <div><span style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Total PDF projet</span><br><strong style="color:#0f172a;font-size:15px;"><?=number_format((float)($projetData['total_pdf'] ?? 0), 2, ',', ' ')?> €</strong></div>
@@ -2082,26 +2168,27 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                 </div>
                             <?php endif; ?>
 
-                            <table class="compare-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <table class="compare-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
                                 <thead>
                                     <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
-                                        <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Collaborateur</th>
-                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut attendu</th>
-                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Brut PDF</th>
-                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;">Écart</th>
+                                        <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Collaborateur (matricule)</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;white-space:nowrap;">Brut attendu</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;white-space:nowrap;">Brut PDF</th>
+                                        <th style="padding:8px 10px;text-align:right;color:#64748b;font-weight:600;white-space:nowrap;">Écart</th>
                                         <th style="padding:8px 10px;text-align:center;color:#64748b;font-weight:600;">Statut</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach (($projetData['rows'] ?? []) as $row):
+                                    <?php foreach (($projetData['rows'] ?? []) as $idxRow => $row):
                                         $diff = $row['brut_diff'] ?? null;
                                         $isOk = ($row['status'] ?? '') === 'ok';
+                                        $lineDiffs = $row['line_diffs'] ?? [];
                                     ?>
-                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$isOk?'background:#fffbeb;':''?>">
-                                            <td style="padding:8px 10px;"><strong><?=h($row['name'] ?? '')?></strong></td>
-                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> €</td>
-                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;"><?=($row['pdf_brut'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' €')?></td>
-                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;<?=($diff !== null && abs((float)$diff) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;')?>">
+                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$isOk?'background:#fffbeb;':''?>cursor:pointer;" onclick="document.getElementById('detail-row-<?=$idxRow?>').classList.toggle('hidden');">
+                                            <td style="padding:8px 10px;"><strong><?=h($row['name'] ?? '')?></strong> <span style="color:#94a3b8;font-size:11px;">(mat <?=h($row['matricule'] ?? '?')?>)</span></td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=number_format((float)($row['expected_brut'] ?? 0), 2, ',', ' ')?> €</td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=($row['pdf_brut'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$row['pdf_brut'], 2, ',', ' ') . ' €')?></td>
+                                            <td style="padding:8px 10px;text-align:right;font-family:monospace;white-space:nowrap;min-width:80px;<?=($diff !== null && abs((float)$diff) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;')?>">
                                                 <?=($diff === null ? '—' : (((float)$diff > 0 ? '+' : '') . number_format((float)$diff, 2, ',', ' ')))?>
                                             </td>
                                             <td style="padding:8px 10px;text-align:center;">
@@ -2112,18 +2199,123 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
+                                        <?php if (!empty($lineDiffs)): ?>
+                                        <tr id="detail-row-<?=$idxRow?>">
+                                            <td colspan="5" style="padding:0 10px 10px 24px;background:#fafafa;">
+                                                <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;table-layout:auto;">
+                                                    <thead>
+                                                        <tr style="color:#64748b;border-bottom:1px solid #e5e7eb;">
+                                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Ligne MBI</th>
+                                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Ligne PDF correspondante</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Attendu</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">PDF</th>
+                                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Écart</th>
+                                                            <th style="padding:5px 8px;text-align:center;font-weight:600;">Statut</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    <?php foreach ($lineDiffs as $ld):
+                                                        $ldOk = ($ld['status'] ?? '') === 'ok';
+                                                        $ldStatus = $ld['status'] ?? '';
+                                                    ?>
+                                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$ldOk?'background:#fef9c3;':''?>">
+                                                            <td style="padding:4px 8px;color:#0f172a;"><?=h($ld['label'] ?? '')?></td>
+                                                            <td style="padding:4px 8px;color:#475569;font-style:italic;"><?=$ld['pdf_label'] !== null ? h($ld['pdf_label']) : '<span style="color:#cbd5e1;">— absent du PDF</span>'?></td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=number_format((float)($ld['expected'] ?? 0), 2, ',', ' ')?> €</td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:90px;"><?=$ld['pdf'] === null ? '<span style="color:#cbd5e1;">—</span>' : number_format((float)$ld['pdf'], 2, ',', ' ') . ' €'?></td>
+                                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:80px;<?=$ld['diff'] !== null && abs((float)$ld['diff']) > 0.01 ? 'color:#dc2626;font-weight:700;' : 'color:#94a3b8;'?>">
+                                                                <?=$ld['diff'] === null ? '—' : (((float)$ld['diff'] > 0 ? '+' : '') . number_format((float)$ld['diff'], 2, ',', ' '))?>
+                                                            </td>
+                                                            <td style="padding:4px 8px;text-align:center;">
+                                                                <?=$ldOk ? '<span style="color:#16a34a;font-weight:700;">✓</span>' : '<span style="color:#dc2626;font-weight:700;">⚠ ' . h($ldStatus) . '</span>'?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                    </tbody>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                        <?php endif; ?>
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
+
+                            <?php if (!empty($projetData['conges'])): ?>
+                            <div style="margin-top:18px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;">
+                                <h4 style="margin:0 0 10px;font-size:13px;color:#1e40af;">🏖 Congés du mois (MBI ↔ PDF)</h4>
+                                <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                                    <thead>
+                                        <tr style="color:#64748b;border-bottom:1px solid #bfdbfe;">
+                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Salarié</th>
+                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Jours MBI</th>
+                                            <th style="padding:5px 8px;text-align:right;font-weight:600;white-space:nowrap;">Jours PDF</th>
+                                            <th style="padding:5px 8px;text-align:left;font-weight:600;">Détails PDF</th>
+                                            <th style="padding:5px 8px;text-align:center;font-weight:600;">Statut</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($projetData['conges'] as $cg):
+                                        $cgOk = !empty($cg['ok']);
+                                    ?>
+                                        <tr style="border-bottom:1px solid #f1f5f9;<?=!$cgOk?'background:#fef9c3;':''?>">
+                                            <td style="padding:4px 8px;"><?=h($cg['name'] ?? '')?> <span style="color:#94a3b8;">(mat <?=h($cg['matricule'] ?? '?')?>)</span></td>
+                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:70px;"><?=number_format((float)($cg['mbi_jours'] ?? 0), 1, ',', ' ')?> j</td>
+                                            <td style="padding:4px 8px;text-align:right;font-family:monospace;white-space:nowrap;min-width:70px;"><?=number_format((float)($cg['pdf_jours'] ?? 0), 1, ',', ' ')?> j</td>
+                                            <td style="padding:4px 8px;color:#475569;font-style:italic;"><?=empty($cg['pdf_details']) ? '<span style="color:#cbd5e1;">—</span>' : h(implode(' · ', $cg['pdf_details']))?></td>
+                                            <td style="padding:4px 8px;text-align:center;<?=$cgOk ? 'color:#16a34a;' : 'color:#dc2626;'?>font-weight:700;"><?=$cgOk ? '✓' : '⚠'?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <?php endif; ?>
+
                             <p style="margin-top:14px;font-size:11px;color:#94a3b8;">
-                                💡 La comparaison est calculée à l'import du PDF projet. Si tu importes une nouvelle version, ce rapport est mis à jour automatiquement (la dernière comparaison s'affiche).
+                                💡 Comparaison par <strong>agence</strong> via matricule paie. PDF source à droite, scrollable. Re-importez le PDF pour rafraîchir.
                             </p>
+                            <style>tr.hidden { display: none; }</style>
+                            </div>
+                            <!-- Colonne droite : visualisation PDF source -->
+                            <div style="flex:1;display:flex;flex-direction:column;background:#f8fafc;min-width:0;">
+                                <div style="padding:8px 16px;border-bottom:1px solid #e5e7eb;background:#fff;font-size:12px;color:#475569;display:flex;justify-content:space-between;align-items:center;">
+                                    <span><strong>📄 PDF source :</strong> <?=h($projetRow['file_name'] ?? 'document.pdf')?></span>
+                                    <?php if (!empty($projetRow['file_path'])): ?>
+                                        <a href="<?=h($projetRow['file_path'])?>" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:600;">↗ Ouvrir nouvel onglet</a>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if (!empty($projetRow['file_path']) && !empty($projetRow['id'])): ?>
+                                    <iframe src="rh_compare_pdf_view.php?id=<?=(int)$projetRow['id']?>#toolbar=1&navpanes=0&scrollbar=1" style="flex:1;width:100%;border:none;"></iframe>
+                                <?php else: ?>
+                                    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;">PDF source indisponible</div>
+                                <?php endif; ?>
+                            </div>
                         </div>
-                        <div style="padding:14px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;border-radius:0 0 14px 14px;display:flex;justify-content:flex-end;">
+                        <div style="padding:12px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;">
+                            <?php if (!empty($projetRow['id'])): ?>
+                                <form method="post" action="rh_compare_recompute.php" style="margin:0;">
+                                    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                                    <input type="hidden" name="id" value="<?= (int)$projetRow['id'] ?>">
+                                    <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                                    <button type="submit" style="padding:9px 16px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;" title="Recalculer la comparaison avec les valeurs MBI actuelles (sans re-uploader le PDF)">
+                                        🔄 Recalculer
+                                    </button>
+                                </form>
+                            <?php else: ?>
+                                <span></span>
+                            <?php endif; ?>
                             <button type="button" onclick="fermerRapportComparaison()" style="padding:9px 18px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">Fermer</button>
                         </div>
                     </div>
                 </div>
+                <style>
+                    /* Sur ecran avec sidebar gauche fixe (>= 1100px), on decale la
+                       popup pour garder la sidebar visible et la popup centree
+                       dans la zone de contenu. Sur petit ecran (sidebar masquee
+                       ou mode mobile), on prend toute la largeur. */
+                    @media (min-width: 1100px) {
+                        .rh-compare-modal { padding-left: 260px !important; }
+                    }
+                </style>
                 <script>
                 function ouvrirRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'flex'; }
                 function fermerRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'none'; }
@@ -2207,6 +2399,16 @@ $canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
                                            style="padding:4px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
                                             📎 Télécharger
                                         </a>
+                                        <form method="post" action="rh_salaire_workflow_delete.php" style="display:inline;margin:0;"
+                                              onsubmit="return confirm('Supprimer cette version (#<?= (int)$wfRow['iteration'] ?>) ?\n\nLe PDF sera retiré de l\'historique.');">
+                                            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                                            <input type="hidden" name="id" value="<?= (int)$wfRow['id'] ?>">
+                                            <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                                            <button type="submit"
+                                                style="padding:4px 8px;border-radius:6px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-size:11px;font-weight:600;">
+                                                🗑
+                                            </button>
+                                        </form>
                                     </span>
                                 <?php else: ?>
                                     <span style="color:#cbd5e1;font-size:11px;">—</span>

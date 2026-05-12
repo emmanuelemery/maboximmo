@@ -10,7 +10,7 @@ declare(strict_types=1);
  * - Enqueue depuis l'UI, exécute via cron tokenisé.
  */
 
-require_once __DIR__ . '/ged_functions.php';
+require_once __DIR__ . '/ged_functions_legacy.php'; // archivé Phase 1.1 — fusion Phase 2/3
 
 /**
  * Enqueue un job GED.
