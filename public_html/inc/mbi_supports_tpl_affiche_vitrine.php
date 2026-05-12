@@ -354,10 +354,12 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
 if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
     /**
      * Barre DPE ou GES avec les 7 segments A→G (couleurs ADEME).
-     * Segments grossis (75% vs version précédente : 14mm de hauteur).
-     * Le segment de la classe du bien est mis en relief (hauteur +2.5mm,
-     * lettre +5pt, ombre portée). Si une valeur est fournie, elle est
-     * affichée au-dessus du segment actif (cartouche couleur + triangle).
+     * SEUL le segment de la classe du bien est mis en relief :
+     *   - hauteur élargie (+2.5mm vs segments inactifs)
+     *   - lettre nettement plus grosse (14pt vs 8pt)
+     *   - ombre portée
+     * Les 6 autres segments restent à taille standard.
+     * Si une valeur est fournie, elle est affichée au-dessus du segment actif.
      */
     function mbi_supports_tpl_dpe_ges_barre(
         TCPDF $pdf, float $x, float $y, float $w, float $h,
@@ -372,17 +374,17 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
         ];
         $lettres = ['A','B','C','D','E','F','G'];
 
-        // Header : "DPE" ou "GES" à gauche (taille bumpée pour suivre les segments)
-        $headerW = 16;
-        $pdf->SetFont('dejavusans', 'B', 11);
+        // Header "DPE" / "GES" à gauche
+        $headerW = 14;
+        $pdf->SetFont('dejavusans', 'B', 9);
         $pdf->SetTextColor(...($textRgbHeader ?? [120, 126, 140]));
-        $pdf->SetXY($x, $y + ($h - 5) / 2);
-        $pdf->Cell($headerW, 5, $type, 0, 0, 'L');
+        $pdf->SetXY($x, $y + ($h - 4) / 2);
+        $pdf->Cell($headerW, 4, $type, 0, 0, 'L');
 
         $barX = $x + $headerW;
         $barW = $w - $headerW;
         $segW = $barW / 7;
-        $segH = $h - 1;
+        $segH = $h - 1; // 7mm pour h=8
 
         for ($i = 0; $i < 7; $i++) {
             $L = $lettres[$i];
@@ -393,19 +395,19 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
             $thisH = $isActive ? $segH + 2.5 : $segH;
             $thisY = $isActive ? $sy - 1.25 : $sy;
 
-            // Ombre portée pour le segment actif
+            // Ombre portée uniquement sur le segment actif
             if ($isActive) {
                 $pdf->SetAlpha(0.30);
                 $pdf->SetFillColor(15, 23, 42);
-                $pdf->RoundedRect($sx + 1.0, $thisY + 1.6, $segW - 1.2, $thisH, 2.0, '1111', 'F');
+                $pdf->RoundedRect($sx + 1.0, $thisY + 1.6, $segW - 1.2, $thisH, 1.8, '1111', 'F');
                 $pdf->SetAlpha(1.0);
             }
 
             $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
-            $pdf->RoundedRect($sx + 0.5, $thisY, $segW - 1.2, $thisH, 2.0, '1111', 'F');
+            $pdf->RoundedRect($sx + 0.4, $thisY, $segW - 1, $thisH, 1.5, '1111', 'F');
 
-            // Lettre dans le segment (75% plus grosse : 14→19 actif, 8→14 inactif)
-            $fs = $isActive ? 19 : 14;
+            // Lettre : SEULE celle du segment actif est grosse (14pt), les autres restent à 8pt
+            $fs = $isActive ? 14 : 8;
             $pdf->SetFont('dejavusans', 'B', $fs);
             $pdf->SetTextColor(255, 255, 255);
             $pdf->SetXY($sx, $thisY);
@@ -415,20 +417,19 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
             if ($isActive && $valeur !== null && $valeur > 0) {
                 $vx = $sx - 2;
                 $vw = $segW + 4;
-                $vy = $y - 8.5;
+                $vy = $y - 7.0;
 
-                // Triangle pointant vers le segment
                 $pdf->SetFillColor($cRGB[0], $cRGB[1], $cRGB[2]);
                 $cx = $sx + $segW / 2;
-                $pdf->Polygon([$cx - 2.2, $vy + 7.0, $cx + 2.2, $vy + 7.0, $cx, $vy + 9.5], 'F');
+                $pdf->Polygon([$cx - 1.8, $vy + 5.8, $cx + 1.8, $vy + 5.8, $cx, $vy + 8.0], 'F');
 
                 mbi_supports_tpl_card_round_shadow(
-                    $pdf, $vx, $vy, $vw, 7.0, 1.5, $cRGB, 1.0, true
+                    $pdf, $vx, $vy, $vw, 6.0, 1.3, $cRGB, 1.0, true
                 );
-                $pdf->SetFont('dejavusans', 'B', 10);
+                $pdf->SetFont('dejavusans', 'B', 9);
                 $pdf->SetTextColor(255, 255, 255);
                 $pdf->SetXY($vx, $vy);
-                $pdf->Cell($vw, 7.0, number_format($valeur, 0, ',', ' '), 0, 0, 'C');
+                $pdf->Cell($vw, 6.0, number_format($valeur, 0, ',', ' '), 0, 0, 'C');
             }
         }
 
@@ -450,9 +451,9 @@ if (!function_exists('mbi_supports_tpl_dpe_ges_barre')) {
 
 if (!function_exists('mbi_supports_tpl_dpe_ges')) {
     /**
-     * Affiche les 2 barres DPE et GES empilées (style ADEME officiel adapté A3 H).
-     * Segments 75% plus gros (14mm) + barres plus proches (gap 4mm + cartouche 9mm).
-     * Hauteur totale : 9 (cartouche DPE) + 14 (barre DPE) + 4 (gap) + 9 (cartouche GES) + 14 (barre GES) = 50mm
+     * Affiche les 2 barres DPE et GES empilées.
+     * Segments standard (8mm). Seule la lettre du segment actif est grossie.
+     * Hauteur totale : 7 (cartouche DPE) + 8 (barre DPE) + 4 (gap) + 7 (cartouche GES) + 8 (barre GES) = 34mm
      */
     function mbi_supports_tpl_dpe_ges(
         TCPDF $pdf, float $x, float $y, float $w, string $dpe, string $ges,
@@ -460,10 +461,10 @@ if (!function_exists('mbi_supports_tpl_dpe_ges')) {
         ?float $dpeValeur = null,
         ?float $gesValeur = null
     ): void {
-        $barH = 14.0; // +75% vs 8mm
-        $gap  = 4.0;  // espacement reduit entre barres
-        $yDpe = $y + 9.0;
-        $yGes = $yDpe + $barH + 9.0 + $gap; // barre + cartouche GES + gap
+        $barH = 8.0;
+        $gap  = 4.0;
+        $yDpe = $y + 7.0;
+        $yGes = $yDpe + $barH + 7.0 + $gap;
 
         mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yDpe, $w, $barH, 'DPE', $dpe, $textRgbHeader, $dpeValeur, 'kWh/m²/an');
         mbi_supports_tpl_dpe_ges_barre($pdf, $x, $yGes, $w, $barH, 'GES', $ges, $textRgbHeader, $gesValeur, 'kg CO₂/m²/an');

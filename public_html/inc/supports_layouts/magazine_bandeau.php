@@ -388,7 +388,7 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $dpeVal > 0 ? $dpeVal : null,
             $gesVal > 0 ? $gesVal : null
         );
-        $ry += 50; // 9 (cartouche DPE) + 14 (barre DPE) + 4 (gap) + 9 (cartouche GES) + 14 (barre GES)
+        $ry += 34; // 7 (cartouche DPE) + 8 (barre DPE) + 4 (gap) + 7 (cartouche GES) + 8 (barre GES)
 
         // Atouts ✓
         $pointsForts = $iaAtouts;
