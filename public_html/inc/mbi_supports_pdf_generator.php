@@ -36,7 +36,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/mbi_supports_helpers.php';
 require_once __DIR__ . '/mbi_supports_critic_engine.php';
 require_once __DIR__ . '/mbi_supports_score_engine.php';
-require_once __DIR__ . '/mbi_supports_redaction_ia.php';
+// IA rédaction désactivée par décision user 2026-05-12. Le require_once reste commenté
+// pour ne pas charger inutilement le module (l'infra reste en place pour reactivation future).
+// require_once __DIR__ . '/mbi_supports_redaction_ia.php';
 
 if (!function_exists('mbi_supports_pdf_generer')) {
 
@@ -249,36 +251,10 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                     'erreur'=>'insert_draft_fail: ' . $e->getMessage()];
         }
 
-        // 6. Rédaction IA — accroche + paragraphe + atouts adaptés à l'angle
-        // Skipée si l'utilisateur a déjà saisi des surcharges manuelles
-        // (l'éditeur écrase l'IA, jamais l'inverse).
+        // 6. Rédaction IA — DÉSACTIVÉE (décision user 2026-05-12)
+        // Le PDF utilise désormais uniquement les textes saisis dans bien + annonce.
+        // L'infra existe (mbi_supports_redaction_ia.php) et peut être réactivée plus tard.
         $iaRedaction = null;
-        $supportsRediges = ['affiche_vitrine','fiche_client','dossier_presentation'];
-        $aDejaTexteManuel = !empty($surcharges['accroche'])
-                         || !empty($surcharges['description_personnalisee'])
-                         || !empty($surcharges['titre_personnalise']);
-        $iaActivee = empty($options['skip_ia_redaction'])
-                  && in_array($type_support, $supportsRediges, true)
-                  && !$aDejaTexteManuel;
-        if ($iaActivee) {
-            try {
-                $iaResp = mbi_supports_redaction_ia_generer(
-                    $bien, $photos, $agence ?: [], $angle, $dernierScore, $options['ia_modele'] ?? null
-                );
-                if ($iaResp['ok'] && is_array($iaResp['data'] ?? null)) {
-                    $iaRedaction = [
-                        'data'          => $iaResp['data'],
-                        'modele'        => $iaResp['modele'],
-                        'cout_centimes' => $iaResp['cout_centimes'],
-                        'angle'         => $angle,
-                    ];
-                } else {
-                    error_log('[mbi_supports_redaction_ia] ' . ($iaResp['erreur'] ?? 'unknown'));
-                }
-            } catch (Throwable $e) {
-                error_log('[mbi_supports_redaction_ia ex] ' . $e->getMessage());
-            }
-        }
 
         // 7. Génère le PDF
         try {
