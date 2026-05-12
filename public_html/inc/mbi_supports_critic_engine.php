@@ -286,12 +286,8 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
             return null;
         }
 
-        // Photos
-        try {
-            $st = $pdo->prepare("SELECT * FROM biens_photos WHERE id_bien = :id ORDER BY id ASC");
-            $st->execute([':id' => $id_bien]);
-            $photos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        } catch (Throwable) { $photos = []; }
+        // Photos — chargées plus bas APRÈS l'annonce pour respecter l'ordre annonces_photos
+        $photos = [];
 
         // Mandat actif
         $mandat = null;
@@ -328,6 +324,28 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
             $st->execute([':id' => $id_bien]);
             $annonce = $st->fetch(PDO::FETCH_ASSOC) ?: null;
         } catch (Throwable) { $annonce = null; }
+
+        // Photos — ordre = annonces_photos.ordre si annonce active, sinon ordre BDD
+        try {
+            $idAnnonce = $annonce ? (int)($annonce['id'] ?? 0) : 0;
+            if ($idAnnonce > 0) {
+                $st = $pdo->prepare("
+                    SELECT bp.*, ap.ordre AS ordre_annonce
+                    FROM annonces_photos ap
+                    INNER JOIN biens_photos bp ON bp.id = ap.id_biens_photo
+                    WHERE ap.id_annonce = :ida
+                    ORDER BY ap.ordre ASC, bp.id ASC
+                ");
+                $st->execute([':ida' => $idAnnonce]);
+                $photos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            }
+            // Fallback si pas d'annonce OU si annonces_photos vide pour cette annonce
+            if (empty($photos)) {
+                $st = $pdo->prepare("SELECT * FROM biens_photos WHERE id_bien = :id ORDER BY ordre ASC, id ASC");
+                $st->execute([':id' => $id_bien]);
+                $photos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            }
+        } catch (Throwable) { $photos = []; }
 
         // Agence — chargement enrichi avec colonnes officielles depuis societes
         // (refactor 2026-05-08 : KBIS/CPI/RCP/GF = niveau société, agences héritent
