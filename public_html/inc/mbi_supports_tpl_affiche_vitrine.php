@@ -330,24 +330,31 @@ if (!function_exists('mbi_supports_tpl_carac_mini')) {
         array $cP, array $cT,
         ?array $bgRgb = null, ?array $textRgb = null, ?array $valRgb = null,
         bool $shadow = false,
-        float $labelSize = 9.0,
-        float $valueSize = 28.0,
+        float $labelSize = 11.0,
+        float $valueSize = 44.0,
         float $rad = 4.0
     ): void {
         if ($bgRgb !== null) {
             mbi_supports_tpl_card_round_shadow($pdf, $x, $y, $w, $h, $rad, $bgRgb, 1.0, $shadow);
         }
-        // Label en haut-gauche
-        $pdf->SetFont('dejavusans', '', $labelSize);
-        $pdf->SetTextColor(...($textRgb ?? [120, 126, 140]));
-        $pdf->SetXY($x + 5, $y + 3);
-        $pdf->Cell($w - 10, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
+        $padInt = 6;
 
-        // Valeur : chiffre plein hauteur, aligné à droite (taille auto pour remplir)
-        $pdf->SetFont('dejavusans', 'B', $valueSize);
+        // Label en haut-gauche
+        $pdf->SetFont('dejavusans', 'B', $labelSize);
+        $pdf->SetTextColor(...($textRgb ?? [120, 126, 140]));
+        $pdf->SetXY($x + $padInt, $y + 3);
+        $pdf->Cell($w - $padInt * 2, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
+
+        // Valeur : taille ADAPTATIVE selon longueur (ne déborde jamais)
+        $valLen = mb_strlen($value, 'UTF-8');
+        $valSize = $valLen <= 2 ? $valueSize
+                 : ($valLen <= 3 ? $valueSize * 0.78
+                 : ($valLen <= 4 ? $valueSize * 0.62
+                 : $valueSize * 0.50));
+        $pdf->SetFont('dejavusans', 'B', $valSize);
         $pdf->SetTextColor(...($valRgb ?? $cP));
-        $pdf->SetXY($x + 5, $y);
-        $pdf->Cell($w - 10, $h, $value, 0, 0, 'R');
+        $pdf->SetXY($x + $padInt, $y);
+        $pdf->Cell($w - $padInt * 2, $h, $value, 0, 0, 'R');
     }
 }
 

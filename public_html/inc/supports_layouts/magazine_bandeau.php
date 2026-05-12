@@ -353,6 +353,7 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $nbC = count($caracs);
             $cellW = ($colRW - (($nbC - 1) * 4)) / $nbC;
             $cellH = 38;
+            $padInt = 6; // padding intérieur de la cellule
             foreach ($caracs as $i => $it) {
                 $x = $colRX + ($i * ($cellW + 4));
                 // Ombre + fond blanc translucide rounded
@@ -364,17 +365,20 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
                 $pdf->RoundedRect($x, $ry, $cellW, $cellH, 5.0, '1111', 'F');
                 $pdf->SetAlpha(1.0);
 
-                // Label en haut-gauche
-                $pdf->SetFont('dejavusans', '', 10);
-                $pdf->SetTextColor(200, 206, 220);
-                $pdf->SetXY($x + 5, $ry + 3.5);
-                $pdf->Cell($cellW - 10, 5, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
-
-                // Valeur XXL : chiffre énorme, plein hauteur, aligné à DROITE
-                $pdf->SetFont('dejavusans', 'B', 50);
+                // Label en haut-gauche — BLANC bold pour contraste sur fond navy
+                $pdf->SetFont('dejavusans', 'B', 11);
                 $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetXY($x + 5, $ry);
-                $pdf->Cell($cellW - 10, $cellH, $it[1], 0, 0, 'R');
+                $pdf->SetXY($x + $padInt, $ry + 3.5);
+                $pdf->Cell($cellW - $padInt * 2, 5, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
+
+                // Valeur : taille ADAPTATIVE selon longueur pour ne jamais déborder
+                $val = (string)$it[1];
+                $valLen = mb_strlen($val, 'UTF-8');
+                $valSize = $valLen <= 2 ? 50 : ($valLen <= 3 ? 38 : ($valLen <= 4 ? 30 : 24));
+                $pdf->SetFont('dejavusans', 'B', $valSize);
+                $pdf->SetTextColor(255, 255, 255);
+                $pdf->SetXY($x + $padInt, $ry);
+                $pdf->Cell($cellW - $padInt * 2, $cellH, $val, 0, 0, 'R');
             }
             $ry += $cellH + 6;
         }
