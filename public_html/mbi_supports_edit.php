@@ -186,7 +186,10 @@ function mbisedit_h(string|int|float|null $v): string {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
 
-$urlPdf = app_url('/mbi_supports_pdf_download.php?id=' . $supportId);
+// Cache-buster basé sur updated_at du support (force le navigateur à recharger l'iframe
+// dès qu'une régénération a eu lieu)
+$pdfTs = !empty($support['updated_at']) ? strtotime((string)$support['updated_at']) : time();
+$urlPdf = app_url('/mbi_supports_pdf_download.php?id=' . $supportId . '&t=' . $pdfTs);
 $urlDashboard = app_url('/mbi_supports_dashboard.php?id_bien=' . $idBien);
 $urlBien = app_url('/bien_detail.php?edit=' . $idBien . '&section=annonce');
 ?><!doctype html>

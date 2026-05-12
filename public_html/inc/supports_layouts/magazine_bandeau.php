@@ -320,13 +320,14 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $cy += 5.5;
 
             // Texte de l'annonce : 13.5pt pour grosse lisibilité vitrine
-            // Texte annonce : 12pt — réduit pour laisser place aux conditions financières
-            $pdf->SetFont('dejavusans', '', 12);
+            // Texte annonce COMPLET — taille adaptée à la longueur pour tout tenir
+            $longueur = mb_strlen($descCommerciale, 'UTF-8');
+            $fontSize = $longueur > 600 ? 10 : ($longueur > 400 ? 11 : 12);
+            $lineH    = $longueur > 600 ? 4.4 : ($longueur > 400 ? 4.8 : 5.2);
+            $pdf->SetFont('dejavusans', '', $fontSize);
             $pdf->SetTextColor(232, 234, 245);
             $pdf->SetXY($bpx, $cy);
-            $extrait = mb_substr($descCommerciale, 0, 320, 'UTF-8');
-            if (mb_strlen($descCommerciale, 'UTF-8') > 320) $extrait .= '...';
-            $pdf->MultiCell($colLW, 5.2, $extrait, 0, 'J');
+            $pdf->MultiCell($colLW, $lineH, $descCommerciale, 0, 'J');
         }
 
         // ── Colonne DROITE : caracs + DPE + atouts ────────────────────
