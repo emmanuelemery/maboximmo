@@ -276,7 +276,7 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
     <!-- ═══ MODULES BAR (logged-in pros only) ═══ -->
     <?php if ($isLogged): ?>
     <div class="mbi-modules-bar">
-      <a class="mbi-module-btn" href="<?= h(app_url('/rh_dashboard.php')) ?>">
+      <a class="mbi-module-btn" href="https://rh.maboximmo.com" target="_blank" rel="noopener noreferrer">
         <span>👥</span> Ressources humaines
       </a>
       <a class="mbi-module-btn" href="<?= h(app_url('/agency_dashboard.php')) ?>">
