@@ -225,6 +225,15 @@ if (is_post()) {
                 $soc = $stmt2->fetch(PDO::FETCH_ASSOC) ?: [];
                 $decoded2 = json_decode((string)($soc['carte_t_activites'] ?? '[]'), true);
                 $carteTActivites = is_array($decoded2) ? $decoded2 : ['transaction', 'gestion', 'syndic'];
+
+                // Hook glossaire GED : sync label société (et crée si absent)
+                try {
+                    if (file_exists(__DIR__ . '/inc/ged_glossary.php') && !empty($soc['nom'])) {
+                        require_once __DIR__ . '/inc/ged_glossary.php';
+                        ged_glossary_sync_entity('societe', $societeId, (string)$soc['nom'], 'societes', [], $pdo);
+                    }
+                } catch (Throwable) {}
+
                 $success = 'Informations enregistrées.';
                 $ajaxRespond(['ok' => true, 'message' => $success, 'scope' => 'societe']);
             } catch (PDOException $e) {
@@ -404,7 +413,19 @@ if (is_post()) {
                     ':banque_nom'          => trim((string)post('ag_banque_nom', '')) ?: null,
                     ':titulaire_compte'    => trim((string)post('ag_titulaire_compte', '')) ?: null,
                 ]);
+                $newAgId = (int)$pdo->lastInsertId();
                 $success = 'Agence créée.';
+
+                // Hook glossaire GED : crée/sync le code glossaire pour cette agence
+                try {
+                    if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                        require_once __DIR__ . '/inc/ged_glossary.php';
+                        ged_glossary_sync_entity('agence', $newAgId, $nomAg, 'agences', [
+                            'code_existant' => trim((string)post('ag_code_agence', '')),
+                        ], $pdo);
+                    }
+                } catch (Throwable) { /* hook non bloquant */ }
+
                 // Recharger
                 $stmtAg->execute([$societeId]);
                 $agences = $stmtAg->fetchAll(PDO::FETCH_ASSOC);
@@ -486,6 +507,17 @@ if (is_post()) {
                     ':id_societe'          => $societeId,
                 ]);
                 $success = 'Agence mise à jour.';
+
+                // Hook glossaire GED : sync label (et crée si pas encore présent)
+                try {
+                    if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                        require_once __DIR__ . '/inc/ged_glossary.php';
+                        ged_glossary_sync_entity('agence', $agId, trim((string)post('ag_nom_agence', '')), 'agences', [
+                            'code_existant' => trim((string)post('ag_code_agence', '')),
+                        ], $pdo);
+                    }
+                } catch (Throwable) {}
+
                 // Recharger
                 $stmtAg->execute([$societeId]);
                 $agences = $stmtAg->fetchAll(PDO::FETCH_ASSOC);

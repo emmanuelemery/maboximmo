@@ -8,6 +8,9 @@ require_login();
 $prenom = (string)($_SESSION['prenom'] ?? $_SESSION['user_prenom'] ?? '');
 $societeNom = (string)($_SESSION['societe_nom'] ?? '');
 
+// Stats FluxBox retirées : la vue FluxBox/cartes est maintenant sur fluxbox.php (home)
+// Cette page reste la vue métier classique (création + exploration).
+
 // ── Layout ──────────────────────────────────────────────────────────
 $layout_title          = 'Dashboard Agency';
 $layout_module         = 'Ma Box Agency';
@@ -294,6 +297,12 @@ ob_start();
 ?>
 
 <div class="ad-wrap">
+
+    <!-- Bandeau retour FluxBox (cette page est maintenant secondaire) -->
+    <div style="margin-bottom:18px;padding:10px 16px;background:#f8fafc;border-left:3px solid #243B5C;border-radius:8px;font-size:13px;color:#475569;">
+        💡 Vue métier classique. Pour traiter vos flux entrants (téléchargements + mails),
+        retournez sur <a href="./fluxbox.php" style="color:#243B5C;font-weight:600;">🃏 FluxBox</a>.
+    </div>
 
     <!-- Barre de création rapide -->
     <div class="ad-create-bar">

@@ -246,6 +246,24 @@ $sectionSuperAdmin = [
         'icon'  => '🗄️',
     ],
     [
+        'label' => 'Glossaire GED',
+        'url'   => '/public_html/admin/admin_ged_glossaire.php',
+        'page'  => 'admin_ged_glossaire.php',
+        'icon'  => '🏷️',
+    ],
+    [
+        'label' => 'Cartes à valider',
+        'url'   => '/public_html/admin/admin_fluxbox_naming_review.php',
+        'page'  => 'admin_fluxbox_naming_review.php',
+        'icon'  => '🪪',
+    ],
+    [
+        'label' => 'Agents IA',
+        'url'   => '/public_html/admin/admin_agents_ia.php',
+        'page'  => 'admin_agents_ia.php',
+        'icon'  => '🤖',
+    ],
+    [
         'label' => 'Design',
         'url'   => '/public_html/admin/design-system.php',
         'page'  => 'design-system.php',

@@ -1,0 +1,537 @@
+/* ============================================================
+   FLUXBOX — Pile de cartes
+   Charte MBI : navy #243B5C + or #D4A047, neutre #f8fafc
+   ============================================================ */
+
+.fbx-wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ─── Breadcrumb ───────────────────────────────────────────── */
+.fbx-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.fbx-breadcrumb a {
+  color: #243B5C;
+  text-decoration: none;
+  font-weight: 600;
+}
+.fbx-breadcrumb a:hover { text-decoration: underline; }
+.fbx-breadcrumb-source {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ─── Bandeau dashboard ─────────────────────────────────────── */
+.fbx-banner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 20px;
+  box-shadow: 3px 3px 10px #d8d4ce, -3px -3px 10px #fff;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+
+.fbx-banner-stats { display: flex; flex-wrap: wrap; gap: 16px; }
+.fbx-stat { color: #475569; }
+.fbx-stat strong { color: #0f172a; }
+.fbx-stat-urgent strong { color: #dc2626; }
+.fbx-stat-shield { color: #16a34a; }
+
+.fbx-banner-ia {
+  display: flex; flex-direction: column; align-items: flex-end; min-width: 180px;
+}
+.fbx-ia-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+.fbx-ia-amount { font-size: 13px; color: #475569; }
+.fbx-ia-amount strong { color: #243B5C; }
+.fbx-ia-bar {
+  width: 180px; height: 5px; background: #e2e8f0; border-radius: 3px;
+  margin-top: 4px; overflow: hidden;
+}
+.fbx-ia-bar-fill {
+  height: 100%; background: linear-gradient(90deg, #16a34a 0%, #ca8a04 60%, #dc2626 95%);
+  transition: width .4s ease;
+}
+
+/* ─── Carte ─────────────────────────────────────────────────── */
+.fbx-card-shell {
+  perspective: 1000px;
+  margin-bottom: 18px;
+}
+
+.fbx-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 26px 28px;
+  box-shadow: 6px 6px 18px #c8c4be, -6px -6px 18px #ffffffcc;
+  border-left: 5px solid #94a3b8;
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+
+.fbx-card.fbx-urgent    { border-left-color: #dc2626; }
+.fbx-card.fbx-important { border-left-color: #ea580c; }
+.fbx-card.fbx-normal    { border-left-color: #16a34a; }
+.fbx-card.fbx-faible    { border-left-color: #94a3b8; }
+
+.fbx-card-head { margin-bottom: 18px; }
+.fbx-priorite {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; letter-spacing: 0.08em;
+  padding: 3px 10px; border-radius: 12px; background: #f1f5f9; color: #475569;
+  margin-bottom: 8px;
+}
+.fbx-card-titre {
+  margin: 0 0 4px 0;
+  font-size: 22px; font-weight: 700; color: #243B5C; line-height: 1.3;
+}
+.fbx-card-sous-titre {
+  font-size: 14px; color: #64748b;
+}
+
+/* ─── Preview document ─────────────────────────────────────── */
+.fbx-card-preview {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 28px;
+  margin-bottom: 18px;
+  text-align: center;
+}
+.fbx-card-preview-placeholder {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+/* ─── Propositions IA ──────────────────────────────────────── */
+.fbx-card-propositions {
+  background: #fef3c7;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 22px;
+  border: 1px solid #fde68a;
+}
+.fbx-card-propositions-title {
+  font-size: 12px; font-weight: 700; color: #92400e;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.fbx-propositions-list {
+  list-style: none; margin: 0; padding: 0;
+}
+.fbx-propositions-list li {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 5px 0; font-size: 14px; color: #1e293b;
+}
+.fbx-prop-check { color: #16a34a; font-weight: 700; }
+.fbx-prop-empty { font-size: 13px; color: #92400e; font-style: italic; margin: 0; }
+
+.fbx-confiance { margin-top: 12px; }
+.fbx-conf-badge {
+  display: inline-block; font-size: 12px;
+  padding: 4px 10px; border-radius: 10px; font-weight: 600;
+}
+.fbx-conf-ok  { background: #dcfce7; color: #166534; }
+.fbx-conf-mid { background: #fef3c7; color: #92400e; }
+.fbx-conf-low { background: #fee2e2; color: #991b1b; }
+
+.fbx-preview-name {
+  margin-top: 12px; font-size: 11px; color: #64748b;
+  background: #f1f5f9; padding: 6px 10px; border-radius: 6px;
+  word-break: break-all;
+}
+.fbx-preview-name code { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+/* ─── Boutons d'action ─────────────────────────────────────── */
+.fbx-card-actions {
+  display: flex; gap: 10px; margin-bottom: 12px;
+}
+.fbx-btn {
+  flex: 1;
+  border: none; cursor: pointer; font-family: inherit; font-size: 15px;
+  padding: 14px 18px; border-radius: 12px;
+  transition: transform .1s ease, box-shadow .15s ease;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.fbx-btn:active { transform: scale(0.98); }
+
+.fbx-btn-validate {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #fff; font-weight: 600;
+  flex: 2;
+  box-shadow: 0 3px 8px rgba(22, 163, 74, 0.3);
+}
+.fbx-btn-validate:hover { box-shadow: 0 5px 14px rgba(22, 163, 74, 0.4); }
+
+.fbx-btn-adjust {
+  background: #f1f5f9; color: #475569;
+  border: 1px solid #cbd5e1;
+}
+.fbx-btn-adjust:hover { background: #e2e8f0; }
+
+.fbx-btn-later {
+  background: #fef3c7; color: #92400e;
+  border: 1px solid #fde68a;
+}
+.fbx-btn-later:hover { background: #fde68a; }
+
+.fbx-btn-secondary {
+  background: #f1f5f9; color: #475569;
+}
+.fbx-btn-secondary:hover { background: #e2e8f0; }
+
+/* ─── Footer carte ─────────────────────────────────────────── */
+.fbx-card-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: #94a3b8;
+  padding-top: 14px; border-top: 1px solid #f1f5f9;
+}
+
+/* ─── Empty state ──────────────────────────────────────────── */
+.fbx-empty {
+  background: #fff;
+  border-radius: 18px; padding: 60px 32px;
+  text-align: center;
+  box-shadow: 6px 6px 18px #c8c4be, -6px -6px 18px #ffffffcc;
+}
+.fbx-empty-icon { font-size: 56px; margin-bottom: 12px; }
+.fbx-empty h2 { color: #243B5C; margin: 8px 0; }
+.fbx-empty p  { color: #64748b; margin: 0 0 22px 0; }
+
+/* ─── Modal Ajuster ────────────────────────────────────────── */
+.fbx-modal {
+  border: none; border-radius: 16px; padding: 0;
+  max-width: 500px; width: 92%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.fbx-modal::backdrop { background: rgba(15, 23, 42, 0.5); }
+.fbx-modal-form { padding: 24px 28px; }
+.fbx-modal-form h3 { color: #243B5C; margin: 0 0 18px 0; }
+
+.fbx-form-row {
+  margin-bottom: 12px;
+}
+.fbx-form-row label {
+  display: block; font-size: 11px; font-weight: 600; color: #475569;
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;
+}
+.fbx-form-row input {
+  width: 100%; padding: 8px 12px;
+  border: 1px solid #cbd5e1; border-radius: 8px;
+  font-family: inherit; font-size: 14px; color: #1e293b;
+  box-sizing: border-box;
+}
+.fbx-form-row input:disabled { background: #f1f5f9; color: #94a3b8; }
+.fbx-form-row input:focus { outline: 2px solid #243B5C; outline-offset: 0; border-color: #243B5C; }
+.fbx-required { color: #dc2626; }
+
+.fbx-modal-actions {
+  display: flex; gap: 10px; margin-top: 20px;
+}
+.fbx-modal-actions .fbx-btn { flex: 1; padding: 11px 14px; font-size: 14px; }
+
+/* ─── Aide raccourcis ──────────────────────────────────────── */
+.fbx-help {
+  text-align: center; font-size: 11px; color: #94a3b8;
+  margin-top: 28px;
+}
+.fbx-help kbd {
+  background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569;
+  padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; margin: 0 2px;
+}
+
+/* ─── Bandeau mode batch (au-dessus de la carte courante) ─── */
+.fbx-mode-batch {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 1px solid #fbbf24;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+}
+.fbx-mode-batch-msg {
+    font-size: 14px; color: #92400e; flex: 1; min-width: 200px;
+}
+.fbx-mode-batch-msg strong { color: #78350f; font-weight: 700; }
+.fbx-mode-batch-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.fbx-mode-batch-actions .fbx-btn { padding: 9px 16px; font-size: 13px; }
+.fbx-mode-batch-actions .fbx-btn-secondary {
+    background: #fff; border: 1px solid #fbbf24;
+}
+.fbx-mode-batch-actions a.fbx-btn { text-decoration: none; }
+
+/* ─── Toolbar TOP de la liste batch ─── */
+.fbx-batch-top-actions {
+    display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+    background: #243B5C;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+.fbx-batch-top-actions .fbx-batch-toggle {
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.fbx-batch-top-actions .fbx-batch-toggle input { accent-color: #D4A047; }
+.fbx-batch-top-actions .fbx-btn-secondary {
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.18);
+    font-size: 13px;
+    padding: 7px 14px;
+}
+.fbx-batch-top-actions .fbx-btn-secondary:hover {
+    background: rgba(255,255,255,0.22);
+}
+.fbx-batch-top-actions .fbx-btn-validate {
+    background: linear-gradient(135deg, #D4A047, #b88835);
+    color: #1a1816;
+    font-size: 13px;
+    padding: 8px 16px;
+}
+.fbx-batch-spacer { flex: 1; }
+.fbx-batch-top-count {
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    padding-right: 4px;
+}
+.fbx-batch-top-count strong {
+    color: #FCD34D; font-weight: 700; font-size: 16px;
+}
+
+/* ─── Liste batch (sélection multiple) ─────────────────────── */
+.fbx-batch {
+    background: #fff;
+    border-radius: 18px;
+    padding: 22px 24px;
+    margin-top: 20px;
+    box-shadow: 6px 6px 18px #c8c4be, -6px -6px 18px #ffffffcc;
+}
+.fbx-batch-head {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+    margin-bottom: 12px;
+}
+.fbx-batch-head h3 {
+    margin: 0; color: #243B5C; font-size: 17px; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 8px;
+}
+.fbx-batch-count {
+    background: #D4A047; color: #1a1816;
+    padding: 2px 10px; border-radius: 10px;
+    font-size: 12px; font-weight: 700;
+}
+.fbx-batch-actions {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.fbx-batch-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: #475569; cursor: pointer;
+    padding: 6px 12px; background: #f8fafc; border-radius: 8px;
+}
+.fbx-batch-toggle input { cursor: pointer; }
+
+.fbx-batch-info {
+    font-size: 12px; color: #64748b;
+    background: #f1f5f9; border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 12px;
+}
+
+.fbx-batch-list {
+    list-style: none; padding: 0; margin: 0;
+    max-height: 380px; overflow-y: auto;
+    border: 1px solid #e2e8f0; border-radius: 12px;
+    user-select: none;
+}
+.fbx-batch-item {
+    border-bottom: 1px solid #f1f5f9;
+    transition: background .12s;
+}
+.fbx-batch-item:last-child { border-bottom: none; }
+.fbx-batch-item:hover { background: #fef9e8; }
+.fbx-batch-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.fbx-batch-cb {
+    width: 16px; height: 16px;
+    cursor: pointer;
+    accent-color: #243B5C;
+    flex-shrink: 0;
+}
+.fbx-batch-prio { font-size: 12px; flex-shrink: 0; }
+.fbx-batch-titre {
+    flex: 1;
+    color: #2c2a28; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fbx-batch-sous {
+    color: #64748b; font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 280px;
+}
+.fbx-batch-conf {
+    background: #f1f5f9; color: #64748b;
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+}
+.fbx-batch-item.is-ia-ok  .fbx-batch-conf { background: #dcfce7; color: #166534; }
+.fbx-batch-item.is-ia-mid .fbx-batch-conf { background: #fef3c7; color: #92400e; }
+.fbx-batch-item.is-ia-low .fbx-batch-conf { background: #fee2e2; color: #991b1b; }
+
+.fbx-batch-item.is-checked { background: #fef3c7; }
+.fbx-batch-item.is-checked:hover { background: #fde68a; }
+
+.fbx-batch-toolbar {
+    position: sticky;
+    bottom: 0;
+    margin-top: 14px;
+    background: linear-gradient(180deg, transparent 0, #fff 30%);
+    padding: 12px 6px 4px;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+    border-top: 1px solid #f1f5f9;
+}
+.fbx-batch-toolbar.is-hidden { opacity: 0.5; pointer-events: none; }
+.fbx-batch-toolbar-count {
+    font-size: 14px; color: #475569;
+}
+.fbx-batch-toolbar-count strong {
+    color: #243B5C; font-size: 18px; font-weight: 700;
+}
+.fbx-batch-toolbar-actions { display: flex; gap: 8px; }
+.fbx-batch-toolbar-actions .fbx-btn { padding: 9px 18px; font-size: 13px; }
+
+/* ─── Overlay progression bulk validate ────────────────────── */
+.fbx-bulk-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(3px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.fbx-bulk-overlay.is-open { display: flex; }
+.fbx-bulk-dialog {
+  background: #fff;
+  border-radius: 18px;
+  padding: 26px 30px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 30px 90px rgba(0,0,0,0.3);
+  font-family: 'Sora', 'Inter', sans-serif;
+}
+.fbx-bulk-dialog h3 {
+  margin: 0 0 16px;
+  color: #243B5C;
+  font-size: 18px;
+  font-weight: 700;
+}
+.fbx-bulk-stats {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 14px; color: #475569;
+  margin-bottom: 10px;
+}
+.fbx-bulk-stats strong {
+  color: #243B5C; font-size: 22px; font-weight: 700;
+}
+.fbx-bulk-pct {
+  font-family: 'Sora', sans-serif;
+  font-weight: 700; color: #D4A047; font-size: 18px;
+}
+.fbx-bulk-bar {
+  height: 14px;
+  background: #f1f5f9;
+  border-radius: 7px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 12px;
+}
+.fbx-bulk-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #16a34a 0%, #D4A047 100%);
+  border-radius: 7px;
+  transition: width .3s cubic-bezier(0.22,1,0.36,1);
+  position: relative;
+  overflow: hidden;
+}
+.fbx-bulk-fill::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,0.35) 50%,
+    transparent 100%);
+  animation: fbx-bulk-shine 1.4s ease-in-out infinite;
+}
+.fbx-bulk-dialog.is-done .fbx-bulk-fill::after { animation: none; }
+.fbx-bulk-dialog.is-done .fbx-bulk-fill {
+  background: linear-gradient(90deg, #16a34a, #15803d);
+}
+@keyframes fbx-bulk-shine {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.fbx-bulk-details {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  font-size: 12px; color: #64748b;
+  margin-bottom: 18px;
+}
+.fbx-bulk-details strong { color: #243B5C; }
+.fbx-bulk-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.fbx-bulk-actions .fbx-btn {
+  padding: 10px 20px; font-size: 14px;
+}
+
+/* ─── Animations transition carte ──────────────────────────── */
+.fbx-card-shell.fbx-leaving-right .fbx-card {
+  transform: translateX(120%) rotateZ(8deg); opacity: 0;
+}
+.fbx-card-shell.fbx-leaving-left .fbx-card {
+  transform: translateX(-120%) rotateZ(-8deg); opacity: 0;
+}
+.fbx-card-shell.fbx-leaving-up .fbx-card {
+  transform: translateY(-120%) scale(0.92); opacity: 0;
+}
+
+/* ─── Responsive ───────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .fbx-wrap { padding: 12px 8px 60px; }
+  .fbx-card { padding: 20px 18px; }
+  .fbx-card-titre { font-size: 18px; }
+  .fbx-banner { flex-direction: column; align-items: flex-start; padding: 12px 14px; }
+  .fbx-banner-ia { align-items: flex-start; }
+  .fbx-ia-bar { width: 100%; }
+  .fbx-card-actions { flex-direction: column; }
+  .fbx-btn-validate { flex: 1; padding: 16px; }
+}

@@ -74,6 +74,18 @@ if (is_post()) {
             ':actif' => $actif,
             ':est_salarie' => $est_salarie,
         ]);
+        $newUserId = (int)$pdo->lastInsertId();
+
+        // Hook glossaire GED : crée le code user dans le glossaire
+        try {
+            if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                require_once __DIR__ . '/inc/ged_glossary.php';
+                $label = trim(($prenom ?: '') . ' ' . $nom) ?: ('User#' . $newUserId);
+                ged_glossary_sync_entity('user', $newUserId, $label, 'users', [
+                    'user_id' => $newUserId,
+                ], $pdo);
+            }
+        } catch (Throwable) {}
 
         $success = "Utilisateur créé avec succès.";
     }

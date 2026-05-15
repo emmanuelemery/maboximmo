@@ -63,6 +63,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE ged_level_codes SET is_active = 1 - is_active WHERE id = ?")->execute([$id]);
             $flash = ['type' => 'success', 'msg' => "🔄 Niveau #{$id} bascule actif/inactif."];
         }
+        elseif ($action === 'toggle_virtual') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id <= 0) throw new RuntimeException('id requis');
+            $pdo->prepare("UPDATE ged_level_codes SET is_virtual = 1 - is_virtual WHERE id = ?")->execute([$id]);
+            $flash = ['type' => 'success', 'msg' => "🔮 Niveau #{$id} : virtual basculé."];
+        }
+        elseif ($action === 'set_business_group') {
+            $id = (int)($_POST['id'] ?? 0);
+            $bg = trim((string)($_POST['business_group'] ?? ''));
+            if ($id <= 0) throw new RuntimeException('id requis');
+            $allowed = ['', 'RH','COMPTA','BAILLEUR','SYNDIC','AGENCE','FOURNISSEURS','MARKETING','ADMIN'];
+            if (!in_array($bg, $allowed, true)) throw new RuntimeException('business_group invalide');
+            $pdo->prepare("UPDATE ged_level_codes SET business_group = NULLIF(?, '') WHERE id = ? AND level_number = 1")
+                ->execute([$bg, $id]);
+            $flash = ['type' => 'success', 'msg' => "📍 Groupe métier mis à jour pour N1 #{$id}."];
+        }
     } catch (Throwable $e) {
         $flash = ['type' => 'error', 'msg' => '❌ ' . $e->getMessage()];
     }
@@ -86,7 +102,11 @@ function load_levels(PDO $pdo, int $level, array $parents): array
             else      { $where .= " AND (`{$col}` IS NULL OR `{$col}` = '')"; }
         }
     }
-    $sql = "SELECT id, code, label, position, is_active FROM ged_level_codes
+    $sql = "SELECT id, code, label, position, is_active,
+                   COALESCE(business_group, '') AS business_group,
+                   COALESCE(is_virtual, 0) AS is_virtual,
+                   COALESCE(is_entity_placeholder, 0) AS is_entity_placeholder
+            FROM ged_level_codes
             WHERE {$where} ORDER BY position ASC, label ASC";
     $st = $pdo->prepare($sql);
     $st->execute($params);
@@ -109,6 +129,26 @@ require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + 
 ?>
 <link rel="stylesheet" href="/css/ged_import.css?v=<?= @filemtime(__DIR__ . '/css/ged_import.css') ?: time() ?>">
 <link rel="stylesheet" href="/css/ged_admin.css?v=<?= @filemtime(__DIR__ . '/css/ged_admin.css') ?: time() ?>">
+<style>
+  .gnvx-badge-bg {
+    display:inline-block; margin-left:6px; padding:1px 6px; font-size:9px; font-weight:700;
+    border-radius:8px; background:#0ea5e9; color:#fff; vertical-align:middle;
+    text-transform:uppercase; letter-spacing:.04em;
+  }
+  .gnvx-badge-mini { font-size:11px; margin-left:4px; opacity:.7; }
+  .gnvx-bg-form { margin:0 6px; }
+  .gnvx-bg-select {
+    font-size:10px; padding:1px 4px; border:1px solid #cbd5e1; border-radius:4px;
+    background:#f8fafc; color:#0f172a; cursor:pointer; max-width:110px;
+  }
+  .gnvx-item.is-virtual {
+    background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(148,163,184,.08) 6px, rgba(148,163,184,.08) 12px);
+    opacity: .75;
+  }
+  .gnvx-item.is-virtual .gnvx-item-label::after {
+    content: " (virtuel)"; font-size:10px; color:#64748b; font-style:italic;
+  }
+</style>
 
 <div class="gnvx-wrap">
   <h1>🏷️ GED — Gestion des niveaux N1→N6</h1>
@@ -173,19 +213,46 @@ require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + 
                 'n1' => $childParams['n1'], 'n2' => $childParams['n2'],
                 'n3' => $childParams['n3'], 'n4' => $childParams['n4']
               ]));
-              $isActive = $selected === $it['code'];
+              $isActive   = $selected === $it['code'];
               $isArchived = !((int)$it['is_active']);
+              $isVirtual  = (int)($it['is_virtual'] ?? 0) === 1;
+              $isPlaceholder = (int)($it['is_entity_placeholder'] ?? 0) === 1;
+              $bg = (string)($it['business_group'] ?? '');
             ?>
-              <li class="gnvx-item <?= $isActive ? 'is-active' : '' ?> <?= $isArchived ? 'is-archived' : '' ?>"
+              <li class="gnvx-item <?= $isActive ? 'is-active' : '' ?> <?= $isArchived ? 'is-archived' : '' ?> <?= $isVirtual ? 'is-virtual' : '' ?>"
                   data-id="<?= (int)$it['id'] ?>"
                   data-level="<?= $lvl ?>"
                   data-code="<?= $h($it['code']) ?>"
                   data-label="<?= $h($it['label']) ?>"
-                  onclick="if(!event.target.closest('.gnvx-action-btn,.gnvx-drag-handle')) window.location='<?= $h($url) ?>'">
+                  onclick="if(!event.target.closest('.gnvx-action-btn,.gnvx-drag-handle,.gnvx-bg-select')) window.location='<?= $h($url) ?>'">
                 <span class="gnvx-drag-handle" title="Glisser pour réordonner">⋮⋮</span>
-                <span class="gnvx-item-label"><?= $h($it['label']) ?></span>
+                <span class="gnvx-item-label">
+                  <?= $h($it['label']) ?>
+                  <?php if ($lvl === 1 && $bg !== ''): ?>
+                    <span class="gnvx-badge-bg" title="Groupe métier UI"><?= $h($bg) ?></span>
+                  <?php endif; ?>
+                  <?php if ($isPlaceholder): ?><span class="gnvx-badge-mini" title="Entity placeholder (instance à nommer)">📁</span><?php endif; ?>
+                  <?php if ($isVirtual): ?><span class="gnvx-badge-mini" title="Virtual (filtre UI, pas matérialisé)">🔮</span><?php endif; ?>
+                </span>
                 <span class="gnvx-item-code"><?= $h($it['code']) ?></span>
+                <?php if ($lvl === 1): ?>
+                  <form method="POST" class="gnvx-bg-form" onclick="event.stopPropagation()">
+                    <input type="hidden" name="action" value="set_business_group">
+                    <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
+                    <select name="business_group" class="gnvx-bg-select" onchange="this.form.submit()" title="Groupe métier UI">
+                      <option value="">— groupe —</option>
+                      <?php foreach (['RH','COMPTA','BAILLEUR','SYNDIC','AGENCE','FOURNISSEURS','MARKETING','ADMIN'] as $g): ?>
+                        <option value="<?= $g ?>" <?= $bg === $g ? 'selected' : '' ?>><?= $g ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </form>
+                <?php endif; ?>
                 <span class="gnvx-item-actions">
+                  <form method="POST" style="display:inline" onclick="event.stopPropagation()">
+                    <input type="hidden" name="action" value="toggle_virtual">
+                    <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
+                    <button type="submit" class="gnvx-action-btn" title="<?= $isVirtual ? 'Désactiver virtuel' : 'Marquer virtuel (filtre)' ?>"><?= $isVirtual ? '✦' : '🔮' ?></button>
+                  </form>
                   <?php if ($isArchived): ?>
                     <button type="button" class="gnvx-action-btn" data-btn-action="unarchive" data-id="<?= (int)$it['id'] ?>" title="Désarchiver">✓</button>
                   <?php else: ?>

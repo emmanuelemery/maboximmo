@@ -76,6 +76,17 @@ if (is_post() && !$errors) {
             ':telephone' => $telephone !== '' ? $telephone : null,
             ':mot_de_passe' => $hash,
         ]);
+        $newUserId = (int)$pdo->lastInsertId();
+
+        try {
+            if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                require_once __DIR__ . '/inc/ged_glossary.php';
+                $label = trim(($prenom ?: '') . ' ' . $nom) ?: ('User#' . $newUserId);
+                ged_glossary_sync_entity('user', $newUserId, $label, 'users', [
+                    'user_id' => $newUserId,
+                ], $pdo);
+            }
+        } catch (Throwable) {}
 
         $success = "Utilisateur créé avec succès.";
     }

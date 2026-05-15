@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/roles_services.php';
+require_once __DIR__ . '/security.php'; // pour app_url()
+
+// Base URL absolue pour tous les liens sidebar (évite les bugs de niveau selon la page courante)
+$_sbBase = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/';
 
 // Marque le contexte de navigation pour les pages partagées (bien_liste, etc.)
 if (session_status() === PHP_SESSION_ACTIVE || session_status() === PHP_SESSION_NONE) {
@@ -33,19 +37,19 @@ $navServices = [
     'net' => [
         'label' => 'Ma Box Net',
         'icon'  => '🌐',
-        'url'   => './dashboard_net.php',
+        'url'   => $_sbBase . 'dashboard_net.php',
         'page'  => 'dashboard_net.php'
     ],
     'rh' => [
         'label' => 'Ma Box RH',
         'icon'  => '👥',
-        'url'   => './' . $rhDashboard,
+        'url'   => $_sbBase . $rhDashboard,
         'page'  => $rhDashboard
     ],
     'agency' => [
         'label' => 'Ma Box Agency',
         'icon'  => '🏠',
-        'url'   => './agency_dashboard.php',
+        'url'   => $_sbBase . 'agency_dashboard.php',
         'page'  => 'agency_dashboard.php'
     ],
 ];
@@ -74,7 +78,7 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
 <aside class="mbi-sidebar">
 
     <!-- ── Brand ── -->
-    <a class="sb-brand" href="./agency_dashboard.php">
+    <a class="sb-brand" href="<?= $_sbBase ?>agency_dashboard.php">
         <div class="sb-brand-logo">🏠</div>
         <div class="sb-brand-text">
             <strong>Ma Box Agency</strong>
@@ -103,10 +107,17 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             Navigation
         </div>
         <ul class="sb-nav">
+            <!-- FluxBox = point d'entrée user unique (pile de cartes à valider) -->
+            <li><a href="<?= $_sbBase ?>fluxbox.php" class="<?= sbActive('fluxbox.php') ?>" style="background:linear-gradient(135deg,#243B5C,#1e3050);color:#fff;border-radius:8px;margin:4px 8px;">
+                <span class="sb-icon">🃏</span><span class="sb-label" style="color:#fff;font-weight:600;">FluxBox</span>
+            </a></li>
             <!-- V2.5 navigation refactor : GED a sa sidebar dédiée + page hub /ged_dashboard.php
                  Les sous-menus GED V2 (Import/Niveaux/Arbo/Coffre) ne sont plus dupliqués ici. -->
-            <li><a href="./ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?>">
+            <li><a href="<?= $_sbBase ?>ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
+            </a></li>
+            <li><a href="<?= $_sbBase ?>ged_consult.php" class="<?= sbActive('ged_consult.php') ?>" style="margin-left:18px;font-size:13px;">
+                <span class="sb-icon">📚</span><span class="sb-label">Consulter les documents</span>
             </a></li>
             <?php foreach ($navServices as $key => $cfg): ?>
                 <?php sbRenderServiceNav($key, $cfg); ?>
@@ -124,34 +135,34 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             Agency
         </div>
         <ul class="sb-nav">
-            <li><a href="./agency_proprietaires.php" class="<?= sbActive('agency_proprietaires.php') ?><?= sbActive('agency_proprietaire_fiche.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_proprietaires.php" class="<?= sbActive('agency_proprietaires.php') ?><?= sbActive('agency_proprietaire_fiche.php') ?>">
                 <span class="sb-icon">👥</span><span class="sb-label">Propriétaires</span>
             </a></li>
-            <li><a href="./agency_immeubles.php" class="<?= sbActive('agency_immeubles.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_immeubles.php" class="<?= sbActive('agency_immeubles.php') ?>">
                 <span class="sb-icon">🏢</span><span class="sb-label">Immeubles</span>
             </a></li>
-            <li><a href="./bien_liste.php" class="<?= sbActive('bien_liste.php') ?>">
+            <li><a href="<?= $_sbBase ?>bien_liste.php" class="<?= sbActive('bien_liste.php') ?>">
                 <span class="sb-icon">🏘️</span><span class="sb-label">Biens</span>
             </a></li>
-            <li><a href="./annonce_liste.php" class="<?= sbActive('annonce_liste.php') ?>">
+            <li><a href="<?= $_sbBase ?>annonce_liste.php" class="<?= sbActive('annonce_liste.php') ?>">
                 <span class="sb-icon">📣</span><span class="sb-label">Annonces</span>
             </a></li>
-            <li><a href="./agency_dashboard_diffusion.php" class="<?= sbActive('agency_dashboard_diffusion.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_dashboard_diffusion.php" class="<?= sbActive('agency_dashboard_diffusion.php') ?>">
                 <span class="sb-icon">📡</span><span class="sb-label">Diffusion</span>
             </a></li>
-            <li><a href="./mbi_supports_dashboard.php" class="<?= sbActive('mbi_supports_dashboard.php') ?><?= sbActive('mbi_supports_score.php') ?><?= sbActive('mbi_supports_critique.php') ?><?= sbActive('mbi_supports_pdf.php') ?>">
+            <li><a href="<?= $_sbBase ?>mbi_supports_dashboard.php" class="<?= sbActive('mbi_supports_dashboard.php') ?><?= sbActive('mbi_supports_score.php') ?><?= sbActive('mbi_supports_critique.php') ?><?= sbActive('mbi_supports_pdf.php') ?>">
                 <span class="sb-icon">📰</span><span class="sb-label">Ma Box Communication</span>
             </a></li>
-            <li><a href="./agency_taches.php" class="<?= sbActive('agency_taches.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_taches.php" class="<?= sbActive('agency_taches.php') ?>">
                 <span class="sb-icon">✅</span><span class="sb-label">Tâches</span>
             </a></li>
-            <li><a href="./agency_reunions.php" class="<?= sbActive('agency_reunions.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_reunions.php" class="<?= sbActive('agency_reunions.php') ?>">
                 <span class="sb-icon">📅</span><span class="sb-label">Réunions</span>
             </a></li>
-            <li><a href="./agency_factures.php" class="<?= sbActive('agency_factures.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_factures.php" class="<?= sbActive('agency_factures.php') ?>">
                 <span class="sb-icon">💰</span><span class="sb-label">Factures</span>
             </a></li>
-            <li><a href="./agency_registres.php" class="<?= sbActive('agency_registres.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_registres.php" class="<?= sbActive('agency_registres.php') ?>">
                 <span class="sb-icon">📂</span><span class="sb-label">Registres</span>
             </a></li>
         </ul>
@@ -168,31 +179,31 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <span class="sb-badge adm">ADMIN</span>
         </div>
         <ul class="sb-nav">
-            <li><a href="./rh_user.php" class="<?= sbActive('rh_user.php') ?>">
+            <li><a href="<?= $_sbBase ?>rh_user.php" class="<?= sbActive('rh_user.php') ?>">
                 <span class="sb-icon">👥</span><span class="sb-label">Gérer les utilisateurs</span>
             </a></li>
-            <li><a href="./agency_honoraires_config.php" class="<?= sbActive('agency_honoraires_config.php') ?>">
+            <li><a href="<?= $_sbBase ?>agency_honoraires_config.php" class="<?= sbActive('agency_honoraires_config.php') ?>">
                 <span class="sb-icon">💼</span><span class="sb-label">Mes honoraires</span>
             </a></li>
-            <li><a href="./admin_documents.php" class="<?= sbActive('admin_documents.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin_documents.php" class="<?= sbActive('admin_documents.php') ?>">
                 <span class="sb-icon">📄</span><span class="sb-label">Documents administratifs</span>
             </a></li>
-            <li><a href="./rh_mails.php" class="<?= sbActive('rh_mails.php') ?>">
+            <li><a href="<?= $_sbBase ?>rh_mails.php" class="<?= sbActive('rh_mails.php') ?>">
                 <span class="sb-icon">📧</span><span class="sb-label">Emails collectifs</span>
             </a></li>
             <li style="margin-top:8px; padding:6px 14px 2px; font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase;">
                 Paramétrage
             </li>
-            <li><a href="./admin/param_types_bien.php" class="<?= sbActive('param_types_bien.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/param_types_bien.php" class="<?= sbActive('param_types_bien.php') ?>">
                 <span class="sb-icon">🏠</span><span class="sb-label">Types de bien</span>
             </a></li>
-            <li><a href="./admin/param_chauffage.php" class="<?= sbActive('param_chauffage.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/param_chauffage.php" class="<?= sbActive('param_chauffage.php') ?>">
                 <span class="sb-icon">🔥</span><span class="sb-label">Chauffage / Énergie</span>
             </a></li>
-            <li><a href="./admin/param_dependances.php" class="<?= sbActive('param_dependances.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/param_dependances.php" class="<?= sbActive('param_dependances.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">Dépendances</span>
             </a></li>
-            <li><a href="./admin/param_vues.php" class="<?= sbActive('param_vues.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/param_vues.php" class="<?= sbActive('param_vues.php') ?>">
                 <span class="sb-icon">🌅</span><span class="sb-label">Vues / Exposition</span>
             </a></li>
         </ul>
@@ -210,40 +221,43 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
             <span class="sb-badge sup">SA</span>
         </div>
         <ul class="sb-nav">
-            <li><a href="./societe_super_admin.php" class="<?= sbActive('societe_super_admin.php') ?>">
+            <li><a href="<?= $_sbBase ?>societe_super_admin.php" class="<?= sbActive('societe_super_admin.php') ?>">
                 <span class="sb-icon">🏢</span><span class="sb-label">Toutes les sociétés</span>
             </a></li>
             <li style="margin-top:8px; padding:6px 14px 2px; font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase;">
                 Compliance / Flux
             </li>
-            <li><a href="./admin/admin_honoraires_recalc.php" class="<?= sbActive('admin_honoraires_recalc.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_honoraires_recalc.php" class="<?= sbActive('admin_honoraires_recalc.php') ?>">
                 <span class="sb-icon">⚖️</span><span class="sb-label">Rattrapage honoraires</span>
             </a></li>
-            <li><a href="./admin/admin_bareme.php" class="<?= sbActive('admin_bareme.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_bareme.php" class="<?= sbActive('admin_bareme.php') ?>">
                 <span class="sb-icon">📜</span><span class="sb-label">URL barème honoraires</span>
             </a></li>
-            <li><a href="./admin/admin_flux_ubiflow.php" class="<?= sbActive('admin_flux_ubiflow.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_flux_ubiflow.php" class="<?= sbActive('admin_flux_ubiflow.php') ?>">
                 <span class="sb-icon">📡</span><span class="sb-label">Flux XML Ubiflow</span>
             </a></li>
             <li style="margin-top:8px; padding:6px 14px 2px; font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase;">
                 Infra / Tech
             </li>
-            <li><a href="./admin/admin_database.php" class="<?= sbActive('admin_database.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_database.php" class="<?= sbActive('admin_database.php') ?>">
                 <span class="sb-icon">🗄</span><span class="sb-label">Base de données</span>
             </a></li>
-            <li><a href="./admin/admin_annonces_table.php" class="<?= sbActive('admin_annonces_table.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_ged_glossaire.php" class="<?= sbActive('admin_ged_glossaire.php') ?>">
+                <span class="sb-icon">🏷️</span><span class="sb-label">Glossaire GED</span>
+            </a></li>
+            <li><a href="<?= $_sbBase ?>admin/admin_annonces_table.php" class="<?= sbActive('admin_annonces_table.php') ?>">
                 <span class="sb-icon">📋</span><span class="sb-label">Annonces (édition directe)</span>
             </a></li>
-            <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
                 <span class="sb-icon">🚀</span><span class="sb-label">Migrations BDD</span>
             </a></li>
-            <li><a href="./admin/admin_deploy.php" class="<?= sbActive('admin_deploy.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/admin_deploy.php" class="<?= sbActive('admin_deploy.php') ?>">
                 <span class="sb-icon">🛠️</span><span class="sb-label">Déploiement FTP</span>
             </a></li>
-            <li><a href="./admin/tools_photos_recompress.php" class="<?= sbActive('tools_photos_recompress.php') ?>">
+            <li><a href="<?= $_sbBase ?>admin/tools_photos_recompress.php" class="<?= sbActive('tools_photos_recompress.php') ?>">
                 <span class="sb-icon">🖼️</span><span class="sb-label">Optimiser photos LBC</span>
             </a></li>
-            <li><a href="./design-system.php" class="<?= sbActive('design-system.php') ?>">
+            <li><a href="<?= $_sbBase ?>design-system.php" class="<?= sbActive('design-system.php') ?>">
                 <span class="sb-icon">🎨</span><span class="sb-label">Design System</span>
             </a></li>
         </ul>
@@ -256,7 +270,7 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
     <div class="sb-divider"></div>
     <div class="sb-group account">
         <ul class="sb-nav">
-            <li><a href="./logout.php">
+            <li><a href="<?= $_sbBase ?>logout.php">
                 <span class="sb-icon">🚪</span><span class="sb-label">Déconnexion</span>
             </a></li>
         </ul>
@@ -266,6 +280,8 @@ function sbRenderServiceNav(string $serviceKey, array $cfg): void {
 </aside>
 
 <script>
+// (Fix JS retiré : remplacé par des URLs absolues côté PHP via $_sbBase + app_url())
+
 document.addEventListener('click', function(e){
     const link = e.target.closest('a[data-locked="1"]');
     if (!link) return;

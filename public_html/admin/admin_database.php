@@ -1280,6 +1280,12 @@ function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
                     <?php else: ?>
                         <div class="bdd-table-header">
                             <h2><?php echo e($selectedTableLabel); ?></h2>
+                            <?php if ($selectedTable === 'agences'): ?>
+                                <a href="./admin_agences_codes.php"
+                                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:linear-gradient(135deg,#243B5C,#1e3050);color:#fff;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;margin-right:8px;">
+                                    🔧 Éditer codes courts
+                                </a>
+                            <?php endif; ?>
                             <button class="btn-add-row" onclick="addNewRow('<?php echo e($selectedTable); ?>')">
                                 ➕ Ajouter une ligne
                             </button>

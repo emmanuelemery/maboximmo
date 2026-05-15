@@ -41,12 +41,38 @@ try {
     // Table pas encore créée
 }
 
-// ─── Liste N1 pour le filtre tableau ─────────────────────────
+// ─── Liste N1 pour le filtre tableau (groupée par business_group V2.25) ──
 $n1Options = [];
+$n1Grouped = []; // [business_group => [n1, n1, ...]]
 try {
-    $st = $pdo->query("SELECT code, label FROM ged_level_codes WHERE level_number = 1 AND is_active = 1 ORDER BY position ASC");
+    $st = $pdo->query("
+        SELECT code, label,
+               COALESCE(business_group, 'ZZ_AUTRE') AS business_group,
+               COALESCE(is_virtual, 0) AS is_virtual
+        FROM ged_level_codes
+        WHERE level_number = 1 AND is_active = 1 AND COALESCE(is_virtual, 0) = 0
+        ORDER BY
+          FIELD(business_group, 'RH','COMPTA','BAILLEUR','SYNDIC','AGENCE','FOURNISSEURS','MARKETING','ADMIN','ZZ_AUTRE'),
+          position ASC
+    ");
     $n1Options = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($n1Options as $o) {
+        $bg = (string)($o['business_group'] ?? 'ZZ_AUTRE');
+        $n1Grouped[$bg][] = $o;
+    }
 } catch (Throwable) {}
+
+$groupLabels = [
+    'RH'           => '👥 RH',
+    'COMPTA'       => '💰 Comptabilité',
+    'BAILLEUR'     => '🏠 Bailleur',
+    'SYNDIC'       => '🏢 Syndic',
+    'AGENCE'       => '🤝 Agence',
+    'FOURNISSEURS' => '🔧 Fournisseurs',
+    'MARKETING'    => '📣 Marketing',
+    'ADMIN'        => '⚙️ Admin',
+    'ZZ_AUTRE'     => '❓ Non classé',
+];
 
 $appLayout = true;
 $pageTitle = 'GED — Import super admin';
@@ -124,8 +150,13 @@ require_once __DIR__ . '/inc/ged_inject_sidebar.php'; // V2.5 — sidebar GED + 
 
       <select id="gimp-filter-n1">
         <option value="">— Tous N1 —</option>
-        <?php foreach ($n1Options as $o): ?>
-          <option value="<?= $h($o['code']) ?>"><?= $h($o['label']) ?></option>
+        <?php foreach ($n1Grouped as $bg => $items):
+          $label = $groupLabels[$bg] ?? $bg; ?>
+          <optgroup label="<?= $h($label) ?>">
+            <?php foreach ($items as $o): ?>
+              <option value="<?= $h($o['code']) ?>"><?= $h($o['label']) ?></option>
+            <?php endforeach; ?>
+          </optgroup>
         <?php endforeach; ?>
       </select>
 

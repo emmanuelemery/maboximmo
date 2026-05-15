@@ -7,5 +7,13 @@
 ?>
 </div><!-- /agency-content -->
 <?php if (!empty($extraJs)) echo $extraJs; ?>
+
+<?php
+// ── Modale FluxBox d'upload universelle (disponible sur toutes les pages) ──
+$_fbxModalPath = __DIR__ . '/fluxbox_upload_modal.php';
+if (is_file($_fbxModalPath)) {
+    require $_fbxModalPath;
+}
+?>
 </body>
 </html>

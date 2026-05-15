@@ -429,6 +429,12 @@ body {
         <div class="tb-spacer"></div>
         <div class="tb-actions">
             <?= $layout_topbar_right ?>
+            <button type="button" id="fbx-upload-open" class="tb-btn fbx-topbar-btn"
+                    title="Charger des documents (Ctrl+U)" aria-label="Charger des documents">
+                <span style="font-size:15px;">📥</span>
+                <span class="fbx-topbar-btn-label">Charger</span>
+                <span class="fbx-badge-live" id="fbx-topbar-badge" style="display:none;">0</span>
+            </button>
             <div class="tb-avatar"><?= htmlspecialchars($_lInitials) ?></div>
         </div>
     </div>
@@ -475,5 +481,13 @@ body {
 </div>
 
 <?= $layout_extra_js ?>
+
+<?php
+// ── Modale FluxBox d'upload universelle (disponible sur toutes les pages) ──
+$_fbxModalPath = __DIR__ . '/fluxbox_upload_modal.php';
+if (is_file($_fbxModalPath)) {
+    require $_fbxModalPath;
+}
+?>
 </body>
 </html>

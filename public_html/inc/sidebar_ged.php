@@ -135,6 +135,12 @@ if (!function_exists('sbActiveSection')) {
             <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
                 <span class="sb-icon">🛠️</span><span class="sb-label">Migrations BDD</span>
             </a></li>
+            <li><a href="<?= function_exists('app_url') ? app_url('/admin/admin_ged_glossaire.php') : './admin/admin_ged_glossaire.php' ?>" class="<?= sbActive('admin_ged_glossaire.php') ?>">
+                <span class="sb-icon">🏷️</span><span class="sb-label">Glossaire GED</span>
+            </a></li>
+            <li><a href="<?= function_exists('app_url') ? app_url('/admin/admin_database.php') : './admin/admin_database.php' ?>" class="<?= sbActive('admin_database.php') ?>">
+                <span class="sb-icon">🗄️</span><span class="sb-label">Base de données</span>
+            </a></li>
         </ul>
     </div>
     <?php endif; ?>

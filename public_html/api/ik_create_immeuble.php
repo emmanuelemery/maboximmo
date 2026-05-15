@@ -84,6 +84,15 @@ if (($digicode || $interphone) && !$commentaire) {
     }
 }
 
+try {
+    if (file_exists(dirname(__DIR__) . '/inc/ged_glossary.php')) {
+        require_once dirname(__DIR__) . '/inc/ged_glossary.php';
+        if ($nom !== '') {
+            ged_glossary_sync_entity('immeuble', $newId, $nom, 'immeubles', [], $pdo);
+        }
+    }
+} catch (Throwable) {}
+
 echo json_encode([
     'ok'          => true,
     'id'          => $newId,

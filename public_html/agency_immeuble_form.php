@@ -85,6 +85,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt2 = $pdo->prepare("SELECT * FROM immeubles WHERE id = ?");
             $stmt2->execute([$id]);
             $imm = $stmt2->fetch(PDO::FETCH_ASSOC) ?: $imm;
+
+            try {
+                if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                    require_once __DIR__ . '/inc/ged_glossary.php';
+                    $label = (string)($imm['nom_immeuble'] ?? $data['nom'] ?? '');
+                    if ($label !== '') {
+                        ged_glossary_sync_entity('immeuble', $id, $label, 'immeubles', [
+                            'reference' => (string)($imm['reference_immeuble'] ?? ''),
+                        ], $pdo);
+                    }
+                }
+            } catch (Throwable) {}
         } else {
             $stmt = $pdo->prepare("INSERT INTO immeubles
                 (reference_immeuble, nom_immeuble, adresse_1, code_postal, ville, nb_lots, type_immeuble, id_agence,
@@ -94,6 +106,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unset($data['immatriculation'], $data['gestionnaire']);
             $stmt->execute($data);
             $newId = (int)$pdo->lastInsertId();
+
+            try {
+                if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                    require_once __DIR__ . '/inc/ged_glossary.php';
+                    $label = (string)($data['nom'] ?? '');
+                    if ($label !== '') {
+                        ged_glossary_sync_entity('immeuble', $newId, $label, 'immeubles', [
+                            'reference' => (string)($data['reference'] ?? ''),
+                        ], $pdo);
+                    }
+                }
+            } catch (Throwable) {}
+
             header("Location: agency_immeuble_fiche.php?id=$newId");
             exit;
         }

@@ -49,7 +49,7 @@ if (!empty($_SESSION['user_id'])) {
             }
         } catch (Throwable) { /* no-op */ }
     }
-    header('Location: ' . ($nextUrl ?? 'landing.php'));
+    header('Location: ' . ($nextUrl ?? 'fluxbox.php'));
     exit;
 }
 
@@ -130,9 +130,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     // Destination par défaut selon le rôle
+                    // FluxBox = point d'entrée unifié (validé EMERY 2026-05-13)
                     $defaultDest = match ((int)$user['id_role']) {
                         9, 10  => 'bailleur_dashboard.php',
-                        default => 'landing.php',
+                        default => 'fluxbox.php',
                     };
 
                     // Si ?next= fourni (et sûr), on y retourne. Sinon destination par défaut.

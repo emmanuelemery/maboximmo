@@ -177,6 +177,16 @@ if (is_post()) {
 
                 $userId = (int)$pdo->lastInsertId();
 
+                try {
+                    if (file_exists(__DIR__ . '/inc/ged_glossary.php')) {
+                        require_once __DIR__ . '/inc/ged_glossary.php';
+                        ged_glossary_sync_entity('societe', $societeId, (string)($data['societe_nom'] ?? ''), 'societes', [], $pdo);
+                        ged_glossary_sync_entity('agence', $agenceId, (string)($data['agence_nom'] ?? ''), 'agences', [], $pdo);
+                        $label = trim((string)($data['user_prenom'] ?? '') . ' ' . (string)($data['user_nom'] ?? '')) ?: ('User#' . $userId);
+                        ged_glossary_sync_entity('user', $userId, $label, 'users', ['user_id' => $userId], $pdo);
+                    }
+                } catch (Throwable) {}
+
                 if (!empty($uploads)) {
                     $moveTemp = static function (array $temp, string $destDir, string $prefix): array {
                         if (!is_dir($destDir)) {
