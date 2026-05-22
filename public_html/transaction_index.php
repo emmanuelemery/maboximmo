@@ -519,12 +519,11 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <thead>
             <tr>
                 <th>Réf.</th>
-                <th>Ville</th>
                 <th>Adresse</th>
                 <th>Propriétaire</th>
                 <th>Type</th>
                 <th>Usage</th>
-                <th class="num">Surf.</th>
+                <th class="num" style="min-width:90px;">Surface</th>
                 <th class="num">Prix vente</th>
                 <th class="num">Loyer/an</th>
                 <th class="num">Rdt %</th>
@@ -585,9 +584,11 @@ include __DIR__ . '/inc/agency_layout_top.php';
                         <span class="tr-prio-dot none     <?= !$prio?'active':'' ?>"             onclick="trSetPriorite(<?= $bienId ?>,'')"        title="⚪ Aucune"></span>
                     </div>
                 </td>
-                <td data-label="Ville"><?= h($r['ville'] ?: '—') ?></td>
-                <td data-label="Adresse" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= h($r['adresse_1']) ?>">
-                    <?= h($r['adresse_1'] ?: $r['designation'] ?: '—') ?>
+                <td data-label="Adresse" style="max-width:240px;" title="<?= h(trim(($r['adresse_1'] ?? '') . ' · ' . ($r['ville'] ?? ''), ' ·')) ?>">
+                    <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= h($r['adresse_1'] ?: $r['designation'] ?: '—') ?></div>
+                    <?php if (!empty($r['ville'])): ?>
+                        <div style="font-size:11px; color:#7a766f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= h($r['ville']) ?></div>
+                    <?php endif; ?>
                 </td>
                 <td data-label="Propriétaire"><?= h($proprioNom ?: '—') ?></td>
                 <td data-label="Type">
@@ -596,7 +597,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
                     <?php else: ?>—<?php endif; ?>
                 </td>
                 <td data-label="Usage"><?= h($r['usage_bien'] ?: '—') ?></td>
-                <td data-label="Surface" class="num"><?= $r['surface_habitable'] ? number_format((float)$r['surface_habitable'], 1, ',', ' ') . ' m²' : '—' ?></td>
+                <td data-label="Surface" class="num" style="min-width:90px; white-space:nowrap;"><?= $r['surface_habitable'] ? number_format((float)$r['surface_habitable'], 1, ',', ' ') . ' m²' : '—' ?></td>
                 <td data-label="Prix" class="num"><?= $prix > 0 ? number_format($prix, 0, ',', ' ') . ' €' : '—' ?></td>
                 <td data-label="Loyer/an" class="num"><?= $loyerAn > 0 ? number_format($loyerAn, 0, ',', ' ') . ' €' : '—' ?></td>
                 <td data-label="Rendement" class="num"><?= $rdt > 0 ? number_format($rdt, 2, ',', '') . ' %' : '—' ?></td>
