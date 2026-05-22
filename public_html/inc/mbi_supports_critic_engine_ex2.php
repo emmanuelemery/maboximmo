@@ -372,36 +372,6 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
         // Détecte la copropriété
         $estCopro = (int)($bien['bien_en_copropriete'] ?? $bien['copropriete'] ?? $bien['est_copro'] ?? $bien['en_copropriete'] ?? 0) === 1;
 
-        // ─── SOURCE UNIQUE DE VÉRITÉ COMMERCIALE = annonces ───────────────
-        // L'utilisateur saisit les infos commerciales (prix, honoraires) dans
-        // l'onglet « Conditions financières » → table annonces. Les colonnes
-        // biens.prix_vente / biens.honoraires_* sont legacy. On override $bien
-        // depuis $annonce pour que la card Mentions affiche les vraies valeurs.
-        if ($annonce) {
-            // Prix FAI : annonces.prix > biens.prix_vente
-            if (!empty($annonce['prix']) && (float)$annonce['prix'] > 0) {
-                $bien['prix_vente'] = (float)$annonce['prix'];
-            }
-            // Prix net vendeur (= prix hors honoraires si charge acquéreur)
-            if (!empty($annonce['prix_net_vendeur']) && (float)$annonce['prix_net_vendeur'] > 0) {
-                $bien['prix_hors_honoraires'] = (float)$annonce['prix_net_vendeur'];
-                $bien['prix_net_vendeur']     = (float)$annonce['prix_net_vendeur'];
-            }
-            // Honoraires (montant)
-            if (isset($annonce['honoraires']) && (float)$annonce['honoraires'] > 0) {
-                $bien['honoraires_montant'] = (float)$annonce['honoraires'];
-            }
-            // Honoraires à charge : 2 booléens annonce → libellé biens
-            $cA = (int)($annonce['honoraires_charge_acquereur'] ?? 0) === 1;
-            $cV = (int)($annonce['honoraires_charge_vendeur']   ?? 0) === 1;
-            if ($cA || $cV) {
-                $bien['honoraires_charge'] = ($cA && $cV) ? 'partage' : ($cA ? 'acquereur' : 'vendeur');
-                if (empty($bien['honoraires_inclus'])) {
-                    $bien['honoraires_inclus'] = $cA ? 'charge acquéreur' : ($cV ? 'charge vendeur' : '');
-                }
-            }
-        }
-
         return [
             'bien'        => $bien,
             'photos'      => $photos,

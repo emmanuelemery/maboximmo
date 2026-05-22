@@ -114,10 +114,7 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
 
         // ── Définitions atomiques (réutilisées plusieurs fois) ────────────
         $f = [
-            // Source de vérité commerciale = annonces (refactor 2026-05-22).
-            // L'utilisateur saisit aussi ces champs dans l'onglet Conditions financières →
-            // un seul lieu de stockage, plus de divergence biens ↔ annonces.
-            'prix_vente'           => ['entity'=>'annonce','table'=>'annonces','column'=>'prix','label'=>'Prix de vente FAI (€)','type'=>'number','hint'=>'Prix affiché honoraires inclus si charge acquéreur','required'=>true],
+            'prix_vente'           => ['entity'=>'bien','table'=>'biens','column'=>'prix_vente','label'=>'Prix de vente (€)','type'=>'number','hint'=>'Prix honoraires inclus si charge acquéreur','required'=>true],
             'surface_habitable'    => ['entity'=>'bien','table'=>'biens','column'=>'surface_habitable','label'=>'Surface habitable (m²)','type'=>'number','hint'=>'Loi Carrez si applicable','required'=>true],
             'surface_utile'        => ['entity'=>'bien','table'=>'biens','column'=>'surface_habitable','label'=>'Surface utile (m²)','type'=>'number','hint'=>'Surface exploitable du local','required'=>true],
             'id_type_bien'         => ['entity'=>'bien','table'=>'biens','column'=>'id_type_bien','label'=>'Type de bien','type'=>'select_db','hint'=>'Sélectionne le type métier','required'=>true],
@@ -130,14 +127,12 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
             'ges_classe'           => ['entity'=>'bien','table'=>'biens','column'=>'ges_classe','label'=>'Classe GES','type'=>'select','options'=>['' => '— non renseigné —','A'=>'A','B'=>'B','C'=>'C','D'=>'D','E'=>'E','F'=>'F','G'=>'G']],
             'dpe_statut'           => ['entity'=>'bien','table'=>'biens','column'=>'dpe_statut','label'=>'Statut DPE','type'=>'select','options'=>['present'=>'Présent','en_cours'=>'En cours','non_soumis'=>'Non soumis (R126-15)','manquant'=>'Manquant'],'hint'=>'Si pas de classe, choisir « en cours » ou « non soumis »'],
 
-            // Honoraires vente — source de vérité = annonces (refactor 2026-05-22)
-            'honoraires_montant'    => ['entity'=>'annonce','table'=>'annonces','column'=>'honoraires','label'=>'Montant des honoraires (€)','type'=>'number'],
-            // honoraires_charge : reste sur biens (select 3 valeurs) ; synchro vers
-            // annonces.honoraires_charge_acquereur/vendeur faite à l'after-save.
+            // Honoraires vente
+            'honoraires_montant'    => ['entity'=>'bien','table'=>'biens','column'=>'honoraires_montant','label'=>'Montant des honoraires (€)','type'=>'number'],
             'honoraires_charge'     => ['entity'=>'bien','table'=>'biens','column'=>'honoraires_charge','label'=>'Charge des honoraires','type'=>'select','options'=>['' => '—','acquereur'=>'Acquéreur','vendeur'=>'Vendeur','partage'=>'Partagée'],'required'=>true],
-            'honoraires_inclus'     => ['entity'=>'bien','table'=>'biens','column'=>'honoraires_inclus','label'=>'Honoraires inclus','type'=>'text','hint'=>'Ex : « charge acquéreur » — dérivé automatiquement si vide'],
+            'honoraires_inclus'     => ['entity'=>'bien','table'=>'biens','column'=>'honoraires_inclus','label'=>'Honoraires inclus','type'=>'text','hint'=>'Ex : « charge acquéreur »'],
             'honoraires_detail'     => ['entity'=>'bien','table'=>'biens','column'=>'honoraires_detail','label'=>'Détail honoraires','type'=>'textarea'],
-            'prix_hors_honoraires'  => ['entity'=>'annonce','table'=>'annonces','column'=>'prix_net_vendeur','label'=>'Prix net vendeur (€)','type'=>'number','hint'=>'Prix hors honoraires si charge acquéreur'],
+            'prix_hors_honoraires'  => ['entity'=>'bien','table'=>'biens','column'=>'prix_hors_honoraires','label'=>'Prix hors honoraires (€)','type'=>'number','hint'=>'Affiché en complément si charge acquéreur'],
             'bareme_url'            => ['entity'=>'agence','table'=>'agences','column'=>'bareme_url','label'=>'URL du barème honoraires de l\'agence','type'=>'text','hint'=>'Lien public vers le barème (PDF ou page)','required'=>true],
 
             // Honoraires location (ALUR) — sur l'annonce

@@ -229,20 +229,6 @@ try {
         $st->execute($params);
         $saved[$table] = array_keys($cols);
     }
-
-    // ─── Synchro biens.honoraires_charge → annonces.honoraires_charge_* ──
-    // `biens.honoraires_charge` est un select 3 valeurs (acquereur/vendeur/partage)
-    // alors qu'annonces a 2 booléens. On propage manuellement vers l'annonce
-    // active pour garder les 2 sources alignées (refactor 2026-05-22).
-    if (!empty($buckets['biens']['honoraires_charge']) && ($idsParEntite['annonces'] ?? 0) > 0) {
-        $val = (string)$buckets['biens']['honoraires_charge'];
-        $cA  = ($val === 'acquereur' || $val === 'partage') ? 1 : 0;
-        $cV  = ($val === 'vendeur'   || $val === 'partage') ? 1 : 0;
-        $st  = $pdo->prepare("UPDATE annonces SET honoraires_charge_acquereur = :a, honoraires_charge_vendeur = :v WHERE id = :id");
-        $st->execute([':a' => $cA, ':v' => $cV, ':id' => $idsParEntite['annonces']]);
-        $saved['annonces'] = array_merge($saved['annonces'] ?? [], ['honoraires_charge_acquereur', 'honoraires_charge_vendeur']);
-    }
-
     $pdo->commit();
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
