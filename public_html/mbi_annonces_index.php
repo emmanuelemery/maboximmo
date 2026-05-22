@@ -136,7 +136,7 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
   <div class="mbi-hero2-inner">
 
     <h1 id="mbi-hero-title" class="mbi-hero2-title">Trouvez votre bien idéal</h1>
-    <p class="mbi-hero2-sub">Cliquez pour filtrer instantanément</p>
+    <?php /* sous-titre supprimé (demande UX) */ ?>
     <div class="mbi-hero2-line"></div>
 
     <!-- ═══ ZONE FILTRES — 4 glass cards alignées ═══ -->
@@ -146,13 +146,13 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
       <div class="mbi-glass-card">
         <div class="mbi-fcard-title">↔ Transaction</div>
         <div class="mbi-fcard-grid mbi-fcard-grid-1col">
-          <a class="mbi-fcardbtn <?= mbi_filter_active($filters, 'transaction', 'location') ? 'active' : '' ?>"
-             href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'location') ? null : 'location'])) ?>">
-            <span class="mbi-fcardbtn-ic">🔑</span>LOCATION
+           <a class="mbi-fcardbtn <?= mbi_filter_active($filters, 'transaction', 'location') ? 'active' : '' ?>"
+              href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'location') ? null : 'location'])) ?>">
+            <span class="mbi-fcardbtn-ic">🔑</span><span class="mbi-fcardbtn-txt">LOCATION</span>
           </a>
           <a class="mbi-fcardbtn <?= mbi_filter_active($filters, 'transaction', 'vente') ? 'active' : '' ?>"
              href="<?= h(mbi_filter_url($filters, ['transaction' => mbi_filter_active($filters, 'transaction', 'vente') ? null : 'vente'])) ?>">
-            <span class="mbi-fcardbtn-ic">🏠</span>VENTE
+            <span class="mbi-fcardbtn-ic">🏠</span><span class="mbi-fcardbtn-txt">VENTE</span>
           </a>
         </div>
       </div>
@@ -173,13 +173,13 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
             foreach ($typesList as $t):
               $isActive = mbi_filter_active($filters, 'type_bien', $t['code']);
           ?>
-            <a class="mbi-fcardbtn <?= $isActive ? 'active' : '' ?>"
-               href="<?= h(mbi_filter_url($filters, ['type_bien' => $isActive ? null : $t['code']])) ?>">
-              <span class="mbi-fcardbtn-ic"><?= $t['icon'] ?></span><?= h($t['label']) ?>
-            </a>
-          <?php endforeach; ?>
-        </div>
-      </div>
+             <a class="mbi-fcardbtn <?= $isActive ? 'active' : '' ?>"
+                href="<?= h(mbi_filter_url($filters, ['type_bien' => $isActive ? null : $t['code']])) ?>">
+              <span class="mbi-fcardbtn-ic"><?= $t['icon'] ?></span><span class="mbi-fcardbtn-txt"><?= h($t['label']) ?></span>
+             </a>
+           <?php endforeach; ?>
+         </div>
+       </div>
 
       <!-- ── Bloc 3 — Département (3 cols × 2 rows) ── -->
       <div class="mbi-glass-card">
@@ -197,25 +197,29 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
             foreach ($depts as $d):
               $isActive = mbi_filter_active($filters, 'code_postal', $d['cp']);
           ?>
-            <a class="mbi-fcardbtn mbi-fcardbtn-dept <?= $isActive ? 'active' : '' ?>"
-               href="<?= h(mbi_filter_url($filters, ['code_postal' => $isActive ? null : $d['cp']])) ?>">
-              <?= h($d['label']) ?>
+             <a class="mbi-fcardbtn mbi-fcardbtn-dept <?= $isActive ? 'active' : '' ?>"
+                href="<?= h(mbi_filter_url($filters, ['code_postal' => $isActive ? null : $d['cp']])) ?>">
+              <span class="mbi-fcardbtn-txt"><?= h($d['label']) ?></span>
               <span class="mbi-fcardbtn-cp"><?= h($d['cp']) ?></span>
-            </a>
-          <?php endforeach; ?>
-        </div>
-      </div>
+             </a>
+           <?php endforeach; ?>
+         </div>
+       </div>
 
       <!-- ── Bloc 4 — Budget (price card avec flèches) ── -->
       <div class="mbi-glass-card mbi-price-card">
         <div class="mbi-fcard-title">Budget <small>(<?= $isLocation ? '€/mois' : '€' ?>)</small></div>
-        <div class="mbi-price-box">
-          <a class="mbi-price-arrow" href="<?= h($priceUpUrl) ?>" aria-label="Budget précédent">⌃</a>
-          <div class="mbi-price-value"><?= h($currentPriceLabel) ?></div>
-          <a class="mbi-price-arrow" href="<?= h($priceDownUrl) ?>" aria-label="Budget suivant">⌄</a>
+        <div class="mbi-price-card-body">
+          <div class="mbi-price-box">
+            <a class="mbi-price-arrow" href="<?= h($priceUpUrl) ?>" aria-label="Budget précédent">⌃</a>
+            <div class="mbi-price-value"><?= h($currentPriceLabel) ?></div>
+            <a class="mbi-price-arrow" href="<?= h($priceDownUrl) ?>" aria-label="Budget suivant">⌄</a>
+          </div>
+          <div>
+            <div class="mbi-price-chip"><?= h($currentPriceLabel) ?></div>
+            <div class="mbi-price-sublabel">Sélection actuelle</div>
+          </div>
         </div>
-        <div class="mbi-price-chip"><?= h($currentPriceLabel) ?></div>
-        <div class="mbi-price-sublabel">Sélection actuelle</div>
       </div>
 
     </div>

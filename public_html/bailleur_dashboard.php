@@ -241,7 +241,7 @@ if (!empty($activePropIds)) {
 /* ── Layout ── */
 $layout_title   = 'Dashboard Bailleur';
 $layout_module  = 'Ma Box Bailleur';
-$layout_sidebar = 'sidebar_bailleur';
+$layout_sidebar = 'sidebar_agency';
 $current_page   = 'bailleur_dashboard';
 $_on = 'padding:8px 24px;border-radius:10px;text-decoration:none;font-size:13px;font-weight:600;background:#4a6038;color:#fff;border:1px solid #4a6038;';
 $_off = 'padding:8px 24px;border-radius:10px;text-decoration:none;font-size:13px;font-weight:600;background:#fff;color:#555;border:1px solid #d4d7de;';

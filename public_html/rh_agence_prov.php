@@ -95,7 +95,7 @@ $e = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 $layout_title   = 'Mon agence — ' . htmlspecialchars($_userName, ENT_QUOTES, 'UTF-8');
 $layout_module  = 'Mon espace · Collaborateur';
-$layout_sidebar = 'sidebar_user';
+$layout_sidebar = 'rh_sidebar';
 // page-head réactivé pour afficher la mini card agence
 
 $layout_head_kpis = '

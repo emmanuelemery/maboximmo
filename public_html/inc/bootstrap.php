@@ -153,6 +153,9 @@ $APP_BASE_PATH = getenv('APP_BASE_PATH')
     ?: ($_SERVER['APP_BASE_PATH'] ?? '')
     ?: (defined('APP_BASE_PATH') ? APP_BASE_PATH : '');
 
+// Exposé au reste de l'app via security.php (app_url/asset_url).
+$GLOBALS['APP_BASE_PATH'] = $APP_BASE_PATH;
+
 /**
  * Chargement Google Maps/Places optionnel
  */

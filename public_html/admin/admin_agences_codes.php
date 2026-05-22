@@ -13,7 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
 require_login();
-require_super_admin();
+require_admin_or_super_admin();
 
 $pdo = db();
 $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
@@ -49,8 +49,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $pdo->prepare("UPDATE agences SET code_agence = NULLIF(?, ''), code_interne = NULLIF(?, '') WHERE id = ?")
-            ->execute([$codeAgence, $codeInterne, $id]);
+        // Important : éviter NULLIF(?, '') en SQL (collations hétérogènes selon env MySQL)
+        // et gérer le NULL côté PHP pour rester compatible.
+        $codeAgenceDb  = ($codeAgence === '') ? null : $codeAgence;
+        $codeInterneDb = ($codeInterne === '') ? null : $codeInterne;
+        $pdo->prepare("UPDATE agences SET code_agence = ?, code_interne = ? WHERE id = ?")
+            ->execute([$codeAgenceDb, $codeInterneDb, $id]);
 
         $flash = ['type' => 'success', 'msg' => "✅ Agence « {$current['nom_agence']} » mise à jour."];
     } catch (Throwable $e) {

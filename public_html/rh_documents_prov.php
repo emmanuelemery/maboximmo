@@ -197,7 +197,7 @@ $current_page = 'documents';
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 $layout_title   = 'Mes documents — ' . htmlspecialchars($_userName, ENT_QUOTES, 'UTF-8');
 $layout_module  = 'Mon espace · Collaborateur';
-$layout_sidebar = 'sidebar_user';
+$layout_sidebar = 'rh_sidebar';
 // page-head réactivé pour afficher l'alerte docs manquants
 
 // KPIs

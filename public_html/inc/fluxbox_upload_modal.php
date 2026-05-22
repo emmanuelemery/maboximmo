@@ -72,44 +72,79 @@ try {
         <!-- ───── Classement GED — boutons cascade ───── -->
         <div class="fbx-meta-block">
 
-            <!-- Société (boutons codes 4 lettres XX.YY) -->
+            <!-- Société -->
             <div class="fbx-row-block">
                 <div class="fbx-row-label">🏢 Société <span class="fbx-required">*</span></div>
-                <div class="fbx-btn-row" id="fbx-row-societes">
+                <div class="fbx-btn-grid" id="fbx-row-societes">
                     <div class="fbx-loading">Chargement…</div>
                 </div>
             </div>
 
-            <!-- Agence (cascade depuis société) -->
+            <!-- Agence (cascade depuis société — facultative pour docs niveau société) -->
             <div class="fbx-row-block">
-                <div class="fbx-row-label">🏬 Agence <span class="fbx-required">*</span></div>
-                <div class="fbx-btn-row" id="fbx-row-agences">
+                <div class="fbx-row-label">🏬 Agence <span class="fbx-meta-optional">(facultative — laisser sur « Société uniquement » pour un doc niveau société)</span></div>
+                <div class="fbx-btn-grid" id="fbx-row-agences">
                     <div class="fbx-row-empty">— Choisir une société d'abord —</div>
                 </div>
             </div>
 
-            <!-- Métier (boutons groupés par business_group, 8 groupes) -->
+            <!-- Métier (1 bouton par N1, grille 5/ligne avec icône) -->
             <div class="fbx-row-block">
                 <div class="fbx-row-label">💼 Métier <span class="fbx-required">*</span></div>
-                <div class="fbx-btn-row fbx-btn-row-groups" id="fbx-row-metiers">
+                <div class="fbx-btn-grid" id="fbx-row-metiers">
                     <div class="fbx-loading">Chargement…</div>
                 </div>
             </div>
 
-            <!-- Domaine + sous-domaine (selects cascade, après métier choisi) -->
-            <div class="fbx-meta-cascade">
-                <div class="fbx-meta-select">
-                    <label for="fbx-meta-n2">Domaine</label>
-                    <select id="fbx-meta-n2" data-meta="n2" disabled>
-                        <option value="">— Choisir un métier d'abord —</option>
-                    </select>
+            <!-- Domaine (N2) -->
+            <div class="fbx-row-block">
+                <div class="fbx-row-label">📂 Domaine</div>
+                <div class="fbx-btn-grid-sm" id="fbx-row-n2" data-meta="n2" data-meta-level="2">
+                    <div class="fbx-row-empty">— Choisir un métier d'abord —</div>
                 </div>
-                <div class="fbx-meta-select">
-                    <label for="fbx-meta-n3">Sous-domaine</label>
-                    <select id="fbx-meta-n3" data-meta="n3" disabled>
-                        <option value="">— Choisir un domaine d'abord —</option>
-                    </select>
+            </div>
+
+            <!-- Sous-domaine (N3) -->
+            <div class="fbx-row-block">
+                <div class="fbx-row-label">📁 Sous-domaine</div>
+                <div class="fbx-btn-grid-sm" id="fbx-row-n3" data-meta="n3" data-meta-level="3">
+                    <div class="fbx-row-empty">— Choisir un domaine d'abord —</div>
                 </div>
+            </div>
+
+            <!-- Catégorie (N4) -->
+            <div class="fbx-row-block">
+                <div class="fbx-row-label">📄 Catégorie</div>
+                <div class="fbx-btn-grid-sm" id="fbx-row-n4" data-meta="n4" data-meta-level="4">
+                    <div class="fbx-row-empty">— Choisir un sous-domaine d'abord —</div>
+                </div>
+            </div>
+
+            <!-- Sous-catégorie (N5) -->
+            <div class="fbx-row-block">
+                <div class="fbx-row-label">📑 Sous-catégorie</div>
+                <div class="fbx-btn-grid-sm" id="fbx-row-n5" data-meta="n5" data-meta-level="5">
+                    <div class="fbx-row-empty">— Choisir une catégorie d'abord —</div>
+                </div>
+            </div>
+
+            <!-- Nom de l'entité (collaborateur, immeuble, banque, fournisseur…) -->
+            <div class="fbx-meta-label" id="fbx-meta-entity-wrap">
+                <label for="fbx-meta-entity-input">
+                    👤 Nom de l'entité
+                    <span class="fbx-meta-optional" id="fbx-meta-entity-hint">(rempli auto si tu uploades un dossier nommé — sinon saisis ici : Dupont-Pierre, BNP Paribas, Immeuble Foch…)</span>
+                </label>
+                <input type="text" id="fbx-meta-entity-input" maxlength="120"
+                       placeholder="Ex : « Dupont-Pierre » pour un collaborateur, « CACE » pour une banque, « Imm-Foch » pour un immeuble…">
+                <div class="fbx-meta-hint" id="fbx-meta-entity-required-msg" style="display:none; color:#dc2626;">⚠️ Ce sous-domaine attend une entité — sans nom, le doc sera classé sous « COLLABORATEUR » générique.</div>
+            </div>
+
+            <!-- Libellé personnalisé du document (optionnel) -->
+            <div class="fbx-meta-label">
+                <label for="fbx-meta-label-input">🏷️ Libellé du document <span class="fbx-meta-optional">(optionnel)</span></label>
+                <input type="text" id="fbx-meta-label-input" maxlength="180"
+                       placeholder="Ex : « Relevé CACE octobre 2026 » — si vide, l'IA propose un libellé après import">
+                <div class="fbx-meta-hint">💡 Si rempli, ce libellé sera utilisé tel quel. Si vide, l'IA propose un libellé après analyse du document.</div>
             </div>
 
             <!-- Date du document (override) -->
@@ -223,12 +258,103 @@ try {
                 </div>
             </div>
             <ul id="fbx-queue-list"></ul>
+
+            <!-- Bilan doublons (affiché en fin d'upload si > 0 doublons détectés) -->
+            <div class="fbx-dedup-summary" id="fbx-dedup-summary" hidden>
+                <div class="fbx-dedup-head">
+                    🛡️ <strong id="fbx-dedup-count">0</strong> doublon(s) détecté(s) — fichier(s) déjà présent(s) en BDD
+                    <button type="button" class="fbx-dedup-toggle" id="fbx-dedup-toggle">Voir le détail ▼</button>
+                </div>
+                <div class="fbx-dedup-list" id="fbx-dedup-list" hidden></div>
+            </div>
+
+            <!-- Actions de fin de chargement (affichées quand tout est traité) -->
+            <div class="fbx-queue-end-actions" id="fbx-queue-end-actions" hidden>
+                <button type="button" class="fbx-btn fbx-btn-primary" id="fbx-go-fluxbox">
+                    🃏 Voir la pile FluxBox
+                </button>
+                <button type="button" class="fbx-btn fbx-btn-secondary" id="fbx-upload-more">
+                    📥 Charger d'autres documents
+                </button>
+                <button type="button" class="fbx-btn fbx-btn-secondary" data-fbx-close>
+                    ✕ Fermer
+                </button>
+            </div>
         </div>
 
     </div>
 </div>
 
 <style>
+/* ═══════════ Bilan doublons en fin d'upload ═══════════ */
+.fbx-dedup-summary {
+    margin: 14px 16px 0;
+    padding: 14px 16px;
+    background: linear-gradient(180deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #d97706;
+    border-radius: 12px;
+    color: #92400e;
+}
+.fbx-dedup-head {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; font-weight: 600;
+}
+.fbx-dedup-head strong { color: #b45309; font-size: 18px; }
+.fbx-dedup-toggle {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid #b45309;
+    color: #92400e;
+    padding: 4px 10px; border-radius: 6px;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.fbx-dedup-toggle:hover { background: rgba(180, 83, 9, 0.1); }
+.fbx-dedup-list {
+    margin-top: 12px;
+    background: #fffbeb;
+    border-radius: 8px;
+    padding: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.fbx-dedup-item {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px dashed #d97706;
+    align-items: center;
+    font-size: 12px;
+}
+.fbx-dedup-item:last-child { border-bottom: none; }
+.fbx-dedup-item-new, .fbx-dedup-item-orig {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.fbx-dedup-item-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: #b45309; font-weight: 700;
+}
+.fbx-dedup-item-name {
+    font-family: 'DM Mono', monospace;
+    color: #1f2937;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fbx-dedup-item-meta {
+    font-size: 10px; color: #78716c;
+}
+.fbx-dedup-item-action a {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #fff;
+    border: 1px solid #b45309;
+    border-radius: 6px;
+    color: #92400e;
+    text-decoration: none;
+    font-size: 11px; font-weight: 600;
+    white-space: nowrap;
+}
+.fbx-dedup-item-action a:hover { background: #fef3c7; }
+
 /* ═══════════ Badges live + Toasts (uploads non-bloquants) ═══════════ */
 .fbx-badge-live {
     position: absolute;
@@ -295,57 +421,85 @@ try {
     to { transform: translateX(360px); opacity: 0; }
 }
 
-/* ═══════════ Bouton topbar (intégration .tb-btn) ═══════════ */
-.fbx-topbar-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px;
-    background: linear-gradient(135deg, #D4A047, #b88835);
-    color: #1a1816 !important;
-    border: none; border-radius: 8px;
-    font-family: "Sora", "Inter", sans-serif; font-size: 12px; font-weight: 700;
+/* ═══════════ Bouton Charger — violet saturé + glow lumineux ═══════════ */
+/* Style commun topbar + FAB pour cohérence visuelle parfaite */
+.mbi-topbar .tb-btn.fbx-topbar-btn,
+.fbx-topbar-btn,
+.fbx-upload-fab {
+    width: auto !important; height: auto !important;
+    display: inline-flex !important; align-items: center; gap: 8px;
+    padding: 9px 16px !important;
+    background: linear-gradient(180deg, #E5D5F5 0%, #BFA0E0 100%) !important;
+    color: #3D1A6E !important;
+    border: 1px solid #9F7BCC !important; border-radius: 10px !important;
+    font-family: "Sora", "Inter", sans-serif; font-size: 13px; font-weight: 700;
+    letter-spacing: 0.01em;
     cursor: pointer;
-    box-shadow: 2px 2px 6px rgba(0,0,0,0.12);
-    transition: transform .12s, box-shadow .15s;
+    /* Relief + glow lumineux (ombre portée réduite de 50% — 2026-05-17) */
+    box-shadow:
+        -1px -1px 3px rgba(255, 255, 255, 0.42),
+         2px 2px 5px rgba(120, 75, 200, 0.22),
+         0 0 7px rgba(176, 130, 232, 0.27),
+         inset 0 1px 2px rgba(255, 255, 255, 0.9),
+         inset 0 -1px 2px rgba(120, 75, 200, 0.18) !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+    transition: all .15s ease;
 }
-.fbx-topbar-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 3px 4px 10px rgba(0,0,0,0.18);
+.mbi-topbar .tb-btn.fbx-topbar-btn:hover,
+.fbx-topbar-btn:hover,
+.fbx-upload-fab:hover {
+    transform: translateY(-2px);
+    background: linear-gradient(180deg, #DDC5F0 0%, #B08AD8 100%) !important;
+    box-shadow:
+        -1.5px -1.5px 4px rgba(255, 255, 255, 0.47),
+         2px 3px 7px rgba(120, 75, 200, 0.27),
+         0 0 11px rgba(176, 130, 232, 0.37),
+         inset 0 1px 2px rgba(255, 255, 255, 1),
+         inset 0 -1px 2px rgba(120, 75, 200, 0.25) !important;
+    border-color: #6B33B5 !important;
+    color: #2D0F58 !important;
 }
-.fbx-topbar-btn-label { letter-spacing: 0.02em; }
+.mbi-topbar .tb-btn.fbx-topbar-btn:active,
+.fbx-topbar-btn:active,
+.fbx-upload-fab:active {
+    transform: translateY(0);
+    box-shadow:
+        inset 2px 2px 6px rgba(120, 75, 200, 0.5),
+        inset -2px -2px 5px rgba(255, 255, 255, 0.85),
+        0 0 10px rgba(176, 130, 232, 0.4) !important;
+}
+.fbx-topbar-btn-label { letter-spacing: 0.03em; }
+/* Topbar uniquement — hauteur réduite de 25% + 50px de décalage à droite (2026-05-17) */
+.mbi-topbar .tb-btn.fbx-topbar-btn {
+    padding: 4px 16px !important;
+    font-size: 12px !important;
+    margin-right: 50px !important;
+}
 @media (max-width: 640px) {
     .fbx-topbar-btn-label { display: none; }
-    .fbx-topbar-btn { padding: 6px 8px; }
+    .mbi-topbar .tb-btn.fbx-topbar-btn,
+    .fbx-topbar-btn { padding: 4px 10px !important; margin-right: 50px !important; }
 }
 
-/* ═══════════ Bouton flottant FAB ═══════════ */
+/* ═══════════ FAB Charger en bas — toujours visible, style identique au bouton topbar ═══════════ */
+/* Note : le style violet+relief vient du bloc .fbx-upload-fab dans la règle commune ci-dessus.
+   Ici on ajoute uniquement le positionnement fixed bas-droite + animations. */
 .fbx-upload-fab {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    z-index: 9990;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background: linear-gradient(135deg, #D4A047, #b88835);
-    color: #1a1816;
-    border: none;
-    padding: 14px 22px;
-    border-radius: 30px;
-    font-family: "Sora", "Inter", sans-serif;
-    font-size: 14px;
-    font-weight: 700;
-    cursor: pointer;
-    box-shadow: 4px 6px 18px rgba(0,0,0,0.22), 2px 2px 6px rgba(0,0,0,0.1);
-    transition: transform .15s ease, box-shadow .2s;
+    position: fixed !important;
+    bottom: 24px !important;
+    right: 24px !important;
+    z-index: 9990 !important;
+    /* Légère animation d'apparition au scroll */
+    animation: fbx-fab-pop .35s cubic-bezier(0.22,1,0.36,1);
 }
-.fbx-upload-fab:hover {
-    transform: translateY(-3px);
-    box-shadow: 6px 10px 26px rgba(0,0,0,0.28);
+@keyframes fbx-fab-pop {
+    from { opacity: 0; transform: translateY(20px) scale(0.85); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.fbx-upload-fab-icon { font-size: 22px; }
+.fbx-upload-fab-icon { font-size: 16px; }
 @media (max-width: 640px) {
     .fbx-upload-fab-label { display: none; }
-    .fbx-upload-fab { padding: 14px; }
+    .fbx-upload-fab { padding: 12px 14px !important; }
 }
 
 /* ═══════════ MODALE ═══════════ */
@@ -367,7 +521,7 @@ try {
     position: relative;
     background: #fff;
     border-radius: 20px;
-    max-width: 720px;
+    max-width: 864px;
     width: 100%;
     margin: auto;
     padding: 26px 28px;
@@ -412,17 +566,46 @@ try {
     text-transform: uppercase; letter-spacing: 0.05em;
     margin-bottom: 6px;
 }
-.fbx-btn-row {
-    display: flex; flex-wrap: wrap; gap: 6px;
+/* Grid 5 colonnes — boutons carrés (sociétés / agences / métiers) */
+.fbx-btn-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
     min-height: 38px;
-    align-items: center;
 }
+@media (max-width: 900px) { .fbx-btn-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 700px) { .fbx-btn-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 480px) { .fbx-btn-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Grid 10 colonnes — variante compacte pour N2-N5 (domaines/sous-domaines/catégories) */
+.fbx-btn-grid-sm {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 6px;
+    min-height: 32px;
+}
+@media (max-width: 900px) { .fbx-btn-grid-sm { grid-template-columns: repeat(7, 1fr); } }
+@media (max-width: 700px) { .fbx-btn-grid-sm { grid-template-columns: repeat(5, 1fr); } }
+@media (max-width: 480px) { .fbx-btn-grid-sm { grid-template-columns: repeat(3, 1fr); } }
+.fbx-btn-grid-sm .fbx-choice-btn {
+    min-height: 44px;
+    padding: 6px 4px;
+    font-size: 11px;
+    border-radius: 8px;
+}
+.fbx-btn-grid-sm .fbx-choice-label { font-size: 11px; }
+
 .fbx-loading, .fbx-row-empty {
     font-size: 12px; color: #94a3b8; font-style: italic;
+    grid-column: 1 / -1;
+    padding: 8px 0;
 }
 .fbx-choice-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 4px;
+    min-height: 64px;
+    padding: 10px 8px;
     border-radius: 10px;
     border: 1.5px solid #cbd5e1;
     background: #fff; color: #243B5C;
@@ -430,16 +613,23 @@ try {
     cursor: pointer;
     transition: all .15s ease;
     line-height: 1.2;
+    text-align: center;
+    word-break: break-word;
+    hyphens: auto;
 }
 .fbx-choice-btn:hover {
-    border-color: #D4A047;
+    border-color: #6B33B5;
     background: #fef3c7;
 }
 .fbx-choice-btn.is-selected {
-    background: linear-gradient(135deg, #243B5C, #1e3050);
-    color: #fff;
-    border-color: #243B5C;
-    box-shadow: 2px 2px 6px rgba(36,59,92,0.25);
+    background: linear-gradient(180deg, #E5D5F5 0%, #BFA0E0 100%);
+    color: #3D1A6E;
+    border-color: #9F7BCC;
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.9),
+        0 0 10px rgba(176, 130, 232, 0.5),
+        2px 3px 8px rgba(120, 75, 200, 0.35);
+    font-weight: 700;
 }
 .fbx-choice-code {
     background: #f1f5f9;
@@ -454,54 +644,62 @@ try {
     background: rgba(255,255,255,0.18);
     color: #fff;
 }
-.fbx-choice-label { font-weight: 600; }
+.fbx-choice-label { font-weight: 600; font-size: 12px; line-height: 1.15; }
+.fbx-choice-icon { font-size: 22px; line-height: 1; }
 
-/* Grouped buttons (métiers par business_group) */
-.fbx-btn-row-groups { flex-direction: column; align-items: stretch; gap: 8px; }
-.fbx-group-block {
-    display: flex; align-items: center; gap: 8px;
-    flex-wrap: wrap;
-    padding: 4px 8px;
-    background: #fff;
-    border-radius: 8px;
-    border: 1px solid #e2e8f0;
+/* Bouton spécial "Société uniquement" (option par défaut dans grille Agence) */
+.fbx-choice-btn-societe {
+    border-style: dashed;
+    background: #f8fafc;
 }
-.fbx-group-icon { font-size: 16px; }
-.fbx-group-label {
-    font-size: 10px; font-weight: 700; color: #64748b;
-    text-transform: uppercase; letter-spacing: 0.06em;
-    min-width: 90px;
+.fbx-choice-btn-societe:hover {
+    border-style: solid;
 }
-.fbx-group-items { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.fbx-choice-btn-societe.is-selected {
+    background: linear-gradient(135deg, #6B33B5, #4A1F87);
+    border-color: #4A1F87;
+}
 
-.fbx-meta-cascade {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+/* Bouton "+" admin pour ajouter une nouvelle référence (N2-N5) */
+.fbx-btn-add-ref {
+    border-style: dashed !important;
+    border-color: #94a3b8 !important;
+    background: #f8fafc;
+    color: #475569;
+}
+.fbx-btn-add-ref:hover {
+    border-color: #6B33B5 !important;
+    background: #fef9e7;
+    color: #92400e;
+}
+.fbx-btn-add-ref .fbx-choice-icon {
+    color: #6B33B5;
+    font-weight: 700;
+    font-size: 26px;
+}
+
+.fbx-meta-label {
     margin-bottom: 14px;
 }
-@media (max-width: 640px) { .fbx-meta-cascade { grid-template-columns: 1fr; } }
-
-.fbx-meta-select label {
+.fbx-meta-label label {
     display: block;
     font-size: 11px; color: #475569; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.05em;
     margin-bottom: 4px;
 }
-.fbx-meta-select select {
+.fbx-meta-label input {
     width: 100%;
-    padding: 9px 12px;
+    padding: 10px 12px;
     border: 1px solid #cbd5e1;
     border-radius: 10px;
     font-family: inherit; font-size: 13px;
     background: #fff; color: #1e293b;
-    cursor: pointer;
 }
-.fbx-meta-select select:disabled {
-    background: #f1f5f9; color: #94a3b8; cursor: not-allowed;
-}
-.fbx-meta-select select:focus {
+.fbx-meta-label input:focus {
     outline: 2px solid #243B5C; outline-offset: 0; border-color: #243B5C;
+}
+.fbx-meta-hint {
+    font-size: 11px; color: #64748b; margin-top: 4px;
 }
 
 .fbx-required { color: #dc2626; }
@@ -566,7 +764,7 @@ try {
 .fbx-tab:hover { color: #243B5C; }
 .fbx-tab.is-active {
     color: #243B5C;
-    border-bottom-color: #D4A047;
+    border-bottom-color: #6B33B5;
 }
 
 /* ═══════════ Panneaux ═══════════ */
@@ -585,7 +783,7 @@ try {
 }
 .fbx-dropzone:hover, .fbx-dropzone.is-dragover {
     background: #fef3c7;
-    border-color: #D4A047;
+    border-color: #6B33B5;
 }
 .fbx-dropzone-icon { font-size: 42px; }
 .fbx-dropzone-title { font-size: 17px; font-weight: 700; color: #243B5C; margin: 10px 0 4px; }
@@ -600,7 +798,7 @@ try {
     background: #f8fafc;
 }
 .fbx-clipboard-zone { cursor: text; outline: none; }
-.fbx-clipboard-zone:focus { background: #fef3c7; border-color: #D4A047; }
+.fbx-clipboard-zone:focus { background: #fef3c7; border-color: #6B33B5; }
 
 .fbx-folder-icon, .fbx-photo-icon, .fbx-url-icon, .fbx-clipboard-icon {
     font-size: 38px;
@@ -628,11 +826,22 @@ try {
 }
 .fbx-btn:hover { transform: translateY(-1px); }
 .fbx-btn-primary {
-    background: linear-gradient(135deg, #243B5C, #1e3050);
-    color: #fff;
-    box-shadow: 3px 3px 10px rgba(36,59,92,0.2);
+    background: linear-gradient(180deg, #E5D5F5 0%, #BFA0E0 100%);
+    color: #3D1A6E;
+    border: 1px solid #9F7BCC !important;
+    font-weight: 700;
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.9),
+        0 0 12px rgba(176, 130, 232, 0.5),
+        3px 4px 10px rgba(120, 75, 200, 0.35);
 }
-.fbx-btn-primary:hover { box-shadow: 4px 5px 14px rgba(36,59,92,0.3); }
+.fbx-btn-primary:hover {
+    background: linear-gradient(180deg, #DDC5F0 0%, #B08AD8 100%);
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 1),
+        0 0 18px rgba(176, 130, 232, 0.7),
+        4px 6px 14px rgba(120, 75, 200, 0.5);
+}
 
 /* ━━ Form URL ━━ */
 .fbx-url-form {
@@ -655,6 +864,47 @@ try {
     padding-top: 18px;
     border-top: 1px solid #e2e8f0;
 }
+/* Footer fin de chargement */
+.fbx-queue-end-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed #cbd5e1;
+    animation: fbx-fade-in .35s ease;
+}
+@keyframes fbx-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.fbx-queue-end-actions .fbx-btn-primary {
+    background: linear-gradient(180deg, #E5D5F5 0%, #BFA0E0 100%);
+    color: #3D1A6E;
+    border: 1px solid #9F7BCC;
+    flex: 1;
+    min-width: 220px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s ease;
+    font-family: inherit; font-size: 13px;
+}
+.fbx-queue-end-actions .fbx-btn-primary:hover {
+    box-shadow: 0 4px 12px rgba(36,59,92,0.3);
+    transform: translateY(-1px);
+}
+.fbx-queue-end-actions .fbx-btn-secondary {
+    background: #f1f5f9; color: #475569;
+    border: 1px solid #cbd5e1;
+    padding: 12px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all .15s ease;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+}
+.fbx-queue-end-actions .fbx-btn-secondary:hover { background: #e2e8f0; }
 .fbx-upload-queue h3 {
     margin: 0 0 12px; font-size: 13px; font-weight: 700;
     color: #475569; text-transform: uppercase; letter-spacing: 0.06em;
@@ -676,7 +926,7 @@ try {
 .fbx-progress-stats strong { color: #243B5C; font-size: 16px; font-weight: 700; }
 .fbx-progress-pct {
     font-family: "Sora", sans-serif;
-    font-weight: 700; color: #D4A047; font-size: 15px;
+    font-weight: 700; color: #6B33B5; font-size: 15px;
 }
 .fbx-progress-bar {
     height: 10px;
@@ -687,7 +937,7 @@ try {
 }
 .fbx-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #16a34a 0%, #D4A047 100%);
+    background: linear-gradient(90deg, #16a34a 0%, #6B33B5 100%);
     border-radius: 6px;
     transition: width .3s cubic-bezier(0.22,1,0.36,1);
     position: relative;
@@ -738,29 +988,41 @@ kbd {
 </style>
 
 <?php
-// Résolution dynamique du chemin API (compat XAMPP local + Hostinger prod)
+// Résolution dynamique du chemin API + page FluxBox (compat XAMPP local + Hostinger prod)
 $_fbxApiUrl = function_exists('app_url')
     ? app_url('/api/fluxbox_action.php')
     : '/api/fluxbox_action.php';
+$_fbxFluxboxUrl = function_exists('app_url')
+    ? app_url('/fluxbox_pile.php')
+    : '/fluxbox_pile.php';
+// Permission d'ajouter des niveaux GED : super admin uniquement (id_role=1)
+$_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 ?>
 <script>
 (function () {
     'use strict';
-    const API  = <?= json_encode($_fbxApiUrl, JSON_UNESCAPED_SLASHES) ?>;
-    const CSRF = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
+    const API           = <?= json_encode($_fbxApiUrl, JSON_UNESCAPED_SLASHES) ?>;
+    const FLUXBOX_URL   = <?= json_encode($_fbxFluxboxUrl, JSON_UNESCAPED_SLASHES) ?>;
+    const CSRF          = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
+    const IS_ADMIN      = <?= $_fbxIsAdmin ? 'true' : 'false' ?>;
 
     const modal      = document.getElementById('fbx-upload-modal');
     const fab        = document.getElementById('fbx-upload-fab');
     const rowSoc     = document.getElementById('fbx-row-societes');
     const rowAg      = document.getElementById('fbx-row-agences');
     const rowMet     = document.getElementById('fbx-row-metiers');
-    const selN2      = document.getElementById('fbx-meta-n2');
-    const selN3      = document.getElementById('fbx-meta-n3');
+    const rowN2      = document.getElementById('fbx-row-n2');
+    const rowN3      = document.getElementById('fbx-row-n3');
+    const rowN4      = document.getElementById('fbx-row-n4');
+    const rowN5      = document.getElementById('fbx-row-n5');
+    const labelEl    = document.getElementById('fbx-meta-label-input');
+    const entityEl   = document.getElementById('fbx-meta-entity-input');
+    const entityReqMsg = document.getElementById('fbx-meta-entity-required-msg');
     const commentEl  = document.getElementById('fbx-meta-comment-input');
     const dateEl     = document.getElementById('fbx-meta-date-input');
 
     // État sélection courante
-    const choice = { societe_id: 0, agence_id: 0, n1: '', n2: '', n3: '' };
+    const choice = { societe_id: 0, agence_id: 0, n1: '', n2: '', n3: '', n4: '', n5: '' };
 
     // État GLOBAL uploads (singleton — survit à la fermeture de la modale)
     if (!window.FluxBoxUploadState) {
@@ -770,6 +1032,7 @@ $_fbxApiUrl = function_exists('app_url')
             errCount:    0,    // erreurs cumulées
             dupCount:    0,    // doublons cumulés
             batchTotal:  0,    // total demandé dans la session courante
+            duplicates:  [],   // liste des doublons détectés (pour bilan fin upload)
             _resetTimer: null, // timer reset après inactivité
         };
     }
@@ -788,6 +1051,7 @@ $_fbxApiUrl = function_exists('app_url')
     const progressOk      = document.getElementById('fbx-progress-ok');
     const progressDup     = document.getElementById('fbx-progress-dup');
     const progressErr     = document.getElementById('fbx-progress-err');
+    const endActions      = document.getElementById('fbx-queue-end-actions');
 
     function updateProgress() {
         if (!progressGlobal) return;
@@ -802,8 +1066,81 @@ $_fbxApiUrl = function_exists('app_url')
         if (progressOk)     progressOk.textContent     = STATE.doneCount;
         if (progressDup)    progressDup.textContent    = STATE.dupCount;
         if (progressErr)    progressErr.textContent    = STATE.errCount;
-        progressGlobal.classList.toggle('is-done', STATE.activeCount === 0 && processed > 0 && processed >= total);
+        const isDone = STATE.activeCount === 0 && processed > 0 && processed >= total;
+        progressGlobal.classList.toggle('is-done', isDone);
+        // Affiche le footer "Voir FluxBox / Charger d'autres / Fermer" quand tout est fini
+        if (endActions) endActions.hidden = !isDone;
+        // Affiche le bilan doublons si fin d'upload + au moins 1 doublon
+        if (isDone && STATE.duplicates.length > 0) renderDedupSummary();
     }
+
+    /* Bilan doublons (fin d'upload) — listing batch avec liens vers cartes existantes */
+    function renderDedupSummary() {
+        const wrap = document.getElementById('fbx-dedup-summary');
+        const list = document.getElementById('fbx-dedup-list');
+        const countEl = document.getElementById('fbx-dedup-count');
+        if (!wrap || !list) return;
+        countEl.textContent = STATE.duplicates.length;
+        list.innerHTML = '';
+        STATE.duplicates.forEach(d => {
+            const item = document.createElement('div');
+            item.className = 'fbx-dedup-item';
+            const orig = d.orig_carte_id
+                ? `<a href="<?= function_exists('app_url') ? app_url('/fluxbox_pile.php') : '/fluxbox_pile.php' ?>?carte=${encodeURIComponent(d.orig_carte_id)}" target="_blank">→ Voir carte #${d.orig_carte_id}</a>`
+                : (d.orig_ged_doc_id ? `📚 Déjà en GED #${d.orig_ged_doc_id}` : '⚠ supprimée');
+            const uploadedAt = d.orig_uploaded_at ? new Date(d.orig_uploaded_at.replace(' ', 'T')).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}) : '';
+            const escape = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            item.innerHTML = `
+                <div class="fbx-dedup-item-new">
+                    <span class="fbx-dedup-item-label">📥 Tenté maintenant</span>
+                    <span class="fbx-dedup-item-name" title="${escape(d.new_filename)}">${escape(d.new_filename)}</span>
+                    <span class="fbx-dedup-item-meta">Rejeté (vu ${d.seen_count}× au total)</span>
+                </div>
+                <div class="fbx-dedup-item-orig">
+                    <span class="fbx-dedup-item-label">📂 Déjà présent</span>
+                    <span class="fbx-dedup-item-name" title="${escape(d.orig_filename || d.orig_titre)}">${escape(d.orig_filename || d.orig_titre || '(inconnu)')}</span>
+                    <span class="fbx-dedup-item-meta">${uploadedAt ? 'Le ' + escape(uploadedAt) : ''} ${d.orig_carte_status ? '· ' + escape(d.orig_carte_status) : ''}</span>
+                </div>
+                <div class="fbx-dedup-item-action">${orig}</div>
+            `;
+            list.appendChild(item);
+        });
+        wrap.hidden = false;
+    }
+
+    // Toggle ouverture/fermeture du détail bilan
+    document.getElementById('fbx-dedup-toggle')?.addEventListener('click', () => {
+        const list = document.getElementById('fbx-dedup-list');
+        const btn  = document.getElementById('fbx-dedup-toggle');
+        if (!list || !btn) return;
+        const willOpen = list.hidden;
+        list.hidden = !willOpen;
+        btn.textContent = willOpen ? 'Masquer le détail ▲' : 'Voir le détail ▼';
+    });
+
+    // Branche les 3 boutons du footer de queue
+    document.getElementById('fbx-go-fluxbox')?.addEventListener('click', () => {
+        window.location.href = FLUXBOX_URL;
+    });
+    document.getElementById('fbx-upload-more')?.addEventListener('click', () => {
+        // Reset visible de la queue : on cache le footer et on remet la queue à zéro pour un nouvel upload
+        if (endActions) endActions.hidden = true;
+        const queueList = document.getElementById('fbx-queue-list');
+        if (queueList) queueList.innerHTML = '';
+        STATE.batchTotal = 0;
+        STATE.doneCount  = 0;
+        STATE.dupCount   = 0;
+        STATE.errCount   = 0;
+        STATE.duplicates = [];
+        // Cache le bilan doublons pour le prochain batch
+        const dedupWrap = document.getElementById('fbx-dedup-summary');
+        if (dedupWrap) dedupWrap.hidden = true;
+        updateProgress();
+        // Cache aussi le bloc progression si plus rien
+        if (progressBlock) progressBlock.hidden = true;
+        // Scroll au top du modal pour le nouveau choix
+        modal.querySelector('.fbx-upload-dialog')?.scrollTo({ top: 0, behavior: 'smooth' });
+    });
 
     function updateBadges() {
         const n = STATE.activeCount;
@@ -982,11 +1319,22 @@ $_fbxApiUrl = function_exists('app_url')
     }
 
     function renderAgenceButtons(agences) {
+        rowAg.innerHTML = '';
+        // Bouton spécial : doc niveau société (pas d'agence spécifique)
+        const btnSoc = document.createElement('button');
+        btnSoc.type = 'button';
+        btnSoc.className = 'fbx-choice-btn fbx-choice-btn-societe';
+        btnSoc.dataset.id = '0';
+        btnSoc.title = 'Document au niveau société (pas d\'agence spécifique)';
+        btnSoc.innerHTML = `<span class="fbx-choice-icon">🏢</span><span class="fbx-choice-label">Société uniquement</span>`;
+        btnSoc.addEventListener('click', () => selectAgence(0));
+        rowAg.appendChild(btnSoc);
+
         if (!agences || agences.length === 0) {
-            rowAg.innerHTML = '<div class="fbx-row-empty">Aucune agence sur cette société.</div>';
+            // Aucune agence — par défaut on sélectionne "Société uniquement"
+            selectAgence(0);
             return;
         }
-        rowAg.innerHTML = '';
         agences.forEach(a => {
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -1005,53 +1353,67 @@ $_fbxApiUrl = function_exists('app_url')
         });
     }
 
-    /* ─── Rendu boutons métiers (groupés par business_group) ─── */
+    /* ─── Rendu boutons métiers (1 bouton par N1 — grille 5/ligne avec icône) ─── */
+    // Ordre d'affichage + icône + label court par N1 (validé EMERY 2026-05-16)
+    const METIER_DEF = {
+        '01_AGENCE':                 { icon: '🏬', label: 'Agence',       pos:  1 },
+        '02_RH':                     { icon: '👥', label: 'RH',           pos:  2 },
+        '06_COMPTABILITE':           { icon: '💰', label: 'Compta',       pos:  3 },
+        '01_DIRECTION':              { icon: '⚙️', label: 'Direction',    pos:  4 },
+        '07_JURIDIQUE_CONTENTIEUX':  { icon: '⚖️', label: 'Juridique',    pos:  5 },
+        '08_MARKETING_COMMUNICATION':{ icon: '📣', label: 'Marketing',    pos:  6 },
+        '09_MODELES_DOCUMENTS':      { icon: '📄', label: 'Modèles',      pos:  7 },
+        '10_REFERENTIEL':            { icon: '📚', label: 'Référentiel',  pos:  8 },
+        '12_ARCHIVES':               { icon: '📦', label: 'Archives',     pos:  9 },
+        '99_SYSTEME':                { icon: '🛠️', label: 'Système',      pos: 10 },
+        '11_MAILS_COMMUNICATIONS':   { icon: '📧', label: 'Mail & Comm',  pos: 11 },
+        '03_GESTION_LOCATIVE':       { icon: '🏠', label: 'Gestion',      pos: 12 },
+        '04_SYNDIC':                 { icon: '🏢', label: 'Syndic',       pos: 13 },
+        '05_TRANSACTION':            { icon: '🤝', label: 'Transaction',  pos: 14 },
+        '13_FOURNISSEURS':           { icon: '🚚', label: 'Fournisseurs', pos: 15 },
+    };
+
     function renderMetierButtons(grouped) {
         if (!grouped || grouped.length === 0) {
             rowMet.innerHTML = '<div class="fbx-row-empty">Aucun métier seedé. Applique d\'abord la migration GED.</div>';
             return;
         }
+        // Aplatir : grouped est par business_group → on récupère tous les codes N1
+        const allCodes = [];
+        grouped.forEach(g => (g.codes || []).forEach(c => allCodes.push(c)));
+        // Trier selon METIER_DEF.pos (codes inconnus relégués en fin)
+        allCodes.sort((a, b) => {
+            const pa = METIER_DEF[a.code]?.pos ?? 999;
+            const pb = METIER_DEF[b.code]?.pos ?? 999;
+            return pa - pb;
+        });
         rowMet.innerHTML = '';
-        grouped.forEach(g => {
-            const wrap = document.createElement('div');
-            wrap.className = 'fbx-group-block';
-            wrap.innerHTML = `
-                <span class="fbx-group-icon">${g.icon || ''}</span>
-                <span class="fbx-group-label">${g.group_label}</span>
-                <div class="fbx-group-items"></div>
-            `;
-            const items = wrap.querySelector('.fbx-group-items');
-            (g.codes || []).forEach(c => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'fbx-choice-btn';
-                btn.dataset.code = c.code;
-                // Label court : on enlève le préfixe "NN_" si présent
-                const lbl = (c.label || '').replace(/^\d+\s*-\s*/, '');
-                btn.textContent = lbl;
-                btn.title = c.code;
-                btn.addEventListener('click', () => selectMetier(c.code));
-                items.appendChild(btn);
-            });
-            rowMet.appendChild(wrap);
+        allCodes.forEach(c => {
+            const def = METIER_DEF[c.code] || { icon: '📁', label: (c.label || '').replace(/^\d+\s*-\s*/, '') };
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'fbx-choice-btn';
+            btn.dataset.code = c.code;
+            btn.title = c.code;
+            btn.innerHTML = `<span class="fbx-choice-icon">${def.icon}</span><span class="fbx-choice-label">${def.label}</span>`;
+            btn.addEventListener('click', () => selectMetier(c.code));
+            rowMet.appendChild(btn);
         });
     }
 
     async function selectMetier(n1) {
         choice.n1 = n1;
-        choice.n2 = '';
-        choice.n3 = '';
+        choice.n2 = ''; choice.n3 = ''; choice.n4 = ''; choice.n5 = '';
         rowMet.querySelectorAll('.fbx-choice-btn').forEach(b => {
             b.classList.toggle('is-selected', b.dataset.code === n1);
         });
-        // Charge N2 dans le select
-        selN2.disabled = true; selN3.disabled = true;
-        selN2.innerHTML = '<option value="">— Chargement… —</option>';
-        selN3.innerHTML = '<option value="">— Choisir un domaine d\'abord —</option>';
+        // Reset cascade aval (N2-N5)
+        rowN2.innerHTML = '<div class="fbx-loading">Chargement…</div>';
+        rowN3.innerHTML = '<div class="fbx-row-empty">— Choisir un domaine d\'abord —</div>';
+        rowN4.innerHTML = '<div class="fbx-row-empty">— Choisir un sous-domaine d\'abord —</div>';
+        rowN5.innerHTML = '<div class="fbx-row-empty">— Choisir une catégorie d\'abord —</div>';
         const items = await loadGedChildren(2, { n1 });
-        populateSelect(selN2, items, '— Choisir un domaine —');
-        selN2.disabled = items.length === 0;
-        if (items.length === 0) selN2.innerHTML = '<option value="">— Aucun domaine seedé —</option>';
+        renderBtnGrid(rowN2, items, '— Aucun domaine seedé —', (code) => onPickN2(code));
     }
 
     async function loadGedChildren(level, parents) {
@@ -1067,41 +1429,173 @@ $_fbxApiUrl = function_exists('app_url')
         } catch (_) { return []; }
     }
 
-    function populateSelect(sel, items, placeholder) {
-        sel.innerHTML = '';
-        const opt0 = document.createElement('option');
-        opt0.value = ''; opt0.textContent = placeholder;
-        sel.appendChild(opt0);
-        items.forEach(it => {
-            const o = document.createElement('option');
-            o.value = it.code; o.textContent = it.label;
-            sel.appendChild(o);
-        });
+    /* Rend une grille de boutons carrés dans un container, et bind onPick(code) */
+    function renderBtnGrid(container, items, emptyMsg, onPick) {
+        container.innerHTML = '';
+        const hasItems = items && items.length > 0;
+        if (!hasItems) {
+            const e = document.createElement('div');
+            e.className = 'fbx-row-empty';
+            e.textContent = emptyMsg;
+            container.appendChild(e);
+        } else {
+            items.forEach(it => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'fbx-choice-btn';
+                btn.dataset.code = it.code;
+                const lab = document.createElement('span');
+                lab.className = 'fbx-choice-label';
+                lab.textContent = it.label || it.code;
+                btn.appendChild(lab);
+                btn.addEventListener('click', () => {
+                    container.querySelectorAll('.fbx-choice-btn').forEach(b =>
+                        b.classList.toggle('is-selected', b === btn));
+                    onPick(it.code);
+                });
+                container.appendChild(btn);
+            });
+        }
+        // Bouton + admin pour créer une nouvelle référence à ce niveau
+        appendAddRefButton(container);
     }
 
-    selN2?.addEventListener('change', async () => {
-        choice.n2 = selN2.value;
-        choice.n3 = '';
-        selN3.disabled = true;
-        selN3.innerHTML = '<option value="">— Chargement… —</option>';
-        if (!choice.n2) {
-            selN3.innerHTML = '<option value="">— Choisir un domaine d\'abord —</option>';
-            return;
-        }
-        const items = await loadGedChildren(3, { n1: choice.n1, n2: choice.n2 });
-        populateSelect(selN3, items, '— Choisir un sous-domaine —');
-        selN3.disabled = items.length === 0;
-        if (items.length === 0) selN3.innerHTML = '<option value="">— Aucun sous-domaine seedé —</option>';
-    });
-    selN3?.addEventListener('change', () => { choice.n3 = selN3.value; });
+    /* Ajoute un bouton "+" à la fin d'une grille — visible uniquement pour admin */
+    function appendAddRefButton(container) {
+        if (!IS_ADMIN) return;
+        const level = parseInt(container.dataset.metaLevel || '0', 10);
+        if (![2, 3, 4, 5].includes(level)) return;
 
-    /* ─── Récup métadonnées user (commentaire + classement + date) ─── */
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fbx-choice-btn fbx-btn-add-ref';
+        btn.title = 'Ajouter une nouvelle référence à ce niveau (admin)';
+        btn.innerHTML = '<span class="fbx-choice-icon">+</span><span class="fbx-choice-label">Ajouter</span>';
+        btn.addEventListener('click', () => promptAddLevelCode(level, container));
+        container.appendChild(btn);
+    }
+
+    /* Workflow d'ajout : prompt code + label, POST API, reload grille, auto-sélection du nouveau code */
+    async function promptAddLevelCode(level, container) {
+        const niveauLabel = {2: 'Domaine', 3: 'Sous-domaine', 4: 'Catégorie', 5: 'Sous-catégorie'}[level] || 'Niveau';
+        // Pré-checks parents
+        const parents = {
+            n1: choice.n1,
+            n2: level >= 3 ? choice.n2 : '',
+            n3: level >= 4 ? choice.n3 : '',
+            n4: level >= 5 ? choice.n4 : '',
+        };
+        if (level >= 2 && !parents.n1) { alert('Choisis d\'abord un Métier.'); return; }
+        if (level >= 3 && !parents.n2) { alert('Choisis d\'abord un Domaine.'); return; }
+        if (level >= 4 && !parents.n3) { alert('Choisis d\'abord un Sous-domaine.'); return; }
+        if (level >= 5 && !parents.n4) { alert('Choisis d\'abord une Catégorie.'); return; }
+
+        const label = (prompt(`Nouveau ${niveauLabel.toLowerCase()} — Libellé affiché\n\n(ex pour un collab : « Dupont Pierre », pour une banque : « Crédit Agricole CE ») :`) || '').trim();
+        if (!label) return;
+        const codeSuggested = label.toUpperCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents (combining marks Unicode)
+            .replace(/[^A-Z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+        const code = (prompt(`Code court (A-Z 0-9 _)\n\nPar défaut : « ${codeSuggested} »\n(modifie si tu veux un code plus court)`, codeSuggested) || '').trim().toUpperCase();
+        if (!code) return;
+
+        try {
+            const res = await fetch(API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+                body: JSON.stringify({
+                    action: 'add_level_code',
+                    csrf: CSRF,
+                    level, code, label,
+                    parent_n1: parents.n1,
+                    parent_n2: parents.n2,
+                    parent_n3: parents.n3,
+                    parent_n4: parents.n4,
+                }),
+                credentials: 'same-origin',
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                alert('Erreur : ' + ((data.errors || []).join(', ') || 'inconnue'));
+                return;
+            }
+            const createdCode  = (data.data && data.data.code) || code;
+            const copied       = (data.data && data.data.children_copied) || 0;
+            const siblingUsed  = (data.data && data.data.sibling_used) || null;
+            if (copied > 0 && siblingUsed) {
+                showToast(createdCode, 'success',
+                    `✅ Créé · ${copied} sous-niveau${copied>1?'x':''} clonés depuis « ${siblingUsed} »`);
+            }
+            // Recharge la grille du niveau concerné puis auto-sélectionne le nouveau code
+            const items = await loadGedChildren(level, parents);
+            const onPickCb = {
+                2: (c) => onPickN2(c),
+                3: (c) => onPickN3(c),
+                4: (c) => onPickN4(c),
+                5: (c) => { choice.n5 = c; },
+            }[level];
+            const emptyMsg = {
+                2: '— Aucun domaine seedé —',
+                3: '— Aucun sous-domaine seedé —',
+                4: '— Aucune catégorie seedée —',
+                5: '— Aucune sous-catégorie seedée —',
+            }[level];
+            const rowEl = {2: rowN2, 3: rowN3, 4: rowN4, 5: rowN5}[level];
+            renderBtnGrid(rowEl, items, emptyMsg, onPickCb);
+            // Auto-clique le nouveau bouton pour qu'il devienne sélectionné
+            const newBtn = rowEl.querySelector(`.fbx-choice-btn[data-code="${CSS.escape(createdCode)}"]`);
+            if (newBtn) {
+                newBtn.click();
+                newBtn.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                // Petit flash visuel
+                newBtn.style.transition = 'box-shadow .4s';
+                newBtn.style.boxShadow = '0 0 0 3px #6B33B5';
+                setTimeout(() => { newBtn.style.boxShadow = ''; }, 800);
+            } else {
+                alert('Code créé en BDD mais introuvable dans la liste — vérifie en BDD ou recharge la page.\nCode : ' + createdCode);
+            }
+        } catch (e) {
+            alert('Erreur réseau : ' + e.message);
+        }
+    }
+
+    async function onPickN2(code) {
+        choice.n2 = code;
+        choice.n3 = ''; choice.n4 = ''; choice.n5 = '';
+        rowN3.innerHTML = '<div class="fbx-loading">Chargement…</div>';
+        rowN4.innerHTML = '<div class="fbx-row-empty">— Choisir un sous-domaine d\'abord —</div>';
+        rowN5.innerHTML = '<div class="fbx-row-empty">— Choisir une catégorie d\'abord —</div>';
+        const items = await loadGedChildren(3, { n1: choice.n1, n2: choice.n2 });
+        renderBtnGrid(rowN3, items, '— Aucun sous-domaine seedé —', (c) => onPickN3(c));
+    }
+
+    async function onPickN3(code) {
+        choice.n3 = code;
+        choice.n4 = ''; choice.n5 = '';
+        rowN4.innerHTML = '<div class="fbx-loading">Chargement…</div>';
+        rowN5.innerHTML = '<div class="fbx-row-empty">— Choisir une catégorie d\'abord —</div>';
+        const items = await loadGedChildren(4, { n1: choice.n1, n2: choice.n2, n3: choice.n3 });
+        renderBtnGrid(rowN4, items, '— Aucune catégorie seedée —', (c) => onPickN4(c));
+    }
+
+    async function onPickN4(code) {
+        choice.n4 = code;
+        choice.n5 = '';
+        rowN5.innerHTML = '<div class="fbx-loading">Chargement…</div>';
+        const items = await loadGedChildren(5, { n1: choice.n1, n2: choice.n2, n3: choice.n3, n4: choice.n4 });
+        renderBtnGrid(rowN5, items, '— Aucune sous-catégorie seedée —', (c) => { choice.n5 = c; });
+    }
+
+    /* ─── Récup métadonnées user (commentaire + classement + date + libellé + entité) ─── */
     function getMetadata() {
         return {
-            user_comment: (commentEl?.value || '').trim(),
+            user_comment:    (commentEl?.value || '').trim(),
+            user_label:      (labelEl?.value   || '').trim(),
+            entity_instance: (entityEl?.value  || '').trim(),
             ged_n1: choice.n1 || '',
             ged_n2: choice.n2 || '',
             ged_n3: choice.n3 || '',
+            ged_n4: choice.n4 || '',
+            ged_n5: choice.n5 || '',
             target_societe_id: choice.societe_id || '',
             target_agence_id:  choice.agence_id  || '',
             target_date: (dateEl?.value || '').trim(), // YYYY-MM-DD
@@ -1255,6 +1749,26 @@ $_fbxApiUrl = function_exists('app_url')
     /* ─── Upload multi-fichiers (FormData parallèle, max 3 simultanés, non-bloquant) ─── */
     const UPLOAD_CONCURRENCY = 3;
 
+    /* Nettoie un nom de fichier pour en faire un libellé lisible */
+    function cleanFilenameToLabel(filename) {
+        if (!filename) return '';
+        // Enlève l'extension
+        let s = filename.replace(/\.[^.]+$/, '');
+        // Remplace underscores et points isolés par des espaces
+        s = s.replace(/[_]+/g, ' ').replace(/\.(?=\D)/g, ' ');
+        // Compacte les espaces multiples
+        s = s.replace(/\s+/g, ' ').trim();
+        // Capitalise la première lettre
+        if (s.length > 0) s = s.charAt(0).toUpperCase() + s.slice(1);
+        // Tronque si trop long (maxlength 180 sur le champ)
+        if (s.length > 180) s = s.substring(0, 177) + '…';
+        return s;
+    }
+
+    /* NOTE: prefill du libellé supprimé (2026-05-17) — bug : le nom du 1er fichier
+       était appliqué à TOUS les fichiers du batch via snapshotMeta. Maintenant, si user_label
+       est vide, le backend dérive le titre depuis le nom de fichier de chaque doc. */
+
     async function uploadFiles(fileList) {
         queueWrap.hidden = false;
         const files = Array.from(fileList);
@@ -1300,13 +1814,22 @@ $_fbxApiUrl = function_exists('app_url')
             fd.append('action', 'ingest');
             fd.append('csrf', CSRF);
             fd.append('file', file, file.name);
-            fd.append('user_comment', meta.user_comment);
+            fd.append('user_comment',    meta.user_comment);
+            fd.append('user_label',      meta.user_label);
+            fd.append('entity_instance', meta.entity_instance);
             fd.append('ged_n1', meta.ged_n1);
             fd.append('ged_n2', meta.ged_n2);
             fd.append('ged_n3', meta.ged_n3);
+            fd.append('ged_n4', meta.ged_n4);
+            fd.append('ged_n5', meta.ged_n5);
             fd.append('target_societe_id', String(meta.target_societe_id));
             fd.append('target_agence_id',  String(meta.target_agence_id));
             fd.append('target_date',       meta.target_date || '');
+            // Path relatif si le file vient d'un panneau "Dossier" (<input webkitdirectory>)
+            // Permet au serveur d'extraire le nom du dossier parent comme instance entité
+            if (file.webkitRelativePath) {
+                fd.append('relative_path', file.webkitRelativePath);
+            }
             const r = await postAndParse(fd);
             if (r.parseError) {
                 STATE.errCount++;
@@ -1323,7 +1846,26 @@ $_fbxApiUrl = function_exists('app_url')
                     showToast(file.name, 'error', (r.data.errors || []).join(', ') || 'Erreur');
                 } else if (d.is_duplicate) {
                     STATE.dupCount++;
-                    showToast(file.name, 'dup', `Déjà reçu (${d.seen_count}× vu)`);
+                    // Push dans la liste des doublons pour bilan fin upload
+                    STATE.duplicates.push({
+                        new_filename:    d.new_filename || file.name,
+                        orig_filename:   d.orig_filename || '',
+                        orig_carte_id:   d.orig_carte_id || null,
+                        orig_carte_status: d.orig_carte_status || '',
+                        orig_ged_doc_id: d.orig_ged_doc_id || null,
+                        orig_uploaded_at: d.orig_uploaded_at || '',
+                        orig_titre:      d.orig_titre || '',
+                        seen_count:      d.seen_count || 1,
+                    });
+                    let dupMsg = `Déjà reçu (${d.seen_count}× vu)`;
+                    if (d.orig_carte_id && d.orig_carte_status === 'pending') {
+                        dupMsg += ` — voir carte #${d.orig_carte_id}`;
+                    } else if (d.orig_ged_doc_id) {
+                        dupMsg += ` — déjà classé (doc GED #${d.orig_ged_doc_id})`;
+                    } else if (d.orig_carte_status === 'dismissed') {
+                        dupMsg += ` — précédemment supprimé`;
+                    }
+                    showToast(file.name, 'dup', dupMsg);
                 } else if (d.is_zip) {
                     STATE.doneCount++;
                     showToast(file.name, 'success',
@@ -1371,7 +1913,15 @@ $_fbxApiUrl = function_exists('app_url')
                 if ((d.errors || []).length > 0) parts.push(`⚠️ ${d.errors.length} erreur${d.errors.length>1?'s':''}`);
                 updateQueueItem(li, '📦', parts.join(' · '), d.files_ingested > 0 ? 'ok' : 'error');
             } else if (d.is_duplicate) {
-                updateQueueItem(li, '🛡️', `Déjà reçu (${d.seen_count}× vu)`, 'dup');
+                let dupMsg = `Déjà reçu (${d.seen_count}× vu)`;
+                if (d.orig_carte_id && d.orig_carte_status === 'pending') {
+                    dupMsg += ` — carte pending #${d.orig_carte_id}`;
+                } else if (d.orig_ged_doc_id) {
+                    dupMsg += ` — déjà classé GED`;
+                } else if (d.orig_carte_status === 'dismissed') {
+                    dupMsg += ` — précédemment supprimé`;
+                }
+                updateQueueItem(li, '🛡️', dupMsg, 'dup');
             } else {
                 updateQueueItem(li, '✅', `Carte créée${d.carte_id ? ' #' + d.carte_id : ''}`, 'ok');
             }

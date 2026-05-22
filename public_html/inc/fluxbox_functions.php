@@ -82,6 +82,262 @@ if (!function_exists('fluxbox_hash_content')) {
     }
 }
 
+if (!function_exists('fluxbox_resolve_target_code')) {
+    /**
+     * Résout un code court pour le nom de fichier depuis un id société/agence cible.
+     *
+     * Source de vérité : glossaire `ged_codes_glossaire` (catégories societe/agence/user/...).
+     * Si l'entité n'a pas encore d'entrée glossaire, autoSeed génère et persiste un code
+     * dérivé du nom (verrouillable ensuite via /admin/admin_ged_glossaire.php).
+     *
+     * Fallbacks défensifs (uniquement si glossaire indisponible) :
+     *   2. colonne `code` directe sur la table
+     *   3. slug court du `nom`
+     *   4. $defaultCode
+     */
+    function fluxbox_resolve_target_code(PDO $pdo, string $table, int $id, string $defaultCode = ''): string
+    {
+        if ($id <= 0 || !in_array($table, ['societes', 'agences'], true)) return $defaultCode;
+
+        // 1. SOURCE OFFICIELLE : ged_codes_glossaire (codes courts maîtres figés par l'admin)
+        //    Lookup DIRECT par entity_id, sans filtre tenant_id : les sociétés et agences
+        //    sont des entités globalement uniques (pas multi-tenant au niveau code court).
+        try {
+            $category = ($table === 'societes') ? 'societe' : 'agence';
+            $st = $pdo->prepare("
+                SELECT code FROM ged_codes_glossaire
+                WHERE category = ? AND entity_id = ? AND is_active = 1
+                ORDER BY is_locked DESC, id ASC
+                LIMIT 1
+            ");
+            $st->execute([$category, $id]);
+            $code = (string)$st->fetchColumn();
+            if ($code !== '') return $code;
+        } catch (Throwable) {
+            // Table glossaire absente / migration pas jouée → fallback ci-dessous
+        }
+
+        // 2. Code direct selon la table (societes a `code`?, agences a `code_agence`)
+        $codeColumns = ($table === 'agences') ? ['code_agence', 'code'] : ['code'];
+        $nameColumns = ($table === 'agences') ? ['nom_agence', 'nom'] : ['nom'];
+        foreach ($codeColumns as $col) {
+            try {
+                $st = $pdo->prepare("SELECT `$col` AS c FROM `$table` WHERE id = ? LIMIT 1");
+                $st->execute([$id]);
+                $code = (string)$st->fetchColumn();
+                if ($code !== '') return $code;
+            } catch (Throwable) {}
+        }
+        // 3. Slug du nom
+        foreach ($nameColumns as $col) {
+            try {
+                $st = $pdo->prepare("SELECT `$col` AS n FROM `$table` WHERE id = ? LIMIT 1");
+                $st->execute([$id]);
+                $nom = (string)$st->fetchColumn();
+                if ($nom !== '') return fluxbox_slug_short($nom);
+            } catch (Throwable) {}
+        }
+
+        return $defaultCode;
+    }
+}
+
+if (!function_exists('fluxbox_glossary_code')) {
+    /**
+     * Récupère le code court officiel du glossaire (ged_codes_glossaire) pour une entité.
+     * Lookup direct par (category, entity_id) sans filtre tenant (entités globalement uniques).
+     *
+     * @return string Code court (ex "REGE", "38-1", "SYNDIC", "2024") ou '' si absent.
+     */
+    function fluxbox_glossary_code(PDO $pdo, string $category, int $entityId): string
+    {
+        if ($entityId <= 0 || $category === '') return '';
+        static $cache = [];
+        $key = $category . ':' . $entityId;
+        if (isset($cache[$key])) return $cache[$key];
+        try {
+            $st = $pdo->prepare("
+                SELECT code FROM ged_codes_glossaire
+                WHERE category = ? AND entity_id = ? AND is_active = 1
+                ORDER BY is_locked DESC, id ASC
+                LIMIT 1
+            ");
+            $st->execute([$category, $entityId]);
+            $code = (string)$st->fetchColumn();
+            return $cache[$key] = $code;
+        } catch (Throwable) {
+            return $cache[$key] = '';
+        }
+    }
+}
+
+if (!function_exists('fluxbox_glossary_code_by_level')) {
+    /**
+     * Pour un code N1-N5 (ex "04_SYNDIC"), retourne le code court du glossaire (ex "SYNDIC").
+     * Fait le lookup en 2 temps : ged_level_codes (code → id) → ged_codes_glossaire (entity_id → short code).
+     * Fallback : si pas de code court dans le glossaire, retourne le code passé.
+     */
+    function fluxbox_glossary_code_by_level(PDO $pdo, int $level, string $code): string
+    {
+        if ($code === '' || $level < 1 || $level > 5) return $code;
+        static $cache = [];
+        $key = "L$level:$code";
+        if (isset($cache[$key])) return $cache[$key];
+        try {
+            // 1. Trouve l'id du ged_level_codes correspondant
+            $st = $pdo->prepare("SELECT id FROM ged_level_codes WHERE level_number = ? AND code = ? LIMIT 1");
+            $st->execute([$level, $code]);
+            $lcId = (int)$st->fetchColumn();
+            if ($lcId <= 0) return $cache[$key] = $code;
+            // 2. Cherche dans le glossaire (category = metier_n<level>)
+            $cat = 'metier_n' . $level;
+            $short = fluxbox_glossary_code($pdo, $cat, $lcId);
+            return $cache[$key] = ($short !== '' ? $short : $code);
+        } catch (Throwable) {
+            return $cache[$key] = $code;
+        }
+    }
+}
+
+if (!function_exists('fluxbox_resolve_canonical_parts')) {
+    /**
+     * Résout TOUS les segments d'un nom canonique via le glossaire officiel.
+     * - soc/age : ged_codes_glossaire (category=societe|agence)
+     * - n1/n2  : ged_codes_glossaire (category=metier_n1|metier_n2) via ged_level_codes.id
+     * - n3     : si placeholder entité (IMMEUBLE, BANQUE, etc.) → ged_codes_glossaire (category=immeuble|banque)
+     *            sinon code N3 direct (level_codes)
+     * - n4/n5  : codes N4/N5 directs (déjà courts dans ged_level_codes)
+     *
+     * @param array $classement  proposition.classement (n1, n2, n3, n4, n5, entity_instance, target_*_id, immeuble_id_bdd)
+     * @param array $proposition proposition_json complète (peut avoir target_societe_id à la racine)
+     * @param array $carteCtx    contexte carte (created_by, created_at) pour résoudre user + upload_date
+     * @return array Segments prêts à être passés à ged_v3_preview / ged_v3_build_canonical_name
+     */
+    function fluxbox_resolve_canonical_parts(PDO $pdo, array $classement, array $proposition = [], array $carteCtx = []): array
+    {
+        // IDs métier (root du proposition ou dans classement)
+        $socId = (int)($proposition['target_societe_id'] ?? $classement['target_societe_id'] ?? 0);
+        $ageId = (int)($proposition['target_agence_id']  ?? $classement['target_agence_id']  ?? 0);
+
+        $soc = $socId > 0 ? fluxbox_glossary_code($pdo, 'societe', $socId) : '';
+        $age = $ageId > 0 ? fluxbox_glossary_code($pdo, 'agence',  $ageId) : '';
+
+        $n1Code = (string)($classement['n1'] ?? '');
+        $n2Code = (string)($classement['n2'] ?? '');
+        $n3Code = (string)($classement['n3'] ?? '');
+
+        $n1 = $n1Code !== '' ? fluxbox_glossary_code_by_level($pdo, 1, $n1Code) : '';
+        $n2 = $n2Code !== '' ? fluxbox_glossary_code_by_level($pdo, 2, $n2Code) : '';
+
+        // N3 : si placeholder entité → résolution via ged_codes_glossaire catégorie spécifique
+        $n3 = $n3Code;
+        if ($n3Code !== '') {
+            try {
+                $st = $pdo->prepare("SELECT 1 FROM ged_level_codes WHERE code = ? AND COALESCE(is_entity_placeholder, 0) = 1 LIMIT 1");
+                $st->execute([$n3Code]);
+                if ($st->fetchColumn()) {
+                    // CAS SPÉCIAL VÉHICULE : le code véhicule est dans classement.vehicule_code (matché Haiku)
+                    if ($n3Code === 'VEHICULE') {
+                        $vehCode = trim((string)($classement['vehicule_code'] ?? ''));
+                        if ($vehCode === '') $vehCode = trim((string)($classement['entity_instance'] ?? ''));
+                        if ($vehCode !== '') $n3 = $vehCode;
+                    } else {
+                        // Mapping placeholder → catégorie glossaire (immeuble, banque, etc.)
+                        $catMap = [
+                            'IMMEUBLE'      => 'immeuble',
+                            'BANQUE'        => 'banque',
+                            'COLLABORATEUR' => 'user',
+                            'FOURNISSEUR'   => 'fournisseur',
+                            'SOCIETE'       => 'societe',
+                            'BAILLEUR'      => 'bailleur',
+                            'LOCATAIRE'     => 'locataire',
+                        ];
+                        $cat = $catMap[$n3Code] ?? null;
+                        $entityId = (int)($classement['immeuble_id_bdd']
+                                      ?? $classement['banque_id_bdd']
+                                      ?? $classement['fournisseur_id_bdd']
+                                      ?? 0);
+                        if ($cat !== null && $entityId > 0) {
+                            $short = fluxbox_glossary_code($pdo, $cat, $entityId);
+                            if ($short !== '') $n3 = $short;
+                        }
+                        // Fallback : ref BDD ou instance détectée par Haiku
+                        if ($n3 === $n3Code) {
+                            $refBdd = trim((string)($classement['immeuble_ref_bdd'] ?? ''));
+                            $entInst = trim((string)($classement['entity_instance'] ?? ''));
+                            if ($refBdd !== '') $n3 = $refBdd;
+                            elseif ($entInst !== '') $n3 = $entInst;
+                        }
+                    }
+                }
+            } catch (Throwable) {}
+        }
+
+        // user qui charge : carteCtx.created_by → glossaire category=user
+        $userCode = '';
+        $uploaderId = (int)($carteCtx['created_by'] ?? 0);
+        if ($uploaderId > 0) {
+            $userCode = fluxbox_glossary_code($pdo, 'user', $uploaderId);
+            if ($userCode === '') {
+                // Fallback : initiales prénom + nom depuis la table users
+                try {
+                    $st = $pdo->prepare("SELECT prenom, nom FROM users WHERE id = ? LIMIT 1");
+                    $st->execute([$uploaderId]);
+                    if ($u = $st->fetch(PDO::FETCH_ASSOC)) {
+                        $userCode = mb_substr((string)$u['prenom'], 0, 1) . (string)$u['nom'];
+                    }
+                } catch (Throwable) {}
+            }
+        }
+
+        return [
+            'soc'         => $soc,
+            'age'         => $age,
+            'user'        => $userCode,
+            'n1'          => $n1,
+            'n2'          => $n2,
+            'n3'          => $n3,
+            'n4'          => (string)($classement['n4'] ?? ''),
+            'n5'          => (string)($classement['n5'] ?? ''),
+            // n6 = SIGNE/NON_SIGNE uniquement (statut signature détecté par Haiku ou saisi par user)
+            'n6'          => in_array(strtoupper((string)($classement['n6'] ?? '')), ['SIGNE', 'NON_SIGNE'], true)
+                              ? strtoupper((string)$classement['n6'])
+                              : '',
+            'date'        => $classement['date'] ?? $proposition['target_date'] ?? null,
+            'upload_date' => $carteCtx['created_at'] ?? null,
+        ];
+    }
+}
+
+if (!function_exists('fluxbox_slug_short')) {
+    /**
+     * Slug court (8 car max) ASCII upper pour les codes générés depuis un nom.
+     * Ex : "Régie Emery" → "REGIE_EM"
+     */
+    function fluxbox_slug_short(string $s, int $maxLen = 12): string
+    {
+        if ($s === '') return '';
+        // Translit manuelle (iconv sur Windows produit "'E" pour "É" → casse)
+        static $accentMap = [
+            'À'=>'A','Á'=>'A','Â'=>'A','Ã'=>'A','Ä'=>'A','Å'=>'A','Æ'=>'AE',
+            'à'=>'A','á'=>'A','â'=>'A','ã'=>'A','ä'=>'A','å'=>'A','æ'=>'AE',
+            'Ç'=>'C','ç'=>'C','È'=>'E','É'=>'E','Ê'=>'E','Ë'=>'E',
+            'è'=>'E','é'=>'E','ê'=>'E','ë'=>'E',
+            'Ì'=>'I','Í'=>'I','Î'=>'I','Ï'=>'I','ì'=>'I','í'=>'I','î'=>'I','ï'=>'I',
+            'Ñ'=>'N','ñ'=>'N','Ò'=>'O','Ó'=>'O','Ô'=>'O','Õ'=>'O','Ö'=>'O','Ø'=>'O','Œ'=>'OE',
+            'ò'=>'O','ó'=>'O','ô'=>'O','õ'=>'O','ö'=>'O','ø'=>'O','œ'=>'oe',
+            'Ù'=>'U','Ú'=>'U','Û'=>'U','Ü'=>'U','ù'=>'U','ú'=>'U','û'=>'U','ü'=>'U',
+            'Ý'=>'Y','ÿ'=>'Y','Ÿ'=>'Y','ý'=>'Y','ß'=>'SS','€'=>'E',
+        ];
+        $s = strtr($s, $accentMap);
+        $s = strtoupper($s);
+        $s = preg_replace('/[^A-Z0-9_]+/', '_', $s) ?? '';
+        $s = preg_replace('/_+/', '_', $s) ?? '';
+        $s = trim($s, '_');
+        return substr($s, 0, $maxLen);
+    }
+}
+
 if (!function_exists('fluxbox_documents_ingest')) {
     /**
      * Ingère un fichier dans fluxbox_documents.
@@ -132,6 +388,52 @@ if (!function_exists('fluxbox_documents_ingest')) {
         $existing = $st->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
+            // Détecte si le doc a été précédemment supprimé par l'utilisateur (flag dans source_meta).
+            // Dans ce cas, on RÉACTIVE l'enregistrement au lieu de bloquer comme doublon —
+            // l'utilisateur veut explicitement reprendre le process sur ce fichier.
+            $existingMeta = !empty($existing['source_meta'])
+                ? (json_decode((string)$existing['source_meta'], true) ?: [])
+                : [];
+            $wasDeleted = !empty($existingMeta['deleted_at']);
+
+            if ($wasDeleted) {
+                // Nettoie les flags de suppression et merge avec les nouvelles source_meta de cet upload
+                unset($existingMeta['deleted_at'], $existingMeta['deleted_by_user']);
+                if (is_array($sourceMeta)) {
+                    $existingMeta = array_merge($existingMeta, $sourceMeta);
+                }
+                $existingMeta['reactivated_at'] = date('Y-m-d H:i:s');
+
+                // Met à jour le doc avec le nouveau chemin physique (l'ancien fichier a été unlink à la suppression)
+                $pdo->prepare("
+                    UPDATE `fluxbox_documents`
+                    SET `fichier_chemin` = ?, `fichier_nom` = ?, `source_meta` = ?,
+                        `source_type` = ?, `mime_type` = ?, `taille_octets` = ?,
+                        `ocr_status` = 'pending', `seen_count` = 1, `last_seen_at` = NOW()
+                    WHERE `id` = ?
+                ")->execute([
+                    $path, $nom,
+                    json_encode($existingMeta, JSON_UNESCAPED_UNICODE),
+                    $sourceType, $mime, $size,
+                    (int)$existing['id'],
+                ]);
+
+                // Rafraîchit le row pour le retour
+                $stR = $pdo->prepare("SELECT * FROM `fluxbox_documents` WHERE `id` = ?");
+                $stR->execute([(int)$existing['id']]);
+                $existing = $stR->fetch(PDO::FETCH_ASSOC) ?: $existing;
+
+                return [
+                    'id'             => (int)$existing['id'],
+                    'is_duplicate'   => false,
+                    'is_reactivated' => true,
+                    'seen_count'     => 1,
+                    'hash_sha256'    => $hash,
+                    'document'       => $existing,
+                ];
+            }
+
+            // Doublon classique : incrémente le compteur
             $pdo->prepare("
                 UPDATE `fluxbox_documents`
                 SET `seen_count` = `seen_count` + 1,
@@ -540,6 +842,28 @@ if (!function_exists('fluxbox_carte_validate')) {
         // Merge overrides user (ajustements modal "Ajuster")
         $classement = array_merge(($proposition['classement'] ?? []), ($overrides['classement'] ?? []));
 
+        // V2 : propage entity_instance, user_label, ET soc/agence cibles dans le classement
+        // pour que fluxbox_promote_to_ged puisse les utiliser dans le nom canonique.
+        // Priorité : override modal Ajuster > proposition upload > vide.
+        $classement['entity_instance'] = (string)(
+            $overrides['entity_instance']
+            ?? $proposition['entity_instance']
+            ?? ''
+        );
+        $classement['user_label'] = (string)(
+            $overrides['user_label']
+            ?? $proposition['user_label']
+            ?? ''
+        );
+        // IDs société/agence cibles (depuis le modal upload). Pas d'override possible côté
+        // formulaire Ajuster (champs disabled), donc on lit directement la proposition.
+        if (isset($proposition['target_societe_id'])) {
+            $classement['target_societe_id'] = (int)$proposition['target_societe_id'];
+        }
+        if (array_key_exists('target_agence_id', $proposition)) {
+            $classement['target_agence_id'] = (int)$proposition['target_agence_id'];
+        }
+
         $validation = ged_v3_validate_minimum($classement);
         if (!$validation['ok']) {
             return ['ok' => false, 'ged_document_id' => null, 'actions_executed' => 0,
@@ -555,8 +879,13 @@ if (!function_exists('fluxbox_carte_validate')) {
 
             // 1. Promotion vers ged_documents si la carte a un document attaché
             if (!empty($carte['document_id'])) {
+                // V2 : si on a une entity_instance, on ignore le namingOverride Variante A pour
+                // forcer le passage par le builder V3 qui injecte l'instance dans le segment N3.
+                // Si pas d'instance, on garde le naming VA si dispo.
                 $namingOverride = null;
-                if (!empty($carte['naming_proposed'])
+                $hasEntityInstance = trim((string)$classement['entity_instance']) !== '';
+                if (!$hasEntityInstance
+                    && !empty($carte['naming_proposed'])
                     && in_array((string)($carte['naming_status'] ?? ''), ['ready','needs_review'], true)) {
                     $namingOverride = (string)$carte['naming_proposed'];
                 }
@@ -815,15 +1144,48 @@ if (!function_exists('fluxbox_promote_to_ged')) {
 
         // Génère nom canonique : Variante A si override fourni, sinon V3 legacy
         $ctx = ged_v3_get_user_context($pdo);
+
+        // Résolution code société/agence : priorité aux target_*_id du modal, fallback ctx user
+        $targetSocId = (int)($classement['target_societe_id'] ?? 0);
+        $targetAgeId = (int)($classement['target_agence_id']  ?? 0);
+        $socCode = $targetSocId > 0
+            ? fluxbox_resolve_target_code($pdo, 'societes', $targetSocId, $ctx['societe_code'] ?: 'SOC')
+            : ($ctx['societe_code'] ?: 'SOC');
+        $ageCode = $targetAgeId > 0
+            ? fluxbox_resolve_target_code($pdo, 'agences', $targetAgeId, $ctx['agence_code'] ?: 'AGE')
+            : ($targetAgeId === 0 && array_key_exists('target_agence_id', $classement)
+                ? 'SOC' // explicite "société uniquement" = pas d'agence dans le nom
+                : ($ctx['agence_code'] ?: 'AGE'));
+
+        // Compactage : on supprime les "_" et "-" internes des codes soc/age pour qu'ils
+        // ne créent pas de faux segments dans le nom canonique (ex "42-1" → "421" et non "42_1").
+        // Le glossaire reste lisible humain, c'est juste le nom final qui est nettoyé.
+        $socCode = preg_replace('/[_\-\s]+/', '', $socCode) ?? $socCode;
+        $ageCode = preg_replace('/[_\-\s]+/', '', $ageCode) ?? $ageCode;
+
         if ($namingOverride !== null && $namingOverride !== '') {
             $nameCanonical = $namingOverride;
         } else {
+            // V2 : si N3 est un placeholder entité (COLLABORATEUR, IMMEUBLE, BANQUE…) et
+            // qu'on a une entity_instance (ex "Dupont-Pierre"), on remplace la valeur du segment N3
+            // dans le nom canonique par l'instance. Le classement.n3 logique reste à COLLABORATEUR
+            // pour que la cascade et les requêtes par type fonctionnent toujours.
+            $n3Code         = (string)($classement['n3'] ?? '');
+            $entityInstance = trim((string)($classement['entity_instance'] ?? ''));
+            $n3ForName      = $n3Code;
+            if ($n3Code !== '' && $entityInstance !== '') {
+                $stPh = $pdo->prepare("SELECT 1 FROM ged_level_codes WHERE code = ? AND COALESCE(is_entity_placeholder, 0) = 1 LIMIT 1");
+                $stPh->execute([$n3Code]);
+                if ($stPh->fetchColumn()) {
+                    $n3ForName = $entityInstance;
+                }
+            }
             $nameParts = [
-                'soc'  => $ctx['societe_code'] ?: 'SOC',
-                'age'  => $ctx['agence_code']  ?: 'AGE',
+                'soc'  => $socCode,
+                'age'  => $ageCode,
                 'n1'   => (string)($classement['n1'] ?? ''),
                 'n2'   => (string)($classement['n2'] ?? ''),
-                'n3'   => (string)($classement['n3'] ?? ''),
+                'n3'   => $n3ForName,
                 'n4'   => (string)($classement['n4'] ?? ''),
                 'n5'   => (string)($classement['n5'] ?? ''),
                 'n6'   => (string)($classement['n6'] ?? ''),
@@ -832,7 +1194,11 @@ if (!function_exists('fluxbox_promote_to_ged')) {
             ];
             $nameCanonical = ged_v3_build_canonical_name($nameParts);
         }
-        $nameDisplay   = $classement['name_display'] ?? $nameCanonical;
+        // V2 : name_display priorité user_label > classement.name_display > nameCanonical
+        $userLabelFinal = trim((string)($classement['user_label'] ?? ''));
+        $nameDisplay = $userLabelFinal !== ''
+            ? $userLabelFinal
+            : ($classement['name_display'] ?? $nameCanonical);
 
         $uuid = ged_generate_uuid();
         $sourceModule = (string)($classement['n1'] ?? '');

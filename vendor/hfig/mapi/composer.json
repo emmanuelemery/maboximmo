@@ -1,0 +1,33 @@
+{
+    "name": "hfig/mapi",
+    "description": "Pure PHP library for reading and manipulating Microsoft Outlook .msg messages (MAPI documents)",
+    "license": "MIT",
+    "require": {
+        "php": "^7.1||^8.0",
+        "ext-bcmath": "*",
+        "ext-mbstring": "*",
+        "pear/ole": "^1.0",
+        "symfony/yaml": "^3.4||^4.1||^5.0||^6.0||^7.0",
+        "ramsey/uuid": "^3.8||^4.0",
+        "psr/log": "^1.0||^2.0||^3.0"
+    },
+    "require-dev": {
+        "swiftmailer/swiftmailer": "^6.1",
+        "phpunit/phpunit": "^8.3",
+        "pear/pear-core-minimal": "^1.10"
+    },
+    "suggest": {
+        "swiftmailer/swiftmailer": "Conversion to MIME (eml file) message format"  
+    },
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "Hfig\\MAPI\\": "src/MAPI"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Hfig\\MAPI\\Tests\\": "tests/MAPI"
+        }
+    }
+}

@@ -29,11 +29,24 @@ if (!function_exists('ged_v3_slug')) {
     {
         if ($s === '') return '';
         $s = trim($s);
-        // Normalisation accents
-        if (function_exists('iconv')) {
-            $tr = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
-            if ($tr !== false) $s = $tr;
-        }
+        // Translit manuelle (iconv sur Windows produit "'E" pour "É" → casse les noms)
+        static $accentMap = [
+            'À'=>'A','Á'=>'A','Â'=>'A','Ã'=>'A','Ä'=>'A','Å'=>'A','Æ'=>'AE',
+            'à'=>'A','á'=>'A','â'=>'A','ã'=>'A','ä'=>'A','å'=>'A','æ'=>'AE',
+            'Ç'=>'C','ç'=>'C',
+            'È'=>'E','É'=>'E','Ê'=>'E','Ë'=>'E',
+            'è'=>'E','é'=>'E','ê'=>'E','ë'=>'E',
+            'Ì'=>'I','Í'=>'I','Î'=>'I','Ï'=>'I',
+            'ì'=>'I','í'=>'I','î'=>'I','ï'=>'I',
+            'Ñ'=>'N','ñ'=>'N',
+            'Ò'=>'O','Ó'=>'O','Ô'=>'O','Õ'=>'O','Ö'=>'O','Ø'=>'O','Œ'=>'OE',
+            'ò'=>'O','ó'=>'O','ô'=>'O','õ'=>'O','ö'=>'O','ø'=>'O','œ'=>'OE',
+            'Ù'=>'U','Ú'=>'U','Û'=>'U','Ü'=>'U',
+            'ù'=>'U','ú'=>'U','û'=>'U','ü'=>'U',
+            'Ý'=>'Y','ÿ'=>'Y','Ÿ'=>'Y','ý'=>'Y',
+            'ß'=>'SS','€'=>'E',
+        ];
+        $s = strtr($s, $accentMap);
         $s = strtoupper($s);
         // Caractères autorisés : A-Z 0-9 _ → tout le reste devient _
         $s = preg_replace('/[^A-Z0-9_]+/', '_', $s) ?? '';
@@ -45,21 +58,28 @@ if (!function_exists('ged_v3_slug')) {
 
 if (!function_exists('ged_v3_format_date')) {
     /**
-     * Formatte une date en YYYYMMDD. Accepte string ISO, DateTime, ou null (= aujourd'hui).
+     * Formatte une date en DDmonYY lisible humain (ex: "21mars24").
+     * Le slug uppercase appliqué plus tard donnera "21MARS24".
+     * Accepte string ISO, DateTime, ou null (= aujourd'hui).
      */
     function ged_v3_format_date(string|DateTimeInterface|null $date = null): string
     {
+        static $monthsFr = [
+            1=>'janv', 2=>'fevr', 3=>'mars', 4=>'avr', 5=>'mai', 6=>'juin',
+            7=>'juil', 8=>'aout', 9=>'sept', 10=>'oct', 11=>'nov', 12=>'dec',
+        ];
         if ($date === null || $date === '') {
-            return date('Ymd');
+            $ts = time();
+        } elseif ($date instanceof DateTimeInterface) {
+            $ts = $date->getTimestamp();
+        } else {
+            $ts = strtotime((string)$date);
+            if ($ts === false) $ts = time();
         }
-        if ($date instanceof DateTimeInterface) {
-            return $date->format('Ymd');
-        }
-        $ts = strtotime((string)$date);
-        if ($ts === false) {
-            return date('Ymd');
-        }
-        return date('Ymd', $ts);
+        $d = (int)date('d', $ts);
+        $m = (int)date('n', $ts);
+        $y = (int)date('y', $ts);
+        return sprintf('%02d%s%02d', $d, $monthsFr[$m] ?? 'jan', $y);
     }
 }
 
@@ -175,25 +195,35 @@ if (!function_exists('ged_v3_build_canonical_name')) {
      */
     function ged_v3_build_canonical_name(array $parts): string
     {
+        // Ordre Variante A 2026-05-17 : soc, age, user, upload_date_short, n1, n2, n3, n4, n5, n6, doc_date
         $segments = [];
-        foreach (['soc', 'age', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'] as $key) {
-            $val = (string)($parts[$key] ?? '');
-            $val = ged_v3_slug($val);
-            // N4, N5, N6 optionnels → segments vides supprimés
-            // N1, N2, N3, SOC, AGE laissés vides → garde la position (placeholder _)
-            // SAUF si on est en fin de chaîne avant la date
-            $segments[] = $val;
+
+        // 1-3 : soc, age, user
+        foreach (['soc', 'age', 'user'] as $key) {
+            $segments[] = ged_v3_slug((string)($parts[$key] ?? ''));
         }
 
-        // Trim des segments vides en fin (avant la date)
-        // pour ne pas avoir "REG_LYO7_SYN_TRVX_FACT_____20260512.pdf"
+        // 4 : upload_date (date d'intégration au format DDMMYY) — toujours présent
+        $uploadDate = $parts['upload_date'] ?? null;
+        if ($uploadDate) {
+            $ts = is_string($uploadDate) ? strtotime($uploadDate) : (int)$uploadDate;
+            $segments[] = $ts > 0 ? date('dmy', $ts) : '';
+        } else {
+            $segments[] = '';
+        }
+
+        // 5-10 : n1, n2, n3, n4, n5, n6
+        foreach (['n1', 'n2', 'n3', 'n4', 'n5', 'n6'] as $key) {
+            $segments[] = ged_v3_slug((string)($parts[$key] ?? ''));
+        }
+
+        // Trim des segments vides en fin (avant la date doc)
         while (count($segments) > 0 && end($segments) === '') {
             array_pop($segments);
         }
 
-        // Date en dernier
-        $date = ged_v3_format_date($parts['date'] ?? null);
-        $segments[] = $date;
+        // Date métier (date du doc) en dernier — toujours présente
+        $segments[] = ged_v3_format_date($parts['date'] ?? null);
 
         // Compose
         $base = implode('_', $segments);

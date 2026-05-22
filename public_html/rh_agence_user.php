@@ -92,7 +92,7 @@ $e = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 // ─── Rendu layout MaBoxImmo ────────────────────────────────
 $layout_title   = 'Mon agence';
 $layout_module  = 'Mon espace · Collaborateur';
-$layout_sidebar = 'sidebar_user';
+$layout_sidebar = 'rh_sidebar';
 
 $layout_extra_css = <<<'CSS'
 <style>

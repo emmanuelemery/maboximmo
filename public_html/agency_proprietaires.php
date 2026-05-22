@@ -212,6 +212,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
       <button type="button" class="bl-btn bl-btn-primary" onclick="document.getElementById('modal-new-proprio').classList.add('open')">
         ➕ Nouveau propriétaire
       </button>
+      <a href="<?= htmlspecialchars(app_url('/admin/admin_tiers_merge.php')) ?>"
+         class="bl-btn"
+         style="background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;"
+         title="Détecter et fusionner les doublons de tiers (propriétaires, locataires…)">
+        🔀 Traiter doublons
+      </a>
       <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
       <button type="button" class="bl-btn" id="btn-purge-proprio-admin"
               style="background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;font-weight:700;cursor:pointer;font-family:inherit;"

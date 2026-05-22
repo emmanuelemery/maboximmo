@@ -251,7 +251,7 @@ HTML;
 // ─────────────────────────────────────────────────────────────
 $layout_title   = 'Tableau de bord — ' . htmlspecialchars(($prenom ?: '') . ' ' . ($nom ?: ''), ENT_QUOTES, 'UTF-8');
 $layout_module  = 'Mon espace · Collaborateur';
-$layout_sidebar = 'sidebar_user';
+$layout_sidebar = 'rh_sidebar';
 $layout_hide_page_head = true;
 
 $layout_extra_css = <<<'CSS'
@@ -267,6 +267,64 @@ $layout_extra_css = <<<'CSS'
     box-shadow: inset 2px 2px 5px rgba(180,190,170,0.5), inset -2px -2px 5px #fff;
     font-size: 13px; font-weight: 600;
 }
+
+/* ── Menu "Mes informations" (raccourcis) ───────────────────────────── */
+.rhdu-infos {
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 6px 6px 14px #d4d7de, -6px -6px 14px #fff;
+    padding: 10px 10px 12px;
+    margin: 10px 0 18px;
+    max-width: 420px;
+}
+.rhdu-infos-title {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px 6px 14px;
+    margin: 0 6px 8px;
+    border-radius: 10px;
+    position: relative;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: #4a6038;
+    background: rgba(74,96,56,.08);
+}
+.rhdu-infos-title::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px; height: 20px;
+    border-radius: 3px;
+    background: currentColor;
+}
+.rhdu-infos-list { list-style: none; padding: 0 6px; margin: 0; }
+.rhdu-infos-list li { margin: 0; }
+.rhdu-infos-link {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    color: #6a6660;
+    text-decoration: none;
+    transition: background .14s, color .14s, transform .14s;
+}
+.rhdu-infos-link:hover {
+    background: rgba(47,88,125,.08);
+    color: #2f587d;
+    transform: translateX(2px);
+}
+.rhdu-infos-icon {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 2px 2px 5px rgba(180,185,175,0.5), -2px -2px 5px #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+.rhdu-infos-label { font-size: 15px; font-weight: 600; }
 
 .tasks-grid {
     display: grid;
@@ -470,6 +528,21 @@ ob_start();
 <?php if ($flashOk): ?>
 <div class="flash-ok">✓ <?= htmlspecialchars($flashOk, ENT_QUOTES) ?></div>
 <?php endif; ?>
+
+<!-- ══════════════════════════════════════════════════════════
+     MES INFORMATIONS — raccourcis
+═══════════════════════════════════════════════════════════ -->
+<section class="rhdu-infos">
+    <div class="rhdu-infos-title">Mes informations</div>
+    <ul class="rhdu-infos-list">
+        <li><a class="rhdu-infos-link" href="./rh_profil_prov.php"><span class="rhdu-infos-icon">👤</span><span class="rhdu-infos-label">Mon profil</span></a></li>
+        <li><a class="rhdu-infos-link" href="./rh_salaires_user_list.php"><span class="rhdu-infos-icon">💶</span><span class="rhdu-infos-label">Mes salaires</span></a></li>
+        <li><a class="rhdu-infos-link" href="./rh_documents_prov.php"><span class="rhdu-infos-icon">📁</span><span class="rhdu-infos-label">Mes documents</span></a></li>
+        <li><a class="rhdu-infos-link" href="./rh_ik_user.php"><span class="rhdu-infos-icon">🚗</span><span class="rhdu-infos-label">Mes indemnités KM</span></a></li>
+        <li><a class="rhdu-infos-link" href="./rh_conges_historiq_prov.php"><span class="rhdu-infos-icon">🏖️</span><span class="rhdu-infos-label">Mes congés</span></a></li>
+        <li><a class="rhdu-infos-link" href="./rh_entretien_vue_collaborateur.php"><span class="rhdu-infos-icon">🤝</span><span class="rhdu-infos-label">Mes entretiens</span></a></li>
+    </ul>
+</section>
 
 <!-- ══════════════════════════════════════════════════════════
      SECTION A — Tâches permanentes (ordre séquentiel obligatoire)

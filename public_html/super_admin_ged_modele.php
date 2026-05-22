@@ -16,7 +16,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/ged_functions.php';
-require_login();
+require_admin_or_super_admin();
 
 $pdo = ged_pdo();
 $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');

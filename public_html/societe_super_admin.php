@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/auth.php';
-require_super_admin();
+require_admin_or_super_admin();
 
 $pdo = $GLOBALS['pdo'];
 

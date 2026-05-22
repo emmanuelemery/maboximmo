@@ -113,7 +113,7 @@ foreach ($conges as $c) {
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 $layout_title   = 'Mes congés — ' . htmlspecialchars($_userName, ENT_QUOTES, 'UTF-8');
 $layout_module  = 'Mon espace · Collaborateur';
-$layout_sidebar = 'sidebar_user';
+$layout_sidebar = 'rh_sidebar';
 $layout_hide_page_head = true; // pas de page-head sur les pages _prov user
 
 $layout_extra_css = <<<'CSS'

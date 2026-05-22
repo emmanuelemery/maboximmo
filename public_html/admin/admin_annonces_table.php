@@ -6,24 +6,15 @@
  * Cellules cliquables → input/select → blur save via api/admin_annonce_edit.php.
  * FK (id_agence, id_user, id_societe) affichées avec le libellé résolu.
  *
- * Accès : admin (role_id IN 1, 2, 3).
+ * Accès : Super Admin uniquement (données brutes, édition directe).
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../inc/bootstrap.php';
-require_once __DIR__ . '/../inc/auth.php';
-require_login();
+require_admin_or_super_admin();
 
 $pdo       = $GLOBALS['pdo'];
-$roleId    = function_exists('current_role_id') ? (int)current_role_id() : (int)($_SESSION['id_role'] ?? 0);
 $societeId = (int)($_SESSION['id_societe'] ?? 0);
-$isSuperAdmin = ($roleId === 1);
-$isAdmin      = in_array($roleId, [1, 2, 3], true);
-
-if (!$isAdmin) {
-    http_response_code(403);
-    exit('<h1>403 — Accès réservé aux administrateurs.</h1>');
-}
 
 function ate($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 

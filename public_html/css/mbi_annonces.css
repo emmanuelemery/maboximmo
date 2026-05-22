@@ -315,6 +315,13 @@
   display: grid;
   gap: 10px;
 }
+
+/* Hauteur cible : 2 lignes de boutons (2×96px + 10px gap = 202px)
+   Permet d'aligner visuellement la carte Budget sur les autres. */
+.mbi-fcard-grid,
+.mbi-price-card-body {
+  height: 202px;
+}
 .mbi-fcard-grid-1col { grid-template-columns: 1fr; }
 .mbi-fcard-grid-3col { grid-template-columns: repeat(3, 1fr); }
 
@@ -323,7 +330,8 @@
   background: rgba(255,255,255,0.42);
   border-radius: 14px;
   padding: 15px 10px;
-  min-height: 82px;
+  height: 96px; /* même hauteur px pour tous les boutons (texte lisible) */
+  min-height: 96px;
   cursor: pointer;
   -webkit-backdrop-filter: blur(14px);
           backdrop-filter: blur(14px);
@@ -344,6 +352,16 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
+}
+.mbi-fcardbtn-txt {
+  display: block;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .mbi-fcardbtn-ic {
   display: block;
@@ -383,17 +401,24 @@
 
 /* Price card */
 .mbi-price-card { display: flex; flex-direction: column; }
+.mbi-price-card .mbi-fcard-title { margin-bottom: 14px; }
+.mbi-price-card-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 202px;
+}
 .mbi-price-box {
   background: rgba(255,255,255,0.52);
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.75);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .mbi-price-arrow {
   display: grid; place-items: center;
-  height: 40px; cursor: pointer;
+  height: 34px; cursor: pointer; /* resserré pour aligner à 2 lignes */
   font-size: 24px;
   color: var(--mbi-petrol);
   text-decoration: none;
@@ -404,7 +429,7 @@
   color: var(--mbi-petrol-dark);
 }
 .mbi-price-value {
-  padding: 18px 8px;
+  padding: 14px 8px; /* resserré */
   font-size: 18px;
   font-weight: 800;
   color: var(--mbi-petrol);
@@ -416,7 +441,7 @@
 .mbi-price-chip {
   display: inline-flex; align-items: center; justify-content: center;
   margin: 0 auto;
-  padding: 8px 18px;
+  padding: 6px 14px; /* resserré */
   border-radius: 10px;
   border: 1px solid #12b7b0;
   background: rgba(255,255,255,0.45);
@@ -425,7 +450,7 @@
   color: var(--mbi-petrol-dark);
 }
 .mbi-price-sublabel {
-  margin-top: 6px; text-align: center;
+  margin-top: 4px; text-align: center;
   font-size: 11px; color: var(--mbi-muted-dark);
 }
 

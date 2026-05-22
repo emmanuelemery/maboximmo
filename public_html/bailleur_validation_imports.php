@@ -141,7 +141,7 @@ $csrfToken = function_exists('csrf_token') ? csrf_token() : '';
 // ─── Layout ────────────────────────────────────────────────
 $layout_title   = 'Imports GED — Validation';
 $layout_module  = 'Bailleur';
-$layout_sidebar = 'sidebar_bailleur';
+$layout_sidebar = 'sidebar_agency';
 
 $famIcons = [
     'loyer' => '💶', 'crg' => '📊', 'bail' => '📜',

@@ -367,14 +367,51 @@ if (!function_exists('ged_v3_get_children')) {
         if ($level < 2 || $level > 5) return [];
         if ($pdo === null) $pdo = ged_pdo();
 
+        // 2026-05-17 : si N3 est une INSTANCE (ex 2024_ILOT_17) et pas un placeholder (IMMEUBLE),
+        // on remonte automatiquement au placeholder pour charger les N4/N5. Les sous-niveaux
+        // sont définis UNE seule fois sous le placeholder et s'appliquent à toutes les instances.
+        if ($level >= 4 && !empty($parents['n3']) && !empty($parents['n1']) && !empty($parents['n2'])) {
+            try {
+                $stPh = $pdo->prepare("
+                    SELECT 1 FROM ged_level_codes
+                    WHERE level_number = 3
+                      AND code = ? COLLATE utf8mb4_unicode_ci
+                      AND COALESCE(is_entity_placeholder, 0) = 1
+                    LIMIT 1
+                ");
+                $stPh->execute([$parents['n3']]);
+                $isPlaceholder = (bool)$stPh->fetchColumn();
+                if (!$isPlaceholder) {
+                    // C'est une instance → cherche le placeholder N3 sous les mêmes N1/N2
+                    $stPh2 = $pdo->prepare("
+                        SELECT code FROM ged_level_codes
+                        WHERE level_number = 3
+                          AND parent_n1 = ? COLLATE utf8mb4_unicode_ci
+                          AND parent_n2 = ? COLLATE utf8mb4_unicode_ci
+                          AND COALESCE(is_entity_placeholder, 0) = 1
+                          AND is_active = 1
+                        LIMIT 1
+                    ");
+                    $stPh2->execute([$parents['n1'], $parents['n2']]);
+                    $placeholderCode = (string)$stPh2->fetchColumn();
+                    if ($placeholderCode !== '') {
+                        $parents['n3'] = $placeholderCode;
+                    }
+                }
+            } catch (Throwable) {}
+        }
+
         $where  = ["level_number = ?", "is_active = 1", "COALESCE(is_virtual, 0) = 0"];
         $params = [$level];
 
+        // Force COLLATE sur les comparaisons : la colonne est en utf8mb4_unicode_ci mais le
+        // paramètre PHP arrive en utf8mb4_general_ci → sans COLLATE explicite, MySQL peut
+        // ne pas matcher (le code existe en BDD mais le SELECT le rate silencieusement).
         foreach (['n1', 'n2', 'n3', 'n4'] as $i => $k) {
             if ($level > $i + 1) {
                 $val = trim((string)($parents[$k] ?? ''));
                 if ($val !== '') {
-                    $where[]  = "parent_{$k} = ?";
+                    $where[]  = "parent_{$k} = ? COLLATE utf8mb4_unicode_ci";
                     $params[] = $val;
                 } else {
                     $where[] = "(parent_{$k} IS NULL OR parent_{$k} = '')";

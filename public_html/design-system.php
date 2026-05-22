@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/inc/bootstrap.php';
-require_super_admin();
+require_admin_or_super_admin();
 
 // Services disponibles
 $services = [

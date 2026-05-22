@@ -11,6 +11,7 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
     <ul class="mbi-nav">
         <li><a href="ged_dashboard.php" <?=($currentPage === 'ged_dashboard.php' ? 'class="active"' : '')?>>📦 Ma GED Box</a></li>
         <li><a href="dashboard_syndic.php" <?=($currentPage === 'dashboard_syndic.php' ? 'class="active"' : '')?>>⊞ Dashboard</a></li>
+        <li><a href="transaction_index.php" <?=(in_array($currentPage, ['transaction_index.php','transaction_chargement.php']) ? 'class="active"' : '')?>>🎯 Transactions</a></li>
         <li><a href="landing.php">← Retour Accueil</a></li>
     </ul>
 

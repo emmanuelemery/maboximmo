@@ -84,9 +84,9 @@ body {
     overflow: hidden;
 }
 
-/* ── Topbar — fixe, 56px ─────────────────────────────────────────────── */
+/* ── Topbar — fixe, 45px (réduit de 20% — 2026-05-17) ──────────────── */
 .mbi-topbar {
-    height: 56px;
+    height: 45px;
     flex-shrink: 0;
     display: flex;
     align-items: center;

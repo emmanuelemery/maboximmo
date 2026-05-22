@@ -10,13 +10,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../inc/bootstrap.php';
-require_login();
-
-$roleId = (int)($_SESSION['id_role'] ?? 0);
-if ($roleId !== 1) {
-    http_response_code(403);
-    exit('<h1>403 — Accès réservé aux administrateurs.</h1>');
-}
+require_admin_or_super_admin();
 
 $output = '';
 $errorMsg = '';

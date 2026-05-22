@@ -19,6 +19,7 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
         <li><a href="mes_biens.php" <?=($currentPage === 'mes_biens.php' ? 'class="active"' : '')?>>🏠 Mes Propriétés</a></li>
         <li><a href="mes_locations.php" <?=($currentPage === 'mes_locations.php' ? 'class="active"' : '')?>>🔑 Locations Actives</a></li>
         <li><a href="mes_locataires.php" <?=($currentPage === 'mes_locataires.php' ? 'class="active"' : '')?>>👥 Locataires</a></li>
+        <li><a href="transaction_index.php" <?=(in_array($currentPage, ['transaction_index.php','transaction_chargement.php']) ? 'class="active"' : '')?>>🎯 Transactions</a></li>
     </ul>
 
     <div class="mbi-sidebar-section">Gestion</div>

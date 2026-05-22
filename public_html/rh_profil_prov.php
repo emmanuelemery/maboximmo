@@ -285,7 +285,7 @@ function renderDocZone(string $categorie, string $icon, string $label, array $do
 // ── Layout variables ─────────────────────────────────────────────
 $layout_title        = 'Profil — ' . h(($user['prenom'] ?? '') . ' ' . ($user['nom'] ?? ''));
 $layout_module       = 'Mon espace · Collaborateur';
-$layout_sidebar      = 'sidebar_user';
+$layout_sidebar      = 'rh_sidebar';
 $layout_accent       = '#4878a6';
 
 // Topbar : vide (avatar + nom + complétude dans page-head)

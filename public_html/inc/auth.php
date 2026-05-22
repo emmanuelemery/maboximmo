@@ -196,7 +196,37 @@ function can_manage_salaires_agence(): int
  */
 function is_super_admin(): bool
 {
-    return !empty($_SESSION['super_admin']);
+    // Valeur session (si déjà déterminée) — mais si elle est fausse, on
+    // revalide en DB une fois par requête (utile en dev quand on change les droits).
+    static $validated = false;
+    if (isset($_SESSION['super_admin']) && $_SESSION['super_admin']) {
+        return true;
+    }
+
+    // Fallback : lecture DB
+    $pdo = $GLOBALS['pdo'] ?? null;
+    $userId = (int)($_SESSION['user_id'] ?? 0);
+    if (!$pdo || $userId <= 0) {
+        $_SESSION['super_admin'] = false;
+        return false;
+    }
+
+    if ($validated && isset($_SESSION['super_admin'])) {
+        return !empty($_SESSION['super_admin']);
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT super_admin FROM users WHERE id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $is = (int)$stmt->fetchColumn() === 1;
+        $_SESSION['super_admin'] = $is;
+        $validated = true;
+        return $is;
+    } catch (Throwable) {
+        $_SESSION['super_admin'] = false;
+        $validated = true;
+        return false;
+    }
 }
 
 /**
@@ -207,6 +237,25 @@ function require_super_admin(): void
     require_login();
     if (!is_super_admin()) {
         deny_access('Accès réservé au Super Admin.');
+    }
+}
+
+/**
+ * Accès dashboard "Admin + Super Admin" (mêmes actions).
+ * - Admin = role_id 1
+ * - Super Admin = role_id 7 OU flag session super_admin (legacy)
+ */
+function is_admin_or_super_admin(): bool
+{
+    $roleId = current_role_id();
+    return $roleId === 1 || $roleId === 7 || is_super_admin();
+}
+
+function require_admin_or_super_admin(): void
+{
+    require_login();
+    if (!is_admin_or_super_admin()) {
+        deny_access('Accès réservé aux administrateurs.');
     }
 }
 

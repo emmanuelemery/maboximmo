@@ -60,6 +60,9 @@ if (!function_exists('sbActiveSection')) {
             <li><a href="./ged_dashboard.php" class="<?= sbActive('ged_dashboard.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">GED Dashboard</span>
             </a></li>
+            <li><a href="./transaction_index.php" class="<?= sbActive('transaction_index.php') ?: sbActive('transaction_chargement.php') ?>">
+                <span class="sb-icon">🎯</span><span class="sb-label">Transactions</span>
+            </a></li>
         </ul>
     </div>
 
@@ -109,37 +112,16 @@ if (!function_exists('sbActiveSection')) {
     <?php if ($isSuperAdmin): ?>
     <!-- ═══════════════════════════
          4) SUPERADMIN — id_role = 1
-    ═══════════════════════════ -->
+     ═══════════════════════════ -->
     <div class="sb-divider"></div>
     <div class="sb-group super">
-        <div class="sb-section<?= sbActiveSection(['super_admin_ged_niveaux.php','super_admin_ged_import.php','super_admin_coffre_acces.php','super_admin_ged_guide.php']) ? ' section-active' : '' ?>">
+        <div class="sb-section<?= sbActiveSection(['super_admin_dashboard.php','super_admin_ged_niveaux.php','super_admin_ged_import.php','super_admin_coffre_acces.php','super_admin_ged_guide.php']) ? ' section-active' : '' ?>">
             Super Admin
             <span class="sb-badge sup" style="background:#fef3c7;color:#92400e;font-size:9px;padding:1px 5px;border-radius:6px;margin-left:4px">SA</span>
         </div>
         <ul class="sb-nav">
-            <li><a href="./super_admin_ged_import.php" class="<?= sbActive('super_admin_ged_import.php') ?>">
-                <span class="sb-icon">📥</span><span class="sb-label">Import GED V2</span>
-            </a></li>
-            <li><a href="./super_admin_ged_niveaux.php" class="<?= sbActive('super_admin_ged_niveaux.php') ?>">
-                <span class="sb-icon">🗂️</span><span class="sb-label">Niveaux N1→N6</span>
-            </a></li>
-            <li><a href="./super_admin_ged_modele.php" class="<?= sbActive('super_admin_ged_modele.php') ?>">
-                <span class="sb-icon">🌐</span><span class="sb-label">Modèle général (vue)</span>
-            </a></li>
-            <li><a href="./super_admin_coffre_acces.php" class="<?= sbActive('super_admin_coffre_acces.php') ?>">
-                <span class="sb-icon">🔒</span><span class="sb-label">Coffre accès</span>
-            </a></li>
-            <li><a href="./super_admin_ged_guide.php" target="_blank" rel="noopener" class="<?= sbActive('super_admin_ged_guide.php') ?>">
-                <span class="sb-icon">📖</span><span class="sb-label">Guide complet</span>
-            </a></li>
-            <li><a href="./admin/admin_migrations.php" class="<?= sbActive('admin_migrations.php') ?>">
-                <span class="sb-icon">🛠️</span><span class="sb-label">Migrations BDD</span>
-            </a></li>
-            <li><a href="<?= function_exists('app_url') ? app_url('/admin/admin_ged_glossaire.php') : './admin/admin_ged_glossaire.php' ?>" class="<?= sbActive('admin_ged_glossaire.php') ?>">
-                <span class="sb-icon">🏷️</span><span class="sb-label">Glossaire GED</span>
-            </a></li>
-            <li><a href="<?= function_exists('app_url') ? app_url('/admin/admin_database.php') : './admin/admin_database.php' ?>" class="<?= sbActive('admin_database.php') ?>">
-                <span class="sb-icon">🗄️</span><span class="sb-label">Base de données</span>
+            <li><a href="./super_admin_dashboard.php" class="<?= sbActive('super_admin_dashboard.php') ?>" style="background:linear-gradient(135deg,#7a6830,#4a6038);color:#fff;border-radius:8px;margin:4px 8px;">
+                <span class="sb-icon">🧰</span><span class="sb-label" style="color:#fff;font-weight:700;">Dashboard Super Admin</span>
             </a></li>
         </ul>
     </div>

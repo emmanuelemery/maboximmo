@@ -112,6 +112,8 @@ if (!function_exists('fluxbox_vision_extract_variant_a')) {
             ]],
         ];
 
+        // Reset du chrono PHP avant l'appel Vision (peut prendre 60-90s)
+        @set_time_limit(180);
         $ch = curl_init('https://api.anthropic.com/v1/messages');
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,

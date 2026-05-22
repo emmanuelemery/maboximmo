@@ -71,6 +71,9 @@ $sbLinkAgence  = './rh_agence_user.php';
             <li><a href="<?= $sbLinkAgence ?>" class="<?= $sbUserActive(basename($sbLinkAgence)) ?>">
                 <span class="sb-icon">🏢</span><span class="sb-label">Mon agence</span>
             </a></li>
+            <li><a href="./transaction_index.php" class="<?= $sbUserActive('transaction_index.php') . $sbUserActive('transaction_chargement.php') ?>">
+                <span class="sb-icon">🎯</span><span class="sb-label">Transactions</span>
+            </a></li>
         </ul>
     </div>
 

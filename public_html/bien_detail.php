@@ -229,6 +229,65 @@ try {
     error_log('[bien_detail_v2] biens_documents: ' . $e->getMessage());
 }
 
+// ─── UNION : aussi lire ged_documents (source moderne, module Transaction) ─
+// Permet de voir dans bien_detail les docs uploadés via transaction_chargement.php.
+// Source de vérité : ged_documents (avec FK id_bien si la migration est passée,
+// sinon fallback sur JSON_EXTRACT(metadata, '$.classement.bien_id_bdd')).
+try {
+    $hasIdBienCol = false;
+    try {
+        $stCol = $pdo->query("SHOW COLUMNS FROM ged_documents LIKE 'id_bien'");
+        $hasIdBienCol = (bool)$stCol->fetchColumn();
+    } catch (Throwable $e) {}
+    $whereGed = $hasIdBienCol
+        ? 'id_bien = ?'
+        : "JSON_EXTRACT(metadata, '$.classement.bien_id_bdd') = ?";
+    $stGed = $pdo->prepare("SELECT id, document_type, name_display AS nom_original, name_file,
+            final_destination, mime_type, size_bytes, created_at, source_module
+        FROM ged_documents
+        WHERE status = 'active' AND $whereGed
+        ORDER BY id DESC LIMIT 100");
+    $stGed->execute([$editingBienId]);
+    // Mapping type_document GED (uppercase Transaction) → conventions bien_detail
+    $typeMapGed = [
+        'DIAG_DPE' => 'dpe', 'DIAG_AMIANTE' => 'amiante', 'DIAG_PLOMB' => 'plomb',
+        'DIAG_GAZ' => 'gaz', 'DIAG_ELEC' => 'electricite', 'DIAG_TERMITES' => 'termites',
+        'DIAG_ERP' => 'erp', 'SURFACE_CARREZ' => 'mesurage_loi_carrez',
+        'MANDAT_VENTE' => 'mandat', 'MANDAT_LOCATION' => 'mandat', 'MANDAT_RECHERCHE' => 'mandat',
+        'BAIL' => 'bail', 'COMPROMIS' => 'compromis', 'PROMESSE_VENTE' => 'promesse_vente',
+        'ACTE_AUTHENTIQUE' => 'acte', 'OFFRE_ACHAT' => 'offre_achat',
+        'TAXE_FONCIERE' => 'taxe_fonciere', 'PLAN' => 'plan', 'PHOTO' => 'photo', 'AUTRE' => 'autre',
+    ];
+    while ($d = $stGed->fetch(PDO::FETCH_ASSOC)) {
+        $rawType = (string)($d['document_type'] ?? 'autre');
+        $t = $typeMapGed[$rawType] ?? mb_strtolower($rawType);
+        $url = (string)($d['final_destination'] ?? '');
+        $row = [
+            'id'             => 'ged_' . (int)$d['id'],          // préfixé pour éviter collision avec biens_documents.id
+            'type_document'  => $t,
+            'nom_original'   => (string)$d['nom_original'],
+            'url_fichier'    => $url ? app_url('/' . ltrim($url, '/')) : '',
+            'taille_octets'  => (int)($d['size_bytes'] ?? 0),
+            'date_document'  => null,
+            'date_upload'    => $d['created_at'] ?? null,
+            'source'         => 'ged_documents',  // tag pour différencier (debug)
+        ];
+        if (in_array($t, $diagTypes, true)) {
+            $docsDiag[] = $row;
+            if ($lastDpePdf === null && $row['url_fichier']
+                && in_array($t, ['dpe','diag','dossier_complet','dossier_diagnostics'], true)) {
+                $lastDpePdf = $row;
+            }
+        } elseif (in_array($t, $mandatTypes, true)) {
+            $docsMandat[] = $row;
+        } else {
+            $docsAutre[] = $row;
+        }
+    }
+} catch (Throwable $e) {
+    error_log('[bien_detail_v2] ged_documents union: ' . $e->getMessage());
+}
+
 // ─── Section ANNONCE : charger l'annonce existante du bien + photos ──
 $annonce = null;
 $annoncePhotoIds = [];

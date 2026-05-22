@@ -2,6 +2,7 @@
     "name": "maboximmo/app",
     "description": "MaBoxImmo",
     "require": {
-        "smalot/pdfparser": "^2.12"
+        "smalot/pdfparser": "^2.12",
+        "hfig/mapi": "^1.4"
     }
 }

@@ -45,10 +45,10 @@ if (!function_exists('app_base_path')) {
     function app_base_path(): string
     {
         $base = $GLOBALS['APP_BASE_PATH'] ?? '';
-        if (!is_string($base)) {
-            return '';
+        if (!is_string($base) || $base === '') {
+            $base = defined('APP_BASE_PATH') ? (string)APP_BASE_PATH : '';
         }
-        return rtrim($base, '/');
+        return rtrim((string)$base, '/');
     }
 }
 

@@ -13,7 +13,7 @@ require_login();
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 $layout_title   = 'Notes de frais — ' . htmlspecialchars($_userName, ENT_QUOTES, 'UTF-8');
 $layout_module  = 'Mon espace · Collaborateur';
-$layout_sidebar = 'sidebar_user';
+$layout_sidebar = 'rh_sidebar';
 $layout_hide_page_head = true;
 
 $layout_extra_css = <<<'CSS'

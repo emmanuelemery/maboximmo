@@ -246,10 +246,20 @@ if (!function_exists('fluxbox_ia_run_cascade')) {
             return $r3;
         }
 
-        // ──── N4 — LLM cloud léger (Haiku) ─────────────────────────────────
-        // V1 : on ne fait pas d'appel Anthropic réel ici (nécessite clé API + intégration HTTP).
-        // On renvoie le résultat N3 s'il existe (même si confiance < 80%), sinon proposition vide.
-        // À brancher V1.1 : appel ged_vision.php / ged_extraction.php existant.
+        // ──── N4 — LLM Haiku 4.5 (PDF multimodal direct) ────────────────────
+        $r4 = fluxbox_ia_n4_haiku_llm($doc, $pdo);
+        if ($r4 !== null) {
+            fluxbox_ia_log_usage([
+                'ia_provider' => 'anthropic',
+                'ia_model'    => 'claude-haiku-4-5',
+                'purpose'     => 'classement',
+                'cost_eur'    => (float)($r4['cost_eur'] ?? 0),
+                'cache_hit'   => 0,
+            ], $pdo);
+            return $r4;
+        }
+
+        // ──── Fallback : heuristique partielle ou manuel ───────────────────
         if ($r3 !== null) {
             fluxbox_ia_log_usage([
                 'ia_provider' => 'local', 'ia_model' => 'heuristic-low-confidence', 'purpose' => 'classement',
@@ -262,9 +272,274 @@ if (!function_exists('fluxbox_ia_run_cascade')) {
             'classement'     => ['n1' => '', 'n2' => '', 'n3' => '', 'n4' => '', 'n5' => '', 'n6' => ''],
             'actions'        => [],
             'confiance'      => 0,
-            'niveau_utilise' => 'N4_TODO',
-            'raison'         => 'Cascade N1-N3 a échoué. LLM cloud à brancher V1.1.',
+            'niveau_utilise' => 'MANUAL',
+            'raison'         => 'Classement manuel requis — cliquez sur Ajuster pour choisir.',
             'cost_eur'       => 0,
+        ];
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 4bis. NIVEAU N4 — LLM Haiku 4.5 (appel PDF multimodal direct)
+// ════════════════════════════════════════════════════════════════════════
+
+if (!function_exists('fluxbox_ia_n4_haiku_llm')) {
+    /**
+     * Envoie le PDF directement à Claude Haiku 4.5 pour classification fine.
+     * Renvoie null si :
+     *  - pas de clé API
+     *  - fichier non-PDF / introuvable / trop volumineux
+     *  - erreur HTTP
+     * Sinon renvoie un classement complet (n1→n5 + entity + matching BDD).
+     */
+    function fluxbox_ia_n4_haiku_llm(array $doc, PDO $pdo): ?array
+    {
+        global $ANTHROPIC_API_KEY;
+        if (empty($ANTHROPIC_API_KEY)) return null;
+
+        $path = (string)($doc['fichier_chemin'] ?? '');
+        if ($path === '' || !is_file($path)) return null;
+        $ext = strtolower(pathinfo((string)$doc['fichier_nom'], PATHINFO_EXTENSION));
+        if ($ext !== 'pdf') return null; // V1 : PDF uniquement ; PNG/JPG/MSG à brancher ensuite
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || strlen($bytes) === 0) return null;
+        $b64 = base64_encode($bytes);
+        if (strlen($b64) > 30_000_000) return null; // trop gros pour l'API
+
+        // Glossaire condensé (entités placeholder uniquement, pour rester court)
+        $glossStr = '';
+        try {
+            $st = $pdo->query("
+                SELECT parent_n1, parent_n3, code
+                FROM ged_level_codes
+                WHERE level_number = 4 AND is_active = 1
+                AND parent_n3 IN ('IMMEUBLE','COLLABORATEUR','BAILLEUR','LOCATAIRE','SOCIETE','BANQUE','FOURNISSEUR')
+                ORDER BY parent_n1, parent_n3, code
+            ");
+            $gloss = [];
+            while ($r = $st->fetch(PDO::FETCH_ASSOC)) {
+                $key = $r['parent_n1'] . ' > ' . $r['parent_n3'];
+                $gloss[$key][] = $r['code'];
+            }
+            foreach ($gloss as $k => $codes) {
+                $glossStr .= "• $k : " . implode(', ', array_unique($codes)) . "\n";
+            }
+        } catch (Throwable) {}
+
+        $systemPrompt = <<<TXT
+Tu es un classificateur expert pour un cabinet immobilier (syndic + gestion + transaction + RH + comptabilité).
+Tu reçois un document PDF. Tu identifies sa nature précise et tu retournes UNIQUEMENT un JSON sur une ligne, SANS markdown :
+
+{"n1":"04_SYNDIC|03_GESTION_LOCATIVE|06_COMPTABILITE|02_RH|01_DIRECTION",
+ "n2":"IMMEUBLES|BAUX|BANQUES|COLLABORATEURS|01_SOCIETES|FOURNISSEURS",
+ "n3":"IMMEUBLE|BAILLEUR|LOCATAIRE|COLLABORATEUR|BANQUE|FOURNISSEUR|SOCIETE",
+ "entity_instance":"nom propre détecté (ex: Les Chamois, 1 Rue Teste du Bailler, MINET-CAPRA)",
+ "entity_ref":"référence interne si visible (ex: 3005, AD3-526) ou vide",
+ "n4":"code N4 du glossaire (voir liste)",
+ "n5":"code N5 si applicable (ex: PV_AGO, PV_AGE, CV_AGO, CV_AGE pour syndic AG, sinon vide)",
+ "n6":"SIGNE | NON_SIGNE | vide (voir règles signature)",
+ "titre_court":"titre métier précis ≤70 char (PAS le nom de fichier brut)",
+ "date":"YYYY-MM-DD — date MÉTIER précise de l'événement (voir règles)",
+ "annee":"2024|2025... (fallback si date jour/mois pas visible)",
+ "adresse":"adresse complète si visible",
+ "ville":"...","code_postal":"...","tiers_externe":"...",
+ "confiance":85,
+ "raison":"phrase courte"}
+
+Règles strictes :
+- PV Assemblée Générale Ordinaire → n4=AG, n5=PV_AGO
+- PV Assemblée Générale Extraordinaire → n4=AG, n5=PV_AGE
+- Convocation AGO → n4=AG, n5=CV_AGO ; Convocation AGE → n4=AG, n5=CV_AGE
+- Contrat de syndic → n4=CONTRATS
+- Acte/notification de mutation → n4=MUTATIONS
+- Plan technique/architecte → n4=PHOTOS_TECHNIQUES
+- Devis/proposition diagnostics → n4=DEVIS
+- Facture fournisseur (immeuble) → n1=06_COMPTABILITE, n3=FOURNISSEUR, n4=FACTURES
+- Bulletin paie → n1=02_RH, n3=COLLABORATEUR, n4=03_PAIE
+- Bail commercial/habitation → n1=03_GESTION_LOCATIVE, n3=LOCATAIRE
+- Si tu ne sais pas → n4=A_CLASSER, confiance < 50
+
+RÈGLES VÉHICULES (CRITIQUE — TOUT DOC VÉHICULE VA ICI, PAS AILLEURS) :
+- Si le doc mentionne un véhicule (Audi, BMW, Tesla, Peugeot, Renault, Citroen, Volvo, VW Polo, Porsche, Yamaha, etc.), une immatriculation (FR), un certificat d'immatriculation, une carte grise, une assurance auto, un contrat leasing/LOA/LLD voiture, un entretien automobile, un PV de cession véhicule, un mandat d'immatriculation, un bon de commande véhicule, une carte VW Bank / RCI / Crédit Auto, etc. → c'est UN DOC VÉHICULE
+- Pour TOUT doc véhicule : n1=01_DIRECTION, n2=17_VEHICULES, n3=CODE_VEHICULE_DIRECT (depuis la liste ci-dessous, PAS le placeholder VEHICULE)
+- n3 = code véhicule directement depuis cette LISTE (CHOISIS LE PLUS PROCHE — ce sont des codes N3 valides en BDD) :
+  • AUDI_A3, AUDI_A4, AUDI_A6_2023, AUDI_Q5_2018, X3_BMW, MERCEDES_CLASS_C,
+  • PEUGEOT_3008, 206_CHAPONOST, 207_BLANCHE_EMMELYNE, 207_GRISE_PERSO,
+  • CITROEN_C3_CEP, PORSCHE_CAYENNE_SIR, VOLVO_V40_SERVAJEAN,
+  • ESPACE_5_2015, RENAULT_ESPACE_2008, SCENIC_2008, LOCATION_A4_2018,
+  • POLO_VW_RIOM_2023, POLO_VW_MIONS_2024, POLO_VW_VIENNE_2025,
+  • TESLA_MODELE_3, TESLA_MODELE_Y_2025, PIAGGIO_MP3, TROTINETTE_2022, YAMAHA_MT07
+- n4 selon le type de doc véhicule :
+  • Certificat immatriculation / carte grise → n4=CARTE_GRISE
+  • Attestation/contrat assurance auto → n4=ASSURANCE
+  • Procès-verbal contrôle technique → n4=CONTROLE_TECHNIQUE
+  • Facture entretien, devis entretien, vidange, freins, pneus → n4=ENTRETIEN
+  • Facture achat véhicule, facture concessionnaire → n4=FACTURES
+  • Contrat LOA, LLD, leasing, tableau amortissement, mandat SEPA véhicule, RIB véhicule, crédit auto → n4=FINANCEMENTS
+  • Bon de commande, configuration véhicule, offre véhicule, proposition tarif → n4=BON_COMMANDE
+  • Certificat cession, mandat immatriculation transfert → n4=VENTE_CESSION
+  • Doc véhicule ancien/archivé → n4=ARCHIVES
+- target_societe_id = 3 (LOCA IMMO Holding — TOUS les véhicules sont à LOCA IMMO)
+- target_agence_id = 0 (société uniquement, pas d'agence)
+
+RÈGLES SIGNATURE (champ n6) — UNIQUEMENT pour docs qui DOIVENT être signés :
+- Types concernés : PV AG (PV_AGO/PV_AGE), Contrats (syndic, bail, travail…), Mandats, Actes, Devis acceptés, Bons de commande
+- Si tu détectes des signatures visibles (paraphes, tampons signés, mention "signé le…") → n6="SIGNE"
+- Si le doc nécessite signature mais zone signature VIDE/non remplie → n6="NON_SIGNE"
+- Pour TOUS les autres types (factures, relevés, plans, courriers, notifications…) → n6="" (vide)
+- Convocations AG (CV_AGO/CV_AGE) → n6="" (pas de signature requise pour convoc)
+
+RÈGLES DATE (CRITIQUE — NE JAMAIS OMETTRE LA CLÉ "date" DANS LE JSON) :
+- "date" est OBLIGATOIRE dans le JSON. Si tu hésites, MIEUX VAUT une date approximative que rien.
+- Format STRICT : "YYYY-MM-DD" (10 caractères, ex: "2024-03-21")
+- "21 mars 2024" → "2024-03-21" / "3 juillet 2025" → "2025-07-03"
+- Mois français : janvier=01, février=02, mars=03, avril=04, mai=05, juin=06, juillet=07, août=08, septembre=09, octobre=10, novembre=11, décembre=12
+- Quelle date prendre selon le type :
+  • PV AG (toute) → date de TENUE de l'assemblée
+  • Convocation AG → date de la PROCHAINE AG annoncée (pas l'envoi)
+  • Contrat / bail → date de SIGNATURE
+  • Acte mutation → date de l'acte notarié ("en date du XX")
+  • Facture → date de facturation
+  • Devis → date du devis
+  • Bulletin paie → dernier jour du mois payé (ex paie de mars 2024 → "2024-03-31")
+- Si VRAIMENT aucune date jour/mois visible → date="" + annee="2024"
+
+EXEMPLE COMPLET pour un PV AG du 21 mars 2024 sur l'immeuble 3005 :
+{"n1":"04_SYNDIC","n2":"IMMEUBLES","n3":"IMMEUBLE","entity_instance":"1 rue Teste du Bailler","entity_ref":"3005","n4":"AG","n5":"PV_AGO","titre_court":"PV AG Ordinaire 21/03/2024","date":"2024-03-21","annee":"2024","adresse":"1 rue Teste du Bailler","ville":"VIENNE","code_postal":"38200","tiers_externe":"REGIE EMERY","confiance":95,"raison":"PV AG ordinaire tenue le 21 mars 2024"}
+TXT;
+
+        $userContent = [
+            ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $b64]],
+            ['type' => 'text', 'text' => "GLOSSAIRE N4 par branche :\n$glossStr\n\nNom fichier : " . (string)$doc['fichier_nom'] . "\n\nClasse ce document. JSON uniquement."],
+        ];
+
+        $payload = [
+            'model' => 'claude-haiku-4-5-20251001',
+            'max_tokens' => 800,
+            'system' => $systemPrompt,
+            'messages' => [['role' => 'user', 'content' => $userContent]],
+        ];
+
+        // Reset chrono PHP avant chaque appel IA (cascade Haiku/Sonnet, 30-90s)
+        @set_time_limit(180);
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $ANTHROPIC_API_KEY,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            CURLOPT_TIMEOUT => 90,
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($code !== 200) return null;
+        $j = json_decode($resp, true);
+        if (!is_array($j)) return null;
+        $raw = $j['content'][0]['text'] ?? '';
+        $usage = $j['usage'] ?? [];
+        $costEur = (($usage['input_tokens'] ?? 0) * 0.001 + ($usage['output_tokens'] ?? 0) * 0.005) / 1000 * 0.92;
+
+        $clean = preg_replace('/^```(?:json)?\s*|\s*```$/m', '', trim($raw));
+        $p = json_decode($clean, true);
+        if (!is_array($p)) return null;
+
+        // Matching véhicule : si n2=17_VEHICULES, le n3 doit être un code véhicule valide en BDD
+        $matchedVehicleCode = null;
+        $isVehicleDoc = (($p['n2'] ?? '') === '17_VEHICULES');
+        if ($isVehicleDoc) {
+            $n3Test = trim((string)($p['n3'] ?? ''));
+            if ($n3Test !== '' && $n3Test !== 'VEHICULE') {
+                // Vérifie que le code existe en ged_level_codes N3 sous DIRECTION/VEHICULES
+                $stV = $pdo->prepare("
+                    SELECT code FROM ged_level_codes
+                    WHERE level_number=3 AND code=? COLLATE utf8mb4_unicode_ci
+                      AND parent_n1='01_DIRECTION' AND parent_n2='17_VEHICULES' AND is_active=1
+                    LIMIT 1
+                ");
+                $stV->execute([$n3Test]);
+                $matchedVehicleCode = (string)$stV->fetchColumn() ?: null;
+            }
+        }
+
+        // Matching immeuble en BDD (priorité ref → adresse → tokens nom)
+        $matchedImmId = null; $matchedSocId = null; $matchedAgeId = null; $matchedRef = null; $matchedNom = null;
+        if (($p['n3'] ?? '') === 'IMMEUBLE') {
+            $ref = trim((string)($p['entity_ref'] ?? ''));
+            $entity = trim((string)($p['entity_instance'] ?? ''));
+            $adresse = trim((string)($p['adresse'] ?? ''));
+            $captureMatch = function($m) use (&$matchedImmId, &$matchedSocId, &$matchedAgeId, &$matchedRef, &$matchedNom) {
+                $matchedImmId = (int)$m['id'];
+                $matchedSocId = $m['id_societe'];
+                $matchedAgeId = $m['id_agence'];
+                $matchedRef = $m['reference_immeuble'];
+                $matchedNom = $m['nom_immeuble'];
+            };
+            if ($ref !== '' && preg_match('/^\d+$/', $ref)) {
+                $stM = $pdo->prepare("SELECT id, reference_immeuble, nom_immeuble, id_societe, id_agence FROM immeubles WHERE reference_immeuble = ? LIMIT 1");
+                $stM->execute([$ref]);
+                if ($m = $stM->fetch(PDO::FETCH_ASSOC)) $captureMatch($m);
+            }
+            if (!$matchedImmId && $adresse !== '') {
+                $stM = $pdo->prepare("SELECT id, reference_immeuble, nom_immeuble, id_societe, id_agence FROM immeubles WHERE LOWER(CONCAT(adresse_1, ' ', COALESCE(adresse_2, ''))) LIKE ? LIMIT 1");
+                $stM->execute(['%' . mb_strtolower($adresse) . '%']);
+                if ($m = $stM->fetch(PDO::FETCH_ASSOC)) $captureMatch($m);
+            }
+            if (!$matchedImmId && $entity !== '') {
+                $tokens = array_filter(preg_split('/[\s_\-,]+/', mb_strtolower($entity)), fn($t) => mb_strlen($t) >= 5);
+                if ($tokens) {
+                    $where = []; $params = [];
+                    foreach ($tokens as $t) { $where[] = "LOWER(nom_immeuble) LIKE ?"; $params[] = '%' . $t . '%'; }
+                    $stM = $pdo->prepare("SELECT id, reference_immeuble, nom_immeuble, id_societe, id_agence FROM immeubles WHERE " . implode(' AND ', $where) . " LIMIT 1");
+                    $stM->execute($params);
+                    if ($m = $stM->fetch(PDO::FETCH_ASSOC)) $captureMatch($m);
+                }
+            }
+        }
+
+        $classement = [
+            'n1' => (string)($p['n1'] ?? ''),
+            'n2' => (string)($p['n2'] ?? ''),
+            'n3' => (string)($p['n3'] ?? ''),
+            'n4' => (string)($p['n4'] ?? ''),
+            'n5' => (string)($p['n5'] ?? ''),
+            // n6 = SIGNE/NON_SIGNE pour docs qui doivent être signés, sinon vide (titre_court va dans carte.titre)
+            'n6' => in_array(strtoupper((string)($p['n6'] ?? '')), ['SIGNE', 'NON_SIGNE'], true)
+                    ? strtoupper((string)$p['n6'])
+                    : '',
+            'entity_instance' => (string)($p['entity_instance'] ?? ''),
+            'entity_ref' => (string)($p['entity_ref'] ?? ''),
+            'date' => (string)($p['date'] ?? '') ?: (!empty($p['annee']) ? $p['annee'] . '-01-01' : null),
+            'annee' => (string)($p['annee'] ?? ''),
+            'adresse' => (string)($p['adresse'] ?? ''),
+            'ville' => (string)($p['ville'] ?? ''),
+            'code_postal' => (string)($p['code_postal'] ?? ''),
+            'tiers_externe' => (string)($p['tiers_externe'] ?? ''),
+            'target_societe_id' => $isVehicleDoc ? 3 : $matchedSocId,  // véhicule → LOCA IMMO (3)
+            'target_agence_id'  => $isVehicleDoc ? 0 : $matchedAgeId,  // véhicule → société uniquement
+            'immeuble_id_bdd' => $matchedImmId,
+            'immeuble_ref_bdd' => $matchedRef,
+            'immeuble_nom_bdd' => $matchedNom,
+            'vehicule_code' => $matchedVehicleCode, // code véhicule glossaire si matché
+        ];
+
+        return [
+            'classement' => $classement,
+            'actions' => [[
+                'type' => 'classement_ged',
+                'label' => trim($classement['n1'] . ' > ' . $classement['n2'] . ' > ' . $classement['n4']),
+                'payload' => ['source' => 'haiku-4-5'],
+                'confiance' => (float)($p['confiance'] ?? 0),
+            ]],
+            'confiance' => (float)($p['confiance'] ?? 0),
+            'niveau_utilise' => 'N4_HAIKU',
+            'raison' => (string)($p['raison'] ?? ''),
+            'cost_eur' => $costEur,
+            'priorite' => 'normal',
+            'titre_court' => (string)($p['titre_court'] ?? ''),
         ];
     }
 }
@@ -429,30 +704,43 @@ if (!function_exists('fluxbox_ia_n3_local')) {
         if ($text === '') return null;
 
         $patterns = [
-            // [keywords[], n1, n2, n3, label, priorite, confiance]
-            [['facture', 'invoice'],           '06_COMPTABILITE',  'FOURNISSEURS', 'FACTURES_A_PAYER',          'Facture',          'important', 75],
-            [['relevé bancaire', 'releve bancaire', 'extrait de compte'], '06_COMPTABILITE', 'BANQUES', 'COMPTE_BANCAIRE', 'Relevé bancaire', 'normal', 80],
-            [['bulletin', 'bulletin de paie', 'fiche de paie'],  '02_RH', 'SALAIRES', 'ANNEE', 'Bulletin de paie', 'normal',    78],
-            [['bail', 'contrat de location', 'bail commercial'], '03_GESTION_LOCATIVE', 'BAUX', 'BAUX_HABITATION', 'Bail',  'important', 76],
-            [['kbis', 'k-bis', 'extrait kbis'],                  '01_DIRECTION', '01_SOCIETES', 'SOCIETE', 'KBIS',           'normal', 82],
-            [['rib', 'iban'],                                    '06_COMPTABILITE', 'BANQUES', 'COMPTE_BANCAIRE', 'RIB',     'normal', 80],
-            [['pv ag', 'pv assemblée', 'procès-verbal', 'proces verbal'], '04_SYNDIC', 'IMMEUBLES', 'IMMEUBLE', 'PV',  'important', 74],
-            [['ascenseur', 'otis', 'schindler', 'koné'],         '04_SYNDIC', 'IMMEUBLES', 'IMMEUBLE', 'Travaux ascenseur', 'normal', 70],
+            // [keywords[], n1, n2, n3, n4, label, priorite, confiance]
+            [['facture', 'invoice'],
+                '06_COMPTABILITE',  'FOURNISSEURS', 'FACTURES_A_PAYER',  '', 'Facture',          'important', 75],
+            [['relevé bancaire', 'releve bancaire', 'extrait de compte'],
+                '06_COMPTABILITE', 'BANQUES', 'COMPTE_BANCAIRE',          '', 'Relevé bancaire', 'normal', 80],
+            // ⬇ Bulletin de paie / fiche de paie / DPAE → COLLABORATEURS > COLLABORATEUR (placeholder) > 03_PAIE
+            [['bulletin de paie', 'bulletin de salaire', 'bulletin salaire', 'fiche de paie',
+              'fiche paie', 'fiche de salaire', 'salaire ', 'paie ', 'dpae', 'bulletin'],
+                '02_RH', 'COLLABORATEURS', 'COLLABORATEUR', '03_PAIE', 'Bulletin de paie', 'normal', 78],
+            // Contrat de travail
+            [['contrat de travail', 'contrat travail', 'cdi ', 'cdd '],
+                '02_RH', 'COLLABORATEURS', 'COLLABORATEUR', '02_CONTRAT_TRAVAIL', 'Contrat de travail', 'normal', 76],
+            [['bail', 'contrat de location', 'bail commercial'],
+                '03_GESTION_LOCATIVE', 'BAUX', 'BAUX_HABITATION',         '', 'Bail',  'important', 76],
+            [['kbis', 'k-bis', 'extrait kbis'],
+                '01_DIRECTION', '01_SOCIETES', 'SOCIETE',                 '', 'KBIS',           'normal', 82],
+            [['rib', 'iban'],
+                '06_COMPTABILITE', 'BANQUES', 'COMPTE_BANCAIRE',          '', 'RIB',     'normal', 80],
+            [['pv ag', 'pv assemblée', 'procès-verbal', 'proces verbal'],
+                '04_SYNDIC', 'IMMEUBLES', 'IMMEUBLE',                     '', 'PV',  'important', 74],
+            [['ascenseur', 'otis', 'schindler', 'koné'],
+                '04_SYNDIC', 'IMMEUBLES', 'IMMEUBLE',                     '', 'Travaux ascenseur', 'normal', 70],
         ];
 
         foreach ($patterns as $p) {
-            [$kws, $n1, $n2, $n3, $label, $priorite, $confiance] = $p;
+            [$kws, $n1, $n2, $n3, $n4, $label, $priorite, $confiance] = $p;
             foreach ($kws as $kw) {
                 if (str_contains($text, $kw)) {
                     return [
                         'classement' => [
                             'n1' => $n1, 'n2' => $n2, 'n3' => $n3,
-                            'n4' => '', 'n5' => '', 'n6' => $label,
+                            'n4' => $n4, 'n5' => '', 'n6' => $label,
                         ],
                         'actions' => [
                             [
                                 'type'  => 'classement_ged',
-                                'label' => "Classer en {$n2} > {$n3}",
+                                'label' => trim("Classer en {$n2} > {$n3}" . ($n4 ? " > {$n4}" : '')),
                                 'payload' => ['from_heuristic' => true, 'matched' => $kw],
                                 'confiance' => $confiance,
                             ],

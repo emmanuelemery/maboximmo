@@ -131,7 +131,7 @@ $typeLabels = ['CRG'=>'📊 CRG','bail'=>'📝 Bail','quittance'=>'🧾 Quittanc
 /* ── Layout ── */
 $layout_title   = 'GED Bailleur';
 $layout_module  = 'Ma Box Bailleur';
-$layout_sidebar = 'sidebar_bailleur';
+$layout_sidebar = 'sidebar_agency';
 $_act = 'padding:8px 24px;border-radius:10px;text-decoration:none;font-size:13px;font-weight:600;';
 $_on = $_act.'background:#4a6038;color:#fff;border:1px solid #4a6038;';
 $_off = $_act.'background:#fff;color:#555;border:1px solid #d4d7de;';

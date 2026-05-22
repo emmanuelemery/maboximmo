@@ -47,13 +47,31 @@ if ($editingBienId <= 0) {
     }
 }
 
-// Super-admin (role=1) bypass le filtre société pour pouvoir voir n'importe quel bien
-$isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
-$idSociete = $isSuperAdmin ? null : (isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null);
+// Super-admin (role=1) bypass le filtre société pour pouvoir voir n'importe quel bien.
+// Rôles propriétaires externes (9/10) : bypass du filtre société également — le scope
+// est assuré par user_proprietaires (contrôle ci-dessous).
+$_idRole = (int)($_SESSION['id_role'] ?? 0);
+$isSuperAdmin = ($_idRole === 1);
+$isProprioExterne = in_array($_idRole, [9, 10], true);
+$idSociete = ($isSuperAdmin || $isProprioExterne) ? null : (isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null);
 $bienLoaded = bien_form_load_record($pdo, $editingBienId, $idSociete);
 if ($bienLoaded === null) {
     header('Location: ' . app_url('/bien_liste.php?err=bien_introuvable'));
     exit;
+}
+// Contrôle d'accès supplémentaire pour les propriétaires : vérifier que
+// le bien appartient bien à une des SCI rattachées à leur user.
+if ($isProprioExterne) {
+    $_idUserSess = (int)($_SESSION['id_user'] ?? $_SESSION['id'] ?? 0);
+    $stAcc = $pdo->prepare("SELECT 1 FROM user_proprietaires
+        WHERE id_user = :u AND id_proprietaire = :p LIMIT 1");
+    $stAcc->bindValue(':u', $_idUserSess, PDO::PARAM_INT);
+    $stAcc->bindValue(':p', (int)($bienLoaded['id_proprietaire'] ?? 0), PDO::PARAM_INT);
+    $stAcc->execute();
+    if (!$stAcc->fetchColumn()) {
+        header('Location: ' . app_url('/bien_liste.php?err=acces_refuse'));
+        exit;
+    }
 }
 
 // ─── Auto-génération reference_bien si vide ────────────────
@@ -86,12 +104,21 @@ if (empty($bienLoaded['reference_bien'])) {
 }
 
 // Section courante
-$sectionsAvail = ['documents', 'dpe', 'descriptif', 'annonce'];
+$sectionsAvail = ['documents', 'dpe', 'descriptif', 'validation', 'annonce'];
 // Défaut = 'descriptif' (ouverture d'un bien existant depuis bien_liste).
 // Pour un NOUVEAU brouillon, le redirect ci-dessus force explicitement
 // 'section=documents' pour atterrir sur la Card Chargement (DPE, mandat…).
 $section = $_GET['section'] ?? 'descriptif';
 if (!in_array($section, $sectionsAvail, true)) $section = 'descriptif';
+
+// ── Flow 2026-04-22 : validation bien obligatoire avant annonce ──
+// Statut du bien pour gérer les gates UI (bloquer annonce si !actif)
+$statutBien = (string)($bienLoaded['statut_bien'] ?? 'brouillon');
+$bienEstActif = ($statutBien === 'actif');
+// Pré-charge la checklist pour la section Validation (et pour afficher le nb manquant sur le tab)
+require_once __DIR__ . '/inc/bien_validator.php';
+$validationResult = bien_validator_check($pdo, $editingBienId);
+$nbManquants = count($validationResult['missing_required']);
 
 // Complétude Ubiflow (score pill topbar)
 $annonceIdLoaded = (int)($bienLoaded['_annonce_id'] ?? 0);
@@ -126,17 +153,36 @@ $mandatTypes = ['mandat', 'mandat_vente', 'mandat_gestion', 'mandat_location', '
 $docsPhotos = [];
 if ($section === 'documents') {
     try {
-        $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
-        $st->execute([$editingBienId]);
-        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
+        // SELECT tolérant : on tente d'inclure les colonnes critique (migration 2026-05-02)
+        // et on retombe sur l'ancien schéma si la migration n'a pas encore été appliquée.
+        try {
+            $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia,
+                        critique_niveau, critique_points_forts, critique_points_faibles, critique_conseil, analyse_statut
+                FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
+            $st->execute([$editingBienId]);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable) {
+            $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia
+                FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
+            $st->execute([$editingBienId]);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        }
+        foreach ($rows as $p) {
+            $pf = !empty($p['critique_points_forts'])   ? (json_decode((string)$p['critique_points_forts'],   true) ?: []) : [];
+            $pw = !empty($p['critique_points_faibles']) ? (json_decode((string)$p['critique_points_faibles'], true) ?: []) : [];
             $docsPhotos[] = [
-                'id'             => (int)$p['id'],
-                'url'            => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
-                'nom_original'   => (string)($p['nom_original'] ?? ''),
-                'largeur'        => (int)($p['largeur'] ?? 0),
-                'hauteur'        => (int)($p['hauteur'] ?? 0),
-                'categorie'      => (string)($p['categorie'] ?? ''),
-                'description_ia' => (string)($p['description_ia'] ?? ''),
+                'id'                       => (int)$p['id'],
+                'url'                      => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
+                'nom_original'             => (string)($p['nom_original'] ?? ''),
+                'largeur'                  => (int)($p['largeur'] ?? 0),
+                'hauteur'                  => (int)($p['hauteur'] ?? 0),
+                'categorie'                => (string)($p['categorie'] ?? ''),
+                'description_ia'           => (string)($p['description_ia'] ?? ''),
+                'critique_niveau'          => (string)($p['critique_niveau'] ?? ''),
+                'critique_points_forts'    => is_array($pf) ? $pf : [],
+                'critique_points_faibles'  => is_array($pw) ? $pw : [],
+                'critique_conseil'         => (string)($p['critique_conseil'] ?? ''),
+                'analyse_statut'           => (string)($p['analyse_statut'] ?? ''),
             ];
         }
     } catch (Throwable $e) {}
@@ -385,11 +431,14 @@ if ($section === 'descriptif') {
             }
         }
     }
+    // Migration 20260430_bien_types : dropdown des types alimenté depuis
+    // la nouvelle table `bien_types` (référentiel unifié LBC/SeLoger/FNAIM).
+    // On conserve les clés (id, code, label) attendues par le template Twig,
+    // donc bien_types.libelle est aliasé en `label`.
     try {
-        $st = $pdo->query("SELECT id, code, label FROM base_types_bien ORDER BY ordre_defaut ASC, label ASC");
+        $st = $pdo->query("SELECT id, code, libelle AS label FROM bien_types WHERE actif = 1 ORDER BY ordre_affichage ASC, libelle ASC");
         $typesBienList = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        // Filtrer 'loft' + renommer 'fonds_commerce' en 'Commerce'
-        $typesBienList = array_values(array_filter($typesBienList, static fn($t) => ($t['code'] ?? '') !== 'loft'));
+        // Renommer 'fonds_commerce' en 'Commerce' (présentation UI)
         foreach ($typesBienList as &$_t) {
             if (($_t['code'] ?? '') === 'fonds_commerce') $_t['label'] = 'Commerce';
         }
@@ -400,7 +449,16 @@ if ($section === 'descriptif') {
         $st->execute([$editingBienId]);
         $descPhotos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable $e) {}
-    if (!empty($bienLoaded['id_type_bien'])) {
+    // Label du type pour affichage : priorité bien_types via id_bien_type,
+    // fallback sur base_types_bien via id_type_bien legacy.
+    if (!empty($bienLoaded['id_bien_type'])) {
+        try {
+            $st = $pdo->prepare("SELECT libelle FROM bien_types WHERE id = ? LIMIT 1");
+            $st->execute([(int)$bienLoaded['id_bien_type']]);
+            $typeBienLabel = (string)($st->fetchColumn() ?: '');
+        } catch (Throwable $e) {}
+    }
+    if (empty($typeBienLabel) && !empty($bienLoaded['id_type_bien'])) {
         try {
             $st = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
             $st->execute([(int)$bienLoaded['id_type_bien']]);
@@ -656,7 +714,12 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 </head>
 <body class="<?= h($bodyClass) ?>">
 
-<?php require_once __DIR__ . '/inc/sidebar_agency.php'; ?>
+<?php
+$_sbFile = ($_SESSION['nav_ctx'] ?? '') === 'bailleur'
+    ? __DIR__ . '/inc/sidebar_bailleur.php'
+    : __DIR__ . '/inc/sidebar_agency.php';
+require_once $_sbFile;
+?>
 
 <main class="mbi-main v2-main">
 
@@ -717,10 +780,18 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
          role="tab" aria-selected="<?= $section === 'descriptif' ? 'true' : 'false' ?>">
         <span>🏠</span> Descriptif
       </a>
+      <a href="?edit=<?= (int)$editingBienId ?>&section=validation"
+         class="v2-section-tab<?= $section === 'validation' ? ' is-active' : '' ?>"
+         role="tab" aria-selected="<?= $section === 'validation' ? 'true' : 'false' ?>"
+         title="<?= $bienEstActif ? 'Bien validé' : ($nbManquants . ' champ(s) manquant(s)') ?>">
+        <span><?= $bienEstActif ? '✅' : '⚠️' ?></span> Validation<?php if (!$bienEstActif && $nbManquants > 0): ?> <small style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:700;"><?= $nbManquants ?></small><?php endif; ?>
+      </a>
       <a href="?edit=<?= (int)$editingBienId ?>&section=annonce"
-         class="v2-section-tab<?= $section === 'annonce' ? ' is-active' : '' ?>"
-         role="tab" aria-selected="<?= $section === 'annonce' ? 'true' : 'false' ?>">
-        <span>📡</span> Annonce
+         class="v2-section-tab<?= $section === 'annonce' ? ' is-active' : '' ?><?= !$bienEstActif ? ' is-locked' : '' ?>"
+         role="tab" aria-selected="<?= $section === 'annonce' ? 'true' : 'false' ?>"
+         title="<?= $bienEstActif ? 'Diffusion sur portails' : '🔒 Valide d\'abord le bien pour accéder à l\'annonce' ?>"
+         <?php if (!$bienEstActif): ?>data-locked="1" onclick="alert('⚠️ Tu dois d\'abord valider le bien (onglet Validation) avant de pouvoir créer une annonce.'); return false;"<?php endif; ?>>
+        <span><?= $bienEstActif ? '📡' : '🔒' ?></span> Annonce
       </a>
     </nav>
   </div>
@@ -784,7 +855,29 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
       <!-- Card 5 : PHOTOS -->
       <section class="v2-card is-prev" role="tabpanel" aria-label="Photos du bien">
-        <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-count-photos"><?= count($docsPhotos) ?></span></div>
+        <?php
+          // Comptage des photos qui ont besoin d'une analyse :
+          // - jamais analysées (analyse_statut != 'ok')
+          // - OU analysées en commercial mais sans critique IA (legacy avant migration critique)
+          $nbAnalyser = 0;
+          foreach ($docsPhotos as $pp) {
+              $statutOk = (($pp['analyse_statut'] ?? '') === 'ok');
+              $aCritique = (($pp['critique_niveau'] ?? '') !== '');
+              if (!$statutOk || !$aCritique) $nbAnalyser++;
+          }
+        ?>
+        <div class="v2-card-label">
+          📸 Photos <span class="v2-count" id="v2-count-photos"><?= count($docsPhotos) ?></span>
+          <?php if (!empty($docsPhotos)): ?>
+            <button type="button"
+                    class="v2-btn-analyze-all"
+                    data-analyze-all-photos="1"
+                    data-bien-id="<?= (int)$editingBienId ?>"
+                    title="Analyser toutes les photos qui n'ont pas encore de critique de prise de vue">
+              🤖 Analyser toutes <span class="v2-analyze-all-count"><?= $nbAnalyser ?></span>
+            </button>
+          <?php endif; ?>
+        </div>
         <div class="v2-card-body" id="v2-photos-container">
           <?php if (empty($docsPhotos)): ?>
             <div class="v2-doc-empty">
@@ -793,13 +886,19 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php else: ?>
             <div class="v2-photos-doc-grid">
-              <?php foreach ($docsPhotos as $p): ?>
-                <div class="v2-photo-tile" data-id="<?= (int)$p['id'] ?>" data-url="<?= h($p['url']) ?>" data-name="<?= h($p['nom_original']) ?>">
+              <?php foreach ($docsPhotos as $p):
+                $needsAnalyse = (($p['analyse_statut'] ?? '') !== 'ok') || (($p['critique_niveau'] ?? '') === '');
+              ?>
+                <div class="v2-photo-tile"
+                     data-id="<?= (int)$p['id'] ?>"
+                     data-url="<?= h($p['url']) ?>"
+                     data-name="<?= h($p['nom_original']) ?>"
+                     data-statut="<?= $needsAnalyse ? '' : 'ok' ?>">
                   <div class="v2-photo-tile-img-wrap">
                     <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
                     <div class="v2-photo-tile-actions">
                       <button type="button" class="v2-photo-tile-btn" data-action="zoom" title="Agrandir">🔍</button>
-                      <button type="button" class="v2-photo-tile-btn" data-action="analyze" title="Analyser à l'IA (catégorie + description)">🤖</button>
+                      <button type="button" class="v2-photo-tile-btn" data-action="analyze" title="Analyser à l'IA (commercial + critique de prise de vue)">🤖</button>
                       <button type="button" class="v2-photo-tile-btn danger" data-action="delete" title="Supprimer">🗑️</button>
                     </div>
                   </div>
@@ -815,6 +914,50 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                       <span class="v2-photo-tile-ai-empty">📝 Pas encore analysée — clique 🤖</span>
                     <?php endif; ?>
                   </div>
+
+                  <?php
+                    $hasCritique = ($p['critique_niveau'] ?? '') !== ''
+                        || !empty($p['critique_points_forts'])
+                        || !empty($p['critique_points_faibles'])
+                        || ($p['critique_conseil'] ?? '') !== '';
+                  ?>
+                  <?php if ($hasCritique):
+                    $niv = (string)($p['critique_niveau'] ?? '');
+                    $nivIcon  = ['bon' => '🟢', 'moyen' => '🟡', 'mauvais' => '🔴'][$niv] ?? '⚪';
+                    $nivLabel = ['bon' => 'Bonne photo', 'moyen' => 'À améliorer', 'mauvais' => 'À refaire'][$niv] ?? 'Non évaluée';
+                  ?>
+                    <div class="v2-photo-tile-critique critique-niveau-<?= h($niv ?: 'na') ?>" data-photo-critique="<?= (int)$p['id'] ?>">
+                      <div class="critique-header">
+                        <span class="critique-icon"><?= $nivIcon ?></span>
+                        <span class="critique-label">📸 Prise de vue : <?= h($nivLabel) ?></span>
+                      </div>
+                      <?php if (!empty($p['critique_points_forts'])): ?>
+                        <div class="critique-section critique-forts">
+                          <div class="critique-section-title">✅ Points forts</div>
+                          <ul>
+                            <?php foreach ($p['critique_points_forts'] as $pf): ?>
+                              <li><?= h((string)$pf) ?></li>
+                            <?php endforeach; ?>
+                          </ul>
+                        </div>
+                      <?php endif; ?>
+                      <?php if (!empty($p['critique_points_faibles'])): ?>
+                        <div class="critique-section critique-faibles">
+                          <div class="critique-section-title">⚠️ À améliorer</div>
+                          <ul>
+                            <?php foreach ($p['critique_points_faibles'] as $pw): ?>
+                              <li><?= h((string)$pw) ?></li>
+                            <?php endforeach; ?>
+                          </ul>
+                        </div>
+                      <?php endif; ?>
+                      <?php if (($p['critique_conseil'] ?? '') !== ''): ?>
+                        <div class="critique-conseil">
+                          💡 <?= h((string)$p['critique_conseil']) ?>
+                        </div>
+                      <?php endif; ?>
+                    </div>
+                  <?php endif; ?>
                 </div>
               <?php endforeach; ?>
             </div>
@@ -825,7 +968,10 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       <!-- Lightbox pour agrandir les photos -->
       <div id="v2-photo-lightbox" class="v2-lightbox" hidden>
         <button type="button" class="v2-lightbox-close" aria-label="Fermer">✕</button>
+        <button type="button" class="v2-lightbox-nav v2-lightbox-prev" aria-label="Précédente">‹</button>
+        <button type="button" class="v2-lightbox-nav v2-lightbox-next" aria-label="Suivante">›</button>
         <img id="v2-lightbox-img" src="" alt="">
+        <div class="v2-lightbox-counter" id="v2-lightbox-counter"></div>
         <div id="v2-lightbox-caption" class="v2-lightbox-caption"></div>
       </div>
 
@@ -881,11 +1027,15 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           'vente'=>['💶','Vente'], 'location'=>['🔑','Location'], 'gestion'=>['🏢','Gestion'],
         ];
 
-        $curType    = (int)($b['id_type_bien'] ?? 0);
-        // Code stable du type courant (les IDs auto-increment ne sont pas portables entre dev/prod)
-        $curTypeCode = '';
+        // Code stable du type courant : on lit directement _type_bien_code
+        // calculé par bien_form_loader via COALESCE(bien_types.code, base_types_bien.code).
+        // Source de vérité : bien_types (via biens.id_bien_type), fallback legacy.
+        // Les IDs auto-increment ne sont pas portables entre dev/prod (et types_bien_legacy
+        // a des ids différents de bien_types) — on travaille en code stable uniquement.
+        $curTypeCode = strtolower(trim((string)($b['_type_bien_code'] ?? '')));
+        $curType     = 0;
         foreach ($typesBienList as $_t) {
-            if ((int)$_t['id'] === $curType) { $curTypeCode = (string)$_t['code']; break; }
+            if ((string)$_t['code'] === $curTypeCode) { $curType = (int)$_t['id']; break; }
         }
         $curSType   = (string)($b['sous_type_bien'] ?? '');
         $curUsage   = (string)($b['usage_bien'] ?? '');
@@ -940,8 +1090,16 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                       ✏️ Ouvrir fiche
                     </a>
                   <?php endif; ?>
-                  <button type="button" class="v2-btn-secondary" id="v2-proprio-unlink"
-                          title="Retirer ce propriétaire du bien (le tiers reste en base)">🔗 Dissocier</button>
+                  <?php if ($bienEstActif): ?>
+                    <button type="button" class="v2-btn-secondary" disabled
+                            style="background:#f1f5f9; color:#64748b; cursor:not-allowed;"
+                            title="🔒 Verrouillé — dé-valide le bien pour changer de propriétaire">
+                      🔒 Dissocier (verrouillé)
+                    </button>
+                  <?php else: ?>
+                    <button type="button" class="v2-btn-secondary" id="v2-proprio-unlink"
+                            title="Retirer ce propriétaire du bien (le tiers reste en base)">🔗 Dissocier</button>
+                  <?php endif; ?>
                 </div>
               </div>
 
@@ -978,16 +1136,22 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
           <?php endif; ?>
 
-          <!-- ─── Recherche + création (toujours visibles) ──────────── -->
-          <div class="v2-group-header" style="margin-top:14px;">
-            <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
-          </div>
-          <div class="v2-proprio-picker">
-            <input type="text" class="v2-input" id="v2-proprio-search"
-                   placeholder="Tape un nom, email, société…" autocomplete="off">
-            <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
-          </div>
-          <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
+          <!-- ─── Recherche + création — désactivé si bien actif (proprio verrouillé) ──────────── -->
+          <?php if ($bienEstActif): ?>
+            <div style="margin-top:14px; padding:12px 16px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:6px; font-size:13px; color:#78350f;">
+              🔒 <strong>Propriétaire verrouillé.</strong> Dé-valide le bien (onglet Validation) pour changer de propriétaire.
+            </div>
+          <?php else: ?>
+            <div class="v2-group-header" style="margin-top:14px;">
+              <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
+            </div>
+            <div class="v2-proprio-picker">
+              <input type="text" class="v2-input" id="v2-proprio-search"
+                     placeholder="Tape un nom, email, société…" autocomplete="off">
+              <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
+            </div>
+            <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
+          <?php endif; ?>
 
           <?php if ($descProprioFromDpe && empty($bienLoaded['id_proprietaire'])): ?>
             <!-- ─── Propriétaire détecté dans le DPE (prefill rapide) ─ -->
@@ -1138,24 +1302,34 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             $addrCls = static fn($f) => isset($syncFlags[$f]) ? ' is-from-dpe' : '';
           ?>
           <!-- Bouton d'ouverture du modal d'adresse (recherche Google + immeubles existants) -->
+          <!-- ⚠️ Bloqué si bien actif : l'adresse fait partie des données critiques verrouillées.
+               L'utilisateur doit dé-valider le bien (onglet Validation) pour pouvoir la modifier. -->
           <div style="margin-bottom:10px;">
-            <button type="button"
-                    class="v2-btn-primary"
-                    style="width:100%; padding:12px; font-size:13px;"
-                    data-addr-modal-open
-                    data-addr-target-street1="v2-f-adresse_1"
-                    data-addr-target-street2="v2-f-adresse_2"
-                    data-addr-target-postal="v2-f-code_postal"
-                    data-addr-target-city="v2-f-ville"
-                    data-addr-target-lat="v2-f-latitude"
-                    data-addr-target-lng="v2-f-longitude"
-                    data-addr-target-placeid="v2-f-place_id"
-                    data-addr-target-formatted="v2-f-formatted"
-                    data-addr-save-endpoint="<?= h(app_url('/api/bien_autosave.php')) ?>"
-                    data-addr-bien-id="<?= (int)$editingBienId ?>"
-                    data-addr-csrf="<?= h(csrf_token('ajouter_bien')) ?>">
-              📍 Rechercher / saisir l'adresse (Google + immeubles existants)
-            </button>
+            <?php if ($bienEstActif): ?>
+              <button type="button" class="v2-btn-secondary"
+                      style="width:100%; padding:12px; font-size:13px; background:#f1f5f9; color:#64748b; cursor:not-allowed;"
+                      disabled title="🔒 Adresse verrouillée — dé-valide le bien (onglet Validation) pour la modifier">
+                🔒 Adresse verrouillée (bien validé)
+              </button>
+            <?php else: ?>
+              <button type="button"
+                      class="v2-btn-primary"
+                      style="width:100%; padding:12px; font-size:13px;"
+                      data-addr-modal-open
+                      data-addr-target-street1="v2-f-adresse_1"
+                      data-addr-target-street2="v2-f-adresse_2"
+                      data-addr-target-postal="v2-f-code_postal"
+                      data-addr-target-city="v2-f-ville"
+                      data-addr-target-lat="v2-f-latitude"
+                      data-addr-target-lng="v2-f-longitude"
+                      data-addr-target-placeid="v2-f-place_id"
+                      data-addr-target-formatted="v2-f-formatted"
+                      data-addr-save-endpoint="<?= h(app_url('/api/bien_autosave.php')) ?>"
+                      data-addr-bien-id="<?= (int)$editingBienId ?>"
+                      data-addr-csrf="<?= h(csrf_token('ajouter_bien')) ?>">
+                📍 Rechercher / saisir l'adresse (Google + immeubles existants)
+              </button>
+            <?php endif; ?>
           </div>
           <div class="v2-addr-grid">
             <input type="text" id="v2-f-adresse_1"   class="v2-input<?= $addrCls('adresse_1') ?>"   name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['_imm_adresse_1']   ?? $b['adresse_1']   ?? '')) ?>">
@@ -1599,6 +1773,91 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         </div>
       </section>
 
+    <?php elseif ($section === 'validation'): ?>
+
+      <!-- Card Validation — checklist Ubiflow + gros bouton Valider -->
+      <section class="v2-card is-active" role="tabpanel" aria-label="Validation du bien">
+        <div class="v2-card-label">✅ Validation du bien</div>
+        <div class="v2-card-body">
+          <?php if ($bienEstActif): ?>
+            <div style="padding:20px; background:#ecfdf5; border:2px solid #10b981; border-radius:12px; text-align:center; margin-bottom:20px;">
+              <div style="font-size:36px; margin-bottom:8px;">✅</div>
+              <div style="font-size:18px; font-weight:700; color:#065f46;">Bien validé et actif</div>
+              <small style="color:#047857; display:block; margin-top:4px;">Tu peux maintenant créer une annonce depuis l'onglet 📡 Annonce.</small>
+            </div>
+            <div style="background:#fef3c7; padding:12px 16px; border-radius:8px; margin-bottom:16px; font-size:13px; color:#78350f;">
+              ⚠️ <strong>Adresse et propriétaire verrouillés.</strong> Pour modifier ces données critiques, tu dois d'abord dé-valider le bien.
+            </div>
+            <button type="button" id="v2-bien-invalidate" class="v2-btn-secondary" style="background:#fff; border:1px solid #dc2626; color:#dc2626;">
+              🔓 Dé-valider le bien (modifier adresse / propriétaire)
+            </button>
+            <div id="v2-bien-validate-status" style="margin-top:12px; font-size:13px;"></div>
+          <?php else: ?>
+            <div style="padding:16px; background:#fefce8; border:1px solid #f59e0b; border-radius:10px; margin-bottom:20px;">
+              <strong style="color:#78350f;">📋 Checklist Ubiflow</strong>
+              <small style="display:block; color:#92400e; margin-top:4px;">
+                Remplis les champs obligatoires pour pouvoir créer une annonce diffusable sur LeBonCoin, SeLoger, etc.
+                <?php if ($validationResult['exempt_dpe_surface']): ?>
+                  <br>→ Surface et DPE non requis pour ce type de bien (<?= h($validationResult['type_code']) ?>).
+                <?php endif; ?>
+              </small>
+            </div>
+
+            <div class="v2-validation-checklist" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;">
+              <?php foreach ($validationResult['checks'] as $c):
+                $bg = $c['ok'] ? '#ecfdf5' : ($c['required'] ? '#fef2f2' : '#f8fafc');
+                $bd = $c['ok'] ? '#10b981' : ($c['required'] ? '#ef4444' : '#cbd5e1');
+                $ic = $c['ok'] ? '✅' : ($c['required'] ? '❌' : '➖');
+              ?>
+                <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:<?= $bg ?>; border-left:4px solid <?= $bd ?>; border-radius:6px;">
+                  <span style="font-size:20px;"><?= $ic ?></span>
+                  <div style="flex:1;">
+                    <div style="font-weight:600; color:#0f172a; font-size:13px;">
+                      <?= h($c['label']) ?>
+                      <?php if (!$c['required']): ?><small style="color:#64748b; font-weight:400;"> (optionnel)</small><?php endif; ?>
+                    </div>
+                    <small style="color:#64748b; font-size:11px;"><?= h($c['detail']) ?></small>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+
+            <div style="display:flex; gap:16px; align-items:center;">
+              <button type="button" id="v2-bien-validate" class="v2-btn-primary"
+                      style="flex:1; padding:18px; font-size:16px; font-weight:700; background:<?= $validationResult['ok'] ? '#16a34a' : '#94a3b8' ?>; border-color:<?= $validationResult['ok'] ? '#16a34a' : '#94a3b8' ?>; cursor:<?= $validationResult['ok'] ? 'pointer' : 'not-allowed' ?>;"
+                      <?= $validationResult['ok'] ? '' : 'disabled' ?>>
+                ✅ VALIDER LE BIEN &amp; ACTIVER
+              </button>
+            </div>
+            <div id="v2-bien-validate-status" style="margin-top:12px; font-size:13px;"></div>
+            <?php if (!$validationResult['ok']): ?>
+              <small style="display:block; margin-top:10px; color:#dc2626; font-size:12px;">
+                ❌ <?= count($validationResult['missing_required']) ?> champ(s) obligatoire(s) manquant(s).
+                Complète-les dans les onglets Documents / DPE / Descriptif.
+              </small>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
+      </section>
+
+    <?php elseif ($section === 'annonce' && !$bienEstActif): ?>
+
+      <!-- Gate : bien non validé → impossible de créer une annonce -->
+      <section class="v2-card is-active" role="tabpanel" aria-label="Annonce bloquée">
+        <div class="v2-card-label">🔒 Annonce bloquée</div>
+        <div class="v2-card-body" style="text-align:center; padding:40px 20px;">
+          <div style="font-size:48px; margin-bottom:16px;">🔒</div>
+          <h2 style="font-size:20px; color:#0f172a; margin-bottom:12px;">Bien non validé</h2>
+          <p style="color:#64748b; max-width:500px; margin:0 auto 24px;">
+            Tu dois d'abord valider le bien (remplir les champs obligatoires Ubiflow) avant de pouvoir créer une annonce.
+            Ça garantit qu'une fois diffusée sur LeBonCoin / SeLoger, elle ne sera pas rejetée pour données manquantes.
+          </p>
+          <a href="?edit=<?= (int)$editingBienId ?>&section=validation" class="v2-btn-primary" style="display:inline-block; padding:14px 28px; text-decoration:none;">
+            ⚠️ Aller à la validation (<?= $nbManquants ?> champ<?= $nbManquants > 1 ? 's' : '' ?> manquant<?= $nbManquants > 1 ? 's' : '' ?>)
+          </a>
+        </div>
+      </section>
+
     <?php elseif ($section === 'annonce'): ?>
 
       <?php
@@ -1627,13 +1886,16 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
         <div id="v2-annonce-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
           <?php if (!$annonce): ?>
-            <div class="v2-doc-empty" style="padding:24px;">
+            <!-- Placeholder : le JS détecte l'absence d'annonce et déclenche
+                 le modal "Créer une annonce pour ce bien ?" au chargement
+                 de la section. Bouton manuel en fallback si modal fermé. -->
+            <div class="v2-doc-empty" style="padding:24px;" id="v2-annonce-empty">
               <div class="v2-doc-empty-icon">📡</div>
               <div style="margin-bottom:14px;">
-                Aucune annonce enregistrée pour ce bien.<br>
-                <small>Remplissez les conditions financières puis créez l'annonce.</small>
+                Aucune annonce pour ce bien.<br>
+                <small>La fenêtre de création va s'ouvrir automatiquement.</small>
               </div>
-              <button type="button" id="v2-annonce-create" class="v2-btn-primary">➕ Créer l'annonce (brouillon)</button>
+              <button type="button" id="v2-annonce-create" class="v2-btn-primary">➕ Ouvrir la création d'annonce</button>
               <span id="v2-annonce-create-status" class="v2-form-status" style="margin-left:10px;"></span>
             </div>
           <?php else: ?>
@@ -1643,6 +1905,8 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
 
             <?php
+              // Zone tendue (utilisée pour le pill en haut + section Location plus bas)
+              $zoneCur = (string)($b['zone_tendue'] ?? 'non_tendue');
               // Helpers Card 1 Annonce (data-annonce-save au lieu de data-autosave)
               $aNum = static function(string $icon, string $name, string $label, string $suffix = '') use ($a) {
                 $val = isset($a[$name]) && $a[$name] !== null && $a[$name] !== '' ? (string)$a[$name] : '';
@@ -1677,7 +1941,6 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             ?>
 
             <!-- Type de transaction (icon-radios avec data-target annonce) -->
-            <div class="v2-desc-group-title">💼 Type de transaction</div>
             <?php
               $typeTransactions = [
                 'vente'      => ['💶', 'Vente'],
@@ -1686,41 +1949,157 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                 'viager'     => ['⌛', 'Viager'],
               ];
               $curTT = (string)($a['type_transaction'] ?? '');
+              // Affichage de la zone honoraires pour vérification visuelle
+              $zonePillMap = [
+                'non_tendue'  => ['🟢', 'Non tendue',  '8,07 €/m²',  '#ecfdf5', '#065f46'],
+                'tendue'      => ['🟠', 'Tendue',      '10,09 €/m²', '#fef3c7', '#78350f'],
+                'tres_tendue' => ['🔴', 'Très tendue', '12,10 €/m²', '#fee2e2', '#991b1b'],
+              ];
+              $zonePill = $zonePillMap[$zoneCur] ?? $zonePillMap['non_tendue'];
             ?>
-            <div class="v2-icon-radios" data-field="type_transaction" data-target="annonce">
-              <?php foreach ($typeTransactions as $code => [$ic, $lbl]):
-                $act = ($curTT === $code) ? ' is-active' : '';
-              ?>
-                <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
-                  <span class="v2-icon-emoji"><?= $ic ?></span>
-                  <span class="v2-icon-lbl"><?= h($lbl) ?></span>
+            <?php $curMeubleTop = (int)($a['meuble'] ?? 0) === 1; ?>
+            <div class="v2-desc-group-title">💼 Type de transaction</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
+              <div class="v2-icon-radios" data-field="type_transaction" data-target="annonce" style="margin:0;">
+                <?php foreach ($typeTransactions as $code => [$ic, $lbl]):
+                  $act = ($curTT === $code) ? ' is-active' : '';
+                ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span>
+                    <span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+              <!-- Type location : Libre / Meublé (défaut libre, impacte dépôt garantie : 1 mois libre / 2 mois meublé) -->
+              <div class="v2-icon-radios" data-field="meuble" data-target="annonce" style="margin:0;" title="Dépôt garantie : 1 mois HC libre / 2 mois HC meublé">
+                <button type="button" class="v2-icon-radio<?= $curMeubleTop ? '' : ' is-active' ?>" data-value="0">
+                  <span class="v2-icon-emoji">🪑</span>
+                  <span class="v2-icon-lbl">Libre</span>
                 </button>
-              <?php endforeach; ?>
+                <button type="button" class="v2-icon-radio<?= $curMeubleTop ? ' is-active' : '' ?>" data-value="1">
+                  <span class="v2-icon-emoji">🛋️</span>
+                  <span class="v2-icon-lbl">Meublé</span>
+                </button>
+              </div>
+              <!-- Pill zone honoraires (vérification visuelle) -->
+              <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:99px; background:<?= $zonePill[3] ?>; color:<?= $zonePill[4] ?>; font-size:12px; font-weight:600; white-space:nowrap;"
+                   title="Plafond honoraires location+bail applicable à ce bien">
+                <?= $zonePill[0] ?>
+                <span>Zone <?= h($zonePill[1]) ?></span>
+                <small style="font-weight:400; opacity:.75;">· plafond <?= h($zonePill[2]) ?></small>
+              </div>
             </div>
 
             <!-- VENTE -->
+            <?php
+              // Modèle 2026-04-24 : simplification commissions vente
+              //   prix_net_vendeur + honoraires (€) ⇄ % (saisie inverse)
+              //   prix (FAI) = prix_net_vendeur + honoraires  (calculé, readonly)
+              //   toggle Acquéreur / Vendeur (exclusif) → flag honoraires_charge_*
+              $curPrixNet    = (float)($a['prix_net_vendeur'] ?? 0);
+              $curHono       = (float)($a['honoraires'] ?? 0);
+              $curPctAlur    = (float)($a['alur_pourcentage_honoraires_ttc'] ?? 0);
+              $curPrixFAI    = (float)($a['prix'] ?? 0);
+              if ($curPrixFAI <= 0 && ($curPrixNet > 0 || $curHono > 0)) $curPrixFAI = $curPrixNet + $curHono;
+              if ($curPctAlur <= 0 && $curPrixNet > 0 && $curHono > 0) $curPctAlur = round(($curHono / $curPrixNet) * 100, 2);
+              $curChargeAcq  = (int)($a['honoraires_charge_acquereur'] ?? 0) === 1;
+              $curChargeVen  = (int)($a['honoraires_charge_vendeur'] ?? 0) === 1;
+              if (!$curChargeAcq && !$curChargeVen) $curChargeAcq = true; // défaut
+              $fmtV = static fn($v) => $v > 0 ? rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.') : '';
+            ?>
             <div class="v2-desc-group-title">💰 Vente</div>
-            <div class="v2-num-grid">
-              <?= $aNum('💰', 'prix',                           'Prix de vente',       '€') ?>
-              <?= $aNum('🤝', 'honoraires_charge_acquereur',    'Honoraires acquéreur','€') ?>
-              <?= $aNum('🏷️', 'honoraires_charge_vendeur',      'Honoraires vendeur',  '€') ?>
-              <?= $aNum('%', 'pourcentage_honoraires_vendeur', '% vendeur',           '%') ?>
-              <?= $aNum('⚖️', 'alur_pourcentage_honoraires_ttc','% ALUR TTC',          '%') ?>
-              <?= $aNum('💼', 'honoraires_negociation_cumules', 'Hon. cumulés',        '€') ?>
+            <!-- Toggle qui paye les honoraires (exclusif) -->
+            <div style="display:flex; justify-content:flex-start; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+              <span style="font-size:11px; font-weight:600; color:var(--v2-muted);">Honoraires à la charge :</span>
+              <div class="v2-icon-radios" data-field="honoraires_payeur" data-target="vente" style="margin:0;" title="Défini qui supporte juridiquement les honoraires (impacte l'affichage annonce + flux portails)">
+                <button type="button" class="v2-icon-radio<?= $curChargeAcq ? ' is-active' : '' ?>" data-value="acquereur">
+                  <span class="v2-icon-emoji">🛒</span>
+                  <span class="v2-icon-lbl">Acquéreur</span>
+                </button>
+                <button type="button" class="v2-icon-radio<?= $curChargeVen ? ' is-active' : '' ?>" data-value="vendeur">
+                  <span class="v2-icon-emoji">🏷️</span>
+                  <span class="v2-icon-lbl">Vendeur</span>
+                </button>
+              </div>
             </div>
-            <?= $aText('url_tarifs_publics', 'URL tarifs publics', 'https://...') ?>
+            <div class="v2-loc-grid" id="v2-vente-grid">
+              <!-- PRIX NET VENDEUR -->
+              <div class="v2-loc-field" title="Montant revenant au vendeur (hors honoraires)">
+                <label class="v2-loc-lbl"><span>💰</span> Prix net vendeur <small>€</small></label>
+                <input type="number" step="0.01" min="0" class="v2-loc-input"
+                       name="prix_net_vendeur" data-annonce-save id="v2-vente-net"
+                       value="<?= h($fmtV($curPrixNet)) ?>" placeholder="Net vendeur">
+              </div>
+              <!-- HONORAIRES € -->
+              <div class="v2-loc-field" title="Montant des honoraires en euros. La saisie met à jour automatiquement le %.">
+                <label class="v2-loc-lbl"><span>🤝</span> Honoraires <small>€</small></label>
+                <input type="number" step="0.01" min="0" class="v2-loc-input"
+                       name="honoraires" data-annonce-save id="v2-vente-hono"
+                       value="<?= h($fmtV($curHono)) ?>" placeholder="Honoraires">
+              </div>
+              <!-- HONORAIRES % -->
+              <div class="v2-loc-field" title="% honoraires TTC. La saisie met à jour automatiquement les honoraires €.">
+                <label class="v2-loc-lbl"><span>⚖️</span> % honoraires <small>%</small></label>
+                <input type="number" step="0.01" min="0" max="20" class="v2-loc-input"
+                       name="alur_pourcentage_honoraires_ttc" data-annonce-save id="v2-vente-pct"
+                       value="<?= h($fmtV($curPctAlur)) ?>" placeholder="%">
+              </div>
+              <!-- PRIX FAI = net + hono (readonly) -->
+              <div class="v2-loc-field is-accent" title="Prix FAI (Frais Agence Inclus) = net vendeur + honoraires. Calculé automatiquement.">
+                <label class="v2-loc-lbl"><span>🏷️</span> <strong>Prix FAI</strong> <small>€</small></label>
+                <input type="number" step="0.01" class="v2-loc-input is-accent"
+                       id="v2-vente-fai" value="<?= h($fmtV($curPrixFAI)) ?>" readonly tabindex="-1">
+              </div>
+              <!-- SIMULATION RENTABILITÉ (affichage local, pas persisté en BDD)
+                   Occupe 2 colonnes à droite du Prix FAI, les 2 inputs empilés
+                   avec libellé inline à gauche. Valeurs persistées en localStorage. -->
+              <div class="v2-renta-sim" style="grid-column: span 2;" data-bien-id="<?= (int)($b['id'] ?? 0) ?>">
+                <div class="v2-renta-head">💡 Simulation rentabilité (non enregistrée)</div>
+                <div class="v2-renta-body">
+                  <div class="v2-renta-inputs">
+                    <div class="v2-renta-row">
+                      <label>Loyer <small>€</small></label>
+                      <input type="number" step="0.01" min="0" id="v2-renta-loyer" placeholder="0">
+                    </div>
+                    <div class="v2-renta-row">
+                      <label>Charges <small>€</small></label>
+                      <input type="number" step="0.01" min="0" id="v2-renta-charges" placeholder="0">
+                    </div>
+                  </div>
+                  <div class="v2-renta-results">
+                    <div class="v2-renta-kpi">
+                      <div class="v2-renta-kpi-lbl">Brute</div>
+                      <div class="v2-renta-kpi-val" id="v2-renta-brute">—</div>
+                    </div>
+                    <div class="v2-renta-kpi">
+                      <div class="v2-renta-kpi-lbl">Nette</div>
+                      <div class="v2-renta-kpi-val" id="v2-renta-nette">—</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <?= $aText('url_tarifs_publics', 'URL tarifs publics (barème honoraires — obligation arrêté 10/01/2017)', 'https://...') ?>
 
             <!-- LOCATION -->
             <?php
-              // Modèle 2026-04-22 (corrigé) :
-              //   loyer_HC = loyer_majoré + complément (si majoré) OU saisi manuellement
-              //   loyer_CC = loyer_HC + charges  (le complément est DÉJÀ dans loyer_HC)
-              //   dépôt   = loyer_HC (auto si vide, modifiable)
+              // Modèle 2026-04-24 :
+              //   loyer_mode ∈ {libre, majore, reference, minore}
+              //     - libre     : loyer_HC = saisie manuelle
+              //     - majore    : loyer_HC = loyer_reference_majore + SUM(lignes complément)
+              //     - reference : loyer_HC = surface × enc_loyer_ref (complément IGNORÉ)
+              //     - minore    : loyer_HC = surface × enc_loyer_min (complément IGNORÉ)
+              //   loyer_CC = loyer_HC + charges
+              //   dépôt    = loyer_HC × (meuble ? 2 : 1) (auto si vide ou si toggle meuble)
+              $curLoyerMode    = (string)($a['loyer_mode']      ?? 'libre');
               $curLoyerHC      = (float)($a['loyer']            ?? 0);
               $curMajore       = (float)($a['loyer_reference_majore'] ?? 0);
               $curCharges      = (float)($b['charges_locatives'] ?? 0);
               $curComplement   = (float)($a['complement_loyer'] ?? 0);
               $curDepot        = (float)($a['depot_garantie']   ?? 0);
+              $isEncadre       = (int)($a['zone_encadrement_loyer'] ?? 0) === 1;
+              $hcReadonly      = $isEncadre && $curLoyerMode !== 'libre';
+              $cplIgnored      = $isEncadre && in_array($curLoyerMode, ['reference','minore'], true);
               // Loyer HC de référence (pour affichage & calculs dérivés)
               $loyerHcRef      = $curMajore > 0 ? ($curMajore + $curComplement) : $curLoyerHC;
               // Loyer CC (depuis DB si maintenu, sinon calculé)
@@ -1743,50 +2122,52 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
               $hasComplement   = $curComplement > 0;
             ?>
             <div class="v2-desc-group-title">🔑 Location</div>
-            <div class="v2-num-grid">
+            <?php $curMeuble = (int)($a['meuble'] ?? 0) === 1; $depMois = $curMeuble ? 2 : 1; ?>
+            <div class="v2-loc-grid">
               <!-- LOYER CC — champ calculé readonly (gros) -->
-              <div class="v2-num-field" style="background:#ecfeff; border:2px solid #0ea5e9;" title="Calculé : Loyer HC + charges">
-                <span class="v2-num-icon">💧</span>
-                <input type="number" step="any" class="v2-num-input" style="width:110px; font-weight:800; font-size:15px; color:#0c4a6e;"
+              <div class="v2-loc-field is-accent" title="Calculé : Loyer HC + charges">
+                <label class="v2-loc-lbl"><span>💧</span> <strong>Loyer CC</strong> <small>€/mois</small></label>
+                <input type="number" step="any" class="v2-loc-input is-accent"
                        id="v2-loyer-cc-display" value="<?= h($curLoyerCCDisp) ?>" readonly tabindex="-1">
-                <span class="v2-num-label"><strong>Loyer CC</strong> <small>€/mois (= HC + charges)</small></span>
               </div>
-              <!-- LOYER HC — saisie manuelle ou auto (majoré + complément) -->
-              <div class="v2-num-field" title="Loyer hors charges. Si zone encadrée : majoré + complément (auto). Sinon saisie manuelle.">
-                <span class="v2-num-icon">🔑</span>
-                <input type="number" step="any" min="0" class="v2-num-input" style="width:100px;"
-                       name="loyer" data-annonce-save value="<?= h((string)($a['loyer'] ?? '')) ?>" placeholder="Loyer HC">
-                <span class="v2-num-label">
-                  Loyer HC <small>€</small>
-                  <?php if ($hasComplement): ?>
-                    <br><small style="color:#0369a1;">dont complément : <?= h($fmt($curComplement)) ?> €</small>
-                  <?php endif; ?>
-                </span>
+              <!-- LOYER HC — readonly si zone encadrée (mode majoré/réf/minoré). Mode libre = saisie manuelle. -->
+              <div class="v2-loc-field<?= $hcReadonly ? ' is-ro' : '' ?>" title="<?= $hcReadonly ? 'Loyer HC calculé selon mode ' . h($curLoyerMode) . '. Pour modifier : change le mode ou ajuste les compléments (mode majoré uniquement).' : 'Loyer HC hors charges — saisie manuelle libre.' ?>">
+                <label class="v2-loc-lbl"><span>🔑</span> Loyer HC <small>€</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input<?= $hcReadonly ? ' is-ro' : '' ?>"
+                       name="loyer" data-annonce-save value="<?= h((string)($a['loyer'] ?? '')) ?>"
+                       placeholder="Loyer HC"<?= $hcReadonly ? ' readonly tabindex="-1"' : '' ?>>
+                <?php if ($isEncadre): ?>
+                  <div class="v2-loyer-mode-btns" data-field="loyer_mode" data-target="annonce" role="group" aria-label="Mode de loyer HC">
+                    <button type="button" class="v2-mode-btn<?= $curLoyerMode === 'minore'    ? ' is-active' : '' ?>" data-value="minore"    title="Loyer minoré : surface × tarif minoré. Complément INTERDIT.">📉 Min</button>
+                    <button type="button" class="v2-mode-btn<?= $curLoyerMode === 'reference' ? ' is-active' : '' ?>" data-value="reference" title="Loyer de référence : surface × tarif de référence. Complément INTERDIT.">📐 Réf</button>
+                    <button type="button" class="v2-mode-btn<?= $curLoyerMode === 'majore'    ? ' is-active' : '' ?>" data-value="majore"    title="Loyer majoré + compléments justifiés (défaut encadrement).">📈 Maj</button>
+                  </div>
+                <?php endif; ?>
               </div>
               <!-- CHARGES — stockées sur biens.charges_locatives -->
-              <div class="v2-num-field">
-                <span class="v2-num-icon">💡</span>
-                <input type="number" step="any" min="0" class="v2-num-input" style="width:90px;"
+              <div class="v2-loc-field">
+                <label class="v2-loc-lbl"><span>💡</span> Charges <small>€</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
                        name="charges_locatives" data-autosave value="<?= h((string)($b['charges_locatives'] ?? '')) ?>" placeholder="Charges">
-                <span class="v2-num-label">Charges <small>€</small></span>
+              </div>
+              <!-- LOYER MAJORÉ — readonly, reprise depuis Card Encadrement -->
+              <div class="v2-loc-field is-ro" title="Reprise depuis Card Encadrement (loyer_reference_majore)">
+                <label class="v2-loc-lbl"><span>📈</span> Majoré <small>€</small></label>
+                <input type="number" step="any" class="v2-loc-input is-ro"
+                       id="v2-loyer-majore-display" value="<?= h($curMajoreDisp) ?>" readonly tabindex="-1">
               </div>
               <!-- COMPLÉMENT LOYER — readonly, maintenu par les lignes Card 2 -->
-              <div class="v2-num-field" title="Total des justifications (éditable dans Card 2 Encadrement)">
-                <span class="v2-num-icon">💳</span>
-                <input type="number" step="any" class="v2-num-input" style="width:90px; background:#f8fafc;"
+              <div class="v2-loc-field is-ro" title="Total des justifications (éditable dans Card Encadrement)">
+                <label class="v2-loc-lbl"><span>💳</span> Complément <small>€</small></label>
+                <input type="number" step="any" class="v2-loc-input is-ro"
                        id="v2-complement-loyer-display" value="<?= h($curComplDisp) ?>" readonly tabindex="-1">
-                <span class="v2-num-label">
-                  Complément <small>€</small>
-                  <br><small style="color:#92400e;">compris dans loyer HC</small>
-                </span>
               </div>
-              <!-- DÉPÔT DE GARANTIE — auto = 1 mois loyer HC, modifiable -->
-              <div class="v2-num-field" title="Par défaut 1 mois de loyer HC, modifiable">
-                <span class="v2-num-icon">🔒</span>
-                <input type="number" step="any" min="0" class="v2-num-input" style="width:100px;"
+              <!-- DÉPÔT DE GARANTIE — auto = X mois loyer HC (1 libre / 2 meublé), modifiable -->
+              <div class="v2-loc-field" title="Par défaut <?= $depMois ?> mois de loyer HC (<?= $curMeuble ? 'meublé' : 'libre' ?>), modifiable">
+                <label class="v2-loc-lbl"><span>🔒</span> Dépôt <small>€ (<?= $depMois ?> mois HC)</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
                        name="depot_garantie" data-annonce-save id="v2-depot-garantie-input"
                        value="<?= h($curDepotDisp) ?>" placeholder="Dépôt">
-                <span class="v2-num-label">Dépôt garantie <small>€ (1 mois HC auto)</small></span>
               </div>
             </div>
 
@@ -1824,8 +2205,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             <!-- TAXES -->
             <div class="v2-desc-group-title">🏛️ Taxes annuelles</div>
             <div class="v2-num-grid">
-              <?= $aNum('🏛️', 'taxe_fonciere',   'Taxe foncière',    '€') ?>
-              <?= $aNum('🏡', 'taxe_habitation', 'Taxe habitation', '€') ?>
+              <?= $aNum('🏛️', 'taxe_fonciere',          'Taxe foncière (TF)',     '€') ?>
+              <?= $aNum('🏡', 'taxe_habitation',        'Taxe habitation',        '€') ?>
+              <?= $aNum('🗑️', 'taxe_ordures_menageres', 'TOM (ordures ménagères)', '€') ?>
             </div>
           <?php endif; ?>
         </div>
@@ -1939,24 +2321,53 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
             </div>
 
             <!-- Complément de loyer -->
+            <?php
+              $encMode      = (string)($a['loyer_mode'] ?? 'libre');
+              $encCplLocked = $aZoneEnc && in_array($encMode, ['reference','minore'], true);
+              $encTotalLignes = array_sum(array_map(static fn($l) => (float)$l['montant'], $cplLignes));
+            ?>
             <div class="v2-desc-group-title" style="margin-top:18px;border-top:1px solid var(--v2-stroke,#eee);padding-top:12px;">
               ➕ Complément de loyer (justifications)
             </div>
-            <div class="v2-enc-cpl-hint" style="font-size:11px;color:var(--v2-muted);margin-bottom:8px;">
-              Total appliqué à <code>complement_loyer</code>. Le loyer total HC = majoré + somme des compléments.
-            </div>
-            <div id="v2-cpl-lignes" data-annonce-id="<?= (int)$annonce['id'] ?>">
+            <?php if ($encCplLocked): ?>
+              <div class="v2-enc-cpl-locked">
+                <strong>⚠ Compléments interdits en mode <?= h($encMode) ?></strong> — art. 18 loi 89-462.<br>
+                Les lignes ci-dessous sont conservées pour information mais <u>ne sont pas sommées</u> et n'impactent pas le loyer HC.
+                Repasse en mode <strong>Majoré</strong> (Card Cond. financières) pour réautoriser.
+              </div>
+            <?php else: ?>
+              <div class="v2-enc-cpl-hint" style="font-size:11px;color:var(--v2-muted);margin-bottom:8px;">
+                Total appliqué à <code>complement_loyer</code>. Le loyer total HC = majoré + somme des compléments.
+              </div>
+            <?php endif; ?>
+            <datalist id="v2-cpl-suggestions">
+              <option value="Terrasse">
+              <option value="Vue dégagée">
+              <option value="Stationnement privatif">
+              <option value="Balcon">
+              <option value="Cave">
+              <option value="Double exposition">
+              <option value="Dernier étage">
+              <option value="Équipements haut de gamme">
+            </datalist>
+            <div id="v2-cpl-lignes" data-annonce-id="<?= (int)$annonce['id'] ?>" data-locked="<?= $encCplLocked ? '1' : '0' ?>">
               <?php foreach ($cplLignes as $ln): ?>
-                <div class="v2-cpl-row" data-cpl-id="<?= (int)$ln['id'] ?>">
-                  <input type="text" class="v2-input v2-cpl-libelle" value="<?= h((string)$ln['libelle']) ?>" placeholder="Ex : vue dégagée sur parc">
+                <div class="v2-cpl-row<?= $encCplLocked ? ' is-disabled' : '' ?>" data-cpl-id="<?= (int)$ln['id'] ?>">
+                  <input type="text" class="v2-input v2-cpl-libelle" list="v2-cpl-suggestions" value="<?= h((string)$ln['libelle']) ?>" placeholder="Ex : vue dégagée sur parc">
                   <input type="number" step="0.01" min="0" class="v2-num-input v2-cpl-montant" value="<?= h((string)$ln['montant']) ?>" placeholder="€">
                   <button type="button" class="v2-cpl-del" title="Supprimer">✕</button>
                 </div>
               <?php endforeach; ?>
             </div>
             <div class="v2-cpl-footer">
-              <button type="button" id="v2-cpl-add" class="v2-btn-secondary">＋ Ajouter une justification</button>
-              <span class="v2-cpl-total">Total : <strong id="v2-cpl-total"><?= number_format(array_sum(array_map(static fn($l) => (float)$l['montant'], $cplLignes)), 2, ',', ' ') ?></strong> €</span>
+              <button type="button" id="v2-cpl-add" class="v2-btn-secondary"<?= $encCplLocked ? ' disabled style="opacity:.5;cursor:not-allowed;"' : '' ?>>＋ Ajouter une justification</button>
+              <span class="v2-cpl-total">
+                <?php if ($encCplLocked): ?>
+                  <span style="color:#92400e;">Total ignoré</span> (info : <strong><?= number_format($encTotalLignes, 2, ',', ' ') ?></strong> €)
+                <?php else: ?>
+                  Total : <strong id="v2-cpl-total"><?= number_format($encTotalLignes, 2, ',', ' ') ?></strong> €
+                <?php endif; ?>
+              </span>
             </div>
             <div id="v2-cpl-status" class="v2-cpl-status" aria-live="polite"></div>
           <?php endif; ?>
@@ -2198,12 +2609,20 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
                       }
                   }
 
-                  // Label du type de bien : récupéré via types_bien.libelle (id_type_bien)
+                  // Label du type de bien : priorité bien_types (id_bien_type),
+                  // fallback base_types_bien (id_type_bien legacy).
                   $typeBienLibelle = '';
                   $typeBienEmoji   = '🏷️';
-                  if (!empty($b['id_type_bien'])) {
+                  if (!empty($b['id_bien_type'])) {
                       try {
-                          $stTb = $pdo->prepare("SELECT libelle FROM types_bien WHERE id = ? LIMIT 1");
+                          $stTb = $pdo->prepare("SELECT libelle FROM bien_types WHERE id = ? LIMIT 1");
+                          $stTb->execute([(int)$b['id_bien_type']]);
+                          $typeBienLibelle = (string)$stTb->fetchColumn();
+                      } catch (Throwable) {}
+                  }
+                  if ($typeBienLibelle === '' && !empty($b['id_type_bien'])) {
+                      try {
+                          $stTb = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
                           $stTb->execute([(int)$b['id_type_bien']]);
                           $typeBienLibelle = (string)$stTb->fetchColumn();
                       } catch (Throwable) {}
@@ -2490,6 +2909,9 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
           <?php endif; ?>
         </div>
       </section>
+
+      <!-- Ma Box Communication (Lot 6 — include isolé) -->
+      <?php @include __DIR__ . '/inc/mbi_supports_card_bien.php'; ?>
 
       <!-- Card 6 : Historique des annonces du bien -->
       <section class="v2-card is-next" role="tabpanel" aria-label="Historique des annonces">
@@ -2906,6 +3328,11 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       meuble:     <?= (int)(!empty($bienLoaded['loyer_meuble']) ? 1 : 0) ?>,
     },
     annonceId: <?= (int)($annonce['id'] ?? 0) ?>,
+    // Flow 2026-04-22 : statut bien + endpoint de validation
+    statutBien:         <?= json_encode($statutBien, JSON_UNESCAPED_SLASHES) ?>,
+    bienEstActif:       <?= $bienEstActif ? 'true' : 'false' ?>,
+    nbManquants:        <?= (int)$nbManquants ?>,
+    bienValidateEndpoint: <?= json_encode(app_url('/api/bien_validate.php'), JSON_UNESCAPED_SLASHES) ?>,
     docsDiag:   <?= json_encode($docsDiag,   JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsMandat: <?= json_encode($docsMandat, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
     docsAutre:  <?= json_encode($docsAutre,  JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) ?>,
@@ -2917,6 +3344,39 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 
 <!-- Modal universel d'adresse (Google Places + immeubles existants) -->
 <?php require_once __DIR__ . '/inc/adresse_modal.php'; ?>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MODAL "Créer une annonce ?" — déclenché à l'entrée section=annonce
+     si aucune annonce active (flow 2026-04-22)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="v2-annonce-create-modal" class="addr-modal" hidden>
+  <div class="addr-modal-overlay" data-annonce-modal-close></div>
+  <div class="addr-modal-card" style="max-width:520px;">
+    <div class="addr-modal-head">
+      <h3>📡 Créer une annonce pour ce bien ?</h3>
+      <button type="button" class="addr-modal-x" data-annonce-modal-close aria-label="Fermer">×</button>
+    </div>
+    <div class="addr-modal-body">
+      <div style="text-align:center; padding:14px 0;">
+        <div style="font-size:40px; margin-bottom:12px;">📡</div>
+        <p style="color:#334155; font-size:14px; line-height:1.5;">
+          Une nouvelle annonce va être créée pour ce bien, en héritant automatiquement :
+        </p>
+        <ul style="text-align:left; max-width:380px; margin:12px auto; color:#475569; font-size:13px; line-height:1.8;">
+          <li>🏢 Adresse &amp; immeuble</li>
+          <li>🏛️ Société, agence, commercial</li>
+          <li>👤 Propriétaire rattaché</li>
+          <li>📸 Toutes les photos actuelles du bien</li>
+        </ul>
+        <p style="color:#64748b; font-size:12px;">Tu pourras ensuite renseigner le type de mandat (vente / location / gestion), les montants, honoraires, etc.</p>
+      </div>
+    </div>
+    <div class="addr-modal-foot">
+      <button type="button" class="addr-modal-btn-secondary" data-annonce-modal-close>Annuler</button>
+      <button type="button" id="v2-annonce-modal-confirm" class="addr-modal-btn-primary">✅ Créer l'annonce</button>
+    </div>
+  </div>
+</div>
 <script src="<?= asset_url('/js/places.js') ?>"></script>
 <script src="<?= asset_url('/js/adresse_modal.js') ?>?v=<?= @filemtime(__DIR__ . '/js/adresse_modal.js') ?: time() ?>"></script>
 <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>

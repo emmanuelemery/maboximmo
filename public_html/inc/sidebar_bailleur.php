@@ -46,6 +46,9 @@ $sbActive = static function (string ...$pages) use ($currentPage): string {
             <li><a href="./bien_liste.php" class="<?= $sbActive('bien_liste.php', 'bien_ajouter.php') ?>">
                 <span class="sb-icon">🏠</span><span class="sb-label">Mes biens</span>
             </a></li>
+            <li><a href="./transaction_index.php" class="<?= $sbActive('transaction_index.php', 'transaction_chargement.php') ?>">
+                <span class="sb-icon">🎯</span><span class="sb-label">Transactions</span>
+            </a></li>
             <li><a href="./bailleur_revision_loyer.php" class="<?= $sbActive('bailleur_revision_loyer.php') ?>">
                 <span class="sb-icon">📐</span><span class="sb-label">Révision loyer</span>
             </a></li>

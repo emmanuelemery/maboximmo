@@ -28,6 +28,10 @@ storage/ged/
 storage/ged_test_*/
 storage/ged_socle_*/
 
+# ── FluxBox storage local (documents personnels : RIB, salaires, attestations…) ──
+public_html/storage_fluxbox/
+storage_fluxbox/
+
 # ── Logs ──
 *.log
 logs/

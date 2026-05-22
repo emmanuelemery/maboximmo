@@ -34,9 +34,21 @@
 /* ── Brand ── */
 .mbi-sidebar .sb-brand {
     padding: 18px 16px 14px;
+    /* reset des styles globaux (ex: css/style.css applique border/background à tous les <a>) */
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     border-bottom: 1px solid #d4d0ca;
     display: flex; align-items: center; gap: 10px;
     text-decoration: none !important; flex-shrink: 0;
+}
+
+/* Certains écrans "legacy" chargent css/style.css qui applique un style global sur tous les <a>.
+   On force ici un reset fort, uniquement dans la sidebar. */
+.mbi-sidebar a {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 .mbi-sidebar .sb-brand-logo {
     width: 36px; height: 36px; border-radius: 10px;
@@ -98,6 +110,10 @@
     transition: color .14s, background .14s, padding-left .14s;
     position: relative;
     font-family: 'Sora', 'DM Sans', sans-serif !important;
+    /* reset des styles globaux (ex: css/style.css applique border/background à tous les <a>) */
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 .mbi-sidebar .sb-nav a .sb-icon  {
     font-size: 13px !important; flex-shrink: 0;

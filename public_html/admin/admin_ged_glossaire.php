@@ -21,13 +21,7 @@ require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/ged_functions.php';
 require_once __DIR__ . '/../inc/ged_glossary.php';
 require_once __DIR__ . '/../inc/ged_glossary_seed.php';
-require_login();
-
-$roleId = (int)($_SESSION['id_role'] ?? 0);
-if ($roleId !== 1) {
-    http_response_code(403);
-    exit('<h1>403 — Réservé super admin.</h1>');
-}
+require_admin_or_super_admin();
 
 $pdo = ged_pdo();
 $h = static fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
