@@ -89,7 +89,15 @@ try {
                t.code_postal, t.ville, t.actif, t.type_tiers,
                ag.nom_agence AS agence_nom,
                (SELECT COUNT(*) FROM biens b   WHERE b.id_proprietaire = p.id) AS nb_biens,
-               (SELECT COUNT(*) FROM mandats m WHERE m.id_proprietaire = p.id) AS nb_mandats
+               (SELECT COUNT(*) FROM mandats m WHERE m.id_proprietaire = p.id) AS nb_mandats,
+               (SELECT GROUP_CONCAT(DISTINCT tr.role_code ORDER BY tr.role_code SEPARATOR ',')
+                  FROM tiers_roles tr WHERE tr.id_tiers = t.id AND tr.actif = 1) AS roles_actifs,
+               (SELECT b2.reference_bien FROM biens b2
+                  WHERE b2.id_proprietaire = p.id
+                  ORDER BY b2.id DESC LIMIT 1) AS first_bien_ref,
+               (SELECT b3.id FROM biens b3
+                  WHERE b3.id_proprietaire = p.id
+                  ORDER BY b3.id DESC LIMIT 1) AS first_bien_id
         {$baseJoin}
         WHERE {$whereStr}
         GROUP BY t.id
@@ -272,8 +280,9 @@ include __DIR__ . '/inc/sidebar_agency.php';
       <table class="ap-table">
         <thead>
           <tr>
-            <th>Nom</th>
+            <th>Nom <small style="color:#9a9690;font-weight:400;">· ID</small></th>
             <th>Type</th>
+            <th>Rôles</th>
             <th>Contact</th>
             <th>Agence</th>
             <th style="text-align:center;">Biens</th>
@@ -287,21 +296,34 @@ include __DIR__ . '/inc/sidebar_agency.php';
             $fullName   = (string)$p['label'];
             $isMorale   = $p['type_tiers'] === 'personne_morale';
             $ficheUrl   = 'agency_proprietaire_fiche.php?id=' . (int)($p['id_proprio_legacy'] ?? 0);
+            $url360     = 'tiers_360.php?id=' . (int)$p['id_tiers'];
+            $roles      = array_filter(array_map('trim', explode(',', (string)($p['roles_actifs'] ?? ''))));
           ?>
           <tr class="<?= $isArchived ? 'is-archived' : '' ?>" data-id-tiers="<?= (int)$p['id_tiers'] ?>">
             <td>
-              <?php if ($p['id_proprio_legacy']): ?>
-                <a href="<?= e($ficheUrl) ?>" class="ap-link"><?= e($fullName) ?></a>
-              <?php else: ?>
-                <span><?= e($fullName) ?></span>
-              <?php endif; ?>
+              <a href="<?= e($url360) ?>" class="ap-link" title="Ouvrir la vue 360° du tiers"><?= e($fullName) ?></a>
               <?php if ($p['civilite']): ?><span style="color:var(--muted);font-size:11px;"> · <?= e($p['civilite']) ?></span><?php endif; ?>
               <?php if ($isArchived): ?><span class="ap-badge ap-badge-archived">📦 archivé</span><?php endif; ?>
+              <div style="margin-top:3px;display:flex;align-items:center;gap:6px;">
+                <code class="ap-id-copy" data-copy="<?= (int)$p['id_tiers'] ?>"
+                      style="cursor:pointer;font-size:10.5px;color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:4px;font-family:'DM Mono',monospace;"
+                      title="Cliquer pour copier — utilisable dans Suppression propriétaires">tiers #<?= (int)$p['id_tiers'] ?></code>
+                <?php if ($p['id_proprio_legacy']): ?>
+                  <code style="font-size:10.5px;color:#7a766f;font-family:'DM Mono',monospace;">proprio #<?= (int)$p['id_proprio_legacy'] ?></code>
+                <?php endif; ?>
+              </div>
             </td>
             <td>
               <span class="ap-badge ap-badge-<?= $isMorale ? 'morale' : 'physique' ?>">
                 <?= $isMorale ? '🏢 Société' : '👤 Particulier' ?>
               </span>
+            </td>
+            <td style="font-size:11px;">
+              <?php if (empty($roles)): ?>
+                <span style="color:var(--muted);">—</span>
+              <?php else: foreach ($roles as $rc): ?>
+                <span style="display:inline-block;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;margin:1px 2px 1px 0;font-family:'DM Mono',monospace;font-size:10px;"><?= e($rc) ?></span>
+              <?php endforeach; endif; ?>
             </td>
             <td style="font-size:12px;">
               <?php if ($p['email']): ?><div><?= e($p['email']) ?></div><?php endif; ?>
@@ -311,6 +333,11 @@ include __DIR__ . '/inc/sidebar_agency.php';
             <td style="font-size:12px;"><?= $p['agence_nom'] ? e($p['agence_nom']) : '<span style="color:var(--muted);">—</span>' ?></td>
             <td style="text-align:center;">
               <span class="ap-count <?= (int)$p['nb_biens'] > 0 ? 'ap-count-biens' : 'ap-count-zero' ?>"><?= (int)$p['nb_biens'] ?></span>
+              <?php if (!empty($p['first_bien_id']) && !empty($p['first_bien_ref'])): ?>
+                <div style="margin-top:2px;">
+                  <a href="bien_360.php?id=<?= (int)$p['first_bien_id'] ?>" style="font-size:10px;font-family:'DM Mono',monospace;color:#4878a6;text-decoration:none;" title="Ouvrir la fiche 360° du bien"><?= e($p['first_bien_ref']) ?><?= (int)$p['nb_biens'] > 1 ? ' +' . ((int)$p['nb_biens'] - 1) : '' ?></a>
+                </div>
+              <?php endif; ?>
             </td>
             <td style="text-align:center;">
               <span class="ap-count <?= (int)$p['nb_mandats'] > 0 ? 'ap-count-mandats' : 'ap-count-zero' ?>"><?= (int)$p['nb_mandats'] ?></span>
@@ -505,6 +532,26 @@ document.querySelectorAll('.ap-action-btn[data-action]').forEach(btn => {
       if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; return; }
       window.location.reload();
     } catch (e) { alert('❌ ' + e.message); btn.disabled = false; }
+  });
+
+  // Copier l'ID tiers au clic (utile pour la page Suppression propriétaires)
+  document.querySelectorAll('.ap-id-copy').forEach(el => {
+    el.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const id = el.dataset.copy;
+      try {
+        await navigator.clipboard.writeText(id);
+        const orig = el.textContent;
+        el.textContent = '✓ copié #' + id;
+        el.style.background = '#d9f0db';
+        el.style.color = '#2d6a35';
+        setTimeout(() => {
+          el.textContent = orig;
+          el.style.background = '#ede9fe';
+          el.style.color = '#5b21b6';
+        }, 1200);
+      } catch (e) { /* clipboard non dispo : ignorer */ }
+    });
   });
 });
 </script>

@@ -22,6 +22,14 @@ if (!$tiers) {
     exit('Tiers introuvable.');
 }
 
+// ─── Lookup id_proprio_legacy (pour le bouton « Voir la fiche complète ») ──
+$idProprioLegacy = 0;
+try {
+    $stPL = $pdo->prepare("SELECT id FROM proprietaires WHERE id_tiers = ? ORDER BY id DESC LIMIT 1");
+    $stPL->execute([$tiersId]);
+    $idProprioLegacy = (int)($stPL->fetchColumn() ?: 0);
+} catch (Throwable $e) {}
+
 $nomAffichage = $tiers['nom_affichage']
     ?: $tiers['raison_sociale']
     ?: trim((string)$tiers['prenom'] . ' ' . $tiers['nom'])
@@ -159,15 +167,19 @@ if ($estPersonneMorale) {
 if (!empty($tiers['email']))     $metas[] = ['icon'=>'✉️','text'=>$tiers['email']];
 if (!empty($tiers['telephone'])) $metas[] = ['icon'=>'📞','text'=>$tiers['telephone']];
 
+$headerActions = [];
+if ($idProprioLegacy > 0) {
+    $headerActions[] = ['label'=>'📄 Voir la fiche complète','url'=>app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy),'class'=>'tr-btn tr-btn-primary'];
+}
+$headerActions[] = ['label'=>'✏️ Éditer le tiers','url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId)),'class'=>'tr-btn'];
+
 fiche360_header(
     $estPersonneMorale ? '🏛' : '👤',
     $nomAffichage,
     $badge,
     trim((string)($tiers['adresse'] ?? '') . ' ' . ($tiers['code_postal'] ?? '') . ' ' . ($tiers['ville'] ?? '')) ?: 'Adresse non renseignée',
     $metas,
-    [
-        ['label'=>'✏️ Éditer','url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId)),'class'=>'tr-btn'],
-    ]
+    $headerActions
 );
 
 fiche360_ia_bar('tiers', $tiersId, "Demander à l'IA sur ce tiers (biens, baux, échéances, fiscalité…)");
@@ -304,12 +316,15 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, '');
     ]) ?: [['icon'=>'⚪','name'=>'Aucune coordonnée','ref'=>'','url'=>'#']]);
 
     // Panneau Actions
-    fiche360_actions_panel('Actions tiers', [
-        ['icon'=>'✏️','label'=>'Éditer le tiers',        'url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId))],
-        ['icon'=>'➕','label'=>'Ajouter un représentant','url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId))],
-        ['icon'=>'📥','label'=>'Importer un document',  'url'=>app_url('/transaction_chargement.php')],
-        ['icon'=>'🔀','label'=>'Fusionner avec un doublon','url'=>app_url('/admin/admin_tiers_merge.php')],
-    ]);
+    $actionsList = [];
+    if ($idProprioLegacy > 0) {
+        $actionsList[] = ['icon'=>'📄','label'=>'Voir la fiche propriétaire','url'=>app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy)];
+    }
+    $actionsList[] = ['icon'=>'✏️','label'=>'Éditer le tiers',        'url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId))];
+    $actionsList[] = ['icon'=>'➕','label'=>'Ajouter un représentant','url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId))];
+    $actionsList[] = ['icon'=>'📥','label'=>'Importer un document',  'url'=>app_url('/transaction_chargement.php')];
+    $actionsList[] = ['icon'=>'🔀','label'=>'Fusionner avec un doublon','url'=>app_url('/admin/admin_tiers_merge.php')];
+    fiche360_actions_panel('Actions tiers', $actionsList);
     ?>
 
   </div>
