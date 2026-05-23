@@ -233,19 +233,42 @@ try {
     $deleted['proprietaires'] = $n;
 
     // Suppression des tiers orphelins (anciens id_tiers des proprio supprimés)
+    // + nettoyage tiers_roles et tiers_contacts uniquement pour ces orphelins
+    // (on ne touche jamais à un tiers encore référencé ailleurs : locataire,
+    //  mandant, agency_mandant, etc.).
     if (!empty($candidateTierIds)) {
         $tInIds = implode(',', $candidateTierIds);
         try {
-            $n = $pdo->exec("
-                DELETE t FROM tiers t
+            // 1. Pré-identifier les tiers vraiment orphelins
+            $orphans = $pdo->query("
+                SELECT t.id FROM tiers t
                 WHERE t.id IN ($tInIds)
                   AND NOT EXISTS (SELECT 1 FROM proprietaires p WHERE p.id_tiers = t.id)
                   AND NOT EXISTS (SELECT 1 FROM mandants m WHERE m.id_tiers = t.id)
                   AND NOT EXISTS (SELECT 1 FROM agency_mandant am WHERE am.id_tiers = t.id)
-            ");
-            if ($n > 0) $deleted['tiers'] = $n;
+            ")->fetchAll(PDO::FETCH_COLUMN);
+            $orphans = array_map('intval', $orphans ?: []);
+
+            if (!empty($orphans)) {
+                $oInIds = implode(',', $orphans);
+                // 2. Nettoyer tiers_roles (tous rôles : propriétaire, bailleur, indivisaire, SCI…)
+                try {
+                    $n = $pdo->exec("DELETE FROM tiers_roles WHERE id_tiers IN ($oInIds)");
+                    if ($n > 0) $deleted['tiers_roles'] = $n;
+                } catch (Throwable $e) { error_log('[proprio_delete_cascade tiers_roles] ' . $e->getMessage()); }
+                // 3. Nettoyer tiers_contacts (relations représentant ↔ entité)
+                try {
+                    $n = $pdo->exec("DELETE FROM tiers_contacts WHERE id_tiers_entite IN ($oInIds) OR id_tiers_contact IN ($oInIds)");
+                    if ($n > 0) $deleted['tiers_contacts'] = $n;
+                } catch (Throwable $e) { error_log('[proprio_delete_cascade tiers_contacts] ' . $e->getMessage()); }
+                // 4. Supprimer les tiers eux-mêmes
+                try {
+                    $n = $pdo->exec("DELETE FROM tiers WHERE id IN ($oInIds)");
+                    if ($n > 0) $deleted['tiers'] = $n;
+                } catch (Throwable $e) { error_log('[proprio_delete_cascade tiers] ' . $e->getMessage()); }
+            }
         } catch (Throwable $e) {
-            error_log('[proprio_delete_cascade tiers] ' . $e->getMessage());
+            error_log('[proprio_delete_cascade tiers orphans lookup] ' . $e->getMessage());
         }
     }
 

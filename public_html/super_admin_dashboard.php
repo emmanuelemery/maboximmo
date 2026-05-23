@@ -35,6 +35,7 @@ $tools = [
     ['label' => 'Design System',           'url' => 'design-system.php',                  'icon' => '🎨', 'color' => '#a85858'],
     ['label' => 'Debug session',           'url' => 'debug_session.php',                  'icon' => '🧪', 'color' => '#5a6e8a'],
     ['label' => 'Debug PDF export',        'url' => 'debug_pdf_export.php',               'icon' => '🧾', 'color' => '#c97b2e'],
+    ['label' => 'Suppression propriétaires','url' => 'admin/admin_proprietaires_suppression.php', 'icon' => '🗑', 'color' => '#b91c1c'],
 ];
 
 $layout_extra_css = '<style>
