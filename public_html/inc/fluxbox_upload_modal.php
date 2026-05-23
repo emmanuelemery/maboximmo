@@ -1277,6 +1277,26 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 // Différé pour laisser renderMetierButtons finir d'attacher les boutons
                 setTimeout(() => selectMetier(prefill.n1), 0);
             }
+
+            // Pré-remplissage NOM DE L'ENTITÉ + verrouillage si le bien est connu
+            // (arrivée depuis transaction_index ou bien_360 avec contexte bien validé).
+            // L'user n'a plus à saisir → évite les doublons et les saisies fantaisistes.
+            if (prefill && prefill.entite_nom) {
+                setTimeout(() => {
+                    const inp = document.getElementById('fbx-meta-entity-input');
+                    if (!inp) return;
+                    inp.value = String(prefill.entite_nom);
+                    inp.readOnly = true;
+                    inp.style.background = '#f0fdf4';
+                    inp.style.borderColor = '#86efac';
+                    inp.style.cursor = 'not-allowed';
+                    inp.title = 'Bien sélectionné depuis ' + (prefill.origin || 'la page appelante') + ' — non modifiable.';
+                    const hint = document.getElementById('fbx-meta-entity-hint');
+                    if (hint) hint.innerHTML = '<span style="color:#15803d;font-weight:700;">✅ Bien identifié : ' + String(prefill.entite_nom) + ' — aucun risque de doublon.</span>';
+                    const req = document.getElementById('fbx-meta-entity-required-msg');
+                    if (req) req.style.display = 'none';
+                }, 50);
+            }
         } catch (e) {
             rowSoc.innerHTML = '<div class="fbx-row-empty">Réseau : ' + e.message + '</div>';
         }

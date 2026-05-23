@@ -211,7 +211,9 @@ $n1Bien       = match (true) {
     $typeComBien === 'vente'                              => '05_TRANSACTION',
     default                                               => '',
 };
-$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', origin:'bien_360'});return false;";
+// Référence du bien pour pré-remplir le champ NOM DE L'ENTITÉ + verrouiller
+$refBienJs = addslashes((string)($bien['reference_bien'] ?: 'Bien #' . $bienId));
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', entite_nom:'{$refBienJs}', origin:'bien_360'});return false;";
 
 fiche360_header(
     '🏠',

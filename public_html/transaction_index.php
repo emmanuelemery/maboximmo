@@ -631,7 +631,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
                     <button title="Voir historique" onclick="trOpenHistorique(<?= $bienId ?>)">📜</button>
                     <button title="Ajouter offre"  onclick="trOpenOffre(<?= $bienId ?>, <?= (int)($r['annonce_id'] ?? 0) ?>)">💰</button>
                     <button title="Charger un document (FluxBox V3 : nommage + IA + classement auto)"
-                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>, '<?= h($n1Suggested) ?>')">📎</button>
+                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>, '<?= h($n1Suggested) ?>', '<?= h((string)($r['reference_bien'] ?? '')) ?>')">📎</button>
                     <button title="Envoyer dossier" onclick="trOpenSend(<?= $bienId ?>)">✉️</button>
                 </td>
             </tr>
@@ -946,7 +946,7 @@ document.getElementById('tr-form-offre').addEventListener('submit', async functi
 // Le legacy trOpenDoc(bienId) ouvrait tr-modal-doc → POST transaction_doc_upload.
 // Nouveau : ouvre la modal FluxBox avec contexte pré-rempli (société, agence,
 // bien, propriétaire). FluxBox gère storage, nommage V3, IA, classement.
-function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1) {
+function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1, refBien) {
     if (typeof window.fbxOpenUploadModal !== 'function') {
         alert('Module FluxBox non chargé sur cette page. Recharge la page.');
         return;
@@ -957,11 +957,12 @@ function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1) {
         age_id:     ageId    || 0,
         proprio_id: proprioId || 0,
         n1:         n1 || '',
+        entite_nom: refBien || ('Bien #' + bienId),
         origin:     'transaction_index'
     });
 }
 // Conservé en alias pour code legacy éventuel
-function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0, ''); }
+function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0, '', ''); }
 document.getElementById('tr-form-doc').addEventListener('submit', async function(e){
     e.preventDefault();
     const fd = new FormData(this);
