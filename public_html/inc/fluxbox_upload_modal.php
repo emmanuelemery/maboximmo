@@ -69,7 +69,12 @@ try {
             <br>Tous les flux passent par FluxBox — vous validez ensuite carte par carte.
         </div>
 
-        <!-- ───── Classement GED — boutons cascade ───── -->
+        <!-- ───── Classement GED — boutons cascade (replié par défaut, après dropzone visuellement) ───── -->
+        <details class="fbx-meta-collapse" id="fbx-meta-details">
+        <summary class="fbx-meta-summary">
+            ⚖️ <strong>Préciser ou corriger le contexte</strong>
+            <span class="fbx-meta-summary-hint">(optionnel — l'IA décide automatiquement à partir du document)</span>
+        </summary>
         <div class="fbx-meta-block">
 
             <!-- Société -->
@@ -167,6 +172,7 @@ try {
                 <div class="fbx-meta-hint">L'IA utilisera ce contexte pour préparer la carte et proposer une action métier.</div>
             </div>
         </div>
+        </details>
 
         <!-- Onglets options -->
         <div class="fbx-upload-tabs" role="tablist">
@@ -528,7 +534,48 @@ try {
     box-shadow: 0 30px 90px rgba(0,0,0,0.3);
     font-family: "Sora", "Inter", sans-serif;
     animation: fbx-modal-in .25s cubic-bezier(0.22,1,0.36,1);
+    /* Flex column pour pouvoir repositionner visuellement avec `order`
+       (dropzone d'abord, puis bloc cascade en bas — l'user drop, l'IA propose, il valide). */
+    display: flex;
+    flex-direction: column;
 }
+.fbx-upload-head     { order: 1; }
+.fbx-upload-subtitle { order: 2; }
+.fbx-upload-tabs     { order: 3; }
+.fbx-pane            { order: 4; }
+.fbx-upload-queue    { order: 5; }
+.fbx-meta-collapse   { order: 6; }   /* bloc cascade GED — replié, en bas */
+
+/* Accordéon classement GED */
+.fbx-meta-collapse {
+    background: #f8fafc;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    margin-top: 14px;
+}
+.fbx-meta-collapse > .fbx-meta-block { background: transparent; border: none; margin: 0; }
+.fbx-meta-collapse[open] .fbx-meta-summary { border-bottom: 1px solid #e2e8f0; }
+.fbx-meta-summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 12px 18px;
+    font-size: 13px;
+    color: #475569;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.fbx-meta-summary::-webkit-details-marker { display: none; }
+.fbx-meta-summary::before {
+    content: "▸";
+    transition: transform .15s;
+    color: #94a3b8;
+}
+.fbx-meta-collapse[open] .fbx-meta-summary::before { transform: rotate(90deg); }
+.fbx-meta-summary:hover { background: rgba(0,0,0,0.02); }
+.fbx-meta-summary strong { color: #243B5C; }
+.fbx-meta-summary-hint { font-size: 11.5px; color: #94a3b8; font-weight: 400; }
 @keyframes fbx-modal-in {
     from { opacity: 0; transform: translateY(20px) scale(0.98); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1670,7 +1717,14 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         document.body.style.overflow = 'hidden';
         // Si un prefill est posé par la page appelante, force le reload du contexte
         // pour appliquer le nouveau bien/société/agence (sinon la 2ème ouverture ignore).
-        if (window.FBX_PREFILL) contextLoaded = false;
+        // Et auto-ouvre l'accordéon classement pour que l'user voie la pré-sélection.
+        const metaDetails = document.getElementById('fbx-meta-details');
+        if (window.FBX_PREFILL) {
+            contextLoaded = false;
+            if (metaDetails) metaDetails.open = true;
+        } else if (metaDetails) {
+            metaDetails.open = false;   // sinon replié par défaut (UX "drop d'abord")
+        }
         loadContext(); // charge sociétés + agences + métiers au premier open
     }
     function closeModal() {
