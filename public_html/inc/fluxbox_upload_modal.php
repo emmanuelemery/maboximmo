@@ -1270,6 +1270,13 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             if (socFinal) {
                 selectSociete(socFinal, data.data.agences || [], ageFinal);
             }
+
+            // Pré-sélection du métier N1 si fourni dans le prefill
+            // (ex: bien en gestion → 03_GESTION_LOCATIVE ; bien en transaction → 05_TRANSACTION)
+            if (prefill && prefill.n1) {
+                // Différé pour laisser renderMetierButtons finir d'attacher les boutons
+                setTimeout(() => selectMetier(prefill.n1), 0);
+            }
         } catch (e) {
             rowSoc.innerHTML = '<div class="fbx-row-empty">Réseau : ' + e.message + '</div>';
         }

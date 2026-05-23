@@ -204,7 +204,14 @@ if (!empty($bien['numero_lot']))        $metas[] = ['icon'=>'🏢','text'=>'Lot 
 $idSocBien    = (int)($bien['id_societe'] ?? 0);
 $idAgeBien    = (int)($bien['id_agence'] ?? 0);
 $idProprioBien= (int)($bien['id_proprietaire'] ?? 0);
-$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, origin:'bien_360'});return false;";
+// N1 suggéré : bien en gestion/location → GESTION_LOCATIVE, bien en vente → TRANSACTION
+$typeComBien  = strtolower(trim((string)($bien['type_commercialisation'] ?? '')));
+$n1Bien       = match (true) {
+    in_array($typeComBien, ['gestion', 'location'], true) => '03_GESTION_LOCATIVE',
+    $typeComBien === 'vente'                              => '05_TRANSACTION',
+    default                                               => '',
+};
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', origin:'bien_360'});return false;";
 
 fiche360_header(
     '🏠',

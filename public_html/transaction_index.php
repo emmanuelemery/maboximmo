@@ -616,11 +616,22 @@ include __DIR__ . '/inc/agency_layout_top.php';
                     <?php endif; ?>
                 </td>
                 <td data-label="MAJ" style="font-family:'DM Mono',monospace; font-size:11px; color:#7a766f;"><?= h($maj) ?></td>
+                <?php
+                // N1 suggéré selon le statut commercial du bien :
+                //  - en gestion/location → GESTION_LOCATIVE (l'agence gère le bien)
+                //  - en vente → TRANSACTION (mandat de transaction)
+                $typeCom = strtolower(trim((string)($r['type_commercialisation'] ?? '')));
+                $n1Suggested = match (true) {
+                    in_array($typeCom, ['gestion', 'location'], true) => '03_GESTION_LOCATIVE',
+                    $typeCom === 'vente'                              => '05_TRANSACTION',
+                    default                                           => '',
+                };
+                ?>
                 <td data-label="Actions" class="tr-actions-cell">
                     <button title="Voir historique" onclick="trOpenHistorique(<?= $bienId ?>)">📜</button>
                     <button title="Ajouter offre"  onclick="trOpenOffre(<?= $bienId ?>, <?= (int)($r['annonce_id'] ?? 0) ?>)">💰</button>
                     <button title="Charger un document (FluxBox V3 : nommage + IA + classement auto)"
-                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>)">📎</button>
+                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>, '<?= h($n1Suggested) ?>')">📎</button>
                     <button title="Envoyer dossier" onclick="trOpenSend(<?= $bienId ?>)">✉️</button>
                 </td>
             </tr>
@@ -935,7 +946,7 @@ document.getElementById('tr-form-offre').addEventListener('submit', async functi
 // Le legacy trOpenDoc(bienId) ouvrait tr-modal-doc → POST transaction_doc_upload.
 // Nouveau : ouvre la modal FluxBox avec contexte pré-rempli (société, agence,
 // bien, propriétaire). FluxBox gère storage, nommage V3, IA, classement.
-function trOpenDocFluxbox(bienId, socId, ageId, proprioId) {
+function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1) {
     if (typeof window.fbxOpenUploadModal !== 'function') {
         alert('Module FluxBox non chargé sur cette page. Recharge la page.');
         return;
@@ -945,11 +956,12 @@ function trOpenDocFluxbox(bienId, socId, ageId, proprioId) {
         soc_id:     socId    || 0,
         age_id:     ageId    || 0,
         proprio_id: proprioId || 0,
+        n1:         n1 || '',
         origin:     'transaction_index'
     });
 }
 // Conservé en alias pour code legacy éventuel
-function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0); }
+function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0, ''); }
 document.getElementById('tr-form-doc').addEventListener('submit', async function(e){
     e.preventDefault();
     const fd = new FormData(this);
