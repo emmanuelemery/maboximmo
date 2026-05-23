@@ -544,10 +544,70 @@ try {
 }
 .fbx-upload-head     { order: 1; }
 .fbx-upload-subtitle { order: 2; }
-.fbx-upload-tabs     { order: 3; }
-.fbx-pane            { order: 4; }
-.fbx-upload-queue    { order: 5; }
-.fbx-meta-collapse   { order: 6; }   /* bloc cascade GED — replié, en bas */
+.fbx-target-card     { order: 3; }   /* mini-card "Bien ciblé" — visible immédiatement */
+.fbx-upload-tabs     { order: 4; }
+.fbx-pane            { order: 5; }
+.fbx-upload-queue    { order: 6; }
+.fbx-meta-collapse   { order: 7; }   /* bloc cascade GED — replié, en bas */
+
+/* Mini-card "DOCUMENT POUR LE BIEN" (style relief MaBoxImmo) */
+.fbx-target-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #86efac;
+    border-left: 4px solid #16a34a;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    box-shadow: 4px 4px 12px rgba(22,163,74,0.10);
+}
+.fbx-target-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    background: linear-gradient(135deg, #bbf7d0, #86efac);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; flex-shrink: 0;
+    box-shadow: inset 1px 1px 2px rgba(255,255,255,0.6), 2px 2px 4px rgba(22,163,74,0.18);
+}
+.fbx-target-body { flex: 1; min-width: 0; }
+.fbx-target-label {
+    font-family: "DM Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #15803d;
+    letter-spacing: 0.08em;
+    margin-bottom: 3px;
+}
+.fbx-target-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #14532d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.fbx-target-id {
+    font-family: "DM Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    background: #ede9fe;
+    color: #5b21b6;
+    padding: 2px 8px;
+    border-radius: 99px;
+}
+.fbx-target-addr {
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: #5a5650;
+}
+.fbx-target-from {
+    margin-top: 5px;
+    font-size: 10.5px;
+    color: #7a766f;
+    font-style: italic;
+}
 
 /* Accordéon classement GED */
 .fbx-meta-collapse {
@@ -1361,22 +1421,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                     }
                     const req = document.getElementById('fbx-meta-entity-required-msg');
                     if (req) req.style.display = 'none';
-
-                    // Encart visible sous le sous-domaine N3 : reprend la sélection
-                    // (ref + ID + adresse) pour que l'user voie en haut ce qui est ciblé.
-                    const rowN3Block = document.getElementById('fbx-row-n3')?.closest('.fbx-row-block');
-                    if (rowN3Block) {
-                        let panel = document.getElementById('fbx-n3-target-panel');
-                        if (!panel) {
-                            panel = document.createElement('div');
-                            panel.id = 'fbx-n3-target-panel';
-                            panel.style.cssText = 'margin-top:8px; padding:10px 12px; background:#f0fdf4; border-left:3px solid #16a34a; border-radius:6px; font-size:12.5px; color:#14532d;';
-                            rowN3Block.appendChild(panel);
-                        }
-                        const idTxt2 = prefill.entite_id_bdd ? ' <span style="font-family:DM Mono,monospace;color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:4px;margin-left:6px;">id #' + parseInt(prefill.entite_id_bdd, 10) + '</span>' : '';
-                        const adrTxt2 = prefill.entite_adresse ? '<div style="margin-top:4px;color:#5a5650;font-size:11.5px;">📍 ' + String(prefill.entite_adresse) + '</div>' : '';
-                        panel.innerHTML = '🏠 <strong>Bien ciblé :</strong> ' + String(prefill.entite_nom) + idTxt2 + adrTxt2;
-                    }
+                    // (mini-card top "fbx-target-card" affichée par openModal — pas de doublon ici)
                 }, 100);
             }
         } catch (e) {
@@ -1757,10 +1802,52 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         if (window.FBX_PREFILL) {
             contextLoaded = false;
             if (metaDetails) metaDetails.open = true;
+            renderTargetCard(window.FBX_PREFILL);   // mini-card "Bien ciblé" visible immédiatement
         } else if (metaDetails) {
             metaDetails.open = false;   // sinon replié par défaut (UX "drop d'abord")
+            removeTargetCard();
         }
         loadContext(); // charge sociétés + agences + métiers au premier open
+    }
+
+    /* Mini-card "Bien ciblé" affichée tout en haut de la modal, sans attendre
+       la cascade async. On en est certain dès l'ouverture car le prefill contient
+       toutes les infos (ref, ID BDD, adresse). */
+    function renderTargetCard(prefill) {
+        if (!prefill || !prefill.entite_nom) { removeTargetCard(); return; }
+        let card = document.getElementById('fbx-target-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'fbx-target-card';
+            card.className = 'fbx-target-card';
+            // Insérer juste après la subtitle (avant les tabs / dropzone)
+            const subtitle = modal.querySelector('.fbx-upload-subtitle');
+            if (subtitle && subtitle.parentElement) {
+                subtitle.insertAdjacentElement('afterend', card);
+            } else {
+                modal.querySelector('.fbx-upload-dialog')?.prepend(card);
+            }
+        }
+        const ref       = String(prefill.entite_nom);
+        const idBdd     = prefill.entite_id_bdd ? parseInt(prefill.entite_id_bdd, 10) : 0;
+        const adresse   = prefill.entite_adresse ? String(prefill.entite_adresse) : '';
+        const originLbl = prefill.origin === 'bien_360' ? 'fiche 360°'
+                        : prefill.origin === 'transaction_index' ? 'tableau Transaction'
+                        : (prefill.origin || 'page appelante');
+        const idBadge   = idBdd > 0 ? '<span class="fbx-target-id">id #' + idBdd + '</span>' : '';
+        const adrLine   = adresse ? '<div class="fbx-target-addr">📍 ' + adresse + '</div>' : '';
+        card.innerHTML =
+            '<div class="fbx-target-icon">🏠</div>'
+          + '<div class="fbx-target-body">'
+          +   '<div class="fbx-target-label">DOCUMENT POUR LE BIEN</div>'
+          +   '<div class="fbx-target-name">' + ref + idBadge + '</div>'
+          +   adrLine
+          +   '<div class="fbx-target-from">→ depuis ' + originLbl + '</div>'
+          + '</div>';
+    }
+    function removeTargetCard() {
+        const c = document.getElementById('fbx-target-card');
+        if (c) c.remove();
     }
     function closeModal() {
         modal.classList.remove('is-open');
