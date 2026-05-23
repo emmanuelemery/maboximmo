@@ -204,16 +204,31 @@ if (!empty($bien['numero_lot']))        $metas[] = ['icon'=>'🏢','text'=>'Lot 
 $idSocBien    = (int)($bien['id_societe'] ?? 0);
 $idAgeBien    = (int)($bien['id_agence'] ?? 0);
 $idProprioBien= (int)($bien['id_proprietaire'] ?? 0);
-// N1 suggéré : bien en gestion/location → GESTION_LOCATIVE, bien en vente → TRANSACTION
+
+// N1 suggéré : priorité au mandat actif, fallback bien.type_commercialisation.
+// Voir transaction_index.php pour la doctrine complète.
+$mandatTypeBien = '';
+try {
+    $stM = $pdo->prepare("SELECT type_mandat FROM mandats
+        WHERE id_bien = ? AND (statut = 'actif' OR statut = 'en_cours' OR statut IS NULL)
+        ORDER BY id DESC LIMIT 1");
+    $stM->execute([$bienId]);
+    $mandatTypeBien = strtolower(trim((string)($stM->fetchColumn() ?: '')));
+} catch (Throwable $e) {}
 $typeComBien  = strtolower(trim((string)($bien['type_commercialisation'] ?? '')));
 $n1Bien       = match (true) {
-    in_array($typeComBien, ['gestion', 'location'], true) => '03_GESTION_LOCATIVE',
-    $typeComBien === 'vente'                              => '05_TRANSACTION',
-    default                                               => '',
+    $mandatTypeBien === 'gerance'                                => '03_GESTION_LOCATIVE',
+    in_array($mandatTypeBien, ['transaction', 'location'], true) => '05_TRANSACTION',
+    $mandatTypeBien === 'syndic'                                 => '04_SYNDIC',
+    $typeComBien === 'gestion'                                   => '03_GESTION_LOCATIVE',
+    $typeComBien === 'vente'                                     => '05_TRANSACTION',
+    default                                                      => '',
 };
 // Référence du bien pour pré-remplir le champ NOM DE L'ENTITÉ + verrouiller
+// Cascade GED imposée : BIENS > BIEN (sous-domaine "Bien entité")
+// L'IA Vision décidera N4 post-upload (BAUX / ETATS_DES_LIEUX / DIAGNOSTICS…)
 $refBienJs = addslashes((string)($bien['reference_bien'] ?: 'Bien #' . $bienId));
-$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', entite_nom:'{$refBienJs}', origin:'bien_360'});return false;";
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', origin:'bien_360'});return false;";
 
 fiche360_header(
     '🏠',

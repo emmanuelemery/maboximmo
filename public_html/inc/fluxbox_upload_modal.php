@@ -1271,11 +1271,11 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 selectSociete(socFinal, data.data.agences || [], ageFinal);
             }
 
-            // Pré-sélection du métier N1 si fourni dans le prefill
-            // (ex: bien en gestion → 03_GESTION_LOCATIVE ; bien en transaction → 05_TRANSACTION)
+            // Pré-sélection du métier N1 + cascade N2/N3 si fournis dans le prefill
+            // (ex: bien en gestion → 03_GESTION_LOCATIVE > BIENS > BIEN)
+            // N4 reste vide → l'IA Vision route post-upload (BAUX vs EDL vs DIAGNOSTICS…)
             if (prefill && prefill.n1) {
-                // Différé pour laisser renderMetierButtons finir d'attacher les boutons
-                setTimeout(() => selectMetier(prefill.n1), 0);
+                setTimeout(() => applyPrefillCascade(prefill.n1, prefill.n2 || '', prefill.n3 || '', prefill.n4 || ''), 0);
             }
 
             // Pré-remplissage NOM DE L'ENTITÉ + verrouillage si le bien est connu
@@ -1594,6 +1594,29 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         } catch (e) {
             alert('Erreur réseau : ' + e.message);
         }
+    }
+
+    /* Cascade automatique depuis un prefill (N1 → N2 → N3 → N4) ─────────
+       Utilisé par window.FBX_PREFILL pour pré-remplir toute la hiérarchie
+       quand on arrive depuis un contexte connu (transaction_index, bien_360).
+       Chaque étape attend que la précédente ait fini son async (boutons render)
+       avant d'enchainer + marquer visuellement le bouton sélectionné. */
+    async function applyPrefillCascade(n1, n2, n3, n4) {
+        if (!n1) return;
+        await selectMetier(n1);
+        if (!n2) return;
+        // Marquage visuel + déclenchement de la sélection N2
+        rowN2.querySelectorAll('.fbx-choice-btn').forEach(b =>
+            b.classList.toggle('is-selected', b.dataset.code === n2));
+        await onPickN2(n2);
+        if (!n3) return;
+        rowN3.querySelectorAll('.fbx-choice-btn').forEach(b =>
+            b.classList.toggle('is-selected', b.dataset.code === n3));
+        await onPickN3(n3);
+        if (!n4) return;
+        rowN4.querySelectorAll('.fbx-choice-btn').forEach(b =>
+            b.classList.toggle('is-selected', b.dataset.code === n4));
+        await onPickN4(n4);
     }
 
     async function onPickN2(code) {

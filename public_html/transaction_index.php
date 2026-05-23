@@ -617,14 +617,35 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 </td>
                 <td data-label="MAJ" style="font-family:'DM Mono',monospace; font-size:11px; color:#7a766f;"><?= h($maj) ?></td>
                 <?php
-                // N1 suggéré selon le statut commercial du bien :
-                //  - en gestion/location → GESTION_LOCATIVE (l'agence gère le bien)
-                //  - en vente → TRANSACTION (mandat de transaction)
-                $typeCom = strtolower(trim((string)($r['type_commercialisation'] ?? '')));
+                // N1 suggéré : priorité au mandat actif (la vérité métier), fallback bien.type_commercialisation.
+                //  - mandats.type_mandat = 'gerance'                      → 03_GESTION_LOCATIVE (vraie gestion)
+                //  - mandats.type_mandat = 'transaction' ou 'location'    → 05_TRANSACTION (location simple = mise en
+                //                                                          relation locataire SANS gestion = transaction GED)
+                //  - mandats.type_mandat = 'syndic'                       → 04_SYNDIC
+                //  - pas de mandat actif → fallback bien.type_commercialisation
+                //    ('gestion' → GESTION, 'vente' → TRANSACTION, 'location' = ambigu → '')
+                static $_mandatTypeCache = [];
+                if (!isset($_mandatTypeCache[$bienId])) {
+                    try {
+                        $stMandat = $pdo->prepare("SELECT type_mandat FROM mandats
+                            WHERE id_bien = ? AND (statut = 'actif' OR statut = 'en_cours' OR statut IS NULL)
+                            ORDER BY id DESC LIMIT 1");
+                        $stMandat->execute([$bienId]);
+                        $_mandatTypeCache[$bienId] = (string)($stMandat->fetchColumn() ?: '');
+                    } catch (Throwable) {
+                        $_mandatTypeCache[$bienId] = '';
+                    }
+                }
+                $mandatType = strtolower(trim($_mandatTypeCache[$bienId]));
+                $typeCom    = strtolower(trim((string)($r['type_commercialisation'] ?? '')));
                 $n1Suggested = match (true) {
-                    in_array($typeCom, ['gestion', 'location'], true) => '03_GESTION_LOCATIVE',
-                    $typeCom === 'vente'                              => '05_TRANSACTION',
-                    default                                           => '',
+                    $mandatType === 'gerance'                              => '03_GESTION_LOCATIVE',
+                    in_array($mandatType, ['transaction', 'location'], true) => '05_TRANSACTION',
+                    $mandatType === 'syndic'                               => '04_SYNDIC',
+                    // Fallback sans mandat
+                    $typeCom === 'gestion'                                 => '03_GESTION_LOCATIVE',
+                    $typeCom === 'vente'                                   => '05_TRANSACTION',
+                    default                                                => '',  // 'location' sans mandat = ambigu, IA décide
                 };
                 ?>
                 <td data-label="Actions" class="tr-actions-cell">
@@ -957,6 +978,10 @@ function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1, refBien) {
         age_id:     ageId    || 0,
         proprio_id: proprioId || 0,
         n1:         n1 || '',
+        // Cascade pré-sélectionnée : le bien est connu → BIENS > BIEN
+        // (l'IA Vision décidera N4 : BAUX vs ETATS_DES_LIEUX vs DIAGNOSTICS…)
+        n2:         'BIENS',
+        n3:         'BIEN',
         entite_nom: refBien || ('Bien #' + bienId),
         origin:     'transaction_index'
     });
