@@ -207,13 +207,26 @@ $idProprioBien= (int)($bien['id_proprietaire'] ?? 0);
 
 // N1 suggéré : priorité au mandat actif, fallback bien.type_commercialisation.
 // Voir transaction_index.php pour la doctrine complète.
+// Priorité : gerance > syndic > transaction > location (cf. transaction_index.php pour la doctrine).
 $mandatTypeBien = '';
+$mandatsActifs  = []; // liste complète pour la card "Mandats actifs" plus bas
 try {
-    $stM = $pdo->prepare("SELECT type_mandat FROM mandats
+    $stM = $pdo->prepare("SELECT id, type_mandat, statut, date_debut, date_fin,
+        numero_mandat, conditions_particulieres
+        FROM mandats
         WHERE id_bien = ? AND (statut = 'actif' OR statut = 'en_cours' OR statut IS NULL)
-        ORDER BY id DESC LIMIT 1");
+        ORDER BY CASE type_mandat
+            WHEN 'gerance'     THEN 1
+            WHEN 'syndic'      THEN 2
+            WHEN 'transaction' THEN 3
+            WHEN 'location'    THEN 4
+            ELSE 9 END,
+            id DESC");
     $stM->execute([$bienId]);
-    $mandatTypeBien = strtolower(trim((string)($stM->fetchColumn() ?: '')));
+    $mandatsActifs = $stM->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (!empty($mandatsActifs)) {
+        $mandatTypeBien = strtolower(trim((string)$mandatsActifs[0]['type_mandat']));
+    }
 } catch (Throwable $e) {}
 $typeComBien  = strtolower(trim((string)($bien['type_commercialisation'] ?? '')));
 $n1Bien       = match (true) {
@@ -253,6 +266,64 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 
   <!-- ═══════════════════ COLONNE PRINCIPALE ═══════════════════ -->
   <div>
+
+    <!-- Mandats actifs sur ce bien -->
+    <?php if (!empty($mandatsActifs)): ?>
+    <?php
+    // Détecte les concurrents : si on a vente ET location simultanés sur un bien VIDE,
+    // c'est le cas "premier arrivé l'emporte" — badge orange explicite.
+    $typesActifs = array_column($mandatsActifs, 'type_mandat');
+    $hasVente    = in_array('transaction', $typesActifs, true);
+    $hasLocation = in_array('location', $typesActifs, true);
+    $hasGerance  = in_array('gerance', $typesActifs, true);
+    $isConcurrents = $hasVente && $hasLocation;
+    $isCompleting  = $hasGerance && ($hasVente || $hasLocation);
+    ?>
+    <div class="f360-card">
+        <h3>
+            📜 Mandats actifs
+            <span class="count"><?= count($mandatsActifs) ?></span>
+        </h3>
+        <?php if ($isConcurrents): ?>
+            <div style="background:#fff7ed; border-left:3px solid #f59e0b; padding:8px 12px; border-radius:6px; font-size:12px; margin-bottom:10px; color:#78350f;">
+                ⚠️ <strong>Mandats concurrents</strong> — vente + location simultanées. Règle « premier arrivé l'emporte » : si bail signé → annule la vente, si vente signée → annule la location.
+            </div>
+        <?php elseif ($isCompleting): ?>
+            <div style="background:#eff6ff; border-left:3px solid #3b82f6; padding:8px 12px; border-radius:6px; font-size:12px; margin-bottom:10px; color:#1e40af;">
+                ℹ️ <strong>Gestion + Vente</strong> — on continue à gérer en attendant la vente.
+            </div>
+        <?php endif; ?>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+            <?php foreach ($mandatsActifs as $m):
+                $tm = strtolower((string)$m['type_mandat']);
+                [$badgeBg, $badgeFg, $icon] = match ($tm) {
+                    'gerance'     => ['#d9f0db', '#14532d', '🏠'],
+                    'transaction' => ['#fef3c7', '#92400e', '💰'],
+                    'location'    => ['#dbeafe', '#1e40af', '🔑'],
+                    'syndic'      => ['#e9d5ff', '#5b21b6', '🏢'],
+                    default       => ['#f4f1ec', '#5a5650', '📜'],
+                };
+            ?>
+                <div style="display:flex; align-items:center; gap:12px; padding:9px 12px; background:#fafaf6; border-radius:8px; font-size:12.5px;">
+                    <span style="background:<?= $badgeBg ?>; color:<?= $badgeFg ?>; padding:3px 10px; border-radius:99px; font-weight:700; font-size:11px; min-width:90px; text-align:center;">
+                        <?= $icon ?> <?= h(ucfirst($tm)) ?>
+                    </span>
+                    <span style="flex:1;">
+                        <strong>Mandat #<?= (int)$m['id'] ?></strong>
+                        <?php if ($m['numero_mandat']): ?> · n° <?= h($m['numero_mandat']) ?><?php endif; ?>
+                        <span style="color:#9a9690; font-size:11px;">
+                            · <?= h($m['date_debut'] ?: '—') ?>
+                            <?php if ($m['date_fin']): ?>→ <?= h($m['date_fin']) ?><?php endif; ?>
+                        </span>
+                    </span>
+                    <span style="color:#7a766f; font-size:10.5px;">
+                        <?= h(ucfirst((string)$m['statut'] ?: 'actif')) ?>
+                    </span>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Bail actif / Archives -->
     <div class="f360-card">

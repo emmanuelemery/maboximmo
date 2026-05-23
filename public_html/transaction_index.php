@@ -624,12 +624,23 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 //  - mandats.type_mandat = 'syndic'                       → 04_SYNDIC
                 //  - pas de mandat actif → fallback bien.type_commercialisation
                 //    ('gestion' → GESTION, 'vente' → TRANSACTION, 'location' = ambigu → '')
+                // Priorité : gerance > syndic > transaction > location.
+                // Si plusieurs mandats actifs simultanés (cas réel : gestion + vente en cours,
+                // ou location + vente concurrents "premier arrivé"), on privilégie la GESTION
+                // car c'est l'activité principale en cours (les autres = projets).
                 static $_mandatTypeCache = [];
                 if (!isset($_mandatTypeCache[$bienId])) {
                     try {
                         $stMandat = $pdo->prepare("SELECT type_mandat FROM mandats
                             WHERE id_bien = ? AND (statut = 'actif' OR statut = 'en_cours' OR statut IS NULL)
-                            ORDER BY id DESC LIMIT 1");
+                            ORDER BY CASE type_mandat
+                                WHEN 'gerance'     THEN 1
+                                WHEN 'syndic'      THEN 2
+                                WHEN 'transaction' THEN 3
+                                WHEN 'location'    THEN 4
+                                ELSE 9 END,
+                                id DESC
+                            LIMIT 1");
                         $stMandat->execute([$bienId]);
                         $_mandatTypeCache[$bienId] = (string)($stMandat->fetchColumn() ?: '');
                     } catch (Throwable) {
