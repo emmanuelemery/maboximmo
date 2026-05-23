@@ -36,6 +36,7 @@ $tools = [
     ['label' => 'Debug session',           'url' => 'debug_session.php',                  'icon' => '🧪', 'color' => '#5a6e8a'],
     ['label' => 'Debug PDF export',        'url' => 'debug_pdf_export.php',               'icon' => '🧾', 'color' => '#c97b2e'],
     ['label' => 'Suppression propriétaires','url' => 'admin/admin_proprietaires_suppression.php', 'icon' => '🗑', 'color' => '#b91c1c'],
+    ['label' => 'Réaffectation société',    'url' => 'admin/admin_reaffectation_societe.php',      'icon' => '↔️', 'color' => '#d97706'],
 ];
 
 $layout_extra_css = '<style>
