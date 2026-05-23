@@ -200,6 +200,12 @@ if (!empty($bien['nb_pieces']))         $metas[] = ['icon'=>'🚪','text'=>$bien
 if (!empty($bien['dpe_classe']))        $metas[] = ['icon'=>'⚡','text'=>'DPE ' . $bien['dpe_classe']];
 if (!empty($bien['numero_lot']))        $metas[] = ['icon'=>'🏢','text'=>'Lot ' . $bien['numero_lot']];
 
+// Helper : action FluxBox avec contexte pré-rempli depuis ce bien
+$idSocBien    = (int)($bien['id_societe'] ?? 0);
+$idAgeBien    = (int)($bien['id_agence'] ?? 0);
+$idProprioBien= (int)($bien['id_proprietaire'] ?? 0);
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, origin:'bien_360'});return false;";
+
 fiche360_header(
     '🏠',
     ($bien['designation'] ?: $bien['reference_bien'] ?: 'Bien #' . $bienId),
@@ -208,7 +214,7 @@ fiche360_header(
     $metas,
     [
         ['label'=>'✏️ Éditer','url'=>app_url('/bien_detail.php?edit=' . $bienId),'class'=>'tr-btn'],
-        ['label'=>'📥 Importer un document','url'=>app_url('/transaction_chargement.php'),'class'=>'tr-btn tr-btn-primary'],
+        ['label'=>'📥 Charger un document','url'=>'#','onclick'=>$fbxOnClickBien,'class'=>'tr-btn tr-btn-primary'],
     ]
 );
 
@@ -287,7 +293,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
     <div class="f360-card">
         <h3>📂 Documents du bien <span class="count"><?= count($docs) ?></span></h3>
         <?php if (empty($docs)): ?>
-            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document. <a href="<?= h(app_url('/transaction_chargement.php')) ?>">→ Charger un document</a></div>
+            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document. <a href="#" onclick="<?= h($fbxOnClickBien) ?>">→ Charger un document</a></div>
         <?php else: foreach ($docs as $d): ?>
             <div style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center;">
                 <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:120px;">[<?= h($d['document_type']) ?>]</span>
@@ -350,7 +356,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 
     // Panneau Actions
     fiche360_actions_panel('Actions bien', [
-        ['icon'=>'📥','label'=>'Importer un document',     'url'=>app_url('/transaction_chargement.php')],
+        ['icon'=>'📥','label'=>'Charger un document',      'url'=>'#','onclick'=>$fbxOnClickBien],
         ['icon'=>'💰','label'=>'Saisir une offre',         'url'=>app_url('/transaction_index.php?q=' . urlencode((string)$bien['reference_bien']))],
         ['icon'=>'✏️','label'=>'Éditer la fiche bien',     'url'=>app_url('/bien_detail.php?edit=' . $bienId)],
         ['icon'=>'📡','label'=>'Voir/créer l\'annonce',    'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],

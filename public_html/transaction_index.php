@@ -619,7 +619,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 <td data-label="Actions" class="tr-actions-cell">
                     <button title="Voir historique" onclick="trOpenHistorique(<?= $bienId ?>)">📜</button>
                     <button title="Ajouter offre"  onclick="trOpenOffre(<?= $bienId ?>, <?= (int)($r['annonce_id'] ?? 0) ?>)">💰</button>
-                    <button title="Ajouter document" onclick="trOpenDoc(<?= $bienId ?>)">📎</button>
+                    <button title="Charger un document (FluxBox V3 : nommage + IA + classement auto)"
+                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>)">📎</button>
                     <button title="Envoyer dossier" onclick="trOpenSend(<?= $bienId ?>)">✉️</button>
                 </td>
             </tr>
@@ -930,13 +931,25 @@ document.getElementById('tr-form-offre').addEventListener('submit', async functi
     } catch (err) { alert('Erreur réseau'); }
 });
 
-// ── Modal Document ───────────────────────────────────────────
-function trOpenDoc(bienId) {
-    document.getElementById('tr-doc-bien').value = bienId;
-    document.getElementById('tr-form-doc').reset();
-    document.getElementById('tr-doc-bien').value = bienId;
-    trOpen('tr-modal-doc');
+// ── Modal Document : route via FluxBox V3 ────────────────────
+// Le legacy trOpenDoc(bienId) ouvrait tr-modal-doc → POST transaction_doc_upload.
+// Nouveau : ouvre la modal FluxBox avec contexte pré-rempli (société, agence,
+// bien, propriétaire). FluxBox gère storage, nommage V3, IA, classement.
+function trOpenDocFluxbox(bienId, socId, ageId, proprioId) {
+    if (typeof window.fbxOpenUploadModal !== 'function') {
+        alert('Module FluxBox non chargé sur cette page. Recharge la page.');
+        return;
+    }
+    window.fbxOpenUploadModal({
+        bien_id:    bienId,
+        soc_id:     socId    || 0,
+        age_id:     ageId    || 0,
+        proprio_id: proprioId || 0,
+        origin:     'transaction_index'
+    });
 }
+// Conservé en alias pour code legacy éventuel
+function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0); }
 document.getElementById('tr-form-doc').addEventListener('submit', async function(e){
     e.preventDefault();
     const fd = new FormData(this);

@@ -1255,9 +1255,20 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             contextLoaded = true;
             renderSocieteButtons(data.data);
             renderMetierButtons(data.data.metiers_grouped || []);
-            // Préselection auto société par défaut
-            if (data.data.societe_default) {
-                selectSociete(data.data.societe_default, data.data.agences || [], data.data.agence_default);
+
+            // ─── Pré-remplissage depuis window.FBX_PREFILL ─────────────────
+            // Si la page appelante a injecté un contexte (depuis transaction_index,
+            // bien_360, etc.), on l'utilise comme override des défauts BDD.
+            // Format : window.FBX_PREFILL = { bien_id, soc_id, age_id, proprio_id, origin }
+            const prefill = window.FBX_PREFILL || null;
+            const socFinal = (prefill && prefill.soc_id) ? parseInt(prefill.soc_id, 10) : data.data.societe_default;
+            const ageFinal = (prefill && prefill.age_id) ? parseInt(prefill.age_id, 10) : data.data.agence_default;
+            if (prefill && prefill.bien_id)    choice.bien_id    = parseInt(prefill.bien_id, 10);
+            if (prefill && prefill.proprio_id) choice.proprio_id = parseInt(prefill.proprio_id, 10);
+            if (prefill && prefill.origin)     choice.origin     = String(prefill.origin);
+
+            if (socFinal) {
+                selectSociete(socFinal, data.data.agences || [], ageFinal);
             }
         } catch (e) {
             rowSoc.innerHTML = '<div class="fbx-row-empty">Réseau : ' + e.message + '</div>';
@@ -1607,6 +1618,9 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         modal.classList.add('is-open');
         modal.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
+        // Si un prefill est posé par la page appelante, force le reload du contexte
+        // pour appliquer le nouveau bien/société/agence (sinon la 2ème ouverture ignore).
+        if (window.FBX_PREFILL) contextLoaded = false;
         loadContext(); // charge sociétés + agences + métiers au premier open
     }
     function closeModal() {
@@ -1619,6 +1633,15 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     document.querySelectorAll('#fbx-upload-open, [data-fbx-open]').forEach(el => {
         el.addEventListener('click', (e) => { e.preventDefault(); openModal(); });
     });
+    // ─── API globale pour ouvrir la modal depuis n'importe où ────────
+    // Usage : window.fbxOpenUploadModal({ bien_id:897, soc_id:3, age_id:12, proprio_id:52, origin:'transaction' })
+    // Le prefill est posé sur window.FBX_PREFILL et appliqué au load_context.
+    window.fbxOpenUploadModal = function(prefill) {
+        if (prefill && typeof prefill === 'object') {
+            window.FBX_PREFILL = prefill;
+        }
+        openModal();
+    };
     modal.querySelectorAll('[data-fbx-close]').forEach(el => el.addEventListener('click', closeModal));
 
     // Raccourci Ctrl+U / Cmd+U

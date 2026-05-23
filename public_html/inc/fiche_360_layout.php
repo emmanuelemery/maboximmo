@@ -204,7 +204,8 @@ if (!function_exists('fiche360_header')) {
             foreach ($actions as $a) {
                 $cls = $a['class'] ?? 'tr-btn';
                 echo '<a class="' . h($cls) . '" href="' . h($a['url'] ?? '#') . '"';
-                if (!empty($a['target'])) echo ' target="' . h($a['target']) . '"';
+                if (!empty($a['target']))  echo ' target="' . h($a['target']) . '"';
+                if (!empty($a['onclick'])) echo ' onclick="' . h($a['onclick']) . '"';
                 echo '>' . h($a['label']) . '</a>';
             }
             echo '</div>';
@@ -316,7 +317,8 @@ if (!function_exists('fiche360_actions_panel')) {
         echo '<h4>⚡ ' . h($titre) . '</h4>';
         foreach ($actions as $a) {
             echo '<a href="' . h($a['url'] ?? '#') . '"';
-            if (!empty($a['target'])) echo ' target="' . h($a['target']) . '"';
+            if (!empty($a['target']))  echo ' target="' . h($a['target']) . '"';
+            if (!empty($a['onclick'])) echo ' onclick="' . h($a['onclick']) . '"';
             echo '>';
             echo '<span>' . h($a['icon'] ?? '▸') . '</span>';
             echo '<span>' . h($a['label']) . '</span>';
