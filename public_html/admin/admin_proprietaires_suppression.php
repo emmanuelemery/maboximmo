@@ -160,6 +160,28 @@ ob_start();
       if (j.ok && j.count > 0) {
         lastToken = j.token;
         btnDel.disabled = false; btnDel.classList.add('ready');
+        const deps = j.count_by_table || {};
+        const hasBiens = (deps.biens || 0) > 0;
+        const orphanDeps = Object.keys(deps).filter(k => k !== 'biens');
+
+        // Cas 1 : des BIENS sont rattachés → DANGER, jamais d'auto-cochage
+        if (hasBiens) {
+          cbForce.checked = false;
+          const warn = document.createElement('div');
+          warn.style.cssText = 'background:#fee2e2;color:#7f1d1d;padding:12px 14px;border-radius:8px;margin-top:8px;font-size:13px;border-left:4px solid #b91c1c;';
+          warn.innerHTML = '🚨 <strong>' + deps.biens + ' bien(s) seront supprimés en cascade</strong> si tu coches force=1. Vérifie que ces biens ne doivent pas être réaffectés à un autre propriétaire d\'abord. <strong>Cochage manuel obligatoire.</strong>';
+          result.parentElement.insertBefore(warn, result);
+          setTimeout(() => warn.remove(), 15000);
+        }
+        // Cas 2 : seulement des orphelins (CRG, baux, mandats historiques) → auto-cochage OK
+        else if (orphanDeps.length > 0 && !cbForce.checked) {
+          cbForce.checked = true;
+          const note = document.createElement('div');
+          note.style.cssText = 'background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:6px;margin-top:8px;font-size:12px;';
+          note.innerHTML = '⚠️ Orphelins détectés (' + orphanDeps.join(', ') + ') — <strong>force=1 coché automatiquement</strong> (nettoyage de données historiques, aucun bien touché).';
+          result.parentElement.insertBefore(note, result);
+          setTimeout(() => note.remove(), 6000);
+        }
       }
     } catch (e) {
       result.textContent = '❌ ' + e.message;
