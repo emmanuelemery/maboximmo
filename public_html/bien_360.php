@@ -240,8 +240,9 @@ $n1Bien       = match (true) {
 // Référence du bien pour pré-remplir le champ NOM DE L'ENTITÉ + verrouiller
 // Cascade GED imposée : BIENS > BIEN (sous-domaine "Bien entité")
 // L'IA Vision décidera N4 post-upload (BAUX / ETATS_DES_LIEUX / DIAGNOSTICS…)
-$refBienJs = addslashes((string)($bien['reference_bien'] ?: 'Bien #' . $bienId));
-$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', origin:'bien_360'});return false;";
+$refBienJs   = addslashes((string)($bien['reference_bien'] ?: 'Bien #' . $bienId));
+$adrBienJs   = addslashes(trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')));
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', entite_id_bdd:{$bienId}, entite_adresse:'{$adrBienJs}', origin:'bien_360'});return false;";
 
 fiche360_header(
     '🏠',

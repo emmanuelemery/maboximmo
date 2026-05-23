@@ -1342,10 +1342,42 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                     inp.style.cursor = 'not-allowed';
                     inp.title = 'Bien sélectionné depuis ' + (prefill.origin || 'la page appelante') + ' — non modifiable.';
                     const hint = document.getElementById('fbx-meta-entity-hint');
-                    if (hint) hint.innerHTML = '<span style="color:#15803d;font-weight:700;">✅ Bien identifié : ' + String(prefill.entite_nom) + ' — aucun risque de doublon.</span>';
+                    if (hint) {
+                        const idTxt = prefill.entite_id_bdd ? ' <span style="font-family:DM Mono,monospace;color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:4px;">id #' + parseInt(prefill.entite_id_bdd, 10) + '</span>' : '';
+                        hint.innerHTML = '<span style="color:#15803d;font-weight:700;">✅ Bien identifié : ' + String(prefill.entite_nom) + idTxt + ' — aucun risque de doublon.</span>';
+                    }
+                    // Ligne adresse sous le champ
+                    let adrLine = document.getElementById('fbx-meta-entity-address');
+                    if (prefill.entite_adresse) {
+                        if (!adrLine) {
+                            adrLine = document.createElement('div');
+                            adrLine.id = 'fbx-meta-entity-address';
+                            adrLine.style.cssText = 'margin-top:6px;font-size:12px;color:#5a5650;';
+                            inp.parentElement.appendChild(adrLine);
+                        }
+                        adrLine.innerHTML = '📍 ' + String(prefill.entite_adresse);
+                    } else if (adrLine) {
+                        adrLine.remove();
+                    }
                     const req = document.getElementById('fbx-meta-entity-required-msg');
                     if (req) req.style.display = 'none';
-                }, 50);
+
+                    // Encart visible sous le sous-domaine N3 : reprend la sélection
+                    // (ref + ID + adresse) pour que l'user voie en haut ce qui est ciblé.
+                    const rowN3Block = document.getElementById('fbx-row-n3')?.closest('.fbx-row-block');
+                    if (rowN3Block) {
+                        let panel = document.getElementById('fbx-n3-target-panel');
+                        if (!panel) {
+                            panel = document.createElement('div');
+                            panel.id = 'fbx-n3-target-panel';
+                            panel.style.cssText = 'margin-top:8px; padding:10px 12px; background:#f0fdf4; border-left:3px solid #16a34a; border-radius:6px; font-size:12.5px; color:#14532d;';
+                            rowN3Block.appendChild(panel);
+                        }
+                        const idTxt2 = prefill.entite_id_bdd ? ' <span style="font-family:DM Mono,monospace;color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:4px;margin-left:6px;">id #' + parseInt(prefill.entite_id_bdd, 10) + '</span>' : '';
+                        const adrTxt2 = prefill.entite_adresse ? '<div style="margin-top:4px;color:#5a5650;font-size:11.5px;">📍 ' + String(prefill.entite_adresse) + '</div>' : '';
+                        panel.innerHTML = '🏠 <strong>Bien ciblé :</strong> ' + String(prefill.entite_nom) + idTxt2 + adrTxt2;
+                    }
+                }, 100);
             }
         } catch (e) {
             rowSoc.innerHTML = '<div class="fbx-row-empty">Réseau : ' + e.message + '</div>';
