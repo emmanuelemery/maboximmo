@@ -50,11 +50,16 @@ if (!in_array($action, ['preview', 'delete'], true)) {
 }
 
 // ─── Récupère les IDs propriétaires soumis ───
+// Tolérant : accepte "52", "#52", "tiers #52", "12, 34, 56", " 12 ; 34 " etc.
+// On extrait tous les groupes de chiffres via regex pour ignorer #, espaces, ; etc.
 $rawIds = $_POST['ids'] ?? '';
 if (is_array($rawIds)) {
     $ids = array_values(array_filter(array_map('intval', $rawIds), fn($v) => $v > 0));
 } else {
-    $ids = array_values(array_filter(array_map('intval', explode(',', (string)$rawIds)), fn($v) => $v > 0));
+    $ids = [];
+    if (preg_match_all('/\d+/', (string)$rawIds, $m)) {
+        $ids = array_values(array_filter(array_map('intval', $m[0]), fn($v) => $v > 0));
+    }
 }
 $ids = array_values(array_unique($ids));
 
