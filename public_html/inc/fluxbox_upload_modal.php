@@ -531,7 +531,10 @@ try {
     width: 100%;
     margin: auto;
     padding: 26px 28px;
-    box-shadow: 0 30px 90px rgba(0,0,0,0.3);
+    /* Contour violet (couleur signature FluxBox = identique aux boutons actifs / bouton FAB)
+       + halo coloré pour signaler visuellement qu'on est dans le module Charger. */
+    border: 3px solid #7c3aed;
+    box-shadow: 0 0 0 6px rgba(124,58,237,0.18), 0 30px 90px rgba(0,0,0,0.3);
     font-family: "Sora", "Inter", sans-serif;
     animation: fbx-modal-in .25s cubic-bezier(0.22,1,0.36,1);
     /* Flex column pour pouvoir repositionner visuellement avec `order`
