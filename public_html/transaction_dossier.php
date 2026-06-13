@@ -153,6 +153,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-badge{font-size:10px;background:#f1f5f9;border-radius:5px;padding:1px 6px;color:#475569;font-weight:700;}
 .dv-prix{font-size:26px;font-weight:900;color:#0b8043;}
 .dv-note{font-size:11px;color:#94a3b8;margin-top:8px;}
+.dv-estim-btn{margin-top:8px;border:none;background:none;color:#0f6cbd;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline;}
+.dv-estim-btn:hover{color:#0c5aa0;}
 .dv-add-btn{margin-left:auto;width:26px;height:26px;border:none;border-radius:8px;background:linear-gradient(135deg,#0f6cbd,#0c5aa0);color:#fff;font-size:18px;font-weight:900;line-height:1;cursor:pointer;}
 .dv-add-btn:hover{filter:brightness(1.08);}
 .dv-actor-del{border:none;background:#f1f5f9;color:#94a3b8;border-radius:7px;width:22px;height:22px;font-size:14px;font-weight:900;cursor:pointer;flex:none;}
@@ -267,7 +269,18 @@ include __DIR__ . '/inc/agency_layout_top.php';
       <?php endif; ?>
       <div style="margin-top:12px;text-align:center;">
         <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
-        <div class="dv-prix"><?= h($fmtPrix($prixCourant)) ?></div>
+        <div class="dv-prix" id="dv-prix-val"><?= h($fmtPrix($prixCourant)) ?></div>
+        <button type="button" class="dv-estim-btn" onclick="dvToggleEstim(true)"><?= $prixCourant ? '✏️ Modifier l\'estimation' : '📊 Estimer le prix' ?></button>
+        <div id="dv-estim-form" style="display:none;margin-top:10px;">
+          <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
+            <input type="text" id="dv-estim-input" inputmode="numeric" placeholder="Prix de vente €"
+                   value="<?= $prixCourant ? (int)$prixCourant : '' ?>"
+                   style="width:150px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;text-align:right;">
+            <button type="button" class="dvm-btn ok" style="padding:8px 14px;" onclick="dvSaveEstim()">Valider</button>
+            <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleEstim(false)">×</button>
+          </div>
+          <div id="dv-estim-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+        </div>
       </div>
     </div>
 
@@ -364,8 +377,31 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   const DOSSIER_ID = <?= (int)$idDossier ?>;
   const API_ADD    = <?= json_encode(app_url('/api/transaction_dossier_acteur_add.php')) ?>;
   const API_DEL    = <?= json_encode(app_url('/api/transaction_dossier_acteur_remove.php')) ?>;
+  const API_ESTIM  = <?= json_encode(app_url('/api/transaction_dossier_estimation_save.php')) ?>;
   const TIERS_FICHE= <?= json_encode(app_url('/tiers_360.php?id=')) ?>;
   let selectedRole = '';
+
+  // ── Estimation inline (écrit dans bien_prix via l'endpoint dédié) ──
+  window.dvToggleEstim = function(show){
+    document.getElementById('dv-estim-form').style.display = show ? '' : 'none';
+    if (show) setTimeout(()=>document.getElementById('dv-estim-input').focus(), 30);
+  };
+  window.dvSaveEstim = async function(){
+    const inp = document.getElementById('dv-estim-input');
+    const msg = document.getElementById('dv-estim-msg');
+    const prix = (inp.value || '').replace(/[^0-9.,]/g,'');
+    if (!prix){ msg.textContent='Saisis un prix.'; return; }
+    msg.textContent='Enregistrement…';
+    try{
+      const body = new URLSearchParams({ id_dossier:DOSSIER_ID, prix });
+      const res  = await fetch(API_ESTIM, {method:'POST', credentials:'same-origin', body});
+      const out  = await res.json();
+      if(!out.ok){ msg.textContent='Erreur : '+(out.error||'inconnue'); return; }
+      document.getElementById('dv-prix-val').textContent = out.prix_fmt;
+      msg.style.color='#0b8043'; msg.textContent='✓ Estimation enregistrée'+(out.etape?' · étape : '+out.etape:'');
+      setTimeout(()=>dvToggleEstim(false), 1200);
+    }catch(err){ msg.textContent='Erreur réseau : '+err.message; }
+  };
 
   const root   = document.querySelector('[data-ts-root="dvm_tiers"]');
   const hidden = () => root ? root.querySelector('.ts-value') : null;
