@@ -171,6 +171,10 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dvm-btn.ok{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
 .dvm-btn:disabled{opacity:.5;cursor:not-allowed;}
 .dvm-label{font-size:10px;font-weight:700;letter-spacing:.08em;color:#8a8680;text-transform:uppercase;margin:0 0 6px;}
+/* Le modal de création de tiers (composant partagé, z-index 5000) doit s'empiler
+   AU-DESSUS du modal acteur (9000) — sinon il s'ouvre derrière et reste inaccessible. */
+.ts-modal-overlay{z-index:9500 !important;}
+.tiers-selector .ts-dropdown{z-index:9600;}
 </style>
 
 <div class="dv-wrap">
