@@ -88,6 +88,10 @@ $acteurs   = dv_acteurs($pdo, $idDossier);
 $docsDoss  = dv_documents($pdo, $idDossier);
 $docsBien  = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['limit' => 100]);
 
+// ── Signatures du mandat (si mandat lié) ──
+require_once __DIR__ . '/inc/mandat_signature.php';
+$signatures = $mandat ? msig_list_for_mandat($pdo, (int)$mandat['id']) : [];
+
 // ── Helpers d'affichage ──
 $fmtPrix = static fn($v) => $v !== null && $v !== '' ? number_format((float)$v, 0, ',', ' ') . ' €' : '—';
 $fmtDate = static fn($v) => $v ? date('d/m/Y', strtotime((string)$v)) : '—';
@@ -265,7 +269,32 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <?php if ($mandat): ?><?= h($mandat['numero_mandat'] ?: ('#' . $mandat['id'])) ?><?= !empty($mandat['exclusif']) ? ' · exclusif' : '' ?><?php else: ?>—<?php endif; ?>
       </span></div>
       <?php if ($mandat): ?>
-        <div class="dv-row"><span class="k">Signé le</span><span class="v"><?= h($fmtDate($mandat['date_signature'] ?: $mandat['date_debut'])) ?></span></div>
+        <?php if ($mandat['honoraires'] !== null && $mandat['honoraires'] !== ''): ?>
+          <div class="dv-row"><span class="k">Honoraires</span><span class="v"><?= h($fmtPrix($mandat['honoraires'])) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></span></div>
+        <?php endif; ?>
+        <div class="dv-row"><span class="k">Signature</span><span class="v">
+          <?php
+            $nbSig = count($signatures);
+            $nbSigne = count(array_filter($signatures, fn($s) => $s['statut'] === 'signe'));
+            if ($nbSig === 0)            echo '<span class="dv-badge">non envoyé</span>';
+            elseif ($nbSigne === $nbSig) echo '<span class="dv-badge" style="background:#d7f0e0;color:#0b6b35;">signé ✓</span>';
+            else                         echo '<span class="dv-badge" style="background:#fef3c7;color:#92600a;">' . $nbSigne . '/' . $nbSig . ' signé</span>';
+          ?>
+        </span></div>
+        <?php foreach ($signatures as $s): ?>
+          <div class="dv-row" style="font-size:12px;">
+            <span class="k"><?= h($s['nom_affichage'] ?: $s['raison_sociale'] ?: trim(($s['prenom'] ?? '') . ' ' . ($s['nom'] ?? '')) ?: 'Vendeur') ?></span>
+            <span class="v"><?php if ($s['statut'] === 'signe'): ?>✅ <?= h($fmtDate($s['signed_at'])) ?> (IP <?= h($s['ip'] ?: '—') ?>)<?php else: ?>⏳ en attente<?php endif; ?></span>
+          </div>
+        <?php endforeach; ?>
+        <div style="margin-top:10px;text-align:center;">
+          <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvSendMandat()">✉️ Envoyer au vendeur pour signature</button>
+          <div id="dv-mandat-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+        </div>
+      <?php else: ?>
+        <div style="margin-top:10px;text-align:center;">
+          <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
+        </div>
       <?php endif; ?>
       <div style="margin-top:12px;text-align:center;">
         <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
@@ -360,6 +389,45 @@ include __DIR__ . '/inc/agency_layout_top.php';
     </div>
   </div>
 </div>
+<!-- ═══ MODAL : créer le mandat de vente (termes) ═══ -->
+<div class="dvm-backdrop" id="dvm-mandat">
+  <div class="dvm">
+    <h3>📝 Créer le mandat de vente</h3>
+    <div class="sub">Les termes du mandat. Le bien et le vendeur sont déjà repris du dossier (zéro ressaisie).</div>
+
+    <p class="dvm-label">Honoraires</p>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="dvm-honoraires" inputmode="numeric" placeholder="Montant €"
+             style="width:140px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;text-align:right;">
+      <span style="font-size:12px;color:#64748b;">à charge :</span>
+      <div class="dvm-roles" id="dvm-charge" style="margin:0;">
+        <button type="button" class="dvm-role" data-charge="vendeur">Vendeur</button>
+        <button type="button" class="dvm-role" data-charge="acquereur">Acquéreur</button>
+        <button type="button" class="dvm-role" data-charge="partage">Partagé</button>
+      </div>
+    </div>
+
+    <p class="dvm-label" style="margin-top:14px;">Exclusivité</p>
+    <div class="dvm-roles" id="dvm-exclusif">
+      <button type="button" class="dvm-role" data-excl="0">Mandat simple</button>
+      <button type="button" class="dvm-role" data-excl="1">Mandat exclusif</button>
+    </div>
+
+    <div style="display:flex;gap:18px;margin-top:14px;flex-wrap:wrap;">
+      <div><p class="dvm-label">Durée (mois)</p>
+        <input type="text" id="dvm-duree" inputmode="numeric" value="3" style="width:90px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;text-align:center;"></div>
+      <div><p class="dvm-label">Prise d'effet</p>
+        <input type="date" id="dvm-datedebut" value="<?= date('Y-m-d') ?>" style="padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;"></div>
+    </div>
+
+    <div class="dvm-actions">
+      <button type="button" class="dvm-btn cancel" onclick="dvCloseMandatModal()">Annuler</button>
+      <button type="button" class="dvm-btn ok" onclick="dvSubmitMandat()">Créer le mandat</button>
+    </div>
+    <div id="dvm-mandat-form-msg" style="font-size:11px;color:#94a3b8;margin-top:8px;text-align:right;"></div>
+  </div>
+</div>
+
 <?php tiers_selector_assets(); ?>
 
 <?php
@@ -378,8 +446,59 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   const API_ADD    = <?= json_encode(app_url('/api/transaction_dossier_acteur_add.php')) ?>;
   const API_DEL    = <?= json_encode(app_url('/api/transaction_dossier_acteur_remove.php')) ?>;
   const API_ESTIM  = <?= json_encode(app_url('/api/transaction_dossier_estimation_save.php')) ?>;
+  const API_MANDAT = <?= json_encode(app_url('/api/transaction_dossier_mandat_create.php')) ?>;
+  const API_MSEND  = <?= json_encode(app_url('/api/transaction_dossier_mandat_send.php')) ?>;
   const TIERS_FICHE= <?= json_encode(app_url('/tiers_360.php?id=')) ?>;
   let selectedRole = '';
+  let mCharge = '', mExcl = '0';
+
+  // ── Mandat : création (termes) ──
+  window.dvOpenMandatModal = function(){ document.getElementById('dvm-mandat').classList.add('open'); };
+  window.dvCloseMandatModal = function(){ document.getElementById('dvm-mandat').classList.remove('open'); };
+  document.getElementById('dvm-charge')?.addEventListener('click', e=>{
+    const b=e.target.closest('.dvm-role'); if(!b)return;
+    document.querySelectorAll('#dvm-charge .dvm-role').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); mCharge=b.dataset.charge;
+  });
+  document.getElementById('dvm-exclusif')?.addEventListener('click', e=>{
+    const b=e.target.closest('.dvm-role'); if(!b)return;
+    document.querySelectorAll('#dvm-exclusif .dvm-role').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); mExcl=b.dataset.excl;
+  });
+  window.dvSubmitMandat = async function(){
+    const msg=document.getElementById('dvm-mandat-form-msg'); msg.textContent='Création…';
+    try{
+      const body=new URLSearchParams({
+        id_dossier:DOSSIER_ID,
+        honoraires:(document.getElementById('dvm-honoraires').value||'').replace(/[^0-9.,]/g,''),
+        honoraires_charge:mCharge, exclusif:mExcl,
+        duree_mois:(document.getElementById('dvm-duree').value||'').replace(/[^0-9]/g,''),
+        date_debut:document.getElementById('dvm-datedebut').value||''
+      });
+      const res=await fetch(API_MANDAT,{method:'POST',credentials:'same-origin',body});
+      const out=await res.json();
+      if(!out.ok){ msg.textContent='Erreur : '+(out.error||'inconnue'); return; }
+      msg.style.color='#0b8043'; msg.textContent='✓ '+(out.message||'Mandat créé');
+      setTimeout(()=>location.reload(), 800);
+    }catch(err){ msg.textContent='Erreur réseau : '+err.message; }
+  };
+
+  // ── Mandat : envoi au vendeur pour signature ──
+  window.dvSendMandat = async function(){
+    const msg=document.getElementById('dv-mandat-msg'); msg.style.color='#94a3b8'; msg.textContent='Envoi…';
+    try{
+      const body=new URLSearchParams({ id_dossier:DOSSIER_ID });
+      const res=await fetch(API_MSEND,{method:'POST',credentials:'same-origin',body});
+      const out=await res.json();
+      if(!out.ok){ msg.textContent='Erreur : '+(out.error||'inconnue'); return; }
+      const lignes=(out.envois||[]).map(e=>{
+        if(e.sent) return '✉️ Email envoyé à '+e.email;
+        if(e.email) return '⚠️ Email non parti ('+e.email+') — lien : '+e.url;
+        return '🔗 Pas d\'email vendeur — lien à transmettre : '+e.url;
+      });
+      msg.style.color='#0b8043'; msg.innerHTML='✓ '+lignes.join('<br>');
+    }catch(err){ msg.textContent='Erreur réseau : '+err.message; }
+  };
 
   // ── Estimation inline (écrit dans bien_prix via l'endpoint dédié) ──
   window.dvToggleEstim = function(show){
