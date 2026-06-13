@@ -18,6 +18,7 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 require_once __DIR__ . '/inc/ged_document_links.php';
 require_once __DIR__ . '/inc/dossier_vente.php';
+require_once __DIR__ . '/inc/tiers_selector.php';   // composant recherche/création tiers réutilisable
 require_login();
 
 $pdo = $GLOBALS['pdo'];
@@ -151,6 +152,25 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-badge{font-size:10px;background:#f1f5f9;border-radius:5px;padding:1px 6px;color:#475569;font-weight:700;}
 .dv-prix{font-size:26px;font-weight:900;color:#0b8043;}
 .dv-note{font-size:11px;color:#94a3b8;margin-top:8px;}
+.dv-add-btn{margin-left:auto;width:26px;height:26px;border:none;border-radius:8px;background:linear-gradient(135deg,#0f6cbd,#0c5aa0);color:#fff;font-size:18px;font-weight:900;line-height:1;cursor:pointer;}
+.dv-add-btn:hover{filter:brightness(1.08);}
+.dv-actor-del{border:none;background:#f1f5f9;color:#94a3b8;border-radius:7px;width:22px;height:22px;font-size:14px;font-weight:900;cursor:pointer;flex:none;}
+.dv-actor-del:hover{background:#fde2e1;color:#a11;}
+/* Modal acteur */
+.dvm-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9000;align-items:flex-start;justify-content:center;padding:48px 16px;}
+.dvm-backdrop.open{display:flex;}
+.dvm{background:#fff;border-radius:16px;max-width:520px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.dvm h3{margin:0 0 4px;font-size:16px;font-weight:900;}
+.dvm .sub{font-size:12px;color:#64748b;margin-bottom:16px;}
+.dvm-roles{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+.dvm-role{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 12px;font-size:12.5px;font-weight:800;color:#334155;cursor:pointer;}
+.dvm-role.active{border-color:#0f6cbd;background:#eef5fc;color:#0c5aa0;box-shadow:0 0 0 2px #0f6cbd22;}
+.dvm-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+.dvm-btn{border:none;border-radius:10px;padding:10px 18px;font-weight:800;font-size:13px;cursor:pointer;}
+.dvm-btn.cancel{background:#eceef1;color:#374151;}
+.dvm-btn.ok{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
+.dvm-btn:disabled{opacity:.5;cursor:not-allowed;}
+.dvm-label{font-size:10px;font-weight:700;letter-spacing:.08em;color:#8a8680;text-transform:uppercase;margin:0 0 6px;}
 </style>
 
 <div class="dv-wrap">
@@ -193,28 +213,32 @@ include __DIR__ . '/inc/agency_layout_top.php';
   <div class="dv-grid">
     <!-- ACTEURS -->
     <div class="dv-card">
-      <h3>👥 Acteurs du dossier</h3>
-      <?php if (!$acteurs): ?>
-        <div class="dv-empty">Aucun acteur rattaché.</div>
-      <?php else: foreach ($acteurs as $a):
-          $meta = json_decode((string)($a['metadata'] ?? ''), true) ?: [];
-      ?>
-        <div class="dv-actor">
-          <span class="role"><?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?></span>
-          <div style="flex:1;min-width:0;">
-            <div class="nm"><?= h($acteurNom($a)) ?>
-              <?php if (!empty($meta['modifiable'])): ?><span class="dv-badge" title="Proposé automatiquement, modifiable">proposé</span><?php endif; ?>
+      <h3>👥 Acteurs du dossier
+        <button type="button" class="dv-add-btn" onclick="dvOpenActeurModal()" title="Ajouter un acteur (acquéreur, notaire, apporteur…)">+</button>
+      </h3>
+      <div id="dv-acteurs-list">
+        <?php foreach ($acteurs as $a):
+            $meta = json_decode((string)($a['metadata'] ?? ''), true) ?: [];
+        ?>
+          <div class="dv-actor" data-role-id="<?= (int)$a['role_id'] ?>">
+            <span class="role"><?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?></span>
+            <div style="flex:1;min-width:0;">
+              <div class="nm"><?= h($acteurNom($a)) ?>
+                <?php if (!empty($meta['modifiable'])): ?><span class="dv-badge" title="Proposé automatiquement, modifiable">proposé</span><?php endif; ?>
+              </div>
+              <?php if ($a['email'] || $a['telephone']): ?>
+                <div class="ct"><?= h(trim(($a['email'] ?? '') . ($a['telephone'] ? ' · ' . $a['telephone'] : ''))) ?></div>
+              <?php endif; ?>
             </div>
-            <?php if ($a['email'] || $a['telephone']): ?>
-              <div class="ct"><?= h(trim(($a['email'] ?? '') . ($a['telephone'] ? ' · ' . $a['telephone'] : ''))) ?></div>
+            <?php if (!empty($a['id_tiers'])): ?>
+              <a class="dv-badge" href="<?= h(app_url('/tiers_360.php?id=' . (int)$a['id_tiers'])) ?>">fiche →</a>
             <?php endif; ?>
+            <button type="button" class="dv-actor-del" title="Retirer du dossier" onclick="dvRemoveActeur(<?= (int)$a['role_id'] ?>, this)">×</button>
           </div>
-          <?php if (!empty($a['id_tiers'])): ?>
-            <a class="dv-badge" href="<?= h(app_url('/tiers_360.php?id=' . (int)$a['id_tiers'])) ?>">fiche →</a>
-          <?php endif; ?>
-        </div>
-      <?php endforeach; endif; ?>
-      <div class="dv-note">Acquéreur &amp; notaires se rattachent en phase ultérieure (aucune ressaisie : référentiel <code>tiers</code>).</div>
+        <?php endforeach; ?>
+      </div>
+      <div class="dv-empty" id="dv-acteurs-empty" style="<?= $acteurs ? 'display:none;' : '' ?>">Aucun acteur rattaché.</div>
+      <div class="dv-note">Acteurs reliés au référentiel <code>tiers</code> (aucune ressaisie : un tiers existant est réutilisé, un nouveau est créé une seule fois).</div>
     </div>
 
     <!-- BIEN / MANDAT / PRIX -->
@@ -287,5 +311,128 @@ include __DIR__ . '/inc/agency_layout_top.php';
     Toutes les données ci-dessus sont lues depuis les modules existants (aucune ressaisie).
   </div>
 </div>
+
+<!-- ═══ MODAL : ajouter un acteur au dossier ═══ -->
+<div class="dvm-backdrop" id="dvm-acteur">
+  <div class="dvm">
+    <h3>➕ Ajouter un acteur</h3>
+    <div class="sub">Choisissez un rôle, puis recherchez un tiers existant ou créez-en un nouveau (zéro double saisie).</div>
+
+    <p class="dvm-label">1 · Rôle dans la vente</p>
+    <div class="dvm-roles" id="dvm-roles">
+      <?php foreach (dv_roles_autorises() as $code => $lib): ?>
+        <button type="button" class="dvm-role" data-role="<?= h($code) ?>"><?= h($lib) ?></button>
+      <?php endforeach; ?>
+    </div>
+
+    <p class="dvm-label">2 · Tiers</p>
+    <?php tiers_selector_render([
+        'id'           => 'dvm_tiers',
+        'name'         => 'dvm_id_tiers',
+        'allow_create' => true,
+        'placeholder'  => 'Rechercher (nom, email, téléphone…) ou créer',
+    ]); ?>
+
+    <div class="dvm-actions">
+      <button type="button" class="dvm-btn cancel" onclick="dvCloseActeurModal()">Annuler</button>
+      <button type="button" class="dvm-btn ok" id="dvm-submit" disabled onclick="dvSubmitActeur()">Ajouter au dossier</button>
+    </div>
+  </div>
+</div>
+<?php tiers_selector_assets(); ?>
+
+<script>
+(function(){
+  const DOSSIER_ID = <?= (int)$idDossier ?>;
+  const API_ADD    = <?= json_encode(app_url('/api/transaction_dossier_acteur_add.php')) ?>;
+  const API_DEL    = <?= json_encode(app_url('/api/transaction_dossier_acteur_remove.php')) ?>;
+  const TIERS_FICHE= <?= json_encode(app_url('/tiers_360.php?id=')) ?>;
+  let selectedRole = '';
+
+  const root   = document.querySelector('[data-ts-root="dvm_tiers"]');
+  const hidden = () => root ? root.querySelector('.ts-value') : null;
+
+  function refreshSubmit(){
+    const ok = selectedRole !== '' && hidden() && hidden().value;
+    document.getElementById('dvm-submit').disabled = !ok;
+  }
+
+  // Choix du rôle (boutons, pas de select)
+  document.getElementById('dvm-roles').addEventListener('click', (e)=>{
+    const b = e.target.closest('.dvm-role'); if(!b) return;
+    document.querySelectorAll('#dvm-roles .dvm-role').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    selectedRole = b.dataset.role;
+    // Le rôle choisi devient aussi le rôle global posé à la création du tiers
+    if (root) root.dataset.tsDefaultRoles = selectedRole;
+    refreshSubmit();
+  });
+
+  // Tiers sélectionné OU créé → le hidden est renseigné
+  if (root){
+    root.addEventListener('tiers:selected', refreshSubmit);
+    root.addEventListener('tiers:created',  refreshSubmit);
+    root.querySelector('.ts-search')?.addEventListener('input', ()=>setTimeout(refreshSubmit,50));
+    root.querySelector('.ts-clear')?.addEventListener('click', ()=>setTimeout(refreshSubmit,10));
+  }
+
+  window.dvOpenActeurModal = function(){
+    selectedRole='';
+    document.querySelectorAll('#dvm-roles .dvm-role').forEach(x=>x.classList.remove('active'));
+    if (hidden()) hidden().value='';
+    const s = root && root.querySelector('.ts-search'); if(s){ s.value=''; s.classList.remove('is-selected'); }
+    refreshSubmit();
+    document.getElementById('dvm-acteur').classList.add('open');
+  };
+  window.dvCloseActeurModal = function(){ document.getElementById('dvm-acteur').classList.remove('open'); };
+
+  window.dvSubmitActeur = async function(){
+    const idTiers = hidden() && hidden().value;
+    if (!selectedRole || !idTiers) return;
+    const btn = document.getElementById('dvm-submit'); btn.disabled=true; btn.textContent='Ajout…';
+    try{
+      const body = new URLSearchParams({ id_dossier:DOSSIER_ID, id_tiers:idTiers, role_code:selectedRole });
+      const res  = await fetch(API_ADD, {method:'POST', credentials:'same-origin', body});
+      const out  = await res.json();
+      if(!out.ok){ alert('Erreur : '+(out.error||'inconnue')); return; }
+      dvAppendActeur(out.acteur);
+      dvCloseActeurModal();
+    }catch(err){ alert('Erreur réseau : '+err.message); }
+    finally{ btn.disabled=false; btn.textContent='Ajouter au dossier'; }
+  };
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+  window.dvAppendActeur = function(a){
+    document.getElementById('dv-acteurs-empty').style.display='none';
+    const list = document.getElementById('dv-acteurs-list');
+    // si le même rôle existe déjà (réactivation), ne pas dupliquer
+    if (list.querySelector('[data-role-id="'+a.role_id+'"]')) return;
+    const ct = [a.email, a.telephone].filter(Boolean).join(' · ');
+    const div = document.createElement('div');
+    div.className='dv-actor'; div.dataset.roleId=a.role_id;
+    div.innerHTML =
+      '<span class="role">'+esc(a.role_label)+'</span>'+
+      '<div style="flex:1;min-width:0;"><div class="nm">'+esc(a.nom)+'</div>'+
+      (ct?'<div class="ct">'+esc(ct)+'</div>':'')+'</div>'+
+      '<a class="dv-badge" href="'+TIERS_FICHE+a.id_tiers+'">fiche →</a>'+
+      '<button type="button" class="dv-actor-del" title="Retirer du dossier" onclick="dvRemoveActeur('+a.role_id+', this)">×</button>';
+    list.appendChild(div);
+  };
+
+  window.dvRemoveActeur = async function(roleId, el){
+    if(!confirm('Retirer cet acteur du dossier ?')) return;
+    try{
+      const body = new URLSearchParams({ id_dossier:DOSSIER_ID, role_id:roleId });
+      const res  = await fetch(API_DEL, {method:'POST', credentials:'same-origin', body});
+      const out  = await res.json();
+      if(!out.ok){ alert('Erreur : '+(out.error||'inconnue')); return; }
+      const row = el.closest('.dv-actor'); if(row) row.remove();
+      if(!document.querySelector('#dv-acteurs-list .dv-actor'))
+        document.getElementById('dv-acteurs-empty').style.display='';
+    }catch(err){ alert('Erreur réseau : '+err.message); }
+  };
+})();
+</script>
 
 <?php include __DIR__ . '/inc/agency_layout_bottom.php'; ?>

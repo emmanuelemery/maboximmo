@@ -249,3 +249,77 @@ if (!function_exists('dv_documents')) {
         return gdl_documents_for_entity($pdo, 'DOSSIER', $idDossier, ['limit' => 200]);
     }
 }
+
+if (!function_exists('dv_roles_autorises')) {
+    /** Rôles métier rattachables à un dossier de vente (catalogue tiers_roles_codes). */
+    function dv_roles_autorises(): array {
+        return [
+            'acquereur'            => 'Acquéreur',
+            'prospect_acquereur'   => 'Acquéreur (pressenti)',
+            'vendeur'              => 'Vendeur',
+            'notaire'              => 'Notaire vendeur',
+            'notaire_acquereur'    => 'Notaire acquéreur',
+            'partenaire_apporteur' => 'Apporteur / partenaire',
+        ];
+    }
+}
+
+if (!function_exists('dv_acteur_row')) {
+    /** Une ligne acteur (tiers_roles + tiers) par id de rôle. */
+    function dv_acteur_row(PDO $pdo, int $roleId): ?array {
+        if ($roleId <= 0) return null;
+        $st = $pdo->prepare("
+            SELECT tr.id AS role_id, tr.role_code, tr.priorite, tr.metadata, tr.actif,
+                   t.id AS id_tiers, t.nom_affichage, t.nom, t.prenom, t.raison_sociale,
+                   t.email, t.telephone, t.type_tiers
+              FROM tiers_roles tr
+              JOIN tiers t ON t.id = tr.id_tiers
+             WHERE tr.id = ? LIMIT 1");
+        $st->execute([$roleId]);
+        return $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+}
+
+if (!function_exists('dv_attach_acteur')) {
+    /**
+     * Rattache un tiers EXISTANT au dossier avec un rôle (aucune ressaisie).
+     * Idempotent (UK tiers_roles). Retourne la ligne acteur, ou null si invalide.
+     */
+    function dv_attach_acteur(PDO $pdo, int $idDossier, int $idTiers, string $roleCode): ?array {
+        if ($idDossier <= 0 || $idTiers <= 0) return null;
+        if (!array_key_exists($roleCode, dv_roles_autorises())) return null;
+
+        // Le tiers doit exister.
+        $stT = $pdo->prepare("SELECT id FROM tiers WHERE id = ? LIMIT 1");
+        $stT->execute([$idTiers]);
+        if (!$stT->fetchColumn()) return null;
+
+        try {
+            $pdo->prepare("
+                INSERT INTO tiers_roles
+                    (id_tiers, role_code, objet_type, id_objet, priorite, metadata, actif, date_creation)
+                VALUES (?, ?, 'dossier_vente', ?, 5, JSON_OBJECT('source','dossier_card'), 1, NOW())
+                ON DUPLICATE KEY UPDATE actif = 1, date_modification = NOW()
+            ")->execute([$idTiers, $roleCode, $idDossier]);
+        } catch (Throwable $e) {
+            error_log('[dv_attach_acteur] ' . $e->getMessage());
+            return null;
+        }
+
+        // Récupère l'id du rôle (insert ou existant réactivé).
+        $stR = $pdo->prepare("SELECT id FROM tiers_roles
+                               WHERE id_tiers=? AND role_code=? AND objet_type='dossier_vente' AND id_objet=? LIMIT 1");
+        $stR->execute([$idTiers, $roleCode, $idDossier]);
+        return dv_acteur_row($pdo, (int)$stR->fetchColumn());
+    }
+}
+
+if (!function_exists('dv_detach_acteur')) {
+    /** Retire un acteur du dossier (soft : actif=0). Le vendeur auto reste retirable. */
+    function dv_detach_acteur(PDO $pdo, int $idDossier, int $roleId): bool {
+        if ($idDossier <= 0 || $roleId <= 0) return false;
+        $st = $pdo->prepare("UPDATE tiers_roles SET actif = 0, date_modification = NOW()
+                              WHERE id = ? AND objet_type = 'dossier_vente' AND id_objet = ?");
+        return $st->execute([$roleId, $idDossier]);
+    }
+}
