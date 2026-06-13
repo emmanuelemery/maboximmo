@@ -274,18 +274,39 @@ if (!function_exists('tiers_selector_render')) {
                                 <label>Téléphone</label>
                                 <input type="tel" name="telephone">
                             </div>
+                            <!-- Bouton modal Google (affiché par JS si inc/adresse_modal.php est présent sur la page) -->
+                            <div class="ts-field ts-full" id="ts-addr-google-row" style="display:none;">
+                                <label>Adresse *</label>
+                                <button type="button" class="ts-btn ghost" style="width:100%;justify-content:center;"
+                                        data-addr-modal-open
+                                        data-addr-target-street1="ts-cre-adr1"
+                                        data-addr-target-street2="ts-cre-adr2"
+                                        data-addr-target-postal="ts-cre-cp"
+                                        data-addr-target-city="ts-cre-ville"
+                                        data-addr-target-lat="ts-cre-lat"
+                                        data-addr-target-lng="ts-cre-lng"
+                                        data-addr-target-placeid="ts-cre-placeid"
+                                        data-addr-target-formatted="ts-cre-formatted">
+                                    📍 Rechercher l'adresse (Google)
+                                </button>
+                            </div>
                             <div class="ts-field ts-full">
                                 <label>Adresse</label>
-                                <input type="text" name="adresse_ligne1">
+                                <input type="text" id="ts-cre-adr1" name="adresse_ligne1">
                             </div>
                             <div class="ts-field">
                                 <label>Code postal</label>
-                                <input type="text" name="code_postal" maxlength="10">
+                                <input type="text" id="ts-cre-cp" name="code_postal" maxlength="10">
                             </div>
                             <div class="ts-field">
                                 <label>Ville</label>
-                                <input type="text" name="ville">
+                                <input type="text" id="ts-cre-ville" name="ville">
                             </div>
+                            <input type="hidden" id="ts-cre-adr2"      name="adresse_ligne2">
+                            <input type="hidden" id="ts-cre-lat"       name="latitude">
+                            <input type="hidden" id="ts-cre-lng"       name="longitude">
+                            <input type="hidden" id="ts-cre-placeid"   name="google_place_id">
+                            <input type="hidden" id="ts-cre-formatted" name="adresse_formatee">
                         </div>
                     </form>
                 </div>
@@ -550,6 +571,18 @@ if (!function_exists('tiers_selector_render')) {
             // Init auto
             function initAll() {
                 document.querySelectorAll('.tiers-selector').forEach(initSelector);
+                // Adresse obligatoire via le modal Google : actif uniquement si la page
+                // a inclus inc/adresse_modal.php (#addr-modal). Sinon on garde la saisie libre.
+                if (document.getElementById('addr-modal')) {
+                    const row = document.getElementById('ts-addr-google-row');
+                    if (row) {
+                        row.style.display = '';
+                        const a1 = document.getElementById('ts-cre-adr1');
+                        const cp = document.getElementById('ts-cre-cp');
+                        const vl = document.getElementById('ts-cre-ville');
+                        [a1, cp, vl].forEach(el => { if (el) { el.readOnly = true; el.placeholder = 'Renseigné via 📍 Google'; } });
+                    }
+                }
             }
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', initAll);

@@ -99,7 +99,8 @@ $roleLabels = [
     'prospect_vendeur' => 'Vendeur (pressenti)', 'vendeur' => 'Vendeur',
     'acquereur' => 'Acquéreur', 'prospect_acquereur' => 'Acquéreur (pressenti)',
     'notaire' => 'Notaire vendeur', 'notaire_acquereur' => 'Notaire acquéreur',
-    'partenaire_apporteur' => 'Apporteur / partenaire',
+    'avocat' => 'Avocat', 'partenaire_apporteur' => 'Apporteur / partenaire',
+    'collaborateur' => 'Collaborateur',
 ];
 
 // ── Timeline : 7 jalons macro ──
@@ -175,6 +176,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
    AU-DESSUS du modal acteur (9000) — sinon il s'ouvre derrière et reste inaccessible. */
 .ts-modal-overlay{z-index:9500 !important;}
 .tiers-selector .ts-dropdown{z-index:9600;}
+/* Modal adresse Google par-dessus le modal création tiers (cascade complète). */
+.addr-modal{z-index:9700 !important;}
+.addr-modal .places-dropdown{z-index:9800 !important;}
 </style>
 
 <div class="dv-wrap">
@@ -344,6 +348,16 @@ include __DIR__ . '/inc/agency_layout_top.php';
   </div>
 </div>
 <?php tiers_selector_assets(); ?>
+
+<?php
+// Modal d'adresse Google (obligatoire pour la saisie d'adresse d'un nouveau tiers).
+require_once __DIR__ . '/inc/adresse_modal.php';
+?>
+<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
+<script src="<?= h(asset_url('/js/adresse_modal.js')) ?>"></script>
+<?php if (($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '') !== ''): ?>
+<script async src="https://maps.googleapis.com/maps/api/js?key=<?= h($GLOBALS['GOOGLE_MAPS_API_KEY']) ?>&libraries=places&callback=initPlacesAutocomplete"></script>
+<?php endif; ?>
 
 <script>
 (function(){

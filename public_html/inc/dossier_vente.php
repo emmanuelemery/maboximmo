@@ -259,7 +259,9 @@ if (!function_exists('dv_roles_autorises')) {
             'vendeur'              => 'Vendeur',
             'notaire'              => 'Notaire vendeur',
             'notaire_acquereur'    => 'Notaire acquéreur',
+            'avocat'               => 'Avocat',
             'partenaire_apporteur' => 'Apporteur / partenaire',
+            'collaborateur'        => 'Collaborateur',
         ];
     }
 }
