@@ -33,16 +33,18 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
 .nd-input{width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;box-sizing:border-box;}
 .nd-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .nd-grid .full{grid-column:1/-1;}
-.nd-bien-cols{display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:start;}
-@media(max-width:760px){.nd-bien-cols{grid-template-columns:1fr;}}
+.nd-bien-cols{display:grid;grid-template-columns:1fr 360px;gap:22px;align-items:start;}
+@media(max-width:820px){.nd-bien-cols{grid-template-columns:1fr;}}
 .nd-bien-right{border-left:1px solid #eef2f6;padding-left:20px;}
-@media(max-width:760px){.nd-bien-right{border-left:0;padding-left:0;border-top:1px solid #eef2f6;padding-top:14px;}}
-.nd-biens-list{display:flex;flex-direction:column;gap:7px;max-height:430px;overflow:auto;}
-.nd-bien-btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;line-height:1.25;width:100%;}
+@media(max-width:820px){.nd-bien-right{border-left:0;padding-left:0;border-top:1px solid #eef2f6;padding-top:14px;}}
+.nd-biens-list{display:flex;flex-direction:column;gap:7px;max-height:520px;overflow:auto;}
+.nd-bien-btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:10px 13px;cursor:pointer;line-height:1.35;width:100%;}
 .nd-bien-btn:hover{border-color:#0f6cbd;background:#eef5fc;}
 .nd-bien-btn .r{font-weight:800;font-size:13px;color:#0f172a;}
-.nd-bien-btn .d{font-size:11px;color:#64748b;}
-.nd-bien-btn .tags{margin-top:3px;display:flex;gap:5px;}
+.nd-bien-btn .d{font-size:11.5px;color:#475569;}
+.nd-bien-btn .d.loc{color:#0e7490;font-weight:700;}
+.nd-bien-btn .d.vac{color:#94a3b8;font-style:italic;}
+.nd-bien-btn .tags{margin-top:4px;display:flex;gap:5px;}
 .nd-bien-tag{font-size:9px;font-weight:800;border-radius:5px;padding:1px 6px;}
 .nd-bien-tag.vente{background:#fef3c7;color:#92600a;}
 .nd-bien-tag.dossier{background:#d7f0e0;color:#0b6b35;}
@@ -165,9 +167,18 @@ tiers_selector_assets();
         let tags='';
         if(b.en_vente) tags+='<span class="nd-bien-tag vente">en vente</span>';
         if(b.id_dossier) tags+='<span class="nd-bien-tag dossier">dossier ✓</span>';
-        el.innerHTML = '<span class="r">'+esc(b.ref)+'</span>'+
-                       (b.designation||b.ville?'<span class="d">'+esc([b.designation,b.ville].filter(Boolean).join(' · '))+'</span>':'')+
-                       (tags?'<span class="tags">'+tags+'</span>':'');
+        // ligne caractéristiques : type · surface · étage
+        const carac = [
+          b.type,
+          (b.surface!=null ? Math.round(b.surface)+' m²' : null),
+          (b.etage!=null ? (b.etage===0?'RDC':b.etage+'ᵉ ét.') : null)
+        ].filter(Boolean).join(' · ');
+        el.innerHTML =
+          '<span class="r">'+esc(b.ref)+'</span>'+
+          (carac?'<span class="d">'+esc(carac)+'</span>':'')+
+          (b.adresse?'<span class="d">📍 '+esc(b.adresse)+'</span>':'')+
+          (b.locataire?'<span class="d loc">👤 '+esc(b.locataire)+'</span>':'<span class="d vac">🔑 vacant</span>')+
+          (tags?'<span class="tags">'+tags+'</span>':'');
         el.onclick = ()=>{ window.location.href = DOSSIER_URL + b.id; };
         box.appendChild(el);
       });
