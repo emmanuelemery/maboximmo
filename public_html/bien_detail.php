@@ -24,21 +24,82 @@ require_once __DIR__ . '/inc/ubiflow_validator.php';
 require_login();
 
 $appLayout = true;
-$bodyClass = 'v2-no-scroll';
+// Mode embed (?embed=1) : intégration en iframe (card Conditions financières
+// du dossier de vente). On masque sidebar + topbar + onglets de section.
+$embed     = isset($_GET['embed']) && $_GET['embed'] === '1';
+$bodyClass = 'v2-no-scroll' . ($embed ? ' bien-embed' : '');
 $robots    = 'noindex, nofollow';
 
 $editingBienId = isset($_GET['edit']) && ctype_digit((string)$_GET['edit']) ? (int)$_GET['edit'] : 0;
+// Compte en lecture seule : interdiction de créer un bien (pas de brouillon à la volée).
+if ($editingBienId <= 0 && function_exists('is_readonly_user') && is_readonly_user()) {
+    header('Location: ' . app_url('/transaction_portefeuilles_hub.php#patrimoine'));
+    exit;
+}
 if ($editingBienId <= 0) {
     // Création d'un nouveau brouillon à la volée : l'user arrive sur
     // /bien_detail.php (sans ?edit) depuis bien_liste "➕ Nouveau bien"
     // ou depuis un lien legacy (bien_ajouter.php redirect).
+    //
+    // Anti-doublon (2026-05-26) : si l'user a déjà un brouillon VIERGE récent
+    // (designation auto + statut='brouillon' + créé il y a < 10 min), on le
+    // réutilise au lieu d'en créer un nouveau. Évite le spam de biens "Sans titre"
+    // lors d'un browser back ou d'un refresh accidentel.
     try {
         $idSocieteSession = isset($_SESSION['id_societe']) ? (int)$_SESSION['id_societe'] : null;
         $idAgenceSession  = isset($_SESSION['id_agence'])  ? (int)$_SESSION['id_agence']  : null;
         $idUserSession    = function_exists('current_user_id') ? (int)current_user_id() : null;
-        $editingBienId = bien_form_create_draft($pdo, $idSocieteSession ?: null, $idAgenceSession ?: null, null, $idUserSession ?: null);
-        // Redirige avec ?edit=X pour URL propre + compat F5/bookmark
-        header('Location: ' . app_url('/bien_detail.php?edit=' . $editingBienId . '&section=documents'));
+
+        if ($idUserSession) {
+            $stExist = $pdo->prepare("
+                SELECT id FROM biens
+                WHERE id_user_actuel = ?
+                  AND statut_bien = 'brouillon'
+                  AND (designation IS NULL OR designation LIKE 'Brouillon créé le %')
+                  AND date_creation > (NOW() - INTERVAL 10 MINUTE)
+                ORDER BY id DESC LIMIT 1
+            ");
+            $stExist->execute([$idUserSession]);
+            $editingBienId = (int)$stExist->fetchColumn();
+        }
+
+        if ($editingBienId <= 0) {
+            $editingBienId = bien_form_create_draft($pdo, $idSocieteSession ?: null, $idAgenceSession ?: null, null, $idUserSession ?: null);
+        }
+        // Création depuis le patrimoine bailleur : propriétaire pré-rattaché + ouverture
+        // directe du modal immeuble (rattachement obligatoire → réf {reference_immeuble}-9001+).
+        $createProprio  = isset($_GET['id_proprietaire']) && ctype_digit((string)$_GET['id_proprietaire']) ? (int)$_GET['id_proprietaire'] : 0;
+        $createImmeuble = isset($_GET['id_immeuble']) && ctype_digit((string)$_GET['id_immeuble']) ? (int)$_GET['id_immeuble'] : 0;
+        $extra = '&section=identite';
+        if ($createProprio > 0 && $editingBienId > 0) {
+            try {
+                $okP = $pdo->prepare("SELECT 1 FROM proprietaires WHERE id = ? LIMIT 1");
+                $okP->execute([$createProprio]);
+                if ($okP->fetchColumn()) {
+                    $pdo->prepare("UPDATE biens SET id_proprietaire = ? WHERE id = ?")->execute([$createProprio, $editingBienId]);
+                }
+            } catch (Throwable $e) { error_log('[bien_detail create proprio] ' . $e->getMessage()); }
+            $extra = '&section=identite&open_immeuble=1';
+        }
+        // Immeuble connu (création depuis un bloc immeuble) : on rattache directement
+        // l'immeuble + recopie l'adresse + génère la réf {reference_immeuble}-9001+.
+        if ($createImmeuble > 0 && $editingBienId > 0) {
+            try {
+                $im = $pdo->prepare("SELECT id, adresse_1, adresse_2, code_postal, ville, latitude, longitude FROM immeubles WHERE id = ? LIMIT 1");
+                $im->execute([$createImmeuble]);
+                if ($imm = $im->fetch(PDO::FETCH_ASSOC)) {
+                    require_once __DIR__ . '/inc/ref_generator.php';
+                    $newRef = ref_generate_bien_immeuble($pdo, $createImmeuble);
+                    $sets = "id_immeuble = :imm, adresse_1 = :a1, adresse_2 = :a2, code_postal = :cp, ville = :v, latitude = :lat, longitude = :lng";
+                    $prm = [':imm'=>$createImmeuble, ':a1'=>$imm['adresse_1'], ':a2'=>$imm['adresse_2'], ':cp'=>$imm['code_postal'],
+                            ':v'=>$imm['ville'], ':lat'=>$imm['latitude'], ':lng'=>$imm['longitude'], ':id'=>$editingBienId];
+                    if ($newRef !== null) { $sets .= ", reference_bien = :ref"; $prm[':ref'] = $newRef; }
+                    $pdo->prepare("UPDATE biens SET {$sets} WHERE id = :id")->execute($prm);
+                    $extra = '&section=identite';   // immeuble déjà rattaché → pas besoin d'ouvrir le modal
+                }
+            } catch (Throwable $e) { error_log('[bien_detail create immeuble] ' . $e->getMessage()); }
+        }
+        header('Location: ' . app_url('/bien_detail.php?edit=' . $editingBienId . $extra));
         exit;
     } catch (Throwable $e) {
         error_log('[bien_detail create_draft] ' . $e->getMessage());
@@ -192,85 +253,46 @@ $docsDiag = [];
 $docsMandat = [];
 $docsAutre = [];
 $lastDpePdf = null;
-try {
-    $st = $pdo->prepare("
-        SELECT id, type_document, nom_original, url_fichier, taille_octets,
-               date_document, date_upload
-        FROM biens_documents
-        WHERE id_bien = ?
-        ORDER BY id DESC
-    ");
-    $st->execute([$editingBienId]);
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $d) {
-        $t = (string)($d['type_document'] ?? 'autre');
-        $row = [
-            'id'             => (int)$d['id'],
-            'type_document'  => $t,
-            'nom_original'   => (string)($d['nom_original'] ?? ''),
-            'url_fichier'    => $d['url_fichier'] ? app_url('/' . ltrim((string)$d['url_fichier'], '/')) : '',
-            'taille_octets'  => (int)($d['taille_octets'] ?? 0),
-            'date_document'  => $d['date_document'] ?? null,
-            'date_upload'    => $d['date_upload'] ?? null,
-        ];
-        if (in_array($t, $diagTypes, true)) {
-            $docsDiag[] = $row;
-            // Recherche du dernier PDF DPE/diag pour la card 4 (split view)
-            if ($lastDpePdf === null && $row['url_fichier']
-                && in_array($t, ['dpe','diag','dossier_complet','dossier_diagnostics'], true)) {
-                $lastDpePdf = $row;
-            }
-        } elseif (in_array($t, $mandatTypes, true)) {
-            $docsMandat[] = $row;
-        } else {
-            $docsAutre[] = $row;
-        }
-    }
-} catch (Throwable $e) {
-    error_log('[bien_detail_v2] biens_documents: ' . $e->getMessage());
-}
 
-// ─── UNION : aussi lire ged_documents (source moderne, module Transaction) ─
-// Permet de voir dans bien_detail les docs uploadés via transaction_chargement.php.
-// Source de vérité : ged_documents (avec FK id_bien si la migration est passée,
-// sinon fallback sur JSON_EXTRACT(metadata, '$.classement.bien_id_bdd')).
+// ─── GED CENTRALE UNIQUE (2026-05-25) ──
+// Source de vérité unique = ged_documents + ged_document_links (pivot polymorphe).
+// Tout doc rattaché au BIEN apparaît ici, quelle que soit la page qui l'a uploadé.
+require_once __DIR__ . '/inc/ged_document_links.php';
 try {
-    $hasIdBienCol = false;
-    try {
-        $stCol = $pdo->query("SHOW COLUMNS FROM ged_documents LIKE 'id_bien'");
-        $hasIdBienCol = (bool)$stCol->fetchColumn();
-    } catch (Throwable $e) {}
-    $whereGed = $hasIdBienCol
-        ? 'id_bien = ?'
-        : "JSON_EXTRACT(metadata, '$.classement.bien_id_bdd') = ?";
-    $stGed = $pdo->prepare("SELECT id, document_type, name_display AS nom_original, name_file,
-            final_destination, mime_type, size_bytes, created_at, source_module
-        FROM ged_documents
-        WHERE status = 'active' AND $whereGed
-        ORDER BY id DESC LIMIT 100");
-    $stGed->execute([$editingBienId]);
-    // Mapping type_document GED (uppercase Transaction) → conventions bien_detail
+    $docsGed = gdl_documents_for_entity($pdo, 'BIEN', $editingBienId, [
+        'status'   => 'active',
+        'limit'    => 200,
+        'order_by' => 'd.created_at DESC',
+    ]);
+    // Mapping type_document GED canonique → conventions internes bien_detail
     $typeMapGed = [
         'DIAG_DPE' => 'dpe', 'DIAG_AMIANTE' => 'amiante', 'DIAG_PLOMB' => 'plomb',
         'DIAG_GAZ' => 'gaz', 'DIAG_ELEC' => 'electricite', 'DIAG_TERMITES' => 'termites',
         'DIAG_ERP' => 'erp', 'SURFACE_CARREZ' => 'mesurage_loi_carrez',
-        'MANDAT_VENTE' => 'mandat', 'MANDAT_LOCATION' => 'mandat', 'MANDAT_RECHERCHE' => 'mandat',
+        'MANDAT_VENTE' => 'mandat', 'MANDAT_LOCATION' => 'mandat',
+        'MANDAT_RECHERCHE' => 'mandat', 'MANDAT_GESTION' => 'mandat',
         'BAIL' => 'bail', 'COMPROMIS' => 'compromis', 'PROMESSE_VENTE' => 'promesse_vente',
         'ACTE_AUTHENTIQUE' => 'acte', 'OFFRE_ACHAT' => 'offre_achat',
         'TAXE_FONCIERE' => 'taxe_fonciere', 'PLAN' => 'plan', 'PHOTO' => 'photo', 'AUTRE' => 'autre',
     ];
-    while ($d = $stGed->fetch(PDO::FETCH_ASSOC)) {
-        $rawType = (string)($d['document_type'] ?? 'autre');
+    foreach ($docsGed as $d) {
+        $rawType = (string)($d['document_type'] ?? 'AUTRE');
         $t = $typeMapGed[$rawType] ?? mb_strtolower($rawType);
-        $url = (string)($d['final_destination'] ?? '');
+
+        // URL : metadata.public_url ou fallback servable via api/ged_doc_serve.php
+        $meta = json_decode((string)($d['metadata'] ?? '{}'), true) ?: [];
+        $url  = (string)($meta['public_url'] ?? '');
+        if ($url !== '') $url = app_url('/' . ltrim($url, '/'));
+
         $row = [
-            'id'             => 'ged_' . (int)$d['id'],          // préfixé pour éviter collision avec biens_documents.id
+            'id'             => 'ged_' . (int)$d['id'],
             'type_document'  => $t,
-            'nom_original'   => (string)$d['nom_original'],
-            'url_fichier'    => $url ? app_url('/' . ltrim($url, '/')) : '',
+            'nom_original'   => (string)($d['name_display'] ?? $d['name_file']),
+            'url_fichier'    => $url,
             'taille_octets'  => (int)($d['size_bytes'] ?? 0),
-            'date_document'  => null,
+            'date_document'  => $meta['extra']['classement']['date_doc'] ?? null,
             'date_upload'    => $d['created_at'] ?? null,
-            'source'         => 'ged_documents',  // tag pour différencier (debug)
+            'source'         => 'ged_documents',
         ];
         if (in_array($t, $diagTypes, true)) {
             $docsDiag[] = $row;
@@ -285,7 +307,7 @@ try {
         }
     }
 } catch (Throwable $e) {
-    error_log('[bien_detail_v2] ged_documents union: ' . $e->getMessage());
+    error_log('[bien_detail_v2] gdl_documents_for_entity failed: ' . $e->getMessage());
 }
 
 // ─── Section ANNONCE : charger l'annonce existante du bien + photos ──
@@ -609,7 +631,7 @@ $immeublesList = $immeublesList ?? [];
 $dpeFieldDefs = [
     'date_diagnostic'            => ['label' => 'Date du diagnostic',        'type' => 'date'],
     'date_validite'              => ['label' => 'Date de validité',          'type' => 'date'],
-    'dpe_version'                => ['label' => 'Version DPE',               'type' => 'text'],
+    'dpe_version'                => ['label' => 'Version DPE',               'type' => 'dpe_version'],
     'dpe_vierge'                 => ['label' => 'DPE vierge',                'type' => 'bool'],
     'dpe_classe'                 => ['label' => 'Classe énergétique (DPE)',  'type' => 'class'],
     'ges_classe'                 => ['label' => 'Classe GES',                'type' => 'class'],
@@ -696,10 +718,13 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
       --accent:    #36577d;
       --stroke:    #d4d0ca;
       --sidebar-w: 220px;
-      --topbar-h:  72px; /* +30% vs 56px */
+      --topbar-h:  56px; /* aligné sur les autres pages */
       --neu-out:   6px 6px 14px var(--shadow-dark), -6px -6px 14px var(--shadow-light);
       --neu-in:    inset 4px 4px 10px var(--shadow-dark), inset -4px -4px 10px var(--shadow-light);
     }
+    /* Mode embed (iframe dossier de vente) : pas de sidebar, pas de topbar */
+    body.bien-embed .mbi-main { margin-left: 0 !important; }
+    body.bien-embed { background: var(--card); }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Sora', system-ui, sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; }
     a { color: inherit; text-decoration: none; }
@@ -774,14 +799,17 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
 <body class="<?= h($bodyClass) ?>">
 
 <?php
-$_sbFile = ($_SESSION['nav_ctx'] ?? '') === 'bailleur'
-    ? __DIR__ . '/inc/sidebar_bailleur.php'
-    : __DIR__ . '/inc/sidebar_agency.php';
-require_once $_sbFile;
+if (!$embed) {
+    $_sbFile = ($_SESSION['nav_ctx'] ?? '') === 'bailleur'
+        ? __DIR__ . '/inc/sidebar_bailleur.php'
+        : __DIR__ . '/inc/sidebar_agency.php';
+    require_once $_sbFile;
+}
 ?>
 
 <main class="mbi-main v2-main">
 
+  <?php if (!$embed): ?>
   <!-- TOPBAR -->
   <header class="mbi-topbar">
     <button type="button" class="topbar-nav-btn" onclick="history.back()" title="Retour">
@@ -854,6 +882,7 @@ require_once $_sbFile;
       </a>
     </nav>
   </div>
+  <?php endif; /* !$embed */ ?>
 
   <!-- CAROUSEL STAGE -->
   <div class="v2-stage-wrap">
@@ -1107,19 +1136,97 @@ require_once $_sbFile;
 
       <!-- Card 1 : Propriétaire (tiers lié, recherche, création express, infos extraites) -->
       <section class="v2-card is-active" role="tabpanel" aria-label="Propriétaire">
-        <div class="v2-card-label">👤 Propriétaire</div>
+        <div class="v2-card-label">👤 Propriétaire &amp; Immeuble</div>
         <div id="v2-save-indicator" class="v2-save-indicator v2-save-floating" aria-live="polite"></div>
         <div class="v2-card-body">
+          <!-- Bloc Adresse / Immeuble (déplacé ici : regroupé avec le propriétaire = données « verrouillées ») -->
+          <?php
+            $etageVal = isset($b['etage']) && $b['etage'] !== '' ? h((string)$b['etage']) : '';
+            $anneeVal = isset($b['annee_construction']) && $b['annee_construction'] !== '' ? h((string)$b['annee_construction']) : '';
+            $etageFromDpe = isset($syncFlags['etage']) ? ' is-from-dpe' : '';
+            $anneeFromDpe = isset($syncFlags['annee_construction']) ? ' is-from-dpe' : '';
+          ?>
+          <div class="v2-group-header">
+            <span class="v2-group-header-title">📍 Adresse &amp; immeuble</span>
+            <?php if (!empty($descSyncedFields)): ?>
+              <span class="v2-hint">📄 <?= count($descSyncedFields) ?> champ(s) repris du DPE</span>
+            <?php endif; ?>
+            <div class="v2-num-field<?= $etageFromDpe ?>" title="Étage">
+              <span class="v2-num-icon">🪜</span>
+              <input type="number" step="any" min="0" class="v2-num-input" name="etage" data-autosave value="<?= $etageVal ?>" placeholder="0">
+              <span class="v2-num-label">Étage</span>
+            </div>
+            <div class="v2-num-field<?= $anneeFromDpe ?>" title="Année construction">
+              <span class="v2-num-icon">📅</span>
+              <input type="number" step="1" min="0" max="2100" class="v2-num-input" style="width:70px;" name="annee_construction" data-autosave value="<?= $anneeVal ?>" placeholder="Année">
+              <span class="v2-num-label">An. construction</span>
+            </div>
+            <?php $curBienEnCopro = (int)($b['bien_en_copropriete'] ?? 0) === 1; ?>
+            <button type="button" class="v2-bool-toggle<?= $curBienEnCopro ? ' is-active' : '' ?>" data-bool-field="bien_en_copropriete"
+                    title="Coche si le bien est en copropriété. Rend obligatoires : nombre de lots principaux et charges annuelles du lot (obligation ALUR pour diffusion).">
+              <span class="v2-icon-emoji">🏢</span>
+              <span class="v2-icon-lbl">Copropriété</span>
+            </button>
+          </div>
+          <?php
+            $syncFlags = array_flip($descSyncedFields);
+            $addrCls = static fn($f) => isset($syncFlags[$f]) ? ' is-from-dpe' : '';
+          ?>
+          <div style="margin-bottom:10px;">
+            <?php if ($bienEstActif): ?>
+              <?php $bdImmId = (int)($b['id_immeuble'] ?? 0); ?>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;"
+                      title="🔒 Adresse verrouillée — dé-valide le bien (onglet Validation) pour la modifier">
+                  🔒 verrouillée
+                </span>
+                <?php if ($bdImmId): ?>
+                  <a href="<?= h(app_url('/agency_immeuble_fiche.php?id=' . $bdImmId)) ?>"
+                     class="v2-btn-secondary"
+                     style="flex:1; text-align:center; padding:8px 12px; font-size:12px; text-decoration:none;">
+                    🏢 Visualiser l'immeuble
+                  </a>
+                <?php endif; ?>
+              </div>
+            <?php else: ?>
+              <button type="button"
+                      class="v2-btn-primary"
+                      style="width:100%; padding:12px; font-size:13px;"
+                      onclick="bdOpenImmeubleModal(this)"
+                      data-bien-id="<?= (int)$editingBienId ?>"
+                      data-autosave-url="<?= h(app_url('/api/bien_autosave.php')) ?>"
+                      data-csrf="<?= h(csrf_token('ajouter_bien')) ?>">
+                📍 Rechercher / saisir l'adresse (Google + immeubles existants)
+              </button>
+            <?php endif; ?>
+          </div>
+          <div class="v2-addr-grid">
+            <input type="text" id="v2-f-adresse_1"   class="v2-input<?= $addrCls('adresse_1') ?>"   name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['_imm_adresse_1']   ?? $b['adresse_1']   ?? '')) ?>">
+            <input type="text" id="v2-f-adresse_2"   class="v2-input<?= $addrCls('adresse_2') ?>"   name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['_imm_adresse_2']   ?? $b['adresse_2']   ?? '')) ?>">
+            <input type="text" id="v2-f-code_postal" class="v2-input<?= $addrCls('code_postal') ?>" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['_imm_code_postal'] ?? $b['code_postal'] ?? '')) ?>">
+            <input type="text" id="v2-f-ville"       class="v2-input<?= $addrCls('ville') ?>"       name="ville"       data-autosave placeholder="Ville"     value="<?= h((string)($b['_imm_ville']       ?? $b['ville']       ?? '')) ?>">
+          </div>
+          <input type="hidden" id="v2-f-latitude"  name="latitude"          value="">
+          <input type="hidden" id="v2-f-longitude" name="longitude"         value="">
+          <input type="hidden" id="v2-f-place_id"  name="google_place_id"   value="">
+          <input type="hidden" id="v2-f-formatted" name="adresse_formatted" value="">
+          <hr style="border:none;border-top:1px solid #eef2f6;margin:16px 0;">
+
           <?php if ($proprioInfo): ?>
             <!-- ─── État : propriétaire lié au bien ──────────────────── -->
             <?php
               $idProprioLegacy = (int)($proprioInfo['id_proprio_legacy'] ?? 0);
+              $idTiersProprio  = (int)($proprioInfo['id_tiers'] ?? 0);
               $patTotal        = (int)($proprioInfo['_patrimoine_total'] ?? 0);
               $patAgences      = $proprioInfo['_patrimoine_agences'] ?? [];
               // URL de retour pour revenir sur ce bien après édition
               $returnUrl = '/bien_detail.php?edit=' . (int)$editingBienId . '&section=descriptif';
-              $ficheUrl  = '/agency_proprietaire_fiche.php?id=' . $idProprioLegacy
-                         . '&return=' . urlencode($returnUrl);
+              // « Ouvrir fiche » → fiche propriétaire 360° (tiers_360, qui fonctionne).
+              // Repli sur l'ancienne fiche legacy si le tiers n'est pas renseigné.
+              $ficheUrl  = $idTiersProprio > 0
+                         ? '/tiers_360.php?id=' . $idTiersProprio
+                         : '/agency_proprietaire_fiche.php?id=' . $idProprioLegacy
+                           . '&return=' . urlencode($returnUrl);
             ?>
             <div class="v2-proprio-card is-linked">
               <div class="v2-proprio-head">
@@ -1143,10 +1250,10 @@ require_once $_sbFile;
                   </div>
                 </div>
                 <div class="v2-proprio-actions">
-                  <?php if ($idProprioLegacy > 0): ?>
+                  <?php if ($idTiersProprio > 0 || $idProprioLegacy > 0): ?>
                     <a class="v2-btn-primary" href="<?= h(app_url($ficheUrl)) ?>"
-                       title="Ouvrir la fiche complète — modifiable, retour automatique sur ce bien">
-                      ✏️ Ouvrir fiche
+                       title="Ouvrir la fiche propriétaire 360°">
+                      👤 Ouvrir fiche
                     </a>
                   <?php endif; ?>
                   <?php if ($bienEstActif): ?>
@@ -1314,12 +1421,12 @@ require_once $_sbFile;
       <section class="v2-card is-next" role="tabpanel" aria-label="Caractéristiques">
         <div class="v2-card-label">📋 Caractéristiques</div>
         <div class="v2-card-body">
-          <!-- 1bis. Identification (référence + désignation commerciale) -->
+          <!-- 1bis. Identification (référence + désignation + statut + mandat sur une ligne) -->
           <div class="v2-group-header">
             <span class="v2-group-header-title">🏷️ Identification</span>
             <span class="v2-hint">Référence interne + désignation commerciale — repris dans l'annonce et le flux Ubiflow</span>
           </div>
-          <div class="v2-addr-grid" style="grid-template-columns: 0.5fr 1fr;">
+          <div class="v2-id-row" style="display:grid; grid-template-columns: minmax(140px, 0.5fr) minmax(220px, 1fr) auto auto; gap:10px; align-items:center; margin-bottom:14px;">
             <input type="text" id="v2-f-reference_bien" class="v2-input"
                    name="reference_bien" data-autosave maxlength="60"
                    placeholder="Référence bien (ex : 2026-001)"
@@ -1328,79 +1435,29 @@ require_once $_sbFile;
                    name="designation" data-autosave maxlength="255"
                    placeholder="Désignation commerciale (ex : T3 lumineux vue dégagée, 65m²)"
                    value="<?= h((string)($b['designation'] ?? '')) ?>">
+            <div class="v2-icon-row v2-icon-row-inline">
+              <span class="v2-icon-row-label">Statut</span>
+              <div class="v2-icon-radios" data-field="statut_bien">
+                <?php foreach ($statuts as $code => [$ic, $lbl]): $act = ($curStatut === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>" title="<?= h($lbl) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="v2-icon-row v2-icon-row-inline" title="🏢 Gestion = défaut systématique du bien. Ne change en Vente ou Location que si un propriétaire externe nous confie un mandat spécifique. Le type de transaction publique (vente/location) se choisit dans l'onglet Annonce.">
+              <span class="v2-icon-row-label">Mandat <span class="v2-info-pill" aria-label="Aide">ⓘ</span></span>
+              <div class="v2-icon-radios" data-field="type_commercialisation">
+                <?php foreach ($mandats as $code => [$ic, $lbl]): $act = ($curMandat === $code) ? ' is-active' : ''; ?>
+                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>" title="<?= h($lbl) ?>">
+                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
+                  </button>
+                <?php endforeach; ?>
+              </div>
+            </div>
           </div>
 
-          <!-- 2. Adresse (inputs autosave — valeurs déjà syncées depuis dpe_diags si vides) -->
-          <?php
-            $etageVal = isset($b['etage']) && $b['etage'] !== '' ? h((string)$b['etage']) : '';
-            $anneeVal = isset($b['annee_construction']) && $b['annee_construction'] !== '' ? h((string)$b['annee_construction']) : '';
-            $etageFromDpe = isset($syncFlags['etage']) ? ' is-from-dpe' : '';
-            $anneeFromDpe = isset($syncFlags['annee_construction']) ? ' is-from-dpe' : '';
-          ?>
-          <div class="v2-group-header">
-            <span class="v2-group-header-title">📍 Adresse</span>
-            <?php if (!empty($descSyncedFields)): ?>
-              <span class="v2-hint">📄 <?= count($descSyncedFields) ?> champ(s) repris du DPE</span>
-            <?php endif; ?>
-            <div class="v2-num-field<?= $etageFromDpe ?>" title="Étage">
-              <span class="v2-num-icon">🪜</span>
-              <input type="number" step="any" min="0" class="v2-num-input" name="etage" data-autosave value="<?= $etageVal ?>" placeholder="0">
-              <span class="v2-num-label">Étage</span>
-            </div>
-            <div class="v2-num-field<?= $anneeFromDpe ?>" title="Année construction">
-              <span class="v2-num-icon">📅</span>
-              <input type="number" step="1" min="0" max="2100" class="v2-num-input" style="width:70px;" name="annee_construction" data-autosave value="<?= $anneeVal ?>" placeholder="Année">
-              <span class="v2-num-label">An. construction</span>
-            </div>
-            <button type="button" id="v2-imm-btn" class="v2-btn-outline v2-header-btn">
-              🔍 Trouver immeuble <?php if (!empty($immeublesList)): ?><span class="v2-badge"><?= count($immeublesList) ?></span><?php endif; ?>
-            </button>
-          </div>
-          <?php
-            $syncFlags = array_flip($descSyncedFields);
-            $addrCls = static fn($f) => isset($syncFlags[$f]) ? ' is-from-dpe' : '';
-          ?>
-          <!-- Bouton d'ouverture du modal d'adresse (recherche Google + immeubles existants) -->
-          <!-- ⚠️ Bloqué si bien actif : l'adresse fait partie des données critiques verrouillées.
-               L'utilisateur doit dé-valider le bien (onglet Validation) pour pouvoir la modifier. -->
-          <div style="margin-bottom:10px;">
-            <?php if ($bienEstActif): ?>
-              <button type="button" class="v2-btn-secondary"
-                      style="width:100%; padding:12px; font-size:13px; background:#f1f5f9; color:#64748b; cursor:not-allowed;"
-                      disabled title="🔒 Adresse verrouillée — dé-valide le bien (onglet Validation) pour la modifier">
-                🔒 Adresse verrouillée (bien validé)
-              </button>
-            <?php else: ?>
-              <button type="button"
-                      class="v2-btn-primary"
-                      style="width:100%; padding:12px; font-size:13px;"
-                      data-addr-modal-open
-                      data-addr-target-street1="v2-f-adresse_1"
-                      data-addr-target-street2="v2-f-adresse_2"
-                      data-addr-target-postal="v2-f-code_postal"
-                      data-addr-target-city="v2-f-ville"
-                      data-addr-target-lat="v2-f-latitude"
-                      data-addr-target-lng="v2-f-longitude"
-                      data-addr-target-placeid="v2-f-place_id"
-                      data-addr-target-formatted="v2-f-formatted"
-                      data-addr-save-endpoint="<?= h(app_url('/api/bien_autosave.php')) ?>"
-                      data-addr-bien-id="<?= (int)$editingBienId ?>"
-                      data-addr-csrf="<?= h(csrf_token('ajouter_bien')) ?>">
-                📍 Rechercher / saisir l'adresse (Google + immeubles existants)
-              </button>
-            <?php endif; ?>
-          </div>
-          <div class="v2-addr-grid">
-            <input type="text" id="v2-f-adresse_1"   class="v2-input<?= $addrCls('adresse_1') ?>"   name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['_imm_adresse_1']   ?? $b['adresse_1']   ?? '')) ?>">
-            <input type="text" id="v2-f-adresse_2"   class="v2-input<?= $addrCls('adresse_2') ?>"   name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['_imm_adresse_2']   ?? $b['adresse_2']   ?? '')) ?>">
-            <input type="text" id="v2-f-code_postal" class="v2-input<?= $addrCls('code_postal') ?>" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['_imm_code_postal'] ?? $b['code_postal'] ?? '')) ?>">
-            <input type="text" id="v2-f-ville"       class="v2-input<?= $addrCls('ville') ?>"       name="ville"       data-autosave placeholder="Ville"     value="<?= h((string)($b['_imm_ville']       ?? $b['ville']       ?? '')) ?>">
-          </div>
-          <!-- Champs hidden alimentés par le modal (coordonnées GPS + Google Place ID) -->
-          <input type="hidden" id="v2-f-latitude"  name="latitude"          value="">
-          <input type="hidden" id="v2-f-longitude" name="longitude"         value="">
-          <input type="hidden" id="v2-f-place_id"  name="google_place_id"   value="">
-          <input type="hidden" id="v2-f-formatted" name="adresse_formatted" value="">
+          <!-- (Bloc Adresse/Immeuble déplacé dans la card « Propriétaire & Immeuble ») -->
 
           <!-- 3. Caractéristiques -->
           <div class="v2-desc-group-title">🏷️ Caractéristiques</div>
@@ -1443,6 +1500,25 @@ require_once $_sbFile;
                 <?php endforeach; ?>
               </div>
             </div>
+            <?php
+              // TVA : visible uniquement si usage commercial/pro/mixte. Persiste sur annonces.tva_assujetti.
+              // Au changement → reload (adapte les champs de la Card Conditions financières : HT vs HC).
+              $usageNeedsTva = in_array($curUsage, ['commercial','pro','mixte'], true);
+              $curTvaAssujetti = (int)($annonce['tva_assujetti'] ?? 0) === 1;
+            ?>
+            <?php if ($usageNeedsTva && $annonce): ?>
+            <div class="v2-icon-row" title="Bail commercial : préciser si la location est assujettie à la TVA 20%. Impacte les champs de loyer (HT vs HC) sur la Card Conditions financières.">
+              <span class="v2-icon-row-label">💼 TVA</span>
+              <div class="v2-icon-radios" data-field="tva_assujetti" data-target="annonce" data-reload-after-save="1">
+                <button type="button" class="v2-icon-radio<?= !$curTvaAssujetti ? ' is-active' : '' ?>" data-value="0">
+                  <span class="v2-icon-emoji">❌</span><span class="v2-icon-lbl">Non assujetti</span>
+                </button>
+                <button type="button" class="v2-icon-radio<?= $curTvaAssujetti ? ' is-active' : '' ?>" data-value="1">
+                  <span class="v2-icon-emoji">✅</span><span class="v2-icon-lbl">Assujetti TVA 20%</span>
+                </button>
+              </div>
+            </div>
+            <?php endif; ?>
           </div>
 
           <!-- État + Standing -->
@@ -1461,30 +1537,6 @@ require_once $_sbFile;
               <span class="v2-icon-row-label">Standing</span>
               <div class="v2-icon-radios" data-field="standing">
                 <?php foreach ($standings as $code => [$ic, $lbl]): $act = ($curStand === $code) ? ' is-active' : ''; ?>
-                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
-                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
-                  </button>
-                <?php endforeach; ?>
-              </div>
-            </div>
-          </div>
-
-          <!-- Statut + Mandat -->
-          <div class="v2-row-split">
-            <div class="v2-icon-row">
-              <span class="v2-icon-row-label">Statut</span>
-              <div class="v2-icon-radios" data-field="statut_bien">
-                <?php foreach ($statuts as $code => [$ic, $lbl]): $act = ($curStatut === $code) ? ' is-active' : ''; ?>
-                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
-                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
-                  </button>
-                <?php endforeach; ?>
-              </div>
-            </div>
-            <div class="v2-icon-row">
-              <span class="v2-icon-row-label">Mandat</span>
-              <div class="v2-icon-radios" data-field="type_commercialisation">
-                <?php foreach ($mandats as $code => [$ic, $lbl]): $act = ($curMandat === $code) ? ' is-active' : ''; ?>
                   <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>">
                     <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
                   </button>
@@ -1790,6 +1842,21 @@ require_once $_sbFile;
             <?= $boolToggle('🚚', 'acces_camion',           'Accès camion') ?>
           </div>
 
+          <?php if ((int)($b['bien_en_copropriete'] ?? 0) === 1): ?>
+          <div class="v2-desc-group-title">🏢 Copropriété <small>(obligation ALUR pour diffusion)</small></div>
+          <div class="v2-num-grid">
+            <?php // _imm_* : saisis ici pour l'UX (tout au même endroit), mais persistés
+                  // dans la table immeubles côté bien_autosave (infos communes à l'immeuble entier). ?>
+            <?= $numField('🔢', '_imm_nb_lots',            'Nb lots principaux') ?>
+            <?= $numField('💸', 'copro_quote_part_charges', 'Charges annuelles du lot', '€') ?>
+          </div>
+          <div class="v2-bool-toggles" style="margin-top:8px;">
+            <?= $boolToggle('⚠️', '_imm_copro_procedure',                  'Syndic en procédure') ?>
+            <?= $boolToggle('🛡️', '_imm_alur_copropriete_plan_sauvegarde', 'Plan de sauvegarde') ?>
+            <?= $boolToggle('🚨', '_imm_alur_copropriete_etat_carence',    'État de carence') ?>
+          </div>
+          <?php endif; ?>
+
           <div class="v2-desc-group-title">☀️ Exposition</div>
           <?= $iconRadios('exposition', $expositions, $curExpo) ?>
 
@@ -1809,18 +1876,21 @@ require_once $_sbFile;
 
       <!-- Card 5 : Photos -->
       <section class="v2-card is-prev" role="tabpanel" aria-label="Photos">
-        <div class="v2-card-label">📸 Photos <span class="v2-count"><?= count($descPhotos) ?></span></div>
+        <div class="v2-card-label">📸 Photos <span class="v2-count" id="v2-photos-count"><?= count($descPhotos) ?></span></div>
         <div class="v2-card-body">
           <?php if (!empty($descPhotos)): ?>
-            <div class="v2-photo-grid">
+            <div class="v2-photo-grid" id="v2-photo-grid">
               <?php foreach ($descPhotos as $p): ?>
                 <?php
                   $photoUrl = $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '';
                   if (!$photoUrl) continue;
+                  $photoId   = (int)($p['id'] ?? 0);
+                  $photoName = (string)($p['nom_original'] ?? '');
                 ?>
-                <a class="v2-photo-item" href="<?= h($photoUrl) ?>" target="_blank" rel="noopener" title="<?= h((string)($p['nom_original'] ?? '')) ?>">
-                  <img src="<?= h($photoUrl) ?>" alt="<?= h((string)($p['nom_original'] ?? 'Photo')) ?>" loading="lazy">
-                </a>
+                <div class="v2-photo-item" data-photo-id="<?= $photoId ?>" data-photo-url="<?= h($photoUrl) ?>" title="<?= h($photoName) ?>">
+                  <img src="<?= h($photoUrl) ?>" alt="<?= h($photoName ?: 'Photo') ?>" loading="lazy">
+                  <button type="button" class="v2-photo-delete" aria-label="Supprimer cette photo" title="Supprimer cette photo">✕</button>
+                </div>
               <?php endforeach; ?>
             </div>
           <?php else: ?>
@@ -1831,6 +1901,39 @@ require_once $_sbFile;
           <?php endif; ?>
         </div>
       </section>
+
+      <!-- Lightbox modal (clic image agrandie + ESC/clic backdrop pour fermer) -->
+      <div id="v2-photo-lightbox" class="v2-photo-lightbox" hidden role="dialog" aria-modal="true" aria-label="Aperçu photo">
+        <button type="button" class="v2-photo-lightbox-close" aria-label="Fermer" title="Fermer (ESC)">✕</button>
+        <img id="v2-photo-lightbox-img" src="" alt="">
+      </div>
+      <style>
+        .v2-photo-grid { display:flex; flex-wrap:wrap; gap:8px; }
+        .v2-photo-item { position:relative; display:block; width:140px; height:140px; border-radius:8px; overflow:hidden; cursor:zoom-in; background:#f3f4f6; }
+        .v2-photo-item img { width:100%; height:100%; object-fit:cover; display:block; }
+        .v2-photo-delete {
+          position:absolute; top:4px; right:4px; width:32px; height:32px;
+          border:none; border-radius:50%; background:rgba(220,38,38,.92); color:#fff;
+          font-size:16px; font-weight:700; line-height:1; cursor:pointer;
+          display:flex; align-items:center; justify-content:center;
+          opacity:0; transition:opacity .15s, transform .15s, background .15s;
+          z-index:5; /* au-dessus de l'image pour capter tous les clics dans la zone */
+        }
+        .v2-photo-item:hover .v2-photo-delete { opacity:1; }
+        .v2-photo-delete:hover { background:#b91c1c; transform:scale(1.1); }
+        .v2-photo-lightbox {
+          position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.85);
+          display:flex; align-items:center; justify-content:center; padding:32px;
+        }
+        .v2-photo-lightbox[hidden] { display:none; }
+        .v2-photo-lightbox img { max-width:100%; max-height:100%; border-radius:6px; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+        .v2-photo-lightbox-close {
+          position:absolute; top:16px; right:16px; width:40px; height:40px;
+          border:none; border-radius:50%; background:rgba(255,255,255,.15); color:#fff;
+          font-size:20px; cursor:pointer; transition:background .15s;
+        }
+        .v2-photo-lightbox-close:hover { background:rgba(255,255,255,.25); }
+      </style>
 
     <?php elseif ($section === 'validation'): ?>
 
@@ -1862,13 +1965,39 @@ require_once $_sbFile;
               </small>
             </div>
 
+            <?php
+              // Mapping section logique (validator) → section URL bien_detail.php
+              // Permet de transformer chaque ligne en lien cliquable qui navigue vers
+              // l'onglet contenant le champ + focus auto via JS (focusField).
+              $sectionUrlMap = [
+                'identification'   => 'descriptif',
+                'localisation'     => 'descriptif',
+                'caracteristiques' => 'descriptif',
+                'transaction'      => 'annonce',
+                'dpe'              => 'diag',
+                'alur'             => 'annonce',
+                'honoraires'       => 'annonce',
+                'photos'           => 'descriptif',
+              ];
+              // Clés spéciales qui ne sont pas des champs simples (modals/autres) :
+              // on garde la navigation vers la bonne section, le focus ne ciblera juste rien.
+            ?>
             <div class="v2-validation-checklist" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;">
               <?php foreach ($validationResult['checks'] as $c):
                 $bg = $c['ok'] ? '#ecfdf5' : ($c['required'] ? '#fef2f2' : '#f8fafc');
                 $bd = $c['ok'] ? '#10b981' : ($c['required'] ? '#ef4444' : '#cbd5e1');
                 $ic = $c['ok'] ? '✅' : ($c['required'] ? '❌' : '➖');
+                $targetSection = $sectionUrlMap[$c['section'] ?? ''] ?? 'descriptif';
+                $targetKey     = (string)($c['key'] ?? '');
+                $targetUrl     = app_url('/bien_detail.php?edit=' . (int)$editingBienId
+                                       . '&section=' . urlencode($targetSection)
+                                       . ($targetKey !== '' ? '&focus=' . urlencode($targetKey) : ''));
               ?>
-                <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:<?= $bg ?>; border-left:4px solid <?= $bd ?>; border-radius:6px;">
+                <a href="<?= h($targetUrl) ?>"
+                   style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:<?= $bg ?>; border-left:4px solid <?= $bd ?>; border-radius:6px; text-decoration:none; color:inherit; cursor:pointer; transition:transform .12s, box-shadow .12s;"
+                   onmouseover="this.style.transform='translateX(3px)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,.08)';"
+                   onmouseout="this.style.transform=''; this.style.boxShadow='';"
+                   title="Aller au champ <?= h($c['label']) ?>">
                   <span style="font-size:20px;"><?= $ic ?></span>
                   <div style="flex:1;">
                     <div style="font-weight:600; color:#0f172a; font-size:13px;">
@@ -1877,7 +2006,10 @@ require_once $_sbFile;
                     </div>
                     <small style="color:#64748b; font-size:11px;"><?= h($c['detail']) ?></small>
                   </div>
-                </div>
+                  <?php if (!$c['ok']): ?>
+                    <span style="font-size:11px; color:#64748b; font-weight:600;">→</span>
+                  <?php endif; ?>
+                </a>
               <?php endforeach; ?>
             </div>
 
@@ -1926,13 +2058,58 @@ require_once $_sbFile;
         $ab = static fn($k) => (int)($a[$k] ?? 0) === 1;
         // Section annonce a aussi besoin de $b (champs bien) pour la Card Diffusion
         $b = $bienLoaded;
-        // Liste des commerciaux de l'agence du bien (sélecteur Card Diffusion)
-        $commerciaux = [];
+        // Agence de diffusion sélectionnée pour l'annonce (peut différer de l'agence
+        // d'origine du bien : permet à un user multi-agences de choisir laquelle diffuse).
         $idAgenceBien = (int)($b['id_agence'] ?? 0);
-        if ($idAgenceBien > 0) {
+        $idAgenceAnnonce = (int)($a['id_agence'] ?? 0);
+        if ($idAgenceAnnonce <= 0) $idAgenceAnnonce = $idAgenceBien;
+
+        // Compteur "annonces actives diffusées" par flux Ubiflow (limite 15 par flux/agence)
+        // Compte les annonces de l'agence sélectionnée actuellement visibles sur portails.
+        $UBIFLOW_LIMIT_PER_FLUX = 15;
+        $diffuseesAgence = 0;
+        if ($idAgenceAnnonce > 0) {
             try {
-                $stCom = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE id_agence = ? AND (actif = 1 OR actif IS NULL) ORDER BY nom, prenom");
-                $stCom->execute([$idAgenceBien]);
+                $stCnt = $pdo->prepare("
+                    SELECT COUNT(*) FROM annonces
+                    WHERE id_agence = ?
+                      AND visible_portails = 1
+                      AND (etat_publication IS NULL OR etat_publication NOT IN ('archive','archivee','supprime'))
+                ");
+                $stCnt->execute([$idAgenceAnnonce]);
+                $diffuseesAgence = (int)$stCnt->fetchColumn();
+            } catch (Throwable) { $diffuseesAgence = 0; }
+        }
+        // Niveau de criticité : OK (< 13), warning (13-14), bloquant (>= 15)
+        if ($diffuseesAgence >= $UBIFLOW_LIMIT_PER_FLUX) {
+            $diffuseesLvl = 'bad';
+        } elseif ($diffuseesAgence >= ($UBIFLOW_LIMIT_PER_FLUX - 2)) {
+            $diffuseesLvl = 'warn';
+        } else {
+            $diffuseesLvl = 'ok';
+        }
+
+        // Liste des agences de la société (pour le sélecteur "Agence de diffusion")
+        $agencesDiffusion = [];
+        $idSocieteBien = (int)($b['id_societe'] ?? ($_SESSION['id_societe'] ?? 0));
+        if ($idSocieteBien > 0) {
+            try {
+                $stAg = $pdo->prepare("SELECT id, COALESCE(NULLIF(nom_agence,''), CONCAT('Agence #', id)) AS label
+                    FROM agences WHERE id_societe = ? ORDER BY label ASC");
+                $stAg->execute([$idSocieteBien]);
+                $agencesDiffusion = $stAg->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable) { $agencesDiffusion = []; }
+        }
+
+        // Liste des commerciaux : ceux de l'agence de diffusion choisie (et non plus celle du bien)
+        $commerciaux = [];
+        if ($idAgenceAnnonce > 0) {
+            try {
+                // Liste TOUS les commerciaux de la société (pas seulement de l'agence sélectionnée).
+                // Un user peut être attribué à une annonce d'une agence différente de la sienne
+                // (multi-agences au sein d'une même société).
+                $stCom = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE id_societe = ? AND (actif = 1 OR actif IS NULL) ORDER BY nom, prenom");
+                $stCom->execute([$idSocieteBien]);
                 $commerciaux = $stCom->fetchAll(PDO::FETCH_ASSOC) ?: [];
             } catch (Throwable) { $commerciaux = []; }
         }
@@ -2169,7 +2346,6 @@ require_once $_sbFile;
               $curLoyerCCDisp  = $fmt($curLoyerCC);
               $curComplDisp    = $fmt($curComplement);
               $curDepotDisp    = $fmt($curDepot);
-              $curMajoreDisp   = $fmt($curMajore);
               // Honoraires
               $curHonoLoc      = (float)($a['honoraires_location_bail'] ?? 0);
               $curHonoEdl      = (float)($a['honoraires_etat_des_lieux'] ?? 0);
@@ -2180,6 +2356,81 @@ require_once $_sbFile;
               $zoneLbl         = $zoneLblMap[$zoneCur] ?? 'Non tendue';
               $hasComplement   = $curComplement > 0;
             ?>
+            <?php
+              // Si l'annonce est assujettie TVA (bail commercial), bascule sur le mode TVA :
+              // - Saisies HT (loyer + charges), TVA et CC TTC en readonly
+              // - Pas de complément, pas d'encadrement, DG par défaut 3 mois loyer HC HT
+              // - Périodicité paiement : mensuel (défaut) ou trimestriel d'avance
+              $tvaOn = (int)($a['tva_assujetti'] ?? 0) === 1;
+              $curLoyerHcHt   = (float)($a['loyer_hc_ht']  ?? 0);
+              $curChargesHt   = (float)($a['charges_ht']   ?? 0);
+              $curTvaMontant  = (float)($a['tva_montant']  ?? 0);
+              $curPeriodicite = (string)($a['periodicite_loyer'] ?? 'mensuel');
+              if ($tvaOn && $curTvaMontant <= 0 && ($curLoyerHcHt > 0 || $curChargesHt > 0)) {
+                $curTvaMontant = ($curLoyerHcHt + $curChargesHt) * 0.20;
+              }
+              $curCcTtc = $tvaOn ? ($curLoyerHcHt + $curChargesHt + $curTvaMontant) : 0;
+              if ($tvaOn && $curDepot <= 0 && $curLoyerHcHt > 0) $curDepot = $curLoyerHcHt * 3;
+              $curLoyerHcHtDisp = $fmt($curLoyerHcHt);
+              $curChargesHtDisp = $fmt($curChargesHt);
+              $curTvaMontantDisp = $fmt($curTvaMontant);
+              $curCcTtcDisp     = $fmt($curCcTtc);
+              $curDepotDisp     = $fmt($curDepot);
+            ?>
+
+            <?php if ($tvaOn): ?>
+            <!-- ═══ MODE TVA — Bail commercial assujetti 20% ═══ -->
+            <div class="v2-desc-group-title">🔑 Location <small style="color:#92400e; font-weight:600;">— Bail commercial assujetti TVA 20%</small></div>
+            <div class="v2-loc-grid">
+              <!-- LOYER CC TTC (calculé, accent) -->
+              <div class="v2-loc-field is-accent" title="Calculé : (Loyer HC HT + Charges HT) × 1.20">
+                <label class="v2-loc-lbl"><span>💧</span> <strong>Loyer CC <span style="color:#78350f;">TTC</span></strong> <small>€/mois</small></label>
+                <input type="number" step="any" class="v2-loc-input is-accent"
+                       id="v2-loyer-cc-display" value="<?= h($curCcTtcDisp) ?>" readonly tabindex="-1">
+              </div>
+              <!-- LOYER HC HT (saisie principale) -->
+              <div class="v2-loc-field" title="Loyer hors charges HT — base de calcul de la TVA">
+                <label class="v2-loc-lbl"><span>🔑</span> Loyer HC <strong style="color:#92400e;">HT</strong> <small>€</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
+                       name="loyer_hc_ht" data-annonce-save id="v2-loyer-hc-ht-input"
+                       value="<?= h($curLoyerHcHtDisp) ?>" placeholder="HC HT">
+              </div>
+              <!-- CHARGES HT -->
+              <div class="v2-loc-field" title="Charges HT (ajoutées à la base TVA)">
+                <label class="v2-loc-lbl"><span>💡</span> Charges <strong style="color:#92400e;">HT</strong> <small>€</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
+                       name="charges_ht" data-annonce-save id="v2-charges-ht-input"
+                       value="<?= h($curChargesHtDisp) ?>" placeholder="Charges HT">
+              </div>
+              <!-- TVA GLOBALE (readonly) -->
+              <div class="v2-loc-field is-ro" title="Calculée : (HC HT + Charges HT) × 20%">
+                <label class="v2-loc-lbl"><span>🧾</span> TVA <small>€ (20%)</small></label>
+                <input type="number" step="any" class="v2-loc-input is-ro"
+                       id="v2-tva-montant-display" value="<?= h($curTvaMontantDisp) ?>" readonly tabindex="-1">
+              </div>
+              <!-- DÉPÔT GARANTIE — défaut 3 mois HC HT -->
+              <div class="v2-loc-field" title="Par défaut 3 mois de loyer HC HT (norme bail commercial), modifiable">
+                <label class="v2-loc-lbl"><span>🔒</span> Dépôt <small>€ (3 mois HC HT)</small></label>
+                <input type="number" step="any" min="0" class="v2-loc-input"
+                       name="depot_garantie" data-annonce-save id="v2-depot-garantie-input"
+                       value="<?= h($curDepotDisp) ?>" placeholder="Dépôt">
+              </div>
+            </div>
+            <!-- PÉRIODICITÉ paiement (mensuel par défaut, trimestriel d'avance courant en commercial) -->
+            <div class="v2-icon-row" style="margin-top:10px;" title="Périodicité de règlement du loyer (impacte les modalités contractuelles)">
+              <span class="v2-icon-row-label">📅 Règlement</span>
+              <div class="v2-icon-radios" data-field="periodicite_loyer" data-target="annonce">
+                <button type="button" class="v2-icon-radio<?= $curPeriodicite === 'mensuel' ? ' is-active' : '' ?>" data-value="mensuel">
+                  <span class="v2-icon-emoji">📆</span><span class="v2-icon-lbl">Mensuel</span>
+                </button>
+                <button type="button" class="v2-icon-radio<?= $curPeriodicite === 'trimestriel' ? ' is-active' : '' ?>" data-value="trimestriel">
+                  <span class="v2-icon-emoji">🗓️</span><span class="v2-icon-lbl">Trimestre d'avance</span>
+                </button>
+              </div>
+            </div>
+
+            <?php else: ?>
+            <!-- ═══ MODE STANDARD — Habitation / Non-TVA ═══ -->
             <div class="v2-desc-group-title">🔑 Location</div>
             <?php $curMeuble = (int)($a['meuble'] ?? 0) === 1; $depMois = $curMeuble ? 2 : 1; ?>
             <div class="v2-loc-grid">
@@ -2209,12 +2460,6 @@ require_once $_sbFile;
                 <input type="number" step="any" min="0" class="v2-loc-input"
                        name="charges_locatives" data-autosave value="<?= h((string)($b['charges_locatives'] ?? '')) ?>" placeholder="Charges">
               </div>
-              <!-- LOYER MAJORÉ — readonly, reprise depuis Card Encadrement -->
-              <div class="v2-loc-field is-ro" title="Reprise depuis Card Encadrement (loyer_reference_majore)">
-                <label class="v2-loc-lbl"><span>📈</span> Majoré <small>€</small></label>
-                <input type="number" step="any" class="v2-loc-input is-ro"
-                       id="v2-loyer-majore-display" value="<?= h($curMajoreDisp) ?>" readonly tabindex="-1">
-              </div>
               <!-- COMPLÉMENT LOYER — readonly, maintenu par les lignes Card 2 -->
               <div class="v2-loc-field is-ro" title="Total des justifications (éditable dans Card Encadrement)">
                 <label class="v2-loc-lbl"><span>💳</span> Complément <small>€</small></label>
@@ -2229,6 +2474,7 @@ require_once $_sbFile;
                        value="<?= h($curDepotDisp) ?>" placeholder="Dépôt">
               </div>
             </div>
+            <?php endif; ?>
 
             <!-- HONORAIRES LOCATAIRE (ALUR) -->
             <div class="v2-desc-group-title" style="margin-top:14px;">
@@ -2735,63 +2981,71 @@ require_once $_sbFile;
                   $immeubleReturn = '/bien_detail.php?edit=' . (int)$editingBienId . '&section=annonce';
                   $immeubleUrl    = app_url('/agency_immeuble_fiche.php?id=' . $immeubleId . '&return=' . urlencode($immeubleReturn));
                 ?>
-                <div class="v2-desc-group-title" style="margin-top:0;">📋 Récap de la diffusion</div>
-                <div class="v2-icon-radios"
-                     style="display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; margin-bottom:18px; pointer-events:none;">
-                  <?php if (!empty($curMandat) && isset($mandats[$curMandat])): ?>
-                    <div class="v2-icon-radio is-active" title="Type de mandat sélectionné">
-                      <span class="v2-icon-emoji"><?= $mandats[$curMandat][0] ?></span>
-                      <span class="v2-icon-lbl"><?= h($mandats[$curMandat][1]) ?></span>
-                    </div>
-                  <?php endif; ?>
-                  <?php if ($typeBienLibelle !== ''): ?>
-                    <div class="v2-icon-radio is-active" title="Type de bien">
-                      <span class="v2-icon-emoji"><?= $typeBienEmoji ?></span>
-                      <span class="v2-icon-lbl"><?= h($typeBienLibelle) ?></span>
-                    </div>
-                  <?php endif; ?>
-                  <?php if ($recapPrixValue !== ''): ?>
-                    <div class="v2-icon-radio is-active" title="<?= $curMandat === 'vente' ? 'Prix de vente' : 'Loyer charges comprises' ?>">
-                      <span class="v2-icon-emoji"><?= $recapPrixEmoji ?></span>
-                      <span class="v2-icon-lbl"><?= h($recapPrixValue) ?></span>
-                    </div>
-                  <?php endif; ?>
-                  <?php if ($recapSurfaceStr !== ''): ?>
-                    <div class="v2-icon-radio is-active" title="Surface totale">
-                      <span class="v2-icon-emoji">📐</span>
-                      <span class="v2-icon-lbl"><?= h($recapSurfaceStr) ?></span>
-                    </div>
-                  <?php endif; ?>
-                  <?php if ($recapHonorairesStr !== ''): ?>
-                    <div class="v2-icon-radio is-active" title="Honoraires total">
-                      <span class="v2-icon-emoji">💰</span>
-                      <span class="v2-icon-lbl"><?= h($recapHonorairesStr) ?></span>
-                    </div>
-                  <?php endif; ?>
-                  <?php if ($immeubleNom !== '' && $immeubleId > 0): ?>
-                    <a href="<?= h($immeubleUrl) ?>"
-                       class="v2-icon-radio is-active"
-                       style="pointer-events:auto; cursor:pointer; text-decoration:none; color:#fff;"
-                       title="Ouvrir la fiche immeuble">
-                      <span class="v2-icon-emoji">🏢</span>
-                      <span class="v2-icon-lbl"><?= h($immeubleNom) ?> ↗</span>
-                    </a>
-                  <?php endif; ?>
-                </div>
-
-                <!-- 👤 Commercial attribué + 📊 Statut du bien (2 colonnes côte à côte) -->
-                <?php $curStatutBien = (string)($b['statut_bien'] ?? 'brouillon'); ?>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:18px;">
+                <!-- 🎯 Bloc principal Diffusion : Statut + Agence + Commercial (top de la card, sans séparateurs) -->
+                <?php
+                  $curStatutBien = (string)($b['statut_bien'] ?? 'brouillon');
+                  // Style local pour les mini-labels (pas de border-top contrairement à .v2-desc-group-title)
+                  $miniLabelStyle = 'font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:#64748b; margin-bottom:6px;';
+                  $selectStyle    = 'width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; background:#fff;';
+                ?>
+                <div style="display:grid; grid-template-columns: 1fr 1.3fr 1.3fr; gap:14px; margin:0 0 16px;">
                   <div>
-                    <div class="v2-desc-group-title" style="margin-top:0;">👤 Commercial attribué</div>
+                    <div style="<?= $miniLabelStyle ?>">📊 Statut du bien</div>
+                    <select id="v2-f-statut_bien_top" name="statut_bien" data-autosave
+                            style="<?= $selectStyle ?>"
+                            title="Modifiable à tout moment — se met à jour automatiquement">
+                      <option value="actif"     <?= $curStatutBien === 'actif'     ? 'selected' : '' ?>>✅ Actif</option>
+                      <option value="brouillon" <?= $curStatutBien === 'brouillon' ? 'selected' : '' ?>>📝 Brouillon</option>
+                      <option value="archive"   <?= $curStatutBien === 'archive'   ? 'selected' : '' ?>>📦 Archivé</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style="<?= $miniLabelStyle ?>">🏬 Agence de diffusion</div>
+                    <?php if (empty($agencesDiffusion)): ?>
+                      <div style="color:#94a3b8; font-size:12px; font-style:italic; padding:8px 0;">
+                        Aucune agence trouvée
+                      </div>
+                    <?php else: ?>
+                      <select id="v2-f-annonce_agence_id" name="annonce_agence_id" data-annonce-save data-reload-after-save="1"
+                              style="<?= $selectStyle ?>"
+                              title="Agence responsable de la diffusion (peut différer de l'agence du bien)">
+                        <option value="">— Aucune (à attribuer) —</option>
+                        <?php foreach ($agencesDiffusion as $ag):
+                          $aid = (int)$ag['id'];
+                          $sel = ($aid === $idAgenceAnnonce) ? ' selected' : '';
+                        ?>
+                          <option value="<?= $aid ?>"<?= $sel ?>><?= h($ag['label']) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                      <?php if ($idAgenceAnnonce > 0):
+                        $diffBadgeColors = [
+                          'ok'   => ['#dcfce7', '#166534', '#bbf7d0'],
+                          'warn' => ['#fef3c7', '#92400e', '#fde68a'],
+                          'bad'  => ['#fee2e2', '#991b1b', '#fecaca'],
+                        ];
+                        [$bgC, $fgC, $brdC] = $diffBadgeColors[$diffuseesLvl];
+                      ?>
+                        <div style="margin-top:6px; padding:5px 9px; background:<?= $bgC ?>; color:<?= $fgC ?>; border:1px solid <?= $brdC ?>; border-radius:6px; font-size:11px; font-weight:700; text-align:center;"
+                             title="Limite Ubiflow : 15 annonces actives par flux. Au-delà, les nouvelles annonces ne seront pas diffusées.">
+                          📡 <?= (int)$diffuseesAgence ?> / <?= $UBIFLOW_LIMIT_PER_FLUX ?> diffusées
+                          <?php if ($diffuseesLvl === 'bad'): ?>
+                            <span style="font-weight:400;">— quota atteint</span>
+                          <?php elseif ($diffuseesLvl === 'warn'): ?>
+                            <span style="font-weight:400;">— bientôt plein</span>
+                          <?php endif; ?>
+                        </div>
+                      <?php endif; ?>
+                    <?php endif; ?>
+                  </div>
+                  <div>
+                    <div style="<?= $miniLabelStyle ?>">👤 Commercial attribué</div>
                     <?php if (empty($commerciaux)): ?>
                       <div style="color:#94a3b8; font-size:12px; font-style:italic; padding:8px 0;">
-                        Aucun commercial trouvé pour l'agence du bien
-                        <?php if ($idAgenceBien > 0): ?>(#<?= $idAgenceBien ?>)<?php endif; ?>.
+                        Aucun commercial pour cette agence
                       </div>
                     <?php else: ?>
                       <select id="v2-f-annonce_commercial_id" name="annonce_commercial_id" data-annonce-save
-                              style="width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; background:#fff;">
+                              style="<?= $selectStyle ?>">
                         <option value="">— Aucun (à attribuer) —</option>
                         <?php foreach ($commerciaux as $com):
                           $cid = (int)$com['id'];
@@ -2803,16 +3057,57 @@ require_once $_sbFile;
                       </select>
                     <?php endif; ?>
                   </div>
-                  <div>
-                    <div class="v2-desc-group-title" style="margin-top:0;">📊 Statut du bien</div>
-                    <select id="v2-f-statut_bien" name="statut_bien" data-autosave
-                            style="width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; background:#fff;"
-                            title="Modifiable à tout moment — se met à jour automatiquement">
-                      <option value="actif"     <?= $curStatutBien === 'actif'     ? 'selected' : '' ?>>✅ Actif</option>
-                      <option value="brouillon" <?= $curStatutBien === 'brouillon' ? 'selected' : '' ?>>📝 Brouillon</option>
-                      <option value="archive"   <?= $curStatutBien === 'archive'   ? 'selected' : '' ?>>📦 Archivé</option>
-                    </select>
-                  </div>
+                </div>
+
+                <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:#64748b; margin:0 0 8px;">📋 Récap de la diffusion <small style="font-weight:400; text-transform:none; letter-spacing:0;">— cliquez sur un badge pour modifier le champ</small></div>
+                <?php
+                  // URLs de navigation vers le champ éditable
+                  // → Type de transaction (Vente/Location) : c'est l'ANNONCE qui porte ça, pas le bien.
+                  //   Le bien reste en "gestion" par défaut, c'est l'annonce qui définit Vente vs Location.
+                  //   Card visée : "Conditions financières" (section=annonce) qui contient le sélecteur type_transaction.
+                  $urlMandat   = app_url('/bien_detail.php?edit=' . (int)$editingBienId . '&section=annonce&focus=type_transaction');
+                  // → Type de bien : section descriptif, focus type_bien (champ bien)
+                  $urlTypeBien = app_url('/bien_detail.php?edit=' . (int)$editingBienId . '&section=descriptif&focus=type_bien');
+                  // → Prix / Loyer : annonce, focus prix ou loyer
+                  $prixFieldKey = ($curMandat === 'vente') ? 'prix' : 'loyer';
+                  $urlPrix     = app_url('/bien_detail.php?edit=' . (int)$editingBienId . '&section=annonce&focus=' . $prixFieldKey);
+                  // → Surface : descriptif, focus surface_habitable (champ bien)
+                  $urlSurface  = app_url('/bien_detail.php?edit=' . (int)$editingBienId . '&section=descriptif&focus=surface_habitable');
+                  // → Honoraires : annonce, focus honoraires
+                  $urlHonos    = app_url('/bien_detail.php?edit=' . (int)$editingBienId . '&section=annonce&focus=honoraires');
+                ?>
+                <div class="v2-icon-radios"
+                     style="display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; margin-bottom:18px;">
+                  <?php if (!empty($curMandat) && isset($mandats[$curMandat])): ?>
+                    <a href="<?= h($urlMandat) ?>" class="v2-icon-radio is-active" style="text-decoration:none; color:#fff; cursor:pointer;" title="Modifier le mandat — Caractéristiques">
+                      <span class="v2-icon-emoji"><?= $mandats[$curMandat][0] ?></span>
+                      <span class="v2-icon-lbl"><?= h($mandats[$curMandat][1]) ?></span>
+                    </a>
+                  <?php endif; ?>
+                  <?php if ($typeBienLibelle !== ''): ?>
+                    <a href="<?= h($urlTypeBien) ?>" class="v2-icon-radio is-active" style="text-decoration:none; color:#fff; cursor:pointer;" title="Modifier le type de bien — Caractéristiques">
+                      <span class="v2-icon-emoji"><?= $typeBienEmoji ?></span>
+                      <span class="v2-icon-lbl"><?= h($typeBienLibelle) ?></span>
+                    </a>
+                  <?php endif; ?>
+                  <?php if ($recapPrixValue !== ''): ?>
+                    <a href="<?= h($urlPrix) ?>" class="v2-icon-radio is-active" style="text-decoration:none; color:#fff; cursor:pointer;" title="<?= $curMandat === 'vente' ? 'Modifier le prix — Conditions financières' : 'Modifier le loyer — Conditions financières' ?>">
+                      <span class="v2-icon-emoji"><?= $recapPrixEmoji ?></span>
+                      <span class="v2-icon-lbl"><?= h($recapPrixValue) ?></span>
+                    </a>
+                  <?php endif; ?>
+                  <?php if ($recapSurfaceStr !== ''): ?>
+                    <a href="<?= h($urlSurface) ?>" class="v2-icon-radio is-active" style="text-decoration:none; color:#fff; cursor:pointer;" title="Modifier la surface — Pièces &amp; Surfaces">
+                      <span class="v2-icon-emoji">📐</span>
+                      <span class="v2-icon-lbl"><?= h($recapSurfaceStr) ?></span>
+                    </a>
+                  <?php endif; ?>
+                  <?php if ($recapHonorairesStr !== ''): ?>
+                    <a href="<?= h($urlHonos) ?>" class="v2-icon-radio is-active" style="text-decoration:none; color:#fff; cursor:pointer;" title="Modifier les honoraires — Conditions financières">
+                      <span class="v2-icon-emoji">💰</span>
+                      <span class="v2-icon-lbl"><?= h($recapHonorairesStr) ?></span>
+                    </a>
+                  <?php endif; ?>
                 </div>
 
               <!-- Suite colonne gauche : canaux + complétude + diffuser -->
@@ -3132,9 +3427,6 @@ require_once $_sbFile;
               <div><span class="v2-meta-k">Dépenses max</span><span class="v2-meta-v"><?= !empty($bienLoaded['montant_estime_depenses_max']) ? number_format((float)$bienLoaded['montant_estime_depenses_max'], 0, ',', ' ') . ' €' : '—' ?></span></div>
             </div>
           </div>
-          <div class="v2-card-footer">
-            <a class="v2-btn-outline" href="<?= h(app_url('/bien_detail_ex.php?edit=' . $editingBienId . '#tab-dpe')) ?>">✏️ Éditer (ancienne vue V1)</a>
-          </div>
         </div>
       </section>
 
@@ -3167,17 +3459,24 @@ require_once $_sbFile;
             </div>
           </div>
           <p class="v2-card-note">📌 Obligations légales : Mention Géorisques depuis 01/01/2023 · Débroussaillement renforcé 2025.</p>
-          <div class="v2-card-footer">
-            <a class="v2-btn-outline" href="<?= h(app_url('/bien_detail_ex.php?edit=' . $editingBienId . '#tab-dpe')) ?>">✏️ Éditer (ancienne vue V1)</a>
-          </div>
         </div>
       </section>
 
       <!-- Card 3 : Données extraites (visu tableau) -->
+      <?php
+        // Score d'extraction recalculé en LIVE = % de colonnes whitelistées remplies
+        // (au lieu de dpe_diags.extraction_score figé à l'upload, qui restait
+        //  désaligné du compteur "Champs à compléter" → 100% / 17 à compléter)
+        $dpeFieldsTotal  = count($dpeFieldDefs);
+        $dpeFieldsFilled = $dpeFieldsTotal - count($dpeMissingFields);
+        $dpeScoreLive    = $dpeFieldsTotal > 0
+            ? (int)round(100 * $dpeFieldsFilled / $dpeFieldsTotal)
+            : 0;
+      ?>
       <section class="v2-card is-hidden" role="tabpanel" aria-label="Données extraites du DPE">
         <div class="v2-card-label">📊 Données extraites
-          <?php if ($dpeDiag && isset($dpeDiag['extraction_score'])): ?>
-            <span class="v2-count"><?= (int)$dpeDiag['extraction_score'] ?>%</span>
+          <?php if ($dpeDiag): ?>
+            <span class="v2-count"><?= $dpeScoreLive ?>%</span>
           <?php endif; ?>
         </div>
         <div class="v2-card-body">
@@ -3204,9 +3503,6 @@ require_once $_sbFile;
               <div>Aucune analyse DPE disponible.<br><small>Uploadez un PDF DPE dans la section Documents pour déclencher l'extraction.</small></div>
             </div>
           <?php endif; ?>
-          <div class="v2-card-footer">
-            <a class="v2-btn-outline" href="<?= h(app_url('/bien_detail_ex.php?edit=' . $editingBienId . '#tab-dpe')) ?>">✏️ Éditer (ancienne vue V1)</a>
-          </div>
         </div>
       </section>
 
@@ -3218,7 +3514,7 @@ require_once $_sbFile;
         <div class="v2-card-body v2-split">
           <div class="v2-split-left">
             <?php if ($lastDpePdf): ?>
-              <iframe src="<?= h($lastDpePdf['url_fichier']) ?>" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
+              <iframe src="<?= h($lastDpePdf['url_fichier']) ?>#navpanes=0&toolbar=1&view=FitH" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
               <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
             <?php else: ?>
               <div class="v2-doc-empty">
@@ -3252,6 +3548,12 @@ require_once $_sbFile;
                         <?php foreach (['A','B','C','D','E','F','G'] as $l): ?>
                           <option value="<?= $l ?>"><?= $l ?></option>
                         <?php endforeach; ?>
+                      </select>
+                    <?php elseif ($def['type'] === 'dpe_version'): ?>
+                      <select id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
+                        <option value="">—</option>
+                        <option value="2011">2011 (avant réforme du 1ᵉʳ juillet 2021)</option>
+                        <option value="2021">2021 (méthode actuelle)</option>
                       </select>
                     <?php elseif ($def['type'] === 'date'): ?>
                       <input type="date" id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
@@ -3364,6 +3666,9 @@ require_once $_sbFile;
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
     bienProprioLinkEndpoint: <?= json_encode(app_url('/api/bien_proprio_link.php'),    JSON_UNESCAPED_SLASHES) ?>,
     photoDeleteEndpoint: <?= json_encode(app_url('/api/bien_photo_delete.php'),        JSON_UNESCAPED_SLASHES) ?>,
+    docDeleteEndpoint:    <?= json_encode(app_url('/api/biens_documents_delete.php'),    JSON_UNESCAPED_SLASHES) ?>,
+    docReanalyzeEndpoint: <?= json_encode(app_url('/api/biens_documents_reanalyze.php'), JSON_UNESCAPED_SLASHES) ?>,
+    docExtractViewEndpoint: <?= json_encode(app_url('/api/biens_documents_extract_view.php'), JSON_UNESCAPED_SLASHES) ?>,
     annonceCreateEndpoint:       <?= json_encode(app_url('/api/annonce_create.php'),        JSON_UNESCAPED_SLASHES) ?>,
     annonceAutosaveEndpoint:     <?= json_encode(app_url('/api/annonce_autosave.php'),      JSON_UNESCAPED_SLASHES) ?>,
     annoncePhotoToggleEndpoint:  <?= json_encode(app_url('/api/annonce_photo_toggle.php'),  JSON_UNESCAPED_SLASHES) ?>,
@@ -3403,6 +3708,23 @@ require_once $_sbFile;
 
 <!-- Modal universel d'adresse (Google Places + immeubles existants) -->
 <?php require_once __DIR__ . '/inc/adresse_modal.php'; ?>
+<?php if (!empty($_GET['open_immeuble'])): ?>
+<script>
+// Création depuis le patrimoine bailleur : on ouvre directement le modal immeuble/adresse
+// (rattachement obligatoire). L'utilisateur recherche un immeuble existant ou en crée un.
+(function(){
+  function openImm(){
+    var btn = document.querySelector('[data-addr-modal-open]');
+    if (btn) {
+      if (window.__addrModal && typeof window.__addrModal.open === 'function') window.__addrModal.open(btn);
+      else btn.click();
+    } else { setTimeout(openImm, 200); }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(openImm, 250); });
+  else setTimeout(openImm, 250);
+})();
+</script>
+<?php endif; ?>
 
 <!-- ═══════════════════════════════════════════════════════════════════════
      MODAL "Créer une annonce ?" — déclenché à l'entrée section=annonce
@@ -3443,5 +3765,49 @@ require_once $_sbFile;
         src="https://maps.googleapis.com/maps/api/js?key=<?= urlencode($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=initPlacesAutocomplete"></script>
 <?php endif; ?>
 
+<?php
+// STANDARD MBI : modal iframe de recherche/création d'immeuble (toute adresse = immeuble).
+require_once __DIR__ . '/inc/immeuble_recherche_mbi.php';
+immeuble_mbi_render();
+immeuble_mbi_assets();
+?>
+<script>
+// Retour direct au dossier de vente (quand le bien a été créé depuis un dossier).
+(function(){
+  var p = new URLSearchParams(location.search);
+  var dossier = p.get('return_dossier');
+  if(!dossier || !/^\d+$/.test(dossier)) return;
+  var a = document.createElement('a');
+  a.href = <?= json_encode(app_url('/transaction_dossier.php?id=')) ?> + dossier;
+  a.textContent = '← Retour au dossier de vente';
+  a.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;'
+    + 'background:linear-gradient(135deg,#0f6cbd,#0c5aa0);color:#fff;font-weight:800;font-size:14px;'
+    + 'padding:12px 22px;border-radius:30px;text-decoration:none;box-shadow:0 8px 24px rgba(15,108,189,.4);';
+  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(a); });
+})();
+function bdOpenImmeubleModal(btn){
+  if(!window.ImmeubleRechercheMBI){ alert('Composant immeuble non chargé.'); return; }
+  var bienId = btn.getAttribute('data-bien-id');
+  var url    = btn.getAttribute('data-autosave-url');
+  var csrf   = btn.getAttribute('data-csrf');
+  window.ImmeubleRechercheMBI.open(function(imm){
+    var s = function(id,v){ var e=document.getElementById(id); if(e){ e.value = v||''; e.dispatchEvent(new Event('input',{bubbles:true})); } };
+    s('v2-f-adresse_1', imm.adresse_1);
+    s('v2-f-code_postal', imm.code_postal);
+    s('v2-f-ville', imm.ville);
+    // Rattache l'immeuble + recopie l'adresse sur le bien via l'autosave existant.
+    if(bienId && url){
+      var fd = new FormData();
+      fd.append('_edit_id', bienId);
+      if(csrf) fd.append('csrf_token', csrf);
+      fd.append('id_immeuble_selected', imm.id);
+      fd.append('adresse_1', imm.adresse_1||'');
+      fd.append('code_postal', imm.code_postal||'');
+      fd.append('ville', imm.ville||'');
+      fetch(url, {method:'POST', credentials:'same-origin', body:fd}).catch(function(){});
+    }
+  });
+}
+</script>
 </body>
 </html>
