@@ -139,6 +139,18 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-terminal{display:inline-block;background:#fde2e1;color:#a11;border:1px solid #f3b4b1;border-radius:8px;padding:4px 12px;font-weight:800;margin-bottom:14px;}
 .dv-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media(max-width:880px){.dv-grid{grid-template-columns:1fr;}}
+/* Consultation mobile efficace */
+@media(max-width:640px){
+  .dv-wrap{padding:6px 10px 40px;}
+  .dv-wrap h1{font-size:18px !important;}
+  .dv-timeline{gap:5px;}
+  .dv-step{flex:1 1 calc(33.333% - 5px);min-width:0;padding:9px 5px;}
+  .dv-step .ic{font-size:18px;} .dv-step .lb{font-size:10px;} .dv-step .soon{display:none;}
+  .dv-card{padding:14px 15px;border-radius:12px;}
+  .dvm{padding:18px 16px;border-radius:14px;}
+  .dvm-actions{flex-direction:column-reverse;}
+  .dvm-actions .dvm-btn{width:100%;}
+}
 .dv-card{border:1px solid #e2e8f0;border-radius:14px;background:#fff;padding:16px 18px;}
 .dv-card h3{margin:0 0 12px;font-size:14px;font-weight:900;color:#0f172a;display:flex;align-items:center;gap:7px;}
 .dv-row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed #eef2f6;font-size:13px;}
