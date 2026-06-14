@@ -105,28 +105,11 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
     <div class="nd-label">Désignation (optionnel)</div>
     <input type="text" id="nd-designation" class="nd-input" placeholder="Ex. Appartement T3 avec balcon">
 
-    <div class="nd-label">🔍 Rechercher l'adresse (immeubles existants + Google)</div>
-    <input type="text" id="nd-places-search" class="nd-input"
-           placeholder="Commencez à taper l'adresse (ex: 13 rue Louis Blanc)…"
-           autocomplete="off"
-           data-places-input
-           data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
-           data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
-           data-places-geocode-endpoint="<?= h(app_url('/api/geocode_address.php')) ?>"
-           data-places-street1="nd-adr1"
-           data-places-postal="nd-cp"
-           data-places-city="nd-ville"
-           data-places-lat="nd-lat"
-           data-places-lng="nd-lng"
-           data-places-place-id="nd-placeid"
-           data-places-formatted="nd-formatted"
-           data-places-immeuble-id="nd-immeuble"
-           data-places-country-code="fr">
-    <div class="nd-grid" style="margin-top:10px;">
-      <input type="text" id="nd-adr1" class="nd-input full" placeholder="N° et rue">
-      <input type="text" id="nd-cp" class="nd-input" placeholder="CP">
-      <input type="text" id="nd-ville" class="nd-input" placeholder="Ville">
-    </div>
+    <div class="nd-label">Immeuble</div>
+    <button type="button" class="nd-btn" style="background:#eef5fc;color:#0c5aa0;width:100%;justify-content:center;"
+            onclick="ndOpenImmeuble()">🏢 Rechercher / créer l'immeuble (adresse Google)</button>
+    <div id="nd-imm-chosen" style="display:none;margin-top:10px;padding:10px 14px;border:1px solid #9ad3ab;background:#eafaf0;border-radius:10px;font-size:13px;"></div>
+    <input type="hidden" id="nd-adr1"><input type="hidden" id="nd-cp"><input type="hidden" id="nd-ville">
     <input type="hidden" id="nd-lat"><input type="hidden" id="nd-lng">
     <input type="hidden" id="nd-placeid"><input type="hidden" id="nd-formatted">
     <input type="hidden" id="nd-immeuble">
@@ -146,12 +129,13 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
   </div>
 </div>
 
-<?php tiers_selector_assets(); ?>
-<!-- Recherche d'adresse INLINE (même mécanisme que agency_immeuble_form, qui fonctionne) -->
-<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
-<?php if (($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '') !== ''): ?>
-<script async src="https://maps.googleapis.com/maps/api/js?key=<?= h($GLOBALS['GOOGLE_MAPS_API_KEY']) ?>&libraries=places&callback=initPlacesAutocomplete"></script>
-<?php endif; ?>
+<?php
+tiers_selector_assets();
+// STANDARD MBI : modal de recherche/création d'immeuble (charge places.js + Google).
+require_once __DIR__ . '/inc/immeuble_recherche_mbi.php';
+immeuble_mbi_render();
+immeuble_mbi_assets();
+?>
 <script>
 (function(){
   const API_PROP = <?= json_encode(app_url('/api/transaction_dossier_new_proprio.php')) ?>;
@@ -211,6 +195,22 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
     root.querySelector('.ts-search')?.addEventListener('input', ()=>setTimeout(refresh1,40));
     root.querySelector('.ts-clear')?.addEventListener('click', ()=>setTimeout(refresh1,10));
   }
+
+  // Ouvre le modal STANDARD immeuble (Google → nom), récupère l'immeuble choisi/créé.
+  window.ndOpenImmeuble = function(){
+    if (!window.ImmeubleRechercheMBI){ alert('Composant immeuble non chargé.'); return; }
+    window.ImmeubleRechercheMBI.open(function(imm){
+      document.getElementById('nd-immeuble').value = imm.id || '';
+      document.getElementById('nd-adr1').value     = imm.adresse_1 || '';
+      document.getElementById('nd-cp').value        = imm.code_postal || '';
+      document.getElementById('nd-ville').value     = imm.ville || '';
+      const box = document.getElementById('nd-imm-chosen');
+      box.style.display = '';
+      box.innerHTML = '🏢 <strong>' + (imm.nom ? imm.nom + ' — ' : '') +
+        ([imm.adresse_1, imm.code_postal, imm.ville].filter(Boolean).join(' ')) +
+        '</strong> &nbsp;<span style="color:#0b6b35;">(immeuble #' + imm.id + ' rattaché)</span>';
+    });
+  };
 
   window.ndStep = function(n){
     document.getElementById('nd-step1').style.display = n===1?'':'none';
