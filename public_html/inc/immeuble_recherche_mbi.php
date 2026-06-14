@@ -45,8 +45,7 @@ if (!function_exists('immeuble_mbi_assets')) {
     {
         if (defined('IMMEUBLE_MBI_ASSETS')) return;
         define('IMMEUBLE_MBI_ASSETS', true);
-        $formUrl = function_exists('app_url') ? app_url('/agency_immeuble_form.php?lier=1') : '/agency_immeuble_form.php?lier=1';
-        $apiUrl  = function_exists('app_url') ? app_url('/api/immeuble_recherche_mbi.php') : '/api/immeuble_recherche_mbi.php';
+        $formUrl = function_exists('app_url') ? app_url('/immeuble_recherche_mbi_page.php') : '/immeuble_recherche_mbi_page.php';
         ?>
         <style>
           .imbm-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;align-items:center;justify-content:center;padding:24px;}
@@ -64,7 +63,6 @@ if (!function_exists('immeuble_mbi_assets')) {
         <script>
         (function(){
           const FORM_URL = <?= json_encode($formUrl) ?>;
-          const API = <?= json_encode($apiUrl) ?>;
           let onResult = null;
           const $ = id => document.getElementById(id);
 
@@ -88,22 +86,16 @@ if (!function_exists('immeuble_mbi_assets')) {
           });
           document.addEventListener('keydown', e=>{ if(e.key==='Escape' && $('imbm-modal').classList.contains('open')) close(); });
 
-          // À chaque navigation de l'iframe : si on atterrit sur la fiche immeuble
-          // (= immeuble créé), on capte l'id, on récupère ses infos et on rend.
-          $('imbm-frame').addEventListener('load', async function(){
-            $('imbm-loading').style.display = 'none';
-            let href = '';
-            try { href = $('imbm-frame').contentWindow.location.href; } catch(e){ return; }
-            const m = href.match(/agency_immeuble_fiche\.php\?id=(\d+)/);
-            if(!m) return;
-            const id = parseInt(m[1],10);
-            try {
-              const res = await fetch(API, {method:'POST',credentials:'same-origin',
-                body:new URLSearchParams({id_immeuble_selected:id})});
-              const out = await res.json();
-              if(out.ok && onResult) onResult(out.immeuble, out.created);
-            } catch(e){ if(onResult) onResult({id:id, nom:'', adresse_1:'', code_postal:'', ville:''}, true); }
-            close();
+          $('imbm-frame').addEventListener('load', function(){ $('imbm-loading').style.display = 'none'; });
+
+          // La page dédiée (dans l'iframe) communique par postMessage.
+          window.addEventListener('message', function(ev){
+            const d = ev.data || {};
+            if (d.type === 'imbm_cancel') { close(); return; }
+            if (d.type === 'imbm_created') {
+              if (onResult) onResult(d.immeuble, d.created);
+              close();
+            }
           });
 
           window.ImmeubleRechercheMBI = { open, close };
