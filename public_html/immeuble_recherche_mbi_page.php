@@ -27,17 +27,15 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
 <style>
   *{box-sizing:border-box;}
   body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:#f8fafc;color:#1f2937;}
-  .imp-wrap{max-width:500px;margin:0 auto;padding:16px 16px 40px;}
-  .imp-head{display:flex;align-items:center;gap:14px;margin-bottom:6px;}
-  .imp-logo{height:96px;width:auto;}
-  .imp-head h1{margin:0;font-size:19px;font-weight:900;}
-  .imp-sub{color:#64748b;font-size:13px;margin-bottom:18px;}
-  .imp-label{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#475569;text-transform:uppercase;margin:16px 0 6px;}
-  .imp-input{width:100%;padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;outline:none;}
+  .imp-wrap{max-width:500px;margin:0 auto;padding:12px 16px 14px;}
+  .imp-head{display:none;}
+  .imp-sub{color:#64748b;font-size:12px;margin-bottom:10px;line-height:1.35;}
+  .imp-label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.05em;color:#475569;text-transform:uppercase;margin:11px 0 4px;}
+  .imp-input{width:100%;padding:9px 12px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;outline:none;}
   .imp-input:focus{border-color:#0ea5e9;box-shadow:0 0 0 3px rgba(14,165,233,.12);}
-  .imp-grid{display:grid;grid-template-columns:160px 1fr;gap:10px;margin-top:10px;}
-  .imp-hint{font-size:11px;color:#94a3b8;margin-top:6px;}
-  .imp-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:24px;}
+  .imp-grid{display:grid;grid-template-columns:140px 1fr;gap:8px;margin-top:8px;}
+  .imp-hint{font-size:11px;color:#94a3b8;margin-top:5px;}
+  .imp-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;}
   .imp-btn{border:none;border-radius:11px;padding:13px 22px;font-weight:800;font-size:14px;cursor:pointer;}
   .imp-btn.cancel{background:#fff;color:#475569;border:1px solid #cbd5e1;}
   .imp-btn.ok{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
