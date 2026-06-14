@@ -41,6 +41,8 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
 .nd-bien-btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:10px 13px;cursor:pointer;line-height:1.35;width:100%;}
 .nd-bien-btn:hover{border-color:#0f6cbd;background:#eef5fc;}
 .nd-bien-btn .r{font-weight:800;font-size:13px;color:#0f172a;}
+.nd-bien-btn .ref-link{cursor:pointer;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px;}
+.nd-bien-btn .ref-link:hover{color:#0f6cbd;text-decoration-color:#0f6cbd;}
 .nd-bien-btn .d{font-size:11.5px;color:#475569;}
 .nd-bien-btn .d.loc{color:#0e7490;font-weight:700;}
 .nd-bien-btn .d.vac{color:#94a3b8;font-style:italic;}
@@ -149,6 +151,7 @@ tiers_selector_assets();
   const API_BIEN = <?= json_encode(app_url('/api/transaction_dossier_new_bien.php')) ?>;
   const API_PBIENS = <?= json_encode(app_url('/api/transaction_dossier_proprio_biens.php')) ?>;
   const DOSSIER_URL = <?= json_encode(app_url('/transaction_dossier.php?id_bien=')) ?>;
+  const BIEN_DETAIL = <?= json_encode(app_url('/bien_detail.php?edit=')) ?>;
   let idProprietaire = 0, idTiers = 0, selType = 0;
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
@@ -174,12 +177,18 @@ tiers_selector_assets();
           (b.etage!=null ? (b.etage===0?'RDC':b.etage+'ᵉ ét.') : null)
         ].filter(Boolean).join(' · ');
         el.innerHTML =
-          '<span class="r">'+esc(b.ref)+'</span>'+
+          '<span class="r ref-link" title="Ouvrir la fiche détaillée du bien">'+esc(b.ref)+'</span>'+
           (carac?'<span class="d">'+esc(carac)+'</span>':'')+
           (b.adresse?'<span class="d">📍 '+esc(b.adresse)+'</span>':'')+
           (b.locataire?'<span class="d loc">👤 '+esc(b.locataire)+'</span>':'<span class="d vac">🔑 vacant</span>')+
           (tags?'<span class="tags">'+tags+'</span>':'');
+        // Clic sur la carte = sélectionner le bien + continuer (ouvre son dossier).
         el.onclick = ()=>{ window.location.href = DOSSIER_URL + b.id; };
+        // Clic sur la RÉFÉRENCE uniquement = ouvrir le détail du bien (sans sélectionner).
+        el.querySelector('.ref-link').addEventListener('click', (ev)=>{
+          ev.stopPropagation();
+          window.location.href = BIEN_DETAIL + b.id;
+        });
         box.appendChild(el);
       });
     }catch(err){ box.innerHTML = '<div class="nd-msg">Erreur de chargement.</div>'; }
