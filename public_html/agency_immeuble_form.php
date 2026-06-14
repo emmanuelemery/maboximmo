@@ -409,10 +409,18 @@ ob_start();
         <?php if ($editMode): ?>
             <a href="agency_immeuble_fiche.php?id=<?= $id ?>" class="v2-btn">📄 Voir la fiche</a>
         <?php endif; ?>
+        <?php if (!empty($_GET['lier'])): ?>
+        <!-- Mode « lier » (ouvert en modal depuis une création de bien) : valide
+             l'immeuble et le rattache au bien. Visible uniquement avec ?lier=1. -->
+        <button type="submit" class="v2-btn primary" style="background:linear-gradient(135deg,#0f9d58,#0b8043);border-color:#0b8043;">
+            ✅ Valider et lier au bien
+        </button>
+        <?php else: ?>
         <button type="submit" class="v2-btn primary">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             <?= $editMode ? 'Enregistrer les modifications' : 'Créer l\'immeuble' ?>
         </button>
+        <?php endif; ?>
     </div>
 
 </form>
