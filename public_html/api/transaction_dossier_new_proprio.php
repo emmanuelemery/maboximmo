@@ -25,7 +25,11 @@ try {
     $stP->execute([$idTiers]);
     $idProp = (int)($stP->fetchColumn() ?: 0);
 
-    $nom = $t['nom'] ?: ($t['raison_sociale'] ?: ($t['nom_affichage'] ?: ('Tiers #' . $idTiers)));
+    // Affichage : RAISON SOCIALE en priorité (ex. « SCI FOCH ») ; si vide,
+    // on retombe sur NOM + prénom.
+    $rs = trim((string)($t['raison_sociale'] ?? ''));
+    $np = trim(trim((string)($t['nom'] ?? '')) . ' ' . trim((string)($t['prenom'] ?? '')));
+    $nom = $rs !== '' ? $rs : ($np !== '' ? $np : ('Tiers #' . $idTiers));
 
     if ($idProp <= 0) {
         $estMorale = in_array($t['type_tiers'], ['personne_morale','entite_juridique','indivision','syndicat_coprop'], true);
