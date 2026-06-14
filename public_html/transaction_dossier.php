@@ -106,6 +106,13 @@ $roleLabels = [
     'avocat' => 'Avocat', 'partenaire_apporteur' => 'Apporteur / partenaire',
     'collaborateur' => 'Collaborateur',
 ];
+// Icône courte par rôle (compact mais informatif, dans la card Contacts).
+$roleIcons = [
+    'prospect_vendeur' => '🔑', 'vendeur' => '🔑',
+    'acquereur' => '🛒', 'prospect_acquereur' => '🛒',
+    'notaire' => '⚖️', 'notaire_acquereur' => '⚖️',
+    'avocat' => '👔', 'partenaire_apporteur' => '🤝', 'collaborateur' => '👥',
+];
 
 // ── Timeline : 7 jalons macro ──
 $etapes = [
@@ -181,6 +188,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-row .v{font-weight:700;color:#1f2937;text-align:right;}
 .dv-actor{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed #eef2f6;}
 .dv-actor:last-child{border-bottom:0;}
+.dv-actor .role-ic{font-size:17px;flex:none;cursor:default;}
 .dv-actor .role{font-size:11px;font-weight:800;color:#0f6cbd;background:#eef5fc;border-radius:6px;padding:2px 7px;white-space:nowrap;}
 .dv-actor .nm{font-weight:700;font-size:13px;}
 .dv-actor .ct{font-size:11px;color:#64748b;}
@@ -453,6 +461,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
               $meta = json_decode((string)($a['metadata'] ?? ''), true) ?: [];
           ?>
             <div class="dv-actor" data-role-id="<?= (int)$a['role_id'] ?>" title="<?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?>">
+              <span class="role-ic" title="<?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?>"><?= $roleIcons[$a['role_code']] ?? '👤' ?></span>
               <div style="flex:1;min-width:0;">
                 <div class="nm"><?= h($acteurNom($a)) ?>
                   <?php if (!empty($meta['modifiable'])): ?><span class="dv-badge" title="Proposé automatiquement, modifiable">proposé</span><?php endif; ?>
@@ -718,7 +727,9 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     const ct = [a.email, a.telephone].filter(Boolean).join(' · ');
     const div = document.createElement('div');
     div.className='dv-actor'; div.dataset.roleId=a.role_id; div.title=a.role_label||'';
+    var icons={prospect_vendeur:'🔑',vendeur:'🔑',acquereur:'🛒',prospect_acquereur:'🛒',notaire:'⚖️',notaire_acquereur:'⚖️',avocat:'👔',partenaire_apporteur:'🤝',collaborateur:'👥'};
     div.innerHTML =
+      '<span class="role-ic" title="'+esc(a.role_label||'')+'">'+(icons[a.role_code]||'👤')+'</span>'+
       '<div style="flex:1;min-width:0;"><div class="nm">'+esc(a.nom)+'</div>'+
       (ct?'<div class="ct">'+esc(ct)+'</div>':'')+'</div>'+
       '<a class="dv-badge" href="'+TIERS_FICHE+a.id_tiers+'">fiche →</a>'+
