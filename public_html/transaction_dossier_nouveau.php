@@ -59,8 +59,7 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
 /* cascade modale adresse au-dessus de la modale création tiers */
 .ts-modal-overlay{z-index:9500 !important;}
 .tiers-selector .ts-dropdown{z-index:9600;}
-.addr-modal{z-index:9700 !important;}
-.addr-modal .places-dropdown{z-index:9800 !important;}
+.places-dropdown{z-index:10000 !important;} /* autocomplete inline au-dessus de tout */
 </style>
 
 <div class="nd-wrap">
@@ -106,20 +105,31 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
     <div class="nd-label">Désignation (optionnel)</div>
     <input type="text" id="nd-designation" class="nd-input" placeholder="Ex. Appartement T3 avec balcon">
 
-    <div class="nd-label">Adresse</div>
-    <button type="button" class="nd-btn" style="background:#eef5fc;color:#0c5aa0;width:100%;"
-            data-addr-modal-open
-            data-addr-target-street1="nd-adr1" data-addr-target-postal="nd-cp"
-            data-addr-target-city="nd-ville" data-addr-target-lat="nd-lat"
-            data-addr-target-lng="nd-lng" data-addr-target-placeid="nd-placeid"
-            data-addr-target-formatted="nd-formatted">📍 Rechercher l'adresse (Google)</button>
+    <div class="nd-label">🔍 Rechercher l'adresse (immeubles existants + Google)</div>
+    <input type="text" id="nd-places-search" class="nd-input"
+           placeholder="Commencez à taper l'adresse (ex: 13 rue Louis Blanc)…"
+           autocomplete="off"
+           data-places-input
+           data-places-endpoint="<?= h(app_url('/api/places_autocomplete.php')) ?>"
+           data-places-details-endpoint="<?= h(app_url('/api/places_details.php')) ?>"
+           data-places-geocode-endpoint="<?= h(app_url('/api/geocode_address.php')) ?>"
+           data-places-street1="nd-adr1"
+           data-places-postal="nd-cp"
+           data-places-city="nd-ville"
+           data-places-lat="nd-lat"
+           data-places-lng="nd-lng"
+           data-places-place-id="nd-placeid"
+           data-places-formatted="nd-formatted"
+           data-places-immeuble-id="nd-immeuble"
+           data-places-country-code="fr">
     <div class="nd-grid" style="margin-top:10px;">
-      <input type="text" id="nd-adr1" class="nd-input full" placeholder="N° et rue" readonly>
-      <input type="text" id="nd-cp" class="nd-input" placeholder="CP" readonly>
-      <input type="text" id="nd-ville" class="nd-input" placeholder="Ville" readonly>
+      <input type="text" id="nd-adr1" class="nd-input full" placeholder="N° et rue">
+      <input type="text" id="nd-cp" class="nd-input" placeholder="CP">
+      <input type="text" id="nd-ville" class="nd-input" placeholder="Ville">
     </div>
     <input type="hidden" id="nd-lat"><input type="hidden" id="nd-lng">
     <input type="hidden" id="nd-placeid"><input type="hidden" id="nd-formatted">
+    <input type="hidden" id="nd-immeuble">
     </div><!-- /nd-bien-left -->
 
     <div class="nd-bien-right">
@@ -136,12 +146,9 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
   </div>
 </div>
 
-<?php
-require_once __DIR__ . '/inc/adresse_modal.php';
-tiers_selector_assets();
-?>
+<?php tiers_selector_assets(); ?>
+<!-- Recherche d'adresse INLINE (même mécanisme que agency_immeuble_form, qui fonctionne) -->
 <script src="<?= h(asset_url('/js/places.js')) ?>"></script>
-<script src="<?= h(asset_url('/js/adresse_modal.js')) ?>"></script>
 <?php if (($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '') !== ''): ?>
 <script async src="https://maps.googleapis.com/maps/api/js?key=<?= h($GLOBALS['GOOGLE_MAPS_API_KEY']) ?>&libraries=places&callback=initPlacesAutocomplete"></script>
 <?php endif; ?>
@@ -244,8 +251,8 @@ tiers_selector_assets();
         adresse_1:adr1, code_postal:document.getElementById('nd-cp').value||'', ville:ville,
         latitude:document.getElementById('nd-lat').value||'', longitude:document.getElementById('nd-lng').value||'',
         google_place_id:document.getElementById('nd-placeid').value||'', adresse_formatee:document.getElementById('nd-formatted').value||'',
-        // Immeuble existant sélectionné dans le modal Google (anti-doublon)
-        id_immeuble_selected:(document.getElementById('addr-modal-field-immeuble-id')||{}).value||''
+        // Immeuble existant sélectionné dans l'autocomplete (anti-doublon)
+        id_immeuble_selected:(document.getElementById('nd-immeuble')||{}).value||''
       });
       const res = await fetch(API_BIEN, {method:'POST',credentials:'same-origin',body});
       const out = await res.json();
