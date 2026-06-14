@@ -114,7 +114,7 @@ define('ADRESSE_MODAL_INCLUDED', true);
   .addr-modal-card { position: relative; background: #fff; border-radius: 14px; max-width: 640px; width: calc(100% - 32px); max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 24px 64px rgba(0,0,0,0.25); overflow: hidden; }
   .addr-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
   .addr-modal-head-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .addr-modal-logo { height: 32px; width: auto; flex: none; }
+  .addr-modal-logo { height: 50px; width: auto; flex: none; }
   .addr-modal-head h3 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
   .addr-modal-x { background: none; border: none; font-size: 24px; cursor: pointer; color: #64748b; line-height: 1; padding: 0 6px; border-radius: 6px; }
   .addr-modal-x:hover { background: #f1f5f9; color: #0f172a; }
