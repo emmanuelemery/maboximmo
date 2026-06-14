@@ -53,8 +53,9 @@ if (!function_exists('immeuble_mbi_assets')) {
           .imbm-backdrop.open{display:flex;}
           .imbm-card{background:#fff;border-radius:16px;width:min(560px,96vw);height:min(860px,92vh);display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.3);overflow:hidden;}
           .imbm-head{display:flex;align-items:center;gap:12px;padding:6px 18px;border-bottom:1px solid #e5e7eb;flex:none;}
-          /* logo recadré (le PNG a de grandes marges transparentes : on zoome dessus) */
-          .imbm-logo{flex:none;width:130px;height:72px;background-repeat:no-repeat;background-position:center;background-size:185%;}
+          /* logo recadré (le PNG a de grandes marges transparentes : on zoome dessus).
+             display:inline-block OBLIGATOIRE sur un span sinon width/height ignorés. */
+          .imbm-logo{display:inline-block;flex:none;width:120px;height:64px;background-repeat:no-repeat;background-position:center;background-size:175%;}
           .imbm-head h3{margin:0;font-size:17px;font-weight:800;color:#0f172a;flex:1;}
           .imbm-x{border:none;background:none;font-size:26px;color:#64748b;cursor:pointer;line-height:1;}
           .imbm-x:hover{color:#0f172a;}
@@ -93,6 +94,13 @@ if (!function_exists('immeuble_mbi_assets')) {
           // La page dédiée (dans l'iframe) communique par postMessage.
           window.addEventListener('message', function(ev){
             const d = ev.data || {};
+            if (d.type === 'imbm_height' && d.height) {
+              // Modal qui colle au contenu : hauteur = en-tête + contenu (plafonné à 90vh).
+              const headH = document.querySelector('.imbm-head').offsetHeight || 76;
+              const maxH = Math.round(window.innerHeight * 0.9);
+              document.querySelector('.imbm-card').style.height = Math.min(headH + d.height, maxH) + 'px';
+              return;
+            }
             if (d.type === 'imbm_cancel') { close(); return; }
             if (d.type === 'imbm_created') {
               if (onResult) onResult(d.immeuble, d.created);

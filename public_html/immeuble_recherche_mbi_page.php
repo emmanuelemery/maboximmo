@@ -111,12 +111,20 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
   }
   let nomTouched=false;
   $('imp-nom').addEventListener('input', ()=>{ nomTouched = $('imp-nom').value.trim() !== ''; });
+
+  // Hauteur réelle envoyée au parent (modal qui colle au contenu).
+  // min 470px : laisse la place au déroulant de l'autocomplete (sinon coupé par l'iframe).
+  function sendHeight(){ tell('imbm_height', {height: Math.max(Math.ceil(document.querySelector('.imp-wrap').getBoundingClientRect().height) + 24, 470)}); }
+  window.addEventListener('load', sendHeight);
+  if (window.ResizeObserver) new ResizeObserver(sendHeight).observe(document.querySelector('.imp-wrap'));
+
   // L'autocomplete remplit l'adresse par programme (sans event) : on surveille.
   let lastAdr='';
   setInterval(()=>{
     const adr=$('imp-adr1').value.trim();
     if(adr!==lastAdr){ lastAdr=adr; if(!nomTouched){ $('imp-nom').value = deriveNom(adr); } }
   }, 500);
+  sendHeight();
 
   $('imp-cancel').addEventListener('click', ()=> tell('imbm_cancel'));
 
