@@ -168,6 +168,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dvk-act-btn{display:block;width:100%;text-align:left;margin-bottom:7px;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer;}
 .dvk-act-btn:hover{border-color:#0f6cbd;background:#eef5fc;}
 .dvk-soon{font-size:12px;color:#94a3b8;font-style:italic;padding:8px 0;}
+.dv-fin-link{flex:1;text-align:center;text-decoration:none;border:1px solid #cbd5e1;background:#f8fafc;border-radius:9px;padding:9px 10px;font-size:12px;font-weight:700;color:#0f6cbd;white-space:nowrap;}
+.dv-fin-link:hover{border-color:#0f6cbd;background:#eef5fc;}
 /* Consultation mobile efficace */
 @media(max-width:640px){
   .dv-wrap{padding:6px 10px 40px;}
@@ -301,26 +303,6 @@ include __DIR__ . '/inc/agency_layout_top.php';
           </div>
         </div>
 
-        <!-- Card ESTIMATION -->
-        <div class="dv-card">
-          <h3>📊 Estimation</h3>
-          <div style="text-align:center;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
-            <div class="dv-prix" id="dv-prix-val"><?= h($fmtPrix($prixCourant)) ?></div>
-            <button type="button" class="dv-estim-btn" onclick="dvToggleEstim(true)"><?= $prixCourant ? '✏️ Modifier l\'estimation' : '📊 Estimer le prix' ?></button>
-            <div id="dv-estim-form" style="display:none;margin-top:10px;">
-              <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
-                <input type="text" id="dv-estim-input" inputmode="numeric" placeholder="Prix de vente €"
-                       value="<?= $prixCourant ? (int)$prixCourant : '' ?>"
-                       style="width:150px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;text-align:right;">
-                <button type="button" class="dvm-btn ok" style="padding:8px 14px;" onclick="dvSaveEstim()">Valider</button>
-                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleEstim(false)">×</button>
-              </div>
-              <div id="dv-estim-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
-            </div>
-          </div>
-        </div>
-
         <!-- Card MANDAT -->
         <div class="dv-card">
           <h3>📝 Mandat de vente</h3>
@@ -373,10 +355,39 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <div class="dvk-soon">Annonce &amp; diffusion portails — à venir.</div>
         </div>
 
-        <!-- Card CONDITIONS FINANCIÈRES -->
+        <!-- Card CONDITIONS FINANCIÈRES (estimation + honoraires + aides) -->
+        <?php
+          $bLat = $bien['latitude'] ?? null; $bLng = $bien['longitude'] ?? null;
+          $dvfUrl = ($bLat && $bLng)
+            ? 'https://explore.data.gouv.fr/fr/immobilier?onglet=carte&lat=' . rawurlencode((string)$bLat) . '&lng=' . rawurlencode((string)$bLng) . '&zoom=18'
+            : 'https://app.dvf.etalab.gouv.fr/';
+        ?>
         <div class="dv-card">
           <h3>💶 Conditions financières</h3>
-          <div class="dvk-soon">Honoraires, dépôt de garantie, conditions suspensives — à venir.</div>
+          <div style="text-align:center;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
+            <div class="dv-prix" id="dv-prix-val"><?= h($fmtPrix($prixCourant)) ?></div>
+            <button type="button" class="dv-estim-btn" onclick="dvToggleEstim(true)"><?= $prixCourant ? '✏️ Modifier l\'estimation' : '📊 Estimer le prix' ?></button>
+            <div id="dv-estim-form" style="display:none;margin-top:10px;">
+              <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
+                <input type="text" id="dv-estim-input" inputmode="numeric" placeholder="Prix de vente €"
+                       value="<?= $prixCourant ? (int)$prixCourant : '' ?>"
+                       style="width:150px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;text-align:right;">
+                <button type="button" class="dvm-btn ok" style="padding:8px 14px;" onclick="dvSaveEstim()">Valider</button>
+                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleEstim(false)">×</button>
+              </div>
+              <div id="dv-estim-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+            </div>
+          </div>
+          <?php if ($mandat && $mandat['honoraires'] !== null && $mandat['honoraires'] !== ''): ?>
+            <div class="dv-row" style="margin-top:10px;"><span class="k">Honoraires (mandat)</span><span class="v"><?= h($fmtPrix($mandat['honoraires'])) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></span></div>
+          <?php endif; ?>
+          <p class="dvm-label" style="margin-top:12px;">Aides à l'estimation</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="dv-fin-link" href="https://www.cadastre.com/" target="_blank" rel="noopener">🗺️ Cadastre</a>
+            <a class="dv-fin-link" href="<?= h($dvfUrl) ?>" target="_blank" rel="noopener">📊 DVF · valeurs foncières</a>
+          </div>
+          <div class="dvk-soon">Dépôt de garantie, conditions suspensives — à venir.</div>
         </div>
 
         <!-- Card ACTE -->
