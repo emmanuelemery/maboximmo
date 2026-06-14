@@ -13,6 +13,7 @@ require_once __DIR__ . '/inc/tiers_selector.php';
 require_login();
 
 $pageTitle = 'Nouveau dossier de vente';
+$pageIcon  = '🗂️';
 include __DIR__ . '/inc/agency_layout_top.php';
 
 $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=>'Bureau', 8=>'Parking', 9=>'Garage', 10=>'Entrepôt'];

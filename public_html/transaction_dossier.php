@@ -122,6 +122,7 @@ $etapeTerminal = in_array($dossier['etape'], ['sans_suite', 'perdu'], true);
 
 $refBien   = $bien['reference_bien'] ?: ('#' . $idBien);
 $pageTitle = 'Dossier de vente · ' . $refBien;
+$pageIcon  = '🗂️';
 $extraCss  = fiche360_css();
 include __DIR__ . '/inc/agency_layout_top.php';
 ?>
