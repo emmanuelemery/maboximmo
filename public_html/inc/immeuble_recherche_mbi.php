@@ -26,7 +26,8 @@ if (!function_exists('immeuble_mbi_render')) {
         <div class="imbm-backdrop" id="imbm-modal" aria-hidden="true">
           <div class="imbm-card" role="dialog" aria-modal="true">
             <div class="imbm-head">
-              <img class="imbm-logo" src="<?= $h($logo) ?>" alt="Ma Box Immo — validé">
+              <span class="imbm-logo" role="img" aria-label="Ma Box Immo — validé"
+                    style="background-image:url('<?= $h($logo) ?>')"></span>
               <h3>🏢 Rechercher / créer un immeuble</h3>
               <button type="button" class="imbm-x" data-imbm-close aria-label="Fermer">×</button>
             </div>
@@ -50,9 +51,10 @@ if (!function_exists('immeuble_mbi_assets')) {
         <style>
           .imbm-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;align-items:center;justify-content:center;padding:24px;}
           .imbm-backdrop.open{display:flex;}
-          .imbm-card{background:#fff;border-radius:16px;width:min(1100px,96vw);height:min(860px,92vh);display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.3);overflow:hidden;}
-          .imbm-head{display:flex;align-items:center;gap:14px;padding:8px 20px;border-bottom:1px solid #e5e7eb;flex:none;}
-          .imbm-logo{height:88px;width:auto;flex:none;}
+          .imbm-card{background:#fff;border-radius:16px;width:min(560px,96vw);height:min(860px,92vh);display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.3);overflow:hidden;}
+          .imbm-head{display:flex;align-items:center;gap:12px;padding:6px 18px;border-bottom:1px solid #e5e7eb;flex:none;}
+          /* logo recadré (le PNG a de grandes marges transparentes : on zoome dessus) */
+          .imbm-logo{flex:none;width:130px;height:72px;background-repeat:no-repeat;background-position:center;background-size:185%;}
           .imbm-head h3{margin:0;font-size:17px;font-weight:800;color:#0f172a;flex:1;}
           .imbm-x{border:none;background:none;font-size:26px;color:#64748b;cursor:pointer;line-height:1;}
           .imbm-x:hover{color:#0f172a;}

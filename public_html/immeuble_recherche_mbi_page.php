@@ -27,7 +27,7 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
 <style>
   *{box-sizing:border-box;}
   body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:#f8fafc;color:#1f2937;}
-  .imp-wrap{max-width:680px;margin:0 auto;padding:18px 18px 40px;}
+  .imp-wrap{max-width:500px;margin:0 auto;padding:16px 16px 40px;}
   .imp-head{display:flex;align-items:center;gap:14px;margin-bottom:6px;}
   .imp-logo{height:96px;width:auto;}
   .imp-head h1{margin:0;font-size:19px;font-weight:900;}
@@ -102,6 +102,21 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
   const API = <?= json_encode(app_url('/api/immeuble_recherche_mbi.php')) ?>;
   const $ = id => document.getElementById(id);
   function tell(type, payload){ if(window.parent && window.parent!==window){ window.parent.postMessage(Object.assign({type:type}, payload||{}), '*'); } }
+
+  // Proposition auto du nom d'immeuble depuis l'adresse : "13 Rue Louis Blanc" -> "13 Louis Blanc".
+  function deriveNom(adr){
+    if(!adr) return '';
+    const types=/\b(rue|avenue|av|bd|boulevard|impasse|imp|chemin|chem|allee|all[ée]e|place|pl|route|rte|quai|cours|passage|pass|square|sq|sentier|villa|voie|montee|mont[ée]e|esplanade|faubourg|fbg|traverse)\b/gi;
+    return adr.replace(types,' ').replace(/\s+/g,' ').trim();
+  }
+  let nomTouched=false;
+  $('imp-nom').addEventListener('input', ()=>{ nomTouched = $('imp-nom').value.trim() !== ''; });
+  // L'autocomplete remplit l'adresse par programme (sans event) : on surveille.
+  let lastAdr='';
+  setInterval(()=>{
+    const adr=$('imp-adr1').value.trim();
+    if(adr!==lastAdr){ lastAdr=adr; if(!nomTouched){ $('imp-nom').value = deriveNom(adr); } }
+  }, 500);
 
   $('imp-cancel').addEventListener('click', ()=> tell('imbm_cancel'));
 
