@@ -104,7 +104,8 @@ if (!function_exists('dv_ensure_for_bien')) {
             return $row ? (int)$row['id'] : 0;
         }
 
-        // Acteur vendeur (proposé, modifiable) + synchro étape réelle.
+        // Lot principal (rang 0) + acteur vendeur proposé + synchro étape réelle.
+        dv_ensure_lot($pdo, $idDossier, $idBien, ['rang' => 0, 'id_user' => $idUser]);
         dv_seed_vendeur($pdo, $idDossier, $idBien);
         dv_sync_etape($pdo, $idDossier);
 
@@ -323,5 +324,175 @@ if (!function_exists('dv_detach_acteur')) {
         $st = $pdo->prepare("UPDATE tiers_roles SET actif = 0, date_modification = NOW()
                               WHERE id = ? AND objet_type = 'dossier_vente' AND id_objet = ?");
         return $st->execute([$roleId, $idDossier]);
+    }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   LOTS DU MANDAT DE VENTE (multi-biens)
+   Un dossier/mandat de vente peut couvrir plusieurs lots (immeuble de rapport,
+   vente en bloc ou à la découpe). Chaque lot porte son prix_vente + loyer_reel
+   + loyer_potentiel. Loyers pré-remplis depuis le bien si en gestion (Saby),
+   saisis librement sinon (mandat extérieur). Repris dans le bien à la signature.
+   Voir migration 20260614f_dossier_vente_lots.
+   ════════════════════════════════════════════════════════════════════════ */
+
+if (!function_exists('dv_ensure_lot')) {
+    /**
+     * Rattache (idempotent) un bien comme lot du dossier. Ne touche pas aux
+     * prix/loyers d'un lot déjà présent. Retourne l'id du lot (0 si invalide).
+     *
+     * @param array $opts { rang?: int, id_user?: int|null, prix_vente?: float|null,
+     *                       loyer_reel?: float|null, loyer_potentiel?: float|null }
+     */
+    function dv_ensure_lot(PDO $pdo, int $idDossier, int $idBien, array $opts = []): int {
+        if ($idDossier <= 0 || $idBien <= 0) return 0;
+
+        // Le bien doit exister.
+        $stB = $pdo->prepare("SELECT id FROM biens WHERE id = ? LIMIT 1");
+        $stB->execute([$idBien]);
+        if (!$stB->fetchColumn()) return 0;
+
+        $rang   = isset($opts['rang']) ? (int)$opts['rang'] : 0;
+        $idUser = isset($opts['id_user']) ? (int)$opts['id_user'] : null;
+        $num = static fn($v) => ($v === null || $v === '') ? null : (float)$v;
+
+        try {
+            $pdo->prepare("
+                INSERT INTO dossier_vente_bien
+                    (id_dossier, id_bien, prix_vente, loyer_reel, loyer_potentiel, rang, id_user, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), updated_at = NOW()
+            ")->execute([
+                $idDossier, $idBien,
+                $num($opts['prix_vente'] ?? null),
+                $num($opts['loyer_reel'] ?? null),
+                $num($opts['loyer_potentiel'] ?? null),
+                $rang, $idUser,
+            ]);
+            return (int)$pdo->lastInsertId();
+        } catch (Throwable $e) {
+            error_log('[dv_ensure_lot] ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('dv_lots')) {
+    /**
+     * Lots du dossier + infos bien. Pour les loyers laissés vides sur le lot, on
+     * expose la valeur connue du bien (_loyer_reel_bien / _loyer_potentiel_bien)
+     * comme suggestion d'affichage — sans jamais l'écrire dans le lot.
+     */
+    function dv_lots(PDO $pdo, int $idDossier): array {
+        if ($idDossier <= 0) return [];
+        $st = $pdo->prepare("
+            SELECT dvb.id AS lot_id, dvb.id_bien, dvb.prix_vente, dvb.loyer_reel,
+                   dvb.loyer_potentiel, dvb.rang,
+                   b.reference_bien, b.designation, b.id_immeuble,
+                   b.loyer_hc        AS _loyer_reel_bien,
+                   b.loyer_potentiel AS _loyer_potentiel_bien,
+                   im.nom_immeuble, im.adresse_1 AS imm_adresse
+              FROM dossier_vente_bien dvb
+              JOIN biens b      ON b.id = dvb.id_bien
+              LEFT JOIN immeubles im ON im.id = b.id_immeuble
+             WHERE dvb.id_dossier = ?
+             ORDER BY dvb.rang ASC, dvb.id ASC
+        ");
+        $st->execute([$idDossier]);
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+}
+
+if (!function_exists('dv_save_lot')) {
+    /** Met à jour prix/loyers d'un lot. Valeurs null/'' → effacent le champ. */
+    function dv_save_lot(PDO $pdo, int $idDossier, int $lotId, array $vals): bool {
+        if ($idDossier <= 0 || $lotId <= 0) return false;
+        $num = static fn($v) => ($v === null || $v === '') ? null : (float)$v;
+        $st = $pdo->prepare("
+            UPDATE dossier_vente_bien
+               SET prix_vente = :p, loyer_reel = :lr, loyer_potentiel = :lp, updated_at = NOW()
+             WHERE id = :lot AND id_dossier = :doss
+        ");
+        try {
+            return $st->execute([
+                ':p'   => $num($vals['prix_vente'] ?? null),
+                ':lr'  => $num($vals['loyer_reel'] ?? null),
+                ':lp'  => $num($vals['loyer_potentiel'] ?? null),
+                ':lot' => $lotId, ':doss' => $idDossier,
+            ]);
+        } catch (Throwable $e) {
+            error_log('[dv_save_lot] ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('dv_remove_lot')) {
+    /** Détache un lot du dossier. Refuse de retirer le dernier lot restant. */
+    function dv_remove_lot(PDO $pdo, int $idDossier, int $lotId): bool {
+        if ($idDossier <= 0 || $lotId <= 0) return false;
+        $stC = $pdo->prepare("SELECT COUNT(*) FROM dossier_vente_bien WHERE id_dossier = ?");
+        $stC->execute([$idDossier]);
+        if ((int)$stC->fetchColumn() <= 1) return false; // garde au moins 1 lot
+        $st = $pdo->prepare("DELETE FROM dossier_vente_bien WHERE id = ? AND id_dossier = ?");
+        return $st->execute([$lotId, $idDossier]);
+    }
+}
+
+if (!function_exists('dv_totaux')) {
+    /**
+     * Totaux du mandat : prix total (Σ prix lots), loyers réels/potentiels cumulés
+     * (lot si renseigné, sinon valeur du bien), rendement brut sur le réel.
+     */
+    function dv_totaux(PDO $pdo, int $idDossier): array {
+        $lots = dv_lots($pdo, $idDossier);
+        $prix = 0.0; $lr = 0.0; $lp = 0.0; $n = 0;
+        foreach ($lots as $l) {
+            $n++;
+            $prix += (float)($l['prix_vente'] ?? 0);
+            $lr   += (float)(($l['loyer_reel']      ?? null) ?? $l['_loyer_reel_bien']      ?? 0);
+            $lp   += (float)(($l['loyer_potentiel'] ?? null) ?? $l['_loyer_potentiel_bien'] ?? 0);
+        }
+        $rendement = $prix > 0 ? round(($lr * 12 / $prix) * 100, 2) : null;
+        return [
+            'nb_lots'         => $n,
+            'prix_total'      => $prix,
+            'loyer_reel'      => $lr,
+            'loyer_potentiel' => $lp,
+            'rendement_brut'  => $rendement, // % annuel sur loyers réels
+        ];
+    }
+}
+
+if (!function_exists('dv_apply_lots_to_biens')) {
+    /**
+     * À la SIGNATURE du mandat : reprend les loyers des lots dans les biens.
+     *   loyer_reel      → biens.loyer_hc
+     *   loyer_potentiel → biens.loyer_potentiel
+     * N'écrit que les valeurs renseignées sur le lot (n'efface jamais le bien).
+     * Retourne le nombre de biens mis à jour.
+     */
+    function dv_apply_lots_to_biens(PDO $pdo, int $idDossier): int {
+        if ($idDossier <= 0) return 0;
+        $lots = dv_lots($pdo, $idDossier);
+        $done = 0;
+        foreach ($lots as $l) {
+            $sets = []; $params = [];
+            if ($l['loyer_reel'] !== null && $l['loyer_reel'] !== '') {
+                $sets[] = 'loyer_hc = ?'; $params[] = (float)$l['loyer_reel'];
+            }
+            if ($l['loyer_potentiel'] !== null && $l['loyer_potentiel'] !== '') {
+                $sets[] = 'loyer_potentiel = ?'; $params[] = (float)$l['loyer_potentiel'];
+            }
+            if (!$sets) continue;
+            $params[] = (int)$l['id_bien'];
+            try {
+                $pdo->prepare("UPDATE biens SET " . implode(', ', $sets) . " WHERE id = ?")->execute($params);
+                $done++;
+            } catch (Throwable $e) {
+                error_log('[dv_apply_lots_to_biens] ' . $e->getMessage());
+            }
+        }
+        return $done;
     }
 }

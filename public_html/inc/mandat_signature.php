@@ -162,6 +162,10 @@ if (!function_exists('msig_sign')) {
                                       statut = 'confirme'
                                 WHERE id = ?")->execute([$idDossier]);
                 dv_sync_etape($pdo, $idDossier);
+                // Mandat signé : reprend les loyers réels/potentiels des lots dans les biens.
+                if (function_exists('dv_apply_lots_to_biens')) {
+                    dv_apply_lots_to_biens($pdo, $idDossier);
+                }
             }
         }
 

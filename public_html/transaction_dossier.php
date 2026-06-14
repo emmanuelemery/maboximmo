@@ -70,6 +70,10 @@ $stO = $pdo->prepare("SELECT id, civilite, nom, prenom, email, telephone, prix_p
 $stO->execute([$idBien]);
 $offres = $stO->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+// ── Lots du mandat de vente (multi-biens) + totaux / rent roll ──
+$lots   = dv_lots($pdo, $idDossier);
+$totaux = dv_totaux($pdo, $idDossier);
+
 // ── Prix courant (bien_prix), repli biens (référence, jamais recopié) ──
 $prixCourant = null;
 try {
@@ -355,6 +359,63 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <div class="dvk-soon">Annonce &amp; diffusion portails — à venir.</div>
         </div>
 
+        <!-- Card LOTS DU MANDAT (multi-biens : prix + loyers par lot) -->
+        <div class="dv-card" id="dv-lots-card">
+          <h3>🏢 Lots du mandat <span style="font-weight:400;color:#94a3b8;font-size:12px;">(<?= (int)$totaux['nb_lots'] ?>)</span></h3>
+          <div style="overflow-x:auto;">
+            <table class="dv-lots-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="text-align:left;color:#64748b;border-bottom:1px solid #e2e8f0;">
+                  <th style="padding:6px 4px;">Lot</th>
+                  <th style="padding:6px 4px;width:110px;">Prix vente €</th>
+                  <th style="padding:6px 4px;width:100px;">Loyer réel €</th>
+                  <th style="padding:6px 4px;width:100px;">Loyer pot. €</th>
+                  <th style="padding:6px 4px;width:30px;"></th>
+                </tr>
+              </thead>
+              <tbody id="dv-lots-body">
+                <?php foreach ($lots as $l):
+                  $lib = $l['reference_bien'] ?: ($l['designation'] ?: ('Bien #' . (int)$l['id_bien']));
+                  $immLbl = $l['nom_immeuble'] ?: $l['imm_adresse'];
+                ?>
+                  <tr data-lot-id="<?= (int)$l['lot_id'] ?>" style="border-bottom:1px solid #f1f5f9;">
+                    <td style="padding:6px 4px;">
+                      <a href="<?= h(app_url('/bien_360.php?id=' . (int)$l['id_bien'])) ?>" style="font-weight:600;color:#0f172a;"><?= h($lib) ?></a>
+                      <?php if ($immLbl): ?><div style="color:#94a3b8;font-size:10px;"><?= h($immLbl) ?></div><?php endif; ?>
+                    </td>
+                    <td style="padding:6px 4px;"><input type="text" inputmode="numeric" class="dv-lot-in" data-f="prix_vente"
+                          value="<?= $l['prix_vente'] !== null ? (int)$l['prix_vente'] : '' ?>" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;text-align:right;"></td>
+                    <td style="padding:6px 4px;"><input type="text" inputmode="numeric" class="dv-lot-in" data-f="loyer_reel"
+                          value="<?= $l['loyer_reel'] !== null ? (int)$l['loyer_reel'] : '' ?>"
+                          placeholder="<?= $l['_loyer_reel_bien'] !== null ? (int)$l['_loyer_reel_bien'] : '' ?>" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;text-align:right;"></td>
+                    <td style="padding:6px 4px;"><input type="text" inputmode="numeric" class="dv-lot-in" data-f="loyer_potentiel"
+                          value="<?= $l['loyer_potentiel'] !== null ? (int)$l['loyer_potentiel'] : '' ?>"
+                          placeholder="<?= $l['_loyer_potentiel_bien'] !== null ? (int)$l['_loyer_potentiel_bien'] : '' ?>" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;text-align:right;"></td>
+                    <td style="padding:6px 4px;text-align:center;">
+                      <button type="button" title="Retirer ce lot" onclick="dvLotRemove(<?= (int)$l['lot_id'] ?>)"
+                              style="border:none;background:none;color:#ef4444;cursor:pointer;font-size:14px;">✕</button>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+          <div id="dv-lot-msg" style="font-size:11px;color:#94a3b8;margin-top:4px;min-height:14px;"></div>
+          <!-- Ajout d'un lot -->
+          <div style="margin-top:8px;position:relative;">
+            <input type="text" id="dv-lot-search" placeholder="➕ Ajouter un lot (réf., ville, immeuble…)" autocomplete="off"
+                   style="width:100%;padding:8px 10px;border:1px dashed #cbd5e1;border-radius:9px;font-size:12px;">
+            <div id="dv-lot-results" style="display:none;position:absolute;z-index:30;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.12);max-height:240px;overflow:auto;margin-top:4px;"></div>
+          </div>
+          <!-- Totaux / rent roll -->
+          <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <div class="dv-row"><span class="k">Prix total (Σ lots)</span><span class="v" id="dv-tot-prix"><?= h($fmtPrix($totaux['prix_total'])) ?></span></div>
+            <div class="dv-row"><span class="k">Loyers réels / mois</span><span class="v" id="dv-tot-lr"><?= h($fmtPrix($totaux['loyer_reel'])) ?></span></div>
+            <div class="dv-row"><span class="k">Loyers potentiels / mois</span><span class="v" id="dv-tot-lp"><?= h($fmtPrix($totaux['loyer_potentiel'])) ?></span></div>
+            <div class="dv-row"><span class="k">Rendement brut</span><span class="v" id="dv-tot-rdt" style="font-weight:700;color:#15803d;"><?= $totaux['rendement_brut'] !== null ? h(number_format((float)$totaux['rendement_brut'],2,',',' ')) . ' %' : '—' ?></span></div>
+          </div>
+        </div>
+
         <!-- Card CONDITIONS FINANCIÈRES (estimation + honoraires + aides) -->
         <?php
           $bLat = $bien['latitude'] ?? null; $bLng = $bien['longitude'] ?? null;
@@ -387,7 +448,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
             <a class="dv-fin-link" href="https://www.cadastre.com/" target="_blank" rel="noopener">🗺️ Cadastre</a>
             <a class="dv-fin-link" href="<?= h($dvfUrl) ?>" target="_blank" rel="noopener">📊 DVF · valeurs foncières</a>
           </div>
-          <div class="dvk-soon">Dépôt de garantie, conditions suspensives — à venir.</div>
+          <div class="dvk-soon">Dépôt de garantie &amp; conditions suspensives — à venir (étape compromis).</div>
         </div>
 
         <!-- Card ACTE -->
@@ -594,8 +655,87 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   const API_MANDAT = <?= json_encode(app_url('/api/transaction_dossier_mandat_create.php')) ?>;
   const API_MSEND  = <?= json_encode(app_url('/api/transaction_dossier_mandat_send.php')) ?>;
   const TIERS_FICHE= <?= json_encode(app_url('/tiers_360.php?id=')) ?>;
+  const API_LOT    = <?= json_encode(app_url('/api/transaction_dossier_lot.php')) ?>;
+  const BIEN_360   = <?= json_encode(app_url('/bien_360.php?id=')) ?>;
   let selectedRole = '';
   let mCharge = '', mExcl = '0';
+
+  // ════════ LOTS DU MANDAT ════════
+  const fmtE = n => (n || n === 0) ? new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' €' : '—';
+
+  async function lotPost(params){
+    params.append('id_dossier', DOSSIER_ID);
+    const r = await fetch(API_LOT, {method:'POST', body:params});
+    return r.json();
+  }
+  function lotMsg(t, err){
+    const el = document.getElementById('dv-lot-msg');
+    if(el){ el.textContent = t || ''; el.style.color = err ? '#ef4444' : '#94a3b8'; }
+  }
+  function lotRefreshTotaux(tot){
+    if(!tot) return;
+    document.getElementById('dv-tot-prix').textContent = fmtE(tot.prix_total);
+    document.getElementById('dv-tot-lr').textContent   = fmtE(tot.loyer_reel);
+    document.getElementById('dv-tot-lp').textContent   = fmtE(tot.loyer_potentiel);
+    document.getElementById('dv-tot-rdt').textContent  = (tot.rendement_brut !== null && tot.rendement_brut !== undefined)
+      ? new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(tot.rendement_brut) + ' %' : '—';
+  }
+
+  // Sauvegarde inline d'un lot (prix / loyers) sur changement.
+  window.dvLotSave = async function(tr){
+    const lotId = tr.getAttribute('data-lot-id');
+    const p = new URLSearchParams({action:'save', lot_id:lotId});
+    tr.querySelectorAll('.dv-lot-in').forEach(i => p.append(i.dataset.f, i.value.replace(/[^0-9.]/g,'')));
+    lotMsg('Enregistrement…');
+    const j = await lotPost(p);
+    if(j.ok){ lotMsg('✓ Enregistré'); lotRefreshTotaux(j.totaux); setTimeout(()=>lotMsg(''),1500); }
+    else { lotMsg(j.error || 'Erreur', true); }
+  };
+
+  window.dvLotRemove = async function(lotId){
+    if(!confirm('Retirer ce lot du mandat ?')) return;
+    const j = await lotPost(new URLSearchParams({action:'remove', lot_id:lotId}));
+    if(j.ok){ location.reload(); } else { lotMsg(j.error || 'Erreur', true); }
+  };
+
+  let lotSearchTimer = null;
+  function dvLotSearch(q){
+    clearTimeout(lotSearchTimer);
+    const box = document.getElementById('dv-lot-results');
+    lotSearchTimer = setTimeout(async () => {
+      const j = await lotPost(new URLSearchParams({action:'search', q:q}));
+      if(!j.ok){ box.style.display='none'; return; }
+      if(!j.items.length){ box.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:12px;">Aucun bien.</div>'; box.style.display='block'; return; }
+      box.innerHTML = j.items.map(b => {
+        const lib = b.reference_bien || b.designation || ('Bien #'+b.id);
+        const sub = [b.numero_lot?('Lot '+b.numero_lot):'', b.etage?('Ét. '+b.etage):'', b.ville||''].filter(Boolean).join(' · ');
+        const tag = (+b.meme_immeuble) ? ' <span style="color:#7c9885;font-size:10px;">même immeuble</span>' : '';
+        return `<div class="dv-lot-opt" data-id="${b.id}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:12px;">
+                  <strong>${lib}</strong>${tag}<div style="color:#94a3b8;font-size:10px;">${sub}</div></div>`;
+      }).join('');
+      box.style.display='block';
+      box.querySelectorAll('.dv-lot-opt').forEach(o => o.onclick = () => dvLotAdd(o.dataset.id));
+    }, 250);
+  }
+
+  async function dvLotAdd(idBien){
+    const j = await lotPost(new URLSearchParams({action:'add', id_bien:idBien}));
+    if(j.ok){ location.reload(); } else { lotMsg(j.error || 'Erreur', true); }
+  }
+
+  (function initLots(){
+    document.querySelectorAll('#dv-lots-body .dv-lot-in').forEach(i => {
+      i.addEventListener('change', () => dvLotSave(i.closest('tr')));
+    });
+    const s = document.getElementById('dv-lot-search');
+    if(s){
+      s.addEventListener('input', e => dvLotSearch(e.target.value.trim()));
+      document.addEventListener('click', e => {
+        if(!e.target.closest('#dv-lot-search') && !e.target.closest('#dv-lot-results'))
+          document.getElementById('dv-lot-results').style.display='none';
+      });
+    }
+  })();
 
   // Onglets du cockpit (Dashboard / Documents / Actes / Estimation).
   window.dvkTab = function(btn, name){
