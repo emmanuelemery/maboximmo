@@ -18,7 +18,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
 $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=>'Bureau', 8=>'Parking', 9=>'Garage', 10=>'Entrepôt'];
 ?>
 <style>
-.nd-wrap{max-width:720px;margin:0 auto;padding:14px 16px 60px;}
+.nd-wrap{max-width:864px;margin:0 auto;padding:14px 16px 60px;}
 .nd-steps{display:flex;gap:10px;margin:6px 0 20px;}
 .nd-step-chip{flex:1;text-align:center;padding:10px;border-radius:10px;background:#f1f5f9;color:#64748b;font-weight:800;font-size:13px;}
 .nd-step-chip.active{background:#0f6cbd;color:#fff;}
