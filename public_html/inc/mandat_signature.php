@@ -155,9 +155,11 @@ if (!function_exists('msig_sign')) {
                                   statut = 'actif'
                             WHERE id = ?")->execute([$idMandat]);
             if ($idDossier > 0) {
-                // Renseigne date_mandat sur le dossier si absente, puis sync étape.
+                // Mandat signé : le dossier n'est plus temporaire → CONFIRMÉ.
+                // Renseigne date_mandat si absente, puis sync étape.
                 $pdo->prepare("UPDATE dossier_vente
-                                  SET date_mandat = COALESCE(date_mandat, CURDATE())
+                                  SET date_mandat = COALESCE(date_mandat, CURDATE()),
+                                      statut = 'confirme'
                                 WHERE id = ?")->execute([$idDossier]);
                 dv_sync_etape($pdo, $idDossier);
             }

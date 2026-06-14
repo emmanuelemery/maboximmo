@@ -137,6 +137,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-step .dt{font-size:11px;color:#64748b;margin-top:2px;}
 .dv-step .soon{position:absolute;top:6px;right:6px;font-size:9px;background:#eef2f6;color:#64748b;border-radius:6px;padding:1px 5px;font-weight:700;}
 .dv-terminal{display:inline-block;background:#fde2e1;color:#a11;border:1px solid #f3b4b1;border-radius:8px;padding:4px 12px;font-weight:800;margin-bottom:14px;}
+.dv-statut{display:inline-block;border-radius:8px;padding:5px 14px;font-weight:800;font-size:12.5px;}
+.dv-statut.temp{background:#fef3c7;color:#92600a;border:1px solid #fcd980;}
+.dv-statut.conf{background:#d7f0e0;color:#0b6b35;border:1px solid #9ad3ab;}
 .dv-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media(max-width:880px){.dv-grid{grid-template-columns:1fr;}}
 /* Consultation mobile efficace */
@@ -217,6 +220,15 @@ include __DIR__ . '/inc/agency_layout_top.php';
   <?php if ($etapeTerminal): ?>
     <div style="margin-top:14px;"><span class="dv-terminal">⛔ <?= $dossier['etape'] === 'perdu' ? 'Dossier perdu' : 'Sans suite' ?></span></div>
   <?php endif; ?>
+
+  <?php $estTemporaire = (($dossier['statut'] ?? 'temporaire') === 'temporaire'); ?>
+  <div style="margin-top:12px;">
+    <?php if ($estTemporaire): ?>
+      <span class="dv-statut temp">⏳ Dossier temporaire — confirmé à la signature du mandat de vente</span>
+    <?php else: ?>
+      <span class="dv-statut conf">✅ Dossier confirmé</span>
+    <?php endif; ?>
+  </div>
 
   <!-- ═══ TIMELINE (jalons futurs prêts à accueillir les actions d'étape) ═══ -->
   <div class="dv-timeline">

@@ -76,7 +76,11 @@ try {
         'ok'         => true,
         'id_bien'    => $idBien,
         'id_dossier' => $idDossier,
-        'url'        => app_url('/transaction_dossier.php?id=' . $idDossier),
+        'id_immeuble'=> $idImmeuble ?: null,
+        // On ouvre le détail du bien à compléter : proprio + immeuble déjà liés.
+        // Retour au dossier ensuite via le bouton 🗂️ de bien_360/bien_detail.
+        'url'         => app_url('/bien_detail.php?edit=' . $idBien),
+        'url_dossier' => app_url('/transaction_dossier.php?id=' . $idDossier),
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[transaction_dossier_new_bien] ' . $e->getMessage());
