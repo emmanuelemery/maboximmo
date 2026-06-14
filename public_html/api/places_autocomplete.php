@@ -18,17 +18,20 @@ $items = [];
 try {
     $pdo = db();
     $like = '%' . $query . '%';
+    // NB : placeholders positionnels distincts — un même param nommé ne peut PAS
+    // être réutilisé quand EMULATE_PREPARES=false (cf. config/db.php), sinon
+    // "Invalid parameter number" → recherche d'immeubles locaux muette.
     $stmt = $pdo->prepare("
         SELECT id, nom_immeuble, adresse_1, adresse_2, code_postal, ville, pays, latitude, longitude
         FROM immeubles
-        WHERE adresse_1 LIKE :q
-           OR ville LIKE :q
-           OR code_postal LIKE :q
-           OR nom_immeuble LIKE :q
+        WHERE adresse_1 LIKE ?
+           OR ville LIKE ?
+           OR code_postal LIKE ?
+           OR nom_immeuble LIKE ?
         ORDER BY nom_immeuble ASC, adresse_1 ASC
         LIMIT 8
     ");
-    $stmt->execute([':q' => $like]);
+    $stmt->execute([$like, $like, $like, $like]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $row) {
