@@ -35,6 +35,7 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
   .imp-input:focus{border-color:#0ea5e9;box-shadow:0 0 0 3px rgba(14,165,233,.12);}
   .imp-grid{display:grid;grid-template-columns:140px 1fr;gap:8px;margin-top:8px;}
   .imp-hint{font-size:11px;color:#94a3b8;margin-top:5px;}
+  .imp-gps{font-size:11px;color:#0e7490;margin-top:5px;font-variant-numeric:tabular-nums;min-height:14px;}
   .imp-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;}
   .imp-btn{border:none;border-radius:11px;padding:13px 22px;font-weight:800;font-size:14px;cursor:pointer;}
   .imp-btn.cancel{background:#fff;color:#475569;border:1px solid #cbd5e1;}
@@ -79,6 +80,7 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
 
   <label class="imp-label">Nom de l'immeuble</label>
   <input type="text" id="imp-nom" class="imp-input" placeholder="Ex. Résidence Les Tilleuls (optionnel)">
+  <div class="imp-gps" id="imp-gps"></div>
 
   <input type="hidden" id="imp-lat"><input type="hidden" id="imp-lng">
   <input type="hidden" id="imp-placeid"><input type="hidden" id="imp-formatted">
@@ -121,6 +123,10 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
   setInterval(()=>{
     const adr=$('imp-adr1').value.trim();
     if(adr!==lastAdr){ lastAdr=adr; if(!nomTouched){ $('imp-nom').value = deriveNom(adr); } }
+    // Coordonnées GPS (effet pro) sous le nom, automatique.
+    const la=$('imp-lat').value.trim(), lo=$('imp-lng').value.trim();
+    const gps = (la && lo) ? '📍 GPS : ' + parseFloat(la).toFixed(6) + ', ' + parseFloat(lo).toFixed(6) : '';
+    if($('imp-gps').textContent !== gps) $('imp-gps').textContent = gps;
   }, 500);
   sendHeight();
 
