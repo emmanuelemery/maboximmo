@@ -452,7 +452,14 @@ include __DIR__ . '/inc/agency_layout_top.php';
   </div>
 </div>
 
-<?php tiers_selector_assets(); ?>
+<?php
+tiers_selector_assets();
+// STANDARD MBI : modal immeuble (toute adresse = immeuble) — rend le bouton adresse
+// du formulaire de création de tiers actif (opt-in via window.ImmeubleRechercheMBI).
+require_once __DIR__ . '/inc/immeuble_recherche_mbi.php';
+immeuble_mbi_render();
+immeuble_mbi_assets();
+?>
 
 <?php
 // Modal d'adresse Google (obligatoire pour la saisie d'adresse d'un nouveau tiers).

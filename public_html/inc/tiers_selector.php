@@ -278,16 +278,8 @@ if (!function_exists('tiers_selector_render')) {
                             <div class="ts-field ts-full" id="ts-addr-google-row" style="display:none;">
                                 <label>Adresse *</label>
                                 <button type="button" class="ts-btn ghost" style="width:100%;justify-content:center;"
-                                        data-addr-modal-open
-                                        data-addr-target-street1="ts-cre-adr1"
-                                        data-addr-target-street2="ts-cre-adr2"
-                                        data-addr-target-postal="ts-cre-cp"
-                                        data-addr-target-city="ts-cre-ville"
-                                        data-addr-target-lat="ts-cre-lat"
-                                        data-addr-target-lng="ts-cre-lng"
-                                        data-addr-target-placeid="ts-cre-placeid"
-                                        data-addr-target-formatted="ts-cre-formatted">
-                                    📍 Rechercher l'adresse (Google)
+                                        onclick="tsOpenImmeubleAdresse()">
+                                    🏢 Rechercher / créer l'immeuble (adresse)
                                 </button>
                             </div>
                             <div class="ts-field ts-full">
@@ -571,19 +563,30 @@ if (!function_exists('tiers_selector_render')) {
             // Init auto
             function initAll() {
                 document.querySelectorAll('.tiers-selector').forEach(initSelector);
-                // Adresse obligatoire via le modal Google : actif uniquement si la page
-                // a inclus inc/adresse_modal.php (#addr-modal). Sinon on garde la saisie libre.
-                if (document.getElementById('addr-modal')) {
+                // Adresse via le STANDARD MBI (modal iframe immeuble) : actif UNIQUEMENT
+                // si la page a inclus le composant (window.ImmeubleRechercheMBI).
+                // Sinon (ex. RH) on garde la saisie libre — rien n'est touché.
+                if (window.ImmeubleRechercheMBI) {
                     const row = document.getElementById('ts-addr-google-row');
                     if (row) {
                         row.style.display = '';
                         const a1 = document.getElementById('ts-cre-adr1');
                         const cp = document.getElementById('ts-cre-cp');
                         const vl = document.getElementById('ts-cre-ville');
-                        [a1, cp, vl].forEach(el => { if (el) { el.readOnly = true; el.placeholder = 'Renseigné via 📍 Google'; } });
+                        [a1, cp, vl].forEach(el => { if (el) { el.readOnly = true; el.placeholder = 'Renseigné via 🏢 immeuble'; } });
                     }
                 }
             }
+            // Ouvre le modal iframe immeuble et remplit l'adresse du tiers.
+            window.tsOpenImmeubleAdresse = function(){
+                if (!window.ImmeubleRechercheMBI) return;
+                window.ImmeubleRechercheMBI.open(function(imm){
+                    const set = (id,v)=>{ const e=document.getElementById(id); if(e){ e.value = v||''; } };
+                    set('ts-cre-adr1', imm.adresse_1);
+                    set('ts-cre-cp', imm.code_postal);
+                    set('ts-cre-ville', imm.ville);
+                });
+            };
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', initAll);
             } else {
