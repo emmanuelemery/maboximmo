@@ -63,9 +63,6 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
 </style>
 
 <div class="nd-wrap">
-  <h1 style="margin:0 0 2px;font-size:22px;">🗂️ Nouveau dossier de vente</h1>
-  <div style="color:#64748b;font-size:13px;">Le dossier est le point de départ : propriétaire → bien → tout le reste se passe dans le dossier.</div>
-
   <div class="nd-steps">
     <div class="nd-step-chip active" id="chip1">1 · Propriétaire</div>
     <div class="nd-step-chip" id="chip2">2 · Bien</div>

@@ -205,10 +205,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
 <div class="dv-wrap">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
     <div>
-      <h1 style="margin:0;font-size:22px;font-weight:900;">🗂️ Dossier de vente — <?= h($refBien) ?></h1>
-      <div style="color:#64748b;font-size:13px;margin-top:3px;">
-        <?= h($bien['designation'] ?: '') ?>
-        <?= h(trim(($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? ''))) ?>
+      <div style="color:#475569;font-size:14px;font-weight:700;">
+        <?= h($bien['designation'] ?: $refBien) ?>
+        <span style="color:#64748b;font-weight:400;"><?= h(trim(($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? ''))) ?></span>
       </div>
     </div>
     <div style="display:flex;gap:8px;">
