@@ -52,10 +52,6 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
 </head>
 <body>
 <div class="imp-wrap">
-  <div class="imp-head">
-    <img class="imp-logo" src="<?= $h($logo) ?>" alt="Ma Box Immo — validé">
-    <h1>🏢 Rechercher / créer un immeuble</h1>
-  </div>
   <div class="imp-sub">Commencez par l'adresse (immeubles déjà enregistrés + Google), puis nommez l'immeuble. Accessible à tout le monde — aucune attribution.</div>
 
   <label class="imp-label">🔍 Rechercher l'adresse</label>
