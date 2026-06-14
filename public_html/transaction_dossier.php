@@ -143,6 +143,24 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-statut.conf{background:#d7f0e0;color:#0b6b35;border:1px solid #9ad3ab;}
 .dv-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media(max-width:880px){.dv-grid{grid-template-columns:1fr;}}
+/* ── Cockpit : 2 colonnes (gauche onglets, droite fixe Actions+Contacts) ── */
+.dvk-cols{display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start;margin-top:6px;}
+@media(max-width:980px){.dvk-cols{grid-template-columns:1fr;}}
+.dvk-aside{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px;}
+@media(max-width:980px){.dvk-aside{position:static;}}
+.dvk-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;border-bottom:2px solid #eef2f6;padding-bottom:0;}
+.dvk-tab{border:none;background:none;padding:9px 14px;font-size:13px;font-weight:800;color:#64748b;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;}
+.dvk-tab.active{color:#0f6cbd;border-bottom-color:#0f6cbd;}
+.dvk-tab:hover{color:#0f172a;}
+.dvk-panel{display:none;}
+.dvk-panel.active{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.dvk-panel.solo{grid-template-columns:1fr;}
+@media(max-width:680px){.dvk-panel.active{grid-template-columns:1fr;}}
+.dvk-actions{border:1px solid #e2e8f0;border-radius:14px;background:#fff;padding:14px 16px;}
+.dvk-actions h4{margin:0 0 10px;font-size:13px;font-weight:900;color:#0f172a;}
+.dvk-act-btn{display:block;width:100%;text-align:left;margin-bottom:7px;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer;}
+.dvk-act-btn:hover{border-color:#0f6cbd;background:#eef5fc;}
+.dvk-soon{font-size:12px;color:#94a3b8;font-style:italic;padding:8px 0;}
 /* Consultation mobile efficace */
 @media(max-width:640px){
   .dv-wrap{padding:6px 10px 40px;}
@@ -248,134 +266,211 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <?php endforeach; ?>
   </div>
 
-  <div class="dv-grid">
-    <!-- ACTEURS -->
-    <div class="dv-card">
-      <h3>👥 Acteurs du dossier
-        <button type="button" class="dv-add-btn" onclick="dvOpenActeurModal()" title="Ajouter un acteur (acquéreur, notaire, apporteur…)">+</button>
-      </h3>
-      <div id="dv-acteurs-list">
-        <?php foreach ($acteurs as $a):
-            $meta = json_decode((string)($a['metadata'] ?? ''), true) ?: [];
-        ?>
-          <div class="dv-actor" data-role-id="<?= (int)$a['role_id'] ?>">
-            <span class="role"><?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?></span>
-            <div style="flex:1;min-width:0;">
-              <div class="nm"><?= h($acteurNom($a)) ?>
-                <?php if (!empty($meta['modifiable'])): ?><span class="dv-badge" title="Proposé automatiquement, modifiable">proposé</span><?php endif; ?>
+  <div class="dvk-cols">
+    <!-- ═══════════ COLONNE GAUCHE : ONGLETS ═══════════ -->
+    <div class="dvk-main">
+      <div class="dvk-tabs" role="tablist">
+        <button type="button" class="dvk-tab active" onclick="dvkTab(this,'dashboard')">📊 Dashboard</button>
+        <button type="button" class="dvk-tab" onclick="dvkTab(this,'documents')">📄 Documents</button>
+        <button type="button" class="dvk-tab" onclick="dvkTab(this,'actes')">🏛️ Actes</button>
+        <button type="button" class="dvk-tab" onclick="dvkTab(this,'estimation')">📈 Estimation</button>
+      </div>
+
+      <!-- ===== DASHBOARD ===== -->
+      <div class="dvk-panel active" id="dvk-dashboard">
+        <!-- Card BIEN -->
+        <div class="dv-card">
+          <h3>🏠 Bien</h3>
+          <div class="dv-row"><span class="k">Référence</span><span class="v"><?= h($refBien) ?></span></div>
+          <?php if (!empty($bien['surface_habitable'])): ?>
+            <div class="dv-row"><span class="k">Surface</span><span class="v"><?= number_format((float)$bien['surface_habitable'],0,',',' ') ?> m²<?= !empty($bien['nb_pieces']) ? ' · ' . (int)$bien['nb_pieces'] . ' p.' : '' ?></span></div>
+          <?php endif; ?>
+          <?php if (!empty($bien['immeuble_id'])): ?>
+            <div class="dv-row"><span class="k">Immeuble</span><span class="v"><a href="<?= h(app_url('/immeuble_360.php?id=' . (int)$bien['immeuble_id'])) ?>"><?= h($bien['nom_immeuble'] ?: $bien['imm_adresse']) ?></a></span></div>
+          <?php endif; ?>
+          <div style="margin-top:12px;text-align:center;">
+            <a class="dvm-btn ok" style="padding:9px 16px;text-decoration:none;" href="<?= h(app_url('/bien_detail.php?edit=' . $idBien . '&return_dossier=' . $idDossier)) ?>">✏️ Compléter la fiche du bien</a>
+          </div>
+        </div>
+
+        <!-- Card ESTIMATION -->
+        <div class="dv-card">
+          <h3>📊 Estimation</h3>
+          <div style="text-align:center;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
+            <div class="dv-prix" id="dv-prix-val"><?= h($fmtPrix($prixCourant)) ?></div>
+            <button type="button" class="dv-estim-btn" onclick="dvToggleEstim(true)"><?= $prixCourant ? '✏️ Modifier l\'estimation' : '📊 Estimer le prix' ?></button>
+            <div id="dv-estim-form" style="display:none;margin-top:10px;">
+              <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
+                <input type="text" id="dv-estim-input" inputmode="numeric" placeholder="Prix de vente €"
+                       value="<?= $prixCourant ? (int)$prixCourant : '' ?>"
+                       style="width:150px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;text-align:right;">
+                <button type="button" class="dvm-btn ok" style="padding:8px 14px;" onclick="dvSaveEstim()">Valider</button>
+                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleEstim(false)">×</button>
               </div>
-              <?php if ($a['email'] || $a['telephone']): ?>
-                <div class="ct"><?= h(trim(($a['email'] ?? '') . ($a['telephone'] ? ' · ' . $a['telephone'] : ''))) ?></div>
-              <?php endif; ?>
+              <div id="dv-estim-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
             </div>
-            <?php if (!empty($a['id_tiers'])): ?>
-              <a class="dv-badge" href="<?= h(app_url('/tiers_360.php?id=' . (int)$a['id_tiers'])) ?>">fiche →</a>
+          </div>
+        </div>
+
+        <!-- Card MANDAT -->
+        <div class="dv-card">
+          <h3>📝 Mandat de vente</h3>
+          <div class="dv-row"><span class="k">Mandat</span><span class="v">
+            <?php if ($mandat): ?><?= h($mandat['numero_mandat'] ?: ('#' . $mandat['id'])) ?><?= !empty($mandat['exclusif']) ? ' · exclusif' : '' ?><?php else: ?>—<?php endif; ?>
+          </span></div>
+          <?php if ($mandat): ?>
+            <?php if ($mandat['honoraires'] !== null && $mandat['honoraires'] !== ''): ?>
+              <div class="dv-row"><span class="k">Honoraires</span><span class="v"><?= h($fmtPrix($mandat['honoraires'])) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></span></div>
             <?php endif; ?>
-            <button type="button" class="dv-actor-del" title="Retirer du dossier" onclick="dvRemoveActeur(<?= (int)$a['role_id'] ?>, this)">×</button>
-          </div>
-        <?php endforeach; ?>
-      </div>
-      <div class="dv-empty" id="dv-acteurs-empty" style="<?= $acteurs ? 'display:none;' : '' ?>">Aucun acteur rattaché.</div>
-      <div class="dv-note">Acteurs reliés au référentiel <code>tiers</code> (aucune ressaisie : un tiers existant est réutilisé, un nouveau est créé une seule fois).</div>
-    </div>
+            <div class="dv-row"><span class="k">Signature</span><span class="v">
+              <?php
+                $nbSig = count($signatures);
+                $nbSigne = count(array_filter($signatures, fn($s) => $s['statut'] === 'signe'));
+                if ($nbSig === 0)            echo '<span class="dv-badge">non envoyé</span>';
+                elseif ($nbSigne === $nbSig) echo '<span class="dv-badge" style="background:#d7f0e0;color:#0b6b35;">signé ✓</span>';
+                else                         echo '<span class="dv-badge" style="background:#fef3c7;color:#92600a;">' . $nbSigne . '/' . $nbSig . ' signé</span>';
+              ?>
+            </span></div>
+            <?php foreach ($signatures as $s): ?>
+              <div class="dv-row" style="font-size:12px;">
+                <span class="k"><?= h($s['nom_affichage'] ?: $s['raison_sociale'] ?: trim(($s['prenom'] ?? '') . ' ' . ($s['nom'] ?? '')) ?: 'Vendeur') ?></span>
+                <span class="v"><?php if ($s['statut'] === 'signe'): ?>✅ <?= h($fmtDate($s['signed_at'])) ?> (IP <?= h($s['ip'] ?: '—') ?>)<?php else: ?>⏳ en attente<?php endif; ?></span>
+              </div>
+            <?php endforeach; ?>
+            <div style="margin-top:10px;text-align:center;">
+              <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvSendMandat()">✉️ Envoyer au vendeur pour signature</button>
+              <div id="dv-mandat-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+            </div>
+          <?php else: ?>
+            <div style="margin-top:10px;text-align:center;">
+              <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
+            </div>
+          <?php endif; ?>
+        </div>
 
-    <!-- BIEN / MANDAT / PRIX -->
-    <div class="dv-card">
-      <h3>🏠 Bien &amp; mandat</h3>
-      <div class="dv-row"><span class="k">Référence</span><span class="v"><?= h($refBien) ?></span></div>
-      <?php if (!empty($bien['surface_habitable'])): ?>
-        <div class="dv-row"><span class="k">Surface</span><span class="v"><?= number_format((float)$bien['surface_habitable'],0,',',' ') ?> m²<?= !empty($bien['nb_pieces']) ? ' · ' . (int)$bien['nb_pieces'] . ' p.' : '' ?></span></div>
-      <?php endif; ?>
-      <?php if (!empty($bien['immeuble_id'])): ?>
-        <div class="dv-row"><span class="k">Immeuble</span><span class="v"><a href="<?= h(app_url('/immeuble_360.php?id=' . (int)$bien['immeuble_id'])) ?>"><?= h($bien['nom_immeuble'] ?: $bien['imm_adresse']) ?></a></span></div>
-      <?php endif; ?>
-      <div class="dv-row"><span class="k">Mandat de vente</span><span class="v">
-        <?php if ($mandat): ?><?= h($mandat['numero_mandat'] ?: ('#' . $mandat['id'])) ?><?= !empty($mandat['exclusif']) ? ' · exclusif' : '' ?><?php else: ?>—<?php endif; ?>
-      </span></div>
-      <?php if ($mandat): ?>
-        <?php if ($mandat['honoraires'] !== null && $mandat['honoraires'] !== ''): ?>
-          <div class="dv-row"><span class="k">Honoraires</span><span class="v"><?= h($fmtPrix($mandat['honoraires'])) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></span></div>
-        <?php endif; ?>
-        <div class="dv-row"><span class="k">Signature</span><span class="v">
+        <!-- Card COMMERCIALISATION -->
+        <div class="dv-card">
+          <h3>📣 Commercialisation <span class="dv-badge"><?= count($offres) ?> offre(s)</span></h3>
+          <?php if (!$offres): ?>
+            <div class="dv-empty">Aucune offre reçue.</div>
+          <?php else: foreach ($offres as $o): ?>
+            <div class="dv-row">
+              <span class="k"><?= h(trim(($o['prenom'] ?? '') . ' ' . ($o['nom'] ?? '')) ?: 'Acquéreur') ?>
+                <?php if ($o['statut_offre']): ?><span class="dv-badge"><?= h($o['statut_offre']) ?></span><?php endif; ?>
+              </span>
+              <span class="v"><?= h($fmtPrix($o['prix_propose'])) ?></span>
+            </div>
+          <?php endforeach; endif; ?>
+          <div class="dvk-soon">Annonce &amp; diffusion portails — à venir.</div>
+        </div>
+
+        <!-- Card CONDITIONS FINANCIÈRES -->
+        <div class="dv-card">
+          <h3>💶 Conditions financières</h3>
+          <div class="dvk-soon">Honoraires, dépôt de garantie, conditions suspensives — à venir.</div>
+        </div>
+
+        <!-- Card ACTE -->
+        <div class="dv-card">
+          <h3>🏛️ Acte</h3>
+          <div class="dvk-soon">Compromis &amp; acte authentique (signature en ligne) — à venir.</div>
+        </div>
+
+        <!-- Card COMMUNICATIONS -->
+        <div class="dv-card">
+          <h3>✉️ Communications</h3>
+          <div class="dvk-soon">Emails &amp; échanges du dossier — à venir.</div>
+        </div>
+      </div>
+
+      <!-- ===== DOCUMENTS ===== -->
+      <div class="dvk-panel solo" id="dvk-documents">
+        <div class="dv-card">
+          <h3>📄 Documents du dossier</h3>
           <?php
-            $nbSig = count($signatures);
-            $nbSigne = count(array_filter($signatures, fn($s) => $s['statut'] === 'signe'));
-            if ($nbSig === 0)            echo '<span class="dv-badge">non envoyé</span>';
-            elseif ($nbSigne === $nbSig) echo '<span class="dv-badge" style="background:#d7f0e0;color:#0b6b35;">signé ✓</span>';
-            else                         echo '<span class="dv-badge" style="background:#fef3c7;color:#92600a;">' . $nbSigne . '/' . $nbSig . ' signé</span>';
+            $seen = [];
+            $allDocs = [];
+            foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
+            foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $d['_scope'] = 'bien'; $allDocs[] = $d; }
           ?>
-        </span></div>
-        <?php foreach ($signatures as $s): ?>
-          <div class="dv-row" style="font-size:12px;">
-            <span class="k"><?= h($s['nom_affichage'] ?: $s['raison_sociale'] ?: trim(($s['prenom'] ?? '') . ' ' . ($s['nom'] ?? '')) ?: 'Vendeur') ?></span>
-            <span class="v"><?php if ($s['statut'] === 'signe'): ?>✅ <?= h($fmtDate($s['signed_at'])) ?> (IP <?= h($s['ip'] ?: '—') ?>)<?php else: ?>⏳ en attente<?php endif; ?></span>
-          </div>
-        <?php endforeach; ?>
-        <div style="margin-top:10px;text-align:center;">
-          <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvSendMandat()">✉️ Envoyer au vendeur pour signature</button>
-          <div id="dv-mandat-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+          <?php if (!$allDocs): ?>
+            <div class="dv-empty">Aucun document rattaché.</div>
+          <?php else: foreach (array_slice($allDocs, 0, 60) as $d): ?>
+            <div class="dv-doc">
+              <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">
+                <?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?>
+              </a>
+              <span>
+                <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
+                <span class="dv-badge"><?= $d['_scope'] === 'dossier' ? 'dossier' : 'bien' ?></span>
+              </span>
+            </div>
+          <?php endforeach; endif; ?>
+          <div class="dv-note">GED unique — un même document peut être rattaché au bien et au dossier sans duplication physique.</div>
         </div>
-      <?php else: ?>
-        <div style="margin-top:10px;text-align:center;">
-          <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
+      </div>
+
+      <!-- ===== ACTES ===== -->
+      <div class="dvk-panel solo" id="dvk-actes">
+        <div class="dv-card">
+          <h3>🏛️ Actes</h3>
+          <div class="dvk-soon">Compromis &amp; acte authentique avec signature en ligne (même mécanisme que le mandat) — à venir.</div>
         </div>
-      <?php endif; ?>
-      <div style="margin-top:12px;text-align:center;">
-        <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
-        <div class="dv-prix" id="dv-prix-val"><?= h($fmtPrix($prixCourant)) ?></div>
-        <button type="button" class="dv-estim-btn" onclick="dvToggleEstim(true)"><?= $prixCourant ? '✏️ Modifier l\'estimation' : '📊 Estimer le prix' ?></button>
-        <div id="dv-estim-form" style="display:none;margin-top:10px;">
-          <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
-            <input type="text" id="dv-estim-input" inputmode="numeric" placeholder="Prix de vente €"
-                   value="<?= $prixCourant ? (int)$prixCourant : '' ?>"
-                   style="width:150px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;text-align:right;">
-            <button type="button" class="dvm-btn ok" style="padding:8px 14px;" onclick="dvSaveEstim()">Valider</button>
-            <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleEstim(false)">×</button>
-          </div>
-          <div id="dv-estim-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+      </div>
+
+      <!-- ===== ESTIMATION ===== -->
+      <div class="dvk-panel solo" id="dvk-estimation">
+        <div class="dv-card">
+          <h3>📈 Estimation détaillée</h3>
+          <div class="dvk-soon">Historique des prix, scénarios, comparables — à venir. (Estimation rapide disponible dans le Dashboard.)</div>
         </div>
       </div>
     </div>
 
-    <!-- OFFRES -->
-    <div class="dv-card">
-      <h3>💰 Offres (<?= count($offres) ?>)</h3>
-      <?php if (!$offres): ?>
-        <div class="dv-empty">Aucune offre reçue.</div>
-      <?php else: foreach ($offres as $o): ?>
-        <div class="dv-row">
-          <span class="k"><?= h(trim(($o['prenom'] ?? '') . ' ' . ($o['nom'] ?? '')) ?: 'Acquéreur') ?>
-            <?php if ($o['statut_offre']): ?><span class="dv-badge"><?= h($o['statut_offre']) ?></span><?php endif; ?>
-          </span>
-          <span class="v"><?= h($fmtPrix($o['prix_propose'])) ?></span>
-        </div>
-      <?php endforeach; endif; ?>
-    </div>
+    <!-- ═══════════ COLONNE DROITE : ACTIONS + CONTACTS ═══════════ -->
+    <div class="dvk-aside">
+      <div class="dvk-actions">
+        <h4>⚡ Actions</h4>
+        <?php if (!$prixCourant): ?><button type="button" class="dvk-act-btn" onclick="dvToggleEstim(true)">📊 Estimer le prix</button><?php endif; ?>
+        <?php if (!$mandat): ?>
+          <button type="button" class="dvk-act-btn" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
+        <?php else: ?>
+          <button type="button" class="dvk-act-btn" onclick="dvSendMandat()">✉️ Envoyer le mandat à signer</button>
+        <?php endif; ?>
+        <button type="button" class="dvk-act-btn" onclick="dvOpenActeurModal()">👤 Ajouter un acteur</button>
+        <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_360.php?id=' . $idBien)) ?>">🏠 Vue 360° du bien</a>
+        <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_documents_list.php?id=' . $idBien)) ?>">📁 Documents du bien</a>
+      </div>
 
-    <!-- DOCUMENTS -->
-    <div class="dv-card">
-      <h3>📄 Documents</h3>
-      <?php
-        // Docs du dossier d'abord, puis ceux du bien (dédupliqués par id).
-        $seen = [];
-        $allDocs = [];
-        foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
-        foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $d['_scope'] = 'bien'; $allDocs[] = $d; }
-      ?>
-      <?php if (!$allDocs): ?>
-        <div class="dv-empty">Aucun document rattaché.</div>
-      <?php else: foreach (array_slice($allDocs, 0, 40) as $d): ?>
-        <div class="dv-doc">
-          <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">
-            <?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?>
-          </a>
-          <span>
-            <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
-            <span class="dv-badge"><?= $d['_scope'] === 'dossier' ? 'dossier' : 'bien' ?></span>
-          </span>
+      <!-- CONTACTS (acteurs du dossier) -->
+      <div class="dv-card">
+        <h3>👥 Contacts
+          <button type="button" class="dv-add-btn" onclick="dvOpenActeurModal()" title="Ajouter un acteur (acquéreur, notaire, apporteur…)">+</button>
+        </h3>
+        <div id="dv-acteurs-list">
+          <?php foreach ($acteurs as $a):
+              $meta = json_decode((string)($a['metadata'] ?? ''), true) ?: [];
+          ?>
+            <div class="dv-actor" data-role-id="<?= (int)$a['role_id'] ?>">
+              <span class="role"><?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?></span>
+              <div style="flex:1;min-width:0;">
+                <div class="nm"><?= h($acteurNom($a)) ?>
+                  <?php if (!empty($meta['modifiable'])): ?><span class="dv-badge" title="Proposé automatiquement, modifiable">proposé</span><?php endif; ?>
+                </div>
+                <?php if ($a['email'] || $a['telephone']): ?>
+                  <div class="ct"><?= h(trim(($a['email'] ?? '') . ($a['telephone'] ? ' · ' . $a['telephone'] : ''))) ?></div>
+                <?php endif; ?>
+              </div>
+              <?php if (!empty($a['id_tiers'])): ?>
+                <a class="dv-badge" href="<?= h(app_url('/tiers_360.php?id=' . (int)$a['id_tiers'])) ?>">fiche →</a>
+              <?php endif; ?>
+              <button type="button" class="dv-actor-del" title="Retirer du dossier" onclick="dvRemoveActeur(<?= (int)$a['role_id'] ?>, this)">×</button>
+            </div>
+          <?php endforeach; ?>
         </div>
-      <?php endforeach; endif; ?>
-      <div class="dv-note">GED unique — un même document peut être rattaché au bien et au dossier sans duplication physique.</div>
+        <div class="dv-empty" id="dv-acteurs-empty" style="<?= $acteurs ? 'display:none;' : '' ?>">Aucun acteur rattaché.</div>
+      </div>
     </div>
   </div>
 
@@ -482,6 +577,15 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   const TIERS_FICHE= <?= json_encode(app_url('/tiers_360.php?id=')) ?>;
   let selectedRole = '';
   let mCharge = '', mExcl = '0';
+
+  // Onglets du cockpit (Dashboard / Documents / Actes / Estimation).
+  window.dvkTab = function(btn, name){
+    document.querySelectorAll('.dvk-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.dvk-panel').forEach(p=>p.classList.remove('active'));
+    var panel = document.getElementById('dvk-'+name);
+    if(panel) panel.classList.add('active');
+  };
 
   // ── Mandat : création (termes) ──
   window.dvOpenMandatModal = function(){ document.getElementById('dvm-mandat').classList.add('open'); };
