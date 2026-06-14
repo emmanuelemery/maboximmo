@@ -223,7 +223,9 @@ tiers_selector_assets();
         designation:document.getElementById('nd-designation').value||'',
         adresse_1:adr1, code_postal:document.getElementById('nd-cp').value||'', ville:ville,
         latitude:document.getElementById('nd-lat').value||'', longitude:document.getElementById('nd-lng').value||'',
-        google_place_id:document.getElementById('nd-placeid').value||'', adresse_formatee:document.getElementById('nd-formatted').value||''
+        google_place_id:document.getElementById('nd-placeid').value||'', adresse_formatee:document.getElementById('nd-formatted').value||'',
+        // Immeuble existant sélectionné dans le modal Google (anti-doublon)
+        id_immeuble_selected:(document.getElementById('addr-modal-field-immeuble-id')||{}).value||''
       });
       const res = await fetch(API_BIEN, {method:'POST',credentials:'same-origin',body});
       const out = await res.json();

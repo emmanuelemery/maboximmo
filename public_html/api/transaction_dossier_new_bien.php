@@ -7,6 +7,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/dossier_vente.php';
+require_once __DIR__ . '/../inc/immeuble_link.php';
 require_login();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -45,14 +46,24 @@ try {
     $idAge = $prop['id_agence'] ?: (function_exists('current_agence_id') ? current_agence_id() : null);
     if ($designation === '') $designation = $typeLabel . ($ville !== '' ? ' ' . $ville : '');
 
+    // Immeuble : réutilise l'existant (sélectionné dans le modal OU même adresse),
+    // sinon en crée un seul — JAMAIS de doublon (logique commune à bien_detail).
+    $idImmeubleSel = (int)(post('id_immeuble_selected') ?? 0);
+    $idImmeuble = immeuble_resolve($pdo, [
+        'id_immeuble_selected' => $idImmeubleSel,
+        'adresse_1' => $adresse1, 'code_postal' => $cp, 'ville' => $ville,
+        'latitude' => $lat, 'longitude' => $lng, 'google_place_id' => $placeId,
+        'id_societe' => $idSoc, 'id_agence' => $idAge,
+    ]);
+
     $ins = $pdo->prepare("INSERT INTO biens
-        (id_proprietaire, id_tiers, id_agence, id_societe, id_type_bien,
+        (id_proprietaire, id_tiers, id_agence, id_societe, id_type_bien, id_immeuble,
          designation, type_commercialisation,
          adresse_1, code_postal, ville, latitude, longitude, precision_geoloc,
          date_creation, date_modification)
-        VALUES (?, ?, ?, ?, ?, ?, 'vente', ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'vente', ?, ?, ?, ?, ?, ?, NOW(), NOW())");
     $ins->execute([
-        $idProp, $idTiers ?: null, $idAge, $idSoc, $idTypeBien,
+        $idProp, $idTiers ?: null, $idAge, $idSoc, $idTypeBien, $idImmeuble ?: null,
         $designation,
         $adresse1 ?: null, $cp ?: null, $ville ?: null, $lat, $lng, $placeId ? 'google' : null,
     ]);
