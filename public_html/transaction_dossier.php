@@ -452,8 +452,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <?php foreach ($acteurs as $a):
               $meta = json_decode((string)($a['metadata'] ?? ''), true) ?: [];
           ?>
-            <div class="dv-actor" data-role-id="<?= (int)$a['role_id'] ?>">
-              <span class="role"><?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?></span>
+            <div class="dv-actor" data-role-id="<?= (int)$a['role_id'] ?>" title="<?= h($roleLabels[$a['role_code']] ?? $a['role_code']) ?>">
               <div style="flex:1;min-width:0;">
                 <div class="nm"><?= h($acteurNom($a)) ?>
                   <?php if (!empty($meta['modifiable'])): ?><span class="dv-badge" title="Proposé automatiquement, modifiable">proposé</span><?php endif; ?>
@@ -718,9 +717,8 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     if (list.querySelector('[data-role-id="'+a.role_id+'"]')) return;
     const ct = [a.email, a.telephone].filter(Boolean).join(' · ');
     const div = document.createElement('div');
-    div.className='dv-actor'; div.dataset.roleId=a.role_id;
+    div.className='dv-actor'; div.dataset.roleId=a.role_id; div.title=a.role_label||'';
     div.innerHTML =
-      '<span class="role">'+esc(a.role_label)+'</span>'+
       '<div style="flex:1;min-width:0;"><div class="nm">'+esc(a.nom)+'</div>'+
       (ct?'<div class="ct">'+esc(ct)+'</div>':'')+'</div>'+
       '<a class="dv-badge" href="'+TIERS_FICHE+a.id_tiers+'">fiche →</a>'+
