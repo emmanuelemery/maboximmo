@@ -77,9 +77,10 @@ try {
         'id_bien'    => $idBien,
         'id_dossier' => $idDossier,
         'id_immeuble'=> $idImmeuble ?: null,
-        // On ouvre le détail du bien à compléter (proprio + immeuble déjà liés),
-        // avec un retour direct vers le dossier.
-        'url'         => app_url('/bien_detail.php?edit=' . $idBien . '&return_dossier=' . $idDossier),
+        // Après création, on va directement sur le DOSSIER (cockpit) — le bien se
+        // complète ensuite via la card Bien (qui ouvre bien_detail).
+        'url'          => app_url('/transaction_dossier.php?id=' . $idDossier),
+        'url_bien'     => app_url('/bien_detail.php?edit=' . $idBien . '&return_dossier=' . $idDossier),
         'url_dossier' => app_url('/transaction_dossier.php?id=' . $idDossier),
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
