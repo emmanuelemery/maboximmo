@@ -59,6 +59,11 @@
 
     function initForInput(input) {
         if (!input) return;
+        // Anti double-init : le SDK Google (async) rappelle initPlacesAutocomplete
+        // une fois chargé → sans ce garde, l'input est ré-initialisé (déroulants +
+        // écouteurs en double = sélection qui part dans le mauvais clone).
+        if (input.__placesInited) return;
+        input.__placesInited = true;
 
         input.setAttribute('autocomplete', 'off');
         input.setAttribute('autocorrect', 'off');
@@ -74,13 +79,21 @@
         dropdown.style.display = 'none';
         document.body.appendChild(dropdown);
 
-        var hasGoogle = (typeof google !== 'undefined'
-            && google.maps
-            && google.maps.places
-            && google.maps.places.AutocompleteService);
-
-        var autocompleteService = hasGoogle ? new google.maps.places.AutocompleteService() : null;
-        var detailsService = hasGoogle ? new google.maps.places.PlacesService(document.createElement('div')) : null;
+        // Google évalué À LA DEMANDE (le SDK peut finir de charger APRÈS ce 1er init) :
+        // ainsi un seul init gère local + Google dès que le SDK est prêt.
+        function googleReady() {
+            return (typeof google !== 'undefined' && google.maps && google.maps.places
+                && google.maps.places.AutocompleteService);
+        }
+        var _autoSvc = null, _detSvc = null;
+        function autoSvc() {
+            if (!_autoSvc && googleReady()) { try { _autoSvc = new google.maps.places.AutocompleteService(); } catch (e) {} }
+            return _autoSvc;
+        }
+        function detSvc() {
+            if (!_detSvc && googleReady()) { try { _detSvc = new google.maps.places.PlacesService(document.createElement('div')); } catch (e) {} }
+            return _detSvc;
+        }
 
         var active = -1;
         var items = [];
@@ -180,9 +193,10 @@
                 return;
             }
 
-            if (hasGoogle && detailsService && placeId) {
+            var _dsvc = detSvc();
+            if (_dsvc && placeId) {
                 window.setTimeout(releaseSelection, 800);
-                detailsService.getDetails({
+                _dsvc.getDetails({
                     placeId: placeId,
                     fields: ['address_components', 'geometry', 'place_id', 'formatted_address'],
                 }, function (place, status) {
@@ -281,9 +295,10 @@
             }
 
             var googlePromise = Promise.resolve([]);
-            if (hasGoogle && autocompleteService) {
+            var _asvc = autoSvc();
+            if (_asvc) {
                 googlePromise = new Promise(function (resolve) {
-                    autocompleteService.getPlacePredictions({
+                    _asvc.getPlacePredictions({
                         input: value,
                         types: ['address'],
                         componentRestrictions: { country: country },
