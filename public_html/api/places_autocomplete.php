@@ -17,21 +17,27 @@ $items = [];
 
 try {
     $pdo = db();
-    $like = '%' . $query . '%';
-    // NB : placeholders positionnels distincts — un même param nommé ne peut PAS
-    // être réutilisé quand EMULATE_PREPARES=false (cf. config/db.php), sinon
-    // "Invalid parameter number" → recherche d'immeubles locaux muette.
+    // Recherche ACTIVE par MOTS : chaque mot saisi doit se retrouver (dans
+    // n'importe quel ordre) dans l'adresse complète. Ainsi « 13 louis blan »
+    // matche « 13 Rue Louis Blanc 69250 Neuville » (le LIKE plein n'y arrivait pas
+    // à cause du mot « Rue » intercalé).
+    $haystack = "CONCAT_WS(' ', adresse_1, adresse_2, code_postal, ville, nom_immeuble)";
+    $tokens = array_values(array_filter(preg_split('/\s+/', $query) ?: [], fn($t) => $t !== ''));
+    if (!$tokens) { $tokens = [$query]; }
+    $where = [];
+    $args  = [];
+    foreach ($tokens as $tok) {
+        $where[] = "$haystack LIKE ?";
+        $args[]  = '%' . $tok . '%';
+    }
     $stmt = $pdo->prepare("
         SELECT id, nom_immeuble, adresse_1, adresse_2, code_postal, ville, pays, latitude, longitude
         FROM immeubles
-        WHERE adresse_1 LIKE ?
-           OR ville LIKE ?
-           OR code_postal LIKE ?
-           OR nom_immeuble LIKE ?
+        WHERE " . implode(' AND ', $where) . "
         ORDER BY nom_immeuble ASC, adresse_1 ASC
         LIMIT 8
     ");
-    $stmt->execute([$like, $like, $like, $like]);
+    $stmt->execute($args);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $row) {
