@@ -33,6 +33,19 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
 .nd-input{width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;box-sizing:border-box;}
 .nd-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .nd-grid .full{grid-column:1/-1;}
+.nd-bien-cols{display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:start;}
+@media(max-width:760px){.nd-bien-cols{grid-template-columns:1fr;}}
+.nd-bien-right{border-left:1px solid #eef2f6;padding-left:20px;}
+@media(max-width:760px){.nd-bien-right{border-left:0;padding-left:0;border-top:1px solid #eef2f6;padding-top:14px;}}
+.nd-biens-list{display:flex;flex-direction:column;gap:7px;max-height:430px;overflow:auto;}
+.nd-bien-btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;line-height:1.25;width:100%;}
+.nd-bien-btn:hover{border-color:#0f6cbd;background:#eef5fc;}
+.nd-bien-btn .r{font-weight:800;font-size:13px;color:#0f172a;}
+.nd-bien-btn .d{font-size:11px;color:#64748b;}
+.nd-bien-btn .tags{margin-top:3px;display:flex;gap:5px;}
+.nd-bien-tag{font-size:9px;font-weight:800;border-radius:5px;padding:1px 6px;}
+.nd-bien-tag.vente{background:#fef3c7;color:#92600a;}
+.nd-bien-tag.dossier{background:#d7f0e0;color:#0b6b35;}
 .nd-actions{display:flex;justify-content:space-between;margin-top:22px;}
 .nd-btn{border:none;border-radius:11px;padding:12px 22px;font-weight:800;font-size:14px;cursor:pointer;}
 .nd-btn.prev{background:#eceef1;color:#374151;}
@@ -75,8 +88,10 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
   <!-- ÉTAPE 2 : BIEN -->
   <div class="nd-card" id="nd-step2" style="display:none;">
     <h2>🏠 Le bien à vendre</h2>
-    <div class="sub">Propriétaire : <strong id="nd-prop-nom">—</strong>. Renseignez le bien (l'adresse passe par le modal Google).</div>
+    <div class="sub">Propriétaire : <strong id="nd-prop-nom">—</strong>. Choisissez un de ses biens existants à droite, ou créez-en un nouveau.</div>
 
+    <div class="nd-bien-cols">
+    <div class="nd-bien-left">
     <div class="nd-label">Type de bien</div>
     <div class="nd-types" id="nd-types">
       <?php foreach ($TYPES as $id => $lib): ?>
@@ -101,6 +116,13 @@ $TYPES = [1=>'Appartement', 2=>'Maison', 4=>'Terrain', 5=>'Local commercial', 6=
     </div>
     <input type="hidden" id="nd-lat"><input type="hidden" id="nd-lng">
     <input type="hidden" id="nd-placeid"><input type="hidden" id="nd-formatted">
+    </div><!-- /nd-bien-left -->
+
+    <div class="nd-bien-right">
+      <div class="nd-label" style="margin-top:0;">Ses biens chez nous</div>
+      <div id="nd-biens-list" class="nd-biens-list"><div class="nd-msg">Chargement…</div></div>
+    </div>
+    </div><!-- /nd-bien-cols -->
 
     <div class="nd-actions">
       <button type="button" class="nd-btn prev" onclick="ndStep(1)">← Retour</button>
@@ -123,7 +145,34 @@ tiers_selector_assets();
 (function(){
   const API_PROP = <?= json_encode(app_url('/api/transaction_dossier_new_proprio.php')) ?>;
   const API_BIEN = <?= json_encode(app_url('/api/transaction_dossier_new_bien.php')) ?>;
+  const API_PBIENS = <?= json_encode(app_url('/api/transaction_dossier_proprio_biens.php')) ?>;
+  const DOSSIER_URL = <?= json_encode(app_url('/transaction_dossier.php?id_bien=')) ?>;
   let idProprietaire = 0, idTiers = 0, selType = 0;
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+  async function ndLoadBiens(){
+    const box = document.getElementById('nd-biens-list');
+    box.innerHTML = '<div class="nd-msg">Chargement…</div>';
+    try{
+      const res = await fetch(API_PBIENS+'?id_proprietaire='+idProprietaire, {credentials:'same-origin'});
+      const out = await res.json();
+      if(!out.ok || !out.biens.length){ box.innerHTML = '<div class="nd-msg">Aucun bien existant chez nous — créez-le à gauche.</div>'; return; }
+      box.innerHTML = '';
+      out.biens.forEach(b=>{
+        const el = document.createElement('button');
+        el.type='button'; el.className='nd-bien-btn';
+        let tags='';
+        if(b.en_vente) tags+='<span class="nd-bien-tag vente">en vente</span>';
+        if(b.id_dossier) tags+='<span class="nd-bien-tag dossier">dossier ✓</span>';
+        el.innerHTML = '<span class="r">'+esc(b.ref)+'</span>'+
+                       (b.designation||b.ville?'<span class="d">'+esc([b.designation,b.ville].filter(Boolean).join(' · '))+'</span>':'')+
+                       (tags?'<span class="tags">'+tags+'</span>':'');
+        el.onclick = ()=>{ window.location.href = DOSSIER_URL + b.id; };
+        box.appendChild(el);
+      });
+    }catch(err){ box.innerHTML = '<div class="nd-msg">Erreur de chargement.</div>'; }
+  }
 
   const root = document.querySelector('[data-ts-root="nd_tiers"]');
   const tval = () => root ? root.querySelector('.ts-value').value : '';
@@ -152,7 +201,7 @@ tiers_selector_assets();
       if(!out.ok){ msg.textContent='Erreur : '+(out.error||'inconnue'); return; }
       idProprietaire = out.id_proprietaire; idTiers = out.id_tiers;
       document.getElementById('nd-prop-nom').textContent = out.nom;
-      msg.textContent=''; ndStep(2);
+      msg.textContent=''; ndStep(2); ndLoadBiens();
     }catch(err){ msg.textContent='Erreur réseau : '+err.message; }
   };
 
