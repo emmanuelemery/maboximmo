@@ -25,6 +25,9 @@ if (!function_exists('immeuble_resolve')) {
      */
     function immeuble_resolve(PDO $pdo, array $o): int {
         $adresse1 = trim((string)($o['adresse_1'] ?? ''));
+        // Défense : retire un éventuel préfixe datetime parasite (corruption legacy)
+        // ex. "2013-11-01 00:00:00 Rue X" -> "Rue X".
+        $adresse1 = trim((string)preg_replace('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}\s+/', '', $adresse1));
         $cp       = trim((string)($o['code_postal'] ?? ''));
         $ville    = trim((string)($o['ville'] ?? ''));
         $selected = (int)($o['id_immeuble_selected'] ?? 0);
