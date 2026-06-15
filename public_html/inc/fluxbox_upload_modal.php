@@ -60,6 +60,15 @@ try {
 <div id="fbx-upload-modal" class="fbx-upload-modal" aria-hidden="true">
     <div class="fbx-upload-backdrop" data-fbx-close></div>
     <div class="fbx-upload-dialog" role="dialog" aria-labelledby="fbx-upload-title">
+        <!-- Fix Bug 1 (2026-05-26) : vrais hidden inputs pour inspection DOM + audit QA -->
+        <!-- Le POST upload utilise FormData JS (fd.append) mais ces hidden donnent la vérité visible -->
+        <input type="hidden" name="prefill_bien_id"     id="fbx-prefill-bien-id"     value="0">
+        <input type="hidden" name="prefill_immeuble_id" id="fbx-prefill-immeuble-id" value="0">
+        <input type="hidden" name="prefill_tiers_id"    id="fbx-prefill-tiers-id"    value="0">
+        <input type="hidden" name="prefill_soc_id"      id="fbx-prefill-soc-id"      value="0">
+        <input type="hidden" name="prefill_age_id"      id="fbx-prefill-age-id"      value="0">
+        <input type="hidden" name="prefill_origin"      id="fbx-prefill-origin"      value="">
+        <input type="hidden" name="prefill_mode"        id="fbx-prefill-mode"        value="">
         <div class="fbx-upload-head">
             <h2 id="fbx-upload-title">📥 Charger des documents</h2>
             <button type="button" class="fbx-upload-close" data-fbx-close aria-label="Fermer">✕</button>
@@ -117,6 +126,17 @@ try {
                 </div>
             </div>
 
+            <!-- Nom de l'entité — placé juste après le sous-domaine (= entité sélectionnée) -->
+            <div class="fbx-meta-label" id="fbx-meta-entity-wrap">
+                <label for="fbx-meta-entity-input">
+                    👤 Nom de l'entité
+                    <span class="fbx-meta-optional" id="fbx-meta-entity-hint">(rempli auto si tu uploades un dossier nommé — sinon saisis ici : Dupont-Pierre, BNP Paribas, Immeuble Foch…)</span>
+                </label>
+                <input type="text" id="fbx-meta-entity-input" maxlength="120"
+                       placeholder="Ex : « Dupont-Pierre » pour un collaborateur, « CACE » pour une banque, « Imm-Foch » pour un immeuble…">
+                <div class="fbx-meta-hint" id="fbx-meta-entity-required-msg" style="display:none; color:#dc2626;">⚠️ Ce sous-domaine attend une entité — sans nom, le doc sera classé sous « COLLABORATEUR » générique.</div>
+            </div>
+
             <!-- Catégorie (N4) -->
             <div class="fbx-row-block">
                 <div class="fbx-row-label">📄 Catégorie</div>
@@ -131,17 +151,6 @@ try {
                 <div class="fbx-btn-grid-sm" id="fbx-row-n5" data-meta="n5" data-meta-level="5">
                     <div class="fbx-row-empty">— Choisir une catégorie d'abord —</div>
                 </div>
-            </div>
-
-            <!-- Nom de l'entité (collaborateur, immeuble, banque, fournisseur…) -->
-            <div class="fbx-meta-label" id="fbx-meta-entity-wrap">
-                <label for="fbx-meta-entity-input">
-                    👤 Nom de l'entité
-                    <span class="fbx-meta-optional" id="fbx-meta-entity-hint">(rempli auto si tu uploades un dossier nommé — sinon saisis ici : Dupont-Pierre, BNP Paribas, Immeuble Foch…)</span>
-                </label>
-                <input type="text" id="fbx-meta-entity-input" maxlength="120"
-                       placeholder="Ex : « Dupont-Pierre » pour un collaborateur, « CACE » pour une banque, « Imm-Foch » pour un immeuble…">
-                <div class="fbx-meta-hint" id="fbx-meta-entity-required-msg" style="display:none; color:#dc2626;">⚠️ Ce sous-domaine attend une entité — sans nom, le doc sera classé sous « COLLABORATEUR » générique.</div>
             </div>
 
             <!-- Libellé personnalisé du document (optionnel) -->
@@ -276,6 +285,15 @@ try {
 
             <!-- Actions de fin de chargement (affichées quand tout est traité) -->
             <div class="fbx-queue-end-actions" id="fbx-queue-end-actions" hidden>
+                <!-- Validation directe en GED (sans passer par la pile) -->
+                <button type="button" class="fbx-btn fbx-btn-primary" id="fbx-validate-now" hidden
+                        style="background:#15803d;border-color:#15803d;">
+                    ✅ Valider et classer maintenant
+                </button>
+                <!-- Sprint 6 · A1 : bouton de redirection vers pipeline documentaire unifié -->
+                <button type="button" class="fbx-btn fbx-btn-primary" id="fbx-go-review" hidden>
+                    📋 Réviser maintenant
+                </button>
                 <button type="button" class="fbx-btn fbx-btn-primary" id="fbx-go-fluxbox">
                     🃏 Voir la pile FluxBox
                 </button>
@@ -544,45 +562,81 @@ try {
 }
 .fbx-upload-head     { order: 1; }
 .fbx-upload-subtitle { order: 2; }
-.fbx-target-card     { order: 3; }   /* mini-card "Bien ciblé" — visible immédiatement */
+.fbx-target-row      { order: 3; }   /* mini-cards "Bien" + "Propriétaire" côte à côte */
 .fbx-upload-tabs     { order: 4; }
 .fbx-pane            { order: 5; }
 .fbx-upload-queue    { order: 6; }
 .fbx-meta-collapse   { order: 7; }   /* bloc cascade GED — replié, en bas */
 
-/* Mini-card "DOCUMENT POUR LE BIEN" (style relief MaBoxImmo) */
+/* Row de 2 mini-cards côte à côte (Bien + Propriétaire). Empilées sur mobile. */
+.fbx-target-row {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+@media (max-width: 700px) {
+    .fbx-target-row { flex-direction: column; }
+}
+
+/* Mini-card commune (style relief MaBoxImmo) — palette métier figée 2026-05-23 */
 .fbx-target-card {
+    flex: 1; min-width: 0;
     display: flex;
     align-items: center;
     gap: 14px;
-    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
-    border: 1px solid #86efac;
-    border-left: 4px solid #16a34a;
     border-radius: 14px;
     padding: 14px 18px;
-    margin-bottom: 18px;
-    box-shadow: 4px 4px 12px rgba(22,163,74,0.10);
+    text-decoration: none;
+    color: inherit;
+    transition: transform .12s, box-shadow .12s;
 }
+.fbx-target-card:hover { transform: translateY(-2px); }
+
+/* BIEN — vert amande classique #84a98c */
+.fbx-target-bien {
+    background: linear-gradient(135deg, rgba(132,169,140,0.10) 0%, rgba(132,169,140,0.18) 100%);
+    border: 1px solid #84a98c;
+    border-left: 4px solid #84a98c;
+    box-shadow: 4px 4px 12px rgba(132,169,140,0.18);
+}
+.fbx-target-bien:hover { box-shadow: 6px 6px 16px rgba(132,169,140,0.28); }
+.fbx-target-bien .fbx-target-icon {
+    background: linear-gradient(135deg, rgba(132,169,140,0.55), rgba(132,169,140,0.95));
+}
+.fbx-target-bien .fbx-target-label { color: #4a6d52; }
+.fbx-target-bien .fbx-target-name  { color: #1a3a2e; }
+
+/* PROPRIÉTAIRE — pétrole cyan #0e7490 */
+.fbx-target-proprio {
+    background: linear-gradient(135deg, rgba(14,116,144,0.08) 0%, rgba(14,116,144,0.16) 100%);
+    border: 1px solid #0e7490;
+    border-left: 4px solid #0e7490;
+    box-shadow: 4px 4px 12px rgba(14,116,144,0.18);
+}
+.fbx-target-proprio:hover { box-shadow: 6px 6px 16px rgba(14,116,144,0.28); }
+.fbx-target-proprio .fbx-target-icon {
+    background: linear-gradient(135deg, rgba(14,116,144,0.55), rgba(14,116,144,0.95));
+}
+.fbx-target-proprio .fbx-target-label { color: #0e7490; }
+.fbx-target-proprio .fbx-target-name  { color: #0e2a3a; }
+
 .fbx-target-icon {
     width: 48px; height: 48px; border-radius: 12px;
-    background: linear-gradient(135deg, #bbf7d0, #86efac);
     display: flex; align-items: center; justify-content: center;
     font-size: 26px; flex-shrink: 0;
-    box-shadow: inset 1px 1px 2px rgba(255,255,255,0.6), 2px 2px 4px rgba(22,163,74,0.18);
+    box-shadow: inset 1px 1px 2px rgba(255,255,255,0.5), 2px 2px 4px rgba(0,0,0,0.15);
 }
 .fbx-target-body { flex: 1; min-width: 0; }
 .fbx-target-label {
     font-family: "DM Mono", monospace;
     font-size: 10px;
     font-weight: 700;
-    color: #15803d;
     letter-spacing: 0.08em;
     margin-bottom: 3px;
 }
 .fbx-target-name {
     font-size: 15px;
     font-weight: 700;
-    color: #14532d;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1143,6 +1197,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             dupCount:    0,    // doublons cumulés
             batchTotal:  0,    // total demandé dans la session courante
             duplicates:  [],   // liste des doublons détectés (pour bilan fin upload)
+            createdCards: [],  // [Sprint 6 A1] {card_id, doc_id, bien_id} des nouvelles cartes du batch
             _resetTimer: null, // timer reset après inactivité
         };
     }
@@ -1182,6 +1237,16 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         if (endActions) endActions.hidden = !isDone;
         // Affiche le bilan doublons si fin d'upload + au moins 1 doublon
         if (isDone && STATE.duplicates.length > 0) renderDedupSummary();
+
+        // [Sprint 6 A1] Bouton "📋 Réviser maintenant" — affiché si 1 seule carte créée + bien_id connu
+        const reviewBtn = document.getElementById('fbx-go-review');
+        if (reviewBtn) {
+            const eligible = STATE.createdCards.filter(c => c.bien_id > 0);
+            reviewBtn.hidden = !(isDone && eligible.length === 1);
+        }
+        // Validation directe : dès qu'au moins une carte est créée et le batch terminé
+        const valBtn = document.getElementById('fbx-validate-now');
+        if (valBtn) valBtn.hidden = !(isDone && STATE.createdCards.length > 0);
     }
 
     /* Bilan doublons (fin d'upload) — listing batch avec liens vers cartes existantes */
@@ -1228,9 +1293,44 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         btn.textContent = willOpen ? 'Masquer le détail ▲' : 'Voir le détail ▼';
     });
 
-    // Branche les 3 boutons du footer de queue
+    // Branche les boutons du footer de queue
     document.getElementById('fbx-go-fluxbox')?.addEventListener('click', () => {
         window.location.href = FLUXBOX_URL;
+    });
+    // Validation directe en GED des cartes du batch (sans passer par la pile)
+    document.getElementById('fbx-validate-now')?.addEventListener('click', async (ev) => {
+        const btn = ev.currentTarget;
+        const cards = STATE.createdCards.filter(c => c.card_id > 0);
+        if (!cards.length) return;
+        if (!confirm('Classer définitivement en GED ' + cards.length + ' document(s) ?')) return;
+        btn.disabled = true; const lbl0 = btn.textContent; btn.textContent = '⏳ Classement…';
+        let ok = 0, ko = 0;
+        for (const c of cards) {
+            try {
+                const r = await fetch(API, { method:'POST', headers:{ 'Content-Type':'application/json', 'X-CSRF-Token':CSRF },
+                    body: JSON.stringify({ action:'validate', carte_id: c.card_id, csrf: CSRF }) });
+                const j = await r.json();
+                if (j && (j.ok || (j.data && j.data.ok))) ok++; else ko++;
+            } catch (e) { ko++; }
+        }
+        btn.textContent = '✅ ' + ok + ' classé(s)' + (ko ? ' · ' + ko + ' échec' : '');
+        btn.style.background = ko ? '#b45309' : '#15803d';
+        setTimeout(() => { try { (window.parent && window.parent !== window ? window.parent : window).location.reload(); } catch (e) { location.reload(); } }, 1300);
+    });
+    // [Sprint 6 A1] "Réviser maintenant" → doc_upload_review.php?source=fluxbox
+    document.getElementById('fbx-go-review')?.addEventListener('click', () => {
+        const eligible = STATE.createdCards.filter(c => c.bien_id > 0);
+        if (eligible.length !== 1) return;
+        const c = eligible[0];
+        const qs = new URLSearchParams({
+            source:   'fluxbox',
+            ctx_type: 'BIEN',
+            bien_id:  String(c.bien_id),
+            card_id:  String(c.card_id),
+        });
+        if (c.doc_id) qs.set('doc_id', String(c.doc_id));
+        const base = '<?= function_exists('app_url') ? app_url('/doc_upload_review.php') : '/doc_upload_review.php' ?>';
+        window.location.href = base + '?' + qs.toString();
     });
     document.getElementById('fbx-upload-more')?.addEventListener('click', () => {
         // Reset visible de la queue : on cache le footer et on remet la queue à zéro pour un nouvel upload
@@ -1242,6 +1342,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         STATE.dupCount   = 0;
         STATE.errCount   = 0;
         STATE.duplicates = [];
+        STATE.createdCards = []; // [Sprint 6 A1] reset cartes batch
         // Cache le bilan doublons pour le prochain batch
         const dedupWrap = document.getElementById('fbx-dedup-summary');
         if (dedupWrap) dedupWrap.hidden = true;
@@ -1282,6 +1383,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 STATE.doneCount  = 0;
                 STATE.dupCount   = 0;
                 STATE.errCount   = 0;
+                STATE.createdCards = []; // [Sprint 6 A1]
                 updateProgress();
             }, 30000);
         } else if (STATE._resetTimer) {
@@ -1347,7 +1449,13 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             const res = await fetch(API, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
-                body: JSON.stringify({ action: 'fbx_context', csrf: CSRF }),
+                // Fix P1-1 (2026-05-26) : on envoie le soc_id du prefill pour que les agences
+                // listées correspondent à la société du contexte (pas à la session user qui peut être autre).
+                body: JSON.stringify({
+                    action: 'fbx_context',
+                    csrf: CSRF,
+                    societe_id: (window.FBX_PREFILL && window.FBX_PREFILL.soc_id) ? parseInt(window.FBX_PREFILL.soc_id, 10) : null,
+                }),
                 credentials: 'same-origin',
             });
             const text = await res.text();
@@ -1782,6 +1890,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 
     /* ─── Récup métadonnées user (commentaire + classement + date + libellé + entité) ─── */
     function getMetadata() {
+        const pf = window.FBX_PREFILL || {};
         return {
             user_comment:    (commentEl?.value || '').trim(),
             user_label:      (labelEl?.value   || '').trim(),
@@ -1794,6 +1903,12 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             target_societe_id: choice.societe_id || '',
             target_agence_id:  choice.agence_id  || '',
             target_date: (dateEl?.value || '').trim(), // YYYY-MM-DD
+            // [V3.1 — 2026-05-25] Prefill métier propagé pour naming entité polymorphe
+            prefill_bien_id:     pf.bien_id     ? parseInt(pf.bien_id, 10)     : 0,
+            prefill_immeuble_id: pf.immeuble_id ? parseInt(pf.immeuble_id, 10) : 0,
+            prefill_tiers_id:    pf.proprio_tiers_id ? parseInt(pf.proprio_tiers_id, 10)
+                               : (pf.tiers_id ? parseInt(pf.tiers_id, 10) : 0),
+            prefill_origin:      pf.origin || '',
         };
     }
 
@@ -1817,43 +1932,90 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         loadContext(); // charge sociétés + agences + métiers au premier open
     }
 
-    /* Mini-card "Bien ciblé" affichée tout en haut de la modal, sans attendre
-       la cascade async. On en est certain dès l'ouverture car le prefill contient
-       toutes les infos (ref, ID BDD, adresse). */
+    /* Mini-cards "Bien ciblé" + "Propriétaire" côte à côte tout en haut de la
+       modal. Affichage immédiat (synchrone) à l'ouverture — on en est certain
+       car le prefill contient toutes les infos (ref, ID BDD, adresse, proprio).
+       Clic = ouvre bien_360 / tiers_360 dans nouvel onglet. */
     function renderTargetCard(prefill) {
         if (!prefill || !prefill.entite_nom) { removeTargetCard(); return; }
-        let card = document.getElementById('fbx-target-card');
-        if (!card) {
-            card = document.createElement('div');
-            card.id = 'fbx-target-card';
-            card.className = 'fbx-target-card';
-            // Insérer juste après la subtitle (avant les tabs / dropzone)
+        // Fix Bug 1 (2026-05-26) : mettre à jour les hidden inputs HTML visibles pour QA + audit
+        const setHidden = (id, val) => { const el = document.getElementById(id); if (el) el.value = String(val ?? ''); };
+        setHidden('fbx-prefill-bien-id',     prefill.bien_id          || 0);
+        setHidden('fbx-prefill-immeuble-id', prefill.immeuble_id      || 0);
+        setHidden('fbx-prefill-tiers-id',    prefill.proprio_tiers_id || prefill.tiers_id || 0);
+        setHidden('fbx-prefill-soc-id',      prefill.soc_id           || 0);
+        setHidden('fbx-prefill-age-id',      prefill.age_id           || 0);
+        setHidden('fbx-prefill-origin',      prefill.origin           || '');
+        setHidden('fbx-prefill-mode',        prefill.mode_dossier_proprio ? 'dossier_proprio' : (prefill.bien_id ? 'bien' : 'libre'));
+
+        // Fix P0-2 (2026-05-26) : en mode dossier propriétaire (tiers sans bien),
+        // on masque la mini-card BIEN car elle est trompeuse — l'IA matchera bien individuel.
+        const isProprietaireOnly = (
+            prefill.mode_dossier_proprio === true
+            || ((!prefill.bien_id || parseInt(prefill.bien_id, 10) === 0)
+                && (prefill.proprio_tiers_id || prefill.proprio_id))
+        );
+        let row = document.getElementById('fbx-target-row');
+        if (!row) {
+            row = document.createElement('div');
+            row.id = 'fbx-target-row';
+            row.className = 'fbx-target-row';
             const subtitle = modal.querySelector('.fbx-upload-subtitle');
             if (subtitle && subtitle.parentElement) {
-                subtitle.insertAdjacentElement('afterend', card);
+                subtitle.insertAdjacentElement('afterend', row);
             } else {
-                modal.querySelector('.fbx-upload-dialog')?.prepend(card);
+                modal.querySelector('.fbx-upload-dialog')?.prepend(row);
             }
         }
-        const ref       = String(prefill.entite_nom);
-        const idBdd     = prefill.entite_id_bdd ? parseInt(prefill.entite_id_bdd, 10) : 0;
-        const adresse   = prefill.entite_adresse ? String(prefill.entite_adresse) : '';
-        const originLbl = prefill.origin === 'bien_360' ? 'fiche 360°'
-                        : prefill.origin === 'transaction_index' ? 'tableau Transaction'
-                        : (prefill.origin || 'page appelante');
-        const idBadge   = idBdd > 0 ? '<span class="fbx-target-id">id #' + idBdd + '</span>' : '';
-        const adrLine   = adresse ? '<div class="fbx-target-addr">📍 ' + adresse + '</div>' : '';
-        card.innerHTML =
-            '<div class="fbx-target-icon">🏠</div>'
-          + '<div class="fbx-target-body">'
-          +   '<div class="fbx-target-label">DOCUMENT POUR LE BIEN</div>'
-          +   '<div class="fbx-target-name">' + ref + idBadge + '</div>'
-          +   adrLine
-          +   '<div class="fbx-target-from">→ depuis ' + originLbl + '</div>'
-          + '</div>';
+        const base       = (typeof window.APP_BASE === 'string' && window.APP_BASE) ? window.APP_BASE : '';
+        const originLbl  = prefill.origin === 'bien_360' ? 'fiche 360°'
+                         : prefill.origin === 'transaction_index' ? 'tableau Transaction'
+                         : (prefill.origin || 'page appelante');
+
+        // ── Mini-card BIEN (gauche) — vert amande #84a98c ──
+        const ref      = String(prefill.entite_nom);
+        const idBdd    = prefill.entite_id_bdd ? parseInt(prefill.entite_id_bdd, 10) : 0;
+        const adresse  = prefill.entite_adresse ? String(prefill.entite_adresse) : '';
+        const idBadge  = idBdd > 0 ? '<span class="fbx-target-id">id #' + idBdd + '</span>' : '';
+        const adrLine  = adresse ? '<div class="fbx-target-addr">📍 ' + adresse + '</div>' : '';
+        const urlBien  = idBdd > 0 ? base + '/bien_360.php?id=' + idBdd : '#';
+        const bienHtml =
+            '<a class="fbx-target-card fbx-target-bien" href="' + urlBien + '" target="_blank" rel="noopener" title="Ouvrir la fiche 360° du bien (nouvel onglet)">'
+          +   '<div class="fbx-target-icon">🏠</div>'
+          +   '<div class="fbx-target-body">'
+          +     '<div class="fbx-target-label">DOCUMENT POUR LE BIEN</div>'
+          +     '<div class="fbx-target-name">' + ref + idBadge + '</div>'
+          +     adrLine
+          +     '<div class="fbx-target-from">→ depuis ' + originLbl + ' · 🔗 360°</div>'
+          +   '</div>'
+          + '</a>';
+
+        // ── Mini-card PROPRIÉTAIRE (droite) — pétrole cyan #0e7490 ──
+        let proprioHtml = '';
+        if (prefill.proprio_nom || prefill.proprio_id) {
+            const pNom      = prefill.proprio_nom ? String(prefill.proprio_nom) : 'Propriétaire #' + parseInt(prefill.proprio_id || 0, 10);
+            const pTiersId  = prefill.proprio_tiers_id ? parseInt(prefill.proprio_tiers_id, 10) : 0;
+            const pId       = prefill.proprio_id ? parseInt(prefill.proprio_id, 10) : 0;
+            const pIdBadge  = pTiersId > 0 ? '<span class="fbx-target-id">tiers #' + pTiersId + '</span>'
+                            : (pId > 0 ? '<span class="fbx-target-id">proprio #' + pId + '</span>' : '');
+            const pRepLine  = prefill.proprio_representant ? '<div class="fbx-target-addr">👥 ' + String(prefill.proprio_representant) + '</div>' : '';
+            const pUrl      = pTiersId > 0 ? base + '/tiers_360.php?id=' + pTiersId : '#';
+            proprioHtml =
+                '<a class="fbx-target-card fbx-target-proprio" href="' + pUrl + '" target="_blank" rel="noopener" title="Ouvrir la fiche 360° du propriétaire (nouvel onglet)">'
+              +   '<div class="fbx-target-icon">👤</div>'
+              +   '<div class="fbx-target-body">'
+              +     '<div class="fbx-target-label">PROPRIÉTAIRE</div>'
+              +     '<div class="fbx-target-name">' + pNom + pIdBadge + '</div>'
+              +     pRepLine
+              +     '<div class="fbx-target-from">🔗 360°</div>'
+              +   '</div>'
+              + '</a>';
+        }
+        // Fix P0-2 : en mode propriétaire seul, on masque la card BIEN
+        row.innerHTML = isProprietaireOnly ? proprioHtml : (bienHtml + proprioHtml);
     }
     function removeTargetCard() {
-        const c = document.getElementById('fbx-target-card');
+        const c = document.getElementById('fbx-target-row');
         if (c) c.remove();
     }
     function closeModal() {
@@ -2081,6 +2243,11 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             fd.append('target_societe_id', String(meta.target_societe_id));
             fd.append('target_agence_id',  String(meta.target_agence_id));
             fd.append('target_date',       meta.target_date || '');
+            // [V3.1] Prefill métier (pour naming entité polymorphe + détection N1 contextuelle)
+            fd.append('prefill_bien_id',     String(meta.prefill_bien_id || 0));
+            fd.append('prefill_immeuble_id', String(meta.prefill_immeuble_id || 0));
+            fd.append('prefill_tiers_id',    String(meta.prefill_tiers_id || 0));
+            fd.append('prefill_origin',      meta.prefill_origin || '');
             // Path relatif si le file vient d'un panneau "Dossier" (<input webkitdirectory>)
             // Permet au serveur d'extraire le nom du dossier parent comme instance entité
             if (file.webkitRelativePath) {
@@ -2128,6 +2295,15 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                         `ZIP : ${d.files_ingested} fichiers · ${d.cards_created} cartes`);
                 } else {
                     STATE.doneCount++;
+                    // [Sprint 6 A1] Mémoriser carte créée pour redirection review unifiée
+                    if (d.carte_id) {
+                        const pf = window.FBX_PREFILL || {};
+                        STATE.createdCards.push({
+                            card_id: parseInt(d.carte_id, 10),
+                            doc_id:  d.document_id ? parseInt(d.document_id, 10) : (d.doc_id ? parseInt(d.doc_id, 10) : 0),
+                            bien_id: pf.bien_id ? parseInt(pf.bien_id, 10) : 0,
+                        });
+                    }
                     showToast(file.name, 'success', 'Carte créée');
                 }
             }

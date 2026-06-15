@@ -104,6 +104,16 @@ if (!function_exists('dv_ensure_for_bien')) {
             return $row ? (int)$row['id'] : 0;
         }
 
+        // Référence propre du dossier : <code_agence>-DV-AAMM-id (unique par construction).
+        try {
+            $pdo->prepare("UPDATE dossier_vente dv
+                             LEFT JOIN agences a ON a.id = dv.id_agence
+                              SET dv.reference = CONCAT(COALESCE(NULLIF(a.code_agence,''),'MBI'), '-DV-',
+                                                        DATE_FORMAT(dv.created_at,'%y%m'), '-', LPAD(dv.id,4,'0'))
+                            WHERE dv.id = ? AND (dv.reference IS NULL OR dv.reference = '')")
+                ->execute([$idDossier]);
+        } catch (Throwable $e) { error_log('[dv reference] ' . $e->getMessage()); }
+
         // Lot principal (rang 0) + acteur vendeur proposé + synchro étape réelle.
         dv_ensure_lot($pdo, $idDossier, $idBien, ['rang' => 0, 'id_user' => $idUser]);
         dv_seed_vendeur($pdo, $idDossier, $idBien);
@@ -386,15 +396,41 @@ if (!function_exists('dv_lots')) {
     function dv_lots(PDO $pdo, int $idDossier): array {
         if ($idDossier <= 0) return [];
         $st = $pdo->prepare("
-            SELECT dvb.id AS lot_id, dvb.id_bien, dvb.prix_vente, dvb.loyer_reel,
+            SELECT dvb.id AS lot_id, dvb.id_bien, dvb.estimation, dvb.prix_vente, dvb.loyer_reel,
                    dvb.loyer_potentiel, dvb.rang,
                    b.reference_bien, b.designation, b.id_immeuble,
-                   b.loyer_hc        AS _loyer_reel_bien,
-                   b.loyer_potentiel AS _loyer_potentiel_bien,
+                   bt.libelle AS type_libelle, b.sous_type_bien,
+                   COALESCE(NULLIF(b.adresse_1,''), im.adresse_1) AS lot_adresse,
+                   COALESCE(NULLIF(b.code_postal,''), im.code_postal) AS lot_cp,
+                   COALESCE(NULLIF(b.ville,''), im.ville) AS lot_ville,
+                   -- Locataire du bail actif (le plus récent)
+                   (SELECT COALESCE(NULLIF(bx.locataire_raison_sociale,''),
+                                    NULLIF(TRIM(CONCAT(COALESCE(bx.locataire_prenom,''),' ',COALESCE(bx.locataire_nom,''))),''))
+                      FROM bien_baux bx
+                     WHERE bx.id_bien = b.id AND bx.statut = 'actif'
+                     ORDER BY bx.date_prise_effet DESC, bx.id DESC LIMIT 1) AS locataire_nom,
+                   -- Loyer réel suggéré (ANNUEL) : bail actif sinon biens.loyer_hc, ×12 (sources mensuelles)
+                   COALESCE(
+                     (SELECT bx2.loyer_mensuel_hc * 12 FROM bien_baux bx2
+                       WHERE bx2.id_bien = b.id AND bx2.statut = 'actif'
+                       ORDER BY bx2.date_prise_effet DESC, bx2.id DESC LIMIT 1),
+                     b.loyer_hc * 12
+                   ) AS _loyer_reel_bien,
+                   b.loyer_potentiel * 12 AS _loyer_potentiel_bien,
+                   -- Prix suggéré (NET VENDEUR) : repris de l'annonce, sinon estimation bien.
+                   COALESCE(
+                     (SELECT COALESCE(a.prix_net_vendeur, a.prix, a.prix_honoraires_inclus)
+                        FROM annonces a
+                       WHERE a.id_bien = b.id AND COALESCE(a.type_transaction,'vente') = 'vente'
+                         AND COALESCE(a.prix_net_vendeur, a.prix, a.prix_honoraires_inclus) > 0
+                       ORDER BY a.id DESC LIMIT 1),
+                     b.prix_vente_estime
+                   ) AS _prix_vente_bien,
                    im.nom_immeuble, im.adresse_1 AS imm_adresse
               FROM dossier_vente_bien dvb
               JOIN biens b      ON b.id = dvb.id_bien
               LEFT JOIN immeubles im ON im.id = b.id_immeuble
+              LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
              WHERE dvb.id_dossier = ?
              ORDER BY dvb.rang ASC, dvb.id ASC
         ");
@@ -410,11 +446,12 @@ if (!function_exists('dv_save_lot')) {
         $num = static fn($v) => ($v === null || $v === '') ? null : (float)$v;
         $st = $pdo->prepare("
             UPDATE dossier_vente_bien
-               SET prix_vente = :p, loyer_reel = :lr, loyer_potentiel = :lp, updated_at = NOW()
+               SET estimation = :e, prix_vente = :p, loyer_reel = :lr, loyer_potentiel = :lp, updated_at = NOW()
              WHERE id = :lot AND id_dossier = :doss
         ");
         try {
             return $st->execute([
+                ':e'   => $num($vals['estimation'] ?? null),
                 ':p'   => $num($vals['prix_vente'] ?? null),
                 ':lr'  => $num($vals['loyer_reel'] ?? null),
                 ':lp'  => $num($vals['loyer_potentiel'] ?? null),
@@ -446,21 +483,93 @@ if (!function_exists('dv_totaux')) {
      */
     function dv_totaux(PDO $pdo, int $idDossier): array {
         $lots = dv_lots($pdo, $idDossier);
-        $prix = 0.0; $lr = 0.0; $lp = 0.0; $n = 0;
+        $estim = 0.0; $prix = 0.0; $lr = 0.0; $lp = 0.0; $n = 0;
+        // Loyer retenu pour le rendement, choisi PAR LOT (estimé en priorité, sinon
+        // réel) puis sommé sur tous les lots.
+        $loyerRdt = 0.0; $usedEstim = false; $usedReel = false;
         foreach ($lots as $l) {
             $n++;
-            $prix += (float)($l['prix_vente'] ?? 0);
-            $lr   += (float)(($l['loyer_reel']      ?? null) ?? $l['_loyer_reel_bien']      ?? 0);
-            $lp   += (float)(($l['loyer_potentiel'] ?? null) ?? $l['_loyer_potentiel_bien'] ?? 0);
+            $estim += (float)($l['estimation'] ?? 0);
+            $prix  += (float)(($l['prix_vente']      ?? null) ?? $l['_prix_vente_bien']      ?? 0);
+            $lrLot  = (float)(($l['loyer_reel']      ?? null) ?? $l['_loyer_reel_bien']      ?? 0);
+            $lpLot  = (float)(($l['loyer_potentiel'] ?? null) ?? $l['_loyer_potentiel_bien'] ?? 0);
+            $lr += $lrLot; $lp += $lpLot;
+            if ($lpLot > 0)      { $loyerRdt += $lpLot; $usedEstim = true; }
+            elseif ($lrLot > 0)  { $loyerRdt += $lrLot; $usedReel  = true; }
         }
-        $rendement = $prix > 0 ? round(($lr * 12 / $prix) * 100, 2) : null;
+        // Loyers saisis en ANNUEL → rendement = loyer annuel / prix (pas de ×12).
+        $rendement = ($prix > 0 && $loyerRdt > 0) ? round(($loyerRdt / $prix) * 100, 2) : null;
+        $base = null;
+        if ($usedEstim && $usedReel) $base = 'estimé/réel';
+        elseif ($usedEstim)          $base = 'estimé';
+        elseif ($usedReel)           $base = 'réel';
         return [
             'nb_lots'         => $n,
+            'estimation'      => $estim,
             'prix_total'      => $prix,
             'loyer_reel'      => $lr,
             'loyer_potentiel' => $lp,
-            'rendement_brut'  => $rendement, // % annuel sur loyers réels
+            'rendement_brut'  => $rendement,
+            'rendement_base'  => $base,
         ];
+    }
+}
+
+if (!function_exists('dv_estimations')) {
+    /**
+     * Avis de valeur / estimations (GED, document_type=ESTIMATION) de tous les lots
+     * du dossier, indexés par id_bien. Lecture seule, source unique = GED du bien.
+     * @return array<int, array> map id_bien => liste de docs (id, name_display, date)
+     */
+    function dv_estimations(PDO $pdo, int $idDossier): array {
+        $out = [];
+        foreach (dv_lots($pdo, $idDossier) as $l) {
+            $idBien = (int)$l['id_bien'];
+            if (isset($out[$idBien])) continue;
+            $docs = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'ESTIMATION']);
+            $out[$idBien] = $docs ?: [];
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('dv_sync_prix_annonce')) {
+    /**
+     * Propage les prix des lots vers le bien + l'annonce (source unique).
+     * Règle (prix saisi = NET VENDEUR) : FAI = net + honoraires du lot.
+     *   - honoraires répartis au prorata du net de chaque lot (mono-bien = total).
+     *   - annonce.prix = FAI · prix_net_vendeur = net · prix_honoraires_inclus = FAI.
+     * Réutilise bien_prix_valider (historise + miroirs biens/annonce).
+     */
+    function dv_sync_prix_annonce(PDO $pdo, int $idDossier): void {
+        require_once __DIR__ . '/bien_prix.php';
+        $d = dv_get($pdo, $idDossier);
+        if (!$d) return;
+
+        $honos = 0.0;
+        if (!empty($d['id_mandat'])) {
+            $stM = $pdo->prepare("SELECT honoraires FROM mandats WHERE id = ? LIMIT 1");
+            $stM->execute([(int)$d['id_mandat']]);
+            $honos = (float)($stM->fetchColumn() ?: 0);
+        }
+        $lots = dv_lots($pdo, $idDossier);
+        $totalNet = 0.0;
+        foreach ($lots as $l) { $totalNet += (float)($l['prix_vente'] ?? 0); }
+
+        foreach ($lots as $l) {
+            $net = (float)($l['prix_vente'] ?? 0);
+            if ($net <= 0) continue; // seul un prix de lot explicite se propage
+            $honosLot = ($totalNet > 0 && $honos > 0) ? round($honos * $net / $totalNet, 2) : 0.0;
+            $fai = $net + $honosLot;
+            $idB = (int)$l['id_bien'];
+            try {
+                bien_prix_valider($pdo, $idB, 'prix_net_vendeur', $net, 'dossier_vente');
+                bien_prix_valider($pdo, $idB, 'prix_vente', $fai, 'dossier_vente'); // → annonce.prix
+                $pdo->prepare("UPDATE annonces SET prix_honoraires_inclus = ?
+                                WHERE id_bien = ? AND (statut IS NULL OR statut NOT IN ('supprime','archive','archivee'))")
+                    ->execute([$fai, $idB]);
+            } catch (Throwable $e) { error_log('[dv_sync_prix_annonce] ' . $e->getMessage()); }
+        }
     }
 }
 
@@ -478,11 +587,12 @@ if (!function_exists('dv_apply_lots_to_biens')) {
         $done = 0;
         foreach ($lots as $l) {
             $sets = []; $params = [];
+            // Lot en ANNUEL → biens en MENSUEL : on divise par 12 à la reprise.
             if ($l['loyer_reel'] !== null && $l['loyer_reel'] !== '') {
-                $sets[] = 'loyer_hc = ?'; $params[] = (float)$l['loyer_reel'];
+                $sets[] = 'loyer_hc = ?'; $params[] = round((float)$l['loyer_reel'] / 12, 2);
             }
             if ($l['loyer_potentiel'] !== null && $l['loyer_potentiel'] !== '') {
-                $sets[] = 'loyer_potentiel = ?'; $params[] = (float)$l['loyer_potentiel'];
+                $sets[] = 'loyer_potentiel = ?'; $params[] = round((float)$l['loyer_potentiel'] / 12, 2);
             }
             if (!$sets) continue;
             $params[] = (int)$l['id_bien'];

@@ -90,6 +90,7 @@ try {
     $pdo->commit();
 
     dv_sync_etape($pdo, $idDossier);
+    if (function_exists('dv_sync_prix_annonce')) dv_sync_prix_annonce($pdo, $idDossier);
     $d = dv_get($pdo, $idDossier);
 
     echo json_encode([

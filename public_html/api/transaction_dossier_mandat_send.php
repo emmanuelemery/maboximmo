@@ -76,6 +76,24 @@ try {
         ];
     }
 
+    // Historique : trace l'envoi du mandat dans Communications (mail_history).
+    $sentEmails = array_values(array_filter(array_map(
+        fn($e) => (!empty($e['sent']) && $e['email']) ? $e['email'] : null, $envois)));
+    if ($sentEmails) {
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS mail_history (
+                id INT AUTO_INCREMENT PRIMARY KEY, sent_by INT NOT NULL, subject VARCHAR(255) NOT NULL,
+                body TEXT NOT NULL, recipient_type VARCHAR(50), recipients_count INT DEFAULT 0,
+                recipients_json TEXT, sent_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX(sent_by), INDEX(sent_at))");
+            $pdo->prepare("INSERT INTO mail_history (sent_by, subject, body, recipient_type, recipients_count, recipients_json)
+                           VALUES (?,?,?,?,?,?)")
+                ->execute([(int)current_user_id() ?: 0, 'Mandat de vente à signer — ' . $refBien,
+                           'Lien de signature en ligne envoyé au(x) vendeur(s).',
+                           'dossier_vente:' . $idDossier, count($sentEmails),
+                           json_encode(['type'=>'mandat_signature','to'=>$sentEmails], JSON_UNESCAPED_UNICODE)]);
+        } catch (Throwable $e) { error_log('[mandat_send history] ' . $e->getMessage()); }
+    }
+
     echo json_encode(['ok'=>true, 'envois'=>$envois], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[transaction_dossier_mandat_send] ' . $e->getMessage());

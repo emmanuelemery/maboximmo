@@ -39,6 +39,36 @@ if (!function_exists('send_mail')) {
     ): bool {
         try {
             $config = smtp_config();
+
+            // ── GARDE-FOU TEST/LOCAL ───────────────────────────────────────────
+            // Hors PROD (présence de db_config_dev.php = dev/local), on ne JAMAIS
+            // écrire au vrai destinataire : tout est redirigé vers l'utilisateur
+            // connecté (ou l'adresse d'envoi en repli). Le destinataire réel est
+            // rappelé dans le sujet. Empêche d'écrire au propriétaire en test.
+            $devCfg = is_file(__DIR__ . '/../db_config_dev.php')
+                   || is_file(__DIR__ . '/../../db_config_dev.php')
+                   || is_file('/home/u630423897/db_config_dev.php');
+            if ($devCfg) {
+                $safe = '';
+                if (!empty($_SESSION['email']) && filter_var($_SESSION['email'], FILTER_VALIDATE_EMAIL)) {
+                    $safe = (string)$_SESSION['email'];
+                }
+                if ($safe === '' && !empty($_SESSION['user_id']) && function_exists('db')) {
+                    try {
+                        $stMail = db()->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+                        $stMail->execute([(int)$_SESSION['user_id']]);
+                        $em = (string)$stMail->fetchColumn();
+                        if (filter_var($em, FILTER_VALIDATE_EMAIL)) $safe = $em;
+                    } catch (Throwable $e) {}
+                }
+                if ($safe === '') { $safe = (string)$config['from']; }
+                $reel = $to . ($cc !== '' ? ' / cc:' . $cc : '');
+                $subject = '[TEST → ' . $reel . '] ' . $subject;
+                $to = $safe;
+                $cc = '';
+            }
+            // ───────────────────────────────────────────────────────────────────
+
             $mail = new PHPMailer(true);
 
             // Server settings

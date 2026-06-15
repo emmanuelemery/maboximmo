@@ -21,6 +21,21 @@ $idAgenceSession  = isset($_SESSION['id_agence'])  ? (int)$_SESSION['id_agence']
 $pageTitle    = 'Chargement par lot — Transaction';
 $pageSubtitle = 'Ma Box Agency · Import multi-documents';
 
+// Mode BIEN VERROUILLÉ : ?id_bien=X → tous les fichiers sont rattachés à ce bien,
+// sans matching ni proposition d'autres biens.
+$lockBien = null;
+$lockBienId = isset($_GET['id_bien']) && ctype_digit((string)$_GET['id_bien']) ? (int)$_GET['id_bien'] : 0;
+if ($lockBienId > 0) {
+    $stL = $pdo->prepare("SELECT b.id, b.reference_bien, b.designation,
+                                 COALESCE(NULLIF(b.adresse_1,''), i.adresse_1) AS adr,
+                                 COALESCE(NULLIF(b.ville,''), i.ville) AS ville
+                            FROM biens b LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                           WHERE b.id = ? LIMIT 1");
+    $stL->execute([$lockBienId]);
+    $lockBien = $stL->fetch(PDO::FETCH_ASSOC) ?: null;
+    if (!$lockBien) $lockBienId = 0;
+}
+
 $extraCss = <<<'CSS'
 <style>
 .chg-wrap { max-width: 1300px; }
@@ -76,6 +91,32 @@ $extraCss = <<<'CSS'
 .chg-conf.high   { background: #d9f0db; color: #2d6a35; }   /* > 85 */
 .chg-conf.medium { background: #ffe5c2; color: #8a4c12; }   /* 50-85 */
 .chg-conf.low    { background: #fbe9e9; color: #a8323b; }   /* < 50 */
+
+/* Cards candidats (Sprint 2C-Phase2 — UI riche) */
+.chg-candidates { display: flex; flex-direction: column; gap: 5px; max-width: 480px; }
+.chg-cand { display: flex; gap: 8px; align-items: flex-start; padding: 6px 9px; border-radius: 7px;
+    border: 1px solid #e3dfd8; background: #fff; cursor: pointer; transition: all .12s;
+    font-size: 11.5px; line-height: 1.4; }
+.chg-cand:hover { background: #fafaf6; border-color: #c8c4be; }
+.chg-cand.selected { background: #f0fdf4; border-color: #84a98c; box-shadow: 0 0 0 1px #84a98c inset; }
+.chg-cand input[type=radio] { margin: 2px 0 0; flex-shrink: 0; accent-color: #84a98c; }
+.chg-cand .cand-body { flex: 1; min-width: 0; }
+.chg-cand .cand-title { font-weight: 700; color: #2c2a28; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chg-cand .cand-meta { color: #7a766f; font-size: 10.5px; margin-top: 2px; }
+.chg-cand .cand-reasons { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 3px; }
+.chg-cand .cand-reason { background: #f4f1ec; color: #5a5650; padding: 1px 6px; border-radius: 4px;
+    font-size: 9.5px; font-family: "DM Mono", monospace; }
+.chg-cand .cand-score { padding: 1px 7px; border-radius: 99px; font-size: 10px; font-weight: 700;
+    font-family: "DM Mono", monospace; }
+.chg-cand .cand-score.high   { background: #d9f0db; color: #2d6a35; }
+.chg-cand .cand-score.medium { background: #ffe5c2; color: #8a4c12; }
+.chg-cand .cand-score.low    { background: #ededed; color: #5a5650; }
+.chg-cand .cand-link { color: #4878a6; text-decoration: none; font-size: 10px; margin-left: 6px; }
+.chg-cand .cand-link:hover { text-decoration: underline; }
+.chg-cand .cand-badge-best { background: #84a98c; color: #fff; padding: 1px 6px; border-radius: 4px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+.chg-cand-actions { display: flex; gap: 6px; margin-top: 4px; }
+.chg-cand-actions .chg-btn { font-size: 10.5px; padding: 4px 9px; }
 
 .chg-bien-select { width: 100%; border: 1px solid #e3dfd8; border-radius: 6px; padding: 5px 8px; font-size: 12px; background: #fafafa; }
 .chg-type-select { width: auto; border: 1px solid #e3dfd8; border-radius: 6px; padding: 5px 8px; font-size: 12px; background: #fafafa; }
@@ -190,8 +231,17 @@ include __DIR__ . '/inc/agency_layout_top.php';
 
 <div class="chg-hero">
     <h2>📦 Chargement par lot</h2>
-    <p>Glisse tous les documents d'un coup (diagnostics, baux, mandats, taxes…). Le système analyse le nom de chaque fichier, propose un rattachement automatique au bon bien, puis tu valides en 1 clic.<br>
-    <strong>Aucun document n'est rattaché définitivement sans ta validation.</strong></p>
+    <?php if ($lockBien): ?>
+      <p style="background:#e9f7ef;border:1px solid #9ad3ab;border-radius:8px;padding:8px 12px;color:#0b6b35;font-weight:600;">
+        🔒 Rattachement <strong>verrouillé</strong> sur le bien
+        <strong><?= h($lockBien['reference_bien'] ?: ('#'.$lockBien['id'])) ?></strong>
+        <?= $lockBien['adr'] ? ' — ' . h(trim($lockBien['adr'].' '.($lockBien['ville']??''))) : '' ?>.
+        Tous les fichiers déposés iront directement sur ce bien (pas de proposition).
+      </p>
+    <?php else: ?>
+      <p>Glisse tous les documents d'un coup (diagnostics, baux, mandats, taxes…). Le système analyse le nom de chaque fichier, propose un rattachement automatique au bon bien, puis tu valides en 1 clic.<br>
+      <strong>Aucun document n'est rattaché définitivement sans ta validation.</strong></p>
+    <?php endif; ?>
 </div>
 
 <div class="chg-uploader">
@@ -818,6 +868,7 @@ document.getElementById('bail-form').addEventListener('submit', async function (
 
 <script>
 const APP_BASE = <?= json_encode(rtrim(app_url('/'), '/')) ?>;
+const CHG_LOCK_BIEN = <?= $lockBien ? json_encode(['id'=>(int)$lockBien['id'],'reference_bien'=>($lockBien['reference_bien'] ?: ('#'.$lockBien['id'])),'score'=>100]) : 'null' ?>;
 
 // ── Heuristiques V0 ────────────────────────────────────────
 // Type détecté via mots-clés du nom de fichier
@@ -945,6 +996,14 @@ async function handleFiles(fileList) {
 }
 
 async function chgAnalyseFilename(item) {
+    // Bien verrouillé : on force le rattachement, pas de matching ni proposition.
+    if (CHG_LOCK_BIEN) {
+        item.biens = [CHG_LOCK_BIEN];
+        item.selectedBienId = CHG_LOCK_BIEN.id;
+        item.confidence = 100;
+        chgPersist(item, { match_biens: item.biens, selected_bien_id: item.selectedBienId, confidence: 100 });
+        return;
+    }
     const base = item.filename.replace(/\.[^.]+$/, '');
     const tokens = base.split(/[_\-\s\.]+/).filter(t => t.length >= 3).slice(0, 6);
     if (tokens.length === 0) return;
@@ -1047,22 +1106,53 @@ function renderResults() {
                 .map(t => '<option value="'+t+'"'+ (t===item.type?' selected':'') +'>'+t+'</option>').join('')
               + '</select></td>';
 
-        // Cellule bien (select)
+        // Cellule bien (cards candidats — Sprint 2C-Phase2)
         html += '<td>';
         if (item.biens.length === 0) {
             html += '<input type="text" class="chg-bien-select" placeholder="🔎 Tape référence/ville/adresse"'
                   + ' data-action="search-bien" autocomplete="off">'
                   + '<div class="chg-bien-suggestions" style="position:relative;"></div>';
         } else {
-            html += '<select class="chg-bien-select" data-action="set-bien">';
-            html += '<option value="">-- aucun --</option>';
-            item.biens.forEach(b => {
-                html += '<option value="'+ b.id +'"'+ (b.id === item.selectedBienId ? ' selected' : '') +'>'
-                      + (b.reference_bien || '#'+b.id) + ' — ' + escapeHtml(b.designation || '') + ' — ' + escapeHtml(b.ville || '')
-                      + '</option>';
+            // Sélection par défaut = le 1er candidat (best) si rien n'est encore sélectionné
+            if (!item.selectedBienId && item.biens[0]) {
+                item.selectedBienId = item.biens[0].id;
+            }
+            html += '<div class="chg-candidates">';
+            item.biens.forEach((b, idx) => {
+                const isBest      = (idx === 0);
+                const isSelected  = (b.id === item.selectedBienId);
+                const score       = Math.round(parseFloat(b.score || 0));
+                const scoreClass  = score >= 85 ? 'high' : (score >= 60 ? 'medium' : 'low');
+                const reasons     = Array.isArray(b.reasons) ? b.reasons : [];
+                const url360      = APP_BASE + '/bien_360.php?id=' + b.id;
+                html += '<label class="chg-cand'+ (isSelected ? ' selected' : '') +'" data-bien-id="'+ b.id +'">'
+                      + '<input type="radio" name="cand-'+ item.id +'" value="'+ b.id +'" data-action="set-bien-radio"'+ (isSelected ? ' checked' : '') +'>'
+                      + '<div class="cand-body">'
+                      +   '<div class="cand-title">'
+                      +     escapeHtml(b.reference_bien || ('#' + b.id))
+                      +     (isBest ? ' <span class="cand-badge-best">Best</span>' : '')
+                      +     ' <span class="cand-score '+ scoreClass +'">' + score + '%</span>'
+                      +     ' <a href="'+ url360 +'" target="_blank" rel="noopener" class="cand-link" title="Ouvrir la fiche 360°">👁 voir</a>'
+                      +   '</div>'
+                      +   '<div class="cand-meta">'
+                      +     escapeHtml(b.designation || '') + (b.designation && b.ville ? ' · ' : '') + escapeHtml(b.ville || '')
+                      +     (b.proprio_nom ? ' · 👤 ' + escapeHtml(b.proprio_nom) : '')
+                      +   '</div>';
+                if (reasons.length > 0) {
+                    html += '<div class="cand-reasons">';
+                    reasons.slice(0, 4).forEach(r => {
+                        html += '<span class="cand-reason">' + escapeHtml(r) + '</span>';
+                    });
+                    if (reasons.length > 4) html += '<span class="cand-reason">+' + (reasons.length - 4) + '</span>';
+                    html += '</div>';
+                }
+                html += '</div></label>';
             });
-            html += '</select>'
-                  + ' <button class="chg-btn chg-btn-sm" data-action="search-other">🔍 Autre</button>';
+            html += '</div>';
+            html += '<div class="chg-cand-actions">'
+                  + '<button class="chg-btn chg-btn-sm" data-action="search-other">🔍 Autre bien</button> '
+                  + '<button class="chg-btn chg-btn-sm" data-action="create-anyway" style="background:#fef3c7;color:#92400e;" title="Créer un nouveau bien malgré les candidats trouvés">➕ Créer malgré tout</button>'
+                  + '</div>';
         }
         html += '</td>';
 
@@ -1105,6 +1195,27 @@ function renderResults() {
             if (action === 'set-bien') el.addEventListener('change', e => {
                 item.selectedBienId = parseInt(e.target.value, 10) || null;
                 chgPersist(item, { selected_bien_id: item.selectedBienId });
+            });
+            // Sprint 2C-Phase2 : sélection via radio dans cards candidats
+            if (action === 'set-bien-radio') el.addEventListener('change', e => {
+                item.selectedBienId = parseInt(e.target.value, 10) || null;
+                // Mise à jour visuelle : highlight la card sélectionnée
+                tr.querySelectorAll('.chg-cand').forEach(card => {
+                    card.classList.toggle('selected',
+                        parseInt(card.dataset.bienId, 10) === item.selectedBienId);
+                });
+                chgPersist(item, { selected_bien_id: item.selectedBienId });
+            });
+            // Sprint 2C-Phase2 : "Créer malgré tout" = créer un nouveau bien depuis l'extraction IA
+            // même si des candidats existent (l'user a vu les matches et choisit de créer)
+            if (action === 'create-anyway') el.addEventListener('click', () => {
+                if (!item.ia_data) {
+                    alert('Lance l\'analyse IA d\'abord (bouton 🔍 IA).');
+                    return;
+                }
+                if (!confirm('Créer un nouveau bien malgré les ' + item.biens.length + ' candidat(s) trouvé(s) ?\nLes candidats resteront en BDD inchangés.')) return;
+                item.selectedBienId = null;
+                chgCreateBienFromIA(item);
             });
             if (action === 'validate')   el.addEventListener('click', () => chgValidateOne(item));
             if (action === 'analyse')    el.addEventListener('click', () => chgAnalyseOne(item));

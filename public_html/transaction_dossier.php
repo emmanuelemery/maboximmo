@@ -18,6 +18,8 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 require_once __DIR__ . '/inc/ged_document_links.php';
 require_once __DIR__ . '/inc/dossier_vente.php';
+require_once __DIR__ . '/inc/ged_file_path.php';
+require_once __DIR__ . '/inc/avant_contrat.php';
 require_once __DIR__ . '/inc/tiers_selector.php';   // composant recherche/création tiers réutilisable
 require_login();
 
@@ -73,6 +75,36 @@ $offres = $stO->fetchAll(PDO::FETCH_ASSOC) ?: [];
 // ── Lots du mandat de vente (multi-biens) + totaux / rent roll ──
 $lots   = dv_lots($pdo, $idDossier);
 $totaux = dv_totaux($pdo, $idDossier);
+// Avis de valeur (GED, par bien) — pour badge par lot + liste atelier Estimation
+$estimsByBien = dv_estimations($pdo, $idDossier);
+// Avant-contrat (compromis/promesse) du dossier + lots sélectionnés
+$avc      = dac_get($pdo, $idDossier);
+$avcLots  = $avc ? dac_lots($pdo, (int)$avc['id']) : array_map(fn($l)=>(int)$l['id_bien'], $lots);
+$avcV     = fn($k, $d='') => $avc[$k] ?? $d; // accès court aux champs
+// Documents mandat / acte du dossier (GED sur le bien principal)
+$docsMandat = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'MANDAT_VENTE']);
+$docsActe   = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'ACTE_AUTHENTIQUE']);
+$docsOffre  = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'OFFRE_ACHAT']);
+// Documents types (modèles transaction) pour la card « Documents types »
+$modeles = [];
+try {
+    $stMod = $pdo->query("SELECT id, name_display, metadata FROM ged_documents
+                           WHERE document_type='MODELE_TRANSACTION' AND status='active' ORDER BY id");
+    foreach ($stMod->fetchAll(PDO::FETCH_ASSOC) as $m) {
+        $meta = json_decode((string)($m['metadata'] ?? ''), true) ?: [];
+        $m['_key']   = (string)($meta['modele_key'] ?? '');
+        $m['_etape'] = (string)($meta['etape'] ?? '');
+        $modeles[] = $m;
+    }
+} catch (Throwable $e) {}
+// Historique des mails envoyés depuis le dossier (mail_history)
+$comms = [];
+try {
+    $stC = $pdo->prepare("SELECT id, subject, recipients_count, sent_at
+                            FROM mail_history WHERE recipient_type = ? ORDER BY sent_at DESC LIMIT 20");
+    $stC->execute(['dossier_vente:' . $idDossier]);
+    $comms = $stC->fetchAll(PDO::FETCH_ASSOC) ?: [];
+} catch (Throwable $e) {}
 
 // ── Prix courant (bien_prix), repli biens (référence, jamais recopié) ──
 $prixCourant = null;
@@ -91,10 +123,30 @@ $prixCourant = $prixCourant !== false && $prixCourant !== null
 $acteurs   = dv_acteurs($pdo, $idDossier);
 $docsDoss  = dv_documents($pdo, $idDossier);
 $docsBien  = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['limit' => 100]);
+// Docs rattachés au(x) bail(s) et à l'immeuble du bien (un bail/diag déposé via FluxBox
+// peut être lié à ces entités plutôt qu'au BIEN) → on les remonte aussi dans le dossier.
+$docsLies = [];
+try {
+    $stBx = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien = ?");
+    $stBx->execute([$idBien]);
+    foreach ($stBx->fetchAll(PDO::FETCH_COLUMN) as $bailId) {
+        foreach (gdl_documents_for_entity($pdo, 'BAIL', (int)$bailId, ['limit' => 50]) as $d) $docsLies[] = $d;
+    }
+    $immId = (int)($bien['id_immeuble'] ?? $bien['immeuble_id'] ?? 0);
+    if ($immId > 0) {
+        foreach (['IMB','IMMEUBLE'] as $et) {
+            foreach (gdl_documents_for_entity($pdo, $et, $immId, ['limit' => 80]) as $d) $docsLies[] = $d;
+        }
+    }
+} catch (Throwable $e) { error_log('[transaction_dossier docsLies] ' . $e->getMessage()); }
 
 // ── Signatures du mandat (si mandat lié) ──
 require_once __DIR__ . '/inc/mandat_signature.php';
 $signatures = $mandat ? msig_list_for_mandat($pdo, (int)$mandat['id']) : [];
+// Mandat signé = toutes les signatures recueillies (ou dossier confirmé / mandat daté).
+$mandatSigne = (($dossier['statut'] ?? '') === 'confirme')
+    || ($mandat && !empty($mandat['date_signature']))
+    || (count($signatures) > 0 && count(array_filter($signatures, fn($s) => $s['statut'] === 'signe')) === count($signatures));
 
 // ── Helpers d'affichage ──
 $fmtPrix = static fn($v) => $v !== null && $v !== '' ? number_format((float)$v, 0, ',', ' ') . ' €' : '—';
@@ -118,6 +170,36 @@ $roleIcons = [
     'avocat' => '👔', 'partenaire_apporteur' => '🤝', 'collaborateur' => '👥',
 ];
 
+// ── Nom du propriétaire / vendeur (le dossier porte sur un propriétaire, pas
+//    sur un seul bien) — sert de titre. Priorité : acteur vendeur du dossier. ──
+$proprioNom = '';
+foreach ($acteurs as $a) {
+    if (in_array($a['role_code'], ['vendeur', 'prospect_vendeur'], true)) { $proprioNom = $acteurNom($a); break; }
+}
+if ($proprioNom === '' && !empty($bien['proprio_tiers_id'])) {
+    $stPN = $pdo->prepare("SELECT COALESCE(NULLIF(nom_affichage,''), NULLIF(raison_sociale,''),
+                                  NULLIF(TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,''))),''))
+                             FROM tiers WHERE id = ? LIMIT 1");
+    $stPN->execute([(int)$bien['proprio_tiers_id']]);
+    $proprioNom = (string)($stPN->fetchColumn() ?: '');
+}
+
+// ── User en charge principale : acteur 'collaborateur', sinon créateur du dossier ──
+$userEnCharge = '';
+foreach ($acteurs as $a) {
+    if ($a['role_code'] === 'collaborateur') {
+        $userEnCharge = $a['nom_affichage'] ?: trim(($a['prenom'] ?? '') . ' ' . ($a['nom'] ?? '')); break;
+    }
+}
+if ($userEnCharge === '' && !empty($dossier['id_user'])) {
+    $stU = $pdo->prepare("SELECT TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,''))) FROM users WHERE id = ? LIMIT 1");
+    $stU->execute([(int)$dossier['id_user']]);
+    $userEnCharge = trim((string)($stU->fetchColumn() ?: ''));
+}
+// Référence propre du dossier (fallback réf bien si pas encore générée).
+$refBien    = $bien['reference_bien'] ?: ('#' . $idBien);
+$refDossier = (string)($dossier['reference'] ?? '') ?: $refBien;
+
 // ── Timeline : 7 jalons macro ──
 $etapes = [
     'estimation'        => ['Estimation', '📊', $dossier['date_estimation']],
@@ -131,23 +213,41 @@ $etapes = [
 $rankCourant   = dv_etape_rank((string)$dossier['etape']);
 $etapeTerminal = in_array($dossier['etape'], ['sans_suite', 'perdu'], true);
 
-$refBien   = $bien['reference_bien'] ?: ('#' . $idBien);
-$pageTitle = 'Dossier de vente · ' . $refBien;
+$pageTitle = 'Dossier de vente · ' . $refDossier . ($userEnCharge !== '' ? ' · 👤 ' . $userEnCharge : '');
 $pageIcon  = '🗂️';
 $extraCss  = fiche360_css();
 include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 <style>
+/* Fond de page dégradé diagonal (même que FluxBox) : fait ressortir les cards blanches */
+.agency-content{
+  min-height:100vh;
+  background:
+    linear-gradient(135deg,
+      rgba(154, 170, 132, 0.18) 0%,    /* vert amande (haut-gauche) */
+      rgba(255, 255, 255, 0)   35%,
+      rgba(72, 120, 166, 0.14) 60%,    /* bleu pétrole (centre) */
+      rgba(255, 255, 255, 0)   85%,
+      rgba(201, 123, 46, 0.16) 100%    /* orange (bas-droite) */
+    ),
+    #fafbfc !important;
+  background-attachment:fixed !important;
+}
 .dv-wrap{max-width:1180px;margin:0 auto;padding:8px 16px 48px;}
-.dv-timeline{display:flex;gap:6px;align-items:stretch;flex-wrap:wrap;margin:18px 0 26px;}
-.dv-step{flex:1 1 120px;min-width:120px;border:1px solid #e2e8f0;border-radius:12px;padding:12px 10px;text-align:center;background:#fff;position:relative;}
-.dv-step.done{background:linear-gradient(135deg,#e9f7ef,#d7f0e0);border-color:#9ad3ab;}
-.dv-step.current{border-color:#0f6cbd;box-shadow:0 0 0 2px #0f6cbd33;background:#eef5fc;}
+.dv-card{box-shadow:0 1px 3px rgba(15,23,42,.06),0 6px 18px rgba(15,23,42,.05);}
+/* Timeline compacte : ligne de progression + pastilles connectées (pas des boutons) */
+.dv-timeline{display:flex;align-items:flex-start;margin:8px 0 18px;}
+.dv-step{flex:1 1 0;min-width:0;text-align:center;position:relative;}
+.dv-step::before{content:"";position:absolute;top:13px;left:-50%;width:100%;height:3px;background:#e2e8f0;z-index:0;}
+.dv-step:first-child::before{display:none;}
+.dv-step.done::before,.dv-step.current::before{background:#9ad3ab;}
+.dv-step .dot{position:relative;z-index:1;width:28px;height:28px;line-height:24px;border-radius:50%;margin:0 auto;
+  background:#fff;border:2px solid #e2e8f0;color:#94a3b8;font-size:13px;}
+.dv-step.done .dot{background:#d7f0e0;border-color:#9ad3ab;color:#15803d;}
+.dv-step.current .dot{border-color:#0f6cbd;box-shadow:0 0 0 3px #0f6cbd22;background:#eef5fc;color:#0f6cbd;}
 .dv-step.future{opacity:.5;}
-.dv-step .ic{font-size:22px;}
-.dv-step .lb{font-weight:800;font-size:12px;margin-top:4px;color:#1f2937;}
-.dv-step .dt{font-size:11px;color:#64748b;margin-top:2px;}
-.dv-step .soon{position:absolute;top:6px;right:6px;font-size:9px;background:#eef2f6;color:#64748b;border-radius:6px;padding:1px 5px;font-weight:700;}
+.dv-step .lb{font-size:10px;font-weight:700;margin-top:5px;color:#475569;line-height:1.15;}
+.dv-step .dt{font-size:9px;color:#94a3b8;}
 .dv-terminal{display:inline-block;background:#fde2e1;color:#a11;border:1px solid #f3b4b1;border-radius:8px;padding:4px 12px;font-weight:800;margin-bottom:14px;}
 .dv-statut{display:inline-block;border-radius:8px;padding:5px 14px;font-weight:800;font-size:12.5px;}
 .dv-statut.temp{background:#fef3c7;color:#92600a;border:1px solid #fcd980;}
@@ -164,11 +264,40 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dvk-tab.active{color:#0f6cbd;border-bottom-color:#0f6cbd;}
 .dvk-tab:hover{color:#0f172a;}
 .dvk-panel{display:none;}
-.dvk-panel.active{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.dvk-panel.active{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
 .dvk-panel.solo{grid-template-columns:1fr;}
+.dvk-colstack{display:flex;flex-direction:column;gap:16px;min-width:0;}
+/* Filets de contour colorés par card (palette métier) */
+.dv-card{border-width:1.5px;}
+#dv-estim-card{border-color:#7c3aed;}            /* estimation — violet */
+#dv-lots-card{border-color:#84a98c;}             /* lots — vert bien */
+.dvc-mandat{border-color:#243B5C;}               /* mandat — navy */
+.dvc-comm{border-color:#d4a047;}                 /* commercialisation — or */
+.dvc-acte{border-color:#9d174d;}                 /* acte — bordeaux */
+.dvc-communications{border-color:#0891b2;}       /* communications — teal */
+.dvc-contacts{border-color:#0e7490;}             /* contacts — pétrole */
+/* Blocs lot du mandat (empilés) */
+.dv-lot{border:1px solid #e8edf3;border-radius:11px;padding:10px 12px;margin-bottom:10px;background:#fcfdfe;}
+.dv-lot-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.dv-lot-ref{font-weight:800;color:#0f172a;font-size:13px;text-decoration:none;}
+.dv-lot-type{font-size:10px;font-weight:700;color:#0f6cbd;background:#eef5fc;border-radius:6px;padding:1px 7px;}
+.dv-lot-rm{margin-left:auto;border:none;background:none;color:#ef4444;cursor:pointer;font-size:14px;}
+.dv-lot-adr{font-size:11px;color:#64748b;margin-top:2px;}
+.dv-lot-loc{font-size:11px;color:#0e7490;margin-top:2px;font-weight:600;}
+.dv-lot-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px;}
+.dv-lot-fields3{display:grid;grid-template-columns:1fr 1fr 0.95fr;gap:6px;margin-top:7px;align-items:end;}
+.dv-lot-rdt{padding:6px 6px;border:1px solid #bfe3cc;border-radius:7px;text-align:right;font-size:13px;font-weight:800;color:#15803d;background:#f6fcf8;white-space:nowrap;overflow:hidden;}
+.dv-lot-f label{display:block;font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:2px;}
+/* Montants : gras, gros, couleur par champ pour lisibilité */
+.dv-lot-f input{width:100%;padding:6px 7px;border:1px solid #cbd5e1;border-radius:7px;text-align:right;font-size:13px;font-weight:800;letter-spacing:-.2px;}
+.dv-lot-f input[data-f="estimation"]{color:#475569;}
+.dv-lot-f input[data-f="prix_vente"]{color:#15803d;background:#f6fcf8;border-color:#bfe3cc;}
+.dv-lot-f input[data-f="loyer_reel"]{color:#0e7490;}
+.dv-lot-f input[data-f="loyer_potentiel"]{color:#7c9885;}
+.dv-lot-f input::placeholder{font-weight:800;color:#0e7490;opacity:1;}
 @media(max-width:680px){.dvk-panel.active{grid-template-columns:1fr;}}
-.dvk-actions{border:1px solid #e2e8f0;border-radius:14px;background:#fff;padding:14px 16px;}
-.dvk-actions h4{margin:0 0 10px;font-size:13px;font-weight:900;color:#0f172a;}
+.dvk-actions{border:1px solid #0c5f78;border-radius:14px;background:#0e7490;padding:14px 16px;}
+.dvk-actions h4{margin:0 0 10px;font-size:13px;font-weight:900;color:#fff;}
 .dvk-act-btn{display:block;width:100%;text-align:left;margin-bottom:7px;border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#334155;cursor:pointer;}
 .dvk-act-btn:hover{border-color:#0f6cbd;background:#eef5fc;}
 .dvk-soon{font-size:12px;color:#94a3b8;font-style:italic;padding:8px 0;}
@@ -178,9 +307,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
 @media(max-width:640px){
   .dv-wrap{padding:6px 10px 40px;}
   .dv-wrap h1{font-size:18px !important;}
-  .dv-timeline{gap:5px;}
-  .dv-step{flex:1 1 calc(33.333% - 5px);min-width:0;padding:9px 5px;}
-  .dv-step .ic{font-size:18px;} .dv-step .lb{font-size:10px;} .dv-step .soon{display:none;}
+  .dv-step .lb{font-size:9px;}
+  .dv-step .dot{width:24px;height:24px;line-height:20px;font-size:11px;}
+  .dv-step::before{top:11px;}
   .dv-card{padding:14px 15px;border-radius:12px;}
   .dvm{padding:18px 16px;border-radius:14px;}
   .dvm-actions{flex-direction:column-reverse;}
@@ -239,7 +368,12 @@ include __DIR__ . '/inc/agency_layout_top.php';
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
     <div>
       <div style="color:#475569;font-size:14px;font-weight:700;">
-        <?= h($bien['designation'] ?: $refBien) ?>
+        <?php if ($proprioNom !== ''): ?>
+          👤 <?= h($proprioNom) ?>
+          <span style="color:#94a3b8;font-weight:400;font-size:12px;">· <?= h($bien['designation'] ?: $refBien) ?></span>
+        <?php else: ?>
+          <?= h($bien['designation'] ?: $refBien) ?>
+        <?php endif; ?>
         <span style="color:#64748b;font-weight:400;"><?= h(trim(($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? ''))) ?></span>
       </div>
     </div>
@@ -253,14 +387,6 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <div style="margin-top:14px;"><span class="dv-terminal">⛔ <?= $dossier['etape'] === 'perdu' ? 'Dossier perdu' : 'Sans suite' ?></span></div>
   <?php endif; ?>
 
-  <?php $estTemporaire = (($dossier['statut'] ?? 'temporaire') === 'temporaire'); ?>
-  <div style="margin-top:12px;">
-    <?php if ($estTemporaire): ?>
-      <span class="dv-statut temp">⏳ Dossier temporaire — confirmé à la signature du mandat de vente</span>
-    <?php else: ?>
-      <span class="dv-statut conf">✅ Dossier confirmé</span>
-    <?php endif; ?>
-  </div>
 
   <!-- ═══ TIMELINE (jalons futurs prêts à accueillir les actions d'étape) ═══ -->
   <div class="dv-timeline">
@@ -271,44 +397,97 @@ include __DIR__ . '/inc/agency_layout_top.php';
         // Jalons en écriture (compromis/acte/solde) = à venir en phase ultérieure
         $soon = in_array($code, ['compromis','acte','solde'], true) && $rank > $rankCourant;
     ?>
-      <div class="dv-step <?= $cls ?>">
-        <?php if ($soon): ?><span class="soon">à venir</span><?php endif; ?>
-        <div class="ic"><?= $ic ?></div>
+      <div class="dv-step <?= $cls ?>" title="<?= h($lib) . ($soon ? ' (à venir)' : '') ?>">
+        <div class="dot"><?= ($cls === 'done') ? '✓' : $ic ?></div>
         <div class="lb"><?= h($lib) ?></div>
-        <div class="dt"><?= $dt ? h($fmtDate($dt)) : ($rank <= $rankCourant && !$etapeTerminal ? '✓' : '') ?></div>
+        <div class="dt"><?= $dt ? h($fmtDate($dt)) : '' ?></div>
       </div>
     <?php endforeach; ?>
   </div>
 
-  <div class="dvk-cols">
-    <!-- ═══════════ COLONNE GAUCHE : ONGLETS ═══════════ -->
-    <div class="dvk-main">
-      <div class="dvk-tabs" role="tablist">
-        <button type="button" class="dvk-tab active" onclick="dvkTab(this,'dashboard')">📊 Dashboard</button>
-        <button type="button" class="dvk-tab" onclick="dvkTab(this,'documents')">📄 Documents</button>
-        <button type="button" class="dvk-tab" onclick="dvkTab(this,'actes')">🏛️ Actes</button>
-        <button type="button" class="dvk-tab" onclick="dvkTab(this,'estimation')">📈 Estimation</button>
-      </div>
+  <!-- Onglets au-dessus des 3 colonnes (alignement des tops) -->
+  <div class="dvk-tabs" role="tablist">
+    <button type="button" class="dvk-tab active" onclick="dvkTab(this,'dashboard')">📊 Dashboard</button>
+    <button type="button" class="dvk-tab" onclick="dvkTab(this,'documents')">📄 Documents</button>
+    <button type="button" class="dvk-tab" onclick="dvkTab(this,'actes')">🏛️ Actes</button>
+    <button type="button" class="dvk-tab" onclick="dvkTab(this,'estimation')">📈 Estimation</button>
+    <button type="button" class="dvk-tab" onclick="dvkTab(this,'communication')">✉️ Communication</button>
+  </div>
 
+  <div class="dvk-cols">
+    <!-- ═══════════ COLONNE GAUCHE : PANELS ═══════════ -->
+    <div class="dvk-main">
       <!-- ===== DASHBOARD ===== -->
       <div class="dvk-panel active" id="dvk-dashboard">
-        <!-- Card BIEN -->
-        <div class="dv-card">
-          <h3>🏠 Bien</h3>
-          <div class="dv-row"><span class="k">Référence</span><span class="v"><?= h($refBien) ?></span></div>
-          <?php if (!empty($bien['surface_habitable'])): ?>
-            <div class="dv-row"><span class="k">Surface</span><span class="v"><?= number_format((float)$bien['surface_habitable'],0,',',' ') ?> m²<?= !empty($bien['nb_pieces']) ? ' · ' . (int)$bien['nb_pieces'] . ' p.' : '' ?></span></div>
-          <?php endif; ?>
-          <?php if (!empty($bien['immeuble_id'])): ?>
-            <div class="dv-row"><span class="k">Immeuble</span><span class="v"><a href="<?= h(app_url('/immeuble_360.php?id=' . (int)$bien['immeuble_id'])) ?>"><?= h($bien['nom_immeuble'] ?: $bien['imm_adresse']) ?></a></span></div>
-          <?php endif; ?>
-          <div style="margin-top:12px;text-align:center;">
-            <a class="dvm-btn ok" style="padding:9px 16px;text-decoration:none;" href="<?= h(app_url('/bien_detail.php?edit=' . $idBien . '&return_dossier=' . $idDossier)) ?>">✏️ Compléter la fiche du bien</a>
+        <!-- ════════ COLONNE 1 : Estimation · Mandat · Commercialisation · Acte ════════ -->
+        <div class="dvk-colstack">
+        <!-- Card ESTIMATION (atelier avis de valeur) — placée ici si mandat non signé,
+             sinon basculée dans l'onglet Estimation (cf. plus bas). Bufferisée pour ne
+             pas dupliquer le markup. -->
+        <?php
+          $bLat = $bien['latitude'] ?? null; $bLng = $bien['longitude'] ?? null;
+          $dvfUrl = ($bLat && $bLng)
+            ? 'https://explore.data.gouv.fr/fr/immobilier?onglet=carte&lat=' . rawurlencode((string)$bLat) . '&lng=' . rawurlencode((string)$bLng) . '&zoom=18'
+            : 'https://app.dvf.etalab.gouv.fr/';
+          ob_start();
+        ?>
+        <div class="dv-card" id="dv-estim-card">
+          <h3>📈 Estimation <span style="font-weight:400;color:#94a3b8;font-size:12px;">avis de valeur</span></h3>
+          <p style="font-size:12px;color:#64748b;margin:2px 0 10px;">Le prix par lot se saisit dans la card <strong>Lots du mandat</strong>. Ici : déposer / consulter les avis de valeur (classés en GED sur le bon bien).</p>
+
+          <!-- Liste des avis de valeur déposés (par lot) -->
+          <div id="dv-estim-list">
+          <?php
+            $aucunAvis = true;
+            foreach ($lots as $l):
+              $bId  = (int)$l['id_bien'];
+              $docs = $estimsByBien[$bId] ?? [];
+              if (!$docs) continue;
+              $aucunAvis = false;
+              $lotLib = $l['reference_bien'] ?: ($l['designation'] ?: ('Bien #' . $bId));
+              foreach ($docs as $d): ?>
+                <div class="dv-doc">
+                  <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">
+                    📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Avis #' . $d['id'])) ?>
+                  </a>
+                  <span class="dv-badge"><?= h($lotLib) ?></span>
+                </div>
+          <?php endforeach; endforeach; ?>
+          <?php if ($aucunAvis): ?><div class="dv-empty" id="dv-estim-empty">Aucun avis de valeur déposé.</div><?php endif; ?>
           </div>
+
+          <!-- Dépôt d'un avis de valeur (PDF/Word) -->
+          <div style="margin-top:10px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <p class="dvm-label">Déposer un avis de valeur (PDF / Word)</p>
+            <?php if (count($lots) > 1): ?>
+              <select id="dv-estim-lot" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;margin-bottom:6px;">
+                <?php foreach ($lots as $l): $bId=(int)$l['id_bien']; ?>
+                  <option value="<?= $bId ?>"><?= h($l['reference_bien'] ?: ('Bien #' . $bId)) ?></option>
+                <?php endforeach; ?>
+              </select>
+            <?php else: ?>
+              <input type="hidden" id="dv-estim-lot" value="<?= (int)($lots[0]['id_bien'] ?? $idBien) ?>">
+            <?php endif; ?>
+            <input type="file" id="dv-estim-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;">
+            <button type="button" class="dvm-btn ok" style="width:100%;margin-top:8px;padding:9px;" onclick="dvEstimUpload()">📎 Déposer l'avis de valeur</button>
+            <div id="dv-estim-up-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+          </div>
+
+          <p class="dvm-label" style="margin-top:12px;">Aides à l'estimation</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="dv-fin-link" href="https://www.cadastre.com/" target="_blank" rel="noopener">🗺️ Cadastre</a>
+            <a class="dv-fin-link" href="<?= h($dvfUrl) ?>" target="_blank" rel="noopener">📊 DVF · valeurs foncières</a>
+          </div>
+          <div class="dvk-soon" style="margin-top:10px;">Envoi de l'avis de valeur au vendeur — à venir.</div>
         </div>
+        <?php
+          $estimCard = ob_get_clean();
+          // Tant que le mandat n'est pas signé : la card Estimation vit dans le Dashboard.
+          if (!$mandatSigne) echo $estimCard;
+        ?>
 
         <!-- Card MANDAT -->
-        <div class="dv-card">
+        <div class="dv-card dvc-mandat">
           <h3>📝 Mandat de vente</h3>
           <div class="dv-row"><span class="k">Mandat</span><span class="v">
             <?php if ($mandat): ?><?= h($mandat['numero_mandat'] ?: ('#' . $mandat['id'])) ?><?= !empty($mandat['exclusif']) ? ' · exclusif' : '' ?><?php else: ?>—<?php endif; ?>
@@ -333,18 +512,42 @@ include __DIR__ . '/inc/agency_layout_top.php';
               </div>
             <?php endforeach; ?>
             <div style="margin-top:10px;text-align:center;">
+              <p class="dvm-label" style="text-align:left;">Modèle de mandat</p>
+              <select id="dv-mandat-modele" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;margin-bottom:8px;">
+                <option value="mandat_simple">Mandat de vente sans exclusivité</option>
+                <option value="mandat_exclusif">Mandat exclusif de vente</option>
+                <option value="mandat_succes">Mandat de vente « succès »</option>
+              </select>
+              <a id="dv-mandat-preview" class="dvm-btn cancel" style="padding:9px 16px;text-decoration:none;display:inline-block;margin-bottom:6px;" target="_blank"
+                 href="<?= h(app_url('/transaction_mandat_preview.php?id_dossier=' . $idDossier . '&modele=mandat_simple')) ?>">👁️ Voir le mandat complété</a><br>
               <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvSendMandat()">✉️ Envoyer au vendeur pour signature</button>
               <div id="dv-mandat-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
             </div>
+            <script>
+              (function(){ var s=document.getElementById('dv-mandat-modele'), a=document.getElementById('dv-mandat-preview');
+                if(s&&a){ var base=<?= json_encode(app_url('/transaction_mandat_preview.php?id_dossier=' . $idDossier . '&modele=')) ?>;
+                  s.addEventListener('change',function(){ a.href=base+s.value; }); } })();
+            </script>
           <?php else: ?>
             <div style="margin-top:10px;text-align:center;">
               <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
             </div>
           <?php endif; ?>
+
+          <!-- Dépôt du mandat signé (PDF/Word) -->
+          <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <?php foreach ($docsMandat as $d): ?>
+              <div class="dv-doc"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Mandat #' . $d['id'])) ?></a></div>
+            <?php endforeach; ?>
+            <p class="dvm-label">Déposer le mandat (PDF / Word)</p>
+            <input type="file" id="dv-mandat-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;">
+            <button type="button" class="dvm-btn ok" style="width:100%;margin-top:8px;padding:9px;" onclick="dvMandatUpload()">📎 Déposer le mandat</button>
+            <div id="dv-mandat-up-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+          </div>
         </div>
 
         <!-- Card COMMERCIALISATION -->
-        <div class="dv-card">
+        <div class="dv-card dvc-comm">
           <h3>📣 Commercialisation <span class="dv-badge"><?= count($offres) ?> offre(s)</span></h3>
           <?php if (!$offres): ?>
             <div class="dv-empty">Aucune offre reçue.</div>
@@ -356,49 +559,106 @@ include __DIR__ . '/inc/agency_layout_top.php';
               <span class="v"><?= h($fmtPrix($o['prix_propose'])) ?></span>
             </div>
           <?php endforeach; endif; ?>
+          <!-- Saisie d'une offre (API existante transaction_offre_save) + document à charger -->
+          <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <?php foreach ($docsOffre as $d): ?>
+              <div class="dv-doc"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Offre #' . $d['id'])) ?></a></div>
+            <?php endforeach; ?>
+            <button type="button" class="dvm-btn ok" style="width:100%;padding:9px;" onclick="dvToggleOffre(true)">💰 Saisir une offre</button>
+            <div id="dv-offre-form" style="display:none;margin-top:8px;">
+              <input type="text" id="dv-offre-prix" inputmode="numeric" placeholder="Prix proposé €" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
+              <input type="text" id="dv-offre-nom" placeholder="Acquéreur (nom)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
+              <input type="text" id="dv-offre-email" placeholder="Email (optionnel)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
+              <label style="font-size:11px;color:#64748b;font-weight:600;">Document de l'offre (PDF / Word, optionnel)</label>
+              <input type="file" id="dv-offre-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;margin:4px 0 6px;">
+              <div style="display:flex;gap:6px;">
+                <button type="button" class="dvm-btn ok" style="flex:1;padding:8px;" onclick="dvSaveOffre()">Valider</button>
+                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleOffre(false)">×</button>
+              </div>
+              <div id="dv-offre-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+            </div>
+          </div>
           <div class="dvk-soon">Annonce &amp; diffusion portails — à venir.</div>
         </div>
 
+        <!-- Card ACTE -->
+        <div class="dv-card dvc-acte">
+          <h3>🏛️ Acte</h3>
+          <?php foreach ($docsActe as $d): ?>
+            <div class="dv-doc"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Acte #' . $d['id'])) ?></a></div>
+          <?php endforeach; ?>
+          <?php if (!$docsActe): ?><div class="dv-empty">Aucun acte déposé.</div><?php endif; ?>
+          <div style="margin-top:10px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <p class="dvm-label">Déposer l'acte (PDF / Word)</p>
+            <input type="file" id="dv-acte-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;">
+            <button type="button" class="dvm-btn ok" style="width:100%;margin-top:8px;padding:9px;" onclick="dvActeUpload()">📎 Déposer l'acte</button>
+            <div id="dv-acte-up-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+          </div>
+          <div class="dvk-soon" style="margin-top:10px;">Compromis &amp; signature en ligne de l'acte — à venir.</div>
+        </div>
+
+        <!-- Card COMMUNICATIONS -->
+        </div><!-- /colstack col1 -->
+
+        <!-- ════════ COLONNE 2 : Lots du mandat (empilés) ════════ -->
+        <div class="dvk-colstack">
         <!-- Card LOTS DU MANDAT (multi-biens : prix + loyers par lot) -->
         <div class="dv-card" id="dv-lots-card">
           <h3>🏢 Lots du mandat <span style="font-weight:400;color:#94a3b8;font-size:12px;">(<?= (int)$totaux['nb_lots'] ?>)</span></h3>
-          <div style="overflow-x:auto;">
-            <table class="dv-lots-table" style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead>
-                <tr style="text-align:left;color:#64748b;border-bottom:1px solid #e2e8f0;">
-                  <th style="padding:6px 4px;">Lot</th>
-                  <th style="padding:6px 4px;width:110px;">Prix vente €</th>
-                  <th style="padding:6px 4px;width:100px;">Loyer réel €</th>
-                  <th style="padding:6px 4px;width:100px;">Loyer pot. €</th>
-                  <th style="padding:6px 4px;width:30px;"></th>
-                </tr>
-              </thead>
-              <tbody id="dv-lots-body">
-                <?php foreach ($lots as $l):
-                  $lib = $l['reference_bien'] ?: ($l['designation'] ?: ('Bien #' . (int)$l['id_bien']));
-                  $immLbl = $l['nom_immeuble'] ?: $l['imm_adresse'];
+          <div id="dv-lots-body">
+            <?php foreach ($lots as $l):
+              $lib = $l['reference_bien'] ?: ($l['designation'] ?: ('Bien #' . (int)$l['id_bien']));
+              $typeLbl = $l['type_libelle'] ?: $l['sous_type_bien'];
+              $adr = trim(((string)($l['lot_adresse'] ?? '')) . ' ' . ((string)($l['lot_cp'] ?? '')) . ' ' . ((string)($l['lot_ville'] ?? '')));
+              $loc = trim((string)($l['locataire_nom'] ?? ''));
+              $lotEstims = $estimsByBien[(int)$l['id_bien']] ?? [];
+            ?>
+              <div class="dv-lot" data-lot-id="<?= (int)$l['lot_id'] ?>">
+                <div class="dv-lot-head">
+                  <a class="dv-lot-ref" title="Ouvrir la fiche du bien"
+                     href="<?= h(app_url('/bien_detail.php?edit=' . (int)$l['id_bien'] . '&return_dossier=' . $idDossier)) ?>"><?= h($lib) ?> ✏️</a>
+                  <?php if ($typeLbl): ?><span class="dv-lot-type"><?= h($typeLbl) ?></span><?php endif; ?>
+                  <?php if ($lotEstims): ?>
+                    <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$lotEstims[0]['id'])) ?>" target="_blank"
+                       title="Avis de valeur déposé" style="font-size:10px;color:#15803d;text-decoration:none;">📎 ✓</a>
+                  <?php else: ?>
+                    <span title="Aucun avis de valeur" style="font-size:10px;color:#cbd5e1;">📎 —</span>
+                  <?php endif; ?>
+                  <button type="button" class="dv-lot-rm" title="Retirer ce lot" onclick="dvLotRemove(<?= (int)$l['lot_id'] ?>)">✕</button>
+                </div>
+                <?php if ($adr !== ''): ?><div class="dv-lot-adr"><?= h($adr) ?></div><?php endif; ?>
+                <?php if ($loc !== ''): ?><div class="dv-lot-loc">👤 <?= h($loc) ?></div><?php endif; ?>
+                <?php
+                  // Rentabilité du lot : loyer estimé si réel vide, sinon réel, / prix.
+                  $lpLot   = ($l['loyer_potentiel'] ?? null) ?? $l['_loyer_potentiel_bien'] ?? 0;
+                  $lrLot   = ($l['loyer_reel']      ?? null) ?? $l['_loyer_reel_bien']      ?? 0;
+                  $prixLot = ($l['prix_vente']      ?? null) ?? $l['_prix_vente_bien']      ?? 0;
+                  $loyerRet = (float)$lpLot > 0 ? (float)$lpLot : (float)$lrLot;
+                  $rdtLot = ((float)$prixLot > 0 && $loyerRet > 0) ? round($loyerRet / (float)$prixLot * 100, 2) : null;
                 ?>
-                  <tr data-lot-id="<?= (int)$l['lot_id'] ?>" style="border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:6px 4px;">
-                      <a href="<?= h(app_url('/bien_360.php?id=' . (int)$l['id_bien'])) ?>" style="font-weight:600;color:#0f172a;"><?= h($lib) ?></a>
-                      <?php if ($immLbl): ?><div style="color:#94a3b8;font-size:10px;"><?= h($immLbl) ?></div><?php endif; ?>
-                    </td>
-                    <td style="padding:6px 4px;"><input type="text" inputmode="numeric" class="dv-lot-in" data-f="prix_vente"
-                          value="<?= $l['prix_vente'] !== null ? (int)$l['prix_vente'] : '' ?>" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;text-align:right;"></td>
-                    <td style="padding:6px 4px;"><input type="text" inputmode="numeric" class="dv-lot-in" data-f="loyer_reel"
-                          value="<?= $l['loyer_reel'] !== null ? (int)$l['loyer_reel'] : '' ?>"
-                          placeholder="<?= $l['_loyer_reel_bien'] !== null ? (int)$l['_loyer_reel_bien'] : '' ?>" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;text-align:right;"></td>
-                    <td style="padding:6px 4px;"><input type="text" inputmode="numeric" class="dv-lot-in" data-f="loyer_potentiel"
-                          value="<?= $l['loyer_potentiel'] !== null ? (int)$l['loyer_potentiel'] : '' ?>"
-                          placeholder="<?= $l['_loyer_potentiel_bien'] !== null ? (int)$l['_loyer_potentiel_bien'] : '' ?>" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;text-align:right;"></td>
-                    <td style="padding:6px 4px;text-align:center;">
-                      <button type="button" title="Retirer ce lot" onclick="dvLotRemove(<?= (int)$l['lot_id'] ?>)"
-                              style="border:none;background:none;color:#ef4444;cursor:pointer;font-size:14px;">✕</button>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
+                <div class="dv-lot-fields">
+                  <div class="dv-lot-f"><label>Estimation €</label>
+                    <input type="text" inputmode="numeric" class="dv-lot-in" data-f="estimation"
+                           value="<?= $l['estimation'] !== null ? (int)$l['estimation'] : '' ?>"></div>
+                  <div class="dv-lot-f"><label>Prix du mandat €</label>
+                    <input type="text" inputmode="numeric" class="dv-lot-in" data-f="prix_vente"
+                           value="<?= $l['prix_vente'] !== null ? (int)$l['prix_vente'] : '' ?>"
+                           placeholder="<?= $l['_prix_vente_bien'] !== null ? (int)$l['_prix_vente_bien'] : '' ?>"></div>
+                </div>
+                <div class="dv-lot-fields3">
+                  <div class="dv-lot-f"><label>Loyer réel €/an</label>
+                    <input type="text" inputmode="numeric" class="dv-lot-in" data-f="loyer_reel"
+                           value="<?= $l['loyer_reel'] !== null ? (int)$l['loyer_reel'] : '' ?>"
+                           placeholder="<?= $l['_loyer_reel_bien'] !== null ? (int)$l['_loyer_reel_bien'] : '' ?>"></div>
+                  <div class="dv-lot-f"><label>Loyer estimé €/an</label>
+                    <input type="text" inputmode="numeric" class="dv-lot-in" data-f="loyer_potentiel"
+                           value="<?= $l['loyer_potentiel'] !== null ? (int)$l['loyer_potentiel'] : '' ?>"
+                           placeholder="<?= $l['_loyer_potentiel_bien'] !== null ? (int)$l['_loyer_potentiel_bien'] : '' ?>"></div>
+                  <div class="dv-lot-f"><label>Rentabilité</label>
+                    <div class="dv-lot-rdt"><?= $rdtLot !== null ? h(number_format((float)$rdtLot,2,',',' ')) . ' %' : '—' ?></div></div>
+                </div>
+              </div>
+            <?php endforeach; ?>
           </div>
           <div id="dv-lot-msg" style="font-size:11px;color:#94a3b8;margin-top:4px;min-height:14px;"></div>
           <!-- Ajout d'un lot -->
@@ -409,78 +669,64 @@ include __DIR__ . '/inc/agency_layout_top.php';
           </div>
           <!-- Totaux / rent roll -->
           <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
-            <div class="dv-row"><span class="k">Prix total (Σ lots)</span><span class="v" id="dv-tot-prix"><?= h($fmtPrix($totaux['prix_total'])) ?></span></div>
-            <div class="dv-row"><span class="k">Loyers réels / mois</span><span class="v" id="dv-tot-lr"><?= h($fmtPrix($totaux['loyer_reel'])) ?></span></div>
-            <div class="dv-row"><span class="k">Loyers potentiels / mois</span><span class="v" id="dv-tot-lp"><?= h($fmtPrix($totaux['loyer_potentiel'])) ?></span></div>
-            <div class="dv-row"><span class="k">Rendement brut</span><span class="v" id="dv-tot-rdt" style="font-weight:700;color:#15803d;"><?= $totaux['rendement_brut'] !== null ? h(number_format((float)$totaux['rendement_brut'],2,',',' ')) . ' %' : '—' ?></span></div>
+            <div class="dv-row"><span class="k">Prix mandat total (Σ lots)</span><span class="v" id="dv-tot-prix"><?= h($fmtPrix($totaux['prix_total'])) ?></span></div>
           </div>
         </div>
 
-        <!-- Card CONDITIONS FINANCIÈRES (estimation + honoraires + aides) -->
-        <?php
-          $bLat = $bien['latitude'] ?? null; $bLng = $bien['longitude'] ?? null;
-          $dvfUrl = ($bLat && $bLng)
-            ? 'https://explore.data.gouv.fr/fr/immobilier?onglet=carte&lat=' . rawurlencode((string)$bLat) . '&lng=' . rawurlencode((string)$bLng) . '&zoom=18'
-            : 'https://app.dvf.etalab.gouv.fr/';
-        ?>
-        <div class="dv-card">
-          <h3>💶 Conditions financières</h3>
-          <div style="text-align:center;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;">PRIX COURANT</div>
-            <div class="dv-prix" id="dv-prix-val"><?= h($fmtPrix($prixCourant)) ?></div>
-            <button type="button" class="dv-estim-btn" onclick="dvToggleEstim(true)"><?= $prixCourant ? '✏️ Modifier l\'estimation' : '📊 Estimer le prix' ?></button>
-            <div id="dv-estim-form" style="display:none;margin-top:10px;">
-              <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
-                <input type="text" id="dv-estim-input" inputmode="numeric" placeholder="Prix de vente €"
-                       value="<?= $prixCourant ? (int)$prixCourant : '' ?>"
-                       style="width:150px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;text-align:right;">
-                <button type="button" class="dvm-btn ok" style="padding:8px 14px;" onclick="dvSaveEstim()">Valider</button>
-                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleEstim(false)">×</button>
-              </div>
-              <div id="dv-estim-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
-            </div>
-          </div>
-          <?php if ($mandat && $mandat['honoraires'] !== null && $mandat['honoraires'] !== ''): ?>
-            <div class="dv-row" style="margin-top:10px;"><span class="k">Honoraires (mandat)</span><span class="v"><?= h($fmtPrix($mandat['honoraires'])) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></span></div>
-          <?php endif; ?>
-          <p class="dvm-label" style="margin-top:12px;">Aides à l'estimation</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <a class="dv-fin-link" href="https://www.cadastre.com/" target="_blank" rel="noopener">🗺️ Cadastre</a>
-            <a class="dv-fin-link" href="<?= h($dvfUrl) ?>" target="_blank" rel="noopener">📊 DVF · valeurs foncières</a>
-          </div>
-          <div class="dvk-soon">Dépôt de garantie &amp; conditions suspensives — à venir (étape compromis).</div>
-        </div>
-
-        <!-- Card ACTE -->
-        <div class="dv-card">
-          <h3>🏛️ Acte</h3>
-          <div class="dvk-soon">Compromis &amp; acte authentique (signature en ligne) — à venir.</div>
-        </div>
-
-        <!-- Card COMMUNICATIONS -->
-        <div class="dv-card">
-          <h3>✉️ Communications</h3>
-          <div class="dvk-soon">Emails &amp; échanges du dossier — à venir.</div>
-        </div>
+        </div><!-- /colstack col2 -->
       </div>
 
       <!-- ===== DOCUMENTS ===== -->
-      <div class="dvk-panel solo" id="dvk-documents">
+      <div class="dvk-panel" id="dvk-documents">
+        <!-- Card 1 : Documents types (modèles) -->
+        <div class="dv-card dvc-mandat">
+          <h3>📑 Documents types <span style="font-weight:400;color:#94a3b8;font-size:12px;">(modèles)</span></h3>
+          <?php if (!$modeles): ?>
+            <div class="dv-empty">Aucun modèle disponible.</div>
+          <?php else:
+            $mandatKeys = ['mandat_simple','mandat_exclusif','mandat_succes'];
+            $docHtmlKeys = ['bon_visite','avenant_mandat']; // moteur HTML générique (groupe 1)
+            foreach ($modeles as $m):
+              $isMandat  = in_array($m['_key'], $mandatKeys, true);
+              $isDocHtml = in_array($m['_key'], $docHtmlKeys, true);
+              $editable  = $isMandat || $isDocHtml;
+              if ($isMandat)        $href = app_url('/transaction_mandat_preview.php?id_dossier=' . $idDossier . '&modele=' . $m['_key']);
+              elseif ($isDocHtml)   $href = app_url('/transaction_doc_preview.php?id_dossier=' . $idDossier . '&modele=' . $m['_key']);
+              else                  $href = app_url('/api/ged_doc_serve.php?id=' . (int)$m['id']);
+          ?>
+            <div class="dv-doc">
+              <a href="<?= h($href) ?>" target="_blank"><?= $editable ? '✍️' : '📄' ?> <?= h($m['name_display'] ?: ('Modèle #' . $m['id'])) ?></a>
+              <span>
+                <?php if ($m['_etape']): ?><span class="dv-badge"><?= h($m['_etape']) ?></span><?php endif; ?>
+                <?php if ($editable): ?><span class="dv-badge" style="background:#d7f0e0;color:#0b6b35;">éditable</span><?php endif; ?>
+              </span>
+            </div>
+          <?php endforeach; endif; ?>
+          <div class="dv-note">Mandats : aperçu pré-rempli depuis le dossier. Autres modèles : visualisation du gabarit (remplissage à venir).</div>
+        </div>
+
+        <!-- Card 2 : Documents du dossier -->
         <div class="dv-card">
           <h3>📄 Documents du dossier</h3>
           <?php
             $seen = [];
             $allDocs = [];
             foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
-            foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $d['_scope'] = 'bien'; $allDocs[] = $d; }
+            foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'bien'; $allDocs[] = $d; }
+            foreach ($docsLies as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'lié'; $allDocs[] = $d; }
           ?>
           <?php if (!$allDocs): ?>
             <div class="dv-empty">Aucun document rattaché.</div>
-          <?php else: foreach (array_slice($allDocs, 0, 60) as $d): ?>
-            <div class="dv-doc">
-              <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">
-                <?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?>
-              </a>
+          <?php else: foreach (array_slice($allDocs, 0, 60) as $d):
+            $dispo = ged_file_path($pdo, (int)$d['id']) !== null; ?>
+            <div class="dv-doc" style="<?= $dispo ? '' : 'opacity:.55;' ?>">
+              <?php if ($dispo): ?>
+                <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">
+                  <?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?>
+                </a>
+              <?php else: ?>
+                <span title="Fichier physique absent sur cet environnement"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?> <small style="color:#ef4444;">⚠ indisponible</small></span>
+              <?php endif; ?>
               <span>
                 <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
                 <span class="dv-badge"><?= $d['_scope'] === 'dossier' ? 'dossier' : 'bien' ?></span>
@@ -493,17 +739,196 @@ include __DIR__ . '/inc/agency_layout_top.php';
 
       <!-- ===== ACTES ===== -->
       <div class="dvk-panel solo" id="dvk-actes">
-        <div class="dv-card">
+        <div class="dv-card dvc-acte">
           <h3>🏛️ Actes</h3>
-          <div class="dvk-soon">Compromis &amp; acte authentique avec signature en ligne (même mécanisme que le mandat) — à venir.</div>
+          <div style="display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start;">
+            <!-- Colonne gauche : actions -->
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button type="button" class="dvm-btn ok" style="padding:10px 14px;" onclick="odClasserOpen()">📥 Charger des documents</button>
+              <button type="button" class="dvm-btn ok" style="padding:10px 14px;" onclick="dvActeModalOpen()">📨 Préparation envoi notaire</button>
+              <?php $avcResume = $avc ? ((($avc['type'] ?? '')==='promesse_unilaterale'?'Promesse':'Compromis').' · '.h($avc['statut'] ?? 'brouillon')) : null; ?>
+              <?php if ($avcResume): ?><div class="dv-note" style="margin-top:4px;">Fiche notaire : <strong><?= $avcResume ?></strong></div><?php endif; ?>
+            </div>
+            <!-- Colonne droite : documents des actes (chargés ou rédigés) -->
+            <div>
+              <p class="dvm-label">Documents des actes</p>
+              <?php if (!$docsActe): ?>
+                <div class="dv-empty">Aucun acte chargé pour l'instant.</div>
+              <?php else: foreach ($docsActe as $d): ?>
+                <div class="dv-doc" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Acte #' . $d['id'])) ?>
+                    <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></span>
+                  <a class="dvm-btn cancel" style="padding:5px 12px;text-decoration:none;flex-shrink:0;" target="_blank"
+                     href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>">👁️ Voir</a>
+                </div>
+              <?php endforeach; endif; ?>
+            </div>
+          </div>
         </div>
       </div>
+      <!-- Modal saisie de l'acte (document + champs à droite, via iframe) -->
+      <div id="dv-acte-modal" style="display:none;position:fixed;inset:0;z-index:9200;background:rgba(15,23,42,.55);padding:18px;">
+        <div style="background:#fff;border-radius:14px;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid #e2e8f0;font-family:system-ui;">
+            <strong style="color:#243B5C;">📨 Préparation envoi notaire — <?= h($refDossier) ?></strong>
+            <button type="button" class="dvm-btn cancel" style="padding:6px 14px;" onclick="document.getElementById('dv-acte-modal').style.display='none'">✕ Fermer</button>
+          </div>
+          <iframe id="dv-acte-frame" src="about:blank" title="Avant-contrat" style="border:0;flex:1;width:100%;"></iframe>
+        </div>
+      </div>
+      <script>
+        window.dvActeModalOpen = function(){
+          var f = document.getElementById('dv-acte-frame');
+          if (f.src.indexOf('transaction_avant_contrat') === -1) f.src = <?= json_encode(app_url('/transaction_avant_contrat.php?id_dossier=' . $idDossier)) ?>;
+          document.getElementById('dv-acte-modal').style.display = 'block';
+        };
+      </script>
+      <?php if (false): // ancien formulaire inline désactivé (déplacé dans le modal) ?>
+      <div style="display:none">
+        <?php
+          $sel = fn($k,$opt)=> '';
+          $chk = fn($k)=> '';
+          $val = fn($k)=> '';
+          $acStyle = '';
+        ?>
+        <div>
+          <form id="dv-avc-form-old" onsubmit="return false;">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div><label class="dvm-label">Type d'acte</label>
+                <select name="type" style="<?= $acStyle ?>">
+                  <option value="compromis" <?= $sel('type','compromis') ?>>Compromis (synallagmatique)</option>
+                  <option value="promesse_unilaterale" <?= $sel('type','promesse_unilaterale') ?>>Promesse unilatérale</option>
+                </select></div>
+              <div><label class="dvm-label">Copropriété</label>
+                <select name="copro" style="<?= $acStyle ?>"><option value="0" <?= $sel('copro','0') ?>>Hors copropriété</option><option value="1" <?= $sel('copro','1') ?>>Copropriété</option></select></div>
+              <div><label class="dvm-label">Statut</label>
+                <select name="statut" style="<?= $acStyle ?>">
+                  <?php foreach (['brouillon'=>'Brouillon','signe'=>'Signé','caduc'=>'Caduc','realise'=>'Réalisé','annule'=>'Annulé'] as $k=>$lib): ?>
+                    <option value="<?= $k ?>" <?= $sel('statut',$k) ?>><?= $lib ?></option>
+                  <?php endforeach; ?>
+                </select></div>
+            </div>
+
+            <p class="dvm-label" style="margin-top:12px;">Lots intégrés dans l'acte</p>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <?php foreach ($lots as $l): $bId=(int)$l['id_bien'];
+                $lib=$l['reference_bien'] ?: ('Bien #'.$bId);
+                $adr=trim(((string)($l['lot_adresse']??'')).' '.((string)($l['lot_ville']??''))); ?>
+                <label class="tm-opt" style="font-size:13px;">
+                  <input type="checkbox" name="lots[]" value="<?= $bId ?>" <?= in_array($bId,$avcLots,true)?'checked':'' ?>>
+                  <span><strong><?= h($lib) ?></strong> <small style="color:#94a3b8;"><?= h($adr) ?></small></span>
+                </label>
+              <?php endforeach; ?>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px;">
+              <div><label class="dvm-label">Date de signature</label><input type="date" name="date_signature" value="<?= $val('date_signature') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Réitération (acte) max</label><input type="date" name="date_reiteration_max" value="<?= $val('date_reiteration_max') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Lieu de signature</label><input type="text" name="lieu_signature" value="<?= $val('lieu_signature') ?>" style="<?= $acStyle ?>"></div>
+            </div>
+
+            <p class="dvm-label" style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">💶 Dépôt de garantie / séquestre</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div><label class="dvm-label">Dépôt garantie €</label><input type="text" name="depot_garantie_montant" value="<?= $val('depot_garantie_montant') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Dépôt %</label><input type="text" name="depot_garantie_pct" value="<?= $val('depot_garantie_pct') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Séquestre</label><select name="sequestre_type" style="<?= $acStyle ?>"><option value="">—</option><option value="notaire" <?= $sel('sequestre_type','notaire') ?>>Notaire</option><option value="agence" <?= $sel('sequestre_type','agence') ?>>Agence</option><option value="aucun" <?= $sel('sequestre_type','aucun') ?>>Aucun</option></select></div>
+              <div><label class="dvm-label">Indemnité immobilisation € (promesse)</label><input type="text" name="indemnite_immobilisation" value="<?= $val('indemnite_immobilisation') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Date levée d'option (promesse)</label><input type="date" name="date_levee_option" value="<?= $val('date_levee_option') ?>" style="<?= $acStyle ?>"></div>
+            </div>
+
+            <p class="dvm-label" style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">🏦 Condition suspensive de prêt</p>
+            <label class="tm-opt" style="font-size:13px;"><input type="checkbox" name="cs_pret" value="1" <?= $chk('cs_pret') ?>><span>Vente avec condition suspensive de prêt</span></label>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-top:6px;">
+              <div><label class="dvm-label">Montant emprunté €</label><input type="text" name="pret_montant" value="<?= $val('pret_montant') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Durée (mois)</label><input type="text" name="pret_duree_mois" value="<?= $val('pret_duree_mois') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Taux max %</label><input type="text" name="pret_taux_max" value="<?= $val('pret_taux_max') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Nb offres</label><input type="text" name="pret_nb_offres" value="<?= $val('pret_nb_offres') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Date limite obtention</label><input type="date" name="pret_date_limite" value="<?= $val('pret_date_limite') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Apport €</label><input type="text" name="pret_apport" value="<?= $val('pret_apport') ?>" style="<?= $acStyle ?>"></div>
+              <div style="grid-column:span 2;"><label class="dvm-label">Organismes</label><input type="text" name="pret_organismes" value="<?= $val('pret_organismes') ?>" style="<?= $acStyle ?>"></div>
+            </div>
+
+            <p class="dvm-label" style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">📋 Autres conditions suspensives</p>
+            <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:13px;">
+              <label class="tm-opt"><input type="checkbox" name="cs_preemption" value="1" <?= $chk('cs_preemption') ?>><span>Préemption</span></label>
+              <label class="tm-opt"><input type="checkbox" name="cs_servitudes" value="1" <?= $chk('cs_servitudes') ?>><span>Servitudes</span></label>
+              <label class="tm-opt"><input type="checkbox" name="cs_urbanisme" value="1" <?= $chk('cs_urbanisme') ?>><span>Urbanisme</span></label>
+              <label class="tm-opt"><input type="checkbox" name="cs_hypotheques" value="1" <?= $chk('cs_hypotheques') ?>><span>Purge hypothèques</span></label>
+              <label class="tm-opt"><input type="checkbox" name="cs_vente_bien_acquereur" value="1" <?= $chk('cs_vente_bien_acquereur') ?>><span>Vente bien acquéreur</span></label>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px;">
+              <div><label class="dvm-label">Détail préemption</label><input type="text" name="cs_preemption_detail" value="<?= $val('cs_preemption_detail') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Autres CS (libre)</label><input type="text" name="cs_autres" value="<?= $val('cs_autres') ?>" style="<?= $acStyle ?>"></div>
+            </div>
+
+            <p class="dvm-label" style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">🔑 Jouissance / mobilier · Acte · SRU</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div><label class="dvm-label">Entrée en jouissance</label><input type="date" name="date_entree_jouissance" value="<?= $val('date_entree_jouissance') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">Occupation</label><select name="occupation" style="<?= $acStyle ?>"><option value="">—</option><option value="libre" <?= $sel('occupation','libre') ?>>Libre</option><option value="occupe" <?= $sel('occupation','occupe') ?>>Occupé</option><option value="loue" <?= $sel('occupation','loue') ?>>Loué</option></select></div>
+              <div><label class="dvm-label">Mobilier €</label><input type="text" name="mobilier_valeur" value="<?= $val('mobilier_valeur') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="tm-opt"><input type="checkbox" name="mobilier_inclus" value="1" <?= $chk('mobilier_inclus') ?>><span>Mobilier inclus</span></label></div>
+              <div><label class="dvm-label">Notaire rédacteur</label><select name="notaire_redacteur" style="<?= $acStyle ?>"><option value="">—</option><option value="vendeur" <?= $sel('notaire_redacteur','vendeur') ?>>Notaire vendeur</option><option value="acquereur" <?= $sel('notaire_redacteur','acquereur') ?>>Notaire acquéreur</option><option value="commun" <?= $sel('notaire_redacteur','commun') ?>>Commun</option></select></div>
+              <div><label class="dvm-label">Frais d'acte à charge</label><select name="frais_acte_charge" style="<?= $acStyle ?>"><option value="acquereur" <?= $sel('frais_acte_charge','acquereur') ?>>Acquéreur</option><option value="vendeur" <?= $sel('frais_acte_charge','vendeur') ?>>Vendeur</option><option value="partage" <?= $sel('frais_acte_charge','partage') ?>>Partagé</option></select></div>
+              <div><label class="dvm-label">SRU — date notification</label><input type="date" name="sru_date_notification" value="<?= $val('sru_date_notification') ?>" style="<?= $acStyle ?>"></div>
+              <div><label class="dvm-label">SRU — fin rétractation</label><input type="date" name="sru_date_fin_retractation" value="<?= $val('sru_date_fin_retractation') ?>" style="<?= $acStyle ?>" placeholder="auto +10 j"></div>
+            </div>
+            <div style="margin-top:10px;"><label class="dvm-label">Conditions particulières</label><textarea name="conditions_particulieres" rows="3" style="<?= $acStyle ?>"><?= $val('conditions_particulieres') ?></textarea></div>
+
+            <div style="margin-top:14px;display:flex;align-items:center;gap:12px;">
+              <button type="button" class="dvm-btn ok" style="padding:10px 20px;" onclick="dvAvcSave()">💾 Enregistrer l'avant-contrat</button>
+              <span id="dv-avc-msg" style="font-size:12px;"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+      <script>
+        window.dvAvcSave = async function(){
+          var f=document.getElementById('dv-avc-form'), msg=document.getElementById('dv-avc-msg');
+          var fd=new FormData(f); fd.append('id_dossier', <?= (int)$idDossier ?>);
+          // checkboxes non cochées : FormData ne les envoie pas → on force 0 pour les flags
+          ['cs_pret','cs_preemption','cs_servitudes','cs_urbanisme','cs_hypotheques','cs_vente_bien_acquereur','mobilier_inclus','copro'].forEach(function(n){
+            if(!f.querySelector('[name="'+n+'"]:checked') && f.querySelector('[name="'+n+'"][type=checkbox]')) fd.set(n,'0');
+          });
+          msg.style.color='#64748b'; msg.textContent='Enregistrement…';
+          try{
+            var r=await fetch(<?= json_encode(app_url('/api/transaction_dossier_avant_contrat_save.php')) ?>,{method:'POST',body:fd});
+            var j=await r.json();
+            if(j.ok){ msg.style.color='#15803d'; msg.textContent='✓ Enregistré'; }
+            else { msg.style.color='#ef4444'; msg.textContent=j.error||'Erreur'; }
+          }catch(e){ msg.style.color='#ef4444'; msg.textContent='Erreur réseau'; }
+        };
+      </script>
+      <?php endif; // fin ancien formulaire désactivé ?>
 
       <!-- ===== ESTIMATION ===== -->
       <div class="dvk-panel solo" id="dvk-estimation">
-        <div class="dv-card">
-          <h3>📈 Estimation détaillée</h3>
-          <div class="dvk-soon">Historique des prix, scénarios, comparables — à venir. (Estimation rapide disponible dans le Dashboard.)</div>
+        <?php if ($mandatSigne && !empty($estimCard)): ?>
+          <?= $estimCard /* mandat signé : la card Estimation a basculé du Dashboard vers cet onglet */ ?>
+        <?php else: ?>
+          <div class="dv-card">
+            <h3>📈 Estimation détaillée</h3>
+            <div class="dvk-soon">Historique des prix, scénarios, comparables — à venir. (Atelier d'estimation dans le Dashboard tant que le mandat n'est pas signé.)</div>
+          </div>
+        <?php endif; ?>
+      </div>
+
+      <!-- ===== COMMUNICATION ===== -->
+      <div class="dvk-panel solo" id="dvk-communication">
+        <div class="dv-card dvc-communications">
+          <h3>✉️ Communication <span style="font-weight:400;color:#94a3b8;font-size:12px;">(mails du dossier)</span></h3>
+          <?php if (!$comms): ?>
+            <div class="dv-empty">Aucun mail envoyé.</div>
+          <?php else: foreach ($comms as $c): ?>
+            <a href="<?= h(app_url('/transaction_mail.php?id_dossier=' . $idDossier . '&from_history=' . (int)$c['id'])) ?>"
+               title="Rouvrir ce mail (destinataires + pièces jointes repris)"
+               style="display:block;padding:6px 0;border-bottom:1px solid #f1f5f9;text-decoration:none;">
+              <span style="font-size:13px;font-weight:700;color:#0e7490;">↻ <?= h($c['subject']) ?></span>
+              <span style="display:block;font-size:11px;color:#94a3b8;"><?= h($fmtDate($c['sent_at'])) ?> · <?= (int)$c['recipients_count'] ?> destinataire(s)</span>
+            </a>
+          <?php endforeach; endif; ?>
+          <div style="margin-top:12px;">
+            <a class="dvm-btn ok" style="display:inline-block;padding:9px 16px;text-decoration:none;" href="<?= h(app_url('/transaction_mail.php?id_dossier=' . $idDossier)) ?>">✉️ Nouveau mail</a>
+          </div>
         </div>
       </div>
     </div>
@@ -512,19 +937,19 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <div class="dvk-aside">
       <div class="dvk-actions">
         <h4>⚡ Actions</h4>
-        <?php if (!$prixCourant): ?><button type="button" class="dvk-act-btn" onclick="dvToggleEstim(true)">📊 Estimer le prix</button><?php endif; ?>
         <?php if (!$mandat): ?>
           <button type="button" class="dvk-act-btn" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
         <?php else: ?>
           <button type="button" class="dvk-act-btn" onclick="dvSendMandat()">✉️ Envoyer le mandat à signer</button>
         <?php endif; ?>
-        <button type="button" class="dvk-act-btn" onclick="dvOpenActeurModal()">👤 Ajouter un acteur</button>
+        <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/transaction_mail.php?id_dossier=' . $idDossier)) ?>">✉️ Envoyer un mail</a>
+        <button type="button" class="dvk-act-btn" onclick="odClasserOpen()">📥 Importer docs OneDrive</button>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_360.php?id=' . $idBien)) ?>">🏠 Vue 360° du bien</a>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_documents_list.php?id=' . $idBien)) ?>">📁 Documents du bien</a>
       </div>
 
       <!-- CONTACTS (acteurs du dossier) -->
-      <div class="dv-card">
+      <div class="dv-card dvc-contacts">
         <h3>👥 Contacts
           <button type="button" class="dv-add-btn" onclick="dvOpenActeurModal()" title="Ajouter un acteur (acquéreur, notaire, apporteur…)">+</button>
         </h3>
@@ -597,7 +1022,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <p class="dvm-label">Honoraires</p>
     <div style="display:flex;gap:8px;align-items:center;">
       <input type="text" id="dvm-honoraires" inputmode="numeric" placeholder="Montant €"
-             style="width:140px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;text-align:right;">
+             style="width:120px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;text-align:right;">
+      <input type="text" id="dvm-honoraires-pct" inputmode="decimal" placeholder="%"
+             style="width:70px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;text-align:right;">
       <span style="font-size:12px;color:#64748b;">à charge :</span>
       <div class="dvm-roles" id="dvm-charge" style="margin:0;">
         <button type="button" class="dvm-role" data-charge="vendeur">Vendeur</button>
@@ -613,8 +1040,12 @@ include __DIR__ . '/inc/agency_layout_top.php';
     </div>
 
     <div style="display:flex;gap:18px;margin-top:14px;flex-wrap:wrap;">
-      <div><p class="dvm-label">Durée (mois)</p>
-        <input type="text" id="dvm-duree" inputmode="numeric" value="3" style="width:90px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;text-align:center;"></div>
+      <div><p class="dvm-label">Durée</p>
+        <select id="dvm-duree" style="padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;">
+          <option value="3">3 mois</option>
+          <option value="6">6 mois</option>
+          <option value="12">1 an</option>
+        </select></div>
       <div><p class="dvm-label">Prise d'effet</p>
         <input type="date" id="dvm-datedebut" value="<?= date('Y-m-d') ?>" style="padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;"></div>
     </div>
@@ -640,6 +1071,64 @@ immeuble_mbi_assets();
 // Modal d'adresse Google (obligatoire pour la saisie d'adresse d'un nouveau tiers).
 require_once __DIR__ . '/inc/adresse_modal.php';
 ?>
+
+<!-- ── Modal classement OneDrive → GED (scope BIEN du dossier) ─────────── -->
+<div id="odModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(15,18,24,.55);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;width:min(1000px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eef0f2;">
+      <h3 style="margin:0;font-size:16px;">📥 Documents OneDrive — <?= h($refBien) ?></h3>
+      <button type="button" onclick="document.getElementById('odModal').style.display='none'" style="border:1px solid #d6dade;background:#eceef1;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+    </div>
+    <div id="odBody" style="flex:1;overflow:auto;padding:16px 18px;font-size:13px;"><div style="color:#6b7280;padding:30px;text-align:center;">⏳ Analyse du dossier OneDrive…</div></div>
+    <div style="padding:12px 18px;border-top:1px solid #eef0f2;display:flex;gap:10px;align-items:center;">
+      <button type="button" id="odCommitBtn" onclick="odClasserCommit()" disabled
+              style="background:#2d8a4e;color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:800;cursor:pointer;opacity:.5;">✓ Valider et classer</button>
+      <span id="odMsg" style="font-size:12.5px;font-weight:700;"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var BID=<?= (int)$idBien ?>, CSRF=<?= json_encode(function_exists('csrf_token')?csrf_token('onedrive_classer'):'', JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var URL=<?= json_encode(app_url('/api/onedrive_classer.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var esc=function(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;};
+  function post(action){var fd=new FormData();fd.append('csrf_token',CSRF);fd.append('id_bien',BID);fd.append('action',action);
+    return fetch(URL,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();});}
+  window.odClasserOpen=function(){
+    document.getElementById('odModal').style.display='flex';
+    document.getElementById('odCommitBtn').disabled=true; document.getElementById('odCommitBtn').style.opacity=.5;
+    document.getElementById('odMsg').textContent='';
+    document.getElementById('odBody').innerHTML='<div style="color:#6b7280;padding:30px;text-align:center;">⏳ Analyse du dossier OneDrive…</div>';
+    post('scan').then(function(j){
+      if(!j||!j.ok){document.getElementById('odBody').innerHTML='<div style="color:#c62828;padding:20px;">❌ '+esc((j&&j.error)||'Erreur')+(j&&j.base?'<br><small>base: '+esc(j.base)+'</small>':'')+'</div>';return;}
+      var rows=(j.items||[]).map(function(it){
+        var col=it.status==='certain'?'#2d8a4e':(it.status==='pile'?'#8a6d1b':'#c62828');
+        var cible=it.target==='BAIL'?('→ bail #'+it.bail_id):(it.target==='BIEN'?'→ ce bien':'→ pile');
+        return '<tr><td style="padding:5px 8px;"><b>'+esc(it.type)+'</b></td>'
+          +'<td style="padding:5px 8px;">'+esc(it.name)+'<div style="color:#5b21b6;font-size:11px;margin-top:2px;">↳ '+esc(it.name_display||'')+'</div></td>'
+          +'<td style="padding:5px 8px;">'+esc(cible)+'</td><td style="padding:5px 8px;color:'+col+';font-weight:700;">'+esc(it.status)+'</td>'
+          +'<td style="padding:5px 8px;color:#7a766f;font-size:11.5px;">'+esc(it.reason)+'</td></tr>';
+      }).join('');
+      var nbCertain=(j.items||[]).filter(function(x){return x.status==='certain';}).length;
+      document.getElementById('odBody').innerHTML=
+        '<div style="margin-bottom:8px;color:#6b7280;">Dossier <b>'+esc(j.folder)+'</b> · baux du bien '+(j.nb_baux||0)+' · <b>'+nbCertain+'</b> doc(s) à classer (nouveaux + loupés).</div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr style="background:#ede7f6;color:#4527a0;text-align:left;">'
+        +'<th style="padding:6px 8px;">Type</th><th style="padding:6px 8px;">Fichier</th><th style="padding:6px 8px;">Cible</th><th style="padding:6px 8px;">Statut</th><th style="padding:6px 8px;">Détail</th></tr></thead><tbody>'
+        +(rows||'<tr><td colspan="5" style="padding:14px;color:#9a9690;">Aucun document rattachable.</td></tr>')+'</tbody></table>';
+      var b=document.getElementById('odCommitBtn'); if(nbCertain>0){b.disabled=false;b.style.opacity=1;}
+    }).catch(function(e){document.getElementById('odBody').innerHTML='<div style="color:#c62828;padding:20px;">❌ Réseau : '+esc(e)+'</div>';});
+  };
+  window.odClasserCommit=function(){
+    var b=document.getElementById('odCommitBtn'),m=document.getElementById('odMsg');
+    b.disabled=true;b.style.opacity=.5;m.style.color='#6b7280';m.textContent='⏳ Classement en cours…';
+    post('commit').then(function(j){
+      if(!j||!j.ok){m.style.color='#c62828';m.textContent='❌ '+esc((j&&j.error)||'Erreur');return;}
+      m.style.color='#2d8a4e';m.textContent='✓ '+j.classes+' document(s) classé(s) en GED'+(j.pile?(' · '+j.pile+' en pile'):'')+'. Recharge la page.';
+      setTimeout(function(){location.reload();}, 1200);
+    }).catch(function(e){m.style.color='#c62828';m.textContent='❌ Réseau : '+esc(e);});
+  };
+})();
+</script>
 <script src="<?= h(asset_url('/js/places.js')) ?>"></script>
 <script src="<?= h(asset_url('/js/adresse_modal.js')) ?>"></script>
 <?php if (($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '') !== ''): ?>
@@ -657,6 +1146,67 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   const TIERS_FICHE= <?= json_encode(app_url('/tiers_360.php?id=')) ?>;
   const API_LOT    = <?= json_encode(app_url('/api/transaction_dossier_lot.php')) ?>;
   const BIEN_360   = <?= json_encode(app_url('/bien_360.php?id=')) ?>;
+  const API_ESTIM_UP = <?= json_encode(app_url('/api/bien_estimation_upload.php')) ?>;
+  const CSRF_ESTIM   = <?= json_encode(function_exists('csrf_token') ? csrf_token('dossier_estimation') : '') ?>;
+
+  // ════════ Dépôt de document (PDF/Word) → GED du bien (estimation / mandat / acte) ════════
+  const DV_DOSSIER_BIEN = <?= (int)$idBien ?>;
+  async function dvDocUpload(fileId, msgId, docType, idBien){
+    const fileEl = document.getElementById(fileId);
+    const msg = document.getElementById(msgId);
+    if (!fileEl || !fileEl.files.length){ msg.textContent = 'Sélectionne un fichier.'; msg.style.color='#ef4444'; return; }
+    const fd = new FormData();
+    fd.append('id_bien', idBien);
+    fd.append('doc_type', docType);
+    fd.append('id_dossier', DOSSIER_ID);
+    fd.append('CSRF', CSRF_ESTIM);
+    fd.append('fichier', fileEl.files[0]);
+    msg.style.color='#94a3b8'; msg.textContent = 'Dépôt en cours…';
+    try{
+      const r = await fetch(API_ESTIM_UP, {method:'POST', body:fd});
+      const j = await r.json();
+      if(j.ok){ msg.style.color='#15803d'; msg.textContent = '✓ Document déposé'; setTimeout(()=>location.reload(), 700); }
+      else { msg.style.color='#ef4444'; msg.textContent = j.error || 'Erreur'; }
+    }catch(e){ msg.style.color='#ef4444'; msg.textContent = 'Erreur réseau'; }
+  }
+  // Estimation : lot sélectionné (ou unique) ; mandat/acte : bien principal du dossier.
+  window.dvEstimUpload  = () => { const l=document.getElementById('dv-estim-lot'); dvDocUpload('dv-estim-file','dv-estim-up-msg','ESTIMATION', l?l.value:DV_DOSSIER_BIEN); };
+  window.dvMandatUpload = () => dvDocUpload('dv-mandat-file','dv-mandat-up-msg','MANDAT_VENTE', DV_DOSSIER_BIEN);
+  window.dvActeUpload   = () => dvDocUpload('dv-acte-file','dv-acte-up-msg','ACTE_AUTHENTIQUE', DV_DOSSIER_BIEN);
+
+  // ── Offre : réutilise l'API structurée existante transaction_offre_save.php ──
+  const API_OFFRE = <?= json_encode(app_url('/api/transaction_offre_save.php')) ?>;
+  window.dvToggleOffre = (show) => { document.getElementById('dv-offre-form').style.display = show ? 'block' : 'none'; };
+  window.dvSaveOffre = async function(){
+    const msg = document.getElementById('dv-offre-msg');
+    const prix = (document.getElementById('dv-offre-prix').value||'').replace(/[^0-9.]/g,'');
+    if(!prix){ msg.style.color='#ef4444'; msg.textContent='Prix requis.'; return; }
+    const fd = new FormData();
+    fd.append('id_bien', DV_DOSSIER_BIEN);
+    fd.append('prix_propose', prix);
+    fd.append('nom', document.getElementById('dv-offre-nom').value||'');
+    fd.append('email', document.getElementById('dv-offre-email').value||'');
+    fd.append('statut_offre', 'recue');
+    msg.style.color='#94a3b8'; msg.textContent='Enregistrement…';
+    try{
+      const r = await fetch(API_OFFRE, {method:'POST', body:fd});
+      const j = await r.json();
+      if(!j.ok){ msg.style.color='#ef4444'; msg.textContent = j.error || 'Erreur'; return; }
+      // Document de l'offre fourni → dépôt GED (OFFRE_ACHAT) sur le bien + dossier.
+      const fileEl = document.getElementById('dv-offre-file');
+      if(fileEl && fileEl.files.length){
+        msg.textContent = 'Offre OK, dépôt du document…';
+        const fd2 = new FormData();
+        fd2.append('id_bien', DV_DOSSIER_BIEN);
+        fd2.append('doc_type', 'OFFRE_ACHAT');
+        fd2.append('id_dossier', DOSSIER_ID);
+        fd2.append('CSRF', CSRF_ESTIM);
+        fd2.append('fichier', fileEl.files[0]);
+        try{ await fetch(API_ESTIM_UP, {method:'POST', body:fd2}); }catch(e){}
+      }
+      msg.style.color='#15803d'; msg.textContent='✓ Offre enregistrée'; setTimeout(()=>location.reload(),700);
+    }catch(e){ msg.style.color='#ef4444'; msg.textContent='Erreur réseau'; }
+  };
   let selectedRole = '';
   let mCharge = '', mExcl = '0';
 
@@ -674,11 +1224,18 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   }
   function lotRefreshTotaux(tot){
     if(!tot) return;
-    document.getElementById('dv-tot-prix').textContent = fmtE(tot.prix_total);
-    document.getElementById('dv-tot-lr').textContent   = fmtE(tot.loyer_reel);
-    document.getElementById('dv-tot-lp').textContent   = fmtE(tot.loyer_potentiel);
-    document.getElementById('dv-tot-rdt').textContent  = (tot.rendement_brut !== null && tot.rendement_brut !== undefined)
-      ? new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(tot.rendement_brut) + ' %' : '—';
+    var p = document.getElementById('dv-tot-prix'); if(p) p.textContent = fmtE(tot.prix_total);
+  }
+
+  // Rentabilité d'un lot : loyer estimé si réel vide, sinon réel, / prix. Loyers annuels.
+  function dvLotRdt(el){
+    const get = f => { const i = el.querySelector('[data-f="'+f+'"]'); if(!i) return 0;
+      const v = (i.value || i.placeholder || '').replace(/[^0-9.]/g,''); return parseFloat(v) || 0; };
+    const prix = get('prix_vente'), lp = get('loyer_potentiel'), lr = get('loyer_reel');
+    const loyer = lp > 0 ? lp : lr;
+    const cell = el.querySelector('.dv-lot-rdt');
+    if(cell) cell.textContent = (prix > 0 && loyer > 0)
+      ? new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(loyer/prix*100) + ' %' : '—';
   }
 
   // Sauvegarde inline d'un lot (prix / loyers) sur changement.
@@ -724,9 +1281,16 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   }
 
   (function initLots(){
+    const fmtMontant = v => { v=(''+v).replace(/[^0-9]/g,''); return v ? new Intl.NumberFormat('fr-FR').format(parseInt(v,10))+' €' : ''; };
     document.querySelectorAll('#dv-lots-body .dv-lot-in').forEach(i => {
-      i.addEventListener('change', () => dvLotSave(i.closest('tr')));
+      // Affichage formaté au repos ; brut pendant l'édition.
+      if(i.value) i.value = fmtMontant(i.value);
+      if(i.placeholder) i.placeholder = fmtMontant(i.placeholder);
+      i.addEventListener('focus', () => { i.value = i.value.replace(/[^0-9]/g,''); });
+      i.addEventListener('blur',  () => { i.value = fmtMontant(i.value); });
+      i.addEventListener('change', () => { const el = i.closest('.dv-lot'); dvLotSave(el); dvLotRdt(el); });
     });
+    document.querySelectorAll('#dv-lots-body .dv-lot').forEach(el => dvLotRdt(el));
     const s = document.getElementById('dv-lot-search');
     if(s){
       s.addEventListener('input', e => dvLotSearch(e.target.value.trim()));
@@ -749,6 +1313,15 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   // ── Mandat : création (termes) ──
   window.dvOpenMandatModal = function(){ document.getElementById('dvm-mandat').classList.add('open'); };
   window.dvCloseMandatModal = function(){ document.getElementById('dvm-mandat').classList.remove('open'); };
+  // Honoraires : % ⇄ montant (base = prix mandat total des lots)
+  (function(){
+    var PRIX = <?= (float)$totaux['prix_total'] ?>;
+    var hM=document.getElementById('dvm-honoraires'), hP=document.getElementById('dvm-honoraires-pct');
+    if(hM&&hP){ var n=el=>parseFloat((el.value||'').replace(/[^0-9.]/g,''))||0;
+      hM.addEventListener('input',()=>{ hP.value = PRIX>0 ? (n(hM)/PRIX*100).toFixed(2) : ''; });
+      hP.addEventListener('input',()=>{ hM.value = PRIX>0 ? Math.round(n(hP)/100*PRIX) : ''; });
+    }
+  })();
   document.getElementById('dvm-charge')?.addEventListener('click', e=>{
     const b=e.target.closest('.dvm-role'); if(!b)return;
     document.querySelectorAll('#dvm-charge .dvm-role').forEach(x=>x.classList.remove('active'));
