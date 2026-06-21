@@ -11,6 +11,12 @@ require_once __DIR__ . '/inc/encadrement_helper.php';   // calcul officiel du pl
 $pdo = $GLOBALS['pdo'] ?? db();
 $e   = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 
+// ── Sécurité : espace privé à jeton ──────────────────────────────────
+// Jamais indexable (donnée privée) + pas de fuite du jeton via le Referer
+// lors d'un clic sortant (le jeton est dans l'URL).
+header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
+header('Referrer-Policy: no-referrer');
+
 $token = preg_replace('/[^a-f0-9]/', '', (string)($_GET['t'] ?? ''));
 
 /** Page d'erreur sobre (lien invalide / expiré / révoqué). */
@@ -343,4 +349,39 @@ if (!empty($envoi['id_user'])) {
 $joursRestants = !empty($envoi['date_expiration']) ? max(0, (int)ceil((strtotime((string)$envoi['date_expiration']) - time()) / 86400)) : null;
 
 $fmtK = fn($v) => $v === null || $v === '' ? null : (number_format((float)$v / 1000, 0, ',', ' ') . ' k€');
+
+// ── Branding dynamique (société/agence de l'expéditeur) ──────────────
+// Fallback : Régie EMERY. Sinon, on lit la société (nom + logo) et l'agence
+// (ville/email) de l'utilisateur qui a envoyé le portefeuille.
+$brand = [
+    'nom'     => 'Régie EMERY',
+    'logo'    => app_url('/images/logos/regie-emery.jpg'),
+    'tagline' => 'Location – Gestion – Syndic – Transaction',
+    'email'   => 'contact@regie-emery.com',
+    'ville'   => 'Lyon',
+];
+try {
+    if (!empty($envoi['id_user'])) {
+        $bu = $pdo->prepare("SELECT id_societe, id_agence FROM users WHERE id = ? LIMIT 1");
+        $bu->execute([(int)$envoi['id_user']]);
+        $bur = $bu->fetch(PDO::FETCH_ASSOC) ?: [];
+        if (!empty($bur['id_societe'])) {
+            $bs = $pdo->prepare("SELECT nom, logo_url FROM societes WHERE id = ? LIMIT 1");
+            $bs->execute([(int)$bur['id_societe']]);
+            if ($s = $bs->fetch(PDO::FETCH_ASSOC)) {
+                if (!empty($s['nom']))      $brand['nom']  = (string)$s['nom'];
+                if (!empty($s['logo_url'])) $brand['logo'] = app_url('/' . ltrim((string)$s['logo_url'], '/'));
+            }
+        }
+        if (!empty($bur['id_agence'])) {
+            $ba = $pdo->prepare("SELECT ville, email FROM agences WHERE id = ? LIMIT 1");
+            $ba->execute([(int)$bur['id_agence']]);
+            if ($a = $ba->fetch(PDO::FETCH_ASSOC)) {
+                if (!empty($a['ville']))  $brand['ville'] = ucwords(mb_strtolower((string)$a['ville']));
+                if (!empty($a['email']))  $brand['email'] = (string)$a['email'];
+            }
+        }
+    }
+} catch (Throwable $ex) {}
+
 require __DIR__ . '/inc/p_portefeuille_view.php';

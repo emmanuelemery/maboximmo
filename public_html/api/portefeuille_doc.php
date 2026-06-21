@@ -7,6 +7,7 @@ require_once __DIR__ . '/../inc/bootstrap.php';
 /** @var PDO $pdo */
 $pdo = $GLOBALS['pdo'] ?? db();
 
+header('X-Robots-Tag: noindex, nofollow, noarchive');
 function pf_doc_stop(int $code, string $msg): void { http_response_code($code); header('Content-Type:text/plain; charset=utf-8'); echo $msg; exit; }
 
 $token = preg_replace('/[^a-f0-9]/', '', (string)($_GET['t'] ?? ''));

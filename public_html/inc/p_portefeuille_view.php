@@ -2,14 +2,20 @@
 // inc/p_portefeuille_view.php — Rendu HTML de la page publique p.php (design Régie EMERY).
 // Variables attendues : $e, $token, $envoi, $header, $biensJs, $destNom, $destInit, $typeDest,
 // $pxMin,$pxMax,$sfMin,$sfMax,$nbBiens, $needConsent, $joursRestants, $fmtK.
-$logo = app_url('/images/logos/regie%20emery.jpg');
+// Branding dynamique (résolu dans p.php) avec repli Régie EMERY.
+$brand = $brand ?? ['nom' => 'Régie EMERY', 'logo' => app_url('/images/logos/regie-emery.jpg'),
+                    'tagline' => 'Location – Gestion – Syndic – Transaction', 'email' => 'contact@regie-emery.com', 'ville' => 'Lyon'];
+$brandNom = (string)$brand['nom'];
+$logo = (string)$brand['logo'];
 $titreCrit = $typeDest === 'investisseur' ? '📈 Investisseur' : ($typeDest === 'commercialisateur' ? '🏷️ Commercialisateur' : '—');
 $budget = ($fmtK($pxMin) || $fmtK($pxMax)) ? trim(($fmtK($pxMin) ?: '') . ' – ' . ($fmtK($pxMax) ?: '')) : null;
 $surfTxt = ($sfMin || $sfMax) ? (($sfMin ? (int)$sfMin : '') . ' – ' . ($sfMax ? (int)$sfMax : '') . ' m²') : null;
 ?><!DOCTYPE html>
 <html lang="fr"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= $e($envoi['sujet'] ?: 'Votre portefeuille') ?> · Régie EMERY</title>
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="referrer" content="no-referrer">
+<title><?= $e($envoi['sujet'] ?: 'Votre portefeuille') ?> · <?= $e($brandNom) ?></title>
 <style>
 :root{--bleu:#1f5fc0;--bleu-d:#143c80;--marine:#10254d;--vert:#3fb39a;--vert-d:#2c8f7c;--violet:#9c2d8a;
 --ink:#15233b;--soft:#5f6b7e;--faint:#9aa4b4;--line:#e8ecf3;--bg:#f6f8fc;
@@ -225,7 +231,7 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
 
 <?php if ($needConsent): ?>
 <div class="consent" id="consent"><div class="card">
-  <div class="ch"><img src="<?= $e($logo) ?>" alt="Régie EMERY"><h2>Accès à votre portefeuille</h2><p>Merci de prendre connaissance des conditions ci-dessous avant d'accéder à votre sélection.</p></div>
+  <div class="ch"><img src="<?= $e($logo) ?>" alt="<?= $e($brandNom) ?>"><h2>Accès à votre portefeuille</h2><p>Merci de prendre connaissance des conditions ci-dessous avant d'accéder à votre sélection.</p></div>
   <div class="cbody">
     <p>Madame, Monsieur,</p>
     <p>Nous vous remercions de l'intérêt que vous portez aux opportunités immobilières qui vous sont présentées.</p>
@@ -253,7 +259,7 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
 <?php endif; ?>
 
 <div class="nav"><div class="wrap">
-  <img class="logo" src="<?= $e($logo) ?>" alt="Régie EMERY">
+  <img class="logo" src="<?= $e($logo) ?>" alt="<?= $e($brandNom) ?>">
   <div class="agent">
     <?php if (!empty($conseiller) && $conseiller['photo']): ?>
       <div class="pp" style="background-image:url('<?= $e($conseiller['photo']) ?>');background-size:cover;background-position:center"></div>
@@ -262,10 +268,10 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
     <?php endif; ?>
     <div>
       <div class="role">Votre conseiller</div>
-      <div class="nm"><?= $e(!empty($conseiller) && $conseiller['nom'] ? $conseiller['nom'] : 'Régie EMERY · Transaction') ?></div>
-      <?php if (!empty($conseiller) && $conseiller['fonction']): ?><div class="fn"><?= $e($conseiller['fonction']) ?> · Régie EMERY</div><?php endif; ?>
+      <div class="nm"><?= $e(!empty($conseiller) && $conseiller['nom'] ? $conseiller['nom'] : $brandNom . ' · Transaction') ?></div>
+      <?php if (!empty($conseiller) && $conseiller['fonction']): ?><div class="fn"><?= $e($conseiller['fonction']) ?> · <?= $e($brandNom) ?></div><?php endif; ?>
       <div class="co">
-        <a href="mailto:<?= $e(!empty($conseiller) && $conseiller['email'] ? $conseiller['email'] : 'contact@regie-emery.com') ?>">✉️ <?= $e(!empty($conseiller) && $conseiller['email'] ? $conseiller['email'] : 'contact@regie-emery.com') ?></a>
+        <a href="mailto:<?= $e(!empty($conseiller) && $conseiller['email'] ? $conseiller['email'] : $brand['email']) ?>">✉️ <?= $e(!empty($conseiller) && $conseiller['email'] ? $conseiller['email'] : $brand['email']) ?></a>
         <?php if (!empty($conseiller) && $conseiller['tel']): ?><a href="tel:<?= $e(preg_replace('/\s+/', '', $conseiller['tel'])) ?>" style="margin-left:10px">📞 <?= $e($conseiller['tel']) ?></a><?php endif; ?>
       </div>
     </div>
@@ -296,7 +302,7 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
     <div class="eyebrow"><?= $e($titreCrit) ?><?= $envoi['date_envoi'] ? ' · ' . $e(date('F Y', strtotime((string)$envoi['date_envoi']))) : '' ?></div>
     <h1>Une sélection<br>pensée pour vous.</h1>
     <p class="lead">Des opportunités immobilières choisies selon vos critères, avec leurs conditions financières, diagnostics et documents — réunies sur une page privée.</p>
-    <?php if ($destNom): ?><div class="who"><div class="av"><?= $e($destInit) ?></div><div><b>Préparé pour <?= $e($destNom) ?></b><span>par Régie EMERY · Transaction</span></div></div><?php endif; ?>
+    <?php if ($destNom): ?><div class="who"><div class="av"><?= $e($destInit) ?></div><div><b>Préparé pour <?= $e($destNom) ?></b><span>par <?= $e($brandNom) ?> · Transaction</span></div></div><?php endif; ?>
   </div>
   <div class="countcard"><div class="k">Biens</div><div class="v"><?= (int)$nbBiens ?></div><div class="s">sélectionnés pour vous</div></div>
 </div></div></div>
@@ -356,7 +362,7 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
 </div></section>
 
 <section class="promo"><div class="wrap">
-  <img class="promo-logo" src="<?= $e($logo) ?>" alt="Régie EMERY">
+  <img class="promo-logo" src="<?= $e($logo) ?>" alt="<?= $e($brandNom) ?>">
   <div class="h3">Un partenaire immobilier complet, à vos côtés</div>
   <p class="sub">Depuis Lyon, nous accompagnons propriétaires et investisseurs sur l'ensemble du cycle immobilier.</p>
   <div class="pillars">
@@ -369,7 +375,7 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
 
 <footer><div class="wrap">
   <div class="conf"><b>Accès strictement personnel et confidentiel.</b> Ce portefeuille a été constitué spécifiquement à votre intention. Les informations, documents et données financières sont communiqués à titre confidentiel et ne constituent pas une offre ferme de vente. Le lien d'accès est personnel et ne peut être partagé ; il peut être mis à jour ou retiré à tout moment.</div>
-  <div class="meta"><span><b>Régie EMERY</b> · Location – Gestion – Syndic – Transaction</span><span>📍 Lyon</span><span>✉️ contact@regie-emery.com</span></div>
+  <div class="meta"><span><b><?= $e($brandNom) ?></b> · <?= $e($brand['tagline']) ?></span><span>📍 <?= $e($brand['ville']) ?></span><span>✉️ <?= $e($brand['email']) ?></span></div>
 </div></footer>
 
 <div class="modal" id="modal" onclick="if(event.target===this)closeBien()">
@@ -547,7 +553,7 @@ function openBien(i){
       ${simBlock}
       ${docsHtml}
       <div class="block soon"><div class="bt">💬 Échanger sur ce bien</div>
-        <div class="soonbox"><div class="soon-ic">🚧</div><div><b>En cours de création</b><div class="chatnote" style="margin-top:4px">La messagerie privée avec votre conseiller pour ce bien sera bientôt disponible. En attendant, contactez Régie EMERY directement.</div></div></div>
+        <div class="soonbox"><div class="soon-ic">🚧</div><div><b>En cours de création</b><div class="chatnote" style="margin-top:4px">La messagerie privée avec votre conseiller pour ce bien sera bientôt disponible. En attendant, contactez <?= $e($brandNom) ?> directement.</div></div></div>
       </div>
     </div>`;
   document.getElementById('modal').classList.add('on');document.getElementById('modal').scrollTop=0;document.body.style.overflow='hidden';
