@@ -60,6 +60,11 @@ if (is_post()) {
             );
             $st->execute([$idAgence, $pageKey, $titre ?: null, $contenu ?: null,
                           $mt ?: null, $md ?: null, $actif, current_user_id()]);
+            // Communes du secteur : champ niveau AGENCE (sert à la génération IA SEO).
+            if (array_key_exists('secteur_communes', $_POST)) {
+                $pdo->prepare("UPDATE agences SET net_secteur_communes = ? WHERE id = ?")
+                    ->execute([trim((string)post('secteur_communes', '')) ?: null, $idAgence]);
+            }
             $flash['ok'] = true;
         } catch (Throwable $e) {
             $flash['err'] = APP_DEBUG ? $e->getMessage() : "Enregistrement impossible.";
@@ -82,6 +87,16 @@ if ($idAgence > 0) {
 }
 $agenceNom = '';
 foreach ($agences as $a) { if ((int)$a['id'] === $idAgence) { $agenceNom = (string)$a['nom_agence']; } }
+
+// Communes du secteur (niveau agence) — préremplissage du champ.
+$secteurCommunes = '';
+if ($idAgence > 0) {
+    try {
+        $sc = $pdo->prepare("SELECT net_secteur_communes FROM agences WHERE id = ? LIMIT 1");
+        $sc->execute([$idAgence]);
+        $secteurCommunes = (string)($sc->fetchColumn() ?: '');
+    } catch (Throwable) { $secteurCommunes = ''; }
+}
 
 $layout_title          = 'Textes des vitrines';
 $layout_module         = 'Ma Box Net';
@@ -155,6 +170,12 @@ ob_start();
     <?= csrf_field('net_admin_pages') ?>
     <input type="hidden" name="ag" value="<?= $idAgence ?>">
     <input type="hidden" name="page" value="<?= h($pageKey) ?>">
+
+    <div class="na-field">
+      <label>Communes du secteur (séparées par des virgules) — niveau agence, utilisées par l'IA</label>
+      <input type="text" name="secteur_communes" value="<?= h($secteurCommunes) ?>" placeholder="Ex : Brindas, Brignais, Vaugneray, Craponne…">
+      <div class="na-hint">Renseignez ici les communes alentour : la génération IA les listera dans la section « Secteur d'intervention ».</div>
+    </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:8px">
       <button type="button" id="na-ai-btn" class="na-btn" style="background:#7c3aed;color:#fff">✨ Générer avec l'IA</button>

@@ -18,7 +18,7 @@ require_login();
 header('Content-Type: application/json; charset=utf-8');
 
 // Marqueur de version : GET ?ver=1 → confirme quelle version du fichier tourne.
-if (isset($_GET['ver'])) { exit(json_encode(['ok' => true, 'ver' => 'net-ai-v4-secteur', 'model' => 'gpt-4o'])); }
+if (isset($_GET['ver'])) { exit(json_encode(['ok' => true, 'ver' => 'net-ai-v5-communes', 'model' => 'gpt-4o'])); }
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit(json_encode(['ok' => false, 'error' => 'Méthode non autorisée'])); }
@@ -44,7 +44,7 @@ try {
     if (!isset($labels[$pageKey])) { exit(json_encode(['ok' => false, 'error' => 'Page inconnue'])); }
 
     // Contexte agence (+ services réellement actifs → ne pas inventer d'offre)
-    $st = $pdo->prepare("SELECT a.nom_agence, a.ville, a.code_postal, a.adresse_1,
+    $st = $pdo->prepare("SELECT a.nom_agence, a.ville, a.code_postal, a.adresse_1, a.net_secteur_communes,
                                 a.transaction_active, a.location_active, a.gestion_active, a.syndic_active,
                                 s.nom AS societe_nom
                          FROM agences a LEFT JOIN societes s ON s.id = a.id_societe WHERE a.id = ? LIMIT 1");
@@ -58,6 +58,11 @@ try {
     if (!empty($ag['location_active']))    $services[] = 'Location';
     if (!empty($ag['gestion_active']))     $services[] = 'Gestion locative';
     if (!empty($ag['syndic_active']))      $services[] = 'Syndic de copropriété';
+
+    // Communes du secteur : champ éditable agences.net_secteur_communes
+    // (séparées par virgule / point-virgule / retour ligne). Vide = l'IA déduit.
+    $communes = array_values(array_filter(array_map('trim',
+        preg_split('/[,;\r\n]+/', (string)($ag['net_secteur_communes'] ?? '')) ?: [])));
 
     $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
     if (!$apiKey) { exit(json_encode(['ok' => false, 'error' => 'Clé OpenAI non configurée'])); }
@@ -78,13 +83,15 @@ try {
         'code_postal' => (string)($ag['code_postal'] ?? ''),
         'theme_page'  => $labels[$pageKey],
         'services_actifs' => $services,
+        'communes_secteur' => $communes,
         'consigne_utilisateur' => $note ?: null,
     ];
 
     $user = "Rédige le contenu éditorial de la page « {$labels[$pageKey]} » de l'agence, optimisé SEO LOCAL. 300 à 450 mots.\n\n"
         . "EXIGENCES DE CONTENU (pour un référencement local fort) :\n"
-        . "1. SECTEUR ÉLARGI : en plus de la ville de l'agence, cite 4 à 6 communes VOISINES réelles et cohérentes géographiquement, "
-        . "dans un paragraphe ou un <h2>\"Secteur d'intervention\" avec une <ul> de communes. Cela capte les recherches alentour sans surcharger le titre.\n"
+        . "1. SECTEUR ÉLARGI : ajoute une section <h2>Secteur d'intervention</h2> avec une <ul> des communes. "
+        . "Si 'communes_secteur' est fourni, utilise EXACTEMENT ces communes (toutes, orthographe respectée) ; sinon cite 4 à 6 communes voisines réelles et cohérentes. "
+        . "Cela capte les recherches alentour sans surcharger le titre.\n"
         . "2. TYPES DE BIENS : mentionne les types de biens traités, pertinents pour le thème de la page "
         . "(ex. appartements, maisons, immeubles, locaux/commerces, terrains, parkings).\n"
         . "3. QUALITÉS DE LA SOCIÉTÉ : mets en avant le sérieux et l'expertise — connaissance fine du marché local, accompagnement personnalisé, "
