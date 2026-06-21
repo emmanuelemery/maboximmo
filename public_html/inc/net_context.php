@@ -108,7 +108,10 @@ function net_context(?PDO $pdo = null): ?array
     // 3) override ?net_agence= (dev/local).
     $idAgence = net_agence_id_from_host();
     $prefix   = net_prefix_from_request();
-    if ($idAgence === 0 && $prefix !== '') { $idAgence = net_path_map()[$prefix] ?? 0; }
+    if ($idAgence === 0 && $prefix !== '') {
+        // sous-dossier "marque/ville" OU alias court "ville" (ex. /lyon)
+        $idAgence = net_path_map()[$prefix] ?? (net_city_map()[$prefix] ?? 0);
+    }
     if ($idAgence === 0) {
         $ov = $_GET['net_agence'] ?? $_GET['agence'] ?? '';
         if (ctype_digit((string)$ov)) $idAgence = (int)$ov;

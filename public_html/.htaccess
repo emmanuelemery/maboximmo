@@ -28,6 +28,10 @@
 # garde le sous-dossier (donc le bénéfice SEO local).
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # Alias COURTS par ville (cibles des domaines redirigés, ex. /lyon, /chaponost)
+    RewriteRule ^(lyon|chaponost|vienne|mions|riom|chamalieres)/(.+)$ /$2 [E=NET_PREFIX:$1,QSA,L]
+    RewriteRule ^(lyon|chaponost|vienne|mions|riom|chamalieres)/?$ /mbi_annonces_index.php [E=NET_PREFIX:$1,QSA,L]
+    # Sous-dossiers complets "marque/ville"
     RewriteRule ^(regie-emery)/(vienne|mions|lyon-7|chaponost)/(.+)$ /$3 [E=NET_PREFIX:$1/$2,QSA,L]
     RewriteRule ^(regie-emery)/(vienne|mions|lyon-7|chaponost)/?$ /mbi_annonces_index.php [E=NET_PREFIX:$1/$2,QSA,L]
     RewriteRule ^(emery-immo)/(riom|chamalieres)/(.+)$ /$3 [E=NET_PREFIX:$1/$2,QSA,L]
