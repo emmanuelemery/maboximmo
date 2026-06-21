@@ -156,24 +156,29 @@ ob_start();
     <input type="hidden" name="ag" value="<?= $idAgence ?>">
     <input type="hidden" name="page" value="<?= h($pageKey) ?>">
 
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:8px">
+      <button type="button" id="na-ai-btn" class="na-btn" style="background:#7c3aed;color:#fff">✨ Générer avec l'IA</button>
+    </div>
+    <div id="na-ai-msg" style="display:none;margin-bottom:10px;font-size:13px"></div>
+
     <div class="na-field">
       <label>Titre de la section</label>
-      <input type="text" name="titre" maxlength="255" value="<?= h((string)($row['titre'] ?? '')) ?>" placeholder="Ex : Acheter et vendre à Lyon 7 avec REGIE EMERY LYON">
+      <input id="na-titre" type="text" name="titre" maxlength="255" value="<?= h((string)($row['titre'] ?? '')) ?>" placeholder="Ex : Acheter et vendre à Lyon 7 avec REGIE EMERY LYON">
     </div>
 
     <div class="na-field">
       <label>Contenu (HTML simple autorisé : &lt;p&gt; &lt;strong&gt; &lt;ul&gt; &lt;li&gt; &lt;h2&gt; &lt;h3&gt; &lt;a&gt;)</label>
-      <textarea name="contenu_html" placeholder="Texte local différenciant pour le référencement…"><?= h((string)($row['contenu_html'] ?? '')) ?></textarea>
+      <textarea id="na-contenu" name="contenu_html" placeholder="Texte local différenciant pour le référencement…"><?= h((string)($row['contenu_html'] ?? '')) ?></textarea>
       <div class="na-hint">Conseil SEO : un contenu unique par ville/agence (quartiers, repères locaux) évite le « contenu dupliqué ».</div>
     </div>
 
     <div class="na-field">
       <label>Meta title (SEO)</label>
-      <input type="text" name="meta_title" maxlength="255" value="<?= h((string)($row['meta_title'] ?? '')) ?>">
+      <input id="na-mt" type="text" name="meta_title" maxlength="255" value="<?= h((string)($row['meta_title'] ?? '')) ?>">
     </div>
     <div class="na-field">
       <label>Meta description (SEO)</label>
-      <input type="text" name="meta_description" maxlength="320" value="<?= h((string)($row['meta_description'] ?? '')) ?>">
+      <input id="na-md" type="text" name="meta_description" maxlength="320" value="<?= h((string)($row['meta_description'] ?? '')) ?>">
     </div>
 
     <div class="na-field">
@@ -187,6 +192,36 @@ ob_start();
 
   <?php endif; ?>
 </div>
+
+<script>
+(function(){
+  var btn = document.getElementById('na-ai-btn');
+  if(!btn) return;
+  var msg = document.getElementById('na-ai-msg');
+  function show(t,c){ msg.style.display='block'; msg.style.color=c||'#555'; msg.textContent=t; }
+  btn.addEventListener('click', function(){
+    var note = prompt("Consigne optionnelle pour l'IA (ton, focus, quartiers à citer)…\nLaissez vide pour une génération standard.") || '';
+    var old = btn.textContent; btn.disabled=true; btn.textContent='⏳ Génération…'; show('Rédaction du contenu local en cours…','#7c3aed');
+    var body = new URLSearchParams({
+      csrf_token: <?= json_encode(csrf_token('net_ai')) ?>,
+      ag: '<?= (int)$idAgence ?>', page: <?= json_encode($pageKey) ?>, note: note
+    });
+    fetch(<?= json_encode(app_url('/api/net_page_ai_generate.php')) ?>, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:body})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        btn.disabled=false; btn.textContent=old;
+        if(!d.ok){ show('Erreur : '+(d.error||'inconnue'), '#b3261e'); return; }
+        var g=d.generated||{};
+        if(g.titre) document.getElementById('na-titre').value=g.titre;
+        if(g.contenu_html) document.getElementById('na-contenu').value=g.contenu_html;
+        if(g.meta_title) document.getElementById('na-mt').value=g.meta_title;
+        if(g.meta_description) document.getElementById('na-md').value=g.meta_description;
+        show('✅ Contenu généré. Relisez puis cliquez sur « Enregistrer ».', '#1f7a44');
+      })
+      .catch(function(e){ btn.disabled=false; btn.textContent=old; show('Erreur réseau : '+e, '#b3261e'); });
+  });
+})();
+</script>
 <?php
 $layout_content = ob_get_clean();
 require_once __DIR__ . '/inc/layout_maboximmo.php';
