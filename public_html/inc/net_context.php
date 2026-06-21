@@ -118,12 +118,24 @@ function net_context(?PDO $pdo = null): ?array
 function net_societes_perimetre(): array { return [1, 2]; }
 
 /**
- * Droit d'éditer les vitrines : managers (role 1 super admin, role 2 société).
+ * Droit d'éditer les vitrines : super admin (tout) ou manager société (role 2).
+ * On s'appuie sur is_admin_or_super_admin() (role 1/7 ou flag super_admin),
+ * insensible au mode test, + role 2 (manager société).
  */
 function net_admin_can(): bool
 {
+    if (function_exists('is_admin_or_super_admin') && is_admin_or_super_admin()) return true;
     $r = function_exists('current_role_id') ? (int)current_role_id() : (int)($_SESSION['id_role'] ?? 0);
     return in_array($r, [1, 2], true);
+}
+
+/**
+ * Vrai si l'utilisateur courant voit TOUTES les agences du périmètre net
+ * (super admin), sinon il est restreint à sa société.
+ */
+function net_admin_is_super(): bool
+{
+    return function_exists('is_admin_or_super_admin') && is_admin_or_super_admin();
 }
 
 /**
@@ -142,7 +154,7 @@ function net_admin_agences(PDO $pdo): array
 
     $sql = "SELECT id, nom_agence, id_societe FROM agences WHERE id_societe IN ($in)";
     $params = [];
-    if ($role !== 1) { // pas super admin → restreint à sa société
+    if (!net_admin_is_super()) { // pas super admin → restreint à sa société
         $sql .= " AND id_societe = ?";
         $params[] = (int)$soc;
     }

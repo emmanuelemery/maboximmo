@@ -69,10 +69,16 @@ if (is_post()) {
 
 // Données courantes
 $row = null;
+$schemaErr = '';
 if ($idAgence > 0) {
-    $st = $pdo->prepare("SELECT * FROM agence_net_page WHERE id_agence=? AND page_key=? LIMIT 1");
-    $st->execute([$idAgence, $pageKey]);
-    $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    try {
+        $st = $pdo->prepare("SELECT * FROM agence_net_page WHERE id_agence=? AND page_key=? LIMIT 1");
+        $st->execute([$idAgence, $pageKey]);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable $e) {
+        $schemaErr = "La table 'agence_net_page' est introuvable. Exécutez la migration SQL (SQL_A_EXECUTER.sql) avant d'utiliser cette page.";
+        if (APP_DEBUG) { $schemaErr .= ' — ' . $e->getMessage(); }
+    }
 }
 $agenceNom = '';
 foreach ($agences as $a) { if ((int)$a['id'] === $idAgence) { $agenceNom = (string)$a['nom_agence']; } }
@@ -124,6 +130,7 @@ ob_start();
     <div class="na-alert na-alert-err">Aucune agence dans votre périmètre.</div>
   <?php else: ?>
 
+  <?php if ($schemaErr !== ''): ?><div class="na-alert na-alert-err">⚠️ <?= h($schemaErr) ?></div><?php endif; ?>
   <?php if ($flash['ok']): ?><div class="na-alert na-alert-ok">✅ Enregistré.</div>
   <?php elseif ($flash['err'] !== ''): ?><div class="na-alert na-alert-err"><?= h($flash['err']) ?></div><?php endif; ?>
 

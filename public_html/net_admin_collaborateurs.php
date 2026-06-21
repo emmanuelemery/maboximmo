@@ -80,11 +80,17 @@ if (is_post()) {
 }
 
 $collabs = [];
+$schemaErr = '';
 if ($idAgence > 0) {
-    $st = $pdo->prepare("SELECT id, prenom, nom, fonction, email, telephone_pro, avatar_url, visible_net
-                         FROM users WHERE id_agence = ? AND actif = 1 ORDER BY nom, prenom");
-    $st->execute([$idAgence]);
-    $collabs = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    try {
+        $st = $pdo->prepare("SELECT id, prenom, nom, fonction, email, telephone_pro, avatar_url, visible_net
+                             FROM users WHERE id_agence = ? AND actif = 1 ORDER BY nom, prenom");
+        $st->execute([$idAgence]);
+        $collabs = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        $schemaErr = "La colonne 'users.visible_net' est introuvable. Exécutez la migration SQL (SQL_A_EXECUTER.sql) avant d'utiliser cette page.";
+        if (APP_DEBUG) { $schemaErr .= ' — ' . $e->getMessage(); }
+    }
 }
 
 $layout_title          = 'Collaborateurs';
@@ -121,6 +127,7 @@ ob_start();
     <div class="na-alert na-alert-err">Aucune agence dans votre périmètre.</div>
   <?php else: ?>
 
+  <?php if ($schemaErr !== ''): ?><div class="na-alert na-alert-err">⚠️ <?= h($schemaErr) ?></div><?php endif; ?>
   <?php if ($flash['ok']): ?><div class="na-alert na-alert-ok">✅ Enregistré.</div>
   <?php elseif ($flash['err'] !== ''): ?><div class="na-alert na-alert-err"><?= h($flash['err']) ?></div><?php endif; ?>
 
