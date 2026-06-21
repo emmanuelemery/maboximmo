@@ -1,0 +1,72 @@
+<?php
+// api/portefeuille_doc.php — Sert un document GED (DPE / DIAG / BAIL) à un destinataire de portefeuille.
+// Accès SANS login, garanti par le jeton de l'envoi (?t=) + appartenance du doc à un bien du portefeuille.
+declare(strict_types=1);
+
+require_once __DIR__ . '/../inc/bootstrap.php';
+/** @var PDO $pdo */
+$pdo = $GLOBALS['pdo'] ?? db();
+
+function pf_doc_stop(int $code, string $msg): void { http_response_code($code); header('Content-Type:text/plain; charset=utf-8'); echo $msg; exit; }
+
+$token = preg_replace('/[^a-f0-9]/', '', (string)($_GET['t'] ?? ''));
+$docId = (int)($_GET['doc'] ?? 0);
+$mode  = ($_GET['mode'] ?? 'inline') === 'download' ? 'attachment' : 'inline';
+if (strlen($token) < 20 || $docId <= 0) pf_doc_stop(400, 'Requête invalide.');
+
+// 1) Jeton valide (actif + non expiré).
+$st = $pdo->prepare("SELECT id, id_portefeuille, snapshot_json, actif, date_expiration FROM portefeuille_envois WHERE token = ? LIMIT 1");
+$st->execute([$token]);
+$envoi = $st->fetch(PDO::FETCH_ASSOC);
+if (!$envoi || (int)$envoi['actif'] !== 1) pf_doc_stop(403, 'Accès clôturé.');
+if (!empty($envoi['date_expiration']) && strtotime((string)$envoi['date_expiration']) < time()) pf_doc_stop(403, 'Accès expiré.');
+
+// 2) Le document doit être un DPE/DIAG/BAIL rattaché à un BIEN du portefeuille de cet envoi.
+$snap = json_decode((string)$envoi['snapshot_json'], true) ?: [];
+$idsBien = array_values(array_filter(array_map(fn($l) => (int)($l['id_bien'] ?? 0), $snap['lignes'] ?? [])));
+if (!$idsBien) pf_doc_stop(403, 'Document non autorisé.');
+$inBien = implode(',', $idsBien);
+$docTypes = ['BAIL', 'BAIL_SIGNE', 'DPE', 'DIAG_DPE', 'DIAG', 'DIAGNOSTIC', 'DDT',
+             'SURFACE_CARREZ', 'CARREZ', 'BOUTIN', 'SURFACE',
+             'TAXE_FONCIERE', 'TF', 'EDL_ENTREE'];
+$inType   = implode(',', array_fill(0, count($docTypes), '?'));
+
+$chk = $pdo->prepare("SELECT gd.id, gd.name_file, gd.name_display, gd.mime_type, gd.final_destination, gd.metadata, gd.storage_provider
+                      FROM ged_documents gd
+                      JOIN ged_document_links gdl ON gdl.document_id = gd.id
+                      WHERE gd.id = ? AND gd.status='active'
+                        AND gdl.entity_type='BIEN' AND gdl.entity_id IN ($inBien)
+                        AND UPPER(gd.document_type) IN ($inType)
+                      LIMIT 1");
+$chk->execute(array_merge([$docId], $docTypes));
+$doc = $chk->fetch(PDO::FETCH_ASSOC);
+if (!$doc) pf_doc_stop(403, 'Document non autorisé.');
+
+// 3) Résolution du fichier physique local (comme ged_doc_serve : final_destination → metadata.public_url).
+$publicHtml = dirname(__DIR__);
+$path = '';
+foreach ([$doc['final_destination'] ?? '', null] as $cand) {
+    if ($cand) { $p = $publicHtml . '/' . ltrim((string)$cand, '/'); if (is_file($p)) { $path = $p; break; } }
+}
+if (!$path && !empty($doc['metadata'])) {
+    $meta = json_decode((string)$doc['metadata'], true) ?: [];
+    $pub  = (string)($meta['public_url'] ?? '');
+    if ($pub) { $p = $publicHtml . '/' . ltrim($pub, '/'); if (is_file($p)) $path = $p; }
+}
+if (!$path) pf_doc_stop(404, 'Document momentanément indisponible. Contactez votre conseiller.');
+
+// Sécurité : le chemin réel doit rester sous /uploads ou /storage (anti-traversal).
+$real = realpath($path);
+if ($real === false || !preg_match('#[\\\\/](uploads|storage)[\\\\/]#i', $real)) pf_doc_stop(403, 'Accès refusé.');
+
+$mime = (string)($doc['mime_type'] ?: 'application/pdf');
+$fname = (string)($doc['name_display'] ?: $doc['name_file'] ?: 'document');
+if (!preg_match('/\.[a-z0-9]{2,5}$/i', $fname)) $fname .= '.pdf';
+
+header('Content-Type: ' . $mime);
+header('Content-Length: ' . (string)filesize($real));
+header('Content-Disposition: ' . $mode . '; filename="' . str_replace('"', '', $fname) . '"');
+header('X-Content-Type-Options: nosniff');
+header('Cache-Control: private, max-age=0, no-cache');
+readfile($real);
+exit;
