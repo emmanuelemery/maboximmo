@@ -50,7 +50,9 @@ try {
 
     $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
     if (!$apiKey) { exit(json_encode(['ok' => false, 'error' => 'Clé OpenAI non configurée'])); }
-    $model = defined('OPENAI_TEXT_MODEL') ? OPENAI_TEXT_MODEL : ($GLOBALS['OPENAI_TEXT_MODEL'] ?? 'gpt-4o');
+    // Modèle figé en gpt-4o pour ce module (demande métier : rester en GPT-4,
+    // indépendamment de OPENAI_TEXT_MODEL global qui peut être gpt-5).
+    $model = 'gpt-4o';
 
     $system = "Tu es un expert en référencement naturel (SEO) immobilier local en France. "
         . "Tu rédiges un contenu UNIQUE et différenciant pour la page vitrine d'une agence, ancré sur SA ville "
