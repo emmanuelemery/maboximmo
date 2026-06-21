@@ -78,16 +78,24 @@ try {
         . "}\n\n"
         . "Contexte:\n" . json_encode($ctx, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
-    $payload = json_encode([
+    // Compat modèles : gpt-5 / o-series exigent max_completion_tokens et
+    // n'acceptent pas de temperature personnalisée ; gpt-4o etc. utilisent max_tokens.
+    $isNewGen = (bool)preg_match('/^(gpt-5|o\d)/i', $model);
+    $payloadArr = [
         'model' => $model,
         'messages' => [
             ['role' => 'system', 'content' => $system],
             ['role' => 'user', 'content' => $user],
         ],
-        'max_tokens' => 1400,
-        'temperature' => 0.7,
         'response_format' => ['type' => 'json_object'],
-    ]);
+    ];
+    if ($isNewGen) {
+        $payloadArr['max_completion_tokens'] = 1400;
+    } else {
+        $payloadArr['max_tokens'] = 1400;
+        $payloadArr['temperature'] = 0.7;
+    }
+    $payload = json_encode($payloadArr);
 
     $ch = curl_init('https://api.openai.com/v1/chat/completions');
     curl_setopt_array($ch, [
