@@ -18,7 +18,7 @@ require_login();
 header('Content-Type: application/json; charset=utf-8');
 
 // Marqueur de version : GET ?ver=1 → confirme quelle version du fichier tourne.
-if (isset($_GET['ver'])) { exit(json_encode(['ok' => true, 'ver' => 'net-ai-v3-gpt4o', 'model' => 'gpt-4o'])); }
+if (isset($_GET['ver'])) { exit(json_encode(['ok' => true, 'ver' => 'net-ai-v4-secteur', 'model' => 'gpt-4o'])); }
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit(json_encode(['ok' => false, 'error' => 'Méthode non autorisée'])); }
@@ -43,13 +43,21 @@ try {
     ];
     if (!isset($labels[$pageKey])) { exit(json_encode(['ok' => false, 'error' => 'Page inconnue'])); }
 
-    // Contexte agence
-    $st = $pdo->prepare("SELECT a.nom_agence, a.ville, a.code_postal, a.adresse_1, s.nom AS societe_nom
+    // Contexte agence (+ services réellement actifs → ne pas inventer d'offre)
+    $st = $pdo->prepare("SELECT a.nom_agence, a.ville, a.code_postal, a.adresse_1,
+                                a.transaction_active, a.location_active, a.gestion_active, a.syndic_active,
+                                s.nom AS societe_nom
                          FROM agences a LEFT JOIN societes s ON s.id = a.id_societe WHERE a.id = ? LIMIT 1");
     $st->execute([$idAgence]);
     $ag = $st->fetch(PDO::FETCH_ASSOC) ?: [];
     $ville = (string)($ag['ville'] ?? '');
     $nom   = (string)($ag['nom_agence'] ?? 'notre agence');
+
+    $services = [];
+    if (!empty($ag['transaction_active'])) $services[] = 'Transaction (achat/vente)';
+    if (!empty($ag['location_active']))    $services[] = 'Location';
+    if (!empty($ag['gestion_active']))     $services[] = 'Gestion locative';
+    if (!empty($ag['syndic_active']))      $services[] = 'Syndic de copropriété';
 
     $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
     if (!$apiKey) { exit(json_encode(['ok' => false, 'error' => 'Clé OpenAI non configurée'])); }
@@ -64,22 +72,30 @@ try {
         . "Tu ne réponds QU'EN JSON VALIDE, sans texte avant ni après.";
 
     $ctx = [
-        'agence'    => $nom,
-        'societe'   => (string)($ag['societe_nom'] ?? ''),
-        'ville'     => $ville,
+        'agence'      => $nom,
+        'societe'     => (string)($ag['societe_nom'] ?? ''),
+        'ville'       => $ville,
         'code_postal' => (string)($ag['code_postal'] ?? ''),
-        'theme_page' => $labels[$pageKey],
+        'theme_page'  => $labels[$pageKey],
+        'services_actifs' => $services,
         'consigne_utilisateur' => $note ?: null,
     ];
 
-    $user = "Rédige le contenu éditorial de la page « {$labels[$pageKey]} » de l'agence, optimisé SEO LOCAL.\n"
-        . "Mentionne la ville et 1 à 3 repères/quartiers réels si pertinents. 200 à 350 mots.\n"
+    $user = "Rédige le contenu éditorial de la page « {$labels[$pageKey]} » de l'agence, optimisé SEO LOCAL. 300 à 450 mots.\n\n"
+        . "EXIGENCES DE CONTENU (pour un référencement local fort) :\n"
+        . "1. SECTEUR ÉLARGI : en plus de la ville de l'agence, cite 4 à 6 communes VOISINES réelles et cohérentes géographiquement, "
+        . "dans un paragraphe ou un <h2>\"Secteur d'intervention\" avec une <ul> de communes. Cela capte les recherches alentour sans surcharger le titre.\n"
+        . "2. TYPES DE BIENS : mentionne les types de biens traités, pertinents pour le thème de la page "
+        . "(ex. appartements, maisons, immeubles, locaux/commerces, terrains, parkings).\n"
+        . "3. QUALITÉS DE LA SOCIÉTÉ : mets en avant le sérieux et l'expertise — connaissance fine du marché local, accompagnement personnalisé, "
+        . "estimation, conformité loi Hoguet, et UNIQUEMENT les services réellement proposés (voir 'services_actifs'). N'invente AUCUN service absent de cette liste.\n"
+        . "4. Termine par un appel à l'action (estimation/contact). Rédaction naturelle, sans keyword stuffing.\n\n"
         . "Produis EXACTEMENT ce JSON :\n"
         . "{\n"
-        . '  "titre": "titre de section accrocheur incluant la ville (max 90 chars)",' . "\n"
-        . '  "contenu_html": "2 à 4 paragraphes en HTML SIMPLE autorisé uniquement: <p> <strong> <ul> <li> <h2> <h3>. Pas d\'attributs, pas de styles, pas de <a>.",' . "\n"
-        . '  "meta_title": "balise <title> 50-60 chars avec ville + activité + nom agence",' . "\n"
-        . '  "meta_description": "150-160 chars avec appel à l\'action et mot-clé principal en tête"' . "\n"
+        . '  "titre": "titre de section accrocheur incluant la ville principale (max 90 chars)",' . "\n"
+        . '  "contenu_html": "plusieurs paragraphes structurés en HTML SIMPLE autorisé uniquement: <p> <strong> <ul> <li> <h2> <h3>. Pas d\'attributs, pas de styles, pas de <a>. Inclure une section Secteur d\'intervention avec <h2> + <ul> de communes.",' . "\n"
+        . '  "meta_title": "balise <title> 50-60 chars : UNE SEULE ville principale + activité + nom agence (PAS de liste de villes)",' . "\n"
+        . '  "meta_description": "150-160 chars avec appel à l\'action, mot-clé principal en tête, mention possible du secteur"' . "\n"
         . "}\n\n"
         . "Contexte:\n" . json_encode($ctx, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
@@ -95,9 +111,9 @@ try {
         'response_format' => ['type' => 'json_object'],
     ];
     if ($isNewGen) {
-        $payloadArr['max_completion_tokens'] = 1400;
+        $payloadArr['max_completion_tokens'] = 1800;
     } else {
-        $payloadArr['max_tokens'] = 1400;
+        $payloadArr['max_tokens'] = 1800;
         $payloadArr['temperature'] = 0.7;
     }
     $payload = json_encode($payloadArr);
