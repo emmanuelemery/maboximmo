@@ -42,6 +42,39 @@ function net_path_map(): array
 }
 
 /**
+ * Map VILLE → id_agence pour les sous-domaines courts (ex. lyon.mbi.fr).
+ * Indépendant du domaine acheté : on lit le 1er label de l'hôte (la ville).
+ * Ajoute ici les variantes si besoin (ex. 'sainte-foy' => 3).
+ *
+ * @return array<string,int>
+ */
+function net_city_map(): array
+{
+    return [
+        'vienne'      => 1,
+        'mions'       => 2,
+        'lyon'        => 3,
+        'lyon-7'      => 3,
+        'chaponost'   => 4,
+        'riom'        => 5,
+        'chamalieres' => 6,
+    ];
+}
+
+/**
+ * Résout l'id_agence depuis le 1er label de l'hôte courant (sous-domaine ville),
+ * sauf domaines techniques (www, maboximmo, dev, localhost). 0 si non reconnu.
+ */
+function net_agence_id_from_host(?string $host = null): int
+{
+    $host = strtolower((string)($host ?? ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '')));
+    if ($host === '') return 0;
+    $label = explode('.', $host)[0] ?? '';
+    if (in_array($label, ['www', 'maboximmo', 'dev', 'localhost', '127', 'm'], true)) return 0;
+    return net_city_map()[$label] ?? 0;
+}
+
+/**
  * Préfixe de sous-dossier agence injecté par le .htaccess (NET_PREFIX),
  * normalisé sans slash de bord. '' si on n'est pas sous un sous-dossier.
  */
@@ -71,9 +104,11 @@ function net_context(?PDO $pdo = null): ?array
     $pdo = $pdo ?? ($GLOBALS['pdo'] ?? null);
     if (!$pdo instanceof PDO) return null;
 
-    // 1) sous-dossier (prod, via .htaccess NET_PREFIX) ; 2) override ?net_agence= (dev/local)
+    // 1) sous-domaine ville (ex. lyon.mbi.fr) ; 2) sous-dossier (.htaccess NET_PREFIX) ;
+    // 3) override ?net_agence= (dev/local).
+    $idAgence = net_agence_id_from_host();
     $prefix   = net_prefix_from_request();
-    $idAgence = $prefix !== '' ? (net_path_map()[$prefix] ?? 0) : 0;
+    if ($idAgence === 0 && $prefix !== '') { $idAgence = net_path_map()[$prefix] ?? 0; }
     if ($idAgence === 0) {
         $ov = $_GET['net_agence'] ?? $_GET['agence'] ?? '';
         if (ctype_digit((string)$ov)) $idAgence = (int)$ov;
