@@ -19,21 +19,6 @@
     RewriteRule ^public_html/(.*)$ /$1 [L]
 </IfModule>
 
-# ── Ma Box Net : vitrines en SOUS-DOSSIER par agence ─────────────────
-# /regie-emery/lyon-7            → portail d'annonces (landing) habillé agence
-# /regie-emery/lyon-7/<page.php> → la page réelle, en contexte agence
-# /regie-emery/lyon-7/css|images → assets réels (servis à la racine)
-# La variable NET_PREFIX est lue par bootstrap.php (fixe APP_BASE_PATH) et
-# par net_context.php (résout l'agence). Réécriture interne : l'URL visible
-# garde le sous-dossier (donc le bénéfice SEO local).
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteRule ^(regie-emery)/(vienne|mions|lyon-7|chaponost)/(.+)$ /$3 [E=NET_PREFIX:$1/$2,QSA,L]
-    RewriteRule ^(regie-emery)/(vienne|mions|lyon-7|chaponost)/?$ /mbi_annonces_index.php [E=NET_PREFIX:$1/$2,QSA,L]
-    RewriteRule ^(emery-immo)/(riom|chamalieres)/(.+)$ /$3 [E=NET_PREFIX:$1/$2,QSA,L]
-    RewriteRule ^(emery-immo)/(riom|chamalieres)/?$ /mbi_annonces_index.php [E=NET_PREFIX:$1/$2,QSA,L]
-</IfModule>
-
 # ── Page d'accueil par défaut ────────────────────────────────────────
 # Priorité : portail public d'annonces (mbi_annonces_index.php).
 # Fallback : default.php (portail pro), puis index.php (redirect 302 vers

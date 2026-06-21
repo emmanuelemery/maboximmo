@@ -157,19 +157,6 @@ $APP_BASE_PATH = getenv('APP_BASE_PATH')
     ?: ($_SERVER['APP_BASE_PATH'] ?? '')
     ?: (defined('APP_BASE_PATH') ? APP_BASE_PATH : '');
 
-// ── Ma Box Net : vitrines servies sous un sous-dossier agence ────────
-// Le .htaccess réécrit /regie-emery/lyon-7/... vers le vrai fichier en
-// posant NET_PREFIX. On fixe alors APP_BASE_PATH pour que TOUS les liens
-// et assets générés par app_url()/asset_url() conservent ce préfixe →
-// l'internaute reste dans le sous-dossier de l'agence (bon pour le SEO).
-$__netPrefix = $_SERVER['REDIRECT_REDIRECT_NET_PREFIX']
-    ?? $_SERVER['REDIRECT_NET_PREFIX']
-    ?? $_SERVER['NET_PREFIX']
-    ?? '';
-if ($__netPrefix !== '') {
-    $APP_BASE_PATH = rtrim($APP_BASE_PATH, '/') . '/' . trim((string)$__netPrefix, '/');
-}
-
 // Exposé au reste de l'app via security.php (app_url/asset_url).
 $GLOBALS['APP_BASE_PATH'] = $APP_BASE_PATH;
 

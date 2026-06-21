@@ -55,19 +55,6 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
 
     <div class="sb-divider"></div>
 
-    <?php if ($isManager): ?>
-    <div class="sb-group vitrines">
-        <div class="sb-section">Vitrines SEO</div>
-        <ul class="sb-nav">
-            <li><a href="<?= $_sbBase ?>net_admin_pages.php" class="<?= sb_active('net_admin_pages.php') ?>"><span class="sb-icon">📝</span><span class="sb-label">Textes des pages</span></a></li>
-            <li><a href="<?= $_sbBase ?>net_admin_contact.php" class="<?= sb_active('net_admin_contact.php') ?>"><span class="sb-icon">📍</span><span class="sb-label">Coordonnées & horaires</span></a></li>
-            <li><a href="<?= $_sbBase ?>net_admin_collaborateurs.php" class="<?= sb_active('net_admin_collaborateurs.php') ?>"><span class="sb-icon">👥</span><span class="sb-label">Collaborateurs</span></a></li>
-        </ul>
-    </div>
-
-    <div class="sb-divider"></div>
-    <?php endif; ?>
-
     <div class="sb-group dash">
         <div class="sb-section">Dashboards</div>
         <ul class="sb-nav">

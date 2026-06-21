@@ -135,15 +135,6 @@ include __DIR__ . '/inc/mbi_annonces_header.php';
 <section class="mbi-hero2" aria-labelledby="mbi-hero-title">
   <div class="mbi-hero2-inner">
 
-    <?php if (!empty($mbiNet)): ?>
-      <div class="mbi-net-hero-brand">
-        <?php if (!empty($mbiNet['logo_url'])): ?>
-          <img class="mbi-net-hero-logo" src="<?= h(asset_url('/' . ltrim((string)$mbiNet['logo_url'], '/'))) ?>" alt="<?= h($mbiNet['nom']) ?>">
-        <?php endif; ?>
-        <div class="mbi-net-hero-name"><?= h($mbiNet['nom']) ?></div>
-      </div>
-    <?php endif; ?>
-
     <h1 id="mbi-hero-title" class="mbi-hero2-title">Trouvez votre bien idéal</h1>
     <?php /* sous-titre supprimé (demande UX) */ ?>
     <div class="mbi-hero2-line"></div>

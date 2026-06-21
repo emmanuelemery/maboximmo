@@ -20,15 +20,9 @@ $layout_hide_page_head = true;
 
 function h(mixed $v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 
-$isManager = in_array((int)current_role_id(), [1, 2], true);
-
-$items = [];
-if ($isManager) {
-    $items[] = ['label' => 'Textes des pages', 'desc' => 'Contenu éditorial local de chaque vitrine (SEO).', 'url' => 'net_admin_pages.php', 'icon' => '📝', 'color' => '#36577d'];
-    $items[] = ['label' => 'Coordonnées & horaires', 'desc' => 'Téléphone, e-mail, adresse et horaires par agence.', 'url' => 'net_admin_contact.php', 'icon' => '📍', 'color' => '#1f6f7a'];
-    $items[] = ['label' => 'Collaborateurs', 'desc' => 'Équipe affichée sur la vitrine (photo, fonction).', 'url' => 'net_admin_collaborateurs.php', 'icon' => '👥', 'color' => '#7c9885'];
-}
-$items[] = ['label' => 'Dashboard Net (legacy)', 'desc' => 'Vue de démo existante (standalone).', 'url' => 'net_dashboard.php', 'icon' => '🌐', 'color' => '#6a4ca8'];
+$items = [
+    ['label' => 'Dashboard Net (legacy)', 'desc' => 'Vue de démo existante (standalone).', 'url' => 'net_dashboard.php', 'icon' => '🌐', 'color' => '#36577d'],
+];
 if (function_exists('is_admin_or_super_admin') && is_admin_or_super_admin()) {
     $items[] = ['label' => 'Flux XML Ubiflow', 'desc' => 'Exports bruts XML par agence.', 'url' => 'admin/admin_flux_ubiflow.php', 'icon' => '📡', 'color' => '#2d5f6b'];
 }

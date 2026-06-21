@@ -12,31 +12,6 @@ $mbiJsonLd    = $mbiJsonLd ?? '';
 $mbiNavActive = (string)($mbiNavActive ?? 'home');
 $mbiBodyClass = (string)($mbiBodyClass ?? '');
 
-// ── Ma Box Net : contexte de vitrine par agence (sous-domaine) ───────
-// Si présent → on skinne la marque (logo + nom agence). Sinon portail générique.
-require_once __DIR__ . '/net_context.php';
-$mbiNet = net_context($GLOBALS['pdo'] ?? null);
-if ($mbiNet) {
-    $mbiBodyClass = trim($mbiBodyClass . ' mbi-net');
-    // Différenciation SEO : suffixe le titre avec le nom de l'agence locale,
-    // sauf si la page a déjà posé un titre contenant ce nom.
-    $__t = (string)($mbiMeta['title'] ?? '');
-    if ($__t === '' || !str_contains($__t, $mbiNet['nom'])) {
-        $base = $__t !== '' ? preg_replace('/\s*—\s*MaBoxImmo.*$/u', '', $__t) : 'Annonces immobilières';
-        $mbiMeta['title'] = $base . ' — ' . $mbiNet['nom'];
-    }
-
-    // ── SEO canonical ────────────────────────────────────────────────
-    // Les FICHES annonces sont identiques sous tous les sous-dossiers agence
-    // → on canonicalise vers l'URL RACINE (sans préfixe agence) pour consolider
-    // le référencement sur une seule URL. Les pages éditoriales/listing restent
-    // self-canonical (contenu local différencié), avec leur préfixe.
-    $__pfx = (string)($mbiNet['prefix'] ?? '');
-    if ($__pfx !== '' && str_contains((string)$mbiBodyClass, 'mbi-page-detail') && !empty($mbiMeta['canonical'])) {
-        $mbiMeta['canonical'] = preg_replace('#/' . preg_quote($__pfx, '#') . '(/|$)#', '$1', (string)$mbiMeta['canonical'], 1);
-    }
-}
-
 $title     = (string)($mbiMeta['title']       ?? 'MaBoxImmo — Annonces immobilières');
 $desc      = (string)($mbiMeta['description'] ?? 'Le portail immobilier pensé pour particuliers et professionnels. Acheter, louer, estimer.');
 $canonical = (string)($mbiMeta['canonical']   ?? '');
@@ -78,45 +53,28 @@ $mbiMetiers = [
   ?>
   <link rel="stylesheet" href="<?= h(asset_url('/css/variables.css')) ?>?v=<?= $__vVar ?>">
   <link rel="stylesheet" href="<?= h(asset_url('/css/mbi_annonces.css')) ?>?v=<?= $__vCss ?>">
-  <?php if (!empty($mbiNet)): $__vNet = @filemtime($__mbiCssRoot . '/mbi_net.css') ?: time(); ?>
-  <link rel="stylesheet" href="<?= h(asset_url('/css/mbi_net.css')) ?>?v=<?= $__vNet ?>">
-  <?php endif; ?>
   <?= $mbiJsonLd ?>
 </head>
 <body class="mbi-body <?= h($mbiBodyClass) ?>">
 
 <header class="mbi-header" role="banner">
   <div class="mbi-container mbi-header-inner">
-    <?php if ($mbiNet): ?>
-      <a class="mbi-brand mbi-brand-net" href="<?= h(app_url('/mbi_annonces_index.php')) ?>" aria-label="<?= h($mbiNet['nom']) ?> — Accueil">
-        <?php if (!empty($mbiNet['logo_url'])): ?>
-          <img class="mbi-brand-logo" src="<?= h(asset_url('/' . ltrim((string)$mbiNet['logo_url'], '/'))) ?>" alt="<?= h($mbiNet['nom']) ?>" height="48">
-        <?php else: ?>
-          <span class="mbi-brand-mark" aria-hidden="true">📍</span>
-        <?php endif; ?>
+    <a class="mbi-brand" href="<?= h(app_url('/mbi_annonces_index.php')) ?>" aria-label="Ma Box Immo — Accueil">
+      <?php
+        // Logo officiel : si /images/logos/mbi_logo.png existe, on l'utilise.
+        // Sinon fallback en composé (pin doré + texte navy).
+        $logoFile = __DIR__ . '/../images/logos/mbi_logo.png';
+        if (is_file($logoFile)):
+      ?>
+        <img class="mbi-brand-logo" src="<?= h(asset_url('/images/logos/mbi_logo.png')) ?>" alt="Ma Box Immo" width="160" height="48">
+      <?php else: ?>
+        <span class="mbi-brand-mark" aria-hidden="true">📍</span>
         <span class="mbi-brand-text">
-          <span class="mbi-brand-name"><?= h($mbiNet['nom']) ?></span>
+          <span class="mbi-brand-name">MA BOX IMMO</span>
           <span class="mbi-brand-sub">Immobilier</span>
         </span>
-      </a>
-    <?php else: ?>
-      <a class="mbi-brand" href="<?= h(app_url('/mbi_annonces_index.php')) ?>" aria-label="Ma Box Immo — Accueil">
-        <?php
-          // Logo officiel : si /images/logos/mbi_logo.png existe, on l'utilise.
-          // Sinon fallback en composé (pin doré + texte navy).
-          $logoFile = __DIR__ . '/../images/logos/mbi_logo.png';
-          if (is_file($logoFile)):
-        ?>
-          <img class="mbi-brand-logo" src="<?= h(asset_url('/images/logos/mbi_logo.png')) ?>" alt="Ma Box Immo" width="160" height="48">
-        <?php else: ?>
-          <span class="mbi-brand-mark" aria-hidden="true">📍</span>
-          <span class="mbi-brand-text">
-            <span class="mbi-brand-name">MA BOX IMMO</span>
-            <span class="mbi-brand-sub">Immobilier</span>
-          </span>
-        <?php endif; ?>
-      </a>
-    <?php endif; ?>
+      <?php endif; ?>
+    </a>
 
     <nav class="mbi-nav" aria-label="Navigation principale">
       <a class="mbi-nav-link <?= $mbiNavActive === 'acheter' ? 'is-active' : '' ?>" href="<?= h(app_url('/mbi_annonces_index.php?transaction=vente')) ?>">Acheter</a>
