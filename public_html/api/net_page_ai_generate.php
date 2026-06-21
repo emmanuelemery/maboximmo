@@ -17,6 +17,9 @@ require_login();
 
 header('Content-Type: application/json; charset=utf-8');
 
+// Marqueur de version : GET ?ver=1 → confirme quelle version du fichier tourne.
+if (isset($_GET['ver'])) { exit(json_encode(['ok' => true, 'ver' => 'net-ai-v3-gpt4o', 'model' => 'gpt-4o'])); }
+
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit(json_encode(['ok' => false, 'error' => 'Méthode non autorisée'])); }
     verify_csrf('net_ai');
