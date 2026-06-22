@@ -10,6 +10,7 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 require_once __DIR__ . '/inc/ged_document_links.php';
 require_once __DIR__ . '/inc/csrf.php';
+require_once __DIR__ . '/inc/tiers_selector.php';
 require_once __DIR__ . '/inc/creancier_urgence_data.php';
 require_login();
 
@@ -69,6 +70,7 @@ $stm = $pdo->prepare("SELECT role, message FROM creancier_dossier_message WHERE 
 $stm->execute([$idDossier]); $messages = $stm->fetchAll(PDO::FETCH_ASSOC);
 $csrfChat    = csrf_token('creancier_chat');
 $csrfAnalyse = csrf_token('creancier_analyse');
+$csrfContact = csrf_token('creancier_contact');
 
 $docs = [];
 if (function_exists('gdl_documents_for_entity')) {
@@ -199,14 +201,6 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
         <?php if (count($docs)>6): ?><div style="font-size:11px;color:#9a9690;margin-top:6px;">+ <?= count($docs)-6 ?> autres (onglet Documents)</div><?php endif; ?>
       </div>
 
-      <?php if ($pros): ?>
-      <div class="f360-card">
-        <h3>👔 Contacts du dossier</h3>
-        <?php foreach ($pros as $p): ?>
-          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0ece6;font-size:12.5px;"><span><?= h($p['tiers_lib']) ?> <span style="background:#eef1f6;color:#4878a6;border-radius:99px;padding:1px 7px;font-size:10px;"><?= h($p['role_dossier']) ?></span></span><span style="color:#9a9690;"><?= h($p['tiers_email'] ?: $p['tiers_tel'] ?: '') ?></span></div>
-        <?php endforeach; ?>
-      </div>
-      <?php endif; ?>
     </div>
 
     <!-- ── ONGLET DOSSIER (résumé + analyse IA) ── -->
@@ -285,6 +279,29 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
     if ($coLinks) fiche360_attach('CONTACTS', $coLinks);
     ?>
 
+    <?php if ($isMgr): ?>
+    <div class="f360-card" style="margin-top:12px;">
+      <h3>➕ Ajouter un contact</h3>
+      <?php tiers_selector_render(['id'=>'cre_contact','name'=>'id_tiers','placeholder'=>'Rechercher / créer un tiers…','allow_create'=>true]); ?>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <select id="creContactRole" style="flex:1;padding:8px 10px;border:1px solid #d8d2c8;border-radius:8px;font-size:13px;">
+          <option value="avocat">Avocat</option>
+          <option value="commissaire_justice">Commissaire de justice (huissier)</option>
+          <option value="expert_comptable">Expert-comptable</option>
+          <option value="notaire">Notaire</option>
+          <option value="creancier">Créancier</option>
+          <option value="heritier">Héritier</option>
+          <option value="associe">Associé</option>
+          <option value="gerant">Gérant</option>
+          <option value="gestionnaire">Gestionnaire (régie)</option>
+          <option value="contact" selected>Contact</option>
+        </select>
+        <button type="button" id="creContactAdd" class="tr-btn tr-btn-primary">Ajouter</button>
+      </div>
+      <div id="creContactMsg" style="font-size:12px;margin-top:6px;"></div>
+    </div>
+    <?php endif; ?>
+
     <div class="f360-card" style="border-left:4px solid #4878a6;margin-top:12px;">
       <h3>💬 Discussion du dossier</h3>
       <div id="creChatBox" class="cre-chatbox">
@@ -324,6 +341,20 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
     catch(e){w.textContent='Erreur : '+e;}finally{btn.disabled=false;box.scrollTop=box.scrollHeight;}}
   btn.addEventListener('click',send);input.addEventListener('keydown',e=>{if(e.key==='Enter')send();});box.scrollTop=box.scrollHeight;
 
+  // Ajouter un contact
+  const cca=document.getElementById('creContactAdd');
+  if(cca) cca.addEventListener('click', async function(){
+    const sel=document.querySelector('[data-ts-root="cre_contact"] .ts-value');
+    const idt=sel?sel.value:''; const role=document.getElementById('creContactRole').value;
+    const msg=document.getElementById('creContactMsg');
+    if(!idt){msg.style.color='#dc2626';msg.textContent='Sélectionne ou crée un tiers d\'abord.';return;}
+    cca.disabled=true; msg.style.color='#5b6470'; msg.textContent='Ajout…';
+    const fd=new FormData();fd.append('id_dossier',<?= (int)$idDossier ?>);fd.append('id_tiers',idt);fd.append('role_dossier',role);fd.append('csrf_token',<?= json_encode($csrfContact) ?>);
+    try{const r=await fetch('api/creancier_contact_add.php',{method:'POST',body:fd});const j=await r.json();
+      if(j.ok){location.reload();}else{msg.style.color='#dc2626';msg.textContent='✗ '+(j.error||'échec');cca.disabled=false;}}
+    catch(e){msg.style.color='#dc2626';msg.textContent='✗ '+e;cca.disabled=false;}
+  });
+
   // Analyse IA
   const gen=document.getElementById('genAnalyse');
   if(gen) gen.addEventListener('click', async function(){
@@ -339,5 +370,5 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
   });
 })();
 </script>
-<?php if ($isMgr) require __DIR__ . '/inc/fluxbox_upload_modal.php'; ?>
+<?php if ($isMgr) { tiers_selector_assets(); require __DIR__ . '/inc/fluxbox_upload_modal.php'; } ?>
 <?php include __DIR__ . '/inc/agency_layout_bottom.php'; ?>
