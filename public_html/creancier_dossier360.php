@@ -84,6 +84,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 <script>window.APP_BASE = <?= json_encode(rtrim($base, '/')) ?>;</script>
 <style>
+.f360-grid { grid-template-columns:2fr 1fr !important; align-items:start; }  /* chat/actions = 1/3 */
+@media (max-width:900px){ .f360-grid { grid-template-columns:1fr !important; } }
 .cre-tabs { display:flex; gap:4px; border-bottom:2px solid #e6e1d8; margin-bottom:14px; flex-wrap:wrap; }
 .cre-tab { padding:10px 18px; border:none; background:transparent; font-family:'Sora',sans-serif; font-size:13px; font-weight:700; color:#8a8680; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; }
 .cre-tab:hover { color:#243B5C; }
@@ -91,7 +93,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .cre-tabpane { display:none; }
 .cre-tabpane.active { display:block; }
 .cre-chat-col { position:sticky; top:12px; }
-.cre-chatbox { max-height:62vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+.cre-chatbox { max-height:42vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
 .cre-bub { max-width:85%; padding:8px 12px; border-radius:12px; font-size:12.5px; white-space:pre-line; }
 .cre-bub.me { align-self:flex-end; background:#243b5c; color:#fff; }
 .cre-bub.ia { align-self:flex-start; background:#eef1f6; color:#243b5c; }
@@ -253,9 +255,33 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
     </div>
   </div>
 
-  <!-- ══ COLONNE DROITE : CHAT PERMANENT ══ -->
+  <!-- ══ COLONNE DROITE (1/3) : ACTIONS + CONTACTS + CHAT ══ -->
   <div>
-    <div class="f360-card cre-chat-col" style="border-left:4px solid #4878a6;">
+    <?php
+    // Panneau Actions du dossier
+    $actDossier = [];
+    if ($isMgr) {
+        $actDossier[] = ['icon'=>'📄','label'=>'Charger un document','url'=>'#','onclick'=>"fbxOpenUploadModal({creancier_dossier_id:{$idDossier}, soc_id:".(int)($dossier['id_societe']??0).", age_id:".(int)($dossier['id_agence']??0).", origin:'creancier'});return false;"];
+    }
+    foreach ($debiteurs as $d0) {
+        $lib = $d0['soc_lib'] ?: $d0['tiers_lib'] ?: ('#'.$d0['entity_id']);
+        $url = $d0['entity_type']==='SOCIETE' ? $base.'creancier360.php?type=SOCIETE&id='.(int)$d0['entity_id'] : $base.'creancier360.php?type=TIERS&id='.(int)$d0['entity_id'];
+        $actDossier[] = ['icon'=>'🏢','label'=>'Débiteur 360 · '.mb_substr($lib,0,22),'url'=>$url];
+    }
+    $actDossier[] = ['icon'=>'📊','label'=>'Dashboard créanciers','url'=>$base.'creancier_dashboard.php'];
+    $actDossier[] = ['icon'=>'📂','label'=>'Tous les dossiers','url'=>$base.'creancier_liste.php'];
+    fiche360_actions_panel('Actions dossier', $actDossier);
+
+    // Contacts : créanciers + intervenants
+    $creLinks = [];
+    foreach ($creanciers as $c) $creLinks[] = ['icon'=>'⚖️','name'=>$c['tiers_lib'],'ref'=>($c['tiers_email'] ?: $c['tiers_tel'] ?: 'créancier'),'url'=>$base.'creancier_creancier360.php?id='.(int)$c['entity_id']];
+    if ($creLinks) fiche360_attach('CRÉANCIERS', $creLinks);
+    $coLinks = [];
+    foreach ($pros as $p) $coLinks[] = ['icon'=>'👔','name'=>$p['tiers_lib'].' ('.$p['role_dossier'].')','ref'=>($p['tiers_email'] ?: $p['tiers_tel'] ?: ''),'url'=>'#'];
+    if ($coLinks) fiche360_attach('CONTACTS', $coLinks);
+    ?>
+
+    <div class="f360-card" style="border-left:4px solid #4878a6;margin-top:12px;">
       <h3>💬 Discussion du dossier</h3>
       <div id="creChatBox" class="cre-chatbox">
         <?php if (!$messages): ?><div class="f360-empty" id="creChatEmpty"><div class="em-ico">💬</div>Posez une question sur ce dossier — l'IA répond à partir de son contexte.</div><?php endif; ?>
