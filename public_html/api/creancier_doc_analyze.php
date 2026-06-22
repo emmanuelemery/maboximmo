@@ -52,6 +52,21 @@ if (strlen(trim($text)) < 100) {
     echo json_encode(['ok' => false, 'error' => "Impossible d'extraire le texte (PDF scanné sans OCR ?)."]); exit;
 }
 
+// ── Persistance du fichier (commit GED reporté à la validation) ──────────
+$origName = (string)($_FILES['doc']['name'] ?? 'document.pdf');
+$fileSize = (int)($_FILES['doc']['size'] ?? 0);
+$fileHash = hash_file('sha256', $tmp) ?: '';
+$fileMime = function_exists('mime_content_type') ? (mime_content_type($tmp) ?: 'application/pdf') : 'application/pdf';
+$storageBase = realpath(dirname(__DIR__)) . DIRECTORY_SEPARATOR . 'storage_fluxbox';
+if (!is_dir($storageBase)) @mkdir($storageBase, 0775, true);
+$storageDir = $storageBase . DIRECTORY_SEPARATOR . ($idSociete ?: '0') . DIRECTORY_SEPARATOR . date('Y') . DIRECTORY_SEPARATOR . date('m') . DIRECTORY_SEPARATOR . 'creanciers';
+if (!is_dir($storageDir)) @mkdir($storageDir, 0775, true);
+$safe = preg_replace('/[^a-zA-Z0-9._-]+/', '_', $origName) ?: 'doc.pdf';
+$storagePath = $storageDir . DIRECTORY_SEPARATOR . date('Ymd_His') . '_' . substr($fileHash, 0, 8) . '_' . $safe;
+if (!(is_uploaded_file($tmp) ? move_uploaded_file($tmp, $storagePath) : copy($tmp, $storagePath))) {
+    echo json_encode(['ok' => false, 'error' => 'Échec écriture du fichier sur le serveur.']); exit;
+}
+
 // ── Appel IA (gpt-4o-mini, json_object) ─────────────────────────────────
 $api_key = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
 if (!$api_key) {
@@ -197,16 +212,22 @@ if ($numDoss) {
 // ── Persistance staging (à valider) ──────────────────────────────────────
 $stIns = $pdo->prepare("
     INSERT INTO creancier_doc_analyse
-      (id_dossier, type_doc, donnees_json, extr_creancier_nom, extr_pro_nom, extr_numero_dossier,
+      (id_dossier, type_doc, donnees_json, storage_path, file_hash, file_mime, file_size, file_name,
+       extr_creancier_nom, extr_pro_nom, extr_numero_dossier,
        extr_montant_principal, extr_montant_total, extr_objet, id_tiers_creancier_match,
        confidence, model_used, tokens_in, tokens_out, cost_eur, statut, review_flags,
        id_societe, id_agence, created_by)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'a_valider', ?, ?, ?, ?)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'a_valider', ?, ?, ?, ?)
 ");
 $stIns->execute([
     $idDossier,
     $parsed['type_doc'] ?? 'autre',
     json_encode($parsed, JSON_UNESCAPED_UNICODE),
+    $storagePath,
+    $fileHash,
+    $fileMime,
+    $fileSize,
+    $origName,
     $creaNom ?: null,
     trim((string)($pro['nom'] ?? '')) ?: null,
     $numDoss,
