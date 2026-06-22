@@ -173,6 +173,39 @@ if (!function_exists('cef_enrich_dossier')) {
             } catch (Throwable) {} // bien non identifié → on n'impose rien
         }
 
+        // ── 1d. Locataire saisi → saisie ATTRIBUTION_LOYER (conservateur) ──
+        // Se déclenche si l'IA fournit un loyer capté + un locataire, OU type_saisie=ATTRIBUTION_LOYER.
+        $typeSaisie = strtoupper((string)(cef_pick($ia, ['type_saisie','saisie_type']) ?? ''));
+        $locNom     = cef_pick($ia, ['locataire','locataire_nom','locataire.nom']);
+        $loyerCapte = cef_num(cef_pick($ia, ['loyer_capte','loyer_mensuel_capte','loyer_saisi','loyer_mensuel','loyer']));
+        $estAttribLoyer = ($typeSaisie === 'ATTRIBUTION_LOYER') || ($locNom && $loyerCapte !== null && $loyerCapte > 0);
+        if ($estAttribLoyer && $idCreancier > 0) {
+            // Match du bail par nom de locataire (cible LOCATAIRE = bien_baux.id) — best effort.
+            $bailId = 0;
+            if ($locNom) {
+                try {
+                    $stb = $pdo->prepare("SELECT id FROM bien_baux WHERE locataire_nom LIKE ? ORDER BY (statut='actif') DESC, id DESC LIMIT 1");
+                    $stb->execute(['%' . $locNom . '%']);
+                    $bailId = (int)($stb->fetchColumn() ?: 0);
+                } catch (Throwable $e) {}
+            }
+            // Évite les doublons : une saisie identique (créancier + cible) déjà liée au dossier ?
+            $dup = $pdo->prepare("SELECT 1 FROM creancier_dossier_lien l JOIN creancier_saisie s ON s.id=l.entity_id
+                WHERE l.id_dossier=? AND l.entity_type='SAISIE' AND s.id_creancier=? AND s.cible_type='LOCATAIRE' AND s.cible_id=? LIMIT 1");
+            $dup->execute([$idDossier, $idCreancier, $bailId]);
+            if (!$dup->fetchColumn()) {
+                $net = $montant ?? ($loyerCapte ?? 0);
+                $insS = $pdo->prepare("INSERT INTO creancier_saisie
+                    (id_societe,id_agence,type_saisie,id_creancier,cible_type,cible_id,montant_reclame,montant_net_bloque,loyer_mensuel_capte,statut,reference_acte,created_by)
+                    VALUES (?,?, 'ATTRIBUTION_LOYER', ?, 'LOCATAIRE', ?, ?, ?, ?, 'en_cours', ?, ?)");
+                $insS->execute([$socId,$ageId,$idCreancier,$bailId ?: null, $net, $net, $loyerCapte, mb_substr((string)($ctx['type_doc'] ?? 'attribution_loyer'),0,190), $userId]);
+                $idSaisie = (int)$pdo->lastInsertId();
+                $pdo->prepare("INSERT IGNORE INTO creancier_dossier_lien (id_dossier,entity_type,entity_id,role_dossier,created_by) VALUES (?, 'SAISIE', ?, 'saisie_loyers', ?)")
+                    ->execute([$idDossier,$idSaisie,$userId]);
+                $actions[] = "locataire saisi" . ($locNom ? " ($locNom)" : "") . ($loyerCapte ? " — loyer " . number_format($loyerCapte,0,',',' ') . " €" : "");
+            }
+        }
+
         // ── 2. Item DETTE ──
         $itemId = 0;
         if ($montant !== null && $montant > 0) {

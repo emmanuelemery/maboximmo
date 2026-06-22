@@ -73,6 +73,7 @@ if (!function_exists('creancier_urgence_data')) {
             'butoirs_en_retard'           => [],
             'saisies_par_creancier'       => [],
             'saisies_par_cible'           => [],
+            'locataires_saisis'           => [],   // saisies ATTRIBUTION_LOYER ciblant un locataire
             'actions_prioritaires'        => [],
             'acces'                       => false,
         ];
@@ -129,6 +130,7 @@ if (!function_exists('creancier_urgence_data')) {
         $today = date('Y-m-d');
         $creanciers = [];   // id_creancier => agrégat
         $cibles     = [];   // cible_type|cible_id => agrégat
+        $locBaux    = [];   // bail_id => ['id_saisie','creancier','loyer','net']
 
         foreach ($saisies as $s) {
             $sid       = (int)$s['id'];
@@ -175,6 +177,11 @@ if (!function_exists('creancier_urgence_data')) {
                 $creanciers[$kc]['prochaine_butoir'] = $butoir;
             }
 
+            // Locataire saisi (saisie de loyer ciblant un bail/locataire).
+            if ($s['cible_type'] === 'LOCATAIRE' && (int)$s['cible_id'] > 0) {
+                $locBaux[(int)$s['cible_id']] = ['id_saisie' => $sid, 'creancier' => $libCrea, 'loyer' => $loyer, 'net' => $net];
+            }
+
             // Agrégat par cible.
             $kt = $s['cible_type'] . '|' . (int)$s['cible_id'];
             if (!isset($cibles[$kt])) {
@@ -199,6 +206,39 @@ if (!function_exists('creancier_urgence_data')) {
 
         $out['reste_du'] = round($out['total_net_bloque'] - $out['total_verse'], 2);
         $out['montant_du'] = round($out['reste_du'] + $out['total_dette'], 2);
+
+        // ── Locataires saisis : résolution bail → locataire + immeuble réel ──
+        if ($locBaux) {
+            $bids = array_keys($locBaux);
+            $inB  = implode(',', array_fill(0, count($bids), '?'));
+            try {
+                $stb = $pdo->prepare("
+                    SELECT bb.id AS bail_id, bb.locataire_nom, bb.loyer_mensuel_hc,
+                           b.id AS bien_id, COALESCE(NULLIF(b.reference_bien,''),'') AS bien_ref,
+                           COALESCE(NULLIF(i.nom_immeuble,''), NULLIF(i.adresse_1,''), b.adresse_1) AS immeuble
+                    FROM bien_baux bb
+                    LEFT JOIN biens b ON b.id = bb.id_bien
+                    LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                    WHERE bb.id IN ($inB)");
+                $stb->execute($bids);
+                $resB = [];
+                foreach ($stb as $r) $resB[(int)$r['bail_id']] = $r;
+            } catch (Throwable $e) { $resB = []; }
+            foreach ($locBaux as $bid => $info) {
+                $r = $resB[$bid] ?? [];
+                $out['locataires_saisis'][] = [
+                    'id_saisie'  => $info['id_saisie'],
+                    'bail_id'    => $bid,
+                    'locataire'  => trim((string)($r['locataire_nom'] ?? '')) ?: ('Bail #' . $bid),
+                    'immeuble'   => trim((string)($r['immeuble'] ?? '')) ?: '—',
+                    'bien_id'    => (int)($r['bien_id'] ?? 0),
+                    'bien_ref'   => (string)($r['bien_ref'] ?? ''),
+                    'loyer'      => $info['loyer'] ?: (float)($r['loyer_mensuel_hc'] ?? 0),
+                    'creancier'  => $info['creancier'],
+                    'net_bloque' => $info['net'],
+                ];
+            }
+        }
 
         // Libellés cibles (résolus depuis l'existant, jamais recopiés en base).
         creancier_resolve_cibles($pdo, $cibles);
