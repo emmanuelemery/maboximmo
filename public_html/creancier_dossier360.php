@@ -160,6 +160,20 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
         <?php endforeach; ?>
       </div>
 
+      <?php if (!empty($data['locataires_saisis'])): ?>
+      <div class="f360-card" style="border-left:4px solid #2d5f6b;">
+        <h3>🔑 Locataires saisis <span class="count"><?= count($data['locataires_saisis']) ?></span></h3>
+        <div style="font-size:11px;color:#9a9690;margin-bottom:8px;font-style:italic;">Loyers captés au profit du créancier. Le locataire peut occuper un autre immeuble que celui en cause.</div>
+        <?php foreach ($data['locataires_saisis'] as $ls): ?>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0ece6;font-size:12.5px;">
+            <span><strong><?= h($ls['locataire']) ?></strong>
+              <span style="color:#9a9690;"> · immeuble : <?= h($ls['immeuble']) ?><?= $ls['bien_ref'] ? ' ('.h($ls['bien_ref']).')' : '' ?></span>
+              <span style="color:#9a9690;"> · créancier <?= h($ls['creancier']) ?></span></span>
+            <strong style="color:#2d5f6b;"><?= $ls['loyer'] ? $eur($ls['loyer']).'/mois' : $eur($ls['net_bloque']) ?></strong></div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
+
       <div class="f360-card">
         <h3>⚖️ Créanciers <span class="count"><?= count($creanciers) ?></span></h3>
         <?php if (!$creanciers): ?><div class="f360-empty"><div class="em-ico">⚖️</div>Aucun créancier lié.</div><?php endif; ?>
