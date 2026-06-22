@@ -38,6 +38,50 @@ if (!function_exists('cef_num')) {
     }
 }
 
+if (!function_exists('cef_flatten')) {
+    /** Aplatit un tableau IA en paires clé pointée → valeur scalaire. */
+    function cef_flatten(array $a, string $prefix = ''): array {
+        $out = [];
+        foreach ($a as $k => $v) {
+            $key = $prefix === '' ? (string)$k : $prefix . '.' . $k;
+            if (is_array($v)) {
+                // liste de scalaires → join ; sinon récursion
+                $isList = array_keys($v) === range(0, count($v) - 1);
+                if ($isList && !array_filter($v, 'is_array')) {
+                    $out[$key] = implode(' | ', array_map('strval', $v));
+                } else {
+                    $out += cef_flatten($v, $key);
+                }
+            } elseif ($v !== null && $v !== '') {
+                $out[$key] = is_bool($v) ? ($v ? '1' : '0') : (string)$v;
+            }
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('cef_capture_champs')) {
+    /**
+     * Capture AUTOMATIQUE de tous les champs extraits dans creancier_doc_champ
+     * (clé/valeur), sans jamais altérer le schéma. Idempotent par (doc, clé).
+     */
+    function cef_capture_champs(PDO $pdo, int $idDossier, array $ia, ?int $gedDocId, ?int $userId): int {
+        $flat = cef_flatten($ia);
+        if (!$flat) return 0;
+        // Purge des champs précédents de ce doc (re-import) pour éviter les doublons.
+        if ($gedDocId) {
+            $pdo->prepare("DELETE FROM creancier_doc_champ WHERE ged_document_id = ?")->execute([$gedDocId]);
+        }
+        $ins = $pdo->prepare("INSERT INTO creancier_doc_champ (id_dossier, ged_document_id, cle, valeur, source, created_by) VALUES (?,?,?,?, 'ia', ?)");
+        $n = 0;
+        foreach ($flat as $cle => $val) {
+            $ins->execute([$idDossier ?: null, $gedDocId ?: null, mb_substr($cle, 0, 150), mb_substr((string)$val, 0, 65000), $userId]);
+            $n++;
+        }
+        return $n;
+    }
+}
+
 if (!function_exists('cef_enrich_dossier')) {
     /**
      * @param PDO   $pdo
@@ -180,6 +224,10 @@ if (!function_exists('cef_enrich_dossier')) {
             }
         }
         if ($nbDates) $actions[] = "$nbDates date(s) → agenda";
+
+        // ── 6. Capture générique de TOUS les champs extraits (aucun ALTER) ──
+        $nbChamps = cef_capture_champs($pdo, $idDossier, $ia, (int)($ctx['ged_document_id'] ?? 0) ?: null, $userId);
+        if ($nbChamps) $actions[] = "$nbChamps champ(s) capturé(s)";
 
         return ['actions' => $actions, 'id_creancier' => $idCreancier ?: null, 'item_dette_id' => $itemId ?: null];
     }
