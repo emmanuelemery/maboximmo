@@ -52,7 +52,9 @@ if ($scopeSoc > 0) {
 }
 // Filtre agence optionnel (via tiers OU proprietaires legacy)
 if ($scopeAg > 0) {
-    $where[]  = "(t.id_agence = ? OR p.id_agence = ?)";
+    // Propriétaire « de l'agence » = agence directe (tiers/proprio) OU au moins un bien géré par cette agence.
+    $where[]  = "(t.id_agence = ? OR p.id_agence = ? OR EXISTS (SELECT 1 FROM biens bag WHERE bag.id_proprietaire = p.id AND bag.id_agence = ?))";
+    $params[] = $scopeAg;
     $params[] = $scopeAg;
     $params[] = $scopeAg;
 }
@@ -142,7 +144,7 @@ try {
     // (lecture seule côté tiers), sans modifier les données.
     $oWhere  = ['p.id_tiers IS NULL', 'EXISTS (SELECT 1 FROM biens b WHERE b.id_proprietaire = p.id)'];
     $oParams = [];
-    if ($scopeAg > 0)                 { $oWhere[] = '(p.id_agence = ? OR p.id_agence IS NULL)'; $oParams[] = $scopeAg; }
+    if ($scopeAg > 0)                 { $oWhere[] = '(p.id_agence = ? OR EXISTS (SELECT 1 FROM biens bag WHERE bag.id_proprietaire = p.id AND bag.id_agence = ?) OR p.id_agence IS NULL)'; $oParams[] = $scopeAg; $oParams[] = $scopeAg; }
     if ($filterSearch !== '')         { $oq = '%' . $filterSearch . '%';
                                         $oWhere[] = "(p.societe LIKE ? OR p.nom LIKE ? OR p.prenom LIKE ? OR p.email LIKE ? OR p.ville LIKE ?
         OR EXISTS (SELECT 1 FROM biens b LEFT JOIN immeubles i ON i.id=b.id_immeuble
@@ -224,7 +226,7 @@ try {
     $pw = ["tr.role_code='proprietaire'", "p.parti_gestion=1"];
     $pp = [];
     if ($scopeSoc > 0) { $pw[] = "t.id_societe = ?"; $pp[] = $scopeSoc; }
-    if ($scopeAg > 0)  { $pw[] = "(t.id_agence = ? OR p.id_agence = ?)"; $pp[] = $scopeAg; $pp[] = $scopeAg; }
+    if ($scopeAg > 0)  { $pw[] = "(t.id_agence = ? OR p.id_agence = ? OR EXISTS (SELECT 1 FROM biens bag WHERE bag.id_proprietaire = p.id AND bag.id_agence = ?))"; $pp[] = $scopeAg; $pp[] = $scopeAg; $pp[] = $scopeAg; }
     $stP = $pdo->prepare("SELECT COUNT(DISTINCT t.id) FROM tiers t
         INNER JOIN tiers_roles tr ON tr.id_tiers=t.id
         LEFT JOIN proprietaires p ON p.id_tiers=t.id
