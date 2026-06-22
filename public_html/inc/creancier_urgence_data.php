@@ -230,7 +230,7 @@ if (!function_exists('creancier_resolve_cibles')) {
         }
 
         $resolvers = [
-            'BIEN'    => "SELECT id, COALESCE(NULLIF(reference,''), CONCAT('Bien #', id)) AS lib FROM biens WHERE id IN (%s)",
+            'BIEN'    => "SELECT id, COALESCE(NULLIF(reference_bien,''), NULLIF(bien_titre_affiche,''), CONCAT('Bien #', id)) AS lib FROM biens WHERE id IN (%s)",
             'SOCIETE' => "SELECT id, COALESCE(NULLIF(raison_sociale,''), NULLIF(nom,''), CONCAT('Société #', id)) AS lib FROM societes WHERE id IN (%s)",
         ];
 
