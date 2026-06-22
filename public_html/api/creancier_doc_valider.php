@@ -44,22 +44,57 @@ $an = $st->fetch(PDO::FETCH_ASSOC);
 if (!$an) { http_response_code(404); echo json_encode(['ok' => false, 'error' => 'Analyse introuvable']); exit; }
 if ($an['statut'] !== 'a_valider') { echo json_encode(['ok' => false, 'error' => 'Analyse déjà traitée (' . $an['statut'] . ')']); exit; }
 
-$idDossier = (int)$an['id_dossier'];
-if ($idDossier <= 0) { echo json_encode(['ok' => false, 'error' => 'Analyse non rattachée à un dossier']); exit; }
-
-// ACL : l'utilisateur doit avoir accès au dossier.
-if (!creancier_user_can_access_dossier($pdo, $idDossier, $userId)) {
-    http_response_code(403); echo json_encode(['ok' => false, 'error' => 'Accès dossier refusé']); exit;
-}
-
 $socId = $an['id_societe'] !== null ? (int)$an['id_societe'] : null;
 $ageId = $an['id_agence']  !== null ? (int)$an['id_agence']  : null;
-$creaNom = trim((string)($an['extr_creancier_nom'] ?? ''));
-$montant = $an['extr_montant_total'] !== null ? (float)$an['extr_montant_total']
-         : ($an['extr_montant_principal'] !== null ? (float)$an['extr_montant_principal'] : null);
+
+// ── Résolution du dossier : choisi / existant / NOUVEAU ──────────────────
+// Priorité : id_dossier POST > nouveau_dossier > analyse.id_dossier.
+$postDossier   = (int)($_POST['id_dossier'] ?? 0);
+$nouveauFlag   = !empty($_POST['nouveau_dossier']);
+$idDossier     = 0;
+$dossierCree   = false;
 
 $pdo->beginTransaction();
 try {
+    if ($postDossier > 0) {
+        $idDossier = $postDossier;
+    } elseif ($nouveauFlag) {
+        // Création d'un nouveau dossier (débiteur) — code auto si absent.
+        $libelle = trim((string)($_POST['libelle'] ?? '')) ?: 'Dossier créancier';
+        $code    = strtoupper(trim((string)($_POST['code'] ?? '')));
+        if ($code === '') {
+            $base = preg_replace('/[^A-Z0-9]/', '', strtoupper(function_exists('iconv') ? (iconv('UTF-8', 'ASCII//TRANSLIT', $libelle) ?: $libelle) : $libelle));
+            $code = substr($base ?: 'DOSSIER', 0, 8) ?: 'DOSSIER';
+        }
+        // Unicité du code.
+        $stC = $pdo->prepare("SELECT 1 FROM creancier_dossier WHERE code = ? LIMIT 1");
+        $base = $code; $i = 1;
+        while (true) { $stC->execute([$code]); if (!$stC->fetchColumn()) break; $code = substr($base, 0, 6) . $i; $i++; }
+        $insD = $pdo->prepare("INSERT INTO creancier_dossier (code, libelle, statut, niveau_risque, synthese, numero_dossier_adverse, id_societe, id_agence, created_by)
+                               VALUES (?,?, 'surveillance','orange', ?, ?, ?, ?, ?)");
+        $insD->execute([$code, mb_substr($libelle, 0, 190),
+            'Créé automatiquement depuis l\'analyse d\'un document.',
+            $an['extr_numero_dossier'] ?: null, $socId, $ageId, $userId]);
+        $idDossier = (int)$pdo->lastInsertId();
+        $dossierCree = true;
+        // ACL pilote pour le créateur (sinon il ne verrait pas son propre dossier).
+        $pdo->prepare("INSERT IGNORE INTO creancier_dossier_acces (id_dossier, id_user, niveau, created_by) VALUES (?,?, 'pilote', ?)")
+            ->execute([$idDossier, $userId, $userId]);
+    } elseif ((int)$an['id_dossier'] > 0) {
+        $idDossier = (int)$an['id_dossier'];
+    } else {
+        throw new RuntimeException('Aucun dossier : choisir un dossier existant ou cocher « nouveau dossier ».');
+    }
+
+    // ACL : accès au dossier (le créateur vient de se l'octroyer ci-dessus).
+    if (!creancier_user_can_access_dossier($pdo, $idDossier, $userId)) {
+        throw new RuntimeException('Accès dossier refusé');
+    }
+
+    $creaNom = trim((string)($an['extr_creancier_nom'] ?? ''));
+    $montant = $an['extr_montant_total'] !== null ? (float)$an['extr_montant_total']
+             : ($an['extr_montant_principal'] !== null ? (float)$an['extr_montant_principal'] : null);
+
     // ── 1. Tiers créancier (match d'abord, sinon création) ───────────────
     $idCreancier = $an['id_tiers_creancier_match'] !== null ? (int)$an['id_tiers_creancier_match'] : 0;
     $creancierCree = false;
@@ -156,6 +191,8 @@ try {
     echo json_encode([
         'ok'              => true,
         'analyse_id'      => $analyseId,
+        'id_dossier'      => $idDossier,
+        'dossier_cree'    => $dossierCree,
         'ged_document_id' => $docId,
         'ged_name'        => $docName,
         'id_creancier'    => $idCreancier,

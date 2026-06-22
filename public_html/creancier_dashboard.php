@@ -225,10 +225,7 @@ ob_start();
       <?php endforeach; ?>
       <?php if ($isMgr): ?>
       <div style="margin-top:12px;padding-top:12px;border-top:1px dashed #efeae1">
-        <label style="font-size:12px;color:#8a8680;display:block;margin-bottom:6px">Ajouter un document (analyse IA)</label>
-        <input type="file" id="creUpFile" accept="application/pdf" style="font-size:12px">
-        <button type="button" id="creUpBtn" class="ph-btn primary" style="margin-top:8px">Analyser le PDF</button>
-        <div id="creUpMsg" style="font-size:12px;margin-top:8px;color:#5b6470"></div>
+        <a href="<?= h((function_exists('app_url') ? app_url('/creancier_scan.php') : 'creancier_scan.php')) ?>?id_dossier=<?= (int)$idDossier ?>" class="ph-btn primary">📄 Charger un document</a>
       </div>
       <?php endif; ?>
     </div>
@@ -249,7 +246,7 @@ ob_start();
         <td><?= $an['extr_montant_total'] !== null ? $eur($an['extr_montant_total']) : '—' ?></td>
         <td><?= (int)round((float)$an['confidence'] * 100) ?> %</td>
         <td><?= $an['review_flags'] ? '<span class="cre-pill warn">' . count(explode("\n", (string)$an['review_flags'])) . ' alerte(s)</span>' : '—' ?></td>
-        <?php if ($isMgr): ?><td><button type="button" class="ph-btn primary cre-valider" data-id="<?= (int)$an['id'] ?>" style="padding:4px 10px;font-size:12px">Valider</button></td><?php endif; ?>
+        <?php if ($isMgr): ?><td><a class="ph-btn primary" href="<?= h((function_exists('app_url') ? app_url('/creancier_scan.php') : 'creancier_scan.php')) ?>?analyse_id=<?= (int)$an['id'] ?>" style="padding:4px 10px;font-size:12px">Réviser</a></td><?php endif; ?>
       </tr>
       <?php endforeach; ?>
     </table>
@@ -259,64 +256,4 @@ ob_start();
 </div>
 <?php
 $layout_content = ob_get_clean();
-
-if ($isMgr) {
-    $jsDossier   = (int)$idDossier;
-    $jsCsrfAn    = json_encode($csrfAnalyse);
-    $jsCsrfVal   = json_encode($csrfValider);
-    $layout_extra_js = <<<JS
-<script>
-(function(){
-  const dossier = {$jsDossier};
-  const csrfAnalyse = {$jsCsrfAn};
-  const csrfValider = {$jsCsrfVal};
-
-  const upBtn = document.getElementById('creUpBtn');
-  const upFile = document.getElementById('creUpFile');
-  const upMsg = document.getElementById('creUpMsg');
-
-  if (upBtn) upBtn.addEventListener('click', async function(){
-    if (!upFile.files || !upFile.files[0]) { upMsg.textContent = 'Choisis un PDF.'; return; }
-    upBtn.disabled = true; upMsg.style.color = '#5b6470'; upMsg.textContent = 'Analyse IA en cours…';
-    const fd = new FormData();
-    fd.append('doc', upFile.files[0]);
-    fd.append('id_dossier', dossier);
-    fd.append('csrf_token', csrfAnalyse);
-    try {
-      const r = await fetch('api/creancier_doc_analyze.php', { method:'POST', body: fd });
-      const j = await r.json();
-      if (j.ok) {
-        upMsg.style.color = '#16a34a';
-        const m = j.data || {};
-        upMsg.innerHTML = '✓ Analysé : <b>'+(m.type_doc||'?')+'</b> · '+((m.creancier&&m.creancier.nom)||'?')+
-          (j.review_flags && j.review_flags.length ? ' · ⚠️ '+j.review_flags.length+' alerte(s)' : '')+
-          '<br>Rechargement…';
-        setTimeout(()=>location.reload(), 1200);
-      } else {
-        upMsg.style.color = '#dc2626'; upMsg.textContent = '✗ '+(j.error||'échec');
-        upBtn.disabled = false;
-      }
-    } catch(e) { upMsg.style.color = '#dc2626'; upMsg.textContent = '✗ '+e; upBtn.disabled = false; }
-  });
-
-  document.querySelectorAll('.cre-valider').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      if (!confirm('Valider cette analyse ? Le document sera classé en GED, le créancier rattaché et la dette créée.')) return;
-      btn.disabled = true; btn.textContent = '…';
-      const fd = new FormData();
-      fd.append('analyse_id', btn.dataset.id);
-      fd.append('csrf_token', csrfValider);
-      try {
-        const r = await fetch('api/creancier_doc_valider.php', { method:'POST', body: fd });
-        const j = await r.json();
-        if (j.ok) { location.reload(); }
-        else { alert('Erreur : '+(j.error||'échec')); btn.disabled = false; btn.textContent = 'Valider'; }
-      } catch(e) { alert('Erreur : '+e); btn.disabled = false; btn.textContent = 'Valider'; }
-    });
-  });
-})();
-</script>
-JS;
-}
-
 require_once __DIR__ . '/inc/layout_maboximmo.php';

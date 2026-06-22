@@ -55,6 +55,14 @@ $layout_title   = 'Créanciers';
 $layout_module  = 'Ma Box Agency';
 $layout_sidebar = 'sidebar_agency';
 
+$roleId = function_exists('current_role_id') ? (int)current_role_id() : 0;
+$isMgr  = $isSuper || in_array($roleId, [1, 2, 3, 7], true);
+if ($isMgr) {
+    $_b = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '';
+    $layout_head_actions = '<a href="' . h($_b . 'creancier_scan.php') . '" class="ph-btn">📄 Scanner un document</a>'
+        . '<a href="' . h($_b . 'creancier_dossier_form.php') . '" class="ph-btn primary">+ Nouveau dossier</a>';
+}
+
 $layout_extra_css = <<<'CSS'
 <style>
 .cre-wrap { padding: 18px; }

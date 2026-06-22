@@ -188,6 +188,41 @@ if ($creaNom !== '') {
     if ($row) $matchTiers = ['id' => (int)$row['id'], 'libelle' => $row['lib']];
 }
 
+// ── Détection du DOSSIER (débiteur) : existant ou nouveau ────────────────
+// Le dossier = groupe débiteur, pas le créancier. On matche sur le débiteur
+// mentionné, le n° de dossier, ou les entités déjà liées. Collation unicode_ci
+// => tolérant aux accents / casse / caractères spéciaux.
+$debiteur = trim((string)($parsed['debiteur_mentionne'] ?? ''));
+$dossierMatch = null;
+// a. par n° de dossier adverse
+if ($numDoss) {
+    $stD = $pdo->prepare("SELECT id, code, libelle FROM creancier_dossier WHERE numero_dossier_adverse = ? AND (:soc IS NULL OR id_societe IS NULL OR id_societe = :soc) LIMIT 1");
+    $stD->bindValue(1, $numDoss); $stD->bindValue(':soc', $idSociete); $stD->execute();
+    $dossierMatch = $stD->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+// b. par nom du débiteur (libellé dossier OU entité liée société/tiers)
+if (!$dossierMatch && $debiteur !== '') {
+    $like = '%' . $debiteur . '%';
+    $stD = $pdo->prepare("
+        SELECT DISTINCT d.id, d.code, d.libelle
+        FROM creancier_dossier d
+        LEFT JOIN creancier_dossier_lien l ON l.id_dossier = d.id
+        LEFT JOIN societes s ON l.entity_type='SOCIETE' AND s.id = l.entity_id
+        LEFT JOIN tiers t    ON l.entity_type='TIERS'   AND t.id = l.entity_id
+        WHERE (:soc IS NULL OR d.id_societe IS NULL OR d.id_societe = :soc)
+          AND ( d.libelle LIKE :q OR s.raison_sociale LIKE :q OR s.nom LIKE :q
+                OR t.raison_sociale LIKE :q OR t.nom_affichage LIKE :q
+                OR TRIM(CONCAT_WS(' ', t.prenom, t.nom)) LIKE :q )
+        LIMIT 1
+    ");
+    $stD->bindValue(':q', $like); $stD->bindValue(':soc', $idSociete); $stD->execute();
+    $dossierMatch = $stD->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+// Si on scanne sans dossier imposé, on rattache automatiquement au dossier détecté.
+if ($idDossier === null && $dossierMatch) {
+    $idDossier = (int)$dossierMatch['id'];
+}
+
 // ── Comparaison inter-dossiers : même n° de dossier déjà en base ─────────
 $flags = [];
 if ($numDoss) {
@@ -253,6 +288,8 @@ echo json_encode([
     'statut'         => 'a_valider',
     'data'           => $parsed,
     'creancier_match'=> $matchTiers,      // null = à créer comme tiers (rôle creancier) à la validation
+    'dossier_match'  => $dossierMatch,    // null = NOUVEAU dossier ; sinon {id,code,libelle} existant
+    'debiteur'       => $debiteur,
     'review_flags'   => $flags,
     'cost_eur'       => $costEur,
 ], JSON_UNESCAPED_UNICODE);
