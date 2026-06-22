@@ -24,6 +24,12 @@ $dfr = fn($d) => $d ? date('d/m/Y', strtotime((string)$d)) : '—';
 $pdo       = $GLOBALS['pdo'];
 $idDossier = (int)($_GET['id_dossier'] ?? 0);
 
+// Sans dossier précis → liste des dossiers accessibles.
+if ($idDossier <= 0) {
+    header('Location: ' . (function_exists('app_url') ? app_url('/creancier_liste.php') : 'creancier_liste.php'));
+    exit;
+}
+
 // ── En-tête dossier ──────────────────────────────────────────────────
 $std = $pdo->prepare("SELECT * FROM creancier_dossier WHERE id = ? LIMIT 1");
 $std->execute([$idDossier]);

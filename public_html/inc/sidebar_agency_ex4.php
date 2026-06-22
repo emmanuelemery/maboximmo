@@ -31,21 +31,6 @@ $linkTrans   = $_sbBase . 'transaction_index.php';
 $dashDiff    = $_sbBase . 'agency_dashboard_diffusion.php';
 $dashAdmin   = $_sbBase . 'super_admin_dashboard.php';
 $linkPatrimoine = $_sbBase . 'bailleur_patrimoine_actif.php';
-$linkCreanciers = $_sbBase . 'creancier_liste.php';
-
-// Module CRÉANCIERS (sensible) : visible si super admin OU au moins 1 dossier en ACL.
-$canCreanciers = $isAdminOrSup;
-if (!$canCreanciers) {
-    try {
-        $__pdo = $GLOBALS['pdo'] ?? null;
-        $__uid = function_exists('current_user_id') ? (int)current_user_id() : (int)($_SESSION['user_id'] ?? 0);
-        if ($__pdo instanceof PDO && $__uid > 0) {
-            $__st = $__pdo->prepare("SELECT 1 FROM creancier_dossier_acces WHERE id_user = ? LIMIT 1");
-            $__st->execute([$__uid]);
-            $canCreanciers = (bool)$__st->fetchColumn();
-        }
-    } catch (Throwable $e) { $canCreanciers = false; } // table absente (pré-migration) → non bloquant
-}
 ?>
 <?php
 $__sbCss = function_exists('asset_url') ? asset_url('/css/sidebar.css') : '/css/sidebar.css';
@@ -86,9 +71,6 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
             <li><a href="<?= htmlspecialchars($linkTrans) ?>" class="<?= sb_active('transaction_index.php') ?: sb_active('transaction_chargement.php') ?>"><span class="sb-icon">🎯</span><span class="sb-label">Transactions</span></a></li>
             <li><a href="<?= htmlspecialchars($dashDiff) ?>" class="<?= sb_active('agency_dashboard_diffusion.php') ?>"><span class="sb-icon">📡</span><span class="sb-label">Diffusion</span></a></li>
             <li><a href="<?= htmlspecialchars($dashMetier) ?>" class="<?= sb_active('agency_dashboard_metier.php') ?>"><span class="sb-icon">🧭</span><span class="sb-label">Métier</span></a></li>
-            <?php if ($canCreanciers): ?>
-                <li><a href="<?= htmlspecialchars($linkCreanciers) ?>" class="<?= sb_active('creancier_liste.php') ?: sb_active('creancier_dashboard.php') ?>"><span class="sb-icon">⚖️</span><span class="sb-label">Créanciers</span></a></li>
-            <?php endif; ?>
             <?php if ($isAdminOrSup): ?>
                 <li><a href="<?= htmlspecialchars($_sbBase . 'bailleur_dashboard.php') ?>" class="<?= sb_active('bailleur_dashboard.php') ?>"><span class="sb-icon">🏦</span><span class="sb-label">Module Bailleur</span></a></li>
                 <li><a href="<?= htmlspecialchars($linkPatrimoine) ?>" class="<?= sb_active('bailleur_patrimoine_actif.php') ?>"><span class="sb-icon">🏛️</span><span class="sb-label">Patrimoine actif</span></a></li>
