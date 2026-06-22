@@ -383,8 +383,6 @@ if (!function_exists('fluxbox_va_detect_n1_from_context')) {
             return ['n1' => '02_referentiel', 'raison' => 'doc tiers'];
         } elseif ($type === 'MANDAT' || $type === 'MDT') {
             return ['n1' => '06_transaction', 'raison' => 'doc mandat'];
-        } elseif ($type === 'CREANCIER_DOSSIER') {
-            return ['n1' => '12_contentieux', 'raison' => 'dossier créancier'];
         }
         return ['n1' => $contexteN1, 'raison' => $raison];
     }
@@ -466,9 +464,7 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
         $entityType = null; $entityId = null;
         $prop = !empty($carte['proposition_json']) ? json_decode((string)$carte['proposition_json'], true) : null;
         if (is_array($prop)) {
-            // Contexte créancier imposé (depuis le cockpit) → prioritaire.
-            if (!empty($prop['creancier_dossier_id'])) { $entityType = 'CREANCIER_DOSSIER'; $entityId = (int)$prop['creancier_dossier_id']; }
-            elseif (!empty($prop['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$prop['bien_id']; }
+            if (!empty($prop['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$prop['bien_id']; }
             elseif (!empty($prop['immeuble_id'])) { $entityType = 'IMB'; $entityId = (int)$prop['immeuble_id']; }
             elseif (!empty($prop['tiers_id']))    { $entityType = 'TIERS'; $entityId = (int)$prop['tiers_id']; }
         }
@@ -479,8 +475,7 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
                 $st->execute([(int)$doc['id']]);
                 $meta = json_decode((string)$st->fetchColumn(), true);
                 if (is_array($meta)) {
-                    if (!empty($meta['creancier_dossier_id'])) { $entityType = 'CREANCIER_DOSSIER'; $entityId = (int)$meta['creancier_dossier_id']; }
-                    elseif (!empty($meta['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$meta['bien_id']; }
+                    if (!empty($meta['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$meta['bien_id']; }
                     elseif (!empty($meta['immeuble_id'])) { $entityType = 'IMB'; $entityId = (int)$meta['immeuble_id']; }
                     elseif (!empty($meta['tiers_id']))    { $entityType = 'TIERS'; $entityId = (int)$meta['tiers_id']; }
                 }
@@ -542,14 +537,6 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
                 $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
                 $resolvedSocieteId = (int)($r['id_societe'] ?? 0) ?: (int)($r['imm_soc'] ?? 0);
                 $resolvedAgenceId  = (int)($r['id_agence']  ?? 0) ?: (int)($r['imm_age'] ?? 0);
-            } catch (Throwable) {}
-        } elseif ($entityType === 'CREANCIER_DOSSIER' && $entityId) {
-            try {
-                $st = $pdo->prepare("SELECT id_societe, id_agence FROM creancier_dossier WHERE id = ?");
-                $st->execute([$entityId]);
-                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
-                $resolvedSocieteId = (int)($r['id_societe'] ?? 0);
-                $resolvedAgenceId  = (int)($r['id_agence']  ?? 0);
             } catch (Throwable) {}
         }
         // Défaut REGIE EMERY LYON si rien
