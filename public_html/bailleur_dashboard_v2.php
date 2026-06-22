@@ -1,9 +1,9 @@
 <?php
 /**
- * bailleur_dashboard.php — Dashboard Bailleur (v4)
- * Page d'accueil pour les utilisateurs avec service 'bailleur'
- * Accès : super admin + rôles avec service bailleur (9, 10, 1, 7, 8)
- * Filtre automatique sur les propriétaires de l'utilisateur (user_proprietaires)
+ * bailleur_dashboard_v2.php — Dashboard Bailleur V2 (WIP)
+ * Refonte : vitrine des modules (cartes riches + droits user_bailleur_modules).
+ * Base identique à bailleur_dashboard.php — ne PAS remplacer l'existante tant que non validée.
+ * Accès : super admin + rôles avec service bailleur.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
@@ -28,9 +28,6 @@ if (!function_exists('e')) {
 
 // ── Propriétaires accessibles ────────────────────────────
 if ($isSuperAdmin) {
-    // Label robuste : societe vide ('') tombe sur civilité+prénom+nom, puis fallback #id.
-    // Filtre : uniquement les propriétaires ayant de VRAIES données CRG (≥1 locataire),
-    //          quel que soit parse_statut → exclut les fiches vides / doublons sans données.
     $stmt = $pdo->query("
         SELECT p.id,
                COALESCE(NULLIF(TRIM(p.societe),''),
@@ -68,14 +65,12 @@ $allPropIds = array_column($proprietaires, 'id');
 $selectedProps = [];
 if ($isSuperAdmin) {
     if (isset($_GET['props'])) {
-        // Nouvelle sélection via GET → mémoriser en session
         foreach ((array)$_GET['props'] as $sid) {
             $sid = (int)$sid;
             if ($sid > 0 && in_array($sid, $allPropIds)) $selectedProps[] = $sid;
         }
         $_SESSION['bailleur_props'] = $selectedProps;
     } elseif (!empty($_SESSION['bailleur_props'])) {
-        // Pas de GET → reprendre la session
         foreach ($_SESSION['bailleur_props'] as $sid) {
             $sid = (int)$sid;
             if (in_array($sid, $allPropIds)) $selectedProps[] = $sid;
@@ -83,19 +78,32 @@ if ($isSuperAdmin) {
     }
 }
 
-// Si sélection → filtrer sur ces ids, sinon tous
 $propIds = !empty($selectedProps) ? $selectedProps : $allPropIds;
 
-// Labels des sélectionnés
 $selectedLabels = [];
 foreach ($proprietaires as $p) {
     if (in_array((int)$p['id'], $selectedProps)) $selectedLabels[] = $p['label'];
 }
 
-// URL query string pour transmettre la sélection aux autres pages
 $propsQuery = !empty($selectedProps)
     ? '?' . http_build_query(['props' => $selectedProps])
     : '';
+
+// ── Droits modules de l'utilisateur ──────────────────────
+// Super admin = tous les modules actifs. Sinon lecture user_bailleur_modules.
+$userModules = [];
+if ($isSuperAdmin) {
+    $userModules = ['patrimoine','ged','revision','bail','diffusion','edl','transaction'];
+} else {
+    try {
+        $stM = $pdo->prepare("SELECT module_code FROM user_bailleur_modules WHERE id_user=?");
+        $stM->execute([$userId]);
+        $userModules = $stM->fetchAll(\PDO::FETCH_COLUMN);
+    } catch (\Throwable $ex) {
+        // table absente en local tant que migration non jouée : on n'affiche aucun droit
+        $userModules = [];
+    }
+}
 
 $kpis = ['nb_biens'=>0,'nb_actifs'=>0,'nb_partis'=>0,'loyer'=>0,'impaye_a'=>0,'impaye_p'=>0];
 $alerts = [];
@@ -104,7 +112,6 @@ $lastCrgs = [];
 if (!empty($propIds)) {
     $in = implode(',', array_map('intval', $propIds));
 
-    // ── Sous-requête base commune ────────────────────────
     $subCrg = "(
         SELECT ct2.annee,ct2.trimestre FROM crg_trimestres ct2
         JOIN crg_situations_locataires c2 ON c2.id_crg=ct2.id
@@ -113,7 +120,6 @@ if (!empty($propIds)) {
         ORDER BY ct2.annee DESC,ct2.trimestre DESC LIMIT 1
     )";
 
-    // ── KPIs ─────────────────────────────────────────────
     $r = $pdo->query("
         SELECT
           COUNT(DISTINCT CASE WHEN crg.loyer_appele>0 AND COALESCE(i.vendu,0)=0 AND ls.archive=0 THEN CONCAT(crg.id_bien,'-',crg.locataire_nom) END) AS nb_actifs,
@@ -132,7 +138,6 @@ if (!empty($propIds)) {
     ")->fetch(\PDO::FETCH_ASSOC);
     if ($r) $kpis = $r;
 
-    // ── Top alertes impayés > 500€ ───────────────────────
     $alerts = $pdo->query("
         SELECT crg.locataire_nom, crg.total_impaye, crg.loyer_appele,
                CONCAT(ct.annee,' T',ct.trimestre) AS dernier_crg,
@@ -150,7 +155,6 @@ if (!empty($propIds)) {
         ORDER BY crg.total_impaye DESC LIMIT 15
     ")->fetchAll(\PDO::FETCH_ASSOC);
 
-    // ── Dernier CRG par propriétaire ─────────────────────
     $rows = $pdo->query("
         SELECT ct.id_proprietaire, ct.annee, ct.trimestre,
                CONCAT(ct.annee,' T',ct.trimestre) AS label,
@@ -171,9 +175,49 @@ if (!empty($propIds)) {
 
 $userNom = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 
+// ── Catalogue des modules (vitrine) ──────────────────────
+// badge : inclus | premium | option | usage  ·  price : libellé tarif (usage)
+$MODULES_CATALOG = [
+    'patrimoine' => [
+        'icon'  => '🏛️', 'label' => 'Patrimoine actif', 'badge' => 'premium',
+        'href'  => 'bailleur_patrimoine_actif.php' . $propsQuery,
+        'desc'  => "Visualisez tous vos immeubles, lots et locataires en un coup d'œil. Suivez en temps réel loyers appelés, impayés et taux d'occupation de votre patrimoine.",
+    ],
+    'ged' => [
+        'icon'  => '📁', 'label' => 'GED Documents', 'badge' => 'inclus',
+        'href'  => 'bailleur_ged.php',
+        'desc'  => "Tous vos documents classés automatiquement : comptes-rendus de gestion, baux, quittances et courriers, téléchargeables à tout moment.",
+    ],
+    'revision' => [
+        'icon'  => '📈', 'label' => 'Révision des loyers', 'badge' => 'inclus',
+        'href'  => 'bailleur_revision_loyer.php',
+        'desc'  => "Calculez la révision annuelle selon l'indice IRL et générez en un clic le courrier à adresser à votre locataire.",
+    ],
+    'diffusion' => [
+        'icon'  => '📣', 'label' => 'Diffusion annonce', 'badge' => 'inclus',
+        'href'  => 'annonce_liste.php',
+        'desc'  => "Publiez vos biens à louer ou à vendre directement sur le site Ma Box Immo en quelques clics.",
+    ],
+    'bail' => [
+        'icon'  => '📋', 'label' => 'Bail 360°', 'badge' => 'option',
+        'href'  => 'bail_360.php',
+        'desc'  => "La fiche complète de chaque bail : locataire, loyer, charges, dépôt de garantie, échéances et historique réunis sur une seule page.",
+    ],
+    'edl' => [
+        'icon'  => '📐', 'label' => 'État des lieux (EDL)', 'badge' => 'usage', 'price' => '30 € / EDL',
+        'href'  => '#',
+        'desc'  => "Réalisez vos états des lieux d'entrée et de sortie, guidés et horodatés. Facturé 30 € par état des lieux réalisé.",
+    ],
+    'transaction' => [
+        'icon'  => '🏷️', 'label' => 'Transaction', 'badge' => 'usage', 'price' => '10 € / dossier',
+        'href'  => 'transaction_index.php?type=vente&scope=bailleur',
+        'desc'  => "Pilotez la vente de vos biens de A à Z : dossier, acquéreurs, notaire et suivi jusqu'à la signature. Facturé 10 € par dossier.",
+    ],
+];
+
 // ── Layout ───────────────────────────────────────────────
 $pageTitle    = 'Tableau de bord Bailleur';
-$pageSubtitle = 'Ma Box Bailleur';
+$pageSubtitle = 'Ma Box Bailleur · V2';
 $layoutSidebar = 'sidebar_bailleur_module';
 $current_page  = 'bailleur_dashboard';
 
@@ -195,14 +239,30 @@ $extraCss = <<<CSS
 .kpi-val.orange{color:#e65100;} .kpi-val.blue{color:#1565c0;}
 .kpi-sub{font-size:.66em;color:#bbb;margin-top:2px;}
 
-.quick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;}
-@media(max-width:900px){.quick-grid{grid-template-columns:repeat(2,1fr);}}
-.quick-link{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  background:white;border-radius:10px;padding:18px 10px;box-shadow:0 2px 8px rgba(0,0,0,.08);
-  text-decoration:none;color:#1a237e;transition:all .15s;border:1px solid #e8eaf6;gap:7px;}
-.quick-link:hover{background:#e8eaf6;transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.12);}
-.ql-icon{font-size:1.7em;} .ql-label{font-size:.8em;font-weight:600;text-align:center;color:#333;}
-.ql-desc{font-size:.72em;color:#888;text-align:center;}
+/* ── VITRINE MODULES ── */
+.modules-title{font-size:1em;color:#1a237e;font-weight:700;margin:6px 0 14px;display:flex;align-items:center;gap:8px;}
+.modules-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:26px;}
+@media(max-width:1000px){.modules-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:640px){.modules-grid{grid-template-columns:1fr;}}
+.mod-card{position:relative;background:white;border-radius:12px;padding:18px 18px 16px;
+  box-shadow:0 2px 10px rgba(0,0,0,.07);border:1px solid #e8eaf6;text-decoration:none;color:inherit;
+  display:flex;flex-direction:column;gap:9px;transition:all .15s;}
+.mod-card.active:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(26,35,126,.15);border-color:#c5cae9;}
+.mod-card.locked{opacity:.62;background:#fafafa;cursor:default;}
+.mod-head{display:flex;align-items:center;gap:10px;}
+.mod-icon{font-size:1.7em;line-height:1;}
+.mod-name{font-size:1em;font-weight:700;color:#1a237e;}
+.mod-desc{font-size:.83em;color:#555;line-height:1.45;flex:1;}
+.mod-foot{display:flex;align-items:center;justify-content:space-between;margin-top:4px;}
+.mod-cta{font-size:.82em;font-weight:600;color:#3f51b5;}
+.mod-card.locked .mod-cta{color:#9e9e9e;}
+.badge{font-size:.68em;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;}
+.badge-inclus{background:#e8f5e9;color:#2e7d32;}
+.badge-premium{background:#ede7f6;color:#5e35b1;}
+.badge-option{background:#e3f2fd;color:#1565c0;}
+.badge-usage{background:#fff3e0;color:#e65100;}
+.lock-tag{position:absolute;top:14px;right:14px;font-size:.7em;color:#9e9e9e;background:#eee;
+  padding:2px 8px;border-radius:20px;font-weight:600;}
 
 .dash-section{background:white;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:18px;overflow:hidden;}
 .dash-section-header{padding:11px 18px;background:#f5f6fa;border-bottom:1px solid #eee;display:flex;align-items:center;gap:10px;}
@@ -221,13 +281,6 @@ table.alerts tr:hover td{background:#fafbff;}
 .crg-pill{background:#e8eaf6;border-radius:20px;padding:5px 14px;font-size:.81em;color:#1a237e;}
 .crg-pill .cp-prop{font-weight:600;} .crg-pill .cp-date{color:#666;}
 
-.prop-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 18px;}
-@media(max-width:900px){.prop-cards{grid-template-columns:repeat(2,1fr);}}
-.prop-card{border:1px solid #e8eaf6;border-radius:8px;padding:11px 13px;}
-.prop-card-name{font-weight:bold;font-size:.85em;color:#1a237e;margin-bottom:5px;}
-.prop-card-stats{display:flex;gap:12px;font-size:.79em;flex-wrap:wrap;}
-.prop-card-stats span{color:#666;}
-.prop-card-stats strong{color:#1a237e;}
 .empty-state{text-align:center;padding:36px;color:#aaa;font-size:.88em;}
 </style>
 CSS;
@@ -246,75 +299,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
       &nbsp;— <strong><?= count($proprietaires) ?></strong> propriétaire(s)
     <?php endif; ?>
   </div>
-
-  <?php if ($isSuperAdmin && count($proprietaires) > 1): ?>
-  <form method="GET" id="prop-filter-form" style="margin-left:auto;position:relative;">
-    <div style="display:flex;align-items:center;gap:8px;">
-      <label style="font-size:.83em;color:#666;white-space:nowrap;">Filtrer :</label>
-      <div style="position:relative;">
-        <button type="button" onclick="togglePropDropdown()"
-                style="border:1px solid #c5cae9;border-radius:8px;padding:6px 14px;font-size:.85em;
-                       background:white;color:#1a237e;cursor:pointer;min-width:240px;text-align:left;
-                       display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span id="prop-btn-label">
-            <?= empty($selectedProps) ? '— Tous les propriétaires —'
-                : (count($selectedProps)===1 ? e($selectedLabels[0])
-                : count($selectedProps).' propriétaires sélectionnés') ?>
-          </span>
-          <span style="font-size:.8em;opacity:.5">▼</span>
-        </button>
-        <div id="prop-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);right:0;
-             background:white;border:1px solid #c5cae9;border-radius:8px;
-             box-shadow:0 4px 20px rgba(0,0,0,.12);z-index:100;min-width:260px;padding:8px 0;">
-          <label style="display:flex;align-items:center;gap:8px;padding:7px 14px;cursor:pointer;
-                         font-size:.84em;border-bottom:1px solid #eee;color:#555;">
-            <input type="checkbox" id="check-all" onchange="toggleAll(this)"
-                   <?= empty($selectedProps)?'checked':'' ?>>
-            <strong>— Tous —</strong>
-          </label>
-          <div style="padding:8px 14px;border-bottom:1px solid #eee;">
-            <input type="text" id="prop-search" placeholder="🔎 Rechercher un propriétaire…"
-                   oninput="filterProps(this.value)" autocomplete="off"
-                   onkeydown="if(event.key==='Enter'){event.preventDefault();}"
-                   style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #c5cae9;
-                          border-radius:6px;font-size:.84em;outline:none;">
-          </div>
-          <div id="prop-list" style="max-height:300px;overflow-y:auto;">
-          <?php foreach ($proprietaires as $p): ?>
-          <label class="prop-row" data-label="<?= e(mb_strtolower($p['label'])) ?>"
-                 style="display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer;font-size:.84em;">
-            <input type="checkbox" name="props[]" value="<?= (int)$p['id'] ?>"
-                   <?= in_array((int)$p['id'], $selectedProps)?'checked':'' ?>
-                   onchange="updateLabel()">
-            <?= e($p['label']) ?>
-          </label>
-          <?php endforeach; ?>
-          <div id="prop-noresult" style="display:none;padding:10px 14px;font-size:.82em;color:#999;">Aucun propriétaire trouvé</div>
-          </div>
-          <div style="padding:8px 14px;border-top:1px solid #eee;display:flex;gap:8px;">
-            <button type="submit" style="flex:1;background:#3f51b5;color:white;border:none;
-                    border-radius:6px;padding:6px;font-size:.82em;cursor:pointer;">Appliquer</button>
-            <a href="?" style="flex:1;text-align:center;background:#f5f5f5;color:#555;border-radius:6px;
-                    padding:6px;font-size:.82em;text-decoration:none;line-height:1.8;">Tout voir</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </form>
-  <?php endif; ?>
 </div>
-
-<?php if (!empty($selectedProps)): ?>
-<div style="background:#e8eaf6;border-left:4px solid #3f51b5;border-radius:6px;padding:8px 14px;
-            margin-bottom:16px;font-size:.85em;color:#1a237e;display:flex;align-items:center;gap:10px;">
-  <span>📊 Vue filtrée :
-    <?php foreach ($selectedLabels as $i => $lbl): ?>
-      <strong><?= e($lbl) ?></strong><?= $i < count($selectedLabels)-1 ? ' · ' : '' ?>
-    <?php endforeach; ?>
-  </span>
-  <a href="?" style="margin-left:auto;color:#666;text-decoration:none;font-size:.9em;">✕ Voir tous</a>
-</div>
-<?php endif; ?>
 
 <!-- KPIs -->
 <div class="kpi-grid">
@@ -350,6 +335,35 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   </div>
 </div>
 
+<!-- ══ VITRINE MODULES ═══════════════════════════════════ -->
+<div class="modules-title">🧩 Vos modules Ma Box Bailleur</div>
+<div class="modules-grid">
+  <?php foreach ($MODULES_CATALOG as $code => $m):
+      $active = in_array($code, $userModules, true);
+      $tag = $active ? 'a' : 'div';
+      $badgeClass = 'badge-' . $m['badge'];
+      $badgeLabel = $m['badge'] === 'usage' ? ($m['price'] ?? 'À l\'usage')
+                  : ($m['badge'] === 'inclus' ? 'Inclus'
+                  : ($m['badge'] === 'premium' ? 'Premium' : 'Option'));
+  ?>
+  <<?= $tag ?> class="mod-card <?= $active ? 'active' : 'locked' ?>"
+     <?= $active && $m['href'] !== '#' ? 'href="'.e($m['href']).'"' : '' ?>>
+    <?php if (!$active): ?><span class="lock-tag">🔒 Non activé</span><?php endif; ?>
+    <div class="mod-head">
+      <span class="mod-icon"><?= $m['icon'] ?></span>
+      <span class="mod-name"><?= e($m['label']) ?></span>
+    </div>
+    <div class="mod-desc"><?= e($m['desc']) ?></div>
+    <div class="mod-foot">
+      <span class="badge <?= $badgeClass ?>"><?= e($badgeLabel) ?></span>
+      <span class="mod-cta">
+        <?= $active ? ($m['href'] === '#' ? 'Bientôt disponible' : 'Ouvrir →') : 'Activer cette option' ?>
+      </span>
+    </div>
+  </<?= $tag ?>>
+  <?php endforeach; ?>
+</div>
+
 <!-- Assistant Claude -->
 <div class="dash-section" id="assistant-box">
   <div class="dash-section-header"><h3>🤖 Assistant — posez votre question</h3></div>
@@ -380,52 +394,6 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   });
 })();
 </script>
-
-<!-- Accès rapides -->
-<div class="quick-grid">
-  <a class="quick-link" href="bailleur_patrimoine_actif.php<?= $propsQuery ?>">
-    <span class="ql-icon">🏛️</span>
-    <span class="ql-label">Patrimoine actif</span>
-    <span class="ql-desc">Immeubles · Locataires · Impayés</span>
-  </a>
-  <a class="quick-link" href="bien_baux_liste.php<?= $propsQuery ?>">
-    <span class="ql-icon">📄</span>
-    <span class="ql-label">Baux</span>
-    <span class="ql-desc">Liste des baux par propriétaire</span>
-  </a>
-  <a class="quick-link" href="transaction_index.php?type=vente&amp;scope=bailleur">
-    <span class="ql-icon">🏷️</span>
-    <span class="ql-label">Biens en vente</span>
-    <span class="ql-desc">Mises en vente de votre portefeuille</span>
-  </a>
-  <a class="quick-link" href="bailleur_ged.php">
-    <span class="ql-icon">📁</span>
-    <span class="ql-label">GED Documents</span>
-    <span class="ql-desc">CRGs · Baux · Quittances</span>
-  </a>
-  <a class="quick-link" href="bailleur_revision_loyer.php">
-    <span class="ql-icon">📈</span>
-    <span class="ql-label">Révision des loyers</span>
-    <span class="ql-desc">IRL · Calcul · Courrier</span>
-  </a>
-  <a class="quick-link" href="bail_360.php">
-    <span class="ql-icon">📋</span>
-    <span class="ql-label">Bail 360°</span>
-    <span class="ql-desc">Fiche complète d'un bail</span>
-  </a>
-  <?php if ($isSuperAdmin): ?>
-  <a class="quick-link" href="bailleur_patrimoine_actif.php">
-    <span class="ql-icon">✅</span>
-    <span class="ql-label">Validation imports</span>
-    <span class="ql-desc">Contrôle qualité CRG</span>
-  </a>
-  <a class="quick-link" href="bailleur_admin.php">
-    <span class="ql-icon">👥</span>
-    <span class="ql-label">Admin bailleurs</span>
-    <span class="ql-desc">Comptes · Accès · Rôles</span>
-  </a>
-  <?php endif; ?>
-</div>
 
 <!-- Alertes impayés -->
 <div class="dash-section">
@@ -482,97 +450,6 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   <?php endif; ?>
 </div>
 
-<!-- Récap par propriétaire (masqué si filtré sur un seul propriétaire) -->
-<?php if(count($proprietaires)>1 && count($selectedProps)!==1): ?>
-<div class="dash-section">
-  <div class="dash-section-header">
-    <h3>👤 Vos propriétaires</h3>
-  </div>
-  <div class="prop-cards">
-    <?php foreach($proprietaires as $prop):
-        $pid=(int)$prop['id'];
-        $sp=$pdo->prepare("
-            SELECT
-              COUNT(DISTINCT CASE WHEN crg.loyer_appele>0 THEN CONCAT(crg.id_bien,'-',crg.locataire_nom) END) AS nb_a,
-              COUNT(DISTINCT CASE WHEN crg.loyer_appele=0 THEN CONCAT(crg.id_bien,'-',crg.locataire_nom) END) AS nb_p,
-              ROUND(SUM(CASE WHEN crg.loyer_appele>0 THEN crg.total_impaye ELSE 0 END),0) AS imp_a
-            FROM crg_situations_locataires crg
-            JOIN crg_trimestres ct ON crg.id_crg=ct.id
-            JOIN locataires_statuts ls ON ls.locataire_nom=crg.locataire_nom AND ls.id_bien=crg.id_bien AND ls.id_proprietaire=ct.id_proprietaire AND ls.statut!='irrecoverable' AND ls.archive=0
-            LEFT JOIN biens b ON b.id=crg.id_bien LEFT JOIN immeubles i ON i.id=b.id_immeuble
-            WHERE ct.id_proprietaire=? AND ct.parse_statut='ok' AND COALESCE(i.vendu,0)=0
-              AND (ct.annee,ct.trimestre)=(SELECT ct2.annee,ct2.trimestre FROM crg_trimestres ct2
-                JOIN crg_situations_locataires c2 ON c2.id_crg=ct2.id
-                WHERE ct2.id_proprietaire=ct.id_proprietaire AND ct2.parse_statut='ok'
-                  AND c2.id_bien=crg.id_bien AND c2.locataire_nom=crg.locataire_nom
-                ORDER BY ct2.annee DESC,ct2.trimestre DESC LIMIT 1)
-        ");
-        $sp->execute([$pid]);
-        $s=$sp->fetch(\PDO::FETCH_ASSOC);
-    ?>
-    <div class="prop-card">
-      <div class="prop-card-name"><?=e($prop['label'])?></div>
-      <div class="prop-card-stats">
-        <span>🟢 <strong><?=(int)($s['nb_a']??0)?></strong> actifs</span>
-        <span>🚪 <strong><?=(int)($s['nb_p']??0)?></strong> partis</span>
-        <?php if((float)($s['imp_a']??0)>0): ?>
-          <span style="color:#c62828">⚠️ <strong><?=fmt_euro((float)$s['imp_a']) ?></strong></span>
-        <?php else: ?>
-          <span style="color:#2e7d32">✅ OK</span>
-        <?php endif; ?>
-      </div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-</div>
-<?php endif; ?>
-
 </div>
 
-<script>
-function togglePropDropdown() {
-    const d = document.getElementById('prop-dropdown');
-    const opening = d.style.display === 'none';
-    d.style.display = opening ? 'block' : 'none';
-    if (opening) {
-        const s = document.getElementById('prop-search');
-        if (s) { s.value = ''; filterProps(''); setTimeout(() => s.focus(), 30); }
-    }
-}
-function filterProps(term) {
-    term = (term || '').trim().toLowerCase();
-    let visible = 0;
-    document.querySelectorAll('#prop-list .prop-row').forEach(function(row) {
-        const match = row.getAttribute('data-label').indexOf(term) !== -1;
-        row.style.display = match ? 'flex' : 'none';
-        if (match) visible++;
-    });
-    const nr = document.getElementById('prop-noresult');
-    if (nr) nr.style.display = visible === 0 ? 'block' : 'none';
-}
-document.addEventListener('click', function(e) {
-    if (!e.target.closest('#prop-filter-form')) {
-        const d = document.getElementById('prop-dropdown');
-        if (d) d.style.display = 'none';
-    }
-});
-function toggleAll(cb) {
-    document.querySelectorAll('#prop-dropdown input[name="props[]"]')
-        .forEach(c => c.checked = false);
-    updateLabel();
-}
-function updateLabel() {
-    document.getElementById('check-all').checked = false;
-    const checked = [...document.querySelectorAll('#prop-dropdown input[name="props[]"]:checked')];
-    const btn = document.getElementById('prop-btn-label');
-    if (checked.length === 0) {
-        btn.textContent = '— Tous les propriétaires —';
-        document.getElementById('check-all').checked = true;
-    } else if (checked.length === 1) {
-        btn.textContent = checked[0].closest('label').textContent.trim();
-    } else {
-        btn.textContent = checked.length + ' propriétaires sélectionnés';
-    }
-}
-</script>
 <?php require_once __DIR__ . '/inc/agency_layout_bottom.php'; ?>

@@ -419,7 +419,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
     <span class="ql-label">Validation imports</span>
     <span class="ql-desc">Contrôle qualité CRG</span>
   </a>
-  <a class="quick-link" href="bailleur_admin.php">
+  <a class="quick-link" href="admin_bailleurs.php">
     <span class="ql-icon">👥</span>
     <span class="ql-label">Admin bailleurs</span>
     <span class="ql-desc">Comptes · Accès · Rôles</span>

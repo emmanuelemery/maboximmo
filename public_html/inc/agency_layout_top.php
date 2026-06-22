@@ -185,6 +185,22 @@ document.addEventListener('DOMContentLoaded', function(){
 </head>
 <body <?= $bodyAttr ?>>
 
+<?php if (!empty($_SESSION['impersonator'])): ?>
+<div style="position:sticky;top:0;z-index:9999;background:linear-gradient(90deg,#7a4010,#c47a30);
+            color:#fff;font-family:'Sora',sans-serif;font-size:13px;font-weight:600;
+            padding:7px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.2);">
+  <span>🎭 Vous naviguez en tant que
+    <strong><?= htmlspecialchars(trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''))) ?></strong>
+    <span style="opacity:.85;font-weight:400;">— compte bailleur (vue de test)</span>
+  </span>
+  <a href="<?= htmlspecialchars(app_url('/bailleur_impersonate.php?stop=1')) ?>"
+     style="margin-left:auto;background:#fff;color:#7a4010;text-decoration:none;
+            padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;">
+    ↩ Revenir à mon compte
+  </a>
+</div>
+<?php endif; ?>
+
 <?php if (!$layoutNoSidebar) include $_lySidebarFile; ?>
 
 <div class="agency-content">

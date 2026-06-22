@@ -80,6 +80,7 @@ $chargeLbl = ['vendeur'=>'VENDEUR (mandant)','acquereur'=>'ACQUEREUR','partage'=
   .toolbar{max-width:800px;margin:0 auto 14px;display:flex;gap:10px;}
   .toolbar a,.toolbar button{font-family:system-ui,sans-serif;font-size:13px;font-weight:700;border-radius:8px;padding:9px 16px;border:none;cursor:pointer;text-decoration:none;}
   .btn-print{background:#243B5C;color:#fff;} .btn-back{background:#e2e8f0;color:#334155;}
+  .btn-close{background:#fee2e2;color:#b91c1c;}
   .draft{position:fixed;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-28deg);font-size:130px;color:rgba(200,0,0,.06);font-weight:900;pointer-events:none;z-index:5;}
   .layout{max-width:1180px;margin:0 auto;display:flex;gap:18px;align-items:flex-start;}
   .layout .doc{margin:0;flex:1;}
@@ -98,9 +99,22 @@ $chargeLbl = ['vendeur'=>'VENDEUR (mandant)','acquereur'=>'ACQUEREUR','partage'=
 </style></head>
 <body>
 <div class="toolbar">
-  <a class="btn-back" href="<?= h(app_url('/transaction_dossier.php?id_dossier=' . $idDossier)) ?>">← Retour dossier</a>
+  <a class="btn-back" href="<?= h(app_url('/transaction_dossier.php?id_dossier=' . $idDossier)) ?>">← Retour au dossier de vente</a>
   <button class="btn-print" onclick="window.print()">🖨️ Imprimer / PDF</button>
+  <button type="button" class="btn-close" onclick="closePreview()">✖ Fermer la fenêtre</button>
 </div>
+<script>
+function closePreview(){
+  // Fenêtre ouverte par script (window.open) → on la ferme.
+  window.close();
+  // Repli : si elle ne s'est pas fermée (onglet ouvert directement), on revient au dossier.
+  setTimeout(function(){
+    if (!window.closed) {
+      window.location.href = <?= json_encode(app_url('/transaction_dossier.php?id_dossier=' . $idDossier)) ?>;
+    }
+  }, 200);
+}
+</script>
 <div class="layout">
 <div class="doc">
   <?php if (!$signe): ?><div class="draft">PROJET</div><?php endif; ?>

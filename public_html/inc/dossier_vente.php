@@ -114,9 +114,10 @@ if (!function_exists('dv_ensure_for_bien')) {
                 ->execute([$idDossier]);
         } catch (Throwable $e) { error_log('[dv reference] ' . $e->getMessage()); }
 
-        // Lot principal (rang 0) + acteur vendeur proposé + synchro étape réelle.
+        // Lot principal (rang 0) + acteur vendeur + collaborateur créateur + synchro étape.
         dv_ensure_lot($pdo, $idDossier, $idBien, ['rang' => 0, 'id_user' => $idUser]);
         dv_seed_vendeur($pdo, $idDossier, $idBien);
+        dv_seed_collaborateur($pdo, $idDossier, (int)$idUser);
         dv_sync_etape($pdo, $idDossier);
 
         return $idDossier;
@@ -231,6 +232,69 @@ if (!function_exists('dv_seed_vendeur')) {
             ")->execute([$idTiers, $idDossier, $meta]);
         } catch (Throwable $e) {
             error_log('[dv_seed_vendeur] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('dv_seed_collaborateur')) {
+    /**
+     * Ajoute l'utilisateur qui crée le dossier comme acteur 'collaborateur'.
+     * users n'a pas de lien direct vers tiers : on retrouve le tiers par email,
+     * puis par nom+prénom, sinon on crée une fiche tiers minimale (réutilisable).
+     * Idempotent (INSERT IGNORE sur l'UNIQUE tiers_roles).
+     */
+    function dv_seed_collaborateur(PDO $pdo, int $idDossier, int $idUser): void {
+        if ($idDossier <= 0 || $idUser <= 0) return;
+        try {
+            $st = $pdo->prepare("SELECT nom, prenom, email, id_societe, id_agence FROM users WHERE id = ? LIMIT 1");
+            $st->execute([$idUser]);
+            $u = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$u) return;
+
+            $email  = trim((string)($u['email'] ?? ''));
+            $nom    = trim((string)($u['nom'] ?? ''));
+            $prenom = trim((string)($u['prenom'] ?? ''));
+
+            // 1) Retrouver un tiers existant : par email, sinon par nom + prénom.
+            $idTiers = 0;
+            if ($email !== '') {
+                $q = $pdo->prepare("SELECT id FROM tiers WHERE email = ? AND email <> '' ORDER BY id ASC LIMIT 1");
+                $q->execute([$email]);
+                $idTiers = (int)($q->fetchColumn() ?: 0);
+            }
+            if ($idTiers <= 0 && ($nom !== '' || $prenom !== '')) {
+                $q = $pdo->prepare("SELECT id FROM tiers
+                                     WHERE type_tiers = 'personne_physique' AND nom = ? AND prenom = ?
+                                     ORDER BY id ASC LIMIT 1");
+                $q->execute([$nom, $prenom]);
+                $idTiers = (int)($q->fetchColumn() ?: 0);
+            }
+
+            // 2) Créer une fiche tiers minimale pour le collaborateur si introuvable.
+            if ($idTiers <= 0) {
+                $nomAff = trim($prenom . ' ' . $nom);
+                if ($nomAff === '') $nomAff = $email !== '' ? $email : ('Utilisateur #' . $idUser);
+                $ins = $pdo->prepare("INSERT INTO tiers
+                    (id_societe, id_agence, type_tiers, nom, prenom, nom_affichage, email,
+                     source_creation, id_user_createur, actif, date_creation)
+                    VALUES (?, ?, 'personne_physique', ?, ?, ?, ?, 'auto_collaborateur_dossier', ?, 1, NOW())");
+                $ins->execute([
+                    $u['id_societe'] !== null ? (int)$u['id_societe'] : null,
+                    $u['id_agence']  !== null ? (int)$u['id_agence']  : null,
+                    $nom ?: null, $prenom ?: null, $nomAff, $email ?: null, $idUser,
+                ]);
+                $idTiers = (int)$pdo->lastInsertId();
+            }
+            if ($idTiers <= 0) return;
+
+            // 3) Attacher comme acteur 'collaborateur' du dossier (idempotent).
+            $meta = json_encode(['source' => 'auto_createur', 'id_user' => $idUser, 'modifiable' => true], JSON_UNESCAPED_UNICODE);
+            $pdo->prepare("INSERT IGNORE INTO tiers_roles
+                    (id_tiers, role_code, objet_type, id_objet, priorite, metadata, actif, date_creation)
+                VALUES (?, 'collaborateur', 'dossier_vente', ?, 5, ?, 1, NOW())")
+                ->execute([$idTiers, $idDossier, $meta]);
+        } catch (Throwable $e) {
+            error_log('[dv_seed_collaborateur] ' . $e->getMessage());
         }
     }
 }
@@ -403,12 +467,20 @@ if (!function_exists('dv_lots')) {
                    COALESCE(NULLIF(b.adresse_1,''), im.adresse_1) AS lot_adresse,
                    COALESCE(NULLIF(b.code_postal,''), im.code_postal) AS lot_cp,
                    COALESCE(NULLIF(b.ville,''), im.ville) AS lot_ville,
-                   -- Locataire du bail actif (le plus récent)
-                   (SELECT COALESCE(NULLIF(bx.locataire_raison_sociale,''),
-                                    NULLIF(TRIM(CONCAT(COALESCE(bx.locataire_prenom,''),' ',COALESCE(bx.locataire_nom,''))),''))
-                      FROM bien_baux bx
-                     WHERE bx.id_bien = b.id AND bx.statut = 'actif'
-                     ORDER BY bx.date_prise_effet DESC, bx.id DESC LIMIT 1) AS locataire_nom,
+                   -- Locataire : bail actif (bien_baux) en priorité, sinon CRG/gestion
+                   -- (locataires_statuts) pour les lots loués vus côté gestion (pas de bien_baux).
+                   COALESCE(
+                     (SELECT COALESCE(NULLIF(bx.locataire_raison_sociale,''),
+                                      NULLIF(TRIM(CONCAT(COALESCE(bx.locataire_prenom,''),' ',COALESCE(bx.locataire_nom,''))),''))
+                        FROM bien_baux bx
+                       WHERE bx.id_bien = b.id AND bx.statut = 'actif'
+                       ORDER BY bx.date_prise_effet DESC, bx.id DESC LIMIT 1),
+                     (SELECT ls.locataire_nom
+                        FROM locataires_statuts ls
+                       WHERE ls.id_bien = b.id AND ls.archive = 0
+                         AND ls.statut != 'irrecoverable'
+                       ORDER BY ls.id DESC LIMIT 1)
+                   ) AS locataire_nom,
                    -- Loyer réel suggéré (ANNUEL) : bail actif sinon biens.loyer_hc, ×12 (sources mensuelles)
                    COALESCE(
                      (SELECT bx2.loyer_mensuel_hc * 12 FROM bien_baux bx2

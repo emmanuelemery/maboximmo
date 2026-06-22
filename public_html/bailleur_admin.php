@@ -62,7 +62,7 @@ foreach ($bailleurs as $b) {
     if (!empty($b['id_proprietaire'])) $nbAvecCompteLegacy++;
 }
 
-$current_page = 'admin_bailleurs';
+$current_page = 'bailleur_admin';
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -298,13 +298,13 @@ $current_page = 'admin_bailleurs';
             </div>
         </div>
 
-        <form class="toolbar" method="get" action="<?= h(app_url('/admin_bailleurs.php')) ?>">
+        <form class="toolbar" method="get" action="<?= h(app_url('/bailleur_admin.php')) ?>">
             <div class="search-wrap">
                 <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input type="text" name="q" value="<?= h($q) ?>" placeholder="Rechercher un bailleur (nom, société, email, ville)…">
             </div>
             <?php if ($q !== ''): ?>
-                <a href="<?= h(app_url('/admin_bailleurs.php')) ?>" style="font-family:'DM Mono',monospace;font-size:11px;color:#a85858;text-decoration:none;">× Reset</a>
+                <a href="<?= h(app_url('/bailleur_admin.php')) ?>" style="font-family:'DM Mono',monospace;font-size:11px;color:#a85858;text-decoration:none;">× Reset</a>
             <?php endif; ?>
         </form>
 
@@ -356,7 +356,7 @@ $current_page = 'admin_bailleurs';
                     <div class="b-count hide-sm"><?= (int)$b['nb_biens'] ?></div>
                     <div>
                         <?php if ($hasLegacy): ?>
-                            <a href="<?= h(app_url('/dashboard_proprietaire.php?id_proprietaire=' . (int)$b['id_proprietaire'])) ?>" class="b-btn">
+                            <a href="<?= h(app_url('/bailleur_dashboard_v2.php?props[]=' . (int)$b['id_proprietaire'])) ?>" class="b-btn">
                                 Dashboard →
                             </a>
                         <?php else: ?>

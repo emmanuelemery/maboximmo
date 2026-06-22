@@ -156,14 +156,6 @@ $mandatSigne = (($dossier['statut'] ?? '') === 'confirme')
     || ($mandat && !empty($mandat['date_signature']))
     || (count($signatures) > 0 && count(array_filter($signatures, fn($s) => $s['statut'] === 'signe')) === count($signatures));
 
-// ── État visuel du mandat (couleur du bloc prix/honoraires de la card Mandat) ──
-//   • vert   : mandat déposé en GED (cycle bouclé, « mis en GED et analysé »)
-//   • orange : envoyé au vendeur pour signature mais pas encore retourné/déposé
-//   • neutre : brouillon / pas encore envoyé
-$mandatEnGed  = !empty($docsMandat);
-$mandatEnvoye = count($signatures) > 0 || !empty($mandat['date_signature']);
-$mandatEtat   = $mandatEnGed ? 'green' : ($mandatEnvoye ? 'orange' : 'neutral');
-
 // ── Helpers d'affichage ──
 $fmtPrix = static fn($v) => $v !== null && $v !== '' ? number_format((float)$v, 0, ',', ' ') . ' €' : '—';
 $fmtDate = static fn($v) => $v ? date('d/m/Y', strtotime((string)$v)) : '—';
@@ -505,32 +497,13 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <!-- Card MANDAT -->
         <div class="dv-card dvc-mandat">
           <h3>📝 Mandat de vente</h3>
-          <?php if ($mandat):
-            $mandatBoxCss = $mandatEtat === 'green'
-                ? 'background:#d7f0e0;border:1px solid #9ad3ab;color:#0b6b35;'
-                : ($mandatEtat === 'orange'
-                    ? 'background:#fff3c7;border:1px solid #fcd980;color:#92600a;'
-                    : 'background:#f8fafc;border:1px solid #e2e8f0;color:#475569;');
-            $mandatEtatLbl = $mandatEtat === 'green'
-                ? '🟢 Mandat déposé en GED & analysé'
-                : ($mandatEtat === 'orange'
-                    ? '🟧 Envoyé au vendeur — en attente de retour'
-                    : '📝 Brouillon — non encore envoyé');
-          ?>
-          <div style="border-radius:10px;padding:10px 12px;margin-bottom:12px;<?= $mandatBoxCss ?>">
-            <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;">
-              <span>Prix mandat</span><strong><?= h($fmtPrix($totaux['prix_total'])) ?></strong>
-            </div>
-            <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-top:3px;">
-              <span>Honoraires</span><strong><?= h($fmtPrix($mandat['honoraires'] ?? null)) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></strong>
-            </div>
-            <div style="font-size:11px;font-weight:700;margin-top:7px;"><?= $mandatEtatLbl ?></div>
-          </div>
-          <?php endif; ?>
           <div class="dv-row"><span class="k">Mandat</span><span class="v">
             <?php if ($mandat): ?><?= h($mandat['numero_mandat'] ?: ('#' . $mandat['id'])) ?><?= !empty($mandat['exclusif']) ? ' · exclusif' : '' ?><?php else: ?>—<?php endif; ?>
           </span></div>
           <?php if ($mandat): ?>
+            <?php if ($mandat['honoraires'] !== null && $mandat['honoraires'] !== ''): ?>
+              <div class="dv-row"><span class="k">Honoraires</span><span class="v"><?= h($fmtPrix($mandat['honoraires'])) ?><?= !empty($mandat['honoraires_charge']) ? ' · ' . h($mandat['honoraires_charge']) : '' ?></span></div>
+            <?php endif; ?>
             <div class="dv-row"><span class="k">Signature</span><span class="v">
               <?php
                 $nbSig = count($signatures);
@@ -581,6 +554,58 @@ include __DIR__ . '/inc/agency_layout_top.php';
           </div>
         </div>
 
+        <!-- Card COMMERCIALISATION -->
+        <div class="dv-card dvc-comm">
+          <h3>📣 Commercialisation <span class="dv-badge"><?= count($offres) ?> offre(s)</span></h3>
+          <?php if (!$offres): ?>
+            <div class="dv-empty">Aucune offre reçue.</div>
+          <?php else: foreach ($offres as $o): ?>
+            <div class="dv-row">
+              <span class="k"><?= h(trim(($o['prenom'] ?? '') . ' ' . ($o['nom'] ?? '')) ?: 'Acquéreur') ?>
+                <?php if ($o['statut_offre']): ?><span class="dv-badge"><?= h($o['statut_offre']) ?></span><?php endif; ?>
+              </span>
+              <span class="v"><?= h($fmtPrix($o['prix_propose'])) ?></span>
+            </div>
+          <?php endforeach; endif; ?>
+          <!-- Saisie d'une offre (API existante transaction_offre_save) + document à charger -->
+          <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <?php foreach ($docsOffre as $d): ?>
+              <div class="dv-doc"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Offre #' . $d['id'])) ?></a></div>
+            <?php endforeach; ?>
+            <button type="button" class="dvm-btn ok" style="width:100%;padding:9px;" onclick="dvToggleOffre(true)">💰 Saisir une offre</button>
+            <div id="dv-offre-form" style="display:none;margin-top:8px;">
+              <input type="text" id="dv-offre-prix" inputmode="numeric" placeholder="Prix proposé €" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
+              <input type="text" id="dv-offre-nom" placeholder="Acquéreur (nom)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
+              <input type="text" id="dv-offre-email" placeholder="Email (optionnel)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
+              <label style="font-size:11px;color:#64748b;font-weight:600;">Document de l'offre (PDF / Word, optionnel)</label>
+              <input type="file" id="dv-offre-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;margin:4px 0 6px;">
+              <div style="display:flex;gap:6px;">
+                <button type="button" class="dvm-btn ok" style="flex:1;padding:8px;" onclick="dvSaveOffre()">Valider</button>
+                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleOffre(false)">×</button>
+              </div>
+              <div id="dv-offre-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+            </div>
+          </div>
+          <div class="dvk-soon">Annonce &amp; diffusion portails — à venir.</div>
+        </div>
+
+        <!-- Card ACTE -->
+        <div class="dv-card dvc-acte">
+          <h3>🏛️ Acte</h3>
+          <?php foreach ($docsActe as $d): ?>
+            <div class="dv-doc"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Acte #' . $d['id'])) ?></a></div>
+          <?php endforeach; ?>
+          <?php if (!$docsActe): ?><div class="dv-empty">Aucun acte déposé.</div><?php endif; ?>
+          <div style="margin-top:10px;border-top:1px solid #eef2f6;padding-top:10px;">
+            <p class="dvm-label">Déposer l'acte (PDF / Word)</p>
+            <input type="file" id="dv-acte-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;">
+            <button type="button" class="dvm-btn ok" style="width:100%;margin-top:8px;padding:9px;" onclick="dvActeUpload()">📎 Déposer l'acte</button>
+            <div id="dv-acte-up-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+          </div>
+          <div class="dvk-soon" style="margin-top:10px;">Compromis &amp; signature en ligne de l'acte — à venir.</div>
+        </div>
+
+        <!-- Card COMMUNICATIONS -->
         </div><!-- /colstack col1 -->
 
         <!-- ════════ COLONNE 2 : Lots du mandat (empilés) ════════ -->
@@ -720,93 +745,32 @@ include __DIR__ . '/inc/agency_layout_top.php';
         </div>
       </div>
 
-      <!-- ===== ACTES (progression de la vente) ===== -->
-      <div class="dvk-panel" id="dvk-actes">
-
-        <!-- Card OFFRES REÇUES -->
-        <div class="dv-card dvc-comm">
-          <h3>💰 Offres reçues <span class="dv-badge"><?= count($offres) ?></span></h3>
-          <?php if (!$offres): ?>
-            <div class="dv-empty">Aucune offre reçue.</div>
-          <?php else: foreach ($offres as $o): ?>
-            <div class="dv-row">
-              <span class="k"><?= h(trim(($o['prenom'] ?? '') . ' ' . ($o['nom'] ?? '')) ?: 'Acquéreur') ?>
-                <?php if ($o['statut_offre']): ?><span class="dv-badge"><?= h($o['statut_offre']) ?></span><?php endif; ?>
-              </span>
-              <span class="v"><?= h($fmtPrix($o['prix_propose'])) ?></span>
-            </div>
-          <?php endforeach; endif; ?>
-          <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
-            <?php foreach ($docsOffre as $d): ?>
-              <div class="dv-doc"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Offre #' . $d['id'])) ?></a></div>
-            <?php endforeach; ?>
-            <button type="button" class="dvm-btn ok" style="width:100%;padding:9px;" onclick="dvToggleOffre(true)">💰 Saisir une offre</button>
-            <div id="dv-offre-form" style="display:none;margin-top:8px;">
-              <input type="text" id="dv-offre-prix" inputmode="numeric" placeholder="Prix proposé €" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
-              <input type="text" id="dv-offre-nom" placeholder="Acquéreur (nom)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
-              <input type="text" id="dv-offre-email" placeholder="Email (optionnel)" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;margin-bottom:6px;">
-              <label style="font-size:11px;color:#64748b;font-weight:600;">Document de l'offre (PDF / Word, optionnel)</label>
-              <input type="file" id="dv-offre-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;margin:4px 0 6px;">
-              <div style="display:flex;gap:6px;">
-                <button type="button" class="dvm-btn ok" style="flex:1;padding:8px;" onclick="dvSaveOffre()">Valider</button>
-                <button type="button" class="dvm-btn cancel" style="padding:8px 12px;" onclick="dvToggleOffre(false)">×</button>
-              </div>
-              <div id="dv-offre-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card COMPROMIS / PROMESSE -->
+      <!-- ===== ACTES ===== -->
+      <div class="dvk-panel solo" id="dvk-actes">
         <div class="dv-card dvc-acte">
-          <h3>🤝 Compromis / Promesse</h3>
-          <?php $avcResume = $avc ? ((($avc['type'] ?? '')==='promesse_unilaterale'?'Promesse':'Compromis').' · '.h($avc['statut'] ?? 'brouillon')) : null; ?>
-          <?php if ($avcResume): ?><div class="dv-note" style="margin-bottom:8px;">Fiche notaire : <strong><?= $avcResume ?></strong></div><?php endif; ?>
-          <button type="button" class="dvm-btn ok" style="width:100%;padding:10px 14px;margin-bottom:8px;" onclick="dvActeModalOpen()">📨 Préparation / envoi notaire</button>
-          <button type="button" class="dvm-btn cancel" style="width:100%;padding:10px 14px;" onclick="odClasserOpen()">📥 Charger un avant-contrat</button>
-        </div>
-
-        <!-- Card FINANCEMENT acquéreur -->
-        <?php
-          $finDemande = $avcV('demande_financement_date');
-          $finAccord  = $avcV('accord_financement_date');
-          $finCss = $finAccord ? 'background:#d7f0e0;border:1px solid #9ad3ab;color:#0b6b35;'
-                  : ($finDemande ? 'background:#fff3c7;border:1px solid #fcd980;color:#92600a;'
-                  : 'background:#f8fafc;border:1px solid #e2e8f0;color:#475569;');
-          $finLbl = $finAccord ? '🟢 Accord de financement obtenu'
-                  : ($finDemande ? '🟧 Demande déposée — accord en attente'
-                  : '🏦 Financement non démarré');
-        ?>
-        <div class="dv-card" style="border-color:#0891b2;">
-          <h3>🏦 Financement acquéreur</h3>
-          <div style="border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px;font-weight:700;<?= $finCss ?>"><?= $finLbl ?></div>
-          <?php if (!empty($avc['cs_pret'])): ?>
-            <div class="dv-row"><span class="k">Condition susp. prêt</span><span class="v"><?= h($fmtPrix($avcV('pret_montant'))) ?><?= $avcV('pret_date_limite') ? ' · limite ' . h($fmtDate($avcV('pret_date_limite'))) : '' ?></span></div>
-          <?php endif; ?>
-          <div class="dv-lot-f" style="margin-top:8px;"><label class="dvm-label">Demande de financement déposée le</label>
-            <input type="date" id="dv-fin-demande" value="<?= h((string)$finDemande) ?>" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;"></div>
-          <div class="dv-lot-f" style="margin-top:8px;"><label class="dvm-label">Accord de financement obtenu le</label>
-            <input type="date" id="dv-fin-accord" value="<?= h((string)$finAccord) ?>" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:7px;"></div>
-          <button type="button" class="dvm-btn ok" style="width:100%;padding:9px;margin-top:10px;" onclick="dvFinSave()">💾 Enregistrer le financement</button>
-          <div id="dv-fin-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
-        </div>
-
-        <!-- Card VENTE — acte authentique -->
-        <div class="dv-card dvc-acte">
-          <h3>🏛️ Vente — acte authentique</h3>
-          <?php if (!$docsActe): ?>
-            <div class="dv-empty">Aucun acte déposé.</div>
-          <?php else: foreach ($docsActe as $d): ?>
-            <div class="dv-doc" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Acte #' . $d['id'])) ?>
-                <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></span>
-              <a class="dvm-btn cancel" style="padding:5px 12px;text-decoration:none;flex-shrink:0;" target="_blank"
-                 href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>">👁️ Voir</a>
+          <h3>🏛️ Actes</h3>
+          <div style="display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start;">
+            <!-- Colonne gauche : actions -->
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button type="button" class="dvm-btn ok" style="padding:10px 14px;" onclick="odClasserOpen()">📥 Charger des documents</button>
+              <button type="button" class="dvm-btn ok" style="padding:10px 14px;" onclick="dvActeModalOpen()">📨 Préparation envoi notaire</button>
+              <?php $avcResume = $avc ? ((($avc['type'] ?? '')==='promesse_unilaterale'?'Promesse':'Compromis').' · '.h($avc['statut'] ?? 'brouillon')) : null; ?>
+              <?php if ($avcResume): ?><div class="dv-note" style="margin-top:4px;">Fiche notaire : <strong><?= $avcResume ?></strong></div><?php endif; ?>
             </div>
-          <?php endforeach; endif; ?>
-          <div style="margin-top:10px;border-top:1px solid #eef2f6;padding-top:10px;">
-            <input type="file" id="dv-acte-file" accept=".pdf,.doc,.docx" style="width:100%;font-size:12px;">
-            <button type="button" class="dvm-btn ok" style="width:100%;margin-top:8px;padding:9px;" onclick="dvActeUpload()">📎 Déposer l'acte</button>
-            <div id="dv-acte-up-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+            <!-- Colonne droite : documents des actes (chargés ou rédigés) -->
+            <div>
+              <p class="dvm-label">Documents des actes</p>
+              <?php if (!$docsActe): ?>
+                <div class="dv-empty">Aucun acte chargé pour l'instant.</div>
+              <?php else: foreach ($docsActe as $d): ?>
+                <div class="dv-doc" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Acte #' . $d['id'])) ?>
+                    <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></span>
+                  <a class="dvm-btn cancel" style="padding:5px 12px;text-decoration:none;flex-shrink:0;" target="_blank"
+                     href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>">👁️ Voir</a>
+                </div>
+              <?php endforeach; endif; ?>
+            </div>
           </div>
         </div>
       </div>
@@ -825,21 +789,6 @@ include __DIR__ . '/inc/agency_layout_top.php';
           var f = document.getElementById('dv-acte-frame');
           if (f.src.indexOf('transaction_avant_contrat') === -1) f.src = <?= json_encode(app_url('/transaction_avant_contrat.php?id_dossier=' . $idDossier)) ?>;
           document.getElementById('dv-acte-modal').style.display = 'block';
-        };
-        // Enregistrement des jalons de financement (réutilise l'API avant-contrat,
-        // champs whitelistés demande_financement_date / accord_financement_date).
-        window.dvFinSave = async function(){
-          var msg = document.getElementById('dv-fin-msg'); msg.style.color='#64748b'; msg.textContent='Enregistrement…';
-          var fd = new FormData();
-          fd.append('id_dossier', <?= (int)$idDossier ?>);
-          fd.append('demande_financement_date', document.getElementById('dv-fin-demande').value || '');
-          fd.append('accord_financement_date',  document.getElementById('dv-fin-accord').value  || '');
-          try{
-            var r = await fetch(<?= json_encode(app_url('/api/transaction_dossier_avant_contrat_save.php')) ?>, {method:'POST', body:fd});
-            var j = await r.json();
-            if(j.ok){ msg.style.color='#15803d'; msg.textContent='✓ Enregistré'; setTimeout(()=>location.reload(), 500); }
-            else { msg.style.color='#ef4444'; msg.textContent = j.error || 'Erreur'; }
-          }catch(e){ msg.style.color='#ef4444'; msg.textContent='Erreur réseau'; }
         };
       </script>
       <?php if (false): // ancien formulaire inline désactivé (déplacé dans le modal) ?>
@@ -972,18 +921,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
       </div>
 
       <!-- ===== COMMUNICATION ===== -->
-      <div class="dvk-panel" id="dvk-communication">
-
-        <!-- Card ANNONCE & SUPPORTS -->
-        <div class="dv-card dvc-comm">
-          <h3>📣 Annonce &amp; supports</h3>
-          <p style="font-size:12px;color:#64748b;margin:2px 0 10px;">Tout est rattaché au bien du dossier — aucune ressaisie.</p>
-          <a class="dvm-btn ok" style="display:block;text-align:center;text-decoration:none;padding:9px;margin-bottom:8px;" href="<?= h(app_url('/annonce_creation.php?id_bien=' . $idBien)) ?>">📝 Annonce directe</a>
-          <a class="dvm-btn cancel" style="display:block;text-align:center;text-decoration:none;padding:9px;margin-bottom:8px;" href="<?= h(app_url('/mbi_supports_dashboard.php?id_bien=' . $idBien)) ?>">🖼️ Affiches &amp; supports</a>
-          <a class="dvm-btn cancel" style="display:block;text-align:center;text-decoration:none;padding:9px;" href="<?= h(app_url('/annonce_liste.php?id_bien=' . $idBien)) ?>">📡 Diffusion portails</a>
-        </div>
-
-        <!-- Card COMMUNICATION (mails) -->
+      <div class="dvk-panel solo" id="dvk-communication">
         <div class="dv-card dvc-communications">
           <h3>✉️ Communication <span style="font-weight:400;color:#94a3b8;font-size:12px;">(mails du dossier)</span></h3>
           <?php if (!$comms): ?>
@@ -1591,7 +1529,7 @@ require_once __DIR__ . '/inc/adresse_modal.php';
       <button type="button" onclick="document.getElementById('dvUpModal').style.display='none'" style="border:1px solid #d6dade;background:#eceef1;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;">✕</button>
     </div>
     <div style="padding:16px 18px;font-size:13px;">
-      <div class="dv-note" style="margin-bottom:10px;">Le document est <b>rangé automatiquement</b> en GED et rattaché à toutes les entités liées : <b>dossier</b>, <b>bien</b>, <b>immeuble</b>, <b>propriétaire</b> et <b>bail</b> (si présents) — aucun doublon.</div>
+      <div class="dv-note" style="margin-bottom:10px;">Le document est <b>rangé automatiquement</b> : rattaché au <b>dossier</b> et visible dans le <b>bien</b>.</div>
       <form id="dvUpForm" enctype="multipart/form-data">
         <input type="hidden" name="id_dossier" value="<?= (int)$idDossier ?>">
         <input type="file" name="document[]" id="dvUpFile" multiple
@@ -1599,27 +1537,13 @@ require_once __DIR__ . '/inc/adresse_modal.php';
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-weight:700;color:#1d4e57;">Type :</label>
           <select id="dvUpType" name="type_document" style="padding:7px 10px;border:1px solid #b6d4d9;border-radius:8px;background:#fff;font-size:13px;">
-            <optgroup label="Vente">
-              <option value="MANDAT_VENTE">📜 Mandat de vente</option>
-              <option value="ESTIMATION">📊 Avis de valeur / estimation</option>
-              <option value="OFFRE_ACHAT">💰 Offre d'achat</option>
-              <option value="COMPROMIS">📝 Compromis / promesse</option>
-              <option value="ACTE_AUTHENTIQUE">🏛️ Acte authentique</option>
-            </optgroup>
-            <optgroup label="Financement (acquéreur)">
-              <option value="FINANCEMENT_DEMANDE">🏦 Demande de financement</option>
-              <option value="FINANCEMENT_ACCORD">✅ Accord / offre de prêt</option>
-            </optgroup>
-            <optgroup label="Bien & propriété">
-              <option value="DIAG_DPE">⚡ Diagnostic (DPE…)</option>
-              <option value="TITRE_PROPRIETE">🏠 Titre de propriété</option>
-              <option value="COPROPRIETE">🏢 Documents copropriété (PV AG, règlement…)</option>
-              <option value="BAIL">🔑 Bail / location</option>
-            </optgroup>
-            <optgroup label="Autre">
-              <option value="IDENTITE">🪪 Pièce d'identité / KYC</option>
-              <option value="AUTRE" selected>📎 Autre document</option>
-            </optgroup>
+            <option value="MANDAT_VENTE">📜 Mandat de vente</option>
+            <option value="ESTIMATION">📊 Avis de valeur / estimation</option>
+            <option value="COMPROMIS">📝 Compromis / promesse</option>
+            <option value="ACTE_AUTHENTIQUE">🏛️ Acte authentique</option>
+            <option value="OFFRE_ACHAT">💰 Offre d'achat</option>
+            <option value="DIAG_DPE">⚡ Diagnostic (DPE…)</option>
+            <option value="AUTRE" selected>📎 Autre document</option>
           </select>
         </div>
         <div id="dvDropzone" tabindex="0"

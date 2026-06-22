@@ -16,6 +16,7 @@ if (!function_exists('dac_columns')) {
             'indemnite_immobilisation'=>'n','date_levee_option'=>'d',
             'cs_pret'=>'b','pret_montant'=>'n','pret_duree_mois'=>'i','pret_taux_max'=>'n',
             'pret_nb_offres'=>'i','pret_date_limite'=>'d','pret_apport'=>'n','pret_organismes'=>'s',
+            'demande_financement_date'=>'d','accord_financement_date'=>'d',
             'cs_preemption'=>'b','cs_preemption_detail'=>'s','cs_servitudes'=>'b','cs_urbanisme'=>'b',
             'cs_hypotheques'=>'b','cs_vente_bien_acquereur'=>'b','cs_autres'=>'s',
             'date_entree_jouissance'=>'d','occupation'=>'s','mobilier_inclus'=>'b',
