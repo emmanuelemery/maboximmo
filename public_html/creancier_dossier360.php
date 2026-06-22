@@ -86,6 +86,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
 <style>
 .f360-grid { grid-template-columns:2fr 1fr !important; align-items:start; }  /* chat/actions = 1/3 */
 @media (max-width:900px){ .f360-grid { grid-template-columns:1fr !important; } }
+.cre-2col { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+@media (max-width:1100px){ .cre-2col { grid-template-columns:1fr; } }
 .cre-tabs { display:flex; gap:4px; border-bottom:2px solid #e6e1d8; margin-bottom:14px; flex-wrap:wrap; }
 .cre-tab { padding:10px 18px; border:none; background:transparent; font-family:'Sora',sans-serif; font-size:13px; font-weight:700; color:#8a8680; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; }
 .cre-tab:hover { color:#243B5C; }
@@ -141,6 +143,7 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
       </div>
       <?php endif; ?>
 
+      <div class="cre-2col">
       <div class="f360-card">
         <h3>📅 Agenda <span class="count"><?= count($agenda) ?></span></h3>
         <?php if (!$agenda): ?><div class="f360-empty"><div class="em-ico">📅</div>Aucune date.</div><?php endif; ?>
@@ -161,6 +164,7 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
           <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0ece6;font-size:12.5px;"><span><?= h($it['titre']) ?></span><strong><?= $it['montant']!==null?$eur($it['montant']):'' ?></strong></div>
         <?php endforeach; ?>
       </div>
+      </div><!-- /cre-2col -->
 
       <?php if (!empty($data['locataires_saisis'])): ?>
       <div class="f360-card" style="border-left:4px solid #2d5f6b;">
