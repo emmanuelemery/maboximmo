@@ -38,17 +38,13 @@ $scopeAg         = (int)$scope['id_agence'];
 $where  = ["tr.role_code = 'proprietaire'"];
 $params = [];
 
-// Cloisonnement société
+// Cloisonnement société : société directe du tiers, OU société d'un de ses biens,
+// OU tiers legacy sans société (id_societe NULL) — sinon des propriétaires réels
+// (ex. GROUPE SIR : société NULL mais 89 biens) disparaissent dès qu'on filtre une société.
 if ($scopeSoc > 0) {
-    if ($isAdmin) {
-        // Super-admin : filtre société EXPLICITE → strict (pas de fuite des tiers sans société)
-        $where[]  = "t.id_societe = ?";
-        $params[] = $scopeSoc;
-    } else {
-        // User standard : société forcée, tolère les tiers legacy sans société
-        $where[]  = "(t.id_societe = ? OR t.id_societe IS NULL)";
-        $params[] = $scopeSoc;
-    }
+    $where[]  = "(t.id_societe = ? OR t.id_societe IS NULL OR EXISTS (SELECT 1 FROM biens bs JOIN proprietaires ps ON ps.id = bs.id_proprietaire WHERE ps.id_tiers = t.id AND bs.id_societe = ?))";
+    $params[] = $scopeSoc;
+    $params[] = $scopeSoc;
 }
 // Filtre agence optionnel (via tiers OU proprietaires legacy)
 if ($scopeAg > 0) {
