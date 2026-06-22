@@ -253,7 +253,7 @@ ob_start();
       <?php endforeach; ?>
       <?php if ($isMgr): ?>
       <div style="margin-top:12px;padding-top:12px;border-top:1px dashed #efeae1">
-        <a href="<?= h((function_exists('app_url') ? app_url('/creancier_scan.php') : 'creancier_scan.php')) ?>?id_dossier=<?= (int)$idDossier ?>" class="ph-btn primary">📄 Charger un document</a>
+        <button type="button" onclick="fbxOpenUploadModal({creancier_dossier_id: <?= (int)$idDossier ?>, soc_id: <?= (int)($dossier['id_societe'] ?? 0) ?>, age_id: <?= (int)($dossier['id_agence'] ?? 0) ?>, origin:'creancier'})" class="ph-btn primary" style="border:none;cursor:pointer">📄 Charger un document</button>
       </div>
       <?php endif; ?>
     </div>
@@ -298,6 +298,9 @@ ob_start();
 
 </div>
 <?php
+// Modal FluxBox (point d'entrée GED central) — inclus dans le contenu.
+require __DIR__ . '/inc/fluxbox_upload_modal.php';
+
 $layout_content = ob_get_clean();
 
 $jsChatDossier = (int)$idDossier;

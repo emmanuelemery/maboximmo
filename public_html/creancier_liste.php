@@ -83,7 +83,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <div class="topbar-spacer"></div>
     <?php if ($isMgr): ?>
     <div style="display:flex;gap:8px;align-items:center;margin-right:10px;">
-      <a href="<?= e($base) ?>creancier_scan.php" class="bl-btn" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">📄 Scanner un document</a>
+      <button type="button" onclick="fbxOpenUploadModal({origin:'creancier'})" class="bl-btn" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">📄 Scanner un document</button>
       <a href="<?= e($base) ?>creancier_dossier_form.php" class="bl-btn" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">➕ Nouveau dossier</a>
     </div>
     <?php endif; ?>
@@ -146,4 +146,5 @@ function creFilter(){
   });
 }
 </script>
+<?php if ($isMgr) require __DIR__ . '/inc/fluxbox_upload_modal.php'; ?>
 <?php include __DIR__ . '/inc/footer.php'; ?>

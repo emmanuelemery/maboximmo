@@ -68,7 +68,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <div class="topbar-spacer"></div>
     <?php if ($isMgr): ?>
     <div style="display:flex;gap:8px;align-items:center;margin-right:10px;">
-      <a href="<?= e($base) ?>creancier_scan.php" class="bl-btn" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;text-decoration:none;">📄 Scanner un document</a>
+      <button type="button" onclick="fbxOpenUploadModal({origin:'creancier'})" class="bl-btn" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;cursor:pointer;">📄 Scanner un document</button>
       <a href="<?= e($base) ?>creancier_dossier_form.php" class="bl-btn" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-weight:700;text-decoration:none;">➕ Nouveau dossier</a>
       <a href="<?= e($base) ?>creancier_liste.php" class="bl-btn" style="background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;font-weight:700;text-decoration:none;">📂 Tous les dossiers</a>
     </div>
@@ -116,4 +116,5 @@ include __DIR__ . '/inc/sidebar_agency.php';
     </div>
   </div>
 </div>
+<?php if ($isMgr) require __DIR__ . '/inc/fluxbox_upload_modal.php'; ?>
 <?php include __DIR__ . '/inc/footer.php'; ?>

@@ -1004,13 +1004,43 @@ try {
                 'n4' => trim((string)($_POST['ged_n4'] ?? '')),  // catégorie
                 'n5' => trim((string)($_POST['ged_n5'] ?? '')),  // sous-catégorie
             ];
-            // Société : fallback session si non transmise. Agence : facultative — si user n'envoie pas le champ on retombe sur la session, mais s'il envoie une valeur (même 0 pour "société uniquement"), on la respecte.
-            $targetSocieteId = (int)($_POST['target_societe_id'] ?? ($_SESSION['id_societe'] ?? 0));
-            $targetAgenceId  = isset($_POST['target_agence_id']) && $_POST['target_agence_id'] !== ''
-                ? (int)$_POST['target_agence_id']
-                : (int)($_SESSION['id_agence'] ?? 0);
+            // Société/agence : RÈGLE (2026-06-09) — jamais la session de l'user.
+            //  - Si un BIEN est connu (upload depuis un bien) → on résout depuis le
+            //    bien/immeuble/propriétaire (autorité métier), en ignorant tout défaut session.
+            //  - Sinon (upload « libre ») → on respecte un choix explicite ; à défaut Régie EMERY (1/3).
+            require_once dirname(__DIR__) . '/inc/bien_scope_resolver.php';
+            $prefillBienId = (int)($_POST['prefill_bien_id'] ?? 0);
+            if ($prefillBienId > 0) {
+                $rv = bien_resolve_soc_age($pdo, $prefillBienId);
+                $targetSocieteId = $rv['societe_id'];
+                $targetAgenceId  = $rv['agence_id'];
+            } else {
+                $targetSocieteId = (int)($_POST['target_societe_id'] ?? 0) ?: 1;
+                $targetAgenceId  = (isset($_POST['target_agence_id']) && $_POST['target_agence_id'] !== '')
+                    ? (int)$_POST['target_agence_id'] : 3;
+            }
             // Date document : détection placée APRÈS le move (pour avoir $target accessible aux parsers PDF/msg)
             $userDateRaw = trim((string)($_POST['target_date'] ?? ''));
+
+            // [V3.1 — 2026-05-25] Prefill métier depuis page appelante (bien/immeuble/tiers)
+            // Permet le naming entité polymorphe + détection N1 contextuelle.
+            $prefillBienId     = (int)($_POST['prefill_bien_id']     ?? 0);
+            $prefillImmeubleId = (int)($_POST['prefill_immeuble_id'] ?? 0);
+            $prefillTiersId    = (int)($_POST['prefill_tiers_id']    ?? 0);
+            $prefillCreancierDossierId = (int)($_POST['prefill_creancier_dossier_id'] ?? 0);
+            $prefillOrigin     = (string)($_POST['prefill_origin']   ?? '');
+
+            // Contexte dossier créancier → tenant résolu depuis le dossier (autorité métier).
+            if ($prefillCreancierDossierId > 0 && $prefillBienId <= 0) {
+                try {
+                    $stCd = $pdo->prepare("SELECT id_societe, id_agence FROM creancier_dossier WHERE id = ?");
+                    $stCd->execute([$prefillCreancierDossierId]);
+                    if ($rCd = $stCd->fetch(PDO::FETCH_ASSOC)) {
+                        if (!empty($rCd['id_societe'])) $targetSocieteId = (int)$rCd['id_societe'];
+                        if (!empty($rCd['id_agence']))  $targetAgenceId  = (int)$rCd['id_agence'];
+                    }
+                } catch (Throwable) {}
+            }
 
             // Déplace dans un dossier de stockage tenant-safe
             $tenantId = fluxbox_current_tenant_id();
@@ -1190,6 +1220,12 @@ try {
                     'target_societe_id' => $targetSocieteId,
                     'target_agence_id'  => $targetAgenceId,
                     'relative_path'     => $relativePath,
+                    // [V3.1] prefill métier pour orchestrator naming
+                    'bien_id'           => $prefillBienId ?: null,
+                    'immeuble_id'       => $prefillImmeubleId ?: null,
+                    'tiers_id'          => $prefillTiersId ?: null,
+                    'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
+                    'prefill_origin'    => $prefillOrigin,
                 ],
             ], $pdo);
 
@@ -1334,6 +1370,12 @@ try {
                     'target_date'        => $targetDate,
                     'target_date_source' => $targetDateSrc,
                     'target_date_confidence' => $targetDateConf,
+                    // [V3.1] Prefill métier propagé pour naming entité polymorphe
+                    'bien_id'            => $prefillBienId ?: null,
+                    'immeuble_id'        => $prefillImmeubleId ?: null,
+                    'tiers_id'           => $prefillTiersId ?: null,
+                    'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
+                    'prefill_origin'     => $prefillOrigin,
                 ],
             ], $pdo);
 
@@ -1359,6 +1401,16 @@ try {
                 $vaResult = ['ok' => false, 'erreur' => $e->getMessage()];
             }
 
+            // [V3.1 + Auto-commit — 2026-05-25] Si éligible (IA ≥ 90%, entité matchée, type spécifique)
+            // → auto-commit en GED. Sinon, carte reste pending pour review manuelle.
+            $autoCommit = null;
+            try {
+                require_once __DIR__ . '/../inc/fluxbox_auto_commit_ged.php';
+                $autoCommit = fluxbox_auto_commit_try($carteId, $pdo);
+            } catch (Throwable $e) {
+                $autoCommit = ['attempted' => false, 'committed' => false, 'ged_doc_id' => null, 'eligibility' => ['reason' => 'exception: ' . $e->getMessage()], 'promote' => null];
+            }
+
             fbx_api_respond(true, [
                 'data' => [
                     'is_duplicate' => false,
@@ -1372,6 +1424,12 @@ try {
                         'proposed' => $vaResult['naming_proposed'] ?? null,
                         'ok'       => $vaResult['ok'] ?? false,
                         'erreur'   => $vaResult['erreur'] ?? null,
+                    ] : null,
+                    'auto_commit'  => $autoCommit ? [
+                        'attempted'  => $autoCommit['attempted'],
+                        'committed'  => $autoCommit['committed'],
+                        'ged_doc_id' => $autoCommit['ged_doc_id'],
+                        'reason'     => $autoCommit['eligibility']['reason'] ?? '',
                     ] : null,
                 ],
             ]);

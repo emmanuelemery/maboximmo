@@ -90,6 +90,45 @@ if (!function_exists('cef_enrich_dossier')) {
                 ->execute([$idDossier, $idCreancier, $userId]);
         }
 
+        // ── 1b. Professionnel (avocat / huissier-commissaire) → tiers + lien ──
+        $proNom  = cef_pick($ia, ['professionnel.nom', 'pro', 'avocat', 'huissier', 'commissaire', 'cabinet']);
+        $proRoleRaw = strtolower((string)(cef_pick($ia, ['professionnel.role', 'pro_role', 'role_pro']) ?? ''));
+        $proRole = (str_contains($proRoleRaw, 'huissier') || str_contains($proRoleRaw, 'commissaire')) ? 'commissaire_justice'
+                 : (str_contains($proRoleRaw, 'notaire') ? 'notaire' : 'avocat');
+        if ($proNom) {
+            $stp = $pdo->prepare("SELECT id FROM tiers WHERE (raison_sociale LIKE :q OR nom LIKE :q OR nom_affichage LIKE :q)
+                AND (:soc IS NULL OR id_societe IS NULL OR id_societe = :soc) LIMIT 1");
+            $stp->bindValue(':q', '%' . $proNom . '%'); $stp->bindValue(':soc', $socId); $stp->execute();
+            $idPro = (int)($stp->fetchColumn() ?: 0);
+            if ($idPro <= 0) {
+                $pdo->prepare("INSERT INTO tiers (id_societe, id_agence, type_tiers, raison_sociale, nom_affichage, actif, id_user_createur, date_creation, date_modification)
+                               VALUES (?,?, 'personne_morale', ?, ?, 1, ?, NOW(), NOW())")
+                    ->execute([$socId, $ageId, $proNom, $proNom, $userId]);
+                $idPro = (int)$pdo->lastInsertId();
+            }
+            $pdo->prepare("INSERT IGNORE INTO tiers_roles (id_tiers, role_code, objet_type, actif) VALUES (?, ?, NULL, 1)")->execute([$idPro, $proRole]);
+            $pdo->prepare("INSERT IGNORE INTO creancier_dossier_lien (id_dossier, entity_type, entity_id, role_dossier, created_by) VALUES (?, 'TIERS', ?, ?, ?)")
+                ->execute([$idDossier, $idPro, $proRole, $userId]);
+            $actions[] = "$proRole « $proNom »";
+        }
+
+        // ── 1c. Bien (OPTIONNEL — une créance peut porter sur la société, pas un bien) ──
+        $bienRef = cef_pick($ia, ['bien.reference', 'reference_bien', 'bien_reference']);
+        $bienAdr = cef_pick($ia, ['bien.adresse', 'adresse_bien', 'adresse']);
+        if ($bienRef || $bienAdr) {
+            try {
+                require_once __DIR__ . '/entity_matcher.php';
+                if (function_exists('em_match_bien')) {
+                    $m = em_match_bien($pdo, ['adresse' => (string)$bienAdr, 'reference' => (string)$bienRef]);
+                    if (!empty($m['found']) && (int)($m['confidence'] ?? 0) >= 75 && !empty($m['best']['id'])) {
+                        $pdo->prepare("INSERT IGNORE INTO creancier_dossier_lien (id_dossier, entity_type, entity_id, role_dossier, created_by) VALUES (?, 'BIEN', ?, 'bien_concerne', ?)")
+                            ->execute([$idDossier, (int)$m['best']['id'], $userId]);
+                        $actions[] = "bien #" . (int)$m['best']['id'] . " lié";
+                    }
+                }
+            } catch (Throwable) {} // bien non identifié → on n'impose rien
+        }
+
         // ── 2. Item DETTE ──
         $itemId = 0;
         if ($montant !== null && $montant > 0) {
