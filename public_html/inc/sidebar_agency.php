@@ -31,7 +31,7 @@ $linkTrans   = $_sbBase . 'transaction_index.php';
 $dashDiff    = $_sbBase . 'agency_dashboard_diffusion.php';
 $dashAdmin   = $_sbBase . 'super_admin_dashboard.php';
 $linkPatrimoine = $_sbBase . 'bailleur_patrimoine_actif.php';
-$linkCreanciers = $_sbBase . 'creancier_liste.php';
+$linkCreanciers = $_sbBase . 'creancier_dashboard.php';
 
 // Module CRÉANCIERS (sensible) : visible si super admin OU au moins 1 dossier en ACL.
 $canCreanciers = $isAdminOrSup;
@@ -87,7 +87,7 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
             <li><a href="<?= htmlspecialchars($dashDiff) ?>" class="<?= sb_active('agency_dashboard_diffusion.php') ?>"><span class="sb-icon">📡</span><span class="sb-label">Diffusion</span></a></li>
             <li><a href="<?= htmlspecialchars($dashMetier) ?>" class="<?= sb_active('agency_dashboard_metier.php') ?>"><span class="sb-icon">🧭</span><span class="sb-label">Métier</span></a></li>
             <?php if ($canCreanciers): ?>
-                <li><a href="<?= htmlspecialchars($linkCreanciers) ?>" class="<?= sb_active('creancier_liste.php') ?: sb_active('creancier_dashboard.php') ?>"><span class="sb-icon">⚖️</span><span class="sb-label">Créanciers</span></a></li>
+                <li><a href="<?= htmlspecialchars($linkCreanciers) ?>" class="<?= sb_active('creancier_dashboard.php') ?: (sb_active('creancier_liste.php') ?: (sb_active('creancier360.php') ?: (sb_active('creancier_creancier360.php') ?: sb_active('creancier_dossier360.php')))) ?>"><span class="sb-icon">⚖️</span><span class="sb-label">Créanciers</span></a></li>
             <?php endif; ?>
             <?php if ($isAdminOrSup): ?>
                 <li><a href="<?= htmlspecialchars($_sbBase . 'bailleur_dashboard.php') ?>" class="<?= sb_active('bailleur_dashboard.php') ?>"><span class="sb-icon">🏦</span><span class="sb-label">Module Bailleur</span></a></li>

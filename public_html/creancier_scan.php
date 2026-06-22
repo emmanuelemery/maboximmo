@@ -141,7 +141,7 @@ header nav a:hover { color:var(--text); border-color:var(--mbi-or); }
   <span class="badge">CONFIDENTIEL</span>
   <nav>
     <a href="<?= csc_h($base) ?>creancier_liste.php">← Dossiers</a>
-    <?php if ($dossierMatch): ?><a href="<?= csc_h($base) ?>creancier_dashboard.php?id_dossier=<?= (int)$dossierMatch['id'] ?>">Cockpit dossier</a><?php endif; ?>
+    <?php if ($dossierMatch): ?><a href="<?= csc_h($base) ?>creancier_dossier360.php?id_dossier=<?= (int)$dossierMatch['id'] ?>">Dossier 360</a><?php endif; ?>
   </nav>
 </header>
 
@@ -280,7 +280,7 @@ header nav a:hover { color:var(--text); border-color:var(--mbi-or); }
       else { fd.append('id_dossier', val('dossier_id')); }
       const r = await fetch('api/creancier_doc_valider.php', {method:'POST', body:fd});
       const j = await r.json();
-      if (j.ok) { location.href = 'creancier_dashboard.php?id_dossier=' + j.id_dossier; }
+      if (j.ok) { location.href = 'creancier_dossier360.php?id_dossier=' + j.id_dossier; }
       else { alert('Erreur : '+(j.error||'échec')); this.disabled=false; this.textContent=t; }
     } catch(e){ alert(e); this.disabled=false; this.textContent=t; }
   });

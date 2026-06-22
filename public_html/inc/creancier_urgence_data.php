@@ -216,6 +216,71 @@ if (!function_exists('creancier_urgence_data')) {
     }
 }
 
+if (!function_exists('creancier_accessible_dossiers')) {
+    /**
+     * Dossiers accessibles par l'utilisateur (super admin = tous ; sinon ACL + tenant).
+     * @return array rows creancier_dossier
+     */
+    function creancier_accessible_dossiers(PDO $pdo, int $userId): array {
+        $isSuper = function_exists('is_super_admin') && is_super_admin();
+        if ($isSuper) {
+            return $pdo->query("SELECT * FROM creancier_dossier ORDER BY FIELD(niveau_risque,'rouge','orange','vert'), libelle")->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $soc = (int)($pdo->query("SELECT id_societe FROM users WHERE id = " . (int)$userId)->fetchColumn() ?: 0);
+        $st = $pdo->prepare("SELECT d.* FROM creancier_dossier d
+            JOIN creancier_dossier_acces a ON a.id_dossier = d.id AND a.id_user = :uid
+            WHERE (d.id_societe IS NULL OR d.id_societe = :soc)
+            ORDER BY FIELD(d.niveau_risque,'rouge','orange','vert'), d.libelle");
+        $st->execute([':uid' => $userId, ':soc' => $soc]);
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+if (!function_exists('creancier_agenda')) {
+    /**
+     * Agenda agrégé : échéances datées de plusieurs dossiers (creancier_echeance +
+     * butoirs/audiences de saisies + échéances d'items). Triées par date croissante.
+     *
+     * @param int[] $dossierIds
+     * @return array [ ['id_dossier','date','type','libelle','retard'(bool)], ... ]
+     */
+    function creancier_agenda(PDO $pdo, array $dossierIds, int $daysAhead = 120): array {
+        $dossierIds = array_values(array_filter(array_map('intval', $dossierIds)));
+        if (!$dossierIds) return [];
+        $in    = implode(',', array_fill(0, count($dossierIds), '?'));
+        $today = date('Y-m-d');
+        $max   = date('Y-m-d', strtotime("+$daysAhead days"));
+        $ev = [];
+
+        // 1. creancier_echeance
+        $st = $pdo->prepare("SELECT id_dossier, date_echeance AS d, type, libelle FROM creancier_echeance
+            WHERE id_dossier IN ($in) AND statut='a_venir' AND date_echeance <= ?");
+        $st->execute(array_merge($dossierIds, [$max]));
+        foreach ($st as $r) $ev[] = ['id_dossier'=>(int)$r['id_dossier'],'date'=>$r['d'],'type'=>$r['type'],'libelle'=>$r['libelle'],'retard'=>$r['d']<$today];
+
+        // 2. saisies (butoir + audience)
+        $st = $pdo->prepare("SELECT id_societe, id FROM creancier_saisie LIMIT 0"); // noop guard
+        $st = $pdo->prepare("SELECT s.id, l.id_dossier, s.date_butoir, s.date_audience, s.reference_acte
+            FROM creancier_dossier_lien l JOIN creancier_saisie s ON s.id = l.entity_id
+            WHERE l.entity_type='SAISIE' AND l.id_dossier IN ($in)
+              AND s.statut IN ('en_cours','cantonnee','mainlevee_partielle','contestee')");
+        $st->execute($dossierIds);
+        foreach ($st as $r) {
+            if ($r['date_butoir']   && $r['date_butoir']   <= $max) $ev[] = ['id_dossier'=>(int)$r['id_dossier'],'date'=>$r['date_butoir'],'type'=>'butoir','libelle'=>'Butoir saisie '.$r['reference_acte'],'retard'=>$r['date_butoir']<$today];
+            if ($r['date_audience'] && $r['date_audience'] <= $max) $ev[] = ['id_dossier'=>(int)$r['id_dossier'],'date'=>$r['date_audience'],'type'=>'audience','libelle'=>'Audience '.$r['reference_acte'],'retard'=>$r['date_audience']<$today];
+        }
+
+        // 3. items à échéance
+        $st = $pdo->prepare("SELECT id_dossier, date_echeance, type, titre FROM creancier_dossier_item
+            WHERE id_dossier IN ($in) AND date_echeance IS NOT NULL AND date_echeance <= ?");
+        $st->execute(array_merge($dossierIds, [$max]));
+        foreach ($st as $r) $ev[] = ['id_dossier'=>(int)$r['id_dossier'],'date'=>$r['date_echeance'],'type'=>strtolower($r['type']),'libelle'=>$r['titre'],'retard'=>$r['date_echeance']<$today];
+
+        usort($ev, fn($a,$b) => strcmp($a['date'],$b['date']));
+        return $ev;
+    }
+}
+
 if (!function_exists('creancier_resolve_cibles')) {
     /**
      * Résout les libellés des cibles polymorphes depuis les tables existantes

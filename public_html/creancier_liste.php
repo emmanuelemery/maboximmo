@@ -124,7 +124,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
           elseif ($u['prochaine_butoir']) $chips[] = '📅 ' . $dfr($u['prochaine_butoir']);
         ?>
         <?php entity_card([
-          'url'    => $base . 'creancier_dashboard.php?id_dossier=' . (int)$d['id'],
+          'url'    => $base . 'creancier_dossier360.php?id_dossier=' . (int)$d['id'],
           'accent' => $rc,
           'ref'    => (string)$d['code'],
           'title'  => (string)$d['libelle'],

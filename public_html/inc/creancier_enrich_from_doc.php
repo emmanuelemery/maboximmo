@@ -119,6 +119,29 @@ if (!function_exists('cef_enrich_dossier')) {
                 ->execute([$numDoss, $idDossier]);
         }
 
+        // ── 5. Agenda : dates extraites du scan → creancier_echeance ──
+        $dateMap = [
+            'date_audience'      => 'audience',
+            'date_butoir'        => 'butoir',
+            'date_signification' => 'signification',
+            'date_expertise'     => 'expertise',
+            'date_appel'         => 'delai_appel',
+            'date_limite'        => 'butoir',
+            'date_echeance'      => 'echeance',
+        ];
+        $nbDates = 0;
+        foreach ($dateMap as $key => $type) {
+            $dv = cef_pick($ia, [$key, 'dates.' . $key]);
+            if ($dv && preg_match('/\d{4}-\d{2}-\d{2}/', $dv, $mD)) {
+                $pdo->prepare("INSERT INTO creancier_echeance (id_dossier, type, libelle, date_echeance, source, ged_document_id, id_tiers_lie, created_by)
+                               VALUES (?,?,?,?, 'scan', ?, ?, ?)")
+                    ->execute([$idDossier, $type, ucfirst($type) . ($creaNom ? ' — ' . $creaNom : ''), $mD[0],
+                               (int)($ctx['ged_document_id'] ?? 0) ?: null, $idCreancier ?: null, $userId]);
+                $nbDates++;
+            }
+        }
+        if ($nbDates) $actions[] = "$nbDates date(s) → agenda";
+
         return ['actions' => $actions, 'id_creancier' => $idCreancier ?: null, 'item_dette_id' => $itemId ?: null];
     }
 }

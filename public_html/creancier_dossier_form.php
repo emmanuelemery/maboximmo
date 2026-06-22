@@ -57,7 +57,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $pdo->prepare("INSERT IGNORE INTO creancier_dossier_acces (id_dossier, id_user, niveau, created_by) VALUES (?,?, 'pilote', ?)")
                 ->execute([$id, $userId, $userId]);
             $pdo->commit();
-            header('Location: ' . (function_exists('app_url') ? app_url('/creancier_dashboard.php') : 'creancier_dashboard.php') . '?id_dossier=' . $id);
+            header('Location: ' . (function_exists('app_url') ? app_url('/creancier_dossier360.php') : 'creancier_dossier360.php') . '?id_dossier=' . $id);
             exit;
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
