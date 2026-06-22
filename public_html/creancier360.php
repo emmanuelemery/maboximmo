@@ -48,7 +48,7 @@ $rows = []; $kNet = 0.0; $kReste = 0.0; $kUrg = 0;
 foreach ($all as $d) {
     $u = creancier_urgence_data($pdo, (int)$d['id'], $userId);
     if (!$u['acces']) continue;
-    $kNet += $u['total_net_bloque']; $kReste += $u['reste_du'];
+    $kNet += $u['total_net_bloque']; $kReste += $u['montant_du'];
     if ($u['butoirs_en_retard']) $kUrg++;
     $rows[] = ['d' => $d, 'u' => $u];
 }
@@ -91,7 +91,8 @@ include __DIR__ . '/inc/sidebar_agency.php';
       <?php entity_card_assets(); ?>
       <div class="ec-grid">
         <?php foreach ($rows as $r): $d = $r['d']; $u = $r['u']; $rc = $riskColor[$d['niveau_risque']] ?? '#ea580c';
-          $chips = ['💰 Reste dû <b style="color:#dc2626;margin-left:3px;">' . $eur($u['reste_du']) . '</b>', '🔒 ' . $eur($u['total_net_bloque'])];
+          $chips = ['💰 Dû <b style="color:#dc2626;margin-left:3px;">' . $eur($u['montant_du']) . '</b>'];
+          if ($u['total_net_bloque'] > 0) $chips[] = '🔒 ' . $eur($u['total_net_bloque']);
           if ($u['butoirs_en_retard']) $chips[] = '<span style="color:#dc2626;font-weight:700;">⏰ ' . count($u['butoirs_en_retard']) . ' retard(s)</span>';
           elseif ($u['prochaine_butoir']) $chips[] = '📅 ' . $dfr($u['prochaine_butoir']);
           entity_card([

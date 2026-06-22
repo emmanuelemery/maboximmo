@@ -66,6 +66,8 @@ if (!function_exists('creancier_urgence_data')) {
             'total_net_bloque'            => 0.0,
             'total_verse'                 => 0.0,   // cumul versements (saisies actives)
             'reste_du'                    => 0.0,   // total_net_bloque - total_verse
+            'total_dette'                 => 0.0,   // Σ items DETTE du dossier
+            'montant_du'                  => 0.0,   // reste_du (saisies) + total_dette
             'tresorerie_captee_mensuelle' => 0.0,
             'prochaine_butoir'            => null,
             'butoirs_en_retard'           => [],
@@ -79,6 +81,12 @@ if (!function_exists('creancier_urgence_data')) {
             return $out;
         }
         $out['acces'] = true;
+
+        // ── Dette du dossier (items DETTE) — comptée même sans saisie ────────
+        $stD = $pdo->prepare("SELECT COALESCE(SUM(montant),0) FROM creancier_dossier_item WHERE id_dossier = ? AND type = 'DETTE'");
+        $stD->execute([$id_dossier]);
+        $out['total_dette'] = round((float)$stD->fetchColumn(), 2);
+        $out['montant_du']  = $out['total_dette'];
 
         $ACTIVES = ['en_cours', 'cantonnee', 'mainlevee_partielle', 'contestee'];
         $in      = implode(',', array_fill(0, count($ACTIVES), '?'));
@@ -190,6 +198,7 @@ if (!function_exists('creancier_urgence_data')) {
         }
 
         $out['reste_du'] = round($out['total_net_bloque'] - $out['total_verse'], 2);
+        $out['montant_du'] = round($out['reste_du'] + $out['total_dette'], 2);
 
         // Libellés cibles (résolus depuis l'existant, jamais recopiés en base).
         creancier_resolve_cibles($pdo, $cibles);

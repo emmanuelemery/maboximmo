@@ -29,7 +29,7 @@ $kNet = 0.0; $kReste = 0.0; $kUrg = 0; $urgences = [];
 foreach ($dossiers as $d) {
     $u = creancier_urgence_data($pdo, (int)$d['id'], $userId);
     if (!$u['acces']) continue;
-    $kNet += $u['total_net_bloque']; $kReste += $u['reste_du'];
+    $kNet += $u['total_net_bloque']; $kReste += $u['montant_du'];
     if ($u['butoirs_en_retard']) { $kUrg++; $urgences[] = ['d' => $d, 'u' => $u]; }
 }
 $agenda = creancier_agenda($pdo, $ids, 120);
@@ -108,7 +108,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
         <?php foreach ($urgences as $r): $d = $r['d']; $u = $r['u']; ?>
           <a class="cd-row" href="<?= e($base) ?>creancier_dossier360.php?id_dossier=<?= (int)$d['id'] ?>">
             <span><b><?= e($d['libelle']) ?></b> <span class="cd-pill"><?= e($d['code']) ?></span></span>
-            <span style="color:#dc2626;font-weight:700"><?= count($u['butoirs_en_retard']) ?> retard(s) · <?= $eur($u['reste_du']) ?></span>
+            <span style="color:#dc2626;font-weight:700"><?= count($u['butoirs_en_retard']) ?> retard(s) · <?= $eur($u['montant_du']) ?></span>
           </a>
         <?php endforeach; ?>
       </div>

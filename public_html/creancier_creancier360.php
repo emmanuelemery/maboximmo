@@ -46,7 +46,7 @@ foreach ($all as $d) {
     // total net de CE créancier dans le dossier
     $part = 0.0;
     foreach ($u['saisies_par_creancier'] as $c) if ((int)$c['id_creancier'] === $tid) $part += (float)$c['total_net'];
-    $kNet += ($part ?: $u['total_net_bloque']); $kReste += $u['reste_du'];
+    $kNet += ($part ?: $u['total_net_bloque']); $kReste += $u['montant_du'];
     $rows[] = ['d' => $d, 'u' => $u, 'part' => $part];
 }
 
@@ -90,7 +90,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
         <?php foreach ($rows as $r): $d = $r['d']; $u = $r['u']; $rc = $riskColor[$d['niveau_risque']] ?? '#ea580c';
           $chips = [];
           if ($r['part'] > 0) $chips[] = '⚖️ Net ici <b style="margin-left:3px;">' . $eur($r['part']) . '</b>';
-          $chips[] = '💰 Dossier : ' . $eur($u['reste_du']);
+          $chips[] = '💰 Dû : ' . $eur($u['montant_du']);
           if ($u['butoirs_en_retard']) $chips[] = '<span style="color:#dc2626;font-weight:700;">⏰ ' . count($u['butoirs_en_retard']) . ' retard(s)</span>';
           entity_card([
             'url' => $base . 'creancier_dossier360.php?id_dossier=' . (int)$d['id'],
