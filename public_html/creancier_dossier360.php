@@ -107,7 +107,8 @@ foreach ($debiteurs as $d0) {
 $chaine[] = ['icon'=>'⚖️','label'=>'Ce dossier','url'=>null];
 fiche360_breadcrumb($chaine, 'Architecture');
 
-$metas = [['icon'=>'💰','text'=>'Reste dû '.$eur($data['reste_du'])], ['icon'=>'🔒','text'=>$eur($data['total_net_bloque']).' bloqué']];
+$metas = [['icon'=>'💰','text'=>'Dû '.$eur($data['montant_du'])]];
+if ($data['total_net_bloque'] > 0) $metas[] = ['icon'=>'🔒','text'=>$eur($data['total_net_bloque']).' bloqué'];
 if ($data['butoirs_en_retard']) $metas[] = ['icon'=>'⏰','text'=>count($data['butoirs_en_retard']).' retard(s)'];
 $headerActions = [];
 if ($isMgr) $headerActions[] = ['label'=>'📄 Charger un document','url'=>'#','class'=>'tr-btn tr-btn-primary','onclick'=>"fbxOpenUploadModal({creancier_dossier_id:{$idDossier}, soc_id:".(int)($dossier['id_societe']??0).", age_id:".(int)($dossier['id_agence']??0).", origin:'creancier'});return false;"];
@@ -149,7 +150,8 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
       <div class="f360-card">
         <h3>💰 Montants dus</h3>
         <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px;">
-          <div><div style="font-size:10px;color:#9a9690;">RESTE DÛ</div><strong style="font-size:18px;color:#dc2626;"><?= $eur($data['reste_du']) ?></strong></div>
+          <div><div style="font-size:10px;color:#9a9690;">MONTANT DÛ</div><strong style="font-size:18px;color:#dc2626;"><?= $eur($data['montant_du']) ?></strong></div>
+          <div><div style="font-size:10px;color:#9a9690;">DETTE</div><strong style="font-size:18px;"><?= $eur($data['total_dette']) ?></strong></div>
           <div><div style="font-size:10px;color:#9a9690;">NET BLOQUÉ</div><strong style="font-size:18px;"><?= $eur($data['total_net_bloque']) ?></strong></div>
           <div><div style="font-size:10px;color:#9a9690;">CAPTÉ/MOIS</div><strong style="font-size:18px;color:#4878a6;"><?= $eur($data['tresorerie_captee_mensuelle']) ?></strong></div>
         </div>
@@ -187,8 +189,12 @@ fiche360_status_banner('Dossier <b>'.h($statutLbl[$dossier['statut']] ?? $dossie
       <?php endif; ?>
     </div>
 
-    <!-- ── ONGLET DOSSIER (analyse IA) ── -->
+    <!-- ── ONGLET DOSSIER (résumé + analyse IA) ── -->
     <div class="cre-tabpane" id="pane-dossier">
+      <div class="f360-card" style="border-left:4px solid #243B5C;">
+        <h3>📝 Résumé du dossier</h3>
+        <div style="font-size:13.5px;line-height:1.55;color:#3a3830;white-space:pre-line;"><?= $dossier['synthese'] ? h($dossier['synthese']) : '<span style="color:#9a9690;font-style:italic;">Aucun résumé saisi.</span>' ?></div>
+      </div>
       <div class="f360-card">
         <h3>🧠 Analyse IA du dossier
           <?php if ($isMgr): ?><button type="button" id="genAnalyse" class="tr-btn" style="float:right;padding:4px 12px;font-size:11px;"><?= $dossier['analyse_ia'] ? '↻ Régénérer' : '🧠 Générer' ?></button><?php endif; ?>
