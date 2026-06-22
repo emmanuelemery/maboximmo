@@ -82,6 +82,13 @@ $sta = $pdo->prepare("SELECT id, type_doc, extr_creancier_nom, extr_numero_dossi
 $sta->execute([$idDossier]);
 $analyses = $sta->fetchAll(PDO::FETCH_ASSOC);
 
+// ── Messages du chat de dossier ──────────────────────────────────────
+$stm = $pdo->prepare("SELECT role, id_user, message, created_at FROM creancier_dossier_message WHERE id_dossier = ? ORDER BY id ASC LIMIT 100");
+$stm->execute([$idDossier]);
+$messages = $stm->fetchAll(PDO::FETCH_ASSOC);
+require_once __DIR__ . '/inc/csrf.php';
+$csrfChat = csrf_token('creancier_chat');
+
 // ── Docs GED liés (best effort) ──────────────────────────────────────
 $docs = [];
 $gedFile = __DIR__ . '/inc/ged_document_links.php';
@@ -215,6 +222,14 @@ ob_start();
       <?php endforeach; ?>
     </div>
 
+    <!-- Commentaire avocat -->
+    <?php if (!empty($dossier['commentaire'])): ?>
+    <div class="cre-card" style="border-left:6px solid #7c3aed">
+      <h3>⚖️ Commentaire / avis avocat</h3>
+      <div style="font-size:13px;color:#3a3830;white-space:pre-line"><?= h($dossier['commentaire']) ?></div>
+    </div>
+    <?php endif; ?>
+
     <!-- Documents GED -->
     <div class="cre-card">
       <h3>Documents (GED)</h3>
@@ -253,7 +268,58 @@ ob_start();
   </div>
   <?php endif; ?>
 
+  <!-- Chat du dossier -->
+  <div class="cre-card" style="border-left:6px solid #4878a6">
+    <h3>💬 Chat du dossier</h3>
+    <div id="creChatBox" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+      <?php if (!$messages): ?><div class="cre-empty" id="creChatEmpty">Pose une question sur ce dossier (échéances, montants, stratégie…). L'IA répond à partir du contexte du dossier.</div><?php endif; ?>
+      <?php foreach ($messages as $m): $me = $m['role'] === 'user'; ?>
+        <div style="align-self:<?= $me ? 'flex-end' : 'flex-start' ?>;max-width:78%;background:<?= $me ? '#243b5c' : '#eef1f6' ?>;color:<?= $me ? '#fff' : '#243b5c' ?>;padding:8px 12px;border-radius:12px;font-size:13px;white-space:pre-line"><?= h($m['message']) ?></div>
+      <?php endforeach; ?>
+    </div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="creChatInput" placeholder="Votre question…" style="flex:1;padding:9px 12px;border:1px solid #d8d2c8;border-radius:8px;font-size:13px">
+      <button type="button" id="creChatSend" class="ph-btn primary">Envoyer</button>
+    </div>
+  </div>
+
 </div>
 <?php
 $layout_content = ob_get_clean();
+
+$jsChatDossier = (int)$idDossier;
+$jsChatCsrf    = json_encode($csrfChat);
+$layout_extra_js = <<<JS
+<script>
+(function(){
+  const dossier = {$jsChatDossier};
+  const csrf = {$jsChatCsrf};
+  const box = document.getElementById('creChatBox');
+  const input = document.getElementById('creChatInput');
+  const btn = document.getElementById('creChatSend');
+  function bubble(text, me){
+    const e = document.getElementById('creChatEmpty'); if (e) e.remove();
+    const d = document.createElement('div');
+    d.style.cssText = 'align-self:'+(me?'flex-end':'flex-start')+';max-width:78%;background:'+(me?'#243b5c':'#eef1f6')+';color:'+(me?'#fff':'#243b5c')+';padding:8px 12px;border-radius:12px;font-size:13px;white-space:pre-line';
+    d.textContent = text; box.appendChild(d); box.scrollTop = box.scrollHeight; return d;
+  }
+  async function send(){
+    const msg = (input.value||'').trim(); if(!msg) return;
+    bubble(msg, true); input.value=''; btn.disabled=true;
+    const wait = bubble('…', false);
+    const fd = new FormData(); fd.append('id_dossier', dossier); fd.append('message', msg); fd.append('csrf_token', csrf);
+    try {
+      const r = await fetch('api/creancier_chat_post.php', {method:'POST', body:fd});
+      const j = await r.json();
+      wait.textContent = j.ok ? j.reply : ('Erreur : '+(j.error||'échec'));
+    } catch(e){ wait.textContent = 'Erreur : '+e; }
+    finally { btn.disabled=false; box.scrollTop = box.scrollHeight; }
+  }
+  btn.addEventListener('click', send);
+  input.addEventListener('keydown', function(e){ if(e.key==='Enter') send(); });
+  box.scrollTop = box.scrollHeight;
+})();
+</script>
+JS;
+
 require_once __DIR__ . '/inc/layout_maboximmo.php';
