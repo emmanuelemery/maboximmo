@@ -1027,20 +1027,7 @@ try {
             $prefillBienId     = (int)($_POST['prefill_bien_id']     ?? 0);
             $prefillImmeubleId = (int)($_POST['prefill_immeuble_id'] ?? 0);
             $prefillTiersId    = (int)($_POST['prefill_tiers_id']    ?? 0);
-            $prefillCreancierDossierId = (int)($_POST['prefill_creancier_dossier_id'] ?? 0);
             $prefillOrigin     = (string)($_POST['prefill_origin']   ?? '');
-
-            // Contexte dossier créancier → tenant résolu depuis le dossier (autorité métier).
-            if ($prefillCreancierDossierId > 0 && $prefillBienId <= 0) {
-                try {
-                    $stCd = $pdo->prepare("SELECT id_societe, id_agence FROM creancier_dossier WHERE id = ?");
-                    $stCd->execute([$prefillCreancierDossierId]);
-                    if ($rCd = $stCd->fetch(PDO::FETCH_ASSOC)) {
-                        if (!empty($rCd['id_societe'])) $targetSocieteId = (int)$rCd['id_societe'];
-                        if (!empty($rCd['id_agence']))  $targetAgenceId  = (int)$rCd['id_agence'];
-                    }
-                } catch (Throwable) {}
-            }
 
             // Déplace dans un dossier de stockage tenant-safe
             $tenantId = fluxbox_current_tenant_id();
@@ -1224,7 +1211,6 @@ try {
                     'bien_id'           => $prefillBienId ?: null,
                     'immeuble_id'       => $prefillImmeubleId ?: null,
                     'tiers_id'          => $prefillTiersId ?: null,
-                    'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
                     'prefill_origin'    => $prefillOrigin,
                 ],
             ], $pdo);
@@ -1374,7 +1360,6 @@ try {
                     'bien_id'            => $prefillBienId ?: null,
                     'immeuble_id'        => $prefillImmeubleId ?: null,
                     'tiers_id'           => $prefillTiersId ?: null,
-                    'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
                     'prefill_origin'     => $prefillOrigin,
                 ],
             ], $pdo);

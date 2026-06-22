@@ -63,7 +63,6 @@ try {
         <!-- Fix Bug 1 (2026-05-26) : vrais hidden inputs pour inspection DOM + audit QA -->
         <!-- Le POST upload utilise FormData JS (fd.append) mais ces hidden donnent la vérité visible -->
         <input type="hidden" name="prefill_bien_id"     id="fbx-prefill-bien-id"     value="0">
-        <input type="hidden" name="prefill_creancier_dossier_id" id="fbx-prefill-creancier-dossier-id" value="0">
         <input type="hidden" name="prefill_immeuble_id" id="fbx-prefill-immeuble-id" value="0">
         <input type="hidden" name="prefill_tiers_id"    id="fbx-prefill-tiers-id"    value="0">
         <input type="hidden" name="prefill_soc_id"      id="fbx-prefill-soc-id"      value="0">
@@ -1909,7 +1908,6 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             prefill_immeuble_id: pf.immeuble_id ? parseInt(pf.immeuble_id, 10) : 0,
             prefill_tiers_id:    pf.proprio_tiers_id ? parseInt(pf.proprio_tiers_id, 10)
                                : (pf.tiers_id ? parseInt(pf.tiers_id, 10) : 0),
-            prefill_creancier_dossier_id: pf.creancier_dossier_id ? parseInt(pf.creancier_dossier_id, 10) : 0,
             prefill_origin:      pf.origin || '',
         };
     }
@@ -1943,7 +1941,6 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         // Fix Bug 1 (2026-05-26) : mettre à jour les hidden inputs HTML visibles pour QA + audit
         const setHidden = (id, val) => { const el = document.getElementById(id); if (el) el.value = String(val ?? ''); };
         setHidden('fbx-prefill-bien-id',     prefill.bien_id          || 0);
-        setHidden('fbx-prefill-creancier-dossier-id', prefill.creancier_dossier_id || 0);
         setHidden('fbx-prefill-immeuble-id', prefill.immeuble_id      || 0);
         setHidden('fbx-prefill-tiers-id',    prefill.proprio_tiers_id || prefill.tiers_id || 0);
         setHidden('fbx-prefill-soc-id',      prefill.soc_id           || 0);
@@ -2250,7 +2247,6 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             fd.append('prefill_bien_id',     String(meta.prefill_bien_id || 0));
             fd.append('prefill_immeuble_id', String(meta.prefill_immeuble_id || 0));
             fd.append('prefill_tiers_id',    String(meta.prefill_tiers_id || 0));
-            fd.append('prefill_creancier_dossier_id', String(meta.prefill_creancier_dossier_id || 0));
             fd.append('prefill_origin',      meta.prefill_origin || '');
             // Path relatif si le file vient d'un panneau "Dossier" (<input webkitdirectory>)
             // Permet au serveur d'extraire le nom du dossier parent comme instance entité
