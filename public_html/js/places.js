@@ -1,5 +1,22 @@
 /* global fetch */
 (function () {
+    // CSS de base injecté par le script lui-même : garantit que le menu déroulant
+    // s'affiche bien positionné et AU-DESSUS de tout (modals inclus), même sur une
+    // page qui n'embarque pas le CSS .places-dropdown. position:fixed + z-index max.
+    (function injectPlacesCss() {
+        if (document.getElementById('places-base-css')) return;
+        var st = document.createElement('style');
+        st.id = 'places-base-css';
+        st.textContent =
+            '.places-dropdown{position:fixed !important;z-index:2147483600 !important;background:#fff;'
+          + 'border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);'
+          + 'max-height:300px;overflow:auto;}'
+          + '.places-item{padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;color:#0f172a;}'
+          + '.places-item:last-child{border-bottom:0;}'
+          + '.places-item.active,.places-item:hover{background:#eef5fc;}';
+        (document.head || document.documentElement).appendChild(st);
+    })();
+
     function byId(id) {
         if (!id) return null;
         return document.getElementById(id);
@@ -81,18 +98,12 @@
 
         // Google évalué À LA DEMANDE (le SDK peut finir de charger APRÈS ce 1er init) :
         // ainsi un seul init gère local + Google dès que le SDK est prêt.
+        // Nouvelle API Places (mars 2025+) : AutocompleteSuggestion + Place.
+        // (l'ancienne AutocompleteService/PlacesService est dépréciée → coupures aléatoires)
         function googleReady() {
             return (typeof google !== 'undefined' && google.maps && google.maps.places
-                && google.maps.places.AutocompleteService);
-        }
-        var _autoSvc = null, _detSvc = null;
-        function autoSvc() {
-            if (!_autoSvc && googleReady()) { try { _autoSvc = new google.maps.places.AutocompleteService(); } catch (e) {} }
-            return _autoSvc;
-        }
-        function detSvc() {
-            if (!_detSvc && googleReady()) { try { _detSvc = new google.maps.places.PlacesService(document.createElement('div')); } catch (e) {} }
-            return _detSvc;
+                && google.maps.places.AutocompleteSuggestion
+                && google.maps.places.Place);
         }
 
         var active = -1;
@@ -111,10 +122,11 @@
         }
 
         function positionDropdown() {
+            // position:fixed → coordonnées viewport (getBoundingClientRect), SANS scrollX/Y.
             var rect = input.getBoundingClientRect();
             dropdown.style.width = rect.width + 'px';
-            dropdown.style.left = (rect.left + window.scrollX) + 'px';
-            dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.top = rect.bottom + 'px';
         }
 
         function hideDropdown() {
@@ -189,29 +201,42 @@
             if (source === 'local') {
                 fillFromData(input, payload);
                 input.value = payload.label || item.textContent || input.value;
+                // GPS : si l'immeuble enregistré n'a pas de coordonnées en base,
+                // on les récupère par géocodage de l'adresse (la ligne 📍 s'affiche).
+                var hasGps = payload.latitude && payload.longitude;
+                if (!hasGps && geocodeEndpoint) {
+                    var q = [payload.adresse_1, payload.code_postal, payload.ville]
+                        .filter(function (v) { return v; }).join(' ').trim();
+                    if (q.length >= 4) {
+                        var latId2 = input.getAttribute('data-places-lat');
+                        var lngId2 = input.getAttribute('data-places-lng');
+                        fetch(geocodeEndpoint + '?q=' + encodeURIComponent(q))
+                            .then(function (res) { return res.json(); })
+                            .then(function (data) {
+                                if (data && data.ok && data.latitude && data.longitude) {
+                                    setValue(latId2, data.latitude);
+                                    setValue(lngId2, data.longitude);
+                                }
+                            })
+                            .catch(function () {});
+                    }
+                }
                 releaseSelection();
                 return;
             }
 
-            var _dsvc = detSvc();
-            if (_dsvc && placeId) {
-                window.setTimeout(releaseSelection, 800);
-                _dsvc.getDetails({
-                    placeId: placeId,
-                    fields: ['address_components', 'geometry', 'place_id', 'formatted_address'],
-                }, function (place, status) {
-                    if (!place || !place.address_components) {
-                        input.value = item.textContent || input.value;
-                        releaseSelection();
-                        return;
-                    }
-
-                    var components = place.address_components || [];
+            if (googleReady() && placeId) {
+                window.setTimeout(releaseSelection, 1500);
+                var place = new google.maps.places.Place({ id: placeId });
+                place.fetchFields({
+                    fields: ['addressComponents', 'location', 'formattedAddress', 'id'],
+                }).then(function () {
+                    var components = place.addressComponents || [];
                     var getComponent = function (type) {
                         for (var i = 0; i < components.length; i++) {
                             var c = components[i];
                             if (c && Array.isArray(c.types) && c.types.indexOf(type) !== -1) {
-                                return c.long_name || '';
+                                return c.longText || c.shortText || '';
                             }
                         }
                         return '';
@@ -228,6 +253,7 @@
                     var quartier = getComponent('neighborhood')
                         || getComponent('sublocality_level_1')
                         || getComponent('sublocality');
+                    var loc = place.location;
 
                     fillFromData(input, {
                         adresse_1: line1,
@@ -236,19 +262,22 @@
                         ville: city,
                         quartier: quartier,
                         pays: countryName || 'France',
-                        latitude: place.geometry && place.geometry.location ? String(place.geometry.location.lat()) : '',
-                        longitude: place.geometry && place.geometry.location ? String(place.geometry.location.lng()) : '',
-                        google_place_id: place.place_id || placeId,
-                        adresse_formatee: place.formatted_address || '',
+                        latitude: loc ? String(loc.lat()) : '',
+                        longitude: loc ? String(loc.lng()) : '',
+                        google_place_id: place.id || placeId,
+                        adresse_formatee: place.formattedAddress || '',
                         immeuble_connu: false,
                     });
 
                     var immeubleIdId = input.getAttribute('data-places-immeuble-id');
                     setValue(immeubleIdId, '');
 
-                    if (place.formatted_address) {
-                        input.value = place.formatted_address;
+                    if (place.formattedAddress) {
+                        input.value = place.formattedAddress;
                     }
+                    releaseSelection();
+                }).catch(function () {
+                    input.value = item.textContent || input.value;
                     releaseSelection();
                 });
                 return;
@@ -295,28 +324,29 @@
             }
 
             var googlePromise = Promise.resolve([]);
-            var _asvc = autoSvc();
-            if (_asvc) {
-                googlePromise = new Promise(function (resolve) {
-                    _asvc.getPlacePredictions({
-                        input: value,
-                        types: ['address'],
-                        componentRestrictions: { country: country },
-                    }, function (predictions) {
-                        var results = [];
-                        if (Array.isArray(predictions)) {
-                            predictions.forEach(function (p) {
-                                results.push({
-                                    source: 'google',
-                                    label: p.description || '',
-                                    place_id: p.place_id || '',
-                                    payload: {},
-                                });
-                            });
-                        }
-                        resolve(results);
+            if (googleReady()) {
+                googlePromise = google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+                    input: value,
+                    includedRegionCodes: [country],
+                    language: 'fr',
+                }).then(function (res) {
+                    var results = [];
+                    var suggestions = (res && res.suggestions) || [];
+                    suggestions.forEach(function (s) {
+                        var pred = s.placePrediction;
+                        if (!pred) return;
+                        var label = (pred.text && pred.text.text)
+                            ? pred.text.text
+                            : (pred.mainText && pred.mainText.text ? pred.mainText.text : '');
+                        results.push({
+                            source: 'google',
+                            label: label,
+                            place_id: pred.placeId || '',
+                            payload: {},
+                        });
                     });
-                });
+                    return results;
+                }).catch(function () { return []; });
             }
 
             Promise.all([localPromise, googlePromise]).then(function (results) {

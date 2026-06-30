@@ -49,7 +49,7 @@ if (!empty($_SESSION['user_id'])) {
             }
         } catch (Throwable) { /* no-op */ }
     }
-    header('Location: ' . ($nextUrl ?? 'fluxbox.php'));
+    header('Location: ' . ($nextUrl ?? 'maboximmo.php'));
     exit;
 }
 
@@ -130,10 +130,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     // Destination par défaut selon le rôle
-                    // FluxBox = point d'entrée unifié (validé EMERY 2026-05-13)
+                    // Accueil MaBoxImmo = point d'entrée unifié (remplace FluxBox, EMERY 2026-06-04)
                     $defaultDest = match ((int)$user['id_role']) {
-                        9, 10  => 'bailleur_dashboard.php',
-                        default => 'fluxbox.php',
+                        9, 10  => 'transaction_portefeuilles_hub.php',  // bailleur → hub Portefeuilles
+                        default => 'maboximmo.php',
                     };
 
                     // Si ?next= fourni (et sûr), on y retourne. Sinon destination par défaut.
@@ -206,7 +206,7 @@ button:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(44,83,100,0.
 <button type="submit">Se connecter →</button>
 </form>
 <div class="footer">
-    <a href="accueil.php">← Retour à l'accueil</a>
+    <a href="https://maboximmo.fr">← Retour à l'accueil</a>
     <div style="margin-top:12px;color:#ccc;font-size:10px;">© <?= date('Y') ?> MaBoxImmo — Plateforme immobilière professionnelle</div>
 </div>
 </div>

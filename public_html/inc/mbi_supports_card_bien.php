@@ -96,6 +96,28 @@ if ($mbiSupCritiqueCtx && $mbiSupPdo instanceof PDO) {
     }
 }
 
+// Titre annonce courant (pour la card editable du modal de choix de style).
+// Priorité : titre persisté pour l'affiche (biens.bien_titre_affiche) > titre annonce > designation.
+$mbiSupTitre = '';
+$bCtxT = $mbiSupCritiqueCtx['bien'] ?? null;
+if (is_array($bCtxT)) $mbiSupTitre = trim((string)($bCtxT['bien_titre_affiche'] ?? ''));
+if ($mbiSupTitre === '') {
+    $annCtx = $mbiSupCritiqueCtx['annonce'] ?? null;
+    if (is_array($annCtx)) {
+        $mbiSupTitre = trim((string)($annCtx['titre_ia'] ?? $annCtx['titre'] ?? $annCtx['titre_seo'] ?? ''));
+    }
+}
+if ($mbiSupTitre === '') {
+    $bCtx = $mbiSupCritiqueCtx['bien'] ?? null;
+    if (is_array($bCtx)) $mbiSupTitre = trim((string)($bCtx['designation'] ?? ''));
+}
+
+// Texte d'annonce synthétisé pour l'affiche (colonne biens.bien_annonce_affiche).
+// Si vide, le modal le synthétisera via IA à l'ouverture (api/mbi_supports_synth_annonce.php).
+$mbiSupAnnonceAffiche = '';
+$bCtxA = $mbiSupCritiqueCtx['bien'] ?? null;
+if (is_array($bCtxA)) $mbiSupAnnonceAffiche = trim((string)($bCtxA['bien_annonce_affiche'] ?? ''));
+
 $dashUrl = function_exists('app_url')
     ? app_url('/mbi_supports_dashboard.php?id_bien=' . $editingBienId)
     : '/mbi_supports_dashboard.php?id_bien=' . $editingBienId;
@@ -197,8 +219,8 @@ $scoreColor = match (true) {
            onmouseover="this.style.background='#243B5C'; this.style.color='#fff';"
            onmouseout="this.style.background='#fff'; this.style.color='#243B5C';">
           <div style="font-size:24px; margin-bottom:4px;">📰</div>
-          <div style="font-size:14px;">Générer les 4 affiches</div>
-          <div style="font-size:11px; opacity:0.7; margin-top:2px;">IA · 4 angles d'un coup</div>
+          <div style="font-size:14px;">Affiches vitrine</div>
+          <div style="font-size:11px; opacity:0.7; margin-top:2px;">Choisir un style</div>
         </button>
         <a href="<?= htmlspecialchars($genUrlBase . 'fiche_client') ?>"
            style="display:block; padding:14px 16px; border:2px solid #243B5C; color:#243B5C; background:#fff; border-radius:12px; text-decoration:none; text-align:center; font-weight:600; transition:all 0.15s;"
@@ -521,9 +543,9 @@ $scoreColor = match (true) {
 
     <header style="background:#243B5C; color:#fff; padding:18px 24px; display:flex; align-items:center; justify-content:space-between;">
       <div>
-        <div id="mbiSup4AnglesTitle" style="font-size:18px; font-weight:700;">📰 Générer les 4 affiches vitrine</div>
+        <div id="mbiSup4AnglesTitle" style="font-size:18px; font-weight:700;">📰 Affiche vitrine — choisir un style</div>
         <div style="font-size:12px; opacity:0.85; margin-top:2px;">
-          Famille · Investisseur · Premium · Primo-accédant — IA Haiku ~0,1 ¢ × 4
+          Clique sur un style → génération + ouverture du PDF
         </div>
       </div>
       <button type="button" onclick="mbiSup4AnglesClose()"
@@ -532,21 +554,64 @@ $scoreColor = match (true) {
     </header>
 
     <div style="padding:20px 24px;">
-      <div id="mbiSup4AnglesIntro" style="margin-bottom:16px; font-size:13px; color:#4b5563;">
-        Lance la génération des 4 versions de l'affiche vitrine pour ce bien.
-        Chaque version a une rédaction commerciale dédiée à sa cible.
-      </div>
 
-      <div id="mbiSup4AnglesProgress" style="display:none; margin-bottom:14px;">
-        <div style="font-size:13px; color:#374151; margin-bottom:6px;">Génération en cours…</div>
-        <div style="height:6px; background:#e5e7eb; border-radius:3px; overflow:hidden;">
-          <div id="mbiSup4AnglesBar" style="height:100%; width:0%; background:#243B5C; transition:width 0.4s;"></div>
+      <!-- Titre annonce editable (1 ligne) : valide (modifie ou non) au clic sur un style -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px; font-weight:700; letter-spacing:.06em; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">
+          Titre de l'annonce — modifiable
         </div>
+        <input id="mbiSupTitreInput" type="text" maxlength="150"
+          style="width:100%; box-sizing:border-box; border:0; border-radius:10px;
+                 background:#26606e; color:#fff; font-weight:700; font-size:19px; line-height:1.2;
+                 text-align:center; padding:11px 16px; font-family:inherit;
+                 box-shadow:0 6px 16px -6px rgba(38,96,110,.6);"
+          value="<?= htmlspecialchars($mbiSupTitre, ENT_QUOTES, 'UTF-8') ?>">
       </div>
 
-      <div id="mbiSup4AnglesResults" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px;"></div>
+      <!-- Texte d'annonce synthétisé (IA) et modifiable -->
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+          <span style="font-size:11px; font-weight:700; letter-spacing:.06em; color:#6b7280; text-transform:uppercase;">
+            Texte de l'annonce — synthèse modifiable
+          </span>
+          <span id="mbiSupDescSpin" style="display:none; font-size:11px; color:#26606e; font-weight:600;">✨ synthèse IA…</span>
+        </div>
+        <textarea id="mbiSupDescInput" rows="4" maxlength="600"
+          placeholder="Texte d'annonce synthétisé pour l'affiche…"
+          style="width:100%; box-sizing:border-box; resize:vertical; border:1px solid #d1d5db; border-radius:10px;
+                 background:#f8fafc; color:#1f2937; font-size:13px; line-height:1.45;
+                 padding:10px 12px; font-family:inherit;"><?= htmlspecialchars($mbiSupAnnonceAffiche, ENT_QUOTES, 'UTF-8') ?></textarea>
+      </div>
 
-      <div id="mbiSup4AnglesError" style="display:none; padding:10px 12px; border-radius:8px; margin-top:14px; font-size:13px; background:#fef2f2; color:#991b1b; border:1px solid #fecaca;"></div>
+      <div id="mbiSupLayoutGrid" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;">
+        <?php
+        $mbiLayouts = [
+          ['code'=>'split_5050',       'label'=>'Split',       'desc'=>'Photo + colonne'],
+          ['code'=>'mosaique_haute',   'label'=>'Mosaïque',    'desc'=>'3 photos paysage'],
+          ['code'=>'asymetrique',      'label'=>'Asymétrique', 'desc'=>'Diagonale premium'],
+          ['code'=>'magazine_bandeau', 'label'=>'Magazine',    'desc'=>'Bandeau navy bas'],
+        ];
+        foreach ($mbiLayouts as $L): ?>
+          <button type="button" class="mbiSupLayoutCard" data-code="<?= $L['code'] ?>"
+                  onclick="mbiSupLayoutGen('<?= $L['code'] ?>', this)"
+                  style="position:relative; padding:0; border:2px solid #e5e7eb; border-radius:12px; background:#fff; cursor:pointer; overflow:hidden; text-align:left; font-family:inherit; transition:border-color .15s, box-shadow .15s;"
+                  onmouseover="this.style.borderColor='#243B5C'; this.style.boxShadow='0 6px 18px -6px rgba(36,59,92,.4)';"
+                  onmouseout="this.style.borderColor='#e5e7eb'; this.style.boxShadow='none';">
+            <img src="images/affiche_layouts/<?= $L['code'] ?>.png" alt="<?= $L['label'] ?>" loading="lazy"
+                 style="width:100%; display:block; aspect-ratio:420/297; object-fit:cover; background:#f3f4f6;">
+            <div style="padding:8px 10px;">
+              <div style="font-size:13px; font-weight:700; color:#243B5C;"><?= $L['label'] ?></div>
+              <div style="font-size:11px; color:#6b7280;"><?= $L['desc'] ?></div>
+            </div>
+            <div class="mbiSupLayoutSpin" style="display:none; position:absolute; inset:0; background:rgba(255,255,255,.85); align-items:center; justify-content:center; flex-direction:column; gap:8px;">
+              <div style="width:26px; height:26px; border:3px solid #d1d5db; border-top-color:#243B5C; border-radius:50%; animation:mbiSupSpin .8s linear infinite;"></div>
+              <div style="font-size:11px; color:#374151; font-weight:600;">Génération…</div>
+            </div>
+          </button>
+        <?php endforeach; ?>
+      </div>
+
+      <div id="mbiSupLayoutError" style="display:none; padding:10px 12px; border-radius:8px; margin-top:14px; font-size:13px; background:#fef2f2; color:#991b1b; border:1px solid #fecaca;"></div>
 
       <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
         <div style="margin-top:14px; padding:10px 12px; border:1px dashed #c87870; border-radius:8px; background:#fff7f5;">
@@ -556,7 +621,6 @@ $scoreColor = match (true) {
               <strong>🔓 Forcer l'export (super admin)</strong>
               <span style="display:block; color:#9a2922; margin-top:2px;">
                 Bypass les blocs durs de la critique IA (carte pro, garant, mandat, etc.).
-                Utile pour générer rapidement quand les docs officiels ne sont pas encore en BDD.
               </span>
             </span>
           </label>
@@ -568,38 +632,51 @@ $scoreColor = match (true) {
                 style="padding:9px 18px; background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer;">
           Fermer
         </button>
-        <button type="button" id="mbiSup4AnglesGoBtn" onclick="mbiSup4AnglesLancer()"
-                style="padding:9px 22px; background:#243B5C; color:#fff; border:0; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer;">
-          Lancer la génération
-        </button>
       </div>
     </div>
   </div>
 </div>
 
+<style>@keyframes mbiSupSpin { to { transform: rotate(360deg); } }</style>
 <script>
 (function(){
-  const overlay  = document.getElementById('mbiSup4AnglesOverlay');
-  const goBtn    = document.getElementById('mbiSup4AnglesGoBtn');
-  const intro    = document.getElementById('mbiSup4AnglesIntro');
-  const progress = document.getElementById('mbiSup4AnglesProgress');
-  const bar      = document.getElementById('mbiSup4AnglesBar');
-  const results  = document.getElementById('mbiSup4AnglesResults');
-  const err      = document.getElementById('mbiSup4AnglesError');
-  const ID_BIEN  = <?= (int)$editingBienId ?>;
-  if (!overlay || !goBtn) return;
-
-  const ANGLE_LIBS = {
-    'famille':       { label: 'Pour la famille',    color: '#2a7a5f' },
-    'investisseur':  { label: 'Investisseur',       color: '#42608c' },
-    'premium':       { label: 'Premium',            color: '#a57c32' },
-    'premier_achat': { label: 'Primo-accédant',     color: '#c06646' },
-  };
+  const overlay = document.getElementById('mbiSup4AnglesOverlay');
+  const err     = document.getElementById('mbiSupLayoutError');
+  const ID_BIEN = <?= (int)$editingBienId ?>;
+  if (!overlay) return;
 
   window.mbiSup4AnglesOpen = function() {
     overlay.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    mbiSupSynthIfEmpty();
   };
+
+  // Synthèse IA du texte d'annonce à l'ouverture, seulement si le champ est vide.
+  // (Si déjà rempli en base, l'endpoint renvoie la valeur stockée sans appel IA.)
+  let synthDone = false;
+  async function mbiSupSynthIfEmpty() {
+    const descEl = document.getElementById('mbiSupDescInput');
+    const spin   = document.getElementById('mbiSupDescSpin');
+    if (!descEl || synthDone) return;
+    if ((descEl.value || '').trim() !== '') { synthDone = true; return; }
+    synthDone = true;
+    if (spin) spin.style.display = 'inline';
+    try {
+      const fd = new FormData();
+      fd.append('id_bien', String(ID_BIEN));
+      const r = await fetch('api/mbi_supports_synth_annonce.php', {
+        method: 'POST', body: fd, credentials: 'same-origin',
+      });
+      const j = await r.json();
+      if (j && j.ok && j.texte && (descEl.value || '').trim() === '') {
+        descEl.value = j.texte;
+      }
+    } catch (e) {
+      synthDone = false; // autorise une nouvelle tentative à la prochaine ouverture
+    } finally {
+      if (spin) spin.style.display = 'none';
+    }
+  }
   window.mbiSup4AnglesClose = function() {
     overlay.style.display = 'none';
     document.body.style.overflow = '';
@@ -608,65 +685,45 @@ $scoreColor = match (true) {
     if (e.target === overlay) mbiSup4AnglesClose();
   });
 
-  window.mbiSup4AnglesLancer = async function() {
-    err.style.display = 'none';
-    results.innerHTML = '';
-    intro.style.display = 'none';
-    progress.style.display = 'block';
-    bar.style.width = '8%';
-    goBtn.disabled = true;
-    goBtn.textContent = 'Génération…';
-
-    // Animation indicative — pas de vrai stream côté serveur (génération synchrone)
-    let pct = 8;
-    const tick = setInterval(() => { pct = Math.min(pct + 4, 92); bar.style.width = pct + '%'; }, 800);
-
+  let busy = false;
+  window.mbiSupLayoutGen = async function(code, cardEl) {
+    if (busy) return;
+    busy = true;
+    if (err) err.style.display = 'none';
+    const spin = cardEl ? cardEl.querySelector('.mbiSupLayoutSpin') : null;
+    if (spin) spin.style.display = 'flex';
     try {
       const fd = new FormData();
       fd.append('id_bien', String(ID_BIEN));
-      fd.append('type', 'affiche_vitrine');
-      fd.append('modele_ia', 'haiku');
+      fd.append('layout', code);
+      const titreEl = document.getElementById('mbiSupTitreInput');
+      if (titreEl) fd.append('titre', (titreEl.value || '').trim());
+      const descEl = document.getElementById('mbiSupDescInput');
+      if (descEl) fd.append('description', (descEl.value || '').trim());
       const forceEl = document.getElementById('mbiSup4AnglesForce');
       if (forceEl && forceEl.checked) fd.append('force', '1');
-      const r = await fetch('api/mbi_supports_generer_4_angles.php', {
+      const r = await fetch('api/mbi_supports_generer_layout.php', {
         method: 'POST', body: fd, credentials: 'same-origin',
       });
       const j = await r.json();
-      clearInterval(tick);
-      bar.style.width = '100%';
 
       if (j.critique_ko) {
-        err.style.display = 'block';
-        err.innerHTML = '✗ La critique des mentions légales refuse l\'export. <a href="#" onclick="mbiSup4AnglesClose(); mbiSupCompleterOpen(); return false;" style="color:#991b1b; font-weight:700;">Compléter les mentions →</a>';
-        goBtn.disabled = false; goBtn.textContent = 'Lancer la génération';
+        if (err) {
+          err.style.display = 'block';
+          err.innerHTML = '✗ La critique des mentions légales refuse l\'export. <a href="#" onclick="mbiSup4AnglesClose(); mbiSupCompleterOpen(); return false;" style="color:#991b1b; font-weight:700;">Compléter les mentions →</a>';
+        }
         return;
       }
-      if (!j.ok) throw new Error(j.error || 'Erreur inconnue');
-
-      const cards = (j.resultats || []).map(rs => {
-        const meta = ANGLE_LIBS[rs.angle] || { label: rs.angle, color: '#243B5C' };
-        if (!rs.ok) {
-          return `<div style="border:1px solid #fecaca; background:#fef2f2; border-radius:10px; padding:12px;">
-            <div style="font-weight:700; color:${meta.color}; margin-bottom:4px;">${meta.label}</div>
-            <div style="font-size:12px; color:#991b1b;">Erreur : ${rs.erreur || 'inconnue'}</div>
-          </div>`;
-        }
-        const url = rs.pdf_url || '#';
-        return `<a href="${url}" target="_blank" rel="noopener"
-                   style="display:block; border:2px solid ${meta.color}; border-radius:10px; padding:14px; text-decoration:none; color:#1f2937; background:#fff;">
-          <div style="font-size:11px; color:${meta.color}; font-weight:700; letter-spacing:0.05em; text-transform:uppercase;">${meta.label}</div>
-          <div style="margin-top:6px; font-size:13px; font-weight:600;">📄 Ouvrir le PDF</div>
-          <div style="margin-top:2px; font-size:11px; color:#6b7280;">v${rs.version} · ${rs.cout_centimes}¢</div>
-        </a>`;
-      });
-      results.innerHTML = cards.join('');
-      goBtn.textContent = 'Régénérer';
-      goBtn.disabled = false;
+      if (!j.ok) throw new Error(j.erreur || j.error || 'Erreur inconnue');
+      window.open(j.pdf_url, '_blank', 'noopener');
     } catch (e) {
-      clearInterval(tick);
-      err.style.display = 'block';
-      err.textContent = 'Erreur : ' + e.message;
-      goBtn.disabled = false; goBtn.textContent = 'Lancer la génération';
+      if (err) {
+        err.style.display = 'block';
+        err.textContent = 'Erreur : ' + e.message;
+      }
+    } finally {
+      if (spin) spin.style.display = 'none';
+      busy = false;
     }
   };
 })();

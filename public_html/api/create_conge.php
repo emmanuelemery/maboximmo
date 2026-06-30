@@ -77,7 +77,12 @@ if (strtotime($date_debut) > strtotime($date_fin)) {
 }
 
 // Whitelist motifs
-$validMotifs = ['conges_payes', 'rtt', 'maladie_justifiee_non_deduite', 'absence_justifiee_deduite_heures', 'autre_legal_non_deduit'];
+$validMotifs = [
+    'conges_payes', 'rtt',
+    'maladie_justifiee_non_deduite', 'maladie_justifiee_deduite', 'maladie_non_justifiee_deduite',
+    'absence_justifiee_non_deduite', 'absence_justifiee_deduite_heures', 'absence_injustifiee_deduite',
+    'autre_legal_non_deduit', 'autre_legal_deduit',
+];
 if (!in_array($motif, $validMotifs)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Type de congé invalide']);

@@ -27,6 +27,7 @@ require_once dirname(__DIR__) . '/inc/auth.php';
 require_once dirname(__DIR__) . '/inc/bien_import_parser.php';
 require_once dirname(__DIR__) . '/inc/bien_intake_ia.php';
 require_once dirname(__DIR__) . '/inc/bien_intake_ocr.php';
+require_once dirname(__DIR__) . '/inc/ged_document_links.php';  // GED CENTRALE UNIQUE (Sprint 7D)
 require_login();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -140,44 +141,116 @@ try {
         }
     }
 
-    // ─── Insertion en BDD ───
+    // ─── Enregistrement GED CENTRALE UNIQUE (Sprint 7D 2026-05-25) ───
+    // Plus d'INSERT immeubles_documents. Source unique = ged_documents + ged_document_links.
     $pdo = db_reconnect_fresh();
 
-    $stmt = $pdo->prepare("
-        INSERT INTO immeubles_documents (
-            id_immeuble, id_societe, id_agence,
-            type_document, sous_type,
-            nom_fichier, url_fichier, taille_octets, mime_type,
-            extraction_json, resume_ia, method_extraction,
-            id_user_created
-        ) VALUES (
-            :id_imm, :id_soc, :id_age,
-            :type, :sous,
-            :nom, :url, :taille, :mime,
-            :json, :resume, :method,
-            :user
-        )
-    ");
-    $stmt->execute([
-        ':id_imm' => $idImmeuble,
-        ':id_soc' => $societeId ?: null,
-        ':id_age' => $agenceId ?: null,
-        ':type'   => $forceType,
-        ':sous'   => $sousType,
-        ':nom'    => $file['name'],
-        ':url'    => $publicUrl,
-        ':taille' => (int)$file['size'],
-        ':mime'   => 'application/pdf',
-        ':json'   => !empty($fields) ? json_encode($fields, JSON_UNESCAPED_UNICODE) : null,
-        ':resume' => $resume,
-        ':method' => $method,
-        ':user'   => $userId ?: null,
-    ]);
-    $documentId = (int)$pdo->lastInsertId();
+    // Mapping type immeuble → document_type GED canonique
+    $gedTypeMap = [
+        'bail'      => 'BAIL',
+        'mandat'    => 'MANDAT_GESTION',
+        'titre'     => 'TITRE_PROPRIETE',
+        'diag'      => 'DIAG_IMMEUBLE',
+        'fiche'     => 'FICHE_IMMEUBLE',
+        'reglement' => 'REGLEMENT_COPRO',
+        'pv_ag'     => 'PV_ASSEMBLEE_GENERALE',
+        'divers'    => 'AUTRE',
+        'autre'     => 'AUTRE',
+    ];
+    $gedDocType = $gedTypeMap[$forceType] ?? 'AUTRE';
+    if (!empty($sousType)) {
+        // sous-type peut surcharger : ex 'ag' → PV_ASSEMBLEE_GENERALE
+        $sousMap = ['ag' => 'PV_ASSEMBLEE_GENERALE', 'reglement_copro' => 'REGLEMENT_COPRO'];
+        $gedDocType = $sousMap[$sousType] ?? $gedDocType;
+    }
+
+    // Récupère soc/age depuis l'immeuble pour cohérence cascade
+    $stImmCtx = $pdo->prepare("SELECT i.id_societe, i.id_agence, i.nom_immeuble,
+                                       s.raison_sociale AS soc_raison,
+                                       a.code_agence, a.nom_agence
+                                 FROM immeubles i
+                                 LEFT JOIN societes s ON s.id = i.id_societe
+                                 LEFT JOIN agences  a ON a.id = i.id_agence
+                                 WHERE i.id = ? LIMIT 1");
+    $stImmCtx->execute([$idImmeuble]);
+    $immCtx = $stImmCtx->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $socIdGed = (int)($immCtx['id_societe'] ?? 0) ?: ($societeId ?: 1);
+    $ageIdGed = (int)($immCtx['id_agence']  ?? 0) ?: ($agenceId  ?: 3);
+
+    $gedCommitResult = null;
+    $gedCommitError  = null;
+    try {
+        $gedCommitResult = gus_commit_document(
+            $pdo,
+            [
+                'path_on_disk'  => $destPath,
+                'name_original' => $file['name'],
+                'mime_type'     => 'application/pdf',
+                'size_bytes'    => (int)$file['size'],
+                'public_url'    => $publicUrl,
+            ],
+            [
+                'document_type'  => $gedDocType,
+                'source_module'  => '02_SYNDIC',
+                'security_level' => 'interne',
+                'societe_id'     => $socIdGed,
+                'agence_id'      => $ageIdGed,
+                'tenant_id'      => $socIdGed,
+                'created_by'     => $userId ?: null,
+                'storage_provider' => 'local',
+                'metadata_extra' => [
+                    'titre_ia'    => $docTitre,
+                    'resume_ia'   => $resume,
+                    'doc_date'    => $docDate,
+                    'ia_fields'   => !empty($fields) ? $fields : null,
+                    'method'      => $method,
+                    'used_ocr'    => $usedOcr,
+                    'sous_type'   => $sousType,
+                    'force_type'  => $forceType,
+                    'classement'  => [
+                        'immeuble_id_bdd' => $idImmeuble,
+                        'date_doc'        => $docDate,
+                    ],
+                    'legacy_source' => 'immeuble_doc_upload',
+                ],
+                'naming_ctx' => [
+                    'societe_raison' => $immCtx['soc_raison'] ?? 'Régie EMERY',
+                    'agence_code'    => $immCtx['code_agence'] ?? 'RE69-2',
+                    'agence_nom'     => $immCtx['nom_agence']  ?? 'LYON',
+                    'user_id'        => $userId,
+                    'n1_slug'        => '02_syndic',
+                    'n2_slug'        => 'immeubles',
+                    'n3_slug'        => strtolower($gedDocType),
+                    'type_doc'       => $gedDocType,
+                    'entity_type'    => 'IMB',
+                    'entity_id'      => $idImmeuble,
+                    'date_doc'       => $docDate,
+                    'source_filename'=> $file['name'],
+                ],
+            ],
+            [
+                ['entity_type' => 'IMB', 'entity_id' => $idImmeuble, 'relation_type' => 'main'],
+            ]
+        );
+        if (empty($gedCommitResult['ok'])) {
+            $gedCommitError = 'gus_commit_document errors: ' . json_encode($gedCommitResult['errors'] ?? ['unknown']);
+            error_log('[immeuble_doc_upload] ' . $gedCommitError);
+        }
+    } catch (Throwable $exDoc) {
+        $gedCommitError = 'EXCEPTION pipeline GED : ' . $exDoc->getMessage()
+                        . ' @ ' . basename($exDoc->getFile()) . ':' . $exDoc->getLine();
+        error_log('[immeuble_doc_upload] ' . $gedCommitError);
+    }
 
     echo json_encode([
         'ok'          => true,
-        'document_id' => $documentId,
+        'document_id' => $gedCommitResult['doc_id'] ?? null,  // ged_documents.id (plus immeubles_documents)
+        'ged_doc_id'  => $gedCommitResult['doc_id'] ?? null,
+        'ged_name_display' => $gedCommitResult['name_display'] ?? null,
+        'ged_name_file'    => $gedCommitResult['name_file']    ?? null,
+        'ged_deduplicated' => $gedCommitResult['deduplicated'] ?? null,
+        'ged_error'   => $gedCommitError,
         'doc_type'    => $docType,
         'force_type'  => $forceType,
         'sous_type'   => $sousType,

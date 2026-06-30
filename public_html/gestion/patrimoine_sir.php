@@ -6,6 +6,10 @@ require_login();
 $user = check_auth_gestion('SIR');
 $pdo  = $GLOBALS['pdo'];
 
+if (!function_exists('e')) {
+    function e(?string $v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); }
+}
+
 $current_page = 'patrimoine_sir';
 $nav_context  = 'sir';
 

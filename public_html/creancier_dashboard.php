@@ -25,15 +25,35 @@ $base    = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '';
 $dossiers = creancier_accessible_dossiers($pdo, $userId);
 $ids = array_map(fn($d) => (int)$d['id'], $dossiers);
 
-$kNet = 0.0; $kReste = 0.0; $kUrg = 0; $urgences = [];
+$kNet = 0.0; $kReste = 0.0;
 foreach ($dossiers as $d) {
     $u = creancier_urgence_data($pdo, (int)$d['id'], $userId);
     if (!$u['acces']) continue;
     $kNet += $u['total_net_bloque']; $kReste += $u['montant_du'];
-    if ($u['butoirs_en_retard']) { $kUrg++; $urgences[] = ['d' => $d, 'u' => $u]; }
 }
 $agenda = creancier_agenda($pdo, $ids, 120);
 $libById = []; foreach ($dossiers as $d) $libById[(int)$d['id']] = $d['libelle'];
+
+// Tiers concernés (débiteurs) par des dossiers créanciers — agrégés, scopés aux dossiers accessibles.
+$tiersConcernes = [];
+if ($ids) {
+    try {
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stTC = $pdo->prepare("
+            SELECT l.entity_id AS id_tiers,
+                   COALESCE(NULLIF(t.nom_affichage,''),NULLIF(t.raison_sociale,''),NULLIF(TRIM(CONCAT_WS(' ',t.prenom,t.nom)),''),CONCAT('Tiers #',t.id)) AS lib,
+                   COUNT(DISTINCT l.id_dossier) AS nb_dossiers
+            FROM creancier_dossier_lien l
+            JOIN tiers t ON t.id = l.entity_id
+            WHERE l.entity_type = 'TIERS'
+              AND l.role_dossier IN ('debiteur','debiteur_solidaire','groupe')
+              AND l.id_dossier IN ($in)
+            GROUP BY l.entity_id
+            ORDER BY nb_dossiers DESC, lib ASC");
+        $stTC->execute($ids);
+        $tiersConcernes = $stTC->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) { $tiersConcernes = []; }
+}
 
 $appLayout = true; $pageTitle = 'Créanciers'; $bodyClass = ''; $robots = 'noindex, nofollow';
 include __DIR__ . '/inc/header.php';
@@ -73,6 +93,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
       <a href="<?= e($base) ?>creancier_liste.php" class="bl-btn" style="background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;font-weight:700;text-decoration:none;">📂 Tous les dossiers</a>
     </div>
     <?php endif; ?>
+    <a href="<?= e($base) ?>creancier_presentation.php" class="bl-btn" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;font-weight:700;text-decoration:none;margin-right:10px;" title="Présentation du module">✨ Présentation</a>
     <div class="topbar-avatar"><?= strtoupper(substr((string)($_SESSION['username'] ?? 'U'), 0, 1)) ?></div>
   </div>
 
@@ -81,7 +102,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
       <div class="pk-kpi"><div class="pk-kpi-val"><?= count($dossiers) ?></div><div class="pk-kpi-lbl">Dossiers</div></div>
       <div class="pk-kpi"><div class="pk-kpi-val" style="color:#dc2626;"><?= $eur($kReste) ?></div><div class="pk-kpi-lbl">Reste dû</div></div>
       <div class="pk-kpi"><div class="pk-kpi-val"><?= $eur($kNet) ?></div><div class="pk-kpi-lbl">Net bloqué</div></div>
-      <div class="pk-kpi"><div class="pk-kpi-val" style="color:<?= $kUrg ? '#dc2626' : '#15803d' ?>;"><?= $kUrg ?></div><div class="pk-kpi-lbl">Urgences</div></div>
+      <div class="pk-kpi"><div class="pk-kpi-val"><?= count($tiersConcernes) ?></div><div class="pk-kpi-lbl">Tiers concernés</div></div>
     </div>
   </div>
 
@@ -101,14 +122,14 @@ include __DIR__ . '/inc/sidebar_agency.php';
         <?php endforeach; ?>
       </div>
 
-      <!-- Urgences (retards) -->
+      <!-- Tiers concernés par des créanciers -->
       <div class="cd-card">
-        <h3 style="color:#dc2626">⚠️ Dossiers en urgence</h3>
-        <?php if (!$urgences): ?><div class="cd-empty">Aucun retard. 👍</div><?php endif; ?>
-        <?php foreach ($urgences as $r): $d = $r['d']; $u = $r['u']; ?>
-          <a class="cd-row" href="<?= e($base) ?>creancier_dossier360.php?id_dossier=<?= (int)$d['id'] ?>">
-            <span><b><?= e($d['libelle']) ?></b> <span class="cd-pill"><?= e($d['code']) ?></span></span>
-            <span style="color:#dc2626;font-weight:700"><?= count($u['butoirs_en_retard']) ?> retard(s) · <?= $eur($u['montant_du']) ?></span>
+        <h3>🏛️ Tiers concernés <span style="color:#9aa0a8;font-weight:600;">(<?= count($tiersConcernes) ?>)</span></h3>
+        <?php if (!$tiersConcernes): ?><div class="cd-empty">Aucun tiers concerné.</div><?php endif; ?>
+        <?php foreach ($tiersConcernes as $tc): ?>
+          <a class="cd-row" href="<?= e($base) ?>creancier_liste.php?tiers=<?= (int)$tc['id_tiers'] ?>">
+            <span><b><?= e($tc['lib']) ?></b></span>
+            <span class="cd-pill"><?= (int)$tc['nb_dossiers'] ?> dossier<?= (int)$tc['nb_dossiers'] > 1 ? 's' : '' ?></span>
           </a>
         <?php endforeach; ?>
       </div>

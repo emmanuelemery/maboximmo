@@ -560,7 +560,7 @@ function openBien(i){
 }
 function closeBien(){document.getElementById('modal').classList.remove('on');document.body.style.overflow='';}
 
-const PF_TOKEN=<?= json_encode($token) ?>;
+// PF_TOKEN déjà déclaré plus haut (ligne ~408) — ne PAS le redéclarer (const en double = SyntaxError qui casse tout le script).
 const PF_COORD_URL=<?= json_encode(app_url('/api/portefeuille_coordonnees.php')) ?>;
 function coordToggle(){const f=document.getElementById('coord-form');if(f)f.classList.toggle('on');}
 async function coordSave(ev){

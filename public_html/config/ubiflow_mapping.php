@@ -133,6 +133,47 @@ function ubi_num($v, bool $allowZero = false): ?string
 }
 
 /**
+ * Construit la <reference> Ubiflow préfixée par type de transaction.
+ *
+ * Pourquoi le préfixe : un même bien peut avoir plusieurs annonces actives
+ * (ex. vente ET location en simultané). Sans préfixe, b_reference_bien serait
+ * identique pour les 2 → Ubiflow les confond. Le préfixe (V, L, S, F, W, G)
+ * garantit l'unicité côté plateforme tout en gardant la référence interne lisible.
+ *
+ * Format : "{prefix}-{reference_interne}" (ex. "V-ABC123", "L-ABC123")
+ * Fallback de la référence : b_reference_bien → a_reference_annonce → a_id
+ */
+function _ubiflow_reference(array $row): ?string
+{
+    $ref = $row['b_reference_bien'] ?? $row['a_reference_annonce'] ?? $row['a_id'] ?? null;
+    $ref = ubi_str((string) ($ref ?? ''));
+    if ($ref === null) return null;
+    $type   = strtolower(trim((string) ($row['a_type_transaction'] ?? '')));
+    $prefix = UBIFLOW_PRESTATION_TYPE[$type] ?? 'V';
+    return $prefix . '-' . $ref;
+}
+
+/**
+ * Append la mention légale Géorisques à la description si pas déjà présente.
+ *
+ * Obligation : article L. 125-5 du code de l'environnement (depuis 01/01/2023) — toute
+ * annonce immobilière doit indiquer que l'info risques est disponible sur georisques.gouv.fr.
+ * On l'append côté flux (pas en BDD) pour ne pas polluer la saisie utilisateur et garantir
+ * que le texte est toujours présent même si l'utilisateur a oublié de l'écrire.
+ */
+function _ubiflow_append_georisques_notice(?string $desc): ?string
+{
+    $notice = "Les informations sur les risques auxquels ce bien est exposé sont disponibles sur le site Géorisques : www.georisques.gouv.fr";
+    $base   = trim((string) ($desc ?? ''));
+    // Si la mention (ou un substring équivalent) est déjà présente, on ne dédoublonne pas
+    $low = mb_strtolower($base);
+    if (str_contains($low, 'georisques.gouv.fr') || str_contains($low, 'géorisques.gouv.fr')) {
+        return $base !== '' ? $base : null;
+    }
+    return $base !== '' ? ($base . "\n\n" . $notice) : $notice;
+}
+
+/**
  * Chaîne nettoyée (trim + suppression caractères de contrôle + strip HTML).
  *
  * CORRECTION #1 (audit V2 2026-04-11) : strip_tags + html_entity_decode
@@ -188,16 +229,18 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
     // ANNONCE (racine)
     // -----------------------------------------------------------------
     $annonce = [
-        'reference'        => ubi_str($row['a_reference_annonce'] ?? $row['a_id'] ?? null),
+        // Référence préfixée par type transaction (V/L/S/F/W/G) pour unicité quand
+        // un même bien a plusieurs annonces actives. Source : reference_interne du bien.
+        'reference'        => _ubiflow_reference($row),
         'titre'            => ubi_str($row['a_titre'] ?? null),
-        'texte'            => ubi_str($row['a_description'] ?? null),
+        'texte'            => ubi_str(_ubiflow_append_georisques_notice($row['a_description'] ?? null)),
         'date_saisie'      => ubi_date($row['a_date_creation'] ?? null),
         'visite_virtuelle' => ubi_str($row['a_visite_virtuelle_url'] ?? null),
         'mandat_numero'    => ubi_str($row['a_mandat_numero'] ?? null),
         'mandat_type'      => ubi_str($row['a_mandat_type'] ?? null),
         'date_mandat'      => ubi_date($row['a_date_mandat'] ?? null),
         'mandat_echeance'  => ubi_date($row['a_mandat_echeance'] ?? null),
-        'url_tarifs_publics' => ubi_str($row['a_url_tarifs_publics'] ?? null),
+        'url_tarifs_publics' => ubi_str(($row['a_url_tarifs_publics'] ?? '') ?: 'https://maboximmo.fr/tarifs.php'),
     ];
 
     // -----------------------------------------------------------------
@@ -294,12 +337,16 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
 
         // Copropriété / ALUR
         'copropriete'         => ubi_bool($row['b_bien_en_copropriete'] ?? null),
-        'alur_nb_lots'        => ubi_num($row['b_copro_nb_lots'] ?? null),
+        // Priorité immeubles.copro_nb_lots (nb lots de la copropriété, migration 2026-06-17)
+        // ; puis immeubles.nb_lots (lots principaux) ; fallback biens.copro_nb_lots (legacy)
+        'alur_nb_lots'        => ubi_num($row['i_copro_nb_lots'] ?? $row['i_nb_lots'] ?? $row['b_copro_nb_lots'] ?? null),
         'charges_copropriete_annuelle' => ubi_num($row['b_copro_quote_part_charges'] ?? null),
-        'alur_syndic_en_procedure'     => ubi_bool($row['b_copro_procedure'] ?? null),
+        // Statut juridique copropriété : priorité immeubles.* (saisi sur la fiche bien
+        // mais persisté sur l'immeuble), fallback biens.* (legacy avant migration).
+        'alur_syndic_en_procedure'     => ubi_bool($row['i_copro_procedure'] ?? $row['b_copro_procedure'] ?? null),
         'alur_syndicat_statut'         => ubi_str($row['b_alur_syndicat_statut'] ?? null),
-        'alur_copropriete_plan_de_sauvegarde' => ubi_bool($row['b_alur_copropriete_plan_sauvegarde'] ?? null),
-        'copropriete_etat_carence'     => ubi_bool($row['b_alur_copropriete_etat_carence'] ?? null),
+        'alur_copropriete_plan_de_sauvegarde' => ubi_bool($row['i_alur_copropriete_plan_sauvegarde'] ?? $row['b_alur_copropriete_plan_sauvegarde'] ?? null),
+        'copropriete_etat_carence'     => ubi_bool($row['i_alur_copropriete_etat_carence'] ?? $row['b_alur_copropriete_etat_carence'] ?? null),
 
         // Travaux
         'montant_travaux'     => ubi_num($row['b_montant_travaux_estime'] ?? null),
@@ -366,7 +413,7 @@ function build_ubiflow_annonce(array $row, array $photos = []): array
         'date_disponibilite'         => ubi_date($row['a_date_disponibilite'] ?? null),
         'disponible_immediatement'   => ubi_bool($row['a_disponible_de_suite'] ?? null),
         // URL barème honoraires dupliquée dans <prestation> (conforme XMLs validés Ubiflow 2026-04)
-        'url_tarifs_publics'         => ubi_str($row['a_url_tarifs_publics'] ?? null),
+        'url_tarifs_publics'         => ubi_str(($row['a_url_tarifs_publics'] ?? '') ?: 'https://maboximmo.fr/tarifs.php'),
     ];
 
     // -----------------------------------------------------------------
@@ -526,6 +573,13 @@ SELECT
     COALESCE(i.adresse_1,   b.adresse_1)         AS b_adresse_1,
     COALESCE(i.latitude,    b.latitude)          AS b_latitude,
     COALESCE(i.longitude,   b.longitude)         AS b_longitude,
+    -- Champs commune à l'immeuble (info copropriété juridique). Source de vérité =
+    -- immeubles.*. Fallback : biens.* pour les anciennes données pas encore migrées.
+    i.nb_lots                                    AS i_nb_lots,
+    i.copro_nb_lots                              AS i_copro_nb_lots,
+    i.copro_procedure                            AS i_copro_procedure,
+    i.alur_copropriete_plan_sauvegarde           AS i_alur_copropriete_plan_sauvegarde,
+    i.alur_copropriete_etat_carence              AS i_alur_copropriete_etat_carence,
     b.precision_geoloc  AS b_precision_geoloc,
     b.altitude          AS b_altitude,
     -- Charges : on source sur biens.charges_locatives (champ réellement saisi
@@ -622,8 +676,8 @@ SELECT
     a.id_user             AS a_id_user,
     u_neg.prenom          AS u_neg_prenom,
     u_neg.nom             AS u_neg_nom,
-    u_neg.email           AS u_neg_email,
-    -- Diffusion : téléphone PRO uniquement, jamais le perso (RGPD + confidentialité)
+    -- Diffusion : email + téléphone PRO uniquement, jamais le perso (RGPD + confidentialité)
+    COALESCE(NULLIF(u_neg.email_pro, ''), u_neg.email) AS u_neg_email,
     u_neg.telephone_pro   AS u_neg_mobile,
     u_neg.telephone_pro   AS u_neg_fixe
 

@@ -18,7 +18,7 @@ if (!$dossier) { http_response_code(404); exit('Dossier introuvable.'); }
 $idBien = (int)$dossier['id_bien'];
 
 // Bien + proprio pour placeholders
-$stB = $pdo->prepare("SELECT b.reference_bien, b.designation, b.adresse_1, b.code_postal, b.ville,
+$stB = $pdo->prepare("SELECT b.reference_bien, b.designation, b.adresse_1, b.code_postal, b.ville, b.id_immeuble,
                              COALESCE(NULLIF(b.adresse_1,''), i.adresse_1) AS adr,
                              COALESCE(NULLIF(b.ville,''), i.ville) AS vil, p.id_tiers AS proprio_tiers_id
                         FROM biens b LEFT JOIN immeubles i ON i.id = b.id_immeuble
@@ -38,10 +38,31 @@ foreach ($acteurs as $a) {
     }
 }
 
-// Documents : dossier + bien (dédupliqués), avec type
+// Documents : on remonte TOUT ce qui est attaché au dossier, comme dans le cockpit —
+// dossier + (pour chaque lot) le BIEN, ses BAUX et son IMMEUBLE (un bail/diag déposé via
+// FluxBox peut être lié à BAIL ou IMMEUBLE plutôt qu'au BIEN). Dédupliqué par id de doc.
 $seen = []; $docs = [];
-foreach (dv_documents($pdo, $idDossier) as $d) { $seen[$d['id']]=1; $docs[]=$d; }
-foreach (gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['limit'=>200]) as $d) { if(isset($seen[$d['id']]))continue; $seen[$d['id']]=1; $docs[]=$d; }
+$addDoc = function($d) use (&$seen, &$docs) { if (!isset($seen[$d['id']])) { $seen[$d['id']] = 1; $docs[] = $d; } };
+foreach (dv_documents($pdo, $idDossier) as $d) $addDoc($d);
+$lotBiens = [$idBien];
+foreach (dv_lots($pdo, $idDossier) as $l) { $lotBiens[] = (int)$l['id_bien']; }
+$lotBiens = array_values(array_unique(array_filter($lotBiens)));
+foreach ($lotBiens as $bId) {
+    foreach (gdl_documents_for_entity($pdo, 'BIEN', $bId, ['limit'=>200]) as $d) $addDoc($d);
+    try {
+        $stBx = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien = ?");
+        $stBx->execute([$bId]);
+        foreach ($stBx->fetchAll(PDO::FETCH_COLUMN) as $bailId) {
+            foreach (gdl_documents_for_entity($pdo, 'BAIL', (int)$bailId, ['limit'=>50]) as $d) $addDoc($d);
+        }
+    } catch (Throwable $e) {}
+}
+$immId = (int)($bien['id_immeuble'] ?? 0);
+if ($immId > 0) {
+    foreach (['IMB','IMMEUBLE'] as $et) {
+        foreach (gdl_documents_for_entity($pdo, $et, $immId, ['limit'=>80]) as $d) $addDoc($d);
+    }
+}
 
 // Modèles de mail + mapping mots-clés → types de doc & rôles destinataires
 $templates = [];

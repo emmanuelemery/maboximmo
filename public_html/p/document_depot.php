@@ -1,0 +1,187 @@
+<?php
+declare(strict_types=1);
+/**
+ * p/document_depot.php — Page PUBLIQUE de dépôt de documents (sans authentification).
+ *
+ * Le destinataire d'une « demande de document » dépose chaque pièce dans sa carte.
+ * Chaque fichier file droit dans la GED (dr_commit_deposit). Notif au demandeur.
+ *
+ * URL : /p/document_depot.php?t=<token>
+ * Sécurité : token valide + non expiré/révoqué + (option) gate email du destinataire.
+ */
+require_once __DIR__ . '/../inc/bootstrap.php';
+require_once __DIR__ . '/../inc/document_requests.php';
+require_once __DIR__ . '/../inc/mailer.php';
+
+$pdo = $GLOBALS['pdo'];
+
+// Notif au demandeur à chaque dépôt (définie avant tout appel).
+function dr_notify_requester(PDO $pdo, array $req, string $pieceLabel): void
+{
+    try {
+        $cb = (int)($req['created_by'] ?? 0);
+        if ($cb <= 0) return;
+        $st = $pdo->prepare("SELECT email, TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,''))) nom FROM users WHERE id=? LIMIT 1");
+        $st->execute([$cb]);
+        $u = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$u || !filter_var($u['email'], FILTER_VALIDATE_EMAIL)) return;
+        $items = dr_items($pdo, (int)$req['id']);
+        $recus = count(array_filter($items, fn($i) => $i['status'] === 'recu'));
+        $body = '<p>Bonjour ' . htmlspecialchars((string)$u['nom'], ENT_QUOTES, 'UTF-8') . ',</p>'
+            . '<p><strong>' . htmlspecialchars((string)$req['recipient_email'], ENT_QUOTES, 'UTF-8') . '</strong> '
+            . 'a déposé : <strong>' . htmlspecialchars($pieceLabel, ENT_QUOTES, 'UTF-8') . '</strong>.</p>'
+            . '<p>Avancement : ' . $recus . '/' . count($items) . ' pièce(s) reçue(s) — demande « '
+            . htmlspecialchars((string)$req['titre'], ENT_QUOTES, 'UTF-8') . ' ».</p>';
+        send_mail((string)$u['email'], 'Dépôt reçu : ' . (string)$req['titre'], $body, [], true);
+    } catch (Throwable $e) { error_log('[dr_notify] ' . $e->getMessage()); }
+}
+
+$token = (string)($_GET['t'] ?? ($_POST['t'] ?? ''));
+if (!preg_match('/^[a-f0-9]{32,128}$/i', $token)) { http_response_code(400); die('Lien invalide.'); }
+
+$req = dr_get_by_token($pdo, $token);
+if (!$req) { http_response_code(404); die('Ce lien n\'existe pas.'); }
+if (!dr_is_valid($req)) { http_response_code(403); die('Ce lien a expiré ou a été révoqué.'); }
+
+$reqId   = (int)$req['id'];
+$sessKey = 'dr_auth_' . substr($token, 0, 16);
+
+// ── Gate email ────────────────────────────────────────────────────────────
+$gated = (int)$req['require_email_gate'] === 1;
+$authed = !$gated || !empty($_SESSION[$sessKey]);
+$gateErr = null;
+if ($gated && !$authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['gate_email'])) {
+    $em = strtolower(trim((string)$_POST['gate_email']));
+    if ($em !== '' && $em === strtolower(trim((string)$req['recipient_email']))) {
+        $_SESSION[$sessKey] = 1; $authed = true;
+    } else { $gateErr = 'Email non reconnu pour cette demande.'; }
+}
+
+// ── Dépôt d'une pièce ─────────────────────────────────────────────────────
+$flash = null; $flashOk = true;
+if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $item = null;
+    foreach (dr_items($pdo, $reqId) as $i) { if ((int)$i['id'] === $itemId) { $item = $i; break; } }
+    if (!$item) { $flash = 'Pièce inconnue.'; $flashOk = false; }
+    elseif ($item['kind'] === 'text') {
+        $txt = trim((string)($_POST['text_value'] ?? ''));
+        if ($txt === '') { $flash = 'Merci de saisir un texte.'; $flashOk = false; }
+        else {
+            $pdo->prepare("UPDATE document_request_items SET status='recu', text_value=?, received_at=NOW() WHERE id=?")
+                ->execute([$txt, $itemId]);
+            dr_recompute_status($pdo, $reqId);
+            dr_notify_requester($pdo, $req, $item['label']);
+            $flash = '« ' . $item['label'] . " » enregistré. Merci !";
+        }
+    } else {
+        if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $flash = 'Aucun fichier reçu (ou trop volumineux).'; $flashOk = false;
+        } else {
+            $f = $_FILES['file'];
+            if ((int)$f['size'] > 25 * 1024 * 1024) { $flash = 'Fichier trop volumineux (max 25 Mo).'; $flashOk = false; }
+            else {
+                $res = dr_commit_deposit($pdo, $req, $item, [
+                    'tmp_path'      => $f['tmp_name'],
+                    'name_original' => $f['name'],
+                    'mime_type'     => $f['type'] ?? '',
+                    'size_bytes'    => (int)$f['size'],
+                ]);
+                if (!empty($res['ok'])) {
+                    dr_notify_requester($pdo, $req, $item['label']);
+                    $flash = '« ' . $item['label'] . " » déposé. Merci !";
+                } else { $flash = 'Échec du dépôt : ' . ($res['error'] ?? 'inconnu'); $flashOk = false; }
+            }
+        }
+    }
+    $req = dr_get_by_token($pdo, $token); // refresh statut
+}
+
+$items = dr_items($pdo, $reqId);
+$total = count($items);
+$recus = count(array_filter($items, fn($i) => $i['status'] === 'recu'));
+function dh($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+?><!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dépôt de documents — <?= dh($req['titre']) ?></title>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f6f9;color:#1a2330}
+.wrap{max-width:760px;margin:0 auto;padding:26px 18px 60px}
+.head{background:#243B5C;color:#fff;border-radius:16px;padding:22px 24px;margin-bottom:20px}
+.head h1{margin:0 0 6px;font-size:20px} .head p{margin:0;opacity:.85;font-size:14px}
+.prog{height:9px;background:rgba(255,255,255,.25);border-radius:6px;margin-top:14px;overflow:hidden}
+.prog>i{display:block;height:100%;background:#D4A047;border-radius:6px}
+.flash{padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:14px}
+.flash.ok{background:#e7f6ec;color:#176a3a;border:1px solid #b6e3c6}
+.flash.ko{background:#fdecec;color:#a01818;border:1px solid #f3bcbc}
+.card{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+.card.done{border-color:#b6e3c6;background:#f6fcf8}
+.card .lbl{font-weight:700;font-size:15px;margin-bottom:4px}
+.card .meta{font-size:12px;color:#7a8694;margin-bottom:12px}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+.badge.req{background:#fef3d8;color:#b7791f} .badge.opt{background:#eef1f5;color:#7a8694}
+.badge.recu{background:#e7f6ec;color:#176a3a}
+.drop input[type=file]{width:100%;padding:10px;border:1.5px dashed #c3ccd8;border-radius:10px;background:#fafbfc}
+textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;border-radius:10px;font-family:inherit;font-size:14px}
+.btn{margin-top:10px;background:#0e7490;color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer}
+.btn:hover{background:#0c6480}
+.gate{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:24px;max-width:440px;margin:30px auto}
+.gate input{width:100%;padding:11px;border:1px solid #c3ccd8;border-radius:10px;font-size:14px;margin:10px 0}
+.foot{text-align:center;color:#9aa4b1;font-size:12px;margin-top:24px}
+</style></head><body>
+<div class="wrap">
+  <div class="head">
+    <h1><?= dh($req['titre']) ?></h1>
+    <p>Merci de déposer les documents demandés ci-dessous. Dépôt sécurisé.</p>
+    <?php if ($authed): ?><div class="prog"><i style="width:<?= $total ? round($recus*100/$total) : 0 ?>%"></i></div>
+    <p style="margin-top:8px"><?= $recus ?>/<?= $total ?> pièce(s) reçue(s)</p><?php endif; ?>
+  </div>
+
+  <?php if ($flash): ?><div class="flash <?= $flashOk?'ok':'ko' ?>"><?= dh($flash) ?></div><?php endif; ?>
+
+  <?php if ($gated && !$authed): ?>
+    <div class="gate">
+      <h2 style="margin:0 0 6px;font-size:17px">Confirmez votre identité</h2>
+      <p style="color:#7a8694;font-size:13px;margin:0">Saisissez l'adresse email à laquelle cette demande vous a été envoyée.</p>
+      <?php if ($gateErr): ?><div class="flash ko" style="margin-top:12px"><?= dh($gateErr) ?></div><?php endif; ?>
+      <form method="post">
+        <input type="hidden" name="t" value="<?= dh($token) ?>">
+        <input type="email" name="gate_email" placeholder="votre@email.fr" required>
+        <button class="btn" type="submit">Accéder à la demande</button>
+      </form>
+    </div>
+  <?php else: ?>
+    <?php foreach ($items as $it): $done = $it['status'] === 'recu'; ?>
+      <div class="card <?= $done?'done':'' ?>">
+        <div class="lbl"><?= dh($it['label']) ?>
+          <?php if ($done): ?><span class="badge recu">✅ Reçu</span>
+          <?php elseif ((int)$it['required']===1): ?><span class="badge req">Requis</span>
+          <?php else: ?><span class="badge opt">Optionnel</span><?php endif; ?>
+        </div>
+        <?php if ($it['period']): ?><div class="meta">Période : <?= dh($it['period']) ?></div><?php endif; ?>
+        <?php if (!$done): ?>
+          <form method="post" <?= $it['kind']!=='text'?'enctype="multipart/form-data"':'' ?>>
+            <input type="hidden" name="t" value="<?= dh($token) ?>">
+            <input type="hidden" name="action" value="upload">
+            <input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>">
+            <?php if ($it['kind']==='text'): ?>
+              <textarea name="text_value" placeholder="Saisissez ici…" required></textarea>
+            <?php else: ?>
+              <div class="drop"><input type="file" name="file" required></div>
+            <?php endif; ?>
+            <button class="btn" type="submit"><?= $it['kind']==='text'?'Enregistrer':'Déposer' ?></button>
+          </form>
+        <?php elseif ($it['kind']==='text' && $it['text_value']): ?>
+          <div class="meta" style="white-space:pre-wrap;color:#1a2330"><?= dh($it['text_value']) ?></div>
+        <?php endif; ?>
+      </div>
+    <?php endforeach; ?>
+    <?php if ($total && $recus >= $total): ?>
+      <div class="flash ok">🎉 Tous les documents ont été déposés. Merci !</div>
+    <?php endif; ?>
+  <?php endif; ?>
+
+  <div class="foot">MaBoxImmo · dépôt sécurisé</div>
+</div>
+</body></html>

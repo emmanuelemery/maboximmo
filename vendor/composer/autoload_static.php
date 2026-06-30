@@ -9,11 +9,17 @@ class ComposerStaticInit6194c5307778883ed85df7c486161350
     public static $files = array (
         '23c18046f52bef3eea034657bafda50f' => __DIR__ . '/..' . '/symfony/polyfill-php81/bootstrap.php',
         '320cde22f66dd4f5d3fd621d3e88b98f' => __DIR__ . '/..' . '/symfony/polyfill-ctype/bootstrap.php',
+        '6124b4c8570aa390c21fafd04a26c69f' => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy/deep_copy.php',
         'e39a8b23c42d4e1452234d762b03835a' => __DIR__ . '/..' . '/ramsey/uuid/src/functions.php',
         '0e6d7bf4a5811bfa5cf40c5ccd6fae6a' => __DIR__ . '/..' . '/symfony/polyfill-mbstring/bootstrap.php',
+        'db356362850385d08a5381de2638b5fd' => __DIR__ . '/..' . '/mpdf/mpdf/src/functions.php',
     );
 
     public static $prefixLengthsPsr4 = array (
+        's' =>
+        array (
+            'setasign\\Fpdi\\' => 14,
+        ),
         'S' =>
         array (
             'Symfony\\Polyfill\\Php81\\' => 23,
@@ -29,10 +35,21 @@ class ComposerStaticInit6194c5307778883ed85df7c486161350
         'P' =>
         array (
             'Psr\\Log\\' => 8,
+            'Psr\\Http\\Message\\' => 17,
+        ),
+        'M' =>
+        array (
+            'Mpdf\\PsrLogAwareTrait\\' => 22,
+            'Mpdf\\PsrHttpMessageShim\\' => 24,
+            'Mpdf\\' => 5,
         ),
         'H' =>
         array (
             'Hfig\\MAPI\\' => 10,
+        ),
+        'D' =>
+        array (
+            'DeepCopy\\' => 9,
         ),
         'B' =>
         array (
@@ -41,6 +58,10 @@ class ComposerStaticInit6194c5307778883ed85df7c486161350
     );
 
     public static $prefixDirsPsr4 = array (
+        'setasign\\Fpdi\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/setasign/fpdi/src',
+        ),
         'Symfony\\Polyfill\\Php81\\' =>
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-php81',
@@ -69,9 +90,29 @@ class ComposerStaticInit6194c5307778883ed85df7c486161350
         array (
             0 => __DIR__ . '/..' . '/psr/log/src',
         ),
+        'Psr\\Http\\Message\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/http-message/src',
+        ),
+        'Mpdf\\PsrLogAwareTrait\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/mpdf/psr-log-aware-trait/src',
+        ),
+        'Mpdf\\PsrHttpMessageShim\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/mpdf/psr-http-message-shim/src',
+        ),
+        'Mpdf\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/mpdf/mpdf/src',
+        ),
         'Hfig\\MAPI\\' =>
         array (
             0 => __DIR__ . '/..' . '/hfig/mapi/src/MAPI',
+        ),
+        'DeepCopy\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy',
         ),
         'Brick\\Math\\' =>
         array (

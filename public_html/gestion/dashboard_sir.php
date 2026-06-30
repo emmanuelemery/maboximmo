@@ -7,7 +7,7 @@ $user = check_auth_gestion('SIR');
 $pdo  = $GLOBALS['pdo'];
 
 if (!function_exists('e')) {
-    function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
+    function e(?string $s): string { return htmlspecialchars((string)($s ?? ''), ENT_QUOTES, 'UTF-8'); }
 }
 
 $current_page = 'dashboard_sir';

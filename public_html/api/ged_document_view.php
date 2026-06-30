@@ -33,23 +33,30 @@ if ($docId <= 0) {
     http_response_code(400);
     exit('Paramètre id manquant');
 }
-if ($tenantId <= 0) {
+// Admin (role 1) / super-admin : accès transverse à tous les tenants (visualisation GED globale,
+// même logique que api/ged_doc_serve.php).
+$bypassTenant = ((int)($_SESSION['id_role'] ?? 0) === 1)
+             || (function_exists('is_super_admin') && is_super_admin());
+if ($tenantId <= 0 && !$bypassTenant) {
     http_response_code(403);
     exit('Tenant non identifié');
 }
 
 try {
     // Document GED + chemin physique via fluxbox_documents (si origine FluxBox)
+    // FIX 2026-05-25 : ajout final_destination + metadata pour fallback ged_docs
+    // créés par gus_commit_document (Sprint 7) qui n'ont pas de fluxbox_source_id
     $st = $pdo->prepare("
         SELECT d.id, d.name_display, d.name_canonical, d.name_file, d.mime_type,
                d.size_bytes, d.storage_provider, d.status,
+               d.final_destination, d.metadata,
                f.fichier_chemin AS flux_path, f.mime_type AS flux_mime
         FROM ged_documents d
         LEFT JOIN fluxbox_documents f ON f.id = d.fluxbox_source_id
-        WHERE d.id = ? AND d.tenant_id = ?
+        WHERE d.id = ? " . ($bypassTenant ? "" : "AND d.tenant_id = ?") . "
         LIMIT 1
     ");
-    $st->execute([$docId, $tenantId]);
+    $st->execute($bypassTenant ? [$docId] : [$docId, $tenantId]);
     $doc = $st->fetch(PDO::FETCH_ASSOC);
 
     if (!$doc) {
@@ -61,10 +68,41 @@ try {
         exit('Document supprimé');
     }
 
-    $path = (string)($doc['flux_path'] ?? '');
-    if ($path === '' || !is_file($path) || !is_readable($path)) {
+    // Cascade de résolution path : 3 sources possibles
+    $publicHtml = dirname(__DIR__);
+    $path = '';
+
+    // Source 1 : fluxbox_documents.fichier_chemin (path absolu legacy)
+    $candidat = (string)($doc['flux_path'] ?? '');
+    if ($candidat !== '' && is_file($candidat) && is_readable($candidat)) { $path = $candidat; }
+
+    // Source 2 : ged_documents.final_destination (path relatif)
+    if ($path === '' && !empty($doc['final_destination'])) {
+        $candidat = $publicHtml . '/' . ltrim((string)$doc['final_destination'], '/');
+        if (is_file($candidat) && is_readable($candidat)) { $path = $candidat; }
+    }
+
+    // Source 3 : metadata.public_url (fallback pipeline gus_commit_document)
+    if ($path === '' && !empty($doc['metadata'])) {
+        $meta = json_decode((string)$doc['metadata'], true) ?: [];
+        $publicUrl = (string)($meta['public_url'] ?? '');
+        if ($publicUrl !== '') {
+            $candidat = $publicHtml . '/' . ltrim($publicUrl, '/');
+            if (is_file($candidat) && is_readable($candidat)) { $path = $candidat; }
+        }
+    }
+
+    // Source 4 : metadata.source_path (chemin ABSOLU posé par gus_commit_document,
+    // utilisé par les imports OneDrive → storage_fluxbox). Idem api/ged_doc_serve.php.
+    if ($path === '' && !empty($doc['metadata'])) {
+        $meta = json_decode((string)$doc['metadata'], true) ?: [];
+        $sp = (string)($meta['source_path'] ?? '');
+        if ($sp !== '' && is_file($sp) && is_readable($sp)) { $path = $sp; }
+    }
+
+    if ($path === '') {
         http_response_code(404);
-        exit('Fichier physique introuvable. (Origine non-FluxBox ou fichier non encore implémenté pour ce mode de stockage.)');
+        exit('Fichier physique introuvable. (Aucune source path/final_destination/metadata n\'a abouti.)');
     }
 
     $mime = (string)($doc['mime_type'] ?? '') ?: (string)($doc['flux_mime'] ?? '') ?: 'application/octet-stream';

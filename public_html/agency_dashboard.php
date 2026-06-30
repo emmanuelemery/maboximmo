@@ -38,7 +38,7 @@ $icoArrow   = '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 1
 
 // Barre de création — 7 actions rapides
 $creerItems = [
-    ['label' => 'Bien',        'url' => 'bien_detail.php',                  'ico' => $icoHome,    'color' => '#6b8e6f'],
+    ['label' => 'Bien',        'url' => 'bien_nouveau.php',                 'ico' => $icoHome,    'color' => '#6b8e6f'],
     ['label' => 'Immeuble',    'url' => 'agency_immeuble_form.php',         'ico' => $icoBuild,   'color' => '#4878a6'],
     ['label' => 'Réunion',     'url' => 'agency_reunion_form.php',          'ico' => $icoCal,     'color' => '#7a6830'],
     ['label' => 'Propriétaire','url' => 'agency_proprietaires.php?new=1',   'ico' => $icoUser,    'color' => '#c97b2e'],

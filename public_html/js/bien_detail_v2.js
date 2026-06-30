@@ -52,6 +52,144 @@
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
+  // Parse JSON robuste : si l'endpoint répond HTML (404 / 500 / PHP error),
+  // on retourne { ok:false, error:"…" } avec un message lisible au lieu de
+  // laisser éclater "Unexpected token '<'". Utile en dev/localhost où les
+  // PHP fatals peuvent ne pas afficher du JSON.
+  async function parseJsonSafe(response, url) {
+    const txt = await response.text();
+    try {
+      const j = JSON.parse(txt);
+      if (typeof j !== 'object' || j === null) {
+        return { ok: false, error: 'Réponse non-objet (' + response.status + ')' };
+      }
+      return j;
+    } catch (e) {
+      const head = (txt || '').replace(/\s+/g, ' ').slice(0, 200);
+      return {
+        ok: false,
+        error: 'HTTP ' + response.status + ' — réponse non-JSON. URL: ' + url
+             + '\n\nDébut de la réponse :\n' + head + (txt.length > 200 ? '…' : ''),
+      };
+    }
+  }
+
+  // ─── Modal extraction IA (lecture seule, gratuit) ───
+  // Affiche les champs extraits par l'IA + les lignes liées (dpe_diags, bien_baux)
+  // sans relancer aucun appel OpenAI. Source : ged_documents.metadata.extra.ia_result_last.
+  function showExtractionModal(payload) {
+    // Retire un éventuel ancien modal
+    const existing = document.getElementById('v2-extract-modal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'v2-extract-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#fff;border-radius:14px;max-width:880px;width:100%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 25px 80px rgba(15,23,42,.35);';
+
+    const head = document.createElement('div');
+    head.style.cssText = 'padding:18px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;';
+    head.innerHTML = `
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:15px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          🔍 Extraction IA · ${escapeHtml(payload.name_display || 'Document')}
+        </div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">
+          Type GED : <strong>${escapeHtml(payload.document_type || '?')}</strong>
+          ${payload.ia_last?.at ? ' · Analysé le ' + escapeHtml(payload.ia_last.at) : ''}
+          ${payload.ia_last?.router ? ' · Routeur : ' + escapeHtml(payload.ia_last.router) : ''}
+        </div>
+      </div>
+      <button type="button" id="v2-extract-close"
+        style="background:#f1f5f9;border:none;border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer;">✕ Fermer</button>
+    `;
+    card.appendChild(head);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'overflow:auto;padding:16px 24px;flex:1;';
+
+    // Section : champs IA bruts
+    const fields = payload.fields || {};
+    const fieldsKeys = Object.keys(fields);
+    if (fieldsKeys.length > 0) {
+      let rows = fieldsKeys.map(k => {
+        let v = fields[k];
+        if (v === null || v === undefined) v = '—';
+        else if (typeof v === 'object') v = JSON.stringify(v, null, 2);
+        return `<tr>
+          <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;color:#475569;font-size:12px;width:38%;">${escapeHtml(k)}</td>
+          <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;color:#0f172a;font-size:13px;white-space:pre-wrap;">${escapeHtml(String(v))}</td>
+        </tr>`;
+      }).join('');
+      body.innerHTML += `
+        <div style="font-weight:600;color:#1e293b;margin-bottom:6px;font-size:13px;">📋 Champs extraits par l'IA (${fieldsKeys.length})</div>
+        <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:8px;overflow:hidden;margin-bottom:18px;">
+          ${rows}
+        </table>`;
+    } else {
+      body.innerHTML += `
+        <div style="padding:14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;color:#92400e;font-size:13px;margin-bottom:18px;">
+          ℹ️ ${escapeHtml(payload.message || "Aucune extraction IA n'est stockée pour ce document. Cliquez sur 🔄 Re-analyser pour en générer une.")}
+        </div>`;
+    }
+
+    // Résumé bailleur (si présent)
+    if (payload.resume) {
+      body.innerHTML += `
+        <div style="font-weight:600;color:#1e293b;margin-bottom:6px;font-size:13px;">📝 Résumé bailleur</div>
+        <div style="padding:12px;background:#ecfdf5;border-left:3px solid #10b981;border-radius:6px;font-size:13px;color:#064e3b;white-space:pre-wrap;margin-bottom:18px;">
+          ${escapeHtml(payload.resume)}
+        </div>`;
+    }
+
+    // dpe_diags / bien_baux liés
+    if (payload.linked_dpe) {
+      const d = payload.linked_dpe;
+      body.innerHTML += `
+        <div style="font-weight:600;color:#1e293b;margin-bottom:6px;font-size:13px;">📊 Ligne dpe_diags principale</div>
+        <div style="padding:12px;background:#eff6ff;border-radius:6px;font-size:12px;color:#1e3a8a;margin-bottom:18px;">
+          <div>Classe DPE : <strong>${escapeHtml(d.dpe_classe || '—')}</strong> · GES : <strong>${escapeHtml(d.ges_classe || '—')}</strong></div>
+          <div>Conso : ${escapeHtml(d.consommation_energie || '—')} kWh · GES : ${escapeHtml(d.emission_ges || '—')} kgCO₂</div>
+          <div>Adresse détectée : ${escapeHtml(d.adresse_detectee || '—')} ${escapeHtml(d.code_postal_detecte || '')} ${escapeHtml(d.ville_detectee || '')}</div>
+          <div>Surface : ${escapeHtml(d.surface_habitable_detectee || '—')} m² · Pièces : ${escapeHtml(d.nb_pieces_detecte || '—')}</div>
+          <div>Méthode : ${escapeHtml(d.extraction_method || '—')} · Score : ${escapeHtml(d.extraction_score || '—')}%</div>
+        </div>`;
+    }
+    if (payload.linked_bail) {
+      const b = payload.linked_bail;
+      body.innerHTML += `
+        <div style="font-weight:600;color:#1e293b;margin-bottom:6px;font-size:13px;">📝 Ligne bien_baux dernière</div>
+        <div style="padding:12px;background:#fdf4ff;border-radius:6px;font-size:12px;color:#581c87;margin-bottom:18px;">
+          <div>Nature : <strong>${escapeHtml(b.bail_nature || '—')}</strong> · Loyer HC : <strong>${escapeHtml(b.loyer_mensuel_hc || '—')} €</strong> · Charges : ${escapeHtml(b.charges_mensuelles || '—')} €</div>
+          <div>Locataire : ${escapeHtml((b.locataire_prenom || '') + ' ' + (b.locataire_nom || ''))}</div>
+          <div>Prise d'effet : ${escapeHtml(b.date_prise_effet || '—')} → Fin : ${escapeHtml(b.date_fin || '—')}</div>
+          <div>Indice ${escapeHtml(b.indice_type || '?')} T${escapeHtml(b.indice_trimestre || '?')} = ${escapeHtml(b.indice_valeur || '?')} · Dépôt : ${escapeHtml(b.depot_garantie || '—')} €</div>
+        </div>`;
+    }
+
+    // JSON brut (debug repliable)
+    if (payload.ia_last) {
+      body.innerHTML += `
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer;font-size:12px;color:#64748b;font-weight:600;">📦 JSON brut (debug)</summary>
+          <pre style="margin-top:8px;padding:10px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:11px;overflow:auto;max-height:280px;">${escapeHtml(JSON.stringify(payload.ia_last, null, 2))}</pre>
+        </details>`;
+    }
+
+    card.appendChild(body);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('v2-extract-close').addEventListener('click', close);
+    document.addEventListener('keydown', function onEsc(ev) {
+      if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', onEsc); }
+    });
+  }
+
   function renderDocsList(containerId, docs, emptyIcon, emptyMsg) {
     const el = document.getElementById(containerId);
     if (!el) return;
@@ -70,7 +208,7 @@
       const dateStr = date ? ' · ' + fmtDate(date) : '';
       const url = d.url_fichier || '';
       return `
-        <div class="v2-doc-item" data-doc-id="${d.id}">
+        <div class="v2-doc-item" data-doc-id="${escapeHtml(String(d.id))}">
           <div class="v2-doc-icon">📄</div>
           <div class="v2-doc-meta">
             <div class="v2-doc-name">${escapeHtml(d.nom_original || ('Document #' + d.id))}</div>
@@ -78,51 +216,119 @@
           </div>
           <div class="v2-doc-actions">
             ${url ? `<a class="v2-doc-btn" href="${escapeHtml(url)}" target="_blank" rel="noopener">Voir</a>` : ''}
+            <button type="button" class="v2-doc-btn" data-action="extract-view-doc" title="Voir le détail de l'extraction IA (gratuit)">👁️</button>
+            <button type="button" class="v2-doc-btn" data-action="reanalyze-doc" title="Relancer l'analyse IA sur ce document">🔄</button>
             <button type="button" class="v2-doc-btn v2-doc-btn-danger" data-action="delete-doc" title="Supprimer ce document">🗑️</button>
           </div>
         </div>`;
     }).join('');
     el.innerHTML = '<div class="v2-doc-list">' + rows + '</div>';
 
-    // Handler suppression (délégué sur le container)
+    // Handler suppression + ré-analyse + voir extraction (délégué sur le container)
     el.addEventListener('click', async (e) => {
-      const btn = e.target.closest('[data-action="delete-doc"]');
-      if (!btn) return;
+      const delBtn    = e.target.closest('[data-action="delete-doc"]');
+      const reanaBtn  = e.target.closest('[data-action="reanalyze-doc"]');
+      const viewBtn   = e.target.closest('[data-action="extract-view-doc"]');
+      if (!delBtn && !reanaBtn && !viewBtn) return;
+      const btn  = delBtn || reanaBtn || viewBtn;
       const item = btn.closest('.v2-doc-item');
-      const docId = parseInt(item?.dataset.docId, 10) || 0;
+      // ID = chaîne (peut être "ged_42" ou "42"), on n'utilise plus parseInt.
+      const docId = String(item?.dataset.docId || '').trim();
       if (!docId) return;
-      if (!confirm('Supprimer ce document ?\n(Le fichier et la ligne sont retirés, les données DPE/mandat analysées restent.)')) return;
 
-      btn.disabled = true; btn.textContent = '⏳';
-      const fd = new FormData();
-      fd.append('id_doc', docId);
-      fd.append('csrf_token', (window.__v2DocsData || {}).csrfToken || '');
-      try {
-        const r = await fetch('/api/biens_documents_delete.php', {
-          method: 'POST', body: fd, credentials: 'same-origin',
-        });
-        const j = await r.json();
-        if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; btn.textContent = '🗑️'; return; }
-        // Retire la ligne du DOM + met à jour le compteur de la Card
-        item.style.transition = 'opacity .25s';
-        item.style.opacity = '0';
-        setTimeout(() => {
-          item.remove();
-          // Met à jour le compteur v2-count-* associé à ce container
-          const countId = containerId.replace('v2-list-', 'v2-count-');
-          const countEl = document.getElementById(countId);
-          if (countEl) {
-            const n = el.querySelectorAll('.v2-doc-item').length;
-            countEl.textContent = n;
-            // Si plus aucun doc : empty state
-            if (n === 0) {
-              el.innerHTML = `<div class="v2-doc-empty"><div class="v2-doc-empty-icon">${emptyIcon}</div><div>${emptyMsg}</div></div>`;
+      if (delBtn) {
+        if (!confirm('Supprimer ce document ?\n(Le fichier et la ligne sont retirés, les données DPE/mandat analysées restent.)')) return;
+        btn.disabled = true; btn.textContent = '⏳';
+        const fd = new FormData();
+        fd.append('id_doc', docId);
+        fd.append('csrf_token', (window.__v2DocsData || {}).csrfToken || '');
+        try {
+          const url = (window.__v2DocsData || {}).docDeleteEndpoint || '/api/biens_documents_delete.php';
+          const r = await fetch(url, {
+            method: 'POST', body: fd, credentials: 'same-origin',
+          });
+          const j = await parseJsonSafe(r, url);
+          if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; btn.textContent = '🗑️'; return; }
+          item.style.transition = 'opacity .25s';
+          item.style.opacity = '0';
+          setTimeout(() => {
+            item.remove();
+            const countId = containerId.replace('v2-list-', 'v2-count-');
+            const countEl = document.getElementById(countId);
+            if (countEl) {
+              const n = el.querySelectorAll('.v2-doc-item').length;
+              countEl.textContent = n;
+              if (n === 0) {
+                el.innerHTML = `<div class="v2-doc-empty"><div class="v2-doc-empty-icon">${emptyIcon}</div><div>${emptyMsg}</div></div>`;
+              }
             }
+          }, 250);
+        } catch (err) {
+          alert('❌ ' + err.message);
+          btn.disabled = false; btn.textContent = '🗑️';
+        }
+        return;
+      }
+
+      // ─── Voir extraction : ouvre un modal en lecture seule (gratuit) ───
+      if (viewBtn) {
+        btn.disabled = true; const lab0 = btn.textContent; btn.textContent = '⏳';
+        const fd = new FormData();
+        fd.append('id_doc', docId);
+        fd.append('csrf_token', (window.__v2DocsData || {}).csrfToken || '');
+        try {
+          const url = (window.__v2DocsData || {}).docExtractViewEndpoint || '/api/biens_documents_extract_view.php';
+          const r = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' });
+          const j = await parseJsonSafe(r, url);
+          btn.disabled = false; btn.textContent = lab0;
+          if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); return; }
+          showExtractionModal(j);
+        } catch (err) {
+          btn.disabled = false; btn.textContent = lab0;
+          alert('❌ ' + err.message);
+        }
+        return;
+      }
+
+      // ─── Re-analyse : relance l'IA sur le PDF déjà stocké ───
+      if (reanaBtn) {
+        btn.disabled = true; const originalLabel = btn.textContent; btn.textContent = '⏳';
+        const fd = new FormData();
+        fd.append('id_doc', docId);
+        fd.append('csrf_token', (window.__v2DocsData || {}).csrfToken || '');
+        try {
+          const url = (window.__v2DocsData || {}).docReanalyzeEndpoint || '/api/biens_documents_reanalyze.php';
+          const r = await fetch(url, {
+            method: 'POST', body: fd, credentials: 'same-origin',
+          });
+          const j = await parseJsonSafe(r, url);
+          if (!j.ok) { alert('❌ ' + (j.error || 'Erreur')); btn.disabled = false; btn.textContent = originalLabel; return; }
+          const fields = j.fields || {};
+          const nFields = Object.keys(fields).length;
+          const typeDetected = j.doc_type || '?';
+          const rep = j.apply_report || null;
+          let syncStatus = '— pas de sync exécutée';
+          if (rep) {
+            const tab = (typeDetected === 'bail') ? 'bien_baux' : 'dpe_diags';
+            const id  = rep.bail_id || rep.dpe_id || '?';
+            syncStatus = (rep.ok ? '✅ ' : '⚠️ ') + tab + ' ' + (rep.action || 'n/a')
+              + (id !== '?' ? ' (#' + id + ')' : '')
+              + (rep.notes && rep.notes.length ? '\n   ' + rep.notes.join('\n   ') : '');
           }
-        }, 250);
-      } catch (err) {
-        alert('❌ ' + err.message);
-        btn.disabled = false; btn.textContent = '🗑️';
+          alert(
+            `✅ Document réanalysé\n`
+            + `Type détecté : ${typeDetected}\n`
+            + `${nFields} champ(s) extrait(s)\n\n`
+            + `Sync table : ${syncStatus}\n\n`
+            + `${j.message || ''}`
+          );
+          btn.disabled = false; btn.textContent = originalLabel;
+          // Recharge la page pour refléter les changements (bien_baux, dpe, etc.)
+          if (j.reload) location.reload();
+        } catch (err) {
+          alert('❌ ' + err.message);
+          btn.disabled = false; btn.textContent = originalLabel;
+        }
       }
     });
   }
@@ -357,12 +563,17 @@
     document.querySelectorAll('.v2-bool-toggle').forEach(btn => {
       const field = btn.dataset.boolField;
       if (!field) return;
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const isActive = !btn.classList.contains('is-active');
         btn.classList.toggle('is-active', isActive);
         // Dès modification : retire l'indicateur DPE (valeur devient saisie utilisateur)
         btn.classList.remove('is-from-dpe');
-        saveField(field, isActive ? '1' : '0');
+        await saveField(field, isActive ? '1' : '0');
+        // bien_en_copropriete : affiche/masque la sous-section "🏢 Copropriété"
+        // (nb_lots + charges_annuelles) sur la Card Environnement — reload nécessaire.
+        if (field === 'bien_en_copropriete') {
+          setTimeout(() => window.location.reload(), 150);
+        }
       });
     });
 
@@ -430,6 +641,87 @@
       });
     }
 
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Card Photos (section descriptif) : lightbox modal + suppression unitaire
+  // - Clic sur image → ouverture du modal lightbox plein écran
+  // - Clic sur la croix rouge → confirmation + API delete + retrait du DOM
+  // - Fermeture lightbox : croix, clic backdrop, touche ESC
+  // ══════════════════════════════════════════════════════════════════
+  function bindPhotosDescriptifCard(data) {
+    const grid     = document.getElementById('v2-photo-grid');
+    const lightbox = document.getElementById('v2-photo-lightbox');
+    if (!grid || !lightbox) return;
+
+    const lightboxImg = lightbox.querySelector('#v2-photo-lightbox-img');
+    const lightboxClose = lightbox.querySelector('.v2-photo-lightbox-close');
+    // 2 compteurs montrent le TOTAL de photos du bien (descriptif + documents).
+    // Le compteur annonce (v2-annonce-photos-count) = nombre sélectionnées, géré ailleurs.
+    const countEls = [
+      document.getElementById('v2-photos-count'),   // Card Photos (descriptif)
+      document.getElementById('v2-count-photos'),   // Card Photos (documents)
+    ].filter(Boolean);
+
+    function openLightbox(url) {
+      if (!url) return;
+      lightboxImg.src = url;
+      lightbox.hidden = false;
+    }
+    function closeLightbox() {
+      lightbox.hidden = true;
+      lightboxImg.src = '';
+    }
+
+    lightboxClose.addEventListener('click', closeLightbox);
+    lightbox.addEventListener('click', (e) => {
+      // Ferme dès qu'on clique ailleurs que sur l'image elle-même ou le bouton ✕.
+      // (l'image peut couvrir quasi tout l'écran, donc un check `e.target === lightbox`
+      // est trop restrictif — l'user touche souvent l'image en visant le backdrop.)
+      if (e.target !== lightboxImg && !e.target.closest('.v2-photo-lightbox-close')) {
+        closeLightbox();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !lightbox.hidden) closeLightbox();
+    });
+
+    // Délégation : les tiles sont créées via PHP, pas de re-render dynamique
+    grid.addEventListener('click', async (e) => {
+      const tile = e.target.closest('.v2-photo-item');
+      if (!tile) return;
+
+      // Croix de suppression
+      if (e.target.classList.contains('v2-photo-delete')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const photoId = parseInt(tile.dataset.photoId, 10) || 0;
+        if (!photoId) return;
+        if (!confirm('Supprimer cette photo ? Action irréversible.')) return;
+
+        const fd = new FormData();
+        fd.append('id_photo', String(photoId));
+        fd.append('csrf_token', data.csrfToken || '');
+        try {
+          const r = await fetch(data.photoDeleteEndpoint || '/api/bien_photo_delete.php', {
+            method: 'POST',
+            body: fd,
+            credentials: 'same-origin',
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Échec suppression');
+          tile.remove();
+          const newCount = String(grid.querySelectorAll('.v2-photo-item').length);
+          countEls.forEach((el) => { el.textContent = newCount; });
+        } catch (err) {
+          alert('Erreur : ' + err.message);
+        }
+        return;
+      }
+
+      // Sinon : clic image → ouvre lightbox
+      openLightbox(tile.dataset.photoUrl);
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -819,7 +1111,6 @@
       // Champs readonly (toujours présents quand pertinents)
       setDisp('v2-loyer-cc-display',          json.loyer_cc);
       setDisp('v2-complement-loyer-display',  json.complement_loyer);
-      setDisp('v2-loyer-majore-display',      json.loyer_reference_majore);
 
       // Champs auto-fillable (ne pas écraser si l'utilisateur a saisi un truc plus récent)
       const syncIfEmpty = (selector, val) => {
@@ -855,6 +1146,16 @@
         // Prix FAI readonly : toujours mis à jour
         const faiEl = document.getElementById('v2-vente-fai');
         if (faiEl) faiEl.value = (typeof v.prix_fai === 'number' && v.prix_fai > 0) ? fmt(v.prix_fai) : '';
+        // Prix au m² (net vendeur + FAI) — recalcul après autosave
+        const grid     = document.getElementById('v2-vente-grid');
+        const surfPxM2 = grid ? (parseFloat((grid.dataset.surfacePxm2 || '').replace(',', '.')) || 0) : 0;
+        const setPxM2  = (id, prix) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.textContent = (surfPxM2 > 0 && prix > 0) ? (Math.round(prix / surfPxM2).toLocaleString('fr-FR') + ' €/m²') : '';
+        };
+        setPxM2('v2-vente-net-pxm2', (typeof v.prix_net_vendeur === 'number') ? v.prix_net_vendeur : 0);
+        setPxM2('v2-vente-fai-pxm2', (typeof v.prix_fai === 'number') ? v.prix_fai : 0);
       }
 
       // Loyer HC : si le backend a recalculé (= majoré + complément), on FORCE la
@@ -862,7 +1163,17 @@
       // calculé dès que loyer_reference_majore > 0.
       if (typeof json.loyer_hc === 'number') {
         const hcEl = document.querySelector('[name="loyer"]');
-        if (hcEl && json.loyer_hc > 0) hcEl.value = fmt(json.loyer_hc);
+        if (hcEl && json.loyer_hc > 0) {
+          hcEl.value = fmt(json.loyer_hc);
+          // Sync simulation rentabilité : renta-loyer = Loyer HC à chaque changement.
+          // Why: les updates programmatiques (cascade backend) ne dispatchent pas
+          // 'change' sur hcEl, donc l'écouteur de bindRentaSim ne se déclenche pas.
+          const rentaLoyerEl = document.getElementById('v2-renta-loyer');
+          if (rentaLoyerEl) {
+            rentaLoyerEl.value = hcEl.value;
+            rentaLoyerEl.dispatchEvent(new Event('input', { bubbles: false }));
+          }
+        }
       }
 
       // Honoraires : le backend a pu écrêter la valeur (cap ALUR) → on force l'input
@@ -982,14 +1293,36 @@
       const field = group.dataset.field;
       if (!field) return;
       group.querySelectorAll('.v2-icon-radio').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
           const wasActive = btn.classList.contains('is-active');
           group.querySelectorAll('.v2-icon-radio').forEach(b => b.classList.remove('is-active'));
           if (!wasActive) {
             btn.classList.add('is-active');
-            saveAnnonce(field, btn.dataset.value || '');
+            await saveAnnonce(field, btn.dataset.value || '');
           } else {
-            saveAnnonce(field, '');
+            await saveAnnonce(field, '');
+          }
+          // Toggle meublé → tarif officiel meublé/non-meublé diffère, on doit re-fetcher
+          // l'encadrement et mettre à jour le label "X mois HC" du dépôt de garantie.
+          if (field === 'meuble') {
+            const activeBtn = group.querySelector('.v2-icon-radio.is-active');
+            const meubleNow = !!(activeBtn && activeBtn.dataset.value === '1');
+            const depMois   = meubleNow ? 2 : 1;
+            const depField  = document.getElementById('v2-depot-garantie-input');
+            const depWrap   = depField ? depField.closest('.v2-loc-field') : null;
+            if (depWrap) {
+              depWrap.title = 'Par défaut ' + depMois + ' mois de loyer HC (' + (meubleNow ? 'meublé' : 'libre') + '), modifiable';
+              const small = depWrap.querySelector('.v2-loc-lbl small');
+              if (small) small.textContent = '€ (' + depMois + ' mois HC)';
+            }
+            if (typeof window.maboxRecomputeEncadrement === 'function') {
+              window.maboxRecomputeEncadrement(true);
+            }
+          }
+          // Toggle TVA assujetti (location commerciale/pro) → reload pour adapter
+          // l'affichage de la Card Conditions financières (champs HT vs HC).
+          if (group.dataset.reloadAfterSave === '1') {
+            setTimeout(() => window.location.reload(), 150);
           }
         });
       });
@@ -1028,8 +1361,15 @@
     });
 
     // Inputs annonce (futurs champs financiers) — même pattern data-annonce-save
+    // Si data-reload-after-save="1" → reload de la page après save réussi
+    // (utile pour le sélecteur Agence : les commerciaux affichés dépendent
+    //  de l'agence sélectionnée → rechargement nécessaire pour rafraichir).
     document.querySelectorAll('[data-annonce-save]').forEach(el => {
-      const handler = () => saveAnnonce(el.name, el.value);
+      const needsReload = el.dataset.reloadAfterSave === '1';
+      const handler = async () => {
+        await saveAnnonce(el.name, el.value);
+        if (needsReload) setTimeout(() => window.location.reload(), 250);
+      };
       el.addEventListener('change', handler);
       if (el.type === 'text' || el.type === 'number' || el.type === 'date' || el.tagName === 'TEXTAREA') {
         el.addEventListener('blur', handler);
@@ -1056,9 +1396,23 @@
         const v = parseFloat((el.value || '').replace(',', '.'));
         return isNaN(v) ? 0 : v;
       };
+      // Prix au m² : surface de référence + libellés sous net vendeur et FAI
+      const grid       = document.getElementById('v2-vente-grid');
+      const surfPxM2   = grid ? (parseFloat((grid.dataset.surfacePxm2 || '').replace(',', '.')) || 0) : 0;
+      const netPxM2El  = document.getElementById('v2-vente-net-pxm2');
+      const faiPxM2El  = document.getElementById('v2-vente-fai-pxm2');
+      const fmtPxM2 = (prix) => {
+        if (!(surfPxM2 > 0) || !(prix > 0)) return '';
+        return Math.round(prix / surfPxM2).toLocaleString('fr-FR') + ' €/m²';
+      };
+      const refreshPxM2 = () => {
+        if (netPxM2El) netPxM2El.textContent = fmtPxM2(num(netEl));
+        if (faiPxM2El) faiPxM2El.textContent = fmtPxM2(num(netEl) + num(honoEl));
+      };
       const refreshFai = () => {
         const fai = num(netEl) + num(honoEl);
         faiEl.value = fai > 0 ? fmt(fai) : '';
+        refreshPxM2();
       };
 
       // Saisie des honoraires (€) : recalcule le % si net > 0
@@ -1124,13 +1478,27 @@
       const faiEl     = document.getElementById('v2-vente-fai');
       if (!rentaSim || !loyerEl || !chargesEl || !bruteEl || !netteEl) return;
 
+      // Inputs source de la section LOCATION (Loyer HC + Charges).
+      // Le contenu de la simulation se synchronise automatiquement dessus :
+      // toute modif du loyer HC / charges propage à la simulation et relance
+      // le calcul. La simulation reste modifiable manuellement par l'user.
+      const loyerHcEl   = document.querySelector('[name="loyer"]');
+      const chargesLocEl = document.querySelector('[name="charges_locatives"]');
+
       const bienId = rentaSim.dataset.bienId || '0';
       const lsKey  = 'renta_sim_bien_' + bienId;
+
+      // 1. Initialisation : seed depuis la section Location si vide
+      const seedFromLocation = () => {
+        if (!loyerEl.value && loyerHcEl && loyerHcEl.value) loyerEl.value = loyerHcEl.value;
+        if (!chargesEl.value && chargesLocEl && chargesLocEl.value) chargesEl.value = chargesLocEl.value;
+      };
       try {
         const saved = JSON.parse(localStorage.getItem(lsKey) || '{}');
         if (saved.loyer   != null && saved.loyer   !== '') loyerEl.value   = saved.loyer;
         if (saved.charges != null && saved.charges !== '') chargesEl.value = saved.charges;
       } catch (_) {}
+      seedFromLocation();
 
       const fmtPct = (p) => (isFinite(p) && p !== 0) ? p.toFixed(2).replace(/\.?0+$/, '') + ' %' : '—';
       const numOf  = (s) => parseFloat(String(s || '').replace(/\s/g, '').replace(',', '.')) || 0;
@@ -1157,6 +1525,24 @@
         const el = document.getElementById(id);
         if (el) ['input', 'change', 'blur'].forEach(evt => el.addEventListener(evt, recompute));
       });
+      // Sync auto Loyer HC / Charges Location → Simulation
+      // L'user peut toujours surcharger manuellement la simulation.
+      if (loyerHcEl) {
+        ['input', 'change', 'blur'].forEach(evt => {
+          loyerHcEl.addEventListener(evt, () => {
+            if (loyerHcEl.value) loyerEl.value = loyerHcEl.value;
+            recompute();
+          });
+        });
+      }
+      if (chargesLocEl) {
+        ['input', 'change', 'blur'].forEach(evt => {
+          chargesLocEl.addEventListener(evt, () => {
+            if (chargesLocEl.value) chargesEl.value = chargesLocEl.value;
+            recompute();
+          });
+        });
+      }
       recompute();
     })();
 
@@ -1832,12 +2218,20 @@
       const an = document.querySelector('[name="annee_construction"]');
       const nb = document.querySelector('[name="nb_pieces"]');
       const sf = document.querySelector('[name="surface_habitable"]');
-      const mb = document.querySelector('[name="loyer_meuble"]');
       if (cp) ctx.code_postal = cp.value;
       if (an) ctx.annee_construction = parseInt(an.value, 10) || ctx.annee_construction;
       if (nb) ctx.nb_pieces = parseInt(nb.value, 10) || ctx.nb_pieces;
       if (sf) ctx.surface = parseFloat(sf.value) || ctx.surface;
-      if (mb && (mb.type === 'hidden' || mb.type === 'checkbox')) ctx.meuble = mb.value === '1' || mb.checked ? 1 : 0;
+      // Source de vérité : toggle "meuble" de la Card Conditions financières (annonce.meuble).
+      // Why: le toggle écrit dans annonce.meuble via saveAnnonce ; bien.loyer_meuble peut diverger
+      // et n'a pas d'input dans le DOM v2.
+      const mbBtn = document.querySelector('.v2-icon-radios[data-field="meuble"][data-target="annonce"] .v2-icon-radio.is-active');
+      if (mbBtn) {
+        ctx.meuble = mbBtn.dataset.value === '1' ? 1 : 0;
+      } else {
+        const mb = document.querySelector('[name="loyer_meuble"]');
+        if (mb && (mb.type === 'hidden' || mb.type === 'checkbox')) ctx.meuble = mb.value === '1' || mb.checked ? 1 : 0;
+      }
       return ctx;
     }
 
@@ -1851,7 +2245,7 @@
       el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    async function fetchEncadrement() {
+    async function fetchEncadrement(force = false) {
       const ctx = currentContext();
       const cp    = (ctx.code_postal || '').trim();
       const epoque = anneeToEpoque(ctx.annee_construction);
@@ -1871,20 +2265,23 @@
         const j = await r.json();
         if (!j.ok) { banner.hidden = true; return; }
 
-        // Tarifs (biens) — auto-remplis si champ vide ou déjà auto
-        setField('enc_loyer_ref', j.loyer_reference,         { onlyIfEmpty: true });
-        setField('enc_loyer_max', j.loyer_reference_majore,  { onlyIfEmpty: true });
-        setField('enc_loyer_min', j.loyer_reference_minore,  { onlyIfEmpty: true });
+        // force=true (ex: toggle meublé) → écrase les valeurs précédentes pour refléter les nouveaux tarifs.
+        const eo = { onlyIfEmpty: !force };
+
+        // Tarifs (biens) — auto-remplis si champ vide ou déjà auto (ou force)
+        setField('enc_loyer_ref', j.loyer_reference,         eo);
+        setField('enc_loyer_max', j.loyer_reference_majore,  eo);
+        setField('enc_loyer_min', j.loyer_reference_minore,  eo);
 
         // Loyers €/mois (annonce) — surface × tarif
         const surf = parseFloat(ctx.surface) || 0;
         if (surf > 0) {
-          setField('loyer_de_base',          (surf * j.loyer_reference).toFixed(2),        { onlyIfEmpty: true });
-          setField('loyer_reference_majore', (surf * j.loyer_reference_majore).toFixed(2), { onlyIfEmpty: true });
+          setField('loyer_de_base',          (surf * j.loyer_reference).toFixed(2),        eo);
+          setField('loyer_reference_majore', (surf * j.loyer_reference_majore).toFixed(2), eo);
         }
 
         // Zone label
-        setField('enc_zone', j.zone_label || ('Zone ' + (j.zone || '')), { onlyIfEmpty: true });
+        setField('enc_zone', j.zone_label || ('Zone ' + (j.zone || '')), eo);
 
         // Coche auto "zone encadrée"
         const zeBtn = document.querySelector('[data-annonce-bool="zone_encadrement_loyer"]');
@@ -1906,8 +2303,12 @@
 
     // Re-fetch au bouton manuel + à l'init
     const refreshBtn = document.getElementById('v2-enc-refresh');
-    if (refreshBtn) refreshBtn.addEventListener('click', fetchEncadrement);
+    if (refreshBtn) refreshBtn.addEventListener('click', () => fetchEncadrement(true));
     fetchEncadrement();
+
+    // Exposé pour cross-card recall (toggle meublé depuis Card Conditions financières).
+    // Why: le tarif officiel meublé/non-meublé diffère, on doit re-fetcher quand le flag change.
+    window.maboxRecomputeEncadrement = fetchEncadrement;
   }
 
   function bindCplSection(data, csrf) {
@@ -2048,6 +2449,7 @@
 
     if (section === 'descriptif') {
       bindDescriptifAutosave(data);
+      bindPhotosDescriptifCard(data);
 
       // Création express du propriétaire détecté dans le DPE
       // "Propriétaire détecté dans DPE" → ouvre le modal de création
@@ -2396,12 +2798,53 @@
       const dz = document.getElementById('v2-photo-drop');
       const dzInput = document.getElementById('v2-photo-input');
       const dzStatus = document.getElementById('v2-photo-drop-status');
+      const dzThumbs = document.getElementById('v2-photo-drop-thumbs');
       if (dz && dzInput) {
         const setStatus = (kind, msg) => {
           if (!dzStatus) return;
           dzStatus.className = 'v2-photo-drop-status ' + (kind || '');
           dzStatus.textContent = msg || '';
         };
+
+        // Crée une vignette en attente (preview local + spinner) et la renvoie.
+        function addThumb(file) {
+          if (!dzThumbs) return null;
+          const tile = document.createElement('div');
+          tile.className = 'v2-photo-drop-thumb is-loading';
+          const img = document.createElement('img');
+          let objUrl = '';
+          try { objUrl = URL.createObjectURL(file); img.src = objUrl; } catch (_) {}
+          img.alt = file.name || 'photo';
+          tile.appendChild(img);
+          const spin = document.createElement('div');
+          spin.className = 'v2-photo-drop-thumb-spin';
+          spin.textContent = '⏳';
+          tile.appendChild(spin);
+          dzThumbs.appendChild(tile);
+          return { tile, img, spin, objUrl };
+        }
+
+        // Marque la vignette OK (swap vers l'URL serveur) ou en erreur.
+        function resolveThumb(ref, j) {
+          if (!ref) return;
+          ref.tile.classList.remove('is-loading');
+          ref.spin?.remove();
+          const badge = document.createElement('div');
+          badge.className = 'v2-photo-drop-thumb-badge';
+          if (j && j.ok) {
+            badge.classList.add('ok');
+            badge.textContent = j.duplicate ? '♻️' : '✓';
+            badge.title = j.duplicate ? 'Doublon (déjà présente)' : 'Ajoutée';
+            if (j.id) ref.tile.dataset.id = j.id; // rend la vignette éditable (clic → recadrage)
+            if (j.url) { ref.img.onload = () => { if (ref.objUrl) URL.revokeObjectURL(ref.objUrl); }; ref.img.src = j.url; }
+          } else {
+            ref.tile.classList.add('is-error');
+            badge.classList.add('err');
+            badge.textContent = '✕';
+            badge.title = (j && j.error) ? j.error : 'Échec';
+          }
+          ref.tile.appendChild(badge);
+        }
 
         async function uploadPhoto(file) {
           const fd = new FormData();
@@ -2420,10 +2863,12 @@
           let done = 0, errs = 0;
           setStatus('', `⏳ 0 / ${list.length}…`);
           for (const f of list) {
+            const ref = addThumb(f);
             try {
               const j = await uploadPhoto(f);
+              resolveThumb(ref, j);
               if (j.ok) done++; else errs++;
-            } catch (e) { errs++; }
+            } catch (e) { resolveThumb(ref, { ok: false, error: e.message }); errs++; }
             setStatus('', `⏳ ${done + errs} / ${list.length}…`);
           }
           if (errs === 0) setStatus('ok', `✅ ${done} photo(s) ajoutée(s)`);
@@ -2445,6 +2890,9 @@
           if (e.dataTransfer?.files?.length) uploadAll(e.dataTransfer.files);
         });
       }
+
+      // ── Éditeur photo : clic vignette → modal recadrage + éclaircissement ──
+      bindPhotoEditor(data, dzThumbs);
     } else if (section === 'dpe') {
       bindMissingForm();
     }
@@ -2477,6 +2925,214 @@
     //     et beforeunload
     bindV2StatePersistence(v2Carousel);
   });
+
+  // ════════════════════════════════════════════════════════════════
+  // Éditeur photo : modal recadrage (Cropper.js) + éclaircissement auto
+  //   - Colonne gauche : image originale + cadre de recadrage
+  //   - Colonne droite : aperçu live du résultat (Cropper preview)
+  //   - "Éclaircir auto" : MÊME filtre en aperçu CSS et à l'export canvas
+  //     → ce qui est vu = ce qui est enregistré.
+  // ════════════════════════════════════════════════════════════════
+  const PE_BRIGHTEN_FILTER = 'brightness(1.12) contrast(1.06) saturate(1.05)';
+  const PE_WM_HEIGHT = 0.10;   // hauteur du filigrane = 10% de la hauteur image
+  const PE_WM_OPACITY = 0.20;  // opacité du filigrane
+  const PE_WM_MARGIN = 0.04;   // marge bas/droite = 4% de la largeur image
+
+  function bindPhotoEditor(data, thumbsContainer) {
+    if (typeof Cropper === 'undefined') return; // lib absente : on désactive proprement
+    const modal    = document.getElementById('v2-photo-edit-modal');
+    const imgEl    = document.getElementById('v2-photo-edit-img');
+    const canvasEl = document.getElementById('v2-photo-edit-canvas');
+    const statusEl = document.getElementById('v2-photo-edit-status');
+    const saveBtn  = document.getElementById('v2-photo-edit-save');
+    const logoBtn  = modal?.querySelector('[data-pe-logo]');
+    const logoUrl  = data.photoEditLogoUrl || '';
+    if (!modal || !imgEl || !saveBtn) return;
+
+    // Pas de logo société configuré → on masque le bouton filigrane
+    if (logoBtn && !logoUrl) logoBtn.style.display = 'none';
+
+    // Image logo préchargée (réutilisée pour l'aperçu ET la cuisson à l'export)
+    let logoImg = null;
+    if (logoUrl) {
+      logoImg = new Image();
+      logoImg.crossOrigin = 'anonymous'; // nécessaire pour exporter le canvas sans le « tainter »
+      logoImg.onload = () => renderPreview();
+      logoImg.src = logoUrl;
+    }
+
+    let cropper = null;
+    let curId = 0;
+    let brighten = false;
+    let watermark = false;
+
+    const setStatus = (kind, msg) => {
+      if (!statusEl) return;
+      statusEl.className = 'v2-photo-edit-status ' + (kind || '');
+      statusEl.textContent = msg || '';
+    };
+
+    function applyBrightenUI() {
+      modal.querySelector('[data-pe-brighten]')?.classList.toggle('is-active', brighten);
+    }
+    function applyLogoUI() {
+      logoBtn?.classList.toggle('is-active', watermark);
+      if (logoBtn) logoBtn.textContent = watermark ? '🖼️ Supprimer logo' : '🖼️ Ajouter logo';
+    }
+
+    // Compose le rendu final (recadrage + éclaircissement + logo) sur le canvas cible.
+    // Utilisé À LA FOIS pour l'aperçu (petit) et l'export (pleine résolution)
+    // → ce qui est affiché = ce qui est enregistré, au pixel près.
+    function composeTo(targetCanvas, sourceCanvas) {
+      targetCanvas.width = sourceCanvas.width;
+      targetCanvas.height = sourceCanvas.height;
+      const ctx = targetCanvas.getContext('2d');
+      ctx.filter = brighten ? PE_BRIGHTEN_FILTER : 'none';
+      ctx.drawImage(sourceCanvas, 0, 0);
+      ctx.filter = 'none';
+      if (watermark && logoImg && logoImg.complete && logoImg.naturalWidth) {
+        const wmH = Math.round(targetCanvas.height * PE_WM_HEIGHT);
+        const wmW = Math.round(wmH * (logoImg.naturalWidth / logoImg.naturalHeight));
+        const m   = Math.round(targetCanvas.width * PE_WM_MARGIN);
+        ctx.globalAlpha = PE_WM_OPACITY;
+        ctx.drawImage(logoImg, targetCanvas.width - wmW - m, targetCanvas.height - wmH - m, wmW, wmH);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Aperçu live (débounce léger : le recadrage déclenche beaucoup d'events)
+    let previewRaf = 0;
+    function renderPreview() {
+      if (!cropper || !canvasEl) return;
+      if (previewRaf) cancelAnimationFrame(previewRaf);
+      previewRaf = requestAnimationFrame(() => {
+        const src = cropper.getCroppedCanvas({ maxWidth: 600, imageSmoothingQuality: 'medium' });
+        if (src) composeTo(canvasEl, src);
+      });
+    }
+
+    function close() {
+      if (cropper) { cropper.destroy(); cropper = null; }
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      curId = 0;
+    }
+
+    function open(id, url) {
+      curId = id;
+      brighten = false;
+      watermark = false;
+      applyBrightenUI();
+      applyLogoUI();
+      setStatus('', '');
+      saveBtn.disabled = false;
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      if (cropper) { cropper.destroy(); cropper = null; }
+      // Cache-bust pour éviter une version périmée si déjà éditée
+      const src = url + (url.includes('?') ? '&' : '?') + '_e=' + (window.__peNonce = (window.__peNonce || 0) + 1);
+      // Init Cropper UNE FOIS l'image chargée → taille affichée correcte (sinon image riquiqui)
+      imgEl.onload = () => {
+        if (cropper) cropper.destroy();
+        cropper = new Cropper(imgEl, {
+          viewMode: 0,               // image visible intégralement (contain, pas de rognage forcé)
+          dragMode: 'move',          // glisser = déplacer l'image sous le cadre (pas créer une sélection)
+          autoCropArea: 0.85,        // marge autour du cadre → on peut le bouger/redimensionner
+          background: false,
+          responsive: true,
+          movable: true,
+          zoomable: true,
+          cropBoxMovable: true,
+          cropBoxResizable: true,
+          toggleDragModeOnDblclick: false,
+          ready() { renderPreview(); },
+          crop() { renderPreview(); },
+        });
+      };
+      imgEl.src = src;
+    }
+
+    // Toolbar : ratios / rotation / éclaircir
+    modal.querySelectorAll('[data-pe-ratio]').forEach(b => {
+      b.addEventListener('click', () => {
+        if (!cropper) return;
+        const v = b.dataset.peRatio;
+        cropper.setAspectRatio(v === 'free' ? NaN : parseFloat(v));
+        modal.querySelectorAll('[data-pe-ratio]').forEach(x => x.classList.remove('is-active'));
+        b.classList.add('is-active');
+      });
+    });
+    modal.querySelectorAll('[data-pe-rotate]').forEach(b => {
+      b.addEventListener('click', () => cropper && cropper.rotate(parseInt(b.dataset.peRotate, 10)));
+    });
+    modal.querySelector('[data-pe-brighten]')?.addEventListener('click', () => {
+      brighten = !brighten;
+      applyBrightenUI();
+      renderPreview();
+    });
+    logoBtn?.addEventListener('click', () => {
+      watermark = !watermark;
+      applyLogoUI();
+      renderPreview();
+    });
+    modal.querySelectorAll('[data-pe-close]').forEach(b => b.addEventListener('click', close));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.classList.contains('is-open')) close(); });
+
+    // Enregistrement
+    saveBtn.addEventListener('click', async () => {
+      if (!cropper || !curId) return;
+      saveBtn.disabled = true;
+      setStatus('', '⏳ Traitement…');
+      try {
+        const src = cropper.getCroppedCanvas({
+          maxWidth: 2500, maxHeight: 2500,
+          imageSmoothingQuality: 'high',
+          fillColor: '#fff',
+        });
+        if (!src) throw new Error('Recadrage impossible');
+
+        // Aplatit éclaircissement + filigrane dans les pixels (logo indissociable de la photo).
+        // Même routine que l'aperçu → rendu final identique à l'écran.
+        const out = document.createElement('canvas');
+        composeTo(out, src);
+
+        const blob = await new Promise(res2 => out.toBlob(res2, 'image/jpeg', 0.9));
+        if (!blob) throw new Error('Export image impossible');
+
+        const fd = new FormData();
+        fd.append('id_photo', String(curId));
+        fd.append('csrf_token', data.csrfToken || '');
+        fd.append('fichier', blob, 'edit.jpg');
+        const r = await fetch(data.photoEditEndpoint || '/api/bien_photo_edit.php', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Échec enregistrement');
+
+        // Rafraîchit toutes les images de cette photo (vignette + tuile grille) avec cache-bust
+        const bust = '?v=' + (window.__peNonce = (window.__peNonce || 0) + 1);
+        const newUrl = (j.url || '').split('?')[0];
+        document.querySelectorAll('.v2-photo-drop-thumb[data-id="' + curId + '"] img').forEach(im => { im.src = newUrl + bust; });
+        document.querySelectorAll('.v2-photo-tile[data-id="' + curId + '"] img').forEach(im => { im.src = newUrl + bust; });
+
+        setStatus('ok', '✅ Photo mise à jour');
+        setTimeout(close, 700);
+      } catch (err) {
+        setStatus('err', '❌ ' + err.message);
+        saveBtn.disabled = false;
+      }
+    });
+
+    // Délégation : clic sur une vignette chargée (data-id) → ouvre l'éditeur
+    thumbsContainer?.addEventListener('click', (e) => {
+      const tile = e.target.closest('.v2-photo-drop-thumb[data-id]');
+      if (!tile) return;
+      const id = parseInt(tile.dataset.id, 10) || 0;
+      const img = tile.querySelector('img');
+      if (!id || !img) return;
+      open(id, img.src.split('?')[0]);
+    });
+  }
 
   function bindV2StatePersistence(carousel) {
     const params = new URLSearchParams(location.search);

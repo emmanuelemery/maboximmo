@@ -117,13 +117,39 @@ require_once __DIR__ . '/inc/header.php';
   .ap-section.selected .ap-section-head .count { background: #dcfce7; color: #166534; }
 
   .ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
-  .ap-tile { position: relative; border: 2px solid #e5e7eb; border-radius: 10px; overflow: hidden; cursor: pointer; aspect-ratio: 4/3; background: #f8fafc; transition: transform 0.15s, border-color 0.15s; }
+  .ap-tile { position: relative; border: 2px solid #e5e7eb; border-radius: 10px; overflow: hidden; cursor: pointer; aspect-ratio: 4/3; background: #f8fafc; transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s; }
   .ap-tile:hover { transform: scale(1.03); border-color: #0ea5e9; }
-  .ap-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .ap-tile .ap-order { position: absolute; top: 6px; left: 6px; background: rgba(15,23,42,0.85); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; min-width: 22px; text-align: center; }
+  .ap-tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .ap-tile .ap-order {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(15,23,42,0.92); color: #fff;
+    font-size: 18px; font-weight: 800;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    border: 2px solid #fff;
+  }
   .ap-tile .ap-main { position: absolute; bottom: 6px; left: 6px; background: #f59e0b; color: #fff; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; text-transform: uppercase; }
   .ap-tile .ap-action { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.95); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #0f172a; }
   .ap-tile.is-selected { border-color: #16a34a; }
+
+  /* Drag & drop : sélection uniquement (les tiles disponibles ne sont pas réordonnables) */
+  .ap-section.selected .ap-tile.is-selected { cursor: grab; }
+  .ap-section.selected .ap-tile.is-selected:active { cursor: grabbing; }
+  .ap-tile.dragging { opacity: 0.4; transform: scale(0.95); }
+  .ap-tile.drag-over { box-shadow: 0 0 0 4px #0ea5e9 inset; border-color: #0ea5e9; }
+  .ap-tile .ap-drag-handle {
+    position: absolute; top: 8px; right: 36px;
+    background: rgba(255,255,255,0.9); color: #475569;
+    font-size: 14px; line-height: 1;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .ap-section.selected .ap-tile.is-selected:hover .ap-drag-handle { opacity: 0.9; }
 
   .ap-empty { color: #94a3b8; text-align: center; padding: 30px 12px; font-size: 13px; }
 
@@ -175,9 +201,10 @@ require_once __DIR__ . '/inc/header.php';
         <?php foreach ($photosSelectionnees as $i => $p):
           $url = $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '';
         ?>
-          <div class="ap-tile is-selected" data-photo-id="<?= (int)$p['id'] ?>">
+          <div class="ap-tile is-selected" data-photo-id="<?= (int)$p['id'] ?>" draggable="<?= $annonceActif ? 'true' : 'false' ?>">
             <span class="ap-order"><?= $i + 1 ?></span>
             <?php if ($i === 0): ?><span class="ap-main">PRINCIPALE</span><?php endif; ?>
+            <span class="ap-drag-handle" title="Glisser pour réordonner">⠿</span>
             <img src="<?= htmlspecialchars($url) ?>" alt="<?= htmlspecialchars((string)($p['nom_original'] ?? '')) ?>" loading="lazy">
             <span class="ap-action" title="Cliquer pour retirer de la sélection">×</span>
           </div>
@@ -286,14 +313,19 @@ require_once __DIR__ . '/inc/header.php';
   }
 
   if (!isLocked) {
+    // Distinction click / drag : si on a draggé, on bloque le clic suivant
+    let suppressNextClick = false;
+
     // Event delegation sur le container parent (robuste : marche même si on déplace les tiles)
     function handleTileClick(tile) {
       const isSel = tile.classList.contains('is-selected');
       if (isSel) {
         // Désélection : descend dans dispo
         tile.classList.remove('is-selected');
+        tile.removeAttribute('draggable');
         const o = tile.querySelector('.ap-order'); if (o) o.remove();
         const m = tile.querySelector('.ap-main'); if (m) m.remove();
+        const h = tile.querySelector('.ap-drag-handle'); if (h) h.remove();
         const a = tile.querySelector('.ap-action'); if (a) { a.textContent = '+'; a.title = 'Cliquer pour ajouter à la sélection'; }
         const emptyDispo = gridDispo.querySelector('.ap-empty');
         if (emptyDispo) emptyDispo.remove();
@@ -301,6 +333,14 @@ require_once __DIR__ . '/inc/header.php';
       } else {
         // Sélection : monte dans sélectionnées
         tile.classList.add('is-selected');
+        tile.setAttribute('draggable', 'true');
+        if (!tile.querySelector('.ap-drag-handle')) {
+          const dh = document.createElement('span');
+          dh.className = 'ap-drag-handle';
+          dh.title = 'Glisser pour réordonner';
+          dh.textContent = '⠿';
+          tile.appendChild(dh);
+        }
         const a = tile.querySelector('.ap-action'); if (a) { a.textContent = '×'; a.title = 'Cliquer pour retirer de la sélection'; }
         const emptySel = gridSel.querySelector('.ap-empty');
         if (emptySel) emptySel.remove();
@@ -311,11 +351,70 @@ require_once __DIR__ . '/inc/header.php';
     }
     // Délégation : un seul listener sur document, qui détecte le tile cliqué
     document.addEventListener('click', (e) => {
+      if (suppressNextClick) { suppressNextClick = false; return; }
       const tile = e.target.closest('.ap-tile');
       if (!tile) return;
       // Vérifie qu'on est dans une des 2 grids (pas un autre tile ailleurs)
       if (!gridSel.contains(tile) && !gridDispo.contains(tile)) return;
       handleTileClick(tile);
+    });
+
+    // ── Drag & drop pour réordonner dans la sélection ───────────────
+    let dragSrc = null;
+
+    gridSel.addEventListener('dragstart', (e) => {
+      const tile = e.target.closest('.ap-tile');
+      if (!tile || !gridSel.contains(tile)) return;
+      dragSrc = tile;
+      tile.classList.add('dragging');
+      // Firefox a besoin d'un setData pour démarrer le drag
+      try { e.dataTransfer.setData('text/plain', tile.dataset.photoId || ''); } catch(_) {}
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    gridSel.addEventListener('dragend', (e) => {
+      const tile = e.target.closest('.ap-tile');
+      if (tile) tile.classList.remove('dragging');
+      gridSel.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      dragSrc = null;
+      // Empêche le click qui suit le dragend
+      suppressNextClick = true;
+      setTimeout(() => { suppressNextClick = false; }, 50);
+    });
+
+    gridSel.addEventListener('dragover', (e) => {
+      if (!dragSrc) return;
+      e.preventDefault(); // autorise le drop
+      e.dataTransfer.dropEffect = 'move';
+      const tile = e.target.closest('.ap-tile');
+      if (!tile || tile === dragSrc) return;
+      gridSel.querySelectorAll('.drag-over').forEach(el => { if (el !== tile) el.classList.remove('drag-over'); });
+      tile.classList.add('drag-over');
+    });
+
+    gridSel.addEventListener('dragleave', (e) => {
+      const tile = e.target.closest('.ap-tile');
+      if (tile && !tile.contains(e.relatedTarget)) tile.classList.remove('drag-over');
+    });
+
+    gridSel.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (!dragSrc) return;
+      const target = e.target.closest('.ap-tile');
+      if (!target || target === dragSrc) return;
+      // Détermine s'il faut insérer avant ou après la cible selon la position du curseur
+      const rect = target.getBoundingClientRect();
+      const horizontal = (rect.left + rect.right) / 2;
+      const vertical   = (rect.top + rect.bottom) / 2;
+      // En grille multi-colonnes : si on est dans la moitié droite/bas → insère après ; sinon avant
+      const insertAfter = (e.clientX > horizontal) || (e.clientY > vertical);
+      if (insertAfter) {
+        target.parentNode.insertBefore(dragSrc, target.nextSibling);
+      } else {
+        target.parentNode.insertBefore(dragSrc, target);
+      }
+      target.classList.remove('drag-over');
+      refreshOrders();
     });
 
     // Save

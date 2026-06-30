@@ -66,14 +66,26 @@ if (!function_exists('immeuble_mbi_assets')) {
         <script>
         (function(){
           const FORM_URL = <?= json_encode($formUrl) ?>;
-          let onResult = null;
+          let onResult = null;   // callback création/liaison (imbm_created)
+          let onPick = null;     // callback sélection seule (imbm_picked)
           const $ = id => document.getElementById(id);
 
           function open(cb){
             onResult = (typeof cb==='function') ? cb : null;
+            onPick = null;
             $('imbm-loading').style.display = 'flex';
             // Recharge la page propre à chaque ouverture (nouvel immeuble).
             $('imbm-frame').src = FORM_URL;
+            $('imbm-modal').classList.add('open');
+            $('imbm-modal').setAttribute('aria-hidden','false');
+          }
+          // Mode "pick" : recherche Google + renvoi de l'adresse au parent, SANS
+          // créer d'immeuble (ex. édition de l'adresse d'un immeuble existant).
+          function openPick(cb){
+            onPick = (typeof cb==='function') ? cb : null;
+            onResult = null;
+            $('imbm-loading').style.display = 'flex';
+            $('imbm-frame').src = FORM_URL + (FORM_URL.indexOf('?')>=0 ? '&' : '?') + 'mode=pick';
             $('imbm-modal').classList.add('open');
             $('imbm-modal').setAttribute('aria-hidden','false');
           }
@@ -102,13 +114,18 @@ if (!function_exists('immeuble_mbi_assets')) {
               return;
             }
             if (d.type === 'imbm_cancel') { close(); return; }
+            if (d.type === 'imbm_picked') {
+              if (onPick) onPick(d.address);
+              close();
+              return;
+            }
             if (d.type === 'imbm_created') {
               if (onResult) onResult(d.immeuble, d.created);
               close();
             }
           });
 
-          window.ImmeubleRechercheMBI = { open, close };
+          window.ImmeubleRechercheMBI = { open, openPick, close };
         })();
         </script>
         <?php

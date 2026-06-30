@@ -64,6 +64,9 @@ $image = (string)($vMeta['image'] ?? '');
       <?php foreach ($links as $ln): ?>
         <a class="v-nav-link <?= $navActive === $ln['k'] ? 'is-active' : '' ?>" href="<?= h($ln['href']) ?>"><?= h($ln['label']) ?></a>
       <?php endforeach; ?>
+      <?php if (!empty($agence['id'])): ?>
+        <a class="v-nav-link" href="<?= h(app_url('/mbi_annonces_index.php?net_agence=' . (int)$agence['id'])) ?>" title="Accéder au portail d'annonces de l'agence">Portail annonces ↗</a>
+      <?php endif; ?>
       <a class="v-btn v-btn-primary" href="<?= h(vitrine_path($slug, '/estimation-gratuite')) ?>">Demander un rappel</a>
     </nav>
   </div>

@@ -40,18 +40,11 @@ if (!empty($doc['confidentiel']) && (int)$doc['confidentiel'] === 1 && $roleId !
 $filePath    = __DIR__ . '/../uploads/rh_docs/' . (int)$doc['id_user'] . '/' . basename($doc['filename']);
 $uploadsBase = realpath(__DIR__ . '/../uploads');
 $resolved    = realpath($filePath);
-
-// Cas 1 : fichier inexistant sur le disque (le plus fréquent en prod si /uploads non syncé)
-if (!$resolved) {
-    http_response_code(404);
-    exit('File not found (le fichier physique manque sur le serveur — re-uploader le doc id=' . $docId . ')');
+if (!$resolved || !$uploadsBase || strpos($resolved, $uploadsBase . DIRECTORY_SEPARATOR) !== 0) {
+    http_response_code(403); exit('Access denied');
 }
-// Cas 2 : tentative de path traversal (sécurité)
-if (!$uploadsBase || strpos($resolved, $uploadsBase . DIRECTORY_SEPARATOR) !== 0) {
-    http_response_code(403); exit('Access denied (path traversal)');
-}
-if (!is_readable($resolved)) {
-    http_response_code(404); exit('File not readable');
+if (!file_exists($resolved) || !is_readable($resolved)) {
+    http_response_code(404); exit('File not found');
 }
 
 $finfo    = finfo_open(FILEINFO_MIME_TYPE);

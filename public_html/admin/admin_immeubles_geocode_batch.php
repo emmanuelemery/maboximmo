@@ -31,13 +31,15 @@ $maxRun = (int)($_GET['max'] ?? 50);
 // Compte global des immeubles
 $nbTotal = (int)$pdo->query('SELECT COUNT(*) FROM immeubles')->fetchColumn();
 $stats['total_sans_geoloc'] = (int)$pdo->query("SELECT COUNT(*) FROM immeubles
-    WHERE (latitude IS NULL OR longitude IS NULL)
+    WHERE (latitude IS NULL OR longitude IS NULL
+           OR adresse_formatee IS NULL OR adresse_formatee = '')
       AND adresse_1 IS NOT NULL AND adresse_1 <> ''")->fetchColumn();
 
 if ($run) {
     $st = $pdo->prepare("SELECT id, adresse_1, code_postal, ville
         FROM immeubles
-        WHERE (latitude IS NULL OR longitude IS NULL)
+        WHERE (latitude IS NULL OR longitude IS NULL
+               OR adresse_formatee IS NULL OR adresse_formatee = '')
           AND adresse_1 IS NOT NULL AND adresse_1 <> ''
         ORDER BY id LIMIT ?");
     $st->bindValue(1, $maxRun, PDO::PARAM_INT);
@@ -65,9 +67,10 @@ if ($run) {
                 $adresseFmt = $g['formatted_address'] ?? null;
 
                 if ($lat && $lng) {
-                    $upd = ['latitude = ?', 'longitude = ?'];
+                    $upd = ['latitude = ?', 'longitude = ?', "gps_source = 'google'"];
                     $params = [$lat, $lng];
                     if ($hasPlaceId && $placeId) { $upd[] = 'google_place_id = ?'; $params[] = $placeId; }
+                    if ($adresseFmt)            { $upd[] = 'adresse_formatee = ?'; $params[] = $adresseFmt; }
                     $params[] = $im['id'];
                     $sqlU = 'UPDATE immeubles SET ' . implode(', ', $upd) . ' WHERE id = ?';
                     $stU = $pdo->prepare($sqlU);

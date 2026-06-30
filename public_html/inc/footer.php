@@ -28,11 +28,11 @@ $GOOGLE_MAPS_API_KEY = $GOOGLE_MAPS_API_KEY ?? '';
 
 <script src="<?= htmlspecialchars(asset_url('/js/app.js')) ?>"></script>
 <?php if ($includeGooglePlaces): ?>
-    <script src="<?= htmlspecialchars(asset_url('/js/places.js')) ?>"></script>
+    <script src="<?= htmlspecialchars(asset_url('/js/places.js')) ?>?v=<?= @filemtime(__DIR__ . '/../js/places.js') ?: '1' ?>"></script>
 <?php endif; ?>
 <?php if ($includeGoogleMapsJs && $GOOGLE_MAPS_API_KEY !== ''): ?>
     <script
-        src="https://maps.googleapis.com/maps/api/js?key=<?= htmlspecialchars($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=initPlacesAutocomplete"
+        src="https://maps.googleapis.com/maps/api/js?key=<?= htmlspecialchars($GOOGLE_MAPS_API_KEY) ?>&libraries=places&loading=async&callback=initPlacesAutocomplete"
         async
         defer
     ></script>

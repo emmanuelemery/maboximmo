@@ -13,6 +13,9 @@ $filterType        = trim((string)($_GET['type']        ?? ''));
 $filterTransaction = trim((string)($_GET['transaction']  ?? ''));
 $filterStatut      = trim((string)($_GET['statut']       ?? 'actif'));
 $filterSearch      = trim((string)($_GET['q']            ?? ''));
+$filterSociete     = (int)($_GET['societe'] ?? 0);
+$filterAgence      = (int)($_GET['agence']  ?? 0);
+$filterUser        = (int)($_GET['user']    ?? 0);
 $page              = max(1, (int)($_GET['page'] ?? 1));
 $perPage           = 12;
 $offset            = ($page - 1) * $perPage;
@@ -85,8 +88,80 @@ if ($filterSearch !== '') {
     $where[]           = "(b.reference_bien LIKE :q OR b.designation LIKE :q OR b.ville LIKE :q OR b.adresse_1 LIKE :q OR i.ville LIKE :q OR i.adresse_1 LIKE :q)";
     $params[':q']      = '%' . $filterSearch . '%';
 }
+// Filtres société / agence / user (super-admin uniquement pour société ; autres scopés à leur société)
+if ($filterSociete > 0 && $isSuperAdmin) {
+    $where[]               = "b.id_societe = :f_societe";
+    $params[':f_societe']  = $filterSociete;
+}
+if ($filterAgence > 0) {
+    $where[]              = "b.id_agence = :f_agence";
+    $params[':f_agence']  = $filterAgence;
+}
+// Détection défensive de la colonne id_user_actuel (migration peut ne pas être passée)
+$hasUserActuelCol = false;
+try {
+    $hasUserActuelCol = (bool)$pdo->query("SHOW COLUMNS FROM biens LIKE 'id_user_actuel'")->fetchColumn();
+} catch (Throwable $e) {}
+if ($filterUser > 0 && $hasUserActuelCol) {
+    $where[]            = "b.id_user_actuel = :f_user";
+    $params[':f_user']  = $filterUser;
+}
 
 $whereClause = 'WHERE ' . implode(' AND ', $where);
+
+/* ── Listes pour les selects (société / agence / user) ─────
+ * Scope :
+ *   - Super admin : voit toutes les sociétés / agences / users
+ *   - Autres : agences et users de leur société uniquement
+ *   - Proprios externes (9/10) : pas de filtres org (scope déjà par SCI) */
+$listSocietes = [];
+$listAgences  = [];
+$listUsers    = [];
+if (!$isProprioExterne) {
+    try {
+        if ($isSuperAdmin) {
+            $listSocietes = $pdo->query("SELECT id, COALESCE(NULLIF(raison_sociale,''), NULLIF(nom,''), CONCAT('Société #', id)) AS label
+                FROM societes ORDER BY label ASC")->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } catch (Throwable $e) { $listSocietes = []; }
+    try {
+        // Si super-admin et filtre société choisi → agences de cette société
+        // Si super-admin sans filtre → toutes les agences
+        // Sinon → agences de la société de l'user
+        $scopeSocId = $isSuperAdmin ? ($filterSociete > 0 ? $filterSociete : 0)
+                                    : (int)($_SESSION['id_societe'] ?? 0);
+        if ($isSuperAdmin && $scopeSocId === 0) {
+            $st = $pdo->query("SELECT id, COALESCE(NULLIF(nom_agence,''), CONCAT('Agence #', id)) AS label, id_societe
+                FROM agences ORDER BY label ASC");
+        } else {
+            $st = $pdo->prepare("SELECT id, COALESCE(NULLIF(nom_agence,''), CONCAT('Agence #', id)) AS label, id_societe
+                FROM agences WHERE id_societe = :soc ORDER BY label ASC");
+            $st->execute([':soc' => $scopeSocId]);
+        }
+        $listAgences = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) { $listAgences = []; }
+    try {
+        // Users scoped : société (et agence si choisie)
+        $sqlU = "SELECT id, TRIM(CONCAT(COALESCE(prenom,''), ' ', COALESCE(nom,''))) AS label, id_societe, id_agence
+            FROM users WHERE 1=1";
+        $pU   = [];
+        if (!$isSuperAdmin) {
+            $sqlU .= " AND id_societe = :soc";
+            $pU[':soc'] = (int)($_SESSION['id_societe'] ?? 0);
+        } elseif ($filterSociete > 0) {
+            $sqlU .= " AND id_societe = :soc";
+            $pU[':soc'] = $filterSociete;
+        }
+        if ($filterAgence > 0) {
+            $sqlU .= " AND id_agence = :ag";
+            $pU[':ag'] = $filterAgence;
+        }
+        $sqlU .= " ORDER BY nom ASC, prenom ASC";
+        $st = $pdo->prepare($sqlU);
+        $st->execute($pU);
+        $listUsers = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) { $listUsers = []; }
+}
 
 /* ── Count total ────────────────────────────────────────── */
 try {
@@ -706,7 +781,40 @@ require_once $_sbFile;
       <option value="archive"      <?= $filterStatut === 'archive'      ? 'selected' : '' ?>>Archivé</option>
     </select>
 
-    <?php if ($filterSearch !== '' || $filterType !== '' || $filterTransaction !== '' || ($filterStatut !== '' && $filterStatut !== 'actif')): ?>
+    <?php if ($isSuperAdmin && !empty($listSocietes)): ?>
+      <select name="societe" class="bl-select" onchange="this.form.submit()" title="Filtrer par société">
+        <option value="0">Toutes sociétés</option>
+        <?php foreach ($listSocietes as $s): ?>
+          <option value="<?= (int)$s['id'] ?>" <?= $filterSociete === (int)$s['id'] ? 'selected' : '' ?>>
+            <?= e($s['label']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    <?php endif; ?>
+
+    <?php if (!$isProprioExterne && !empty($listAgences)): ?>
+      <select name="agence" class="bl-select" onchange="this.form.submit()" title="Filtrer par agence">
+        <option value="0">Toutes agences</option>
+        <?php foreach ($listAgences as $a): ?>
+          <option value="<?= (int)$a['id'] ?>" <?= $filterAgence === (int)$a['id'] ? 'selected' : '' ?>>
+            <?= e($a['label']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    <?php endif; ?>
+
+    <?php if (!$isProprioExterne && !empty($listUsers) && $hasUserActuelCol): ?>
+      <select name="user" class="bl-select" onchange="this.form.submit()" title="Filtrer par commercial">
+        <option value="0">Tous commerciaux</option>
+        <?php foreach ($listUsers as $u): ?>
+          <option value="<?= (int)$u['id'] ?>" <?= $filterUser === (int)$u['id'] ? 'selected' : '' ?>>
+            <?= e($u['label'] ?: ('User #' . $u['id'])) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    <?php endif; ?>
+
+    <?php if ($filterSearch !== '' || $filterType !== '' || $filterTransaction !== '' || ($filterStatut !== '' && $filterStatut !== 'actif') || $filterSociete > 0 || $filterAgence > 0 || $filterUser > 0): ?>
       <a href="bien_liste.php" class="bl-btn bl-btn-ghost" style="font-size:.8rem;">✕ Réinitialiser</a>
     <?php endif; ?>
 
@@ -721,6 +829,9 @@ require_once $_sbFile;
           'type'        => $filterType,
           'transaction' => $filterTransaction,
           'statut'      => $filterStatut,
+          'societe'     => $filterSociete > 0 ? (string)$filterSociete : '',
+          'agence'      => $filterAgence  > 0 ? (string)$filterAgence  : '',
+          'user'        => $filterUser    > 0 ? (string)$filterUser    : '',
       ], fn($v) => $v !== '');
       $urlCards = 'bien_liste.php?' . http_build_query($toggleBase + ['view' => 'cards']);
       $urlList  = 'bien_liste.php?' . http_build_query($toggleBase + ['view' => 'list']);

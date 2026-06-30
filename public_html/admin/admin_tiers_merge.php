@@ -599,7 +599,7 @@ function renderTiersRow(array $t, string $context, ?int $idx): void {
                     <?php if ($nbImms > 0): ?>
                         <div style="margin-top:5px; margin-bottom:3px;"><strong style="color:#7a3d52; font-size:10px;">🏢 Immeubles (<?= $nbImms ?>)</strong></div>
                         <?php foreach ($t['immeubles'] as $im): ?>
-                            <a href="<?= h(app_url('/agency_immeuble_detail.php?id=' . $im['id'])) ?>" target="_blank" style="color:#7a3d52;" title="<?= h(trim((string)$im['adresse_1'] . ' ' . $im['code_postal'] . ' ' . $im['ville'])) ?>">
+                            <a href="<?= h(app_url('/immeuble_360.php?id=' . $im['id'])) ?>" target="_blank" style="color:#7a3d52;" title="<?= h(trim((string)$im['adresse_1'] . ' ' . $im['code_postal'] . ' ' . $im['ville'])) ?>">
                                 #<?= (int)$im['id'] ?>
                                 <span style="color:#5a5650;">· <?= h($im['nom_immeuble'] ?: $im['adresse_1'] ?: $im['ville']) ?></span>
                                 <span class="role">[<?= h($im['role_code']) ?>]</span>

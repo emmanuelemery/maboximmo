@@ -25,8 +25,38 @@
     'use strict';
 
     var modal, state = null;
+    var nomTouched = false;
 
     function $(id) { return document.getElementById(id); }
+
+    // Convention nom immeuble (figée) : "{numéro} {voie SANS type}_{VILLE}",
+    // MAJUSCULES, sans accent. Ex : "12 Place Saint Jean" + "Riom" -> "12 SAINT JEAN_RIOM".
+    function deriveNom(adr, ville) {
+        if (!adr) return '';
+        var types = /\b(rue|avenue|av|bd|boulevard|impasse|imp|chemin|chem|allee|all[ée]e|place|pl|route|rte|quai|cours|passage|pass|square|sq|sentier|villa|voie|montee|mont[ée]e|esplanade|faubourg|fbg|traverse)\b/gi;
+        var stripAccent = function (s) {
+            return s.normalize ? s.normalize('NFD').replace(/[̀-ͯ]/g, '') : s;
+        };
+        var voie = stripAccent(adr).replace(types, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+        var vl = ville ? stripAccent(ville).replace(/\s+/g, ' ').trim().toUpperCase() : '';
+        return vl ? voie + '_' + vl : voie;
+    }
+
+    // Met à jour la ligne GPS + propose le nom (si l'utilisateur n'y a pas touché).
+    function refreshGpsAndNom() {
+        var gpsEl = $('addr-modal-gps');
+        if (gpsEl) {
+            var la = getVal('addr-modal-field-lat').trim();
+            var lo = getVal('addr-modal-field-lng').trim();
+            gpsEl.textContent = (la && lo)
+                ? '📍 GPS : ' + parseFloat(la).toFixed(6) + ', ' + parseFloat(lo).toFixed(6)
+                : '';
+        }
+        if (!nomTouched) {
+            var nomEl = $('addr-modal-field-nom');
+            if (nomEl) nomEl.value = deriveNom(getVal('addr-modal-field-adresse1'), getVal('addr-modal-field-ville'));
+        }
+    }
 
     function setVal(id, val) {
         var el = $(id);
@@ -58,6 +88,7 @@
             lng:            trigger.getAttribute('data-addr-target-lng')       || '',
             placeid:        trigger.getAttribute('data-addr-target-placeid')   || '',
             formatted:      trigger.getAttribute('data-addr-target-formatted') || '',
+            nom:            trigger.getAttribute('data-addr-target-nom')       || '',
             saveEndpoint:   trigger.getAttribute('data-addr-save-endpoint')    || '',
             bienId:         trigger.getAttribute('data-addr-bien-id')          || '',
             csrf:           trigger.getAttribute('data-addr-csrf')             || '',
@@ -72,6 +103,12 @@
         setVal('addr-modal-field-lng',      state.lng     ? ($(state.lng)     && $(state.lng).value     || '') : '');
         setVal('addr-modal-field-placeid',  state.placeid ? ($(state.placeid) && $(state.placeid).value || '') : '');
         setVal('addr-modal-field-formatted',state.formatted?($(state.formatted)&&$(state.formatted).value||'') : '');
+
+        // Nom immeuble : pré-rempli depuis la cible si fournie, sinon proposé depuis l'adresse.
+        var nomPrefill = state.nom ? ($(state.nom) && $(state.nom).value || '') : '';
+        setVal('addr-modal-field-nom', nomPrefill);
+        nomTouched = nomPrefill.trim() !== '';
+        refreshGpsAndNom();
 
         // Reset search + status
         var searchInput = $('addr-modal-google-search');
@@ -119,6 +156,7 @@
         if (state.lng)       setVal(state.lng,       getVal('addr-modal-field-lng'));
         if (state.placeid)   setVal(state.placeid,   getVal('addr-modal-field-placeid'));
         if (state.formatted) setVal(state.formatted, getVal('addr-modal-field-formatted'));
+        if (state.nom)       setVal(state.nom,       getVal('addr-modal-field-nom'));
 
         // 2. POST groupé à l'endpoint d'autosave si fourni (UN seul appel pour les 4 champs)
         if (state.saveEndpoint && state.bienId) {
@@ -146,13 +184,29 @@
                 if (immId && parseInt(immId, 10) > 0) {
                     fd.append('id_immeuble_selected', immId);
                 }
+                var nomImm = getVal('addr-modal-field-nom').trim();
+                if (nomImm) fd.append('nom_immeuble', nomImm);
 
                 var res = await fetch(state.saveEndpoint, {
                     method: 'POST',
                     body: fd,
                     credentials: 'same-origin'
                 });
-                var json = await res.json();
+                // Lecture en texte d'abord : si le serveur renvoie un corps vide
+                // ou non-JSON (fatale PHP masquée, redirection login, 404…), on
+                // surface le vrai code HTTP + un extrait au lieu du cryptique
+                // "Unexpected end of JSON input".
+                var raw = await res.text();
+                var json;
+                try {
+                    json = raw ? JSON.parse(raw) : {};
+                } catch (parseErr) {
+                    var snippet = (raw || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+                    throw new Error(
+                        'Réponse serveur invalide (HTTP ' + res.status + ')'
+                        + (snippet ? ' : ' + snippet : ' : corps vide')
+                    );
+                }
                 if (json.ok) {
                     if (status) {
                         status.textContent = '✅ Adresse enregistrée';
@@ -196,6 +250,21 @@
         // Bouton Valider (unique)
         var valBtn = $('addr-modal-validate');
         if (valBtn) valBtn.addEventListener('click', validateAndSave);
+
+        // Nom immeuble : marque "touché" dès que l'utilisateur édite manuellement.
+        var nomInput = $('addr-modal-field-nom');
+        if (nomInput) nomInput.addEventListener('input', function () {
+            nomTouched = nomInput.value.trim() !== '';
+        });
+
+        // L'autocomplete (places.js) remplit les champs par programme + émet 'places:filled'.
+        // → on rafraîchit GPS + proposition de nom à ce moment-là.
+        var searchInput = $('addr-modal-google-search');
+        if (searchInput) searchInput.addEventListener('places:filled', refreshGpsAndNom);
+
+        // Édition manuelle de l'adresse → reproposer le nom (si non touché).
+        var adr1 = $('addr-modal-field-adresse1');
+        if (adr1) adr1.addEventListener('input', refreshGpsAndNom);
 
         // Échap ferme
         document.addEventListener('keydown', function (e) {

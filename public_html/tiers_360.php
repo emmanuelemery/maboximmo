@@ -5,6 +5,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
+require_once __DIR__ . '/inc/tiers_selector.php';
+require_once __DIR__ . '/inc/acteur_modal.php';
+require_once __DIR__ . '/inc/csrf.php';
 require_login();
 
 $tiersId = (int)($_GET['id'] ?? 0);
@@ -52,12 +55,8 @@ $personnePhysiqueLabel = trim(
 $personnePhysiqueLabel = trim(preg_replace('/\s+/', ' ', $personnePhysiqueLabel) ?? '');
 
 if ($estPersonneMorale) {
-    // Personne morale : raison_sociale en titre, + nom/prenom du contact si renseigné
-    $baseNom = $tiers['raison_sociale'] ?: ('Tiers #' . $tiersId);
-    $nomAffichage = $tiers['nom_affichage'] ?: $baseNom;
-    if ($personnePhysiqueLabel !== '' && stripos($nomAffichage, $personnePhysiqueLabel) === false) {
-        $nomAffichage .= ' · ' . $personnePhysiqueLabel;
-    }
+    // Personne morale : RAISON SOCIALE SEULE (le contact est affiché dans la card Coordonnées)
+    $nomAffichage = $tiers['raison_sociale'] ?: ($tiers['nom_affichage'] ?: ('Tiers #' . $tiersId));
 } else {
     // Personne physique : civilité + nom + prenom
     $nomAffichage = $tiers['nom_affichage']
@@ -91,7 +90,13 @@ try {
         bt.libelle AS type_libelle,
         bt.code AS type_code,
         (SELECT COUNT(*) FROM annonces an WHERE an.id_bien = b.id AND (an.statut='publiee' OR an.etat_publication='diffusee')) AS nb_annonces_actives,
-        (SELECT COUNT(*) FROM bien_baux bb WHERE bb.id_bien = b.id AND bb.statut = 'actif') AS nb_baux_actifs
+        (SELECT COUNT(*) FROM bien_baux bb WHERE bb.id_bien = b.id AND bb.statut = 'actif') AS nb_baux_actifs,
+        (SELECT bb.id_tiers_locataire FROM bien_baux bb WHERE bb.id_bien = b.id AND bb.statut='actif'
+             ORDER BY bb.date_prise_effet DESC LIMIT 1) AS loc_tiers_id,
+        (SELECT COALESCE(NULLIF(bb.locataire_nom,''), TRIM(CONCAT_WS(' ', tl.prenom, tl.nom)))
+             FROM bien_baux bb LEFT JOIN tiers tl ON tl.id = bb.id_tiers_locataire
+             WHERE bb.id_bien = b.id AND bb.statut='actif'
+             ORDER BY bb.date_prise_effet DESC LIMIT 1) AS loc_nom
         FROM biens b
         INNER JOIN proprietaires p ON p.id = b.id_proprietaire
         LEFT JOIN immeubles i ON i.id = b.id_immeuble
@@ -200,6 +205,20 @@ try {
     $mentions = $stM->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable $e) {}
 
+// ─── Dossiers CRÉANCIERS liés à ce tiers (débiteur / créancier / pro) ──
+$dossiersCreanciers = [];
+try {
+    $stCre = $pdo->prepare("
+        SELECT DISTINCT cd.id, cd.code, cd.libelle, cd.statut, cd.niveau_risque,
+               cd.numero_dossier_adverse, cdl.role_dossier
+        FROM creancier_dossier_lien cdl
+        JOIN creancier_dossier cd ON cd.id = cdl.id_dossier
+        WHERE cdl.entity_type = 'TIERS' AND cdl.entity_id = ?
+        ORDER BY FIELD(cd.niveau_risque,'rouge','orange','vert'), cd.updated_at DESC");
+    $stCre->execute([$tiersId]);
+    $dossiersCreanciers = $stCre->fetchAll(PDO::FETCH_ASSOC) ?: [];
+} catch (Throwable $e) { $dossiersCreanciers = []; }
+
 // ─── Statut visuel ──
 $nbBiens = count($biensProprio);
 $nbBaux  = count($bauxLocataire);
@@ -231,12 +250,28 @@ include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 
 <script>window.APP_BASE = <?= json_encode(rtrim(app_url('/'), '/')) ?>;</script>
+<style>
+/* Topbar conforme aux autres pages (agency_biens / bien_360) : fond dégradé + barre plate pleine largeur */
+.agency-content{
+  background:linear-gradient(135deg, rgba(132,169,140,0.18) 0%, rgba(255,255,255,0) 35%, rgba(72,120,166,0.14) 60%, rgba(255,255,255,0) 85%, rgba(201,123,46,0.16) 100%), #fafbfc;
+  background-attachment:fixed;
+  padding-top:0 !important;
+}
+.agency-topbar{
+  background:#ffffff;
+  border:none;
+  border-bottom:1px solid #e8e4da;
+  border-radius:0;
+  box-shadow:0 2px 8px rgba(0,0,0,.05);
+  padding:10px 28px;
+  min-height:56px;
+  margin:0 -28px 18px -28px;
+}
+.agency-topbar .tb-title{ font-size:1.5rem; font-weight:800; color:#1f2937; line-height:1.12; }
+.agency-topbar .tb-center{ flex:1; display:flex; justify-content:flex-end; }
+</style>
 
 <?php
-fiche360_breadcrumb([
-    ['icon'=>$estPersonneMorale ? '🏛' : '👤','label'=>$nomAffichage,'url'=>null],
-], 'Tiers');
-
 $badge = !empty($tiers['statut']) && $tiers['statut'] === 'inactif'
     ? ['label'=>'Inactif','class'=>'vacant']
     : null;
@@ -259,192 +294,403 @@ if ($idProprioLegacy > 0) {
 $headerActions[] = ['label'=>'✏️ Éditer le tiers','url'=>'javascript:tiersEditOpen('.(int)$tiersId.')','class'=>'tr-btn'];
 $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_list.php?id=' . $tiersId),'class'=>'tr-btn'];
 
-fiche360_header(
-    $estPersonneMorale ? '🏛' : '👤',
-    $nomAffichage,
-    $badge,
-    trim((string)($tiers['adresse'] ?? '') . ' ' . ($tiers['code_postal'] ?? '') . ' ' . ($tiers['ville'] ?? '')) ?: 'Adresse non renseignée',
-    $metas,
-    $headerActions
-);
-
-fiche360_ia_bar('tiers', $tiersId, "Demander à l'IA sur ce tiers (biens, baux, échéances, fiscalité…)");
-fiche360_status_banner($statusMsg, $statusColor, $statusIcon, '');
+// (Barre du nom « fiche360_header » supprimée : le nom est dans la topbar et les actions
+//  sont dans la card « Actions tiers » → la barre faisait doublon.)
 ?>
 
-<div class="f360-grid">
+<?php if (!empty($dossiersCreanciers)): $nbCre = count($dossiersCreanciers); ?>
+<a href="<?= h(app_url('/creancier_liste.php?tiers=' . (int)$tiersId)) ?>"
+   style="display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:12px 18px;background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:12px;color:#991b1b;font-weight:700;font-size:14px;text-decoration:none;">
+  <span style="font-size:18px;">🚨</span>
+  <span><?= $nbCre ?> dossier<?= $nbCre > 1 ? 's' : '' ?> CRÉANCIER<?= $nbCre > 1 ? 'S' : '' ?> / SAISIE sur ce tiers — cliquer pour ouvrir la liste</span>
+  <svg style="margin-left:auto;" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+</a>
+<?php endif; ?>
 
-  <!-- ═══════════════════ COLONNE PRINCIPALE ═══════════════════ -->
-  <div>
+<style>
+.tiers360-grid3 { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:14px; align-items:start; }
+@media (max-width:900px){ .tiers360-grid3 { grid-template-columns:1fr; } }
+.tiers360-grid3 > div { min-width:0; }
+.tiers360-inner { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:14px; align-items:start; }
+@media (max-width:1100px){ .tiers360-inner { grid-template-columns:1fr; } }
+.tiers360-inner > div { min-width:0; }
+/* Masonry : les cards s'imbriquent (pas de trou sous une card courte) */
+.tiers360-masonry { column-count:2; column-gap:14px; }
+@media (max-width:1100px){ .tiers360-masonry { column-count:1; } }
+.tiers360-masonry > * { break-inside:avoid; -webkit-column-break-inside:avoid; page-break-inside:avoid; }
+.tiers360-masonry > div { min-width:0; margin-bottom:14px; display:inline-block; width:100%; }
 
-    <!-- Onglets : Biens / Baux -->
-    <div class="f360-card">
-        <div class="f360-tabs">
-            <button type="button" class="f360-tab active" onclick="f360tabT(this, 'tab-biens')">🏠 Biens possédés <span class="count"><?= $nbBiens ?></span></button>
-            <button type="button" class="f360-tab"        onclick="f360tabT(this, 'tab-bauxpro')">🔑 Bail actif <span class="count"><?= $nbBauxProprioActifs ?></span></button>
-            <button type="button" class="f360-tab"        onclick="f360tabT(this, 'tab-baux')">🧑‍💼 Baux locataire <span class="count"><?= $nbBaux ?></span></button>
-            <button type="button" class="f360-tab"        onclick="f360tabT(this, 'tab-roles')">🎭 Tous les rôles <span class="count"><?= count($roles) ?></span></button>
+/* Card Actions — fond bleu pétrole (charte) */
+.tiers360-grid3 .f360-actions { background:linear-gradient(155deg,#34586b,#243f4d); }
+.tiers360-grid3 .f360-actions a:hover { background:rgba(255,255,255,.10); }
+
+/* ── Boutons d'action du header 360° — style doux (cartes blanches) ── */
+.f360-header-actions { gap:10px; flex-wrap:wrap; }
+.f360-header-actions .tr-btn {
+    display:inline-flex; align-items:center; gap:7px;
+    padding:9px 15px; border-radius:13px;
+    border:1px solid #f0ede7; background:#fff; color:#4a5568;
+    font-size:13px; font-weight:600; line-height:1; white-space:nowrap;
+    text-decoration:none; cursor:pointer;
+    box-shadow:0 2px 6px rgba(36,59,92,.08), 0 1px 2px rgba(36,59,92,.04);
+    transition:transform .14s ease, box-shadow .14s ease, background .14s ease, color .14s ease;
+}
+.f360-header-actions .tr-btn:hover {
+    color:#243B5C; background:#fbfaf7;
+    transform:translateY(-1px);
+    box-shadow:0 5px 14px rgba(36,59,92,.12), 0 2px 4px rgba(36,59,92,.06);
+}
+.f360-header-actions .tr-btn:active { transform:translateY(0); box-shadow:0 2px 6px rgba(36,59,92,.08); }
+/* Primary = même carte douce, teinte navy discrète */
+.f360-header-actions .tr-btn-primary {
+    background:#f3f6fb; color:#2d4a72; border-color:#e3ebf5;
+}
+.f360-header-actions .tr-btn-primary:hover {
+    background:#eaf1fa; color:#243B5C;
+}
+</style>
+<div class="tiers360-grid3">
+
+  <!-- ═══════ ZONE GAUCHE (sur 2 colonnes) : Barre IA + Biens + Documents ═══════ -->
+  <div style="min-width:0;">
+
+    <?php fiche360_ia_bar('tiers', $tiersId, "Demander à l'IA sur ce tiers (biens, baux, échéances, fiscalité…)"); ?>
+
+    <!-- Zone gauche en masonry : juridique + coordonnées + biens + documents s'imbriquent -->
+    <div class="tiers360-masonry">
+    <?php ob_start(); // capture juridique + coordonnées → affichées APRÈS les biens (biens = 1ʳᵉ ligne col. 1) ?>
+    <?php if ($estPersonneMorale): ?>
+    <?php
+    // Snapshot juridique déjà persisté (récupéré ici OU lors de la création d'un bien hors gestion)
+    $jurInit = null; $jurMaj = '';
+    try {
+        $stJ = $pdo->prepare("SELECT infos_juridiques_json, infos_juridiques_maj FROM tiers WHERE id = ? LIMIT 1");
+        $stJ->execute([$tiersId]);
+        if ($rowJ = $stJ->fetch(PDO::FETCH_ASSOC)) {
+            $tmp = json_decode((string)($rowJ['infos_juridiques_json'] ?? ''), true);
+            if (is_array($tmp) && !empty($tmp)) { $jurInit = $tmp; $jurMaj = (string)($rowJ['infos_juridiques_maj'] ?? ''); }
+        }
+    } catch (Throwable) {}
+    ?>
+    <!-- ═══════ CARD Infos juridiques (Pappers) ═══════ -->
+    <div class="f360-card" id="jur-card" style="margin-bottom:14px">
+      <h3 style="display:flex;align-items:center;gap:8px;">⚖️ Infos juridiques
+        <span style="font-weight:500;color:#9a9690;font-size:11px;">(Pappers / annuaire des entreprises)</span>
+        <button type="button" id="jur-run"
+          style="margin-left:auto;cursor:pointer;font-family:inherit;font-weight:700;font-size:12.5px;
+                 padding:7px 16px;border-radius:10px;border:1px solid #243B5C;
+                 background:linear-gradient(135deg,#243B5C,#1a2c45);color:#fff;"><?= $jurInit ? '🔄 Actualiser' : '⬇️ Récupérer' ?></button>
+      </h3>
+      <!-- Recherche manuelle (corriger quand Pappers se trompe) -->
+      <div id="jur-search" style="display:<?= $jurInit ? 'none' : 'flex' ?>;gap:6px;margin-bottom:8px;">
+        <input id="jur-q" type="text" placeholder="Nom de société ou SIREN…"
+               style="flex:1;min-width:0;padding:8px 10px;border:1px solid #d7cfc2;border-radius:8px;font-size:12.5px;font-family:inherit;">
+        <button type="button" id="jur-go"
+          style="cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid #243B5C;background:#243B5C;color:#fff;">🔎 Chercher</button>
+      </div>
+      <div id="jur-body" style="font-size:12.5px;color:#5a5650;">
+        <?php if (!$jurInit): ?><div style="color:#9a9690;font-style:italic;padding:6px 0;">Cliquez « Récupérer » ou cherchez la société ci-dessus.</div><?php endif; ?>
+      </div>
+      <div id="jur-foot" style="margin-top:8px;display:<?= $jurInit ? 'block' : 'none' ?>;">
+        <a href="javascript:void(0)" id="jur-other" style="font-size:11.5px;color:#4878a6;text-decoration:none;">🔎 Pas la bonne ? Choisir une autre entreprise</a>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var btn=document.getElementById('jur-run'), body=document.getElementById('jur-body');
+      var box=document.getElementById('jur-search'), qEl=document.getElementById('jur-q');
+      var goBtn=document.getElementById('jur-go'), foot=document.getElementById('jur-foot'), other=document.getElementById('jur-other');
+      var SIREN=<?= json_encode(preg_replace('/\D+/','',(string)($tiers['siren'] ?? ''))) ?>;
+      // Raison sociale SEULE pour Pappers (sans le « · contact » du nom d'affichage)
+      var NAME=<?= json_encode(trim((string)($tiers['raison_sociale'] ?? '') ?: preg_replace('/\s*·.*$/u','',(string)$nomAffichage))) ?>;
+      var EP=<?= json_encode(app_url('/api/pappers_search.php')) ?>;
+      var SAVE=<?= json_encode(app_url('/api/tiers_infos_juridiques_save.php')) ?>;
+      var TID=<?= (int)$tiersId ?>;
+      var CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('tiers_infos_juridiques') : '') ?>;
+      var INIT=<?= json_encode($jurInit, JSON_UNESCAPED_UNICODE) ?>;
+      var INIT_MAJ=<?= json_encode($jurMaj) ?>;
+      function persist(d){ try{ fetch(SAVE,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({tiers_id:TID,csrf:CSRF,data:d})}); }catch(e){} }
+      function busy(on){ if(on){btn.dataset.b='1';btn.textContent='⏳ …';} else {delete btn.dataset.b;btn.textContent='🔄 Actualiser';} }
+      function row(l,v){ if(v===null||v===undefined||v==='') return '';
+        return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f0ece6;">'
+             +'<span style="min-width:160px;color:#9a9690;">'+l+'</span>'
+             +'<b style="color:#2c2a28;">'+String(v).replace(/</g,'&lt;')+'</b></div>'; }
+      function money(n){ return (n==null||n==='')?'':Number(n).toLocaleString('fr-FR')+' €'; }
+      function esc(s){ return String(s||'').replace(/</g,'&lt;'); }
+      function render(d,source,maj){
+        if(!d){ body.innerHTML='<div style="color:#b14a30;">Donnée indisponible.</div>'; return; }
+        var s=d.siege||{}; var dir=(d.dirigeants||[]).map(function(x){return x.nom+(x.qualite?(' — '+x.qualite):'');}).join('<br>');
+        var html=row('Dénomination',d.raison_sociale)+row('SIREN',d.siren)+row('Forme juridique',d.forme_juridique)
+          +row('Date de création',d.date_creation)+row('Capital',money(d.capital))+row('Code NAF',d.naf)
+          +row('Effectif',d.effectif)+row("Chiffre d'affaires",money(d.chiffre_affaires))+row('Résultat',money(d.resultat))
+          +row('SIRET (siège)',s.siret)+row('Siège',[s.adresse,s.code_postal,s.ville].filter(Boolean).join(' '))
+          +(dir?'<div style="display:flex;gap:10px;padding:6px 0;"><span style="min-width:160px;color:#9a9690;">Dirigeant(s)</span><b style="color:#2c2a28;">'+dir+'</b></div>':'');
+        var note = maj ? ('Enregistré le '+maj.substring(8,10)+'/'+maj.substring(5,7)+'/'+maj.substring(0,4)) : ('Source : '+(source||'pappers'));
+        body.innerHTML=html+'<div style="margin-top:8px;font-size:10.5px;color:#9a9690;">'+note+'</div>';
+        box.style.display='none'; foot.style.display='block';
+      }
+      // Liste de candidats cliquables (corriger quand Pappers se trompe)
+      function showCandidates(list, q){
+        if(!list || !list.length){ body.innerHTML='<div style="color:#b14a30;padding:6px 0;">Aucune société pour « '+esc(q)+' ». Modifiez la recherche.</div>'; box.style.display='flex'; return; }
+        var html='<div style="color:#9a9690;font-size:11px;margin:4px 0 8px;">Plusieurs résultats — choisissez la bonne :</div>';
+        list.forEach(function(c){
+          if(!c.siren) return;
+          html+='<button type="button" data-siren="'+esc(c.siren)+'" style="display:block;width:100%;text-align:left;cursor:pointer;'
+            +'margin-bottom:6px;padding:8px 10px;border:1px solid #e0d9cf;border-radius:8px;background:#fff;font-family:inherit;font-size:12px;">'
+            +'<b style="color:#243B5C;">'+esc(c.raison_sociale)+'</b><span style="color:#9a9690;"> · '+esc(c.forme_juridique||'')+' · '
+            +esc([c.code_postal,c.ville].filter(Boolean).join(' '))+' · SIREN '+esc(c.siren)+'</span></button>';
+        });
+        body.innerHTML=html; box.style.display='flex'; foot.style.display='none';
+        body.querySelectorAll('[data-siren]').forEach(function(b){ b.addEventListener('click', function(){ pickSiren(b.getAttribute('data-siren')); }); });
+      }
+      function pickSiren(siren){
+        busy(true); body.innerHTML='<div style="color:#9a9690;padding:6px 0;">⏳ Chargement…</div>';
+        fetch(EP+'?siren='+encodeURIComponent(siren)).then(function(r){return r.json();}).then(function(res){
+          busy(false);
+          if(res&&res.ok&&res.data){ render(res.data,res.source); persist(res.data); }
+          else { body.innerHTML='<div style="color:#b14a30;">⚠️ '+((res&&res.error)||'Détail indisponible')+'</div>'; }
+        }).catch(function(){ busy(false); body.innerHTML='<div style="color:#b14a30;">⚠️ Erreur réseau.</div>'; });
+      }
+      function search(q){
+        q=(q||'').trim(); if(q.length<2) return;
+        busy(true); body.innerHTML='<div style="color:#9a9690;padding:6px 0;">⏳ Recherche…</div>';
+        var digits=q.replace(/\D+/g,'');
+        var url=EP+'?'+((digits.length===9||digits.length===14)?('siren='+encodeURIComponent(digits)):('q='+encodeURIComponent(q)));
+        fetch(url).then(function(r){return r.json();}).then(function(res){
+          busy(false);
+          if(!res||!res.ok){ body.innerHTML='<div style="color:#b14a30;">⚠️ '+((res&&res.error)||'Erreur')+'</div>'; box.style.display='flex'; return; }
+          var d=res.data||{};
+          if(d.candidats){ showCandidates(d.candidats, q); }
+          else { render(d,res.source); persist(d); }   // détail direct (SIREN)
+        }).catch(function(){ busy(false); body.innerHTML='<div style="color:#b14a30;">⚠️ Erreur réseau.</div>'; });
+      }
+      // Bouton principal : SIREN connu → détail direct ; sinon → liste de candidats à choisir
+      btn.addEventListener('click', function(){
+        if(btn.dataset.b) return;
+        if(SIREN){ pickSiren(SIREN); } else { box.style.display='flex'; search(NAME); }
+      });
+      goBtn.addEventListener('click', function(){ search(qEl.value); });
+      qEl.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); search(qEl.value); } });
+      other.addEventListener('click', function(){ box.style.display='flex'; qEl.value=NAME; qEl.focus(); });
+      // Pré-affichage : snapshot déjà persisté (création bien hors gestion ou récupération précédente)
+      if (INIT) { render(INIT, 'enregistré', INIT_MAJ); }
+    })();
+    </script>
+    <?php endif; ?>
+
+    <?php
+    // ═══════ CARD Coordonnées du contact ═══════
+    $coAdr  = trim((string)($tiers['adresse'] ?? ''));
+    $coCpV  = trim(trim((string)($tiers['code_postal'] ?? '') . ' ' . (string)($tiers['ville'] ?? '')));
+    $coMail = trim((string)($tiers['email'] ?? ''));
+    $coTel  = trim((string)($tiers['telephone'] ?? ''));
+    $coRows = [];
+    // Nom du contact (personne) — pour une société, c'est le gérant/représentant qu'on a en base
+    $coContact = trim((string)($tiers['prenom'] ?? '') . ' ' . (string)($tiers['nom'] ?? ''));
+    if ($coContact === '' && $estPersonneMorale) {
+        // repli : segment après « · » du nom d'affichage (ancien format fusionné)
+        if (preg_match('/·\s*(.+)$/u', (string)$nomAffichage, $m)) $coContact = trim($m[1]);
+    }
+    if ($coContact !== '') $coRows[] = ['👤','Contact', h($coContact)];
+    if ($coAdr !== '' || $coCpV !== '') $coRows[] = ['📍','Adresse', trim($coAdr . ($coCpV !== '' ? ', ' . $coCpV : ''))];
+    if ($coMail !== '') $coRows[] = ['✉️','Email', '<a href="mailto:'.h($coMail).'" style="color:#4878a6;text-decoration:none">'.h($coMail).'</a>'];
+    if ($coTel !== '')  $coRows[] = ['📞','Téléphone', '<a href="tel:'.h(preg_replace('/\s+/','',$coTel)).'" style="color:#4878a6;text-decoration:none">'.h($coTel).'</a>'];
+    if (!empty($tiers['siren'])) $coRows[] = ['🆔','SIREN', h((string)$tiers['siren'])];
+    ?>
+    <div class="f360-card" style="margin-bottom:14px">
+      <h3>📇 Coordonnées du contact</h3>
+      <?php if ($coRows): foreach ($coRows as $cr): ?>
+        <div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #f0ece6;font-size:12.5px;align-items:baseline;">
+          <span style="flex:none;color:#9a9690;white-space:nowrap;"><?= $cr[0] ?> <?= h($cr[1]) ?></span>
+          <span style="color:#2c2a28;font-weight:600;margin-left:auto;text-align:right;word-break:break-word;"><?= $cr[2] ?></span>
         </div>
+      <?php endforeach; else: ?>
+        <div style="color:#9a9690;font-style:italic;padding:6px 0;font-size:12.5px;">Aucune coordonnée renseignée.</div>
+      <?php endif; ?>
+    </div>
+    <?php $jurCoordHtml = ob_get_clean(); // fin capture juridique + coordonnées ?>
 
-        <div id="tab-biens">
-            <?php if (empty($biensProprio)): ?>
-                <div class="f360-empty"><div class="em-ico">🏠</div>Ce tiers ne possède aucun bien rattaché.</div>
-            <?php else: ?>
-                <?php
-                $biensActifs = array_filter($biensProprio, fn($b) => !in_array((string)($b['statut_bien'] ?? ''), ['archive','vendu'], true));
-                $biensSortis = array_filter($biensProprio, fn($b) =>  in_array((string)($b['statut_bien'] ?? ''), ['archive','vendu'], true));
-                $renderBienRow = function(array $b, string $mode): string {
-                    $h = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
-                    $aAnnonceActive = (int)($b['nb_annonces_actives'] ?? 0) > 0;
-                    $stBien = (string)($b['statut_bien'] ?? '');
-                    $statut = $b['nb_baux_actifs'] > 0 ? '🟢 Loué' : (($b['statut_occupation'] ?? '') === 'vacant' ? '🟠 Vacant' : '—');
-                    if ($mode === 'sorti') { $statut = $stBien === 'vendu' ? '✅ Vendu' : '📦 Archivé'; }
-                    // Indicateur annonce — TOUJOURS affiché si une annonce active existe
-                    $annBadge = $aAnnonceActive ? ' <span title="Annonce en ligne" style="color:#7c3aed; font-weight:600;">📣 annonce</span>' : '';
-                    $typeAff = $b['type_libelle'] ?: ($b['type_commercialisation'] ?: '—');
-                    $adresseComplete = trim((string)($b['adresse_aff'] ?? ''));
-                    $cpVille = trim((string)($b['cp_aff'] ?? '') . ' ' . (string)($b['ville_aff'] ?? ''));
-                    if ($cpVille !== '' && stripos($adresseComplete, $cpVille) === false) $adresseComplete = trim($adresseComplete . ' ' . $cpVille);
-                    $url = $h(app_url('/bien_360.php?id=' . $b['id']));
-                    if ($mode === 'actif') {
-                        $act = $aAnnonceActive
-                            ? '<span title="Annonce active : archivage bloqué" style="font-size:11px;color:#8a4c12;cursor:help;">🔒 Annonce active</span>'
-                            : '<button type="button" class="bien-archive-btn" data-id="'.(int)$b['id'].'" style="font-size:11px;padding:3px 9px;border:1px solid #e0d9cf;border-radius:6px;background:#fff;color:#8a4c12;cursor:pointer;">📦 Archiver</button>';
-                    } else {
-                        $act = '<span style="font-size:11px;color:#9a9690;">'.($stBien === 'vendu' ? '✅ Vendu' : '📦 Archivé').'</span>';
-                    }
-                    return '<tr style="border-bottom:1px solid #f5f3ef;'.($mode==='sorti'?'opacity:.6;':'').'" data-bien-row="'.(int)$b['id'].'">'
-                        . '<td style="padding:6px 4px;"><a href="'.$url.'" style="color:#4878a6;text-decoration:none;font-family:\'DM Mono\',monospace;">'.$h($b['reference_bien'] ?: '#'.$b['id']).'</a></td>'
-                        . '<td style="padding:6px 4px;">'.$h($adresseComplete !== '' ? $adresseComplete : '—').'</td>'
-                        . '<td style="padding:6px 4px;">'.$h($typeAff).'</td>'
-                        . '<td style="padding:6px 4px;text-align:right;">'.($b['surface_habitable'] ? number_format((float)$b['surface_habitable'],0).' m²' : '—').'</td>'
-                        . '<td style="padding:6px 4px;">'.$statut.$annBadge.'</td>'
-                        . '<td style="padding:6px 4px;text-align:right;">'.$act.'</td></tr>';
-                };
-                $theadBiens = '<thead><tr style="text-align:left;color:#7a766f;border-bottom:1px solid #f0ece6;">'
-                    . '<th style="padding:6px 4px;">Réf.</th><th style="padding:6px 4px;">Adresse</th><th style="padding:6px 4px;">Type</th>'
-                    . '<th style="padding:6px 4px;text-align:right;">Surf.</th><th style="padding:6px 4px;">Statut</th><th style="padding:6px 4px;text-align:right;">Action</th></tr></thead>';
-                ?>
+      <!-- ─────────────── BIENS (1ʳᵉ ligne, colonne 1) ─────────────── -->
+      <div style="min-width:0;">
+
+    <?php
+    // ── Préparation rendu biens ──────────────────────────────────────────
+    $h = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+
+    // Bail actif indexé par bien (enrichit chaque card : loyer + docs)
+    $bailActifByBien = [];
+    foreach ($bauxProprio as $bx) {
+        $idB = (int)$bx['id_bien'];
+        if (($bx['statut'] ?? '') === 'actif' && empty($bailActifByBien[$idB])) $bailActifByBien[$idB] = $bx;
+    }
+
+    $biensActifs = array_filter($biensProprio, fn($b) => !in_array((string)($b['statut_bien'] ?? ''), ['archive','vendu'], true));
+    $biensSortis = array_filter($biensProprio, fn($b) =>  in_array((string)($b['statut_bien'] ?? ''), ['archive','vendu'], true));
+
+    // Helpers communs
+    $bienAdresse = function(array $b) {
+        $a = trim((string)($b['adresse_aff'] ?? ''));
+        $cpVille = trim((string)($b['cp_aff'] ?? '') . ' ' . (string)($b['ville_aff'] ?? ''));
+        if ($cpVille !== '' && stripos($a, $cpVille) === false) $a = trim($a . ' ' . $cpVille);
+        return $a !== '' ? $a : '—';
+    };
+    $bienLocataireHtml = function(array $b) use ($h) {
+        $locNom = trim((string)($b['loc_nom'] ?? ''));
+        $locTiersId = (int)($b['loc_tiers_id'] ?? 0);
+        if ($locNom === '') return '<span style="color:#b9b4ac;">—</span>';
+        return $locTiersId > 0
+            ? '<a href="'.$h(app_url('/tiers_360.php?id=' . $locTiersId)).'" style="color:#2d5f6b;text-decoration:none;font-weight:700;border-bottom:1px dotted #8fb3bb;" title="Ouvrir la fiche locataire 360°">'.$h($locNom).' ↗</a>'
+            : '<span style="color:#2d5f6b;font-weight:700;">'.$h($locNom).'</span>';
+    };
+    $bienActionHtml = function(array $b, string $mode) {
+        $aAnnonceActive = (int)($b['nb_annonces_actives'] ?? 0) > 0;
+        $stBien = (string)($b['statut_bien'] ?? '');
+        if ($mode === 'actif') {
+            return $aAnnonceActive
+                ? '<span title="Annonce active : archivage bloqué" style="font-size:11px;color:#8a4c12;cursor:help;">🔒 Annonce active</span>'
+                : '<button type="button" class="bien-archive-btn" data-id="'.(int)$b['id'].'" style="font-size:11px;padding:3px 9px;border:1px solid #e0d9cf;border-radius:6px;background:#fff;color:#8a4c12;cursor:pointer;">📦 Archiver</button>';
+        }
+        return '<span style="font-size:11px;color:#9a9690;">'.($stBien === 'vendu' ? '✅ Vendu' : '📦 Archivé').'</span>';
+    };
+
+    // Rendu CARD (1 card / bien — utilisé si ≤ 5 biens actifs)
+    $renderBienCard = function(array $b, string $mode) use ($h, $bienAdresse, $bienLocataireHtml, $bienActionHtml, $bailActifByBien, $bailDocs) {
+        $aAnnonceActive = (int)($b['nb_annonces_actives'] ?? 0) > 0;
+        $stBien = (string)($b['statut_bien'] ?? '');
+        $statut = $b['nb_baux_actifs'] > 0 ? '🟢 Loué' : (($b['statut_occupation'] ?? '') === 'vacant' ? '🟠 Vacant' : '—');
+        if ($mode === 'sorti') $statut = $stBien === 'vendu' ? '✅ Vendu' : '📦 Archivé';
+        $annBadge = $aAnnonceActive ? ' <span title="Annonce en ligne" style="color:#7c3aed;font-weight:700;">📣 annonce</span>' : '';
+        $typeAff = $b['type_libelle'] ?: ($b['type_commercialisation'] ?: '—');
+        $surf = $b['surface_habitable'] ? number_format((float)$b['surface_habitable'],0).' m²' : '';
+        $url = $h(app_url('/bien_360.php?id=' . $b['id']));
+
+        // Loyer + docs du bail actif de ce bien
+        $bail = $bailActifByBien[(int)$b['id']] ?? null;
+        $loyerHtml = ($bail && (float)$bail['loyer_mensuel_hc'] > 0)
+            ? ' · <strong>'.number_format((float)$bail['loyer_mensuel_hc'],0,',',' ').' €/mois</strong>' : '';
+        $docsHtml = '';
+        if ($bail) {
+            $bDocs = $bailDocs[(int)$bail['id']] ?? [];
+            foreach ($bDocs as $doc) {
+                $docsHtml .= '<div style="padding:2px 0;font-size:11px;word-break:break-word;"><span style="color:#9a9690;">['.$h($doc['document_type']).']</span> 📄 '.$h($doc['name_display'])
+                    .' <a href="'.$h(app_url('/api/ged_document_view.php?id=' . (int)$doc['id'] . '&mode=inline')).'" target="_blank" style="color:#5b21b6;font-weight:700;">Ouvrir ›</a></div>';
+            }
+        }
+
+        $out  = '<div class="f360-bien-card" data-bien-row="'.(int)$b['id'].'" style="border:1px solid #ece7df;border-radius:9px;padding:11px 13px;margin-bottom:10px;background:#fcfbf9;'.($mode==='sorti'?'opacity:.6;':'').'">';
+        $out .= '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+              . '<a href="'.$url.'" style="color:#4878a6;text-decoration:none;font-family:\'DM Mono\',monospace;font-weight:700;font-size:13px;">'.$h($b['reference_bien'] ?: '#'.$b['id']).' ↗</a>'
+              . '<span style="font-size:12px;">'.$statut.$annBadge.'</span>'
+              . '<span class="bien-action-slot" style="margin-left:auto;">'.$bienActionHtml($b, $mode).'</span></div>';
+        $out .= '<div style="color:#5a564f;font-size:12px;margin-top:5px;">📍 '.$h($bienAdresse($b)).'</div>';
+        $out .= '<div style="color:#7a766f;font-size:11.5px;margin-top:3px;">'.$h($typeAff).($surf ? ' · '.$h($surf) : '').'</div>';
+        $out .= '<div style="font-size:12px;margin-top:6px;border-top:1px dashed #efeae1;padding-top:6px;">👤 Locataire : '.$bienLocataireHtml($b).$loyerHtml.'</div>';
+        if ($docsHtml !== '') $out .= '<div style="margin-top:4px;padding-left:6px;">'.$docsHtml.'</div>';
+        $out .= '</div>';
+        return $out;
+    };
+
+    // Rendu LIGNE (liste compacte — utilisé si > 5 biens actifs)
+    $renderBienRow = function(array $b, string $mode) use ($h, $bienAdresse, $bienLocataireHtml, $bienActionHtml) {
+        $aAnnonceActive = (int)($b['nb_annonces_actives'] ?? 0) > 0;
+        $stBien = (string)($b['statut_bien'] ?? '');
+        $statut = $b['nb_baux_actifs'] > 0 ? '🟢 Loué' : (($b['statut_occupation'] ?? '') === 'vacant' ? '🟠 Vacant' : '—');
+        if ($mode === 'sorti') $statut = $stBien === 'vendu' ? '✅ Vendu' : '📦 Archivé';
+        $annBadge = $aAnnonceActive ? ' <span title="Annonce en ligne" style="color:#7c3aed;font-weight:600;">📣</span>' : '';
+        $typeAff = $b['type_libelle'] ?: ($b['type_commercialisation'] ?: '—');
+        $url = $h(app_url('/bien_360.php?id=' . $b['id']));
+        return '<tr style="border-bottom:1px solid #f5f3ef;'.($mode==='sorti'?'opacity:.6;':'').'" data-bien-row="'.(int)$b['id'].'">'
+            . '<td style="padding:6px 4px;"><a href="'.$url.'" style="color:#4878a6;text-decoration:none;font-family:\'DM Mono\',monospace;">'.$h($b['reference_bien'] ?: '#'.$b['id']).'</a></td>'
+            . '<td style="padding:6px 4px;">'.$h($bienAdresse($b)).'</td>'
+            . '<td style="padding:6px 4px;">'.$h($typeAff).'</td>'
+            . '<td style="padding:6px 4px;text-align:right;">'.($b['surface_habitable'] ? number_format((float)$b['surface_habitable'],0).' m²' : '—').'</td>'
+            . '<td style="padding:6px 4px;">'.$bienLocataireHtml($b).'</td>'
+            . '<td style="padding:6px 4px;">'.$statut.$annBadge.'</td>'
+            . '<td style="padding:6px 4px;text-align:right;"><span class="bien-action-slot">'.$bienActionHtml($b, $mode).'</span></td></tr>';
+    };
+    $theadBiens = '<thead><tr style="text-align:left;color:#7a766f;border-bottom:1px solid #f0ece6;">'
+        . '<th style="padding:6px 4px;">Réf.</th><th style="padding:6px 4px;">Adresse</th><th style="padding:6px 4px;">Type</th>'
+        . '<th style="padding:6px 4px;text-align:right;">Surf.</th><th style="padding:6px 4px;">Locataire</th><th style="padding:6px 4px;">Statut</th><th style="padding:6px 4px;text-align:right;">Action</th></tr></thead>';
+    ?>
+
+    <!-- Card : Biens possédés (1 card/bien si ≤5, sinon liste) -->
+    <div class="f360-card" id="tab-biens">
+        <h3>🏠 Biens possédés <span class="count"><?= $nbBiens ?></span></h3>
+        <?php if (empty($biensProprio)): ?>
+            <div class="f360-empty"><div class="em-ico">🏠</div>Ce tiers ne possède aucun bien rattaché.</div>
+        <?php elseif (empty($biensActifs)): ?>
+            <div class="f360-empty" style="padding:14px;">Aucun bien actif (voir archivés ci-dessous).</div>
+        <?php elseif (count($biensActifs) > 5): ?>
+            <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <?= $theadBiens ?>
+                <tbody><?php foreach ($biensActifs as $b) echo $renderBienRow($b, 'actif'); ?></tbody>
+            </table>
+            </div>
+        <?php else: ?>
+            <?php foreach ($biensActifs as $b) echo $renderBienCard($b, 'actif'); ?>
+        <?php endif; ?>
+
+        <?php if (!empty($biensSortis)): ?>
+        <details style="margin-top:10px;">
+            <summary style="cursor:pointer; font-size:12px; color:#7a766f; font-weight:600; user-select:none;">📦 Biens archivés / vendus (<?= count($biensSortis) ?>) — déplier</summary>
+            <div style="margin-top:8px;">
+            <?php if (count($biensSortis) > 5): ?>
                 <div style="overflow-x:auto;">
                 <table style="width:100%; border-collapse:collapse; font-size:12px;">
                     <?= $theadBiens ?>
-                    <tbody><?php foreach ($biensActifs as $b) echo $renderBienRow($b, 'actif'); ?></tbody>
+                    <tbody><?php foreach ($biensSortis as $b) echo $renderBienRow($b, 'sorti'); ?></tbody>
                 </table>
                 </div>
-                <?php if (!empty($biensSortis)): ?>
-                <details style="margin-top:12px;">
-                    <summary style="cursor:pointer; font-size:12px; color:#7a766f; font-weight:600; user-select:none;">📦 Biens archivés / vendus (<?= count($biensSortis) ?>) — déplier</summary>
-                    <div style="overflow-x:auto; margin-top:8px;">
-                    <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                        <?= $theadBiens ?>
-                        <tbody><?php foreach ($biensSortis as $b) echo $renderBienRow($b, 'sorti'); ?></tbody>
-                    </table>
-                    </div>
-                </details>
-                <?php endif; ?>
+            <?php else: ?>
+                <?php foreach ($biensSortis as $b) echo $renderBienCard($b, 'sorti'); ?>
             <?php endif; ?>
-            <script>
-            (function(){
-                var CSRF = <?= json_encode(csrf_token('archiver_bien')) ?>;
-                document.querySelectorAll('#tab-biens .bien-archive-btn').forEach(function(btn){
-                    btn.addEventListener('click', function(){
-                        if (!confirm('Archiver ce bien ?')) return;
-                        btn.disabled = true; btn.textContent = '…';
-                        var fd = new FormData(); fd.append('id_bien', btn.dataset.id); fd.append('csrf_token', CSRF);
-                        fetch('<?= h(app_url('/api/bien_archiver.php')) ?>', {method:'POST', body:fd, headers:{'X-CSRF-Token':CSRF}})
-                            .then(function(r){ return r.json(); })
-                            .then(function(j){
-                                if (j.success){
-                                    var row = document.querySelector('[data-bien-row="'+btn.dataset.id+'"]');
-                                    if (row){ row.querySelector('td:last-child').innerHTML = '<span style="font-size:11px;color:#9a9690;">📦 Archivé</span>'; row.style.opacity = '.55'; }
-                                } else {
-                                    alert(j.message || "Archivage impossible.");
-                                    btn.disabled = false; btn.textContent = '📦 Archiver';
-                                }
-                            })
-                            .catch(function(){ alert('Erreur réseau.'); btn.disabled = false; btn.textContent = '📦 Archiver'; });
-                    });
-                });
-            })();
-            </script>
-        </div>
-
-        <div id="tab-bauxpro" style="display:none;">
-            <?php if (empty($bauxProprio)): ?>
-                <div class="f360-empty"><div class="em-ico">🔑</div>Aucun bail sur les biens de ce propriétaire.</div>
-            <?php else: foreach ($bauxProprio as $b):
-                $sCol = $b['statut'] === 'actif' ? '#2d6a35' : '#7a766f';
-            ?>
-                <div style="padding:8px 0; border-bottom:1px solid #f0ece6; font-size:12px;">
-                    <a href="<?= h(app_url('/bail_360.php?id=' . (int)$b['id'])) ?>" style="color:#5b21b6;text-decoration:none;border-bottom:1px dotted #b39ddb;font-weight:700;" title="Ouvrir la fiche bail 360°">
-                        <?= h($b['locataire_nom'] ?: ('Bail #' . (int)$b['id'])) ?> ↗</a>
-                    <span style="color:<?= $sCol ?>;">· <em><?= h($b['statut']) ?></em></span>
-                    · bien <a href="<?= h(app_url('/bien_360.php?id=' . (int)$b['id_bien'])) ?>" style="color:#4878a6;"><?= h($b['reference_bien'] ?: ('#' . (int)$b['id_bien'])) ?></a>
-                    (<?= h($b['ville']) ?>)
-                    <?php if ($b['date_prise_effet']): ?> · <?= h($b['date_prise_effet']) ?><?php endif; ?>
-                    <?php if ((float)$b['loyer_mensuel_hc'] > 0): ?> · <strong><?= number_format((float)$b['loyer_mensuel_hc'], 0, ',', ' ') ?> €/mois</strong><?php endif; ?>
-                    <?php $bDocs = $bailDocs[(int)$b['id']] ?? []; ?>
-                    <?php if ($bDocs): ?>
-                        <div style="margin:6px 0 2px; padding-left:8px;">
-                        <?php foreach ($bDocs as $doc): ?>
-                            <div style="padding:3px 0;">
-                                <span style="color:#9a9690; font-size:10px;">[<?= h($doc['document_type']) ?>]</span>
-                                📄 <?= h($doc['name_display']) ?>
-                                <a href="<?= h(app_url('/api/ged_document_view.php?id=' . (int)$doc['id'] . '&mode=inline')) ?>" target="_blank" style="color:#5b21b6; font-weight:700; margin-left:6px;">Ouvrir ›</a>
-                            </div>
-                        <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <div style="margin:4px 0 2px; padding-left:8px; color:#b9b4ac; font-size:11px;">Aucun document de bail importé.</div>
-                    <?php endif; ?>
-                </div>
-            <?php endforeach; endif; ?>
-        </div>
-
-        <div id="tab-baux" style="display:none;">
-            <?php if (empty($bauxLocataire)): ?>
-                <div class="f360-empty"><div class="em-ico">🔑</div>Aucun bail où ce tiers est locataire.</div>
-            <?php else: foreach ($bauxLocataire as $b):
-                $sCol = $b['statut'] === 'actif' ? '#2d6a35' : '#7a766f';
-            ?>
-                <div style="padding:8px 0; border-bottom:1px solid #f0ece6; font-size:12px;">
-                    <strong style="color:<?= $sCol ?>;">Bail #<?= (int)$b['id'] ?></strong> · <?= h($b['bail_nature']) ?> · <em><?= h($b['statut']) ?></em>
-                    — bien <a href="<?= h(app_url('/bien_360.php?id=' . (int)($b['id'] ?? 0))) ?>" style="color:#4878a6;"><?= h($b['reference_bien']) ?></a>
-                    (<?= h($b['ville']) ?>)
-                    · <?= h($b['date_prise_effet']) ?> → <?= h($b['date_fin']) ?>
-                    · <strong><?= number_format((float)$b['loyer_mensuel_hc'], 0, ',', ' ') ?> €/mois</strong>
-                </div>
-            <?php endforeach; endif; ?>
-        </div>
-
-        <div id="tab-roles" style="display:none;">
-            <?php if (empty($roles)): ?>
-                <div class="f360-empty"><div class="em-ico">🎭</div>Aucun rôle actif déclaré pour ce tiers.</div>
-            <?php else: foreach ($rolesByCode as $code => $nb): ?>
-                <div style="padding:8px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:10px;">
-                    <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:140px;"><?= h($code) ?></span>
-                    <span><?= (int)$nb ?> occurrence(s)</span>
-                </div>
-            <?php endforeach; endif; ?>
-        </div>
-    </div>
-
-    <!-- Documents -->
-    <div class="f360-card">
-        <h3>📂 Documents du tiers <span class="count"><?= count($docs) ?></span></h3>
-        <?php if (empty($docs)): ?>
-            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document rattaché à ce tiers.</div>
-        <?php else: foreach ($docs as $d): ?>
-            <div onclick="mvptModalView(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>)"
-                 style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center; cursor:pointer;"
-                 onmouseover="this.style.background='#faf8ff'" onmouseout="this.style.background='transparent'">
-                <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:140px;">[<?= h($d['document_type']) ?>]</span>
-                <span style="flex:1;">📄 <?= h($d['name_display']) ?></span>
-                <span style="color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
-                <span style="color:#5b21b6; font-size:11px; font-weight:700;">Ouvrir ›</span>
             </div>
-        <?php endforeach; endif; ?>
+        </details>
+        <?php endif; ?>
+
+        <script>
+        (function(){
+            var CSRF = <?= json_encode(csrf_token('archiver_bien')) ?>;
+            document.querySelectorAll('#tab-biens .bien-archive-btn').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                    if (!confirm('Archiver ce bien ?')) return;
+                    btn.disabled = true; btn.textContent = '…';
+                    var fd = new FormData(); fd.append('id_bien', btn.dataset.id); fd.append('csrf_token', CSRF);
+                    fetch('<?= h(app_url('/api/bien_archiver.php')) ?>', {method:'POST', body:fd, headers:{'X-CSRF-Token':CSRF}})
+                        .then(function(r){ return r.json(); })
+                        .then(function(j){
+                            if (j.success){
+                                var el = document.querySelector('[data-bien-row="'+btn.dataset.id+'"]');
+                                if (el){ var slot = el.querySelector('.bien-action-slot'); if (slot) slot.innerHTML = '<span style="font-size:11px;color:#9a9690;">📦 Archivé</span>'; el.style.opacity = '.55'; }
+                            } else {
+                                alert(j.message || "Archivage impossible.");
+                                btn.disabled = false; btn.textContent = '📦 Archiver';
+                            }
+                        })
+                        .catch(function(){ alert('Erreur réseau.'); btn.disabled = false; btn.textContent = '📦 Archiver'; });
+                });
+            });
+        })();
+        </script>
     </div>
+
+    <!-- Card : Baux où ce tiers est LOCATAIRE (rare pour un propriétaire) -->
+    <?php if (!empty($bauxLocataire)): ?>
+    <div class="f360-card">
+        <h3>🧑‍💼 Baux locataire <span class="count"><?= $nbBaux ?></span></h3>
+        <?php foreach ($bauxLocataire as $b): $sCol = $b['statut'] === 'actif' ? '#2d6a35' : '#7a766f'; ?>
+            <div style="padding:8px 0; border-bottom:1px solid #f0ece6; font-size:12px;">
+                <strong style="color:<?= $sCol ?>;">Bail #<?= (int)$b['id'] ?></strong> · <?= h($b['bail_nature']) ?> · <em><?= h($b['statut']) ?></em>
+                — bien <a href="<?= h(app_url('/bien_360.php?id=' . (int)($b['id'] ?? 0))) ?>" style="color:#4878a6;"><?= h($b['reference_bien']) ?></a>
+                (<?= h($b['ville']) ?>)
+                · <?= h($b['date_prise_effet']) ?> → <?= h($b['date_fin']) ?>
+                · <strong><?= number_format((float)$b['loyer_mensuel_hc'], 0, ',', ' ') ?> €/mois</strong>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
     <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; /* modale standard mvptModalView */ ?>
 
     <!-- Mandat de gestion (registre + données IA) -->
@@ -486,6 +732,30 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, '');
     </div>
     <?php endif; ?>
 
+  </div>
+
+  <?php echo $jurCoordHtml; // juridique + coordonnées, placées après les biens ?>
+
+  <!-- ═══════════════════ COLONNE 2 — DOCUMENTS ═══════════════════ -->
+  <div style="min-width:0;">
+
+    <!-- Documents du pro -->
+    <div class="f360-card">
+        <h3>📂 Documents du tiers <span class="count"><?= count($docs) ?></span></h3>
+        <?php if (empty($docs)): ?>
+            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document rattaché à ce tiers.</div>
+        <?php else: foreach ($docs as $d): ?>
+            <div onclick="mvptModalView(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>)"
+                 style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center; cursor:pointer;"
+                 onmouseover="this.style.background='#faf8ff'" onmouseout="this.style.background='transparent'">
+                <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; font-size:10px; flex:none;">[<?= h($d['document_type']) ?>]</span>
+                <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= h($d['name_display']) ?>">📄 <?= h($d['name_display']) ?></span>
+                <span style="color:#9a9690; font-size:10px; flex:none;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
+                <span style="color:#5b21b6; font-size:11px; font-weight:700;">›</span>
+            </div>
+        <?php endforeach; endif; ?>
+    </div>
+
     <!-- Mentionné dans -->
     <?php
     $mentionsForLayout = array_map(fn($m) => [
@@ -497,15 +767,22 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, '');
     if (function_exists('fiche360_mention_dans')) fiche360_mention_dans($mentionsForLayout);
     ?>
 
-  </div>
+      </div>
+      <!-- fin COLONNE 2 -->
 
-  <!-- ═══════════════════ COLONNE LATÉRALE ═══════════════════ -->
-  <div>
+    </div><!-- fin .tiers360-masonry -->
+  </div><!-- fin ZONE GAUCHE -->
+
+  <!-- ═══════════════════ COLONNE DROITE — ACTIONS + CONTACTS ═══════════════════ -->
+  <div style="min-width:0;">
 
     <?php
-    // Panneau Actions — EN HAUT de la colonne (convention 360°)
+    // Panneau Actions
     $actionsList = [];
     $tiersIsMgr = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,3,7], true)) || (function_exists('is_super_admin') && is_super_admin());
+    // Tiers (propriétaire/locataire) → métier GESTION par défaut (jamais transaction).
+    $actionsList[] = ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'tiers_360', proprio_tiers_id:" . (int)$tiersId . ", entite_id_bdd:" . (int)$tiersId . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes((string)$nomAffichage) . "'});return false;"];
+    $actionsList[] = ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=TIERS&id=' . (int)$tiersId . '&back=' . urlencode('tiers_360.php?id=' . (int)$tiersId))];
     if ($idProprioLegacy > 0) {
         $actionsList[] = ['icon'=>'📄','label'=>'Voir la fiche propriétaire','url'=>app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy)];
         $actionsList[] = ['icon'=>'📥','label'=>'Importer docs OneDrive (pro + biens + locataires)','url'=>'javascript:odClasserOpen()'];
@@ -518,53 +795,97 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, '');
     }
     // FIX 2026-05-25 : éditer = modal au lieu d'admin merge tool
     $actionsList[] = ['icon'=>'✏️','label'=>'Éditer le tiers',        'url'=>'javascript:tiersEditOpen('.(int)$tiersId.')'];
-    $actionsList[] = ['icon'=>'➕','label'=>'Ajouter un représentant','url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $tiersId))];
     $actionsList[] = ['icon'=>'📁','label'=>'Documents du tiers',    'url'=>app_url('/tiers_documents_list.php?id=' . $tiersId)];
     $actionsList[] = ['icon'=>'🔀','label'=>'Fusionner avec un doublon','url'=>app_url('/admin/admin_tiers_merge.php')];
     fiche360_actions_panel('Actions tiers', $actionsList);
 
-    // Représentants (si personne morale)
-    if (!empty($representants)) {
-        $repLinks = array_map(fn($r) => [
+    // Contacts — composant réutilisable « Ajouter un acteur ».
+    // On surface SYSTÉMATIQUEMENT les parties clés : propriétaire + locataire(s),
+    // puis les représentants/contacts ajoutés à la main.
+    $coLinks = [];
+
+    // 1) Propriétaire (le tiers lui-même quand il possède des biens)
+    if (!empty($biensProprio)) {
+        $coLinks[] = [
+            'icon' => '🏠',
+            'name' => $nomAffichage . ' — Propriétaire',
+            'ref'  => $tiers['email'] ?: $tiers['telephone'] ?: '',
+            'url'  => $idProprioLegacy > 0 ? app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy) : app_url('/tiers_360.php?id=' . $tiersId),
+        ];
+    }
+
+    // 2) Locataire(s) actifs des biens (dédupliqués)
+    $locSeen = [];
+    foreach ($biensProprio as $b) {
+        $ln = trim((string)($b['loc_nom'] ?? ''));
+        if ($ln === '') continue;
+        $lid = (int)($b['loc_tiers_id'] ?? 0);
+        $key = $lid > 0 ? 't' . $lid : 'n' . mb_strtolower($ln);
+        if (isset($locSeen[$key])) continue;
+        $locSeen[$key] = true;
+        $coLinks[] = [
+            'icon' => '🔑',
+            'name' => $ln . ' — Locataire',
+            'ref'  => 'bien ' . ($b['reference_bien'] ?: ('#' . (int)$b['id'])),
+            'url'  => $lid > 0 ? app_url('/tiers_360.php?id=' . $lid) : '#',
+        ];
+    }
+
+    // 3) Représentants / contacts (tiers_contacts)
+    foreach ($representants as $r) {
+        $coLinks[] = [
             'icon' => '👥',
             'name' => trim((string)$r['prenom'] . ' ' . $r['nom']) . ' (' . $r['qualite'] . ')',
             'ref'  => $r['email'] ?: $r['telephone'] ?: '',
             'url'  => app_url('/tiers_360.php?id=' . $r['id']),
-        ], $representants);
-        fiche360_attach('REPRÉSENTANTS (' . count($representants) . ')', $repLinks);
+        ];
     }
 
-    // Synthèse rôles
-    fiche360_attach('RÔLES ACTIFS (' . count($rolesByCode) . ')', array_map(fn($code, $nb) => [
-        'icon' => '🎭',
-        'name' => $code,
-        'ref'  => $nb . ' occurrence(s)',
-        'url'  => '#',
-    ], array_keys($rolesByCode), array_values($rolesByCode)) ?: [['icon'=>'⚪','name'=>'Aucun rôle','ref'=>'','url'=>'#']]);
+    $csrfTiersContact = csrf_token('tiers_contact');
+    $addContactBtn = $tiersIsMgr ? acteur_modal_button('tiers_contact', 'Ajouter un contact') : '';
+    fiche360_attach('CONTACTS (' . count($coLinks) . ')', $coLinks, $addContactBtn);
 
-    // Coordonnées synthétiques
-    fiche360_attach('COORDONNÉES', array_filter([
-        !empty($tiers['email'])     ? ['icon'=>'✉️','name'=>$tiers['email'],     'ref'=>'email','url'=>'mailto:' . $tiers['email']] : null,
-        !empty($tiers['telephone']) ? ['icon'=>'📞','name'=>$tiers['telephone'], 'ref'=>'téléphone','url'=>'tel:' . $tiers['telephone']] : null,
-        !empty($tiers['iban'])      ? ['icon'=>'🏦','name'=>substr($tiers['iban'], 0, 4) . '…' . substr($tiers['iban'], -4), 'ref'=>'IBAN','url'=>'#'] : null,
-    ]) ?: [['icon'=>'⚪','name'=>'Aucune coordonnée','ref'=>'','url'=>'#']]);
+    // Synthèse rôles — uniquement si présents
+    if (!empty($rolesByCode)) {
+        fiche360_attach('RÔLES ACTIFS (' . count($rolesByCode) . ')', array_map(fn($code, $nb) => [
+            'icon' => '🎭',
+            'name' => $code,
+            'ref'  => $nb . ' occurrence(s)',
+            'url'  => '#',
+        ], array_keys($rolesByCode), array_values($rolesByCode)));
+    }
+
+    // (Card COORDONNÉES de droite supprimée : remplacée par la card principale « Coordonnées du contact ».)
+
+    // Modal « Ajouter un contact » (acteur_modal réutilisable)
+    if ($tiersIsMgr) {
+        if (function_exists('tiers_selector_assets')) tiers_selector_assets();
+        acteur_modal_render([
+            'id'         => 'tiers_contact',
+            'title'      => '➕ Ajouter un contact',
+            'role_label' => 'Qualité du contact',
+            'roles'      => [
+                'gerant'         => 'Gérant',
+                'representant'   => 'Représentant légal',
+                'associe'        => 'Associé',
+                'indivisaire'    => 'Indivisaire',
+                'conjoint'       => 'Conjoint',
+                'comptable'      => 'Comptable',
+                'contact'        => 'Contact',
+            ],
+            'api_add'    => app_url('/api/tiers_contact_add.php'),
+            'entity'     => ['id_tiers_entite' => $tiersId],
+            'role_field' => 'qualite',
+            'tiers_field'=> 'id_tiers_contact',
+            'csrf'       => $csrfTiersContact,
+        ]);
+    }
     ?>
 
   </div>
 </div>
 
 <?= function_exists('fiche360_js') ? fiche360_js() : '' ?>
-<script>
-function f360tabT(btn, targetId) {
-    btn.parentElement.querySelectorAll('.f360-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const container = btn.closest('.f360-card');
-    ['tab-biens','tab-bauxpro','tab-baux','tab-roles'].forEach(id => {
-        const el = container.querySelector('#' + id);
-        if (el) el.style.display = (id === targetId) ? 'block' : 'none';
-    });
-}
-</script>
 
 <!-- ── Sprint R-EDIT-TIERS 2026-05-25 : modal d'édition rapide du tiers ── -->
 <dialog id="tiersEditModal" class="tiers-edit-modal">

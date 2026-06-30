@@ -124,7 +124,8 @@ if (!function_exists('agence_load_with_societe_docs')) {
 
                   s.bareme_url     AS societe_bareme_url,
                   s.bareme_url_doc AS societe_bareme_url_doc,
-                  s.nom            AS societe_nom
+                  s.nom            AS societe_nom,
+                  s.logo_url       AS societe_logo_url
                 FROM agences a
                 LEFT JOIN societes s ON s.id = a.id_societe
                 WHERE a.id = :id

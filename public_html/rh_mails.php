@@ -10,7 +10,8 @@ require_login();
 $csrfToken = csrf_token('mail_team');
 
 $roleId = current_role_id();
-if ($roleId !== 1) {
+// Mail RH : réservé Admin (8) + Super Admin (1, 7). Ni manager ni collaborateur.
+if (!in_array($roleId, [1, 7, 8], true)) {
     http_response_code(403);
     exit('Accès réservé aux administrateurs');
 }
@@ -1040,7 +1041,7 @@ function refineWithAI() {
     const prompt = `Modifie ce mail professionnel en français selon les instructions données. Réponds UNIQUEMENT en JSON avec les clés "sujet" et "corps".\n\nMail actuel :\nsujet: ${currentSubject}\ncorps: ${currentBody}\n\nInstructions : ${instructions}`;
 
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    fetch(isLocal ? 'api/chatgpt_draft.php?debug=1' : 'api/chatgpt_draft.php', {
+    fetch(isLocal ? 'api/claude_draft.php?debug=1' : 'api/claude_draft.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
@@ -1075,7 +1076,7 @@ function generateWithAI() {
     status.textContent = '⏳ Génération en cours…';
 
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const url = isLocal ? 'api/chatgpt_draft.php?debug=1' : 'api/chatgpt_draft.php';
+    const url = isLocal ? 'api/claude_draft.php?debug=1' : 'api/claude_draft.php';
 
     fetch(url, {
         method: 'POST',

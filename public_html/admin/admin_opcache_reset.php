@@ -58,7 +58,7 @@ if (function_exists('opcache_reset')) {
     echo '<p class="ko">❌ opcache_reset non disponible.</p>';
 }
 
-// 3. Invalidate ciblé sur les fichiers Ubiflow + bien
+// 3. Invalidate ciblé sur les fichiers Ubiflow + bien + GED CENTRALE (Sprint 7D 2026-05-25)
 echo '<h2>3. Invalidate ciblé</h2>';
 $targets = [
     __DIR__ . '/../inc/ubiflow_validator.php',
@@ -68,6 +68,25 @@ $targets = [
     __DIR__ . '/../inc/bien_type_helper.php',
     __DIR__ . '/../api/bien_autosave.php',
     __DIR__ . '/../api/ubiflow_trigger.php',
+    // GED CENTRALE UNIQUE — fichiers Sprint 7A/B/C/D
+    __DIR__ . '/admin_migrate_legacy_to_ged.php',
+    __DIR__ . '/admin_audit_documents_entite.php',
+    __DIR__ . '/admin_purge_biens_documents.php',
+    __DIR__ . '/admin_rollback_bien_adresse.php',
+    __DIR__ . '/admin_ged_doc_dump.php',
+    __DIR__ . '/../inc/ged_document_links.php',
+    __DIR__ . '/../inc/ged_doc_naming_v3.php',
+    __DIR__ . '/../inc/fluxbox_auto_commit_ged.php',
+    __DIR__ . '/../inc/fluxbox_upload_modal.php',
+    __DIR__ . '/../api/bien_intake_upload.php',
+    __DIR__ . '/../api/immeuble_doc_upload.php',
+    __DIR__ . '/../api/dpe_import_upload.php',
+    __DIR__ . '/../bien_detail.php',
+    __DIR__ . '/../bien_360.php',
+    __DIR__ . '/../bailleur_ged.php',
+    __DIR__ . '/../agency_proprietaire_fiche.php',
+    __DIR__ . '/../fluxbox_pile.php',
+    __DIR__ . '/../p/upload.php',
 ];
 echo '<table><tr><th>Fichier</th><th>Existe</th><th>Mtime</th><th>Invalidate</th></tr>';
 foreach ($targets as $t) {

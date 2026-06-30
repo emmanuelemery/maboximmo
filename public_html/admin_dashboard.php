@@ -409,6 +409,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
                 <div class="adm-card-desc">Appartement, maison, villa, local… Catégories de biens.</div>
                 <div class="adm-card-arrow arr-amber">Gérer →</div>
             </a>
+            <a href="admin/admin_biens_types.php" class="adm-card amber">
+                <div class="adm-card-ico ico-amber">
+                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg>
+                </div>
+                <div class="adm-card-label">Triage des types</div>
+                <div class="adm-card-desc">Balayer les biens et fixer le type en 1 clic (Maison/Appart/Entrepôt/Bureau/Commerce).</div>
+                <div class="adm-card-arrow arr-amber">Trier →</div>
+            </a>
             <a href="admin/param_dependances.php" class="adm-card amber">
                 <div class="adm-card-ico ico-amber">
                     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>

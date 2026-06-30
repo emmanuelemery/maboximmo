@@ -99,7 +99,7 @@ if (!function_exists('tenant_societes_visibles')) {
         $ctx = tenant_current_context();
         if (!$ctx['is_super_admin']) return [];
         try {
-            $st = $pdo->query("SELECT id, nom_societe AS nom FROM societes ORDER BY nom_societe ASC");
+            $st = $pdo->query("SELECT id, nom FROM societes WHERE actif=1 ORDER BY nom ASC");
             return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
             error_log('[tenant_societes_visibles] ' . $e->getMessage());

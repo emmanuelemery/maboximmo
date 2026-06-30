@@ -219,21 +219,10 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         $colRW = $bpw * 0.36;
         $colRX = $bpx + $colLW + ($bpw * 0.04);
 
-        // ── Colonne GAUCHE : TITRE XL + accroche sous-titre + prix + descriptif ──
-
-        // TITRE XL HEADLINE (type · pièces · ville) — gros, ombre portée, or vif
-        $titreH = mbi_supports_tpl_titre_headline($bien);
-        $pdf->SetAlpha(0.55);
-        $pdf->SetFont('dejavusans', 'B', 30);
-        $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetXY($bpx + 2.0, $bpy + 2.5);
-        $pdf->MultiCell($colLW, 11, $titreH, 0, 'L');
-        $pdf->SetAlpha(1.0);
-        $pdf->SetFont('dejavusans', 'B', 30);
-        $pdf->SetTextColor($cTitre[0], $cTitre[1], $cTitre[2]);
-        $pdf->SetXY($bpx, $bpy);
-        $pdf->MultiCell($colLW, 11, $titreH, 0, 'L');
-        $cy = $pdf->GetY() + 3;
+        // ── Colonne GAUCHE : accroche sous-titre + prix + descriptif ──
+        // NB : titre headline « type · pièces · ville » supprimé ici (déjà affiché
+        // dans la carte titre au-dessus des photos) → démarre directement au top.
+        $cy = $bpy;
 
         // ACCROCHE en italique sous-titre (taille intermédiaire blanche)
         $accroche = trim((string)($bien['_accroche'] ?? ''));
@@ -249,62 +238,46 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
         // PRIX ou LOYER XL or avec ombre — selon type_transaction
         $infoPrix = mbi_supports_get_prix_ou_loyer($bien);
         mbi_supports_tpl_text_shadow(
-            $pdf, $bpx, $cy, $colLW, 17,
+            $pdf, $bpx, $cy, $colLW, 24,
             mbi_supports_format_prix_complet($infoPrix),
-            [255, 232, 168], 'dejavusans', 'B', 36, 'L', false, 1.8, 2.4
+            [255, 232, 168], 'dejavusans', 'B', 54, 'L', false, 1.8, 2.4
         );
-        $cy += 17;
+        $cy += 24;
 
-        // ─── CONDITIONS FINANCIÈRES (2 colonnes catégorisées) ─────────
-        // Colonne GAUCHE : Loyer HC, Charges, Dépôt de garantie (ou Prix net + à la charge en vente)
-        // Colonne DROITE : Honoraires bail + État des lieux (ou Honoraires en vente)
-        $lignesCF = mbi_supports_get_conditions_financieres($bien);
-        if (!empty($lignesCF)) {
-            // Petit titre "CONDITIONS"
+        // ─── CONDITIONS (col gauche) + COPROPRIÉTÉ (col droite) alignées ─────────
+        $lignesCF    = mbi_supports_get_conditions_financieres($bien);
+        $lignesCopro = mbi_supports_get_copropriete_lignes($bien);
+        $rowH   = 5.2;
+        $gapCol = 8;
+        $colCFW = ($colLW - $gapCol) / 2;
+
+        $renderListe = function (string $titre, array $lignes, float $x0, float $yTop)
+                       use ($pdf, $colCFW, $rowH, $cS): float {
+            if (empty($lignes)) return $yTop;
             $pdf->SetFont('dejavusans', 'B', 8.5);
             $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
-            $pdf->SetXY($bpx, $cy);
-            $pdf->Cell($colLW, 4, mb_strtoupper(($infoPrix['type'] ?? '') === 'location' ? 'Conditions ALUR' : 'Conditions', 'UTF-8'), 0, 1, 'L');
-            $cy += 5;
-
-            // Catégorise par label (les libellés sont stables, cf. helper)
-            $colGauche = [];
-            $colDroite = [];
-            foreach ($lignesCF as $cf) {
+            $pdf->SetXY($x0, $yTop);
+            $pdf->Cell($colCFW, 4, mb_strtoupper($titre, 'UTF-8'), 0, 1, 'L');
+            $y = $yTop + 5;
+            foreach ($lignes as $i => $cf) {
                 [$lab, $val] = $cf;
-                $labLower = mb_strtolower($lab, 'UTF-8');
-                if (str_contains($labLower, 'honoraires') || str_contains($labLower, 'état des lieux')) {
-                    $colDroite[] = $cf;
-                } else {
-                    // Loyer / Charges / Dépôt / Prix net / À la charge → colonne gauche
-                    $colGauche[] = $cf;
-                }
+                $ly = $y + $i * $rowH;
+                $pdf->SetFont('dejavusans', '', 11);
+                $pdf->SetTextColor(200, 206, 220);
+                $pdf->SetXY($x0, $ly);
+                $pdf->Cell($colCFW * 0.55, 4.5, $lab . ' :', 0, 0, 'L');
+                $pdf->SetFont('dejavusans', 'B', 11);
+                $pdf->SetTextColor(255, 255, 255);
+                $pdf->SetXY($x0 + $colCFW * 0.55, $ly);
+                $pdf->Cell($colCFW * 0.45, 4.5, $val, 0, 0, 'R');
             }
+            return $y + count($lignes) * $rowH;
+        };
 
-            $colCFW = $colLW / 2 - 4;
-
-            $renderCol = function (array $col, float $x0, float $y0) use ($pdf, $colCFW) {
-                foreach ($col as $i => $cf) {
-                    [$lab, $val] = $cf;
-                    $ly = $y0 + $i * 5.2;
-                    $pdf->SetFont('dejavusans', '', 11);
-                    $pdf->SetTextColor(200, 206, 220);
-                    $pdf->SetXY($x0, $ly);
-                    $pdf->Cell($colCFW * 0.55, 4.5, $lab . ' :', 0, 0, 'L');
-                    $pdf->SetFont('dejavusans', 'B', 11);
-                    $pdf->SetTextColor(255, 255, 255);
-                    $pdf->SetXY($x0 + $colCFW * 0.55, $ly);
-                    $pdf->Cell($colCFW * 0.45, 4.5, $val, 0, 0, 'L');
-                }
-            };
-
-            $renderCol($colGauche, $bpx, $cy);
-            $renderCol($colDroite, $bpx + $colCFW + 8, $cy);
-
-            $nbRows = max(count($colGauche), count($colDroite));
-            $cy += $nbRows * 5.2 + 3;
-        }
-        $cy += 4;
+        $titreCF = (($infoPrix['type'] ?? '') === 'location') ? 'Conditions ALUR' : 'Conditions';
+        $yG = $renderListe($titreCF,      $lignesCF,    $bpx,                    $cy);
+        $yD = $renderListe('Copropriété', $lignesCopro, $bpx + $colCFW + $gapCol, $cy);
+        $cy = max($yG, $yD) + 4;
 
         // Descriptif L'ANNONCE
         $descCommerciale = (string)($bien['_annonce_description'] ?? '');
@@ -330,89 +303,117 @@ if (!function_exists('mbi_supports_layout_magazine_bandeau_build')) {
             $pdf->MultiCell($colLW, $lineH, $descCommerciale, 0, 'J');
         }
 
-        // ── Colonne DROITE : caracs + DPE + atouts ────────────────────
+        // ── Colonne DROITE : grille 2×2 alignée ───────────────────────
+        //   Ligne 1 : DPE  (gauche) | Surface (droite)
+        //   Ligne 2 : GES  (gauche) | Pièces  (droite)
         $ry = $bpy;
 
         $surf  = mbi_supports_get_surface($bien);
         $nbPcs = $bien['nb_pieces'] ?? $bien['nombre_pieces'] ?? null;
         $etage = $bien['etage'] ?? null;
-        $expo  = $bien['exposition'] ?? $bien['orientation'] ?? null;
-
-        // Valeurs SANS unité (le label porte déjà l'unité) → permet de très gros chiffres
         $surfTxt = $surf !== null
             ? rtrim(rtrim(number_format($surf, 2, ',', ' '), '0'), ',')
             : null;
         $caracs = [];
-        if ($surfTxt !== null)         $caracs[] = ['M²', $surfTxt];
-        if ($nbPcs)                    $caracs[] = ['Pces', (string)$nbPcs];
+        if ($surfTxt !== null)         $caracs[] = ['Surface', $surfTxt];
+        if ($nbPcs)                    $caracs[] = ['Pièces', (string)$nbPcs];
         if ($etage !== null && (string)$etage !== '') $caracs[] = ['Étage', (string)$etage];
-        // Expo en mini : on ne la met pas dans la mini-card pour ne pas tout réduire
-        // (s'affiche dans le titre headline)
 
-        if (!empty($caracs)) {
-            $nbC = count($caracs);
-            $cellW = ($colRW - (($nbC - 1) * 4)) / $nbC;
-            $cellH = 38;
-            $padInt = 6; // padding intérieur de la cellule
-            foreach ($caracs as $i => $it) {
-                $x = $colRX + ($i * ($cellW + 4));
-                // Ombre + fond blanc translucide rounded
-                $pdf->SetAlpha(0.22);
-                $pdf->SetFillColor(15, 23, 42);
-                $pdf->RoundedRect($x + 1.2, $ry + 1.8, $cellW, $cellH, 5.0, '1111', 'F');
-                $pdf->SetAlpha(0.16);
-                $pdf->SetFillColor(255, 255, 255);
-                $pdf->RoundedRect($x, $ry, $cellW, $cellH, 5.0, '1111', 'F');
-                $pdf->SetAlpha(1.0);
-
-                // Label en haut-gauche — BLANC bold pour contraste sur fond navy
-                $pdf->SetFont('dejavusans', 'B', 11);
-                $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetXY($x + $padInt, $ry + 3.5);
-                $pdf->Cell($cellW - $padInt * 2, 5, mb_strtoupper($it[0], 'UTF-8'), 0, 0, 'L');
-
-                // Valeur : taille ADAPTATIVE selon longueur pour ne jamais déborder
-                $val = (string)$it[1];
-                $valLen = mb_strlen($val, 'UTF-8');
-                $valSize = $valLen <= 2 ? 50 : ($valLen <= 3 ? 38 : ($valLen <= 4 ? 30 : 24));
-                $pdf->SetFont('dejavusans', 'B', $valSize);
-                $pdf->SetTextColor(255, 255, 255);
-                $pdf->SetXY($x + $padInt, $ry);
-                $pdf->Cell($cellW - $padInt * 2, $cellH, $val, 0, 0, 'R');
-            }
-            $ry += $cellH + 6;
-        }
-
-        // DPE / GES — étiquettes officielles barre 7 segments A→G + valeur kWh/kgCO2
+        // Classes DPE/GES normalisées (déduites de la valeur si classe absente)
         $dpe = strtoupper(trim((string)($bien['dpe_classe'] ?? $bien['dpe'] ?? '')));
         $ges = strtoupper(trim((string)($bien['ges_classe'] ?? $bien['ges'] ?? '')));
         $dpeVal = (float)($bien['dpe_valeur'] ?? 0);
         $gesVal = (float)($bien['ges_valeur'] ?? 0);
-        mbi_supports_tpl_dpe_ges(
-            $pdf, $colRX, $ry, $colRW, $dpe, $ges, [200, 206, 220],
-            $dpeVal > 0 ? $dpeVal : null,
-            $gesVal > 0 ? $gesVal : null
-        );
-        $ry += 38; // hauteur du bloc DPE+GES pastilles (16 + 4 + 16 + marge)
+        $dpeN = mbi_supports_classe_normalise($dpe);
+        if ($dpeN === '' && $dpeVal > 0) $dpeN = mbi_supports_dpe_classe_depuis_valeur($dpeVal);
+        $gesN = mbi_supports_classe_normalise($ges);
+        if ($gesN === '' && $gesVal > 0) $gesN = mbi_supports_ges_classe_depuis_valeur($gesVal);
 
-        // Atouts ✓
+        // Géométrie de la grille
+        $rowStep = 22.0;          // hauteur d'une ligne (pastille 16 + marge)
+        $cellH   = 17.0;          // hauteur des cards caracs
+        $cardW   = $colRW * 0.42; // colonne droite (cards), alignée à droite
+        $cardX   = $colRX + $colRW - $cardW;
+
+        // Card carac (fond blanc translucide rounded, label gauche + valeur droite)
+        $drawCard = function (float $x, float $y, float $w, float $h, string $label, string $val) use ($pdf) {
+            $pad = 6;
+            $pdf->SetAlpha(0.22); $pdf->SetFillColor(15, 23, 42);
+            $pdf->RoundedRect($x + 1.2, $y + 1.8, $w, $h, 5.0, '1111', 'F');
+            $pdf->SetAlpha(0.16); $pdf->SetFillColor(255, 255, 255);
+            $pdf->RoundedRect($x, $y, $w, $h, 5.0, '1111', 'F');
+            $pdf->SetAlpha(1.0);
+            $pdf->SetFont('dejavusans', 'B', 9);
+            $pdf->SetTextColor(255, 255, 255);
+            $pdf->SetXY($x + $pad, $y + ($h / 2) - 2.2);
+            $pdf->Cell(($w - $pad * 2) * 0.5, 5, mb_strtoupper($label, 'UTF-8'), 0, 0, 'L');
+            $vl = mb_strlen($val, 'UTF-8');
+            $vs = $vl <= 2 ? 22 : ($vl <= 3 ? 19 : ($vl <= 5 ? 16 : 13));
+            $pdf->SetFont('dejavusans', 'B', $vs);
+            $pdf->SetXY($x + $pad, $y);
+            $pdf->Cell($w - $pad * 2, $h, $val, 0, 0, 'R');
+        };
+
+        // Grille ANCRÉE EN BAS du bandeau (aligne DPE/GES + cards sur le bas).
+        $nbRows  = max(2, count($caracs));
+        $gridH   = $nbRows * $rowStep;
+        $gridTop = ($bandY + $bandH) - $gridH - 4;
+
+        // Bandeau « À LOUER / À VENDRE » + logo agence (haut de la colonne droite).
+        // Magazine n'a pas de pastille transaction ailleurs → on l'ajoute ici avec
+        // le logo (agence → fallback société) sur carte blanche pour le contraste.
+        $logoAffiche = mbi_supports_resoudre_logo_entite($ctx['agence'] ?? []);
+        $badgeH = 16.0;
+        $logoCardH = 32.0; // carte logo ~2× le bandeau, déborde vers le bas (bande navy)
+        mbi_supports_tpl_badge_transaction($pdf, $colRX, $bpy, $colRW, $badgeH, $bien, $cP, $cS, $logoAffiche, $logoCardH, 'down');
+        $atoutsTop = $bpy + max($badgeH, $logoCardH) + 4;
+
+        // La carte logo agrandie déborde vers le bas → on POUSSE la grille
+        // DPE/GES + caracs sous la carte logo pour qu'elles ne soient plus
+        // collées/cachées (cf. schéma). Plafonné pour rester dans la bande.
+        $gridBottomLimit = ($bandY + $bandH) - $gridH - 2;
+        $gridTop = min(max($gridTop, $atoutsTop), $gridBottomLimit);
+
+        // Atouts ✓ : rendus dans la partie HAUTE de la colonne (au-dessus de la grille)
         $pointsForts = $iaAtouts;
         if (empty($pointsForts) && $score && !empty($score['points_forts_json'])) {
             $pointsForts = json_decode((string)$score['points_forts_json'], true) ?: [];
         }
         if (!empty($pointsForts)) {
+            $ay = $atoutsTop;
             foreach (array_slice($pointsForts, 0, 3) as $pf) {
-                if ($ry > $bandY + $bandH - 14) break;
-                $pdf->SetXY($colRX, $ry);
+                if ($ay > $gridTop - 8) break;
+                $pdf->SetXY($colRX, $ay);
                 $pdf->SetTextColor($cS[0], $cS[1], $cS[2]);
                 $pdf->SetFont('dejavusans', 'B', 11);
                 $pdf->Cell(6, 5, '✓', 0, 0, 'L');
                 $pdf->SetTextColor(255, 255, 255);
                 $pdf->SetFont('dejavusans', '', 9);
-                $pdf->SetXY($colRX + 6, $ry);
+                $pdf->SetXY($colRX + 6, $ay);
                 $pdf->MultiCell($colRW - 6, 4.2, mb_substr((string)$pf, 0, 95, 'UTF-8'), 0, 'L');
-                $ry = $pdf->GetY() + 1.5;
+                $ay = $pdf->GetY() + 1.5;
             }
+        }
+
+        // Ligne 1 : DPE (gauche) + 1re carac (droite)
+        $ry = $gridTop;
+        mbi_supports_tpl_dpe_ges_pastille(
+            $pdf, $colRX, $ry, 'DPE', $dpeN,
+            $dpeVal > 0 ? $dpeVal : null, 'kWh/m²/an', [200, 206, 220]
+        );
+        if (isset($caracs[0])) $drawCard($cardX, $ry, $cardW, $cellH, $caracs[0][0], $caracs[0][1]);
+
+        // Ligne 2 : GES (gauche) + 2e carac (droite)
+        $ry2 = $ry + $rowStep;
+        mbi_supports_tpl_dpe_ges_pastille(
+            $pdf, $colRX, $ry2, 'GES', $gesN,
+            $gesVal > 0 ? $gesVal : null, 'kg CO₂/m²/an', [200, 206, 220]
+        );
+        if (isset($caracs[1])) $drawCard($cardX, $ry2, $cardW, $cellH, $caracs[1][0], $caracs[1][1]);
+
+        // Carac supplémentaire éventuelle (étage) → 3e ligne, colonne droite
+        if (isset($caracs[2])) {
+            $drawCard($cardX, $ry2 + $rowStep, $cardW, $cellH, $caracs[2][0], $caracs[2][1]);
         }
 
         // ─── 3. PIED NAVY fin ───

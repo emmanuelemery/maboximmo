@@ -121,6 +121,11 @@ if (!function_exists('mbi_supports_pdf_generer')) {
         }
         if (!empty($surcharges)) {
             $bien = mbi_supports_appliquer_surcharges($bien, $surcharges);
+            // Titre validé/modifié par le commercial : forcer aussi _annonce_titre
+            // (champ prioritaire lu par les layouts d'affiche vitrine).
+            if (!empty($surcharges['titre_personnalise'])) {
+                $bien['_annonce_titre'] = (string)$surcharges['titre_personnalise'];
+            }
         }
 
         // 2. Style applicable
@@ -295,6 +300,12 @@ if (!function_exists('mbi_supports_pdf_generer')) {
                 'ia_redaction'=> $iaRedaction,
                 'nb_photos'   => $nbPhotosCtx,
                 'photos_ids_secondaires' => $photosIdsSec,
+                // Layout imposé par le modal (Split/Mosaïque/Asymétrique/Magazine) :
+                // surcharge éditeur > option API. null = choix auto pondéré du routeur.
+                'layout_force' => (function () use ($surcharges, $options) {
+                    $lf = trim((string)($surcharges['layout_force'] ?? $options['layout_force'] ?? ''));
+                    return $lf !== '' ? $lf : null;
+                })(),
             ];
 
             // Crée le dossier de drafts si absent (idempotent)

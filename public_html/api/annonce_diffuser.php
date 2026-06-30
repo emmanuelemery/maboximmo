@@ -120,7 +120,16 @@ try {
 
     /* ── 6. Trigger Ubiflow si canal portails activé ──────────── */
     $portailsResult = null;
-    if ($chanPort) {
+    // 🚨 GARDE-FOU : AUCUN envoi Ubiflow hors PRODUCTION (local/dev = jamais).
+    $ubiHost   = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+    $ubiIsProd = in_array($ubiHost, ['maboximmo.fr', 'www.maboximmo.fr'], true);
+    if ($chanPort && !$ubiIsProd) {
+        $portailsResult = [
+            'ok'         => false,
+            'simulation' => true,
+            'error'      => '⛔ Diffusion Ubiflow désactivée hors production (host=' . ($ubiHost ?: 'cli') . '). Flags BDD à jour, aucun flux envoyé.',
+        ];
+    } elseif ($chanPort) {
         try {
             require_once __DIR__ . '/../config/ubiflow_agences.php';
             require_once __DIR__ . '/../config/ubiflow_mapping.php';

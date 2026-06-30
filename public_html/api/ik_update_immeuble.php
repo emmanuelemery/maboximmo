@@ -16,11 +16,14 @@ if (!$id) { echo json_encode(['ok'=>false,'error'=>'id manquant']); exit; }
 $lat = isset($data['latitude'])  && $data['latitude']  !== '' ? (float)$data['latitude']  : null;
 $lng = isset($data['longitude']) && $data['longitude'] !== '' ? (float)$data['longitude'] : null;
 
+// ⚠️ Garde anti-écrasement : si la modale/autocomplete ne renvoie pas le CP/ville
+// (adresse Google de niveau localité/route), on PRÉSERVE la valeur existante
+// au lieu de la vider — sinon perte de la zone tendue (honoraires). 2026-06-04.
 $stmt = $pdo->prepare("UPDATE immeubles SET
     nom_immeuble       = ?,
     adresse_1          = ?,
-    code_postal        = ?,
-    ville              = ?,
+    code_postal        = COALESCE(NULLIF(?, ''), code_postal),
+    ville              = COALESCE(NULLIF(?, ''), ville),
     type_immeuble      = ?,
     statut_immeuble    = ?,
     latitude           = ?,

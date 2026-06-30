@@ -16,6 +16,7 @@ $societeNom = (string)($_SESSION['societe_nom'] ?? '');
 
 $tools = [
     ['label' => 'Toutes les sociétés',     'url' => 'societe_super_admin.php',             'icon' => '🏢', 'color' => '#36577d'],
+    ['label' => 'Accès tiers / module',    'url' => 'admin/admin_acces_tiers.php',        'icon' => '🔐', 'color' => '#243B5C'],
     ['label' => 'Base de données',         'url' => 'admin/admin_database.php',           'icon' => '🗄', 'color' => '#7a6830'],
     ['label' => 'Agences / Codes',         'url' => 'admin/admin_agences_codes.php',      'icon' => '🏷️', 'color' => '#6b8e6f'],
     ['label' => 'Init paramétrage',        'url' => 'admin/init_parametrage_societes.php','icon' => '⚙️', 'color' => '#7a6830'],
@@ -37,6 +38,13 @@ $tools = [
     ['label' => 'Debug PDF export',        'url' => 'debug_pdf_export.php',               'icon' => '🧾', 'color' => '#c97b2e'],
     ['label' => 'Suppression propriétaires','url' => 'admin/admin_proprietaires_suppression.php', 'icon' => '🗑', 'color' => '#b91c1c'],
     ['label' => 'Réaffectation société',    'url' => 'admin/admin_reaffectation_societe.php',      'icon' => '↔️', 'color' => '#d97706'],
+    ['label' => 'Explorateur OneDrive',     'url' => 'super_admin_onedrive.php',                   'icon' => '📁', 'color' => '#0a66c2'],
+    ['label' => 'Import OneDrive en masse',  'url' => 'super_admin_onedrive_batch.php',             'icon' => '📥', 'color' => '#5e35b1'],
+    ['label' => 'Import DPE LYON',           'url' => 'super_admin_dpe_lyon_batch.php',             'icon' => '🌡️', 'color' => '#1f7a46'],
+    ['label' => 'Registre des mandats',      'url' => 'admin/admin_registre_mandats.php',           'icon' => '📜', 'color' => '#7a6830'],
+    ['label' => 'Triage des types de biens', 'url' => 'admin/admin_biens_types.php',                'icon' => '🏠', 'color' => '#7a6830'],
+    ['label' => 'Doublons propriétaires',    'url' => 'admin/admin_proprietaires_doublons.php',     'icon' => '👥', 'color' => '#5b21b6'],
+    ['label' => 'Doublons de biens',         'url' => 'admin/admin_biens_doublons.php',             'icon' => '🏘️', 'color' => '#b45309'],
 ];
 
 $layout_extra_css = '<style>

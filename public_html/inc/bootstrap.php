@@ -17,7 +17,7 @@ header('X-Frame-Options: SAMEORIGIN');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Permissions-Policy: geolocation=(), camera=(), microphone=()');
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https:; frame-src 'self'; frame-ancestors 'self';");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https:; frame-src 'self' https://www.google.com https://maps.google.com; frame-ancestors 'self';");
 
 /**
  * MODE APPLICATION
@@ -196,3 +196,22 @@ $GOOGLE_MAPS_API_KEY = getenv('GOOGLE_MAPS_API_KEY')
     ?: ($_ENV['GOOGLE_MAPS_API_KEY'] ?? '')
     ?: ($_SERVER['GOOGLE_MAPS_API_KEY'] ?? '')
     ?: (defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '');
+
+/**
+ * Chargement Pappers optionnel (token API entreprises — JAMAIS exposé au front).
+ * Fichier secret dédié, hors webroot. Si absent, l'app retombe sur l'API gouv gratuite.
+ */
+$possiblePappersConfigs = [
+    __DIR__ . '/../maboximmo_pappers_config.php',
+    __DIR__ . '/../../maboximmo_pappers_config.php',
+    __DIR__ . '/../../u630423897/maboximmo_pappers_config.php',
+    '/home/u630423897/maboximmo_pappers_config.php',
+    '/home/u630423897/u630423897/maboximmo_pappers_config.php',
+];
+foreach ($possiblePappersConfigs as $candidate) {
+    if (is_file($candidate) && is_readable($candidate)) { require_once $candidate; break; }
+}
+$PAPPERS_API_TOKEN = getenv('PAPPERS_API_TOKEN')
+    ?: ($_ENV['PAPPERS_API_TOKEN'] ?? '')
+    ?: ($_SERVER['PAPPERS_API_TOKEN'] ?? '')
+    ?: (defined('PAPPERS_API_TOKEN') ? PAPPERS_API_TOKEN : '');

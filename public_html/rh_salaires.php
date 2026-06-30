@@ -14,9 +14,17 @@ require_once __DIR__ . '/inc/rh_salaire_workflow.php';
 require_login();
 
 $roleId = current_role_id();
-if (!in_array($roleId, [1, 2, 3], true)) {
+if (!in_array($roleId, [1, 2, 3, 7, 8], true)) {
     deny_access('Accès RH restreint aux admins, managers et collaborateurs.');
 }
+
+// Périmètres RH paie :
+//   Super Admin (1, 7) → TOUTES les sociétés (peut choisir société / "toutes")
+//   Admin (8)          → privilèges admin mais limité à SA seule société
+//   Manager (2)        → son agence (via $agenceScope) ; Collaborateur (3) → lui-même
+$rhSuperAdmin = in_array($roleId, [1, 7], true);   // toutes sociétés
+$rhAdmin      = in_array($roleId, [1, 7, 8], true); // privilèges admin (primes, validation, clôture…)
+$rhSocieteId  = (int)($_SESSION['id_societe'] ?? 0); // société de rattachement (scope admin 8)
 
 $pdo = $GLOBALS['pdo'] ?? null;
 if (!$pdo) { http_response_code(500); exit('Erreur: PDO non disponible'); }
@@ -243,7 +251,7 @@ HTML;
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['close_month'])) {
     verify_csrf();
     $roleId      = current_role_id();
-    if ($roleId !== 1) {
+    if (!$rhAdmin) {
         http_response_code(403);
         exit('Accès refusé');
     }
@@ -293,7 +301,7 @@ $annee_sel   = $_GET['annee']   ?? $now->format('Y');
 $societe_sel = $_GET['societe'] ?? 'toutes';
 // Si l'utilisateur a un scope agence forcé, ignorer le paramètre GET
 $agence_sel  = $agenceScope > 0 ? (string)$agenceScope : ($_GET['agence'] ?? 'toutes');
-$modeles_only = !empty($_GET['modeles_only']) && $roleId === 1 ? true : false;
+$modeles_only = !empty($_GET['modeles_only']) && $rhAdmin ? true : false;
 
 // Check if month is closed
 $mois_ref_check = sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel);
@@ -306,7 +314,7 @@ $annee_int = ($annee_sel!=='toutes')?(int)$annee_sel:(int)$now->format('Y');
 $mois_ref  = first_day_of($annee_int,$mois_int);
 $lib_mois_annee = mois_fr($mois_int).' '.$annee_int;
 
-$societes = $pdo->query("SELECT id, nom FROM societes WHERE nom != 'Externe' ORDER BY nom ASC")->fetchAll(PDO::FETCH_ASSOC);
+$societes = $pdo->query("SELECT id, nom FROM societes WHERE nom NOT IN ('Externe','PRESTATAIRES EXTERNES','GROUPE SIR & SABY') ORDER BY nom ASC")->fetchAll(PDO::FETCH_ASSOC);
 $agences  = $pdo->query("SELECT id, nom_agence, id_societe FROM agences ORDER BY nom_agence ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 // Société / agence de l'utilisateur connecté (valeurs par défaut)
@@ -334,14 +342,14 @@ if ($isSimpleCollab) {
 // les paramètres GET. Empêche ?societe=toutes ou ?societe=X d'exposer
 // des salaires d'autres sociétés (cas Géraldine : agenceScope forcera
 // aussi son agence).
-if ($roleId !== 1) {
+if (!$rhSuperAdmin) {
     $societe_sel = $user_societe_default;
     if ($societe_sel === 'toutes' && !empty($userInfo['id_societe'])) {
         $societe_sel = (string)$userInfo['id_societe'];
     }
 }
-// Admin : défaut sur sa propre société uniquement si aucun GET
-if (!isset($_GET['societe']) && $roleId === 1 && $user_societe_default !== 'toutes') {
+// Super admin : défaut sur sa propre société uniquement si aucun GET
+if (!isset($_GET['societe']) && $rhSuperAdmin && $user_societe_default !== 'toutes') {
     $societe_sel = $user_societe_default;
 }
 
@@ -391,7 +399,7 @@ if ($societe_sel !== 'toutes') {
 $COLS = [
   'salaire_brut_base'                 => ['label'=>'Brut','type'=>'money'],
   'treizieme_mois'                    => ['label'=>'13e','type'=>'money'],
-  'anciennete'                        => ['label'=>'Anc.','type'=>'int'],
+  'anciennete'                        => ['label'=>'Anc.','type'=>'money'],
   'avantage_nature'                   => ['label'=>'Av. nat.','type'=>'money'],
   'heures_supp'                       => ['label'=>'H. supp','type'=>'money'],
   'commission_ca'                     => ['label'=>'Comm. CA','type'=>'money'],
@@ -419,7 +427,7 @@ if (
     && (isset($_POST['send_to_comptable']) || isset($_POST['upload_projet_pdf']) || isset($_POST['upload_bulletins_pdf']))
 ) {
     verify_csrf();
-    if ($roleId !== 1) {
+    if (!$rhAdmin) {
         http_response_code(403);
         exit('Accès refusé');
     }
@@ -931,6 +939,27 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_row'])) {
     }
     verify_csrf();
     $id_user = (int)($_POST['id_user'] ?? 0);
+
+    // ── Cloisonnement écriture (défense en profondeur) ──
+    // Un gestionnaire d'agence ne peut enregistrer QUE pour un collaborateur de
+    // SON agence ; un non-admin ne peut jamais cibler un user hors de son scope.
+    if (!$rhAdmin) {
+        // Manager / collaborateur : scope strict agence ou soi-même
+        if ($agenceScope > 0) {
+            $okScope = $pdo->prepare("SELECT 1 FROM users WHERE id = ? AND id_agence = ? LIMIT 1");
+            $okScope->execute([$id_user, $agenceScope]);
+            if (!$okScope->fetchColumn()) { http_response_code(403); exit('Accès refusé : ce salarié n\'appartient pas à votre agence.'); }
+        } elseif ($id_user !== current_user_id()) {
+            http_response_code(403); exit('Accès refusé : périmètre non autorisé.');
+        }
+    } elseif (!$rhSuperAdmin) {
+        // Admin une société (rôle 8) : limité aux collaborateurs de SA société
+        $okSoc = $pdo->prepare("SELECT 1 FROM users WHERE id = ? AND id_societe = ? LIMIT 1");
+        $okSoc->execute([$id_user, $rhSocieteId]);
+        if (!$okSoc->fetchColumn()) { http_response_code(403); exit('Accès refusé : ce salarié n\'appartient pas à votre société.'); }
+    }
+    // Super admin (1, 7) : aucun filtre société
+
     $id_user_legacy = rh_user_salary_id($pdo, $id_user);
     $chk = $pdo->prepare("SELECT id FROM salaires WHERE id_user=:uid AND mois_reference=:mr LIMIT 1");
     $chk->execute([':uid'=>$id_user_legacy, ':mr'=>$mois_ref]);
@@ -938,12 +967,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_row'])) {
 
     // Champs réservés à l'admin : jamais modifiables par un gestionnaire agence
     $adminOnlyFields = ['salaire_brut_base', 'treizieme_mois', 'anciennete'];
+    // Primes administrative & exceptionnelle : admin (rôle 1) uniquement.
+    $primesAdminOnly = ['prime_admin', 'prime_exceptionnelle'];
 
     $vals = []; $setParts = [];
     $allCols = array_merge($COLS, $COLS_ACTIONS);
     foreach ($allCols as $col => $meta) {
         // Gestionnaire agence : ignorer les champs protégés
         if ($agenceScope > 0 && in_array($col, $adminOnlyFields, true)) continue;
+        // Primes admin/exceptionnelle : ignorées pour tout non-admin
+        if (!$rhAdmin && in_array($col, $primesAdminOnly, true)) continue;
         $type = $meta['type'];
         $v = $_POST[$col] ?? null;
         if ($type === 'money') {
@@ -955,6 +988,26 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_row'])) {
         }
         $vals[":$col"] = $v;
         $setParts[] = "`$col` = :$col";
+    }
+
+    // ── Cascade IK : total_ik = ik_nb_km × users.indemnite_km ──
+    // Si l'user a saisi un nb de km mais pas le total IK, on calcule auto à partir
+    // du taux personnel défini sur sa fiche véhicule (rh_profil.php?tab=vehicule).
+    // Si l'user a explicitement saisi un total_ik, on respecte sa valeur.
+    if (array_key_exists(':ik_nb_km', $vals)) {
+        $kmVal       = (float)($vals[':ik_nb_km'] ?? 0);
+        $totalIkVal  = $vals[':total_ik'] ?? null;
+        $totalIkSais = ($totalIkVal !== null && (float)$totalIkVal > 0);
+        if ($kmVal > 0 && !$totalIkSais) {
+            try {
+                $stRate = $pdo->prepare("SELECT indemnite_km FROM users WHERE id = ? LIMIT 1");
+                $stRate->execute([$id_user]);
+                $rateKm = (float)($stRate->fetchColumn() ?: 0);
+                if ($rateKm > 0) {
+                    $vals[':total_ik'] = round($kmVal * $rateKm, 2);
+                }
+            } catch (Throwable) { /* non bloquant : on garde la valeur du POST */ }
+        }
     }
 
     // Handle termine_user checkbox
@@ -973,6 +1026,14 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_row'])) {
         $params = array_merge([':id_user'=>$id_user_legacy, ':mois_reference'=>$mois_ref, ':termine_user'=>$termine_user], $vals);
     }
     $pdo->prepare($sql)->execute($params);
+
+    // Attribuer un salaire de base à un collaborateur = il EST salarié → on garantit
+    // est_salarie=1, sinon il serait exclu de la liste de paie (cas Alice MARCEL).
+    $brutSaved = (float)($vals[':salaire_brut_base'] ?? str_replace([' ', ','], ['', '.'], (string)($_POST['salaire_brut_base'] ?? 0)));
+    if ($id_user > 0 && $brutSaved > 0) {
+        try { $pdo->prepare("UPDATE users SET est_salarie = 1 WHERE id = ? AND (est_salarie <> 1 OR est_salarie IS NULL)")->execute([$id_user]); } catch (Throwable) {}
+    }
+
     $_SESSION['message_ok'] = 'Salaire enregistré ✅';
     header("Location: rh_salaires.php".($currentQS ? '?'.$currentQS : ''));
     exit;
@@ -983,6 +1044,7 @@ $selectCols = implode(", ", array_map(fn($c)=>"s.`$c` AS `$c`", array_keys(array
 if ($modeles_only) {
     $sql = "
         SELECT u.id AS id_user, " . rh_user_name_expr('u') . " AS nom_complet,
+               u.indemnite_km AS u_indemnite_km,
                s.id AS id_salaire, s.mois_reference, s.termine_user, s.mois_cloture, $selectCols
         FROM users u
         LEFT JOIN salaires s ON (s.id_user=u.id OR (s.id_user=u.id_legacy AND u.id_legacy IS NOT NULL)) AND s.mois_reference='0000-00-00' AND s.salaire_modele=1
@@ -992,6 +1054,7 @@ if ($modeles_only) {
 } else {
     $sql = "
         SELECT u.id AS id_user, " . rh_user_name_expr('u') . " AS nom_complet,
+               u.indemnite_km AS u_indemnite_km,
                s.id AS id_salaire, s.mois_reference, s.termine_user, s.mois_cloture, $selectCols
         FROM users u
         LEFT JOIN salaires s ON (s.id_user=u.id OR (s.id_user=u.id_legacy AND u.id_legacy IS NOT NULL)) AND s.mois_reference=:mr
@@ -1014,6 +1077,22 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($p);
 $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// ── Backfill virtuel de total_ik pour les lignes pas encore sauvées ──
+// Si une ligne a ik_nb_km > 0 mais total_ik vide en BDD, on calcule la valeur
+// à partir du taux personnel (users.indemnite_km) pour que tous les calculs
+// suivants (total brut, affichage IK, exports) soient cohérents avant le 1er save.
+foreach ($users as &$_u) {
+    $_u['_total_ik_auto'] = false;
+    $hasIk = isset($_u['total_ik']) && (float)$_u['total_ik'] > 0;
+    $kmCur = (float)($_u['ik_nb_km'] ?? 0);
+    $rate  = (float)($_u['u_indemnite_km'] ?? 0);
+    if (!$hasIk && $kmCur > 0 && $rate > 0) {
+        $_u['total_ik']       = round($kmCur * $rate, 2);
+        $_u['_total_ik_auto'] = true;
+    }
+}
+unset($_u);
+
 // Calcul des totaux
 $totalUsers      = count($users);
 $totalBrut       = 0.0;
@@ -1027,12 +1106,12 @@ $totalAll        = 0.0;
 try {
     foreach ($users as $u) {
         $brut      = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-        $mois_anci = !empty($u['anciennete']) ? (int)$u['anciennete'] : 0;
-        $anci_val  = ($mois_anci > 0 && $brut > 0) ? ($brut * $mois_anci * 0.01 / 12) : 0;
+        // Ancienneté = MONTANT de la prime en € (saisi tel quel), pas un nombre de mois.
+        $anci_val  = !empty($u['anciennete']) ? (float)$u['anciennete'] : 0;
         $commCA    = !empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0;
         $commNA    = !empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0;
-        $autres    = (!empty($u['avantage_nature']) ? (float)$u['avantage_nature'] : 0)
-                   + (!empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0)
+        // L'avantage en nature (avantage_nature) n'est PAS additionné dans le total.
+        $autres    = (!empty($u['heures_supp']) ? (float)$u['heures_supp'] : 0)
                    + (!empty($u['frais_professionnels']) ? (float)$u['frais_professionnels'] : 0)
                    + (!empty($u['frais_reception']) ? (float)$u['frais_reception'] : 0)
                    + (!empty($u['prime_admin']) ? (float)$u['prime_admin'] : 0)
@@ -1470,6 +1549,12 @@ $layout_extra_css = <<<'EXTRACSS'
     @media (max-width: 900px) {
         .action-strip { flex-direction: column; }
     }
+
+    /* ── KPI agrandis (en-tête salaires) ── */
+    .mbi-page-head .ph-kpi-strip { gap:18px; }
+    .mbi-page-head .ph-kpi { padding:10px 16px; border-radius:12px; gap:4px; }
+    .mbi-page-head .ph-kpi-val { font-size:22px; font-weight:700; }
+    .mbi-page-head .ph-kpi-lbl { font-size:10px; letter-spacing:.1em; }
 </style>
 EXTRACSS;
 
@@ -1720,6 +1805,7 @@ ob_start();
     <!-- Scope société / agence inline -->
     <?php if ($agenceScope === 0 && !$isSimpleCollab): ?>
     <div class="ph-scope">
+        <?php if ($rhSuperAdmin): ?>
         <div class="ph-scope-row">
             <span class="ph-scope-label">Ste</span>
             <div class="ph-scope-btns">
@@ -1733,6 +1819,7 @@ ob_start();
                 <?php endforeach; ?>
             </div>
         </div>
+        <?php endif; ?>
         <?php if ($societe_sel !== 'toutes' && !empty($agences_filtered)): ?>
         <div class="ph-scope-row">
             <span class="ph-scope-label">Agc</span>
@@ -1750,9 +1837,6 @@ ob_start();
         <?php endif; ?>
     </div>
     <?php endif; ?>
-    <div style="margin-left:auto">
-        <?php require_once __DIR__ . '/inc/role_switcher.php'; ?>
-    </div>
 </div>
 
 <!-- ── Alertes système ── -->
@@ -1821,7 +1905,7 @@ ob_start();
                     </option>
                     <?php endfor; ?>
                 </select>
-                <?php if ($roleId === 1): ?>
+                <?php if ($rhAdmin): ?>
                 <span style="width:1px;background:rgba(196,192,186,0.5);margin:0 8px;align-self:stretch;flex-shrink:0"></span>
                 <span class="filter-label" style="width:auto">Modeles</span>
                 <label class="toggle toggle-sm" title="Afficher les modeles de salaires">
@@ -1856,7 +1940,7 @@ ob_start();
                     <option value="<?=$a?>" <?=($annee_sel==$a?'selected':'')?>><?=$a?></option>
                     <?php endfor; ?>
                 </select>
-                <?php if ($roleId === 1): ?>
+                <?php if ($rhAdmin): ?>
                 <span style="width:1px;background:rgba(196,192,186,0.5);margin:0 8px;align-self:stretch;flex-shrink:0"></span>
                 <span class="filter-label" style="width:auto;opacity:.35">En attente</span>
                 <label class="toggle toggle-sm" style="opacity:.35;pointer-events:none">
@@ -1883,14 +1967,14 @@ ob_start();
         <a href="exporter_salaires_pdf.php?mois=<?=$mois_sel?>&annee=<?=$annee_sel?>&societe=<?=$societe_sel?>&agence=<?=$agenceScope > 0 ? $agenceScope : urlencode((string)$agence_sel)?>"
            target="_blank" class="v2-btn" title="Export PDF — filtré sur la société/agence sélectionnée">Export PDF</a>
 
-        <?php if ($roleId === 1 || $agenceScope > 0): ?>
+        <?php if ($rhAdmin || $agenceScope > 0): ?>
             <a href="exporter_salaires_conges_pdf.php?mois=<?=$mois_sel?>&annee=<?=$annee_sel?>"
                target="_blank" class="v2-btn success" title="Salaires &amp; Congés — vue globale toutes agences/sociétés">Salaires &amp; Congés</a>
         <?php endif; ?>
 
         <button type="button" class="v2-btn" disabled style="opacity:.35;cursor:not-allowed">en attente</button>
 
-        <?php if ($roleId === 1): ?>
+        <?php if ($rhAdmin): ?>
             <button onclick="createMissingSalariesOnly(<?=$mois_sel?>, <?=$annee_sel?>, 0)"
                     class="v2-btn"
                     title="Creer les salaires manquants sans envoyer de notifications">
@@ -1913,7 +1997,7 @@ ob_start();
 <?php
 // Workflow comptable : visible pour admin (roleId=1) ET pour gestion_salaires=1 (Géraldine, Alexandra).
 // Les autres users (collaborateurs simples) ne voient rien du workflow.
-$canSeeWorkflow = ($roleId === 1) || ($agenceScope > 0);
+$canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
 ?>
 <!-- ── Workflow comptable ── -->
 <?php if ($canSeeWorkflow): ?>
@@ -2474,7 +2558,7 @@ Emmanuel</textarea>
         $DISPLAY_COLS = [
             'salaire_brut_base'    => ['label'=>'Brut',        'type'=>'money', 'class'=>'col-money'],
             'treizieme_mois'       => ['label'=>'13e',          'type'=>'money', 'class'=>'col-money'],
-            'anciennete'           => ['label'=>'Anc.',         'type'=>'int',   'class'=>'col-int'],
+            'anciennete'           => ['label'=>'Anc.',         'type'=>'money', 'class'=>'col-int'],
             'avantage_nature'      => ['label'=>'Av. nat.',     'type'=>'money', 'class'=>'col-money'],
             'heures_supp'          => ['label'=>'H. supp',      'type'=>'money', 'class'=>'col-money'],
             'commission_ca'        => ['label'=>'Commission',   'type'=>'money', 'class'=>'col-long',  'merge'=>'ca_na'],
@@ -2508,12 +2592,13 @@ Emmanuel</textarea>
                     $rowIdx++;
                     // Total ligne
                     $_brut  = (float)($u['salaire_brut_base'] ?? 0);
-                    $_anci  = ($_brut > 0 && ($u['anciennete'] ?? 0) > 0) ? $_brut * (int)$u['anciennete'] * 0.01 / 12 : 0;
+                    // Ancienneté = MONTANT de la prime en € (saisi tel quel), pas un nombre de mois.
+                    $_anci  = (float)($u['anciennete'] ?? 0);
+                    // NB : l'avantage en nature (avantage_nature) n'est PAS additionné dans ce total.
                     $_total = $_brut + $_anci
                             + (float)($u['treizieme_mois'] ?? 0)
                             + (float)($u['commission_ca'] ?? 0)
                             + (float)($u['commission_ca_nouvelles_affaires'] ?? 0)
-                            + (float)($u['avantage_nature'] ?? 0)
                             + (float)($u['heures_supp'] ?? 0)
                             + (float)($u['frais_professionnels'] ?? 0)
                             + (float)($u['frais_reception'] ?? 0)
@@ -2648,7 +2733,8 @@ Emmanuel</textarea>
                                    onchange="autoSaveField('<?=$formId?>', <?=$u['id_user']?>)">
                         </div>
                     </td>
-                    <!-- IK Total = dans la colonne IK (col 8) -->
+                    <!-- IK Total = dans la colonne IK (col 8). total_ik est backfillé virtuellement
+                         au load si vide + km > 0 + taux véhicule présent (cf. boucle après fetchAll). -->
                     <td style="vertical-align:middle">
                         <div class="stacked-field">
                             <span class="stacked-label">IK =</span>
@@ -2657,6 +2743,7 @@ Emmanuel</textarea>
                                    value="<?=h(fmt_val($u['total_ik']??null, 'money'))?>"
                                    form="<?=$formId?>"
                                    placeholder="-"
+                                   title="<?= !empty($u['_total_ik_auto']) ? 'Calculé auto : ' . h((string)$u['ik_nb_km']) . ' km × ' . h((string)$u['u_indemnite_km']) . ' €/km (taux fiche véhicule). Au prochain save manuel, la valeur sera persistée en BDD.' : '' ?>"
                                    onchange="autoSaveField('<?=$formId?>', <?=$u['id_user']?>)">
                         </div>
                     </td>

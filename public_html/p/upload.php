@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/investisseur_partage.php';
 require_once __DIR__ . '/../inc/investisseur_contacts.php';
+require_once __DIR__ . '/../inc/ged_document_links.php';  // Sprint 7D : dual-write GED centrale
 
 $pdo = $GLOBALS['pdo'];
 
@@ -94,6 +95,69 @@ for ($i = 0; $i < $nbFiles; $i++) {
         $ins->bindValue(':id_partage', (int)$p['id'], PDO::PARAM_INT);
         $ins->execute();
         $savedCount++;
+
+        // ─── Sprint 7D (2026-05-25) : dual-write GED CENTRALE UNIQUE ───
+        // Upload externe propriétaire → visible aussi dans bien_360 / tiers_360 / GED centrale
+        try {
+            $stB = $pdo->prepare("SELECT b.id_societe, b.id_agence, b.id_proprietaire, b.id_immeuble,
+                                          p2.id_tiers AS proprio_tiers_id,
+                                          s.raison_sociale AS soc_raison,
+                                          a.code_agence, a.nom_agence
+                                    FROM biens b
+                                    LEFT JOIN proprietaires p2 ON p2.id = b.id_proprietaire
+                                    LEFT JOIN societes       s ON s.id = b.id_societe
+                                    LEFT JOIN agences        a ON a.id = b.id_agence
+                                    WHERE b.id = ? LIMIT 1");
+            $stB->execute([$idBien]);
+            $bienCtx = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
+            $socIdGed = (int)($bienCtx['id_societe'] ?? 0) ?: 1;
+            $links = [['entity_type' => 'BIEN', 'entity_id' => $idBien, 'relation_type' => 'main']];
+            if (!empty($bienCtx['proprio_tiers_id'])) {
+                $links[] = ['entity_type' => 'TIERS', 'entity_id' => (int)$bienCtx['proprio_tiers_id'], 'relation_type' => 'annexe'];
+            }
+            if (!empty($bienCtx['id_immeuble'])) {
+                $links[] = ['entity_type' => 'IMB', 'entity_id' => (int)$bienCtx['id_immeuble'], 'relation_type' => 'annexe'];
+            }
+            gus_commit_document(
+                $pdo,
+                [
+                    'path_on_disk'  => $destAbs,
+                    'name_original' => $origName,
+                    'mime_type'     => (string)$files['type'][$i],
+                    'size_bytes'    => (int)$files['size'][$i],
+                    'public_url'    => $relPath,
+                ],
+                [
+                    'document_type'  => 'UPLOAD_PROPRIO_EXTERNE',
+                    'source_module'  => '03_GESTION_LOCATIVE',
+                    'security_level' => 'interne',
+                    'societe_id'     => $socIdGed,
+                    'tenant_id'      => $socIdGed,
+                    'storage_provider' => 'local',
+                    'metadata_extra' => [
+                        'classement'    => ['bien_id_bdd' => $idBien],
+                        'legacy_source' => 'p/upload (lien proprio externe)',
+                        'id_partage'    => (int)$p['id'],
+                        'uploaded_by_externe' => true,
+                    ],
+                    'naming_ctx' => [
+                        'societe_raison' => $bienCtx['soc_raison'] ?? 'Régie EMERY',
+                        'agence_code'    => $bienCtx['code_agence'] ?? 'RE69-2',
+                        'agence_nom'     => $bienCtx['nom_agence']  ?? 'LYON',
+                        'n1_slug'        => '03_gestion_locative',
+                        'n2_slug'        => 'biens',
+                        'n3_slug'        => 'upload_externe',
+                        'type_doc'       => 'UPLOAD_PROPRIO',
+                        'entity_type'    => 'BIEN',
+                        'entity_id'      => $idBien,
+                        'source_filename'=> $origName,
+                    ],
+                ],
+                $links
+            );
+        } catch (Throwable $exGed) {
+            error_log('[p/upload] dual-write GED failed: ' . $exGed->getMessage());
+        }
     } catch (Throwable $e) {
         @unlink($destAbs);
         $errors[] = $origName . ' : ' . $e->getMessage();

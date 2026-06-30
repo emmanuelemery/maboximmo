@@ -111,7 +111,7 @@ if ($annonceId <= 0) {
     </style>
     </head><body>
     <div class="wrap">
-        <a href="accueil.php" class="back">← Retour</a>
+        <a href="https://maboximmo.fr" class="back">← Retour</a>
         <h1>Nouvelle annonce</h1>
         <p class="subtitle">Choisissez le bien à diffuser dans la liste ci-dessous.</p>
 
@@ -139,7 +139,7 @@ if ($annonceId <= 0) {
                 </a>
             <?php endforeach; endif; ?>
             </div>
-            <a href="bien_creation.php" class="create-btn">+ Créer un nouveau bien d'abord</a>
+            <a href="agency_proprietaires.php?pick_bien=1" class="create-btn">+ Créer un nouveau bien d'abord</a>
         </div>
     </div>
     <script>
@@ -332,7 +332,7 @@ body { font-family: 'Manrope', system-ui, sans-serif; background: #f4f6fb; color
 <body>
 
 <div class="ac-topbar">
-    <a href="accueil.php" class="ac-back" title="Retour">←</a>
+    <a href="https://maboximmo.fr" class="ac-back" title="Retour">←</a>
     <h1>Création d'annonce (saisie manuelle)</h1>
     <span class="ac-ref">ANNONCE #<?= $annonceId ?></span>
     <a href="bien_creation.php?id=<?= (int)$annonce['id_bien'] ?>" class="ac-bien">← Bien</a>

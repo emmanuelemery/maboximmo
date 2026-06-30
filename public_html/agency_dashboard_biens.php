@@ -52,6 +52,7 @@ $decouvrirItems = [
     ['label' => 'Annonces',     'desc' => 'Liste des annonces (édition via bien_detail section annonce).','url' => 'annonce_liste.php',             'ico' => $icoMegaph, 'color' => '#a85858'],
     ['label' => 'Diffusion',    'desc' => 'Dashboard Ubiflow : KPIs, envois, retards, historique.',      'url' => 'agency_dashboard_diffusion.php','ico' => $icoMegaph, 'color' => '#2d5f6b'],
     ['label' => 'Import IA',    'desc' => 'Upload DPE/mandats et extraction assistée (intake).',          'url' => 'bien_intake.php',               'ico' => $icoUpload, 'color' => '#7a6830'],
+    ['label' => 'Mise à jour GED BIENS', 'desc' => 'Conformité par bien : DPE, bail et mandat en GED — charger ce qui manque.', 'url' => 'biens_conformite.php', 'ico' => $icoTable ?? $icoFile ?? $icoUpload, 'color' => '#1f7a46'],
 ];
 
 if ($isAdminOrSup) {

@@ -79,6 +79,18 @@ try {
         }
     }
 
+    // RÈGLE (2026-06-07) : pas de bien sans propriétaire. On exige soit un
+    // id_proprietaire existant, soit les infos d'un nouveau proprio (proprio_nom).
+    // Évite la fabrique de biens orphelins (doublons d'annonce pré-import CRG).
+    if (!$proprioId) {
+        http_response_code(422);
+        exit(json_encode([
+            'ok'    => false,
+            'error' => 'Sélectionnez un propriétaire avant de créer un bien.',
+            'code'  => 'PROPRIETAIRE_REQUIS',
+        ], JSON_UNESCAPED_UNICODE));
+    }
+
     // ─── 2. Résolution des 2 ids (nouveau + legacy) depuis le code ──
     require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
     $typeBienCode = $str('type_bien_code') ?: $str('type_bien');

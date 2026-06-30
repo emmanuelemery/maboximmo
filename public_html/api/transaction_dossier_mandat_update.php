@@ -32,6 +32,7 @@ if ($charge !== null && !in_array($charge, ['vendeur','acquereur','partage'], tr
 $exclusif  = (int)((post('exclusif') ?? '0') === '1' || post('exclusif') === 'on' ? 1 : 0);
 $dureeMois = (int)(post('duree_mois') ?? 0);
 $dateDebut = trim((string)(post('date_debut') ?? '')) ?: null;
+$dateSign  = trim((string)(post('date_signature') ?? '')) ?: null; // signature des 2 parties
 
 // date_fin = date_debut + durée
 $dateFin = null;
@@ -46,9 +47,10 @@ try {
                           honoraires = ?, honoraires_charge = ?, exclusif = ?,
                           date_debut = COALESCE(?, date_debut),
                           date_fin = COALESCE(?, date_fin),
+                          date_signature = ?,
                           date_modification = NOW()
                     WHERE id = ?")
-        ->execute([$numero, $honos, $charge, $exclusif, $dateDebut, $dateFin, $idMandat]);
+        ->execute([$numero, $honos, $charge, $exclusif, $dateDebut, $dateFin, $dateSign, $idMandat]);
     // Honoraires modifiés → recalcul du FAI et propagation à l'annonce.
     dv_sync_prix_annonce($pdo, $idDossier);
     echo json_encode(['ok'=>true], JSON_UNESCAPED_UNICODE);

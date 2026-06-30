@@ -31,6 +31,10 @@ if ((int)($_SESSION['id_role'] ?? 0) !== 1) {
 $pageTitle    = 'Suppression propriétaires';
 $pageSubtitle = 'Super admin — outil de nettoyage destructif';
 
+// Préremplissage depuis la liste (lien card super-admin) : ?mode=ids&ids=123
+$prefillIds  = preg_replace('/[^0-9,\s]/', '', (string)($_GET['ids'] ?? ''));
+$prefillMode = ($_GET['mode'] ?? '') === 'ids' || $prefillIds !== '' ? 'ids' : 'no_biens';
+
 ob_start();
 ?>
 <style>
@@ -78,19 +82,19 @@ ob_start();
       <div>
         <label>Mode de sélection</label>
         <select id="psup-mode">
-          <option value="no_biens">Tous ceux SANS bien lié (créés depuis date X)</option>
-          <option value="ids">Par IDs (saisis ci-dessous)</option>
+          <option value="no_biens" <?= $prefillMode === 'no_biens' ? 'selected' : '' ?>>Tous ceux SANS bien lié (créés depuis date X)</option>
+          <option value="ids" <?= $prefillMode === 'ids' ? 'selected' : '' ?>>Par IDs (saisis ci-dessous)</option>
         </select>
       </div>
-      <div id="psup-date-wrap">
+      <div id="psup-date-wrap" style="display:<?= $prefillMode === 'ids' ? 'none' : 'block' ?>;">
         <label>Date min — propriétaires créés depuis</label>
         <input type="date" id="psup-date" value="<?= date('Y-m-d', strtotime('-365 days')) ?>">
       </div>
     </div>
 
-    <div id="psup-ids-wrap" style="display:none;">
+    <div id="psup-ids-wrap" style="display:<?= $prefillMode === 'ids' ? 'block' : 'none' ?>;">
       <label style="font-size:12px; color:#64748b; font-weight:600; display:block; margin-bottom:4px;">IDs propriétaires (séparés par virgule)</label>
-      <input type="text" id="psup-ids" placeholder="ex: 12, 34, 56" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-family:'DM Mono',monospace; font-size:13px;">
+      <input type="text" id="psup-ids" value="<?= htmlspecialchars(trim($prefillIds)) ?>" placeholder="ex: 12, 34, 56" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-family:'DM Mono',monospace; font-size:13px;">
     </div>
   </div>
 

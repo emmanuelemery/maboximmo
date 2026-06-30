@@ -279,10 +279,16 @@ try {
         $rawType = (string)($d['document_type'] ?? 'AUTRE');
         $t = $typeMapGed[$rawType] ?? mb_strtolower($rawType);
 
-        // URL : metadata.public_url ou fallback servable via api/ged_doc_serve.php
+        // URL : metadata.public_url si présent, sinon fallback servable via
+        // api/ged_doc_serve.php (résout source_path / final_destination des docs
+        // committés par gus_commit_document — qui n'ont PAS de public_url).
         $meta = json_decode((string)($d['metadata'] ?? '{}'), true) ?: [];
         $url  = (string)($meta['public_url'] ?? '');
-        if ($url !== '') $url = app_url('/' . ltrim($url, '/'));
+        if ($url !== '') {
+            $url = app_url('/' . ltrim($url, '/'));
+        } else {
+            $url = app_url('/api/ged_doc_serve.php?id=' . (int)$d['id']);
+        }
 
         $row = [
             'id'             => 'ged_' . (int)$d['id'],
@@ -709,6 +715,7 @@ $gesColors = ['A'=>'#f2e6ff','B'=>'#d9b3ff','C'=>'#bf80ff','D'=>'#a64dff','E'=>'
   <link rel="stylesheet" href="<?= asset_url('/css/tokens.css') ?>">
   <link rel="stylesheet" href="<?= asset_url('/assets/css/document_uploader.css') ?>">
   <link rel="stylesheet" href="<?= asset_url('/css/bien_detail_v2.css') ?>?v=<?= @filemtime(__DIR__ . '/css/bien_detail_v2.css') ?: time() ?>">
+  <link rel="stylesheet" href="<?= asset_url('/css/cropper.min.css') ?>">
   <style>
     :root {
       --bg:        var(--bg-secondary);
@@ -826,6 +833,8 @@ if (!$embed) {
       <span class="sep">›</span>
       <span class="active">v2</span>
     </nav>
+    <?php $proUrl = !empty($proprioInfo['id_tiers']) ? app_url('/tiers_360.php?id=' . (int)$proprioInfo['id_tiers'])
+                 : (!empty($proprioInfo['id_proprio_legacy']) ? app_url('/agency_proprietaire_fiche.php?id=' . (int)$proprioInfo['id_proprio_legacy']) : ''); ?>
     <span class="page-head-ref" style="margin-left:16px;">
       #<?= (int)$editingBienId ?>
       <?php if (!empty($bienLoaded['reference_bien'])): ?>
@@ -850,8 +859,10 @@ if (!$embed) {
   </header>
 
   <!-- PAGE HEAD — onglets seuls -->
-  <div class="page-head">
-    <nav class="v2-section-tabs" role="tablist" aria-label="Sections du bien">
+  <div class="page-head" style="display:flex;align-items:center;gap:10px;">
+    <a href="<?= h(app_url('/bien_360.php?id=' . $editingBienId)) ?>" title="Retour à la vue 360° du bien"
+       style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:999px;background:#eef6f0;color:#3f6b4e;border:1px solid #cfe3d6;font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;">⬅ Bien 360</a>
+    <nav class="v2-section-tabs" role="tablist" aria-label="Sections du bien" style="flex:1;">
       <a href="?edit=<?= (int)$editingBienId ?>&section=documents"
          class="v2-section-tab<?= $section === 'documents' ? ' is-active' : '' ?>"
          role="tab" aria-selected="<?= $section === 'documents' ? 'true' : 'false' ?>">
@@ -881,6 +892,10 @@ if (!$embed) {
         <span><?= $bienEstActif ? '📡' : '🔒' ?></span> Annonce
       </a>
     </nav>
+    <?php if ($proUrl !== ''): ?>
+    <a href="<?= h($proUrl) ?>" title="Voir la fiche 360° du propriétaire"
+       style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:999px;background:#e6f3f6;color:#0e7490;border:1px solid #bfe0e8;font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;">👤 Propriétaire 360 ➡</a>
+    <?php endif; ?>
   </div>
   <?php endif; /* !$embed */ ?>
 
@@ -919,6 +934,14 @@ if (!$embed) {
               <div class="v2-photo-drop-sub">JPG / PNG / WebP · max 15 Mo par photo · multiples acceptés</div>
             </div>
             <div id="v2-photo-drop-status" class="v2-photo-drop-status"></div>
+            <div id="v2-photo-drop-thumbs" class="v2-photo-drop-thumbs">
+              <?php foreach ($docsPhotos as $p): ?>
+                <div class="v2-photo-drop-thumb" data-id="<?= (int)$p['id'] ?>" title="<?= h($p['nom_original']) ?>">
+                  <img src="<?= h($p['url']) ?>" alt="<?= h($p['nom_original']) ?>" loading="lazy">
+                  <div class="v2-photo-drop-thumb-badge ok" title="Déjà chargée">✓</div>
+                </div>
+              <?php endforeach; ?>
+            </div>
           </div>
         </div>
       </section>
@@ -1149,7 +1172,7 @@ if (!$embed) {
           <div class="v2-group-header">
             <span class="v2-group-header-title">📍 Adresse &amp; immeuble</span>
             <?php if (!empty($descSyncedFields)): ?>
-              <span class="v2-hint">📄 <?= count($descSyncedFields) ?> champ(s) repris du DPE</span>
+              <span class="v2-hint" title="<?= count($descSyncedFields) ?> champ(s) repris du DPE">📄 repris du DPE</span>
             <?php endif; ?>
             <div class="v2-num-field<?= $etageFromDpe ?>" title="Étage">
               <span class="v2-num-icon">🪜</span>
@@ -1158,40 +1181,114 @@ if (!$embed) {
             </div>
             <div class="v2-num-field<?= $anneeFromDpe ?>" title="Année construction">
               <span class="v2-num-icon">📅</span>
-              <input type="number" step="1" min="0" max="2100" class="v2-num-input" style="width:70px;" name="annee_construction" data-autosave value="<?= $anneeVal ?>" placeholder="Année">
+              <input type="number" step="1" min="0" max="2100" class="v2-num-input" style="width:70px;" name="annee_construction" id="v2-f-annee" data-autosave value="<?= $anneeVal ?>" placeholder="Année">
               <span class="v2-num-label">An. construction</span>
             </div>
-            <?php $curBienEnCopro = (int)($b['bien_en_copropriete'] ?? 0) === 1; ?>
-            <button type="button" class="v2-bool-toggle<?= $curBienEnCopro ? ' is-active' : '' ?>" data-bool-field="bien_en_copropriete"
-                    title="Coche si le bien est en copropriété. Rend obligatoires : nombre de lots principaux et charges annuelles du lot (obligation ALUR pour diffusion).">
-              <span class="v2-icon-emoji">🏢</span>
-              <span class="v2-icon-lbl">Copropriété</span>
-            </button>
+            <?php $epoqueVal = (string)($b['epoque_construction'] ?? ''); ?>
+            <!-- Bandes dérivées (lecture seule) : l'année est la seule donnée saisie. -->
+            <input type="hidden" name="epoque_construction" id="v2-f-epoque" data-autosave value="<?= h($epoqueVal) ?>">
+            <div class="v2-num-field" style="gap:8px; min-width:230px;" title="Bandes déduites automatiquement de l'année de construction (estimée si l'année exacte est inconnue)">
+              <span class="v2-num-icon">🏗️</span>
+              <div style="display:flex; flex-direction:column; gap:3px; flex:1;">
+                <span style="display:flex; justify-content:space-between; gap:12px; font-size:11px; font-weight:700; color:#0e7490;">
+                  <span>Encadrement</span><span id="v2-band-enc">—</span>
+                </span>
+                <span style="display:flex; justify-content:space-between; gap:12px; font-size:11px; font-weight:700; color:#7c3aed;">
+                  <span>DPE</span><span id="v2-band-dpe">—</span>
+                </span>
+              </div>
+            </div>
+            <script>
+            (function(){
+              var yi=document.getElementById('v2-f-annee'), es=document.getElementById('v2-f-epoque'),
+                  be=document.getElementById('v2-band-enc'), bd=document.getElementById('v2-band-dpe');
+              if(!yi) return;
+              function encBand(y){ return y<1946?['avant_1946','Avant 1946']:(y<=1970?['1946_1970','1946-1970']:(y<=1990?['1971_1990','1971-1990']:['apres_1990','Après 1990'])); }
+              function dpeBand(y){
+                if(y<1948) return 'Avant 1948';
+                if(y<=1974) return '1948-1974'; if(y<=1977) return '1975-1977';
+                if(y<=1982) return '1978-1982'; if(y<=1988) return '1983-1988';
+                if(y<=2000) return '1989-2000'; if(y<=2005) return '2001-2005'; return 'Après 2006';
+              }
+              function derive(){
+                var y=parseInt(yi.value,10);
+                if(!y){ if(be)be.textContent='—'; if(bd)bd.textContent='—'; return; }
+                var enc=encBand(y);
+                if(be)be.textContent=enc[1];
+                if(bd)bd.textContent=dpeBand(y);
+                if(es && es.value!==enc[0]){ es.value=enc[0]; es.dispatchEvent(new Event('change',{bubbles:true})); }
+              }
+              yi.addEventListener('input', derive); derive();
+              // Arrivée via l'ancre #v2-f-annee (lien "Période du bien" de la card Encadrement) :
+              // on met en valeur le champ année pour guider la saisie.
+              if (location.hash === '#v2-f-annee') {
+                try { yi.scrollIntoView({block:'center'}); } catch(e){}
+                yi.focus(); yi.select && yi.select();
+                yi.style.boxShadow='0 0 0 3px rgba(212,160,71,.55)';
+                setTimeout(function(){ yi.style.boxShadow=''; }, 2200);
+              }
+            })();
+            </script>
           </div>
           <?php
             $syncFlags = array_flip($descSyncedFields);
             $addrCls = static fn($f) => isset($syncFlags[$f]) ? ' is-from-dpe' : '';
           ?>
-          <div style="margin-bottom:10px;">
-            <?php if ($bienEstActif): ?>
-              <?php $bdImmId = (int)($b['id_immeuble'] ?? 0); ?>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;"
-                      title="🔒 Adresse verrouillée — dé-valide le bien (onglet Validation) pour la modifier">
-                  🔒 verrouillée
-                </span>
-                <?php if ($bdImmId): ?>
-                  <a href="<?= h(app_url('/agency_immeuble_fiche.php?id=' . $bdImmId)) ?>"
-                     class="v2-btn-secondary"
-                     style="flex:1; text-align:center; padding:8px 12px; font-size:12px; text-decoration:none;">
-                    🏢 Visualiser l'immeuble
-                  </a>
+          <div style="margin-bottom:6px;">
+            <?php
+              $bdImmId = (int)($b['id_immeuble'] ?? 0);
+              $bdImmNom = ''; $bdImmVille = ''; $immPat = []; $immTotal = 0;
+              if ($bdImmId > 0) {
+                  try { $stI = $pdo->prepare("SELECT nom_immeuble, ville FROM immeubles WHERE id = ? LIMIT 1");
+                        $stI->execute([$bdImmId]); $rI = $stI->fetch(PDO::FETCH_ASSOC) ?: [];
+                        $bdImmNom = trim((string)($rI['nom_immeuble'] ?? '')); $bdImmVille = trim((string)($rI['ville'] ?? '')); }
+                  catch (Throwable $e) {}
+                  // Lots de l'immeuble par agence (équivalent « patrimoine » de la card proprio)
+                  try { $stP = $pdo->prepare("SELECT COALESCE(NULLIF(a.nom_agence,''),'— Sans agence —') AS nom, COUNT(b.id) AS nb
+                                              FROM biens b LEFT JOIN agences a ON a.id = b.id_agence
+                                              WHERE b.id_immeuble = ? GROUP BY b.id_agence ORDER BY nb DESC");
+                        $stP->execute([$bdImmId]); $immPat = $stP->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                        $immTotal = (int)array_sum(array_column($immPat, 'nb')); }
+                  catch (Throwable $e) {}
+              }
+            ?>
+            <?php if ($bdImmId > 0): ?>
+              <!-- Card IMMEUBLE — même présentation que la card propriétaire, couleur BLEUE -->
+              <div class="v2-proprio-card is-linked"
+                   style="background:linear-gradient(180deg,rgba(72,120,166,.07),rgba(72,120,166,.01)); border:1px solid rgba(72,120,166,.3);">
+                <div class="v2-proprio-head">
+                  <div class="v2-proprio-avatar">🏢</div>
+                  <div class="v2-proprio-main">
+                    <div class="v2-proprio-name"><?= h($bdImmNom ?: ('Immeuble #' . $bdImmId)) ?></div>
+                    <div class="v2-proprio-meta"><?php if ($bdImmVille !== ''): ?>📍 <?= h($bdImmVille) ?><?php endif; ?></div>
+                  </div>
+                  <div class="v2-proprio-actions">
+                    <button type="button" class="v2-bool-toggle<?= (int)($b['adresse_visible_public'] ?? 0) === 1 ? ' is-active' : '' ?>"
+                            data-bool-field="adresse_visible_public" style="margin:0;"
+                            title="Affiche l'adresse complète sur les annonces / supports publics. Sinon seul le secteur (CP + ville) est diffusé.">
+                      <span class="v2-icon-emoji">🚪</span><span class="v2-icon-lbl">Adresse visible public</span>
+                    </button>
+                    <a class="v2-btn-primary" href="<?= h(app_url('/immeuble_360.php?id=' . $bdImmId)) ?>" title="Ouvrir la fiche immeuble 360°">🏢 Ouvrir fiche</a>
+                    <?php if ($bienEstActif): ?>
+                      <button type="button" class="v2-btn-secondary" disabled style="background:#f1f5f9; color:#64748b; cursor:not-allowed;"
+                              title="🔒 Verrouillé — dé-valide le bien pour changer d'immeuble">🔒 Dissocier (verrouillé)</button>
+                    <?php else: ?>
+                      <button type="button" class="v2-btn-secondary" id="v2-imm-unlink"
+                              data-bien-id="<?= (int)$editingBienId ?>" data-csrf="<?= h(csrf_token('ajouter_bien')) ?>"
+                              title="Détacher cet immeuble du bien">🔗 Dissocier</button>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <?php if ($immTotal > 0): ?>
+                <div class="v2-proprio-patrimoine">
+                  <div class="v2-proprio-patrimoine-title">
+                    📊 Lots dans cet immeuble <strong><?= $immTotal ?> bien<?= $immTotal > 1 ? 's' : '' ?></strong>
+                  </div>
+                </div>
                 <?php endif; ?>
               </div>
             <?php else: ?>
-              <button type="button"
-                      class="v2-btn-primary"
-                      style="width:100%; padding:12px; font-size:13px;"
+              <button type="button" class="v2-btn-primary" style="width:100%; padding:12px; font-size:13px;"
                       onclick="bdOpenImmeubleModal(this)"
                       data-bien-id="<?= (int)$editingBienId ?>"
                       data-autosave-url="<?= h(app_url('/api/bien_autosave.php')) ?>"
@@ -1200,7 +1297,21 @@ if (!$embed) {
               </button>
             <?php endif; ?>
           </div>
-          <div class="v2-addr-grid">
+          <script>
+          (function(){
+            var btn=document.getElementById('v2-imm-unlink'); if(!btn) return;
+            btn.addEventListener('click', function(){
+              if(!confirm('Dissocier cet immeuble du bien ?')) return;
+              var fd=new FormData(); fd.append('id_bien', btn.getAttribute('data-bien-id')); fd.append('csrf_token', btn.getAttribute('data-csrf'));
+              fetch('<?= h(app_url('/api/bien_immeuble_unlink.php')) ?>',{method:'POST',body:fd,credentials:'same-origin'})
+                .then(function(r){return r.json();}).then(function(j){ if(!j||!j.ok){ alert((j&&j.error)||'Erreur'); return; } location.reload(); })
+                .catch(function(){ alert('Erreur réseau'); });
+            });
+          })();
+          </script>
+          <?php // Adresse complète éditable : seulement si le bien n'a PAS d'immeuble lié
+                //  (sinon l'adresse vient de l'immeuble → inutile de la dupliquer ici). ?>
+          <div class="v2-addr-grid"<?= $bdImmId > 0 ? ' style="display:none;"' : '' ?>>
             <input type="text" id="v2-f-adresse_1"   class="v2-input<?= $addrCls('adresse_1') ?>"   name="adresse_1"   data-autosave placeholder="Adresse"    value="<?= h((string)($b['_imm_adresse_1']   ?? $b['adresse_1']   ?? '')) ?>">
             <input type="text" id="v2-f-adresse_2"   class="v2-input<?= $addrCls('adresse_2') ?>"   name="adresse_2"   data-autosave placeholder="Complément" value="<?= h((string)($b['_imm_adresse_2']   ?? $b['adresse_2']   ?? '')) ?>">
             <input type="text" id="v2-f-code_postal" class="v2-input<?= $addrCls('code_postal') ?>" name="code_postal" data-autosave placeholder="CP" maxlength="10" value="<?= h((string)($b['_imm_code_postal'] ?? $b['code_postal'] ?? '')) ?>">
@@ -1210,7 +1321,18 @@ if (!$embed) {
           <input type="hidden" id="v2-f-longitude" name="longitude"         value="">
           <input type="hidden" id="v2-f-place_id"  name="google_place_id"   value="">
           <input type="hidden" id="v2-f-formatted" name="adresse_formatted" value="">
-          <hr style="border:none;border-top:1px solid #eef2f6;margin:16px 0;">
+          <?php // Visibilité adresse : ici seulement si PAS d'immeuble lié (sinon le toggle est dans la card immeuble). ?>
+          <?php if ($bdImmId <= 0): ?>
+          <div class="v2-bool-toggles" style="margin-top:8px;">
+            <button type="button" class="v2-bool-toggle<?= (int)($b['adresse_visible_public'] ?? 0) === 1 ? ' is-active' : '' ?>"
+                    data-bool-field="adresse_visible_public"
+                    title="Affiche l'adresse complète sur les annonces / supports publics. Sinon seul le secteur (CP + ville) est diffusé.">
+              <span class="v2-icon-emoji">🚪</span>
+              <span class="v2-icon-lbl">Adresse visible public</span>
+            </button>
+          </div>
+          <?php endif; ?>
+          <hr style="border:none;border-top:1px solid #eef2f6;margin:10px 0;">
 
           <?php if ($proprioInfo): ?>
             <!-- ─── État : propriétaire lié au bien ──────────────────── -->
@@ -1293,30 +1415,28 @@ if (!$embed) {
               <?php endif; ?>
             </div>
           <?php else: ?>
-            <!-- ─── État : pas de propriétaire lié ───────────────────── -->
-            <div class="v2-proprio-card is-empty">
-              <div class="v2-proprio-empty-msg">
-                Aucun propriétaire n'est lié à ce bien.
-                Recherche-le dans la base ou crée-en un nouveau.
+            <!-- ─── Pas de propriétaire lié : on propose de lier/créer (uniquement ici) ─── -->
+            <?php if ($bienEstActif): ?>
+              <div style="padding:12px 16px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:6px; font-size:13px; color:#78350f;">
+                🔒 <strong>Propriétaire verrouillé.</strong> Dé-valide le bien (onglet Validation) pour changer de propriétaire.
               </div>
-            </div>
-          <?php endif; ?>
-
-          <!-- ─── Recherche + création — désactivé si bien actif (proprio verrouillé) ──────────── -->
-          <?php if ($bienEstActif): ?>
-            <div style="margin-top:14px; padding:12px 16px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:6px; font-size:13px; color:#78350f;">
-              🔒 <strong>Propriétaire verrouillé.</strong> Dé-valide le bien (onglet Validation) pour changer de propriétaire.
-            </div>
-          <?php else: ?>
-            <div class="v2-group-header" style="margin-top:14px;">
-              <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
-            </div>
-            <div class="v2-proprio-picker">
-              <input type="text" class="v2-input" id="v2-proprio-search"
-                     placeholder="Tape un nom, email, société…" autocomplete="off">
-              <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
-            </div>
-            <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
+            <?php else: ?>
+              <!-- Jolie card de proposition de liaison -->
+              <div class="v2-proprio-card is-empty" style="padding:16px;">
+                <div class="v2-group-header" style="margin:0 0 10px;">
+                  <span class="v2-group-header-title">🔍 Lier un propriétaire</span>
+                </div>
+                <div class="v2-proprio-empty-msg" style="margin-bottom:12px;">
+                  Aucun propriétaire n'est lié à ce bien. Recherche-le dans la base ou crée-en un nouveau.
+                </div>
+                <div class="v2-proprio-picker">
+                  <input type="text" class="v2-input" id="v2-proprio-search"
+                         placeholder="Tape un nom, email, société…" autocomplete="off">
+                  <button type="button" class="v2-btn-primary" id="v2-proprio-new-btn">+ Créer nouveau propriétaire</button>
+                </div>
+                <div class="v2-proprio-results" id="v2-proprio-results" hidden></div>
+              </div>
+            <?php endif; ?>
           <?php endif; ?>
 
           <?php if ($descProprioFromDpe && empty($bienLoaded['id_proprietaire'])): ?>
@@ -1435,16 +1555,6 @@ if (!$embed) {
                    name="designation" data-autosave maxlength="255"
                    placeholder="Désignation commerciale (ex : T3 lumineux vue dégagée, 65m²)"
                    value="<?= h((string)($b['designation'] ?? '')) ?>">
-            <div class="v2-icon-row v2-icon-row-inline">
-              <span class="v2-icon-row-label">Statut</span>
-              <div class="v2-icon-radios" data-field="statut_bien">
-                <?php foreach ($statuts as $code => [$ic, $lbl]): $act = ($curStatut === $code) ? ' is-active' : ''; ?>
-                  <button type="button" class="v2-icon-radio<?= $act ?>" data-value="<?= h($code) ?>" title="<?= h($lbl) ?>">
-                    <span class="v2-icon-emoji"><?= $ic ?></span><span class="v2-icon-lbl"><?= h($lbl) ?></span>
-                  </button>
-                <?php endforeach; ?>
-              </div>
-            </div>
             <div class="v2-icon-row v2-icon-row-inline" title="🏢 Gestion = défaut systématique du bien. Ne change en Vente ou Location que si un propriétaire externe nous confie un mandat spécifique. Le type de transaction publique (vente/location) se choisit dans l'onglet Annonce.">
               <span class="v2-icon-row-label">Mandat <span class="v2-info-pill" aria-label="Aide">ⓘ</span></span>
               <div class="v2-icon-radios" data-field="type_commercialisation">
@@ -1835,20 +1945,21 @@ if (!$embed) {
         <div class="v2-card-label">🌳 Environnement</div>
         <div class="v2-card-body">
 
-          <div class="v2-desc-group-title">🧭 Situation</div>
-          <div class="v2-bool-toggles">
-            <?= $boolToggle('🔝', 'dernier_etage',          'Dernier étage') ?>
-            <?= $boolToggle('🚪', 'adresse_visible_public', 'Adresse visible public') ?>
-            <?= $boolToggle('🚚', 'acces_camion',           'Accès camion') ?>
-          </div>
-
-          <?php if ((int)($b['bien_en_copropriete'] ?? 0) === 1): ?>
           <div class="v2-desc-group-title">🏢 Copropriété <small>(obligation ALUR pour diffusion)</small></div>
-          <div class="v2-num-grid">
+          <div class="v2-bool-toggles">
+            <?= $boolToggle('🏢', 'bien_en_copropriete', 'Bien en copropriété') ?>
+          </div>
+          <?php if ((int)($b['bien_en_copropriete'] ?? 0) === 1): ?>
+          <div class="v2-num-grid" style="margin-top:8px;">
             <?php // _imm_* : saisis ici pour l'UX (tout au même endroit), mais persistés
-                  // dans la table immeubles côté bien_autosave (infos communes à l'immeuble entier). ?>
-            <?= $numField('🔢', '_imm_nb_lots',            'Nb lots principaux') ?>
-            <?= $numField('💸', 'copro_quote_part_charges', 'Charges annuelles du lot', '€') ?>
+                  // dans la table immeubles côté bien_autosave (infos communes à l'immeuble entier).
+                  // Sans préfixe = colonne de la table biens (propre au lot vendu). ?>
+            <?= $numField('🔢', '_imm_nb_lots',                       'Nb lots principaux') ?>
+            <?= $numField('🏢', '_imm_copro_nb_lots',                 'Nb lots copropriété (total)') ?>
+            <?= $numField('💰', '_imm_copro_budget_previsionnel_annuel', 'Budget prévisionnel copro', '€/an') ?>
+            <?= $numField('📊', '_imm_copro_tantiemes_total',         'Total tantièmes copro') ?>
+            <?= $numField('💸', 'copro_quote_part_charges',           'Charges annuelles du lot', '€') ?>
+            <?= $numField('🧮', 'lot_tantiemes',                      'Tantièmes du lot') ?>
           </div>
           <div class="v2-bool-toggles" style="margin-top:8px;">
             <?= $boolToggle('⚠️', '_imm_copro_procedure',                  'Syndic en procédure') ?>
@@ -1859,6 +1970,9 @@ if (!$embed) {
 
           <div class="v2-desc-group-title">☀️ Exposition</div>
           <?= $iconRadios('exposition', $expositions, $curExpo) ?>
+          <div class="v2-bool-toggles" style="margin-top:8px;">
+            <?= $boolToggle('🔝', 'dernier_etage', 'Dernier étage') ?>
+          </div>
 
           <div class="v2-desc-group-title">👀 Vue <small>(plusieurs choix possibles)</small></div>
           <?= $iconMulti('vue', $vues, $curVue) ?>
@@ -1941,17 +2055,45 @@ if (!$embed) {
       <section class="v2-card is-active" role="tabpanel" aria-label="Validation du bien">
         <div class="v2-card-label">✅ Validation du bien</div>
         <div class="v2-card-body">
+
+          <!-- Sortie de portefeuille : Vendu / Gestion perdue -->
+          <div style="margin-bottom:18px; padding:16px; background:#fff; border:1px solid #eef0f2; border-radius:12px;">
+            <div style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px;">🚪 Sortie du portefeuille</div>
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+              <button type="button" onclick="bienSetStatut('vendu','VENDU')" style="flex:1; min-width:180px; padding:14px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-weight:800; font-size:15px; cursor:pointer;">🔴 Marquer VENDU</button>
+              <button type="button" onclick="bienSetStatut('gestion_perdu','GESTION PERDUE')" style="flex:1; min-width:180px; padding:14px; border:none; border-radius:10px; background:#ea580c; color:#fff; font-weight:800; font-size:15px; cursor:pointer;">🟠 GESTION PERDUE</button>
+            </div>
+            <div id="v2-statut-msg" style="margin-top:10px; font-size:13px; font-weight:700;"></div>
+            <?php if (in_array($statutBien, ['vendu','gestion_perdu'], true)): ?>
+              <div style="margin-top:10px; font-size:13px; color:#475569;">Statut actuel : <strong><?= $statutBien === 'vendu' ? '🔴 Vendu' : '🟠 Gestion perdue' ?></strong> — <a href="#" onclick="bienSetStatut('brouillon','Brouillon');return false;" style="color:#2563eb;">remettre en brouillon</a></div>
+            <?php endif; ?>
+          </div>
+          <script>
+          function bienSetStatut(statut, label){
+            if(!confirm('Confirmer : passer ce bien en « '+label+' » ?')) return;
+            var m=document.getElementById('v2-statut-msg'); m.style.color='#64748b'; m.textContent='⏳ Enregistrement…';
+            var fd=new FormData(); fd.append('id_bien', <?= (int)$editingBienId ?>); fd.append('statut', statut);
+            fd.append('csrf_token', <?= json_encode($csrfTokenVal, JSON_UNESCAPED_SLASHES) ?>);
+            fetch('api/bien_statut_set.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+              if(!j||!j.ok){ m.style.color='#dc2626'; m.textContent='❌ '+((j&&j.error)||'Erreur'); return; }
+              m.style.color='#16a34a'; m.textContent='✓ Statut mis à jour. Actualisation…'; setTimeout(function(){location.reload();},700);
+            }).catch(function(){ m.style.color='#dc2626'; m.textContent='❌ Réseau'; });
+          }
+          </script>
+
           <?php if ($bienEstActif): ?>
-            <div style="padding:20px; background:#ecfdf5; border:2px solid #10b981; border-radius:12px; text-align:center; margin-bottom:20px;">
-              <div style="font-size:36px; margin-bottom:8px;">✅</div>
-              <div style="font-size:18px; font-weight:700; color:#065f46;">Bien validé et actif</div>
-              <small style="color:#047857; display:block; margin-top:4px;">Tu peux maintenant créer une annonce depuis l'onglet 📡 Annonce.</small>
+            <div style="padding:18px 20px; background:#ecfdf5; border:2px solid #10b981; border-radius:12px; margin-bottom:14px; display:flex; align-items:flex-start; gap:18px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
+                <div style="font-size:34px;">✅</div>
+                <div style="font-size:18px; font-weight:800; color:#065f46; line-height:1.2;">Bien validé<br>et actif</div>
+              </div>
+              <ul style="flex:1; min-width:220px; margin:0; padding-left:18px; font-size:13.5px; color:#047857; line-height:1.7;">
+                <li>Tu peux maintenant <strong>créer une annonce</strong> depuis l'onglet 📡 Annonce et la diffuser sur les portails.</li>
+                <li><strong>Adresse et propriétaire verrouillés</strong> — pour les modifier, déverrouille d'abord le bien.</li>
+              </ul>
             </div>
-            <div style="background:#fef3c7; padding:12px 16px; border-radius:8px; margin-bottom:16px; font-size:13px; color:#78350f;">
-              ⚠️ <strong>Adresse et propriétaire verrouillés.</strong> Pour modifier ces données critiques, tu dois d'abord dé-valider le bien.
-            </div>
-            <button type="button" id="v2-bien-invalidate" class="v2-btn-secondary" style="background:#fff; border:1px solid #dc2626; color:#dc2626;">
-              🔓 Dé-valider le bien (modifier adresse / propriétaire)
+            <button type="button" id="v2-bien-invalidate" class="v2-btn-secondary" style="width:100%; box-sizing:border-box; background:#fff; border:1px solid #dc2626; color:#dc2626; font-weight:700; padding:12px;">
+              🔓 Déverrouiller le bien
             </button>
             <div id="v2-bien-validate-status" style="margin-top:12px; font-size:13px;"></div>
           <?php else: ?>
@@ -2242,6 +2384,13 @@ if (!$embed) {
               $curChargeVen  = (int)($a['honoraires_charge_vendeur'] ?? 0) === 1;
               if (!$curChargeAcq && !$curChargeVen) $curChargeAcq = true; // défaut
               $fmtV = static fn($v) => $v > 0 ? rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.') : '';
+              // Surface de référence pour le prix au m² (Carrez prioritaire, sinon habitable)
+              $surfPxM2   = (float)($b['surface_carrez'] ?? 0);
+              if ($surfPxM2 <= 0) $surfPxM2 = (float)($b['surface_habitable'] ?? 0);
+              $pxM2Fmt = static function(float $prix, float $surf): string {
+                  if ($prix <= 0 || $surf <= 0) return '';
+                  return number_format($prix / $surf, 0, ',', ' ') . ' €/m²';
+              };
             ?>
             <div class="v2-desc-group-title">💰 Vente</div>
             <!-- Toggle qui paye les honoraires (exclusif) -->
@@ -2258,13 +2407,14 @@ if (!$embed) {
                 </button>
               </div>
             </div>
-            <div class="v2-loc-grid" id="v2-vente-grid">
+            <div class="v2-loc-grid" id="v2-vente-grid" data-surface-pxm2="<?= h($fmtV($surfPxM2)) ?>">
               <!-- PRIX NET VENDEUR -->
               <div class="v2-loc-field" title="Montant revenant au vendeur (hors honoraires)">
                 <label class="v2-loc-lbl"><span>💰</span> Prix net vendeur <small>€</small></label>
                 <input type="number" step="0.01" min="0" class="v2-loc-input"
                        name="prix_net_vendeur" data-annonce-save id="v2-vente-net"
                        value="<?= h($fmtV($curPrixNet)) ?>" placeholder="Net vendeur">
+                <small class="v2-loc-pxm2" id="v2-vente-net-pxm2" style="display:block; margin-top:4px; font-size:11px; color:var(--v2-muted);"><?= h($pxM2Fmt($curPrixNet, $surfPxM2)) ?></small>
               </div>
               <!-- HONORAIRES € -->
               <div class="v2-loc-field" title="Montant des honoraires en euros. La saisie met à jour automatiquement le %.">
@@ -2285,6 +2435,7 @@ if (!$embed) {
                 <label class="v2-loc-lbl"><span>🏷️</span> <strong>Prix FAI</strong> <small>€</small></label>
                 <input type="number" step="0.01" class="v2-loc-input is-accent"
                        id="v2-vente-fai" value="<?= h($fmtV($curPrixFAI)) ?>" readonly tabindex="-1">
+                <small class="v2-loc-pxm2" id="v2-vente-fai-pxm2" style="display:block; margin-top:4px; font-size:11px; color:var(--v2-muted); font-weight:600;"><?= h($pxM2Fmt($curPrixFAI, $surfPxM2)) ?></small>
               </div>
               <!-- SIMULATION RENTABILITÉ (affichage local, pas persisté en BDD)
                    Occupe 2 colonnes à droite du Prix FAI, les 2 inputs empilés
@@ -2537,6 +2688,32 @@ if (!$embed) {
           ?>
             <!-- Bannière auto-remplie par JS -->
             <div id="v2-enc-banner" class="v2-enc-banner" hidden></div>
+
+            <!-- Période de construction du bien (déterminante pour l'encadrement) -->
+            <?php
+              $encAnnee = (int)($b['annee_construction'] ?? 0);
+              $encBandLbls = ['avant_1946'=>'Avant 1946','1946_1970'=>'1946-1970','1971_1990'=>'1971-1990','apres_1990'=>'Après 1990'];
+              if ($encAnnee > 0) {
+                  $encKey = $encAnnee < 1946 ? 'avant_1946' : ($encAnnee <= 1970 ? '1946_1970' : ($encAnnee <= 1990 ? '1971_1990' : 'apres_1990'));
+              } else {
+                  $encKey = (string)($b['epoque_construction'] ?? '');
+              }
+              $encBandTxt = $encBandLbls[$encKey] ?? '';
+            ?>
+            <a href="?edit=<?= (int)$editingBienId ?>&section=descriptif#v2-f-annee"
+               title="Cliquer pour modifier l'année / période de construction (onglet Descriptif)"
+               style="display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 14px;
+                      border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;text-decoration:none;
+                      color:#0f172a;transition:background .12s,border-color .12s;"
+               onmouseover="this.style.background='#eef6ff';this.style.borderColor='#bfdbfe';"
+               onmouseout="this.style.background='#f8fafc';this.style.borderColor='#e2e8f0';">
+              <span style="font-size:18px;">🏗️</span>
+              <span style="font-size:11px;font-weight:700;color:var(--v2-muted);text-transform:uppercase;letter-spacing:.4px;">Période du bien</span>
+              <span style="margin-left:auto;font-size:13px;font-weight:800;color:<?= $encBandTxt !== '' ? '#0e7490' : '#b45309' ?>;">
+                <?= $encBandTxt !== '' ? h($encBandTxt . ($encAnnee > 0 ? ' (' . $encAnnee . ')' : '')) : '⚠️ Non renseignée' ?>
+              </span>
+              <span style="font-size:13px;opacity:.6;">✏️</span>
+            </a>
 
             <!-- Liens externes -->
             <div class="v2-enc-links">
@@ -2893,6 +3070,53 @@ if (!$embed) {
             $bVille = (string)($b['_imm_ville']       ?? $b['ville']       ?? '');
           ?>
 
+            <!-- Statut diffusion (auto, lecture seule) + Suspendre/Reprendre + Archiver/Désarchiver -->
+            <?php
+              $etatA       = strtolower((string)($annonce['etat_publication'] ?? ''));
+              $isSuspended = $etatA === 'suspendu';
+              $isArchived  = in_array($etatA, ['archive','archivee'], true);
+              $stLabel = $isSuspended ? '⏸ Suspendu' : ($isArchived ? '📦 Archivé' : '🟢 En ligne');
+              $stCol   = $isSuspended ? '#c2410c'    : ($isArchived ? '#b91c1c'   : '#15803d');
+              $stBg    = $isSuspended ? '#fff7ed'    : ($isArchived ? '#fef2f2'   : '#ecfdf3');
+              $stBd    = $isSuspended ? '#fed7aa'    : ($isArchived ? '#fecaca'   : '#bbf7d0');
+            ?>
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px; align-items:stretch;">
+              <div title="Statut de l'annonce (automatique, non modifiable)"
+                   style="flex:1; min-width:150px; display:flex; align-items:center; justify-content:center; padding:12px; border-radius:10px; font-weight:800; font-size:14px; background:<?= $stBg ?>; color:<?= $stCol ?>; border:1px solid <?= $stBd ?>;"><?= $stLabel ?></div>
+              <?php if ($isSuspended): ?>
+                <button type="button" onclick="annonceDiffAction('reprendre','reprendre la diffusion')"
+                        style="flex:1; min-width:190px; padding:12px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-weight:800; font-size:14px; cursor:pointer;">▶ Reprendre la diffusion</button>
+              <?php else: ?>
+                <button type="button" onclick="annonceDiffAction('suspend','suspendre la diffusion')" <?= $isArchived ? 'disabled style="opacity:.4;cursor:not-allowed;"' : '' ?>
+                        style="flex:1; min-width:190px; padding:12px; border:1px solid #ea580c; border-radius:10px; background:#fff7ed; color:#c2410c; font-weight:800; font-size:14px; cursor:pointer;">⏸ Suspendre la diffusion</button>
+              <?php endif; ?>
+              <?php if ($isArchived): ?>
+                <button type="button" onclick="annonceDiffAction('reprendre','désarchiver l\'annonce')"
+                        style="flex:1; min-width:170px; padding:12px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-weight:800; font-size:14px; cursor:pointer;">♻ Désarchiver</button>
+              <?php else: ?>
+                <button type="button" onclick="annonceDiffAction('archive','archiver l\'annonce')"
+                        style="flex:1; min-width:170px; padding:12px; border:1px solid #dc2626; border-radius:10px; background:#fef2f2; color:#b91c1c; font-weight:800; font-size:14px; cursor:pointer;">📦 Archiver l'annonce</button>
+              <?php endif; ?>
+            </div>
+            <div id="v2-diffaction-msg" style="font-size:13px; font-weight:700; margin-bottom:12px;"></div>
+            <script>
+            function annonceDiffAction(action, label){
+              var msg = (action==='suspend')
+                ? 'Suspendre la diffusion ? Les sites seront décochés (l\'annonce reste, vente/location en pause).'
+                : (action==='reprendre')
+                  ? 'Reprendre ? L\'annonce repasse en brouillon — re-sélectionne les canaux puis re-diffuse.'
+                  : 'Archiver l\'annonce ? Les diffusions sont retirées et l\'annonce est clôturée.';
+              if(!confirm(msg)) return;
+              var m=document.getElementById('v2-diffaction-msg'); m.style.color='#64748b'; m.textContent='⏳ …';
+              var fd=new FormData(); fd.append('id_annonce', <?= (int)$annonce['id'] ?>); fd.append('action', action);
+              fd.append('csrf_token', <?= json_encode($csrfTokenVal, JSON_UNESCAPED_SLASHES) ?>);
+              fetch('api/annonce_diffusion_action.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+                if(!j||!j.ok){ m.style.color='#dc2626'; m.textContent='❌ '+((j&&j.error)||'Erreur'); return; }
+                m.style.color='#16a34a'; m.textContent='✓ '+label+' — sites décochés. Actualisation…'; setTimeout(function(){location.reload();},700);
+              }).catch(function(){ m.style.color='#dc2626'; m.textContent='❌ Réseau'; });
+            }
+            </script>
+
             <!-- Layout 2 colonnes : actions à gauche, aperçu à droite -->
             <div style="display:grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: start;">
               <div>
@@ -2990,14 +3214,17 @@ if (!$embed) {
                 ?>
                 <div style="display:grid; grid-template-columns: 1fr 1.3fr 1.3fr; gap:14px; margin:0 0 16px;">
                   <div>
-                    <div style="<?= $miniLabelStyle ?>">📊 Statut du bien</div>
-                    <select id="v2-f-statut_bien_top" name="statut_bien" data-autosave
-                            style="<?= $selectStyle ?>"
-                            title="Modifiable à tout moment — se met à jour automatiquement">
-                      <option value="actif"     <?= $curStatutBien === 'actif'     ? 'selected' : '' ?>>✅ Actif</option>
-                      <option value="brouillon" <?= $curStatutBien === 'brouillon' ? 'selected' : '' ?>>📝 Brouillon</option>
-                      <option value="archive"   <?= $curStatutBien === 'archive'   ? 'selected' : '' ?>>📦 Archivé</option>
-                    </select>
+                    <div style="<?= $miniLabelStyle ?>">📡 Limite</div>
+                    <?php
+                      $diffBadgeColors = ['ok'=>['#dcfce7','#166534','#bbf7d0'],'warn'=>['#fef3c7','#92400e','#fde68a'],'bad'=>['#fee2e2','#991b1b','#fecaca']];
+                      [$bgC, $fgC, $brdC] = $diffBadgeColors[$diffuseesLvl];
+                    ?>
+                    <div style="padding:9px 12px; background:<?= $bgC ?>; color:<?= $fgC ?>; border:1px solid <?= $brdC ?>; border-radius:8px; font-size:13px; font-weight:800; text-align:center;"
+                         title="Limite Ubiflow : 15 annonces actives par flux. Au-delà, les nouvelles ne sont pas diffusées.">
+                      📡 <?= (int)$diffuseesAgence ?> / <?= $UBIFLOW_LIMIT_PER_FLUX ?>
+                      <?php if ($diffuseesLvl === 'bad'): ?><span style="font-weight:400;">— quota atteint</span>
+                      <?php elseif ($diffuseesLvl === 'warn'): ?><span style="font-weight:400;">— bientôt plein</span><?php endif; ?>
+                    </div>
                   </div>
                   <div>
                     <div style="<?= $miniLabelStyle ?>">🏬 Agence de diffusion</div>
@@ -3017,24 +3244,7 @@ if (!$embed) {
                           <option value="<?= $aid ?>"<?= $sel ?>><?= h($ag['label']) ?></option>
                         <?php endforeach; ?>
                       </select>
-                      <?php if ($idAgenceAnnonce > 0):
-                        $diffBadgeColors = [
-                          'ok'   => ['#dcfce7', '#166534', '#bbf7d0'],
-                          'warn' => ['#fef3c7', '#92400e', '#fde68a'],
-                          'bad'  => ['#fee2e2', '#991b1b', '#fecaca'],
-                        ];
-                        [$bgC, $fgC, $brdC] = $diffBadgeColors[$diffuseesLvl];
-                      ?>
-                        <div style="margin-top:6px; padding:5px 9px; background:<?= $bgC ?>; color:<?= $fgC ?>; border:1px solid <?= $brdC ?>; border-radius:6px; font-size:11px; font-weight:700; text-align:center;"
-                             title="Limite Ubiflow : 15 annonces actives par flux. Au-delà, les nouvelles annonces ne seront pas diffusées.">
-                          📡 <?= (int)$diffuseesAgence ?> / <?= $UBIFLOW_LIMIT_PER_FLUX ?> diffusées
-                          <?php if ($diffuseesLvl === 'bad'): ?>
-                            <span style="font-weight:400;">— quota atteint</span>
-                          <?php elseif ($diffuseesLvl === 'warn'): ?>
-                            <span style="font-weight:400;">— bientôt plein</span>
-                          <?php endif; ?>
-                        </div>
-                      <?php endif; ?>
+                      <?php /* badge quota déplacé en 1re colonne « Limite » (plus de doublon) */ ?>
                     <?php endif; ?>
                   </div>
                   <div>
@@ -3111,21 +3321,30 @@ if (!$embed) {
                 </div>
 
               <!-- Suite colonne gauche : canaux + complétude + diffuser -->
-              <div class="v2-desc-group-title">📢 Canaux de diffusion</div>
+              <?php
+                // Canaux verrouillés tant que la complétude Ubiflow n'est pas à 100%.
+                $diffScore      = (int)($ubiCheck['score'] ?? 0);
+                $channelsLocked = $diffScore < 100;
+                $lockAttr = $channelsLocked ? ' disabled aria-disabled="true"' : '';
+                $lockSty  = $channelsLocked ? ' style="opacity:.45;cursor:not-allowed;pointer-events:none;"' : '';
+              ?>
+              <div class="v2-desc-group-title">📢 Canaux de diffusion
+                <?php if ($channelsLocked): ?><span style="font-weight:600;color:#b45309;font-size:12px;">🔒 complète Ubiflow à 100% pour activer</span><?php endif; ?>
+              </div>
             <div class="v2-chan-grid">
-              <button type="button" class="v2-chan-card v2-chan-mbi<?= $ab('visible_maboximmo')  ? ' is-selected' : '' ?>"
+              <button type="button"<?= $lockAttr ?><?= $lockSty ?> class="v2-chan-card v2-chan-mbi<?= $ab('visible_maboximmo')  ? ' is-selected' : '' ?>"
                       data-annonce-bool="visible_maboximmo">
                 <span class="v2-chan-icon">🏢</span>
                 <span class="v2-chan-title">MaBoxImmo</span>
                 <span class="v2-chan-sub">Annuaire interne</span>
               </button>
-              <button type="button" class="v2-chan-card v2-chan-web<?= $ab('visible_site_perso') ? ' is-selected' : '' ?>"
+              <button type="button"<?= $lockAttr ?><?= $lockSty ?> class="v2-chan-card v2-chan-web<?= $ab('visible_site_perso') ? ' is-selected' : '' ?>"
                       data-annonce-bool="visible_site_perso">
                 <span class="v2-chan-icon">🌐</span>
                 <span class="v2-chan-title">Site perso</span>
                 <span class="v2-chan-sub">Site de l'agence</span>
               </button>
-              <button type="button" class="v2-chan-card v2-chan-lbc<?= $ab('visible_portails')   ? ' is-selected' : '' ?>"
+              <button type="button"<?= $lockAttr ?><?= $lockSty ?> class="v2-chan-card v2-chan-lbc<?= $ab('visible_portails')   ? ' is-selected' : '' ?>"
                       data-annonce-bool="visible_portails">
                 <span class="v2-chan-icon">📰</span>
                 <span class="v2-chan-title">LeBonCoin</span>
@@ -3650,9 +3869,92 @@ if (!$embed) {
 
 </main>
 
+<?php
+// Logo société/agence pour le filigrane de l'éditeur photo.
+// Résolution en cascade : colonne logo_url (agence → société) →
+// fichier conventionnel sur disque (uploads/.../logo.*) → logo MBI par défaut.
+$peLogoRel = '';
+$peIdAgence  = (int)($b['id_agence']  ?? 0);
+$peIdSociete = (int)($b['id_societe'] ?? ($_SESSION['id_societe'] ?? 0));
+// N'accepte une valeur BDD que si le fichier existe vraiment sur disque (évite un 404 silencieux)
+$peDbOk = static function (string $rel): bool {
+    $rel = ltrim($rel, '/');
+    return $rel !== '' && is_file(__DIR__ . '/' . $rel);
+};
+try {
+    if ($peIdAgence > 0) {
+        $stL = $pdo->prepare("SELECT logo_url FROM agences WHERE id = ? LIMIT 1");
+        $stL->execute([$peIdAgence]);
+        $cand = (string)($stL->fetchColumn() ?: '');
+        if ($peDbOk($cand)) $peLogoRel = $cand;
+    }
+    if ($peLogoRel === '' && $peIdSociete > 0) {
+        $stL = $pdo->prepare("SELECT logo_url FROM societes WHERE id = ? LIMIT 1");
+        $stL->execute([$peIdSociete]);
+        $cand = (string)($stL->fetchColumn() ?: '');
+        if ($peDbOk($cand)) $peLogoRel = $cand;
+    }
+} catch (Throwable) { $peLogoRel = ''; }
+// Repli : fichier conventionnel sur disque (uploads/societes|agences/{id}/logo.ext)
+if ($peLogoRel === '') {
+    $peProbes = [];
+    foreach (['png','jpg','jpeg','webp'] as $ext) {
+        if ($peIdAgence  > 0) $peProbes[] = 'uploads/agences/'  . $peIdAgence  . '/logo.' . $ext;
+        if ($peIdSociete > 0) $peProbes[] = 'uploads/societes/' . $peIdSociete . '/logo.' . $ext;
+    }
+    foreach ($peProbes as $rel) {
+        if (is_file(__DIR__ . '/' . $rel)) { $peLogoRel = $rel; break; }
+    }
+}
+// Repli : logos dans images/logos/ matchés par NOM (société/agence ↔ nom de fichier)
+if ($peLogoRel === '' && is_dir(__DIR__ . '/images/logos')) {
+    $peSlug = static function (string $s): array {
+        $s = strtolower(trim($s));
+        $s = strtr($s, ['é'=>'e','è'=>'e','ê'=>'e','ë'=>'e','à'=>'a','â'=>'a','î'=>'i','ï'=>'i','ô'=>'o','û'=>'u','ç'=>'c']);
+        $s = preg_replace('/[^a-z0-9]+/', ' ', $s);
+        return array_filter(explode(' ', trim($s)));
+    };
+    // Noms de l'entité (agence prioritaire, puis société)
+    $peNames = [];
+    try {
+        if ($peIdAgence > 0) {
+            $stN = $pdo->prepare("SELECT nom_agence, nom FROM agences WHERE id = ? LIMIT 1");
+            $stN->execute([$peIdAgence]);
+            if ($row = $stN->fetch(PDO::FETCH_ASSOC)) { $peNames[] = (string)($row['nom_agence'] ?? ''); $peNames[] = (string)($row['nom'] ?? ''); }
+        }
+        if ($peIdSociete > 0) {
+            $stN = $pdo->prepare("SELECT nom, raison_sociale FROM societes WHERE id = ? LIMIT 1");
+            $stN->execute([$peIdSociete]);
+            if ($row = $stN->fetch(PDO::FETCH_ASSOC)) { $peNames[] = (string)($row['nom'] ?? ''); $peNames[] = (string)($row['raison_sociale'] ?? ''); }
+        }
+    } catch (Throwable) {}
+    $peNameTokens = [];
+    foreach ($peNames as $n) { foreach ($peSlug($n) as $t) $peNameTokens[$t] = true; }
+    if ($peNameTokens) {
+        $peBest = ''; $peBestScore = 0;
+        foreach (glob(__DIR__ . '/images/logos/*.{jpg,jpeg,png,webp}', GLOB_BRACE) ?: [] as $abs) {
+            $fileTokens = $peSlug(pathinfo($abs, PATHINFO_FILENAME));
+            $score = 0;
+            foreach ($fileTokens as $t) { if (isset($peNameTokens[$t])) $score++; }
+            if ($score > $peBestScore) { $peBestScore = $score; $peBest = $abs; }
+        }
+        if ($peBest !== '') $peLogoRel = 'images/logos/' . basename($peBest);
+    }
+}
+// Dernier repli : logo MBI générique
+if ($peLogoRel === '' && is_file(__DIR__ . '/images/mbi_annonces_logo_seul.png')) {
+    $peLogoRel = 'images/mbi_annonces_logo_seul.png';
+}
+// Encodage des segments (les noms de fichiers peuvent contenir des espaces)
+$peLogoEnc = $peLogoRel !== ''
+    ? implode('/', array_map('rawurlencode', explode('/', ltrim($peLogoRel, '/'))))
+    : '';
+$peLogoUrl = $peLogoEnc !== '' ? app_url('/' . $peLogoEnc) : '';
+?>
 <!-- Données JS -->
 <script>
   window.__v2DocsData = {
+    photoEditLogoUrl: <?= json_encode($peLogoUrl, JSON_UNESCAPED_SLASHES) ?>,
     bienId: <?= (int)$editingBienId ?>,
     section: <?= json_encode($section) ?>,
     csrfToken: <?= json_encode($csrfTokenVal, JSON_UNESCAPED_SLASHES) ?>,
@@ -3666,6 +3968,7 @@ if (!$embed) {
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
     bienProprioLinkEndpoint: <?= json_encode(app_url('/api/bien_proprio_link.php'),    JSON_UNESCAPED_SLASHES) ?>,
     photoDeleteEndpoint: <?= json_encode(app_url('/api/bien_photo_delete.php'),        JSON_UNESCAPED_SLASHES) ?>,
+    photoEditEndpoint:   <?= json_encode(app_url('/api/bien_photo_edit.php'),          JSON_UNESCAPED_SLASHES) ?>,
     docDeleteEndpoint:    <?= json_encode(app_url('/api/biens_documents_delete.php'),    JSON_UNESCAPED_SLASHES) ?>,
     docReanalyzeEndpoint: <?= json_encode(app_url('/api/biens_documents_reanalyze.php'), JSON_UNESCAPED_SLASHES) ?>,
     docExtractViewEndpoint: <?= json_encode(app_url('/api/biens_documents_extract_view.php'), JSON_UNESCAPED_SLASHES) ?>,
@@ -3704,7 +4007,58 @@ if (!$embed) {
   };
 </script>
 <script src="<?= asset_url('/assets/js/document_uploader.js') ?>"></script>
+<script src="<?= asset_url('/js/cropper.min.js') ?>"></script>
 <script src="<?= asset_url('/js/bien_detail_v2.js') ?>?v=<?= @filemtime(__DIR__ . '/js/bien_detail_v2.js') ?: time() ?>"></script>
+
+<!-- Modal d'édition photo : recadrage (Cropper.js) + éclaircissement auto -->
+<div id="v2-photo-edit-modal" class="v2-photo-edit-modal" aria-hidden="true">
+  <div class="v2-photo-edit-backdrop" data-pe-close></div>
+  <div class="v2-photo-edit-dialog" role="dialog" aria-modal="true" aria-label="Éditer la photo">
+    <div class="v2-photo-edit-header">
+      <span class="v2-photo-edit-title">✂️ Éditer la photo</span>
+      <button type="button" class="v2-photo-edit-x" data-pe-close title="Fermer">✕</button>
+    </div>
+    <div class="v2-photo-edit-stage">
+      <div class="v2-photo-edit-pane">
+        <div class="v2-photo-edit-pane-label">Original — recadrez ci-dessous</div>
+        <div class="v2-photo-edit-cropwrap">
+          <img id="v2-photo-edit-img" alt="">
+        </div>
+      </div>
+      <div class="v2-photo-edit-pane">
+        <div class="v2-photo-edit-pane-label">Aperçu du résultat</div>
+        <div class="v2-photo-edit-preview-wrap">
+          <canvas id="v2-photo-edit-canvas" class="v2-photo-edit-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="v2-photo-edit-toolbar">
+      <div class="v2-pe-group">
+        <span class="v2-pe-label">Cadrage</span>
+        <button type="button" class="v2-pe-btn" data-pe-ratio="free">Libre</button>
+        <button type="button" class="v2-pe-btn" data-pe-ratio="1.3333">4:3</button>
+        <button type="button" class="v2-pe-btn" data-pe-ratio="1">1:1</button>
+        <button type="button" class="v2-pe-btn" data-pe-ratio="1.7778">16:9</button>
+      </div>
+      <div class="v2-pe-group">
+        <span class="v2-pe-label">Rotation</span>
+        <button type="button" class="v2-pe-btn" data-pe-rotate="-90" title="Pivoter à gauche">↺</button>
+        <button type="button" class="v2-pe-btn" data-pe-rotate="90" title="Pivoter à droite">↻</button>
+      </div>
+      <div class="v2-pe-group">
+        <button type="button" class="v2-pe-btn v2-pe-toggle" data-pe-brighten title="Correction auto de luminosité/contraste">✨ Éclaircir auto</button>
+        <button type="button" class="v2-pe-btn v2-pe-toggle" data-pe-logo title="Filigrane logo société (bas droite, 20% opacité)">🖼️ Ajouter logo</button>
+      </div>
+    </div>
+    <div class="v2-photo-edit-footer">
+      <span class="v2-photo-edit-status" id="v2-photo-edit-status"></span>
+      <span class="v2-photo-edit-actions">
+        <button type="button" class="v2-pe-btn v2-pe-cancel" data-pe-close>Annuler</button>
+        <button type="button" class="v2-pe-btn v2-pe-save" id="v2-photo-edit-save">💾 Enregistrer</button>
+      </span>
+    </div>
+  </div>
+</div>
 
 <!-- Modal universel d'adresse (Google Places + immeubles existants) -->
 <?php require_once __DIR__ . '/inc/adresse_modal.php'; ?>
@@ -3758,7 +4112,7 @@ if (!$embed) {
     </div>
   </div>
 </div>
-<script src="<?= asset_url('/js/places.js') ?>"></script>
+<script src="<?= asset_url('/js/places.js') ?>?v=<?= @filemtime(__DIR__ . '/js/places.js') ?: '1' ?>"></script>
 <script src="<?= asset_url('/js/adresse_modal.js') ?>?v=<?= @filemtime(__DIR__ . '/js/adresse_modal.js') ?: time() ?>"></script>
 <?php if (!empty($GOOGLE_MAPS_API_KEY)): ?>
 <script async
@@ -3804,7 +4158,17 @@ function bdOpenImmeubleModal(btn){
       fd.append('adresse_1', imm.adresse_1||'');
       fd.append('code_postal', imm.code_postal||'');
       fd.append('ville', imm.ville||'');
-      fetch(url, {method:'POST', credentials:'same-origin', body:fd}).catch(function(){});
+      // Recharge la page une fois le rattachement enregistré → l'immeuble lié + la
+      // validation (champs/score) se mettent à jour. Sinon « rien ne se passe » à l'écran.
+      fetch(url, {method:'POST', credentials:'same-origin', body:fd})
+        .then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .then(function(j){
+          if (j && j.ok === false && j.error) { alert('Rattachement immeuble : ' + j.error); return; }
+          location.reload();
+        })
+        .catch(function(){ location.reload(); });
+    } else {
+      location.reload();
     }
   });
 }

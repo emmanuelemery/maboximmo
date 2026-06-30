@@ -456,7 +456,7 @@ TXT;
                 // Vérifie que le code existe en ged_level_codes N3 sous DIRECTION/VEHICULES
                 $stV = $pdo->prepare("
                     SELECT code FROM ged_level_codes
-                    WHERE level_number=3 AND code=? COLLATE utf8mb4_unicode_ci
+                    WHERE level_number=3 AND code COLLATE utf8mb4_unicode_ci = ?
                       AND parent_n1='01_DIRECTION' AND parent_n2='17_VEHICULES' AND is_active=1
                     LIMIT 1
                 ");

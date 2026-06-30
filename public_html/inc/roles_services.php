@@ -33,7 +33,7 @@ function getRolesServices($pdo) {
         // Services: syndic, rh, agency, proprietaire, superadmin, gestion, bailleur
         1 => ['syndic', 'rh', 'agency', 'proprietaire', 'bailleur'],  // Admin = tout
         2 => ['syndic', 'rh', 'agency'],                  // Manager = syndic + RH + agency
-        3 => ['rh'],                                       // Collaborateur = RH seulement
+        3 => ['rh', 'bailleur'],                           // Collaborateur = RH + Bailleur
         4 => ['syndic'],                                   // Syndic = syndic seulement
         5 => ['proprietaire'],                             // Propriétaire = proprietaire seulement
         6 => ['proprietaire'],                             // Locataire = proprietaire seulement
@@ -124,7 +124,7 @@ function getAvailableServices($roleId) {
         static $societeModules = null;
         if ($societeModules === null) {
             try {
-                $stmtMod = $pdo->prepare("SELECT module_rh, module_agency, module_syndic, module_gestion FROM societes WHERE id = ?");
+                $stmtMod = $pdo->prepare("SELECT module_rh, module_agency, module_syndic, module_gestion, module_bailleur FROM societes WHERE id = ?");
                 $stmtMod->execute([$societeId]);
                 $societeModules = $stmtMod->fetch(PDO::FETCH_ASSOC) ?: [];
             } catch (Throwable) {

@@ -53,11 +53,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
                 ");
                 $stmt->execute([$prenom, $nom, $email, $telephone, $username, $hashedPassword, $id_societe, $id_agence, $id_role]);
-                $newUserId = $pdo->lastInsertId();
+                $newUserId = (int)$pdo->lastInsertId();
 
                 // Create salary model
                 $salStmt = $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, salaire_modele) VALUES (?, '0000-00-00', 1)");
                 $salStmt->execute([$newUserId]);
+
+                // Modules accessibles (acl_grants niveau module : page NULL, scope NULL)
+                $selModules = $_POST['modules'] ?? [];
+                if (is_array($selModules) && $selModules) {
+                    $validCodes = $pdo->query("SELECT code FROM acl_modules WHERE actif = 1")->fetchAll(PDO::FETCH_COLUMN);
+                    $grantStmt = $pdo->prepare("INSERT INTO acl_grants
+                        (identite_type, identite_id, module_code, page, scope_type, scope_id, actif, created_by)
+                        VALUES ('user', ?, ?, NULL, NULL, NULL, 1, ?)");
+                    $actor = (int)($_SESSION['user_id'] ?? 0);
+                    foreach ($selModules as $code) {
+                        if (in_array($code, $validCodes, true)) {
+                            $grantStmt->execute([$newUserId, $code, $actor]);
+                        }
+                    }
+                }
 
                 $message = '✓ Utilisateur créé avec succès!';
             }
@@ -70,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
 $societes = $pdo->query("SELECT id, nom FROM societes WHERE actif = 1 ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
 $agences = $pdo->query("SELECT id, nom_agence FROM agences ORDER BY nom_agence")->fetchAll(PDO::FETCH_ASSOC);
 $roles = $pdo->query("SELECT id, nom FROM roles WHERE actif = 1 ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
+$aclModules = $pdo->query("SELECT code, label, couleur FROM acl_modules WHERE actif = 1 ORDER BY ordre, code")->fetchAll(PDO::FETCH_ASSOC);
 
 function h($v){ return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 
@@ -182,6 +198,28 @@ ob_start();
                     <?php endforeach; ?>
                 </select>
             </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Modules accessibles</div>
+            <p style="color:var(--muted);font-size:12px;margin-bottom:12px">
+                Coche les modules auxquels ce collaborateur a accès. Chaque module coché = accès à
+                toutes ses pages. Les accès restreints (page précise / périmètre, ex. groupe SIR)
+                se règlent ensuite dans <em>Accès tiers / module</em>.
+            </p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <?php foreach($aclModules as $m): ?>
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);cursor:pointer;padding:6px 8px;border:1px solid var(--stroke);border-radius:8px">
+                        <input type="checkbox" name="modules[]" value="<?=h($m['code'])?>" style="width:auto;margin:0">
+                        <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:<?=h($m['couleur'] ?: '#64748b')?>"></span>
+                        <?=h($m['label'])?>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+            <p style="color:var(--muted);font-size:11px;margin-top:10px">
+                ℹ️ Le service <strong>RH</strong> reste piloté par le <strong>rôle</strong> (Collaborateur = RH).
+                Les modules ci-dessus deviennent réellement bloquants une fois la cage d'accès activée.
+            </p>
         </div>
 
         <div class="card">

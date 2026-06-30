@@ -89,6 +89,13 @@ define('ADRESSE_MODAL_INCLUDED', true);
         </div>
       </div>
 
+      <!-- ── 3. Nom de l'immeuble (proposé auto depuis l'adresse) + GPS ── -->
+      <div class="addr-modal-section">
+        <label class="addr-modal-label">🏢 Nom de l'immeuble (proposé, modifiable)</label>
+        <input type="text" id="addr-modal-field-nom" class="addr-modal-input" placeholder="Ex : 2 Avenue de l'Europe">
+        <div class="addr-modal-gps" id="addr-modal-gps"></div>
+      </div>
+
       <!-- Champs hidden pour coordonnées GPS + Place ID + lien vers immeuble existant -->
       <input type="hidden" id="addr-modal-field-lat"          value="">
       <input type="hidden" id="addr-modal-field-lng"          value="">
@@ -137,6 +144,8 @@ define('ADRESSE_MODAL_INCLUDED', true);
   .addr-modal-btn-primary:hover { background: #0284c7; }
   .addr-modal-btn-secondary { background: #fff; color: #475569; border-color: #cbd5e1; }
   .addr-modal-btn-secondary:hover { background: #f1f5f9; }
+
+  .addr-modal-gps { font-size: 11px; color: #0e7490; margin-top: 6px; font-variant-numeric: tabular-nums; min-height: 14px; }
 
   /* Dropdown Places — repositionné pour apparaître au-dessus du modal */
   .addr-modal .places-dropdown { z-index: 1100 !important; }

@@ -76,7 +76,7 @@ $_bInit = strtoupper(
     <a href="<?= $_sbBase ?>agency_dashboard.php" class="sb-bail-link escape">
       <span class="sb-bail-icon">←</span> Retour Ma Box Agency
     </a>
-    <a href="<?= $_sbBase ?>rh_dashboard.php" class="sb-bail-link escape">
+    <a href="<?= $_sbBase ?>rh_dashboard_user.php" class="sb-bail-link escape">
       <span class="sb-bail-icon">←</span> Retour RH
     </a>
   </div>
@@ -115,6 +115,28 @@ $_bInit = strtoupper(
       <span class="sb-bail-icon">📁</span> GED Documents
     </a>
     <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
+  <!-- Transaction & analyses (super admin) -->
+  <?php if ($isSA): ?>
+  <div class="sb-bail-section">
+    <div class="sb-bail-section-title">Transaction &amp; analyses</div>
+    <a href="<?= $_sbBase ?>transaction_index.php" class="sb-bail-link <?= sb_bail_active('transaction_index.php') ?: sb_bail_active('transaction_chargement.php') ?>">
+      <span class="sb-bail-icon">🎯</span> Transactions
+    </a>
+    <a href="<?= $_sbBase ?>creancier_dashboard.php" class="sb-bail-link <?= sb_bail_active('creancier_dashboard.php') ?: (sb_bail_active('creancier_liste.php') ?: sb_bail_active('creancier_dossier360.php')) ?>">
+      <span class="sb-bail-icon">⚖️</span> Créanciers
+    </a>
+    <a href="<?= $_sbBase ?>transaction_portefeuilles_hub.php" class="sb-bail-link <?= sb_bail_active('transaction_portefeuilles_hub.php') ?>">
+      <span class="sb-bail-icon">📁</span> Portefeuilles
+    </a>
+    <a href="<?= $_sbBase ?>investisseur/index.php" class="sb-bail-link <?= sb_bail_active('index.php') ?>">
+      <span class="sb-bail-icon">📊</span> Investisseur / Analyses
+    </a>
+    <a href="<?= $_sbBase ?>gestion/dashboard_sir.php" class="sb-bail-link <?= sb_bail_active('dashboard_sir.php') ?>">
+      <span class="sb-bail-icon">🏛️</span> Groupe SIR
+    </a>
   </div>
   <?php endif; ?>
 

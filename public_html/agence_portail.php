@@ -108,7 +108,7 @@ include __DIR__ . '/inc/header.php';
                 <p>Paramètres clés, accès Registre et actions rapides.</p>
             </div>
             <div class="topbar-right">
-                <a class="btn btn-primary" href="<?= h(app_url('/bien_ajouter.php')) ?>">Créer une annonce</a>
+                <a class="btn btn-primary" href="<?= h(app_url('/agency_proprietaires.php')) ?>">Créer une annonce</a>
             </div>
         </header>
 
@@ -142,7 +142,7 @@ include __DIR__ . '/inc/header.php';
                         <span>Actions</span>
                         <div class="action-row">
                             <a class="btn btn-primary" href="<?= h(app_url('/agence_user_create.php')) ?>">Créer un utilisateur</a>
-                            <a class="btn" href="<?= h(app_url('/bien_ajouter.php')) ?>">Créer une annonce</a>
+                            <a class="btn" href="<?= h(app_url('/agency_proprietaires.php')) ?>">Créer une annonce</a>
                         </div>
                     </div>
                 </div>

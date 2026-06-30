@@ -436,7 +436,6 @@ ob_start();
         <?php endif; ?>
     </div>
     <?php endif; ?>
-    <div style="margin-left:auto"><?php require_once __DIR__ . '/inc/role_switcher.php'; ?></div>
 </div>
 
 <!-- ── Liste demandes ── -->

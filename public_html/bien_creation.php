@@ -27,6 +27,22 @@ $isSuperAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 $bienId = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['id'] : 0;
 
 if ($bienId <= 0) {
+    // RÈGLE (2026-06-07) : pas de bien sans propriétaire. La création doit
+    // partir d'une fiche propriétaire (ou du sélecteur). Sinon on fabrique
+    // des biens orphelins (doublons d'annonce pré-import CRG).
+    $proprioId = isset($_GET['id_proprietaire']) && ctype_digit((string)$_GET['id_proprietaire'])
+        ? (int)$_GET['id_proprietaire'] : 0;
+    if ($proprioId > 0) {
+        $stChk = $pdo->prepare("SELECT id FROM proprietaires WHERE id = ? LIMIT 1");
+        $stChk->execute([$proprioId]);
+        if (!$stChk->fetchColumn()) { $proprioId = 0; }
+    }
+    if ($proprioId <= 0) {
+        // Aucun propriétaire valide → on envoie choisir/créer un proprio d'abord.
+        header('Location: agency_proprietaires.php?pick_bien=1');
+        exit;
+    }
+
     try {
         require_once __DIR__ . '/inc/bien_type_helper.php';
 
@@ -47,9 +63,9 @@ if ($bienId <= 0) {
             }
         }
 
-        $cols = ['id_societe', 'id_agence', 'id_user_actuel', 'statut_bien', 'date_creation', 'date_modification'];
-        $vals = [$societeId ?: null, $agenceId ?: null, $userId ?: null, 'brouillon'];
-        $ph   = ['?', '?', '?', '?', 'NOW()', 'NOW()'];
+        $cols = ['id_societe', 'id_agence', 'id_user_actuel', 'id_proprietaire', 'statut_bien', 'date_creation', 'date_modification'];
+        $vals = [$societeId ?: null, $agenceId ?: null, $userId ?: null, $proprioId, 'brouillon'];
+        $ph   = ['?', '?', '?', '?', '?', 'NOW()', 'NOW()'];
 
         if ($defaultTypeIdLegacy) {
             $cols[] = 'id_type_bien';
@@ -249,7 +265,7 @@ body { font-family: 'Manrope', system-ui, sans-serif; background: #f4f6fb; color
 <body>
 
 <div class="bc-topbar">
-    <a href="accueil.php" class="bc-back" title="Retour">←</a>
+    <a href="https://maboximmo.fr" class="bc-back" title="Retour">←</a>
     <h1>Création d'un bien (saisie manuelle)</h1>
     <span class="bc-ref">REF : <?= htmlspecialchars($ref) ?></span>
     <span class="bc-ref" style="background:#fef3c7;color:#b45309">#<?= $bienId ?></span>

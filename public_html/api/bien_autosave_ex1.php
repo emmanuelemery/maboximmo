@@ -17,6 +17,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     exit(json_encode(['ok' => false, 'error' => 'POST requis']));
 }
+if (function_exists('is_readonly_user') && is_readonly_user()) {
+    http_response_code(403);
+    exit(json_encode(['ok' => false, 'error' => 'Compte en lecture seule : modification non autorisée']));
+}
 
 verify_csrf_any('ajouter_bien');
 
@@ -31,15 +35,41 @@ if ($bienId <= 0) {
 // Verify ownership — super-admin (role=1) bypass le filtre société pour pouvoir éditer n'importe quel bien
 $isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
 if ($isSuperAdmin) {
-    $stmt = $pdo->prepare("SELECT id FROM biens WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, statut_bien FROM biens WHERE id = ?");
     $stmt->execute([$bienId]);
 } else {
-    $stmt = $pdo->prepare("SELECT id FROM biens WHERE id = ? AND id_societe = ?");
+    $stmt = $pdo->prepare("SELECT id, statut_bien FROM biens WHERE id = ? AND id_societe = ?");
     $stmt->execute([$bienId, $societeId]);
 }
-if (!$stmt->fetchColumn()) {
+$bienCheckRow = $stmt->fetch(PDO::FETCH_ASSOC);
+if (!$bienCheckRow) {
     http_response_code(403);
     exit(json_encode(['ok' => false, 'error' => 'Bien introuvable']));
+}
+$bienEstActif = ((string)($bienCheckRow['statut_bien'] ?? '') === 'actif');
+
+// ⚠️ Guard flow 2026-04-22 : si le bien est actif, l'adresse et le propriétaire
+// sont VERROUILLÉS. Toute tentative de modifier ces champs depuis l'UI est rejetée.
+// L'utilisateur doit d'abord dé-valider le bien (api/bien_validate.php action=invalidate).
+if ($bienEstActif) {
+    $lockedFields = ['adresse_1', 'adresse_2', 'code_postal', 'ville', 'latitude', 'longitude',
+                     'google_place_id', 'adresse_formatted', 'id_immeuble_selected',
+                     'id_proprietaire'];
+    $attempted = [];
+    foreach ($lockedFields as $_lf) {
+        if (array_key_exists($_lf, $_POST) && (string)$_POST[$_lf] !== '') {
+            $attempted[] = $_lf;
+        }
+    }
+    if (!empty($attempted)) {
+        http_response_code(403);
+        exit(json_encode([
+            'ok' => false,
+            'error' => 'Champs verrouillés (bien actif) : ' . implode(', ', $attempted) . '. Dévalide le bien d\'abord.',
+            'locked_fields' => $attempted,
+            'statut_bien'   => 'actif',
+        ]));
+    }
 }
 
 // Helpers
@@ -47,6 +77,38 @@ $str  = static fn(string $k, string $d = ''): string => trim((string)($_POST[$k]
 $int  = static fn(string $k) => ($_POST[$k] ?? '') !== '' ? (int)$_POST[$k] : null;
 $flt  = static fn(string $k) => ($_POST[$k] ?? '') !== '' ? (float)$_POST[$k] : null;
 $bool = static fn(string $k) => ($_POST[$k] ?? '') !== '' ? (int)(bool)(int)$_POST[$k] : 0;
+
+// ── Cross-table : champs saisis sur la fiche bien mais persistés sur immeubles
+// (infos communes à tous les lots de l'immeuble : nb lots, statut juridique copro).
+// Pattern : POST['_imm_<col>'] → UPDATE immeubles SET <col> = ... WHERE id = id_immeuble.
+// Exposés en lecture par bien_form_load_record (alias `i.<col> AS _imm_<col>`).
+$immFieldMap = [
+    '_imm_nb_lots'                          => ['col' => 'nb_lots',                          'cast' => 'int'],
+    '_imm_copro_procedure'                  => ['col' => 'copro_procedure',                  'cast' => 'bool'],
+    '_imm_alur_copropriete_plan_sauvegarde' => ['col' => 'alur_copropriete_plan_sauvegarde', 'cast' => 'bool'],
+    '_imm_alur_copropriete_etat_carence'    => ['col' => 'alur_copropriete_etat_carence',    'cast' => 'bool'],
+];
+$immUpdates = [];
+foreach ($immFieldMap as $postKey => $meta) {
+    if (!array_key_exists($postKey, $_POST)) continue;
+    $raw = trim((string)$_POST[$postKey]);
+    if ($meta['cast'] === 'int') {
+        $immUpdates[$meta['col']] = $raw !== '' ? (int)$raw : null;
+    } else { // bool → tinyint 0/1
+        $immUpdates[$meta['col']] = $raw !== '' ? (int)(bool)(int)$raw : 0;
+    }
+}
+if (!empty($immUpdates)) {
+    $stmtImm = $pdo->prepare("SELECT id_immeuble FROM biens WHERE id = ?");
+    $stmtImm->execute([$bienId]);
+    $idImmeuble = (int)$stmtImm->fetchColumn();
+    if ($idImmeuble > 0) {
+        $sets   = implode(', ', array_map(static fn($c) => "`$c` = ?", array_keys($immUpdates)));
+        $params = array_values($immUpdates);
+        $params[] = $idImmeuble;
+        $pdo->prepare("UPDATE immeubles SET $sets WHERE id = ?")->execute($params);
+    }
+}
 
 // ══════════════════════════════════════════════════════════════
 // Map POST field → biens column
@@ -404,10 +466,28 @@ if ($adresse1 !== '' || $immeubleSelected > 0) {
     }
     // Cas 3 : bien sans immeuble → cherche par adresse_cle, sinon crée
     else {
-        if ($_immHasAdresseCle) {
+        if ($_immHasAdresseCle && $adresseCle !== '') {
             $stmtFind = $pdo->prepare("SELECT id FROM immeubles WHERE adresse_cle = ? LIMIT 1");
             $stmtFind->execute([$adresseCle]);
             $immId = (int)$stmtFind->fetchColumn();
+        }
+        // Repli anti-doublon robuste : la majorité des immeubles existants n'ont PAS
+        // d'adresse_cle renseignée → on matche aussi directement par adresse normalisée
+        // (adresse_1 + CP + ville). Évite de recréer un immeuble déjà présent.
+        if ($immId <= 0 && $adresse1 !== '') {
+            $stmtFind2 = $pdo->prepare("
+                SELECT id FROM immeubles
+                WHERE LOWER(TRIM(adresse_1)) = LOWER(TRIM(?))
+                  AND COALESCE(TRIM(code_postal),'') = COALESCE(TRIM(?),'')
+                  AND LOWER(TRIM(COALESCE(ville,''))) = LOWER(TRIM(?))
+                LIMIT 1");
+            $stmtFind2->execute([$adresse1, $codePostal, $ville]);
+            $immId = (int)$stmtFind2->fetchColumn();
+            // Si trouvé et qu'il lui manque l'adresse_cle, on la renseigne (auto-réparation).
+            if ($immId > 0 && $_immHasAdresseCle && $adresseCle !== '') {
+                $pdo->prepare("UPDATE immeubles SET adresse_cle = ? WHERE id = ? AND (adresse_cle IS NULL OR adresse_cle = '')")
+                    ->execute([$adresseCle, $immId]);
+            }
         }
         if ($immId <= 0) {
             $cols = ['id_societe','id_agence','adresse_1','adresse_2','code_postal','ville','pays','latitude','longitude'];
@@ -514,6 +594,31 @@ $protectedFields = [
     'chauffage_plancher', 'chauffage_thermostat', 'chauffage_regulateur',
     'chauffage_vmc', 'chauffage_vmc_df', 'climatisation',
     'eau_chaude_solaire', 'isolation',
+    // ── Encadrement loyer (Card 2 Annonce) — chantier 2026-04-22 ──
+    // CRITIQUE : ces champs sont saisis au fil de l'eau dans Card 2 Encadrement.
+    // Sans protection, TOUT autre autosave (surface, charges, etc.) les remet
+    // à NULL parce que $flt('enc_loyer_max') retourne null quand le champ
+    // n'est pas dans le POST → UPDATE biens SET enc_loyer_max = NULL → data perdue.
+    'enc_zone', 'enc_loyer_ref', 'enc_loyer_max', 'enc_loyer_min', 'enc_complement',
+    'zone_tendue',
+    // ── Conditions financières (Card 1 Annonce) ──
+    // Idem : charges locatives et honoraires sont saisis dans Card 1 et doivent
+    // survivre aux autosaves des autres cards.
+    'charges_locatives', 'honoraires_locataire', 'honoraires_inclus', 'honoraires_detail',
+    'loyer_hc', 'loyer_meuble', 'depot_garantie',
+    // ── Estimation / Projection (pareil — saisies ponctuelles) ──
+    'prix_vente_estime', 'rentabilite_brute_estimee', 'montant_travaux_estime',
+    'estimation_agence_vente', 'estimation_agence_location',
+    'estimation_agence_date', 'estimation_agence_notes',
+    // ── Copropriété ── champs déplacés vers immeubles.* (interception _imm_* plus haut)
+    // mais conservés sur biens.* pour les anciens biens et autres lecteurs (mbi_supports).
+    // Sans protection, chaque autosave annonce/autre les écraserait à NULL/0.
+    // CRITIQUE : bien_en_copropriete et copro_quote_part_charges sont saisis UN SEUL endroit
+    // dans l'UI (toggle + champ Charges). Tout autre autosave (balcon, toggle, etc.) envoie
+    // un POST sans ces clés → sans protection ils retombent à 0 → la sous-section disparaît.
+    'bien_en_copropriete', 'copro_quote_part_charges',
+    'copro_nb_lots', 'copro_procedure',
+    'alur_copropriete_plan_sauvegarde', 'alur_copropriete_etat_carence',
 ];
 foreach ($protectedFields as $f) {
     $raw = $_POST[$f] ?? null;
@@ -523,17 +628,69 @@ foreach ($protectedFields as $f) {
     }
 }
 
-// Résolution finale : type_bien (code stable) → id_type_bien (id local en base).
+// ── Numérotation cohérente au rattachement à un immeuble CRG ──────────────
+// Quand un bien est (re)lié à un immeuble dont la reference_immeuble est au format
+// CRG (8 chiffres), et que sa référence n'est PAS déjà à ce format, on lui attribue
+// « {reference_immeuble}-{9001+} » (lot hors CRG). Une seule fois : si déjà au format
+// CRG, on n'y touche pas.
+if (!empty($immId) && (int)$immId > 0) {
+    require_once dirname(__DIR__) . '/inc/ref_generator.php';
+    $stRef = $pdo->prepare("SELECT reference_bien FROM biens WHERE id = ?");
+    $stRef->execute([$bienId]);
+    $curRef = (string)($stRef->fetchColumn() ?: '');
+    if (!preg_match('/^\d{8}-/', $curRef)) {
+        $newRef = ref_generate_bien_immeuble($pdo, (int)$immId);
+        if ($newRef !== null) {
+            $data['reference_bien'] = $newRef;
+            error_log("[bien_autosave] ref recodée CRG bien={$bienId} immeuble={$immId} : {$curRef} -> {$newRef}");
+        }
+    }
+}
+
+// Résolution finale : type_bien (code stable) → ids en base (nouveau + legacy).
 // Doit rester APRÈS protectedFields, sinon le unset id_type_bien (absent du POST
 // quand le frontend envoie type_bien) écraserait la valeur résolue ici.
+//
+// Migration 20260430_bien_types : on alimente DEUX colonnes en cohérence :
+//   - biens.id_bien_type → FK vers bien_types (référentiel unifié, source de
+//     vérité pour LBC/SeLoger/FNAIM)
+//   - biens.id_type_bien → FK historique vers types_bien_legacy (préservée
+//     pour permettre un rollback du code sans toucher à la BDD)
+// Cf. inc/bien_type_helper.php pour la logique de mapping (incl. fallback
+// sémantique pour les codes nouveaux absents en legacy : studio→appartement,
+// villa→maison, etc.).
 $typeBienCode = $str('type_bien');
 if ($typeBienCode !== '') {
-    $stmtT = $pdo->prepare("SELECT id FROM types_bien WHERE code = ? LIMIT 1");
-    $stmtT->execute([$typeBienCode]);
-    $tbId = (int)$stmtT->fetchColumn();
-    if ($tbId > 0) {
-        $data['id_type_bien'] = $tbId;
+    require_once dirname(__DIR__) . '/inc/bien_type_helper.php';
+    $resolved = bien_type_resolve($pdo, $typeBienCode);
+
+    // CRITIQUE : on FORCE l'écriture des deux colonnes même si l'une retourne
+    // null. Sans ça, l'ancienne valeur reste en BDD (cas observé : user clique
+    // "Appartement" → id_type_bien mis à jour vers legacy.appartement, mais
+    // id_bien_type ne change pas → reste sur l'ancien type "maison" → le
+    // COALESCE(bt.code, btb.code) au reload prend bt.code='maison' en priorité.
+    //
+    // Garde : ne pas tenter d'écrire id_bien_type si la colonne n'existe pas
+    // (instances pré-migration 20260430_bien_types). On détecte une seule fois
+    // par requête et on cache via static.
+    static $hasIdBienTypeCol = null;
+    if ($hasIdBienTypeCol === null) {
+        try {
+            $hasIdBienTypeCol = (bool)$pdo->query("SHOW COLUMNS FROM biens LIKE 'id_bien_type'")->fetchColumn();
+        } catch (Throwable) { $hasIdBienTypeCol = false; }
     }
+    if ($hasIdBienTypeCol) {
+        $data['id_bien_type'] = $resolved['id_bien_type']; // peut être NULL si pas trouvé
+    }
+    $data['id_type_bien'] = $resolved['id_type_bien']; // peut être NULL si pas trouvé
+
+    error_log(sprintf(
+        '[bien_autosave] type_bien resolution — code=%s id_bien_type=%s id_type_bien=%s (col_new_exists=%s)',
+        $typeBienCode,
+        $resolved['id_bien_type'] === null ? 'NULL' : (string)$resolved['id_bien_type'],
+        $resolved['id_type_bien'] === null ? 'NULL' : (string)$resolved['id_type_bien'],
+        $hasIdBienTypeCol ? '1' : '0'
+    ));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -551,6 +708,38 @@ $params[':_id'] = $bienId;
 try {
     $pdo->prepare("UPDATE biens SET " . implode(', ', $sets) . ", date_modification = NOW() WHERE id = :_id")
         ->execute($params);
+
+    // ── Cascade archive bien → annonces (2026-05-27) ──────────────
+    // Règle métier : quand on archive un bien, toutes ses annonces doivent
+    // être archivées et coupées de toute diffusion. L'inverse N'EST PAS vrai :
+    // archiver une annonce ne touche pas au bien (qui reste en gestion).
+    if (isset($data['statut_bien']) && (string)$data['statut_bien'] === 'archive') {
+        try {
+            // Construit la liste des colonnes visible_* qui existent réellement
+            // pour éviter erreur 1054 si la BDD est partiellement migrée.
+            $visibleCols = ['visible_portails', 'visible_site', 'visible_maboximmo', 'visible_site_perso'];
+            $setsVis = ['`statut` = \'archive\''];
+            try {
+                $stCol = $pdo->query("SHOW COLUMNS FROM annonces LIKE 'etat_publication'");
+                if ($stCol->fetchColumn()) $setsVis[] = "`etat_publication` = 'archive'";
+            } catch (Throwable) {}
+            foreach ($visibleCols as $col) {
+                try {
+                    $stCol = $pdo->query("SHOW COLUMNS FROM annonces LIKE " . $pdo->quote($col));
+                    if ($stCol->fetchColumn()) $setsVis[] = "`{$col}` = 0";
+                } catch (Throwable) {}
+            }
+            $setsVis[] = "`date_modification` = NOW()";
+            $sqlCasc = "UPDATE annonces SET " . implode(', ', $setsVis)
+                     . " WHERE id_bien = :id_bien";
+            $stCasc = $pdo->prepare($sqlCasc);
+            $stCasc->execute([':id_bien' => $bienId]);
+            $cascadedAnnoncesCount = $stCasc->rowCount();
+        } catch (Throwable $e) {
+            error_log('[bien_autosave cascade archive] ' . $e->getMessage());
+            $cascadedAnnoncesCount = 0;
+        }
+    }
 
     // ── Propagation designation → annonces.accroche_commerciale si vide ──
     // Permet de remplir automatiquement l'accroche de la derniere annonce
@@ -606,17 +795,14 @@ try {
     $annonceId = (int)$stmtAnn->fetchColumn();
 
     // Create annonce if needed — hérite id_societe/id_agence/id_user (commercial) du bien
-    if ($annonceId <= 0 && $annonceTransaction !== '') {
-        $stB = $pdo->prepare("SELECT id_agence, id_user_actuel, id_societe FROM biens WHERE id = ?");
-        $stB->execute([$bienId]);
-        $bRow = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
-        $finalSoc    = (int)($bRow['id_societe']     ?? 0) ?: ($societeId ?: 0);
-        $finalAgence = (int)($bRow['id_agence']      ?? 0) ?: (int)($_SESSION['id_agence'] ?? 0);
-        $finalUser   = (int)($bRow['id_user_actuel'] ?? 0) ?: (int)($_SESSION['user_id']  ?? 0);
-        $pdo->prepare("INSERT INTO annonces (id_bien, id_societe, id_agence, id_user, type_transaction, date_creation, date_modification) VALUES (?, ?, ?, ?, ?, NOW(), NOW())")
-            ->execute([$bienId, $finalSoc ?: null, $finalAgence ?: null, $finalUser ?: null, $annonceTransaction]);
-        $annonceId = (int)$pdo->lastInsertId();
-    }
+    // ⚠️ 2026-04-22 : auto-création d'annonce DÉSACTIVÉE (flow validation bien obligatoire).
+    // L'annonce est désormais créée EXCLUSIVEMENT via api/annonce_create.php, déclenché
+    // par le modal UI "Créer une annonce ?" après validation du bien. On ne crée plus
+    // automatiquement à la réception d'un `annonce_transaction` en POST.
+    //
+    // Ancien comportement (pour mémoire) : création silencieuse avec héritage
+    // id_societe/id_agence/id_user du bien. Retiré pour garantir que chaque annonce
+    // passe par le flow de validation Ubiflow explicite.
 
     if ($annonceId > 0 && $hasAnnonceFieldInPost) {
         $annData = [
@@ -694,26 +880,60 @@ try {
         $autoActivated = bien_maybe_activate($pdo, $bienId);
     }
 
-    // ── Recalcul honoraires / loyer CC si champs impactants modifiés ──
-    // Déclencheurs : surface, charges, adresse (CP), zone_tendue
+    // ── Recalcul honoraires / loyer CC / dépôt / majoré si champs impactants modifiés ──
+    // Déclencheurs : surface, charges, adresse (CP), zone_tendue, encadrement
     $triggers = [
         'surface_habitable', 'surface_totale', 'charges_locatives',
         'code_postal', 'adresse_1', 'zone_tendue',
+        'enc_loyer_max', 'enc_loyer_ref', 'enc_loyer_min',
+        'annonce_loyer', 'loyer_reference_majore',
     ];
     $shouldRecalc = false;
     foreach ($triggers as $_t) {
         if (array_key_exists($_t, $_POST)) { $shouldRecalc = true; break; }
     }
-    $loyerCC = null;
-    $honoCalc = null;
-    if ($shouldRecalc && $bienId > 0) {
-        $stA = $pdo->prepare("SELECT id FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
-        $stA->execute([$bienId]);
-        $aid = (int)$stA->fetchColumn();
-        if ($aid > 0) {
-            require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
-            $honoCalc = honoraires_recalc_save($pdo, $aid, false);
-            $loyerCC  = loyer_cc_recalc_save($pdo, $aid);
+    $loyerCC = null; $honoCalc = null; $depot = null; $majore = null;
+    $loyerHC = null; $complementLoyer = null; $encZone = null;
+    if ($bienId > 0) {
+        require_once dirname(__DIR__) . '/inc/honoraires_helper.php';
+        // Auto-fill du label de zone (indépendant de $shouldRecalc — dès que le CP
+        // est renseigné, on tente le lookup)
+        if (array_key_exists('code_postal', $_POST) || array_key_exists('adresse_1', $_POST)) {
+            $encZone = enc_zone_label_recalc_save($pdo, $bienId);
+        }
+        if ($shouldRecalc) {
+            $stA = $pdo->prepare("SELECT id FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
+            $stA->execute([$bienId]);
+            $aid = (int)$stA->fetchColumn();
+            if ($aid > 0) {
+                // Adresse (CP) modifiée → recalcul de la ZONE d'encadrement et de ses
+                // loyers de référence/majoré/min (ex. Bron → Lyon 7 : la zone change).
+                if (array_key_exists('code_postal', $_POST) || array_key_exists('adresse_1', $_POST)) {
+                    require_once dirname(__DIR__) . '/inc/encadrement_helper.php';
+                    $stCp = $pdo->prepare("SELECT COALESCE(i.code_postal, b.code_postal) cp FROM biens b LEFT JOIN immeubles i ON i.id = b.id_immeuble WHERE b.id = ?");
+                    $stCp->execute([$bienId]);
+                    $cpNow   = trim((string)($stCp->fetchColumn() ?: ''));
+                    $zoneNow = $cpNow !== '' ? enc_cp_to_zone($cpNow) : null;
+                    if ($zoneNow !== null) {
+                        // Nouvelle adresse en zone encadrée → applique zone + ref/max/min + active.
+                        enc_auto_apply($pdo, $aid);
+                    } else {
+                        // Hors zone encadrée (ex. Bron) → désactive l'encadrement et purge les loyers de réf.
+                        $pdo->prepare("UPDATE biens SET enc_loyer_ref = NULL, enc_loyer_max = NULL, enc_loyer_min = NULL WHERE id = ?")->execute([$bienId]);
+                        $pdo->prepare("UPDATE annonces SET zone_encadrement_loyer = 0 WHERE id = ?")->execute([$aid]);
+                    }
+                }
+                $majore   = loyer_majore_recalc_save($pdo, $aid);
+                $loyerHC  = loyer_hc_recalc_save($pdo, $aid);
+                $depot    = depot_garantie_recalc_save($pdo, $aid);
+                $honoCalc = honoraires_recalc_save($pdo, $aid, false);
+                $loyerCC  = loyer_cc_recalc_save($pdo, $aid);
+                // Re-lecture du complement pour renvoyer valeur à jour
+                $stC = $pdo->prepare("SELECT complement_loyer FROM annonces WHERE id = ? LIMIT 1");
+                $stC->execute([$aid]);
+                $cv = $stC->fetchColumn();
+                $complementLoyer = $cv !== false && $cv !== null ? (float)$cv : null;
+            }
         }
     }
 
@@ -722,7 +942,13 @@ try {
         'saved_at'       => date('H:i'),
         'auto_activated' => $autoActivated,
         'loyer_cc'       => $loyerCC,
+        'loyer_hc'       => $loyerHC,
+        'loyer_reference_majore' => $majore,
+        'complement_loyer'       => $complementLoyer,
+        'depot_garantie' => $depot,
+        'enc_zone'       => $encZone,
         'honoraires'     => $honoCalc,
+        'cascaded_annonces' => $cascadedAnnoncesCount ?? null,
     ]);
 } catch (Throwable $e) {
     error_log('[bien_autosave] ' . $e->getMessage());

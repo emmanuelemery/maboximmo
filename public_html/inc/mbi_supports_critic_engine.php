@@ -273,10 +273,49 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
         $isSuperAdmin = ($roleId === 1);
 
         try {
-            $st = $pdo->prepare("SELECT * FROM biens WHERE id = :id LIMIT 1");
+            // Jointure immeuble : les infos COMMUNES de copropriété (nb lots, budget
+            // prévisionnel, total tantièmes, statut juridique) sont portées par l'immeuble
+            // depuis la migration 2026-06-17. On les ramène avec un préfixe _imm_ puis on
+            // les overlay sur $bien (fallback colonnes biens legacy si immeuble vide).
+            $st = $pdo->prepare("
+                SELECT b.*,
+                       i.adresse_1                        AS _imm_adresse_1,
+                       i.code_postal                      AS _imm_code_postal,
+                       i.ville                            AS _imm_ville,
+                       i.copro_nb_lots                    AS _imm_copro_nb_lots,
+                       i.copro_budget_previsionnel_annuel AS _imm_copro_budget_previsionnel_annuel,
+                       i.copro_tantiemes_total            AS _imm_copro_tantiemes_total,
+                       i.copro_procedure                  AS _imm_copro_procedure,
+                       i.alur_copropriete_plan_sauvegarde AS _imm_alur_copropriete_plan_sauvegarde,
+                       i.alur_copropriete_etat_carence    AS _imm_alur_copropriete_etat_carence
+                FROM biens b
+                LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                WHERE b.id = :id LIMIT 1
+            ");
             $st->execute([':id' => $id_bien]);
             $bien = $st->fetch(PDO::FETCH_ASSOC);
             if (!$bien) return null;
+
+            // Overlay ADRESSE : l'adresse est portée par l'immeuble (le bien n'a souvent
+            // ni ville ni CP propres). On retombe sur l'immeuble si le champ bien est vide,
+            // sinon les contrôles affiches/annonces réclament à tort « Ville manquante ».
+            foreach (['adresse_1', 'code_postal', 'ville'] as $af) {
+                if (trim((string)($bien[$af] ?? '')) === '' && trim((string)($bien['_imm_' . $af] ?? '')) !== '') {
+                    $bien[$af] = $bien['_imm_' . $af];
+                }
+            }
+
+            // Overlay copro : valeur immeuble prioritaire, fallback legacy biens.*
+            if (($bien['_imm_copro_nb_lots'] ?? null) !== null && (int)$bien['_imm_copro_nb_lots'] > 0) {
+                $bien['copro_nb_lots'] = (int)$bien['_imm_copro_nb_lots'];
+            }
+            $bien['copro_budget_previsionnel_annuel'] = $bien['_imm_copro_budget_previsionnel_annuel'] ?? null;
+            $bien['copro_tantiemes_total']            = $bien['_imm_copro_tantiemes_total'] ?? null;
+            foreach (['copro_procedure','alur_copropriete_plan_sauvegarde','alur_copropriete_etat_carence'] as $cf) {
+                if (($bien['_imm_' . $cf] ?? null) !== null) {
+                    $bien[$cf] = (int)$bien['_imm_' . $cf];
+                }
+            }
             if (!$isSuperAdmin && $idSocSess !== null) {
                 $idSocBien = (int)($bien['id_societe'] ?? 0);
                 if ($idSocBien > 0 && $idSocBien !== $idSocSess) return null;
@@ -358,12 +397,19 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
         }
 
         // Négociateur (user)
+        // SOURCE DE VÉRITÉ = le « Commercial attribué » de l'annonce (annonces.id_user),
+        // saisi dans la Card Diffusion. Les colonnes biens.id_user_actuel /
+        // id_user_negociateur ne sont qu'un fallback legacy : sur beaucoup de biens
+        // elles restent vides alors que l'annonce porte bien un commercial, ce qui
+        // produisait un faux « Aucun négociateur rattaché » dans les mentions légales.
         $negociateur = null;
-        $idNego = (int)($bien['id_user_actuel'] ?? $bien['id_user_negociateur'] ?? 0);
+        $idNego = (int)(($annonce['id_user'] ?? 0)
+            ?: ($bien['id_user_actuel'] ?? 0)
+            ?: ($bien['id_user_negociateur'] ?? 0));
         if ($idNego > 0) {
             try {
                 // Récupère telephone_pro (diffusion) — pas telephone (perso, jamais diffusé)
-                $st = $pdo->prepare("SELECT id, nom, prenom, email, telephone_pro FROM users WHERE id = :id LIMIT 1");
+                $st = $pdo->prepare("SELECT id, nom, prenom, email, telephone_pro, photo_url, avatar_url FROM users WHERE id = :id LIMIT 1");
                 $st->execute([':id' => $idNego]);
                 $negociateur = $st->fetch(PDO::FETCH_ASSOC) ?: null;
             } catch (Throwable) { $negociateur = null; }

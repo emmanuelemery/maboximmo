@@ -54,7 +54,9 @@ if (!$apiKey) {
     exit;
 }
 
-$model = defined('OPENAI_TEXT_MODEL') ? OPENAI_TEXT_MODEL : 'gpt-4o-mini';
+// Use the configured model, fallback to gpt-3.5-turbo (most stable)
+$model = (defined('OPENAI_TEXT_MODEL') && OPENAI_TEXT_MODEL && OPENAI_TEXT_MODEL !== 'gpt-5') ? OPENAI_TEXT_MODEL : 'gpt-3.5-turbo';
+error_log('chatgpt_draft: Using model=' . $model);
 
 $data = json_decode(file_get_contents('php://input'), true);
 if (!isset($data['prompt'])) {
@@ -123,17 +125,26 @@ try {
     $error = curl_error($ch);
     curl_close($ch);
 
+    error_log('chatgpt_draft: HTTP code=' . $httpCode . ', response_length=' . strlen($response));
+
     if ($response === false || $error) {
         throw new Exception('OpenAI API request failed: ' . $error);
     }
 
     if ($httpCode !== 200) {
-        throw new Exception('OpenAI API error: HTTP ' . $httpCode . ' - ' . $response);
+        error_log('chatgpt_draft: API returned error - ' . substr($response, 0, 500));
+        throw new Exception('OpenAI API error: HTTP ' . $httpCode . ' - ' . substr($response, 0, 200));
     }
 
     $result = json_decode($response, true);
 
+    // Check for OpenAI error in response
+    if (isset($result['error'])) {
+        throw new Exception('OpenAI error: ' . ($result['error']['message'] ?? 'Unknown error'));
+    }
+
     if (!isset($result['choices'][0]['message']['content'])) {
+        error_log('chatgpt_draft: Invalid response structure - ' . json_encode($result));
         throw new Exception('Invalid OpenAI response structure');
     }
 
@@ -161,14 +172,25 @@ try {
     }
 
     if (empty($sujet) || empty($corps)) {
-        error_log('chatgpt_draft: contenu brut = ' . $content);
-        throw new Exception('Réponse IA invalide — réessayez');
+        error_log('chatgpt_draft: Raw content from AI = ' . $content);
+        error_log('chatgpt_draft: Parsed JSON = ' . json_encode($parsed));
+        error_log('chatgpt_draft: Final values - sujet="' . $sujet . '", corps="' . substr($corps, 0, 100) . '"');
+
+        // Return detailed error to help debug
+        throw new Exception('Réponse IA invalide — sujet: ' . ($sujet ? 'OK (' . strlen($sujet) . ' chars)' : 'EMPTY') . ', corps: ' . ($corps ? 'OK (' . strlen($corps) . ' chars)' : 'EMPTY'));
     }
 
     echo json_encode(['success' => true, 'sujet' => $sujet, 'corps' => $corps]);
 
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    $message = $e->getMessage();
+    error_log('chatgpt_draft EXCEPTION: ' . $message);
+    echo json_encode([
+        'success' => false,
+        'message' => $message,
+        'debug_model' => $model ?? 'UNDEFINED',
+        'debug_apiKey_set' => !empty($apiKey)
+    ]);
 }
 ?>

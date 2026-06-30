@@ -56,18 +56,35 @@ try {
         'id_societe' => $idSoc, 'id_agence' => $idAge,
     ]);
 
-    $ins = $pdo->prepare("INSERT INTO biens
-        (id_proprietaire, id_tiers, id_agence, id_societe, id_type_bien, id_immeuble,
-         designation, type_commercialisation,
-         adresse_1, code_postal, ville, latitude, longitude, precision_geoloc,
-         date_creation, date_modification)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'vente', ?, ?, ?, ?, ?, ?, NOW(), NOW())");
-    $ins->execute([
-        $idProp, $idTiers ?: null, $idAge, $idSoc, $idTypeBien, $idImmeuble ?: null,
-        $designation,
-        $adresse1 ?: null, $cp ?: null, $ville ?: null, $lat, $lng, $placeId ? 'google' : null,
-    ]);
-    $idBien = (int)$pdo->lastInsertId();
+    // ── ANTI-DOUBLON : réutilise un bien EXISTANT plutôt que d'en créer un copie ──
+    // Si ce propriétaire a déjà UN SEUL bien actif dans cet immeuble, c'est le même
+    // bien physique → on ouvre son dossier au lieu de fabriquer un doublon (VTE-…).
+    // (S'il en a plusieurs = immeuble multi-lots ambigu → on crée, pas de régression.)
+    $idBien = 0; $reused = false;
+    if ($idImmeuble) {
+        $stDup = $pdo->prepare("SELECT id FROM biens
+            WHERE id_proprietaire = ? AND id_immeuble = ?
+              AND (statut_bien IS NULL OR statut_bien NOT IN ('supprime','archive'))
+            LIMIT 2");
+        $stDup->execute([$idProp, $idImmeuble]);
+        $matches = $stDup->fetchAll(PDO::FETCH_COLUMN);
+        if (count($matches) === 1) { $idBien = (int)$matches[0]; $reused = true; }
+    }
+
+    if ($idBien === 0) {
+        $ins = $pdo->prepare("INSERT INTO biens
+            (id_proprietaire, id_tiers, id_agence, id_societe, id_type_bien, id_immeuble,
+             designation, type_commercialisation,
+             adresse_1, code_postal, ville, latitude, longitude, precision_geoloc,
+             date_creation, date_modification)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'vente', ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+        $ins->execute([
+            $idProp, $idTiers ?: null, $idAge, $idSoc, $idTypeBien, $idImmeuble ?: null,
+            $designation,
+            $adresse1 ?: null, $cp ?: null, $ville ?: null, $lat, $lng, $placeId ? 'google' : null,
+        ]);
+        $idBien = (int)$pdo->lastInsertId();
+    }
 
     // Ouvre le dossier (crée + seed vendeur depuis le propriétaire) à l'étape estimation.
     $idDossier = dv_ensure_for_bien($pdo, $idBien, ['source' => 'manual', 'id_user' => current_user_id()]);
@@ -75,6 +92,7 @@ try {
     echo json_encode([
         'ok'         => true,
         'id_bien'    => $idBien,
+        'reused'     => $reused,   // true = bien existant réutilisé (pas de doublon créé)
         'id_dossier' => $idDossier,
         'id_immeuble'=> $idImmeuble ?: null,
         // Après création, on va directement sur le DOSSIER (cockpit) — le bien se

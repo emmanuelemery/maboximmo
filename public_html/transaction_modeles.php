@@ -35,6 +35,7 @@ $idDossier = (int)($_GET['dossier'] ?? 0); // contexte dossier (optionnel)
 include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 <style>
+.agency-content{min-height:100vh;background:linear-gradient(135deg,rgba(154,170,132,.18) 0%,rgba(255,255,255,0) 35%,rgba(72,120,166,.14) 60%,rgba(255,255,255,0) 85%,rgba(201,123,46,.16) 100%),#fafbfc !important;background-attachment:fixed !important;}
 .tm-wrap{max-width:1000px;margin:0 auto;padding:10px 16px 48px;}
 .tm-grp{margin-bottom:26px;}
 .tm-grp h2{font-size:15px;font-weight:900;color:#0f172a;margin:0 0 12px;}

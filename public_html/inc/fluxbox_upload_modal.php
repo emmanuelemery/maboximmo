@@ -82,8 +82,14 @@ try {
         <!-- ───── Classement GED — boutons cascade (replié par défaut, après dropzone visuellement) ───── -->
         <details class="fbx-meta-collapse" id="fbx-meta-details">
         <summary class="fbx-meta-summary">
-            ⚖️ <strong>Préciser ou corriger le contexte</strong>
-            <span class="fbx-meta-summary-hint">(optionnel — l'IA décide automatiquement à partir du document)</span>
+            <span class="fbx-ctx-bar" id="fbx-ctx-bar">
+                <span class="fbx-ctx-chip" data-k="soc">🏢 <b>—</b></span>
+                <span class="fbx-ctx-sep">·</span>
+                <span class="fbx-ctx-chip" data-k="age">🏬 <b>—</b></span>
+                <span class="fbx-ctx-sep">·</span>
+                <span class="fbx-ctx-chip" data-k="met">💼 <b>—</b></span>
+            </span>
+            <span class="fbx-meta-summary-hint">— clique pour corriger · sinon l'IA complète depuis le document</span>
         </summary>
         <div class="fbx-meta-block">
 
@@ -694,6 +700,17 @@ try {
 .fbx-meta-summary:hover { background: rgba(0,0,0,0.02); }
 .fbx-meta-summary strong { color: #243B5C; }
 .fbx-meta-summary-hint { font-size: 11.5px; color: #94a3b8; font-weight: 400; }
+/* Barre de contexte compacte (société · agence · métier) dans le summary */
+.fbx-ctx-bar { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fbx-ctx-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; color: #475569;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 999px;
+    padding: 3px 10px; white-space: nowrap;
+}
+.fbx-ctx-chip b { color: #243B5C; font-weight: 800; }
+.fbx-meta-collapse[open] .fbx-ctx-chip { background: #eef2ff; border-color: #c7d2fe; }
+.fbx-ctx-sep { color: #cbd5e1; font-weight: 700; }
 @keyframes fbx-modal-in {
     from { opacity: 0; transform: translateY(20px) scale(0.98); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1497,6 +1514,13 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 setTimeout(() => applyPrefillCascade(prefill.n1, prefill.n2 || '', prefill.n3 || '', prefill.n4 || ''), 0);
             }
 
+            // Correctif UX (2026-06-30) — entité connue (bien/immeuble/tiers…) : le « QUI »
+            // (Métier › Domaine › Sous-domaine) est INDUIT. On replie ces 3 lignes en une puce
+            // verrouillée et on amène l'utilisateur directement sur la CATÉGORIE (la nature du doc).
+            if (prefill && prefill.n1 && prefill.entite_id_bdd) {
+                setTimeout(() => collapseQuiRows(prefill), 150);
+            }
+
             // Pré-remplissage NOM DE L'ENTITÉ + verrouillage si le bien est connu
             // (arrivée depuis transaction_index ou bien_360 avec contexte bien validé).
             // L'user n'a plus à saisir → évite les doublons et les saisies fantaisistes.
@@ -1569,6 +1593,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         rowSoc.querySelectorAll('.fbx-choice-btn').forEach(b => {
             b.classList.toggle('is-selected', parseInt(b.dataset.id) === socId);
         });
+        fbxUpdateCtxBar();
 
         // Charge ou utilise les agences pré-fetchées
         let agences = prefetchedAgences;
@@ -1624,6 +1649,26 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         choice.agence_id = agenceId;
         rowAg.querySelectorAll('.fbx-choice-btn').forEach(b => {
             b.classList.toggle('is-selected', parseInt(b.dataset.id) === agenceId);
+        });
+        fbxUpdateCtxBar();
+    }
+
+    /* ─── Barre de contexte compacte (résumé société · agence · métier) ───
+       Lit le libellé du bouton sélectionné de chaque ligne et l'affiche dans le
+       summary, pour que l'utilisateur voie l'essentiel SANS déplier ni scroller. */
+    function fbxCtxLabel(rowEl) {
+        const sel = rowEl && rowEl.querySelector('.fbx-choice-btn.is-selected .fbx-choice-label');
+        return sel ? sel.textContent.trim() : '';
+    }
+    function fbxUpdateCtxBar() {
+        const bar = document.getElementById('fbx-ctx-bar');
+        if (!bar) return;
+        const vals = { soc: fbxCtxLabel(rowSoc) || '—',
+                       age: fbxCtxLabel(rowAg) || '—',
+                       met: fbxCtxLabel(rowMet) || '—' };
+        Object.keys(vals).forEach(k => {
+            const b = bar.querySelector('.fbx-ctx-chip[data-k="' + k + '"] b');
+            if (b) b.textContent = vals[k];
         });
     }
 
@@ -1681,6 +1726,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         rowMet.querySelectorAll('.fbx-choice-btn').forEach(b => {
             b.classList.toggle('is-selected', b.dataset.code === n1);
         });
+        fbxUpdateCtxBar();
         // Reset cascade aval (N2-N5)
         rowN2.innerHTML = '<div class="fbx-loading">Chargement…</div>';
         rowN3.innerHTML = '<div class="fbx-row-empty">— Choisir un domaine d\'abord —</div>';
@@ -1844,6 +1890,53 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         container.querySelectorAll('.fbx-choice-btn').forEach(b =>
             b.classList.toggle('is-selected', b.dataset.code === code));
     }
+    /* ─── Replie les 3 niveaux « QUI » induits en une puce verrouillée (entité connue) ───
+       Le rangement (Métier › Domaine › Sous-domaine › entité) est déterminé par la page
+       d'origine (bien_360, immeuble_360, transaction_dossier…). On ne le redemande pas :
+       on l'affiche en lecture seule + bouton « Modifier le rangement », et le curseur
+       arrive directement sur CATÉGORIE. Cascade déjà jouée par applyPrefillCascade(). */
+    function fbxHumanizeSlug(s) {
+        if (!s) return '';
+        var map = {'03_GESTION_LOCATIVE':'Gestion locative','04_SYNDIC':'Syndic','05_TRANSACTION':'Transaction',
+                   '06_TRANSACTION':'Transaction','BIENS':'Biens','BIEN':'Bien','IMMEUBLES':'Immeubles','IMMEUBLE':'Immeuble',
+                   'PROPRIETAIRES':'Propriétaires','LOCATAIRES':'Locataires'};
+        if (map[s]) return map[s];
+        var t = String(s).replace(/^\d+[_-]/, '').replace(/[_-]+/g, ' ').trim();
+        return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
+    }
+    function collapseQuiRows(prefill) {
+        var rowMetEl = document.getElementById('fbx-row-metiers');
+        var rowN2El  = document.getElementById('fbx-row-n2');
+        var rowN3El  = document.getElementById('fbx-row-n3');
+        if (!rowMetEl || !rowN2El || !rowN3El) return;
+        var blocks = [rowMetEl, rowN2El, rowN3El].map(function(e){ return e.closest('.fbx-row-block'); }).filter(Boolean);
+        if (!blocks.length || document.getElementById('fbx-qui-chip')) return;
+
+        var parts = [fbxHumanizeSlug(prefill.n1), fbxHumanizeSlug(prefill.n2), fbxHumanizeSlug(prefill.n3)].filter(Boolean);
+        var ent = prefill.entite_nom ? (' · ' + prefill.entite_nom) : '';
+        var chip = document.createElement('div');
+        chip.id = 'fbx-qui-chip';
+        chip.className = 'fbx-row-block';
+        chip.style.cssText = 'background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 14px;margin-bottom:10px;';
+        chip.innerHTML =
+            '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+          + '<span style="font-size:16px;">📂</span>'
+          + '<span style="font-size:12.5px;color:#166534;"><strong>Rangé dans :</strong> '
+          + parts.join(' › ') + '<span style="color:#15803d;">' + ent + '</span></span>'
+          + '<button type="button" id="fbx-qui-edit" style="margin-left:auto;font-size:11px;font-weight:600;'
+          + 'border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:7px;padding:3px 10px;cursor:pointer;">✏️ Modifier le rangement</button>'
+          + '</div>'
+          + '<div style="margin-top:4px;font-size:11px;color:#15803d;">👉 Choisis seulement la <strong>catégorie</strong> du document ci-dessous.</div>';
+
+        blocks[0].parentNode.insertBefore(chip, blocks[0]);
+        blocks.forEach(function(b){ b.style.display = 'none'; });
+
+        document.getElementById('fbx-qui-edit').addEventListener('click', function(){
+            blocks.forEach(function(b){ b.style.display = ''; });
+            chip.remove();
+        });
+    }
+
     async function applyPrefillCascade(n1, n2, n3, n4) {
         if (!n1) return;
         await selectMetier(n1);            // render N2 + marquage auto N1
@@ -1923,12 +2016,13 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         // pour appliquer le nouveau bien/société/agence (sinon la 2ème ouverture ignore).
         // Et auto-ouvre l'accordéon classement pour que l'user voie la pré-sélection.
         const metaDetails = document.getElementById('fbx-meta-details');
+        // UX 2026-06-30 : section TOUJOURS repliée par défaut (zéro scroll). La barre de
+        // contexte compacte (société · agence · métier) résume l'état ; clic = déplie pour corriger.
+        if (metaDetails) metaDetails.open = false;
         if (window.FBX_PREFILL) {
             contextLoaded = false;
-            if (metaDetails) metaDetails.open = true;
             renderTargetCard(window.FBX_PREFILL);   // mini-card "Bien ciblé" visible immédiatement
-        } else if (metaDetails) {
-            metaDetails.open = false;   // sinon replié par défaut (UX "drop d'abord")
+        } else {
             removeTargetCard();
         }
         loadContext(); // charge sociétés + agences + métiers au premier open

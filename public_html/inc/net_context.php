@@ -75,6 +75,32 @@ function net_agence_id_from_host(?string $host = null): int
 }
 
 /**
+ * URL publique du VRAI site de l'agence (sous-dossier marque/ville servi par
+ * le .htaccess, ex. https://maboximmo.fr/regie-emery/lyon-7), et NON le portail
+ * général. En local (pas de routing .htaccess), repli sur ?net_agence=<id>.
+ *
+ * @return string '' si l'agence n'a pas de sous-dossier connu.
+ */
+function net_agence_site_url(int $idAgence): string
+{
+    if ($idAgence <= 0) return '';
+    $prefix = array_search($idAgence, net_path_map(), true);   // id → 'regie-emery/lyon-7'
+
+    $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+    $isLocal = $host === '' || str_contains($host, 'localhost') || str_starts_with($host, '127.') || str_contains($host, 'dev.');
+
+    if ($prefix !== false && !$isLocal) {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        return $scheme . '://' . $host . '/' . $prefix . '/';
+    }
+
+    // Repli universel (local + agence sans sous-dossier) : portail habillé via override.
+    return function_exists('app_url')
+        ? app_url('/mbi_annonces_index.php?net_agence=' . $idAgence)
+        : '/mbi_annonces_index.php?net_agence=' . $idAgence;
+}
+
+/**
  * Préfixe de sous-dossier agence injecté par le .htaccess (NET_PREFIX),
  * normalisé sans slash de bord. '' si on n'est pas sous un sous-dossier.
  */

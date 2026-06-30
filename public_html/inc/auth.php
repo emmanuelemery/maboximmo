@@ -37,6 +37,12 @@ function require_login(): void
         exit;
     }
 
+    // Le switcher "TEST RÔLE" a été retiré : on purge tout rôle de test résiduel
+    // pour qu'aucun admin ne reste bloqué sur une vue user/manager.
+    if (isset($_SESSION['test_role_id'])) {
+        unset($_SESSION['test_role_id']);
+    }
+
     // Session timeout : déconnexion automatique après SESSION_TIMEOUT secondes d'inactivité
     $now = time();
     if (!empty($_SESSION['last_activity']) && ($now - (int)$_SESSION['last_activity']) > SESSION_TIMEOUT) {
@@ -71,6 +77,30 @@ function require_login(): void
 function current_user_id(): int
 {
     return (int)($_SESSION['user_id'] ?? 0);
+}
+
+/**
+ * Utilisateur en LECTURE SEULE : voit tout (dans son périmètre) mais ne peut RIEN
+ * modifier. Basé sur users.lecture_seule. Ex. un propriétaire « consultation »
+ * (Christelle SABY) rattaché à des proprios mais sans pouvoir de décision.
+ * Résultat caché en session pour éviter une requête par appel.
+ */
+function is_readonly_user(): bool
+{
+    if (array_key_exists('is_readonly', $_SESSION)) return (bool)$_SESSION['is_readonly'];
+    $uid = (int)($_SESSION['user_id'] ?? 0);
+    if ($uid <= 0) return false;
+    $ro = false;
+    try {
+        $pdo = $GLOBALS['pdo'] ?? (function_exists('db') ? db() : null);
+        if ($pdo instanceof PDO) {
+            $st = $pdo->prepare("SELECT lecture_seule FROM users WHERE id = ? LIMIT 1");
+            $st->execute([$uid]);
+            $ro = (bool)$st->fetchColumn();
+        }
+    } catch (Throwable $e) { $ro = false; }   // colonne absente (pré-migration) → non bloquant
+    $_SESSION['is_readonly'] = $ro;
+    return $ro;
 }
 
 function current_role_id(): int

@@ -198,7 +198,7 @@ $layout_extra_js = <<<'EXTRAJS'
 .places-item:last-child { border-bottom: none; }
 .places-item:hover, .places-item.active { background: rgba(72,120,166,0.08); }
 </style>
-<script src="js/places.js"></script>
+<script src="js/places.js?v=<?= @filemtime(__DIR__ . '/js/places.js') ?: '1' ?>"></script>
 EXTRAJS;
 
 if ($GOOGLE_MAPS_API_KEY !== '') {

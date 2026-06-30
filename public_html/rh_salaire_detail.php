@@ -9,9 +9,15 @@ require_once __DIR__ . '/inc/rh_helpers.php';
 require_login();
 
 $roleId = current_role_id();
-if (!in_array($roleId, [1, 2, 3], true)) {
+if (!in_array($roleId, [1, 2, 3, 7, 8], true)) {
     deny_access('Accès RH restreint.');
 }
+
+// Périmètres : Super Admin (1,7) = toutes sociétés ; Admin (8) = sa société ;
+// Manager (2) = son agence ; Collaborateur (3) = lui-même.
+$rhSuperAdmin = in_array($roleId, [1, 7], true);
+$rhAdmin      = in_array($roleId, [1, 7, 8], true);
+$rhSocieteId  = (int)($_SESSION['id_societe'] ?? 0);
 
 $agenceScope    = can_manage_salaires_agence();
 $adminOnlyFields = ['salaire_brut_base', 'treizieme_mois', 'anciennete'];
@@ -97,6 +103,7 @@ $categories_doc = [
     'stationnement' => 'Stationnement',
     'frais_professionnels' => 'Frais Professionnels',
     'frais_reception' => 'Frais Réception',
+    'frais_deplacement' => 'Frais Déplacement',
 ];
 
 function h($v){ return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
@@ -130,8 +137,13 @@ if ($idUser <= 0) {
 // sauf admin (role 1) et sauf users avec gestion_salaires=1 (agenceScope>0)
 // qui peuvent voir les salaires de leur agence uniquement.
 $isSelf = ($idUser === current_user_id());
-if ($roleId !== 1 && !$isSelf) {
-    if ($agenceScope > 0) {
+if (!$rhSuperAdmin && !$isSelf) {
+    if ($rhAdmin) {
+        // Admin une société (rôle 8) → le salarié doit être de SA société
+        $chk = $pdo->prepare("SELECT id FROM users WHERE id = ? AND id_societe = ?");
+        $chk->execute([$idUser, $rhSocieteId]);
+        if (!$chk->fetch()) deny_access('Accès refusé : ce salarié n\'appartient pas à votre société.');
+    } elseif ($agenceScope > 0) {
         // User avec gestion_salaires (ex : Géraldine Chaponost)
         // → target user doit appartenir à la même agence
         $chk = $pdo->prepare("SELECT id FROM users WHERE id = ? AND id_agence = ?");
@@ -163,7 +175,7 @@ $sal['vehicule_immat'] = $user['vehicule_immat'] ?? '';
 
 // Verrou per-user : si termine_user=1 et qu'on n'est pas admin → lecture seule
 $payValidated = (int)($sal['termine_user'] ?? 0) === 1;
-$payLockedForUser = $payValidated && $roleId !== 1;
+$payLockedForUser = $payValidated && !$rhAdmin;
 
 // Get current user info for navigation
 $currentUserId = current_user_id();
@@ -176,8 +188,11 @@ if ($roleId === 2) { // Manager
 }
 
 // Get users based on role
-if ($roleId === 1) { // Admin: all users
+if ($rhSuperAdmin) { // Super Admin (1,7) : tous les users, toutes sociétés
     $stmtAllUsers = $pdo->query("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND est_salarie=1 ORDER BY nom");
+} elseif ($rhAdmin) { // Admin (8) : users de SA société
+    $stmtAllUsers = $pdo->prepare("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND est_salarie=1 AND id_societe=? ORDER BY nom");
+    $stmtAllUsers->execute([$rhSocieteId]);
 } elseif ($roleId === 2) { // Manager: only users from their agency
     $stmtAllUsers = $pdo->prepare("SELECT id, TRIM(CONCAT_WS(' ', IFNULL(prenom,''), IFNULL(nom,''))) AS nom FROM users WHERE actif=1 AND est_salarie=1 AND id_agence=? ORDER BY nom");
     $stmtAllUsers->execute([$currentUserAgencyId]);
@@ -232,7 +247,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['download_all_docs'])) {
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['validate_pay'])) {
     verify_csrf();
     if ($monthClosed) { http_response_code(403); exit('Mois clôturé'); }
-    if (!$isSelf && $roleId !== 1) {
+    if (!$isSelf && !$rhAdmin) {
         http_response_code(403); exit('Action réservée à l\'utilisateur ou à l\'administrateur');
     }
     if (!$sal['id']) {
@@ -247,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['validate_pay'])) {
 // Handle déverrouillage paye (admin only)
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['unlock_pay'])) {
     verify_csrf();
-    if ($roleId !== 1) { http_response_code(403); exit('Réservé admin'); }
+    if (!$rhAdmin) { http_response_code(403); exit('Réservé admin'); }
     if ($monthClosed) { http_response_code(403); exit('Mois clôturé'); }
     if ($sal['id']) {
         $pdo->prepare("UPDATE salaires SET termine_user=0 WHERE id=?")->execute([$sal['id']]);
@@ -404,10 +419,23 @@ foreach ($docs as $doc) {
     $docs_by_cat[$doc['categorie']][] = $doc;
 }
 
+// Map JS des justificatifs par rubrique : clic sur le montant → 1 doc = modal, plusieurs = liste.
+$salDocsJs = [];
+foreach ($docs_by_cat as $cat => $list) {
+    $catLabel = $categories_doc[$cat] ?? $cat;
+    foreach ($list as $d) {
+        $salDocsJs[$cat][] = [
+            'url'  => 'api/rh_salaire_doc_download.php?id=' . (int)$d['id'] . '&inline=1',
+            'name' => ($d['original_name'] ?: ('Document ' . (int)$d['id'])),
+            'cat'  => $catLabel,
+        ];
+    }
+}
+
 // Handle saves
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['toggle_modele'])) {
     verify_csrf();
-    if ($roleId !== 1) { http_response_code(403); exit('Réservé admin'); }
+    if (!$rhAdmin) { http_response_code(403); exit('Réservé admin'); }
     $val = $_POST['toggle_modele'] === '1' ? 1 : 0;
     if ($sal['id']) {
         $pdo->prepare("UPDATE salaires SET salaire_modele=? WHERE id=?")->execute([$val, $sal['id']]);
@@ -438,10 +466,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_field'])) {
         exit('Modification réservée à l\'administrateur');
     }
 
+    // Primes administrative & exceptionnelle (+ leurs commentaires) : admin (rôle 1) uniquement.
+    if (!$rhAdmin && in_array($field, ['prime_admin','prime_exceptionnelle','comment_prime_admin','comment_prime_exceptionnelle'], true)) {
+        http_response_code(403);
+        exit('Modification réservée à l\'administrateur');
+    }
+
     $allowed = ['salaire_brut_base','treizieme_mois','anciennete','avantage_nature','heures_supp','commission_ca','commission_ca_nouvelles_affaires','ik_nb_km','total_ik','remboursement_achat','frais_professionnels','frais_reception','prime_admin','prime_exceptionnelle','stationnement','frais_deplacement','vehicule_utilise','ik_montant','comment_salaire_brut_base','comment_treizieme_mois','comment_anciennete','comment_avantage_nature','comment_heures_supp','comment_commission_ca','comment_commission_ca_nouvelles_affaires','comment_ik_nb_km','comment_total_ik','comment_remboursement_achat','comment_frais_professionnels','comment_frais_reception','comment_prime_admin','comment_prime_exceptionnelle','comment_stationnement','comment_frais_deplacement','comment_vehicule_utilise','comment_ik_montant','commentaire_general'];
 
     // Add commentaire_admin only for admins
-    if ($roleId === 1) {
+    if ($rhAdmin) {
         $allowed[] = 'commentaire_admin';
     }
 
@@ -467,9 +501,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['save_field'])) {
 }
 
 $sections = [
-    'Rémunération de base' => ['salaire_brut_base'=>['label'=>'Salaire brut','type'=>'money'],'treizieme_mois'=>['label'=>'13e mois','type'=>'money'],'anciennete'=>['label'=>'Ancienneté (%)','type'=>'int'],'avantage_nature'=>['label'=>'Avantage nature','type'=>'money'],'heures_supp'=>['label'=>'Heures supplémentaires','type'=>'money'],'prime_admin'=>['label'=>'Prime administrative','type'=>'money'],'prime_exceptionnelle'=>['label'=>'Prime exceptionnelle','type'=>'money']],
+    'Rémunération de base' => ['salaire_brut_base'=>['label'=>'Salaire brut','type'=>'money'],'treizieme_mois'=>['label'=>'13e mois','type'=>'money'],'anciennete'=>['label'=>'Ancienneté (%)','type'=>'int'],'avantage_nature'=>['label'=>'Avantage nature','type'=>'money'],'heures_supp'=>['label'=>'Heures supplémentaires','type'=>'money'],'prime_admin'=>['label'=>'Prime administrative','type'=>'money']],
     'Achats & Frais' => ['stationnement'=>['label'=>'Stationnement','type'=>'money'],'remboursement_achat'=>['label'=>'Remboursement achat','type'=>'money'],'frais_professionnels'=>['label'=>'Frais professionnels','type'=>'money'],'frais_reception'=>['label'=>'Frais réception','type'=>'money'],'frais_deplacement'=>['label'=>'Frais déplacement','type'=>'money']],
-    'Primes & Commissions' => ['commission_ca'=>['label'=>'Commission CA','type'=>'money'],'commission_ca_nouvelles_affaires'=>['label'=>'Commission NA','type'=>'money']],
+    'Primes & Commissions' => ['commission_ca'=>['label'=>'Commission CA','type'=>'money'],'commission_ca_nouvelles_affaires'=>['label'=>'Commission NA','type'=>'money']]
+        + ($rhAdmin ? ['prime_exceptionnelle'=>['label'=>'Prime exceptionnelle','type'=>'money']] : []),
     'Indemnités Kilométriques' => ['ik_nb_km'=>['label'=>'Nombre km','type'=>'money','readonly'=>true],'total_ik'=>['label'=>'Total IK','type'=>'money','readonly'=>true],'ik_montant'=>['label'=>'IK montant (€)','type'=>'money','readonly'=>true],'vehicule_immat'=>['label'=>'Immatriculation','type'=>'text','readonly'=>true]],
 ];
 
@@ -524,16 +559,27 @@ $layout_head_kpis = '
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#3a7a6a">'.number_format($kpiAvant,0,',',' ').'</div><div class="ph-kpi-lbl">Avantages</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#7a6830">'.number_format($kpiPrimes,0,',',' ').'</div><div class="ph-kpi-lbl">Primes</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#4878a6">'.number_format($kpiIK,0,',',' ').'</div><div class="ph-kpi-lbl">IK</div></div>
-    <div class="ph-kpi"><div class="ph-kpi-val" style="color:#8a5040">'.h($nom_complet).'</div><div class="ph-kpi-lbl">Collaborateur</div></div>
+    <div class="ph-kpi ph-kpi-user"><div class="ph-kpi-val">'.h($nom_complet).'</div><div class="ph-kpi-lbl">Collaborateur</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#2f587d;font-weight:700">'.number_format($kpiTotal,0,',',' ').'</div><div class="ph-kpi-lbl">Total brut</div></div>
 ';
 
+require_once __DIR__ . '/inc/mail_button.php';
+$_mailBtn = mail_button('USER', (int)$idUser, ['back' => 'rh_salaire_detail.php?id_user='.$idUser.'&mois_ref='.urlencode($mois_ref), 'label' => 'Mail']);
 $layout_head_actions = '
+    '.$_mailBtn.'
     <a href="rh_user.php?highlight_user='.$idUser.'" class="ph-btn" title="Fiche collaborateur">Fiche</a>
     <a href="rh_user_historiq.php?user_id='.$idUser.'" class="ph-btn" title="Historique">Historiq.</a>
     <a href="rh_salaires.php" class="ph-btn primary" title="Retour liste">Liste</a>
     <span class="ph-btn dispo">attente</span>
 ';
+
+// Sous-titre affiché dans la topbar (période — collaborateur — refs)
+$layout_topbar_sub = mois_fr($mois_sel) . ' ' . $annee_sel
+    . ' — <a href="rh_user.php?highlight_user=' . $idUser . '" style="color:#7a9060;text-decoration:none">' . h($nom_complet) . '</a>'
+    . ' — User #' . $idUser
+    . ' — Salaire #' . ($sal['id'] ?? 'À créer')
+    . ($monthClosed  ? ' <span class="v2-badge locked">&#128274; Clôturé</span>' : '')
+    . ($payValidated ? ' <span class="v2-badge locked">&#128274; Paye validée</span>' : '');
 
 $_csrf_token_for_js = h(csrf_token());
 
@@ -591,6 +637,8 @@ $layout_extra_css = <<<'EXTRACSS'
     /* Champs formulaire */
     .fields-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; padding:4px 0 8px; }
     .fields-grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; padding:4px 0 8px; }
+    .fields-grid-6 { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; padding:4px 0 8px; }
+    @media (max-width:1200px) { .fields-grid-6 { grid-template-columns:repeat(3,1fr); } }
     .fields-grid-ik { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; padding:4px 0 8px; }
     .form-field { display:flex; flex-direction:column; gap:5px; }
     .form-field label { font-family:'DM Mono',monospace; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:0.15em; color:#7a7670; }
@@ -711,6 +759,19 @@ $layout_extra_css = <<<'EXTRACSS'
     .sec-collapsible.open { max-height:1000px; opacity:1; }
 
     @media (max-width:900px) { .fields-grid-ik,.comments-grid { grid-template-columns:1fr; } .sections-row { flex-direction:column; } }
+
+    /* ── KPI agrandis (en-tête détail salaire) ── */
+    .mbi-page-head .ph-kpi-strip { gap:18px; }
+    .mbi-page-head .ph-kpi { padding:10px 16px; border-radius:12px; gap:4px; }
+    .mbi-page-head .ph-kpi-val { font-size:22px; font-weight:700; }
+    .mbi-page-head .ph-kpi-lbl { font-size:10px; letter-spacing:.1em; }
+    /* Collaborateur en cours : mis en avant */
+    .mbi-page-head .ph-kpi-user {
+        background:linear-gradient(135deg,#2f587d,#3a6a92);
+        box-shadow:3px 3px 10px #b4c0cf,-2px -2px 8px #fff;
+    }
+    .mbi-page-head .ph-kpi-user .ph-kpi-val { color:#fff !important; font-size:20px; }
+    .mbi-page-head .ph-kpi-user .ph-kpi-lbl { color:#cdd9e6; }
 </style>
 EXTRACSS;
 
@@ -719,7 +780,7 @@ $layout_extra_js = '<meta name="csrf-token" content="' . $_csrf_token_for_js . '
 const _CSRF = document.querySelector(\'meta[name="csrf-token"]\')?.content || \'\';
 const MONTH_LOCKED = ' . ($monthClosed ? 'true' : 'false') . ';
 const PAY_VALIDATED = ' . ($payValidated ? 'true' : 'false') . ';
-const IS_ADMIN = ' . ($roleId === 1 ? 'true' : 'false') . ';
+const IS_ADMIN = ' . ($rhAdmin ? 'true' : 'false') . ';
 const PAY_LOCKED_FOR_USER = PAY_VALIDATED && !IS_ADMIN;
 let saveTimeout = {};
 function autoSaveField(fieldName, value) {
@@ -779,6 +840,30 @@ document.addEventListener(\'DOMContentLoaded\', function() {
         autoResizeTextarea(textarea);
     });
 });
+let _cmField = null;
+function openCommentModal(field, label) {
+    _cmField = field;
+    const src = document.getElementById(\'f-comment-\' + field);
+    const ta  = document.getElementById(\'cmodal-textarea\');
+    document.getElementById(\'cmodal-title\').textContent = \'Commentaire — \' + label;
+    ta.value = src ? src.value : \'\';
+    ta.readOnly = PAY_LOCKED_FOR_USER || MONTH_LOCKED;
+    document.getElementById(\'cmodal-save\').style.display = ta.readOnly ? \'none\' : \'\';
+    document.getElementById(\'comment-modal\').classList.add(\'show\');
+    setTimeout(() => { if (!ta.readOnly) ta.focus(); }, 50);
+}
+function closeCommentModal() {
+    document.getElementById(\'comment-modal\').classList.remove(\'show\');
+    _cmField = null;
+}
+function saveCommentModal() {
+    if (!_cmField) return;
+    const val = document.getElementById(\'cmodal-textarea\').value;
+    const src = document.getElementById(\'f-comment-\' + _cmField);
+    if (src) { src.value = val; autoResizeTextarea(src); }
+    autoSaveField(\'comment_\' + _cmField, val);
+    closeCommentModal();
+}
 function changeFilters() {
     const m = String(document.getElementById(\'f-mois\').value).padStart(2, \'0\');
     const a = document.getElementById(\'f-annee\').value;
@@ -993,39 +1078,16 @@ ob_start();
 ?>
 
             <!-- PAGE HEAD extra (admin comment) -->
-            <?php if ($roleId === 1): ?>
-            <div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:16px">
-                <div style="flex:1">
-                    <div class="page-head-comment-admin">
-                        <div class="comment-block-label">&#128274; Commentaire Admin</div>
-                        <textarea class="auto-resize-textarea" id="f-commentaire-admin"
-                                  placeholder="Commentaire réservé à l'administrateur..."
-                                  onchange="autoSaveField('commentaire_admin', this.value)"
-                                  oninput="autoResizeTextarea(this)"><?=h($sal['commentaire_admin']??'')?></textarea>
-                        <div class="save-status" id="status-commentaire_admin"></div>
-                    </div>
-                </div>
-                <div>
-                    <span class="page-head-sub">
-                        <?=mois_fr($mois_sel)?> <?=$annee_sel?>
-                        — <a href="rh_user.php?highlight_user=<?=$idUser?>" style="color:#7a9060;text-decoration:none" title="Fiche collaborateur"><?=h($nom_complet)?></a>
-                        — User #<?=$idUser?>
-                        — Salaire #<?=$sal['id']??'À créer'?>
-                        <?php if ($monthClosed): ?>&nbsp;<span class="v2-badge locked">&#128274; Clôturé</span><?php endif; ?>
-                        <?php if ($payValidated): ?>&nbsp;<span class="v2-badge locked">&#128274; Paye validée</span><?php endif; ?>
-                    </span>
-                </div>
-            </div>
-            <?php else: ?>
+            <?php if ($rhAdmin): ?>
             <div style="margin-bottom:16px">
-                <span class="page-head-sub" style="font-family:'DM Mono',monospace;font-size:11px;color:#7a9060">
-                    <?=mois_fr($mois_sel)?> <?=$annee_sel?>
-                    — <a href="rh_user.php?highlight_user=<?=$idUser?>" style="color:#7a9060;text-decoration:none" title="Fiche collaborateur"><?=h($nom_complet)?></a>
-                    — User #<?=$idUser?>
-                    — Salaire #<?=$sal['id']??'À créer'?>
-                    <?php if ($monthClosed): ?>&nbsp;<span class="v2-badge locked">&#128274; Clôturé</span><?php endif; ?>
-                    <?php if ($payValidated): ?>&nbsp;<span class="v2-badge locked">&#128274; Paye validée</span><?php endif; ?>
-                </span>
+                <div class="page-head-comment-admin">
+                    <div class="comment-block-label">&#128274; Commentaire Admin</div>
+                    <textarea class="auto-resize-textarea" id="f-commentaire-admin"
+                              placeholder="Commentaire réservé à l'administrateur..."
+                              onchange="autoSaveField('commentaire_admin', this.value)"
+                              oninput="autoResizeTextarea(this)"><?=h($sal['commentaire_admin']??'')?></textarea>
+                    <div class="save-status" id="status-commentaire_admin"></div>
+                </div>
             </div>
             <?php endif; ?>
 
@@ -1096,7 +1158,7 @@ ob_start();
                                 <option value="<?=$a?>" <?=$a==$annee_sel&&!in_array($annee_sel,$pillYears)?'selected':''?>><?=$a?></option>
                                 <?php endfor; ?>
                             </select>
-                            <?php if ($roleId === 1): ?>
+                            <?php if ($rhAdmin): ?>
                             <span class="filter-sep"></span>
                             <span class="filter-label" style="width:auto">Voir son modèle</span>
                             <label class="toggle toggle-sm" title="Marquer ce salaire comme modèle réutilisable">
@@ -1126,7 +1188,7 @@ ob_start();
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         Historique
                     </a>
-                    <?php if (!$payValidated && ($isSelf || $roleId === 1) && !$monthClosed): ?>
+                    <?php if (!$payValidated && ($isSelf || $rhAdmin) && !$monthClosed): ?>
                     <button type="button"
                             class="v2-btn danger"
                             onclick="validatePay()"
@@ -1134,7 +1196,7 @@ ob_start();
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                         Valider la paye de ce mois
                     </button>
-                    <?php elseif ($payValidated && $roleId === 1): ?>
+                    <?php elseif ($payValidated && $rhAdmin): ?>
                     <button type="button"
                             class="v2-btn primary"
                             onclick="unlockPay()"
@@ -1215,7 +1277,7 @@ ob_start();
                     <div class="line-l"></div>
                     <span class="sec-txt"><?=$title?></span>
                     <?php if ($title === 'Rémunération de base'): ?>
-                    <button class="sec-collapse-btn" id="collapse-btn-base" onclick="toggleSection('base')" title="Replier / déplier">
+                    <button class="sec-collapse-btn open" id="collapse-btn-base" onclick="toggleSection('base')" title="Replier / déplier">
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
                     </button>
                     <?php endif; ?>
@@ -1252,14 +1314,25 @@ ob_start();
                     <div class="line-r"></div>
                 </div>
 
-                <?php if ($title === 'Rémunération de base'): ?><div class="sec-collapsible" id="collapsible-base"><?php endif; ?>
-                <div class="<?=$isIK?'fields-grid-ik':($title==='Rémunération de base'?'fields-grid-4':'fields-grid')?>" style="margin-bottom:16px">
+                <?php if ($title === 'Rémunération de base'): ?><div class="sec-collapsible open" id="collapsible-base"><?php endif; ?>
+                <div class="<?=$isIK?'fields-grid-ik':($title==='Rémunération de base'?'fields-grid-6':'fields-grid')?>" style="margin-bottom:16px">
                         <?php foreach($fields as $fname => $meta):
+                            // Primes administrative & exceptionnelle : réservées à l'admin (rôle 1).
+                            // Le manager gère les paies de son équipe mais pas ces deux primes.
+                            if (in_array($fname, ['prime_admin','prime_exceptionnelle'], true) && !$rhAdmin) { continue; }
                             $isProtected = ($agenceScope > 0 && in_array($fname, $adminOnlyFields, true)) || !empty($meta['readonly']) || $payLockedForUser;
                             $colSpan = ($isIK && isset($ikPlacement[$fname])) ? ' style="'.$ikPlacement[$fname].'"' : '';
-                            // Document chargé pour ce champ ?
+                            // Document(s) chargé(s) pour ce champ ?
                             $fieldDoc = $docs_by_cat[$fname][0] ?? null;
                             $hasDoc = $fieldDoc !== null;
+                            $docCount = isset($docs_by_cat[$fname]) ? count($docs_by_cat[$fname]) : 0;
+                            // Clic sur le montant → ouvre le(s) justificatif(s) : 1 = modal, plusieurs = liste.
+                            $docClickAttr = $docCount > 0
+                                ? ' onclick="openRubriqueDocs(\''.$fname.'\')" style="cursor:pointer" title="'
+                                    .($docCount > 1
+                                        ? $docCount.' justificatifs joints — cliquer pour la liste'
+                                        : 'Justificatif joint — cliquer pour ouvrir').'"'
+                                : '';
                             // Immatriculation = cliquable vers carte grise
                             $isImmat = ($fname === 'vehicule_immat');
                         ?>
@@ -1277,22 +1350,23 @@ ob_start();
                                        value="<?=h(fmt_val($sal[$fname]??null, $meta['type']))?>"
                                        placeholder="<?=$meta['type']==='money'?'0,00':'0'?>"
                                        readonly
-                                       title="Modification réservée à l'administrateur">
+                                       <?=$docClickAttr ?: 'title="Modification réservée à l\'administrateur"'?>>
                                 <?php else: ?>
                                 <input type="text" id="f-<?=$fname?>"
                                        class="<?=$hasDoc?'has-doc':''?>"
                                        value="<?=h(fmt_val($sal[$fname]??null, $meta['type']))?>"
                                        placeholder="<?=$meta['type']==='money'?'0,00':'0'?>"
-                                       <?=$hasDoc?'onclick="openDoc(\'api/rh_salaire_doc_download.php?id='.(int)$fieldDoc['id'].'&inline=1\')" title="Cliquer pour ouvrir le document joint" style="cursor:pointer"':''?>
+                                       <?=$docClickAttr?>
                                        onchange="autoSaveField('<?=$fname?>', this.value)">
                                 <?php endif; ?>
                                 <?php if (!$isImmat): ?>
                                 <textarea id="f-comment-<?=$fname?>"
                                           class="auto-resize-textarea"
                                           placeholder="Commentaire..."
-                                          oninput="autoResizeTextarea(this)"
-                                          <?=$payLockedForUser?'readonly':''?>
-                                          onchange="autoSaveField('comment_<?=$fname?>', this.value)"><?=h($sal['comment_'.$fname]??'')?></textarea>
+                                          readonly
+                                          style="cursor:pointer"
+                                          title="Cliquer pour ouvrir en grand"
+                                          onclick="openCommentModal('<?=$fname?>', '<?=h(addslashes($meta['label']))?>')"><?=h($sal['comment_'.$fname]??'')?></textarea>
                                 <div class="save-status" id="status-<?=$fname?>"></div>
                                 <?php endif; ?>
                             </div>
@@ -1355,6 +1429,23 @@ ob_start();
 </div>
 <?php endforeach; ?>
 
+<!-- Modal commentaire (édition en grand) -->
+<div class="upload-modal" id="comment-modal" onclick="if(event.target===this)closeCommentModal()">
+    <div class="modal-box" style="max-width:560px">
+        <button class="modal-close-btn" onclick="closeCommentModal()">&#10005;</button>
+        <div class="modal-box-title" id="cmodal-title">Commentaire</div>
+        <textarea id="cmodal-textarea" placeholder="Saisir un commentaire..."
+                  style="width:100%;min-height:200px;resize:vertical;border-radius:10px;border:1px solid rgba(196,192,186,0.5);padding:12px 14px;font-family:inherit;font-size:14px;line-height:1.5;box-sizing:border-box"></textarea>
+        <div class="modal-btns" style="margin-top:14px">
+            <button onclick="closeCommentModal()" class="v2-btn" style="margin-right:8px">Fermer</button>
+            <button id="cmodal-save" onclick="saveCommentModal()" class="v2-btn success">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                Enregistrer
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Modal aperçu document (PDF / image inline) -->
 <div id="doc-preview-modal" class="doc-preview-modal" onclick="if(event.target===this)closeDocPreview()">
     <div class="doc-preview-box">
@@ -1373,6 +1464,57 @@ ob_start();
         </div>
     </div>
 </div>
+
+<!-- Liste des justificatifs (quand une rubrique en a plusieurs) -->
+<style>
+    .doc-list-modal{display:none;position:fixed;inset:0;background:rgba(26,24,22,0.55);backdrop-filter:blur(4px);z-index:2100;align-items:center;justify-content:center}
+    .doc-list-modal.show{display:flex}
+    .doc-list-box{background:#fff;border-radius:14px;width:min(440px,92vw);max-height:80vh;overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.3)}
+    .doc-list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eee}
+    .doc-list-head h3{margin:0;font-size:.95rem;color:#243B5C}
+    .doc-list-items{padding:10px}
+    .doc-list-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#f7f8fa;border:1px solid #eceef1;border-radius:9px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-size:.86rem;color:#243B5C;transition:.12s}
+    .doc-list-item:hover{background:#eef3fb;border-color:#cfe0f5}
+    .doc-list-item svg{color:#D4A047;flex-shrink:0}
+</style>
+<div id="doc-list-modal" class="doc-list-modal" onclick="if(event.target===this)closeDocList()">
+    <div class="doc-list-box">
+        <div class="doc-list-head">
+            <h3 id="doc-list-title">Justificatifs</h3>
+            <button type="button" onclick="closeDocList()" class="modal-close-btn" title="Fermer">×</button>
+        </div>
+        <div class="doc-list-items" id="doc-list-items"></div>
+    </div>
+</div>
+<script>
+window.SAL_DOCS = <?= json_encode($salDocsJs, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+function openRubriqueDocs(field){
+    var docs = (window.SAL_DOCS || {})[field];
+    if(!docs || !docs.length){ return; }
+    if(docs.length === 1){ previewDoc(docs[0].url, docs[0].name); return; }
+    var titleEl = document.getElementById('doc-list-title');
+    var list = document.getElementById('doc-list-items');
+    if(titleEl) titleEl.textContent = (docs[0].cat || 'Justificatifs') + ' — ' + docs.length + ' documents';
+    list.innerHTML = '';
+    docs.forEach(function(d){
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'doc-list-item';
+        btn.onclick = function(){ closeDocList(); previewDoc(d.url, d.name); };
+        var ic = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        ic.setAttribute('viewBox','0 0 24 24'); ic.setAttribute('width','16'); ic.setAttribute('height','16');
+        ic.setAttribute('fill','none'); ic.setAttribute('stroke','currentColor'); ic.setAttribute('stroke-width','2');
+        ic.innerHTML = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>';
+        var span = document.createElement('span');
+        span.textContent = d.name || 'Document';
+        btn.appendChild(ic); btn.appendChild(span);
+        list.appendChild(btn);
+    });
+    document.getElementById('doc-list-modal').classList.add('show');
+}
+function closeDocList(){ var m = document.getElementById('doc-list-modal'); if(m) m.classList.remove('show'); }
+document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeDocList(); });
+</script>
 
 <?php
 $layout_content = ob_get_clean();

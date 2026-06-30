@@ -3,6 +3,7 @@
     "description": "MaBoxImmo",
     "require": {
         "smalot/pdfparser": "^2.12",
-        "hfig/mapi": "^1.4"
+        "hfig/mapi": "^1.4",
+        "mpdf/mpdf": "^8.3"
     }
 }

@@ -156,10 +156,10 @@ if (!function_exists('fiche360_breadcrumb')) {
      * @param array $entites [['icon'=>'👤','label'=>'Bernadette ANTONY','url'=>'/tiers_360.php?id=5'], ...]
      * @param string $label  Libellé titre (ex: "Patrimoine", "Chaîne hiérarchique")
      */
-    function fiche360_breadcrumb(array $entites, string $label = 'Chaîne hiérarchique'): void {
+    function fiche360_breadcrumb(array $entites, string $label = 'Chaîne hiérarchique', string $rightHtml = ''): void {
         if (empty($entites)) return;
         echo '<div class="f360-chain">';
-        echo '<span class="f360-chain-label">' . h($label) . '</span>';
+        if ($label !== '') echo '<span class="f360-chain-label">' . h($label) . '</span>';
         $last = count($entites) - 1;
         foreach ($entites as $i => $e) {
             $cls = ($i === $last) ? 'active' : '';
@@ -171,6 +171,8 @@ if (!function_exists('fiche360_breadcrumb')) {
             }
             if ($i < $last) echo '<span class="f360-chain-arrow">→</span>';
         }
+        // Bloc aligné à droite (ex : boutons « À vendre » / « À louer »)
+        if ($rightHtml !== '') echo '<div style="margin-left:auto;display:flex;align-items:center;gap:10px">' . $rightHtml . '</div>';
         echo '</div>';
     }
 }
@@ -264,6 +266,7 @@ if (!function_exists('fiche360_checklist')) {
         foreach ($items as $i) if (!empty($i['ok'])) $nbOk++;
         $total = count($items);
 
+        echo '<!-- fiche360_layout VERSION onedrive-diag-20260606 -->';
         echo '<div class="f360-checklist">';
         echo '<h3>📋 ' . h($titre) . ' <span class="ratio">' . $nbOk . '/' . $total . '</span></h3>';
         foreach ($items as $it) {
@@ -274,6 +277,13 @@ if (!function_exists('fiche360_checklist')) {
             if (!empty($it['sublabel'])) echo ' <small>' . h($it['sublabel']) . '</small>';
             if (isset($it['count'])) echo ' <small>' . (int)$it['count'] . '/' . (int)($it['total'] ?? 0) . ' chargés</small>';
             echo '</span>';
+            // Bouton recherche assistée OneDrive (si pièce manquante + code fourni)
+            if (!$ok && !empty($it['search_code'])) {
+                echo '<button type="button" class="f360-ged-search-btn" '
+                   . 'data-type-code="' . h($it['search_code']) . '" '
+                   . 'data-type-label="' . h($it['label']) . '" '
+                   . 'title="Rechercher ce document dans le OneDrive général">🔎 Rechercher</button>';
+            }
             if (!$ok && !empty($it['add_url'])) {
                 echo '<a class="add" href="' . h($it['add_url']) . '">+</a>';
             }
@@ -289,9 +299,14 @@ if (!function_exists('fiche360_attach')) {
      * @param string $sectionLabel ex: "PROPRIÉTAIRE", "IMMEUBLE", "SYNDIC"
      * @param array  $links [['icon'=>'👤','name'=>'Bernadette ANTONY','ref'=>'OWN-2026-00207','url'=>'/tiers_360.php?id=5'], ...]
      */
-    function fiche360_attach(string $sectionLabel, array $links): void {
+    function fiche360_attach(string $sectionLabel, array $links, string $headerActionHtml = ''): void {
         echo '<div class="f360-attach">';
-        echo '<div class="lbl">' . h($sectionLabel) . '</div>';
+        if ($headerActionHtml !== '') {
+            echo '<div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+               . '<span>' . h($sectionLabel) . '</span>' . $headerActionHtml . '</div>';
+        } else {
+            echo '<div class="lbl">' . h($sectionLabel) . '</div>';
+        }
         foreach ($links as $l) {
             echo '<a href="' . h($l['url'] ?? '#') . '">';
             echo '<span class="ico">' . h($l['icon'] ?? '🔗') . '</span>';

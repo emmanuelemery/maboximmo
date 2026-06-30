@@ -31,7 +31,7 @@ $sbUserNom    = $_SESSION['nom']    ?? '';
 $sbCongesValidated = !empty($_SESSION['user_conges_validated_at'] ?? null);
 $sbLinkProfil  = './rh_profil.php';
 $sbLinkDocs    = './rh_documents.php';
-$sbLinkConges  = $sbCongesValidated ? './rh_conges_historiq.php' : './rh_conges_historiq_prov.php';
+$sbLinkConges  = $sbCongesValidated ? './rh_conges_historiq.php' : './rh_conges_historiq_user.php';
 $sbLinkAgence  = './rh_agence_user.php';
 ?>
 <link rel="stylesheet" href="css/sidebar.css">
@@ -56,7 +56,7 @@ $sbLinkAgence  = './rh_agence_user.php';
             <li><a href="./ged_dashboard.php" class="<?= $sbUserActive('ged_dashboard.php') ?>">
                 <span class="sb-icon">📦</span><span class="sb-label">Ma GED Box</span>
             </a></li>
-            <li><a href="./rh_dashboard_user.php" class="<?= $sbUserActive('rh_dashboard_user.php') ?>">
+            <li><a href="./rh_dashboard_user.php" class="<?= $sbUserActive('rh_dashboard.php') ?: $sbUserActive('rh_dashboard_user.php') ?>">
                 <span class="sb-icon">🏠</span><span class="sb-label">Tableau de bord</span>
             </a></li>
             <li><a href="<?= $sbLinkProfil ?>" class="<?= $sbUserActive(basename($sbLinkProfil)) ?>">

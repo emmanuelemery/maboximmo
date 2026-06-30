@@ -15,7 +15,7 @@ if (!function_exists('sb_active')) {
     }
 }
 
-$homeRh     = $_sbBase . ($isManager ? 'rh_dashboard.php' : 'rh_dashboard_user.php');
+$homeRh     = $_sbBase . 'rh_dashboard_user.php'; // « RH » = dashboard personnel, pour tous
 $homeAgency = $_sbBase . ($isManager ? 'agency_dashboard.php' : 'agency_dashboard_user.php');
 $homeFlux   = $_sbBase . ($isManager ? 'fluxbox_manager.php' : 'fluxbox.php');
 $homeNet    = $_sbBase . ($isManager ? 'dashboard_net_manager.php' : 'dashboard_net.php');
@@ -46,6 +46,9 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
             <li><a href="<?= htmlspecialchars($homeAgency) ?>" class="<?= sb_active(basename($homeAgency)) ?>"><span class="sb-icon">🏠</span><span class="sb-label">Agency</span></a></li>
             <li><a href="<?= htmlspecialchars($homeFlux) ?>" class="<?= sb_active(basename($homeFlux)) ?>"><span class="sb-icon">🃏</span><span class="sb-label">FluxBox</span></a></li>
             <li><a href="<?= htmlspecialchars($homeNet) ?>" class="<?= sb_active(basename($homeNet)) ?>"><span class="sb-icon">🌐</span><span class="sb-label">Ma Box Net</span></a></li>
+            <?php if ($isAdminOrSup || (function_exists('hasServiceAccess') && hasServiceAccess($roleId, 'bailleur'))): ?>
+            <li><a href="<?= $_sbBase ?>bailleur_dashboard.php" class="<?= sb_active('bailleur_dashboard.php') ?>"><span class="sb-icon">🏦</span><span class="sb-label">Ma Box Bailleur</span></a></li>
+            <?php endif; ?>
             <li><a href="<?= $_sbBase ?>transaction_index.php" class="<?= sb_active('transaction_index.php') ?: sb_active('transaction_chargement.php') ?>"><span class="sb-icon">🎯</span><span class="sb-label">Transactions</span></a></li>
         </ul>
     </div>

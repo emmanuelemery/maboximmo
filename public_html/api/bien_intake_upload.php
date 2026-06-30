@@ -9,6 +9,7 @@ require_once dirname(__DIR__) . '/inc/bien_intake_ia.php';
 require_once dirname(__DIR__) . '/inc/bien_intake_ocr.php';
 require_once dirname(__DIR__) . '/inc/bien_intake_search.php';
 require_once dirname(__DIR__) . '/inc/bien_form_loader.php';
+require_once dirname(__DIR__) . '/inc/ged_document_links.php';   // GED CENTRALE UNIQUE (2026-05-25)
 require_login();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -181,29 +182,29 @@ try {
             BienIntakeOCR::cleanupTmpDir($tmpOcrDir);
             $usedOcr = true;
         } catch (Throwable $ocrEx) {
-            // Si l'OCR échoue mais qu'on avait un peu de texte, on garde ce qu'on a
+            // ── GED CENTRALE UNIQUE 2026-05-25 : OCR non-bloquant ──
+            // Le doc DOIT entrer en GED même si OCR/IA échoue. L'enrichissement
+            // (dpe_diags, sync biens.*) sera fait plus tard via job ou re-analyse manuelle.
+            // Avant : exit() perdait le doc → contredisait l'objectif "1 doc visible partout".
+            error_log('[bien_intake] OCR échoué (non-bloquant) : ' . $ocrEx->getMessage());
             if (!$iaResult || !$iaResult['ok']) {
-                exit(json_encode([
-                    'ok' => false,
-                    'error' => 'OCR échoué : ' . $ocrEx->getMessage()
-                        . ' — Le PDF est probablement scanné et la conversion en image n\'a pas fonctionné.',
-                    'fichier' => $publicUrl,
-                    'bien_id' => $bienId,
-                ]));
+                $iaResult = ['ok' => true, 'fields' => [], 'doc_type' => $forceType ?: 'autre',
+                             'doc_titre' => null, 'resume' => null, 'count' => 0,
+                             'ia_skipped' => true, 'ia_skip_reason' => 'ocr_unavailable'];
             }
         }
     }
 
     if (!$iaResult || !$iaResult['ok']) {
-        exit(json_encode([
-            'ok' => false,
-            'error' => 'IA : ' . ($iaResult['error'] ?? 'inconnue'),
-            'fichier' => $publicUrl,
-            'bien_id' => $bienId,
-        ]));
+        // ── GED CENTRALE UNIQUE 2026-05-25 : IA non-bloquante ──
+        // Même fallback : on persiste le doc en GED sans enrichissement IA.
+        error_log('[bien_intake] IA échouée (non-bloquant) : ' . ($iaResult['error'] ?? 'inconnue'));
+        $iaResult = ['ok' => true, 'fields' => [], 'doc_type' => $forceType ?: 'autre',
+                     'doc_titre' => null, 'resume' => null, 'count' => 0,
+                     'ia_skipped' => true, 'ia_skip_reason' => 'ia_failed'];
     }
 
-    $fields   = $iaResult['fields'];
+    $fields   = $iaResult['fields'] ?? [];
     $adresseDoc = [
         'adresse_1'   => $fields['adresse_1']   ?? null,
         'code_postal' => $fields['code_postal'] ?? null,
@@ -399,51 +400,173 @@ try {
         error_log('[bien_intake] dpe_diags insert failed: ' . $e->getMessage());
     }
 
-    // ── Archivage du PDF dans biens_documents (HORS try/catch dpe_diags) ──
-    // CRITIQUE : cet INSERT doit s'exécuter MÊME si dpe_diags échoue (MySQL
-    // gone away, colonne manquante, etc.). Sans lui, le PDF est sur disque
-    // mais invisible dans l'onglet Documents du bien.
-    // On fait un reconnect fresh avant pour maximiser les chances en cas de
-    // connexion morte après l'IA.
+    // ── Enregistrement dans la GED CENTRALE UNIQUE (2026-05-25) ──
+    // Plus d'INSERT biens_documents. Source unique = ged_documents + ged_document_links.
+    // Un seul pipeline (gus_commit_document) pour toutes les pages d'upload.
+    $gedCommitResult = null;
+    $gedCommitError  = null;
     if ($bienId > 0) {
         try {
             $pdo = db_reconnect_fresh();
             $uidUp = function_exists('current_user_id') ? (int)current_user_id() : null;
-            $docTypeMap = [
-                'diag'                => 'dpe',
-                'dossier_complet'     => 'dpe',
-                'dossier_diagnostics' => 'dpe',
-                'mandat_gestion'      => 'mandat',
-                'mandat_vente'        => 'mandat',
-                'mandat_location'     => 'mandat',
-                'acte_propriete'      => 'acte',
+
+            // Mapping type legacy IA → document_type GED canonique
+            $gedTypeMap = [
+                'dpe'                 => 'DIAG_DPE',
+                'diag'                => 'DIAG_DPE',
+                'dossier_complet'     => 'DIAG_DPE',
+                'dossier_diagnostics' => 'DIAG_DPE',
+                'amiante'             => 'DIAG_AMIANTE',
+                'plomb'               => 'DIAG_PLOMB',
+                'gaz'                 => 'DIAG_GAZ',
+                'electricite'         => 'DIAG_ELEC',
+                'termites'            => 'DIAG_TERMITES',
+                'erp'                 => 'DIAG_ERP',
+                'mesurage_loi_carrez' => 'SURFACE_CARREZ',
+                'mandat_gestion'      => 'MANDAT_GESTION',
+                'mandat_vente'        => 'MANDAT_VENTE',
+                'mandat_location'     => 'MANDAT_LOCATION',
+                'mandat'              => 'MANDAT_VENTE',
+                'bail'                => 'BAIL',
+                'acte_propriete'      => 'ACTE_AUTHENTIQUE',
+                'acte'                => 'ACTE_AUTHENTIQUE',
             ];
-            $bdType = $docTypeMap[$docType ?? ''] ?? 'diag';
-            $pdo->prepare("
-                INSERT INTO biens_documents
-                    (id_bien, type_document, libelle, url_fichier, nom_original,
-                     mime_type, taille_octets, date_document, id_user_upload,
-                     visible_proprietaire, date_upload)
-                VALUES
-                    (:id_bien, :type_document, :libelle, :url, :nom_orig, :mime,
-                     :taille, :date_doc, :uid, 1, NOW())
-            ")->execute([
-                ':id_bien'       => $bienId,
-                ':type_document' => $bdType,
-                ':libelle'       => ($docTitre ?? '') ?: ucfirst($bdType),
-                ':url'           => $publicUrl,
-                ':nom_orig'      => $file['name'],
-                ':mime'          => $file['type'] ?? 'application/pdf',
-                ':taille'        => (int)$file['size'],
-                ':date_doc'      => $fields['dpe_date_realisation'] ?? ($fields['date_signature'] ?? null),
-                ':uid'           => $uidUp ?: null,
-            ]);
+            $gedDocType = $gedTypeMap[$docType ?? ''] ?? 'AUTRE';
+
+            // Récupère soc/age/proprio/immeuble du bien pour les liens + naming
+            // Note : pas de colonne proprio_tiers_id sur biens — passe par proprietaires.id_tiers
+            $stBienCtx = $pdo->prepare("SELECT b.id_societe, b.id_agence, b.id_proprietaire,
+                                                b.id_immeuble, p.id_tiers AS proprio_tiers_id,
+                                                s.raison_sociale AS soc_raison,
+                                                a.code_agence, a.nom_agence
+                                          FROM biens b
+                                          LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
+                                          LEFT JOIN societes s      ON s.id = b.id_societe
+                                          LEFT JOIN agences  a      ON a.id = b.id_agence
+                                          WHERE b.id = ? LIMIT 1");
+            $stBienCtx->execute([$bienId]);
+            $bienCtx = $stBienCtx->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            // Fallback société/agence : REGI EMERY (#1) / LYON (#3) si bien non rattaché
+            $socIdGed = (int)($bienCtx['id_societe'] ?? 0) ?: 1;
+            $ageIdGed = (int)($bienCtx['id_agence']  ?? 0) ?: 3;
+            if (empty($bienCtx['soc_raison'])) {
+                $stFb = $pdo->prepare("SELECT s.raison_sociale, a.code_agence, a.nom_agence
+                                        FROM societes s, agences a
+                                        WHERE s.id = ? AND a.id = ? LIMIT 1");
+                $stFb->execute([$socIdGed, $ageIdGed]);
+                $bienCtx = array_merge($bienCtx, $stFb->fetch(PDO::FETCH_ASSOC) ?: []);
+            }
+
+            // N1 contextuel : transaction si mandat vente/acte, gestion sinon
+            $n1Ged = in_array($gedDocType, ['MANDAT_VENTE', 'COMPROMIS', 'PROMESSE_VENTE',
+                                              'ACTE_AUTHENTIQUE', 'OFFRE_ACHAT'], true)
+                   ? '06_transaction'
+                   : '05_gestion_locative';
+
+            // Liens polymorphes : BIEN obligatoire, TIERS (proprio) + IMB si dispo
+            $links = [['entity_type' => 'BIEN', 'entity_id' => $bienId, 'relation_type' => 'main']];
+            if (!empty($bienCtx['proprio_tiers_id'])) {
+                $links[] = ['entity_type' => 'TIERS', 'entity_id' => (int)$bienCtx['proprio_tiers_id'], 'relation_type' => 'annexe'];
+            }
+            if (!empty($bienCtx['id_immeuble'])) {
+                $links[] = ['entity_type' => 'IMB', 'entity_id' => (int)$bienCtx['id_immeuble'], 'relation_type' => 'annexe'];
+            }
+
+            $gedCommitResult = gus_commit_document(
+                $pdo,
+                [
+                    'path_on_disk'  => $destPath,
+                    'name_original' => $file['name'],
+                    'mime_type'     => $file['type'] ?? 'application/pdf',
+                    'size_bytes'    => (int)$file['size'],
+                    'public_url'    => $publicUrl,
+                ],
+                [
+                    'document_type'  => $gedDocType,
+                    'source_module'  => '05_TRANSACTION',  // lu par bien_360 + transaction
+                    'security_level' => 'interne',
+                    'societe_id'     => $socIdGed,
+                    'agence_id'      => $ageIdGed,
+                    'tenant_id'      => $socIdGed,
+                    'created_by'     => $uidUp,
+                    'storage_provider' => 'local',
+                    // name_display = laissé vide → gdn_v4_build_display génère le nom humain 5 segments
+                    'metadata_extra' => [
+                        'titre_ia'      => $docTitre ?: null,   // texte libre IA, hors nommage technique
+                        'resume_ia'     => $resume ?: null,
+                        'classement'   => [
+                            'bien_id_bdd'      => $bienId,
+                            'immeuble_id_bdd'  => $bienCtx['id_immeuble'] ?? null,
+                            'tiers_proprio_id' => $bienCtx['proprio_tiers_id'] ?? null,
+                            'date_doc'         => $fields['dpe_date_realisation'] ?? ($fields['date_signature'] ?? null),
+                        ],
+                        'legacy_source' => 'bien_intake_upload',
+                        'doc_type_ia'   => $docType,
+                    ],
+                    'naming_ctx' => [
+                        'societe_raison' => $bienCtx['soc_raison'] ?? 'Régie EMERY',
+                        'agence_code'    => $bienCtx['code_agence'] ?? 'RE69-2',
+                        'agence_nom'     => $bienCtx['nom_agence']  ?? 'LYON',
+                        'user_id'        => $uidUp,
+                        'n1_slug'        => $n1Ged,
+                        'n2_slug'        => 'biens',
+                        'n3_slug'        => strtolower($gedDocType),
+                        'type_doc'       => $gedDocType,
+                        'entity_type'    => 'BIEN',
+                        'entity_id'      => $bienId,
+                        'date_doc'       => $fields['dpe_date_realisation'] ?? ($fields['date_signature'] ?? null),
+                        'source_filename'=> $file['name'],
+                    ],
+                ],
+                $links
+            );
+            if (empty($gedCommitResult['ok'])) {
+                $gedCommitError = 'gus_commit_document errors: ' . json_encode($gedCommitResult['errors'] ?? ['unknown']);
+                error_log('[bien_intake] ' . $gedCommitError);
+            } else {
+                error_log('[bien_intake] ✅ GED ok doc_id=' . ($gedCommitResult['doc_id'] ?? '?')
+                          . ' display=' . ($gedCommitResult['name_display'] ?? '?'));
+            }
         } catch (Throwable $exDoc) {
-            error_log('[bien_intake] biens_documents insert failed: ' . $exDoc->getMessage());
+            $gedCommitError = 'EXCEPTION pipeline GED : ' . $exDoc->getMessage()
+                            . ' @ ' . basename($exDoc->getFile()) . ':' . $exDoc->getLine();
+            error_log('[bien_intake] ' . $gedCommitError);
         }
     }
 
     // ── (6) Sync biens.* (no-overwrite : ne touche pas les valeurs déjà saisies) ──
+    // ⚠️ FIX P0-2 RENFORCÉ (2026-05-25) : skipper TOUTE la sync biens/annonces/mandats/baux/actes
+    // dans 2 cas :
+    //   - IA skipped (OCR/IA fail) ou trop peu de fields (< 5) → hallucination probable
+    //   - Bien EXISTANT (createdNow=false) → JAMAIS écraser un bien déjà saisi par l'user
+    // Justification : le bug bien #726 a pollué l'adresse "Lyon" avec "12 Rue Laffitte Paris"
+    // sur un bien existant. La sync est utile UNIQUEMENT lors d'une création brouillon.
+    $iaSyncAllowed = empty($iaResult['ia_skipped'])
+                  && ((int)($iaResult['count'] ?? 0)) >= 5
+                  && $createdNow === true;
+    if (!$iaSyncAllowed) {
+        error_log('[bien_intake] sync biens/annonces/mandats DÉSACTIVÉE (ia_skipped='
+                  . (!empty($iaResult['ia_skipped']) ? '1' : '0')
+                  . ', count=' . ($iaResult['count'] ?? 0)
+                  . ', createdNow=' . ($createdNow ? '1' : '0')
+                  . ') — protection anti-corruption');
+    }
+
+    // FIX résiduel #1 (2026-05-25) : initialiser TOUTES les variables touchées par la
+    // branche iaSyncAllowed pour qu'elles existent même si la sync est skip
+    // (évite warnings undefined dans la réponse JSON).
+    $bailId = 0;
+    $acteId = 0;
+    $immeublesCandidats = [];
+    $immeubleAutoLink   = 0;
+    $immeubleSuggested  = null;
+    $proprietairesCandidats = [];
+    $proprioAutoLink    = 0;
+    $proprioSuggested   = null;
+    $newProprioId       = 0;
+
+    if ($iaSyncAllowed):
     $bienSyncMap = [
         // Adresse du BIEN (≠ adresse propriétaire qui est stockée séparément avec préfixe proprio_)
         // NB : `pays` n'existe pas sur biens, on l'ignore — il vit sur immeubles
@@ -871,19 +994,29 @@ try {
     }
 
     // ── (9) Mandat — création si extrait ──
+    // FIX 2026-05-25 : multi-mandats par bien autorisé.
+    // - GESTION : socle automatique (déjà créé par bien_form_create_draft)
+    // - VENTE / LOCATION : missions commerciales additionnelles, cumulables
+    // - Évite uniquement le doublon du MÊME type_mandat actif
     if (!empty($fields['type_mandat'])) {
         try {
-            $find = $pdo->prepare("SELECT id FROM mandats WHERE id_bien = ? LIMIT 1");
-            $find->execute([$bienId]);
-            $existingMandat = (int)$find->fetchColumn();
-            if ($existingMandat === 0) {
+            $newType = strtolower((string)$fields['type_mandat']);
+            // Cherche si un mandat ACTIF du MÊME TYPE existe déjà (pour éviter doublon
+            // exact). On AUTORISE plusieurs mandats actifs de types différents
+            // (gestion + vente + location simultanés).
+            $find = $pdo->prepare("SELECT id FROM mandats
+                                    WHERE id_bien = ? AND type_mandat = ? AND statut = 'actif'
+                                    LIMIT 1");
+            $find->execute([$bienId, $newType]);
+            $existingSameType = (int)$find->fetchColumn();
+            if ($existingSameType === 0) {
                 $insM = $pdo->prepare("INSERT INTO mandats (id_bien, id_proprietaire, id_agence, numero_mandat, type_mandat, nature_mandat, exclusif, date_signature, date_debut, date_fin, honoraires, statut) VALUES (?,?,?,?,?,?,?,?,?,?,?,'actif')");
                 $insM->execute([
                     $bienId,
                     $newProprioId ?: null,
                     $agenceId ?: null,
-                    $fields['numero_mandat'] ?? ('AUTO-' . date('Y') . '-' . $bienId),
-                    $fields['type_mandat'],
+                    $fields['numero_mandat'] ?? ('AUTO-' . strtoupper(substr($newType, 0, 1)) . '-' . date('Y') . '-' . str_pad((string)$bienId, 5, '0', STR_PAD_LEFT)),
+                    $newType,
                     $fields['nature_mandat'] ?? null,
                     ($fields['nature_mandat'] ?? '') === 'exclusif' ? 1 : 0,
                     $fields['date_signature'] ?? null,
@@ -891,11 +1024,13 @@ try {
                     $fields['date_fin'] ?? null,
                     $fields['honoraires'] ?? null,
                 ]);
+                error_log('[bien_intake] mandat ' . $newType . ' créé pour bien #' . $bienId);
             }
         } catch (Throwable $e) {
             error_log('[bien_intake] mandat create failed: ' . $e->getMessage());
         }
     }
+    endif; // ── fin protection iaSyncAllowed (FIX P0-2 2026-05-25) ──
 
     echo json_encode([
         'ok'         => true,
@@ -907,6 +1042,14 @@ try {
         'doc_type'   => $docType,
         'force_type' => $forceType,  // type explicite demandé par l'UI (ou null si auto)
         'doc_titre'  => $docTitre,
+        // GED CENTRALE — visibilité du commit pour debug + UI (2026-05-25)
+        'ged_doc_id'       => $gedCommitResult['doc_id']       ?? null,
+        'ged_name_display' => $gedCommitResult['name_display'] ?? null,
+        'ged_name_file'    => $gedCommitResult['name_file']    ?? null,
+        'ged_deduplicated' => $gedCommitResult['deduplicated'] ?? null,
+        'ged_error'        => $gedCommitError,
+        'ia_skipped'       => !empty($iaResult['ia_skipped']),
+        'ia_sync_allowed'  => $iaSyncAllowed,
         'resume'     => $resume,
         'fields'     => $fields,
         'count'      => count($fields),

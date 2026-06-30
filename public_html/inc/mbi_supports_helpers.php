@@ -250,10 +250,72 @@ if (!function_exists('mbi_supports_get_conditions_financieres')) {
         $hInclus  = trim((string)($bien['honoraires_inclus'] ?? ''));
         $prixHors = (float)($bien['prix_hors_honoraires'] ?? $bien['prix_net_vendeur'] ?? 0);
 
-        if ($prixHors > 0) $lignes[] = ['Prix net vendeur',     number_format($prixHors, 0, ',', ' ') . ' €'];
-        if ($hMontant > 0) $lignes[] = ['Honoraires',           number_format($hMontant, 0, ',', ' ') . ' €'];
-        if ($hCharge !== '') $lignes[] = ['À la charge',        ucfirst($hCharge)];
-        if ($hInclus !== '') $lignes[] = ['Honoraires inclus',  ucfirst($hInclus)];
+        // Prix total FAI = MÊME valeur que le prix affiché en grand sur l'affiche
+        // (source unique = mbi_supports_get_prix_ou_loyer), pour éviter toute
+        // incohérence entre le prix géant et le détail des conditions.
+        $prixTotal = (float)(mbi_supports_get_prix_ou_loyer($bien)['valeur'] ?? 0);
+        if ($prixTotal <= 0 && $prixHors > 0 && $hMontant > 0) $prixTotal = $prixHors + $hMontant;
+        if ($prixTotal > 0) $lignes[] = ['Prix total FAI',    number_format($prixTotal, 0, ',', ' ') . ' €'];
+        if ($prixHors > 0) $lignes[] = ['Prix net vendeur',   number_format($prixHors, 0, ',', ' ') . ' €'];
+        if ($hMontant > 0) $lignes[] = ['Honoraires',         number_format($hMontant, 0, ',', ' ') . ' €'];
+        if ($hCharge !== '') $lignes[] = ['À la charge',      ucfirst($hCharge)];
+        // « Honoraires inclus » est redondant avec « À la charge » (même info) :
+        // on ne l'affiche QUE si « À la charge » n'est pas déjà renseigné.
+        if ($hInclus !== '' && $hCharge === '') $lignes[] = ['Honoraires inclus', ucfirst($hInclus)];
+        return $lignes;
+    }
+}
+
+if (!function_exists('mbi_supports_get_copropriete_lignes')) {
+    /**
+     * Retourne les infos de COPROPRIÉTÉ à afficher sur l'affiche — VENTE uniquement.
+     * (Obligation d'information ALUR pour la vente d'un lot en copropriété.)
+     * Les infos communes (nb lots, budget prévisionnel, total tantièmes, procédures)
+     * viennent de l'immeuble ; charges du lot + tantièmes du lot viennent du bien.
+     * Retourne [] si location, si non en copropriété, ou si aucune donnée exploitable.
+     *
+     * @return array Liste de paires [label, valeur] dans l'ordre d'affichage.
+     */
+    function mbi_supports_get_copropriete_lignes(array $bien): array
+    {
+        // Vente uniquement
+        if (mbi_supports_est_location($bien)) return [];
+        // En copropriété uniquement
+        $estCopro = (int)($bien['bien_en_copropriete'] ?? $bien['copropriete'] ?? $bien['est_copro'] ?? 0) === 1;
+        if (!$estCopro) return [];
+
+        $lignes = [];
+
+        // Nb de lots de la copropriété (commun — immeuble)
+        $nbLots = (int)($bien['copro_nb_lots'] ?? $bien['nb_lots_copro'] ?? 0);
+        if ($nbLots > 0) $lignes[] = ['Lots copropriété', number_format($nbLots, 0, ',', ' ')];
+
+        // Tantièmes : lot / total (les 2 valeurs)
+        $tLot   = (int)($bien['lot_tantiemes'] ?? 0);
+        $tTotal = (int)($bien['copro_tantiemes_total'] ?? 0);
+        if ($tLot > 0 && $tTotal > 0) {
+            $lignes[] = ['Tantièmes', number_format($tLot, 0, ',', ' ') . ' / ' . number_format($tTotal, 0, ',', ' ')];
+        } elseif ($tLot > 0) {
+            $lignes[] = ['Tantièmes du lot', number_format($tLot, 0, ',', ' ')];
+        } elseif ($tTotal > 0) {
+            $lignes[] = ['Total tantièmes', number_format($tTotal, 0, ',', ' ')];
+        }
+
+        // Charges courantes du lot (propre au bien)
+        $charges = (float)($bien['copro_quote_part_charges'] ?? 0);
+        if ($charges > 0) $lignes[] = ['Charges du lot', number_format($charges, 0, ',', ' ') . ' €/an'];
+
+        // Budget prévisionnel total de la copropriété (commun — immeuble)
+        $budget = (float)($bien['copro_budget_previsionnel_annuel'] ?? 0);
+        if ($budget > 0) $lignes[] = ['Budget copro', number_format($budget, 0, ',', ' ') . ' €/an'];
+
+        // Procédures (art. L.611-1 et s.) : syndic en procédure / plan de sauvegarde /
+        // état de carence. Ligne toujours affichée pour la vente (info obligatoire).
+        $proc = (int)($bien['copro_procedure'] ?? 0) === 1
+             || (int)($bien['alur_copropriete_plan_sauvegarde'] ?? 0) === 1
+             || (int)($bien['alur_copropriete_etat_carence'] ?? 0) === 1;
+        $lignes[] = ['Procédures', $proc ? 'En cours' : 'Aucune'];
+
         return $lignes;
     }
 }
@@ -420,6 +482,9 @@ if (!function_exists('mbi_supports_appliquer_surcharges')) {
         if (!empty($support['description_personnalisee'])) {
             $eff['description'] = (string)$support['description_personnalisee'];
             $eff['descriptif']  = (string)$support['description_personnalisee'];
+            // _annonce_description est lu EN PRIORITÉ par les layouts (get_description_annonce)
+            // → il faut l'écraser aussi, sinon le texte édité/synthétisé est ignoré.
+            $eff['_annonce_description'] = (string)$support['description_personnalisee'];
         }
         if (!empty($support['accroche'])) {
             $eff['_accroche'] = (string)$support['accroche'];

@@ -274,7 +274,7 @@ $sectionSuperAdmin = [
 ?>
 <aside class="rh-sidebar">
     <div class="rh-sidebar-top">
-        <a href="/public_html/default.php" class="rh-sidebar-brand">
+        <a href="https://maboximmo.fr" class="rh-sidebar-brand">
             <div class="rh-brand-logo">RH</div>
             <div class="rh-brand-text">
                 <strong>MaBoxImmo</strong>

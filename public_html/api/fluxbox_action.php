@@ -312,7 +312,7 @@ try {
                 try {
                     $stPh = $pdo->prepare("
                         SELECT 1 FROM ged_level_codes
-                        WHERE level_number = 3 AND code = ? COLLATE utf8mb4_unicode_ci
+                        WHERE level_number = 3 AND code COLLATE utf8mb4_unicode_ci = ?
                           AND COALESCE(is_entity_placeholder, 0) = 1
                         LIMIT 1
                     ");
@@ -322,8 +322,8 @@ try {
                         $stPh2 = $pdo->prepare("
                             SELECT code FROM ged_level_codes
                             WHERE level_number = 3
-                              AND parent_n1 = ? COLLATE utf8mb4_unicode_ci
-                              AND parent_n2 = ? COLLATE utf8mb4_unicode_ci
+                              AND parent_n1 COLLATE utf8mb4_unicode_ci = ?
+                              AND parent_n2 COLLATE utf8mb4_unicode_ci = ?
                               AND COALESCE(is_entity_placeholder, 0) = 1
                               AND is_active = 1
                             LIMIT 1
@@ -344,7 +344,7 @@ try {
                 if ($parents[$k] === '') {
                     $whereParents .= " AND (parent_$k IS NULL OR parent_$k = '')";
                 } else {
-                    $whereParents .= " AND parent_$k = ? COLLATE utf8mb4_unicode_ci";
+                    $whereParents .= " AND parent_$k COLLATE utf8mb4_unicode_ci = ?";
                     $whereParams[] = $parents[$k];
                 }
             }
@@ -362,13 +362,13 @@ try {
             if ($tenantIdForInsert <= 0) $tenantIdForInsert = 1;
 
             // Vérif anti-doublon EXPLICITE (accepte NULL ou '' selon schéma BDD)
-            $checkSql = "SELECT id, tenant_id FROM ged_level_codes WHERE level_number = ? AND code = ? COLLATE utf8mb4_unicode_ci";
+            $checkSql = "SELECT id, tenant_id FROM ged_level_codes WHERE level_number = ? AND code COLLATE utf8mb4_unicode_ci = ?";
             $checkParams = [$level, $code];
             foreach (['n1','n2','n3','n4'] as $k) {
                 if ($parents[$k] === '') {
                     $checkSql .= " AND (parent_$k IS NULL OR parent_$k = '')";
                 } else {
-                    $checkSql .= " AND parent_$k = ? COLLATE utf8mb4_unicode_ci";
+                    $checkSql .= " AND parent_$k COLLATE utf8mb4_unicode_ci = ?";
                     $checkParams[] = $parents[$k];
                 }
             }
@@ -413,13 +413,13 @@ try {
             // Ex : créer "DUPONT_PIERRE" sous COLLABORATEURS → clone les N4 de COLLABORATEUR
             // (01_IDENTITE, 02_CONTRAT_TRAVAIL, 03_PAIE…) et leurs descendants.
             $sibSql = "SELECT code FROM ged_level_codes
-                       WHERE level_number = ? AND code != ? COLLATE utf8mb4_unicode_ci AND is_active = 1";
+                       WHERE level_number = ? AND code COLLATE utf8mb4_unicode_ci != ? AND is_active = 1";
             $sibParams = [$level, $code];
             foreach (['n1','n2','n3','n4'] as $k) {
                 if ($parents[$k] === '') {
                     $sibSql .= " AND (parent_$k IS NULL OR parent_$k = '')";
                 } else {
-                    $sibSql .= " AND parent_$k = ? COLLATE utf8mb4_unicode_ci";
+                    $sibSql .= " AND parent_$k COLLATE utf8mb4_unicode_ci = ?";
                     $sibParams[] = $parents[$k];
                 }
             }
@@ -436,7 +436,7 @@ try {
                 $parentField = "parent_n$level"; // colonne à remplacer dans les descendants
                 // Sélectionne TOUS les descendants (directs et indirects) du sibling
                 $descSql = "SELECT * FROM ged_level_codes
-                            WHERE $parentField = ? COLLATE utf8mb4_unicode_ci
+                            WHERE $parentField COLLATE utf8mb4_unicode_ci = ?
                               AND level_number > ?
                               AND is_active = 1
                             ORDER BY level_number ASC, position ASC";

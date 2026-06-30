@@ -92,7 +92,8 @@ def parse_meta(pages_text):
         except Exception:
             pass
 
-    m = re.search(r'Lyon,?\s*le\s+(\d{2}/\d{2}/\d{4})', recap)
+    # Date d'arrêté : "<VILLE>, le JJ/MM/AAAA" — Riom : "RIOM, le ..." / Lyon : "Lyon, le ..."
+    m = re.search(r',\s*le\s+(\d{2}/\d{2}/\d{4})', recap)
     if m:
         meta['date_arrete'] = m.group(1)
 
@@ -110,11 +111,12 @@ def parse_meta(pages_text):
     if m:
         meta['solde_report'] = pa(m.group(1))
 
-    # Totaux Generaux on recap pages (last occurrence in recap)
-    for m in re.finditer(r'Totaux\s+G[eé\?]n[eé\?]raux\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)', recap):
+    # Totaux Généraux sur les pages de récap (dernière occurrence).
+    # Lyon : 3 nombres (débits, crédits, tva) — Riom : 2 nombres (débits, crédits).
+    for m in re.finditer(r'Totaux\s+G[eé\?]n[eé\?]raux\s+([\d.]+)\s+([\d.]+)(?:\s+([\d.]+))?', recap):
         meta['total_debits'] = pa(m.group(1))
         meta['total_credits'] = pa(m.group(2))
-        meta['total_tva'] = pa(m.group(3))
+        meta['total_tva'] = pa(m.group(3)) if m.group(3) else 0.0
 
     return meta
 
@@ -320,6 +322,10 @@ def parse_lots(text):
         # Type might be "Appart. T2", "Local", "Appartement", etc.
         # It ends at the newline
         type_bien = first_line_rest.split('\n')[0].strip()
+        # Format Riom : le type et la 1ère période sont sur la même ligne
+        # ("Local Du 01.01.26 Au 31.01.26 ...") → couper avant "Du JJ.MM".
+        # Format Lyon : type seul sur sa ligne → inchangé.
+        type_bien = re.split(r'\s+Du\s+\d', type_bien)[0].strip()
         # Clean trailing whitespace
         type_bien = re.sub(r'\s+', ' ', type_bien).strip()
 
@@ -355,41 +361,61 @@ def parse_lots(text):
         # "Du 01.01.2026 Au 31.01.2026 380.00 60.00 440.00"
         # After date range: loyer [taxes [provisions [divers [total]]]]
         loyer_total = 0.0
+        # Année sur 2 OU 4 chiffres (Riom : "01.01.26" / Lyon : "01.01.2026").
+        # Chaque période porte 3 colonnes : loyer, taxes, provisions.
+        taxes_total = 0.0
+        provisions_total = 0.0
         du_lines = re.findall(
-            r'Du\s+\d{2}\.\d{2}\.\d{4}\s+Au\s+\d{2}\.\d{2}\.\d{4}\s+([\d.]+)',
+            r'Du\s+\d{2}\.\d{2}\.\d{2,4}\s+Au\s+\d{2}\.\d{2}\.\d{2,4}\s+([\d.]+)(?:\s+([\d.]+))?(?:\s+([\d.]+))?',
             part
         )
-        for val in du_lines:
-            loyer_total += pa(val)
+        for loy, tax, prov in du_lines:
+            loyer_total += pa(loy)
+            taxes_total += pa(tax)
+            provisions_total += pa(prov)
 
         # Solde Anterieur (handle encoding issues)
         sa_m = re.search(r'Solde\s+Ant[eé\?]rieur\s+([\d.]+)', part, re.I)
         solde_ant = pa(sa_m.group(1)) if sa_m else 0.0
 
-        # Totaux line: 8 numbers
-        # "Totaux SOLDE_ANT LOYERS TAXES PROVISIONS DIVERS TOTAL REGLES IMPAYES"
+        # Totaux du LOT.
+        #   Lyon : ligne "Totaux SOLDE_ANT LOYERS TAXES PROVISIONS DIVERS TOTAL REGLES IMPAYES"
+        #          (8 nombres, casse mixte, par lot).
+        #   Riom : PAS de ligne de total par lot — le loyer se déduit de la somme des
+        #          périodes "Du .. Au ..". La ligne "TOTAUX" (capitales) est le total de
+        #          l'IMMEUBLE et ne doit donc PAS être prise pour un total de lot.
+        # Le négatif (?!\s*G[eé]) évite de capter "Totaux Généraux".
+        t_solde_ant = solde_ant
+        t_taxes = t_provisions = t_divers = t_total = t_regles = t_impayes = 0.0
         tot_m = re.search(
-            r'Totaux\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)',
+            r'\bTotaux\b(?!\s*G[eé\?])\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)',
             part
         )
         if tot_m:
-            t_solde_ant = pa(tot_m.group(1))
-            t_loyers = pa(tot_m.group(2))
-            t_taxes = pa(tot_m.group(3))
+            # Format Lyon : 8 colonnes détaillées
+            t_solde_ant  = pa(tot_m.group(1))
+            t_loyers     = pa(tot_m.group(2))
+            t_taxes      = pa(tot_m.group(3))
             t_provisions = pa(tot_m.group(4))
-            t_divers = pa(tot_m.group(5))
-            t_total = pa(tot_m.group(6))
-            t_regles = pa(tot_m.group(7))
-            t_impayes = pa(tot_m.group(8))
+            t_divers     = pa(tot_m.group(5))
+            t_total      = pa(tot_m.group(6))
+            t_regles     = pa(tot_m.group(7))
+            t_impayes    = pa(tot_m.group(8))
         else:
-            t_solde_ant = solde_ant
-            t_loyers = loyer_total
-            t_taxes = 0.0
-            t_provisions = 0.0
-            t_divers = 0.0
-            t_total = 0.0
-            t_regles = 0.0
-            t_impayes = 0.0
+            # Format Riom (pas de ligne "Totaux" par lot) : on reconstruit les colonnes
+            # depuis les périodes Du/Au + la ligne de clôture du lot ("TOTAL  REGLE", 2 nombres).
+            t_loyers     = loyer_total
+            t_taxes      = taxes_total
+            t_provisions = provisions_total
+            close = re.findall(r'(?m)^\s*([\d][\d.]*)\s+([\d][\d.]*)\s*$', part)
+            if close:
+                t_total  = pa(close[-1][0])
+                t_regles = pa(close[-1][1])
+                t_impayes = round(t_total - t_regles, 2)
+            else:
+                t_total  = round(loyer_total + taxes_total + provisions_total, 2)
+                t_regles = t_total
+                t_impayes = 0.0
 
         statut = detect_statut(t_loyers, t_solde_ant)
 

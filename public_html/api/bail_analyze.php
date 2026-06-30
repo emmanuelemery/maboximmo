@@ -42,7 +42,7 @@ move_uploaded_file($tmp, $destPath);
 
 // Analyse IA
 $api_key = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
-$model = 'gpt-4o';
+$model = 'gpt-4o-mini'; // extraction structurée — reasoning models = JSON tronqué + lent
 
 $text_truncated = mb_substr($text, 0, 40000);
 
@@ -104,16 +104,21 @@ TEXTE DU BAIL :
 {$text_truncated}
 PROMPT;
 
+$useNewParam = (bool)preg_match('/^(gpt-5|o1|o3|gpt-4\.1)/i', $model);
 $payload = [
-    'model' => $model,
+    'model'    => $model,
     'messages' => [
         ['role' => 'system', 'content' => $system_prompt],
-        ['role' => 'user', 'content' => $user_prompt],
+        ['role' => 'user',   'content' => $user_prompt],
     ],
-    'temperature' => 0.1,
-    'max_tokens' => 4000,
     'response_format' => ['type' => 'json_object'],
 ];
+if ($useNewParam) {
+    $payload['max_completion_tokens'] = 4000;
+} else {
+    $payload['max_tokens']  = 4000;
+    $payload['temperature'] = 0.1;
+}
 
 $ch = curl_init('https://api.openai.com/v1/chat/completions');
 curl_setopt_array($ch, [

@@ -18,7 +18,7 @@ if (!function_exists('sb_active')) {
     }
 }
 
-$homeRh     = $_sbBase . 'rh_dashboard.php'; // URL unique : s'adapte au rôle
+$homeRh     = $_sbBase . 'rh_dashboard_user.php'; // « RH » = dashboard personnel, pour tous
 $homeAgency = $_sbBase . ($isManager ? 'agency_dashboard.php' : 'agency_dashboard_user.php');
 $homeFlux   = $_sbBase . ($isManager ? 'fluxbox_manager.php' : 'fluxbox.php');
 $homeNet    = $_sbBase . ($isManager ? 'dashboard_net_manager.php' : 'dashboard_net.php');
@@ -26,6 +26,7 @@ $homeNet    = $_sbBase . ($isManager ? 'dashboard_net_manager.php' : 'dashboard_
 $dashMetier  = $_sbBase . 'agency_dashboard_metier.php';
 $dashBiens   = $_sbBase . 'agency_biens.php';
 $linkProps   = $_sbBase . 'agency_proprietaires.php';
+$linkLocs    = $_sbBase . 'agency_locataires.php';
 $linkImms    = $_sbBase . 'agency_immeubles.php';
 $linkTrans   = $_sbBase . 'transaction_index.php';
 $dashDiff    = $_sbBase . 'agency_dashboard_diffusion.php';
@@ -72,6 +73,7 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
             <?php if ($isAdminOrSup || (function_exists('hasServiceAccess') && hasServiceAccess($roleId, 'bailleur'))): ?>
             <li><a href="<?= htmlspecialchars($_sbBase . 'bailleur_dashboard.php') ?>" class="<?= sb_active('bailleur_dashboard.php') ?>"><span class="sb-icon">🏦</span><span class="sb-label">Ma Box Bailleur</span></a></li>
             <?php endif; ?>
+            <li><a href="<?= htmlspecialchars($linkTrans) ?>" class="<?= sb_active('transaction_index.php') ?: sb_active('transaction_chargement.php') ?>"><span class="sb-icon">🎯</span><span class="sb-label">Transactions</span></a></li>
         </ul>
     </div>
 
@@ -82,17 +84,11 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
         <ul class="sb-nav">
             <li><a href="<?= htmlspecialchars($dashBiens) ?>" class="<?= sb_active('agency_biens.php') ?>"><span class="sb-icon">🏘️</span><span class="sb-label">Biens</span></a></li>
             <li><a href="<?= htmlspecialchars($linkProps) ?>" class="<?= sb_active('agency_proprietaires.php') ?>"><span class="sb-icon">👥</span><span class="sb-label">Propriétaires</span></a></li>
+            <li><a href="<?= htmlspecialchars($linkLocs) ?>" class="<?= sb_active('agency_locataires.php') ?>"><span class="sb-icon">🔑</span><span class="sb-label">Locataires</span></a></li>
             <li><a href="<?= htmlspecialchars($linkImms) ?>" class="<?= sb_active('agency_immeubles.php') ?>"><span class="sb-icon">🏢</span><span class="sb-label">Immeubles</span></a></li>
-            <li><a href="<?= htmlspecialchars($linkTrans) ?>" class="<?= sb_active('transaction_index.php') ?: sb_active('transaction_chargement.php') ?>"><span class="sb-icon">🎯</span><span class="sb-label">Transactions</span></a></li>
             <li><a href="<?= htmlspecialchars($dashDiff) ?>" class="<?= sb_active('agency_dashboard_diffusion.php') ?>"><span class="sb-icon">📡</span><span class="sb-label">Diffusion</span></a></li>
             <li><a href="<?= htmlspecialchars($dashMetier) ?>" class="<?= sb_active('agency_dashboard_metier.php') ?>"><span class="sb-icon">🧭</span><span class="sb-label">Métier</span></a></li>
-            <?php if ($canCreanciers): ?>
-                <li><a href="<?= htmlspecialchars($linkCreanciers) ?>" class="<?= sb_active('creancier_dashboard.php') ?: (sb_active('creancier_liste.php') ?: (sb_active('creancier360.php') ?: (sb_active('creancier_creancier360.php') ?: sb_active('creancier_dossier360.php')))) ?>"><span class="sb-icon">⚖️</span><span class="sb-label">Créanciers</span></a></li>
-            <?php endif; ?>
             <?php if ($isAdminOrSup): ?>
-                <li><a href="<?= htmlspecialchars($_sbBase . 'bailleur_dashboard.php') ?>" class="<?= sb_active('bailleur_dashboard.php') ?>"><span class="sb-icon">🏦</span><span class="sb-label">Module Bailleur</span></a></li>
-                <li><a href="<?= htmlspecialchars($linkPatrimoine) ?>" class="<?= sb_active('bailleur_patrimoine_actif.php') ?>"><span class="sb-icon">🏛️</span><span class="sb-label">Patrimoine actif</span></a></li>
-                <li><a href="<?= htmlspecialchars($_sbBase . 'transaction_portefeuilles_hub.php') ?>" class="<?= sb_active('transaction_portefeuilles_hub.php') ?: (sb_active('transaction_portefeuilles.php') ?: (sb_active('transaction_portefeuilles_selection.php') ?: sb_active('transaction_portefeuilles_liste.php'))) ?>"><span class="sb-icon">📁</span><span class="sb-label">Portefeuilles</span></a></li>
                 <li><a href="<?= htmlspecialchars($dashAdmin) ?>" class="<?= sb_active('super_admin_dashboard.php') ?>"><span class="sb-icon">🧰</span><span class="sb-label">Dashboard Admin</span></a></li>
             <?php endif; ?>
         </ul>

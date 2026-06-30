@@ -44,6 +44,22 @@ try {
     $st->execute([$dstId, $srcId]);
     $stats['bien_baux'] = $st->rowCount();
 
+    // 1bis. dossier_vente (UNIQUE id_bien = 1 dossier/bien)
+    //   - si la destination n'a pas de dossier : on transfère celui de la source ;
+    //   - si elle en a déjà un : on ne touche pas (le dossier source reste sur le
+    //     bien soft-deleted) pour éviter la collision sur la clé unique id_bien.
+    try {
+        $dstHas = (int)$pdo->query('SELECT COUNT(*) FROM dossier_vente WHERE id_bien = ' . $dstId)->fetchColumn();
+        if ($dstHas === 0) {
+            $st = $pdo->prepare('UPDATE dossier_vente SET id_bien = ? WHERE id_bien = ?');
+            $st->execute([$dstId, $srcId]);
+            $stats['dossier_vente'] = $st->rowCount();
+        } else {
+            $srcHas = (int)$pdo->query('SELECT COUNT(*) FROM dossier_vente WHERE id_bien = ' . $srcId)->fetchColumn();
+            $stats['dossier_vente'] = $srcHas > 0 ? 'conflit: destination a déjà un dossier (source conservé)' : 0;
+        }
+    } catch (Throwable $e) { $stats['dossier_vente'] = 'skip'; }
+
     // 2. annonces
     try {
         $st = $pdo->prepare('UPDATE annonces SET id_bien = ? WHERE id_bien = ?');
@@ -133,6 +149,33 @@ try {
         $stU->execute();
         $stats['champs_copies'] = count($upd);
     } else { $stats['champs_copies'] = 0; }
+
+    // 9bis. CHOIX CHAMP PAR CHAMP (fusion guidée) : applique les valeurs retenues
+    //       par l'utilisateur sur la destination (prioritaire sur la copie défensive).
+    $fieldsJson = post('fields_json') ?? '';
+    if ($fieldsJson !== '') {
+        $override = json_decode((string)$fieldsJson, true);
+        if (is_array($override) && $override) {
+            $allowed = ['reference_bien','designation','usage_bien','type_commercialisation',
+                        'statut_bien','adresse_1','code_postal','ville','lot_principal',
+                        'lot_secondaire','etage','surface_habitable','surface_carrez',
+                        'nb_pieces','nb_chambres','dpe_classe','ges_classe','annee_construction',
+                        'loyer_hc','charges_locatives','id_immeuble','id_proprietaire'];
+            $updF = []; $parF = [':id' => $dstId];
+            foreach ($override as $col => $val) {
+                if (!in_array($col, $allowed, true)) continue;
+                $updF[] = "`$col` = :$col";
+                $parF[":$col"] = ($val === '' ? null : $val);
+            }
+            if ($updF) {
+                $sqlF = 'UPDATE biens SET ' . implode(', ', $updF) . ', date_modification = NOW() WHERE id = :id';
+                $stF = $pdo->prepare($sqlF);
+                foreach ($parF as $k => $v) $stF->bindValue($k, $v);
+                $stF->execute();
+                $stats['champs_choisis'] = count($updF);
+            }
+        }
+    }
 
     // 10. Note d'audit sur destination
     $note = "[" . date('Y-m-d H:i') . "] Fusion : bien #$srcId (" . ($src['reference_bien'] ?? '?') . ") absorbé.";

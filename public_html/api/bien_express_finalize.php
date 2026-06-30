@@ -65,7 +65,7 @@ try {
     $bStmt->execute([$idBien]);
     $bien = $bStmt->fetch(PDO::FETCH_ASSOC);
     if (!$bien) exit(json_encode(['ok' => false, 'error' => 'Bien introuvable']));
-    if ($societeId > 0 && $roleId !== 7 && $roleId !== 1 && (int)($bien['id_societe'] ?? 0) !== $societeId) {
+    if ($societeId > 0 && $roleId !== 7 && (int)($bien['id_societe'] ?? 0) !== $societeId) {
         exit(json_encode(['ok' => false, 'error' => 'Accès refusé']));
     }
 

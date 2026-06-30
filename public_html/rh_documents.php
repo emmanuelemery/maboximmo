@@ -117,6 +117,13 @@ foreach ($rubriquesMeta as $rubKey => $meta) {
     }
 }
 
+// Société + Agence = documents officiels (Kbis, carte pro, RC pro, garantie
+// financière, barème…) gérés UNIQUEMENT par l'admin. Les collaborateurs ne
+// les chargent pas depuis leur espace RH personnel.
+if ($roleId !== 1) {
+    unset($rubriques['societe'], $rubriques['agence']);
+}
+
 // Map type_doc → label
 $typeLabels = [];
 foreach ($rubriques as $rubKey => $rub) {
@@ -293,11 +300,28 @@ foreach ($allDocs as $doc) {
     $docsByRubrique[$rub][] = $doc;
 }
 
+// ── Barème honoraires : si déjà saisi dans le module Tarifs (par agence ou modèle société),
+//    on NE demande plus le document "bareme_honoraires" dans RH. ──
+$honoSocId = is_numeric($societe_sel) ? (int)$societe_sel : (int)($_SESSION['id_societe'] ?? 0);
+$honoAgeId = is_numeric($agence_sel)  ? (int)$agence_sel  : (int)($_SESSION['id_agence'] ?? 0);
+$baremeRempli = false;
+if ($honoSocId > 0) {
+    try {
+        $qB = $pdo->prepare("SELECT 1 FROM societe_tarifs_honoraires
+            WHERE id_societe = ? AND id_agence IN (?, 0) AND honoraires_location_bail_m2 IS NOT NULL AND actif = 1 LIMIT 1");
+        $qB->execute([$honoSocId, $honoAgeId]);
+        $baremeRempli = (bool)$qB->fetchColumn();
+    } catch (Throwable $e) {
+        try { $qB = $pdo->prepare("SELECT 1 FROM societe_tarifs_honoraires WHERE id_societe = ? AND honoraires_location_bail_m2 IS NOT NULL LIMIT 1"); $qB->execute([$honoSocId]); $baremeRempli = (bool)$qB->fetchColumn(); } catch (Throwable $e2) {}
+    }
+}
+
 // ── Docs obligatoires manquants ───────────────────────────────────────────────
 $missingObligatoires = [];
 foreach ($rubriques as $rubKey => $rub) {
     foreach ($rub['types'] as $t) {
         if (!$t['obligatoire']) continue;
+        if ($t['key'] === 'bareme_honoraires' && $baremeRempli) continue; // tarifs déjà saisis → pas de demande
         if (!rh_doc_dispo_allowed($t['dispo'] ?? 'public', $roleId, $agenceScope, $userId === $viewUserId)) continue;
         $found = false;
         foreach ($docsByRubrique[$rubKey] ?? [] as $doc) {
@@ -975,6 +999,7 @@ ob_start();
 
     // ── Upload + analyse ──
     async function handleFile(file) {
+        window.__rhdxLastFile = file; // mémorisé pour "charger quand même"
         progress.classList.add('active');
         label.textContent = '📤 Upload : ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' Mo)…';
 
@@ -1009,6 +1034,8 @@ ob_start();
         permis: 'Permis',
         carte_grise: 'Carte grise',
         assurance_vehicule: 'Assurance véhicule',
+        cv: 'CV',
+        lettre_motivation: 'Lettre de motivation',
         unknown: 'Non reconnu',
     };
 
@@ -1023,6 +1050,10 @@ ob_start();
                     <div class="rhdx-result-name">${escapeHtml(file.name)}</div>
                 </div>
                 <div class="rhdx-error">⚠ ${escapeHtml(data.error || 'Erreur inconnue')}</div>
+                <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <button class="rhdx-resolve-btn" onclick="rhdxForceUpload()">📎 Charger quand même</button>
+                    <span style="font-size:11px;color:#8a8680">Le document sera enregistré sans analyse (type « Divers », modifiable).</span>
+                </div>
             `;
         } else {
             const type = data.doc_type || 'unknown';
@@ -1101,6 +1132,15 @@ ob_start();
         return div.innerHTML;
     }
 })();
+
+// ── Charger quand même un document non reconnu ───────────────
+// Réutilise la modale d'upload standard (chemin de sauvegarde éprouvé
+// api/rh_doc_upload.php) en pré-remplissant Divers / Autre + le fichier.
+function rhdxForceUpload() {
+    if (!window.__rhdxLastFile) { showToast('Fichier introuvable — re-glissez-le', true); return; }
+    openModal('divers', 'autre');
+    setFile(window.__rhdxLastFile);
+}
 
 // ── Popup de résolution de conflits ──────────────────────────
 function openConflictModal(candId) {
@@ -1340,6 +1380,7 @@ async function applyConflicts(candId) {
         $missingInRub = [];
         foreach ($rub['types'] as $t) {
             if (!$t['obligatoire']) continue;
+            if ($t['key'] === 'bareme_honoraires' && $baremeRempli) continue; // tarifs déjà saisis → pas de demande
             if (($t['confidentiel'] ?? false) && $roleId !== 1) continue;
             $found = false;
             foreach ($docs as $d) {

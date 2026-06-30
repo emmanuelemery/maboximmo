@@ -9,6 +9,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/auth.php';
+require_once __DIR__ . '/inc/roles_services.php';
 require_login();
 
 // ── Scope multi-tenant (bypass role=1) ─────────────────────────────
@@ -19,7 +21,7 @@ $idAgenceSession  = isset($_SESSION['id_agence'])  ? (int)$_SESSION['id_agence']
 
 // ── Lecture filtres GET ────────────────────────────────────────────
 $q                  = trim((string)($_GET['q'] ?? ''));
-$fType              = (string)($_GET['type'] ?? 'all');         // vente|location|all
+$fType              = 'vente';                                  // page Transactions = VENTES uniquement
 $fUsage             = (string)($_GET['usage'] ?? 'all');        // habitation|professionnel|all
 $fPrix              = (string)($_GET['prix'] ?? 'all');         // small|500k|1M|all
 $fStatut            = (string)($_GET['statut'] ?? 'all');       // a_preparer|pret|commercialise|offre_recue|vendu|all
@@ -27,6 +29,7 @@ $fProprietaire      = isset($_GET['proprietaire_id']) ? (int)$_GET['proprietaire
 $fPriorite          = (string)($_GET['priorite'] ?? 'all');     // haute|normale|differee|all
 $fSociete           = isset($_GET['societe_id']) ? (int)$_GET['societe_id'] : 0;
 $fAgence            = isset($_GET['agence_id'])  ? (int)$_GET['agence_id']  : 0;
+$fArchives          = (string)($_GET['archives'] ?? '');       // '1' = afficher uniquement les archivés (vendus/retirés)
 
 // ── Construction requête SUR la vue ────────────────────────────────
 // Scope élargi pour Transaction : super admin + manager voient TOUTES les sociétés/agences.
@@ -56,18 +59,19 @@ if ($fAgence > 0) {
 
 if ($q !== '') {
     // Placeholders uniques par occurrence (EMULATE_PREPARES=false interdit la répétition)
-    $where[] = '(v.reference_bien LIKE :q1 OR v.designation LIKE :q2 OR v.ville LIKE :q3 OR v.adresse_1 LIKE :q4 OR v.code_postal LIKE :q5)';
+    $where[] = '(v.reference_bien LIKE :q1 OR v.designation LIKE :q2 OR v.ville LIKE :q3 OR v.adresse_1 LIKE :q4 OR v.code_postal LIKE :q5'
+             . ' OR EXISTS (SELECT 1 FROM proprietaires p WHERE p.id = v.id_proprietaire'
+             . '   AND (p.nom LIKE :q6 OR p.prenom LIKE :q7 OR p.societe LIKE :q8'
+             . '        OR CONCAT_WS(" ", p.prenom, p.nom) LIKE :q9)))';
     $like = '%' . $q . '%';
     $params[':q1'] = $like; $params[':q2'] = $like; $params[':q3'] = $like;
-    $params[':q4'] = $like; $params[':q5'] = $like;
+    $params[':q4'] = $like; $params[':q5'] = $like; $params[':q6'] = $like;
+    $params[':q7'] = $like; $params[':q8'] = $like; $params[':q9'] = $like;
 }
 
-if ($fType === 'vente' || $fType === 'location') {
-    // type_commercialisation OU annonce.type_transaction = vente|location|...
-    $where[] = '(v.type_commercialisation = :ftype OR v.type_transaction LIKE :ftypeL)';
-    $params[':ftype']  = $fType;
-    $params[':ftypeL'] = $fType . '%';
-}
+// RÈGLE MÉTIER : Transactions = VENTE obligatoirement (peu importe l'annonce).
+// On filtre strictement sur le bien (type_commercialisation = 'vente'), avec ou sans annonce.
+$where[] = "v.type_commercialisation = 'vente'";
 
 if ($fUsage === 'habitation') {
     $where[] = "(v.usage_bien IN ('habitation','residentiel','principal','résidence principale','résidence secondaire') OR v.usage_bien IS NULL)";
@@ -84,8 +88,20 @@ if ($fPrix === 'small') {
 }
 
 if (in_array($fStatut, ['a_preparer','pret','commercialise','offre_recue','vendu'], true)) {
-    $where[] = 'v.statut_transaction = :fstatut';
+    // COLLATE explicite : la colonne de la vue (utf8mb4_unicode_ci) et le paramètre lié
+    // (utf8mb4_general_ci selon la connexion) ont des collations différentes → l'égalité
+    // déclenche « Illegal mix of collations ». On force une collation commune.
+    $where[] = 'v.statut_transaction COLLATE utf8mb4_unicode_ci = :fstatut';
     $params[':fstatut'] = $fStatut;
+}
+
+// ── Archivés (vendus / retirés de la vente) ────────────────────────
+// Par défaut on NE LES AFFICHE PAS. Le filtre « Archivés » permet de ne voir QU'eux.
+// (un statut explicite choisi ci-dessus a priorité et n'est pas re-filtré.)
+if ($fArchives === '1') {
+    $where[] = "v.statut_transaction COLLATE utf8mb4_unicode_ci = 'vendu'";
+} elseif ($fStatut === 'all') {
+    $where[] = "v.statut_transaction COLLATE utf8mb4_unicode_ci <> 'vendu'";
 }
 
 if ($fProprietaire > 0) {
@@ -93,11 +109,36 @@ if ($fProprietaire > 0) {
     $params[':fproprio'] = $fProprietaire;
 }
 
-if (in_array($fPriorite, ['haute','normale','differee'], true)) {
-    $where[] = 'v.priorite_vente = :fprio';
-    $params[':fprio'] = $fPriorite;
-} elseif ($fPriorite === 'aucune') {
-    $where[] = '(v.priorite_vente IS NULL OR v.priorite_vente = "")';
+// ── Scope PORTEFEUILLE BAILLEUR (RGPD) ─────────────────────────────
+// Accès « Biens en vente » du dashboard bailleur : ?scope=bailleur
+// → on ne montre QUE les biens des propriétaires de l'utilisateur.
+//   super admin  : respecte la sélection du dashboard (session bailleur_props)
+//   bailleur      : ses user_proprietaires uniquement (toujours, même sans param)
+$wantBailleurScope = (($_GET['scope'] ?? '') === 'bailleur');
+$asBailleur = isset($_GET['bailleur']) ? (int)$_GET['bailleur'] : 0;   // "voir en tant que" depuis le hub
+$hasBailleur = function_exists('hasServiceAccess') && hasServiceAccess($roleId, 'bailleur');
+if ($wantBailleurScope || $asBailleur > 0 || ($hasBailleur && !$isSuperAdmin)) {
+    if ($isSuperAdmin) {
+        if ($asBailleur > 0) {
+            // Périmètre = propriétaires assignés au bailleur "vu en tant que".
+            $stB = $pdo->prepare("SELECT id_proprietaire FROM user_proprietaires WHERE id_user=?");
+            $stB->execute([$asBailleur]);
+            $propScope = array_map('intval', $stB->fetchAll(PDO::FETCH_COLUMN));
+        } else {
+            $propScope = array_map('intval', (array)($_SESSION['bailleur_props'] ?? []));
+        }
+        if (empty($propScope)) { $where[] = '0=1'; }   // bailleur vu sans propriétaire → rien (au lieu de tout)
+    } else {
+        $uid = function_exists('current_user_id') ? (int)current_user_id() : (int)($_SESSION['user_id'] ?? 0);
+        $stP = $pdo->prepare("SELECT id_proprietaire FROM user_proprietaires WHERE id_user=?");
+        $stP->execute([$uid]);
+        $propScope = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN));
+    }
+    if (!empty($propScope)) {
+        $where[] = 'v.id_proprietaire IN (' . implode(',', $propScope) . ')';
+    } elseif (!$isSuperAdmin) {
+        $where[] = '0=1';   // bailleur sans propriétaire → rien
+    }
 }
 
 // fCommercialisateur : V0 = pas de filtrage tant que tiers_roles.commercialisateur non câblé.
@@ -172,25 +213,33 @@ try {
 
 // ── Listes sociétés & agences pour les filtres ─────────────────────
 try {
-    $stmtS = $pdo->query('SELECT id, COALESCE(NULLIF(nom_commercial, ""), nom, "") AS nom FROM societes ORDER BY 2');
+    // Uniquement les sociétés réellement présentes dans la liste des ventes (vue transactions).
+    $stmtS = $pdo->query('SELECT s.id, s.nom
+                            FROM societes s
+                            JOIN vw_transactions v ON v.id_societe = s.id
+                           WHERE (v.type_commercialisation = "vente" OR v.type_transaction LIKE "vente%")
+                           GROUP BY s.id, s.nom
+                           ORDER BY s.nom');
     $societes = $stmtS->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable $e) {
-    try {
-        $stmtS = $pdo->query('SELECT id, nom FROM societes ORDER BY nom');
-        $societes = $stmtS->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable $e2) { $societes = []; }
+    error_log('[transaction_index societes] ' . $e->getMessage());
+    $societes = [];
 }
 try {
-    $sqlA = 'SELECT id, COALESCE(NULLIF(nom_commercial, ""), nom, "") AS nom, id_societe FROM agences';
-    if ($fSociete > 0) $sqlA .= ' WHERE id_societe = ' . $fSociete;
+    // Agences réellement présentes dans les ventes (vue transactions), filtrées sur la
+    // société du BIEN (v.id_societe) — fiable même si agences.id_societe est NULL.
+    $sqlA = 'SELECT DISTINCT a.id,
+                    COALESCE(NULLIF(a.nom_agence, ""), CONCAT("Agence #", a.id)) AS nom,
+                    a.ville, a.id_societe
+             FROM agences a
+             JOIN vw_transactions v ON v.id_agence = a.id
+             WHERE v.type_commercialisation = "vente"';
+    if ($fSociete > 0) $sqlA .= ' AND v.id_societe = ' . $fSociete;
     $sqlA .= ' ORDER BY 2';
-    $stmtA = $pdo->query($sqlA);
-    $agences = $stmtA->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $agences = $pdo->query($sqlA)->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable $e) {
-    try {
-        $stmtA = $pdo->query('SELECT id, nom, id_societe FROM agences ORDER BY nom');
-        $agences = $stmtA->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable $e2) { $agences = []; }
+    error_log('[transaction_index agences] ' . $e->getMessage());
+    $agences = [];
 }
 
 // ── Liste propriétaires pour modale "Ajouter un bien" (ceux ayant des biens NON encore commercialisés) ──
@@ -224,6 +273,20 @@ $bodyAttr     = 'data-theme-module="transaction"';
 
 $extraCss = <<<'CSS'
 <style>
+/* Fond de page dégradé diagonal (même que FluxBox) : fait ressortir les cards */
+.agency-content{
+  min-height:100vh;
+  background:
+    linear-gradient(135deg,
+      rgba(154, 170, 132, 0.18) 0%,
+      rgba(255, 255, 255, 0)   35%,
+      rgba(72, 120, 166, 0.14) 60%,
+      rgba(255, 255, 255, 0)   85%,
+      rgba(201, 123, 46, 0.16) 100%
+    ),
+    #fafbfc !important;
+  background-attachment:fixed !important;
+}
 /* ── Module Transaction V0 ──────────────────────────────────── */
 .tr-kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:18px; }
 .tr-kpi {
@@ -246,7 +309,18 @@ $extraCss = <<<'CSS'
     background:#fafafa; min-width:140px; font-family:inherit;
 }
 .tr-filters input[type=text] { min-width:240px; }
-.tr-filters .tr-actions-right { margin-left:auto; display:flex; gap:8px; }
+.tr-filters .tr-actions-right { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+/* Bouton CIRCUIT COMPLET — mis en avant (dégradé + halo animé) */
+.tr-btn-circuit{
+  display:flex; flex-direction:column; align-items:flex-start; line-height:1.15;
+  text-decoration:none; color:#fff; font-weight:800; font-size:14px;
+  padding:9px 18px; border-radius:12px;
+  background:linear-gradient(135deg,#0f9d58,#0b8043 55%,#0f6cbd);
+  box-shadow:0 6px 18px rgba(11,128,67,.35); transition:transform .12s, box-shadow .12s;
+}
+.tr-btn-circuit:hover{ transform:translateY(-1px); box-shadow:0 10px 26px rgba(11,128,67,.45); }
+.tr-btn-circuit .tr-circuit-sub{ font-size:10px; font-weight:600; opacity:.9; letter-spacing:.02em; }
+@media(max-width:640px){ .tr-btn-circuit{ width:100%; align-items:center; } }
 .tr-btn {
     border:none; border-radius:8px; padding:8px 14px; cursor:pointer;
     font-size:13px; font-weight:600; font-family:inherit;
@@ -415,11 +489,6 @@ include __DIR__ . '/inc/agency_layout_top.php';
 <!-- ── Barre de filtres (auto-submit) ───────────────────────── -->
 <form method="get" action="<?= h(app_url('/transaction_index.php')) ?>" class="tr-filters" id="tr-filters-form">
     <input type="text" name="q" placeholder="🔎 Adresse, ville, référence, propriétaire…" value="<?= h($q) ?>" data-autosubmit="text">
-    <select name="type" data-autosubmit>
-        <option value="all" <?= $fType==='all'?'selected':'' ?>>Vente + Location</option>
-        <option value="vente" <?= $fType==='vente'?'selected':'' ?>>Vente</option>
-        <option value="location" <?= $fType==='location'?'selected':'' ?>>Location</option>
-    </select>
     <select name="usage" data-autosubmit>
         <option value="all" <?= $fUsage==='all'?'selected':'' ?>>Tous usages</option>
         <option value="habitation" <?= $fUsage==='habitation'?'selected':'' ?>>Habitation</option>
@@ -431,28 +500,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <option value="500k" <?= $fPrix==='500k'?'selected':'' ?>>≥ 500 000 €</option>
         <option value="1M"   <?= $fPrix==='1M'?'selected':'' ?>>≥ 1 000 000 €</option>
     </select>
-    <select name="statut" data-autosubmit>
-        <option value="all" <?= $fStatut==='all'?'selected':'' ?>>Tous statuts</option>
-        <option value="a_preparer"    <?= $fStatut==='a_preparer'?'selected':'' ?>>À préparer</option>
-        <option value="pret"          <?= $fStatut==='pret'?'selected':'' ?>>Prêt</option>
-        <option value="commercialise" <?= $fStatut==='commercialise'?'selected':'' ?>>Commercialisé</option>
-        <option value="offre_recue"   <?= $fStatut==='offre_recue'?'selected':'' ?>>Offre reçue</option>
-        <option value="vendu"         <?= $fStatut==='vendu'?'selected':'' ?>>Vendu</option>
-    </select>
-    <select name="proprietaire_id" data-autosubmit>
-        <option value="0">Tous propriétaires</option>
-        <?php foreach ($proprietaires as $p): ?>
-            <option value="<?= (int)$p['id'] ?>" <?= $fProprietaire===(int)$p['id']?'selected':'' ?>>
-                <?= h($proprio_label($p)) ?>
-            </option>
-        <?php endforeach; ?>
-    </select>
-    <select name="priorite" data-autosubmit title="Filtrer par priorité de vente">
-        <option value="all"      <?= $fPriorite==='all'?'selected':'' ?>>Toutes priorités</option>
-        <option value="haute"    <?= $fPriorite==='haute'?'selected':'' ?>>🟡 Haute priorité</option>
-        <option value="normale"  <?= $fPriorite==='normale'?'selected':'' ?>>🟠 À la vente</option>
-        <option value="differee" <?= $fPriorite==='differee'?'selected':'' ?>>🔴 Vente différée</option>
-        <option value="aucune"   <?= $fPriorite==='aucune'?'selected':'' ?>>⚪ Non classé</option>
+    <select name="archives" data-autosubmit title="Les archivés (vendus / retirés) sont masqués par défaut">
+        <option value="">Actifs (par défaut)</option>
+        <option value="1" <?= $fArchives==='1'?'selected':'' ?>>📦 Archivés</option>
     </select>
     <?php if ($isManager): ?>
     <select name="societe_id" data-autosubmit title="Filtrer par société">
@@ -464,7 +514,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <select name="agence_id" data-autosubmit title="Filtrer par agence">
         <option value="0">Toutes agences</option>
         <?php foreach ($agences as $a): ?>
-            <option value="<?= (int)$a['id'] ?>" <?= $fAgence===(int)$a['id']?'selected':'' ?>><?= h($a['nom'] ?: '#'.$a['id']) ?></option>
+            <option value="<?= (int)$a['id'] ?>" <?= $fAgence===(int)$a['id']?'selected':'' ?>><?= h(ucwords(mb_strtolower($a['ville'] ?: $a['nom']))) ?></option>
         <?php endforeach; ?>
     </select>
     <?php endif; ?>
@@ -472,7 +522,13 @@ include __DIR__ . '/inc/agency_layout_top.php';
 
     <div class="tr-actions-right">
         <a class="tr-btn" href="<?= h(app_url('/transaction_chargement.php')) ?>">📦 Chargement par lot</a>
-        <button type="button" class="tr-btn tr-btn-primary" onclick="trOpenAddBien()">➕ Ajouter un bien</button>
+        <a class="tr-btn" href="<?= h(app_url('/transaction_modeles.php')) ?>">📑 Modèles</a>
+        <button type="button" class="tr-btn" onclick="trOpenAddBien()">➕ Ajouter un bien</button>
+        <a class="tr-btn-circuit" href="<?= h(app_url('/transaction_dossier_nouveau.php')) ?>"
+           title="Créer un dossier de vente complet : propriétaire → bien → estimation → mandat → signature">
+           🗂️ Nouveau dossier de vente
+           <span class="tr-circuit-sub">circuit complet · du contact à la signature</span>
+        </a>
     </div>
 </form>
 
@@ -499,7 +555,44 @@ include __DIR__ . '/inc/agency_layout_top.php';
 })();
 </script>
 
-<!-- ── Tableau ─────────────────────────────────────────────── -->
+<!-- ── Cards ───────────────────────────────────────────────── -->
+<style>
+.trx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;}
+.trx-card{background:#fff;border:1px solid #ece7df;border-left:4px solid #c8c4be;border-radius:14px;
+  padding:13px 15px;box-shadow:0 2px 6px rgba(36,59,92,.07);display:flex;flex-direction:column;gap:9px;
+  transition:transform .14s ease, box-shadow .14s ease;}
+.trx-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(36,59,92,.12);}
+.trx-card.tvente{border-left-color:#d4a047;} .trx-card.tlocation{border-left-color:#4878a6;}
+.trx-card.prio-haute{border-left-color:#eab308;} .trx-card.prio-differee{border-left-color:#dc2626;}
+.trx-head{display:flex;align-items:flex-start;gap:8px;}
+.trx-title{font-size:15px;font-weight:800;color:#243B5C;text-decoration:none;line-height:1.2;flex:1;min-width:0;}
+.trx-title:hover{text-decoration:underline;}
+.trx-ville{font-size:15px;font-weight:700;color:#2d5f6b;line-height:1.2;margin-top:1px;}
+.trx-ref{font-family:'DM Mono',monospace;font-weight:500;color:#9a9690;font-size:10.5px;letter-spacing:.04em;margin-top:1px;}
+.trx-status{font-size:9px;font-weight:800;padding:2px 7px;border-radius:99px;background:#f4f1ec;color:#5a5650;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;flex:none;}
+.trx-status.commercialise{background:#dbeafe;color:#1e40af;}
+.trx-status.offre_recue{background:#fef3c7;color:#92400e;} .trx-status.vendu{background:#e6dcf2;color:#5b21b6;}
+.trx-proprio{font-size:12px;color:#2d5f6b;margin-top:8px;}
+.trx-proprio a{color:#2d5f6b;font-weight:700;text-decoration:none;border-bottom:1px dotted #8fb3bb;}
+.trx-user{font-size:11.5px;color:#7a766f;}
+.trx-meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11.5px;color:#5a5650;border-top:1px solid #f3efe9;padding-top:8px;}
+.trx-meta b{color:#243B5C;}
+.trx-meta .prix{font-size:15px;font-weight:800;color:#1f7a3d;}
+.trx-prio-row{display:flex;gap:6px;align-items:center;}
+.trx-prio-dot{width:13px;height:13px;border-radius:50%;cursor:pointer;border:2px solid #e2ddd3;display:inline-block;}
+.trx-prio-dot.haute{background:#eab308;} .trx-prio-dot.normale{background:#f59e0b;}
+.trx-prio-dot.differee{background:#dc2626;} .trx-prio-dot.none{background:#fff;}
+.trx-prio-dot.active{box-shadow:0 0 0 2px #243B5C;}
+.trx-links{display:flex;gap:8px;flex-wrap:wrap;}
+.trx-link{font-size:11.5px;font-weight:700;text-decoration:none;color:#2d4a72;background:#f3f6fb;border:1px solid #e3ebf5;
+  border-radius:9px;padding:6px 11px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;}
+.trx-link:hover{background:#eaf1fa;}
+.trx-actions{display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid #f3efe9;padding-top:11px;margin-top:10px;}
+.trx-abtn{width:34px;height:34px;border-radius:10px;border:1px solid #ece7df;background:#fff;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;font-size:15px;text-decoration:none;color:#3a3830;
+  box-shadow:0 1px 2px rgba(36,59,92,.05);transition:transform .1s,box-shadow .1s,background .1s;}
+.trx-abtn:hover{background:#fbfaf7;transform:translateY(-1px);box-shadow:0 3px 8px rgba(36,59,92,.12);}
+</style>
 <div class="tr-table-wrap">
 <?php if (!empty($sqlError ?? '')): ?>
     <div class="tr-empty">
@@ -515,26 +608,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
         Clique sur <strong>➕ Ajouter un bien</strong> pour démarrer.
     </div>
 <?php else: ?>
-    <table class="tr-table">
-        <thead>
-            <tr>
-                <th>Réf.</th>
-                <th>Adresse</th>
-                <th>Propriétaire</th>
-                <th>Type</th>
-                <th>Usage</th>
-                <th class="num" style="min-width:90px;">Surface</th>
-                <th class="num">Prix vente</th>
-                <th class="num">Loyer/an</th>
-                <th class="num">Rdt %</th>
-                <th>Statut</th>
-                <th>Docs</th>
-                <th>Offres</th>
-                <th>MAJ</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
+    <div class="trx-grid">
         <?php foreach ($rows as $r):
             $bienId      = (int)$r['bien_id'];
             $type        = (string)($r['type_transaction'] ?: $r['type_commercialisation'] ?: '');
@@ -555,67 +629,86 @@ include __DIR__ . '/inc/agency_layout_top.php';
             if ($rdt <= 0 && $prix > 0 && $loyerAn > 0) {
                 $rdt = round(($loyerAn / $prix) * 100, 2);
             }
-            $proprioNom = '';
+            $proprioNom    = '';
+            $proprioTiersId = 0;
+            $proprioRep     = '';
             if (!empty($r['id_proprietaire'])) {
                 // Lookup léger une fois par ligne — V0 acceptable (LIMIT 500 max)
+                // Cache enrichi : nom + id_tiers + 1er représentant (pour mini-card FluxBox)
                 static $proCache = [];
                 $pid = (int)$r['id_proprietaire'];
                 if (!isset($proCache[$pid])) {
-                    $stP = $pdo->prepare('SELECT COALESCE(NULLIF(p.societe,""), CONCAT_WS(" ", p.prenom, p.nom)) AS lbl FROM proprietaires p WHERE p.id = ? LIMIT 1');
-                    $stP->execute([$pid]);
-                    $proCache[$pid] = (string)($stP->fetchColumn() ?: '');
+                    $stP = $pdo->prepare('SELECT
+                        COALESCE(NULLIF(p.societe,""), CONCAT_WS(" ", p.prenom, p.nom)) AS lbl,
+                        p.id_tiers AS tiers_id,
+                        (SELECT CONCAT_WS(" ", t2.prenom, t2.nom,
+                                IF(tc.qualite IS NOT NULL AND tc.qualite <> "", CONCAT("(", tc.qualite, ")"), ""))
+                            FROM tiers_contacts tc
+                            INNER JOIN tiers t2 ON t2.id = tc.id_tiers_contact
+                            WHERE tc.id_tiers_entite = p.id_tiers AND tc.actif = 1
+                            ORDER BY tc.priorite ASC LIMIT 1) AS rep_label
+                        FROM proprietaires p WHERE p.id = ? LIMIT 1');
+                    try {
+                        $stP->execute([$pid]);
+                        $row = $stP->fetch(PDO::FETCH_ASSOC) ?: [];
+                        $proCache[$pid] = [
+                            'nom'      => (string)($row['lbl'] ?? ''),
+                            'tiers_id' => (int)($row['tiers_id'] ?? 0),
+                            'rep'      => trim((string)($row['rep_label'] ?? '')),
+                        ];
+                    } catch (Throwable) {
+                        $proCache[$pid] = ['nom'=>'', 'tiers_id'=>0, 'rep'=>''];
+                    }
                 }
-                $proprioNom = $proCache[$pid];
+                $proprioNom    = $proCache[$pid]['nom'];
+                $proprioTiersId = $proCache[$pid]['tiers_id'];
+                $proprioRep     = $proCache[$pid]['rep'];
             }
             $maj = $r['bien_date_modification'] ? date('d/m/y', strtotime((string)$r['bien_date_modification'])) : '—';
             $prio = (string)($r['priorite_vente'] ?? '');
             $rowClass = in_array($prio, ['haute','normale','differee'], true) ? 'prio-' . $prio : '';
+            // Lookup nom immeuble + user responsable (id_user_actuel) — cache par bien
+            static $bienExtraCache = [];
+            if (!isset($bienExtraCache[$bienId])) {
+                try {
+                    $stX = $pdo->prepare("SELECT i.nom_immeuble, TRIM(CONCAT_WS(' ', u.prenom, u.nom)) AS user_nom
+                        FROM biens b
+                        LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                        LEFT JOIN users u ON u.id = b.id_user_actuel
+                        WHERE b.id = ? LIMIT 1");
+                    $stX->execute([$bienId]);
+                    $rx = $stX->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $bienExtraCache[$bienId] = ['immeuble'=>trim((string)($rx['nom_immeuble'] ?? '')), 'user'=>trim((string)($rx['user_nom'] ?? ''))];
+                } catch (Throwable) { $bienExtraCache[$bienId] = ['immeuble'=>'', 'user'=>'']; }
+            }
+            $immNom  = $bienExtraCache[$bienId]['immeuble'];
+            $userNom = $bienExtraCache[$bienId]['user'];
         ?>
-            <tr data-bien="<?= $bienId ?>" class="<?= h($rowClass) ?>">
-                <td data-label="Réf." class="ref">
-                    <a href="<?= h(app_url('/bien_360.php?id=' . $bienId)) ?>" title="Voir la fiche 360° du bien"><?= h($r['reference_bien'] ?: '#' . $bienId) ?></a>
-                    <div style="font-size:9.5px; margin-top:2px;">
-                        <a href="<?= h(app_url('/bien_detail.php?edit=' . $bienId)) ?>" style="color:#9a9690; text-decoration:none;" title="Éditer la fiche">✏️</a>
-                    </div>
-                    <div style="margin-top:3px;">
-                        <span class="tr-prio-dot haute    <?= $prio==='haute'?'active':'' ?>"    onclick="trSetPriorite(<?= $bienId ?>,'haute')"    title="🟡 Priorité haute"></span>
-                        <span class="tr-prio-dot normale  <?= $prio==='normale'?'active':'' ?>"  onclick="trSetPriorite(<?= $bienId ?>,'normale')"  title="🟠 À la vente"></span>
-                        <span class="tr-prio-dot differee <?= $prio==='differee'?'active':'' ?>" onclick="trSetPriorite(<?= $bienId ?>,'differee')" title="🔴 Vente différée"></span>
-                        <span class="tr-prio-dot none     <?= !$prio?'active':'' ?>"             onclick="trSetPriorite(<?= $bienId ?>,'')"        title="⚪ Aucune"></span>
-                    </div>
-                </td>
-                <td data-label="Adresse" style="max-width:240px;" title="<?= h(trim(($r['adresse_1'] ?? '') . ' · ' . ($r['ville'] ?? ''), ' ·')) ?>">
-                    <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= h($r['adresse_1'] ?: $r['designation'] ?: '—') ?></div>
-                    <?php if (!empty($r['ville'])): ?>
-                        <div style="font-size:11px; color:#7a766f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= h($r['ville']) ?></div>
+            <div class="trx-card t<?= h($typeClass ?: '') ?> <?= h($rowClass) ?>" data-bien="<?= $bienId ?>">
+                <?php
+                // Titre = NOM DE L'IMMEUBLE en priorité ; sinon désignation ; sinon la rue
+                // seule (on retire CP / ville / pays en coupant à la 1re virgule).
+                $titreCard = $immNom ?: ($r['designation'] ?: trim((string)(explode(',', (string)($r['adresse_1'] ?? ''))[0])));
+                if ($titreCard === '') $titreCard = '—';
+                ?>
+                <div class="trx-head">
+                    <a class="trx-title" href="<?= h(app_url('/bien_360.php?id=' . $bienId)) ?>" title="Fiche 360° du bien"><?= h($titreCard) ?> ↗</a>
+                    <?php if (in_array($statut, ['commercialise','offre_recue','vendu'], true)): ?>
+                        <span class="trx-status <?= h($statut) ?>" title="<?= $statut==='commercialise' ? 'Annonce active' : '' ?>"><?= $statut==='commercialise' ? '📡 ' : '' ?><?= h($statutLabel) ?></span>
                     <?php endif; ?>
-                </td>
-                <td data-label="Propriétaire"><?= h($proprioNom ?: '—') ?></td>
-                <td data-label="Type">
-                    <?php if ($typeClass): ?>
-                        <span class="tr-badge-type <?= $typeClass ?>"><?= h($typeLabel) ?></span>
-                    <?php else: ?>—<?php endif; ?>
-                </td>
-                <td data-label="Usage"><?= h($r['usage_bien'] ?: '—') ?></td>
-                <td data-label="Surface" class="num" style="min-width:90px; white-space:nowrap;"><?= $r['surface_habitable'] ? number_format((float)$r['surface_habitable'], 1, ',', ' ') . ' m²' : '—' ?></td>
-                <td data-label="Prix" class="num"><?= $prix > 0 ? number_format($prix, 0, ',', ' ') . ' €' : '—' ?></td>
-                <td data-label="Loyer/an" class="num"><?= $loyerAn > 0 ? number_format($loyerAn, 0, ',', ' ') . ' €' : '—' ?></td>
-                <td data-label="Rendement" class="num"><?= $rdt > 0 ? number_format($rdt, 2, ',', '') . ' %' : '—' ?></td>
-                <td data-label="Statut"><span class="tr-status <?= h($statut) ?>"><?= h($statutLabel) ?></span></td>
-                <td data-label="Docs" class="tr-docs <?= $docsClass ?>" title="<?= $nbDocs ?> document(s) GED">
-                    <?= $docsIcon ?> <?= $nbDocs ?>
-                </td>
-                <td data-label="Offres" style="text-align:center;">
-                    <?php if ((int)$r['nb_offres_actives'] > 0): ?>
-                        <strong style="color:#a8741d;"><?= (int)$r['nb_offres_actives'] ?></strong>
-                        <?php if ($r['meilleure_offre']): ?>
-                            <div style="font-size:10px; color:#9a9690;"><?= number_format((float)$r['meilleure_offre'], 0, ',', ' ') ?> €</div>
-                        <?php endif; ?>
-                    <?php else: ?>
-                        <span style="color:#c8c4be;">0</span>
-                    <?php endif; ?>
-                </td>
-                <td data-label="MAJ" style="font-family:'DM Mono',monospace; font-size:11px; color:#7a766f;"><?= h($maj) ?></td>
+                </div>
+                <div class="trx-ville">📍 <?= h($r['ville'] ?: '—') ?></div>
+                <div class="trx-ref">Réf. <?= h($r['reference_bien'] ?: '#' . $bienId) ?></div>
+                <div class="trx-proprio">👤 <?php if ($proprioTiersId > 0): ?><a href="<?= h(app_url('/tiers_360.php?id=' . $proprioTiersId)) ?>"><?= h($proprioNom ?: '—') ?></a><?php else: ?><strong><?= h($proprioNom ?: '—') ?></strong><?php endif; ?><?php if (!empty($r['usage_bien'])): ?> <span style="color:#9a9690;">· <?= h($r['usage_bien']) ?></span><?php endif; ?></div>
+                <?php if ($userNom !== ''): ?><div class="trx-user">🧑‍💼 <?= h($userNom) ?></div><?php endif; ?>
+                <div class="trx-meta">
+                    <?php if ($prix > 0): ?><span class="prix"><?= number_format($prix, 0, ',', ' ') ?> €</span><?php endif; ?>
+                    <?php if ($r['surface_habitable']): ?><span>📐 <b><?= number_format((float)$r['surface_habitable'], 0) ?></b> m²</span><?php endif; ?>
+                    <?php if ($loyerAn > 0): ?><span>🔑 <b><?= number_format($loyerAn, 0, ',', ' ') ?></b> €/an</span><?php endif; ?>
+                    <?php if ($rdt > 0): ?><span>📈 <b><?= number_format($rdt, 2, ',', '') ?></b> %</span><?php endif; ?>
+                    <span title="<?= $nbDocs ?> document(s) GED"><?= $docsIcon ?> <?= $nbDocs ?> doc</span>
+                    <?php if ((int)$r['nb_offres_actives'] > 0): ?><span style="color:#a8741d;">💰 <b><?= (int)$r['nb_offres_actives'] ?></b><?php if ($r['meilleure_offre']): ?> · <?= number_format((float)$r['meilleure_offre'], 0, ',', ' ') ?> €<?php endif; ?></span><?php endif; ?>
+                </div>
                 <?php
                 // N1 suggéré : priorité au mandat actif (la vérité métier), fallback bien.type_commercialisation.
                 //  - mandats.type_mandat = 'gerance'                      → 03_GESTION_LOCATIVE (vraie gestion)
@@ -662,17 +755,22 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 <?php
                 $adresseBien = trim(((string)($r['adresse_1'] ?? '')) . ' ' . ((string)($r['code_postal'] ?? '')) . ' ' . ((string)($r['ville'] ?? '')));
                 ?>
-                <td data-label="Actions" class="tr-actions-cell">
-                    <button title="Voir historique" onclick="trOpenHistorique(<?= $bienId ?>)">📜</button>
-                    <button title="Ajouter offre"  onclick="trOpenOffre(<?= $bienId ?>, <?= (int)($r['annonce_id'] ?? 0) ?>)">💰</button>
-                    <button title="Charger un document (FluxBox V3 : nommage + IA + classement auto)"
-                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>, '<?= h($n1Suggested) ?>', '<?= h((string)($r['reference_bien'] ?? '')) ?>', '<?= h($adresseBien) ?>')">📎</button>
-                    <button title="Envoyer dossier" onclick="trOpenSend(<?= $bienId ?>)">✉️</button>
-                </td>
-            </tr>
+                <div class="trx-links">
+                    <a class="trx-link" href="<?= h(app_url('/transaction_dossier.php?id_bien=' . $bienId)) ?>" title="Dossier de vente (vendeur, acquéreur, notaire, docs, étapes)">🗂️ Dossier de vente</a>
+                    <a class="trx-link" href="<?= h(app_url('/bien_detail.php?edit=' . $bienId)) ?>" title="Éditer la fiche bien">✏️ Éditer</a>
+                </div>
+                <div class="trx-actions">
+                    <button class="trx-abtn" title="Voir l'historique" onclick="trOpenHistorique(<?= $bienId ?>)">📜</button>
+                    <button class="trx-abtn" title="Ajouter une offre" onclick="trOpenOffre(<?= $bienId ?>, <?= (int)($r['annonce_id'] ?? 0) ?>)">💰</button>
+                    <button class="trx-abtn" title="Charger un document (FluxBox V3 : nommage + IA + classement auto)"
+                            onclick="trOpenDocFluxbox(<?= $bienId ?>, <?= (int)($r['id_societe'] ?? 0) ?>, <?= (int)($r['id_agence'] ?? 0) ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>, '<?= h($n1Suggested) ?>', '<?= h((string)($r['reference_bien'] ?? '')) ?>', '<?= h($adresseBien) ?>', '<?= h($proprioNom) ?>', <?= $proprioTiersId ?>, '<?= h($proprioRep) ?>')">📎</button>
+                    <button class="trx-abtn" title="Envoyer le dossier" onclick="trOpenSend(<?= $bienId ?>)">✉️</button>
+                    <button class="trx-abtn" title="Retirer de la vente (sort le bien du tableau + archive l'annonce — ne supprime pas le bien)"
+                            onclick="trRetirerVente(<?= $bienId ?>, <?= (int)($r['id_proprietaire'] ?? 0) ?>, '<?= h((string)($r['reference_bien'] ?? '')) ?>')">↩️</button>
+                </div>
+            </div>
         <?php endforeach; ?>
-        </tbody>
-    </table>
+        </div>
 <?php endif; ?>
 </div>
 
@@ -981,27 +1079,30 @@ document.getElementById('tr-form-offre').addEventListener('submit', async functi
 // Le legacy trOpenDoc(bienId) ouvrait tr-modal-doc → POST transaction_doc_upload.
 // Nouveau : ouvre la modal FluxBox avec contexte pré-rempli (société, agence,
 // bien, propriétaire). FluxBox gère storage, nommage V3, IA, classement.
-function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1, refBien, adresseBien) {
+function trOpenDocFluxbox(bienId, socId, ageId, proprioId, n1, refBien, adresseBien, proprioNom, proprioTiersId, proprioRep) {
     if (typeof window.fbxOpenUploadModal !== 'function') {
         alert('Module FluxBox non chargé sur cette page. Recharge la page.');
         return;
     }
     window.fbxOpenUploadModal({
-        bien_id:        bienId,
-        soc_id:         socId    || 0,
-        age_id:         ageId    || 0,
-        proprio_id:     proprioId || 0,
-        n1:             n1 || '',
-        n2:             'BIENS',
-        n3:             'BIEN',
-        entite_nom:     refBien || ('Bien #' + bienId),
-        entite_id_bdd:  bienId,
-        entite_adresse: adresseBien || '',
-        origin:         'transaction_index'
+        bien_id:              bienId,
+        soc_id:               socId    || 0,
+        age_id:               ageId    || 0,
+        proprio_id:           proprioId || 0,
+        proprio_nom:          proprioNom || '',
+        proprio_tiers_id:     proprioTiersId || 0,
+        proprio_representant: proprioRep || '',
+        n1:                   n1 || '',
+        n2:                   'BIENS',
+        n3:                   'BIEN',
+        entite_nom:           refBien || ('Bien #' + bienId),
+        entite_id_bdd:        bienId,
+        entite_adresse:       adresseBien || '',
+        origin:               'transaction_index'
     });
 }
 // Conservé en alias pour code legacy éventuel
-function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0, '', '', ''); }
+function trOpenDoc(bienId) { trOpenDocFluxbox(bienId, 0, 0, 0, '', '', '', '', 0, ''); }
 document.getElementById('tr-form-doc').addEventListener('submit', async function(e){
     e.preventDefault();
     const fd = new FormData(this);
@@ -1014,6 +1115,20 @@ document.getElementById('tr-form-doc').addEventListener('submit', async function
 });
 
 // ── Modal Envoi dossier ──────────────────────────────────────
+// Retirer un bien de la vente (annule un doublon) : sort du tableau + archive l'annonce. Ne supprime pas le bien.
+async function trRetirerVente(bienId, propId, ref) {
+    if (!confirm('Retirer ' + (ref || ('bien #' + bienId)) + ' de la commercialisation « vente » ?\n\n→ Le bien quitte le tableau Transaction\n→ Son annonce (brouillon) est archivée — plus de diffusion\n→ Le bien N\'EST PAS supprimé')) return;
+    try {
+        const fd = new FormData();
+        fd.append('id_bien', bienId);
+        fd.append('id_proprietaire', propId);
+        const res = await fetch(APP_BASE + '/bailleur_retirer_vente.php', { method:'POST', body:fd });
+        const d = await res.json();
+        if (!d.ok) { alert('❌ ' + (d.error || 'Échec du retrait')); return; }
+        alert('✓ Bien retiré de la vente' + (d.annonces_archivees ? ' · ' + d.annonces_archivees + ' annonce(s) archivée(s)' : ''));
+        location.reload();
+    } catch (e) { alert('❌ Erreur réseau'); }
+}
 async function trOpenSend(bienId) {
     document.getElementById('tr-send-bien').value = bienId;
     document.getElementById('tr-form-send').reset();

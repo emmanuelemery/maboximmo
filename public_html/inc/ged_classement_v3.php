@@ -375,7 +375,7 @@ if (!function_exists('ged_v3_get_children')) {
                 $stPh = $pdo->prepare("
                     SELECT 1 FROM ged_level_codes
                     WHERE level_number = 3
-                      AND code = ? COLLATE utf8mb4_unicode_ci
+                      AND code COLLATE utf8mb4_unicode_ci = ?
                       AND COALESCE(is_entity_placeholder, 0) = 1
                     LIMIT 1
                 ");
@@ -386,8 +386,8 @@ if (!function_exists('ged_v3_get_children')) {
                     $stPh2 = $pdo->prepare("
                         SELECT code FROM ged_level_codes
                         WHERE level_number = 3
-                          AND parent_n1 = ? COLLATE utf8mb4_unicode_ci
-                          AND parent_n2 = ? COLLATE utf8mb4_unicode_ci
+                          AND parent_n1 COLLATE utf8mb4_unicode_ci = ?
+                          AND parent_n2 COLLATE utf8mb4_unicode_ci = ?
                           AND COALESCE(is_entity_placeholder, 0) = 1
                           AND is_active = 1
                         LIMIT 1
@@ -407,11 +407,15 @@ if (!function_exists('ged_v3_get_children')) {
         // Force COLLATE sur les comparaisons : la colonne est en utf8mb4_unicode_ci mais le
         // paramètre PHP arrive en utf8mb4_general_ci → sans COLLATE explicite, MySQL peut
         // ne pas matcher (le code existe en BDD mais le SELECT le rate silencieusement).
+        // ⚠️ Le COLLATE doit porter sur la COLONNE, pas sur le paramètre `?` : en prepared
+        // natif (ATTR_EMULATE_PREPARES=0), le paramètre lié est en charset 'binary' et
+        // « ? COLLATE utf8mb4_unicode_ci » lève « COLLATION not valid for CHARACTER SET binary »
+        // → toute la requête échoue (cascade GED vide : « Aucune catégorie seedée »).
         foreach (['n1', 'n2', 'n3', 'n4'] as $i => $k) {
             if ($level > $i + 1) {
                 $val = trim((string)($parents[$k] ?? ''));
                 if ($val !== '') {
-                    $where[]  = "parent_{$k} = ? COLLATE utf8mb4_unicode_ci";
+                    $where[]  = "parent_{$k} COLLATE utf8mb4_unicode_ci = ?";
                     $params[] = $val;
                 } else {
                     $where[] = "(parent_{$k} IS NULL OR parent_{$k} = '')";

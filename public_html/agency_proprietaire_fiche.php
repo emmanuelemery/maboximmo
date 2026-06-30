@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/ged_document_links.php';  // Sprint 7D : dual-write GED centrale
 require_login();
 
 $appLayout = true;
@@ -65,21 +66,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'uplo
             $destPath = $destDir . '/' . $safeName;
             $relPath  = 'uploads/bailleur_docs/' . $propId . '/' . $safeName;
             if (move_uploaded_file($file['tmp_name'], $destPath)) {
+                $upType   = (string)($_POST['type_document'] ?? 'autre');
+                $upTitre  = trim((string)($_POST['titre'] ?? '')) ?: pathinfo($file['name'], PATHINFO_FILENAME);
+                $upComment= trim((string)($_POST['commentaire_doc'] ?? '')) ?: null;
+
+                // Legacy INSERT bailleur_documents (preserve UI actuelle)
                 $pdo->prepare("
                     INSERT INTO bailleur_documents
                         (id_proprietaire, type_document, titre, nom_fichier, chemin_fichier, taille, mime_type, uploaded_by, date_upload, commentaire)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
                 ")->execute([
-                    $propId,
-                    (string)($_POST['type_document'] ?? 'autre'),
-                    trim((string)($_POST['titre'] ?? '')) ?: pathinfo($file['name'], PATHINFO_FILENAME),
-                    $file['name'],
-                    $relPath,
-                    $file['size'],
-                    $file['type'],
-                    $userId,
-                    trim((string)($_POST['commentaire_doc'] ?? '')) ?: null,
+                    $propId, $upType, $upTitre, $file['name'], $relPath,
+                    $file['size'], $file['type'], $userId, $upComment,
                 ]);
+
+                // ─── Sprint 7D (2026-05-25) : dual-write GED CENTRALE UNIQUE ───
+                try {
+                    // proprietaires n'a pas id_societe → passe par tiers
+                    $stP = $pdo->prepare("SELECT p.id_tiers, t.id_societe,
+                                                  COALESCE(t.id_agence, p.id_agence) AS id_agence,
+                                                  s.raison_sociale AS soc_raison,
+                                                  a.code_agence, a.nom_agence
+                                            FROM proprietaires p
+                                            LEFT JOIN tiers    t ON t.id = p.id_tiers
+                                            LEFT JOIN societes s ON s.id = t.id_societe
+                                            LEFT JOIN agences  a ON a.id = COALESCE(t.id_agence, p.id_agence)
+                                            WHERE p.id = ? LIMIT 1");
+                    $stP->execute([$propId]);
+                    $propCtx = $stP->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $tiersId = (int)($propCtx['id_tiers'] ?? 0);
+                    $socIdGed = (int)($propCtx['id_societe'] ?? 0) ?: 1;
+
+                    if ($tiersId > 0) {
+                        gus_commit_document(
+                            $pdo,
+                            [
+                                'path_on_disk'  => $destPath,
+                                'name_original' => $file['name'],
+                                'mime_type'     => $file['type'] ?? 'application/octet-stream',
+                                'size_bytes'    => (int)$file['size'],
+                                'public_url'    => $relPath,
+                            ],
+                            [
+                                'document_type'  => strtoupper($upType),
+                                'source_module'  => '03_GESTION_LOCATIVE',
+                                'security_level' => 'interne',
+                                'societe_id'     => $socIdGed,
+                                'tenant_id'      => $socIdGed,
+                                'created_by'     => $userId,
+                                'storage_provider' => 'local',
+                                'metadata_extra' => [
+                                    'titre_user'  => $upTitre,
+                                    'commentaire' => $upComment,
+                                    'classement'  => ['tiers_proprio_id' => $tiersId],
+                                    'legacy_source' => 'agency_proprietaire_fiche',
+                                    'legacy_bailleur_proprio_id' => $propId,
+                                ],
+                                'naming_ctx' => [
+                                    'societe_raison' => $propCtx['soc_raison'] ?? 'Régie EMERY',
+                                    'agence_code'    => $propCtx['code_agence'] ?? 'RE69-2',
+                                    'agence_nom'     => $propCtx['nom_agence']  ?? 'LYON',
+                                    'user_id'        => $userId,
+                                    'n1_slug'        => '03_gestion_locative',
+                                    'n2_slug'        => 'proprietaires',
+                                    'n3_slug'        => strtolower($upType),
+                                    'type_doc'       => strtoupper($upType),
+                                    'entity_type'    => 'TIERS',
+                                    'entity_id'      => $tiersId,
+                                    'source_filename'=> $file['name'],
+                                ],
+                            ],
+                            [['entity_type' => 'TIERS', 'entity_id' => $tiersId, 'relation_type' => 'main']]
+                        );
+                    }
+                } catch (Throwable $exGed) {
+                    error_log('[agency_proprio_fiche] dual-write GED failed: ' . $exGed->getMessage());
+                }
                 $msg = 'Document ajouté.';
             }
         }
@@ -119,6 +181,13 @@ $stmtBiens = $pdo->prepare("
 $stmtBiens->execute([$propId]);
 $biens = $stmtBiens->fetchAll(PDO::FETCH_ASSOC);
 
+// ── Immeubles du propriétaire (cible possible pour TF / docs d'immeuble) ──
+$stmtImm = $pdo->prepare("SELECT DISTINCT i.id, COALESCE(NULLIF(i.nom_immeuble,''), i.adresse_1, CONCAT('Immeuble #', i.id)) AS label
+                          FROM immeubles i JOIN biens b ON b.id_immeuble = i.id
+                          WHERE b.id_proprietaire = ? ORDER BY label");
+$stmtImm->execute([$propId]);
+$immeublesProp = $stmtImm->fetchAll(PDO::FETCH_ASSOC);
+
 // ── Charger les mandats ──
 $stmtMandats = $pdo->prepare("
     SELECT m.*, b.reference_bien, b.designation AS bien_designation
@@ -140,6 +209,27 @@ $stmtDocs = $pdo->prepare("
 ");
 $stmtDocs->execute([$propId]);
 $docs = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
+
+// ── Dossiers CRÉANCIERS liés à ce propriétaire (via son tiers) ──
+$dossiersCreanciers = [];
+$tiersIdProp = (int)($prop['id_tiers'] ?? 0);
+if ($tiersIdProp > 0) {
+    try {
+        $stCre = $pdo->prepare("
+            SELECT DISTINCT cd.id, cd.code, cd.libelle, cd.statut, cd.niveau_risque,
+                   cd.numero_dossier_adverse, cdl.role_dossier
+            FROM creancier_dossier_lien cdl
+            JOIN creancier_dossier cd ON cd.id = cdl.id_dossier
+            WHERE cdl.entity_type = 'TIERS' AND cdl.entity_id = ?
+            ORDER BY FIELD(cd.niveau_risque,'rouge','orange','vert'), cd.updated_at DESC
+        ");
+        $stCre->execute([$tiersIdProp]);
+        $dossiersCreanciers = $stCre->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        // tables créanciers absentes (branche/migration non déployée) → on ignore
+        $dossiersCreanciers = [];
+    }
+}
 
 $docTypeLabels = [
     'mandat'     => 'Mandat signé',
@@ -373,11 +463,104 @@ include __DIR__ . '/inc/sidebar_agency.php';
       </span>
     </h1>
     <div class="page-head-sub">Fiche complète modifiable · biens, mandats, documents</div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span title="ID à utiliser pour la suppression (outil super-admin)"
+            style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:700;font-family:monospace;">
+        🆔 ID propriétaire : <?= (int)$propId ?>
+        <button type="button" onclick="navigator.clipboard.writeText('<?= (int)$propId ?>');this.textContent='✓';setTimeout(()=>this.textContent='📋',1200);"
+                style="border:none;background:transparent;cursor:pointer;font-size:12px;padding:0;" title="Copier l'ID">📋</button>
+      </span>
+      <?php if (!empty($prop['id_tiers'])): ?>
+      <span title="ID tiers (référence interne — PAS celui de la suppression)"
+            style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:600;font-family:monospace;">
+        id_tiers : <?= (int)$prop['id_tiers'] ?>
+      </span>
+      <?php endif; ?>
+    </div>
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <button type="button" class="bl-btn" id="odClasserBtn" onclick="odClasserOpen()"
+            style="background:linear-gradient(135deg,#5e35b1,#7e57c2);color:#fff;border:none;">📥 Importer docs OneDrive</button>
+    <button type="button" class="bl-btn" onclick="odOpenFolder()"
+            style="background:#fff;color:#5e35b1;border:1px solid #b39ddb;">📂 Ouvrir le dossier OneDrive</button>
     <a href="agency_proprietaires.php" class="bl-btn bl-btn-ghost">← Liste des propriétaires</a>
   </div>
 </div>
+
+<!-- ── Modal classement OneDrive → GED (dry-run puis validation) ── -->
+<div id="odModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(15,18,24,.55);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;width:min(1000px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eef0f2;">
+      <h3 style="margin:0;font-size:16px;">📥 Documents OneDrive — <?= h($fullName) ?></h3>
+      <button type="button" onclick="document.getElementById('odModal').style.display='none'" style="border:1px solid #d6dade;background:#eceef1;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+    </div>
+    <div id="odBody" style="flex:1;overflow:auto;padding:16px 18px;font-size:13px;"><div style="color:#6b7280;padding:30px;text-align:center;">⏳ Analyse du dossier OneDrive…</div></div>
+    <div style="padding:12px 18px;border-top:1px solid #eef0f2;display:flex;gap:10px;align-items:center;">
+      <button type="button" id="odCommitBtn" onclick="odClasserCommit()" disabled
+              style="background:#2d8a4e;color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:800;cursor:pointer;opacity:.5;">✓ Valider et classer</button>
+      <span id="odMsg" style="font-size:12.5px;font-weight:700;"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var PID=<?= (int)$propId ?>, CSRF=<?= json_encode(function_exists('csrf_token')?csrf_token('onedrive_classer'):'', JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var URL=<?= json_encode(app_url('/api/onedrive_classer.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var esc=function(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;};
+  function post(action){var fd=new FormData();fd.append('csrf_token',CSRF);fd.append('id_proprietaire',PID);fd.append('action',action);
+    return fetch(URL,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();});}
+  window.odOpenFolder=function(){
+    var w=window.open('','_blank'); if(w)w.document.write('Ouverture du dossier OneDrive…');
+    post('folder_url').then(function(j){
+      if(j&&j.ok&&j.url){ if(w){w.location.href=j.url;}else{window.location.href=j.url;} }
+      else { if(w)w.close(); alert('❌ '+((j&&j.error)||'Dossier OneDrive introuvable')); }
+    }).catch(function(e){ if(w)w.close(); alert('❌ Réseau : '+e); });
+  };
+  window.odClasserOpen=function(){
+    document.getElementById('odModal').style.display='flex';
+    document.getElementById('odCommitBtn').disabled=true; document.getElementById('odCommitBtn').style.opacity=.5;
+    document.getElementById('odMsg').textContent='';
+    document.getElementById('odBody').innerHTML='<div style="color:#6b7280;padding:30px;text-align:center;">⏳ Analyse du dossier OneDrive…</div>';
+    post('scan').then(function(j){
+      if(!j||!j.ok){document.getElementById('odBody').innerHTML='<div style="color:#c62828;padding:20px;">❌ '+esc((j&&j.error)||'Erreur')+(j&&j.base?'<br><small>base: '+esc(j.base)+'</small>':'')+'</div>';return;}
+      var rows=(j.items||[]).map(function(it){
+        var col=it.status==='certain'?'#2d8a4e':(it.status==='pile'?'#8a6d1b':'#c62828');
+        var cible=it.target==='PROPRIO'?'→ propriétaire':(it.target==='BAIL'?('→ bail #'+it.bail_id+' / bien #'+it.bien_id):(it.target==='BIEN'?('→ bien #'+it.bien_id):'→ pile'));
+        return '<tr><td style="padding:5px 8px;"><b>'+esc(it.type)+'</b></td>'
+          +'<td style="padding:5px 8px;">'+esc(it.name)+'<div style="color:#5b21b6;font-size:11px;margin-top:2px;">↳ '+esc(it.name_display||'')+'</div></td>'
+          +'<td style="padding:5px 8px;">'+esc(cible)+'</td><td style="padding:5px 8px;color:'+col+';font-weight:700;">'+esc(it.status)+'</td>'
+          +'<td style="padding:5px 8px;color:#7a766f;font-size:11.5px;">'+esc(it.reason)+'</td></tr>';
+      }).join('');
+      var nbCertain=(j.items||[]).filter(function(x){return x.status==='certain';}).length;
+      document.getElementById('odBody').innerHTML=
+        '<div style="margin-bottom:8px;color:#6b7280;">Dossier OneDrive : <b>'+esc(j.folder)+'</b> · biens '+j.nb_biens+' · baux '+j.nb_baux+' · <b>'+nbCertain+'</b> doc(s) à classer / '+(j.items||[]).length+'.</div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr style="background:#ede7f6;color:#4527a0;text-align:left;">'
+        +'<th style="padding:6px 8px;">Type</th><th style="padding:6px 8px;">Fichier</th><th style="padding:6px 8px;">Cible</th><th style="padding:6px 8px;">Statut</th><th style="padding:6px 8px;">Détail</th></tr></thead><tbody>'
+        +(rows||'<tr><td colspan="5" style="padding:14px;color:#9a9690;">Aucun document mandat/bail/EDL/DPE détecté.</td></tr>')+'</tbody></table>';
+      var b=document.getElementById('odCommitBtn'); if(nbCertain>0){b.disabled=false;b.style.opacity=1;}
+    }).catch(function(e){document.getElementById('odBody').innerHTML='<div style="color:#c62828;padding:20px;">❌ Réseau : '+esc(e)+'</div>';});
+  };
+  window.odClasserCommit=function(){
+    var b=document.getElementById('odCommitBtn'),m=document.getElementById('odMsg');
+    b.disabled=true;b.style.opacity=.5;m.style.color='#6b7280';m.textContent='⏳ Classement en cours…';
+    post('commit').then(function(j){
+      if(!j||!j.ok){m.style.color='#c62828';m.textContent='❌ '+esc((j&&j.error)||'Erreur');return;}
+      m.style.color='#2d8a4e';m.textContent='✓ '+j.classes+' document(s) classé(s) en GED'+(j.pile?(' · '+j.pile+' en pile'):'')+(j.erreurs&&j.erreurs.length?(' · '+j.erreurs.length+' erreur(s)'):'')+'. Recharge la page pour voir les docs.';
+    }).catch(function(e){m.style.color='#c62828';m.textContent='❌ Réseau : '+esc(e);});
+  };
+})();
+</script>
+
+<?php if (!empty($dossiersCreanciers)): $nbCre = count($dossiersCreanciers); ?>
+<div style="margin:0 28px 14px;">
+  <a href="<?= h(app_url('/creancier_liste.php?tiers=' . $tiersIdProp)) ?>"
+     title="Voir les dossiers créanciers / saisies de ce propriétaire"
+     style="display:inline-flex;align-items:center;gap:8px;background:#dc2626;color:#fff;font-weight:700;font-size:13.5px;padding:10px 16px;border-radius:10px;text-decoration:none;box-shadow:0 4px 12px rgba(220,38,38,.3);">
+    🚨 Dossier<?= $nbCre > 1 ? 's' : '' ?> créancier<?= $nbCre > 1 ? 's' : '' ?> en cours<?= $nbCre > 1 ? ' (' . $nbCre . ')' : '' ?>
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+  </a>
+</div>
+<?php endif; ?>
 
 <div class="pf-container">
 
@@ -387,6 +570,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <a href="?id=<?= $propId ?>&tab=biens" class="pf-tab <?= $tab === 'biens' ? 'active' : '' ?>">Biens <span class="pf-tab-count"><?= count($biens) ?></span></a>
     <a href="?id=<?= $propId ?>&tab=mandats" class="pf-tab <?= $tab === 'mandats' ? 'active' : '' ?>">Mandats <span class="pf-tab-count"><?= count($mandats) ?></span></a>
     <a href="?id=<?= $propId ?>&tab=documents" class="pf-tab <?= $tab === 'documents' ? 'active' : '' ?>">Documents <span class="pf-tab-count"><?= count($docs) ?></span></a>
+    <a href="?id=<?= $propId ?>&tab=pile" class="pf-tab <?= $tab === 'pile' ? 'active' : '' ?>">📥 Pile à traiter (GED)</a>
   </nav>
 
   <!-- ══════════ ONGLET INFOS ══════════ -->
@@ -451,6 +635,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
 
   <!-- ══════════ ONGLET BIENS ══════════ -->
   <div class="pf-panel <?= $tab === 'biens' ? 'active' : '' ?>">
+    <div style="margin:0 0 12px;text-align:right;">
+      <a href="bien_creation.php?id_proprietaire=<?= $propId ?>" class="pf-badge pf-badge-actif"
+         style="display:inline-block;padding:8px 14px;text-decoration:none;font-weight:600;">
+        + Créer un bien / une annonce
+      </a>
+    </div>
     <?php if (empty($biens)): ?>
     <div class="pf-card"><div style="text-align:center;padding:20px;color:#888;">Aucun bien rattaché à ce propriétaire.</div></div>
     <?php else: ?>
@@ -603,7 +793,175 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <?php endif; ?>
   </div>
 
+  <!-- ── Onglet : Pile de docs à traiter pour la GED (docs OneDrive ambigus) ── -->
+  <div class="pf-panel <?= $tab === 'pile' ? 'active' : '' ?>">
+    <div class="pf-card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button type="button" class="bl-btn bl-btn-primary" id="pileScanBtn" onclick="pileScan()">🔎 Scanner le dossier OneDrive</button>
+        <span id="pileMsg" style="font-size:13px;color:#6b7280;">Les documents <b>ambigus</b> (que le moteur n'a pas pu attribuer seul) s'affichent ici. Choisis le bien puis « Classer ».</span>
+      </div>
+    </div>
+    <div id="pileBody"></div>
+  </div>
+
 </div>
 </div>
+
+<!-- Modal résolveur de pile : aperçu (gauche) + cibles en boutons (droite) -->
+<div id="pileModal" style="display:none;position:fixed;inset:0;z-index:9500;background:rgba(15,18,24,.6);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;width:min(1100px,96vw);height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.4);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #eef0f2;">
+      <h3 id="pileModalName" style="margin:0;font-size:15px;color:#4527a0;word-break:break-all;">Document</h3>
+      <button type="button" onclick="pileCloseModal()" style="border:1px solid #d6dade;background:#eceef1;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+    </div>
+    <div style="flex:1;display:flex;min-height:0;">
+      <div style="flex:1;border-right:1px solid #eef0f2;background:#f3f4f6;">
+        <iframe id="pileModalPrev" src="" style="width:100%;height:100%;border:0;"></iframe>
+      </div>
+      <div style="width:340px;display:flex;flex-direction:column;padding:14px;overflow:auto;">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Classer ce document dans :</div>
+        <div id="pileModalBtns" style="flex:1;"></div>
+        <div id="pileModalMsg" style="font-size:12px;font-weight:700;margin:8px 0;min-height:16px;"></div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="bl-btn bl-btn-primary" style="flex:1;" onclick="pileValider()">✓ Valider</button>
+          <button type="button" class="bl-btn bl-btn-danger" onclick="pileIgnorer()">🚫 Ignorer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var PID2=<?= (int)$propId ?>;
+  var CSRF2=<?= json_encode(function_exists('csrf_token')?csrf_token('onedrive_classer'):'', JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var URL2=<?= json_encode(app_url('/api/onedrive_classer.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var BIENS=<?= json_encode(array_map(function($b){ return ['id'=>(int)$b['id'],'ref'=>($b['reference_bien'] ?: ('#'.$b['id'])),'lib'=>trim(($b['designation']??'').' '.($b['adresse_1']??'').' '.($b['ville']??''))]; }, $biens), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE) ?: "[]" ?>;
+  var IMMS=<?= json_encode(array_map(function($i){ return ['id'=>(int)$i['id'],'label'=>$i['label']]; }, $immeublesProp), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE) ?: "[]" ?>;
+  var PROPNOM=<?= json_encode($fullName, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE) ?: "''" ?>;
+  var PREVIEW=<?= json_encode(app_url('/api/graph_doc_preview.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var esc=function(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;};
+
+  window.pileScan=function(){
+    var btn=document.getElementById('pileScanBtn'), msg=document.getElementById('pileMsg'), body=document.getElementById('pileBody');
+    btn.disabled=true; msg.textContent='⏳ Scan du dossier OneDrive…';
+    var fd=new FormData(); fd.append('csrf_token',CSRF2); fd.append('id_proprietaire',PID2); fd.append('action','scan');
+    fetch(URL2,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+      btn.disabled=false;
+      if(!j||!j.ok){ msg.textContent=''; body.innerHTML='<div class="pf-card" style="color:#c62828;padding:14px;">❌ '+esc((j&&j.error)||'Erreur')+'</div>'; return; }
+      var pile=(j.items||[]).filter(function(it){return it.status==='pile';});
+      var nbCertain=(j.items||[]).filter(function(it){return it.status==='certain';}).length;
+      msg.innerHTML='Dossier <b>'+esc(j.folder||'')+'</b> · '+(j.items||[]).length+' doc(s) · <b>'+nbCertain+'</b> auto-classables · <b style="color:#b45309;">'+pile.length+'</b> en pile (à décider).';
+      if(!pile.length){ body.innerHTML='<div class="pf-card" style="padding:16px;color:#166534;">✅ Aucun document ambigu. Les docs certains se classent via « Importer docs OneDrive ».</div>'; return; }
+      var rows=pile.map(function(it,idx){
+        return '<tr id="pile-'+idx+'">'
+          +'<td style="font-size:12px;font-weight:700;">'+esc(it.type)+'<div style="color:#9a9690;font-size:10.5px;">'+esc(it.doc_type||'')+'</div></td>'
+          +'<td>'+esc(it.name)+'</td>'
+          +'<td style="font-size:11.5px;color:#7a766f;">'+esc(it.reason||'')+'</td>'
+          +'<td style="text-align:right;"><button type="button" class="bl-btn bl-btn-primary" onclick="pileOpen('+idx+')">Traiter ▶</button>'
+          +'<span class="pile-res" id="pile-res-'+idx+'" style="margin-left:8px;font-size:12px;font-weight:700;"></span></td></tr>';
+      }).join('');
+      body.innerHTML='<table class="pf-table"><thead><tr><th>Type</th><th>Fichier</th><th>Raison</th><th style="text-align:right;">Action</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      window.__pile=pile;
+    }).catch(function(e){ btn.disabled=false; msg.textContent=''; body.innerHTML='<div class="pf-card" style="color:#c62828;padding:14px;">❌ Réseau : '+esc(e)+'</div>'; });
+  };
+
+  // Cible choisie dans le modal (PROPRIO / IMB:<id> / BIEN:<id>)
+  var pileSel={idx:-1, target:null, id:0};
+  function pileButtons(it){
+    // Cible par défaut suggérée selon le type de doc
+    var def = it.doc_type==='taxe_fonciere' ? (IMMS.length===1?('IMB:'+IMMS[0].id):null)
+            : (it.doc_type==='mandat_gestion' ? 'PROPRIO'
+            : (it.bien_id?('BIEN:'+it.bien_id):null));
+    var html='';
+    html+='<div style="font-size:11px;font-weight:800;color:#6b7280;margin:2px 0 4px;">PROPRIÉTAIRE</div>';
+    html+='<button type="button" class="pile-tgt bl-btn bl-btn-ghost" data-t="PROPRIO" data-id="0">👤 '+esc(PROPNOM)+'</button>';
+    if(IMMS.length){
+      html+='<div style="font-size:11px;font-weight:800;color:#6b7280;margin:8px 0 4px;">IMMEUBLE (TF…)</div>';
+      IMMS.forEach(function(im){ html+='<button type="button" class="pile-tgt bl-btn bl-btn-ghost" data-t="IMB" data-id="'+im.id+'">🏢 '+esc(im.label)+'</button>'; });
+    }
+    html+='<div style="font-size:11px;font-weight:800;color:#6b7280;margin:8px 0 4px;">BIEN</div>';
+    BIENS.forEach(function(b){ html+='<button type="button" class="pile-tgt bl-btn bl-btn-ghost" data-t="BIEN" data-id="'+b.id+'">🔑 '+esc(b.ref)+(b.lib?(' · '+esc(b.lib)):'')+'</button>'; });
+    return {html:html, def:def};
+  }
+
+  window.pileOpen=function(idx){
+    var pile=window.__pile||[]; var it=pile[idx]; if(!it) return;
+    pileSel={idx:idx, target:null, id:0};
+    var m=document.getElementById('pileModal');
+    document.getElementById('pileModalName').textContent=it.name;
+    // #navpanes=0 = pas de panneau de vignettes de pages ; toolbar=0 ; ajusté largeur
+    document.getElementById('pileModalPrev').src=PREVIEW+'?item_id='+encodeURIComponent(it.item_id)+'#toolbar=0&navpanes=0&scrollbar=1&view=FitH';
+    var b=pileButtons(it);
+    document.getElementById('pileModalBtns').innerHTML=b.html;
+    document.getElementById('pileModalMsg').textContent='';
+    // câblage des boutons cible (sélection visuelle)
+    Array.prototype.slice.call(document.querySelectorAll('#pileModalBtns .pile-tgt')).forEach(function(btn){
+      btn.style.display='block'; btn.style.width='100%'; btn.style.textAlign='left'; btn.style.marginBottom='4px';
+      btn.addEventListener('click',function(){
+        document.querySelectorAll('#pileModalBtns .pile-tgt').forEach(function(x){x.classList.remove('bl-btn-primary');x.classList.add('bl-btn-ghost');});
+        this.classList.add('bl-btn-primary'); this.classList.remove('bl-btn-ghost');
+        pileSel.target=this.getAttribute('data-t'); pileSel.id=parseInt(this.getAttribute('data-id'),10)||0;
+      });
+      // pré-sélection par défaut
+      if(b.def && (btn.getAttribute('data-t')+(btn.getAttribute('data-id')!=='0'?':'+btn.getAttribute('data-id'):''))===b.def){ btn.click(); }
+    });
+    m.style.display='flex';
+  };
+  window.pileCloseModal=function(){ document.getElementById('pileModal').style.display='none'; };
+
+  window.pileValider=function(){
+    var idx=pileSel.idx; var pile=window.__pile||[]; var it=pile[idx]; if(!it) return;
+    if(!pileSel.target){ document.getElementById('pileModalMsg').style.color='#c62828'; document.getElementById('pileModalMsg').textContent='Choisis une cible (bouton ci-dessus).'; return; }
+    var item=Object.assign({}, it, {status:'certain'});
+    if(pileSel.target==='PROPRIO'){ item.target='PROPRIO'; item.bien_id=0; item.imm_id=0; item.bail_id=0; }
+    else if(pileSel.target==='IMB'){ item.target='IMB'; item.imm_id=pileSel.id; item.bien_id=0; item.bail_id=0; }
+    else { item.target='BIEN'; item.bien_id=pileSel.id; item.imm_id=0; item.bail_id=0; }
+    var msg=document.getElementById('pileModalMsg'); msg.style.color='#8a6d1b'; msg.textContent='⏳ classement…';
+    var fd=new FormData(); fd.append('csrf_token',CSRF2); fd.append('id_proprietaire',PID2); fd.append('action','commit_items'); fd.append('items', JSON.stringify([item]));
+    fetch(URL2,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+      if(j&&j.ok&&(j.classes>0||j.dedup>0)){
+        var res=document.getElementById('pile-res-'+idx); if(res){ res.style.color='#166534'; res.textContent=j.classes>0?'✅ classé':'• déjà présent'; }
+        var tr=document.getElementById('pile-'+idx); if(tr){ tr.style.opacity=.5; }
+        pileCloseModal();
+      } else { msg.style.color='#c62828'; msg.textContent='❌ '+((j&&j.erreurs&&j.erreurs[0])||(j&&j.error)||'échec'); }
+    }).catch(function(){ msg.style.color='#c62828'; msg.textContent='❌ réseau'; });
+  };
+
+  window.pileIgnorer=function(){
+    var idx=pileSel.idx; var pile=window.__pile||[]; var it=pile[idx]; if(!it) return;
+    var msg=document.getElementById('pileModalMsg'); msg.style.color='#8a6d1b'; msg.textContent='⏳…';
+    var fd=new FormData(); fd.append('csrf_token',CSRF2); fd.append('id_proprietaire',PID2); fd.append('action','ignore');
+    fd.append('item_id', it.item_id); fd.append('name', it.name||'');
+    fetch(URL2,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+      if(j&&j.ok){
+        var res=document.getElementById('pile-res-'+idx); if(res){ res.style.color='#9a9690'; res.textContent='🚫 ignoré'; }
+        var tr=document.getElementById('pile-'+idx); if(tr){ tr.style.opacity=.4; }
+        pileCloseModal();
+      } else { msg.style.color='#c62828'; msg.textContent='❌ '+((j&&j.error)||'échec'); }
+    }).catch(function(){ msg.style.color='#c62828'; msg.textContent='❌ réseau'; });
+  };
+
+  // Auto-scan UNIQUEMENT si on arrive via un lien « pile » explicite (?tab=pile&scan=1)
+  if (<?= ($tab === 'pile' && ($_GET['scan'] ?? '') === '1') ? 'true' : 'false' ?>) { pileScan(); }
+})();
+
+// ── Onglets CLIENT-SIDE : bascule instantanée sans recharger la page ──
+(function(){
+  var names=['infos','biens','mandats','documents','pile'];   // ordre des .pf-panel
+  var tabs=document.querySelectorAll('.pf-tab');
+  var panels=document.querySelectorAll('.pf-panel');
+  if(!tabs.length || panels.length!==names.length) return;     // garde-fou : on ne casse rien
+  tabs.forEach(function(a){
+    a.addEventListener('click',function(e){
+      var m=(this.getAttribute('href')||'').match(/tab=([^&]+)/); if(!m) return;
+      e.preventDefault(); var tab=m[1];
+      tabs.forEach(function(x){x.classList.remove('active');}); this.classList.add('active');
+      panels.forEach(function(p,i){ p.classList.toggle('active', names[i]===tab); });
+      try{ history.replaceState(null,'',this.getAttribute('href')); }catch(err){}
+    });
+  });
+})();
+</script>
 
 <?php include __DIR__ . '/inc/footer.php'; ?>

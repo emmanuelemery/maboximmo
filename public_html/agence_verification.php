@@ -86,7 +86,7 @@ include __DIR__ . '/inc/header.php';
         <p><?= h($message) ?></p>
         <div class="verify-actions">
             <a href="<?= h(app_url('/login.php')) ?>" class="btn-primary">Se connecter</a>
-            <a href="<?= h(app_url('/default.php')) ?>" class="btn-outline">Retour accueil</a>
+            <a href="https://maboximmo.fr" class="btn-outline">Retour accueil</a>
         </div>
     </div>
 </section>

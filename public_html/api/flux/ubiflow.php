@@ -171,11 +171,17 @@ foreach ($agencesToProcess as $slug => $cfg) {
     $loginFtp  = $cfg['login_ftp'] ?? $slug;
     $nomAgence = $cfg['nom']       ?? strtoupper($slug);
 
-    // 4.1 Requête SQL avec filtre par agence
-    $sql = ubiflow_sql_select_annonces($idAgence);
+    // 4.1-4.2 Génération du XML via la fonction partagée — source de vérité unique
+    // pour la sérialisation Ubiflow (requête SQL + construction DOM + encoding rewrite).
+    // Cf. inc/ubiflow_build.php (aussi utilisé par api/ubiflow_trigger.php et
+    // api/annonce_diffuser.php). Mode legacy "_siege" (idAgence null) → passe 0
+    // qui désactive le filtre par agence côté ubiflow_sql_select_annonces.
+    require_once __DIR__ . '/../../inc/ubiflow_build.php';
     try {
-        $stmt = $pdo->query($sql);
-        $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        $result  = ubiflow_build_flux_xml($pdo, (int)($idAgence ?? 0));
+        $xml     = $result['xml'];
+        $count   = $result['count'];
+        $skipped = $result['skipped'];
     } catch (Throwable $e) {
         $report[$slug] = [
             'ok'    => false,
@@ -183,85 +189,6 @@ foreach ($agencesToProcess as $slug => $cfg) {
         ];
         continue;
     }
-
-    // 4.2 Construction du document XML
-    $dom = new DOMDocument('1.0', 'utf-8');
-    $dom->formatOutput       = true;
-    $dom->preserveWhiteSpace = false;
-
-    $clientNode = $dom->createElement('client');
-    $dom->appendChild($clientNode);
-
-    /** Ajoute un enfant XML avec CDATA si nécessaire. Null/'' ignoré. */
-    $appendValue = static function (DOMDocument $dom, DOMElement $parent, string $name, $value): void {
-        if ($value === null || $value === '') return;
-        $s = (string) $value;
-        $child = $dom->createElement($name);
-        if (preg_match('/[<>&\r\n"\']/', $s)) {
-            $child->appendChild($dom->createCDATASection($s));
-        } else {
-            $child->appendChild($dom->createTextNode($s));
-        }
-        $parent->appendChild($child);
-    };
-
-    $appendGroup = static function (DOMDocument $dom, DOMElement $parent, string $groupName, array $data) use ($appendValue): ?DOMElement {
-        if (empty($data)) return null;
-        $group = $dom->createElement($groupName);
-        foreach ($data as $key => $value) {
-            $appendValue($dom, $group, (string) $key, $value);
-        }
-        $parent->appendChild($group);
-        return $group;
-    };
-
-    $count   = 0;
-    $skipped = 0;
-
-    foreach ($rows as $row) {
-        $idAnnonce = (int) ($row['a_id'] ?? 0);
-        if ($idAnnonce <= 0) continue;
-
-        $photos = ubiflow_get_photos($pdo, $idAnnonce);
-        $data   = build_ubiflow_annonce($row, $photos);
-
-        // CORRECTION #2 : build_ubiflow_annonce() peut retourner _skipped=true
-        // pour ignorer un bien dont le type n'est pas mappé.
-        if (!empty($data['_skipped'])) { $skipped++; continue; }
-
-        $annonceNode = $dom->createElement('annonce');
-
-        foreach ($data['annonce'] as $key => $value) {
-            $appendValue($dom, $annonceNode, (string) $key, $value);
-        }
-
-        if (!empty($data['photos'])) {
-            $photosNode = $dom->createElement('photos');
-            foreach ($data['photos'] as $url) {
-                $appendValue($dom, $photosNode, 'photo', $url);
-            }
-            $annonceNode->appendChild($photosNode);
-        }
-
-        $bienNode = $appendGroup($dom, $annonceNode, 'bien', $data['bien']);
-        if ($bienNode !== null && !empty($data['diagnostiques'])) {
-            $appendGroup($dom, $bienNode, 'diagnostiques', $data['diagnostiques']);
-        }
-
-        $appendGroup($dom, $annonceNode, 'prestation', $data['prestation']);
-
-        $clientNode->appendChild($annonceNode);
-        $count++;
-    }
-
-    $xml = $dom->saveXML();
-    // Ubiflow exige encoding en minuscules
-    $xml = preg_replace(
-        '/^<\?xml version="1\.0" encoding="UTF-8"\?>/',
-        '<?xml version="1.0" encoding="utf-8"?>',
-        $xml,
-        1
-    );
 
     // 4.3 Sortie : fichier disque + (option) déploiement FTP
     $entry = [

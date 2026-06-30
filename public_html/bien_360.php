@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
+require_once __DIR__ . '/inc/ged_document_links.php';   // GED CENTRALE UNIQUE (2026-05-25)
 require_login();
 
 $bienId = (int)($_GET['id'] ?? 0);
@@ -12,6 +13,13 @@ if ($bienId <= 0) {
     header('Location: ' . app_url('/bien_liste.php'));
     exit;
 }
+
+// ── Contexte BAILLEUR (ouvert en modal depuis le hub bailleur) : page épurée
+// (embed = pas de sidebar/topbar agency) ET masquage des actions agency/transaction
+// pour ne pas exposer le bailleur aux options d'un autre module. (Emmanuel 2026-06-11)
+$bailleurEmbed = ((($_GET['embed'] ?? '') === '1')
+                  && ((($_GET['ctx'] ?? '') === 'bailleur')
+                      || in_array((int)(function_exists('current_role_id') ? current_role_id() : 0), [9, 10], true)));
 
 // ─── Charge le bien + immeuble + propriétaire + tiers ────────────────
 $sql = "SELECT b.*,
@@ -21,11 +29,13 @@ $sql = "SELECT b.*,
     i.id AS immeuble_id, i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
     p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
     COALESCE(NULLIF(p.societe, ''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
-    COALESCE(NULLIF(tp.nom_affichage, ''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom
+    COALESCE(NULLIF(tp.nom_affichage, ''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom,
+    bt.libelle AS type_label
 FROM biens b
 LEFT JOIN immeubles i      ON i.id = b.id_immeuble
 LEFT JOIN proprietaires p  ON p.id = b.id_proprietaire
 LEFT JOIN tiers tp         ON tp.id = p.id_tiers
+LEFT JOIN bien_types bt    ON bt.id = b.id_bien_type
 WHERE b.id = ? LIMIT 1";
 $st = $pdo->prepare($sql); $st->execute([$bienId]);
 $bien = $st->fetch(PDO::FETCH_ASSOC);
@@ -77,17 +87,16 @@ try {
 $nbOffresActives = 0;
 foreach ($offres as $o) if (!in_array($o['statut_offre'] ?? '', ['refusee','expiree'], true)) $nbOffresActives++;
 
-// ─── Documents GED ──
+// ─── Documents GED (centrale unique via ged_document_links) ──
+// Source unique : tout doc rattaché au BIEN, quelle que soit l'origine d'upload.
+// Plus de filtre source_module restrictif (qui excluait les uploads bien_intake).
 $docs = [];
 try {
-    $stD = $pdo->prepare("SELECT id, name_display, document_type, created_at,
-        JSON_UNQUOTE(JSON_EXTRACT(metadata, '\$.visibilite')) AS visibilite
-        FROM ged_documents
-        WHERE status='active' AND source_module='05_TRANSACTION'
-          AND JSON_EXTRACT(metadata, '\$.classement.bien_id_bdd') = ?
-        ORDER BY created_at DESC LIMIT 30");
-    $stD->execute([$bienId]);
-    $docs = $stD->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $docs = gdl_documents_for_entity($pdo, 'BIEN', $bienId, [
+        'status'   => 'active',
+        'limit'    => 30,
+        'order_by' => 'd.created_at DESC',
+    ]);
 } catch (Throwable $e) {}
 $docsByType = [];
 foreach ($docs as $d) $docsByType[$d['document_type']] = ($docsByType[$d['document_type']] ?? 0) + 1;
@@ -104,15 +113,26 @@ $pieces = [
     ['code'=>'ETAT_LIEUX',    'label'=>'État des lieux d\'entrée','sublabel'=>'Si bail actif'],
     ['code'=>'PHOTO',         'label'=>'Photos du bien',          'sublabel'=>'Pour annonce / dossier'],
 ];
+// Le bail signé est une pièce attendue dès qu'un bail est actif sur le bien.
+// Détection souple : plusieurs codes coexistent en base (BAIL / bail_signe / BAIL_SIGNE).
+if ($bailActif) {
+    $pieces[] = ['code'=>'BAIL', 'label'=>'Bail signé', 'sublabel'=>'Contrat de location', 'alt_codes'=>['bail_signe','BAIL_SIGNE','BAIL_LOCATION']];
+}
 $piecesItems = [];
 foreach ($pieces as $p) {
+    $okCodes = array_merge([$p['code']], $p['alt_codes'] ?? []);
+    $ok = false;
+    foreach ($okCodes as $c) { if (isset($docsByType[$c])) { $ok = true; break; } }
     $piecesItems[] = [
         'label'    => $p['label'],
         'sublabel' => $p['sublabel'],
-        'ok'       => isset($docsByType[$p['code']]),
+        'ok'       => $ok,
         'add_url'  => app_url('/transaction_chargement.php'),
+        // Recherche assistée OneDrive — v1 limitée au DPE (cf. décision 2026-06-06)
+        'search_code' => ($p['code'] === 'DIAG_DPE') ? $p['code'] : null,
     ];
 }
+$nbPieces   = count($piecesItems);
 $nbPiecesOk = array_sum(array_map(fn($p)=>$p['ok']?1:0, $piecesItems));
 
 // ─── Statut visuel intelligent ──
@@ -120,9 +140,17 @@ $statusColor = 'gray';
 $statusIcon  = '⚪';
 $statusMsg   = 'Bien créé.';
 $statusAlertes = '';
-if ($bien['date_retrait_commercialisation'] || $bien['prix_final_vente']) {
+if (($bien['statut_bien'] ?? '') === 'vendu' || $bien['prix_final_vente']) {
     $statusColor = 'gray'; $statusIcon = '🏁';
-    $statusMsg = '<strong>Bien vendu / retiré</strong> — clôture en cours.';
+    $statusMsg = '<strong>Bien vendu</strong> — clôture en cours.';
+} elseif (in_array(strtolower((string)($bien['type_commercialisation'] ?? '')), ['vente','location'], true)) {
+    // Mission active (mirror) → prime sur un date_retrait résiduel d'un cycle précédent.
+    $statusColor = 'orange'; $statusIcon = '🏷️';
+    $statusMsg = '<strong>' . (strtolower($bien['type_commercialisation'])==='vente'?'En vente':'À louer') . '</strong> — commercialisation active.';
+} elseif ($bien['date_retrait_commercialisation']) {
+    // Retiré de la commercialisation ≠ vendu (mandat sans_suite). Bien intact.
+    $statusColor = 'gray'; $statusIcon = '🚫';
+    $statusMsg = '<strong>Retiré de la commercialisation</strong> — hors marché.';
 } elseif ($nbOffresActives > 0) {
     $statusColor = 'orange'; $statusIcon = '💰';
     $statusMsg = "<strong>{$nbOffresActives} offre(s) active(s)</strong> — décision attendue.";
@@ -133,24 +161,23 @@ if ($bien['date_retrait_commercialisation'] || $bien['prix_final_vente']) {
     $statusColor = 'orange'; $statusIcon = '🔓';
     $statusMsg = "<strong>" . h(ucfirst($bien['type_commercialisation'] ?: 'Bien')) . " · Vacant</strong> — aucun bail actif.";
 }
-$piecesManquantes = 9 - $nbPiecesOk;
+$piecesManquantes = $nbPieces - $nbPiecesOk;
 if ($piecesManquantes > 0) {
     $statusAlertes = $piecesManquantes . ' pièce(s) à charger';
 }
 
-// ─── Mentions dans (CRG, autres docs qui citent ce bien) ──
+// ─── Mentions : docs où ce bien apparaît en relation 'annexe'/'reference' ──
+// (le pivot ged_document_links permet de distinguer le rattachement principal des mentions secondaires)
 $mentions = [];
 try {
-    $stM = $pdo->prepare("SELECT id, name_display, document_type, created_at
-        FROM ged_documents
-        WHERE status='active'
-          AND source_module <> '05_TRANSACTION'
-          AND (
-              JSON_EXTRACT(metadata, '\$.classement.bien_id_bdd') = ?
-              OR JSON_CONTAINS(linked_entities, JSON_OBJECT('type', 'bien', 'id', ?), '\$')
-          )
-        ORDER BY created_at DESC LIMIT 10");
-    $stM->execute([$bienId, $bienId]);
+    $stM = $pdo->prepare("SELECT d.id, d.name_display, d.document_type, d.created_at
+        FROM ged_document_links dl
+        INNER JOIN ged_documents d ON d.id = dl.document_id
+        WHERE dl.entity_type = 'BIEN' AND dl.entity_id = ?
+          AND dl.relation_type IN ('annexe','reference','piece_jointe')
+          AND d.status = 'active'
+        ORDER BY d.created_at DESC LIMIT 10");
+    $stM->execute([$bienId]);
     $mentions = $stM->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable $e) {}
 
@@ -168,37 +195,85 @@ if (!empty($bien['proprio_tiers_id'])) {
     } catch (Throwable $e) {}
 }
 
-$pageTitle    = 'Bien · ' . ($bien['reference_bien'] ?: '#' . $bienId);
+// Topbar : UNIQUEMENT la référence du bien (le reste est dans la chaîne + la card)
+$pageTitle    = 'Bien · réf. ' . ($bien['reference_bien'] ?: '#' . $bienId);
 $pageSubtitle = 'Vue 360° · ' . ($bien['ville'] ?? '');
+
+// Type(s) de mandat actif(s) → affiché à DROITE sur la ligne du titre (slot tb-center)
+$mandatTypes = [];
+try {
+    $stMt = $pdo->prepare("SELECT DISTINCT type_mandat FROM mandats WHERE id_bien = ?
+        AND statut NOT IN ('resilie','expire','annule','archive','termine','perdu','refuse','clos','vendu','sans_suite')");
+    $stMt->execute([$bienId]);
+    $mandatTypes = array_filter($stMt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+} catch (Throwable) {}
+// (Le mandat n'est PLUS affiché dans la topbar : il est déjà visible dans « Mandats actifs ».)
+// $mandatTypes reste utilisé plus bas pour l'état des boutons « À vendre » / « À louer ».
+
 $extraCss     = fiche360_css();
 include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 
 <script>window.APP_BASE = <?= json_encode(rtrim(app_url('/'), '/')) ?>;</script>
+<style>
+/* Fond de page en dégradé (identique à la page Biens / .mbi-main) + topbar collée en haut */
+.agency-content{
+  background:linear-gradient(135deg, rgba(132,169,140,0.18) 0%, rgba(255,255,255,0) 35%, rgba(72,120,166,0.14) 60%, rgba(255,255,255,0) 85%, rgba(201,123,46,0.16) 100%), #fafbfc;
+  background-attachment:fixed;
+  padding-top:0 !important;
+}
+/* Topbar = barre pleine largeur (déborde le padding 28px du conteneur), collée en haut, plate */
+.agency-topbar{
+  background:#ffffff;
+  border:none;
+  border-bottom:1px solid #e8e4da;
+  border-radius:0;
+  box-shadow:0 2px 8px rgba(0,0,0,.05);
+  padding:10px 28px;
+  min-height:56px;
+  margin:0 -28px 18px -28px;
+}
+.agency-topbar .tb-title{ font-size:1.5rem; font-weight:800; color:#1f2937; line-height:1.12; }
+.agency-topbar .tb-center{ flex:1; display:flex; justify-content:flex-end; }
+/* La chaîne Propriétaire → Immeuble → Bien : sans cadre (transparente) */
+.f360-chain{ background:transparent !important; border:none !important; box-shadow:none !important; padding:4px 0 0 !important; }
+</style>
 
 <?php
 // ─── BREADCRUMB hiérarchique ──
 $chaine = [];
-if (!empty($bien['proprio_tiers_id'])) {
-    $chaine[] = ['icon'=>'👤','label'=>$proprietaireNom,'url'=>app_url('/admin/admin_tiers_merge.php?q=' . urlencode('#' . $bien['proprio_tiers_id']))];
+// Propriétaire : nom + ids (proprio + tiers) ; lien tiers si dispo, sinon fiche proprio
+if ($proprietaireNom && $proprietaireNom !== '—') {
+    $pid = (int)($bien['proprio_id'] ?? 0); $ptid = (int)($bien['proprio_tiers_id'] ?? 0);
+    $purl = $ptid ? app_url('/tiers_360.php?id=' . $ptid) : ($pid ? app_url('/agency_proprietaire_fiche.php?id=' . $pid) : null);
+    $pidLbl = ($pid ? ' · #' . $pid : '') . ($ptid ? ' · tiers #' . $ptid : '');
+    $chaine[] = ['icon'=>'👤','label'=>$proprietaireNom . $pidLbl,'url'=>$purl];
 }
 if (!empty($bien['immeuble_id'])) {
-    $chaine[] = ['icon'=>'🏢','label'=>($bien['nom_immeuble'] ?: $bien['imm_adresse']),'url'=>app_url('/agency_immeuble_detail.php?id=' . $bien['immeuble_id'])];
+    $chaine[] = ['icon'=>'🏢','label'=>($bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: 'Immeuble') . ' · #' . (int)$bien['immeuble_id'],
+                 'url'=>app_url('/immeuble_360.php?id=' . $bien['immeuble_id'])];
 }
-$chaine[] = ['icon'=>'🏠','label'=>'Ce bien','url'=>null];
-fiche360_breadcrumb($chaine, 'Patrimoine');
+// Bien : nom (désignation) + son id
+$chaine[] = ['icon'=>'🏠','label'=>($bien['designation'] ?: $bien['reference_bien'] ?: 'Ce bien') . ' · #' . $bienId,'url'=>null];
 
 // ─── HEADER bien ──
 $badgeBail = null;
-if ($bien['date_retrait_commercialisation'] || $bien['prix_final_vente']) $badgeBail = ['label'=>'Vendu','class'=>'vendu'];
+$tcMir = strtolower((string)($bien['type_commercialisation'] ?? ''));
+if (($bien['statut_bien'] ?? '') === 'vendu' || $bien['prix_final_vente'])  $badgeBail = ['label'=>'Vendu','class'=>'vendu'];
+elseif ($tcMir === 'vente')                                               $badgeBail = ['label'=>'En vente','class'=>'vacant'];
+elseif ($tcMir === 'location')                                            $badgeBail = ['label'=>'À louer','class'=>'vacant'];
 elseif ($bailActif)                                                       $badgeBail = ['label'=>'Loué','class'=>'loue'];
+elseif ($bien['date_retrait_commercialisation'])                          $badgeBail = ['label'=>'Retiré','class'=>'vacant'];
 elseif (($bien['statut_occupation'] ?? '') === 'vacant')                  $badgeBail = ['label'=>'Vacant','class'=>'vacant'];
 
 $metas = [];
+if (!empty($bien['type_label']))        $metas[] = ['icon'=>'🏷️','text'=>$bien['type_label']];
 if (!empty($bien['surface_habitable'])) $metas[] = ['icon'=>'📐','text'=>number_format((float)$bien['surface_habitable'], 0) . ' m²'];
 if (!empty($bien['nb_pieces']))         $metas[] = ['icon'=>'🚪','text'=>$bien['nb_pieces'] . ' pièces'];
+if (!empty($bien['nb_chambres']))       $metas[] = ['icon'=>'🛏️','text'=>$bien['nb_chambres'] . ' ch.'];
+if (!empty($bien['etage']) || $bien['etage']==='0') $metas[] = ['icon'=>'🏢','text'=>'Ét. ' . $bien['etage']];
 if (!empty($bien['dpe_classe']))        $metas[] = ['icon'=>'⚡','text'=>'DPE ' . $bien['dpe_classe']];
-if (!empty($bien['numero_lot']))        $metas[] = ['icon'=>'🏢','text'=>'Lot ' . $bien['numero_lot']];
+if (!empty($bien['numero_lot']))        $metas[] = ['icon'=>'🔢','text'=>'Lot ' . $bien['numero_lot']];
 
 // Helper : action FluxBox avec contexte pré-rempli depuis ce bien
 $idSocBien    = (int)($bien['id_societe'] ?? 0);
@@ -212,9 +287,10 @@ $mandatTypeBien = '';
 $mandatsActifs  = []; // liste complète pour la card "Mandats actifs" plus bas
 try {
     $stM = $pdo->prepare("SELECT id, type_mandat, statut, date_debut, date_fin,
-        numero_mandat, conditions_particulieres
+        numero_mandat, commentaire
         FROM mandats
-        WHERE id_bien = ? AND (statut = 'actif' OR statut = 'en_cours' OR statut IS NULL)
+        WHERE id_bien = ? AND statut NOT IN
+            ('resilie','expire','annule','archive','termine','perdu','refuse','clos','vendu','sans_suite')
         ORDER BY CASE type_mandat
             WHEN 'gerance'     THEN 1
             WHEN 'syndic'      THEN 2
@@ -229,44 +305,317 @@ try {
     }
 } catch (Throwable $e) {}
 $typeComBien  = strtolower(trim((string)($bien['type_commercialisation'] ?? '')));
+// Métier (N1) induit par le bien. Doctrine : depuis un bien, le DÉFAUT est GESTION
+// (jamais transaction « par défaut »). Seul un signal de VENTE explicite bascule en transaction.
+// Un mandat 'location' = gestion locative (PAS transaction). Empty interdit : sinon la cascade
+// du modal ne se déclenche pas (categorie reste verrouillée) — cf. applyPrefillCascade().
 $n1Bien       = match (true) {
-    $mandatTypeBien === 'gerance'                                => '03_GESTION_LOCATIVE',
-    in_array($mandatTypeBien, ['transaction', 'location'], true) => '05_TRANSACTION',
-    $mandatTypeBien === 'syndic'                                 => '04_SYNDIC',
-    $typeComBien === 'gestion'                                   => '03_GESTION_LOCATIVE',
-    $typeComBien === 'vente'                                     => '05_TRANSACTION',
-    default                                                      => '',
+    $mandatTypeBien === 'transaction'                       => '05_TRANSACTION',
+    $typeComBien   === 'vente'                              => '05_TRANSACTION',
+    $mandatTypeBien === 'syndic'                            => '04_SYNDIC',
+    default                                                 => '03_GESTION_LOCATIVE', // gerance, location, gestion, ou aucun signal → GESTION
 };
 // Référence du bien pour pré-remplir le champ NOM DE L'ENTITÉ + verrouiller
 // Cascade GED imposée : BIENS > BIEN (sous-domaine "Bien entité")
 // L'IA Vision décidera N4 post-upload (BAUX / ETATS_DES_LIEUX / DIAGNOSTICS…)
 $refBienJs   = addslashes((string)($bien['reference_bien'] ?: 'Bien #' . $bienId));
 $adrBienJs   = addslashes(trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')));
-$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', entite_id_bdd:{$bienId}, entite_adresse:'{$adrBienJs}', origin:'bien_360'});return false;";
+// Propriétaire (nom + tiers id + représentant si présent) pour la mini-card PROPRIÉTAIRE
+$proprioNomJs    = addslashes($proprietaireNom);
+$proprioTiersId  = (int)($bien['proprio_tiers_id'] ?? 0);
+$proprioRepJs    = '';
+if (!empty($representants[0])) {
+    $r0 = $representants[0];
+    $repNom    = trim((string)($r0['prenom'] ?? '') . ' ' . ($r0['nom'] ?? ''));
+    $proprioRepJs = addslashes($repNom . ($r0['qualite'] ? ' (' . $r0['qualite'] . ')' : ''));
+}
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, proprio_nom:'{$proprioNomJs}', proprio_tiers_id:{$proprioTiersId}, proprio_representant:'{$proprioRepJs}', n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', entite_id_bdd:{$bienId}, entite_adresse:'{$adrBienJs}', origin:'bien_360'});return false;";
 
-fiche360_header(
-    '🏠',
-    ($bien['designation'] ?: $bien['reference_bien'] ?: 'Bien #' . $bienId),
-    $badgeBail,
-    $adresseComplete ?: 'Adresse non renseignée',
-    $metas,
-    [
-        ['label'=>'✏️ Éditer','url'=>app_url('/bien_detail.php?edit=' . $bienId),'class'=>'tr-btn'],
-        ['label'=>'📥 Charger un document','url'=>'#','onclick'=>$fbxOnClickBien,'class'=>'tr-btn tr-btn-primary'],
-    ]
-);
+// Le bouton « Dossier de vente » est contextuel : "Voir" si un dossier existe
+// déjà pour ce bien, "Créer" sinon (la cible transaction_dossier.php est idempotente).
+$hasDossierVente = false;
+try {
+    $stDV = $pdo->prepare("SELECT 1 FROM dossier_vente WHERE id_bien = ? LIMIT 1");
+    $stDV->execute([$bienId]);
+    $hasDossierVente = (bool)$stDV->fetchColumn();
+} catch (Throwable $e) {}
+$dossierVenteBtn = [
+    'label' => $hasDossierVente ? '🗂️ Voir le dossier de vente' : '🗂️ Créer le dossier de vente',
+    'url'   => app_url('/transaction_dossier.php?id_bien=' . $bienId),
+    'class' => $hasDossierVente ? 'tr-btn' : 'tr-btn tr-btn-primary',
+];
 
-// ─── Bandeau IA contextuelle ──
-fiche360_ia_bar('bien', $bienId, "Demander à l'IA sur ce bien (rendement, échéances, conformité...)");
+// Annonce active : la dernière annonce du bien est diffusée (en ligne sur les portails).
+$annonceActive = false;
+try {
+    $stAA = $pdo->prepare("SELECT etat_publication FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
+    $stAA->execute([$bienId]);
+    $annonceActive = ((string)$stAA->fetchColumn() === 'diffusee');
+} catch (Throwable $e) {}
+$annonceActiveBtn = $annonceActive ? [[
+    'label' => '📡 Annonce active',
+    'url'   => app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce'),
+    'class' => 'tr-btn tr-btn-annonce-active',
+]] : [];
 
-// ─── Bandeau statut ──
-fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
+// Chaîne hiérarchique : noms réels Propriétaire → Immeuble → Bien (juste sous la topbar)
+// + 2 gros boutons « À vendre » / « À louer » alignés à droite (au-dessus de la colonne Actions)
+$mandatLower = array_map('strtolower', $mandatTypes);
+$aVendre = in_array('vente', $mandatLower, true);
+$aLouer  = in_array('location', $mandatLower, true);
+$btnB360 = function(string $type, string $labelOff, string $labelOn, bool $on, string $cOn, string $cOnD, string $shadow) use ($bienId): string {
+    // Boutons TOUJOURS pleins de couleur (le bouton est coloré, pas seulement l'écriture)
+    $bg    = "linear-gradient(135deg,$cOn,$cOnD)";
+    $icon  = $on ? '✓' : $labelOff;       // $labelOff = l'emoji (💼 / 🔑)
+    $txt   = $labelOn;
+    $sh    = "box-shadow:0 3px 0 $shadow,0 4px 10px rgba(0,0,0,.18);";
+    return '<button type="button" onclick="b360SetMandat(' . $bienId . ',\'' . $type . '\',this)" '
+         . 'style="flex:1 1 0;min-width:0;cursor:pointer;font-family:inherit;font-weight:800;font-size:14px;letter-spacing:.02em;'
+         . 'display:flex;align-items:center;justify-content:center;gap:8px;text-align:center;white-space:nowrap;'
+         . 'padding:15px 14px;border-radius:12px;border:none;background:' . $bg . ';color:#fff;' . $sh . '">'
+         . '<span style="font-size:28px;line-height:1">' . $icon . '</span>' . $txt . '</button>';
+};
+$rightBtns  = '<div style="width:291px;display:flex;gap:12px;justify-content:center">';
+$rightBtns .= $btnB360('vente',    '💼', 'À vendre', $aVendre, '#3b6fb0', '#274d80', '#1d3a61');
+$rightBtns .= $btnB360('location', '🔑', 'À louer', $aLouer, '#3f9d5a', '#2d6a35', '#1f4d26');
+$rightBtns .= '</div>';
+fiche360_breadcrumb($chaine, '', $rightBtns);
+?>
+<script>
+function b360SetMandat(bienId, type, btn){
+  if (btn.dataset.busy) return; btn.dataset.busy = '1';
+  var old = btn.innerHTML; btn.innerHTML = '⏳…';
+  fetch(<?= json_encode(app_url('/api/bien_add_mandat.php')) ?>, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ bien_id: bienId, type_mandat: type })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if (res && res.ok) {
+      // Mandat posé → on dirige vers la fiche d'édition pour compléter le bien
+      window.location.href = <?= json_encode(app_url('/bien_detail.php?edit=' . $bienId)) ?>;
+    }
+    else { btn.innerHTML = old; delete btn.dataset.busy; alert((res && res.error) || 'Échec de la mise en marché.'); }
+  }).catch(function(){ btn.innerHTML = old; delete btn.dataset.busy; alert('Erreur réseau.'); });
+}
+</script>
+<?php
+
+// ── Card ANNONCE : affichée UNIQUEMENT si une annonce active existe sur le bien ──
+$annonce = null;
+try {
+    $stAn = $pdo->prepare("SELECT id, titre, description, titre_ia, texte_ia
+                           FROM annonces WHERE id_bien = ?
+                             AND (statut IS NULL OR statut NOT IN ('archive','archivee','supprime','supprimee'))
+                           ORDER BY id DESC LIMIT 1");
+    $stAn->execute([$bienId]);
+    $annonce = $stAn->fetch(PDO::FETCH_ASSOC) ?: null;
+} catch (Throwable) {}
+
+if ($annonce) {
+    $cut = static function(string $s, int $n){ return mb_strlen($s) > $n ? mb_substr($s, 0, $n) . '…' : $s; };
+    $anTitre = trim((string)($annonce['titre'] ?: $annonce['titre_ia'] ?: 'Annonce sans titre'));
+    $anTexteFull = trim((string)($annonce['description'] ?: $annonce['texte_ia'] ?: ''));
+    // Icône = crayon (cliquable → modal) à la place de la maison
+    $roleNow = function_exists('current_role_id') ? (int)current_role_id() : 0;
+    $canEditAnnonce = in_array($roleNow, [1,2,7], true) || (function_exists('is_super_admin') && is_super_admin());
+    fiche360_header($canEditAnnonce ? '✏️' : '🏠', $anTitre, $badgeBail, $cut($anTexteFull, 220), [], []);
+
+    if ($canEditAnnonce) {
+        $csrfAn = csrf_token('annonce_texte');
+        ?>
+        <div id="an-modal" style="display:none;position:fixed;inset:0;z-index:9000;align-items:center;justify-content:center;padding:20px">
+          <div style="position:absolute;inset:0;background:rgba(15,23,42,.55)" id="an-modal-ov"></div>
+          <div style="position:relative;background:#fff;border-radius:14px;width:min(640px,100%);max-height:90vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,.3);padding:20px">
+            <h3 style="margin:0 0 14px;font-size:16px;color:#143A41">✏️ Titre &amp; texte de l'annonce</h3>
+            <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px">Titre</label>
+            <input type="text" id="an-titre" value="<?= h((string)($annonce['titre'] ?: $annonce['titre_ia'] ?: '')) ?>"
+                   style="width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;box-sizing:border-box;margin-bottom:14px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px">Texte de l'annonce</label>
+            <textarea id="an-texte" rows="9" style="width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;font-size:13.5px;box-sizing:border-box;font-family:inherit;resize:vertical"><?= h((string)($annonce['description'] ?: $annonce['texte_ia'] ?: '')) ?></textarea>
+            <div id="an-status" style="font-size:12px;color:#64748b;margin-top:8px;min-height:16px"></div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+              <button type="button" id="an-cancel" style="background:#fff;border:1px solid #cbd5e1;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer">Annuler</button>
+              <button type="button" id="an-save" style="background:#1B4A52;color:#fff;border:none;border-radius:9px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer">Enregistrer</button>
+            </div>
+          </div>
+        </div>
+        <script>
+        (function(){
+          var SAVE=<?= json_encode(app_url('/api/annonce_texte_save.php')) ?>, AID=<?= (int)$annonce['id'] ?>, CSRF=<?= json_encode($csrfAn) ?>;
+          var m=document.getElementById('an-modal'), st=document.getElementById('an-status');
+          function open(){ m.style.display='flex'; } function close(){ m.style.display='none'; }
+          // Le crayon (icône de la card annonce) ouvre la modal
+          var ic = document.querySelector('.f360-header-icon');
+          if (ic) { ic.style.cursor='pointer'; ic.title='Modifier le titre & le texte'; ic.addEventListener('click', open); }
+          document.getElementById('an-cancel').addEventListener('click', close);
+          document.getElementById('an-modal-ov').addEventListener('click', close);
+          document.getElementById('an-save').addEventListener('click', function(){
+            st.textContent='⏳ Enregistrement…';
+            fetch(SAVE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              annonce_id:AID, csrf:CSRF,
+              titre:document.getElementById('an-titre').value,
+              description:document.getElementById('an-texte').value
+            })}).then(function(r){return r.json();}).then(function(res){
+              if(res&&res.ok){ st.textContent='✓ Enregistré. Rechargement…'; setTimeout(function(){location.reload();},600); }
+              else { st.textContent='⚠️ '+((res&&res.error)||'échec'); }
+            }).catch(function(){ st.textContent='⚠️ échec réseau'; });
+          });
+        })();
+        </script>
+        <?php
+    }
+}
+
+// ── Barre de KPI du bien (format agency_biens) ──
+$kpis = [];
+if (!empty($bien['type_label']))        $kpis[] = [$bien['type_label'], 'Type'];
+if (!empty($bien['surface_habitable'])) $kpis[] = [number_format((float)$bien['surface_habitable'], 0, ',', ' '), 'm²'];
+if (!empty($bien['nb_pieces']))         $kpis[] = [$bien['nb_pieces'], 'Pièces'];
+if (!empty($bien['nb_chambres']))       $kpis[] = [$bien['nb_chambres'], 'Chambres'];
+if ($bien['etage'] !== null && $bien['etage'] !== '') $kpis[] = [(($bien['etage']==='0'||(int)$bien['etage']===0)?'RDC':$bien['etage']), 'Étage'];
+if (!empty($bien['dpe_classe'])) {
+    $dpeVal = strtoupper((string)$bien['dpe_classe']);
+    if (!empty($bien['ges_classe'])) { $kpis[] = [$dpeVal . ' / ' . strtoupper((string)$bien['ges_classe']), 'DPE / GES']; }
+    else { $kpis[] = [$dpeVal, 'DPE']; }
+}
+if (!empty($bien['numero_lot']))        $kpis[] = [$bien['numero_lot'], 'Lot'];
+if (!empty($bien['etat_bien']))         $kpis[] = [$bien['etat_bien'], 'État'];  // tout à droite
+if ($kpis) {
+    echo '<div class="b360-kpibar">';
+    foreach ($kpis as $k) {
+        echo '<div class="b360-kpi"><div class="b360-kpi-v">' . h((string)$k[0]) . '</div><div class="b360-kpi-l">' . h((string)$k[1]) . '</div></div>';
+    }
+    echo '</div>';
+}
+?>
+<style>
+  .b360-kpibar{display:flex;flex-wrap:nowrap;gap:8px;margin:12px 0;width:100%}
+  .b360-kpi{flex:1 1 auto;min-width:0;background:#fff;border:1px solid #e8e4da;border-radius:12px;padding:10px 10px;text-align:center}
+  .b360-kpi-v{font-size:18px;font-weight:800;color:#1B4A52;line-height:1.12;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b360-kpi-l{font-size:10.5px;color:#8A8472;text-transform:uppercase;letter-spacing:.03em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+<?php
+
 ?>
 
-<div class="f360-grid">
+<style>
+.b360-grid3 { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:14px; align-items:start; }
+@media (max-width:900px){ .b360-grid3 { grid-template-columns:1fr; } }
+.b360-grid3 > div { min-width:0; }
+.b360-inner { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:14px; align-items:start; }
+@media (max-width:1100px){ .b360-inner { grid-template-columns:1fr; } }
+.b360-inner > div { min-width:0; }
 
-  <!-- ═══════════════════ COLONNE PRINCIPALE ═══════════════════ -->
-  <div>
+/* Card Actions — fond bleu pétrole (charte) */
+.b360-grid3 .f360-actions { background:linear-gradient(155deg,#34586b,#243f4d); }
+.b360-grid3 .f360-actions a:hover { background:rgba(255,255,255,.10); }
+
+/* Boutons d'action du header 360° — style doux (cartes blanches) */
+.f360-header-actions { gap:10px; flex-wrap:wrap; }
+.f360-header-actions .tr-btn {
+    display:inline-flex; align-items:center; gap:7px;
+    padding:9px 15px; border-radius:13px;
+    border:1px solid #f0ede7; background:#fff; color:#4a5568;
+    font-size:13px; font-weight:600; line-height:1; white-space:nowrap;
+    text-decoration:none; cursor:pointer;
+    box-shadow:0 2px 6px rgba(36,59,92,.08), 0 1px 2px rgba(36,59,92,.04);
+    transition:transform .14s ease, box-shadow .14s ease, background .14s ease, color .14s ease;
+}
+.f360-header-actions .tr-btn:hover {
+    color:#243B5C; background:#fbfaf7;
+    transform:translateY(-1px);
+    box-shadow:0 5px 14px rgba(36,59,92,.12), 0 2px 4px rgba(36,59,92,.06);
+}
+.f360-header-actions .tr-btn-primary { background:#f3f6fb; color:#2d4a72; border-color:#e3ebf5; }
+.f360-header-actions .tr-btn-primary:hover { background:#eaf1fa; color:#243B5C; }
+</style>
+
+<div class="b360-grid3">
+
+  <!-- ═══════ ZONE GAUCHE (2 colonnes) : Barre IA + Core + Documents ═══════ -->
+  <div style="min-width:0;">
+
+    <?php fiche360_ia_bar('bien', $bienId, "Dites ce que vous voulez saisir (surface, chambres, prix…) ou posez une question"); ?>
+    <script>
+    /* IA = routeur d'intentions : « saisir la surface », « ajouter le nb de chambres »… → ouvre la bonne page au bon champ */
+    (function(){
+      var BID = <?= (int)$bienId ?>, DET = <?= json_encode(app_url('/bien_detail.php')) ?>;
+      var ROUTER = <?= json_encode(app_url('/api/ia_action_router.php')) ?>;
+      // Liens internes = relatifs ; liens externes (https://maps/google…) → nouvel onglet
+      function goUrl(u, ext){ if(ext || /^https?:\/\//i.test(u)) window.open(u,'_blank'); else window.location.href=u; }
+      var VILLE = <?= json_encode(trim((string)($bien['ville'] ?: $bien['imm_ville'] ?: ''))) ?>;
+      var ADR = <?= json_encode(trim((string)$adresseComplete)) ?>;
+      function maps(terms){ return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(terms + ' ' + (ADR||VILLE)); }
+      function route(qRaw){
+        var q = (qRaw||'').toLowerCase();
+        var D = DET + '?edit=' + BID;
+        // 1) Intention de SAISIE interne (verbe de saisie + champ)
+        if(/(saisir|saisie|ajout|modif|remplir|mettre|met\b|chang|[ée]dit|corrig|renseign|compl[ée]t|indiqu|à jour)/.test(q)){
+          if(/surface|superficie|\bm2\b|m²|m[èe]tre|carrez|boutin/.test(q)) return D+'&section=descriptif&focus=surface_habitable';
+          if(/chambre/.test(q))               return D+'&section=descriptif&focus=nb_chambres';
+          if(/pi[èe]ce/.test(q))               return D+'&section=descriptif&focus=nb_pieces';
+          if(/[ée]tage/.test(q))               return D+'&section=descriptif&focus=etage';
+          if(/construction|ann[ée]e/.test(q))  return D+'&section=descriptif&focus=annee_construction';
+          if(/type de bien|nature/.test(q))    return D+'&section=descriptif&focus=type_bien';
+          if(/loyer|location|louer/.test(q))   return D+'&section=annonce&focus=loyer';
+          if(/prix|vente|vendre|fai/.test(q))  return D+'&section=annonce&focus=prix';
+          if(/honoraire/.test(q))              return D+'&section=annonce&focus=honoraires';
+          if(/mandat|transaction/.test(q))     return D+'&section=annonce&focus=type_transaction';
+          if(/dpe|diagnostic|[ée]nerg|\bges\b/.test(q)) return D+'&section=dpe';
+          if(/descriptif|description|texte|annonce|photo/.test(q)) return D+'&section=annonce';
+          if(/document|charger/.test(q))       return <?= json_encode(app_url('/bien_documents_list.php?id=')) ?> + BID;
+        }
+        // 2) Services EXTERNES → Google Maps près du bien
+        if(/cuisin/.test(q))                    return maps('cuisiniste magasin de cuisine');
+        if(/plomb/.test(q))                     return maps('plombier');
+        if(/[ée]lectric/.test(q))               return maps('électricien');
+        if(/chauffag|chaudi[èe]re/.test(q))     return maps('chauffagiste');
+        if(/peintre|peinture/.test(q))          return maps('peintre bâtiment');
+        if(/serrur/.test(q))                    return maps('serrurier');
+        if(/ma[çc]on|ma[çc]onnerie/.test(q))    return maps('maçon');
+        if(/menuis|fen[êe]tre|porte/.test(q))   return maps('menuisier');
+        if(/notaire/.test(q))                   return maps('notaire');
+        if(/diagnostiqueur/.test(q))            return maps('diagnostiqueur immobilier');
+        if(/d[ée]m[ée]nag/.test(q))             return maps('déménageur');
+        if(/jardin|paysag/.test(q))             return maps('paysagiste jardinier');
+        if(/artisan|travaux|devis|r[ée]nov|entreprise du b[âa]timent/.test(q)) return maps('artisan travaux rénovation');
+        if((/magasin|boutique|fournisseur|acheter|o[ùu] trouver/.test(q))) return maps(q.replace(/.*?(magasin|boutique|fournisseur)\s*(de|d')?\s*/,'').slice(0,40) || q.slice(0,40));
+        // 3) Naviguer vers une autre entité (propriétaire / tiers) : « voir Locavente », « ouvrir la fiche de … »
+        var nav = q.match(/(?:voir|ouvrir|consulter|afficher|fiche\s+(?:de\s+)?|aller (?:à|vers|sur))\s+(?:le |la |l'|les |du |de la |de l'|d'|un |une |propri[ée]taire |tiers |client |soci[ée]t[ée] |sci |le bien |la fiche )*(.{2,60})/);
+        if (nav && nav[1] && !/surface|chambre|pi[èe]ce|[ée]tage|construction|loyer|prix|honoraire|mandat|dpe|diagnostic|descriptif|photo|document/.test(nav[1])) {
+          return <?= json_encode(app_url('/agency_proprietaires.php?q=')) ?> + encodeURIComponent(nav[1].trim());
+        }
+        return null;
+      }
+      function install(){
+        if (typeof window.fiche360IaAsk !== 'function') { return setTimeout(install, 120); }
+        if (window.__iaRouterInstalled) return; window.__iaRouterInstalled = true;
+        var orig = window.fiche360IaAsk;
+        window.fiche360IaAsk = function(rid){
+          var inp = document.getElementById(rid + '-q');
+          var q = inp ? inp.value.trim() : '';
+          if (!q) return;
+          var url = route(q);
+          if (url) { goUrl(url); return; }        // route mots-clés (instantané, gratuit)
+          // Sinon : routeur IA illimité (interprète n'importe quelle demande → action)
+          var resp = document.getElementById(rid + '-resp');
+          if (resp) { resp.classList.add('show'); resp.innerHTML = '<div class="ia-q">❓ ' + q + '</div><div class="ia-loading">⏳ Je cherche la bonne action…</div>'; }
+          fetch(ROUTER, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ bien_id:BID, question:q }) })
+            .then(function(r){ return r.json(); })
+            .then(function(a){
+              if (a && a.type === 'open' && a.url) { goUrl(a.url, a.external); if(resp) resp.classList.remove('show'); return; }
+              if (resp) resp.innerHTML = '<div class="ia-q">❓ ' + q + '</div>' + ((a && a.text) || '—');
+            })
+            .catch(function(){ if (orig) orig(rid); });
+        };
+      }
+      install();
+    })();
+    </script>
+
+    <div class="b360-inner">
+
+      <!-- ─────────────── COLONNE 1 — MANDATS / BAIL ─────────────── -->
+      <div style="min-width:0;">
 
     <!-- Mandats actifs sur ce bien -->
     <?php if (!empty($mandatsActifs)): ?>
@@ -298,8 +647,8 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
             <?php foreach ($mandatsActifs as $m):
                 $tm = strtolower((string)$m['type_mandat']);
                 [$badgeBg, $badgeFg, $icon] = match ($tm) {
-                    'gerance'     => ['#d9f0db', '#14532d', '🏠'],
-                    'transaction' => ['#fef3c7', '#92400e', '💰'],
+                    'gerance', 'gestion' => ['#d9f0db', '#14532d', '🏠'],
+                    'transaction', 'vente' => ['#fef3c7', '#92400e', '💰'],
                     'location'    => ['#dbeafe', '#1e40af', '🔑'],
                     'syndic'      => ['#e9d5ff', '#5b21b6', '🏢'],
                     default       => ['#f4f1ec', '#5a5650', '📜'],
@@ -323,8 +672,66 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
                 </div>
             <?php endforeach; ?>
         </div>
+
+        <!-- Boutons ajout mandat (Sprint MANDATS 2026-05-25) — cumulables avec GESTION -->
+        <?php
+            $hasGestion = $hasGerance || in_array('gestion', $typesActifs, true);
+            $hasVenteAny = $hasVente || in_array('vente', $typesActifs, true);
+            $hasLocation = in_array('location', $typesActifs, true);
+            $missingTypes = [];
+            if (!$hasGestion)  $missingTypes[] = ['type' => 'gestion',  'label' => '🏠 Gestion',  'color' => '#14532d', 'bg' => '#d9f0db'];
+            if (!$hasLocation) $missingTypes[] = ['type' => 'location', 'label' => '🔑 Location', 'color' => '#1e40af', 'bg' => '#dbeafe'];
+            if (!$hasVenteAny) $missingTypes[] = ['type' => 'vente',    'label' => '💰 Vente',    'color' => '#92400e', 'bg' => '#fef3c7'];
+        ?>
+        <?php if (!empty($missingTypes)): ?>
+        <div style="display:flex; gap:8px; margin-top:12px; padding-top:10px; border-top:1px solid #f0ece6; flex-wrap:wrap;">
+            <span style="font-size:11px; color:#7a766f; font-weight:700; align-self:center;">➕ Cumuler :</span>
+            <?php foreach ($missingTypes as $mt): ?>
+                <button type="button"
+                        onclick="addMandat(<?= $bienId ?>, '<?= h($mt['type']) ?>')"
+                        style="background:<?= $mt['bg'] ?>; color:<?= $mt['color'] ?>; padding:6px 14px; border:1px dashed <?= $mt['color'] ?>; border-radius:6px; font-weight:700; font-size:11.5px; cursor:pointer;">
+                    + <?= h($mt['label']) ?>
+                </button>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
+
+    <!-- Sprint MANDATS 2026-05-25 : si bien SANS aucun mandat actif → alerte + bouton créer GESTION socle -->
+    <?php if (empty($mandatsActifs) && !$bailleurEmbed): ?>
+    <div class="f360-card" style="background:#fef2f2; border-left:4px solid #dc2626;">
+        <h3 style="color:#991b1b;">⚠️ Aucun mandat actif</h3>
+        <p style="font-size:12px; color:#7f1d1d;">
+            Ce bien n'a pas de mandat actif. Tout bien doit avoir au minimum un mandat <strong>GESTION</strong> socle.
+        </p>
+        <button type="button" onclick="addMandat(<?= $bienId ?>, 'gestion')"
+                style="background:#dc2626; color:#fff; padding:8px 18px; border:0; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; margin-top:8px;">
+            🏠 Créer le mandat GESTION socle
+        </button>
+    </div>
+    <?php endif; ?>
+
+    <script>
+    window.addMandat = async function(bienId, type) {
+        if (!confirm('Ajouter un mandat ' + type.toUpperCase() + ' au bien #' + bienId + ' ?')) return;
+        try {
+            const res = await fetch('<?= h(app_url("/api/bien_add_mandat.php")) ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bien_id: bienId, type_mandat: type }),
+                credentials: 'same-origin',
+            });
+            const data = await res.json();
+            if (data.ok) {
+                alert('✅ Mandat ' + type + ' créé (n° ' + data.numero_mandat + ')');
+                window.location.reload();
+            } else {
+                alert('❌ ' + (data.error || 'Erreur'));
+            }
+        } catch (e) { alert('❌ Réseau : ' + e.message); }
+    };
+    </script>
 
     <!-- Bail actif / Archives -->
     <div class="f360-card">
@@ -337,7 +744,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         <div id="tab-bail">
             <?php if ($bailActif): ?>
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
-                    <div><div style="font-size:10px; color:#9a9690;">LOCATAIRE</div><strong><?= h($locataireNom) ?></strong></div>
+                    <div><div style="font-size:10px; color:#9a9690;">LOCATAIRE</div><strong><a href="<?= h(app_url('/bail_360.php?id=' . (int)$bailActif['id'])) ?>" style="color:#5b21b6;text-decoration:none;border-bottom:1px dotted #b39ddb;" title="Ouvrir la fiche bail 360° (infos + documents)"><?= h($locataireNom) ?> ↗</a></strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">NATURE</div><strong><?= h($bailActif['bail_nature']) ?></strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">PRISE D'EFFET</div><strong><?= h($bailActif['date_prise_effet']) ?></strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">FIN</div><strong><?= h($bailActif['date_fin']) ?></strong></div>
@@ -385,19 +792,29 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         </div>
     </div>
 
+      </div>
+      <!-- fin COLONNE 1 -->
+
+      <!-- ─────────────── COLONNE 2 — DOCUMENTS ─────────────── -->
+      <div style="min-width:0;">
+
     <!-- Documents du bien -->
     <div class="f360-card">
         <h3>📂 Documents du bien <span class="count"><?= count($docs) ?></span></h3>
         <?php if (empty($docs)): ?>
-            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document. <a href="#" onclick="<?= h($fbxOnClickBien) ?>">→ Charger un document</a></div>
+            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document. <a href="<?= h(app_url('/bien_documents_list.php?id=' . $bienId)) ?>">→ Gérer les documents</a></div>
         <?php else: foreach ($docs as $d): ?>
-            <div style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center;">
+            <div onclick="mvptModalView(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>)"
+                 style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center; cursor:pointer;"
+                 onmouseover="this.style.background='#faf8ff'" onmouseout="this.style.background='transparent'">
                 <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:120px;">[<?= h($d['document_type']) ?>]</span>
-                <span style="flex:1;"><?= h($d['name_display']) ?></span>
+                <span style="flex:1;">📄 <?= h($d['name_display']) ?></span>
                 <span style="color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
+                <span style="color:#5b21b6; font-size:11px; font-weight:700;">Ouvrir ›</span>
             </div>
         <?php endforeach; endif; ?>
     </div>
+    <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; /* modale standard mvptModalView */ ?>
 
     <!-- Mentionné dans -->
     <?php
@@ -405,60 +822,130 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         'icon'  => '📄',
         'title' => $m['name_display'],
         'ref'   => $m['document_type'] . ' · ' . date('d/m/y', strtotime((string)$m['created_at'])),
-        'url'   => null,
+        'url'   => app_url('/api/ged_document_view.php?id=' . (int)$m['id'] . '&mode=inline'),
     ], $mentions);
     fiche360_mention_dans($mentionsForLayout);
     ?>
 
-  </div>
+      </div>
+      <!-- fin COLONNE 2 -->
 
-  <!-- ═══════════════════ COLONNE LATÉRALE ═══════════════════ -->
-  <div>
+    </div><!-- fin .b360-inner -->
+  </div><!-- fin ZONE GAUCHE -->
+
+  <!-- ═══════════════════ COLONNE DROITE — ACTIONS + CONTACTS ═══════════════════ -->
+  <div style="min-width:0;">
 
     <?php
-    // Checklist pièces obligatoires
+    // Panneau Actions — remonté EN HAUT de la colonne pour visibilité immédiate.
+    // En contexte BAILLEUR (modal) : panneau réduit en lecture seule (aucune action agency/transaction).
+    if ($bailleurEmbed) {
+        fiche360_actions_panel('Consultation', [
+            ['icon'=>'📁','label'=>'Documents du bien','url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
+        ]);
+    } else {
+        fiche360_actions_panel('Actions bien', [
+            ['icon'=>'📝','label'=>'Descriptif du bien','url'=>app_url('/bien_detail.php?edit=' . $bienId)],
+            ['icon'=>'🗂️','label'=>($hasDossierVente ? 'Voir le dossier de vente' : 'Créer le dossier de vente'),'url'=>app_url('/transaction_dossier.php?id_bien=' . $bienId)],
+            ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>$fbxOnClickBien],
+            ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=BIEN&id=' . $bienId . '&back=' . urlencode('bien_360.php?id=' . $bienId))],
+            ['icon'=>'📥','label'=>'Importer docs OneDrive (bien + locataires)','url'=>'javascript:odClasserOpen()'],
+            ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
+            ['icon'=>'📡','label'=>'Créer une annonce',        'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],
+            ['icon'=>'📁','label'=>'Documents du bien',        'url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
+            ['icon'=>'💰','label'=>'Saisir une offre',         'url'=>app_url('/transaction_index.php?q=' . urlencode((string)$bien['reference_bien']))],
+            ['icon'=>'🎯','label'=>'Retour au tableau Transactions','url'=>app_url('/transaction_index.php')],
+        ]);
+    }
+
+    // Checklist pièces obligatoires : compactée dans un MODAL (gain de place)
+    $nbOkP = 0; foreach ($piecesItems as $i) if (!empty($i['ok'])) $nbOkP++;
+    $totP = count($piecesItems);
+    ob_start();
     fiche360_checklist('Pièces du bien', $piecesItems);
-
-    // Rattachement propriétaire
-    if (!empty($bien['proprio_id'])) {
-        $proprioLinks = [['icon'=>'👤','name'=>$proprietaireNom,'ref'=>'#' . $bien['proprio_id'] . (!empty($bien['proprio_tiers_id']) ? ' · tiers ' . $bien['proprio_tiers_id'] : ''),'url'=>app_url('/agency_proprietaires.php?q=' . urlencode($proprietaireNom))]];
-        // Représentants
-        foreach ($representants as $r) {
-            $rNom = trim((string)$r['prenom'] . ' ' . $r['nom']);
-            $proprioLinks[] = ['icon'=>'👥','name'=>$rNom . ' (' . $r['qualite'] . ')','ref'=>$r['email'] ?: '','url'=>'#'];
-        }
-        fiche360_attach('PROPRIÉTAIRE' . (count($representants) > 0 ? ' + REPRÉSENTANTS' : ''), $proprioLinks);
-    }
-
-    // Rattachement immeuble
-    if (!empty($bien['immeuble_id'])) {
-        fiche360_attach('IMMEUBLE', [[
-            'icon' => '🏢',
-            'name' => $bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: 'Immeuble',
-            'ref'  => $bien['imm_ville'] ?: '',
-            'url'  => app_url('/agency_immeuble_detail.php?id=' . $bien['immeuble_id']),
-        ]]);
-    }
-
-    // Rattachement locataire actuel
-    if ($bailActif && $locataireTiersId) {
-        fiche360_attach('LOCATAIRE ACTUEL', [[
-            'icon' => '👥',
-            'name' => $locataireNom,
-            'ref'  => 'Bail #' . $bailActif['id'] . ' · ' . $bailActif['date_prise_effet'] . ' → ' . $bailActif['date_fin'],
-            'url'  => '#',
-        ]]);
-    }
-
-    // Panneau Actions
-    fiche360_actions_panel('Actions bien', [
-        ['icon'=>'📥','label'=>'Charger un document',      'url'=>'#','onclick'=>$fbxOnClickBien],
-        ['icon'=>'💰','label'=>'Saisir une offre',         'url'=>app_url('/transaction_index.php?q=' . urlencode((string)$bien['reference_bien']))],
-        ['icon'=>'✏️','label'=>'Éditer la fiche bien',     'url'=>app_url('/bien_detail.php?edit=' . $bienId)],
-        ['icon'=>'📡','label'=>'Voir/créer l\'annonce',    'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],
-        ['icon'=>'🎯','label'=>'Retour au tableau Transactions','url'=>app_url('/transaction_index.php')],
-    ]);
+    $piecesHtml = ob_get_clean();
     ?>
+    <div style="background:#fff;border:1px solid #e8e4da;border-radius:14px;padding:14px 16px;margin:12px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <span style="font-weight:800;color:#1B4A52;font-size:14px">📋 Pièces du bien</span>
+        <span style="background:#f4f1ea;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;color:#565434"><?= (int)$nbOkP ?>/<?= (int)$totP ?></span>
+      </div>
+      <button type="button" id="pieces-open" style="margin-top:10px;width:100%;background:#1B4A52;color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">📎 Charger / compléter les pièces</button>
+    </div>
+    <div id="pieces-modal" style="display:none;position:fixed;inset:0;z-index:9000;align-items:center;justify-content:center;padding:20px">
+      <div style="position:absolute;inset:0;background:rgba(15,23,42,.55)" id="pieces-ov"></div>
+      <div style="position:relative;background:#fff;border-radius:14px;width:min(560px,100%);max-height:88vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,.3);padding:14px 16px">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:-6px"><button type="button" id="pieces-close" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 11px;font-size:15px;cursor:pointer">✕</button></div>
+        <?= $piecesHtml ?>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var m=document.getElementById('pieces-modal');
+      document.getElementById('pieces-open').addEventListener('click', function(){ m.style.display='flex'; });
+      document.getElementById('pieces-close').addEventListener('click', function(){ m.style.display='none'; });
+      document.getElementById('pieces-ov').addEventListener('click', function(){ m.style.display='none'; });
+    })();
+    </script>
+    <?php
+
+    // ── CONTACTS : propriétaire + locataire (+ représentants) surfacés systématiquement ──
+    $contactLinks = [];
+    if (!empty($bien['proprio_id'])) {
+        $proprioUrl = !empty($bien['proprio_tiers_id'])
+            ? app_url('/tiers_360.php?id=' . (int)$bien['proprio_tiers_id'])
+            : app_url('/agency_proprietaires.php?q=' . urlencode($proprietaireNom));
+        $contactLinks[] = ['icon'=>'🏠','name'=>$proprietaireNom . ' — Propriétaire','ref'=>'#' . $bien['proprio_id'] . (!empty($bien['proprio_tiers_id']) ? ' · tiers ' . $bien['proprio_tiers_id'] : ''),'url'=>$proprioUrl];
+    }
+    if ($bailActif) {
+        $locUrl = $locataireTiersId
+            ? app_url('/tiers_360.php?id=' . (int)$locataireTiersId)
+            : app_url('/bail_360.php?id=' . (int)$bailActif['id']);
+        $contactLinks[] = ['icon'=>'🔑','name'=>$locataireNom . ' — Locataire','ref'=>'Bail #' . $bailActif['id'] . ' · jusqu\'au ' . $bailActif['date_fin'],'url'=>$locUrl];
+    }
+    foreach ($representants as $r) {
+        $rNom = trim((string)$r['prenom'] . ' ' . $r['nom']);
+        $rUrl = !empty($r['id']) ? app_url('/tiers_360.php?id=' . (int)$r['id']) : '#';
+        $contactLinks[] = ['icon'=>'👥','name'=>$rNom . ' (' . $r['qualite'] . ')','ref'=>$r['email'] ?: '','url'=>$rUrl];
+    }
+    if (!empty($contactLinks)) fiche360_attach('CONTACTS (' . count($contactLinks) . ')', $contactLinks);
+
+    // (card IMMEUBLE retirée : l'immeuble est déjà dans la chaîne en haut + la carte « Données publiques »)
+    // Bouton « changer l'immeuble » (relink simple) — staff manager
+    $roleIdBien = function_exists('current_role_id') ? (int)current_role_id() : 0;
+    $canRelinkImm = in_array($roleIdBien, [1,2,7], true) || (function_exists('is_super_admin') && is_super_admin());
+    // (bouton « Changer l'immeuble » retiré à la demande)
+
+    // Données publiques de l'immeuble (enrichissement persisté + bouton de relance pour admin)
+    if (!empty($bien['immeuble_id'])) {
+        require_once __DIR__ . '/inc/immeuble_public_card.php';
+        $canEnrich = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,7], true))
+                  || (function_exists('is_super_admin') && is_super_admin());
+        $gvLabel = trim((string)(($bien['nom_immeuble'] ?? '') ?: ($bien['imm_adresse'] ?? '')));
+        if (($bien['imm_ville'] ?? '') !== '') $gvLabel = trim($gvLabel . ' · ' . $bien['imm_ville']);
+        immeuble_public_card($pdo, (int)$bien['immeuble_id'], $canEnrich,
+            ['lat' => $bien['latitude'] ?? '', 'lng' => $bien['longitude'] ?? '', 'label' => $gvLabel]);
+    }
+
+    // ── Marquer vendu (sort des « à vendre », garde l'historique) ──
+    // « Déjà vendu » = vraiment vendu (statut_bien) ou prix final posé — PAS un simple retrait.
+    $dejaVendu = (($bien['statut_bien'] ?? '') === 'vendu') || !empty($bien['prix_final_vente']);
+    ?>
+    <div style="margin-top:14px;">
+      <?php if (!empty($_GET['vendu'])): ?>
+        <div style="background:#e3f3e8;color:#2d8a4e;border:1px solid #9fd3b0;border-radius:10px;padding:10px 14px;font-weight:700;margin-bottom:10px;">✅ Bien marqué vendu — sorti des « à vendre », historique conservé.</div>
+      <?php endif; ?>
+      <?php if ($dejaVendu): ?>
+        <div style="background:#efe7f7;color:#6b4aa0;border:1px solid #c9b8e6;border-radius:10px;padding:10px 14px;font-weight:700;">🏷️ Ce bien est déjà marqué vendu / retiré de la commercialisation.</div>
+      <?php elseif (!$bailleurEmbed): ?>
+        <form method="post" action="<?= h(app_url('/api/bien_marquer_vendu.php')) ?>" onsubmit="return confirm('Marquer ce bien comme VENDU ?\nIl sortira des « à vendre » (l\'historique est conservé).');">
+          <?= csrf_field('bien_vendu') ?>
+          <input type="hidden" name="id_bien" value="<?= (int)$bienId ?>">
+          <input type="hidden" name="retour" value="<?= h(app_url('/bien_360.php?id=' . $bienId)) ?>">
+          <button type="submit" style="width:100%;cursor:pointer;background:linear-gradient(135deg,#2d8a4e,#23703f);color:#fff;border:none;border-radius:10px;padding:11px 14px;font-size:14px;font-weight:800;">🏷️ Marquer ce bien vendu</button>
+        </form>
+      <?php endif; ?>
+    </div>
 
   </div>
 </div>
@@ -476,4 +963,378 @@ function f360tab(btn, targetId) {
 }
 </script>
 
+<!-- ── Recherche assistée OneDrive → GED (v1 DPE) ─────────────────────── -->
+<style>
+/* Bouton Descriptif : doré charte MBI, texte blanc, relief 3D, séparé à gauche + plus haut */
+.tr-btn-gold{ order:-1; margin-right:auto !important;
+  background:linear-gradient(180deg,#e7c364,#d4a047) !important; color:#fff !important;
+  border:none !important; border-radius:10px !important; font-weight:800 !important; font-size:14.5px !important;
+  padding:14px 24px !important; line-height:1 !important;
+  text-shadow:0 1px 2px rgba(0,0,0,.28);
+  box-shadow:0 5px 0 #a87d2c, 0 9px 16px rgba(0,0,0,.24) !important;
+  transition:transform .08s ease, box-shadow .08s ease, filter .12s !important; }
+.tr-btn-gold:hover{ filter:brightness(1.06); }
+.tr-btn-gold:active{ transform:translateY(3px) !important; box-shadow:0 1px 0 #a87d2c, 0 2px 6px rgba(0,0,0,.2) !important; }
+/* Bouton "Annonce active" : vert plein, indique que le bien est diffusé en ligne */
+.tr-btn-annonce-active{ background:#16a34a !important; color:#fff !important; border:none !important;
+  border-radius:9px !important; font-weight:800 !important; padding:9px 16px !important;
+  box-shadow:0 2px 0 #128a3e, 0 4px 10px rgba(22,163,74,.25) !important; }
+.tr-btn-annonce-active:hover{ filter:brightness(1.05); }
+.tr-btn-annonce-active:active{ transform:translateY(2px) !important; box-shadow:0 1px 0 #128a3e !important; }
+.f360-ged-search-btn{margin-left:8px;cursor:pointer;background:#0f6cbd;color:#fff;border:none;
+  border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;white-space:nowrap;}
+.f360-ged-search-btn:hover{background:#0c5aa0;}
+.gedov-overlay{position:fixed;inset:0;background:rgba(20,22,28,.55);z-index:9998;display:none;}
+.gedov-modal{position:fixed;z-index:9999;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(720px,94vw);max-height:86vh;overflow:auto;background:#fff;border-radius:14px;
+  box-shadow:0 24px 60px rgba(0,0,0,.35);padding:22px;display:none;}
+.gedov-modal h3{margin:0 0 4px;font-size:18px;}
+.gedov-sub{color:#6b7280;font-size:13px;margin-bottom:14px;}
+.gedov-cand{display:flex;align-items:flex-start;gap:10px;border:1px solid #e5e7eb;border-radius:10px;
+  padding:10px 12px;margin-bottom:8px;cursor:pointer;}
+.gedov-cand:hover{border-color:#0f6cbd;background:#f5faff;}
+.gedov-cand.sel{border-color:#0f6cbd;background:#eef6ff;box-shadow:0 0 0 2px #cfe4fb inset;}
+.gedov-cand .nm{font-weight:700;font-size:14px;word-break:break-word;}
+.gedov-cand .pt{color:#6b7280;font-size:12px;word-break:break-word;}
+.gedov-cand .badge{font-size:11px;font-weight:700;color:#0f6cbd;background:#e3f0ff;border-radius:6px;padding:2px 7px;}
+.gedov-cand .best{background:#e3f3e8;color:#2d8a4e;}
+.gedov-prev{font-size:12px;font-weight:700;color:#0f6cbd;text-decoration:none;border:1px solid #cfe4fb;border-radius:7px;padding:3px 9px;display:inline-block;}
+.gedov-prev:hover{background:#eef6ff;}
+.gedov-prevclose{cursor:pointer;background:#fde8e8;color:#b42318;border:1px solid #f5b5b5;font-weight:800;}
+.gedov-prevclose:hover{background:#f9d2d2;}
+.gedov-rowact{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap;}
+.gedov-rowbtn{cursor:pointer;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:800;}
+.gedov-rowbtn.prev{background:#eef2f6;color:#0f6cbd;border:1px solid #cfe4fb;}
+.gedov-rowbtn.prev:hover{background:#e0ecf7;}
+.gedov-rowbtn.valid{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
+.gedov-rowbtn.valid:hover{filter:brightness(1.06);}
+.gedov-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;}
+.gedov-btn{cursor:pointer;border:none;border-radius:9px;padding:10px 16px;font-weight:800;font-size:14px;}
+.gedov-btn.cancel{background:#eceef1;color:#374151;}
+.gedov-btn.valider{background:linear-gradient(135deg,#0f6cbd,#0c5aa0);color:#fff;}
+.gedov-btn:disabled{opacity:.5;cursor:not-allowed;}
+.gedov-state{padding:24px 6px;text-align:center;color:#6b7280;font-size:14px;}
+.gedov-ctx{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f5f7fa;border:1px solid #e5e7eb;border-radius:10px;}
+.gedov-ctx .chip{font-size:12px;font-weight:700;color:#374151;background:#fff;border:1px solid #e0e4e8;border-radius:7px;padding:4px 9px;}
+.gedov-ctx .chip.lot{background:#fff7e6;border-color:#f0d28a;color:#92600a;}
+.gedov-ctx .chip.loc{background:#eef6ff;border-color:#cfe4fb;color:#0f5a9e;}
+.gedov-spin{width:38px;height:38px;border:4px solid #d6e6f7;border-top-color:#0f6cbd;border-radius:50%;
+  margin:6px auto 14px;animation:gedovspin .8s linear infinite;}
+@keyframes gedovspin{to{transform:rotate(360deg);}}
+.gedov-dots::after{content:'';animation:gedovdots 1.4s steps(4,end) infinite;}
+@keyframes gedovdots{0%{content:'';}25%{content:'.';}50%{content:'..';}75%{content:'...';}}
+</style>
+<div class="gedov-overlay" id="gedovOverlay"></div>
+<div class="gedov-modal" id="gedovModal">
+  <h3 id="gedovTitle">Recherche OneDrive</h3>
+  <div class="gedov-sub" id="gedovSub"></div>
+  <div id="gedovCtx" class="gedov-ctx" style="display:none;"></div>
+  <div id="gedovBody"><div class="gedov-state">…</div></div>
+  <div class="gedov-foot">
+    <button type="button" class="gedov-btn cancel" onclick="gedovClose()">Annuler</button>
+    <button type="button" class="gedov-btn valider" id="gedovValider" disabled onclick="gedovCommit()">✓ Valider &amp; classer</button>
+  </div>
+</div>
+<script>
+(function(){
+  const BIEN_ID = <?= (int)$bienId ?>;
+  const CSRF    = <?= json_encode(csrf_token('ged_graph')) ?>;
+  const SEARCH_URL = <?= json_encode(app_url('/api/graph_doc_search.php')) ?>;
+  const COMMIT_URL = <?= json_encode(app_url('/api/graph_doc_commit.php')) ?>;
+  const PREVIEW_URL= <?= json_encode(app_url('/api/graph_doc_preview.php')) ?>;
+  let curType = null, curLabel = '', selectedItem = null, busy = false;
+
+  function fmtSize(b){ if(!b) return ''; const u=['o','Ko','Mo','Go']; let i=0,v=b;
+    while(v>=1024&&i<u.length-1){v/=1024;i++;} return (i?v.toFixed(1):v)+' '+u[i]; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  window.gedovClose = function(){
+    document.getElementById('gedovOverlay').style.display='none';
+    document.getElementById('gedovModal').style.display='none';
+    selectedItem=null;
+  };
+
+  function openModal(){
+    document.getElementById('gedovOverlay').style.display='block';
+    document.getElementById('gedovModal').style.display='block';
+    document.getElementById('gedovValider').disabled=true;
+  }
+
+  function renderCandidates(cands){
+    const body=document.getElementById('gedovBody');
+    if(!cands.length){ body.innerHTML='<div class="gedov-state">Aucun document trouvé dans le OneDrive pour ce bien.<br>Essayez le chargement manuel.</div>'; return; }
+    body.innerHTML = cands.map((c,i)=>{
+      const badges=[];
+      if(c.best) badges.push('<span class="badge best">Meilleur candidat</span>');
+      if(c.in_folder) badges.push('<span class="badge best">📁 bon dossier</span>');
+      badges.push('<span class="badge">score '+c.score+'</span>');
+      (c.reasons||[]).forEach(r=>badges.push('<span class="badge">'+esc(r)+'</span>'));
+      const prev=PREVIEW_URL+'?item_id='+encodeURIComponent(c.item_id);
+      return '<div class="gedov-cand" data-i="'+i+'">'+
+        '<div style="flex:1;min-width:0;">'+
+          '<div class="nm">'+esc(c.name)+'</div>'+
+          '<div class="pt" title="Chemin OneDrive">📁 '+esc(c.path||'(racine)')+(c.size?(' · '+fmtSize(c.size)):'')+'</div>'+
+          '<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;">'+badges.join('')+'</div>'+
+          '<div class="gedov-rowact">'+
+            '<button type="button" class="gedov-rowbtn prev" data-i="'+i+'">👁 Aperçu</button>'+
+            '<button type="button" class="gedov-rowbtn valid" data-i="'+i+'">✓ Valider &amp; classer ce document</button>'+
+          '</div>'+
+          '<div class="gedov-prevbox" data-prev="'+prev+'"></div>'+
+        '</div></div>';
+    }).join('');
+    function closePreview(box){ if(box){ box.innerHTML=''; box.dataset.open='0'; } }
+    function openPreview(box){
+      if(!box) return;
+      box.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 5px;">'+
+          '<span style="font-weight:700;font-size:12px;color:#374151;">👁 Aperçu</span>'+
+          '<button type="button" class="gedov-prev gedov-prevclose">✕ Fermer l\'aperçu</button></div>'+
+        '<iframe src="'+box.dataset.prev+'" style="width:100%;height:48vh;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"></iframe>'+
+        '<div style="margin-top:5px;"><a class="gedov-prev" href="'+box.dataset.prev+'" target="_blank" rel="noopener">↗ Ouvrir en plein écran</a></div>';
+      box.dataset.open='1';
+      box.querySelector('.gedov-prevclose').addEventListener('click',(ev)=>{ ev.stopPropagation(); closePreview(box); });
+      box.scrollIntoView({block:'nearest',behavior:'smooth'});
+    }
+    function selectRow(el){
+      body.querySelectorAll('.gedov-cand').forEach(x=>x.classList.remove('sel'));
+      el.classList.add('sel');
+      selectedItem=cands[+el.dataset.i];
+      document.getElementById('gedovValider').disabled=false;
+    }
+    function togglePreviewFor(el){
+      const box=el.querySelector('.gedov-prevbox');
+      const wasOpen=box && box.dataset.open==='1';
+      body.querySelectorAll('.gedov-prevbox').forEach(pb=>closePreview(pb));
+      if(box && !wasOpen) openPreview(box);
+    }
+    body.querySelectorAll('.gedov-cand').forEach(el=>{
+      el.addEventListener('click',(ev)=>{
+        if(ev.target.closest('.gedov-prevbox')||ev.target.closest('.gedov-rowbtn')) return;
+        selectRow(el); togglePreviewFor(el);
+      });
+    });
+    // Bouton Aperçu de la ligne
+    body.querySelectorAll('.gedov-rowbtn.prev').forEach(b=>{
+      b.addEventListener('click',(ev)=>{ ev.stopPropagation();
+        const el=b.closest('.gedov-cand'); selectRow(el); togglePreviewFor(el); });
+    });
+    // Bouton Valider DANS la ligne → classe directement ce document
+    body.querySelectorAll('.gedov-rowbtn.valid').forEach(b=>{
+      b.addEventListener('click',(ev)=>{ ev.stopPropagation();
+        selectedItem=cands[+b.dataset.i]; gedovCommit(); });
+    });
+    // Pré-sélection du meilleur candidat (sans ouvrir l'aperçu : clic utilisateur requis)
+    const bestIdx=cands.findIndex(c=>c.best);
+    if(bestIdx>=0){
+      const el=body.querySelector('.gedov-cand[data-i="'+bestIdx+'"]');
+      if(el){ el.classList.add('sel'); selectedItem=cands[bestIdx];
+        document.getElementById('gedovValider').disabled=false; }
+    }
+  }
+
+  async function runSearch(typeCode,label){
+    curType=typeCode; curLabel=label; selectedItem=null;
+    document.getElementById('gedovTitle').textContent='🔎 '+label;
+    document.getElementById('gedovSub').textContent='Recherche dans le OneDrive général…';
+    document.getElementById('gedovBody').innerHTML='<div class="gedov-state">Recherche en cours…</div>';
+    document.getElementById('gedovValider').style.display='';
+    document.getElementById('gedovCtx').style.display='none';
+    openModal();
+    try{
+      const fd=new FormData(); fd.append('bien_id',BIEN_ID); fd.append('type_code',typeCode); fd.append('csrf_token',CSRF);
+      const r=await fetch(SEARCH_URL,{method:'POST',body:fd,headers:{'X-CSRF-Token':CSRF}});
+      const j=await r.json();
+      if(!j.ok){ document.getElementById('gedovBody').innerHTML='<div class="gedov-state">⚠ '+esc(j.error||'Erreur')+'</div>'; return; }
+      document.getElementById('gedovSub').textContent=j.count+' document(s) proposé(s) — choisissez puis validez.';
+      // Barre de contexte du bien (aide à pointer le bon lot)
+      const bi=j.bien_info||{}; const chips=[];
+      if(bi.reference) chips.push('<span class="chip">🏠 '+esc(bi.reference)+'</span>');
+      const adr=[bi.adresse,bi.ville].filter(Boolean).join(' ');
+      if(adr) chips.push('<span class="chip">📍 '+esc(adr)+'</span>');
+      const lot=[bi.lot_principal,bi.lot_secondaire].filter(Boolean).join(' / ');
+      if(lot) chips.push('<span class="chip lot">🔖 Lot '+esc(lot)+'</span>');
+      else chips.push('<span class="chip lot" title="Aucun n° de lot saisi sur la fiche bien">🔖 Lot non renseigné</span>');
+      (bi.locataires||[]).slice(0,3).forEach(l=>chips.push('<span class="chip loc">👤 '+esc(l)+'</span>'));
+      const ctx=document.getElementById('gedovCtx');
+      ctx.innerHTML=chips.join(''); ctx.style.display=chips.length?'flex':'none';
+      renderCandidates(j.candidates||[]);
+    }catch(e){ document.getElementById('gedovBody').innerHTML='<div class="gedov-state">⚠ '+esc(e.message)+'</div>'; }
+  }
+
+  window.gedovCommit = async function(){
+    if(!selectedItem||busy) return;
+    busy=true;
+    const docName=(selectedItem&&selectedItem.name)?selectedItem.name:'document';
+    const vb=document.getElementById('gedovValider'); vb.disabled=true; vb.textContent='Classement…';
+    // Animation d'attente (le téléchargement + lecture IA du diagnostic prend du temps)
+    document.getElementById('gedovSub').textContent='Traitement en cours, merci de patienter…';
+    document.getElementById('gedovBody').innerHTML=
+      '<div class="gedov-state"><div class="gedov-spin"></div>'+
+      '<div style="font-weight:700;color:#0f6cbd;">Classement de «&nbsp;'+esc(docName)+'&nbsp;»</div>'+
+      '<div class="gedov-dots" style="margin-top:6px;">Téléchargement, lecture du diagnostic et mise à jour de la fiche bien</div>'+
+      '<div style="margin-top:8px;font-size:12px;color:#9ca3af;">Cela peut prendre 15 à 30 secondes</div></div>';
+    try{
+      const fd=new FormData();
+      fd.append('bien_id',BIEN_ID); fd.append('type_code',curType);
+      fd.append('item_id',selectedItem.item_id); fd.append('csrf_token',CSRF);
+      const r=await fetch(COMMIT_URL,{method:'POST',body:fd,headers:{'X-CSRF-Token':CSRF}});
+      const j=await r.json();
+      if(!j.ok){
+        document.getElementById('gedovBody').innerHTML='<div class="gedov-state">⚠ Échec : '+esc(j.error||'inconnu')+'</div>';
+        return;
+      }
+      let extra='';
+      if(j.diag_analyzed){
+        const parts=[];
+        if(j.dpe_classe) parts.push('DPE '+esc(j.dpe_classe));
+        if(j.ges_classe) parts.push('GES '+esc(j.ges_classe));
+        if(j.diag_date)  parts.push('du '+esc(j.diag_date));
+        extra='<br><span style="color:#0b8043;font-weight:700;">🔍 Analysé : '+(parts.length?parts.join(' · '):'données extraites')+' → fiche bien complétée</span>';
+      }
+      document.getElementById('gedovBody').innerHTML='<div class="gedov-state">✅ Classé dans la GED :<br><b>'+esc(j.name_display||'')+'</b>'+(j.deduplicated?'<br><i>(document déjà présent — lien ajouté)</i>':'')+extra+'</div>';
+      document.getElementById('gedovValider').style.display='none';
+      setTimeout(()=>location.reload(), j.diag_analyzed ? 2400 : 1200);
+    }catch(e){ alert('Erreur : '+e.message); }
+    finally{ busy=false; vb.textContent='✓ Valider & classer'; }
+  };
+
+  document.addEventListener('click',function(ev){
+    const btn=ev.target.closest('.f360-ged-search-btn');
+    if(!btn) return;
+    ev.preventDefault();
+    runSearch(btn.dataset.typeCode, btn.dataset.typeLabel||'Document');
+  });
+  document.getElementById('gedovOverlay').addEventListener('click',gedovClose);
+})();
+</script>
+
+<?php
+$roleIdBien2 = function_exists('current_role_id') ? (int)current_role_id() : 0;
+if (in_array($roleIdBien2, [1,2,7], true) || (function_exists('is_super_admin') && is_super_admin())): ?>
+<style>
+.bien-relink-imm{margin-top:8px;cursor:pointer;background:#eef4fb;color:#0f5a9e;border:1px solid #cfe4fb;border-radius:9px;padding:8px 12px;font-weight:700;font-size:13px;}
+.bien-relink-imm:hover{background:#e0ecf7;}
+.rli-overlay{position:fixed;inset:0;background:rgba(20,22,28,.55);z-index:9300;display:none;}
+.rli-modal{position:fixed;z-index:9301;top:50%;left:50%;transform:translate(-50%,-50%);width:min(560px,94vw);max-height:84vh;overflow:auto;background:#fff;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.35);padding:22px;display:none;}
+.rli-modal h3{margin:0 0 10px;}
+.rli-modal input[type=text]{width:100%;padding:10px 12px;border:1px solid #d6dbe1;border-radius:9px;font-size:14px;box-sizing:border-box;}
+.rli-res{margin-top:10px;max-height:46vh;overflow:auto;}
+.rli-item{padding:9px 11px;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:6px;cursor:pointer;}
+.rli-item:hover{border-color:#0f6cbd;background:#f5faff;}
+.rli-item .nm{font-weight:700;font-size:14px;}
+.rli-item .ad{color:#6b7280;font-size:12px;}
+.rli-foot{display:flex;justify-content:flex-end;margin-top:12px;}
+.rli-foot button{cursor:pointer;border:none;border-radius:9px;padding:9px 14px;font-weight:800;background:#eceef1;color:#374151;}
+</style>
+<div class="rli-overlay" id="rli-overlay" onclick="closeRelinkImm()"></div>
+<div class="rli-modal" id="rli-modal">
+  <h3>🏢 Rattacher le bien à un autre immeuble</h3>
+  <input type="text" id="rli-q" placeholder="Rechercher un immeuble (nom, adresse, ville…)" autocomplete="off">
+  <div class="rli-res" id="rli-res"><div style="color:#9ca3af;font-size:13px;padding:10px;">Tape au moins 2 caractères…</div></div>
+  <div class="rli-foot"><button type="button" onclick="closeRelinkImm()">Fermer</button></div>
+</div>
+<script>
+(function(){
+  const BID=<?= (int)$bienId ?>;
+  const CSRF=<?= json_encode(csrf_token('bien_immeuble')) ?>;
+  const SEARCH=<?= json_encode(app_url('/api/ik_search_immeubles.php')) ?>;
+  const SETURL=<?= json_encode(app_url('/api/bien_set_immeuble.php')) ?>;
+  let tmr=null;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+  window.openRelinkImm=function(){document.getElementById('rli-overlay').style.display='block';document.getElementById('rli-modal').style.display='block';document.getElementById('rli-q').focus();};
+  window.closeRelinkImm=function(){document.getElementById('rli-overlay').style.display='none';document.getElementById('rli-modal').style.display='none';};
+  async function doSearch(q){
+    const box=document.getElementById('rli-res');
+    if(q.length<2){box.innerHTML='<div style="color:#9ca3af;font-size:13px;padding:10px;">Tape au moins 2 caractères…</div>';return;}
+    box.innerHTML='<div style="color:#9ca3af;font-size:13px;padding:10px;">Recherche…</div>';
+    try{
+      const r=await fetch(SEARCH+'?q='+encodeURIComponent(q));
+      const list=await r.json();
+      if(!Array.isArray(list)||!list.length){box.innerHTML='<div style="color:#9ca3af;font-size:13px;padding:10px;">Aucun immeuble trouvé.</div>';return;}
+      box.innerHTML=list.map(im=>'<div class="rli-item" data-id="'+im.id+'" data-label="'+esc((im.nom_immeuble||'')+' '+(im.adresse||''))+'">'+
+        '<div class="nm">🏢 '+esc(im.nom_immeuble||im.adresse||('#'+im.id))+'</div>'+
+        '<div class="ad">'+esc(im.adresse||'')+' '+esc(im.code_postal||'')+' '+esc(im.ville||'')+'</div></div>').join('');
+      box.querySelectorAll('.rli-item').forEach(el=>el.addEventListener('click',()=>relink(+el.dataset.id, el.dataset.label)));
+    }catch(e){box.innerHTML='<div style="color:#c62828;padding:10px;">⚠ '+esc(e.message)+'</div>';}
+  }
+  async function relink(idImm,label){
+    if(!confirm('Rattacher ce bien à :\n'+label+' ?'))return;
+    try{
+      const fd=new FormData();fd.append('id_bien',BID);fd.append('id_immeuble',idImm);fd.append('csrf_token',CSRF);
+      const r=await fetch(SETURL,{method:'POST',body:fd,headers:{'X-CSRF-Token':CSRF}});
+      const j=await r.json();
+      if(!j.ok){alert('Échec : '+(j.error||'?'));return;}
+      alert('✅ Bien rattaché à : '+(j.immeuble_nom||label));
+      location.reload();
+    }catch(e){alert('Erreur : '+e.message);}
+  }
+  document.getElementById('rli-q').addEventListener('input',function(){clearTimeout(tmr);const q=this.value.trim();tmr=setTimeout(()=>doSearch(q),250);});
+})();
+</script>
+<?php endif; ?>
+
+<!-- ── Modal classement OneDrive → GED (scope BIEN : nouveaux + loupés) ── -->
+<div id="odModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(15,18,24,.55);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;width:min(1000px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eef0f2;">
+      <h3 style="margin:0;font-size:16px;">📥 Documents OneDrive — bien <?= h($bien['reference_bien'] ?: '#'.$bienId) ?></h3>
+      <button type="button" onclick="document.getElementById('odModal').style.display='none'" style="border:1px solid #d6dade;background:#eceef1;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+    </div>
+    <div id="odBody" style="flex:1;overflow:auto;padding:16px 18px;font-size:13px;"><div style="color:#6b7280;padding:30px;text-align:center;">⏳ Analyse du dossier OneDrive…</div></div>
+    <div style="padding:12px 18px;border-top:1px solid #eef0f2;display:flex;gap:10px;align-items:center;">
+      <button type="button" id="odCommitBtn" onclick="odClasserCommit()" disabled
+              style="background:#2d8a4e;color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:800;cursor:pointer;opacity:.5;">✓ Valider et classer</button>
+      <span id="odMsg" style="font-size:12.5px;font-weight:700;"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var BID=<?= (int)$bienId ?>, CSRF=<?= json_encode(function_exists('csrf_token')?csrf_token('onedrive_classer'):'', JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var URL=<?= json_encode(app_url('/api/onedrive_classer.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var esc=function(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;};
+  function post(action){var fd=new FormData();fd.append('csrf_token',CSRF);fd.append('id_bien',BID);fd.append('action',action);
+    return fetch(URL,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();});}
+  window.odOpenFolder=function(){
+    var w=window.open('','_blank'); if(w)w.document.write('Ouverture du dossier OneDrive…');
+    post('folder_url').then(function(j){
+      if(j&&j.ok&&j.url){ if(w){w.location.href=j.url;}else{window.location.href=j.url;} }
+      else { if(w)w.close(); alert('❌ '+((j&&j.error)||'Dossier OneDrive introuvable')); }
+    }).catch(function(e){ if(w)w.close(); alert('❌ Réseau : '+e); });
+  };
+  window.odClasserOpen=function(){
+    document.getElementById('odModal').style.display='flex';
+    document.getElementById('odCommitBtn').disabled=true; document.getElementById('odCommitBtn').style.opacity=.5;
+    document.getElementById('odMsg').textContent='';
+    document.getElementById('odBody').innerHTML='<div style="color:#6b7280;padding:30px;text-align:center;">⏳ Analyse du dossier OneDrive…</div>';
+    post('scan').then(function(j){
+      if(!j||!j.ok){document.getElementById('odBody').innerHTML='<div style="color:#c62828;padding:20px;">❌ '+esc((j&&j.error)||'Erreur')+(j&&j.base?'<br><small>base: '+esc(j.base)+'</small>':'')+'</div>';return;}
+      var rows=(j.items||[]).map(function(it){
+        var col=it.status==='certain'?'#2d8a4e':(it.status==='pile'?'#8a6d1b':'#c62828');
+        var cible=it.target==='BAIL'?('→ bail #'+it.bail_id):(it.target==='BIEN'?'→ ce bien':'→ pile');
+        return '<tr><td style="padding:5px 8px;"><b>'+esc(it.type)+'</b></td>'
+          +'<td style="padding:5px 8px;">'+esc(it.name)+'<div style="color:#5b21b6;font-size:11px;margin-top:2px;">↳ '+esc(it.name_display||'')+'</div></td>'
+          +'<td style="padding:5px 8px;">'+esc(cible)+'</td><td style="padding:5px 8px;color:'+col+';font-weight:700;">'+esc(it.status)+'</td>'
+          +'<td style="padding:5px 8px;color:#7a766f;font-size:11.5px;">'+esc(it.reason)+'</td></tr>';
+      }).join('');
+      var nbCertain=(j.items||[]).filter(function(x){return x.status==='certain';}).length;
+      document.getElementById('odBody').innerHTML=
+        '<div style="margin-bottom:8px;color:#6b7280;">Dossier <b>'+esc(j.folder)+'</b> · baux du bien '+(j.nb_baux||0)+' · <b>'+nbCertain+'</b> doc(s) à classer sur ce bien (nouveaux + loupés).</div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr style="background:#ede7f6;color:#4527a0;text-align:left;">'
+        +'<th style="padding:6px 8px;">Type</th><th style="padding:6px 8px;">Fichier</th><th style="padding:6px 8px;">Cible</th><th style="padding:6px 8px;">Statut</th><th style="padding:6px 8px;">Détail</th></tr></thead><tbody>'
+        +(rows||'<tr><td colspan="5" style="padding:14px;color:#9a9690;">Aucun document bail/EDL/DPE rattachable à ce bien.</td></tr>')+'</tbody></table>';
+      var b=document.getElementById('odCommitBtn'); if(nbCertain>0){b.disabled=false;b.style.opacity=1;}
+    }).catch(function(e){document.getElementById('odBody').innerHTML='<div style="color:#c62828;padding:20px;">❌ Réseau : '+esc(e)+'</div>';});
+  };
+  window.odClasserCommit=function(){
+    var b=document.getElementById('odCommitBtn'),m=document.getElementById('odMsg');
+    b.disabled=true;b.style.opacity=.5;m.style.color='#6b7280';m.textContent='⏳ Classement en cours…';
+    post('commit').then(function(j){
+      if(!j||!j.ok){m.style.color='#c62828';m.textContent='❌ '+esc((j&&j.error)||'Erreur');return;}
+      m.style.color='#2d8a4e';m.textContent='✓ '+j.classes+' document(s) classé(s) en GED'+(j.pile?(' · '+j.pile+' en pile'):'')+(j.erreurs&&j.erreurs.length?(' · '+j.erreurs.length+' erreur(s)'):'')+'. Recharge la page pour voir les docs.';
+    }).catch(function(e){m.style.color='#c62828';m.textContent='❌ Réseau : '+esc(e);});
+  };
+})();
+</script>
+
+<?php require_once __DIR__ . '/inc/geo_views_modal.php'; ?>
 <?php include __DIR__ . '/inc/agency_layout_bottom.php'; ?>

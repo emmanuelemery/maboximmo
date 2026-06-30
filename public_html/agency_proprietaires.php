@@ -200,6 +200,21 @@ try {
     $totalPages = 1;
 }
 
+/* ── Dossiers CRÉANCIERS : tiers ayant au moins un dossier (badge d'alerte sur les cards) ── */
+$creancierByTiers = [];
+$tiersIdsListe = array_values(array_filter(array_map(fn($r) => (int)($r['id_tiers'] ?? 0), $proprietaires)));
+if ($tiersIdsListe) {
+    try {
+        $in = implode(',', array_fill(0, count($tiersIdsListe), '?'));
+        $stCre = $pdo->prepare("SELECT entity_id, COUNT(DISTINCT id_dossier) AS nb
+                                FROM creancier_dossier_lien
+                                WHERE entity_type = 'TIERS' AND entity_id IN ($in)
+                                GROUP BY entity_id");
+        $stCre->execute($tiersIdsListe);
+        foreach ($stCre->fetchAll(PDO::FETCH_ASSOC) as $r) { $creancierByTiers[(int)$r['entity_id']] = (int)$r['nb']; }
+    } catch (Throwable $e) { /* tables créanciers absentes → pas de badge */ }
+}
+
 /* ── KPIs (Propriétaires · Biens · Loués · Vacants) sur le périmètre affiché ── */
 $kpiProprios = $total;
 $kpiBiens = $kpiLoues = $kpiVacants = 0;
@@ -454,9 +469,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <div style="display:flex;gap:8px;align-items:center;margin-right:10px;">
       <button type="button" class="bl-btn" onclick="document.getElementById('modal-new-proprio').classList.add('open')"
          style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;box-shadow:none;display:inline-flex;align-items:center;gap:6px;">➕ Nouveau</button>
-      <a href="<?= htmlspecialchars(app_url('/admin/admin_tiers_merge.php')) ?>" class="bl-btn"
+      <a href="<?= htmlspecialchars(app_url('/agency_locataires.php')) ?>" class="bl-btn"
+         style="background:#e6f3f5;color:#2d5f6b;border:1px solid #b3dce2;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;"
+         title="Voir la liste des locataires">🔑 Locataires</a>
+      <a href="<?= htmlspecialchars(app_url('/admin/admin_proprietaires_doublons.php')) ?>" class="bl-btn"
          style="background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;"
-         title="Détecter et fusionner les doublons de tiers">🔀 Doublons</a>
+         title="Détecter et fusionner en masse les propriétaires en doublon">🔀 Doublons</a>
       <?php if ((int)($_SESSION['id_role'] ?? 0) === 1): ?>
       <a href="<?= htmlspecialchars(app_url('/admin/admin_proprietaires_suppression.php')) ?>" class="bl-btn"
          style="background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:6px;"
@@ -612,6 +630,15 @@ include __DIR__ . '/inc/sidebar_agency.php';
             if ($isOrphelin)  $chips[] = '<span style="color:#92400e;">⚠️ sans tiers</span>';
             if ($isArchived)  $chips[] = '<span style="color:#7a766f;">📦 archivé</span>';
 
+            // Alerte CRÉANCIERS : dossiers / saisies en cours → ouvre la liste filtrée
+            $nbCre = $creancierByTiers[$tiersIdCard] ?? 0;
+            if ($nbCre > 0) {
+                $chips[] = '<a href="creancier_liste.php?tiers=' . $tiersIdCard . '" onclick="event.stopPropagation()"'
+                         . ' style="text-decoration:none;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;'
+                         . 'font-weight:700;border-radius:8px;padding:2px 8px;" title="Voir les dossiers créanciers / saisies">'
+                         . '🚨 ' . $nbCre . ' créancier' . ($nbCre > 1 ? 's' : '') . '</a>';
+            }
+
             // Représentant (sociétés) : contact nommé sous la raison sociale
             $rep = '';
             if ($isMorale) {
@@ -627,6 +654,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
             }
             if (!empty($p['email'])) {
                 $actions[] = '<a class="ec-abtn" href="mailto:' . e($p['email']) . '" title="Écrire à ' . e($p['email']) . '">✉️</a>';
+            }
+            // Suppression (super-admin role_id=1 uniquement) : ouvre l'outil prérempli avec l'ID propriétaire.
+            if ((int)($_SESSION['id_role'] ?? 0) === 1 && $legacyId > 0) {
+                $actions[] = '<a class="ec-abtn" style="color:#b91c1c;" '
+                           . 'href="admin/admin_proprietaires_suppression.php?mode=ids&ids=' . $legacyId . '" '
+                           . 'title="Supprimer ce propriétaire (Proprio #' . $legacyId . ') — super-admin">🗑</a>';
             }
 
             // Lettre de classement = 1re lettre du NOM (sociétés : raison sociale), sans accent.
@@ -654,6 +687,10 @@ include __DIR__ . '/inc/sidebar_agency.php';
             entity_card([
                 'accent'    => '#c97b2e',
                 'url'       => $cardUrl,
+                'ref'       => trim(
+                                   ($tiersIdCard > 0 ? 'Tiers #' . $tiersIdCard : '')
+                                   . ($legacyId > 0 ? ($tiersIdCard > 0 ? ' · ' : '') . '🆔 Proprio #' . $legacyId : '')
+                               ),
                 'title'     => $displayName,
                 'badge'     => $badge,
                 'chips'     => $chips,

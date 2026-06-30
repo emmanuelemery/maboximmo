@@ -121,6 +121,17 @@ function bien_validator_check(PDO $pdo, int $idBien): array
         'detail' => $adrComplet ? sprintf('%s · %s %s', $adr, $cp, $vil) : 'Incomplète',
     ];
 
+    // 3bis. Rattachement à un immeuble (OBLIGATOIRE) — recherche/création via le modal adresse.
+    // Garantit une référence cohérente {reference_immeuble}-{n°} et le classement par immeuble.
+    $hasImmeuble = !empty($b['id_immeuble']) && (int)$b['id_immeuble'] > 0;
+    $checks[] = [
+        'key' => 'immeuble',
+        'label' => 'Rattachement à un immeuble',
+        'required' => true,
+        'ok' => $hasImmeuble,
+        'detail' => $hasImmeuble ? 'Rattaché' : 'À rechercher ou créer (modal adresse)',
+    ];
+
     // 4. Propriétaire rattaché
     $hasProprio = !empty($b['id_proprietaire']) && (int)$b['id_proprietaire'] > 0;
     $checks[] = [

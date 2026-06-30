@@ -577,8 +577,6 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<?php require_once __DIR__ . '/inc/role_switcher.php'; ?>
-
 <!-- Section Calendrier -->
 <div class="section-header">
     <div class="section-title">

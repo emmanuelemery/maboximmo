@@ -63,7 +63,16 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
             i.ville AS _imm_ville,
             i.pays AS _imm_pays,
             i.latitude AS _imm_latitude,
-            i.longitude AS _imm_longitude
+            i.longitude AS _imm_longitude,
+            i.nb_lots AS _imm_nb_lots,
+            -- Champs ALUR statut juridique copropriété (info commune à l'immeuble)
+            i.copro_procedure                  AS _imm_copro_procedure,
+            i.alur_copropriete_plan_sauvegarde AS _imm_alur_copropriete_plan_sauvegarde,
+            i.alur_copropriete_etat_carence    AS _imm_alur_copropriete_etat_carence,
+            -- Infos communes de la copropriété (niveau immeuble, migration 2026-06-17)
+            i.copro_nb_lots                    AS _imm_copro_nb_lots,
+            i.copro_budget_previsionnel_annuel AS _imm_copro_budget_previsionnel_annuel,
+            i.copro_tantiemes_total            AS _imm_copro_tantiemes_total
         FROM biens b
         LEFT JOIN bien_types       bt  ON bt.id  = b.id_bien_type
         LEFT JOIN {$legacyTable}   btb ON btb.id = b.id_type_bien
@@ -130,6 +139,10 @@ function bien_form_populate_post(array $loaded): void
         'zone_georisque','obligation_debroussaillement',
         'honoraires_charge_acquereur','honoraires_charge_vendeur',
         'zone_encadrement_loyer','loyer_est_cc',
+        // Champs saisis sur la fiche bien mais persistés sur la table immeubles
+        // (aliases _imm_*) — normalisation tinyint identique aux booléens classiques.
+        '_imm_copro_procedure', '_imm_alur_copropriete_plan_sauvegarde',
+        '_imm_alur_copropriete_etat_carence',
     ];
 
     // Aliases : colonne BDD ≠ nom de champ HTML
@@ -241,19 +254,46 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
     // Référence temporaire unique (modifiable ensuite par l'utilisateur)
     $tempRef = 'TMP-' . date('ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 5));
 
-    $stmt = $pdo->prepare("
-        INSERT INTO biens (id_societe, id_agence, id_user_actuel, id_type_bien, id_bien_type, statut_bien, reference_bien, designation, date_creation)
-        VALUES (:soc, :ag, :usr, :type, :type_new, 'brouillon', :ref, :des, NOW())
-    ");
-    $stmt->execute([
-        ':soc'      => $idSociete,
-        ':ag'       => $idAgence,
-        ':usr'      => $idUser ?: null,
-        ':type'     => $idTypeBienLegacy,
-        ':type_new' => $idBienType ?: null,
-        ':ref'      => $tempRef,
-        ':des'      => 'Brouillon créé le ' . date('d/m/Y H:i'),
-    ]);
+    // URL tarifs publics par défaut (obligation légale d'afficher le barème
+    // d'honoraires sur tous les supports). Surchargeable par bien.
+    // Défensif : on n'ajoute la colonne que si elle existe (migration
+    // 20260527_biens_url_tarifs_publics_default peut ne pas être passée).
+    $defaultTarifUrl = 'https://maboximmo.fr/tarifs.php';
+    $hasTarifCol = false;
+    try {
+        $hasTarifCol = (bool)$pdo->query("SHOW COLUMNS FROM biens LIKE 'url_tarifs_publics'")->fetchColumn();
+    } catch (Throwable $e) {}
+
+    if ($hasTarifCol) {
+        $stmt = $pdo->prepare("
+            INSERT INTO biens (id_societe, id_agence, id_user_actuel, id_type_bien, id_bien_type, statut_bien, reference_bien, designation, url_tarifs_publics, date_creation)
+            VALUES (:soc, :ag, :usr, :type, :type_new, 'brouillon', :ref, :des, :url, NOW())
+        ");
+        $stmt->execute([
+            ':soc'      => $idSociete,
+            ':ag'       => $idAgence,
+            ':usr'      => $idUser ?: null,
+            ':type'     => $idTypeBienLegacy,
+            ':type_new' => $idBienType ?: null,
+            ':ref'      => $tempRef,
+            ':des'      => 'Brouillon créé le ' . date('d/m/Y H:i'),
+            ':url'      => $defaultTarifUrl,
+        ]);
+    } else {
+        $stmt = $pdo->prepare("
+            INSERT INTO biens (id_societe, id_agence, id_user_actuel, id_type_bien, id_bien_type, statut_bien, reference_bien, designation, date_creation)
+            VALUES (:soc, :ag, :usr, :type, :type_new, 'brouillon', :ref, :des, NOW())
+        ");
+        $stmt->execute([
+            ':soc'      => $idSociete,
+            ':ag'       => $idAgence,
+            ':usr'      => $idUser ?: null,
+            ':type'     => $idTypeBienLegacy,
+            ':type_new' => $idBienType ?: null,
+            ':ref'      => $tempRef,
+            ':des'      => 'Brouillon créé le ' . date('d/m/Y H:i'),
+        ]);
+    }
     $bienId = (int)$pdo->lastInsertId();
 
     // Annonce minimale par défaut (type_transaction = 'location' par défaut, modifiable)
@@ -264,6 +304,19 @@ function bien_form_create_draft(PDO $pdo, ?int $idSociete, ?int $idAgence, ?int 
             VALUES (?, ?, ?, ?, 'location', 'brouillon', NOW(), NOW())
         ")->execute([$bienId, $idSociete, $idAgence, $idUser ?: null]);
     } catch (Throwable $e) { error_log('[create_draft annonce] ' . $e->getMessage()); }
+
+    // ─── Mandat GESTION socle automatique (Sprint MANDATS 2026-05-25) ───
+    // Directive Emmanuel : tout bien doit avoir au minimum 1 mandat GESTION actif.
+    // Le mandat GESTION ne bloque pas l'ajout ultérieur de mandats LOCATION ou VENTE.
+    try {
+        $numMandatG = 'AUTO-G-' . date('Y') . '-' . str_pad((string)$bienId, 5, '0', STR_PAD_LEFT);
+        $pdo->prepare("
+            INSERT INTO mandats
+                (id_bien, id_agence, numero_mandat, type_mandat, nature_mandat, exclusif,
+                 date_debut, statut, id_user, date_creation)
+            VALUES (?, ?, ?, 'gestion', NULL, 0, CURDATE(), 'actif', ?, NOW())
+        ")->execute([$bienId, $idAgence ?: null, $numMandatG, $idUser ?: null]);
+    } catch (Throwable $e) { error_log('[create_draft mandat_gestion] ' . $e->getMessage()); }
 
     // Photo par défaut (placeholder) si elle existe sur disque
     try {

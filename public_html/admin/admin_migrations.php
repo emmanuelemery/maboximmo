@@ -91,7 +91,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'apply
         $ok = 0; $err = 0; $errLog = [];
         foreach ($statements as $idx => $stmt) {
             try {
-                $pdo->exec($stmt);
+                // query()+closeCursor() consomme tout result set (ex. SELECT de
+                // vérification, CREATE ... AS SELECT) → évite l'erreur 2014
+                // "Cannot execute queries while other unbuffered queries are active"
+                // sur le statement suivant. (exec() laissait le curseur ouvert.)
+                $st = $pdo->query($stmt);
+                if ($st instanceof \PDOStatement) { $st->closeCursor(); }
                 $ok++;
             } catch (Throwable $e) {
                 $err++;
@@ -179,8 +184,25 @@ require_once __DIR__ . '/../inc/header.php';
 </style>
 
 <div class="mig-wrap">
+  <p style="margin:0 0 14px;">
+    <a href="<?= htmlspecialchars(function_exists('app_url') ? app_url('/agency_dashboard.php') : '/agency_dashboard.php') ?>"
+       style="display:inline-flex;align-items:center;gap:6px;color:#4f46e5;text-decoration:none;font-size:13px;font-weight:600;">← Retour à Ma Box Agency</a>
+  </p>
   <h1>🗄️ Migrations BDD</h1>
   <p class="sub">Gestion des migrations SQL — statements additifs, rejouables, suivis via <code>_migrations_applied</code>.</p>
+
+  <?php
+    // Diagnostic chemin : révèle IMMÉDIATEMENT un mismatch de répertoire (Hostinger
+    // ~/public_html vs ~/domains/.../public_html, ou dossier dupliqué) qui ferait
+    // que les fichiers uploadés ne sont pas vus par l'app live.
+    $migDirReal = realpath($migrationsDir) ?: $migrationsDir;
+  ?>
+  <div class="mig-flash" style="background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;">
+    📁 Dossier réellement scruté par l'app : <code><?= htmlspecialchars($migDirReal) ?></code>
+    &nbsp;·&nbsp; <strong><?= count($files) ?></strong> fichier(s) <code>.php</code> trouvé(s)
+    &nbsp;·&nbsp; <strong><?= count($migrations) ?></strong> migration(s) valides.
+    <br><small>Si ce chemin ne correspond pas à l'endroit où tu déposes tes fichiers (ou si le compte ne grimpe pas après upload), tes migrations sont déposées au mauvais <code>public_html</code>.</small>
+  </div>
 
   <?php if ($flash): ?>
     <div class="mig-flash <?= htmlspecialchars($flash['type']) ?>"><?= $flash['msg'] ?></div>

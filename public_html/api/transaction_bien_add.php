@@ -3,6 +3,7 @@
 // Ne crée PAS de nouveau bien. Marque seulement type_commercialisation + statut.
 declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
+require_once __DIR__ . '/../inc/bien_missions.php';
 require_login();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -27,16 +28,21 @@ try {
         http_response_code(403); echo json_encode(['ok'=>false,'error'=>'hors scope société']); exit;
     }
 
-    // Met à jour type_commercialisation + date_mise_en_vente si vide
-    $upd = $pdo->prepare('UPDATE biens
-        SET type_commercialisation = :t,
-            date_mise_en_vente = IFNULL(date_mise_en_vente, CURDATE()),
-            date_modification = NOW()
-        WHERE id = :id');
-    $upd->execute([':t' => $type, ':id' => $idBien]);
+    // Mission canonique : garantir le mandat ($type = vente|location) dans mandats.
+    // type_commercialisation n'est plus écrit en direct → miroir dérivé.
+    $pdo->beginTransaction();
+    ensure_mandat($pdo, $idBien, $type, [
+        'id_agence' => (int)($b['id_agence'] ?: 0) ?: null,
+        'id_user'   => (int)current_user_id() ?: null,
+    ]);
+    $pdo->prepare('UPDATE biens SET date_mise_en_vente = IFNULL(date_mise_en_vente, CURDATE()), date_modification = NOW() WHERE id = ?')
+        ->execute([$idBien]);
+    derive_type_commercialisation($pdo, $idBien);
+    $pdo->commit();
 
     echo json_encode(['ok'=>true, 'id_bien'=>$idBien, 'type'=>$type]);
 } catch (Throwable $e) {
+    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     http_response_code(500);
     echo json_encode(['ok'=>false, 'error'=>$e->getMessage()]);
 }

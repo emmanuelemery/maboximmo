@@ -45,7 +45,7 @@ if (!function_exists('immeuble_resolve')) {
         $placeId = trim((string)($o['google_place_id'] ?? ''));
         if ($placeId !== '') {
             try {
-                $st = $pdo->prepare("SELECT id FROM immeubles WHERE google_place_id = ? LIMIT 1");
+                $st = $pdo->prepare("SELECT id FROM immeubles WHERE google_place_id COLLATE utf8mb4_unicode_ci = ? LIMIT 1");
                 $st->execute([$placeId]);
                 $id = (int)$st->fetchColumn();
                 if ($id > 0) return $id;
@@ -53,11 +53,13 @@ if (!function_exists('immeuble_resolve')) {
         }
 
         // 2. Anti-doublon par adresse normalisée (adresse_1 + CP + ville).
+        // COLLATE explicite : certaines colonnes immeubles sont en utf8mb4_bin alors que
+        // la connexion est en utf8mb4_unicode_ci → sans ça, MySQL refuse le '=' (erreur 1267).
         $st = $pdo->prepare("
             SELECT id FROM immeubles
-             WHERE LOWER(TRIM(adresse_1)) = LOWER(TRIM(?))
-               AND COALESCE(TRIM(code_postal),'') = COALESCE(TRIM(?),'')
-               AND LOWER(TRIM(COALESCE(ville,''))) = LOWER(TRIM(?))
+             WHERE LOWER(TRIM(adresse_1)) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(?))
+               AND COALESCE(TRIM(code_postal),'') COLLATE utf8mb4_unicode_ci = COALESCE(TRIM(?),'')
+               AND LOWER(TRIM(COALESCE(ville,''))) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(?))
              LIMIT 1");
         $st->execute([$adresse1, $cp, $ville]);
         $id = (int)$st->fetchColumn();

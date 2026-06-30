@@ -44,8 +44,11 @@ if (!$isSuperAdmin) {
 }
 
 if ($q !== '') {
-    $where[] = '(a.titre LIKE :q OR a.reference_annonce LIKE :q OR b.reference_bien LIKE :q OR b.ville LIKE :q OR i.ville LIKE :q)';
-    $params[':q'] = '%' . $q . '%';
+    // placeholders distincts : PDO interdit de réutiliser un même nom quand EMULATE_PREPARES=false
+    $where[] = '(a.titre LIKE :q1 OR a.reference_annonce LIKE :q2 OR b.reference_bien LIKE :q3 OR b.ville LIKE :q4 OR i.ville LIKE :q5)';
+    $like = '%' . $q . '%';
+    $params[':q1'] = $like; $params[':q2'] = $like; $params[':q3'] = $like;
+    $params[':q4'] = $like; $params[':q5'] = $like;
 }
 if ($fTrans !== '') {
     $where[] = 'a.type_transaction = :trans';

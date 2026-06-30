@@ -44,36 +44,54 @@ function zone_tendue_from_cp(PDO $pdo, ?string $cp): string
  *
  * @return array{location_bail: float, edl: float}  €/m²
  */
-function tarifs_honoraires_get(PDO $pdo, ?int $idSociete, string $zone): array
+function tarifs_honoraires_get(PDO $pdo, ?int $idSociete, string $zone, int $idAgence = 0): array
 {
     $zone = in_array($zone, ['non_tendue','tendue','tres_tendue'], true) ? $zone : 'non_tendue';
+    // 0) Barème propre à l'AGENCE (override) prioritaire
+    if ($idAgence > 0) {
+        try {
+            $st = $pdo->prepare("SELECT honoraires_location_bail_m2, honoraires_edl_m2
+                FROM societe_tarifs_honoraires WHERE id_agence = ? AND zone_tendue = ? AND actif = 1 LIMIT 1");
+            $st->execute([$idAgence, $zone]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if ($row) return ['location_bail' => (float)$row['honoraires_location_bail_m2'], 'edl' => (float)$row['honoraires_edl_m2']];
+        } catch (Throwable $e) { /* colonne id_agence pas encore migrée → fallback société */ }
+    }
     // Plafonds ALUR 2026 codés en dur (fallback ultime si table absente).
     // Valeurs indexées IRL applicables à partir de 2026 :
-    //   non_tendue 8,07 €/m² · tendue 10,09 €/m² · très_tendue 12,10 €/m² · EDL 3 €/m²
+    //   non_tendue 8,07 €/m² · tendue 10,09 €/m² · très_tendue 12,10 €/m² · EDL 3,03 €/m²
+    //   (EDL indexé IRL 2026 : 3,00 → 3,03 €/m², au même titre que location+bail)
     $defaults = [
-        'non_tendue'   => ['location_bail' => 8.07,  'edl' => 3.00],
-        'tendue'       => ['location_bail' => 10.09, 'edl' => 3.00],
-        'tres_tendue'  => ['location_bail' => 12.10, 'edl' => 3.00],
+        'non_tendue'   => ['location_bail' => 8.07,  'edl' => 3.03],
+        'tendue'       => ['location_bail' => 10.09, 'edl' => 3.03],
+        'tres_tendue'  => ['location_bail' => 12.10, 'edl' => 3.03],
     ];
     try {
-        // 1) Tarif spécifique à la société
+        // 1) Modèle de la société (id_agence = 0)
         if ($idSociete && $idSociete > 0) {
             $st = $pdo->prepare("
                 SELECT honoraires_location_bail_m2, honoraires_edl_m2
                 FROM societe_tarifs_honoraires
-                WHERE id_societe = ? AND zone_tendue = ? AND actif = 1
+                WHERE id_societe = ? AND id_agence = 0 AND zone_tendue = ? AND actif = 1
                 LIMIT 1
             ");
             $st->execute([$idSociete, $zone]);
             $row = $st->fetch(PDO::FETCH_ASSOC);
             if ($row) {
-                return [
-                    'location_bail' => (float)$row['honoraires_location_bail_m2'],
-                    'edl'           => (float)$row['honoraires_edl_m2'],
-                ];
+                return ['location_bail' => (float)$row['honoraires_location_bail_m2'], 'edl' => (float)$row['honoraires_edl_m2']];
             }
         }
-        // 2) Tarif par défaut (id_societe NULL)
+        // 2) Barème de BASE (super admin) — id_societe = 0 : s'applique à toutes les sociétés
+        $st = $pdo->prepare("
+            SELECT honoraires_location_bail_m2, honoraires_edl_m2
+            FROM societe_tarifs_honoraires
+            WHERE id_societe = 0 AND zone_tendue = ? AND actif = 1
+            LIMIT 1
+        ");
+        $st->execute([$zone]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row) return ['location_bail' => (float)$row['honoraires_location_bail_m2'], 'edl' => (float)$row['honoraires_edl_m2']];
+        // 3) Tarif par défaut historique (id_societe NULL)
         $st = $pdo->prepare("
             SELECT honoraires_location_bail_m2, honoraires_edl_m2
             FROM societe_tarifs_honoraires
@@ -99,10 +117,10 @@ function tarifs_honoraires_get(PDO $pdo, ?int $idSociete, string $zone): array
  *
  * @return array{location_bail: float, edl: float, total: float, zone: string, tarifs: array}
  */
-function calcul_honoraires(PDO $pdo, ?int $idSociete, ?string $zone, float $surface): array
+function calcul_honoraires(PDO $pdo, ?int $idSociete, ?string $zone, float $surface, int $idAgence = 0): array
 {
     $zone = $zone ?: 'non_tendue';
-    $tarifs = tarifs_honoraires_get($pdo, $idSociete, $zone);
+    $tarifs = tarifs_honoraires_get($pdo, $idSociete, $zone, $idAgence);
     $surface = max(0.0, $surface);
     $locBail = round($surface * $tarifs['location_bail'], 2);
     $edl     = round($surface * $tarifs['edl'], 2);
@@ -403,15 +421,20 @@ function enc_zone_label_recalc_save(PDO $pdo, int $idBien): ?string
         $st->execute([$idBien]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
-        if (!empty($row['enc_zone'])) return (string)$row['enc_zone']; // déjà rempli
         $cp = trim((string)($row['cp'] ?? ''));
-        if ($cp === '') return null;
+        // Pas de CP exploitable → on ne touche pas au label existant.
+        if ($cp === '') return $row['enc_zone'] !== null ? (string)$row['enc_zone'] : null;
         $stZ = $pdo->prepare("SELECT commune FROM base_zones_tendues WHERE code_postal = ? LIMIT 1");
         $stZ->execute([$cp]);
         $commune = (string)($stZ->fetchColumn() ?: '');
-        if ($commune === '') return null;
-        $pdo->prepare("UPDATE biens SET enc_zone = ? WHERE id = ?")
-            ->execute([$commune, $idBien]);
+        // CP inconnu de la base → on garde l'existant (pas d'écrasement à vide).
+        if ($commune === '') return $row['enc_zone'] !== null ? (string)$row['enc_zone'] : null;
+        // RECALCUL (et non "remplir si vide") : si la commune dérivée du CP courant
+        // diffère du label stocké (ex. adresse passée de Bron à Lyon 7), on met à jour.
+        if ((string)($row['enc_zone'] ?? '') !== $commune) {
+            $pdo->prepare("UPDATE biens SET enc_zone = ? WHERE id = ?")
+                ->execute([$commune, $idBien]);
+        }
         return $commune;
     } catch (Throwable $e) {
         error_log('[honoraires_helper] enc_zone_label_recalc_save: ' . $e->getMessage());
@@ -506,6 +529,7 @@ function honoraires_recalc_save(PDO $pdo, int $idAnnonce, bool $force = false): 
             SELECT
                 b.id                                             AS id_bien,
                 b.id_societe                                     AS id_societe,
+                b.id_agence                                      AS id_agence,
                 COALESCE(b.surface_habitable, b.surface_totale, 0) AS surface,
                 COALESCE(i.code_postal, b.code_postal)           AS cp,
                 b.zone_tendue                                    AS zone_bien,
@@ -537,8 +561,9 @@ function honoraires_recalc_save(PDO $pdo, int $idAnnonce, bool $force = false): 
             }
         }
 
-        // 2) Calcule les plafonds (= montants max ALUR)
-        $calc = calcul_honoraires($pdo, $idSoc, $zone, $surface);
+        // 2) Calcule les plafonds (= barème de l'agence du bien, sinon société, sinon plafond légal)
+        $idAge = isset($row['id_agence']) ? (int)$row['id_agence'] : 0;
+        $calc = calcul_honoraires($pdo, $idSoc, $zone, $surface, $idAge);
         $plafondLoc = (float)$calc['location_bail'];
         $plafondEdl = (float)$calc['edl'];
 

@@ -50,6 +50,7 @@ $filterAgence = !empty($_GET['agence']) ? (int)$_GET['agence'] : null;
 $filterActif = isset($_GET['actif']) && $_GET['actif'] !== '' ? (int)$_GET['actif'] : null;
 $filterRole = !empty($_GET['role']) ? (int)$_GET['role'] : null;
 $filterService = !empty($_GET['service']) ? (string)$_GET['service'] : null;
+$filterQ = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
 
 // Get all societes, agences, roles
 $societes = $pdo->query("SELECT id, nom FROM societes WHERE actif = 1 ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
@@ -64,6 +65,21 @@ $sql = "SELECT u.*, COALESCE(u.service, 'gestion') as service, s.nom as societe_
         WHERE 1=1";
 
 $params = [];
+
+// ── Périmètre RH : UNIQUEMENT les collaborateurs salariés des sociétés commerciales.
+// On exclut les "tiers" MaBoxImmo : rôles non-staff (Propriétaire VIP, etc. → id_role>3),
+// les comptes marqués externes, et les sociétés "PRESTATAIRES EXTERNES".
+// NB : ne PAS filtrer sur est_salarie (gérants/dirigeants comme Emmanuel ont est_salarie=0).
+$sql .= " AND u.id_role IN (1,2,3)
+          AND (u.externe = 0 OR u.externe IS NULL)
+          AND (s.nom IS NULL OR UPPER(s.nom) NOT LIKE '%EXTERNE%')";
+
+// Recherche par nom / prénom
+if ($filterQ !== '') {
+    $sql .= " AND (u.nom LIKE ? OR u.prenom LIKE ? OR CONCAT(u.prenom,' ',u.nom) LIKE ? OR CONCAT(u.nom,' ',u.prenom) LIKE ?)";
+    $like = '%' . $filterQ . '%';
+    array_push($params, $like, $like, $like, $like);
+}
 
 // Gestionnaire agence : forcé sur son agence
 if ($agenceScope > 0) {
@@ -104,32 +120,42 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
+// ── Services (multi) par collaborateur ───────────────────────────────
+// Catalogue des 4 métiers. Un collaborateur peut en cumuler plusieurs.
+$SERVICES = ['gestion'=>'Gestion','syndic'=>'Syndic','transaction'=>'Transaction','comptabilite'=>'Comptabilité'];
+$userServices = [];
+try {
+    foreach ($pdo->query("SELECT id_user, service FROM user_services") as $r) {
+        $userServices[(int)$r['id_user']][] = (string)$r['service'];
+    }
+} catch (Throwable $e) { /* table créée par migration 20260629_user_services */ }
+
 // ── KPIs ─────────────────────────────────────────────────────────────
-$totalUsers   = count($users);
-$activeUsers  = count(array_filter($users, fn($u) => (int)$u['actif'] === 1));
-$inactiveUsers = $totalUsers - $activeUsers;
-$gestionCount = count(array_filter($users, fn($u) => ($u['service'] ?? 'gestion') === 'gestion'));
-$syndicCount  = count(array_filter($users, fn($u) => ($u['service'] ?? 'gestion') === 'syndic'));
-$rolesCount   = count($roles);
+// On ne compte QUE les collaborateurs actifs.
+$activeList = array_filter($users, fn($u) => (int)$u['actif'] === 1);
+$totalUsers = count($activeList);
+$svcCounts = array_fill_keys(array_keys($SERVICES), 0);
+foreach ($activeList as $u) {
+    foreach (($userServices[(int)$u['id']] ?? []) as $s) {
+        if (isset($svcCounts[$s])) $svcCounts[$s]++;
+    }
+}
 
 // ── Layout variables ─────────────────────────────────────────────────
-$layout_title   = 'Gestion Utilisateurs';
-$layout_module  = 'Ma Box RH';
-$layout_sidebar = 'rh_sidebar';
+$layout_title      = 'Collaborateurs';
+$layout_page_title = ''; // titre déjà présent dans le fil d'Ariane de la topbar (pas de doublon)
+$layout_module     = 'Ma Box RH';
+$layout_sidebar    = 'rh_sidebar';
 
 $layout_head_kpis = '
-<div class="ph-kpi"><span class="ph-kpi-val">'.$totalUsers.'</span><span class="ph-kpi-lbl">Total</span></div>
-<div class="ph-kpi"><span class="ph-kpi-val">'.$activeUsers.'</span><span class="ph-kpi-lbl">Actifs</span></div>
-<div class="ph-kpi"><span class="ph-kpi-val">'.$inactiveUsers.'</span><span class="ph-kpi-lbl">Inactifs</span></div>
-<div class="ph-kpi"><span class="ph-kpi-val">'.$gestionCount.'</span><span class="ph-kpi-lbl">Gestion</span></div>
-<div class="ph-kpi"><span class="ph-kpi-val">'.$syndicCount.'</span><span class="ph-kpi-lbl">Syndic</span></div>
-<div class="ph-kpi"><span class="ph-kpi-val">'.$rolesCount.'</span><span class="ph-kpi-lbl">Rôles</span></div>';
+<div class="ph-kpi"><span class="ph-kpi-val">'.$totalUsers.'</span><span class="ph-kpi-lbl">Collaborateurs</span></div>
+<div class="ph-kpi"><span class="ph-kpi-val" style="color:#4a6038">'.$svcCounts['gestion'].'</span><span class="ph-kpi-lbl">Gestion</span></div>
+<div class="ph-kpi"><span class="ph-kpi-val" style="color:#7a4aa0">'.$svcCounts['syndic'].'</span><span class="ph-kpi-lbl">Syndic</span></div>
+<div class="ph-kpi"><span class="ph-kpi-val" style="color:#b7791f">'.$svcCounts['transaction'].'</span><span class="ph-kpi-lbl">Transaction</span></div>
+<div class="ph-kpi"><span class="ph-kpi-val" style="color:#2563eb">'.$svcCounts['comptabilite'].'</span><span class="ph-kpi-lbl">Comptabilité</span></div>';
 
 $layout_head_actions = '
-<button onclick="window.history.back()" class="ph-btn ph-btn--outline">← Retour</button>
-<button onclick="window.location.href=\'rh_user_add.php\'" class="ph-btn ph-btn--accent">+ Ajouter User</button>
-<button id="view-cards-btn" class="ph-btn ph-btn--outline" onclick="switchView(\'cards\')">🎴 Cartes</button>
-<button id="view-list-btn" class="ph-btn ph-btn--outline active" onclick="switchView(\'list\')">📋 Liste</button>';
+<button onclick="window.location.href=\'rh_user_add.php\'" class="ph-btn primary">+ Ajouter collaborateur</button>';
 
 $layout_extra_css = <<<'EXTRACSS'
 <style>
@@ -141,7 +167,7 @@ $layout_extra_css = <<<'EXTRACSS'
     .filter-group select{padding:8px 12px;background:#ffffff;border:1px solid #d4d7de;border-radius:8px;color:#1a1816;font-family:inherit;cursor:pointer}
     .card{background:#ffffff;border:1px solid #d4d7de;border-radius:14px;overflow:hidden;margin-bottom:20px;box-shadow:4px 4px 12px #d4d7de,-4px -4px 12px #fff}
     .card-head{padding:16px;border-bottom:1px solid rgba(196,192,186,0.3);font-weight:600;color:#1a1816}
-    .user-cards{display:none;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:20px}
+    .user-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:20px}
     .user-card{background:#ffffff;border:1px solid #d4d7de;border-radius:14px;overflow:hidden;transition:all 0.2s;box-shadow:4px 4px 12px #d4d7de,-4px -4px 12px #fff}
     .user-card:hover{border-color:#4878a6;box-shadow:6px 6px 16px #d4d7de,-6px -6px 16px #fff;transform:translateY(-2px)}
     .user-card-head{padding:16px;background:#f7f8fa;border-bottom:1px solid rgba(196,192,186,0.3);display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -181,10 +207,35 @@ $layout_extra_css = <<<'EXTRACSS'
     .service-syndic{background:#f0e8f8;color:#7a4aa0;border:1px solid rgba(122,74,160,0.3)}
     .service-btn{padding:8px 12px;border:1.5px solid #d4d7de;border-radius:6px;background:#ffffff;color:#8a8680;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s}
     .service-btn:hover{border-color:#4878a6;color:#2f587d}
+    /* Chips multi-services */
+    .svc-chips{display:flex;gap:6px;flex-wrap:wrap}
+    .svc-chip{padding:6px 12px;border:1.5px solid #d4d7de;border-radius:999px;background:#fff;color:#8a8680;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
+    .svc-chip:hover{border-color:#4878a6}
+    .svc-chip.on.svc-gestion{background:#e8efe0;border-color:#4a6038;color:#4a6038}
+    .svc-chip.on.svc-syndic{background:#f0e8f8;border-color:#7a4aa0;color:#7a4aa0}
+    .svc-chip.on.svc-transaction{background:#fdf3d8;border-color:#b7791f;color:#b7791f}
+    .svc-chip.on.svc-comptabilite{background:#e3edfd;border-color:#2563eb;color:#2563eb}
+    .svc-badge-gestion{background:#e8efe0;color:#4a6038;border:1px solid rgba(74,96,56,.3)}
+    .svc-badge-syndic{background:#f0e8f8;color:#7a4aa0;border:1px solid rgba(122,74,160,.3)}
+    .svc-badge-transaction{background:#fdf3d8;color:#b7791f;border:1px solid rgba(183,121,31,.3)}
+    .svc-badge-comptabilite{background:#e3edfd;color:#2563eb;border:1px solid rgba(37,99,235,.3)}
     .user-card.inactive{border-color:#c97b2e;background:#fef8f0}
     .user-card.inactive .user-card-head{background:#fdf2e6}
-    .user-list{display:block;width:100%}
+    .user-list{display:none;width:100%}
     .user-list.active{display:block}
+    /* KPIs agrandis (lisibilité) */
+    .mbi-page-head .ph-kpi{padding:10px 18px;border-radius:12px}
+    .mbi-page-head .ph-kpi-val{font-size:28px}
+    .mbi-page-head .ph-kpi-lbl{font-size:11px}
+    /* Boutons d'action agrandis */
+    .mbi-page-head .ph-right{padding:16px 18px;gap:12px;grid-template-columns:1fr}
+    .ph-btn{height:auto;min-height:42px;width:auto;min-width:160px;padding:11px 20px;font-size:14px;border-radius:10px}
+    .ph-btn svg{width:15px;height:15px}
+    /* Champ recherche */
+    .filter-group input{padding:9px 12px;background:#fff;border:1px solid #d4d7de;border-radius:8px;color:#1a1816;font-family:inherit;font-size:14px;width:100%}
+    .filter-group input:focus{outline:none;border-color:#4878a6;box-shadow:0 0 0 2px rgba(72,120,166,0.15)}
+    .btn-search{padding:9px 18px;background:#4878a6;border:none;color:#fff;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;height:38px}
+    .btn-search:hover{opacity:.9}
     .user-list-table{width:100%;border-collapse:collapse;background:#ffffff;border:1px solid #d4d7de;border-radius:14px;overflow:hidden;box-shadow:4px 4px 12px #d4d7de,-4px -4px 12px #fff}
     .user-list-table thead{background:#f7f8fa}
     .user-list-table th{padding:12px 16px;text-align:left;color:#4a6038;font-weight:700;font-size:12px;border-bottom:1px solid rgba(196,192,186,0.3);text-transform:uppercase}
@@ -211,6 +262,21 @@ document.querySelectorAll('.field-input').forEach(input => {
     input.addEventListener('change', debounceFieldSave);
     input.addEventListener('input', debounceFieldSave);
 });
+
+// Multi-services : toggle d'un chip → INSERT/DELETE dans user_services
+function toggleService(el, userId, service) {
+    const willBeOn = !el.classList.contains('on');
+    el.disabled = true;
+    fetch('api/user_service_toggle.php', {
+        method: 'POST',
+        headers: Object.assign({'Content-Type': 'application/json'}, CSRF_HEADERS),
+        body: JSON.stringify({ id_user: userId, service: service, on: willBeOn ? 1 : 0 })
+    })
+    .then(r => r.json())
+    .then(j => { if (j && j.success) { el.classList.toggle('on', willBeOn); } else { alert((j && j.message) || 'Erreur'); } })
+    .catch(() => alert('Erreur réseau'))
+    .finally(() => { el.disabled = false; });
+}
 
 // Service button handlers
 document.querySelectorAll('.service-btn').forEach(btn => {
@@ -421,78 +487,23 @@ EXTRAJS;
 ob_start();
 ?>
         <div class="filters">
-            <form method="GET" style="display:contents">
-                <div class="filter-group">
-                    <label>Société</label>
-                    <select name="societe" onchange="this.form.submit()">
-                        <option value="">Toutes</option>
-                        <?php foreach($societes as $s): ?>
-                            <option value="<?=$s['id']?>" <?=($filterSociete==$s['id']?'selected':'')?>><?=h($s['nom'])?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+            <form method="GET" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;width:100%">
                 <div class="filter-group">
                     <label>Agence</label>
-                    <select name="agence" onchange="this.form.submit()">
-                        <option value="">Toutes</option>
+                    <select name="agence" onchange="this.form.submit()" <?=($agenceScope>0?'disabled':'')?>>
+                        <option value="">Toutes les agences</option>
                         <?php foreach($agences as $a): ?>
                             <option value="<?=$a['id']?>" <?=($filterAgence==$a['id']?'selected':'')?>><?=h($a['nom_agence'])?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="filter-group">
-                    <label>Statut</label>
-                    <select name="actif" onchange="this.form.submit()">
-                        <option value="">Tous</option>
-                        <option value="1" <?=($filterActif===1?'selected':'')?>Actifs</option>
-                        <option value="0" <?=($filterActif===0?'selected':'')?>Inactifs</option>
-                    </select>
+                <div class="filter-group" style="flex:1;min-width:240px">
+                    <label>Recherche par nom</label>
+                    <input type="text" name="q" value="<?=h($filterQ)?>" placeholder="Nom ou prénom…" autocomplete="off">
                 </div>
-                <div class="filter-group">
-                    <label>Rôle</label>
-                    <select name="role" onchange="this.form.submit()">
-                        <option value="">Tous</option>
-                        <?php foreach($roles as $r): ?>
-                            <option value="<?=$r['id']?>" <?=($filterRole==$r['id']?'selected':'')?>><?=h($r['nom'])?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label>Service</label>
-                    <select name="service" onchange="this.form.submit()">
-                        <option value="">Tous</option>
-                        <option value="gestion" <?=($filterService==='gestion'?'selected':'')?>🟢 Gestion</option>
-                        <option value="syndic" <?=($filterService==='syndic'?'selected':'')?>🟣 Syndic</option>
-                    </select>
-                </div>
+                <button type="submit" class="btn-search">🔍 Rechercher</button>
+                <a href="rh_user.php" class="reset-btn" title="Réinitialiser">↻</a>
             </form>
-            <a href="rh_user.php" class="reset-btn">↻ Réinitialiser</a>
-        </div>
-
-        <!-- List View -->
-        <div class="user-list" id="user-list">
-            <table class="user-list-table">
-                <thead>
-                    <tr>
-                        <th>Nom</th>
-                        <th>Société</th>
-                        <th>Agence</th>
-                        <th>Email</th>
-                        <th>Statut</th>
-                    </tr>
-                </thead>
-                <tbody id="list-body">
-                    <?php foreach($users as $user): ?>
-                    <tr class="user-row <?=!$user['actif']?'inactive':''?>" onclick="openUserCard(<?=$user['id']?>)" data-user-id="<?=$user['id']?>">
-                        <td><a class="user-name-link" href="rh_profil.php?id=<?= (int)$user['id'] ?>&tab=rh" onclick="event.stopPropagation();"><strong><?=h($user['nom'])?> <?=h($user['prenom']??'')?></strong></a></td>
-                        <td><?=h($user['societe_nom'] ?? '-')?></td>
-                        <td><?=h($user['nom_agence'] ?? '-')?></td>
-                        <td><?=h($user['email'] ?? '-')?></td>
-                        <td><?=$user['actif'] ? '<span style="color:#4a6038">✓ Actif</span>' : '<span style="color:#BA8A8A">✕ Inactif</span>'?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
         </div>
 
         <div class="user-cards" id="user-cards">
@@ -518,10 +529,10 @@ ob_start();
                         <div class="user-card-name"><a class="user-name-link" href="rh_profil.php?id=<?= (int)$user['id'] ?>&tab=rh"><?=h($user['nom'])?> <?=h($user['prenom']??'')?></a></div>
                         <div class="user-card-meta">ID: <?=$user['id']?> • <?=h($user['username'] ?? 'N/A')?></div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:8px">
-                        <span class="service-badge service-<?=$user['service']==='syndic'?'syndic':'gestion'?>">
-                            <?=$user['service']==='syndic'?'🟣 Syndic':'🟢 Gestion'?>
-                        </span>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+                        <?php foreach (($userServices[(int)$user['id']] ?? []) as $sk): if(!isset($SERVICES[$sk])) continue; ?>
+                            <span class="service-badge svc-badge-<?=$sk?>"><?=h($SERVICES[$sk])?></span>
+                        <?php endforeach; ?>
                         <span class="user-status"><?=$user['actif'] ? '✓ Actif' : '✕ Inactif'?></span>
                     </div>
                 </div>
@@ -567,17 +578,13 @@ ob_start();
                             </select>
                         </div>
 
-                        <div class="user-field">
-                            <label>Service</label>
-                            <div style="display:flex;gap:4px">
-                                <button type="button" class="service-btn service-btn-gestion" data-service="gestion" data-user-id="<?=$user['id']?>" style="flex:1;padding:5px 6px;font-size:10px;<?=(empty($user['service']) || $user['service']==='gestion'?'border-color:#4a6038;background:rgba(124,245,214,0.2);color:#4a6038':'border-color:var(--stroke);background:transparent;color:var(--muted)')?>">
-                                    🟢 Gestion
-                                </button>
-                                <button type="button" class="service-btn service-btn-syndic" data-service="syndic" data-user-id="<?=$user['id']?>" style="flex:1;padding:5px 6px;font-size:10px;<?=($user['service']==='syndic'?'border-color:#BA66FF;background:rgba(186,102,255,0.2);color:#BA66FF':'border-color:var(--stroke);background:transparent;color:var(--muted)')?>">
-                                    🟣 Syndic
-                                </button>
+                        <div class="user-field full">
+                            <label>Services (plusieurs possibles)</label>
+                            <div class="svc-chips">
+                                <?php $uServ = $userServices[(int)$user['id']] ?? []; foreach ($SERVICES as $sk => $sl): $on = in_array($sk, $uServ, true); ?>
+                                <button type="button" class="svc-chip svc-<?=$sk?> <?=$on?'on':''?>" data-service="<?=$sk?>" onclick="toggleService(this, <?=$user['id']?>, '<?=$sk?>')"><?=$sl?></button>
+                                <?php endforeach; ?>
                             </div>
-                            <input type="hidden" name="service" data-field="service" class="field-input" value="<?=$user['service']??'gestion'?>">
                         </div>
                     </div>
 

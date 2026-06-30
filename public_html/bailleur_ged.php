@@ -6,6 +6,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/auth.php';
+require_once __DIR__ . '/inc/ged_document_links.php';  // Sprint 7D : dual-write GED centrale
 require_login();
 
 $pdo    = $GLOBALS['pdo'];
@@ -71,8 +72,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['doc_file']['tmp_nam
         $relPath = 'uploads/bailleur_docs/' . $upProp . '/' . $safeName;
 
         if (move_uploaded_file($_FILES['doc_file']['tmp_name'], $destPath)) {
+            // Legacy : INSERT bailleur_documents (preserve UI actuelle)
             $pdo->prepare("INSERT INTO bailleur_documents (id_proprietaire, id_immeuble, id_bien, type_document, titre, nom_fichier, chemin_fichier, annee, trimestre, taille, mime_type, uploaded_by, commentaire) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([$upProp, $upImm, $upBien, $upType, $upTitre ?: $origName, $origName, $relPath, $upAnnee, $upTrim, $_FILES['doc_file']['size'], $mime, $userId, $upComment]);
+
+            // ─── Sprint 7D (2026-05-25) : dual-write GED CENTRALE UNIQUE ───
+            // En plus du INSERT legacy, on enregistre dans ged_documents + ged_document_links.
+            // Migration douce : l'UI continue à lire bailleur_documents le temps que Sprint 7E
+            // bascule complètement la lecture. Mais tout nouveau doc est désormais visible
+            // dans bien_360, tiers_360 et l'écran d'audit GED.
+            try {
+                // Le bon chemin société/agence passe par tiers (proprietaires n'a pas id_societe)
+                $stP = $pdo->prepare("SELECT p.id_tiers, t.id_societe,
+                                              COALESCE(t.id_agence, p.id_agence) AS id_agence,
+                                              s.raison_sociale AS soc_raison,
+                                              a.code_agence, a.nom_agence
+                                        FROM proprietaires p
+                                        LEFT JOIN tiers     t ON t.id = p.id_tiers
+                                        LEFT JOIN societes  s ON s.id = t.id_societe
+                                        LEFT JOIN agences   a ON a.id = COALESCE(t.id_agence, p.id_agence)
+                                        WHERE p.id = ? LIMIT 1");
+                $stP->execute([$upProp]);
+                $propCtx = $stP->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tiersId = (int)($propCtx['id_tiers'] ?? 0);
+                $socIdGed = (int)($propCtx['id_societe'] ?? 0) ?: 1;
+
+                $links = [];
+                if ($tiersId > 0) {
+                    $links[] = ['entity_type' => 'TIERS', 'entity_id' => $tiersId, 'relation_type' => 'main'];
+                }
+                if (!empty($upImm)) $links[] = ['entity_type' => 'IMB', 'entity_id' => (int)$upImm, 'relation_type' => 'annexe'];
+                if (!empty($upBien)) $links[] = ['entity_type' => 'BIEN', 'entity_id' => (int)$upBien, 'relation_type' => 'annexe'];
+
+                if (!empty($links)) {
+                    gus_commit_document(
+                        $pdo,
+                        [
+                            'path_on_disk'  => $destPath,
+                            'name_original' => $origName,
+                            'mime_type'     => $mime,
+                            'size_bytes'    => (int)$_FILES['doc_file']['size'],
+                            'public_url'    => $relPath,
+                        ],
+                        [
+                            'document_type'  => strtoupper($upType),
+                            'source_module'  => '03_GESTION_LOCATIVE',
+                            'security_level' => 'interne',
+                            'societe_id'     => $socIdGed,
+                            'tenant_id'      => $socIdGed,
+                            'created_by'     => $userId,
+                            'storage_provider' => 'local',
+                            'metadata_extra' => [
+                                'titre_user'  => $upTitre,
+                                'commentaire' => $upComment,
+                                'annee'       => $upAnnee,
+                                'trimestre'   => $upTrim,
+                                'classement'  => [
+                                    'tiers_proprio_id' => $tiersId,
+                                    'immeuble_id_bdd' => $upImm,
+                                    'bien_id_bdd'     => $upBien,
+                                ],
+                                'legacy_source'         => 'bailleur_ged',
+                                'legacy_bailleur_proprio_id' => $upProp,
+                            ],
+                            'naming_ctx' => [
+                                'societe_raison' => $propCtx['soc_raison'] ?? 'Régie EMERY',
+                                'agence_code'    => $propCtx['code_agence'] ?? 'RE69-2',
+                                'agence_nom'     => $propCtx['nom_agence']  ?? 'LYON',
+                                'user_id'        => $userId,
+                                'n1_slug'        => '03_gestion_locative',
+                                'n2_slug'        => 'proprietaires',
+                                'n3_slug'        => strtolower($upType),
+                                'type_doc'       => strtoupper($upType),
+                                'entity_type'    => 'TIERS',
+                                'entity_id'      => $tiersId,
+                                'source_filename'=> $origName,
+                            ],
+                        ],
+                        $links
+                    );
+                }
+            } catch (Throwable $exGed) {
+                error_log('[bailleur_ged] dual-write GED failed: ' . $exGed->getMessage());
+            }
             $msg = 'Document ajouté.'; $msgType = 'success';
         } else {
             $msg = 'Erreur lors de la copie du fichier.'; $msgType = 'error';

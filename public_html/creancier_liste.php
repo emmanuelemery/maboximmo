@@ -28,7 +28,29 @@ $stU = $pdo->prepare("SELECT id_societe FROM users WHERE id = ? LIMIT 1");
 $stU->execute([$userId]);
 $idSociete = (int)($stU->fetchColumn() ?: 0);
 
-if ($isSuper) {
+// Filtre optionnel : ne montrer que les dossiers liés à un tiers donné (?tiers=ID)
+$filterTiers = (int)($_GET['tiers'] ?? 0);
+$tiersNom = '';
+if ($filterTiers > 0) {
+    $sql = "SELECT d.* FROM creancier_dossier d
+            JOIN creancier_dossier_lien l ON l.id_dossier = d.id
+               AND l.entity_type = 'TIERS' AND l.entity_id = :tid";
+    $params = [':tid' => $filterTiers];
+    if (!$isSuper) {
+        $sql .= " JOIN creancier_dossier_acces a ON a.id_dossier = d.id AND a.id_user = :uid
+                  WHERE (d.id_societe IS NULL OR d.id_societe = :soc)";
+        $params[':uid'] = $userId; $params[':soc'] = $idSociete;
+    }
+    $sql .= " GROUP BY d.id ORDER BY FIELD(d.niveau_risque,'rouge','orange','vert'), d.libelle";
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    $dossiers = $st->fetchAll(PDO::FETCH_ASSOC);
+    try {
+        $stN = $pdo->prepare("SELECT COALESCE(NULLIF(nom_affichage,''),NULLIF(raison_sociale,''),TRIM(CONCAT_WS(' ',prenom,nom))) FROM tiers WHERE id = ?");
+        $stN->execute([$filterTiers]);
+        $tiersNom = (string)($stN->fetchColumn() ?: '');
+    } catch (Throwable $e) {}
+} elseif ($isSuper) {
     $dossiers = $pdo->query("SELECT * FROM creancier_dossier ORDER BY FIELD(niveau_risque,'rouge','orange','vert'), libelle")->fetchAll(PDO::FETCH_ASSOC);
 } else {
     $st = $pdo->prepare("SELECT d.* FROM creancier_dossier d
@@ -79,7 +101,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
     <button type="button" class="topbar-nav-btn" onclick="history.back()" title="Retour"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
     <button type="button" class="topbar-nav-btn" onclick="history.forward()" title="Avancer"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
     <div class="topbar-gap"></div>
-    <nav class="topbar-breadcrumb"><span class="active" style="font-size:1.7rem;font-weight:800;">Créanciers</span></nav>
+    <nav class="topbar-breadcrumb"><span class="active" style="font-size:1.7rem;font-weight:800;">Créanciers<?= $filterTiers > 0 && $tiersNom !== '' ? ' · ' . e($tiersNom) : '' ?></span></nav>
     <div class="topbar-spacer"></div>
     <?php if ($isMgr): ?>
     <div style="display:flex;gap:8px;align-items:center;margin-right:10px;">
@@ -112,6 +134,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
       </div>
     <?php else: ?>
       <?php entity_card_assets(); ?>
+      <?php if ($filterTiers > 0): ?>
+      <div style="margin:0 2px 14px;padding:10px 16px;background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:10px;display:flex;align-items:center;gap:12px;font-size:13px;color:#991b1b;font-weight:700;">
+        🚨 Dossiers créanciers / saisies de <b><?= e($tiersNom ?: ('tiers #' . $filterTiers)) ?></b>
+        <a href="<?= e($base) ?>creancier_liste.php" style="margin-left:auto;color:#1d4ed8;font-weight:700;text-decoration:none;">↩ Voir tous les dossiers</a>
+      </div>
+      <?php endif; ?>
       <div class="pk-bar">
         <div class="pk-bar-search"><span class="search-icon">🔍</span><input type="text" id="creSearch" placeholder="Rechercher un dossier…" oninput="creFilter()" autocomplete="off"></div>
       </div>

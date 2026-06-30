@@ -439,6 +439,27 @@ $layout_extra_css = '<style>
 ob_start();
 ?>
 
+<!-- 💡 CARD IDÉE (rappel) — Agent IA MBI : à concevoir plus tard -->
+<div style="max-width:1100px;margin:0 auto 14px;background:linear-gradient(135deg,#243B5C,#1a2c45);color:#fff;border-radius:16px;padding:18px 20px;display:flex;gap:16px;align-items:center;box-shadow:0 6px 18px rgba(36,59,92,.25)">
+  <div style="font-size:38px;line-height:1">🤖</div>
+  <div style="flex:1;min-width:0">
+    <div style="font-size:16px;font-weight:800;letter-spacing:.2px">Agent IA MBI <span style="background:#D4A047;color:#1a2233;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:800;margin-left:6px">À CONCEVOIR</span></div>
+    <div style="font-size:13px;color:#cbd5e1;margin-top:4px">Un bouton qui ouvre un agent capable de <b>tout faire dans le site</b> : ouvrir des pages, naviguer dans tous les uploads, <b>comprendre l'intérieur des documents</b> (RAG), pré-remplir → <b>je valide</b>. Brique déjà amorcée : le routeur d'actions de la fiche bien 360.</div>
+  </div>
+</div>
+
+<!-- 📥 CARD ACTION — Demander un document (lien de dépôt sécurisé → GED) -->
+<a href="./document_request_new.php" style="text-decoration:none;display:block;max-width:1100px;margin:0 auto 14px">
+  <div style="background:linear-gradient(135deg,#0e7490,#0c6480);color:#fff;border-radius:16px;padding:18px 20px;display:flex;gap:16px;align-items:center;box-shadow:0 6px 18px rgba(14,116,144,.28);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 10px 24px rgba(14,116,144,.35)'" onmouseout="this.style.transform='';this.style.boxShadow='0 6px 18px rgba(14,116,144,.28)'">
+    <div style="font-size:38px;line-height:1">📥</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:16px;font-weight:800;letter-spacing:.2px">Demander un document <span style="background:#D4A047;color:#1a2233;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:800;margin-left:6px">NOUVEAU</span></div>
+      <div style="font-size:13px;color:#d8f3fb;margin-top:4px">Envoie un <b>lien de dépôt sécurisé</b> (candidat locataire, projet de salaires, bilan comptable…) : le destinataire dépose, ça arrive <b>classé dans la GED</b>, tu es <b>notifié</b>. Fini les mails Outlook et le reclassement manuel.</div>
+    </div>
+    <div style="font-size:13px;font-weight:800;white-space:nowrap;background:rgba(255,255,255,.15);padding:10px 16px;border-radius:10px">Créer une demande →</div>
+  </div>
+</a>
+
 <div class="fbh-wrap">
 
   <!-- Header -->

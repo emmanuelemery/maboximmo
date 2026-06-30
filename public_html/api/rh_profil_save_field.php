@@ -21,14 +21,14 @@ if ($targetId !== $meId && $roleId !== 1) {
 
 $allowedFields = [
     'telephone','telephone_pro','adresse','adresse2','code_postal','ville','pays',
-    'date_naissance','lieu_naissance','nationalite','num_secu','civilite',
+    'date_naissance','lieu_naissance','nationalite','num_secu','civilite','email_perso','email_pro',
     'permis_conduire','vehicule_nom','vehicule_type','vehicule_puissance_fiscale','vehicule_immat',
     'indemnite_km','contact_urgence_nom','contact_urgence_tel','bio_courte','couleur',
 ];
 if ($roleId === 1 || $targetId === $meId) {
     $allowedFields = array_merge($allowedFields, [
         'fonction','type_contrat','temps_travail','date_entree','date_sortie',
-        'iban','bic',
+        'iban','bic','poste_definition',
     ]);
 }
 if ($roleId === 1) {

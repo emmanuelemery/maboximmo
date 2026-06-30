@@ -453,7 +453,7 @@ $GOOGLE_MAPS_API_KEY = $GOOGLE_MAPS_API_KEY ?? '';
     </main>
 </div>
 
-<script src="<?= h(asset_url('/js/places.js')) ?>"></script>
+<script src="<?= h(asset_url('/js/places.js')) ?>?v=<?= @filemtime(__DIR__ . '/js/places.js') ?: '1' ?>"></script>
 <?php if ($GOOGLE_MAPS_API_KEY !== ''): ?>
 <script async src="https://maps.googleapis.com/maps/api/js?key=<?= h($GOOGLE_MAPS_API_KEY) ?>&libraries=places&callback=initPlacesAutocomplete"></script>
 <?php endif; ?>

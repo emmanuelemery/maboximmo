@@ -135,6 +135,23 @@ function rhDxKeywordMap(): array
             ['/au\s+tiers/i', 15],
             ['/usage\s+professionnel/i', 30],
         ],
+        'cv' => [
+            ['/curriculum\s+vit[æae]/i', 45],
+            ['/exp[ée]riences?\s+professionnelles?/i', 35],
+            ['/\bcomp[ée]tences\b/i', 18],
+            ['/centres?\s+d.int[ée]r[êe]t/i', 18],
+            ['/\bsavoir-[êe]tre\b/i', 18],
+            ['/\bdipl[ôo]me/i', 12],
+            ['/\blangues\b/i', 10],
+        ],
+        'lettre_motivation' => [
+            ['/lettre\s+de\s+motivation/i', 45],
+            ['/objet\s*:\s*candidature/i', 45],
+            ['/\bcandidature\b/i', 28],
+            ['/madame,?\s+monsieur/i', 22],
+            ['/je\s+vous\s+prie\s+d.agr[ée]er/i', 35],
+            ['/salutations\s+distingu[ée]es/i', 25],
+        ],
     ];
 }
 
@@ -203,6 +220,8 @@ de document présent sur l'image et retourne UNIQUEMENT un JSON plat :
       "permis"             - Permis de conduire (carte rose ou format CE carte-crédit)
       "carte_grise"        - Certificat d'immatriculation véhicule
       "assurance_vehicule" - Attestation d'assurance auto
+      "cv"                 - Curriculum vitae / CV (parcours, expériences, compétences)
+      "lettre_motivation"  - Lettre de motivation / candidature
       "unknown"            - Aucune catégorie ne correspond
 
   - "confidence" : entier 0-100
@@ -221,7 +240,8 @@ SYS;
 
         $allowedTypes = [
             'rib','cni','passeport','justif_domicile','carte_vitale',
-            'mutuelle','titre_sejour','permis','carte_grise','assurance_vehicule','unknown',
+            'mutuelle','titre_sejour','permis','carte_grise','assurance_vehicule',
+            'cv','lettre_motivation','unknown',
         ];
         if (!in_array($type, $allowedTypes, true)) {
             $type = 'unknown';

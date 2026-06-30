@@ -36,12 +36,19 @@ function rh_doc_types_defaults(): array {
         ['rubrique'=>'personne','type_key'=>'photo',          'label'=>'Photo',                     'obligatoire'=>0,'dispo'=>'public', 'ordre'=>8,'systeme'=>0],
         ['rubrique'=>'personne','type_key'=>'diplome',        'label'=>'Diplôme',                   'obligatoire'=>0,'dispo'=>'public', 'ordre'=>9,'systeme'=>0],
         ['rubrique'=>'personne','type_key'=>'formation',      'label'=>'Formation',                 'obligatoire'=>0,'dispo'=>'public', 'ordre'=>10,'systeme'=>0],
+        ['rubrique'=>'personne','type_key'=>'cv',             'label'=>'CV',                        'obligatoire'=>0,'dispo'=>'public', 'ordre'=>11,'systeme'=>0],
+        ['rubrique'=>'personne','type_key'=>'lettre_motivation','label'=>'Lettre de motivation',    'obligatoire'=>0,'dispo'=>'public', 'ordre'=>12,'systeme'=>0],
+        ['rubrique'=>'personne','type_key'=>'convention_alternance','label'=>'Convention de stage / alternance','obligatoire'=>0,'dispo'=>'public','ordre'=>13,'systeme'=>0],
+        ['rubrique'=>'personne','type_key'=>'certificat_travail','label'=>'Certificat de travail',  'obligatoire'=>0,'dispo'=>'public', 'ordre'=>14,'systeme'=>0],
+        ['rubrique'=>'personne','type_key'=>'attestation_collaborateur','label'=>'Attestation collaborateur (carte blanche)','obligatoire'=>0,'dispo'=>'public','ordre'=>15,'systeme'=>0],
+        ['rubrique'=>'personne','type_key'=>'visite_medicale','label'=>'Aptitude / visite médicale','obligatoire'=>0,'dispo'=>'admin','ordre'=>16,'systeme'=>0],
         // vehicule
         ['rubrique'=>'vehicule','type_key'=>'carte_grise',    'label'=>'Carte grise',         'obligatoire'=>1,'dispo'=>'public','ordre'=>1,'systeme'=>1],
         ['rubrique'=>'vehicule','type_key'=>'assurance_veh',  'label'=>'Assurance',           'obligatoire'=>1,'dispo'=>'public','ordre'=>2,'systeme'=>1],
         ['rubrique'=>'vehicule','type_key'=>'permis',         'label'=>'Permis de conduire',  'obligatoire'=>1,'dispo'=>'public','ordre'=>3,'systeme'=>1],
         ['rubrique'=>'vehicule','type_key'=>'ct',             'label'=>'Contrôle technique',  'obligatoire'=>0,'dispo'=>'public','ordre'=>4,'systeme'=>0],
         ['rubrique'=>'vehicule','type_key'=>'attestation_veh','label'=>'Attestation véhicule','obligatoire'=>0,'dispo'=>'public','ordre'=>5,'systeme'=>0],
+        ['rubrique'=>'vehicule','type_key'=>'constat_sinistre','label'=>'Constat / sinistre véhicule','obligatoire'=>0,'dispo'=>'public','ordre'=>6,'systeme'=>0],
         // societe — KBIS, Convention, Carte pro, 4 RCP par activité, 4 GF par activité
         ['rubrique'=>'societe','type_key'=>'kbis',              'label'=>'Kbis',                          'obligatoire'=>1,'dispo'=>'public','ordre'=>1, 'systeme'=>1],
         ['rubrique'=>'societe','type_key'=>'convention',        'label'=>'Convention collective',          'obligatoire'=>1,'dispo'=>'public','ordre'=>2, 'systeme'=>1],
@@ -64,6 +71,9 @@ function rh_doc_types_defaults(): array {
         ['rubrique'=>'rh','type_key'=>'fiche_ik',    'label'=>'Fiche IK',         'obligatoire'=>0,'dispo'=>'public','ordre'=>2,'systeme'=>0],
         ['rubrique'=>'rh','type_key'=>'commission',  'label'=>'Commission',        'obligatoire'=>0,'dispo'=>'public','ordre'=>3,'systeme'=>0],
         ['rubrique'=>'rh','type_key'=>'note_frais',  'label'=>'Note de frais',    'obligatoire'=>0,'dispo'=>'public','ordre'=>4,'systeme'=>0],
+        ['rubrique'=>'rh','type_key'=>'arret_maladie','label'=>'Arrêt maladie / absence','obligatoire'=>0,'dispo'=>'admin','ordre'=>5,'systeme'=>0],
+        ['rubrique'=>'rh','type_key'=>'entretien_annuel','label'=>'Entretien annuel / professionnel','obligatoire'=>0,'dispo'=>'manager','ordre'=>6,'systeme'=>0],
+        ['rubrique'=>'rh','type_key'=>'attestation_formation','label'=>'Attestation formation (CPF)','obligatoire'=>0,'dispo'=>'public','ordre'=>7,'systeme'=>0],
         // divers
         ['rubrique'=>'divers','type_key'=>'autre','label'=>'Autre','obligatoire'=>0,'dispo'=>'public','ordre'=>1,'systeme'=>0],
     ];

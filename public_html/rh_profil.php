@@ -73,6 +73,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         $params[] = $targetId;
         $pdo->prepare("UPDATE users SET " . implode(', ', $sets) . ", date_modification=NOW() WHERE id=?")->execute($params);
     }
+
+    // Multi-agences (admin) : un user peut couvrir plusieurs agences de son employeur.
+    // L'agence PRINCIPALE reste users.id_agence (ancre du filtrage tenant) ; les
+    // agences supplémentaires sont stockées dans user_agences (N-N).
+    if ($roleId === 1) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS user_agences (
+            id_user   INT NOT NULL,
+            id_agence INT NOT NULL,
+            PRIMARY KEY (id_user, id_agence),
+            KEY idx_user (id_user)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $agencesSel = array_values(array_filter(array_unique(array_map('intval', (array)($_POST['agences'] ?? []))), fn($x) => $x > 0));
+        $pdo->prepare("DELETE FROM user_agences WHERE id_user=?")->execute([$targetId]);
+        if ($agencesSel) {
+            $insA = $pdo->prepare("INSERT IGNORE INTO user_agences (id_user, id_agence) VALUES (?,?)");
+            foreach ($agencesSel as $ag) { $insA->execute([$targetId, $ag]); }
+        }
+    }
+
     header("Location: rh_profil.php?id=$targetId&saved=1"); exit;
 }
 
@@ -94,6 +113,25 @@ $bank = rh_bank_get($pdo, $userId);
 if ($bank) {
     $user['iban'] = $bank['iban'] ?? null;
     $user['bic']  = $bank['bic'] ?? null;
+}
+
+// Listes société / agence pour le rattachement (boutons, admin uniquement)
+$societesList = [];
+$agencesList  = [];
+if ($canEditAdmin) {
+    $societesList = $pdo->query("SELECT id, nom FROM societes WHERE nom != 'Externe' ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
+    $agencesList  = $pdo->query("SELECT id, nom_agence, id_societe FROM agences WHERE actif=1 ORDER BY nom_agence")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// Agences déjà rattachées au user (multi). Fallback sur users.id_agence si table vide.
+$userAgences = [];
+if ($canEditAdmin) {
+    try {
+        $st = $pdo->prepare("SELECT id_agence FROM user_agences WHERE id_user=?");
+        $st->execute([$userId]);
+        $userAgences = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Throwable) {}
+    if (!$userAgences && !empty($user['id_agence'])) $userAgences = [(int)$user['id_agence']];
 }
 
 $canSeeRib = ($canEditAdmin || $isOwnProfile);
@@ -309,9 +347,10 @@ $layout_head_kpis = '
     <div><div class="ph-kpi-lbl">Contrat</div><div class="ph-kpi-val" style="font-size:12px;color:' . h($badgeColor) . '">' . h($user['type_contrat']) . '</div></div>
 </div>' : '');
 
-$layout_head_actions = '';
+require_once __DIR__ . '/inc/document_request_button.php';
+$layout_head_actions = document_request_button('USER', (int)$userId, ['back' => 'rh_profil.php?id='.$userId.'&tab=rh', 'label' => 'Demander doc']);
 if ($isOwnProfile || $canEditAdmin) {
-    $layout_head_actions = '
+    $layout_head_actions .= '
     <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:10px;font-weight:700;color:#8a8680;text-transform:uppercase;letter-spacing:.06em">Couleur</span>
         <input type="color" id="colorInput" value="' . h($avatarColor) . '" style="width:40px;height:40px;border:2px solid #d4d7de;border-radius:10px;cursor:pointer;padding:2px;box-shadow:2px 2px 5px #d4d7de,-2px -2px 5px #fff">
@@ -1112,7 +1151,21 @@ ob_start();
 ><?= h($opt) ?>
 </option>                  <?php endforeach;
  ?>
-                </select>              </div>              <div class="form-group">                <label class="form-label">Nationalité</label>                <input type="text" name="nationalite" class="form-control" value="<?= h($user['nationalite'] ?? 'Française') ?>">              </div>              <div class="form-group">                <label class="form-label">Date de naissance</label>                <input type="date" name="date_naissance" class="form-control" value="<?= h($user['date_naissance'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Lieu de naissance</label>                <input type="text" name="lieu_naissance" class="form-control" value="<?= h($user['lieu_naissance'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">N° Sécurité sociale</label>                <input type="text" name="num_secu" class="form-control" placeholder="1 84 05 75 …" value="<?= h($user['num_secu'] ?? '') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">Adresse</div>            <div class="form-grid cols-1">              <div class="form-group">                <label class="form-label">Adresse (ligne 1)</label>                <input type="text" name="adresse" class="form-control" value="<?= h($user['adresse'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Adresse (ligne 2)</label>                <input type="text" name="adresse2" class="form-control" value="<?= h($user['adresse2'] ?? '') ?>">              </div>            </div>            <div class="form-grid cols-3" style="margin-top:14px">              <div class="form-group">                <label class="form-label">Code postal</label>                <input type="text" name="code_postal" class="form-control" value="<?= h($user['code_postal'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Ville</label>                <input type="text" name="ville" class="form-control" value="<?= h($user['ville'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Pays</label>                <input type="text" name="pays" class="form-control" value="<?= h($user['pays'] ?? 'France') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">Contact d'urgence</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Nom complet</label>                <input type="text" name="contact_urgence_nom" class="form-control" value="<?= h($user['contact_urgence_nom'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Téléphone</label>                <input type="tel" name="contact_urgence_tel" class="form-control" value="<?= h($user['contact_urgence_tel'] ?? '') ?>">              </div>            </div>          </div>          <!-- Section Documents retirée : gestion centralisée dans rh_documents.php -->        </div>        <!-- TAB 2: Contact -->        <div class="tab-panel <?= $activeTab==='contact' ? 'active':'' ?>" id="tab-contact">          <div class="form-section">            <div class="form-section-title">Coordonnées</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Email (identifiant de connexion)</label>                <input type="email" class="form-control" value="<?= h($user['email'] ?? '') ?>" readonly>              </div>              <div class="form-group">                <label class="form-label">Téléphone personnel</label>                <input type="tel" name="telephone" class="form-control" value="<?= h($user['telephone'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Téléphone professionnel</label>                <input type="tel" name="telephone_pro" class="form-control" value="<?= h($user['telephone_pro'] ?? '') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">Bio courte</div>            <div class="form-grid cols-1">              <div class="form-group">                <label class="form-label">Quelques mots sur vous</label>                <textarea name="bio_courte" class="form-control" style="min-height:100px"><?= h($user['bio_courte'] ?? '') ?>
+                </select>              </div>              <div class="form-group">                <label class="form-label">Nationalité</label>                <input type="text" name="nationalite" class="form-control" value="<?= h($user['nationalite'] ?? 'Française') ?>">              </div>              <div class="form-group">                <label class="form-label">Date de naissance</label>                <input type="date" name="date_naissance" class="form-control" value="<?= h($user['date_naissance'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Lieu de naissance</label>                <input type="text" name="lieu_naissance" class="form-control" value="<?= h($user['lieu_naissance'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">N° Sécurité sociale</label>                <input type="text" name="num_secu" class="form-control" placeholder="1 84 05 75 …" value="<?= h($user['num_secu'] ?? '') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">Adresse</div>            <div class="form-grid cols-1">              <div class="form-group">                <label class="form-label">Adresse (ligne 1)</label>                <input type="text" name="adresse" class="form-control" value="<?= h($user['adresse'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Adresse (ligne 2)</label>                <input type="text" name="adresse2" class="form-control" value="<?= h($user['adresse2'] ?? '') ?>">              </div>            </div>            <div class="form-grid cols-3" style="margin-top:14px">              <div class="form-group">                <label class="form-label">Code postal</label>                <input type="text" name="code_postal" class="form-control" value="<?= h($user['code_postal'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Ville</label>                <input type="text" name="ville" class="form-control" value="<?= h($user['ville'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Pays</label>                <input type="text" name="pays" class="form-control" value="<?= h($user['pays'] ?? 'France') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">Contact d'urgence</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Nom complet</label>                <input type="text" name="contact_urgence_nom" class="form-control" value="<?= h($user['contact_urgence_nom'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Téléphone</label>                <input type="tel" name="contact_urgence_tel" class="form-control" value="<?= h($user['contact_urgence_tel'] ?? '') ?>">              </div>            </div>          </div>          <!-- Section Documents retirée : gestion centralisée dans rh_documents.php -->        </div>        <!-- TAB 2: Contact -->        <div class="tab-panel <?= $activeTab==='contact' ? 'active':'' ?>" id="tab-contact">          <div class="form-section">
+            <div class="form-section-title">Coordonnées personnelles</div>
+            <div class="form-grid">
+              <div class="form-group"><label class="form-label">Email personnel</label><input type="email" name="email_perso" class="form-control" placeholder="extrait du CV…" value="<?= h($user['email_perso'] ?? '') ?>"></div>
+              <div class="form-group"><label class="form-label">Téléphone personnel</label><input type="tel" name="telephone" class="form-control" value="<?= h($user['telephone'] ?? '') ?>"></div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="form-section-title">Coordonnées professionnelles <span style="font-weight:500;color:#9a9690;font-size:11px;">— utilisées pour les annonces / diffusion Ubiflow</span></div>
+            <div class="form-grid">
+              <div class="form-group"><label class="form-label">Email professionnel</label><input type="email" name="email_pro" class="form-control" placeholder="ex : prenom@regie-emery.com" value="<?= h($user['email_pro'] ?? '') ?>"></div>
+              <div class="form-group"><label class="form-label">Téléphone professionnel</label><input type="tel" name="telephone_pro" class="form-control" value="<?= h($user['telephone_pro'] ?? '') ?>"></div>
+              <div class="form-group"><label class="form-label">Email de connexion (identifiant)</label><input type="email" class="form-control" value="<?= h($user['email'] ?? '') ?>" readonly></div>
+            </div>
+          </div>          <div class="form-section">            <div class="form-section-title">Bio courte</div>            <div class="form-grid cols-1">              <div class="form-group">                <label class="form-label">Quelques mots sur vous</label>                <textarea name="bio_courte" class="form-control" style="min-height:100px"><?= h($user['bio_courte'] ?? '') ?>
 </textarea>              </div>            </div>          </div>        </div>        <!-- TAB 3: Véhicule -->        <div class="tab-panel <?= $activeTab==='vehicule' ? 'active':'' ?>" id="tab-vehicule">          <div class="form-section">            <div class="form-section-title">Permis de conduire</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Type(s) de permis</label>                <input type="text" name="permis_conduire" class="form-control" placeholder="ex: B, BE, C…" value="<?= h($user['permis_conduire'] ?? '') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">Véhicule personnel</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Marque / modèle</label>                <input type="text" name="vehicule_nom" class="form-control" placeholder="ex: Renault Clio" value="<?= h($user['vehicule_nom'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Type / variante</label>                <input type="text" name="vehicule_type" class="form-control" placeholder="ex: BERLINE, II" value="<?= h($user['vehicule_type'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Puissance fiscale (CV)</label>                <input type="number" name="vehicule_puissance_fiscale" class="form-control" min="1" max="30" value="<?= h($user['vehicule_puissance_fiscale'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Immatriculation</label>                <input type="text" name="vehicule_immat" class="form-control" placeholder="AA-000-AA" value="<?= h($user['vehicule_immat'] ?? '') ?>">              </div>              <div class="form-group">                <label class="form-label">Indemnité kilométrique (€/km)</label>                <input type="number" name="indemnite_km" class="form-control" step="0.0001" min="0" placeholder="0.3200" value="<?= h($user['indemnite_km'] ?? '') ?>">              </div>            </div>          </div>                    <div class="form-section">            <div class="form-section-title">Synthèse carte grise</div>            <?php            $vehiculeInfos = [                'Marque / modèle' => $user['vehicule_nom'] ?? '',                'Type / variante' => $user['vehicule_type'] ?? '',                'Immatriculation' => $user['vehicule_immat'] ?? '',                'Puissance fiscale (CV)' => $user['vehicule_puissance_fiscale'] ?? '',                'Indemnité (€/km)' => $user['indemnite_km'] ?? '',            ];
             $hasVehiculeInfos = false;
             foreach ($vehiculeInfos as $v) {
@@ -1130,7 +1183,92 @@ ob_start();
 </td></tr>              <?php endforeach;
  ?>
             </table>            <div id="vehicule-empty" class="vehicule-empty"<?= $hasVehiculeInfos ? ' style="display:none"' : '' ?>
->Aucune donnée de carte grise détectée.</div>          </div>          <!-- Section Documents retirée : gestion centralisée dans rh_documents.php -->        </div>        <!-- TAB 4: Infos RH -->        <div class="tab-panel <?= $activeTab==='rh' ? 'active':'' ?>" id="tab-rh">          <div class="form-section">            <div class="form-section-title">Contrat de travail</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Type de contrat</label>                <select name="type_contrat" class="form-control" <?= !$canEditAdmin && !$isOwnProfile ? 'disabled' : '' ?>
+>Aucune donnée de carte grise détectée.</div>          </div>          <!-- Section Documents retirée : gestion centralisée dans rh_documents.php -->        </div>        <!-- TAB 4: Infos RH -->        <div class="tab-panel <?= $activeTab==='rh' ? 'active':'' ?>" id="tab-rh">
+          <?php if ($canEditAdmin): ?>
+          <div class="form-section">
+            <div class="form-section-title">Rattachement <span class="admin-badge">Admin</span></div>
+            <input type="hidden" id="f-id-societe" value="<?= !empty($user['id_societe']) ? (int)$user['id_societe'] : '' ?>">
+            <input type="hidden" id="f-id-agence"  value="<?= !empty($user['id_agence']) ? (int)$user['id_agence'] : '' ?>">
+            <div class="form-group">
+              <label class="form-label">Société (employeur — une seule)</label>
+              <div class="pill-row" id="soc-pills">
+                <button type="button" class="rp-pill <?= empty($user['id_societe'])?'active':'' ?>" data-soc="0" onclick="rpSelSoc(0,this)">Aucune</button>
+                <?php foreach ($societesList as $s): ?>
+                <button type="button" class="rp-pill <?= (int)($user['id_societe']??0)===(int)$s['id']?'active':'' ?>" data-soc="<?= (int)$s['id'] ?>" onclick="rpSelSoc(<?= (int)$s['id'] ?>,this)"><?= h($s['nom']) ?></button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:14px">
+              <label class="form-label">Agence(s) — plusieurs possibles</label>
+              <div class="pill-row" id="agc-pills">
+                <?php foreach ($agencesList as $a): $ck = in_array((int)$a['id'], $userAgences, true); ?>
+                <label class="rp-pill agc <?= $ck?'active':'' ?>" data-soc="<?= (int)$a['id_societe'] ?>">
+                  <input type="checkbox" value="<?= (int)$a['id'] ?>" <?= $ck?'checked':'' ?> onchange="rpAgcChange()" style="position:absolute;opacity:0;width:0;height:0">
+                  <?= h($a['nom_agence']) ?>
+                </label>
+                <?php endforeach; ?>
+              </div>
+              <div style="font-size:11px;color:#a8a49e;margin-top:6px">La 1ʳᵉ agence cochée = agence principale (filtrage par défaut sur biens / propriétaires / locataires).</div>
+            </div>
+          </div>
+          <style>
+            .pill-row{display:flex;flex-wrap:wrap;gap:8px}
+            .rp-pill{padding:7px 14px;border-radius:999px;border:1px solid #d8d4ce;background:#fff;font-family:inherit;font-size:12px;font-weight:600;color:#6a6660;cursor:pointer;transition:all .15s;user-select:none}
+            .rp-pill:hover{border-color:#36577d;color:#36577d}
+            .rp-pill.active{background:#36577d;border-color:#36577d;color:#fff}
+          </style>
+          <script>
+            function rpSelSoc(id, btn){
+              document.getElementById('f-id-societe').value = id ? id : '';
+              document.querySelectorAll('#soc-pills .rp-pill').forEach(p=>p.classList.remove('active'));
+              btn.classList.add('active');
+              document.querySelectorAll('#agc-pills .rp-pill.agc').forEach(l=>{
+                const ps = parseInt(l.dataset.soc||'0',10);
+                const show = (id===0) || (ps===id);
+                l.style.display = show ? '' : 'none';
+                if(!show){ const cb=l.querySelector('input'); if(cb.checked){ cb.checked=false; } l.classList.remove('active'); }
+              });
+              rpAgcChange();
+            }
+            function rpAgcChange(){
+              let first='';
+              document.querySelectorAll('#agc-pills .rp-pill.agc').forEach(l=>{
+                const cb=l.querySelector('input');
+                l.classList.toggle('active', cb.checked);
+                if(cb.checked && first==='') first=cb.value;
+              });
+              document.getElementById('f-id-agence').value = first;
+              rpSaveRattachement();
+            }
+            function rpSaveRattachement(){
+              const soc = document.getElementById('f-id-societe').value || '';
+              const ag  = document.getElementById('f-id-agence').value || '';
+              const agences = [];
+              document.querySelectorAll('#agc-pills .rp-pill.agc input:checked').forEach(cb=>agences.push(parseInt(cb.value,10)));
+              const _tok = (typeof CSRF_TOKEN!=='undefined') ? CSRF_TOKEN : '';
+              const _uid = (typeof PROFILE_USER_ID!=='undefined') ? PROFILE_USER_ID : <?= (int)$userId ?>;
+              fetch('./api/rh_user_rattachement_save.php', {
+                method:'POST',
+                headers:{'Content-Type':'application/json','X-CSRF-Token':_tok},
+                body:JSON.stringify({
+                  user_id: _uid,
+                  id_societe: soc?parseInt(soc,10):null,
+                  id_agence: ag?parseInt(ag,10):null,
+                  agences: agences,
+                  csrf_token:_tok
+                })
+              }).then(r=>r.json()).then(d=>{
+                if(d.success){ if(typeof showToast==='function') showToast('Rattachement enregistré'); }
+                else { if(typeof showToast==='function') showToast('Erreur rattachement: '+(d.error||''), 'err'); }
+              }).catch(()=>{ if(typeof showToast==='function') showToast('Erreur réseau rattachement','err'); });
+            }
+            document.addEventListener('DOMContentLoaded',()=>{
+              const soc=parseInt(document.getElementById('f-id-societe').value||'0',10);
+              if(soc){ document.querySelectorAll('#agc-pills .rp-pill.agc').forEach(l=>{ if(parseInt(l.dataset.soc||'0',10)!==soc) l.style.display='none'; }); }
+            });
+          </script>
+          <?php endif; ?>
+          <div class="form-section">            <div class="form-section-title" style="display:flex;align-items:center;gap:10px;">Contrat de travail<button type="button" onclick="rhOpenContrat()" style="margin-left:auto;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;padding:7px 14px;border-radius:9px;border:1px solid #243B5C;background:linear-gradient(135deg,#243B5C,#1a2c45);color:#fff;">✍️ Rédiger le contrat</button></div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">Type de contrat</label>                <select name="type_contrat" class="form-control" <?= !$canEditAdmin && !$isOwnProfile ? 'disabled' : '' ?>
 >                  <option value="">—</option>                  <?php foreach (['CDI','CDD','Alternance','Stage','Freelance','Autre'] as $opt): ?>
                   <option value="<?= h($opt) ?>" <?= ($user['type_contrat']??'')===$opt?'selected':'' ?>
 ><?= h($opt) ?>
@@ -1142,7 +1280,170 @@ ob_start();
 ><?= h($opt) ?>
 </option>                  <?php endforeach;
  ?>
-                </select>              </div>              <div class="form-group">                <label class="form-label">Date d'entrée</label>                <input type="date" name="date_entree" class="form-control" value="<?= h($user['date_entree'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly' : '' ?>>              </div>              <div class="form-group">                <label class="form-label">Date de sortie</label>                <input type="date" name="date_sortie" class="form-control" value="<?= h($user['date_sortie'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly' : '' ?>>              </div>              <div class="form-group">                <label class="form-label">Fonction</label>                <input type="text" name="fonction" class="form-control" value="<?= h($user['fonction'] ?? '') ?>">              </div>            </div>          </div>          <div class="form-section">            <div class="form-section-title">RIB</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">IBAN</label>                <?php if ($canEditAdmin || $isOwnProfile): ?>                <input type="text" name="iban" class="form-control" placeholder="FR76 …" value="<?= h($user['iban'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly':'' ?>>                <?php else: ?>                <input type="text" class="form-control" value="<?= h($ibanDisplay) ?>" readonly>                <?php endif; ?>              </div>              <div class="form-group">                <label class="form-label">BIC / SWIFT</label>                <input type="text" name="bic" class="form-control" placeholder="BNPAFRPP…" value="<?= h($user['bic'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly':'' ?>>              </div>            </div>
+                </select>              </div>              <div class="form-group">                <label class="form-label">Date d'entrée</label>                <input type="date" name="date_entree" class="form-control" value="<?= h($user['date_entree'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly' : '' ?>>              </div>              <div class="form-group">                <label class="form-label">Date de sortie</label>                <input type="date" name="date_sortie" class="form-control" value="<?= h($user['date_sortie'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly' : '' ?>>              </div>              <div class="form-group">                <label class="form-label">Fonction</label>                <input type="text" name="fonction" class="form-control" value="<?= h($user['fonction'] ?? '') ?>">              </div>            </div>          </div>          <?php
+          // Historique des contrats du salarié (plusieurs possibles : CDD, CDD, CDI…)
+          $contratsHisto = [];
+          try { $stC = $pdo->prepare("SELECT * FROM user_contrats WHERE id_user = ? ORDER BY id DESC");
+                $stC->execute([$userId]); $contratsHisto = $stC->fetchAll(PDO::FETCH_ASSOC) ?: []; } catch (Throwable) {}
+          ?>
+          <div class="form-section">
+            <div class="form-section-title">Historique des contrats <span style="font-weight:500;color:#9a9690;font-size:11px;">(<?= count($contratsHisto) ?>)</span></div>
+            <?php if ($contratsHisto): ?>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <?php foreach ($contratsHisto as $c): ?>
+                <?php $cType = strtolower((string)($c['type_contrat'] ?? '')) === 'cdd' ? 'cdd' : 'cdi'; ?>
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #eef0f3;border-radius:10px;background:#fafbfc;font-size:13px;flex-wrap:wrap">
+                  <span style="font-weight:800;color:#243B5C;background:#eef2f8;border-radius:6px;padding:2px 9px"><?= h($c['type_contrat'] ?: '—') ?></span>
+                  <?php if (!empty($c['niveau'])): ?><span title="Niveau">🎚️ <?= h($c['niveau']) ?></span><?php endif; ?>
+                  <?php if (!empty($c['salaire_brut'])): ?><span title="Salaire brut mensuel">💶 <?= h($c['salaire_brut']) ?> €</span><?php endif; ?>
+                  <?php if (!empty($c['fonction'])): ?><span style="color:#5a5650"><?= h($c['fonction']) ?></span><?php endif; ?>
+                  <span style="color:#9a9690;font-size:12px">
+                    <?= h($c['date_debut'] ?: '') ?><?= !empty($c['date_fin']) ? ' → '.h($c['date_fin']) : '' ?>
+                    · saisi le <?= h(date('d/m/Y', strtotime((string)$c['created_at']))) ?>
+                  </span>
+                  <button type="button" onclick="rhOpenContrat(<?= (int)$c['id'] ?>, '<?= $cType ?>')"
+                    style="margin-left:auto;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid #243B5C;background:#fff;color:#243B5C">✏️ Reprendre</button>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <?php else: ?>
+            <div style="color:#9a9690;font-style:italic;font-size:12.5px;padding:6px 0">Aucun contrat enregistré. Rédige un contrat puis clique « 💾 Historique » pour l'ajouter ici.</div>
+            <?php endif; ?>
+          </div>
+
+          <!-- Card CANDIDATURE : CV + Lettre de motivation (extraction tél/mail perso) -->
+          <div class="form-section">
+            <div class="form-section-title">Candidature <span style="font-weight:500;color:#9a9690;font-size:11px;">CV & lettre de motivation — extraction tél/email perso</span></div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <label style="flex:1;min-width:200px;border:1.5px dashed #cbd5e1;border-radius:12px;padding:16px;text-align:center;cursor:pointer;background:#fff">
+                <div style="font-size:26px">📄</div>
+                <div style="font-weight:700;color:#475569;font-size:13px;margin-top:4px">Déposer le CV</div>
+                <div id="cv-state" style="font-size:11.5px;color:#94a3b8;margin-top:3px">PDF / image — extrait tél & email</div>
+                <input type="file" accept="application/pdf,image/*" style="display:none" onchange="rhUploadCandidature(this,'cv')">
+              </label>
+              <label style="flex:1;min-width:200px;border:1.5px dashed #cbd5e1;border-radius:12px;padding:16px;text-align:center;cursor:pointer;background:#fff">
+                <div style="font-size:26px">✉️</div>
+                <div style="font-weight:700;color:#475569;font-size:13px;margin-top:4px">Déposer la lettre de motivation</div>
+                <div id="lm-state" style="font-size:11.5px;color:#94a3b8;margin-top:3px">PDF / image</div>
+                <input type="file" accept="application/pdf,image/*" style="display:none" onchange="rhUploadCandidature(this,'lettre_motivation')">
+              </label>
+            </div>
+          </div>
+          <script>
+          function rhUploadCandidature(input, kind){
+            var f = input.files && input.files[0]; if (!f) return;
+            var stateId = kind==='cv' ? 'cv-state' : 'lm-state';
+            var st = document.getElementById(stateId); st.textContent = '⏳ Analyse…';
+            var fd = new FormData();
+            fd.append('fichier', f); fd.append('user_id', <?= (int)$userId ?>); fd.append('kind', kind);
+            fd.append('csrf_token', (typeof CSRF_TOKEN!=='undefined') ? CSRF_TOKEN : '');
+            fetch('./api/rh_cv_upload.php', { method:'POST', body: fd })
+              .then(function(r){ return r.json(); }).then(function(d){
+                if (!d || !d.success) { st.textContent = '⚠️ ' + ((d&&(d.error||d.message))||'Échec'); return; }
+                var ex = d.extracted || {}, ap = d.applied || {};
+                var parts = ['✓ ' + (d.label||'Ajouté')];
+                if (ex.email) parts.push('email: ' + ex.email);
+                if (ex.telephone) parts.push('tél: ' + ex.telephone);
+                st.innerHTML = parts.join(' · ');
+                // Met à jour les champs perso à l'écran si appliqués
+                if (ap.email_perso){ var e=document.querySelector('[name="email_perso"]'); if(e&&!e.value){ e.value=ap.email_perso; } }
+                if (ap.telephone){ var t=document.querySelector('[name="telephone"]'); if(t&&!t.value){ t.value=ap.telephone; } }
+                if (typeof showToast==='function') showToast('Candidature ajoutée' + (Object.keys(ap).length?' — perso complété':''), 'ok');
+              }).catch(function(){ st.textContent = '⚠️ Erreur réseau'; });
+            input.value = '';
+          }
+          </script>
+
+          <!-- Card DÉFINITION DU POSTE (générale, assistée IA) -->
+          <div class="form-section">
+            <div class="form-section-title" style="display:flex;align-items:center;gap:10px;">Définition du poste
+              <span style="font-weight:500;color:#9a9690;font-size:11px;">générale — sans liste exhaustive</span>
+              <button type="button" onclick="rhOpenPoste()" style="margin-left:auto;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;padding:7px 14px;border-radius:9px;border:1px solid #7c3aed;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;">✨ Rédiger avec l'IA</button>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <textarea name="poste_definition" id="poste-definition-field" class="form-control" rows="6" placeholder="Définition générale du poste (mission, finalité, périmètre, posture)…"><?= h($user['poste_definition'] ?? '') ?></textarea>
+            </div>
+          </div>
+
+          <!-- Modal : rédaction IA de la définition du poste -->
+          <div id="rh-poste-modal" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(15,23,42,.6)">
+            <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,94vw);max-height:90vh;overflow:auto;background:#fff;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.4)">
+              <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:#2e1065;color:#fff">
+                <b style="font-size:14px">✨ Rédiger la définition du poste</b>
+                <span style="font-size:11.5px;color:#c4b5fd">Guide-moi : ton attendu, axes, spécificités…</span>
+                <button type="button" onclick="rhClosePoste()" style="margin-left:auto;cursor:pointer;background:rgba(255,255,255,.14);border:none;border-radius:8px;color:#fff;padding:6px 11px;font-size:15px">✕</button>
+              </div>
+              <div style="padding:16px 18px">
+                <label style="display:block;font-size:11.5px;font-weight:700;color:#6b21a8;text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px">Tes consignes à l'IA</label>
+                <textarea id="poste-guidance" rows="3" style="width:100%;padding:10px;border:1px solid #ddd6fe;border-radius:8px;font-family:inherit;font-size:13px" placeholder="Ex : insiste sur la polyvalence et la relation client, reste souple sur les tâches, mentionne le travail en équipe…"></textarea>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                  <button type="button" id="poste-gen-btn" onclick="rhGenPoste()" style="cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;padding:9px 16px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff">✨ Générer</button>
+                  <span id="poste-gen-state" style="align-self:center;font-size:12px;color:#9a9690"></span>
+                </div>
+                <label style="display:block;font-size:11.5px;font-weight:700;color:#6b21a8;text-transform:uppercase;letter-spacing:.03em;margin:14px 0 5px">Proposition (modifiable)</label>
+                <textarea id="poste-result" rows="9" style="width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:8px;font-family:inherit;font-size:13px;line-height:1.5" placeholder="Le texte généré s'affichera ici — tu peux l'ajuster avant de l'utiliser."></textarea>
+                <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+                  <button type="button" onclick="rhClosePoste()" style="cursor:pointer;font-family:inherit;font-size:13px;padding:9px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#374151">Annuler</button>
+                  <button type="button" onclick="rhUsePoste()" style="cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff">✓ Utiliser ce texte</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <script>
+          function rhOpenPoste(){
+            var m = document.getElementById('rh-poste-modal');
+            if (m.parentNode !== document.body) document.body.appendChild(m); // sortir du conteneur transformé
+            document.getElementById('poste-result').value = document.getElementById('poste-definition-field').value || '';
+            m.style.display='block';
+          }
+          function rhClosePoste(){ document.getElementById('rh-poste-modal').style.display='none'; }
+          function rhGenPoste(){
+            var btn=document.getElementById('poste-gen-btn'), st=document.getElementById('poste-gen-state');
+            if(btn.dataset.b) return; btn.dataset.b='1'; var old=btn.textContent; btn.textContent='⏳ …'; st.textContent='Rédaction en cours…';
+            fetch('./api/rh_poste_generer.php', { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ user_id: <?= (int)$userId ?>, guidance: document.getElementById('poste-guidance').value || '' }) })
+              .then(function(r){return r.json();}).then(function(res){
+                btn.textContent=old; delete btn.dataset.b;
+                if(res && res.ok){ document.getElementById('poste-result').value = res.text; st.textContent='✓ Proposition prête — ajuste si besoin'; }
+                else { st.textContent='⚠️ '+((res&&res.error)||'Échec'); }
+              }).catch(function(){ btn.textContent=old; delete btn.dataset.b; st.textContent='⚠️ Erreur réseau'; });
+          }
+          function rhUsePoste(){
+            var field=document.getElementById('poste-definition-field');
+            field.value = document.getElementById('poste-result').value || '';
+            field.dispatchEvent(new Event('input', {bubbles:true})); // déclenche l'auto-save
+            rhClosePoste();
+          }
+          </script>
+
+          <!-- Modal Rédaction du contrat de travail (split : doc à gauche / formulaire à droite) -->
+          <div id="rh-contrat-modal" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(15,23,42,.6)">
+            <div style="position:absolute;inset:18px;background:#fff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.4)">
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:#0f1a2e;color:#fff;flex:none">
+                <b style="font-size:14px">✍️ Rédaction du contrat de travail</b>
+                <span style="font-size:11.5px;color:#a9bcd6">— saisis à droite, le document se remplit à gauche, puis 🖨️ PDF</span>
+                <button type="button" onclick="rhCloseContrat()" style="margin-left:auto;cursor:pointer;background:rgba(255,255,255,.12);border:none;border-radius:8px;color:#fff;padding:7px 12px;font-size:15px">✕</button>
+              </div>
+              <iframe id="rh-contrat-frame" src="" style="flex:1;width:100%;border:0"></iframe>
+            </div>
+          </div>
+          <script>
+          function rhOpenContrat(contratId, forceType){
+            var id = <?= (int)$userId ?>;
+            var type = forceType;
+            if (!type) { var t = (document.querySelector('[name="type_contrat"]') || {}).value || ''; type = (t.toUpperCase()==='CDD') ? 'cdd' : 'cdi'; }
+            var m = document.getElementById('rh-contrat-modal');
+            if (m.parentNode !== document.body) document.body.appendChild(m); // sortir du conteneur transformé
+            var src = 'rh_contrat_preview.php?id=' + id + '&type=' + (type||'cdi') + (contratId ? ('&contrat=' + contratId) : '');
+            document.getElementById('rh-contrat-frame').src = src;
+            m.style.display = 'block';
+          }
+          function rhCloseContrat(){
+            document.getElementById('rh-contrat-modal').style.display = 'none';
+            document.getElementById('rh-contrat-frame').src = '';
+          }
+          </script>
+          <div class="form-section">            <div class="form-section-title">RIB</div>            <div class="form-grid">              <div class="form-group">                <label class="form-label">IBAN</label>                <?php if ($canEditAdmin || $isOwnProfile): ?>                <input type="text" name="iban" class="form-control" placeholder="FR76 …" value="<?= h($user['iban'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly':'' ?>>                <?php else: ?>                <input type="text" class="form-control" value="<?= h($ibanDisplay) ?>" readonly>                <?php endif; ?>              </div>              <div class="form-group">                <label class="form-label">BIC / SWIFT</label>                <input type="text" name="bic" class="form-control" placeholder="BNPAFRPP…" value="<?= h($user['bic'] ?? '') ?>" <?= !$canEditAdmin && !$isOwnProfile ? 'readonly':'' ?>>              </div>            </div>
           <?php if ($canSeeRib): ?>
           <div class="form-section">
             <div class="form-section-title">Historique RIB</div>

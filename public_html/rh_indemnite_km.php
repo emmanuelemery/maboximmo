@@ -3039,7 +3039,7 @@ function escHtml(s) {
     return d.innerHTML;
 }
 </script>
-<script src="<?=h(app_url('/js/places.js'))?>"></script>
+<script src="<?=h(app_url('/js/places.js'))?>?v=<?= @filemtime(__DIR__ . '/js/places.js') ?: '1' ?>"></script>
 <script>
 // places.js se déclenche au DOMContentLoaded — si déjà passé, on force l'init
 if (document.readyState === 'complete' || document.readyState === 'interactive') {

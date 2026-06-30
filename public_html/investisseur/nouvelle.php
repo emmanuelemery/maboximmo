@@ -126,13 +126,29 @@ function inv_rating($name, $current, $label) {
                     <label>Sélectionner un bien</label>
                     <select name="from_bien" required>
                         <option value="">— Choisir un bien de la base —</option>
-                        <?php foreach ($biensDispos as $b): ?>
+                        <?php
+                        // Groupement par propriétaire (déjà ORDER BY proprio_label côté SQL)
+                        $currentProprio = null;
+                        foreach ($biensDispos as $b):
+                            $proprio = $b['proprio_label'] ?? 'Sans propriétaire';
+                            if ($proprio !== $currentProprio):
+                                if ($currentProprio !== null) echo '</optgroup>';
+                                $currentProprio = $proprio;
+                                echo '<optgroup label="' . $h($proprio) . '">';
+                            endif;
+                            // Libellé : adresse complète (ou ville) + type
+                            $adresse = trim((string)($b['adresse_1'] ?? ''));
+                            $ville   = trim((string)($b['ville'] ?? ''));
+                            $cp      = trim((string)($b['code_postal'] ?? ''));
+                            $loc     = trim($cp . ' ' . $ville);
+                            $libelle = $adresse !== '' ? $adresse . ($loc !== '' ? ' — ' . $loc : '') : ($loc !== '' ? $loc : ($b['designation'] ?: $b['reference_bien'] ?: 'Bien #' . $b['id']));
+                        ?>
                             <option value="<?= (int)$b['id'] ?>">
-                                <?= $h($b['designation'] ?: $b['reference_bien'] ?: 'Bien #' . $b['id']) ?>
-                                <?php if ($b['ville']): ?> — <?= $h($b['ville']) ?><?php endif; ?>
-                                <?php if ($b['type_libelle']): ?> · <?= $h($b['type_libelle']) ?><?php endif; ?>
+                                <?= $h($libelle) ?>
+                                <?php if (!empty($b['type_libelle'])): ?> · <?= $h($b['type_libelle']) ?><?php endif; ?>
+                                <?php if (!empty($b['surface_habitable'])): ?> · <?= (float)$b['surface_habitable'] ?> m²<?php endif; ?>
                             </option>
-                        <?php endforeach; ?>
+                        <?php endforeach; if ($currentProprio !== null) echo '</optgroup>'; ?>
                     </select>
                     <span class="hint">Les valeurs seront pré-remplies depuis les CRG, l'arbitrage et le bail en cours.</span>
                 </div>

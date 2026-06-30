@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/auth.php';
+require_once dirname(__DIR__) . '/inc/bien_prix.php';
 require_login();
 
 ini_set('display_errors', '0');
@@ -29,7 +30,7 @@ if ($annonceId <= 0) {
 // Verif scope (super admin role=1 bypasse)
 try {
     $st = $pdo->prepare("
-        SELECT a.id, b.id_societe
+        SELECT a.id, a.id_bien, b.id_societe
         FROM annonces a
         JOIN biens b ON b.id = a.id_bien
         WHERE a.id = ?
@@ -38,6 +39,7 @@ try {
     $st->execute([$annonceId]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     if (!$row) exit(json_encode(['ok' => false, 'error' => 'Annonce introuvable']));
+    $idBienAnnonce = (int)($row['id_bien'] ?? 0);
     if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'error' => 'Hors scope société']));
@@ -118,6 +120,16 @@ if (array_key_exists('annonce_commercial_id', $_POST)) {
     $data['id_user'] = $cid > 0 ? $cid : null;
     // Ajoute la clé dans $_POST pour passer la protection ci-dessous
     $_POST['id_user'] = $_POST['annonce_commercial_id'];
+}
+
+// Mappage spécial : annonce_agence_id (POST) → id_agence (BDD)
+// Le select "Agence de diffusion" de la Card Diffusion écrit dans annonces.id_agence
+// Permet à un user multi-agences de choisir quelle agence diffuse l'annonce
+// (peut différer de l'agence d'origine du bien).
+if (array_key_exists('annonce_agence_id', $_POST)) {
+    $aid = (int)$_POST['annonce_agence_id'];
+    $data['id_agence'] = $aid > 0 ? $aid : null;
+    $_POST['id_agence'] = $_POST['annonce_agence_id'];
 }
 
 // Validation ENUM loyer_mode
@@ -213,9 +225,27 @@ try {
     $loyerCC = loyer_cc_recalc_save($pdo, $annonceId);
 
     // Re-lecture pour renvoyer au front les valeurs finales (après cascade)
-    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble, loyer_mode, zone_encadrement_loyer, prix, prix_net_vendeur, honoraires AS vente_honoraires, alur_pourcentage_honoraires_ttc, honoraires_charge_acquereur, honoraires_charge_vendeur FROM annonces WHERE id = ? LIMIT 1");
+    $stFinal = $pdo->prepare("SELECT loyer, loyer_reference_majore, complement_loyer, depot_garantie, meuble, loyer_mode, zone_encadrement_loyer, prix, prix_net_vendeur, honoraires AS vente_honoraires, alur_pourcentage_honoraires_ttc, honoraires_charge_acquereur, honoraires_charge_vendeur, id_agence, id_user FROM annonces WHERE id = ? LIMIT 1");
     $stFinal->execute([$annonceId]);
     $final = $stFinal->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // ── Validation PRIX DE VENTE → bien_prix (maître + historique + miroir biens) ──
+    // UNIQUEMENT le prix de vente (acte délibéré). On NE touche PAS au loyer : le loyer
+    // de l'annonce (encadrement) est propre à l'annonce, distinct du loyer du bail —
+    // l'historiser/le mirroir provoquait une boucle de recalcul de l'encadrement.
+    // $syncAnnonce=false : la modif PROVIENT de l'annonce, on ne la réécrit donc pas
+    // (sinon retour circulaire → page bloquée sur l'onglet).
+    if ($idBienAnnonce > 0 && function_exists('bien_prix_valider')) {
+        $uid = function_exists('current_user_id') ? (int)current_user_id() : (int)($_SESSION['user_id'] ?? 0);
+        $touchVente = array_key_exists('prix', $_POST) || array_key_exists('prix_net_vendeur', $_POST)
+            || array_key_exists('honoraires', $_POST) || array_key_exists('alur_pourcentage_honoraires_ttc', $_POST);
+        if ($touchVente) {
+            try {
+                bien_prix_valider($pdo, $idBienAnnonce, 'prix_vente',       (float)($final['prix'] ?? 0),            'annonce', $uid, null, false);
+                bien_prix_valider($pdo, $idBienAnnonce, 'prix_net_vendeur', (float)($final['prix_net_vendeur'] ?? 0), 'annonce', $uid, null, false);
+            } catch (Throwable $e) { /* non bloquant : ne casse pas l'autosave ni le flux */ }
+        }
+    }
 
     exit(json_encode([
         'ok' => true,
@@ -229,6 +259,9 @@ try {
         'meuble'                 => isset($final['meuble'])                 ? (int)$final['meuble']                   : null,
         'loyer_mode'             => isset($final['loyer_mode'])             ? (string)$final['loyer_mode']            : null,
         'zone_encadrement_loyer' => isset($final['zone_encadrement_loyer']) ? (int)$final['zone_encadrement_loyer']   : null,
+        // Valeurs finales pour les sélecteurs de diffusion (debug / confirmation persistance)
+        'id_agence'              => isset($final['id_agence'])              ? (int)$final['id_agence']                : null,
+        'id_user'                => isset($final['id_user'])                ? (int)$final['id_user']                  : null,
         'encadrement_auto'       => $encAutoResult,
         // Vente — valeurs finales après recalcul backend
         'vente' => [

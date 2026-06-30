@@ -415,6 +415,7 @@ Tu es un expert immobilier rédacteur pour une agence professionnelle française
 Tu génères des contenus pour des fiches biens et des annonces immobilières.
 
 RÈGLES DE RÉDACTION :
+- TYPE DE BIEN IMPÉRATIF : ce bien est un « {$typeBien} ». Emploie EXACTEMENT ce type (et ses synonymes corrects) PARTOUT — titre, accroche, description, meta_title, meta_description, mots_cles, slug. Tu n'as ABSOLUMENT PAS le droit d'écrire « maison », « appartement », « studio » ou tout autre type si ce n'est pas « {$typeBien} ». Pour des bureaux/locaux commerciaux : pas de « pièces de vie », « chambres », « séjour » — parle de surfaces, postes de travail, accessibilité, stationnement.
 - Textes précis, attrayants, professionnels — AUCUN superlatif vide ("magnifique", "exceptionnel" sans justification).
 - Intègre NATURELLEMENT les éléments visuels fournis (analyses des photos) — par exemple si une photo mentionne "cuisine ouverte sur séjour, îlot central, tons clairs", cela DOIT transparaître dans la description.
 - Ne fabule JAMAIS : ne mentionne que des éléments présents dans les données (caractéristiques + notes de l'agent + analyses photos).
@@ -434,8 +435,8 @@ Voici les données d'un bien immobilier :
 - "accroche" : phrase d'accroche commerciale courte (~100 caractères) — un crochet émotionnel / différenciant, sans répéter mot à mot le titre
 - "meta_title" : titre SEO Google ~60 caractères max (plus dense, optimisé moteurs)
 - "meta_description" : description SEO ~150 caractères accrocheuse
-- "mots_cles" : tableau de 6 à 8 mots-clés SEO longue traîne (ex: "appartement 3 pièces Lyon 6ème à louer")
-- "slug" : URL en minuscules avec tirets (ex: "appartement-3-pieces-65m2-lyon-6eme")
+- "mots_cles" : tableau de 6 à 8 mots-clés SEO longue traîne, TOUJOURS basés sur le type réel « {$typeBien} » (ex pour ce bien : "{$typeBien} à louer ville", "{$typeBien} surface ville quartier")
+- "slug" : URL en minuscules avec tirets, commençant par le type réel (ex: "{$typeBien}-surface-ville" en minuscules sans accents)
 - "marche" : objet avec :
   - "prix_moyen_m2" : estimation du prix moyen au m² dans ce quartier/ville pour ce type de bien (nombre entier, en €/m²)
   - "note" : note comparative de 1 à 10 (10 = meilleur rapport qualité/prix du marché)

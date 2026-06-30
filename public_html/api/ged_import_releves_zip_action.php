@@ -75,7 +75,7 @@ try {
             $idImmeuble = isset($_POST['id_immeuble']) ? (int)$_POST['id_immeuble'] : 0;
             $logiciel   = isset($_POST['logiciel_comptable']) ? strtoupper(trim((string)$_POST['logiciel_comptable'])) : '';
             if ($logiciel === '') $logiciel = null;
-            if ($logiciel !== null && !in_array($logiciel, ['SEPTEO', 'LOJJI', 'ICS', 'MABOXIMMO', 'AUTRE'], true)) {
+            if ($logiciel !== null && !in_array($logiciel, ['SEPTEO', 'LOJJI', 'AUTRE'], true)) {
                 throw new RuntimeException('logiciel_comptable invalide');
             }
             $banque = isset($_POST['banque_detectee']) ? trim((string)$_POST['banque_detectee']) : '';

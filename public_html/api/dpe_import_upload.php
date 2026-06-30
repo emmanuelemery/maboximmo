@@ -9,6 +9,8 @@ require_once dirname(__DIR__) . '/inc/bien_import_parser.php';
 require_once dirname(__DIR__) . '/inc/dpe_import_parser.php';
 require_once dirname(__DIR__) . '/inc/dpe_ia_analyse.php';
 require_once dirname(__DIR__) . '/inc/bien_intake_ocr.php'; // fallback OCR Vision GPT-4o pour PDF scannés
+require_once dirname(__DIR__) . '/inc/ged_document_links.php';  // Sprint 7D : dual-write GED centrale
+require_once dirname(__DIR__) . '/inc/dpe_service.php';         // SERVICE DPE CENTRAL (analyse + stockage)
 require_login();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -58,97 +60,27 @@ if (!move_uploaded_file($file['tmp_name'], $destPath)) {
 }
 
 try {
-    // ── Extraction texte ─────────────────────────────────────
-    $texteSource = BienImportParser::extractText($destPath);
-    $textLen     = mb_strlen(trim($texteSource));
+    // ── Extraction via le SERVICE DPE CENTRAL (inc/dpe_service.php) ──
+    $resAna = dpe_analyser($destPath, $bienId);
+    $texteSource = (string)($resAna['text'] ?? '');
+    $textLen     = (int)($resAna['text_length'] ?? 0);
+    $usedOcr     = !empty($resAna['used_ocr']);
+    $method      = (string)($resAna['method'] ?? 'regex');
+    $score       = (int)($resAna['score'] ?? 0);
+    $iaError     = $resAna['ia_error'] ?? null;
 
-    // ── Détection PDF scanné ─────────────────────────────────
-    // Si on a moins de 200 caractères extraits, c'est presque certainement
-    // un PDF scanné (image). Bascule directe sur OCR Vision GPT-4o.
-    $isProbablyScanned = ($textLen < 200);
-    $usedOcr           = false;
-    $ocrError          = null;
-
-    $fields = [];
-    $score  = 0;
-    $method = 'regex';
-    $iaError = null;
-
-    if ($isProbablyScanned) {
-        // ═══ PATH A : OCR Vision (pdftoppm → images JPEG → GPT-4o Vision) ═══
-        // Pattern identique à api/bien_intake_upload.php (module partagé BienIntakeOCR)
-        try {
-            $tmpOcrDir = dirname(__DIR__) . '/uploads/_ocr_tmp/dpe_' . ($bienId > 0 ? $bienId . '_' : '') . time();
-            $images = BienIntakeOCR::pdfToImages($destPath, $tmpOcrDir, 8);
-            if (empty($images)) {
-                throw new RuntimeException('Aucune image générée par pdftoppm (Poppler manquant ?)');
-            }
-            $ocrResult = BienIntakeOCR::analyseImagesIA($images);
-            BienIntakeOCR::cleanupTmpDir($tmpOcrDir);
-
-            if (!$ocrResult['ok']) {
-                throw new RuntimeException('OCR Vision : ' . ($ocrResult['error'] ?? 'inconnue'));
-            }
-
-            $fields    = $ocrResult['fields'] ?? [];
-            $usedOcr   = true;
-            $method    = 'ocr_vision';
-            // Score conservateur : 85 si OCR a trouvé des champs, 30 sinon
-            $score     = count($fields) >= 3 ? 85 : 30;
-        } catch (Throwable $ocrEx) {
-            $ocrError = $ocrEx->getMessage();
-            error_log('[dpe_import] OCR Vision failed: ' . $ocrError);
-            // Si l'OCR échoue, on renvoie une erreur explicite (pas de texte, pas d'OCR → impossible)
-            exit(json_encode([
-                'ok'      => false,
-                'error'   => 'PDF scanné non analysable : ' . $ocrError,
-                'fichier' => $publicUrl,
-                'nom'     => $file['name'],
-                'used_ocr'=> true,
-                'method'  => 'ocr_vision_failed',
-            ], JSON_UNESCAPED_UNICODE));
-        }
-    } else {
-        // ═══ PATH B : extraction texte native + regex + IA fallback ═══
-        $regexResult = DpeImportParser::parse($texteSource);
-        $fields      = $regexResult['fields'];
-        $score       = $regexResult['score'];
-        $method      = 'regex';
-
-        // 2) Si regex insuffisant, on appelle GPT-4o pour compléter
-        //    (seuil : score < 80% OU moins de 6 champs détectés)
-        $needsAI = ($score < 80 || count($fields) < 6);
-        if ($needsAI) {
-            $iaResult = analyseDpeIA($texteSource);
-            if ($iaResult['ok'] && !empty($iaResult['fields'])) {
-                foreach ($iaResult['fields'] as $k => $v) {
-                    if (!isset($fields[$k]) || $fields[$k] === null || $fields[$k] === '') {
-                        $fields[$k] = $v;
-                    }
-                }
-                // Score recalculé via le validateur étendu (poids cohérent)
-                $allKeys = [
-                    'type_bien'=>4,'adresse_1'=>3,'code_postal'=>3,'ville'=>3,
-                    'annee_construction'=>3,'etage'=>1,
-                    'surface_habitable'=>4,'nb_pieces'=>3,'nb_chambres'=>3,
-                    'nb_wc'=>2,'nb_salles_bain'=>2,'surface_sejour'=>1,
-                    'dpe_classe'=>4,'ges_classe'=>4,'dpe_valeur'=>3,'ges_valeur'=>3,
-                    'dpe_date_realisation'=>3,'dpe_reference_certificat'=>2,'dpe_vierge'=>4,
-                    'chauffage_energie'=>1,'eau_chaude_type'=>1,'menuiseries'=>1,
-                    'double_vitrage'=>1,'volets_roulants'=>1,
-                    'montant_estime_depenses_min'=>1,'montant_estime_depenses_max'=>1,
-                    'zone_georisque'=>1,
-                ];
-                $totalW = array_sum($allKeys); $reachedW = 0;
-                foreach ($allKeys as $k => $w) if (!empty($fields[$k])) $reachedW += $w;
-                $score = $totalW > 0 ? min(100, (int) round(($reachedW / $totalW) * 100)) : 0;
-                $method = 'regex+ia';
-            } else {
-                $iaError = $iaResult['error'] ?? 'Erreur IA inconnue';
-                error_log('[dpe_import] IA fallback failed: ' . $iaError);
-            }
-        }
-    } // fin else (PATH B)
+    if (empty($resAna['ok'])) {
+        // Extraction impossible (ex. PDF scanné sans OCR dispo) → erreur explicite
+        exit(json_encode([
+            'ok'      => false,
+            'error'   => $resAna['error'] ?? 'Extraction DPE impossible.',
+            'fichier' => $publicUrl,
+            'nom'     => $file['name'],
+            'used_ocr'=> $usedOcr,
+            'method'  => $method ?: 'failed',
+        ], JSON_UNESCAPED_UNICODE));
+    }
+    $fields = (array)$resAna['fields'];
 
     // ── Enregistrement complet en dpe_diags (table dédiée) ───────
     // Reconnexion MySQL si la connexion a expiré pendant l'appel OpenAI
@@ -156,13 +88,23 @@ try {
     // Après l'OCR/IA qui peut durer 30-120s, on force un reconnect PDO frais
     // avant les INSERT critiques. Un simple SELECT 1 (db_keepalive) peut passer
     // puis le vrai INSERT tomber sur une connexion morte entre les deux.
-    $pdo = db_reconnect_fresh();
-
     $diagId = 0;
     if ($bienId > 0) {
-        try {
-            // Nouvelle entrée diagnostic = devient le diag principal,
-            // les anciens passent en non-principal (historique)
+        // ── Stockage via le SERVICE DPE CENTRAL (inc/dpe_service.php) ──
+        $stStore = dpe_enregistrer($pdo, $bienId, $fields, [
+            'url'      => $publicUrl,
+            'nom_orig' => $file['name'],
+            'taille'   => (int)$file['size'],
+            'mime'     => $file['type'] ?? 'application/pdf',
+            'method'   => $method,
+            'score'    => $score,
+            'texte'    => $texteSource,
+        ]);
+        $diagId = (int)($stStore['diag_id'] ?? 0);
+        if (empty($stStore['ok']) && !empty($stStore['error'])) {
+            $iaError = ($iaError ? $iaError . ' | ' : '') . 'BDD: ' . $stStore['error'];
+        }
+        if (false) { // ancien stockage inline neutralisé — désormais dans dpe_service.php
             $pdo->prepare("UPDATE dpe_diags SET est_diag_principal = 0 WHERE id_bien = ?")
                 ->execute([$bienId]);
 
@@ -396,15 +338,10 @@ try {
                     error_log('[dpe_import] biens sync failed: ' . $e->getMessage());
                 }
             }
-        } catch (Throwable $e) {
-            error_log('[dpe_import] dpe_diags insert failed: ' . $e->getMessage());
-            $iaError = ($iaError ? $iaError . ' | ' : '') . 'BDD: ' . $e->getMessage();
-        }
+        } // fin if(false) — ancien stockage neutralisé (cf. inc/dpe_service.php)
 
         // ── Archivage PDF dans biens_documents (HORS try/catch dpe_diags) ──
-        // CRITIQUE : cet INSERT doit s'exécuter MÊME si dpe_diags échoue (MySQL
-        // gone away, colonne manquante, etc.). Sans lui, le PDF est sur disque
-        // mais invisible dans l'onglet Documents du bien.
+        // CRITIQUE : cet INSERT doit s'exécuter MÊME si dpe_diags échoue.
         try {
             $pdo = db_reconnect_fresh();
             $uidUp = function_exists('current_user_id') ? (int)current_user_id() : null;
@@ -426,6 +363,72 @@ try {
             ]);
         } catch (Throwable $exDoc) {
             error_log('[dpe_import] INSERT biens_documents failed: ' . $exDoc->getMessage());
+        }
+
+        // ─── Sprint 7D (2026-05-25) : dual-write GED CENTRALE UNIQUE ───
+        try {
+            $stB = $pdo->prepare("SELECT b.id_societe, b.id_agence, b.id_proprietaire, b.id_immeuble,
+                                          p.id_tiers AS proprio_tiers_id,
+                                          s.raison_sociale AS soc_raison,
+                                          a.code_agence, a.nom_agence
+                                    FROM biens b
+                                    LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
+                                    LEFT JOIN societes      s ON s.id = b.id_societe
+                                    LEFT JOIN agences       a ON a.id = b.id_agence
+                                    WHERE b.id = ? LIMIT 1");
+            $stB->execute([$bienId]);
+            $bienCtx = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
+            $socIdGed = (int)($bienCtx['id_societe'] ?? 0) ?: 1;
+
+            $links = [['entity_type' => 'BIEN', 'entity_id' => $bienId, 'relation_type' => 'main']];
+            if (!empty($bienCtx['proprio_tiers_id'])) {
+                $links[] = ['entity_type' => 'TIERS', 'entity_id' => (int)$bienCtx['proprio_tiers_id'], 'relation_type' => 'annexe'];
+            }
+            if (!empty($bienCtx['id_immeuble'])) {
+                $links[] = ['entity_type' => 'IMB', 'entity_id' => (int)$bienCtx['id_immeuble'], 'relation_type' => 'annexe'];
+            }
+
+            gus_commit_document(
+                $pdo,
+                [
+                    'path_on_disk'  => $destPath,
+                    'name_original' => $file['name'],
+                    'mime_type'     => 'application/pdf',
+                    'size_bytes'    => (int)$file['size'],
+                    'public_url'    => $publicUrl,
+                ],
+                [
+                    'document_type'  => 'DIAG_DPE',
+                    'source_module'  => '05_TRANSACTION',
+                    'security_level' => 'interne',
+                    'societe_id'     => $socIdGed,
+                    'agence_id'      => (int)($bienCtx['id_agence'] ?? 0) ?: 3,
+                    'tenant_id'      => $socIdGed,
+                    'created_by'     => $uidUp,
+                    'storage_provider' => 'local',
+                    'metadata_extra' => [
+                        'classement'    => ['bien_id_bdd' => $bienId, 'date_doc' => $fields['dpe_date_realisation'] ?? null],
+                        'legacy_source' => 'dpe_import_upload',
+                    ],
+                    'naming_ctx' => [
+                        'societe_raison' => $bienCtx['soc_raison'] ?? 'Régie EMERY',
+                        'agence_code'    => $bienCtx['code_agence'] ?? 'RE69-2',
+                        'agence_nom'     => $bienCtx['nom_agence']  ?? 'LYON',
+                        'user_id'        => $uidUp,
+                        'n1_slug'        => '05_gestion_locative',
+                        'n2_slug'        => 'biens',
+                        'n3_slug'        => 'diag_dpe',
+                        'type_doc'       => 'DIAG_DPE',
+                        'entity_type'    => 'BIEN',
+                        'entity_id'      => $bienId,
+                        'date_doc'       => $fields['dpe_date_realisation'] ?? null,
+                        'source_filename'=> $file['name'],
+                    ],
+                ],
+                $links
+            );
+        } catch (Throwable $exGed) {
+            error_log('[dpe_import] dual-write GED failed: ' . $exGed->getMessage());
         }
     }
 

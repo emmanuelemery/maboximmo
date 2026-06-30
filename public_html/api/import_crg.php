@@ -105,20 +105,24 @@ Réponds UNIQUEMENT en JSON valide avec cette structure :
       "adresse": "string (adresse complète)",
       "lots": [
         {
-          "numero_lot": "string",
-          "type_bien": "appartement|maison|commerce|parking|cave|bureau|autre",
+          "numero_lot": "string (UN SEUL objet par numéro de lot, même si plusieurs locataires)",
+          "type_bien": "appartement|maison|commerce|parking|cave|bureau|local|autre",
           "etage": "string ou null",
           "surface": "number ou null",
-          "locataire_nom": "string (nom du locataire, vide si vacant)",
-          "statut": "occupe|vacant|conge_donne",
-          "loyer_appele": "number (loyer mensuel appelé)",
-          "charges_provisions": "number (provisions pour charges)",
-          "solde_anterieur": "number",
-          "total_loyers": "number (total des loyers du trimestre)",
-          "total_charges": "number (total charges du trimestre)",
-          "total_regle": "number (total réglé par le locataire)",
-          "total_impaye": "number (impayé résiduel)",
-          "date_bail": "string ou null (date du bail, format YYYY-MM-DD)"
+          "locataires": [
+            {
+              "nom": "string (nom du locataire)",
+              "actif": "boolean (true = a des lignes de loyer sur la période courante ; false = ancien locataire, seulement un solde antérieur/impayé résiduel)",
+              "loyer_appele": "number (loyer mensuel appelé ; 0 si ancien)",
+              "charges_provisions": "number (provisions charges mensuelles ; 0 si ancien)",
+              "solde_anterieur": "number (solde reporté pour ce locataire)",
+              "total_loyers": "number (total loyers appelés sur le trimestre)",
+              "total_charges": "number (total charges sur le trimestre)",
+              "total_regle": "number (total réglé par le locataire)",
+              "total_impaye": "number (impayé résiduel)",
+              "date_bail": "string ou null (date du bail, format YYYY-MM-DD)"
+            }
+          ]
         }
       ],
       "ecritures": [
@@ -134,12 +138,14 @@ Réponds UNIQUEMENT en JSON valide avec cette structure :
   ]
 }
 
-Règles :
-- Extrais TOUS les immeubles et TOUS les lots mentionnés
-- Les montants sont en euros, sans symbole
-- Si un champ est absent, utilise null ou 0
-- Le type_bien doit correspondre aux valeurs proposées
-- Si le locataire est parti, statut = "conge_donne"
+Règles CRUCIALES (lot vs locataire) :
+- Un même NUMÉRO DE LOT peut apparaître plusieurs fois avec des locataires différents : regroupe-les en UN SEUL objet "lot" contenant plusieurs "locataires". NE crée PAS un lot par locataire.
+- Un locataire est ACTIF (actif:true) UNIQUEMENT s'il a des lignes de loyer sur la période courante (ex. "Du 01.01.26 Au 31.01.26" avec un loyer).
+- Un locataire qui n'a QU'UN "Solde Antérieur" (sans loyer de la période) est un ANCIEN locataire parti : actif:false, on conserve seulement son solde_anterieur / total_impaye.
+- Un lot peut avoir 0 ou 1 locataire actif et plusieurs anciens locataires avec impayés.
+- Extrais TOUS les immeubles, TOUS les lots et TOUS les locataires (actifs ET anciens).
+- Les montants sont en euros, sans symbole. Si un champ est absent : null ou 0.
+- Le type_bien doit correspondre aux valeurs proposées (locaux commerciaux = "commerce").
 
 TEXTE DU CRG :
 {$text_truncated}
@@ -286,6 +292,16 @@ if ($action === 'confirm') {
     $nbImmeubles = 0;
     $nbLots = 0;
     $nbEcritures = 0;
+    $nbBascules  = 0;   // changements de locataire détectés
+
+    // Date d'arrêté du CRG (sert de date de fin du bail sortant).
+    $dateArrete = $periode['date_arrete'] ?? date('Y-m-d');
+    // Normalisation de nom (casse / accents / ponctuation) pour comparer les locataires.
+    $crgNorm = static function (string $s): string {
+        $s = mb_strtoupper(trim($s), 'UTF-8');
+        $s = strtr($s, ['À'=>'A','Â'=>'A','Ä'=>'A','Ç'=>'C','É'=>'E','È'=>'E','Ê'=>'E','Ë'=>'E','Î'=>'I','Ï'=>'I','Ô'=>'O','Ö'=>'O','Ù'=>'U','Û'=>'U','Ü'=>'U']);
+        return preg_replace('/[^A-Z0-9]+/u', '', $s) ?? '';
+    };
 
     foreach ($parsed['immeubles'] ?? [] as $imm) {
         $nbImmeubles++;
@@ -306,12 +322,37 @@ if ($action === 'confirm') {
             $idImmeuble = (int)$pdo->lastInsertId();
         }
 
-        // Lots
+        // Lots (dédupliqués par numero_lot ; chaque lot porte N locataires actifs/anciens)
         foreach ($imm['lots'] ?? [] as $lot) {
             $nbLots++;
             $numLot    = $lot['numero_lot'] ?? '';
             $typeBien  = $lot['type_bien'] ?? 'appartement';
-            $statutOcc = $lot['statut'] ?? 'vacant';
+
+            // Rétro-compat : si l'IA renvoie l'ancien format (1 locataire à plat),
+            // on le normalise en tableau "locataires".
+            $locataires = $lot['locataires'] ?? null;
+            if ($locataires === null) {
+                $locataires = [];
+                if (!empty($lot['locataire_nom'])) {
+                    $locataires[] = [
+                        'nom' => $lot['locataire_nom'],
+                        'actif' => (($lot['statut'] ?? '') === 'occupe' || ($lot['statut'] ?? '') === 'occupé'),
+                        'loyer_appele' => $lot['loyer_appele'] ?? 0,
+                        'charges_provisions' => $lot['charges_provisions'] ?? 0,
+                        'solde_anterieur' => $lot['solde_anterieur'] ?? 0,
+                        'total_loyers' => $lot['total_loyers'] ?? 0,
+                        'total_charges' => $lot['total_charges'] ?? 0,
+                        'total_regle' => $lot['total_regle'] ?? 0,
+                        'total_impaye' => $lot['total_impaye'] ?? 0,
+                        'date_bail' => $lot['date_bail'] ?? null,
+                    ];
+                }
+            }
+
+            // Occupation du lot = "occupé" s'il existe au moins un locataire actif.
+            $hasActif = false;
+            foreach ($locataires as $loc) { if (!empty($loc['actif'])) { $hasActif = true; break; } }
+            $statutOcc = $hasActif ? 'occupé' : 'vacant';
 
             $stmt = $pdo->prepare('SELECT id FROM biens WHERE id_immeuble=? AND numero_lot=?');
             $stmt->execute([$idImmeuble, $numLot]);
@@ -319,7 +360,10 @@ if ($action === 'confirm') {
 
             if ($bienRow) {
                 $idBien = (int)$bienRow['id'];
-                $pdo->prepare('UPDATE biens SET statut_occupation=? WHERE id=?')->execute([$statutOcc, $idBien]);
+                // Ne jamais DÉGRADER une occupation : on ne force "occupé" que si actif.
+                if ($hasActif) {
+                    $pdo->prepare('UPDATE biens SET statut_occupation=? WHERE id=?')->execute(['occupé', $idBien]);
+                }
             } else {
                 // Mapper type_bien vers id_type_bien
                 $typeMap = ['appartement'=>2,'maison'=>1,'commerce'=>5,'parking'=>10,'cave'=>11,'bureau'=>6,'local'=>5,'autre'=>2];
@@ -329,37 +373,79 @@ if ($action === 'confirm') {
                 $idBien = (int)$pdo->lastInsertId();
             }
 
-            // Bail
-            $idBail = null;
-            if ($statutOcc === 'occupe' && !empty($lot['locataire_nom'])) {
-                $stmt = $pdo->prepare("SELECT id FROM baux WHERE id_bien=? AND statut='actif' LIMIT 1");
-                $stmt->execute([$idBien]);
-                $bailRow = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($bailRow) {
-                    $idBail = (int)$bailRow['id'];
-                } else {
-                    $pdo->prepare("INSERT INTO baux (id_bien, locataire_nom, statut, date_debut) VALUES (?,?,'actif',?)")
-                        ->execute([$idBien, $lot['locataire_nom'], $lot['date_bail'] ?? null]);
-                    $idBail = (int)$pdo->lastInsertId();
+            // Un bail actif est créé UNE fois, pour le(s) locataire(s) actif(s).
+            foreach ($locataires as $loc) {
+                $nom = trim((string)($loc['nom'] ?? ''));
+                if ($nom === '') continue;
+                $estActif = !empty($loc['actif']);
+
+                $idBail = null;
+                if ($estActif) {
+                    $stmt = $pdo->prepare("SELECT id FROM baux WHERE id_bien=? AND statut='actif' LIMIT 1");
+                    $stmt->execute([$idBien]);
+                    $bailRow = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if ($bailRow) {
+                        $idBail = (int)$bailRow['id'];
+                    } else {
+                        $pdo->prepare("INSERT INTO baux (id_bien, locataire_nom, statut, date_debut) VALUES (?,?,'actif',?)")
+                            ->execute([$idBien, $nom, $loc['date_bail'] ?? null]);
+                        $idBail = (int)$pdo->lastInsertId();
+                    }
                 }
+
+                // Statut trimestre : ENUM('occupé','parti-débiteur','vacant')
+                $statutTrim = $estActif ? 'occupé' : 'parti-débiteur';
+
+                $pdo->prepare('INSERT INTO crg_situations_locataires
+                    (id_crg, id_bien, id_bail, locataire_nom, numero_lot, type_bien,
+                     loyer_appele, solde_anterieur, total_loyers, total_charges, total_regle, total_impaye, statut_trimestre)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
+                    $crgId, $idBien, $idBail, $nom, $numLot, $typeBien,
+                    $loc['loyer_appele'] ?? 0,
+                    $loc['solde_anterieur'] ?? 0,
+                    $loc['total_loyers'] ?? 0,
+                    $loc['total_charges'] ?? 0,
+                    $loc['total_regle'] ?? 0,
+                    $loc['total_impaye'] ?? 0,
+                    $statutTrim,
+                ]);
             }
 
-            // Situation locataire
-            $pdo->prepare('INSERT INTO crg_situations_locataires
-                (id_crg, id_bien, id_bail, locataire_nom, numero_lot, type_bien,
-                 loyer_appele, solde_anterieur, total_loyers, total_charges, total_regle, total_impaye, statut_trimestre)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
-                $crgId, $idBien, $idBail,
-                $lot['locataire_nom'] ?? '',
-                $numLot, $typeBien,
-                $lot['loyer_appele'] ?? 0,
-                $lot['solde_anterieur'] ?? 0,
-                $lot['total_loyers'] ?? 0,
-                $lot['total_charges'] ?? 0,
-                $lot['total_regle'] ?? 0,
-                $lot['total_impaye'] ?? 0,
-                $statutOcc,
-            ]);
+            // ── BASCULE LOCATAIRE dans bien_baux (table lue par les listes / 360 / agency_biens) ──
+            // À chaque CRG, le locataire actif d'un lot peut changer. On archive le bail
+            // sortant et on active l'entrant. Idempotent : si le locataire actif du CRG
+            // correspond au bail actif courant, on ne touche à rien (ré-import = no-op).
+            try {
+                $activeName = null; $activeDate = null;
+                foreach ($locataires as $loc) {
+                    if (!empty($loc['actif']) && trim((string)($loc['nom'] ?? '')) !== '') {
+                        $activeName = trim((string)$loc['nom']); $activeDate = $loc['date_bail'] ?? null; break;
+                    }
+                }
+                $stCur = $pdo->prepare("SELECT id, COALESCE(NULLIF(locataire_raison_sociale,''), locataire_nom) AS nom
+                                        FROM bien_baux WHERE id_bien=? AND statut='actif' ORDER BY id DESC LIMIT 1");
+                $stCur->execute([$idBien]);
+                $cur = $stCur->fetch(PDO::FETCH_ASSOC);
+                $curName = $cur ? trim((string)$cur['nom']) : null;
+                $same = $activeName !== null && $curName !== null && $crgNorm($curName) === $crgNorm($activeName);
+
+                if (!$same) {
+                    // Sortant (changement de locataire OU lot devenu vacant) → archivé.
+                    if ($cur) {
+                        $pdo->prepare("UPDATE bien_baux SET statut='archive', date_fin=COALESCE(date_fin, ?) WHERE id=?")
+                            ->execute([$dateArrete, (int)$cur['id']]);
+                    }
+                    // Entrant → bail actif (champs minimaux ; complétables ensuite dans la fiche bail).
+                    if ($activeName !== null) {
+                        $pdo->prepare("INSERT INTO bien_baux (id_bien, id_proprietaire, locataire_nom, statut, date_prise_effet)
+                                       VALUES (?,?,?,'actif',?)")
+                            ->execute([$idBien, $proprietaireId, $activeName, $activeDate ?: null]);
+                    }
+                    if ($cur || $activeName !== null) $nbBascules++;
+                }
+            } catch (Throwable $exBail) {
+                error_log('[import_crg bascule] bien#' . $idBien . ' : ' . $exBail->getMessage());
+            }
         }
 
         // Écritures
@@ -375,10 +461,11 @@ if ($action === 'confirm') {
 
     echo json_encode([
         'ok' => true,
-        'message' => "CRG importé : $nbImmeubles immeuble(s), $nbLots lot(s), $nbEcritures écriture(s).",
+        'message' => "CRG importé : $nbImmeubles immeuble(s), $nbLots lot(s), $nbEcritures écriture(s)"
+                   . ($nbBascules > 0 ? ", $nbBascules changement(s) de locataire" : '') . ".",
         'proprietaire_id' => $proprietaireId,
         'crg_id' => $crgId,
-        'stats' => ['immeubles' => $nbImmeubles, 'lots' => $nbLots, 'ecritures' => $nbEcritures],
+        'stats' => ['immeubles' => $nbImmeubles, 'lots' => $nbLots, 'ecritures' => $nbEcritures, 'bascules' => $nbBascules],
     ]);
     exit;
     } catch (Throwable $e) {

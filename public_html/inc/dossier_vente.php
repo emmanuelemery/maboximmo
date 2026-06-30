@@ -299,6 +299,53 @@ if (!function_exists('dv_seed_collaborateur')) {
     }
 }
 
+if (!function_exists('dv_cancel')) {
+    /**
+     * Annule un dossier de vente.
+     *   - Dossier "vide" (étape estimation, AUCUN mandat) = créé pour rien
+     *     → SUPPRESSION physique (dossier + lots + acteurs auto rattachés).
+     *   - Dossier ayant progressé (mandat, offre, vente…)
+     *     → passage soft en 'sans_suite' (jamais de destruction de données réelles).
+     * Les documents GED (entity_type='DOSSIER') ne sont JAMAIS supprimés.
+     *
+     * @return array { ok: bool, mode: 'deleted'|'sans_suite'|'noop', error?: string }
+     */
+    function dv_cancel(PDO $pdo, int $idDossier): array {
+        $d = dv_get($pdo, $idDossier);
+        if (!$d) return ['ok' => false, 'mode' => 'noop', 'error' => 'Dossier introuvable.'];
+        if ($d['etape'] === 'sans_suite') return ['ok' => true, 'mode' => 'sans_suite'];
+
+        // "Vide" = encore à l'estimation et sans mandat rattaché.
+        $vide = ($d['etape'] === 'estimation') && empty($d['id_mandat']);
+
+        if ($vide) {
+            try {
+                $pdo->beginTransaction();
+                $pdo->prepare("DELETE FROM tiers_roles WHERE objet_type = 'dossier_vente' AND id_objet = ?")
+                    ->execute([$idDossier]);
+                $pdo->prepare("DELETE FROM dossier_vente_bien WHERE id_dossier = ?")->execute([$idDossier]);
+                $pdo->prepare("DELETE FROM dossier_vente WHERE id = ?")->execute([$idDossier]);
+                $pdo->commit();
+                return ['ok' => true, 'mode' => 'deleted'];
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                error_log('[dv_cancel delete] ' . $e->getMessage());
+                return ['ok' => false, 'mode' => 'noop', 'error' => 'Échec de la suppression.'];
+            }
+        }
+
+        // Dossier engagé : on fige en 'sans_suite' (terminal, non écrasé par la synchro auto).
+        try {
+            $pdo->prepare("UPDATE dossier_vente SET etape = 'sans_suite', updated_at = NOW() WHERE id = ?")
+                ->execute([$idDossier]);
+            return ['ok' => true, 'mode' => 'sans_suite'];
+        } catch (Throwable $e) {
+            error_log('[dv_cancel sans_suite] ' . $e->getMessage());
+            return ['ok' => false, 'mode' => 'noop', 'error' => 'Échec de l\'annulation.'];
+        }
+    }
+}
+
 if (!function_exists('dv_acteurs')) {
     /** Acteurs du dossier (vendeur/acquéreur/notaire…) via tiers_roles + tiers. */
     function dv_acteurs(PDO $pdo, int $idDossier): array {
@@ -335,6 +382,7 @@ if (!function_exists('dv_roles_autorises')) {
             'notaire'              => 'Notaire vendeur',
             'notaire_acquereur'    => 'Notaire acquéreur',
             'avocat'               => 'Avocat',
+            'conseil'              => 'Conseil',
             'partenaire_apporteur' => 'Apporteur / partenaire',
             'collaborateur'        => 'Collaborateur',
         ];

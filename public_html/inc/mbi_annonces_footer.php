@@ -18,6 +18,26 @@
     </div>
 
     <div class="mbi-footer-col">
+      <div class="mbi-footer-title">Nos métiers</div>
+      <ul class="mbi-footer-links">
+        <li><a href="<?= h(app_url('/mbi_annonces_location.php')) ?>">Location</a></li>
+        <li><a href="<?= h(app_url('/mbi_annonces_transaction.php')) ?>">Achat &amp; vente</a></li>
+        <li><a href="<?= h(app_url('/mbi_annonces_gestion.php')) ?>">Gestion locative</a></li>
+        <li><a href="<?= h(app_url('/mbi_annonces_syndic.php')) ?>">Syndic de copropriété</a></li>
+        <li><a href="<?= h(app_url('/mbi_annonces_investissement.php')) ?>">Investissement</a></li>
+        <li><a href="<?= h(app_url('/tarifs.php')) ?>">Tarifs &amp; honoraires</a></li>
+      </ul>
+    </div>
+
+    <div class="mbi-footer-col">
+      <div class="mbi-footer-title">Nous joindre</div>
+      <ul class="mbi-footer-links">
+        <li><a href="<?= h(app_url('/mbi_annonces_agences.php')) ?>">Nos agences &amp; horaires</a></li>
+        <li><a href="<?= h(app_url('/mbi_annonces_contact_general.php')) ?>">Contact</a></li>
+      </ul>
+    </div>
+
+    <div class="mbi-footer-col">
       <div class="mbi-footer-title">Professionnels</div>
       <ul class="mbi-footer-links">
         <li><a href="<?= h(app_url('/agence_portail.php')) ?>">Espace Pro</a></li>

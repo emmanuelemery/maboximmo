@@ -32,7 +32,7 @@ if ($idDossier <= 0 || $idTiers <= 0) { echo json_encode(['ok'=>false,'error'=>'
 if (!creancier_user_can_access_dossier($pdo, $idDossier, $userId)) { http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Accès refusé']); exit; }
 
 // Rôle libre côté dossier ; whitelist douce.
-$ALLOWED = ['avocat','commissaire_justice','expert_comptable','notaire','creancier','heritier','associe','gerant','gestionnaire','contact','debiteur'];
+$ALLOWED = ['avocat','commissaire_justice','expert_comptable','conseil','notaire','creancier','heritier','associe','gerant','gestionnaire','contact','debiteur'];
 if (!in_array($role, $ALLOWED, true)) $role = 'contact';
 
 // Vérifie le tiers.

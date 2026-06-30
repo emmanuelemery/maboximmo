@@ -213,7 +213,7 @@ foreach ($rows as $r) {
                 </td>
                 <td>
                     <?php if ($r['immeuble_id']): ?>
-                        <a href="<?= h(app_url('/agency_immeuble_detail.php?id=' . $r['immeuble_id'])) ?>" target="_blank">
+                        <a href="<?= h(app_url('/immeuble_360.php?id=' . $r['immeuble_id'])) ?>" target="_blank">
                             #<?= (int)$r['immeuble_id'] ?>
                         </a>
                         <div style="font-size:10px;"><?= h($r['nom_immeuble'] ?: '') ?></div>

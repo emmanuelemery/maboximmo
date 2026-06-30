@@ -67,6 +67,9 @@ try {
     // ── Recherche autocomplete ──
     if ($q !== '') {
         $like = '%' . $q . '%';
+        // Variante NORMALISÉE (sans espaces / tirets / apostrophes) → anti-doublon robuste :
+        // « LOCAVENTE » doit matcher « SCI LOCA VENTE » (→ « SCILOCAVENTE » contient « LOCAVENTE »).
+        $qnorm = '%' . str_replace([' ', '-', '–', '—', "'", '’', '.'], '', $q) . '%';
         $whereType = '';
         $paramsType = [];
         if ($type !== '') {
@@ -107,6 +110,10 @@ try {
                 OR t.telephone      LIKE :q5
                 OR t.siret          LIKE :q6
                 OR t.ville          LIKE :q7
+                -- matchs normalisés (espaces/tirets/apostrophes retirés)
+                OR REPLACE(REPLACE(REPLACE(IFNULL(t.raison_sociale,''),' ',''),'-',''),'''','') LIKE :qn1
+                OR REPLACE(REPLACE(REPLACE(IFNULL(t.nom_affichage,''),' ',''),'-',''),'''','')   LIKE :qn2
+                OR REPLACE(REPLACE(REPLACE(CONCAT_WS('', IFNULL(t.prenom,''), IFNULL(t.nom,'')),' ',''),'-',''),'''','') LIKE :qn3
               )
               $whereType
               $whereRole
@@ -118,6 +125,7 @@ try {
         ";
         $st = $pdo->prepare($sqlSearch);
         for ($i = 1; $i <= 7; $i++) { $st->bindValue(":q{$i}", $like); }
+        $st->bindValue(':qn1', $qnorm); $st->bindValue(':qn2', $qnorm); $st->bindValue(':qn3', $qnorm);
         $st->bindValue(':qstart', $q . '%');
         $st->bindValue(':lim', $limit, PDO::PARAM_INT);
         foreach ($paramsType as $k => $v) $st->bindValue($k, $v);

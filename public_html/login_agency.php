@@ -567,7 +567,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="login-foot">
             MaBoxImmo · My Box Agency · Régie EMERY<br>
-            <a href="default.php" style="color:var(--accent);text-decoration:none;">← Retour au portail</a>
+            <a href="https://maboximmo.fr" style="color:var(--accent);text-decoration:none;">← Retour au portail</a>
         </div>
 
     </section>

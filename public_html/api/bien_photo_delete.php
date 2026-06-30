@@ -47,7 +47,10 @@ try {
     if (!$row) {
         throw new RuntimeException('Photo introuvable');
     }
-    if ($societeId > 0 && (int)$row['id_societe'] !== $societeId) {
+    // Super-admin (role=1) bypass le filtre société : il peut éditer n'importe quel bien
+    // (cohérent avec bien_autosave.php). Sinon, la photo doit appartenir à la société courante.
+    $isSuperAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
+    if (!$isSuperAdmin && $societeId > 0 && (int)$row['id_societe'] !== $societeId) {
         throw new RuntimeException('Accès refusé');
     }
 

@@ -14,15 +14,18 @@ declare(strict_types=1);
  * Ce endpoint :
  *   - Reçoit un POST multipart $_FILES['file']
  *   - Stocke en quarantaine local : /storage/ged/00_A_CLASSER_IA/_quarantine_YYYY-MM/uniq_name
- *   - Lance gedExtractDocument() (Claude Sonnet 4.6 + fallback GPT-4o)
- *   - INSERT dans ged_analyses (status=to_validate)
- *   - Retourne JSON {ok, analysis_id, engine, model, confidence}
+ *   - Lance par défaut un classement low-cost : gedClasserLowCost() (sans IA premium)
+ *   - INSERT dans ged_analyses (status=to_validate ou manual_review selon confiance)
+ *   - Retourne JSON {ok, analysis_id, analysis_level, engine, model, confidence}
+ *
+ * IMPORTANT :
+ * - l'escalade vers une IA avancée ne doit PAS être automatique (bouton explicite côté UI).
  *
  * Pour la suite (validate, skip, reject, preview), utilise toujours
  * /modules/ged/ged_inbox_action.php — seul l'upload était bloqué par le WAF.
  */
 
-set_time_limit(120); // OCR + IA peut prendre 30-60s
+set_time_limit(300); // OCR + IA peut prendre 30-180s sur PDF lourds (mutualisé)
 
 @ini_set('display_errors', '0');
 error_reporting(0);
@@ -34,7 +37,7 @@ require_login();
 require_once dirname(__DIR__) . '/modules/ged/ged_functions_legacy.php'; // archivé Phase 1.1 — fusion Phase 2/3
 require_once dirname(__DIR__) . '/modules/ged/ged_storage.php';
 require_once dirname(__DIR__) . '/modules/ged/ged_storage_local.php';
-require_once dirname(__DIR__) . '/modules/ged/ged_extraction.php';
+require_once dirname(__DIR__) . '/modules/ged/ged_classer.php';
 
 // Filet : si fatal error, on renvoie quand même du JSON
 register_shutdown_function(function () {
@@ -64,6 +67,25 @@ function ged_up_respond(bool $ok, string $msg = '', array $extra = []): void {
     }
     echo json_encode(array_merge(['ok' => $ok, 'message' => $msg], $extra), JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+function ged_up_respond_and_continue(bool $ok, string $msg = '', array $extra = []): void
+{
+    // Réponse immédiate pour éviter les 504 Gateway Timeout côté reverse proxy
+    while (ob_get_level()) @ob_end_clean();
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    echo json_encode(array_merge(['ok' => $ok, 'message' => $msg], $extra), JSON_UNESCAPED_UNICODE);
+
+    // Flush + libère le client; le script peut continuer (php-fpm)
+    if (function_exists('fastcgi_finish_request')) {
+        @fastcgi_finish_request();
+    } else {
+        @flush();
+    }
+    @ignore_user_abort(true);
 }
 
 // Trace utile pour debug serveur
@@ -119,6 +141,10 @@ if ($size > 20 * 1024 * 1024) {
 }
 
 try {
+    // Orientation IA optionnelle : force le module/service de classement
+    $forcedService = isset($_POST['forced_service']) ? trim((string)$_POST['forced_service']) : '';
+    if ($forcedService === '') $forcedService = null;
+
     // 1. Stockage local en quarantaine
     $base   = dirname(__DIR__, 2) . '/storage/ged';
     $local  = new GedStorageLocal($base);
@@ -129,12 +155,50 @@ try {
     $up     = $local->upload($tmp, "{$uniq}_{$name}", $folder);
     $absLocal = $base . '/' . $up['file_id'];
 
-    // 2. Extraction IA
-    $extr = gedExtractDocument($absLocal);
-    $ai   = $extr['data'] ?? [];
+    // 2. Analyse minimale (low-cost) : filename + texte PDF si dispo, sans IA premium
+    $class = gedClasserLowCost($absLocal, $name);
+    $conf  = isset($class['confidence']) ? (float)$class['confidence'] : 0.0;
 
-    // 3. INSERT ged_analyses
-    $pdo = ged_get_pdo();
+    $module  = isset($class['module']) ? (string)$class['module'] : null;
+    $niv2    = isset($class['niveau_2']) ? (string)$class['niveau_2'] : null;
+    $niv3    = isset($class['niveau_3']) ? (string)$class['niveau_3'] : null;
+    $typeDoc = isset($class['type_document']) ? (string)$class['type_document'] : null;
+    $tiers   = isset($class['tiers_principal']) ? (string)$class['tiers_principal'] : null;
+
+    $dateDoc = isset($class['date_document']) && is_string($class['date_document']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $class['date_document'])
+        ? (string)$class['date_document'] : null;
+    $montant = isset($class['montant_ttc']) && $class['montant_ttc'] !== null ? (float)$class['montant_ttc'] : null;
+
+    // Orientation forcée : override module (si fourni)
+    if ($forcedService !== null) {
+        $module = $forcedService;
+    }
+
+    $analysisLevel = (string)($class['analysis_level'] ?? 'classer_v1');
+    $engine        = (string)($class['engine'] ?? 'filename_only');
+
+    $aiRaw = [
+        '_status'         => 'ready',
+        '_analysis_level' => $analysisLevel,
+        '_engine'         => $engine,
+        '_cost'           => 'low',
+        'type_document'   => $typeDoc ? strtoupper($typeDoc) : null,
+        'module'          => $module ? strtoupper((string)$module) : null,
+        'niveau_2'        => $niv2,
+        'niveau_3'        => $niv3,
+        'date_document'   => $dateDoc,
+        'montant_ttc'     => $montant,
+        'tiers_principal' => $tiers,
+        'banque_detectee' => $class['banque_detectee'] ?? null,
+        'description_courte' => $class['title'] ?? null,
+        'confiance_globale'  => $conf,
+        'forced_service'  => $forcedService,
+    ];
+
+    $status = $conf >= 75.0 ? 'to_validate' : 'manual_review';
+
+    // 3. INSERT en BDD
+    $pdo = function_exists('db_keepalive') ? db_keepalive() : ged_get_pdo();
     $stmt = $pdo->prepare("
         INSERT INTO ged_analyses (
             document_id, document_table, source_type,
@@ -146,56 +210,60 @@ try {
             id_societe, id_agence, ai_raw_response,
             sha256, storage_driver, storage_file_id, storage_folder_id,
             storage_size, storage_mime, tiers_nom, nom_original, nom_renomme,
-            extension, version_doc, date_document
+            extension, version_doc, date_document,
+            drive_sync_status, drive_sync_attempts, drive_sync_error,
+            google_drive_file_id, google_drive_folder_id, google_drive_url,
+            drive_sync_last_attempt_at, drive_sync_success_at
         ) VALUES (
             NULL, 'ged_inbox', 'upload',
             :ocr_eng, :ocr_text, :ia_eng,
-            :module, :n2, :n3, NULL,
-            :immeuble, :fournisseur, NULL,
+            :module, :n2, :n3, :sfn,
+            NULL, NULL, NULL,
             NULL, :montant, :date_doc,
-            :action, :conf, 'to_validate',
+            :action, :conf, :status,
             :id_soc, :id_ag, :ai_raw,
             :sha, 'local', :file_id, :folder_id,
             :size, :mime, :tiers, :nom_ori, NULL,
-            :ext, 1, :date_doc2
+            :ext, 1, :date_doc2,
+            'pending', 0, NULL,
+            NULL, NULL, NULL,
+            NULL, NULL
         )
     ");
-    $dateDoc = !empty($ai['date_document']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$ai['date_document'])
-        ? (string)$ai['date_document'] : null;
     $stmt->execute([
-        'ocr_eng'    => $extr['path_engine'] ?? 'unknown',
-        'ocr_text'   => isset($extr['raw_text']) ? mb_substr((string)$extr['raw_text'], 0, 65535) : null,
-        'ia_eng'     => $extr['model_used'] ?? 'unknown',
-        'module'     => isset($ai['module'])      ? mb_substr((string)$ai['module'], 0, 50)       : null,
-        'n2'         => isset($ai['niveau_2'])    ? mb_substr((string)$ai['niveau_2'], 0, 100)    : null,
-        'n3'         => isset($ai['niveau_3'])    ? mb_substr((string)$ai['niveau_3'], 0, 100)    : null,
-        'immeuble'   => isset($ai['immeuble'])    ? mb_substr((string)$ai['immeuble'], 0, 255)    : null,
-        'fournisseur'=> isset($ai['fournisseur']) ? mb_substr((string)$ai['fournisseur'], 0, 255) : null,
-        'montant'    => isset($ai['montant_ttc']) ? (float)$ai['montant_ttc']
-                       : (isset($ai['montant_ht']) ? (float)$ai['montant_ht'] : null),
-        'date_doc'   => $dateDoc,
-        'action'     => isset($ai['action_proposee']) ? (string)$ai['action_proposee'] : null,
-        'conf'       => isset($ai['confiance_globale']) ? (float)$ai['confiance_globale'] : null,
-        'id_soc'     => $societeId ?: null,
-        'id_ag'      => $agenceId  ?: null,
-        'ai_raw'     => json_encode($ai, JSON_UNESCAPED_UNICODE),
-        'sha'        => $up['sha256'],
-        'file_id'    => $up['file_id'],
-        'folder_id'  => $up['folder_id'],
-        'size'       => $up['size'],
-        'mime'       => $up['mime'],
-        'tiers'      => isset($ai['tiers_principal']) ? mb_substr((string)$ai['tiers_principal'], 0, 255) : null,
-        'nom_ori'    => mb_substr($name, 0, 255),
-        'ext'        => $ext,
-        'date_doc2'  => $dateDoc,
+        'id_soc'    => $societeId ?: null,
+        'id_ag'     => $agenceId  ?: null,
+        'ocr_eng'   => mb_substr($engine, 0, 50),
+        'ocr_text'  => isset($class['raw_text']) ? mb_substr((string)$class['raw_text'], 0, 65535) : null,
+        'ia_eng'    => mb_substr($analysisLevel, 0, 50),
+        'module'    => $module !== null ? mb_substr((string)$module, 0, 50) : null,
+        'n2'        => $niv2 !== null ? mb_substr((string)$niv2, 0, 100) : null,
+        'n3'        => $niv3 !== null ? mb_substr((string)$niv3, 0, 100) : null,
+        'sfn'       => isset($class['suggested_filename']) ? mb_substr((string)$class['suggested_filename'], 0, 255) : null,
+        'montant'   => $montant,
+        'date_doc'  => $dateDoc,
+        'date_doc2' => $dateDoc,
+        'action'    => $conf >= 75.0 ? 'Classer (éco) — prêt à valider' : 'Classer (éco) — à vérifier',
+        'conf'      => $conf,
+        'status'    => $status,
+        'ai_raw'    => json_encode($aiRaw, JSON_UNESCAPED_UNICODE),
+        'sha'       => $up['sha256'],
+        'file_id'   => $up['file_id'],
+        'folder_id' => $up['folder_id'],
+        'size'      => $up['size'],
+        'mime'      => $up['mime'],
+        'tiers'     => $tiers !== null ? mb_substr($tiers, 0, 255) : null,
+        'nom_ori'   => mb_substr($name, 0, 255),
+        'ext'       => $ext,
     ]);
     $insertedId = (int)$pdo->lastInsertId();
 
-    ged_up_respond(true, 'Document analysé et ajouté à la file', [
-        'analysis_id' => $insertedId,
-        'engine'      => $extr['path_engine'] ?? null,
-        'model'       => $extr['model_used'] ?? null,
-        'confidence'  => $ai['confiance_globale'] ?? null,
+    ged_up_respond(true, 'Document classé (éco) — à valider', [
+        'analysis_id'    => $insertedId,
+        'analysis_level' => $analysisLevel,
+        'engine'         => $engine,
+        'model'          => null,
+        'confidence'     => $conf,
     ]);
 
 } catch (Throwable $e) {

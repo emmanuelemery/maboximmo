@@ -1,0 +1,575 @@
+RAPPORT MATCHING DIAGNOSTICS — 30/05/2026 19:23
+======================================================================
+Immeubles actifs BD : 78
+Dossiers disponibles : 210
+
+✅ Matchés (confiant ≥0.65)   : 29
+⚠️  Matchés (faible 0.4-0.65)  : 49
+❌ Non matchés                 : 0
+📄 Fichiers à copier           : 163
+
+──────────────────────────────────────────────────────────────────────
+✅ MATCHÉS CONFIANTS
+──────────────────────────────────────────────────────────────────────
+
+  [01700243] 1 BOULEVARD DE LA CHANTOUNE 38700 LA TRONCHE LA TRONCHE
+  → Dossier : 1 CHANTOURNE - LA TRONCHE (score 0.75)
+    • [dossier-diag        ] DDT_-_2025-02-16318_SCI_HIMMALAYA 1 BOULEVARD DE L (6229 Ko, 12/06/2025)
+
+  [01100136] 1 RUE CHAVANNE 69001 LYON LYON
+  → Dossier : 10 CAVENNE 69007 (score 0.69)
+    • [amiante             ] ICI1535-4001-0014_Amiante_DAPP.pdf (181 Ko, 28/06/2020)
+    • [autre-pdf           ] ICI1535-4001-0014_Attestation_de_surface.pdf (51 Ko, 28/06/2020)
+    • [dpe                 ] carrez - dpe 2022.pdf (3299 Ko, 18/10/2022)
+    • [ernt                ] ERP-COMPLET-M.-MME-CLARY.pdf (8244 Ko, 09/07/2020)
+    • [plan                ] ICI1535-4001-0014.PLAN.jpg (321 Ko, 28/06/2020)
+    • [plomb               ] ICI1535-4001-0014_Crep.pdf (254 Ko, 28/06/2020)
+
+  [01330218] 100, rue Maryse BASTIE 69008 LYON 08 LYON 08
+  → Dossier : 100 MARYSE BASTIE (score 0.87)
+    • [autre-pdf           ] T3 4EME.pdf (1644 Ko, 26/11/2015)
+    • [ernt                ] ERNT.pdf (1357 Ko, 30/01/2017)
+
+  [01190067] 11 & 13 RUE DE LA REPUBLIQUE 91800 BRUNOY BRUNOY
+  → Dossier : 11-13 REPUBLIQUE - BRUNOY (score 0.85)
+    • [autre-pdf           ] EXPERTISE IMMOBILIERE.pdf (1377 Ko, 26/04/2019)
+
+  [01070101] 112 RUE MONTESQUIEU 69007 LYON LYON
+  → Dossier : 112 MONTESQUIEU (score 0.71)
+    • [autre-pdf           ] ETAGE 2; PORTE 2D - LOT 14 -.pdf (6729 Ko, 10/08/2023)
+
+  [00040066] 15 AVENUE KENNEDY 59000 LILLE LILLE
+  → Dossier : 15 KENNEDY (score 0.7)
+    • [amiante             ] AMIANTE.pdf (482 Ko, 17/10/2018)
+    • [autre-pdf           ] DIAGS.pdf (1810 Ko, 03/07/2019)
+    • [dpe                 ] DPE.pdf (523 Ko, 17/10/2018)
+
+  [02306017] 15 BD YVES FARGE None
+  → Dossier : 15 YVES FARGE (score 0.87)
+    • [autre-pdf           ] T3 - 3EME - VALOMA.pdf (700 Ko, 06/03/2020)
+    • [dossier-diag        ] DDT_-_2025-10-17306__Succession_IENTILE_chez_REGIE (1959 Ko, 31/10/2025)
+    • [dpe                 ] DPE.pdf (1527 Ko, 28/08/2018)
+    • [ernt                ] Erp.pdf (840 Ko, 31/10/2025)
+    • [plan                ] PLAN - SURFACES.pdf (292 Ko, 28/08/2018)
+
+  [01230173] 17 RUE ANTOINE LOUVIER 69960 CORBAS None
+  → Dossier : JARDIN DE LEA (score 0.67)
+    • [autre-pdf           ] 5 BIS RUE POIZAT VILLEURBANNE.pdf (2600 Ko, 27/09/2013)
+
+  [01100153] 2 RUE SAINT EUSEBE 69003 LYON LYON
+  → Dossier : 2 SAINT EUSEBE (score 0.69)
+    • [autre-pdf           ] ST RDC -D- LOT 21.pdf (3341 Ko, 28/06/2021)
+
+  [01700242] 215 RUE JOSEPH BIGOT 56850 CAUDAN CAUDAN
+  → Dossier : CAUDAN (score 1.0)
+    • [amiante             ] 1262025B_Amiante_DTA.pdf (899 Ko, 20/02/2025)
+    • [autre-pdf           ] 1262025B_parasites.pdf (598 Ko, 20/02/2025)
+    • [dpe                 ] 1262025B DPE .pdf (1842 Ko, 20/02/2025)
+
+  [01070131] 27 RUE HENRI MARECHAL 69800 SAINT-PRIEST SAINT-PRIEST
+  → Dossier : 42 henri marechal st priest BUREAUX (score 0.86)
+    • [dossier-diag        ] DDT_-_2026-04-17934__GROUPE_SIR_chez_REGIE_EMERY - (1476 Ko, 04/05/2026)
+
+  [01100148] 3 RUE ANTONIN PERRIN 69100 VILLEURBANNE VILLEURBANNE
+  → Dossier : 3 ANTONIN PERRIN (score 0.7)
+    • [autre-pdf           ] 3 RUE ANTONIN PERRIN - 69100 VILLEURBANNE - CAVE L (2879 Ko, 29/11/2016)
+
+  [01100170] 32 rue Poizat 69100 VILLEURBANNE VILLEURBANNE
+  → Dossier : 77 REPUBLIQUE - VILLEURBANNE (score 0.7)
+    • [autre-pdf           ] 77 REPUBLIQUE - TAVIER.pdf (17265 Ko, 08/01/2024)
+
+  [01330214] 35 COURS DE LA REPUBLIQUE 69100 VILLEURBANNE VILLEURBANNE
+  → Dossier : 63 REPUBLIQUE (score 1.0)
+    • [autre-pdf           ] 0063_RUE_DE_LA_REPUBLIQUE_PONT_DE_CHERUY_0_RDC_1__ (4752 Ko, 15/11/2011)
+    • [dpe                 ] CARREZ-DPE.pdf (124 Ko, 14/04/2020)
+
+  [02306009] 36044 CHATEAUROUX None
+  → Dossier : CHATEAUROUX (score 1.0)
+    • [dossier-diag        ] DDT_-_2025-06-16761__SOCIETE_IMMOBILIERE_DU_RHONE_ (2102 Ko, 15/07/2025)
+
+  [01040185] 40 RUE HENRI MARECHAL 69800 SAINT PRIEST SAINT PRIEST
+  → Dossier : 42 henri marechal st priest BUREAUX (score 0.74)
+    • [dossier-diag        ] DDT_-_2026-04-17934__GROUPE_SIR_chez_REGIE_EMERY - (1476 Ko, 04/05/2026)
+
+  [01330187] 40 RUE LEON BLUM 69100 VILLEURBANNE VILLEURBANNE
+  → Dossier : BALCON DE LEA (score 0.84)
+    • [dpe                 ] DPE logement 240.pdf (411 Ko, 22/12/2011)
+    • [plan                ] plan de vente lot 240.pdf (38 Ko, 22/12/2011)
+
+  [01040091] 41 GRANDE RUE 69110 SAINTE FOY LES LYON SAINTE FOY LES LYON
+  → Dossier : 41 GD RUE - ST FOY (score 0.65)
+    • [autre-pdf           ] LC.pdf (1545 Ko, 24/05/2019)
+    • [ernt                ] AMIANTE-ERP.pdf (1232 Ko, 03/07/2025)
+
+  [01100152] 48 RUE SAINT GERVAIS 69008 LYON LYON
+  → Dossier : 48 ST GERVAIS (score 0.69)
+    • [autre-pdf           ] LOT 5 à GAUCHE.pdf (5897 Ko, 13/12/2011)
+
+  [01210106] 57 RUE DE LA THIBAUDIERE 69007 LYON LYON
+  → Dossier : 57 THIBAUDIERE (score 0.69)
+    • [amiante             ] 57 RUE DE LA THIBAUDIERE SURFACE AMIANTE.pdf (6090 Ko, 28/04/2014)
+    • [autre-pdf           ] ATTESTATION 2026 (6).pdf (113 Ko, 05/05/2026)
+    • [dossier-diag        ] DDT_-_2026-02-17748__SIRES_chez_REGIE_EMERY - 57 R (2431 Ko, 05/05/2026)
+    • [dpe                 ] LC- LOT 1 - AMIANTE-DPE-ERP 2025.pdf (9465 Ko, 11/02/2025)
+    • [ernt                ] Erp (5).pdf (1346 Ko, 05/05/2026)
+
+  [02306021] 61-79 RUE DU VAL VERT 74600 SEYNOD None
+  → Dossier : SEYNOD (score 1.0)
+    • [dossier-diag        ] DDT_-_2025-06-16757__SOCIETE_IMMOBILIERE_DU_RHONE_ (2573 Ko, 15/07/2025)
+    • [ernt                ] Erp.pdf (812 Ko, 15/07/2025)
+
+  [01210103] 66 RUE VICTOR HUGO 69002 LYON LYON
+  → Dossier : 66 VICTOR HUGO (score 0.71)
+    • [autre-pdf           ] 66 RUE VICTOR HUGO - 69002 LYON - SEVEN.pdf (5049 Ko, 24/06/2019)
+
+  [01080141] 69008 LYON None
+  → Dossier : 3 ANTONIN PERRIN (score 0.69)
+    • [autre-pdf           ] 3 RUE ANTONIN PERRIN - 69100 VILLEURBANNE - CAVE L (2879 Ko, 29/11/2016)
+
+  [01040226] 69570 DARDILLY DARDILLY
+  → Dossier : 9 PLATEAU - DARDILLY (score 0.67)
+    • [dossier-diag        ] DDT_-_2025-02-16317_GROUPE_SIR_chez_REGIE_EMERY.pd (1640 Ko, 21/02/2025)
+
+  [02300059] 76 RUE DE VERDUN None
+  → Dossier : 34 VERDUN (score 0.8)
+    • [autre-pdf           ] 34 RUE DE VERDUN - 69100 VILLEURBANNE - LOCAL CEP. (2190 Ko, 28/07/2022)
+
+  [02306012] 9 AVENUE PAUL VERLAINE ACTISERE 38030 GRENOBLE CEDEX 2 None
+  → Dossier : 9 PAUL VERLAINE GRENOBLE (score 0.66)
+    • [dossier-diag        ] DDT_-_2025-06-16763__SOCIETE_IMMOBILIERE_DU_RHONE_ (1362 Ko, 21/01/2026)
+
+  [01460202] 9 Boulevard Pinel Lyon
+  → Dossier : 13 PINEL (score 1.0)
+    • [amiante             ] PC- PLOMB - AMIANTE.pdf (4710 Ko, 18/09/2017)
+    • [autre-pdf           ] 13 BD PINEL - 69003 LYON.pdf (4710 Ko, 18/09/2017)
+    • [carrez              ] 2012-04-00384_-_D8_-_Carrez_reduit__12_04_2012__11 (210 Ko, 12/04/2012)
+
+  [01040112] 9 RUE NOTRE DAME 69006 LYON LYON
+  → Dossier : 9 NOTRE DAME (score 0.74)
+    • [autre-pdf           ] T2 - 2EME D.pdf (6443 Ko, 18/11/2019)
+
+  [01080140] LES CAMPANELLES 100 RUE DES CONTAMINES 69140 RILLIEUX LA PAPE None
+  → Dossier : CAMPANELLES - RILLIEUX (score 0.91)
+    • [autre-pdf           ] 486 AVENUE VICTOR HUGO RILLIEUX.pdf (2584 Ko, 29/11/2012)
+
+──────────────────────────────────────────────────────────────────────
+⚠️  MATCHÉS FAIBLES — À VÉRIFIER MANUELLEMENT
+──────────────────────────────────────────────────────────────────────
+
+  [01070124] 192 RUE CUVIER 69006 LYON LYON
+  → Dossier proposé : 192 CUVIER (score 0.63) ?
+    • [autre-pdf           ] 192 RUE CUVIER - 69006 LYON.pdf
+    • [dpe                 ] DPE.pdf
+    • [plan                ] PLAN-SURFACES.pdf
+
+  [01040229] 34 RUE DE VERDUN 69100 VILLEURBANNE RECAPITULATIF DES OPERATIONS Débits Crédits Dont T.V.A. Locatif Déductible - Dépenses de Syndic - VILLEURBANNE RECAPITULATIF DES OPERATIONS Débits Crédits Dont T.V.A. Locatif Déductible - Dépenses de Syndic -
+  → Dossier proposé : 34 VERDUN (score 0.63) ?
+    • [autre-pdf           ] 34 RUE DE VERDUN - 69100 VILLEURBANNE - LOCAL CEP.
+
+  [01040088] 122 RUE MARIETTON 69130 ECULLY ECULLY
+  → Dossier proposé : 122 MARIETTON (score 0.62) ?
+    • [autre-pdf           ] ATTESTATION 2026.pdf
+    • [dossier-diag        ] DDT_-_2026-04-17906__SOCIETE_IMMOBILIERE_DU_RHONE_
+    • [ernt                ] Erp.pdf
+
+  [02306006] 21300 CHENOVE None
+  → Dossier proposé : 26 CAZENEUVE (score 0.62) ?
+    • [autre-pdf           ] 26 BIS RUE CAZENEUVE - T3- 1D.pdf
+
+  [01080134] 26 BIS RUE CAZENEUVE 69008 LYON None
+  → Dossier proposé : 26 CAZENEUVE (score 0.62) ?
+    • [autre-pdf           ] 26 BIS RUE CAZENEUVE - T3- 1D.pdf
+
+  [01070125] 47/49 RUE DU DAUPHINE 69003 LYON LYON
+  → Dossier proposé : 49 DAUPHINE (score 0.62) ?
+    • [autre-pdf           ] DIAGS 2012.pdf
+    • [dossier-diag        ] DDT_-_2025-07-16871_MODIFIE 08-25.pdf
+
+  [01100184] 63 RUE DE LA REPUBLIQUE 38230 PONT DE CHERUY PONT DE CHERUY
+  → Dossier proposé : 11-13 REPUBLIQUE - BRUNOY (score 0.62) ?
+    • [autre-pdf           ] EXPERTISE IMMOBILIERE.pdf
+
+  [01070117] 77-85 AVENUE BERTHELOT 2-4 CAMILLE ROY 69007 LYON LYON
+  → Dossier proposé : 161 BERTHELOT (score 0.62) ?
+    • [autre-pdf           ] 161 AVENUE BERTHELOT - 69007 LYON.pdf
+    • [dossier-diag        ] Scanhabitat11325_-DDT.pdf
+
+  [01040117] 77-85 AVENUE BERTHELOT 2-4 CAMILLE ROY 69007 LYON LYON
+  → Dossier proposé : 161 BERTHELOT (score 0.62) ?
+    • [autre-pdf           ] 161 AVENUE BERTHELOT - 69007 LYON.pdf
+    • [dossier-diag        ] Scanhabitat11325_-DDT.pdf
+
+  [01100147] CLOS ANTOINETTE 21 RUE ANTOINETTE 69003 LYON LYON
+  → Dossier proposé : 21 ANTOINETTE (score 0.62) ?
+    • [autre-pdf           ] lot 2 RDC.pdf
+
+  [01100132] LE JARDIN DE LEA 5BIS & 7 RUE POIZAT 69100 VILLEURBANNE VILLEURBANNE
+  → Dossier proposé : JARDIN DE LEA (score 0.62) ?
+    • [autre-pdf           ] 5 BIS RUE POIZAT VILLEURBANNE.pdf
+
+  [01100150] 169 ROUTE DE VIENNE 69008 LYON LYON
+  → Dossier proposé : 10 CAVENNE 69007 (score 0.61) ?
+    • [dpe                 ] carrez - dpe 2022.pdf
+    • [ernt                ] ERP-COMPLET-M.-MME-CLARY.pdf
+    • [plan                ] ICI1535-4001-0014.PLAN.jpg
+    • [amiante             ] ICI1535-4001-0014_Amiante_DAPP.pdf
+    • [autre-pdf           ] ICI1535-4001-0014_Attestation_de_surface.pdf
+
+  [01100137] 22-28 avenue du Mont-Blanc 69140 RILLIEUX LA PAPE RILLIEUX LA PAPE
+  → Dossier proposé : 26 MONT BLANC (score 0.61) ?
+    • [plan                ] PLAN T2.pdf
+    • [autre-pdf           ] T2- 2EME.pdf
+
+  [01080137] 22-28 avenue du Mont-Blanc 69140 RILLIEUX LA PAPE None
+  → Dossier proposé : 26 MONT BLANC (score 0.61) ?
+    • [plan                ] PLAN T2.pdf
+    • [autre-pdf           ] T2- 2EME.pdf
+
+  [01040087] 238 ROUTE DE VIENNE 69008 LYON LYON
+  → Dossier proposé : 10 CAVENNE 69007 (score 0.61) ?
+    • [dpe                 ] carrez - dpe 2022.pdf
+    • [ernt                ] ERP-COMPLET-M.-MME-CLARY.pdf
+    • [plan                ] ICI1535-4001-0014.PLAN.jpg
+    • [amiante             ] ICI1535-4001-0014_Amiante_DAPP.pdf
+    • [autre-pdf           ] ICI1535-4001-0014_Attestation_de_surface.pdf
+
+  [01210087] 238 ROUTE DE VIENNE 69008 LYON LYON
+  → Dossier proposé : 10 CAVENNE 69007 (score 0.61) ?
+    • [dpe                 ] carrez - dpe 2022.pdf
+    • [ernt                ] ERP-COMPLET-M.-MME-CLARY.pdf
+    • [plan                ] ICI1535-4001-0014.PLAN.jpg
+    • [amiante             ] ICI1535-4001-0014_Amiante_DAPP.pdf
+    • [autre-pdf           ] ICI1535-4001-0014_Attestation_de_surface.pdf
+
+  [02306016] 2 rue d'YVOURS 69540 IRIGNY None
+  → Dossier proposé : 12 IVRY (score 0.6) ?
+    • [autre-pdf           ] 0012_RUE_D_IVRY_LYON_4_2EM_GAUCHE_LOT_31.pdf
+
+  [01210113] 27 RUE FERRER 28/32 BLD E. ZOLA 69600 OULLINS OULLINS
+  → Dossier proposé : 27 FERRER (score 0.6) ?
+    • [amiante             ] 30 BOULEVARD EMILE ZOLA POLE EMPLOI- 27 RUE FERRER
+    • [autre-pdf           ] ATTESTATION 2026.pdf
+    • [dossier-diag        ] DDT_-_2026-03-17764__SIRES_chez_REGIE_EMERY.pdf
+    • [ernt                ] Erp.pdf
+
+  [01210063] 1 PLACE ADRIEN GODIEN 69004 LYON LYON
+  → Dossier proposé : 1 PLACE GODIEN (score 0.57) ?
+    • [plan                ] 1 PLACE ADRIEN GODIEN - 69004 LYON - PLANET ECLAIR
+    • [ernt                ] AMIANTE - ERP 2025.pdf
+    • [dpe                 ] DPE 2019.pdf
+
+  [01070126] 11 AVENUE DE L'EUROPE 69140 RILLIEUX RILLIEUX
+  → Dossier proposé : CAMPANELLES - RILLIEUX (score 0.57) ?
+    • [autre-pdf           ] 486 AVENUE VICTOR HUGO RILLIEUX.pdf
+
+  [01070286] 2 RUE DE L'EGLISE 69003 LYON LYON
+  → Dossier proposé : 2 EGLISE (score 0.57) ?
+    • [autre-pdf           ] T3 - 1ER.pdf
+
+  [01210082] 51 AVENUE DU POINT DU JOUR 69005 LYON LYON
+  → Dossier proposé : 18 DENUZIERE (score 0.57) ?
+    • [dpe                 ] DPE.pdf
+
+  [01070146] 172 RUE CHALLEMEL LACOUR 69008 LYON LYON
+  → Dossier proposé : 168 CHALLEMEL (score 0.56) ?
+    • [autre-pdf           ] 168 RUE CHALLEMEL LACOUR - 69008 LYON.pdf
+    • [carrez              ] 168 RUE CHALLEMEL - GRENIER - CARREZ.pdf
+    • [amiante             ] AMIANTE.pdf
+
+  [01100146] 172 RUE CHALLEMEL LACOUR 69008 LYON LYON
+  → Dossier proposé : 168 CHALLEMEL (score 0.56) ?
+    • [autre-pdf           ] 168 RUE CHALLEMEL LACOUR - 69008 LYON.pdf
+    • [carrez              ] 168 RUE CHALLEMEL - GRENIER - CARREZ.pdf
+    • [amiante             ] AMIANTE.pdf
+
+  [01330224] RUE BLANCHE ET GEORGES CATON 69007 LYON 07 LYON 07
+  → Dossier proposé : 15 YVES FARGE (score 0.56) ?
+    • [autre-pdf           ] T3 - 3EME - VALOMA.pdf
+    • [ernt                ] Erp.pdf
+    • [dpe                 ] DPE.pdf
+    • [plan                ] PLAN - SURFACES.pdf
+    • [dossier-diag        ] DDT_-_2025-10-17306__Succession_IENTILE_chez_REGIE
+
+  [01040224] RUE BLANCHE ET GEORGES CATON 69007 LYON 07 LYON 07
+  → Dossier proposé : 15 YVES FARGE (score 0.56) ?
+    • [autre-pdf           ] T3 - 3EME - VALOMA.pdf
+    • [ernt                ] Erp.pdf
+    • [dpe                 ] DPE.pdf
+    • [plan                ] PLAN - SURFACES.pdf
+    • [dossier-diag        ] DDT_-_2025-10-17306__Succession_IENTILE_chez_REGIE
+
+  [02306013] ZONE DE LA MULATIERE None
+  → Dossier proposé : 15 TOURVILLE (score 0.56) ?
+    • [autre-pdf           ] 15 RUE DE TOURVILLE LYON - combles et caves.pdf
+    • [plomb               ] 15 RUE DE TOURVILLE LYON - Plomb PC.pdf
+    • [carrez              ] CARREZ 2EME DROITE.pdf
+
+  [01210115] 3 COURS DU DOCTEUR LONG 69003 LYON LYON
+  → Dossier proposé : 1-3 DR LONG (score 0.55) ?
+    • [ernt                ] LC - RDC et 1ER Amiante-plomb-Ernt.pdf
+    • [autre-pdf           ] LC et 1er SURFACES.pdf
+
+  [01100154] 92 OURS DU DOCTEUR LONG 69003 LYON LYON
+  → Dossier proposé : 1-3 DR LONG (score 0.55) ?
+    • [ernt                ] LC - RDC et 1ER Amiante-plomb-Ernt.pdf
+    • [autre-pdf           ] LC et 1er SURFACES.pdf
+
+  [00030062] LIEUDIT LE MONINSABLE CD 42 69530 BRIGNAIS None
+  → Dossier proposé : BRIGNAIS (score 0.55) ?
+    • [autre-pdf           ] LE COMPTOIR SEIGNEURIE - 69530 BRIGNAIS.pdf
+    • [dossier-diag        ] DDT_-_2025-01-16256__GROUPE_SIR_chez_REGIE_EMERY 0
+    • [dpe                 ] DPE - AMIANTE.pdf
+
+  [01080138] 12 RUE D'IVRY 69004 LYON None
+  → Dossier proposé : 1-3 DR LONG (score 0.54) ?
+    • [ernt                ] LC - RDC et 1ER Amiante-plomb-Ernt.pdf
+    • [autre-pdf           ] LC et 1er SURFACES.pdf
+
+  [01330227] 140 RUE ROBERT SCHUMAN BAT. D 01960 PERONNAS PERONNAS
+  → Dossier proposé : 152 cours Albert THOMAS (score 0.54) ?
+    • [autre-pdf           ] 152 COURS ALBERT THOMAS LYON - ID INTERIM.pdf
+
+  [01080139] 12 RUE PASSET 69007 LYON None
+  → Dossier proposé : 10 CAVENNE 69007 (score 0.53) ?
+    • [dpe                 ] carrez - dpe 2022.pdf
+    • [ernt                ] ERP-COMPLET-M.-MME-CLARY.pdf
+    • [plan                ] ICI1535-4001-0014.PLAN.jpg
+    • [amiante             ] ICI1535-4001-0014_Amiante_DAPP.pdf
+    • [autre-pdf           ] ICI1535-4001-0014_Attestation_de_surface.pdf
+
+  [01100156] 16BIS-18 RUE ALEXANDRE BOUTIN 69100 VILLEURBANNE VILLEURBANNE
+  → Dossier proposé : 14 CHARMETTES (score 0.53) ?
+    • [autre-pdf           ] 14 RUE DES CHARMETTES - 69100 VILLEURBANNE.pdf
+
+  [01080135] 25 RUE SAINT PIERRE DE VAISE 69009 LYON None
+  → Dossier proposé : 37 PIERRE DELORE (score 0.53) ?
+    • [autre-pdf           ] 37 RUE PIERRE DELORE LYON, ETAGE 1 PORTE D.pdf
+
+  [01070127] 39 RUE SAINT PIERRE DE VAISE 69009 LYON LYON
+  → Dossier proposé : 37 PIERRE DELORE (score 0.53) ?
+    • [autre-pdf           ] 37 RUE PIERRE DELORE LYON, ETAGE 1 PORTE D.pdf
+
+  [02300305] 594/596 BD ALBERT CAMUS None
+  → Dossier proposé : 152 cours Albert THOMAS (score 0.53) ?
+    • [autre-pdf           ] 152 COURS ALBERT THOMAS LYON - ID INTERIM.pdf
+
+  [02306010] 7 L'abbaye sud None
+  → Dossier proposé : 48 ST GERVAIS (score 0.53) ?
+    • [autre-pdf           ] LOT 5 à GAUCHE.pdf
+
+  [00060068] ZAC DU TISSOT 42530 ST GENEST LERPT ST GENEST LERPT
+  → Dossier proposé : ST GENEST (score 0.53) ?
+    • [ernt                ] Erp.pdf
+
+  [01100151] 8 IMPASSE BERCHET 69008 LYON LYON
+  → Dossier proposé : 1 ABBE ROSIER 69001 (score 0.51) ?
+    • [autre-pdf           ] 1 RUE DE L ABBE ROZIER LYON 2023-01-13142.pdf
+
+  [01040076] 170 RUE CHALLEMEL LACOUR 69008 LYON LYON
+  → Dossier proposé : 168 CHALLEMEL (score 0.5) ?
+    • [autre-pdf           ] 168 RUE CHALLEMEL LACOUR - 69008 LYON.pdf
+    • [carrez              ] 168 RUE CHALLEMEL - GRENIER - CARREZ.pdf
+    • [amiante             ] AMIANTE.pdf
+
+  [01210105] 33 RUE DE BREST 69002 LYON LYON
+  → Dossier proposé : 1 ABBE ROSIER 69001 (score 0.5) ?
+    • [autre-pdf           ] 1 RUE DE L ABBE ROZIER LYON 2023-01-13142.pdf
+
+  [01070122] LES TERRASSE D'OPHELIE 26 RUE DU PROFESSEUR RANVIER 69008 LYON LYON
+  → Dossier proposé : 37 PIERRE DELORE (score 0.5) ?
+    • [autre-pdf           ] 37 RUE PIERRE DELORE LYON, ETAGE 1 PORTE D.pdf
+
+  [01100155] LES VERCHERES 24 RUE JACQUES PREVERT 69140 RILLIEUX LA PAPE RILLIEUX LA PAPE
+  → Dossier proposé : LA TRONCHE - GRENOBLE (score 0.5) ?
+    • [dpe                 ] 1_BOULEVARD_DE_LA_CHANTOURNE_38700_CARREZ DPE.pdf
+
+  [01070130] 140 ROUTE DE GENAS 69003 LYON LYON
+  → Dossier proposé : 4 GRIGNARD 69007 (score 0.48) ?
+    • [autre-pdf           ] DIAGN 4 GRIGNARD.pdf
+    • [dpe                 ] DPE 2023.pdf
+    • [ernt                ] ERP-COMPLET-M.-MME-CLARY.pdf
+
+  [01210100] 21 RUE DE NUITS 69004 LYON LYON
+  → Dossier proposé : 35 RUE 4 AOUT (score 0.48) ?
+    • [autre-pdf           ] 2LY.2012.10.00099 D.pdf
+
+  [01070128] LE PARC DES ETOILES 69008 LYON LYON
+  → Dossier proposé : 9 PLATEAU - DARDILLY (score 0.48) ?
+    • [dossier-diag        ] DDT_-_2025-02-16317_GROUPE_SIR_chez_REGIE_EMERY.pd
+
+  [01070158] LE HAMEAU DES MONTS D'OR 64 RUE DES ANGLAIS 69650 ST GERMAIN AU MONT D'OR ST GERMAIN AU MONT D'OR
+  → Dossier proposé : 34 SAINT ROMAIN (score 0.45) ?
+    • [autre-pdf           ] DIAG.pdf
+
+  [01101146] 172 rue Ch. LACOUR 69008 LYON 08 LYON 08
+  → Dossier proposé : 104 ST CLAIR-CALUIRE (score 0.43) ?
+    • [plomb               ] CREP.pdf
+    • [dpe                 ] DPE.pdf
+    • [electricite         ] Installation Intérieure Electricité.pdf
+    • [gaz                 ] Installation Intérieure Gaz.pdf
+    • [autre-pdf           ] surfaces.pdf
+
+──────────────────────────────────────────────────────────────────────
+❌ NON MATCHÉS — PAS DE DOSSIER TROUVÉ
+──────────────────────────────────────────────────────────────────────
+
+──────────────────────────────────────────────────────────────────────
+DOSSIERS NON UTILISÉS (pas d'immeuble actif correspondant)
+──────────────────────────────────────────────────────────────────────
+  - 00 ADEME DPE PETITES SURFACES
+  - 001 ERNT
+  - 1 CHAVANNE
+  - 1 JARDIN PLANTES
+  - 1 JEAN BART
+  - 1 JUBIN
+  - 1 JULES CHAUSSE CHAPONOST
+  - 1 MARCELIN BERTHELOT POITIERS
+  - 101 MONTEE DE CHOULANS
+  - 105 CREQUI
+  - 11 GAUGUIN - BRON
+  - 11 JEAN JAURES
+  - 111 CREQUI
+  - 111 MONTEE LUCIEN MAGNAT
+  - 12 - 14 PERRICAUD
+  - 12 GRILLET
+  - 12 PASSET
+  - 122 ARTISAN - VILLARGONDRAN
+  - 124 BOSSUET
+  - 124 MONTESQUIEU
+  - 13 LOUIS BLANC
+  - 13 RUE DU COMMERCE
+  - 13 VIALA
+  - 132 PLACE CROIX BLANCHE - ST ANDRE CORCY
+  - 14 SERGENT BLANDAN
+  - 140 GENAS
+  - 146 FELIX FAURE
+  - 150 VIENNE
+  - 168 TOLSTOI
+  - 169 VIENNE
+  - 17 CHARLEMAGNE
+  - 17 ROMARIN
+  - 17 TOURVILLE
+  - 170 CHALLEMEL
+  - 170 TOLSTOI
+  - 171 BERTHELOT
+  - 172 CHALLEMEL
+  - 18 BOUTIN
+  - 19 FAVRE
+  - 19 YVES FARGE
+  - 2 CAMILLE ROY
+  - 2 CHEVRET - OYONNAX
+  - 2 CLUZAN
+  - 2 JULES FERRY FONTAINE
+  - 2 LAURENCIN
+  - 2 YVOURS
+  - 20 ANNONCIADE
+  - 20 DERUELLE
+  - 20 PAUL CAZENEUVE
+  - 200 CHEMIN ETOILE - MARCY
+  - 201 JEAN JAURES
+  - 208 GRD RUE GUILLOTIERE
+  - 21 DREVON
+  - 21 NUITS
+  - 214 GDR RUE GUILLOTIERE
+  - 215 BERTHELOT
+  - 22 DOMREMY
+  - 22 VERMOREL - LIMAS
+  - 238 VIENNE
+  - 24 PREVERT
+  - 24 PROF WEILL
+  - 25 LIBERTE
+  - 25 VAISE
+  - 26 GD CHASSAGNON
+  - 26 RANVIER
+  - 263 GDE RUE GUILLOTIERE
+  - 263 GUILLOTIERE
+  - 28 BOUTIN
+  - 288 EMILE ZOLA
+  - 29 avenue du docteur georges levys vénissieux
+  - 3 BLANQUI
+  - 3 ZOLA
+  - 30 GOURGUILLON
+  - 30 REPUBLIQUE-TASSIN
+  - 31 PAUL BERT
+  - 312 PAUL BERT
+  - 32 POIZAT
+  - 325 PAUL BERT
+  - 33 BREST
+  - 33 EUGENE PONS
+  - 33 LEVY - MOULIN A VENT
+  - 35 CHENAVARD
+  - 35 FERRER
+  - 352 GENAS
+  - 37 RACLET
+  - 39 VAISE
+  - 4 ARSENAL VENISSIEUX
+  - 4 CAMILLE ROY
+  - 4 JOURNET
+  - 40 LEON BLUM
+  - 40 MARECHAL
+  - 40 TABLES CLAUDIENNES 69001
+  - 41 PIERRE SCIZE
+  - 45 ANGLAIS
+  - 47 MARIUS BERLIET
+  - 49 SEZE
+  - 5 CHABERT
+  - 5 DR BONHOMME
+  - 51 B GILLET
+  - 51 BERTHELOT
+  - 51 PT JOUR
+  - 56 ST GERVAIS
+  - 57 GRYPHE
+  - 573 RUE ANSE - VILLEFRANCHE
+  - 58 COURS LIBERTE
+  - 64 ANGLAIS
+  - 64 JEAN JAURES
+  - 64 SERVIENT
+  - 69bis VILLON
+  - 7 AMPERE NEUVILLE
+  - 7 ANTONIN PONCET
+  - 7 RECAMIER
+  - 7 poizat - lot 82 - 2ème
+  - 73 VILLON
+  - 76 JEAN MOULIN CALUIRE
+  - 76 VERDUN
+  - 77 BERTHELOT
+  - 77 FONTANIERES
+  - 77 GENERAL FRERE
+  - 78 GENIN
+  - 79 BERTHELOT
+  - 79 BOURBONNAIS
+  - 81 BERTHELOT
+  - 82 DR LONG
+  - 83 BERTHELOT
+  - 85 BERTHELOT
+  - 87 CRILLON
+  - 88 BLUM
+  - 9 ALGERIE
+  - 9 BROTTEAUX
+  - 9 PINEL
+  - 9 TEPPAZ
+  - 9 TOBIE ROBATEL
+  - 905 VICTOR HUGO - RILLEUX
+  - 93 CHARLEMANGNE
+  - 97 TOLSTOI
+  - 97 VENDOME
+  - 98 REPOS
+  - ANNONAY
+  - BERTHELOT
+  - BONS DE COMMANDE DIAG
+  - BOURGES
+  - BRUNOY
+  - CRISSEY
+  - DAVEZIEU
+  - DOSSIER DIAG-CARREZ
+  - ECHIROLLES
+  - ESPACE VICTOR HUGO-TASSIN
+  - LA RAVOIRE
+  - LIMOGES
+  - MANSER NON GERE
+  - Nouveau dossier
+  - TABLEAUX SYNTHESES
+  - VEYSSIERES ECULLY
+  - VILLA AULANIA
+  - VILLARGONDRAN
+  - VOIRON

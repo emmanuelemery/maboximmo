@@ -8,6 +8,9 @@ public_html/config/smtp.php
 public_html/config/smtp_local.php
 public_html/config/ubiflow_credentials.local.php
 public_html/config/registres.php
+# Microsoft Graph / OneDrive (super-admin) — seul le .example.php est versionné
+public_html/config/microsoft_graph.local.php
+u630423897/microsoft_graph_config.php
 db_config.php
 db_config_dev.php
 .env
@@ -86,3 +89,7 @@ sql/*.sql
 *~
 .DS_Store
 Thumbs.db
+maboximmo_pappers_config.php
+
+# Dossier local de secrets (clés API, ne jamais versionner)
+u630423897/

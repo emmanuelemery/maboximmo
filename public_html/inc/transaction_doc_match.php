@@ -20,6 +20,92 @@ if (!function_exists('transaction_doc_match_bien')) {
             return ['match_biens' => null, 'creation_needed' => true];
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // FEATURE_ENTITY_MATCHER (Sprint 2C — 2026-05-23) :
+        // Si ON → délégation au moteur central em_match_bien() avec mapping
+        // du format de sortie pour rester compatible avec les appelants
+        // (transaction_doc_preview_ia.php, transaction_doc_rematch.php).
+        // Si OFF (défaut) → code legacy ci-dessous inchangé.
+        // ═══════════════════════════════════════════════════════════════
+        if (defined('FEATURE_ENTITY_MATCHER') && FEATURE_ENTITY_MATCHER) {
+            require_once __DIR__ . '/entity_matcher.php';
+
+            $scopeSoc = $isManager ? null : $idSoc;
+            $r = em_match_bien($pdo, [
+                'adresse_1'   => $adresse,
+                'code_postal' => $cp,
+                'ville'       => $ville,
+            ], null, $scopeSoc);
+
+            // Enrichir chaque match avec les champs supplémentaires attendus par
+            // l'appelant legacy : proprio_nom, addr_hits, date_creation, etc.
+            // On refait une mini-query pour récupérer ces champs.
+            $matchesLegacy = [];
+            $ids = array_map(static fn($m) => (int)$m['id'], $r['matches'] ?? []);
+            $enrich = [];
+            if (!empty($ids)) {
+                try {
+                    $in = implode(',', $ids);
+                    $stE = $pdo->query("SELECT b.id, b.priorite_vente, b.id_proprietaire, b.date_creation,
+                                               b.numero_lot, b.surface_habitable, b.designation,
+                                               COALESCE(p.societe, CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom
+                                        FROM biens b
+                                        LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
+                                        WHERE b.id IN ({$in})");
+                    foreach ($stE->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                        $enrich[(int)$row['id']] = $row;
+                    }
+                } catch (Throwable $e) { error_log('[transaction_doc_match enrich] ' . $e->getMessage()); }
+            }
+
+            foreach (($r['matches'] ?? []) as $m) {
+                $id = (int)$m['id'];
+                $extra = $enrich[$id] ?? [];
+                $matchesLegacy[] = [
+                    'id'                => $id,
+                    'reference_bien'    => $m['reference_bien'],
+                    'adresse_1'         => $m['adresse_1'],
+                    'ville'             => $m['ville'],
+                    'code_postal'       => $m['code_postal'],
+                    'designation'       => $m['designation'] ?: ($extra['designation'] ?? ''),
+                    'priorite_vente'    => $extra['priorite_vente'] ?? null,
+                    'id_proprietaire'   => $extra['id_proprietaire'] ?? null,
+                    'surface_habitable' => $m['surface_habitable'] !== null ? $m['surface_habitable'] : ($extra['surface_habitable'] ?? null),
+                    'date_creation'     => $extra['date_creation'] ?? null,
+                    'numero_lot'        => $extra['numero_lot'] ?? null,
+                    'proprio_nom'       => $extra['proprio_nom'] ?? '',
+                    // Score normalisé 0-100 (le moteur retourne déjà sur cette échelle)
+                    'score'             => $m['score'],
+                    // addr_hits dérivé du match_type (mandat/refExt = 3, address_score = 2-3 selon reasons)
+                    'addr_hits'         => in_array($m['match_type'], ['mandat_identique', 'reference_externe'], true) ? 3
+                                          : (count(array_filter($m['reasons'], static fn($x) => str_contains($x, 'identique'))) >= 1 ? 2 : 1),
+                    'reasons'           => $m['reasons'] ?? [],
+                    'match_type'        => $m['match_type'] ?? '',
+                ];
+            }
+
+            if (defined('FEATURE_ENTITY_MATCHER_LOG') && FEATURE_ENTITY_MATCHER_LOG) {
+                error_log(sprintf(
+                    '[entity_matcher A/B] transaction_doc_match_bien flag=ON count=%d top=%d type=%s',
+                    count($matchesLegacy), $r['confidence'] ?? 0, $r['match_type'] ?? 'unknown'
+                ));
+            }
+
+            $creationNeeded = empty($matchesLegacy) || (($matchesLegacy[0]['addr_hits'] ?? 0) === 0);
+            return [
+                'match_biens'     => !empty($matchesLegacy) ? array_slice($matchesLegacy, 0, 5) : null,
+                'creation_needed' => $creationNeeded,
+                // Champs additionnels (ignorés par appelants legacy) :
+                '_via_entity_matcher'   => true,
+                '_confidence'           => $r['confidence'] ?? 0,
+                '_needs_user_validation'=> $r['needs_user_validation'] ?? false,
+                '_can_create'           => $r['can_create'] ?? true,
+            ];
+        }
+        // ═══════════════════════════════════════════════════════════════
+        // CODE LEGACY (FEATURE_ENTITY_MATCHER = OFF, défaut) — INCHANGÉ
+        // ═══════════════════════════════════════════════════════════════
+
         $stop = ['rue','avenue','boulevard','blv','blvd','bld','bd','place','chemin','allee','allée','impasse','route','voie','quai','cours','passage','square','parvis','lieu','dit','dite','dits','de','du','des','la','le','les','et','aux','en','sur','sous','d','l'];
 
         $numRue = '';

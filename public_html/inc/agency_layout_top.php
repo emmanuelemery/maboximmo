@@ -134,6 +134,9 @@ body { margin:0; background:#ffffff; font-family:'Sora',sans-serif; }
 }
 .btn-icon:hover { box-shadow: 2px 2px 5px #c8c4be, -2px -2px 5px #fff; }
 .btn-icon svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Boutons « Charger » FluxBox (topbar + flottant) masqués partout — l'upload reste accessible
+   via les cards Actions des fiches + raccourci Ctrl+U (la modale fbxOpenUploadModal reste active). */
+#fbx-upload-open, #fbx-upload-fab { display: none !important; }
 </style>
 <?= $extraCss ?>
 <?php if ($layoutNoSidebar): ?>
@@ -222,14 +225,7 @@ document.addEventListener('DOMContentLoaded', function(){
         </div>
         <div class="tb-center"><?php if (!empty($topbarCenter)) echo $topbarCenter; ?></div>
         <div class="tb-actions">
-            <?php include __DIR__ . '/topbar_search.php'; ?>
             <?php if (!empty($topbarActions)) echo $topbarActions; ?>
-            <button type="button" id="fbx-upload-open" class="tb-btn fbx-topbar-btn"
-                    title="Charger des documents (Ctrl+U)" aria-label="Charger des documents">
-                <span style="font-size:15px;">📥</span>
-                <span class="fbx-topbar-btn-label">Charger</span>
-                <span class="fbx-badge-live" id="fbx-topbar-badge" style="display:none;">0</span>
-            </button>
             <div class="tb-avatar" title="<?= htmlspecialchars(trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? '')) ?: 'Mon compte') ?>"><?= htmlspecialchars($_agInitials) ?></div>
             <a href="<?= htmlspecialchars(app_url('/accueil.php')) ?>" title="Nos services pro & particuliers" aria-label="Nos services" style="font-size:11px;color:#9aa3ad;text-decoration:none;white-space:nowrap;">Nos services</a>
             <a href="<?= htmlspecialchars(app_url('/logout.php')) ?>" class="tb-logout" title="Se déconnecter" aria-label="Se déconnecter">

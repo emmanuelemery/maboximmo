@@ -421,7 +421,11 @@ function toggleHistoryExtra() {
 }
 
 // ── Modal "Biens diffusés par agence" ──
+// Stocke l'agence courante pour permettre un reload du modal après l'action "Remonter".
+let __biensDiffCurrentAgence = { id: 0, nom: '' };
+
 async function openBiensDiffModal(idAgence, nomAgence) {
+    __biensDiffCurrentAgence = { id: idAgence, nom: nomAgence };
     const modal = document.getElementById('biens-diff-modal');
     const title = document.getElementById('biens-diff-modal-title');
     const body  = document.getElementById('biens-diff-modal-body');
@@ -438,38 +442,94 @@ async function openBiensDiffModal(idAgence, nomAgence) {
             return;
         }
         const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-        let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+        const limit = j.limit || 15;
+        const total = j.biens.length;
+        const nbPublies = Math.min(total, limit);
+        const nbAttente = Math.max(0, total - limit);
+
+        // Bandeau récap en tête (vert si tout passe, orange si file d'attente)
+        const recapBg = nbAttente === 0 ? '#ecfdf5' : '#fef3c7';
+        const recapBd = nbAttente === 0 ? '#10b981' : '#f59e0b';
+        const recapFg = nbAttente === 0 ? '#065f46' : '#78350f';
+        let html = '<div style="margin-bottom:14px;padding:10px 14px;background:' + recapBg + ';border:1px solid ' + recapBd + ';border-radius:8px;color:' + recapFg + ';font-size:13px;">'
+                 + '<strong>' + total + '</strong> annonce(s) active(s) · '
+                 + '<strong style="color:#16a34a;">' + nbPublies + '</strong> publiée(s) sur LBC · '
+                 + (nbAttente > 0
+                    ? '<strong style="color:#dc2626;">' + nbAttente + '</strong> en file d\'attente — clique 🚀 pour remonter une annonce'
+                    : 'Aucune en attente')
+                 + '</div>';
+
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
         html += '<thead><tr style="background:#f8fafc;text-align:left;">'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;width:40px;">Rang</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Statut LBC</th>'
               + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Réf</th>'
               + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Type</th>'
               + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Adresse</th>'
               + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Canaux</th>'
-              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">1ère diffusion</th>'
+              + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Dern. modif</th>'
               + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Commercial</th>'
               + '<th style="padding:8px;border-bottom:1px solid #e5e7eb;">Action</th>'
               + '</tr></thead><tbody>';
-        for (const b of j.biens) {
+        j.biens.forEach((b, idx) => {
+            const rang = idx + 1;
+            const isPublished = rang <= limit;
+            const rowBg = isPublished ? '#fff' : '#fef2f2';
+            const badgeHtml = isPublished
+                ? '<span style="background:#dcfce7;color:#166534;font-weight:700;padding:3px 8px;border-radius:99px;font-size:11px;">🟢 Publié</span>'
+                : '<span style="background:#fee2e2;color:#991b1b;font-weight:700;padding:3px 8px;border-radius:99px;font-size:11px;">🔴 En attente</span>';
             const canaux = [];
             if (b.visible_maboximmo) canaux.push('<span title="MaBoxImmo">🏢</span>');
             if (b.visible_site_perso) canaux.push('<span title="Site perso">🌐</span>');
             if (b.visible_portails) canaux.push('<span title="LeBonCoin via Ubiflow">📰</span>');
-            html += '<tr style="border-bottom:1px solid #f1f5f9;">'
+            // Action : bouton "Remonter" uniquement si en attente, sinon lien Ouvrir
+            let actionHtml = '<a href="bien_detail.php?edit=' + encodeURIComponent(b.id_bien) + '&section=annonce" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:700;font-size:11px;">🔗 Ouvrir</a>';
+            if (!isPublished) {
+                actionHtml = '<button type="button" onclick="ubiflowRemonter(' + b.id_annonce + ', this)" '
+                           + 'style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;" '
+                           + 'title="Bump date_modification → l\'annonce remonte en tête au prochain export Ubiflow">'
+                           + '🚀 Remonter</button>';
+            }
+            html += '<tr style="border-bottom:1px solid #f1f5f9;background:' + rowBg + ';">'
+                  + '<td style="padding:8px;font-weight:700;color:#475569;">' + rang + '</td>'
+                  + '<td style="padding:8px;">' + badgeHtml + '</td>'
                   + '<td style="padding:8px;font-family:monospace;">' + escapeHtml(b.reference_bien || '#'+b.id_bien) + '</td>'
                   + '<td style="padding:8px;">' + escapeHtml(b.type_bien || '—') + '</td>'
                   + '<td style="padding:8px;color:#475569;">' + escapeHtml((b.code_postal || '') + ' ' + (b.ville || '')) + '</td>'
                   + '<td style="padding:8px;font-size:14px;">' + (canaux.join(' ') || '—') + '</td>'
-                  + '<td style="padding:8px;font-family:monospace;color:#475569;">' + escapeHtml(b.date_premiere_diff || '—') + '</td>'
-                  + '<td style="padding:8px;"><span title="' + escapeHtml(b.commercial_full || '') + '" style="background:#e0f2fe;color:#0369a1;font-weight:700;padding:3px 8px;border-radius:99px;font-family:monospace;">' + escapeHtml(b.commercial_init || '—') + '</span></td>'
-                  + '<td style="padding:8px;"><a href="bien_detail.php?edit=' + encodeURIComponent(b.id_bien) + '&section=annonce" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:700;">🔗 Ouvrir</a></td>'
+                  + '<td style="padding:8px;font-family:monospace;color:#475569;font-size:11px;">' + escapeHtml(b.date_modif_display || '—') + '</td>'
+                  + '<td style="padding:8px;"><span title="' + escapeHtml(b.commercial_full || '') + '" style="background:#e0f2fe;color:#0369a1;font-weight:700;padding:3px 8px;border-radius:99px;font-family:monospace;font-size:11px;">' + escapeHtml(b.commercial_init || '—') + '</span></td>'
+                  + '<td style="padding:8px;">' + actionHtml + '</td>'
                   + '</tr>';
-        }
+        });
         html += '</tbody></table>';
-        html += '<div style="margin-top:14px;padding:10px;background:#f1f5f9;border-radius:6px;color:#64748b;font-size:12px;">Total : <strong>' + j.biens.length + '</strong> bien(s) diffusé(s).</div>';
         body.innerHTML = html;
     } catch (e) {
         body.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;">❌ ' + e.message + '</div>';
     }
 }
+
+// "Remonter" une annonce : bump sa date_modification puis recharge le modal pour
+// voir le nouveau classement (l'annonce remonte en rang 1).
+async function ubiflowRemonter(idAnnonce, btn) {
+    if (!idAnnonce) return;
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '⏳';
+    try {
+        const fd = new FormData();
+        fd.append('id_annonce', String(idAnnonce));
+        fd.append('csrf_token', CSRF_UBI);
+        const r = await fetch('api/annonce_remonter.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Échec');
+        // Reload du modal pour refléter le nouveau classement
+        openBiensDiffModal(__biensDiffCurrentAgence.id, __biensDiffCurrentAgence.nom);
+    } catch (e) {
+        btn.disabled = false; btn.innerHTML = original;
+        alert('Erreur : ' + e.message);
+    }
+}
+
 function closeBiensDiffModal() {
     const m = document.getElementById('biens-diff-modal');
     if (m) m.style.display = 'none';

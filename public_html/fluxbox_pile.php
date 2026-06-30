@@ -21,6 +21,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fluxbox_functions.php';
 require_once __DIR__ . '/inc/fluxbox_ia_cascade.php';
+require_once __DIR__ . '/inc/fluxbox_va_orchestrator.php';
+require_once __DIR__ . '/inc/fluxbox_resolution.php';
 require_login();
 
 $pdo = ged_pdo();
@@ -599,6 +601,23 @@ $prioriteIcon = [
           <?php endif; ?>
         </div>
 
+        <!-- ─── Correctif 5 — Proposition inline, champ par champ (vert/jaune/rouge + source) ─── -->
+        <?php
+          // « Réviser = cette carte inline ». Résolution fiable (Correctifs 1→4) rendue ici.
+          try {
+              $resolution = fluxbox_resoudre_carte((int)$carte['id'], $pdo);
+              if (!empty($resolution)) {
+                  // Persiste resolution_json + type_document (lecture → trace requêtable)
+                  fluxbox_persister_resolution($pdo, (int)$carte['id'], $resolution);
+                  $tid = (int)(ged_current_tenant_id() ?? 0);
+                  if ($tid > 0 && !empty($resolution['_ancres'])) {
+                      fluxbox_persister_ancres($pdo, $tid, (int)$carte['id'], $resolution['_ancres']);
+                  }
+                  echo fluxbox_render_proposition_inline($resolution, (int)$carte['id']);
+              }
+          } catch (Throwable $e) { /* affichage best-effort, ne bloque pas la carte */ }
+        ?>
+
         <!-- Boutons d'action -->
         <div class="fbx-card-actions">
           <button type="button" class="fbx-btn fbx-btn-validate" data-action="validate"
@@ -647,7 +666,7 @@ $prioriteIcon = [
       $userLabelProp         = trim((string)($proposition['user_label'] ?? ''));
       $userCommentProp       = (string)($proposition['user_comment']    ?? '');
       // Pré-remplit le champ entity_instance avec la valeur qui sera utilisée dans le nom canonique.
-      // Priorité : override user (déjà saisi) > ref BDD matchée > nom BDD matché > entity_instance Haiku
+      // Priorité : override user > prefill bien_id BDD > IA matching adresse > immeuble matché > Haiku brut
       $entityInstanceProp = trim((string)(
           $proposition['entity_instance']        // override user précédent
           ?? $classement['immeuble_ref_bdd']     // ce qui sera dans le canonical (ex "3005")
@@ -655,6 +674,129 @@ $prioriteIcon = [
           ?? $classement['entity_instance']      // détection Haiku brute
           ?? ''
       ));
+
+      // ─── [2026-05-25] Auto-match BIEN depuis prefill OU adresse IA ──
+      // Objectif ultime user : l'entité du modal doit toujours être pré-remplie.
+      // Source 1 : proposition.bien_id (vient de bien_documents_list ou prefill modal)
+      // Source 2 : source_meta.bien_id du document (idem si stocké à l'ingest)
+      // Source 3 : em_match_bien() via adresse extraite par IA (ia_extract_cache)
+      require_once __DIR__ . '/inc/entity_matcher.php';
+      $matchedBien = null;       // ['id', 'designation', 'adresse_1', 'ville', 'score', 'source']
+      $autoMatchSource = null;
+
+      // Source 1 : bien_id dans proposition_json
+      $propBienId = (int)($proposition['bien_id'] ?? 0);
+
+      // Source 2 : source_meta.bien_id
+      if (!$propBienId) {
+          try {
+              $stDocMeta = $pdo->prepare("SELECT source_meta FROM fluxbox_documents WHERE id = ? LIMIT 1");
+              $stDocMeta->execute([(int)($carte['document_id'] ?? 0)]);
+              $sm = json_decode((string)$stDocMeta->fetchColumn(), true);
+              if (is_array($sm) && !empty($sm['bien_id'])) $propBienId = (int)$sm['bien_id'];
+          } catch (Throwable) {}
+      }
+
+      // Source 3 : matching adresse IA (si pas de bien_id)
+      if (!$propBienId) {
+          try {
+              $stDocHash = $pdo->prepare("SELECT hash_sha256 FROM fluxbox_documents WHERE id = ? LIMIT 1");
+              $stDocHash->execute([(int)($carte['document_id'] ?? 0)]);
+              $hashDoc = (string)$stDocHash->fetchColumn();
+              if ($hashDoc !== '') {
+                  $stCache = $pdo->prepare("SELECT response_json, confidence FROM ia_extract_cache WHERE hash_sha256 = ? ORDER BY last_at DESC LIMIT 1");
+                  $stCache->execute([$hashDoc]);
+                  $cache = $stCache->fetch(PDO::FETCH_ASSOC);
+                  if ($cache && !empty($cache['response_json'])) {
+                      $iaExtract = json_decode((string)$cache['response_json'], true) ?: [];
+                      $iaAdr = (string)($iaExtract['adresse_bien'] ?? $iaExtract['adresse'] ?? '');
+                      $iaCp  = (string)($iaExtract['code_postal']  ?? '');
+                      $iaCity = (string)($iaExtract['ville']       ?? '');
+                      if ($iaAdr !== '' || $iaCity !== '') {
+                          $matchResult = em_match_bien($pdo, [
+                              'adresse'      => $iaAdr,
+                              'code_postal'  => $iaCp,
+                              'ville'        => $iaCity,
+                              'numero_mandat'=> (string)($iaExtract['numero_mandat'] ?? ''),
+                          ]);
+                          if (!empty($matchResult['found']) && !empty($matchResult['best']) && ((int)($matchResult['confidence'] ?? 0) >= 70)) {
+                              $matchedBien = [
+                                  'id'          => (int)$matchResult['best']['id'],
+                                  'designation' => (string)($matchResult['best']['designation'] ?? $matchResult['best']['adresse_1'] ?? ''),
+                                  'adresse_1'   => (string)($matchResult['best']['adresse_1'] ?? ''),
+                                  'ville'       => (string)($matchResult['best']['ville'] ?? ''),
+                                  'score'       => (int)($matchResult['confidence'] ?? 0),
+                                  'source'      => 'IA matching adresse',
+                                  'ia_adresse'  => $iaAdr,
+                              ];
+                              $propBienId = $matchedBien['id'];
+                              $autoMatchSource = 'ia_address';
+                          }
+                      }
+                  }
+              }
+          } catch (Throwable) {}
+      } else {
+          $autoMatchSource = isset($proposition['bien_id']) ? 'prefill_proposition' : 'doc_source_meta';
+      }
+
+      // Lookup designation depuis bien_id
+      if ($propBienId > 0 && !$matchedBien) {
+          try {
+              $stB = $pdo->prepare("SELECT id, designation, adresse_1, code_postal, ville FROM biens WHERE id = ? LIMIT 1");
+              $stB->execute([$propBienId]);
+              $b = $stB->fetch(PDO::FETCH_ASSOC);
+              if ($b) {
+                  $matchedBien = [
+                      'id'          => (int)$b['id'],
+                      'designation' => (string)($b['designation'] ?: $b['adresse_1'] ?: ('Bien #' . $b['id'])),
+                      'adresse_1'   => (string)$b['adresse_1'],
+                      'ville'       => (string)$b['ville'],
+                      'score'       => 100,
+                      'source'      => $autoMatchSource ?: 'prefill',
+                  ];
+              }
+          } catch (Throwable) {}
+      }
+
+      // Si bien matché ET entityInstance encore vide → utilise le bien pour pré-remplir
+      if ($matchedBien && $entityInstanceProp === '') {
+          $entityInstanceProp = $matchedBien['designation'] ?: ('Bien #' . $matchedBien['id']);
+      }
+
+      // Fix B4 (2026-05-26) : extraction heuristique depuis le nom de fichier en dernier recours
+      // Ex: "IBAN EVEREST - CAISSE EPARGNE.pdf" → entity_instance = "EVEREST" (mot le plus distinctif)
+      if ($entityInstanceProp === '') {
+          try {
+              $stDocFn = $pdo->prepare("SELECT fichier_nom FROM fluxbox_documents WHERE id = ? LIMIT 1");
+              $stDocFn->execute([(int)($carte['document_id'] ?? 0)]);
+              $fileNameRaw = (string)$stDocFn->fetchColumn();
+              if ($fileNameRaw !== '') {
+                  // Strip extension + mots techniques courants
+                  $base = pathinfo($fileNameRaw, PATHINFO_FILENAME);
+                  $base = preg_replace('/[_\-\s\.]+/', ' ', $base);
+                  $stopwords = ['IBAN','RIB','DPE','ERNT','ERNMT','ERP','BAIL','MANDAT','ACTE','FACTURE',
+                                'RELEVE','QUITTANCE','LOYER','AVIS','ECHEANCE','CAUTION','GARANT',
+                                'CAISSE','EPARGNE','BANQUE','CREDIT','AGRICOLE','LCL','BNP','SG',
+                                'COPIE','SCAN','FINAL','DEFINITIF','SIGNED','SIGNE','PDF','DOC',
+                                'PROPRIO','PROPRIETAIRE','LOCATAIRE','TIERS',
+                                'ET','DE','DU','LA','LE','LES','DES','UN','UNE','SUR','POUR','CHEZ'];
+                  $words = preg_split('/\s+/', strtoupper($base)) ?: [];
+                  $candidates = [];
+                  foreach ($words as $w) {
+                      $w = trim($w);
+                      if (mb_strlen($w) < 3) continue;
+                      if (in_array($w, $stopwords, true)) continue;
+                      if (preg_match('/^\d+$/', $w)) continue; // numéros purs
+                      $candidates[] = $w;
+                  }
+                  if (!empty($candidates)) {
+                      // Garde les 2 premiers mots distinctifs (ex: "EVEREST" ou "DUPONT PIERRE")
+                      $entityInstanceProp = implode(' ', array_slice($candidates, 0, 2));
+                  }
+              }
+          } catch (Throwable) {}
+      }
       // Label humain de la source de date
       $dateSrcLabels = [
           'user_input'     => '✏️ Saisie manuelle',
@@ -736,6 +878,95 @@ $prioriteIcon = [
         </div>
         <div class="fbx-form-row">
           <label>👤 Instance entité <span class="fbx-form-hint">(ex : Dupont-Pierre, BNP, Imm Foch)</span></label>
+          <?php if ($matchedBien): ?>
+            <!-- 🎯 Bien détecté auto (prefill, source_meta ou matching IA adresse) -->
+            <div style="background:#d9f0db;border-left:4px solid #2d6a35;border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:12.5px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="font-size:18px;">🎯</span>
+                <span style="font-weight:700;color:#14532d;">Bien détecté auto</span>
+                <span style="background:#14532d;color:#d9f0db;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;">
+                  score <?= (int)$matchedBien['score'] ?>% · <?= $h($matchedBien['source']) ?>
+                </span>
+              </div>
+              <div style="margin-top:6px;color:#14532d;">
+                <b>#<?= (int)$matchedBien['id'] ?></b> · <?= $h($matchedBien['designation']) ?>
+                <?php if ($matchedBien['adresse_1']): ?>
+                  <div style="font-size:11px;color:#15803d;margin-top:2px;">📍 <?= $h($matchedBien['adresse_1']) ?> · <?= $h($matchedBien['ville']) ?></div>
+                <?php endif; ?>
+                <?php if (!empty($matchedBien['ia_adresse'])): ?>
+                  <div style="font-size:10.5px;color:#5a5650;margin-top:2px;">🔍 IA avait extrait : <code><?= $h($matchedBien['ia_adresse']) ?></code></div>
+                <?php endif; ?>
+              </div>
+              <input type="hidden" name="prefill_bien_id" value="<?= (int)$matchedBien['id'] ?>">
+              <input type="hidden" name="prefill_bien_source" value="<?= $h((string)$autoMatchSource) ?>">
+            </div>
+          <?php else:
+            // [Sprint D — 2026-05-25] IA a-t-elle extrait une adresse exploitable ? Propose création nouveau bien
+            $iaAdrForCreate = '';
+            $iaCpForCreate = '';
+            $iaCityForCreate = '';
+            $iaProprioForCreate = '';
+            try {
+                $stHash = $pdo->prepare("SELECT hash_sha256 FROM fluxbox_documents WHERE id = ? LIMIT 1");
+                $stHash->execute([(int)($carte['document_id'] ?? 0)]);
+                $hashTry = (string)$stHash->fetchColumn();
+                if ($hashTry !== '') {
+                    $stC = $pdo->prepare("SELECT response_json FROM ia_extract_cache WHERE hash_sha256 = ? ORDER BY last_at DESC LIMIT 1");
+                    $stC->execute([$hashTry]);
+                    $iaTry = json_decode((string)$stC->fetchColumn(), true) ?: [];
+                    $iaAdrForCreate = (string)($iaTry['adresse_bien'] ?? $iaTry['adresse'] ?? '');
+                    $iaCpForCreate  = (string)($iaTry['code_postal']  ?? '');
+                    $iaCityForCreate = (string)($iaTry['ville']       ?? '');
+                    $iaProprioForCreate = (string)($iaTry['proprietaire'] ?? '');
+                }
+            } catch (Throwable) {}
+            if ($iaAdrForCreate !== '' || $iaCpForCreate !== ''):
+                // Suggestion création
+                $createUrl = '/MaBoxImmo2026/public_html/bien_detail.php?'
+                          . http_build_query([
+                              'adresse_1'   => $iaAdrForCreate,
+                              'code_postal' => $iaCpForCreate,
+                              'ville'       => $iaCityForCreate,
+                              'origin'      => 'fluxbox_ia_propose_create',
+                              'from_carte'  => (int)$carteId,
+                          ]);
+          ?>
+            <!-- 🆕 Pas de bien matché — proposition création -->
+            <div style="background:#fef3c7;border-left:4px solid #f59e0b;border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:12.5px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="font-size:18px;">🆕</span>
+                <span style="font-weight:700;color:#92400e;">Aucun bien matché — IA a extrait une adresse</span>
+              </div>
+              <div style="margin-top:6px;color:#92400e;font-size:11.5px;">
+                📍 <b><?= $h($iaAdrForCreate) ?></b> · <?= $h($iaCpForCreate) ?> <?= $h($iaCityForCreate) ?>
+                <?php if ($iaProprioForCreate): ?><br>👤 Propriétaire détecté : <b><?= $h($iaProprioForCreate) ?></b><?php endif; ?>
+              </div>
+              <div style="margin-top:8px;">
+                <a href="<?= $h($createUrl) ?>" target="_blank"
+                   style="background:#f59e0b;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-weight:700;font-size:11.5px;">
+                  ➕ Créer un nouveau bien (pré-rempli IA)
+                </a>
+                <?php if ($iaProprioForCreate): ?>
+                  <?php
+                    $createTiersUrl = '/MaBoxImmo2026/public_html/admin/admin_tiers_merge.php?'
+                                    . http_build_query([
+                                        'create_new' => 1,
+                                        'nom_suggest' => $iaProprioForCreate,
+                                        'origin' => 'fluxbox_ia_propose_create',
+                                        'from_carte' => (int)$carteId,
+                                    ]);
+                  ?>
+                  <a href="<?= $h($createTiersUrl) ?>" target="_blank"
+                     style="background:#0e7490;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-weight:700;font-size:11.5px;margin-left:6px;">
+                    👤 Créer le tiers "<?= $h($iaProprioForCreate) ?>"
+                  </a>
+                <?php endif; ?>
+                <span style="font-size:10.5px;color:#92400e;margin-left:8px;display:block;margin-top:6px;">— ouvre une nouvelle fenêtre, revenir ici après pour rattacher</span>
+              </div>
+            </div>
+          <?php
+            endif;
+          endif; ?>
           <input type="text" name="entity_instance" value="<?= $h($entityInstanceProp) ?>"
                  class="<?= $entityInstanceProp !== '' ? 'fbx-auto-filled' : '' ?>"
                  placeholder="Détectée auto si nom de dossier upload — modifiable">

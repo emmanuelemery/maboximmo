@@ -39,7 +39,7 @@ try {
 // ── Traitement POST (sauvegarde) ─────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $roleId <= 2) {
     // ── Maj table immeubles (onglet identité) ──
-    $immFields = ['reference_immeuble','nom_immeuble','adresse_1','code_postal','ville','nb_lots','type_immeuble','id_agence','latitude','longitude'];
+    $immFields = ['reference_immeuble','nom_immeuble','adresse_1','code_postal','ville','nb_lots','type_immeuble','id_agence','latitude','longitude','google_place_id','adresse_formatee'];
     $immSets = []; $immData = [];
     foreach ($immFields as $f) {
         if (isset($_POST[$f])) {
@@ -138,7 +138,10 @@ $navNext = $nextId
     ? '<a href="'.h(buildNavUrl((int)$nextId)).'" class="ph-btn">Suiv. →</a>'
     : '<a class="ph-btn dispo">Suiv. →</a>';
 
+require_once __DIR__ . '/inc/document_request_button.php';
+$_drBtn = document_request_button('IMMEUBLE', (int)$id, ['back' => 'agency_immeuble_fiche.php?id='.$id, 'label' => 'Demander doc']);
 $layout_head_actions = $navPrev . $navNext . '
+    '.$_drBtn.'
     <a href="agency_pdf_cr.php?id='.$id.'" target="_blank" class="ph-btn">PDF</a>
     '.($canEdit
         ? '<a href="agency_immeuble_form.php?id='.$id.'" class="ph-btn primary">Modifier</a>'
@@ -365,31 +368,38 @@ ob_start();
         </div>
         <div class="ff">
             <label>Nom de l'immeuble</label>
-            <input type="text" name="nom_immeuble" value="<?= h($imm['nom_immeuble'] ?? '') ?>" <?= !$canEdit ? 'readonly' : '' ?>>
+            <input type="text" name="nom_immeuble" id="addr_nom" value="<?= h($imm['nom_immeuble'] ?? '') ?>" <?= !$canEdit ? 'readonly' : '' ?>>
         </div>
     </div>
     <div class="fiche-row cols1">
         <div class="ff">
-            <label>Adresse (recherche Google) 📍</label>
-            <input type="text" id="address-search" placeholder="Tapez l'adresse..." <?= !$canEdit ? 'readonly' : '' ?>>
+            <label>Adresse 📍 — saisie UNIQUEMENT via Google</label>
+            <?php if ($canEdit): ?>
+            <button type="button" class="ph-btn" style="width:100%;text-align:left;"
+                onclick="immFicheOpenAddr()">
+                📍 Rechercher / modifier l'adresse (Google)
+            </button>
+            <?php endif; ?>
         </div>
     </div>
     <div class="fiche-row cols3">
         <div class="ff">
             <label>Adresse</label>
-            <input type="text" name="adresse_1" id="addr_street" value="<?= h($imm['adresse_1'] ?? '') ?>" <?= !$canEdit ? 'readonly' : '' ?>>
+            <input type="text" name="adresse_1" id="addr_street" value="<?= h($imm['adresse_1'] ?? '') ?>" readonly>
         </div>
         <div class="ff">
             <label>Code postal</label>
-            <input type="text" name="code_postal" id="addr_zip" value="<?= h($imm['code_postal'] ?? '') ?>" <?= !$canEdit ? 'readonly' : '' ?>>
+            <input type="text" name="code_postal" id="addr_zip" value="<?= h($imm['code_postal'] ?? '') ?>" readonly>
         </div>
         <div class="ff">
             <label>Ville</label>
-            <input type="text" name="ville" id="addr_city" value="<?= h($imm['ville'] ?? '') ?>" <?= !$canEdit ? 'readonly' : '' ?>>
+            <input type="text" name="ville" id="addr_city" value="<?= h($imm['ville'] ?? '') ?>" readonly>
         </div>
     </div>
     <input type="hidden" name="latitude" id="addr_lat" value="<?= h($imm['latitude'] ?? '') ?>">
     <input type="hidden" name="longitude" id="addr_lng" value="<?= h($imm['longitude'] ?? '') ?>">
+    <input type="hidden" name="google_place_id" id="addr_placeid" value="<?= h($imm['google_place_id'] ?? '') ?>">
+    <input type="hidden" name="adresse_formatee" id="addr_formatted" value="<?= h($imm['adresse_formatee'] ?? '') ?>">
     <div class="fiche-row cols3">
         <div class="ff">
             <label>Type d'immeuble</label>
@@ -415,7 +425,6 @@ ob_start();
     </div>
     <div class="tab-actions">
         <?php if ($canEdit): ?>
-        <button type="submit" class="ph-btn primary">Enregistrer</button>
         <?php endif; ?>
     </div>
 </div></div><!-- /tab identite -->
@@ -506,7 +515,6 @@ ob_start();
     <div class="tab-actions">
         <a href="agency_pdf_cr.php?id=<?= $id ?>" target="_blank" class="ph-btn">PDF Honoraires</a>
         <?php if ($canEdit): ?>
-        <button type="submit" class="ph-btn primary">Enregistrer</button>
         <?php endif; ?>
     </div>
 </div></div><!-- /tab financier -->
@@ -532,7 +540,6 @@ ob_start();
         <a href="agency_reunions.php?id_immeuble=<?= $id ?>" class="ph-btn">📅 Réunions</a>
         <a href="agency_reunion_tenir.php?id_immeuble=<?= $id ?>" class="ph-btn">📋 Tenir AG</a>
         <?php if ($canEdit): ?>
-        <button type="submit" class="ph-btn primary">Enregistrer</button>
         <?php endif; ?>
     </div>
 </div></div><!-- /tab ag -->
@@ -563,7 +570,6 @@ ob_start();
     <div class="tab-actions">
         <a href="agency_taches.php?id_immeuble=<?= $id ?>" class="ph-btn">✅ Tâches</a>
         <?php if ($canEdit): ?>
-        <button type="submit" class="ph-btn primary">Enregistrer</button>
         <?php endif; ?>
     </div>
 </div></div><!-- /tab travaux -->
@@ -609,7 +615,6 @@ ob_start();
     </div>
     <div class="tab-actions">
         <?php if ($canEdit): ?>
-        <button type="submit" class="ph-btn primary">Enregistrer</button>
         <?php endif; ?>
     </div>
 </div></div><!-- /tab admin -->
@@ -714,13 +719,26 @@ ob_start();
     </div>
     <div class="tab-actions">
         <?php if ($canEdit): ?>
-        <button type="submit" class="ph-btn primary">Enregistrer</button>
         <?php endif; ?>
     </div>
 </div></div><!-- /tab notes -->
 
 </div><!-- /fiche-section onglets -->
 
+<?php if ($canEdit): ?>
+<button type="submit" class="imm-save-floating" title="Enregistrer les modifications">💾 Enregistrer</button>
+<style>
+.imm-save-floating{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:900;
+    padding:12px 37px; font-size:13px; font-weight:800; letter-spacing:.3px;
+    color:#fff; background:#4878a6; border:none;
+    border-radius:26px; cursor:pointer; box-shadow:0 8px 22px rgba(72,120,166,.42);
+    transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.imm-save-floating:hover{ background:#3a6188; transform:translateX(-50%) translateY(-2px); box-shadow:0 14px 32px rgba(72,120,166,.55); }
+.imm-save-floating:active{ transform:translateX(-50%) translateY(0); }
+</style>
+<?php endif; ?>
 
 </form>
 
@@ -809,6 +827,31 @@ document.addEventListener('DOMContentLoaded', function () {
     [hBase, h26, h27, h28, h29, h30].forEach(el => el && el.addEventListener('input', compute));
     compute();
 });
+</script>
+
+<!-- Saisie d'adresse : modal MBI standard (iframe, autocomplete Google fiable),
+     en mode "pick" → remplit les champs de l'immeuble courant SANS rien créer. -->
+<?php require_once __DIR__ . '/inc/immeuble_recherche_mbi.php'; immeuble_mbi_render(); immeuble_mbi_assets(); ?>
+<script>
+function immFicheOpenAddr(){
+  if (!window.ImmeubleRechercheMBI || typeof ImmeubleRechercheMBI.openPick !== 'function') {
+    alert('Modal de recherche d\'adresse indisponible.'); return;
+  }
+  ImmeubleRechercheMBI.openPick(function(a){
+    if (!a) return;
+    var set = function(id, v){ var el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+    set('addr_street',    a.adresse_1);
+    set('addr_zip',       a.code_postal);
+    set('addr_city',      a.ville);
+    set('addr_lat',       a.latitude);
+    set('addr_lng',       a.longitude);
+    set('addr_placeid',   a.google_place_id);
+    set('addr_formatted', a.formatted);
+    // Nom : ne pas écraser un nom déjà saisi pour cet immeuble.
+    var nomEl = document.getElementById('addr_nom');
+    if (nomEl && !nomEl.value.trim() && a.nom) nomEl.value = a.nom;
+  });
+}
 </script>
 
 <?php

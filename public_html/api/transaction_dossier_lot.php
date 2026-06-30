@@ -88,6 +88,7 @@ try {
             $lotId = (int)(post('lot_id') ?? 0);
             if ($lotId <= 0) { echo json_encode(['ok'=>false,'error'=>'lot manquant']); exit; }
             $ok = dv_save_lot($pdo, $idDossier, $lotId, [
+                'estimation'      => post('estimation'),
                 'prix_vente'      => post('prix_vente'),
                 'loyer_reel'      => post('loyer_reel'),
                 'loyer_potentiel' => post('loyer_potentiel'),
@@ -106,6 +107,9 @@ try {
         default:
             echo json_encode(['ok'=>false,'error'=>'action inconnue']); exit;
     }
+
+    // Propage les prix (net→FAI+honos) vers le bien + l'annonce.
+    dv_sync_prix_annonce($pdo, $idDossier);
 
     echo json_encode([
         'ok'     => true,

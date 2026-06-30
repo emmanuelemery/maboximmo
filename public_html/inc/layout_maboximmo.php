@@ -25,6 +25,7 @@ $layout_title        = $layout_title        ?? 'MaBoxImmo';
 $layout_module       = $layout_module       ?? '';
 $layout_sidebar      = $layout_sidebar      ?? 'sidebar_agency';
 $layout_topbar_right = $layout_topbar_right ?? '';
+$layout_topbar_sub   = $layout_topbar_sub   ?? '';
 $layout_head_kpis    = $layout_head_kpis    ?? '';
 $layout_head_filters = $layout_head_filters ?? '';
 $layout_head_actions = $layout_head_actions ?? '';
@@ -124,6 +125,16 @@ body {
     box-shadow: 3px 3px 8px var(--shadow-dark, #d4d7de), -3px -3px 8px var(--shadow-light, #fff);
     flex-shrink: 0;
 }
+.mbi-topbar .tb-logout {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #fff; color: #b3261e; text-decoration: none;
+    box-shadow: 3px 3px 8px var(--shadow-dark, #d4d7de), -3px -3px 8px var(--shadow-light, #fff);
+    transition: color .15s;
+}
+.mbi-topbar .tb-logout:hover { color: #8a1c16; }
+.mbi-topbar .tb-logout:active { box-shadow: inset 3px 3px 7px var(--shadow-dark, #d4d7de), inset -3px -3px 8px var(--shadow-light, #fff); }
 
 /* ── Espace topbar / page-head ───────────────────────────────────────── */
 .mbi-topbar-gap {
@@ -218,6 +229,8 @@ body {
     scrollbar-color: #b8c8a8 transparent;
     max-width: 100%;
     box-sizing: border-box;
+    background: linear-gradient(135deg, rgba(132,169,140,0.18) 0%, rgba(255,255,255,0) 35%, rgba(72,120,166,0.14) 60%, rgba(255,255,255,0) 85%, rgba(201,123,46,0.16) 100%), #fafbfc;
+    background-attachment: fixed;
 }
 @media (max-width: 768px) {
     .mbi-content { padding: 12px 12px 30px; }
@@ -425,17 +438,18 @@ body {
                 <span class="tb-sep">›</span>
             <?php endif; ?>
             <span class="tb-current"><?= htmlspecialchars($layout_title) ?></span>
+            <?php if (!empty($layout_topbar_sub)): ?>
+                <span class="tb-sep">›</span>
+                <span class="tb-sub"><?= $layout_topbar_sub ?></span>
+            <?php endif; ?>
         </div>
         <div class="tb-spacer"></div>
         <div class="tb-actions">
             <?= $layout_topbar_right ?>
-            <button type="button" id="fbx-upload-open" class="tb-btn fbx-topbar-btn"
-                    title="Charger des documents (Ctrl+U)" aria-label="Charger des documents">
-                <span style="font-size:15px;">📥</span>
-                <span class="fbx-topbar-btn-label">Charger</span>
-                <span class="fbx-badge-live" id="fbx-topbar-badge" style="display:none;">0</span>
-            </button>
-            <div class="tb-avatar"><?= htmlspecialchars($_lInitials) ?></div>
+            <div class="tb-avatar" title="<?= htmlspecialchars(trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? '')) ?: 'Mon compte') ?>"><?= htmlspecialchars($_lInitials) ?></div>
+            <a href="<?= htmlspecialchars(function_exists('app_url') ? app_url('/logout.php') : '/logout.php') ?>" class="tb-logout" title="Se déconnecter" aria-label="Se déconnecter">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </a>
         </div>
     </div>
 

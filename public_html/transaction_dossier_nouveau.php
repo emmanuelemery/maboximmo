@@ -149,7 +149,7 @@ immeuble_mbi_assets();
     const box = document.getElementById('nd-biens-list');
     box.innerHTML = '<div class="nd-msg">Chargement…</div>';
     try{
-      const res = await fetch(API_PBIENS+'?id_proprietaire='+idProprietaire, {credentials:'same-origin'});
+      const res = await fetch(API_PBIENS+'?id_tiers='+idTiers+'&id_proprietaire='+idProprietaire, {credentials:'same-origin'});
       const out = await res.json();
       if(!out.ok || !out.biens.length){ box.innerHTML = '<div class="nd-msg">Aucun bien existant chez nous — créez-le à gauche.</div>'; return; }
       box.innerHTML = '';
@@ -169,7 +169,9 @@ immeuble_mbi_assets();
           '<span class="r ref-link" title="Ouvrir la fiche détaillée du bien">'+esc(b.ref)+'</span>'+
           (carac?'<span class="d">'+esc(carac)+'</span>':'')+
           (b.adresse?'<span class="d">📍 '+esc(b.adresse)+'</span>':'')+
-          (b.locataire?'<span class="d loc">👤 '+esc(b.locataire)+'</span>':'<span class="d vac">🔑 vacant</span>')+
+          (b.loue
+             ? '<span class="d loc">👤 Loué'+(b.locataire?' · '+esc(b.locataire):'')+'</span>'
+             : '<span class="d vac">🔑 vacant</span>')+
           (tags?'<span class="tags">'+tags+'</span>':'');
         // Clic sur la carte = sélectionner le bien + continuer (ouvre son dossier).
         el.onclick = ()=>{ window.location.href = DOSSIER_URL + b.id; };

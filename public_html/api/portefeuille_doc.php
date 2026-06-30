@@ -22,24 +22,55 @@ $envoi = $st->fetch(PDO::FETCH_ASSOC);
 if (!$envoi || (int)$envoi['actif'] !== 1) pf_doc_stop(403, 'Accès clôturé.');
 if (!empty($envoi['date_expiration']) && strtotime((string)$envoi['date_expiration']) < time()) pf_doc_stop(403, 'Accès expiré.');
 
-// 2) Le document doit être un DPE/DIAG/BAIL rattaché à un BIEN du portefeuille de cet envoi.
-$snap = json_decode((string)$envoi['snapshot_json'], true) ?: [];
-$idsBien = array_values(array_filter(array_map(fn($l) => (int)($l['id_bien'] ?? 0), $snap['lignes'] ?? [])));
+// 2) Le document doit être rattaché à un BIEN du portefeuille de cet envoi, ET :
+//    - soit explicitement coché par l'agence (documents_joints) → autorisé quel que soit le type,
+//    - soit (rétrocompat) d'un type autorisé (DPE/DIAG/BAIL/Surface/Taxe/EDL entrée).
+$idsBien = [];
+$explicitDocIds = [];
+try {
+    $pb = $pdo->prepare("SELECT id_bien, documents_joints FROM portefeuille_biens WHERE id_portefeuille = ?");
+    $pb->execute([(int)$envoi['id_portefeuille']]);
+    foreach ($pb->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $idsBien[] = (int)$r['id_bien'];
+        if (!empty($r['documents_joints'])) {
+            $ids = json_decode((string)$r['documents_joints'], true);
+            if (is_array($ids)) foreach ($ids as $v) { if ((int)$v > 0) $explicitDocIds[(int)$v] = true; }
+        }
+    }
+} catch (Throwable $ex) {}
+if (!$idsBien) {   // repli : biens depuis le snapshot du jeton
+    $snap = json_decode((string)$envoi['snapshot_json'], true) ?: [];
+    $idsBien = array_values(array_filter(array_map(fn($l) => (int)($l['id_bien'] ?? 0), $snap['lignes'] ?? [])));
+}
+$idsBien = array_values(array_unique(array_filter($idsBien)));
 if (!$idsBien) pf_doc_stop(403, 'Document non autorisé.');
 $inBien = implode(',', $idsBien);
+
 $docTypes = ['BAIL', 'BAIL_SIGNE', 'DPE', 'DIAG_DPE', 'DIAG', 'DIAGNOSTIC', 'DDT',
              'SURFACE_CARREZ', 'CARREZ', 'BOUTIN', 'SURFACE',
              'TAXE_FONCIERE', 'TF', 'EDL_ENTREE'];
-$inType   = implode(',', array_fill(0, count($docTypes), '?'));
 
-$chk = $pdo->prepare("SELECT gd.id, gd.name_file, gd.name_display, gd.mime_type, gd.final_destination, gd.metadata, gd.storage_provider
-                      FROM ged_documents gd
-                      JOIN ged_document_links gdl ON gdl.document_id = gd.id
-                      WHERE gd.id = ? AND gd.status='active'
-                        AND gdl.entity_type='BIEN' AND gdl.entity_id IN ($inBien)
-                        AND UPPER(gd.document_type) IN ($inType)
-                      LIMIT 1");
-$chk->execute(array_merge([$docId], $docTypes));
+if (isset($explicitDocIds[$docId])) {
+    // Coché explicitement : on vérifie seulement qu'il est actif et rattaché à un bien du portefeuille.
+    $chk = $pdo->prepare("SELECT gd.id, gd.name_file, gd.name_display, gd.mime_type, gd.final_destination, gd.metadata, gd.storage_provider
+                          FROM ged_documents gd
+                          WHERE gd.id = ? AND gd.status='active'
+                            AND (gd.id_bien IN ($inBien)
+                                 OR EXISTS(SELECT 1 FROM ged_document_links gdl
+                                           WHERE gdl.document_id=gd.id AND gdl.entity_type='BIEN' AND gdl.entity_id IN ($inBien)))
+                          LIMIT 1");
+    $chk->execute([$docId]);
+} else {
+    $inType = implode(',', array_fill(0, count($docTypes), '?'));
+    $chk = $pdo->prepare("SELECT gd.id, gd.name_file, gd.name_display, gd.mime_type, gd.final_destination, gd.metadata, gd.storage_provider
+                          FROM ged_documents gd
+                          JOIN ged_document_links gdl ON gdl.document_id = gd.id
+                          WHERE gd.id = ? AND gd.status='active'
+                            AND gdl.entity_type='BIEN' AND gdl.entity_id IN ($inBien)
+                            AND UPPER(gd.document_type) IN ($inType)
+                          LIMIT 1");
+    $chk->execute(array_merge([$docId], $docTypes));
+}
 $doc = $chk->fetch(PDO::FETCH_ASSOC);
 if (!$doc) pf_doc_stop(403, 'Document non autorisé.');
 

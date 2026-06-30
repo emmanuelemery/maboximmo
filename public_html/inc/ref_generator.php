@@ -47,6 +47,14 @@ declare(strict_types=1);
  */
 function ref_generate_bien(PDO $pdo, array $ctx): string
 {
+    // PRIORITÉ : bien rattaché à un immeuble au format CRG → référence cohérente
+    // « {reference_immeuble}-{9001+} » (lot hors CRG). Sinon, générateur agence ci-dessous.
+    $idImmeuble = (int)($ctx['id_immeuble'] ?? 0);
+    if ($idImmeuble > 0) {
+        $crgRef = ref_generate_bien_immeuble($pdo, $idImmeuble);
+        if ($crgRef !== null) return $crgRef;
+    }
+
     $idAgence = (int)($ctx['id_agence'] ?? 0);
     if ($idAgence <= 0) {
         throw new RuntimeException('ref_generate_bien : id_agence requis');
@@ -92,6 +100,43 @@ function ref_generate_annonce(PDO $pdo, array $ctx): string
     $vars['TRANS3']   = ref_transaction_code((string)($ctx['transaction'] ?? ''));
 
     return ref_substitute_pattern($pattern, $vars);
+}
+
+/**
+ * Génère une référence de bien au FORMAT CRG « {reference_immeuble}-{n°} » pour un bien
+ * créé HORS CRG, rattaché à un immeuble.
+ *
+ * - reference_immeuble = préfixe 8 chiffres (société 4 + immeuble 4), ex. '01080141'.
+ * - n° de bien : démarre à 9001 (plage 9001-9999 réservée aux lots créés hors CRG,
+ *   pour ne jamais entrer en collision avec les n° importés des CRG < 9000).
+ * - Le prochain n° = max(n° existants ≥ 9001 sur ce préfixe) + 1, sinon 9001.
+ *
+ * @return string|null  Référence (ex. '01080141-9001') ou null si l'immeuble n'a pas de
+ *                      reference_immeuble au format CRG (→ l'appelant retombe sur ref_generate_bien).
+ */
+function ref_generate_bien_immeuble(PDO $pdo, int $idImmeuble): ?string
+{
+    if ($idImmeuble <= 0) return null;
+    $st = $pdo->prepare("SELECT reference_immeuble FROM immeubles WHERE id = ? LIMIT 1");
+    $st->execute([$idImmeuble]);
+    $prefix = trim((string)($st->fetchColumn() ?: ''));
+    // On exige le format CRG : 8 chiffres.
+    if (!preg_match('/^\d{8}$/', $prefix)) return null;
+
+    // Prochain n° libre ≥ 9001 sur ce préfixe (toutes les références "{prefix}-NNNN").
+    $q = $pdo->prepare("
+        SELECT MAX(CAST(SUBSTRING_INDEX(reference_bien, '-', -1) AS UNSIGNED))
+        FROM biens
+        WHERE reference_bien LIKE CONCAT(CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '-%')
+          AND SUBSTRING_INDEX(reference_bien, '-', -1) REGEXP '^[0-9]+$'
+          AND CAST(SUBSTRING_INDEX(reference_bien, '-', -1) AS UNSIGNED) >= 9001
+    ");
+    $q->execute([$prefix]);
+    $max = (int)($q->fetchColumn() ?: 0);
+    $next = $max >= 9001 ? $max + 1 : 9001;
+    if ($next > 9999) $next = $max + 1;   // garde-fou : au-delà de 999 lots, on continue quand même
+
+    return $prefix . '-' . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
 }
 
 // ════════════════════════════════════════════════════════════════

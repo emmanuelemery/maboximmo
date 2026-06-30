@@ -21,6 +21,7 @@ require_once __DIR__ . '/inc/dossier_vente.php';
 require_once __DIR__ . '/inc/ged_file_path.php';
 require_once __DIR__ . '/inc/avant_contrat.php';
 require_once __DIR__ . '/inc/tiers_selector.php';   // composant recherche/création tiers réutilisable
+require_once __DIR__ . '/inc/acteur_modal.php';     // composant partagé « Ajouter un acteur »
 require_login();
 
 $pdo = $GLOBALS['pdo'];
@@ -28,8 +29,16 @@ $pdo = $GLOBALS['pdo'];
 // ── Résolution du dossier (par bien = crée/retrouve, ou par id dossier) ──
 $idBien    = (int)($_GET['id_bien'] ?? 0);
 $idDossier = (int)($_GET['id'] ?? 0);
+$confirm   = isset($_GET['confirm']) && $_GET['confirm'] === '1';
 
 if ($idBien > 0) {
+    // Garde-fou anti "dossiers pour rien" : si aucun dossier n'existe encore pour
+    // ce bien ET que l'ouverture n'est pas confirmée, on AFFICHE une confirmation
+    // SANS RIEN CRÉER. La création n'a lieu qu'après clic explicite sur « Oui ».
+    if (!$confirm && !dv_get_by_bien($pdo, $idBien)) {
+        require __DIR__ . '/inc/dossier_vente_confirm.php'; // rend l'écran + exit
+        exit;
+    }
     $idDossier = dv_ensure_for_bien($pdo, $idBien, ['source' => 'estimation', 'id_user' => current_user_id()]);
 }
 $dossier = $idDossier > 0 ? dv_get($pdo, $idDossier) : null;
@@ -147,6 +156,18 @@ try {
     $stBu->execute([$idBien]);
     $bailUploadId = (int)($stBu->fetchColumn() ?: 0);
 } catch (Throwable $e) {}
+
+// « Charger un document » depuis un dossier de vente = MÊME module FluxBox, métier TRANSACTION.
+// (Doctrine 2026-06-30 : transaction UNIQUEMENT quand le chargement provient de transaction_dossier.)
+$dossRefJs = addslashes((string)($bien['reference_bien'] ?: ('Bien #' . $idBien)));
+$dossAdrJs = addslashes(trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')));
+$fbxOnClickDossier = "window.fbxOpenUploadModal({"
+    . "bien_id:" . $idBien . ", soc_id:" . (int)($bien['id_societe'] ?? 0) . ", age_id:" . (int)($bien['id_agence'] ?? 0)
+    . ", proprio_id:" . (int)($bien['proprio_id'] ?? 0) . ", proprio_tiers_id:" . (int)($bien['proprio_tiers_id'] ?? 0)
+    . ", immeuble_id:" . (int)($bien['immeuble_id'] ?? 0)
+    . ", n1:'05_TRANSACTION', n2:'BIENS', n3:'BIEN'"
+    . ", entite_nom:'" . $dossRefJs . "', entite_id_bdd:" . $idBien . ", entite_adresse:'" . $dossAdrJs . "'"
+    . ", origin:'transaction_dossier'});return false;";
 
 // ── Signatures du mandat (si mandat lié) ──
 require_once __DIR__ . '/inc/mandat_signature.php';
@@ -396,6 +417,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <div style="display:flex;gap:8px;">
       <a class="tr-btn tr-btn-primary" href="<?= h(app_url('/bien_360.php?id=' . $idBien)) ?>">🏠 Vue 360° du bien</a>
       <a class="tr-btn" href="<?= h(app_url('/bien_documents_list.php?id=' . $idBien)) ?>">📁 Documents</a>
+      <?php if (!$etapeTerminal): ?>
+        <button type="button" class="tr-btn" style="color:#b91c1c;" onclick="dvCancelOpen()">🗑️ Annuler le dossier</button>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -1014,7 +1038,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <?php endif; ?>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/transaction_mail.php?id_dossier=' . $idDossier)) ?>">✉️ Envoyer un mail</a>
         <button type="button" class="dvk-act-btn" style="background:#eef9f1;border-color:#9bd3ab;color:#1d6a3a;"
-                onclick="dvUploadOpen()">📥 Charger un document</button>
+                onclick="<?= h($fbxOnClickDossier) ?>">📥 Charger un document</button>
         <button type="button" class="dvk-act-btn" onclick="odClasserOpen()">📥 Importer docs OneDrive</button>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_360.php?id=' . $idBien)) ?>">🏠 Vue 360° du bien</a>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_documents_list.php?id=' . $idBien)) ?>">📁 Documents du bien</a>
@@ -1023,7 +1047,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
       <!-- CONTACTS (acteurs du dossier) -->
       <div class="dv-card dvc-contacts">
         <h3>👥 Contacts
-          <button type="button" class="dv-add-btn" onclick="dvOpenActeurModal()" title="Ajouter un acteur (acquéreur, notaire, apporteur…)">+</button>
+          <button type="button" class="dv-add-btn" onclick="acteurModalOpen_trx_acteur()" title="Ajouter un acteur (acquéreur, vendeur, notaire, conseil…)">+</button>
         </h3>
         <div id="dv-acteurs-list">
           <?php foreach ($acteurs as $a):
@@ -1058,33 +1082,18 @@ include __DIR__ . '/inc/agency_layout_top.php';
   </div>
 </div>
 
-<!-- ═══ MODAL : ajouter un acteur au dossier ═══ -->
-<div class="dvm-backdrop" id="dvm-acteur">
-  <div class="dvm">
-    <h3>➕ Ajouter un acteur</h3>
-    <div class="sub">Choisissez un rôle, puis recherchez un tiers existant ou créez-en un nouveau (zéro double saisie).</div>
-
-    <p class="dvm-label">1 · Rôle dans la vente</p>
-    <div class="dvm-roles" id="dvm-roles">
-      <?php foreach (dv_roles_autorises() as $code => $lib): ?>
-        <button type="button" class="dvm-role" data-role="<?= h($code) ?>"><?= h($lib) ?></button>
-      <?php endforeach; ?>
-    </div>
-
-    <p class="dvm-label">2 · Tiers</p>
-    <?php tiers_selector_render([
-        'id'           => 'dvm_tiers',
-        'name'         => 'dvm_id_tiers',
-        'allow_create' => true,
-        'placeholder'  => 'Rechercher (nom, email, téléphone…) ou créer',
-    ]); ?>
-
-    <div class="dvm-actions">
-      <button type="button" class="dvm-btn cancel" onclick="dvCloseActeurModal()">Annuler</button>
-      <button type="button" class="dvm-btn ok" id="dvm-submit" disabled onclick="dvSubmitActeur()">Ajouter au dossier</button>
-    </div>
-  </div>
-</div>
+<!-- ═══ MODAL : ajouter un acteur au dossier (composant partagé) ═══ -->
+<?php acteur_modal_render([
+    'id'         => 'trx_acteur',
+    'title'      => '➕ Ajouter un acteur',
+    'role_label' => 'Rôle dans la vente',
+    'roles'      => dv_roles_autorises(),
+    'api_add'    => app_url('/api/transaction_dossier_acteur_add.php'),
+    'entity'     => ['id_dossier' => $idDossier],
+    'role_field' => 'role_code',
+    'tiers_field'=> 'id_tiers',
+    'csrf'       => function_exists('csrf_token') ? csrf_token('transaction_acteur') : '',
+]); ?>
 <!-- ═══ MODAL : créer le mandat de vente (termes) ═══ -->
 <div class="dvm-backdrop" id="dvm-mandat">
   <div class="dvm">
@@ -1496,57 +1505,9 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     }catch(err){ msg.textContent='Erreur réseau : '+err.message; }
   };
 
-  const root   = document.querySelector('[data-ts-root="dvm_tiers"]');
-  const hidden = () => root ? root.querySelector('.ts-value') : null;
-
-  function refreshSubmit(){
-    const ok = selectedRole !== '' && hidden() && hidden().value;
-    document.getElementById('dvm-submit').disabled = !ok;
-  }
-
-  // Choix du rôle (boutons, pas de select)
-  document.getElementById('dvm-roles').addEventListener('click', (e)=>{
-    const b = e.target.closest('.dvm-role'); if(!b) return;
-    document.querySelectorAll('#dvm-roles .dvm-role').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    selectedRole = b.dataset.role;
-    // Le rôle choisi devient aussi le rôle global posé à la création du tiers
-    if (root) root.dataset.tsDefaultRoles = selectedRole;
-    refreshSubmit();
-  });
-
-  // Tiers sélectionné OU créé → le hidden est renseigné
-  if (root){
-    root.addEventListener('tiers:selected', refreshSubmit);
-    root.addEventListener('tiers:created',  refreshSubmit);
-    root.querySelector('.ts-search')?.addEventListener('input', ()=>setTimeout(refreshSubmit,50));
-    root.querySelector('.ts-clear')?.addEventListener('click', ()=>setTimeout(refreshSubmit,10));
-  }
-
-  window.dvOpenActeurModal = function(){
-    selectedRole='';
-    document.querySelectorAll('#dvm-roles .dvm-role').forEach(x=>x.classList.remove('active'));
-    if (hidden()) hidden().value='';
-    const s = root && root.querySelector('.ts-search'); if(s){ s.value=''; s.classList.remove('is-selected'); }
-    refreshSubmit();
-    document.getElementById('dvm-acteur').classList.add('open');
-  };
-  window.dvCloseActeurModal = function(){ document.getElementById('dvm-acteur').classList.remove('open'); };
-
-  window.dvSubmitActeur = async function(){
-    const idTiers = hidden() && hidden().value;
-    if (!selectedRole || !idTiers) return;
-    const btn = document.getElementById('dvm-submit'); btn.disabled=true; btn.textContent='Ajout…';
-    try{
-      const body = new URLSearchParams({ id_dossier:DOSSIER_ID, id_tiers:idTiers, role_code:selectedRole });
-      const res  = await fetch(API_ADD, {method:'POST', credentials:'same-origin', body});
-      const out  = await res.json();
-      if(!out.ok){ alert('Erreur : '+(out.error||'inconnue')); return; }
-      dvAppendActeur(out.acteur);
-      dvCloseActeurModal();
-    }catch(err){ alert('Erreur réseau : '+err.message); }
-    finally{ btn.disabled=false; btn.textContent='Ajouter au dossier'; }
-  };
+  // L'ajout d'acteur est géré par le composant partagé inc/acteur_modal.php
+  // (modal id "trx_acteur", recharge la page après ajout). On conserve ici uniquement
+  // la suppression d'un acteur déjà listé.
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
@@ -1580,8 +1541,61 @@ require_once __DIR__ . '/inc/adresse_modal.php';
         document.getElementById('dv-acteurs-empty').style.display='';
     }catch(err){ alert('Erreur réseau : '+err.message); }
   };
+
+  // ── Annulation / suppression du dossier de vente ──
+  const API_DVCANCEL = <?= json_encode(app_url('/api/transaction_dossier_delete.php')) ?>;
+  window.dvCancelOpen  = function(){ document.getElementById('dv-cancel-modal').classList.add('open'); };
+  window.dvCancelClose = function(){ document.getElementById('dv-cancel-modal').classList.remove('open'); };
+  window.dvCancelConfirm = async function(){
+    const btn = document.getElementById('dv-cancel-go'); btn.disabled=true; btn.textContent='Annulation…';
+    try{
+      const body = new URLSearchParams({ id_dossier:DOSSIER_ID });
+      const res  = await fetch(API_DVCANCEL, {method:'POST', credentials:'same-origin', body});
+      const out  = await res.json();
+      if(!out.ok){ alert('Erreur : '+(out.error||'inconnue')); btn.disabled=false; btn.textContent='Oui, annuler'; return; }
+      // Retour à la PAGE PRÉCÉDENTE (d'où l'on vient), pas sur le bien.
+      var ref = document.referrer;
+      var back = (ref && ref.indexOf(location.origin) === 0 && ref.indexOf('transaction_dossier.php') === -1)
+                 ? ref
+                 : (out.redirect || <?= json_encode(app_url('/transaction_index.php')) ?>);
+      location.href = back;
+    }catch(err){ alert('Erreur réseau : '+err.message); btn.disabled=false; btn.textContent='Oui, annuler'; }
+  };
 })();
 </script>
+
+<!-- ── Modal de confirmation : annuler le dossier de vente ── -->
+<?php $dvVide = ($dossier['etape'] === 'estimation') && empty($dossier['id_mandat']); ?>
+<style>
+  #dv-cancel-modal{display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,18,24,.55);align-items:center;justify-content:center;padding:18px;}
+  #dv-cancel-modal.open{display:flex;}
+  #dv-cancel-modal .box{background:#fff;border-radius:14px;width:min(480px,95vw);overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35);}
+  #dv-cancel-modal .hd{background:#b91c1c;color:#fff;padding:16px 20px;font-weight:700;font-size:16px;display:flex;gap:10px;align-items:center;}
+  #dv-cancel-modal .bd{padding:20px;color:#334155;line-height:1.55;}
+  #dv-cancel-modal .ft{display:flex;gap:10px;padding:0 20px 20px;}
+  #dv-cancel-modal .btn{flex:1;padding:12px;border-radius:9px;font-weight:700;cursor:pointer;border:0;font-size:14px;}
+  #dv-cancel-modal .no{background:#e2e8f0;color:#334155;}
+  #dv-cancel-modal .yes{background:#b91c1c;color:#fff;}
+</style>
+<div id="dv-cancel-modal">
+  <div class="box">
+    <div class="hd">🗑️ Annuler le dossier de vente</div>
+    <div class="bd">
+      <?php if ($dvVide): ?>
+        <p>Ce dossier est encore vide (étape estimation, aucun mandat). Il sera
+           <strong>définitivement supprimé</strong>.</p>
+      <?php else: ?>
+        <p>Ce dossier est engagé (mandat / offre en cours). Il ne sera pas supprimé mais
+           <strong>marqué « sans suite »</strong> et sortira des dossiers actifs.</p>
+      <?php endif; ?>
+      <p style="color:#64748b;font-size:13px;margin-bottom:0;">Les documents déjà classés ne sont pas supprimés.</p>
+    </div>
+    <div class="ft">
+      <button type="button" class="btn no" onclick="dvCancelClose()">Non, garder</button>
+      <button type="button" class="btn yes" id="dv-cancel-go" onclick="dvCancelConfirm()">Oui, annuler</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Modal « Charger un document » (mécanisme fiable identique à bail_360) ── -->
 <div id="dvUpModal" style="display:none;position:fixed;inset:0;z-index:9100;background:rgba(15,18,24,.55);align-items:center;justify-content:center;">

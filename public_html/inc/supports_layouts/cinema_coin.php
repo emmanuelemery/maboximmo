@@ -241,6 +241,13 @@ if (!function_exists('mbi_supports_layout_cinema_coin_build')) {
         }
         $py += 4;
 
+        // ─── COPROPRIÉTÉ (vente + en copro uniquement) ───
+        $py = mbi_supports_tpl_bloc_copropriete(
+            $pdf, $px, $py, $pw,
+            mbi_supports_get_copropriete_lignes($bien),
+            $cS, [110, 116, 130], $cP
+        );
+
         // Trait or fin séparateur
         $pdf->SetDrawColor($cS[0], $cS[1], $cS[2]);
         $pdf->SetLineWidth(0.8);

@@ -4,7 +4,7 @@ require_once __DIR__ . '/../inc/bootstrap.php';
 require_login();
 
 if (!function_exists('e')) {
-    function e(string $v): string { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8'); }
+    function e(?string $v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); }
 }
 
 /* ── Vérification accès SIR ──────────────────────────── */

@@ -99,7 +99,7 @@
 
       const fileInput = dz.querySelector('input[type="file"]');
       fileInput.addEventListener('change', e => {
-        if (e.target.files.length) this.upload(e.target.files[0]);
+        if (e.target.files.length) this._handleFiles(Array.from(e.target.files));
       });
       dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragging'); });
       dz.addEventListener('dragleave', () => dz.classList.remove('dragging'));
@@ -107,8 +107,7 @@
         e.preventDefault();
         dz.classList.remove('dragging');
         if (e.dataTransfer.files.length) {
-          fileInput.files = e.dataTransfer.files;
-          this.upload(e.dataTransfer.files[0]);
+          this._handleFiles(Array.from(e.dataTransfer.files));
         }
       });
 
@@ -153,11 +152,21 @@
 
     _dropzoneHtml(type) {
       const def = TYPE_DEFS[type] || { icon: '📄', label: type };
+      // 'divers' = je ne sais pas ce que c'est → on accepte un batch, le backend
+      // auto-détecte chaque document (bail, mandat, diag…) et le route.
+      const isMulti = (type === 'divers');
+      const inputAttr = isMulti ? 'multiple' : '';
+      const title = isMulti
+        ? `Glissez un ou plusieurs PDF ${def.label} ici ou cliquez`
+        : `Glissez votre PDF ${def.label} ici ou cliquez`;
+      const subtitle = isMulti
+        ? `PDF · max 20 Mo · auto-détection bail/mandat/diag/acte/fiche`
+        : `PDF uniquement — max 20 Mo — analyse IA automatique`;
       return `
-        <input type="file" accept=".pdf,application/pdf">
+        <input type="file" accept=".pdf,application/pdf" ${inputAttr}>
         <div class="dz-icon">${def.icon}</div>
-        <div class="dz-title">Glissez votre PDF ${def.label} ici ou cliquez</div>
-        <div class="dz-subtitle">PDF uniquement — max 20 Mo — analyse IA automatique</div>
+        <div class="dz-title">${title}</div>
+        <div class="dz-subtitle">${subtitle}</div>
       `;
     }
 
@@ -172,8 +181,80 @@
       this.dzEl.innerHTML = this._dropzoneHtml(type);
       const fileInput = this.dzEl.querySelector('input[type="file"]');
       fileInput.addEventListener('change', e => {
-        if (e.target.files.length) this.upload(e.target.files[0]);
+        if (e.target.files.length) this._handleFiles(Array.from(e.target.files));
       });
+    }
+
+    // ─── Aiguillage 1 fichier vs batch (divers) ─────────
+    async _handleFiles(files) {
+      if (!files || !files.length) return;
+      // Filtre PDF côté client (le backend revalidera)
+      const pdfs = files.filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+      if (!pdfs.length) {
+        this._setStatus('error', '❌ Aucun PDF dans la sélection.');
+        return;
+      }
+      // Hors mode divers : on garde le comportement historique (1 fichier).
+      if (this.selectedType !== 'divers' || pdfs.length === 1) {
+        return this.upload(pdfs[0]);
+      }
+      // Mode divers + plusieurs PDF : batch séquentiel.
+      this.resultsEl.innerHTML = '';
+      const batchSummary = document.createElement('div');
+      batchSummary.className = 'doc-uploader-batch-summary';
+      batchSummary.style.cssText = 'margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;';
+      this.resultsEl.appendChild(batchSummary);
+
+      const tally = { ok: 0, err: 0, byType: {} };
+      for (let i = 0; i < pdfs.length; i++) {
+        const file = pdfs[i];
+        this._setStatus('loading',
+          `⏳ Analyse ${i + 1}/${pdfs.length} — ${this._escape(file.name)} (10–30s)…`);
+        try {
+          const j = await this._uploadOne(file);
+          tally.ok++;
+          const t = (j.doc_type || 'divers');
+          tally.byType[t] = (tally.byType[t] || 0) + 1;
+          batchSummary.innerHTML +=
+            `<div style="padding:4px 0;border-bottom:1px dashed #cbd5e1;">`
+            + `✅ <strong>${this._escape(file.name)}</strong> → reconnu comme <em>${this._escape(t)}</em>`
+            + (j.fichier ? ` <a href="${j.fichier}" target="_blank" rel="noopener" style="margin-left:6px;">🔍</a>` : '')
+            + `</div>`;
+        } catch (e) {
+          tally.err++;
+          batchSummary.innerHTML +=
+            `<div style="padding:4px 0;border-bottom:1px dashed #cbd5e1;color:#991b1b;">`
+            + `❌ <strong>${this._escape(file.name)}</strong> — ${this._escape(e.message || 'erreur')}`
+            + `</div>`;
+        }
+      }
+      const typesStr = Object.entries(tally.byType)
+        .map(([t, n]) => `${n} ${t}`).join(' · ') || '—';
+      this._setStatus(tally.err ? 'success' : 'success',
+        `<strong>📎 Batch terminé : ${tally.ok}/${pdfs.length} OK</strong>`
+        + (tally.err ? ` · ${tally.err} échec(s)` : '')
+        + ` · <span style="color:#64748b;">${typesStr}</span>`);
+    }
+
+    // Sous-appel utilisé par upload(file) ET par le batch.
+    async _uploadOne(file) {
+      const fd = new FormData();
+      fd.append('fichier', file);
+      fd.append('csrf_token', this.opts.csrfToken);
+      fd.append('force_type', this.selectedType);
+      if (this.opts.context === 'immeuble') {
+        fd.append('id_immeuble', this.opts.idContexte || 0);
+      } else if (this.opts.idContexte) {
+        fd.append('id_bien', this.opts.idContexte);
+      }
+      const r = await fetch(this.opts.endpoint, {
+        method: 'POST', body: fd, credentials: 'same-origin'
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Erreur inconnue');
+      this.lastResult = j;
+      if (typeof this.opts.onSuccess === 'function') this.opts.onSuccess(j);
+      return j;
     }
 
     // ─── Upload ────────────────────────────────────────
@@ -223,6 +304,10 @@
       const pdfUrl = j.fichier || j.fichier_relatif || '';
       const pdfName = j.nom || 'Document';
       const docType = j.doc_type || this.selectedType;
+      // Affiche en mode "divers" UNIQUEMENT si le backend n'a pas re-classifié
+      // le document. Si on a déposé en Divers mais que le backend l'a reconnu
+      // comme bail/mandat/diag, on bascule sur l'affichage du type détecté.
+      const isDivers = (docType === 'divers' || docType === 'autre');
       const resume  = j.resume || j.resume_bailleur || '';
 
       // Badge mode
@@ -240,12 +325,14 @@
         : '';
 
       const nbFields = Object.keys(fields).length;
-      const headMsg = `<strong>✅ ${TYPE_DEFS[this.selectedType]?.label || docType} analysé</strong>`
+      // Label : on prend en priorité le type DÉTECTÉ par le backend
+      const labelType = TYPE_DEFS[docType]?.label || TYPE_DEFS[this.selectedType]?.label || docType;
+      const headMsg = `<strong>✅ ${labelType} analysé</strong>`
         + methodBadge
         + ` <span style="color:#64748b;font-size:11px;">· ${this._escape(pdfName)}</span>`;
 
       // Pour mode "divers" : pas de tableau validation, juste résumé
-      if (this.selectedType === 'divers') {
+      if (isDivers) {
         this._setStatus('success', headMsg);
         this.resultsEl.innerHTML = `
           <div style="margin-top:10px;padding:14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;">

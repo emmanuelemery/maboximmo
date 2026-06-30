@@ -149,11 +149,29 @@ $docTypes = ['BAIL', 'BAIL_SIGNE', 'DPE', 'DIAG_DPE', 'DIAG', 'DIAGNOSTIC', 'DDT
 
 // Biens ENCORE dans le portefeuille (un retrait côté agence rend le bien « plus disponible »).
 $currentSet = [];
+$docSelByBien = [];   // id_bien => [ids ged_documents explicitement cochés côté agence]
 try {
-    $cs = $pdo->prepare("SELECT id_bien FROM portefeuille_biens WHERE id_portefeuille = ?");
+    $cs = $pdo->prepare("SELECT id_bien, documents_joints FROM portefeuille_biens WHERE id_portefeuille = ?");
     $cs->execute([(int)$envoi['id_portefeuille']]);
-    $currentSet = array_flip(array_map('intval', $cs->fetchAll(PDO::FETCH_COLUMN)));
-} catch (Throwable $ex) {}
+    foreach ($cs->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $bid = (int)$r['id_bien'];
+        $currentSet[$bid] = true;
+        if (!empty($r['documents_joints'])) {
+            $ids = json_decode((string)$r['documents_joints'], true);
+            if (is_array($ids)) {
+                $ids = array_values(array_filter(array_map('intval', $ids), fn($v) => $v > 0));
+                if ($ids) $docSelByBien[$bid] = $ids;
+            }
+        }
+    }
+} catch (Throwable $ex) {
+    // Repli (colonne documents_joints pas encore migrée) : juste l'ensemble des biens.
+    try {
+        $cs = $pdo->prepare("SELECT id_bien FROM portefeuille_biens WHERE id_portefeuille = ?");
+        $cs->execute([(int)$envoi['id_portefeuille']]);
+        $currentSet = array_flip(array_map('intval', $cs->fetchAll(PDO::FETCH_COLUMN)));
+    } catch (Throwable $ex2) {}
+}
 
 $biensJs = [];
 $nbDispo = 0;
@@ -254,20 +272,34 @@ foreach ($lignes as $L) {
     }
     $encStatut = $loyerMax ? (($loyer && $loyer > $loyerMax) ? 'non_conforme' : 'conforme') : '';
 
-    // Documents GED autorisés (DPE / DIAG / Bail) → liens sécurisés par jeton.
+    // Documents joints → liens sécurisés par jeton.
+    //   - Si l'agence a coché des docs précis (documents_joints) → on envoie EXACTEMENT ceux-là.
+    //   - Sinon (portefeuille historique) → tous les docs de types autorisés (DPE / DIAG / Bail…).
     $docs = [];
     try {
-        $in = implode(',', array_fill(0, count($docTypes), '?'));
-        $gd = $pdo->prepare("SELECT gd.id, gd.document_type, gd.name_display
-                             FROM ged_documents gd
-                             JOIN ged_document_links gdl ON gdl.document_id = gd.id
-                             WHERE gdl.entity_type='BIEN' AND gdl.entity_id=? AND gd.status='active'
-                               AND UPPER(gd.document_type) IN ($in)
-                             ORDER BY gd.document_type");
-        $gd->execute(array_merge([$idBien], $docTypes));
+        $sel = $docSelByBien[$idBien] ?? [];
+        if ($sel) {
+            $inSel = implode(',', array_fill(0, count($sel), '?'));
+            $gd = $pdo->prepare("SELECT gd.id, gd.document_type, gd.name_display
+                                 FROM ged_documents gd
+                                 WHERE gd.id IN ($inSel) AND gd.status='active'
+                                   AND (gd.id_bien=? OR EXISTS(SELECT 1 FROM ged_document_links gdl
+                                        WHERE gdl.document_id=gd.id AND gdl.entity_type='BIEN' AND gdl.entity_id=?))
+                                 ORDER BY gd.document_type");
+            $gd->execute(array_merge($sel, [$idBien, $idBien]));
+        } else {
+            $in = implode(',', array_fill(0, count($docTypes), '?'));
+            $gd = $pdo->prepare("SELECT gd.id, gd.document_type, gd.name_display
+                                 FROM ged_documents gd
+                                 JOIN ged_document_links gdl ON gdl.document_id = gd.id
+                                 WHERE gdl.entity_type='BIEN' AND gdl.entity_id=? AND gd.status='active'
+                                   AND UPPER(gd.document_type) IN ($in)
+                                 ORDER BY gd.document_type");
+            $gd->execute(array_merge([$idBien], $docTypes));
+        }
         foreach ($gd->fetchAll(PDO::FETCH_ASSOC) as $d) {
             $t = strtoupper((string)$d['document_type']);
-            $kind = $t === 'DPE' ? 'dpe' : ($t === 'BAIL' ? 'bail' : 'diag');
+            $kind = str_contains($t, 'DPE') ? 'dpe' : (str_contains($t, 'BAIL') ? 'bail' : 'diag');
             $docs[] = ['kind' => $kind, 'label' => (string)($d['name_display'] ?: $t),
                        'url' => app_url('/api/portefeuille_doc.php?t=' . $token . '&doc=' . (int)$d['id'])];
         }

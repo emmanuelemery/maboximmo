@@ -152,6 +152,9 @@ try {
 
     $system = "Tu es un expert SEO immobilier français, spécialiste Le Bon Coin et Google. "
         . "Tu rédiges des annonces optimisées pour la recherche locale longue traîne. "
+        . "TYPE DE BIEN IMPÉRATIF : ce bien est un « {$typeLibelle} ». Emploie EXACTEMENT ce type partout (titres, slug, meta, mots-clés, description). "
+        . "Interdiction absolue d'écrire « maison », « appartement », « studio » ou un autre type si ce n'est pas « {$typeLibelle} ». "
+        . "Pour des bureaux/locaux commerciaux : pas de « pièces », « chambres », « séjour » — parle de surfaces, postes de travail, stationnement, accessibilité. "
         . "Tu respectes les contraintes légales (ALUR, honoraires, DPE obligatoire 2023). "
         . "Tu ne RÉPONDS QU'EN JSON VALIDE, sans texte avant ni après.";
 
@@ -171,7 +174,7 @@ Structure JSON EXACTE à produire :
   "h1":               "Titre H1 affiché sur la page publique (peut différer du titre_seo, plus long)",
   "description":      "300-500 mots, 3-5 paragraphes courts séparés par \\n\\n, H2 en ### pour structurer si pertinent. Décris l'emplacement, le bien, les points forts, les commerces/transports, finis par un CTA 'Contactez-nous pour visiter'.",
   "meta_description": "150-160 chars avec CTA, mot-clé principal en début",
-  "mots_cles":        ["appartement X ville", "2 pieces ville quartier", "3-5 expressions longue traîne avec localité"],
+  "mots_cles":        ["TOUJOURS basés sur le type réel du bien (voir contexte), ex: '<type réel> ville', '<type réel> surface ville quartier'", "3-5 expressions longue traîne avec localité"],
   "alt_photos":       { "photo_id_INT": "alt SEO descriptif de la photo (max 100 chars, inclut le type de pièce et ville)", ... }
 }
 

@@ -68,6 +68,23 @@ $alertYear = (int)$now->format('Y');
 $detailUrl      = 'rh_salaires_user.php?mois=' . $alertMonth . '&annee=' . $alertYear;
 $moisEnCoursUrl = 'rh_salaire_open_or_create.php?mois=' . $alertMonth . '&annee=' . $alertYear;
 
+// État du salaire du mois en cours : none (à créer) / progress (commencé) / done (finalisé)
+$curSalRow = null;
+try {
+    $stmtCur = $pdo->prepare("SELECT termine_user FROM salaires WHERE id_user IN ($in) AND mois_reference = ? ORDER BY termine_user DESC LIMIT 1");
+    $stmtCur->execute(array_merge($idUserList, [sprintf('%04d-%02d-01', $alertYear, $alertMonth)]));
+    $curSalRow = $stmtCur->fetch(PDO::FETCH_ASSOC) ?: null;
+} catch (Exception $e) {}
+$salState = ($curSalRow === null) ? 'none' : (((int)$curSalRow['termine_user'] === 1) ? 'done' : 'progress');
+
+if ($salState === 'done') {
+    $salBtnClass = 'btn-done';   $salBtnLabel = '✅ Voir mon salaire finalisé';
+} elseif ($salState === 'progress') {
+    $salBtnClass = 'btn-progress'; $salBtnLabel = '✏️ Continuer mon salaire du mois';
+} else {
+    $salBtnClass = 'btn-primary'; $salBtnLabel = '🧾 Créer mon salaire du mois';
+}
+
 /* ── Layout variables ── */
 $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 $layout_title   = 'Mes salaires — ' . h($_userName);
@@ -85,13 +102,23 @@ $layout_extra_css = <<<'EXTRACSS'
     .filter{display:flex;gap:8px;align-items:center}
     .filter label{font-size:11px;text-transform:uppercase;color:#8a8680;font-weight:700;letter-spacing:.06em}
     select{padding:7px 10px;border-radius:8px;border:1px solid #d4d7de;background:#ffffff;color:#1a1816;font-size:12px}
-    .alert{border:1px solid rgba(74,96,56,.25);background:#e8efe0;border-radius:12px;padding:14px 16px;margin-bottom:16px}
+    .alert{display:flex;align-items:center;gap:28px;border:1px solid rgba(74,96,56,.25);background:#e8efe0;border-radius:12px;padding:16px 20px;margin-bottom:16px}
+    .alert-main{flex:1;min-width:0;max-width:620px}
     .alert-title{font-weight:800;color:#4a6038;font-size:16px;margin-bottom:6px}
     .alert-text{font-size:14px;color:#6a6660}
-    .alert-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
-    .btn{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;border:1px solid rgba(72,120,166,.25);background:rgba(72,120,166,.08);color:#4878a6;font-size:12px;font-weight:700;text-decoration:none;box-shadow:2px 2px 5px #d4d7de,-2px -2px 5px #fff}
+    .alert-actions{display:flex;flex-direction:row;align-items:stretch;gap:10px;flex-shrink:0;margin-left:auto}
+    .alert-actions-side{display:flex;flex-direction:column;gap:10px;width:200px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:8px 14px;border-radius:8px;border:1px solid rgba(72,120,166,.25);background:rgba(72,120,166,.08);color:#4878a6;font-size:12px;font-weight:700;text-decoration:none;box-shadow:2px 2px 5px #d4d7de,-2px -2px 5px #fff}
     .btn:hover{background:rgba(72,120,166,.15)}
-    .btn-ghost{border-color:#d4d7de;background:#ffffff;color:#1a1816}
+    .btn-ghost{border-color:#d4d7de;background:#ffffff;color:#1a1816;flex:1}
+    .btn-big{width:230px;font-size:17px;line-height:1.25;padding:14px 18px;color:#fff;text-align:center;white-space:normal}
+    .btn-primary{border-color:#D4A047;background:#D4A047;box-shadow:3px 3px 8px #c9b48a,-2px -2px 6px #fff}
+    .btn-primary:hover{background:#c2913a}
+    .btn-progress{border-color:#2f587d;background:#2f587d;box-shadow:3px 3px 8px #b4c0cf,-2px -2px 6px #fff}
+    .btn-progress:hover{background:#264663}
+    .btn-done{border-color:#6b8e6f;background:#6b8e6f;box-shadow:3px 3px 8px #b6c7b4,-2px -2px 6px #fff}
+    .btn-done:hover{background:#5a7a5d}
+    @media(max-width:760px){.alert{flex-direction:column;align-items:stretch}.alert-actions{margin-left:0}}
     .list{margin-top:16px;display:grid;gap:10px}
     .item{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid #e4e6ec;border-radius:10px;background:#ffffff;box-shadow:3px 3px 8px #d4d7de,-3px -3px 8px #fff;transition:transform .15s;flex-wrap:wrap;gap:8px}
     a.item:hover{transform:translateY(-1px);box-shadow:4px 4px 12px #d4d7de,-4px -4px 12px #fff}
@@ -125,12 +152,16 @@ ob_start();
 ?>
             <?php if ($day >= 23): ?>
             <div class="alert">
-                <div class="alert-title">À partir du 23, pensez à remplir votre salaire</div>
-                <div class="alert-text">Vos congés et vos IK sont liés au salaire du mois. Pensez à compléter le mois de <?= h(mois_fr($alertMonth)) ?>.</div>
+                <div class="alert-main">
+                    <div class="alert-title">À partir du 23, pensez à remplir votre salaire</div>
+                    <div class="alert-text">Vos congés et vos IK sont liés au salaire du mois. Pensez à compléter le mois de <?= h(mois_fr($alertMonth)) ?>.</div>
+                </div>
                 <div class="alert-actions">
-                    <a class="btn" href="<?= h($moisEnCoursUrl) ?>">🧾 Remplir mon salaire</a>
-                    <a class="btn btn-ghost" href="rh_conges.php">🏖️ Mes congés</a>
-                    <a class="btn btn-ghost" href="rh_indemnite_km.php">🚗 Mes IK</a>
+                    <a class="btn btn-big <?= $salBtnClass ?>" href="<?= h($moisEnCoursUrl) ?>"><?= $salBtnLabel ?></a>
+                    <div class="alert-actions-side">
+                        <a class="btn btn-ghost" href="rh_conges.php">🏖️ Mes congés</a>
+                        <a class="btn btn-ghost" href="rh_indemnite_km.php">🚗 Mes IK</a>
+                    </div>
                 </div>
             </div>
             <?php endif; ?>

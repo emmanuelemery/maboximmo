@@ -40,6 +40,28 @@ try {
     $stmt->execute($args);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Dédoublonnage : si plusieurs lignes pointent la même adresse (doublons base),
+    // on n'en affiche qu'UNE. On garde en priorité celle qui a des coordonnées GPS.
+    $seen = [];
+    $uniq = [];
+    foreach ($rows as $row) {
+        $key = mb_strtolower(trim(
+            preg_replace('/\s+/', ' ',
+                ($row['adresse_1'] ?? '') . '|' . ($row['code_postal'] ?? '') . '|' . ($row['ville'] ?? '')
+            )
+        ));
+        $hasGps = ($row['latitude'] ?? '') !== '' && $row['latitude'] !== null
+               && ($row['longitude'] ?? '') !== '' && $row['longitude'] !== null;
+        if (!isset($seen[$key])) {
+            $seen[$key] = count($uniq);
+            $uniq[] = $row;
+        } elseif ($hasGps) {
+            // remplace la version sans GPS déjà retenue par celle qui a les coords
+            $uniq[$seen[$key]] = $row;
+        }
+    }
+    $rows = $uniq;
+
     foreach ($rows as $row) {
         $nom = trim((string)($row['nom_immeuble'] ?? ''));
         $adresseParts = [

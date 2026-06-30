@@ -69,9 +69,51 @@ if (!function_exists('mbi_supports_layout_catalogue')) {
                     return $score;
                 },
             ],
-            // 'split_5050'   => [...], // étape 2
-            // 'mosaique_haute' => [...], // étape 2
-            // 'asymetrique'  => [...], // étape 2
+            // NB : 'cezane' retiré du catalogue — cezane.php n'est pas déployé en prod
+            // (layout de test local). Styles actifs = cinema_coin, magazine_bandeau,
+            // split_5050, mosaique_haute, asymetrique (tous présents sur le serveur).
+            'split_5050' => [
+                'file'  => 'split_5050.php',
+                'fn'    => 'mbi_supports_layout_split_5050_build',
+                'score' => function (array $ctx): int {
+                    $angle = (string)($ctx['angle'] ?? 'generique');
+                    $nb    = (int)($ctx['nb_photos'] ?? 3);
+                    $score = 50;
+                    if ($nb <= 2)                  $score += 10; // lecture confort avec peu de photos
+                    if ($angle === 'investisseur') $score += 25; // données financières mises en avant
+                    if ($angle === 'premier_achat') $score += 10;
+                    if ($angle === 'premium')      $score += 5;
+                    return $score;
+                },
+            ],
+            'mosaique_haute' => [
+                'file'  => 'mosaique_haute.php',
+                'fn'    => 'mbi_supports_layout_mosaique_haute_build',
+                'score' => function (array $ctx): int {
+                    $angle = (string)($ctx['angle'] ?? 'generique');
+                    $nb    = (int)($ctx['nb_photos'] ?? 3);
+                    $score = 50;
+                    if ($nb >= 3)                $score += 25; // valorise plusieurs photos
+                    if ($angle === 'famille')    $score += 12;
+                    if ($angle === 'premier_achat') $score += 8;
+                    if ($nb === 1)               $score -= 25; // 1 photo = grille sans intérêt
+                    return $score;
+                },
+            ],
+            'asymetrique' => [
+                'file'  => 'asymetrique.php',
+                'fn'    => 'mbi_supports_layout_asymetrique_build',
+                'score' => function (array $ctx): int {
+                    $angle = (string)($ctx['angle'] ?? 'generique');
+                    $nb    = (int)($ctx['nb_photos'] ?? 3);
+                    $score = 48;
+                    if ($angle === 'premium')      $score += 30; // signature premium
+                    if ($angle === 'investisseur') $score += 5;
+                    if ($nb === 1)                 $score += 15; // 1 belle photo plein cadre
+                    if ($nb >= 3)                  $score -= 10;
+                    return $score;
+                },
+            ],
         ];
     }
 }

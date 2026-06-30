@@ -3,6 +3,7 @@
 // Idempotent : si reference_bien existe déjà → skip.
 declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
+require_once __DIR__ . '/../inc/bien_missions.php';
 require_login();
 
 $roleId = function_exists('current_role_id') ? (int)current_role_id() : (int)($_SESSION['id_role'] ?? 0);
@@ -147,7 +148,8 @@ if ($run) {
         if (isset($colsBien['code_postal']))            $fields['code_postal'] = $cp;
         if (isset($colsBien['ville']))                  $fields['ville'] = $ville;
         if (isset($colsBien['statut_bien']))            $fields['statut_bien'] = 'actif';
-        if (isset($colsBien['type_commercialisation'])) $fields['type_commercialisation'] = 'vente';
+        // type_commercialisation : NON écrit en direct — mission canonique = mandat vente
+        // créé après l'INSERT, puis miroir dérivé (cf. ensure_mandat_vente + derive ci-dessous).
         if (isset($colsBien['usage_bien']))             $fields['usage_bien'] = 'professionnel';
         if (isset($colsBien['surface_habitable']) && $surface > 0)  $fields['surface_habitable'] = $surface;
         if (isset($colsBien['surface_totale']) && $surface > 0)     $fields['surface_totale'] = $surface;
@@ -171,6 +173,10 @@ if ($run) {
             $st = $pdo->prepare($sql);
             foreach ($fields as $k=>$v) $st->bindValue(':' . $k, $v);
             $st->execute();
+            $newBienId = (int)$pdo->lastInsertId();
+            // Mission canonique : mandat vente (projet) + miroir type_commercialisation dérivé.
+            ensure_mandat_vente($pdo, $newBienId, ['id_proprietaire' => $idProprio]);
+            derive_type_commercialisation($pdo, $newBienId);
             $stats['bien_created']++;
         } catch (Throwable $e) {
             $stats['errors'][] = 'Bien ' . $ref . ' : ' . $e->getMessage();

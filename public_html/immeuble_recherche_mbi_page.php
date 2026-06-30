@@ -17,6 +17,9 @@ require_login();
 $logo = function_exists('asset_url') ? asset_url('/images/mbi_annonces_logo2.png') : '/images/mbi_annonces_logo2.png';
 $h = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
+// Mode "pick" : on RENVOIE l'adresse choisie au parent SANS créer d'immeuble
+// (utilisé par agency_immeuble_fiche pour remplir les champs de l'immeuble courant).
+$pickMode = (($_GET['mode'] ?? '') === 'pick');
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -89,17 +92,19 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
   <div class="imp-msg" id="imp-msg"></div>
   <div class="imp-foot">
     <button type="button" class="imp-btn cancel" id="imp-cancel">Annuler</button>
-    <button type="button" class="imp-btn ok" id="imp-valider">✅ Valider et lier au bien</button>
+    <button type="button" class="imp-btn ok" id="imp-valider"><?= $pickMode ? '✅ Utiliser cette adresse' : '✅ Valider et lier au bien' ?></button>
   </div>
 </div>
 
-<script src="<?= $h(asset_url('/js/places.js')) ?>"></script>
+<?php $placesV = @filemtime(__DIR__ . '/js/places.js') ?: time(); ?>
+<script src="<?= $h(asset_url('/js/places.js')) ?>?v=<?= $placesV ?>"></script>
 <?php if ($key !== ''): ?>
 <script async src="https://maps.googleapis.com/maps/api/js?key=<?= $h($key) ?>&libraries=places&callback=initPlacesAutocomplete"></script>
 <?php endif; ?>
 <script>
 (function(){
   const API = <?= json_encode(app_url('/api/immeuble_recherche_mbi.php')) ?>;
+  const PICK = <?= $pickMode ? 'true' : 'false' ?>;
   const $ = id => document.getElementById(id);
   function tell(type, payload){ if(window.parent && window.parent!==window){ window.parent.postMessage(Object.assign({type:type}, payload||{}), '*'); } }
 
@@ -136,6 +141,20 @@ $key = (string)($GLOBALS['GOOGLE_MAPS_API_KEY'] ?? '');
     const adr1=$('imp-adr1').value.trim(), sel=$('imp-immeuble').value;
     const msg=$('imp-msg');
     if(!adr1 && !sel){ msg.style.color='#dc2626'; msg.textContent='Renseignez l\'adresse via la recherche.'; return; }
+    // Mode "pick" : on renvoie juste l'adresse au parent, AUCUNE création d'immeuble.
+    if (PICK) {
+      tell('imbm_picked', { address: {
+        nom: $('imp-nom').value,
+        adresse_1: adr1,
+        code_postal: $('imp-cp').value,
+        ville: $('imp-ville').value,
+        latitude: $('imp-lat').value,
+        longitude: $('imp-lng').value,
+        google_place_id: $('imp-placeid').value,
+        formatted: $('imp-formatted').value
+      }});
+      return;
+    }
     const btn=$('imp-valider'); btn.disabled=true; msg.style.color='#64748b'; msg.textContent='Enregistrement…';
     try{
       const body=new URLSearchParams({

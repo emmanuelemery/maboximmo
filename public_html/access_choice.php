@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($accesses[$choice]) && $accesses[$choice]) {
         $_SESSION['current_access'] = $choice;
         $dashboards = ['agency' => 'agency_dashboard.php', 'syndic' => 'dashboard_syndic.php', 'proprietaire' => 'dashboard_proprietaire.php'];
-        header('Location: ' . ($dashboards[$choice] ?? 'default.php'));
+        header('Location: ' . ($dashboards[$choice] ?? 'https://maboximmo.fr'));
         exit;
     }
 }

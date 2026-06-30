@@ -33,16 +33,22 @@ $type   = (string)($_GET['type']   ?? 'affiche_vitrine');
 $action = (string)($_GET['action'] ?? '');
 $force  = isset($_GET['force']) && $_GET['force'] === '1';
 $angle  = (string)($_GET['angle']  ?? '');
+$layout = (string)($_GET['layout'] ?? '');
 $brief  = trim((string)($_POST['orientation_user'] ?? $_GET['orientation_user'] ?? ''));
 
 $typesValides = ['affiche_vitrine','fiche_client','fiche_visite_interne','dossier_presentation'];
 if (!in_array($type, $typesValides, true)) $type = 'affiche_vitrine';
+
+// Layouts disponibles pour l'affiche vitrine (preview local ciblé)
+$layoutsValides = ['cinema_coin','magazine_bandeau','cezane','split_5050','mosaique_haute','asymetrique'];
+if ($layout !== '' && !in_array($layout, $layoutsValides, true)) $layout = '';
 
 $result = null;
 if ($idBien > 0 && $action === 'generer') {
     $opts = [];
     if ($force) $opts['force_export'] = true;
     if ($angle !== '') $opts['angle_marketing'] = $angle;
+    if ($layout !== '') $opts['layout_force'] = $layout;
     $result = mbi_supports_pdf_generer($idBien, $type, $brief !== '' ? $brief : null, $opts);
 }
 
@@ -147,7 +153,7 @@ function mbisupp_h(string|int|float|null $v): string {
     <a class="back-link" href="<?=$idBien>0?'/bien_detail.php?edit='.$idBien.'&section=descriptif':'/bien_liste.php'?>">← Retour</a>
   </div>
 
-  <form class="form-bar" method="post" action="?id_bien=<?=$idBien?>&type=<?=mbisupp_h($type)?>&action=generer<?=$force?'&force=1':''?>">
+  <form class="form-bar" method="post" action="?id_bien=<?=$idBien?>&type=<?=mbisupp_h($type)?>&action=generer<?=$force?'&force=1':''?><?=$layout!==''?'&layout='.mbisupp_h($layout):''?>">
     <label>id_bien
       <input type="number" name="id_bien" value="<?=mbisupp_h($idBien?:'')?>" placeholder="ex: 893" form="form-nav">
     </label>
@@ -166,6 +172,14 @@ function mbisupp_h(string|int|float|null $v): string {
         <option value="premium">premium</option>
         <option value="premier_achat">premier achat</option>
         <option value="generique">générique</option>
+      </select>
+    </label>
+    <label>Modèle (affiche vitrine)
+      <select name="layout" form="form-nav">
+        <option value="">— auto (tirage pondéré) —</option>
+        <?php foreach ($layoutsValides as $lv): ?>
+          <option value="<?=$lv?>" <?=$layout===$lv?'selected':''?>><?=$lv?></option>
+        <?php endforeach; ?>
       </select>
     </label>
     <label>Brief libre (optionnel)
@@ -205,7 +219,7 @@ function mbisupp_h(string|int|float|null $v): string {
           <?php endforeach; ?>
         </ul>
         <p style="margin-top:16px;">
-          <a class="btn btn-warn" href="?id_bien=<?=$idBien?>&type=<?=mbisupp_h($type)?>&action=generer&force=1<?=$angle!==''?'&angle='.mbisupp_h($angle):''?>">
+          <a class="btn btn-warn" href="?id_bien=<?=$idBien?>&type=<?=mbisupp_h($type)?>&action=generer&force=1<?=$angle!==''?'&angle='.mbisupp_h($angle):''?><?=$layout!==''?'&layout='.mbisupp_h($layout):''?>">
             Forcer la génération (test uniquement)
           </a>
         </p>

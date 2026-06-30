@@ -182,32 +182,6 @@ try {
     }
 } catch (Throwable $e) { error_log('[histo ged_docs] ' . $e->getMessage()); }
 
-// ─── DÉDUPLICATION par minute ─────────────────────────────────
-// Bug 2026-05-23 : annonces_versions enregistre 1 row par champ modifié
-// (autosave) → 20+ entrées identiques. On regroupe par (icon+html+minute)
-// avec compteur "(×N)". Marche pour toutes les sources.
-$grouped = [];
-foreach ($lines as $l) {
-    $minute = $l['ts'] ? date('Y-m-d H:i', strtotime((string)$l['ts'])) : '';
-    $key = ($l['icon'] ?? '') . '|' . md5((string)($l['html'] ?? '')) . '|' . $minute;
-    if (!isset($grouped[$key])) {
-        $grouped[$key] = $l;
-        $grouped[$key]['count'] = 1;
-        $grouped[$key]['ts_first'] = $l['ts'];
-        $grouped[$key]['ts_last']  = $l['ts'];
-    } else {
-        $grouped[$key]['count']++;
-        if (strcmp((string)$l['ts'], (string)$grouped[$key]['ts_last']) > 0) {
-            $grouped[$key]['ts_last'] = $l['ts'];
-            $grouped[$key]['ts']      = $l['ts'];   // pour le tri
-        }
-        if (strcmp((string)$l['ts'], (string)$grouped[$key]['ts_first']) < 0) {
-            $grouped[$key]['ts_first'] = $l['ts'];
-        }
-    }
-}
-$lines = array_values($grouped);
-
 // Tri global desc
 usort($lines, fn($a,$b) => strcmp((string)$b['ts'], (string)$a['ts']));
 
@@ -220,13 +194,9 @@ if (empty($lines)) {
 echo '<ul style="list-style:none; padding:0; margin:0;">';
 foreach ($lines as $l) {
     $ts = $l['ts'] ? date('d/m/y H:i', strtotime((string)$l['ts'])) : '';
-    $countBadge = '';
-    if (!empty($l['count']) && (int)$l['count'] > 1) {
-        $countBadge = ' <span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:6px;">×' . (int)$l['count'] . '</span>';
-    }
     echo '<li style="padding:9px 0; border-bottom:1px solid #f0ece6; display:flex; gap:10px; align-items:flex-start;">'
        . '<span style="font-size:18px; flex-shrink:0;">' . $l['icon'] . '</span>'
-       . '<span style="flex:1; min-width:0;">' . $l['html'] . $countBadge . '</span>'
+       . '<span style="flex:1; min-width:0;">' . $l['html'] . '</span>'
        . '<span style="color:#9a9690; font-family:DM Mono,monospace; font-size:11px; white-space:nowrap; flex-shrink:0;">' . h($ts) . '</span>'
        . '</li>';
 }

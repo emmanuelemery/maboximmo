@@ -31,18 +31,22 @@ $isSucces = ($modele === 'mandat_succes');                                  // a
 $lots   = dv_lots($pdo, $idDossier);
 $totaux = dv_totaux($pdo, $idDossier);
 
-// Mandant(s) : vendeurs + adresse depuis tiers
+// Mandant(s) : vendeurs + adresse + email depuis tiers
 $vendeurs = [];
+$vendeurEmails = [];
 foreach (dv_acteurs($pdo, $idDossier) as $a) {
     if (!in_array($a['role_code'], ['vendeur','prospect_vendeur'], true)) continue;
     $nom = $a['nom_affichage'] ?: ($a['raison_sociale'] ?: trim(($a['prenom'] ?? '') . ' ' . ($a['nom'] ?? '')));
-    $adr = '';
+    $adr = ''; $em = '';
     try {
-        $stA = $pdo->prepare("SELECT CONCAT_WS(', ', NULLIF(adresse_1,''), NULLIF(CONCAT_WS(' ',code_postal,ville),'')) FROM tiers WHERE id = ? LIMIT 1");
-        $stA->execute([(int)$a['id_tiers']]); $adr = (string)$stA->fetchColumn();
+        $stA = $pdo->prepare("SELECT CONCAT_WS(', ', NULLIF(adresse_1,''), NULLIF(CONCAT_WS(' ',code_postal,ville),'')) AS adr, email FROM tiers WHERE id = ? LIMIT 1");
+        $stA->execute([(int)$a['id_tiers']]); $r = $stA->fetch(PDO::FETCH_ASSOC) ?: [];
+        $adr = (string)($r['adr'] ?? ''); $em = trim((string)($r['email'] ?? ''));
     } catch (Throwable $e) {}
     $vendeurs[] = ['nom' => $nom, 'adr' => $adr];
+    if ($em !== '' && filter_var($em, FILTER_VALIDATE_EMAIL)) $vendeurEmails[] = $em;
 }
+$vendeurEmails = array_values(array_unique($vendeurEmails));
 
 // Durée (mois) si dates connues
 $duree = ''; $dureeMoisCur = 3;
@@ -57,6 +61,19 @@ $fmtDate = static fn($v) => $v ? date('d/m/Y', strtotime((string)$v)) : '…';
 $refDossier = (string)($dossier['reference'] ?? '') ?: ('#' . $idDossier);
 $signe = !empty($mandat['date_signature']);
 $chargeLbl = ['vendeur'=>'VENDEUR (mandant)','acquereur'=>'ACQUEREUR','partage'=>'partage vendeur/acquéreur'][$mandat['honoraires_charge'] ?? ''] ?? '…';
+
+// ── Modes : rendu "corps seul" (pour génération PDF TCPDF) · filigrane forcé · prix net vendeur ──
+$renderBody  = (($_GET['render'] ?? '') === 'body');           // n'émet que le <style> + le .doc
+// Filigrane PROJET = UNIQUEMENT à la demande (envoi pour validation). Jamais sur le document
+// provisoire ni à l'impression. On l'active seulement si ?projet=1.
+$showProjet  = (($_GET['projet'] ?? '') === '1');
+// Net vendeur = AUTO-DÉDUIT : si honoraires à la charge du vendeur → prix total − honoraires,
+// sinon (acquéreur) le vendeur perçoit le prix total. (Plus de saisie manuelle.)
+$prixTotalNum = (float)($totaux['prix_total'] ?? 0);
+$honosNum     = (float)($mandat['honoraires'] ?? 0);
+$netVendeur   = $prixTotalNum > 0
+    ? ((($mandat['honoraires_charge'] ?? '') === 'vendeur') ? max(0, $prixTotalNum - $honosNum) : $prixTotalNum)
+    : null;
 ?><!DOCTYPE html>
 <html lang="fr"><head>
 <meta charset="utf-8"><title>Mandat de vente — <?= h($refDossier) ?></title>
@@ -98,6 +115,7 @@ $chargeLbl = ['vendeur'=>'VENDEUR (mandant)','acquereur'=>'ACQUEREUR','partage'=
   @media(max-width:900px){.layout{flex-direction:column;} .edit-panel{width:100%;position:static;}}
 </style></head>
 <body>
+<?php if (!$renderBody): ?>
 <div class="toolbar">
   <a class="btn-back" href="<?= h(app_url('/transaction_dossier.php?id_dossier=' . $idDossier)) ?>">← Retour au dossier de vente</a>
   <button class="btn-print" onclick="window.print()">🖨️ Imprimer / PDF</button>
@@ -115,9 +133,10 @@ function closePreview(){
   }, 200);
 }
 </script>
+<?php endif; /* !$renderBody */ ?>
 <div class="layout">
 <div class="doc">
-  <?php if (!$signe): ?><div class="draft">PROJET</div><?php endif; ?>
+  <?php if ($showProjet && !$renderBody): ?><div class="draft">PROJET</div><?php endif; ?>
 
   <div class="ag-head">
     <strong>REGIE EMERY</strong><br>
@@ -210,7 +229,7 @@ function closePreview(){
   <?php endforeach; ?>
 
   <h2>Prix de vente</h2>
-  <p>Les biens objet du présent mandat devront être proposés au prix de <span class="fill"><?= h($fmtPrix($totaux['prix_total'])) ?></span>.
+  <p>Les biens objet du présent mandat devront être proposés au prix de <span class="fill"><?= h($fmtPrix($totaux['prix_total'])) ?></span><?php if ($netVendeur !== null): ?>, soit un prix net vendeur de <span class="fill"><?= h($fmtPrix($netVendeur)) ?></span><?php endif; ?>.
   Ce prix a été fixé par le MANDANT après avoir pris connaissance de l'évaluation faite par le MANDATAIRE, au regard de l'état
   actuel du marché immobilier local. Ce prix est payable au plus tard le jour de la signature de l'acte de vente définitif.</p>
 
@@ -250,11 +269,16 @@ function closePreview(){
   <h2>Médiation de la consommation — Règlement amiable des litiges</h2>
   <p>En cas de litige entre le mandant consommateur et le mandataire, le mandant peut recourir gratuitement au médiateur de la consommation dont relève le mandataire, en vue de la résolution amiable du différend, conformément aux articles L.612-1 et suivants du code de la consommation.</p>
 
+  <?php $signLe = !empty($mandat['date_signature']) ? $fmtDate($mandat['date_signature']) : '__________'; ?>
   <div class="sign">
-    <div><strong>Le Mandant (vendeur)</strong><br>Lu et approuvé, bon pour mandat<br><br>Fait à __________ le __________</div>
-    <div><strong>Le Mandataire</strong> — REGIE EMERY<br><br><br>Fait à __________ le __________</div>
+    <div><strong>Le Mandant (vendeur)</strong><br>Lu et approuvé, bon pour mandat<br><br>Fait à <span class="fill">LYON</span> le <span class="fill"><?= h($signLe) ?></span></div>
+    <div><strong>Le Mandataire</strong> — REGIE EMERY<br><br><br>Fait à <span class="fill">LYON</span> le <span class="fill"><?= h($signLe) ?></span></div>
   </div>
 </div><!-- /doc -->
+<?php if ($renderBody): ?>
+</div><!-- /layout (rendu corps seul pour PDF) -->
+</body></html>
+<?php return; endif; ?>
 
 <aside class="edit-panel">
   <h3>✏️ Champs du mandat</h3>
@@ -288,10 +312,24 @@ function closePreview(){
     </select>
   </div>
   <div class="ep-f"><label>Prise d'effet</label><input type="date" id="ep-datedebut" value="<?= h($mandat['date_debut'] ?? date('Y-m-d')) ?>"></div>
+  <div class="ep-f"><label>Date de signature (mandant + mandataire)</label><input type="date" id="ep-datesign" value="<?= h($mandat['date_signature'] ?? '') ?>"></div>
   <div class="ep-f"><label>Prix de vente total (depuis les lots)</label><div class="ep-ro"><?= h($fmtPrix($totaux['prix_total'])) ?></div></div>
-  <button type="button" class="ep-save" onclick="epSave()">💾 Enregistrer</button>
+  <div class="ep-f"><label>Prix net vendeur <span style="color:#9a9690;font-weight:400;">(auto)</span></label><div class="ep-ro"><?= $netVendeur !== null ? h($fmtPrix($netVendeur)) : '—' ?></div>
+    <small style="color:#94a3b8;font-size:10px;">Déduit : charge vendeur → prix − honoraires ; charge acquéreur → = prix total.</small>
+  </div>
+  <button type="button" class="ep-save" onclick="epSave()">💾 Enregistrer les champs</button>
   <div id="ep-msg" style="font-size:11px;color:#94a3b8;margin-top:8px;text-align:center;"></div>
+
+  <div class="ep-f" style="margin-top:14px;border-top:1px solid #e2e8f0;padding-top:12px;"><label style="color:#243B5C;font-weight:800;">Document & envoi</label></div>
+  <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#7c3aed;margin:0 0 8px;cursor:pointer;">
+    <input type="checkbox" id="m-projet"> Filigrane « PROJET » (envoi pour validation — décocher pour signature)
+  </label>
+  <button type="button" class="ep-save" style="background:#243B5C;margin-top:0;" onclick="mDownload()">🖨️ Télécharger / imprimer (sans filigrane)</button>
+  <button type="button" class="ep-save" style="background:#0e7490;" onclick="mSaveGed(this)">📄 Enregistrer en GED</button>
+  <button type="button" class="ep-save" style="background:#7c3aed;" onclick="mMail(this)">✉️ Composer le mail (joindre depuis la GED)</button>
+  <div id="m-msg" style="font-size:11px;color:#94a3b8;margin-top:8px;text-align:center;"></div>
 </aside>
+
 </div><!-- /layout -->
 
 <script>
@@ -321,12 +359,49 @@ function closePreview(){
     fd.append('exclusif', excl);
     fd.append('duree_mois', document.getElementById('ep-duree').value);
     fd.append('date_debut', document.getElementById('ep-datedebut').value);
+    fd.append('date_signature', document.getElementById('ep-datesign').value);
     try{
       var r = await fetch(<?= json_encode(app_url('/api/transaction_dossier_mandat_update.php')) ?>, {method:'POST', body:fd});
       var j = await r.json();
       if(j.ok){ msg.style.color='#15803d'; msg.textContent='✓ Enregistré'; setTimeout(()=>location.reload(), 500); }
       else { msg.style.color='#ef4444'; msg.textContent = j.error || 'Erreur'; }
     }catch(e){ msg.style.color='#ef4444'; msg.textContent='Erreur réseau'; }
+  };
+})();
+</script>
+<script>
+(function(){
+  var ID = <?= (int)$idDossier ?>;
+  var MODELE = <?= json_encode($modele) ?>;
+  var PDF = <?= json_encode(app_url('/api/transaction_mandat_pdf.php')) ?>;
+  var TMAIL = <?= json_encode(app_url('/transaction_mail.php')) ?>;
+  function projetOn(){ var c=document.getElementById('m-projet'); return c && c.checked; }
+  // Net vendeur auto-déduit côté serveur. Filigrane PROJET seulement si la case est cochée.
+  function qs(extra){ var p='id_dossier='+ID+'&modele='+encodeURIComponent(MODELE); if(projetOn()) p+='&projet=1'; return p+(extra||''); }
+  function mInfo(txt, color){ var m=document.getElementById('m-msg'); m.style.color=color||'#0e7490'; m.innerHTML=txt; }
+
+  // Impression / signature : TOUJOURS sans filigrane
+  window.mDownload = function(){ window.open(PDF+'?id_dossier='+ID+'&modele='+encodeURIComponent(MODELE), '_blank'); mInfo('✓ PDF (sans filigrane) ouvert dans un nouvel onglet.','#243B5C'); };
+
+  // Enregistrer en GED (filigrane selon la case). Renvoie une Promise avec le doc_id.
+  function saveGed(){ return fetch(PDF+'?'+qs('&save=1'), {method:'POST'}).then(function(r){return r.json();}); }
+  window.mSaveGed = function(btn){
+    btn.disabled=true; mInfo('⏳ Génération + enregistrement en GED…','#64748b');
+    saveGed().then(function(j){ btn.disabled=false;
+      if(j&&j.ok){ mInfo('✓ Mandat'+(projetOn()?' (PROJET)':'')+' enregistré en GED — <a href="'+j.url+'" target="_blank">ouvrir</a>','#0e7490'); }
+      else { mInfo('❌ '+((j&&j.error)||'échec'),'#ef4444'); }
+    }).catch(function(){ btn.disabled=false; mInfo('❌ réseau','#ef4444'); });
+  };
+
+  // Composer le mail : on enregistre d'abord le PDF en GED (filigrane selon la case),
+  // puis on ouvre transaction_mail.php (UI mail unique : modèles, sélection des PJ GED, envoi).
+  window.mMail = function(btn){
+    btn.disabled=true; mInfo('⏳ Préparation du document pour l’email…','#64748b');
+    saveGed().then(function(j){ btn.disabled=false;
+      if(j&&j.ok){ mInfo('✓ Document prêt — ouverture du mail…','#7c3aed');
+        window.location.href = TMAIL + '?id_dossier=' + ID;
+      } else { mInfo('❌ '+((j&&j.error)||'échec génération'),'#ef4444'); }
+    }).catch(function(){ btn.disabled=false; mInfo('❌ réseau','#ef4444'); });
   };
 })();
 </script>

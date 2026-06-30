@@ -30,7 +30,7 @@ if (!creancier_user_can_access_dossier($pdo, $idDossier, $userId)) {
 }
 
 // Persiste le message utilisateur.
-$pdo->prepare("INSERT INTO creancier_dossier_message (id_dossier, role, id_user, message) VALUES (?, 'user', ?, ?)")
+$pdo->prepare("INSERT INTO creancier_dossier_message (id_dossier, role, canal, id_user, message) VALUES (?, 'user', 'chat', ?, ?)")
     ->execute([$idDossier, $userId, $message]);
 
 // ── Contexte du dossier ──────────────────────────────────────────────
@@ -58,7 +58,7 @@ foreach ($itemsRows as $it) {
 $contexte = implode("\n", $ctxLines);
 
 // Historique récent (pour la continuité du chat).
-$hist = $pdo->prepare("SELECT role, message FROM creancier_dossier_message WHERE id_dossier = ? ORDER BY id DESC LIMIT 10");
+$hist = $pdo->prepare("SELECT role, message FROM creancier_dossier_message WHERE id_dossier = ? AND canal = 'chat' ORDER BY id DESC LIMIT 10");
 $hist->execute([$idDossier]);
 $histRows = array_reverse($hist->fetchAll(PDO::FETCH_ASSOC));
 
@@ -87,7 +87,7 @@ if ($reply === null || $reply === '') {
     $reply = "Assistant IA indisponible (clé OpenAI non configurée ou erreur). Le message a été enregistré.";
 }
 
-$pdo->prepare("INSERT INTO creancier_dossier_message (id_dossier, role, message) VALUES (?, 'ia', ?)")
+$pdo->prepare("INSERT INTO creancier_dossier_message (id_dossier, role, canal, message) VALUES (?, 'ia', 'chat', ?)")
     ->execute([$idDossier, $reply]);
 
 echo json_encode(['ok' => true, 'reply' => $reply], JSON_UNESCAPED_UNICODE);

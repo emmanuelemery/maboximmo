@@ -74,7 +74,7 @@ if ($isLoggedIn) {
     <div class="site-header-inner">
 
         <!-- Logo -->
-        <a href="<?= htmlspecialchars(app_url('/default.php')) ?>" class="site-brand">
+        <a href="https://maboximmo.fr" class="site-brand">
             <div class="site-logo">🏠</div>
             <div>
                 <div class="site-brand-title">MaBoxImmo</div>
@@ -84,10 +84,11 @@ if ($isLoggedIn) {
 
         <!-- Navigation -->
         <nav class="site-nav">
-            <a href="<?= htmlspecialchars(app_url('/default.php')) ?>">Accueil</a>
+            <a href="https://maboximmo.fr">Accueil</a>
             <a href="<?= htmlspecialchars(app_url('/bien_recherche.php')) ?>">Rechercher</a>
             <a href="<?= htmlspecialchars(app_url('/agences.php')) ?>">Agences</a>
             <a href="<?= htmlspecialchars(app_url('/contact.php')) ?>">Contact</a>
+            <a href="<?= htmlspecialchars(app_url('/accueil.php')) ?>" class="site-services-link" title="Nos services pro &amp; particuliers" style="font-size:12px;opacity:.55;text-decoration:none;">Nos services</a>
 
             <?php if ($isLoggedIn): ?>
 
