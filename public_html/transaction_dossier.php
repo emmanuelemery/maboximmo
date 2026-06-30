@@ -417,6 +417,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <div style="display:flex;gap:8px;">
       <a class="tr-btn tr-btn-primary" href="<?= h(app_url('/bien_360.php?id=' . $idBien)) ?>">🏠 Vue 360° du bien</a>
       <a class="tr-btn" href="<?= h(app_url('/bien_documents_list.php?id=' . $idBien)) ?>">📁 Documents</a>
+      <a class="tr-btn" href="<?= h(app_url('/document_request_new.php?ctx=BIEN&id=' . $idBien . '&tpl=mise_en_vente_proprietaire&back=' . urlencode('transaction_dossier.php?id_bien=' . $idBien))) ?>">📨 Demander les documents au propriétaire</a>
       <?php if (!$etapeTerminal): ?>
         <button type="button" class="tr-btn" style="color:#b91c1c;" onclick="dvCancelOpen()">🗑️ Annuler le dossier</button>
       <?php endif; ?>

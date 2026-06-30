@@ -25,9 +25,14 @@ require_admin_or_super_admin();
 
 header('Content-Type: application/json; charset=utf-8');
 
-$lat = (float)($_GET['lat'] ?? 0);
-$lng = (float)($_GET['lng'] ?? 0);
-if ($lat === 0.0 || $lng === 0.0) { exit(json_encode(['ok' => false, 'error' => 'lat/lng requis'])); }
+$lat  = (float)($_GET['lat'] ?? 0);
+$lng  = (float)($_GET['lng'] ?? 0);
+$cp   = preg_replace('/\D/', '', (string)($_GET['cp'] ?? ''));
+$voie = trim((string)($_GET['voie'] ?? $_GET['adresse'] ?? ''));
+// Il faut AU MOINS une piste : adresse (cp+voie) OU coordonnées.
+if (($cp === '' || $voie === '') && ($lat === 0.0 || $lng === 0.0)) {
+    exit(json_encode(['ok' => false, 'error' => 'cp+voie ou lat/lng requis']));
+}
 
 $RNC_RID = 'cc062fa7-4a80-449c-ab73-d2856b455ec9';
 
@@ -43,35 +48,75 @@ $getJson = static function (string $url, int $timeout = 10): ?array {
     return is_array($j) ? $j : null;
 };
 
-// 1) Parcelle cadastrale du point
-$geom = json_encode(['type' => 'Point', 'coordinates' => [$lng, $lat]]);
-$cad = $getJson('https://apicarto.ign.fr/api/cadastre/parcelle?geom=' . rawurlencode($geom));
-$p = $cad['features'][0]['properties'] ?? null;
-if (!$p) { exit(json_encode(['ok' => true, 'trouve' => false, 'raison' => 'parcelle introuvable'])); }
+$row = null; $matchMode = ''; $section = ''; $numero = ''; $insee = '';
 
-$insee   = (string)($p['code_dep'] ?? '') . (string)($p['code_com'] ?? '');
-$section = (string)($p['section'] ?? '');
-$numero  = (string)($p['numero'] ?? '');
-if ($insee === '' || $section === '' || $numero === '') {
-    exit(json_encode(['ok' => true, 'trouve' => false, 'raison' => 'parcelle incomplète']));
+// ── MÉTHODE 1 (PRIORITAIRE) : recherche par ADRESSE (code postal + voie) ──────
+// Simple et fiable : on filtre sur le code postal de référence + le nom de voie,
+// puis on retient la copro dont l'adresse commence par le bon numéro.
+if ($cp !== '' && $voie !== '') {
+    // Normalise : enlève accents, numéro de tête et le type de voie (rue/cours/av…)
+    $vn  = strtolower((string)(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $voie) ?: $voie));
+    $num = preg_match('/^\s*(\d+)/', $vn, $mN) ? $mN[1] : '';
+    $core = preg_replace('/^\s*\d+\s*(bis|ter|quater)?\s*/', '', $vn);
+    $core = preg_replace('/\b(rue|cours|avenue|ave|av|boulevard|bd|place|pl|impasse|imp|allee|allees|chemin|che|quai|route|rte|montee|mtee|passage|cite|crs|r)\b/', ' ', $core);
+    $core = trim((string)preg_replace('/\s+/', ' ', $core));
+    if ($core !== '') {
+        $q = http_build_query([
+            'code_postal_adresse_de_reference__exact'        => $cp,
+            'numero_et_voie_adresse_de_reference__contains'  => $core,
+            'page_size'                                      => 30,
+        ]);
+        $res  = $getJson("https://tabular-api.data.gouv.fr/api/resources/{$RNC_RID}/data/?{$q}", 12);
+        $rows = $res['data'] ?? [];
+        if ($rows) {
+            // Priorité : adresse qui COMMENCE par le numéro exact (ex. "152 crs albert thomas")
+            if ($num !== '') {
+                foreach ($rows as $r) {
+                    $adr = strtolower(trim((string)($r['numero_et_voie_adresse_de_reference'] ?? '')));
+                    if (preg_match('/^0*' . preg_quote($num, '/') . '\b/', $adr)) { $row = $r; break; }
+                }
+                // sinon : le numéro apparaît dans l'adresse (cas des plages "152-156")
+                if (!$row) foreach ($rows as $r) {
+                    $adr = strtolower((string)($r['numero_et_voie_adresse_de_reference'] ?? ''));
+                    if (preg_match('/\b0*' . preg_quote($num, '/') . '\b/', $adr)) { $row = $r; break; }
+                }
+            }
+            // Si le numéro est inconnu mais qu'il n'y a qu'un seul candidat, on le prend.
+            if (!$row && $num === '' && count($rows) === 1) $row = $rows[0];
+        }
+        if ($row) $matchMode = 'adresse';
+    }
 }
 
-// 2) Match RNC par (insee, section, numéro) sur les 3 slots de parcelle
-$row = null;
-for ($slot = 1; $slot <= 3 && !$row; $slot++) {
-    $q = http_build_query([
-        "code_insee_commune_{$slot}__exact" => $insee,
-        "section_{$slot}__exact"            => $section,
-        "numero_parcelle_{$slot}__exact"    => $numero,
-        'page_size'                         => 1,
-    ]);
-    $res = $getJson("https://tabular-api.data.gouv.fr/api/resources/{$RNC_RID}/data/?{$q}", 12);
-    if (!empty($res['data'][0])) $row = $res['data'][0];
+// ── MÉTHODE 2 (SECOURS) : parcelle cadastrale du point GPS ────────────────────
+if (!$row && $lat !== 0.0 && $lng !== 0.0) {
+    $geom = json_encode(['type' => 'Point', 'coordinates' => [$lng, $lat]]);
+    $cad = $getJson('https://apicarto.ign.fr/api/cadastre/parcelle?geom=' . rawurlencode($geom));
+    $p = $cad['features'][0]['properties'] ?? null;
+    if ($p) {
+        $insee   = (string)($p['code_dep'] ?? '') . (string)($p['code_com'] ?? '');
+        $section = (string)($p['section'] ?? '');
+        $numero  = (string)($p['numero'] ?? '');
+        if ($insee !== '' && $section !== '' && $numero !== '') {
+            for ($slot = 1; $slot <= 3 && !$row; $slot++) {
+                $q = http_build_query([
+                    "code_insee_commune_{$slot}__exact" => $insee,
+                    "section_{$slot}__exact"            => $section,
+                    "numero_parcelle_{$slot}__exact"    => $numero,
+                    'page_size'                         => 1,
+                ]);
+                $res = $getJson("https://tabular-api.data.gouv.fr/api/resources/{$RNC_RID}/data/?{$q}", 12);
+                if (!empty($res['data'][0])) $row = $res['data'][0];
+            }
+            if ($row) $matchMode = 'parcelle';
+        }
+    }
 }
 
 if (!$row) {
-    exit(json_encode(['ok' => true, 'trouve' => false, 'raison' => 'parcelle non copropriété au registre',
-                      'parcelle' => "$section $numero ($insee)"], JSON_UNESCAPED_UNICODE));
+    exit(json_encode(['ok' => true, 'trouve' => false,
+                      'raison' => ($cp !== '' && $voie !== '') ? 'aucune copropriété à cette adresse au registre' : 'parcelle non copropriété au registre',
+                      'parcelle' => $section !== '' ? "$section $numero ($insee)" : ''], JSON_UNESCAPED_UNICODE));
 }
 
 // 3) Normalisation lisible
@@ -145,8 +190,23 @@ $push("Date d'immatriculation", $g('date_d_immatriculation'));
 $push('Date du règlement de copro', $g('date_du_reglement_de_copropriete'));
 $push('Dernière mise à jour (registre)', $out['date_maj']);
 
+// 4) GARDE-FOU DE COHÉRENCE — anti « copro fausse mais certifiée ».
+// Le match se fait par parcelle (issue des coordonnées) : si les coordonnées sont
+// imprécises, on peut récupérer une copro d'un AUTRE quartier. On compare donc le
+// code postal de la copro trouvée à celui de l'adresse confirmée du bien (param cp).
+$cpAttendu = preg_replace('/\D/', '', (string)($_GET['cp'] ?? ''));
+$cpCopro   = preg_replace('/\D/', '', $g('code_postal_adresse_de_reference'));
+$coherent = true; $avertissement = '';
+if ($cpAttendu !== '' && $cpCopro !== '' && $cpAttendu !== $cpCopro) {
+    $coherent = false;
+    $avertissement = "⚠️ Copropriété trouvée au $cpCopro alors que le bien est au $cpAttendu "
+                   . "— résultat probablement FAUX (coordonnées imprécises). À vérifier, NE PAS rattacher automatiquement.";
+}
+
 echo json_encode([
-    'ok' => true, 'trouve' => true,
+    'ok' => true, 'trouve' => true, 'match_mode' => $matchMode,
+    'coherent' => $coherent, 'avertissement' => $avertissement,
+    'cp_attendu' => $cpAttendu, 'cp_copro' => $cpCopro,
     'immatriculation' => $out['immatriculation'], 'nom' => $out['nom'],
     'nb_lots' => $out['nb_lots'], 'construction' => $out['construction'],
     'construction_code' => $constrCode, 'syndic' => $out['syndic'], 'date_maj' => $out['date_maj'],

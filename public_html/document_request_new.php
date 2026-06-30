@@ -9,6 +9,14 @@ require_login();
 
 $pdo = $GLOBALS['pdo'];
 $templates = dr_templates($pdo);
+
+// Filtre modèle : ?tpl=<code> n'affiche QUE ce modèle (ex. depuis un dossier de vente,
+// on ne montre que « Mise en vente — dossier propriétaire »). Présélectionné côté JS.
+$onlyTpl = trim((string)($_GET['tpl'] ?? ''));
+if ($onlyTpl !== '') {
+    $filtered = array_values(array_filter($templates, fn($t) => (string)$t['code'] === $onlyTpl));
+    if ($filtered) $templates = $filtered;
+}
 $agences = $pdo->query("SELECT id, nom_agence FROM agences ORDER BY nom_agence")->fetchAll(PDO::FETCH_ASSOC);
 $csrf = function_exists('csrf_token') ? csrf_token() : '';
 
@@ -74,9 +82,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
   <div class="dr-card">
     <h3>1. Modèle (optionnel)</h3>
     <select id="tplSelect" class="dr-select" onchange="applyTemplate()">
-      <option value="">— Demande personnalisée —</option>
+      <?php if ($onlyTpl === ''): ?><option value="">— Demande personnalisée —</option><?php endif; ?>
       <?php foreach ($templates as $t): ?>
-        <option value="<?= h($t['code']) ?>" data-items='<?= h($t['items_json']) ?>' data-nom="<?= h($t['nom']) ?>"><?= h($t['nom']) ?></option>
+        <option value="<?= h($t['code']) ?>" data-items='<?= h($t['items_json']) ?>' data-nom="<?= h($t['nom']) ?>" data-desc="<?= h($t['description'] ?? '') ?>"><?= h($t['nom']) ?></option>
       <?php endforeach; ?>
     </select>
     <p class="dr-mini" id="tplDesc" style="margin-top:8px"></p>
@@ -145,6 +153,8 @@ function itemRow(it){
     +'<select class="i-kind"><option value="file">Fichier</option><option value="files">Multi-fichiers</option><option value="text">Texte</option><option value="photos">Photos</option></select>'
     +'<label class="dr-mini" style="display:flex;gap:4px;align-items:center"><input type="checkbox" class="i-req" '+(it.required==0?'':'checked')+'>Requis</label>'
     +'<input type="hidden" class="i-type" value="'+(it.doc_type||'')+'">'
+    +'<input type="hidden" class="i-entity" value="'+(it.entity_type||'')+'">'
+    +(it.entity_type?'<span class="dr-mini" style="white-space:nowrap;color:#0e7490;font-weight:700" title="Entité de classement GED">'+({IMMEUBLE:'🏛️ immeuble',TIERS:'👤 propriétaire',BIEN:'🏠 bien'}[it.entity_type]||it.entity_type)+'</span>':'')
     +'<button type="button" class="rm" onclick="this.closest(\'.item\').remove()">×</button>';
   if(it.kind) div.querySelector('.i-kind').value = it.kind;
   return div;
@@ -175,6 +185,7 @@ function collectItems(){
     label: r.querySelector('.i-label').value.trim(),
     kind:  r.querySelector('.i-kind').value,
     doc_type: r.querySelector('.i-type').value,
+    entity_type: (r.querySelector('.i-entity') ? r.querySelector('.i-entity').value : ''),
     required: r.querySelector('.i-req').checked ? 1 : 0,
   })).filter(i => i.label);
 }
@@ -219,6 +230,7 @@ async function submitRequest(){
 // Pré-remplissage depuis le contexte (fiche d'origine)
 if (CTX.email) document.getElementById('recEmail').value = CTX.email;
 if (CTX.title && !document.getElementById('titre').value) document.getElementById('titre').value = 'Documents — ' + CTX.title;
-// init : une pièce vide par défaut
-addItem();
+// init : applique le modèle présélectionné (?tpl=), sinon une pièce vide
+if (document.getElementById('tplSelect').value) { applyTemplate(); }
+else { addItem(); }
 </script>

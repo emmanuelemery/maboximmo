@@ -15,7 +15,7 @@ if (!function_exists('immeuble_public_card')) {
 function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array $fallback = []): void
 {
     if ($immId <= 0) return;
-    $st = $pdo->prepare("SELECT latitude, longitude, registre_copro_immatriculation, registre_copro_periode,
+    $st = $pdo->prepare("SELECT latitude, longitude, code_postal, adresse_1, registre_copro_immatriculation, registre_copro_periode,
                                 registre_copro_maj, copro_nb_lots, parcelle_reference, zone_plu, altitude,
                                 enrichi_cadastre_le, enrichi_registre_le, enrichi_risques_le,
                                 enrichissement_public_json
@@ -26,6 +26,8 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
 
     $lat = $r['latitude'] ?: ($fallback['lat'] ?? '');
     $lng = $r['longitude'] ?: ($fallback['lng'] ?? '');
+    $cp  = trim((string)($r['code_postal'] ?? ($fallback['code_postal'] ?? ''))); // pour le garde-fou copro
+    $voie = trim((string)($r['adresse_1'] ?? ($fallback['adresse_1'] ?? '')));     // pour la recherche copro par adresse
     $h = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
     $fr = static function($d){ if(!$d) return ''; $t=strtotime((string)$d); return $t?date('d/m/Y',$t):''; };
     $au = static fn(string $p) => function_exists('app_url') ? app_url($p) : $p;
@@ -103,7 +105,13 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
     <div class="imc-modal" id="imc-modal-<?= (int)$immId ?>">
       <div class="imc-modal-ov" data-imc-close></div>
       <div class="imc-modal-card">
-        <div class="imc-modal-head"><span id="imc-modal-title"></span><button type="button" class="imc-modal-x" data-imc-close>✕</button></div>
+        <div class="imc-modal-head">
+          <span id="imc-modal-title"></span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <button type="button" class="imc-modal-x" id="imc-modal-relance" style="display:none;background:#0e7490;color:#fff" title="Relancer cette recherche avec l'adresse de l'immeuble">🔄 Relancer</button>
+            <button type="button" class="imc-modal-x" data-imc-close>✕</button>
+          </span>
+        </div>
         <div class="imc-modal-body" id="imc-modal-body"></div>
       </div>
     </div>
@@ -112,14 +120,69 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
       var DETAILS = <?= json_encode($details, JSON_UNESCAPED_UNICODE) ?>;
       var m=document.getElementById('imc-modal-<?= (int)$immId ?>');
       var card=document.getElementById('imc-<?= (int)$immId ?>');
+      var titleEl=document.getElementById('imc-modal-title'), bodyEl=document.getElementById('imc-modal-body');
+      var relBtn=document.getElementById('imc-modal-relance');
+      // Relance ancrée sur l'adresse de l'immeuble (coords + code postal stockés).
+      var CANACT=<?= $canAct ? 'true' : 'false' ?>;
+      var LAT=<?= json_encode((string)$lat) ?>, LNG=<?= json_encode((string)$lng) ?>, CP=<?= json_encode((string)$cp) ?>, VOIE=<?= json_encode((string)$voie) ?>;
+      var IMM=<?= (int)$immId ?>, CSRF=<?= json_encode((string)$csrf) ?>;
+      var EPm={ registre:<?= json_encode($au('/api/registre_copro.php')) ?>, cadastre:<?= json_encode($au('/api/geo_cadastre_plu.php')) ?>,
+                risques:<?= json_encode($au('/api/geo_risques.php')) ?>, altitude:<?= json_encode($au('/api/geo_altitude.php')) ?>,
+                save:<?= json_encode($au('/api/immeuble_enrichir_save.php')) ?> };
       function esc(s){return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+      function srcKey(d){ var t=(d&&d.title||'').toLowerCase();
+        if(/copropri/.test(t)) return 'registre';
+        if(/cadastre|plu/.test(t)) return 'cadastre';
+        if(/risque/.test(t)) return 'risques';
+        if(/altitude/.test(t)) return 'altitude';
+        return ''; }
+      function renderItems(items){
+        bodyEl.innerHTML=(items||[]).map(function(it){ return '<div class="imc-it"><span>'+esc(it.label||'')+'</span><b>'+esc(it.value||'')+'</b></div>'; }).join('') || '<div style="color:#94a3b8;font-size:13px">Aucun détail.</div>';
+      }
+      var curKey='';
       function openSrc(i){
         var d=DETAILS[i]; if(!d) return;
-        document.getElementById('imc-modal-title').textContent=(d.icon||'')+' '+(d.title||'');
-        document.getElementById('imc-modal-body').innerHTML=(d.items||[]).map(function(it){
-          return '<div class="imc-it"><span>'+esc(it.label||'')+'</span><b>'+esc(it.value||'')+'</b></div>'; }).join('') || '<div style="color:#94a3b8;font-size:13px">Aucun détail.</div>';
+        titleEl.textContent=(d.icon||'')+' '+(d.title||'');
+        renderItems(d.items);
+        curKey=srcKey(d);
+        // Bouton relance visible seulement pour admin + source relançable + GPS connu
+        relBtn.style.display=(CANACT && curKey && LAT && LNG) ? 'inline-flex' : 'none';
         m.classList.add('open');
       }
+      function relance(){
+        if(!curKey || !LAT || !LNG) return;
+        relBtn.disabled=true; var old=relBtn.textContent; relBtn.textContent='⏳…';
+        var url=EPm[curKey]+'?lat='+encodeURIComponent(LAT)+'&lng='+encodeURIComponent(LNG)+(curKey==='registre'&&CP?'&cp='+encodeURIComponent(CP):'')+(curKey==='registre'&&VOIE?'&voie='+encodeURIComponent(VOIE):'');
+        fetch(url).then(function(r){return r.json();}).then(function(a){
+          var payload={immeuble_id:IMM,csrf:CSRF}, items=[], entry=null;
+          if(curKey==='registre'){
+            if(a&&a.trouve&&a.coherent===false){ items=[{label:'⚠️ Avertissement',value:a.avertissement||'Code postal incohérent — non rattaché'}].concat(a.infos||[]); renderItems(items); relBtn.textContent=old; relBtn.disabled=false; return; } // pas de persistance
+            if(a&&a.trouve){ items=a.infos||[]; payload.registre={immatriculation:a.immatriculation,construction:a.construction,date_maj:a.date_maj,nb_lots:a.nb_lots}; entry={icon:'🏛️',title:'Copropriété (registre national)',items:items}; }
+            else { renderItems([{label:'Résultat',value:'Aucune copropriété au registre pour cette parcelle'}]); relBtn.textContent=old; relBtn.disabled=false; return; }
+          } else if(curKey==='cadastre'){
+            var ci=[]; if(a&&a.parcelle){ if(a.parcelle.section) ci.push({label:'Parcelle',value:a.parcelle.section+' '+a.parcelle.numero}); if(a.parcelle.contenance) ci.push({label:'Surface parcelle',value:a.parcelle.contenance+' m²'}); payload.cadastre={reference:a.parcelle.reference}; }
+            if(a&&a.plu&&a.plu.type){ ci.push({label:'Zone PLU',value:a.plu.type+(a.plu.libelle?(' — '+a.plu.libelle):'')}); payload.plu={type:a.plu.type}; }
+            items=ci; entry={icon:'📐',title:'Cadastre & PLU',items:ci};
+          } else if(curKey==='risques'){
+            if(a&&a.risques){ items=a.risques.map(function(x){return {label:x.label,value:x.statut||'présent'};}); payload.risques=a; entry={icon:'⚠️',title:'Risques ERP',items:items}; }
+          } else if(curKey==='altitude'){
+            if(a&&a.altitude!=null){ items=[{label:'Altitude',value:a.altitude+' m'+(a.altitude>800?' (zone DPE > 800 m)':'')}]; payload.altitude=a.altitude; entry={icon:'⛰️',title:'Altitude',items:items}; }
+          }
+          // MERGE : on renvoie le tableau details COMPLET avec seulement cette source mise à jour
+          // (le save remplace details en entier — sinon on perdrait les autres sources).
+          if(entry){ var merged=DETAILS.slice(), found=false;
+            for(var k=0;k<merged.length;k++){ if(srcKey(merged[k])===curKey){ merged[k]=entry; found=true; break; } }
+            if(!found) merged.push(entry);
+            payload.details=merged;
+          }
+          renderItems(items);
+          fetch(EPm.save,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+            .then(function(r){return r.json();})
+            .then(function(s){ relBtn.textContent=(s&&s.ok)?'✓ enregistré':'⚠️'; if(s&&s.ok) setTimeout(function(){location.reload();},700); else relBtn.disabled=false; })
+            .catch(function(){ relBtn.textContent='⚠️'; relBtn.disabled=false; });
+        }).catch(function(){ relBtn.textContent='⚠️ échec'; relBtn.disabled=false; });
+      }
+      relBtn.addEventListener('click', relance);
       card.querySelectorAll('.imc-src').forEach(function(b){ b.addEventListener('click', function(){ openSrc(+b.getAttribute('data-i')); }); });
       m.querySelectorAll('[data-imc-close]').forEach(function(el){ el.addEventListener('click', function(){ m.classList.remove('open'); }); });
     })();
@@ -156,7 +219,7 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
     <script>
     (function(){
       var btn=document.getElementById('imc-run'); if(!btn) return;
-      var LAT=<?= json_encode((string)$lat) ?>, LNG=<?= json_encode((string)$lng) ?>;
+      var LAT=<?= json_encode((string)$lat) ?>, LNG=<?= json_encode((string)$lng) ?>, CP=<?= json_encode((string)$cp) ?>, VOIE=<?= json_encode((string)$voie) ?>;
       var IMM=<?= (int)$immId ?>, CSRF=<?= json_encode((string)$csrf) ?>;
       var EP={ cad:<?= json_encode($au('/api/geo_cadastre_plu.php')) ?>, copro:<?= json_encode($au('/api/registre_copro.php')) ?>,
                risk:<?= json_encode($au('/api/geo_risques.php')) ?>, alt:<?= json_encode($au('/api/geo_altitude.php')) ?>,
@@ -165,7 +228,7 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
       btn.addEventListener('click', function(){
         if(!LAT||!LNG) return;
         btn.disabled=true; status.textContent='⏳ Recherches publiques en cours…';
-        var q='?lat='+encodeURIComponent(LAT)+'&lng='+encodeURIComponent(LNG);
+        var q='?lat='+encodeURIComponent(LAT)+'&lng='+encodeURIComponent(LNG)+(CP?'&cp='+encodeURIComponent(CP):'')+(VOIE?'&voie='+encodeURIComponent(VOIE):'');
         Promise.all([
           fetch(EP.cad+q).then(function(r){return r.json();}).catch(function(){return null;}),
           fetch(EP.copro+q).then(function(r){return r.json();}).catch(function(){return null;}),
@@ -177,7 +240,8 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
           if(cad.parcelle) payload.cadastre={reference:cad.parcelle.reference};
           if(cad.plu) payload.plu={type:cad.plu.type};
           if(alt && alt.altitude!=null) payload.altitude=alt.altitude;
-          if(copro && copro.trouve) payload.registre={immatriculation:copro.immatriculation,construction:copro.construction,date_maj:copro.date_maj,nb_lots:copro.nb_lots};
+          // Copro : on ne persiste QUE si cohérente (même code postal que l'immeuble).
+          if(copro && copro.trouve && copro.coherent!==false) payload.registre={immatriculation:copro.immatriculation,construction:copro.construction,date_maj:copro.date_maj,nb_lots:copro.nb_lots};
           if(risk && risk.risques) payload.risques=risk;
           // Détail par source → pour les modals de lecture en fiche
           var det=[], ci=[];
@@ -186,7 +250,8 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
           if(ci.length) det.push({icon:'📐',title:'Cadastre & PLU',items:ci});
           if(alt&&alt.altitude!=null) det.push({icon:'⛰️',title:'Altitude',items:[{label:'Altitude',value:alt.altitude+' m'+(alt.altitude>800?' (zone DPE > 800 m)':'')}]});
           if(risk&&risk.risques&&risk.risques.length) det.push({icon:'⚠️',title:'Risques ERP',items:risk.risques.map(function(x){return {label:x.label,value:x.statut||'présent'};})});
-          if(copro&&copro.trouve&&copro.infos) det.push({icon:'🏛️',title:'Copropriété (registre national)',items:copro.infos});
+          if(copro&&copro.trouve&&copro.coherent===false) det.push({icon:'⚠️',title:'Copropriété — À VÉRIFIER (non rattachée)',items:[{label:'Avertissement',value:copro.avertissement||'Code postal incohérent'}].concat(copro.infos||[])});
+          else if(copro&&copro.trouve&&copro.infos) det.push({icon:'🏛️',title:'Copropriété (registre national)',items:copro.infos});
           if(det.length) payload.details=det;
           return fetch(EP.save,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();});
         }).then(function(s){

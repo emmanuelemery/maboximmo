@@ -68,6 +68,13 @@
     font-family: 'Sora', 'DM Sans', sans-serif !important;
 }
 
+/* ── Garde-fou : certaines pages déclarent un `.nav{display:flex}` inline (barre de
+   navigation de contenu). Comme un groupe de sidebar porte la classe générique `nav`
+   (<div class="sb-group nav">), ce style fuit et met la sidebar en flex horizontal
+   (icônes en ligne, labels tronqués). On ré-impose explicitement l'empilement vertical
+   des groupes — spécificité (0,2,0) > `.nav` (0,1,0), donc on gagne sur toutes les pages. */
+.mbi-sidebar .sb-group { display: block; }
+
 /* ── Section header ── */
 .mbi-sidebar .sb-section {
     padding: 5px 12px 4px 18px;

@@ -467,7 +467,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
   var compteur = document.getElementById('nb2-compteur');
   var anTitle = document.getElementById('nb2-an-title');
 
-  function q(s){ return geo.lat && geo.lng ? (s + 'lat=' + encodeURIComponent(geo.lat) + '&lng=' + encodeURIComponent(geo.lng)) : s; }
+  function q(s){ if(!(geo.lat && geo.lng)) return s; var u = s + 'lat=' + encodeURIComponent(geo.lat) + '&lng=' + encodeURIComponent(geo.lng); if(geo.cp) u += '&cp=' + encodeURIComponent(geo.cp); if(geo.adresse1) u += '&voie=' + encodeURIComponent(geo.adresse1); return u; }
   function setCompteur(){ compteur.textContent = total + ' info' + (total>1?'s':''); }
 
   // Une ligne de source : ⚪ → 🟡 en cours → 🟢 ✓ +N (ou 🔴)
@@ -570,6 +570,15 @@ include __DIR__ . '/inc/agency_layout_top.php';
       if(n) pushDetail('⚠️','Risques ERP', a.risques.map(function(rq){ return {label: rq.label, value: rq.statut||'présent'}; }));
     });
     run('copro', '🏛️ Copropriété (registre)', EP.copro, function(a){
+      // Garde-fou : si la copro trouvée n'a pas le même code postal que le bien,
+      // c'est un faux positif (parcelle homonyme dans un autre quartier) → on NE
+      // rattache PAS automatiquement et on affiche un avertissement à vérifier.
+      if (a && a.trouve && a.coherent === false){
+        done('copro', false, 0, a.avertissement || 'copropriété incohérente — à vérifier');
+        pushDetail('⚠️','Copropriété — À VÉRIFIER (non rattachée)',
+          [{label:'Avertissement', value:a.avertissement||'Code postal incohérent'}].concat(a.infos||[]));
+        return; // pas de enrich.registre : on ne persiste pas un résultat douteux
+      }
       if (a && a.trouve){ resu.immat=a.immatriculation; resu.lots=a.nb_lots; resu.constr=a.construction; done('copro', true, (a.infos||[]).length, a.immatriculation+' · '+a.nb_lots+' lots');
         pushDetail('🏛️','Copropriété (registre national)', a.infos||[]);
         enrich.registre = { immatriculation:a.immatriculation, construction:a.construction, date_maj:a.date_maj, nb_lots:a.nb_lots }; }

@@ -459,6 +459,9 @@ ob_start();
     <div style="font-size:13px;font-weight:800;white-space:nowrap;background:rgba(255,255,255,.15);padding:10px 16px;border-radius:10px">Créer une demande →</div>
   </div>
 </a>
+<div style="max-width:1100px;margin:-6px auto 14px;text-align:right">
+  <a href="./document_requests_admin.php" style="display:inline-flex;align-items:center;gap:7px;text-decoration:none;font-size:13px;font-weight:700;color:#0e7490;background:#e6f4f8;border:1px solid #bfe3ec;border-radius:10px;padding:8px 14px">📋 Administrer les demandes de documents →</a>
+</div>
 
 <div class="fbh-wrap">
 

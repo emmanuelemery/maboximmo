@@ -475,6 +475,7 @@ $assets = static fn(string $p) => function_exists('asset_url') ? asset_url($p) :
 
     // Mémorise la géo pour le modal + révèle le bouton de visualisation
     geo.lat = d.latitude || ''; geo.lng = d.longitude || '';
+    geo.cp = d.code_postal || ''; geo.adresse1 = d.adresse_1 || '';
     geo.label = d.adresse_formatee || ((d.adresse_1||'') + ' ' + (d.ville||''));
     if (geo.lat && geo.lng) {
       mapBtn.style.display = 'flex';
@@ -584,10 +585,12 @@ $assets = static fn(string $p) => function_exists('asset_url') ? asset_url($p) :
         }).catch(function(){});
 
       // Copropriété — Registre National (parcelle → immatriculation → tout, officiel)
-      fetch(COPRO + '?lat=' + encodeURIComponent(geo.lat) + '&lng=' + encodeURIComponent(geo.lng))
+      fetch(COPRO + '?lat=' + encodeURIComponent(geo.lat) + '&lng=' + encodeURIComponent(geo.lng) + (geo.cp ? '&cp=' + encodeURIComponent(geo.cp) : '') + (geo.adresse1 ? '&voie=' + encodeURIComponent(geo.adresse1) : ''))
         .then(function(r){ return r.json(); })
         .then(function(a){
           if (!a || !a.ok || !a.trouve) return;
+          // Garde-fou cohérence CP : ne pas rattacher une copro d'un autre quartier.
+          if (a.coherent === false){ document.getElementById('bn-copro-imm').textContent = '⚠️ ' + (a.avertissement || 'copropriété incohérente — à vérifier'); return; }
           st.registre = a; persist('registre');
           document.getElementById('bn-copro-imm').textContent = a.immatriculation || '';
           document.getElementById('bn-copro-chips').innerHTML = (a.infos || []).map(function(info){
@@ -737,9 +740,10 @@ $assets = static fn(string $p) => function_exists('asset_url') ? asset_url($p) :
       var fresh = document.getElementById('fresh-' + src);
       if (fresh) fresh.innerHTML = '⏳ actualisation…';
       var url = src === 'registre' ? COPRO : (src === 'risques' ? RISK : CAD);
-      fetch(url + '?lat=' + encodeURIComponent(geo.lat) + '&lng=' + encodeURIComponent(geo.lng))
+      fetch(url + '?lat=' + encodeURIComponent(geo.lat) + '&lng=' + encodeURIComponent(geo.lng) + (src === 'registre' && geo.cp ? '&cp=' + encodeURIComponent(geo.cp) : '') + (src === 'registre' && geo.adresse1 ? '&voie=' + encodeURIComponent(geo.adresse1) : ''))
         .then(function(r){ return r.json(); })
         .then(function(a){
+          if (src === 'registre' && a && a.trouve && a.coherent === false) { if (fresh) fresh.innerHTML = '⚠️ à vérifier (CP incohérent)'; return; }
           if (src === 'registre' && a && a.trouve) st.registre = a;
           else if (src === 'risques' && a && a.risques) st.risques = a;
           else if (src === 'cadastre' && a) { st.cadastre = a.parcelle; st.plu = a.plu; }

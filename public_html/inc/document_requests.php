@@ -17,6 +17,32 @@ if (!function_exists('dr_default_templates')) {
     {
         return [
             [
+                'code' => 'mise_en_vente_proprietaire',
+                'nom'  => 'Mise en vente — dossier propriétaire',
+                'description' => "Pièces à demander au propriétaire vendeur pour constituer le dossier de vente (copropriété + diagnostics).",
+                'audience' => 'proprietaire',
+                // entity_type par pièce : IMMEUBLE (copropriété) · TIERS (propriétaire) · BIEN (le lot).
+                // L'entity_id est résolu automatiquement à la création depuis le bien d'origine.
+                'items' => [
+                    // ── Niveau COPROPRIÉTÉ (immeuble) ──
+                    ['label' => "3 derniers PV d'assemblée générale", 'doc_type' => 'pv_assemblee', 'entity_type' => 'IMMEUBLE', 'required' => 1],
+                    ['label' => "Règlement de copropriété + état descriptif de division", 'doc_type' => 'reglement_copropriete', 'entity_type' => 'IMMEUBLE', 'required' => 1],
+                    ['label' => "Carnet d'entretien de l'immeuble", 'doc_type' => 'carnet_entretien', 'entity_type' => 'IMMEUBLE', 'required' => 0],
+                    ['label' => "Charges de copropriété annuelles (3 derniers décomptes)", 'doc_type' => 'charges_copropriete', 'entity_type' => 'IMMEUBLE', 'required' => 1],
+                    ['label' => "Pré-état daté / appels de fonds en cours", 'doc_type' => 'pre_etat_date', 'entity_type' => 'IMMEUBLE', 'required' => 0],
+                    // ── Niveau PROPRIÉTAIRE (tiers) ──
+                    ['label' => "Pièce d'identité (CNI ou passeport)", 'doc_type' => 'cni', 'entity_type' => 'TIERS', 'required' => 1],
+                    // ── Niveau BIEN (le lot) ──
+                    ['label' => "Acte de propriété (titre de propriété)", 'doc_type' => 'acte_propriete', 'entity_type' => 'BIEN', 'required' => 1],
+                    ['label' => "Dernier avis de taxe foncière", 'doc_type' => 'taxe_fonciere', 'entity_type' => 'BIEN', 'required' => 0],
+                    ['label' => "Bail en cours (si bien loué)", 'doc_type' => 'bail', 'entity_type' => 'BIEN', 'required' => 0],
+                    ['label' => "Congé / dédite du locataire (si délivré)", 'doc_type' => 'conge_dedite', 'entity_type' => 'BIEN', 'required' => 0],
+                    ['label' => "État des lieux d'entrée / de sortie", 'doc_type' => 'edl', 'entity_type' => 'BIEN', 'required' => 0],
+                    ['label' => "DPE (diagnostic de performance énergétique)", 'doc_type' => 'dpe', 'entity_type' => 'BIEN', 'required' => 1],
+                    ['label' => "Diagnostics techniques (amiante, plomb, électricité, gaz, ERP, termites…)", 'doc_type' => 'diagnostics_techniques', 'entity_type' => 'BIEN', 'required' => 1],
+                ],
+            ],
+            [
                 'code' => 'candidat_locataire',
                 'nom'  => 'Dossier candidat locataire',
                 'description' => "Pièces autorisées (décret n°2015-1437) pour valider une candidature locative.",
@@ -169,6 +195,9 @@ if (!function_exists('dr_create_request')) {
                 ]);
             }
             $pdo->commit();
+            // Pré-validation : les pièces déjà présentes en GED (qu'on a nous-mêmes
+            // déposées) sont marquées « reçues » → le tiers ne les recharge pas.
+            try { dr_autofulfill_from_ged($pdo, $reqId); } catch (Throwable) {}
             return ['ok' => true, 'id' => $reqId, 'token' => $token, 'url' => dr_public_url($token)];
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -200,6 +229,60 @@ if (!function_exists('dr_items')) {
         $st = $pdo->prepare("SELECT * FROM document_request_items WHERE request_id = ? ORDER BY sort_order, id");
         $st->execute([$requestId]);
         return $st->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+/* ── Auto-validation depuis la GED ────────────────────────────────────────
+   Si le document demandé EST DÉJÀ présent en GED sur la bonne entité (parce
+   qu'on l'a déposé nous-mêmes), la pièce est marquée « reçue » → le tiers ne
+   la redemande/recharge pas. Matché par entité + type de document (synonymes). */
+if (!function_exists('dr_doctype_synonyms')) {
+    function dr_doctype_synonyms(string $dt): array
+    {
+        $dt = strtoupper(trim($dt));
+        $map = [
+            'PV_ASSEMBLEE'           => ['PV_ASSEMBLEE','PV_AG','PROCES_VERBAL_AG','PV'],
+            'REGLEMENT_COPROPRIETE'  => ['REGLEMENT_COPROPRIETE','REGLEMENT_COPRO','RCP','EDD'],
+            'CARNET_ENTRETIEN'       => ['CARNET_ENTRETIEN'],
+            'CHARGES_COPROPRIETE'    => ['CHARGES_COPROPRIETE','CHARGES_COPRO','APPEL_CHARGES','DECOMPTE_CHARGES'],
+            'PRE_ETAT_DATE'          => ['PRE_ETAT_DATE','ETAT_DATE','PED'],
+            'CNI'                    => ['CNI','PIECE_IDENTITE','IDENTITE','PASSEPORT'],
+            'ACTE_PROPRIETE'         => ['ACTE_PROPRIETE','TITRE_PROPRIETE','ACTE_VENTE','ACTE'],
+            'TAXE_FONCIERE'          => ['TAXE_FONCIERE','TF'],
+            'BAIL'                   => ['BAIL','BAIL_HABITATION','CONTRAT_BAIL','BAIL_SIGNE'],
+            'CONGE_DEDITE'           => ['CONGE_DEDITE','CONGE','DEDITE','PREAVIS'],
+            'EDL'                    => ['EDL','ETAT_DES_LIEUX','EDL_ENTREE','EDL_SORTIE'],
+            'DPE'                    => ['DPE'],
+            'DIAGNOSTICS_TECHNIQUES' => ['DIAGNOSTICS_TECHNIQUES','DIAGNOSTIC','DIAG','DDT','AMIANTE','PLOMB','ELECTRICITE','GAZ','ERP','TERMITES'],
+        ];
+        return $map[$dt] ?? [$dt];
+    }
+}
+if (!function_exists('dr_autofulfill_from_ged')) {
+    function dr_autofulfill_from_ged(PDO $pdo, int $reqId): int
+    {
+        if (!function_exists('gdl_documents_for_entity')) return 0;
+        $linkTypes = ['BIEN','IMMEUBLE','IMB','TIERS','BAIL'];
+        $n = 0;
+        foreach (dr_items($pdo, $reqId) as $it) {
+            if (($it['status'] ?? '') === 'recu') continue;
+            $et  = strtoupper((string)($it['entity_type'] ?? ''));
+            $eid = (int)($it['entity_id'] ?? 0);
+            $dt  = (string)($it['doc_type'] ?? '');
+            if ($eid <= 0 || $dt === '' || !in_array($et, $linkTypes, true)) continue;
+            try {
+                $docs = gdl_documents_for_entity($pdo, $et, $eid, ['document_type' => dr_doctype_synonyms($dt)]);
+            } catch (Throwable) { $docs = []; }
+            if (!empty($docs)) {
+                $docId = (int)($docs[0]['id'] ?? $docs[0]['document_id'] ?? 0);
+                $pdo->prepare("UPDATE document_request_items
+                               SET status='recu', ged_document_id=?, original_name='[déjà présent en GED]', received_at=NOW()
+                               WHERE id=? AND status<>'recu'")
+                    ->execute([$docId ?: null, (int)$it['id']]);
+                $n++;
+            }
+        }
+        return $n;
     }
 }
 if (!function_exists('dr_is_valid')) {

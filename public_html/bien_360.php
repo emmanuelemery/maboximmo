@@ -612,6 +612,45 @@ if ($kpis) {
     })();
     </script>
 
+    <?php
+    // ─────────────── COMMENTAIRE INTERNE DU BIEN (persisté biens.commentaire) ───────────────
+    $roleCmt  = function_exists('current_role_id') ? (int)current_role_id() : 0;
+    $canEditCmt = in_array($roleCmt, [1,2,7], true) || (function_exists('is_super_admin') && is_super_admin());
+    $cmtValue = (string)($bien['commentaire'] ?? '');
+    ?>
+    <div class="f360-card">
+      <h3>📝 Commentaire interne</h3>
+      <?php if ($canEditCmt): ?>
+        <textarea id="bien-cmt" rows="4" placeholder="Note interne sur ce bien (visible par l'équipe, jamais publiée)…"
+                  style="width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;font-size:13.5px;box-sizing:border-box;font-family:inherit;resize:vertical;"><?= h($cmtValue) ?></textarea>
+        <div id="bien-cmt-status" style="font-size:12px;color:#64748b;margin-top:6px;min-height:16px;"></div>
+        <script>
+        (function(){
+          var SAVE = <?= json_encode(app_url('/api/bien_commentaire_save.php')) ?>;
+          var BID  = <?= (int)$bienId ?>, CSRF = <?= json_encode(csrf_token('bien_commentaire')) ?>;
+          var ta = document.getElementById('bien-cmt'), st = document.getElementById('bien-cmt-status');
+          var t = null, last = ta.value;
+          function save(){
+            if (ta.value === last) return;
+            last = ta.value;
+            st.textContent = '⏳ Enregistrement…';
+            fetch(SAVE, { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ bien_id:BID, csrf:CSRF, commentaire:ta.value }) })
+              .then(function(r){ return r.json(); })
+              .then(function(d){ st.textContent = d && d.ok ? '✓ Enregistré' : ('⚠️ ' + ((d&&d.error)||'Erreur')); })
+              .catch(function(){ st.textContent = '⚠️ Erreur réseau'; });
+          }
+          ta.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(save, 900); });
+          ta.addEventListener('blur', function(){ clearTimeout(t); save(); });
+        })();
+        </script>
+      <?php elseif (trim($cmtValue) !== ''): ?>
+        <div style="white-space:pre-wrap;font-size:13.5px;color:#334155;"><?= h($cmtValue) ?></div>
+      <?php else: ?>
+        <div style="font-size:13px;color:#94a3b8;font-style:italic;">Aucun commentaire.</div>
+      <?php endif; ?>
+    </div>
+
     <div class="b360-inner">
 
       <!-- ─────────────── COLONNE 1 — MANDATS / BAIL ─────────────── -->

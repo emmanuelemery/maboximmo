@@ -55,6 +55,37 @@ if (is_array($gen) && ($gen['type'] ?? '') === 'agences') {
     }
 }
 
+// ── Résolution des entités PAR PIÈCE ─────────────────────────────────────
+// Chaque pièce porte un entity_type (IMMEUBLE / TIERS / BIEN). On résout son
+// entity_id depuis le bien d'origine : bien → son immeuble + son propriétaire
+// (classé en TIERS côté GED). Ainsi chaque doc déposé est rangé sur la BONNE entité.
+$ctxType = strtoupper((string)($in['entity_type'] ?? ''));
+$ctxId   = (int)($in['entity_id'] ?? 0);
+$entityMap = [];
+if ($ctxType === 'BIEN' && $ctxId > 0) {
+    $entityMap['BIEN'] = $ctxId;
+    try {
+        $b = $pdo->prepare("SELECT id_immeuble, id_proprietaire FROM biens WHERE id = ?");
+        $b->execute([$ctxId]);
+        if ($row = $b->fetch(PDO::FETCH_ASSOC)) {
+            if (!empty($row['id_immeuble'])) $entityMap['IMMEUBLE'] = (int)$row['id_immeuble'];
+            if (!empty($row['id_proprietaire'])) {
+                $t = $pdo->prepare("SELECT id_tiers FROM proprietaires WHERE id = ?");
+                $t->execute([(int)$row['id_proprietaire']]);
+                $tiersId = (int)$t->fetchColumn();
+                if ($tiersId > 0) $entityMap['TIERS'] = $tiersId;
+            }
+        }
+    } catch (Throwable) {}
+} elseif ($ctxType !== '' && $ctxId > 0) {
+    $entityMap[$ctxType] = $ctxId;
+}
+foreach ($items as &$it) {
+    $et = strtoupper((string)($it['entity_type'] ?? ''));
+    if ($et !== '' && empty($it['entity_id']) && isset($entityMap[$et])) $it['entity_id'] = $entityMap[$et];
+}
+unset($it);
+
 if (!$items) { echo json_encode(['ok' => false, 'error' => 'Aucune pièce à demander']); exit; }
 
 // ── Échéance + rappels ───────────────────────────────────────────────────

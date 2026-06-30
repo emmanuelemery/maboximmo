@@ -46,6 +46,26 @@ if (!dr_is_valid($req)) { http_response_code(403); die('Ce lien a expiré ou a �
 $reqId   = (int)$req['id'];
 $sessKey = 'dr_auth_' . substr($token, 0, 16);
 
+// ── Marque (logo + nom) de l'agence pour l'en-tête de la page de dépôt ──
+$brandLogo = ''; $brandNom = '';
+try {
+    $ageId = (int)($req['agence_id'] ?? 0);
+    $socId = (int)($req['societe_id'] ?? 0);
+    if ($ageId > 0) {
+        $ba = $pdo->prepare("SELECT nom_agence, logo_url, logo_path FROM agences WHERE id=?");
+        $ba->execute([$ageId]); $a = $ba->fetch(PDO::FETCH_ASSOC) ?: [];
+        $brandNom  = (string)($a['nom_agence'] ?? '');
+        $brandLogo = trim((string)($a['logo_url'] ?? '')) ?: trim((string)($a['logo_path'] ?? ''));
+    }
+    if ($brandLogo === '' && $socId > 0) {
+        $bs = $pdo->prepare("SELECT COALESCE(NULLIF(nom,''),raison_sociale) nom, logo_url FROM societes WHERE id=?");
+        $bs->execute([$socId]); $s = $bs->fetch(PDO::FETCH_ASSOC) ?: [];
+        if ($brandNom === '') $brandNom = (string)($s['nom'] ?? '');
+        $brandLogo = trim((string)($s['logo_url'] ?? ''));
+    }
+} catch (Throwable) {}
+$brandLogoUrl = $brandLogo !== '' ? (function_exists('app_url') ? app_url('/' . ltrim($brandLogo, '/')) : '/' . ltrim($brandLogo, '/')) : '';
+
 // ── Gate email ────────────────────────────────────────────────────────────
 $gated = (int)$req['require_email_gate'] === 1;
 $authed = !$gated || !empty($_SESSION[$sessKey]);
@@ -97,6 +117,9 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) 
     $req = dr_get_by_token($pdo, $token); // refresh statut
 }
 
+// Pièces déjà présentes en GED (déposées par l'agence) → marquées « reçues »
+// pour que le déposant ne les recharge pas.
+try { dr_autofulfill_from_ged($pdo, $reqId); } catch (Throwable) {}
 $items = dr_items($pdo, $reqId);
 $total = count($items);
 $recus = count(array_filter($items, fn($i) => $i['status'] === 'recu'));
@@ -108,6 +131,12 @@ function dh($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 <style>
 *{box-sizing:border-box} body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f6f9;color:#1a2330}
 .wrap{max-width:760px;margin:0 auto;padding:26px 18px 60px}
+.brand{display:flex;align-items:center;gap:20px;background:#fff;border:1px solid #e3e8ef;border-radius:16px;padding:18px 22px;margin-bottom:16px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+.brand img{height:74px;max-width:200px;width:auto;object-fit:contain;flex-shrink:0}
+.brand .brand-txt{min-width:0}
+.brand .brand-nom{font-size:17px;font-weight:800;color:#243B5C;line-height:1.2}
+.brand .brand-tag{font-size:13.5px;color:#5a6678;margin-top:4px;font-style:italic}
+@media(max-width:560px){.brand{flex-direction:column;text-align:center;gap:12px}.brand img{height:60px}}
 .head{background:#243B5C;color:#fff;border-radius:16px;padding:22px 24px;margin-bottom:20px}
 .head h1{margin:0 0 6px;font-size:20px} .head p{margin:0;opacity:.85;font-size:14px}
 .prog{height:9px;background:rgba(255,255,255,.25);border-radius:6px;margin-top:14px;overflow:hidden}
@@ -131,6 +160,15 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
 .foot{text-align:center;color:#9aa4b1;font-size:12px;margin-top:24px}
 </style></head><body>
 <div class="wrap">
+  <?php if ($brandLogoUrl !== '' || $brandNom !== ''): ?>
+  <div class="brand">
+    <?php if ($brandLogoUrl !== ''): ?><img src="<?= dh($brandLogoUrl) ?>" alt="<?= dh($brandNom ?: 'Logo agence') ?>"><?php endif; ?>
+    <div class="brand-txt">
+      <?php if ($brandNom !== ''): ?><div class="brand-nom"><?= dh($brandNom) ?></div><?php endif; ?>
+      <div class="brand-tag">Qualité et innovation au service de nos clients — pour plus de simplicité, de sérénité et d'efficacité.</div>
+    </div>
+  </div>
+  <?php endif; ?>
   <div class="head">
     <h1><?= dh($req['titre']) ?></h1>
     <p>Merci de déposer les documents demandés ci-dessous. Dépôt sécurisé.</p>
@@ -155,7 +193,7 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
     <?php foreach ($items as $it): $done = $it['status'] === 'recu'; ?>
       <div class="card <?= $done?'done':'' ?>">
         <div class="lbl"><?= dh($it['label']) ?>
-          <?php if ($done): ?><span class="badge recu">✅ Reçu</span>
+          <?php if ($done): ?><span class="badge recu"><?= (trim((string)($it['original_name'] ?? ''))==='[déjà présent en GED]') ? '✅ Déjà fourni (dans nos dossiers)' : '✅ Reçu' ?></span>
           <?php elseif ((int)$it['required']===1): ?><span class="badge req">Requis</span>
           <?php else: ?><span class="badge opt">Optionnel</span><?php endif; ?>
         </div>

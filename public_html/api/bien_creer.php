@@ -183,8 +183,20 @@ try {
     $idBienType = (int)($tt['id_bien_type'] ?? 0) ?: null;
 
     // Référence : générateur agence/CRG ; repli TMP si pas d'agence.
+    // On TRANSMET le contexte (type, ville, user) au générateur — sinon le pattern
+    // {TYPE3}-{VILLE3}-{YYMM}-{SEQ:04}-{USER3} sort vide/XXX (réf « --2606-0037-XXX »).
+    $userRef = [];
+    if ($userId) { try { $u=$pdo->prepare("SELECT prenom,nom FROM users WHERE id=?"); $u->execute([$userId]); $userRef=$u->fetch(PDO::FETCH_ASSOC)?:[]; } catch (Throwable) {} }
     $ref='';
-    try { if ($agenceId || $immId) $ref = ref_generate_bien($pdo, ['id_immeuble'=>$immId,'id_agence'=>$agenceId]); } catch (Throwable) {}
+    try {
+        if ($agenceId || $immId) $ref = ref_generate_bien($pdo, [
+            'id_immeuble'    => $immId,
+            'id_agence'      => $agenceId,
+            'type_bien_code' => $typeCode,
+            'ville'          => (string)($imm['ville'] ?? ''),
+            'user'           => $userRef,
+        ]);
+    } catch (Throwable) {}
     if ($ref==='') $ref = 'TMP-'.date('ymd').'-'.strtoupper(substr(bin2hex(random_bytes(3)),0,5));
 
     $nbPieces = (int)preg_replace('/\D+/','',(string)($bi['pieces'] ?? '')) ?: null;
