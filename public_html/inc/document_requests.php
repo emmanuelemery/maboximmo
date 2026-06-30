@@ -232,6 +232,43 @@ if (!function_exists('dr_items')) {
     }
 }
 
+/* ── Libellé lisible d'une entité (au lieu de « BIEN #843 ») ──────────────
+   Retourne ['icon'=>, 'type'=>, 'label'=>] pour savoir OÙ l'on est. */
+if (!function_exists('dr_entity_label')) {
+    function dr_entity_label(PDO $pdo, ?string $type, int $id): array
+    {
+        static $cache = [];
+        $t = strtoupper(trim((string)$type));
+        if ($t === '' || $id <= 0) return ['icon' => '', 'type' => '', 'label' => ''];
+        $key = $t . ':' . $id;
+        if (isset($cache[$key])) return $cache[$key];
+
+        $icons = ['BIEN'=>'🏠','IMMEUBLE'=>'🏛️','IMB'=>'🏛️','TIERS'=>'👤','PROPRIETAIRE'=>'👤','LOCATAIRE'=>'🔑','BAIL'=>'🔑','AGENCE'=>'🏢','SOCIETE'=>'🏢'];
+        $names = ['BIEN'=>'Bien','IMMEUBLE'=>'Immeuble','IMB'=>'Immeuble','TIERS'=>'Tiers','PROPRIETAIRE'=>'Propriétaire','LOCATAIRE'=>'Locataire','BAIL'=>'Bail','AGENCE'=>'Agence','SOCIETE'=>'Société'];
+        $label = '';
+        try {
+            if ($t === 'BIEN') {
+                $s = $pdo->prepare("SELECT reference_bien, adresse_1, ville FROM biens WHERE id=?"); $s->execute([$id]); $r = $s->fetch(PDO::FETCH_ASSOC);
+                if ($r) { $adr = trim(((string)$r['adresse_1']) . ' ' . ((string)$r['ville'])); $label = trim(((string)($r['reference_bien'] ?: '')) . ($adr !== '' ? ' · ' . $adr : '')); }
+            } elseif ($t === 'IMMEUBLE' || $t === 'IMB') {
+                $s = $pdo->prepare("SELECT nom_immeuble, adresse_formatee FROM immeubles WHERE id=?"); $s->execute([$id]); $r = $s->fetch(PDO::FETCH_ASSOC);
+                if ($r) $label = trim((string)($r['nom_immeuble'] ?: $r['adresse_formatee'] ?: ''));
+            } elseif ($t === 'TIERS') {
+                $s = $pdo->prepare("SELECT nom_affichage, raison_sociale, prenom, nom FROM tiers WHERE id=?"); $s->execute([$id]); $r = $s->fetch(PDO::FETCH_ASSOC);
+                if ($r) $label = trim((string)($r['nom_affichage'] ?: $r['raison_sociale'] ?: trim(((string)$r['prenom']) . ' ' . ((string)$r['nom']))));
+            } elseif ($t === 'PROPRIETAIRE') {
+                $s = $pdo->prepare("SELECT societe, prenom, nom FROM proprietaires WHERE id=?"); $s->execute([$id]); $r = $s->fetch(PDO::FETCH_ASSOC);
+                if ($r) $label = trim((string)($r['societe'] ?: trim(((string)$r['prenom']) . ' ' . ((string)$r['nom']))));
+            } elseif ($t === 'BAIL' || $t === 'LOCATAIRE') {
+                $s = $pdo->prepare("SELECT reference_bail, locataire_raison_sociale, locataire_prenom, locataire_nom FROM bien_baux WHERE id=?"); $s->execute([$id]); $r = $s->fetch(PDO::FETCH_ASSOC);
+                if ($r) { $loc = (string)($r['locataire_raison_sociale'] ?: trim(((string)$r['locataire_prenom']) . ' ' . ((string)$r['locataire_nom']))); $label = trim(((string)($r['reference_bail'] ?: 'Bail')) . ($loc !== '' ? ' · ' . $loc : '')); }
+            }
+        } catch (Throwable) {}
+        $out = ['icon' => $icons[$t] ?? '📄', 'type' => $names[$t] ?? $t, 'label' => ($label !== '' ? $label : ($names[$t] ?? $t) . ' #' . $id)];
+        return $cache[$key] = $out;
+    }
+}
+
 /* ── Auto-validation depuis la GED ────────────────────────────────────────
    Si le document demandé EST DÉJÀ présent en GED sur la bonne entité (parce
    qu'on l'a déposé nous-mêmes), la pièce est marquée « reçue » → le tiers ne

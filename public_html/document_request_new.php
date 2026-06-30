@@ -38,6 +38,11 @@ if ($ctxType !== '' && $ctxId > 0) {
             }
         } catch (Throwable $e) {}
     }
+    // Fallback titre LISIBLE (évite « BIEN #843 ») via le résolveur d'entité.
+    if (($ctxTitle === '' || preg_match('/#\s*\d+/', $ctxTitle)) && function_exists('dr_entity_label')) {
+        $el = dr_entity_label($pdo, $ctxType, $ctxId);
+        if ($el['label'] !== '') $ctxTitle = $el['label'];
+    }
 }
 
 $pageTitle = 'Demander un document';

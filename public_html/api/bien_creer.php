@@ -29,7 +29,7 @@ require_once __DIR__ . '/../inc/bien_missions.php';
 require_once __DIR__ . '/../inc/dossier_vente.php';
 require_once __DIR__ . '/../inc/ref_generator.php';
 require_once __DIR__ . '/../inc/bien_type_helper.php';
-require_admin_or_super_admin();
+require_login();
 
 header('Content-Type: application/json; charset=utf-8');
 function reply($ok,$data,$conf,$err=null){ echo json_encode(['ok'=>$ok,'data'=>$data,'source'=>'bien_creer','confidence'=>$conf,'error'=>$err], JSON_UNESCAPED_UNICODE); exit; }

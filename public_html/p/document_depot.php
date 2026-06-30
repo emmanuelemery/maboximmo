@@ -67,8 +67,11 @@ try {
 $brandLogoUrl = $brandLogo !== '' ? (function_exists('app_url') ? app_url('/' . ltrim($brandLogo, '/')) : '/' . ltrim($brandLogo, '/')) : '';
 
 // ── Gate email ────────────────────────────────────────────────────────────
-$gated = (int)$req['require_email_gate'] === 1;
-$authed = !$gated || !empty($_SESSION[$sessKey]);
+// Le gate d'identité ne concerne QUE le tiers destinataire. Un utilisateur
+// interne connecté (staff) accède directement, pour visualiser/contrôler.
+$staffView = !empty($_SESSION['user_id']) || !empty($_SESSION['id_user']);
+$gated  = (int)$req['require_email_gate'] === 1;
+$authed = !$gated || $staffView || !empty($_SESSION[$sessKey]);
 $gateErr = null;
 if ($gated && !$authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['gate_email'])) {
     $em = strtolower(trim((string)$_POST['gate_email']));
@@ -124,6 +127,14 @@ $items = dr_items($pdo, $reqId);
 $total = count($items);
 $recus = count(array_filter($items, fn($i) => $i['status'] === 'recu'));
 function dh($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+
+// Rattachement lisible (calculé une fois) + titre affiché « propre ».
+$rattach = function_exists('dr_entity_label') ? dr_entity_label($pdo, $req['entity_type'] ?? '', (int)($req['entity_id'] ?? 0)) : ['icon'=>'','type'=>'','label'=>''];
+$titreAffiche = (string)$req['titre'];
+// Si le titre est générique (ex. « BIEN #843 ») et qu'on a un libellé lisible, on le remplace.
+if ($rattach['label'] !== '' && (trim($titreAffiche) === '' || preg_match('/#\s*\d+/', $titreAffiche))) {
+    $titreAffiche = 'Documents — ' . $rattach['label'];
+}
 ?><!DOCTYPE html>
 <html lang="fr"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -144,7 +155,18 @@ function dh($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 .flash{padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:14px}
 .flash.ok{background:#e7f6ec;color:#176a3a;border:1px solid #b6e3c6}
 .flash.ko{background:#fdecec;color:#a01818;border:1px solid #f3bcbc}
-.card{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+.items-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+@media(max-width:680px){.items-grid{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:16px 18px;margin-bottom:0;box-shadow:0 1px 3px rgba(15,23,42,.05);display:flex;flex-direction:column}
+.card .btn{margin-top:auto}
+/* Dropzone glisser-déposer */
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;
+  padding:18px 12px;border:2px dashed #c3ccd8;border-radius:12px;background:#fafbfc;cursor:pointer;transition:.15s}
+.drop:hover{border-color:#0e7490;background:#f3fbfd}
+.drop.drag{border-color:#0e7490;background:#e6f7fb;transform:scale(1.01)}
+.drop .drop-hint{font-size:13px;color:#5a6678;font-weight:600;pointer-events:none}
+.drop .drop-file{font-size:12.5px;color:#0e7490;font-weight:700;pointer-events:none;word-break:break-all}
+.drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
 .card.done{border-color:#b6e3c6;background:#f6fcf8}
 .card .lbl{font-weight:700;font-size:15px;margin-bottom:4px}
 .card .meta{font-size:12px;color:#7a8694;margin-bottom:12px}
@@ -160,6 +182,12 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
 .foot{text-align:center;color:#9aa4b1;font-size:12px;margin-top:24px}
 </style></head><body>
 <div class="wrap">
+  <?php if ($staffView): ?>
+  <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#92400e">
+    👁️ <strong>Aperçu interne</strong> — voici la page telle que la voit le destinataire (vous n'avez pas à confirmer votre identité).
+    <?php if ($rattach && $rattach['label']): ?><br>📎 Rattachée à : <strong><?= dh($rattach['icon'].' '.$rattach['type'].' — '.$rattach['label']) ?></strong><?php endif; ?>
+  </div>
+  <?php endif; ?>
   <?php if ($brandLogoUrl !== '' || $brandNom !== ''): ?>
   <div class="brand">
     <?php if ($brandLogoUrl !== ''): ?><img src="<?= dh($brandLogoUrl) ?>" alt="<?= dh($brandNom ?: 'Logo agence') ?>"><?php endif; ?>
@@ -170,7 +198,7 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
   </div>
   <?php endif; ?>
   <div class="head">
-    <h1><?= dh($req['titre']) ?></h1>
+    <h1><?= dh($titreAffiche) ?></h1>
     <p>Merci de déposer les documents demandés ci-dessous. Dépôt sécurisé.</p>
     <?php if ($authed): ?><div class="prog"><i style="width:<?= $total ? round($recus*100/$total) : 0 ?>%"></i></div>
     <p style="margin-top:8px"><?= $recus ?>/<?= $total ?> pièce(s) reçue(s)</p><?php endif; ?>
@@ -190,6 +218,7 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
       </form>
     </div>
   <?php else: ?>
+    <div class="items-grid">
     <?php foreach ($items as $it): $done = $it['status'] === 'recu'; ?>
       <div class="card <?= $done?'done':'' ?>">
         <div class="lbl"><?= dh($it['label']) ?>
@@ -206,7 +235,11 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
             <?php if ($it['kind']==='text'): ?>
               <textarea name="text_value" placeholder="Saisissez ici…" required></textarea>
             <?php else: ?>
-              <div class="drop"><input type="file" name="file" required></div>
+              <label class="drop">
+                <span class="drop-hint">📎 Glissez le fichier ici<br>ou cliquez pour choisir</span>
+                <span class="drop-file"></span>
+                <input type="file" name="file" required>
+              </label>
             <?php endif; ?>
             <button class="btn" type="submit"><?= $it['kind']==='text'?'Enregistrer':'Déposer' ?></button>
           </form>
@@ -215,11 +248,30 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
         <?php endif; ?>
       </div>
     <?php endforeach; ?>
+    </div>
     <?php if ($total && $recus >= $total): ?>
-      <div class="flash ok">🎉 Tous les documents ont été déposés. Merci !</div>
+      <div class="flash ok" style="margin-top:14px">🎉 Tous les documents ont été déposés. Merci !</div>
     <?php endif; ?>
   <?php endif; ?>
 
   <div class="foot">MaBoxImmo · dépôt sécurisé</div>
+<script>
+(function(){
+  document.querySelectorAll('label.drop').forEach(function(zone){
+    var input = zone.querySelector('input[type=file]');
+    var fileLbl = zone.querySelector('.drop-file');
+    var form = zone.closest('form');
+    function show(){ if(input.files && input.files.length){ fileLbl.textContent = '✅ ' + (input.files.length>1 ? input.files.length+' fichiers' : input.files[0].name) + ' — envoi…'; } }
+    ['dragenter','dragover'].forEach(function(e){ zone.addEventListener(e,function(ev){ ev.preventDefault(); zone.classList.add('drag'); }); });
+    ['dragleave','dragend','drop'].forEach(function(e){ zone.addEventListener(e,function(ev){ ev.preventDefault(); zone.classList.remove('drag'); }); });
+    zone.addEventListener('drop', function(ev){
+      var files = ev.dataTransfer && ev.dataTransfer.files; if(!files || !files.length) return;
+      try { input.files = files; } catch(e){ var dt=new DataTransfer(); for(var i=0;i<files.length;i++) dt.items.add(files[i]); input.files=dt.files; }
+      show(); if(form) (form.requestSubmit?form.requestSubmit():form.submit());
+    });
+    input.addEventListener('change', function(){ show(); if(input.files && input.files.length && form) (form.requestSubmit?form.requestSubmit():form.submit()); });
+  });
+})();
+</script>
 </div>
 </body></html>

@@ -102,7 +102,7 @@ $itemsByReq = [];
 if ($rows) {
     $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
     try {
-        foreach ($pdo->query("SELECT request_id, label, status, entity_type FROM document_request_items WHERE request_id IN ($ids) ORDER BY sort_order, id") as $it) {
+        foreach ($pdo->query("SELECT request_id, label, status, entity_type, entity_id FROM document_request_items WHERE request_id IN ($ids) ORDER BY sort_order, id") as $it) {
             $itemsByReq[(int)$it['request_id']][] = $it;
         }
     } catch (Throwable $e) {}
@@ -198,7 +198,9 @@ table.dra td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:mid
     <tr>
       <td><strong><?= $h($r['titre']) ?></strong></td>
       <td><?= $h($r['recipient_name'] ?: '') ?><div class="ent"><?= $h($r['recipient_email']) ?></div></td>
-      <td><?php if ($r['entity_type']): ?><span class="pill" style="background:#eef2ff;color:#3730a3"><?= $h($r['entity_type']) ?> #<?= (int)$r['entity_id'] ?></span><?php else: ?><span class="muted">—</span><?php endif; ?></td>
+      <td><?php if ($r['entity_type']): $el = dr_entity_label($pdo, $r['entity_type'], (int)$r['entity_id']); ?>
+        <span class="pill" style="background:#eef2ff;color:#3730a3" title="<?= $h($el['type']) ?>"><?= $el['icon'] ?> <?= $h($el['label']) ?></span>
+        <?php else: ?><span class="muted">—</span><?php endif; ?></td>
       <td><span class="dra-prog"><i style="width:<?= $pct ?>%"></i></span><?= (int)$r['nb_recus'] ?>/<?= (int)$r['nb_items'] ?></td>
       <td><span class="pill" style="background:<?= $st[2] ?>;color:<?= $st[1] ?>"><?= $h($st[0]) ?></span></td>
       <?php if ($isSuper): ?><td class="ent"><?= $h($r['nom_agence'] ?: '—') ?></td><?php endif; ?>
@@ -223,9 +225,9 @@ table.dra td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:mid
     <tr id="dra-det-<?= (int)$r['id'] ?>" style="display:none;background:#fafbfc">
       <td colspan="<?= $isSuper?9:8 ?>" style="padding:8px 14px">
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          <?php foreach (($itemsByReq[(int)$r['id']] ?? []) as $it): $ok = ($it['status']==='recu'); ?>
-            <span class="pill" style="background:<?= $ok?'#e7f6ec':'#fdecec' ?>;color:<?= $ok?'#176a3a':'#a01818' ?>">
-              <?= $ok?'✅':'⬜' ?> <?= $h($it['label']) ?><?php if($it['entity_type']): ?> <span style="opacity:.6">· <?= $h($it['entity_type']) ?></span><?php endif; ?>
+          <?php foreach (($itemsByReq[(int)$r['id']] ?? []) as $it): $ok = ($it['status']==='recu'); $iel = $it['entity_type'] ? dr_entity_label($pdo, $it['entity_type'], (int)$it['entity_id']) : null; ?>
+            <span class="pill" style="background:<?= $ok?'#e7f6ec':'#fdecec' ?>;color:<?= $ok?'#176a3a':'#a01818' ?>" <?= $iel?('title="Classé sur '.$h($iel['type'].' : '.$iel['label']).'"'):'' ?>>
+              <?= $ok?'✅':'⬜' ?> <?= $h($it['label']) ?><?php if($iel): ?> <span style="opacity:.7">· <?= $iel['icon'] ?> <?= $h($iel['label']) ?></span><?php endif; ?>
             </span>
           <?php endforeach; ?>
           <?php if (empty($itemsByReq[(int)$r['id']])): ?><span class="muted">Aucune pièce.</span><?php endif; ?>
