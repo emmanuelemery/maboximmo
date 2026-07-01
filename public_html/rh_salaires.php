@@ -2108,7 +2108,6 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                 <div>Email : <strong><?=h($societeInfo['comptable_email'] ?? 'Non renseigne')?></strong></div>
                 <div>Tel : <strong><?=h($societeInfo['comptable_telephone'] ?? 'Non renseigne')?></strong></div>
                 <div>Cabinet : <strong><?=h($societeInfo['comptable_societe'] ?? 'Non renseigne')?></strong></div>
-                <div>Reception bulletins : <strong>salaire@maboximmo.fr</strong></div>
             </div>
 
             <?php
