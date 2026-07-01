@@ -54,11 +54,12 @@ if ($comptableEmail === '' || !filter_var($comptableEmail, FILTER_VALIDATE_EMAIL
     $_SESSION['message_err'] = 'Email comptable manquant pour cette société.'; header('Location: ' . $redirect); exit;
 }
 
-$moisLabel = mois_fr($mois);
-$periode   = sprintf('%04d-%02d', $annee, $mois);
+$moisLabel   = mois_fr($mois);
+$periode     = sprintf('%04d-%02d', $annee, $mois);
+$societeNom  = trim((string)($societe['raison_sociale'] ?? '')) ?: trim((string)($societe['nom'] ?? '')) ?: ('Société #' . $societeId);
 
-// Construit les infos par agence (nom + remarques). Aucun PDF joint : on
-// n'envoie QUE les remarques + le lien de dépôt (le comptable renvoie tout).
+// Infos par agence (société + nom + remarques). Aucun PDF joint : on n'envoie
+// QUE les remarques + le lien de dépôt (le comptable renvoie tous les bulletins).
 $agencesInfo = [];  // [id_agence => ['nom','remarques']]
 foreach ($cmps as $c) {
     $idAg = (int)$c['id_agence'];
@@ -68,11 +69,13 @@ foreach ($cmps as $c) {
     $agencesInfo[$idAg] = ['nom' => $nomAg, 'remarques' => trim((string)($c['remarques'] ?? ''))];
 }
 
-// 1) Crée le lien de dépôt unique : une pièce par agence (bulletins définitifs).
+// Une pièce par agence, préfixée de la SOCIÉTÉ (page mutualisée d'un comptable
+// pouvant regrouper plusieurs sociétés). La note rappelle société + remarques.
 $items = [];
 foreach ($agencesInfo as $idAg => $inf) {
+    $note = 'Société : ' . $societeNom . ($inf['remarques'] !== '' ? "\n📝 " . $inf['remarques'] : '');
     $items[] = [
-        'label'       => 'Bulletins définitifs · ' . $inf['nom'],
+        'label'       => $societeNom . ' — ' . $inf['nom'],
         'doc_type'    => 'BULLETIN_SALAIRE',
         'entity_type' => 'AGENCE',
         'entity_id'   => $idAg,
@@ -80,31 +83,53 @@ foreach ($agencesInfo as $idAg => $inf) {
         'required'    => 1,
         'kind'        => 'files',
         'max_files'   => 50,
-        'note'        => $inf['remarques'],
+        'note'        => $note,
     ];
 }
 $titre = 'Bulletins définitifs — ' . $moisLabel . ' ' . $annee;
 $message = "Merci de nous retourner L'ENSEMBLE des bulletins définitifs de chaque agence (pas seulement ceux modifiés). Nos remarques sont rappelées au-dessus de chaque agence.";
-$res = dr_create_request($pdo, [
-    'titre'           => $titre,
-    'message'         => $message,
-    'recipient_email' => $comptableEmail,
-    'recipient_name'  => $comptableNom,
-    'societe_id'      => $societeId,
-    'created_by'      => $userId,
-    'require_email_gate' => 1,
-    'expires_at'      => date('Y-m-d H:i:s', strtotime('+30 days')),
-    'reminder_mode'   => 'none',
-], $items);
-if (empty($res['ok'])) { $_SESSION['message_err'] = 'Échec création du lien de dépôt : ' . ($res['error'] ?? '?'); header('Location: ' . $redirect); exit; }
-$depotUrl = $res['url'];
+
+// RÉUTILISATION : le comptable garde UNE seule page. Si une demande « bulletins
+// définitifs » active existe déjà pour lui, on y AJOUTE les agences (anti-doublon)
+// au lieu d'en créer une nouvelle. Sinon on la crée (template_code = marqueur).
+$depotUrl = ''; $existReq = null;
+try {
+    $q = $pdo->prepare("SELECT id, token FROM document_requests
+                        WHERE recipient_email = ? AND template_code = 'bulletins_definitifs'
+                          AND status NOT IN ('revoque','expire') AND (expires_at IS NULL OR expires_at > NOW())
+                        ORDER BY id DESC LIMIT 1");
+    $q->execute([$comptableEmail]);
+    $existReq = $q->fetch(PDO::FETCH_ASSOC) ?: null;
+} catch (Throwable $e) {}
+
+if ($existReq) {
+    dr_add_agence_items($pdo, (int)$existReq['id'], $items);
+    $depotUrl = dr_public_url((string)$existReq['token']);
+} else {
+    $res = dr_create_request($pdo, [
+        'titre'           => $titre,
+        'message'         => $message,
+        'recipient_email' => $comptableEmail,
+        'recipient_name'  => $comptableNom,
+        'template_code'   => 'bulletins_definitifs',
+        'societe_id'      => $societeId,
+        'created_by'      => $userId,
+        'require_email_gate' => 1,
+        'expires_at'      => date('Y-m-d H:i:s', strtotime('+30 days')),
+        'reminder_mode'   => 'none',
+    ], $items);
+    if (empty($res['ok'])) { $_SESSION['message_err'] = 'Échec création du lien de dépôt : ' . ($res['error'] ?? '?'); header('Location: ' . $redirect); exit; }
+    $depotUrl = $res['url'];
+}
 
 // 2) Corps du mail : cards par agence (nom + remarques) + consigne + lien.
 $cards = '';
+$socEsc = htmlspecialchars($societeNom, ENT_QUOTES, 'UTF-8');
 foreach ($agencesInfo as $inf) {
     $rem = $inf['remarques'] !== '' ? nl2br(htmlspecialchars($inf['remarques'], ENT_QUOTES, 'UTF-8')) : '<em style="color:#94a3b8;">Aucune remarque</em>';
     $cards .= '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin:10px 0;background:#fff;">'
-        . '<div style="font-weight:700;color:#0f172a;">🏢 ' . htmlspecialchars($inf['nom'], ENT_QUOTES, 'UTF-8') . '</div>'
+        . '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;">🏛 ' . $socEsc . '</div>'
+        . '<div style="font-weight:700;color:#0f172a;margin-top:2px;">🏢 ' . htmlspecialchars($inf['nom'], ENT_QUOTES, 'UTF-8') . '</div>'
         . '<div style="margin-top:6px;font-size:13px;color:#334155;">📝 ' . $rem . '</div></div>';
 }
 $bonjour = $comptableNom !== '' ? 'Bonjour ' . htmlspecialchars(trim((string)preg_split('/\s+/', $comptableNom)[0]), ENT_QUOTES, 'UTF-8') : 'Bonjour';

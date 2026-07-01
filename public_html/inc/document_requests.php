@@ -236,6 +236,46 @@ if (!function_exists('dr_create_request')) {
     }
 }
 
+/* ── Ajout de pièces à une demande EXISTANTE (anti-doublon par entité) ─────
+   Permet d'agréger sur une seule page de dépôt (ex. bulletins définitifs :
+   le comptable garde UN lien, on y ajoute les agences au fil des sociétés). */
+if (!function_exists('dr_add_agence_items')) {
+    function dr_add_agence_items(PDO $pdo, int $reqId, array $items): int
+    {
+        try {
+            $cols = array_column($pdo->query("SHOW COLUMNS FROM document_request_items")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            if (!in_array('note', $cols, true)) $pdo->exec("ALTER TABLE document_request_items ADD COLUMN note TEXT NULL");
+        } catch (Throwable) {}
+        $o = $pdo->prepare("SELECT COALESCE(MAX(sort_order),0)+1 FROM document_request_items WHERE request_id=?");
+        $o->execute([$reqId]); $ord = (int)$o->fetchColumn();
+        $added = 0;
+        foreach ($items as $it) {
+            $et  = strtoupper((string)($it['entity_type'] ?? '')); $eid = (int)($it['entity_id'] ?? 0);
+            $per = (string)($it['period'] ?? '');                  $dt  = (string)($it['doc_type'] ?? '');
+            $note = (isset($it['note']) && trim((string)$it['note']) !== '') ? trim((string)$it['note']) : null;
+            $kind = in_array(($it['kind'] ?? 'file'), ['file','files','text','photos'], true) ? $it['kind'] : 'file';
+            $maxF = isset($it['max_files']) && (int)$it['max_files'] > 0 ? (int)$it['max_files'] : 10;
+            // Déjà présente pour cette entité + période + type ? (null-safe <=>)
+            $chk = $pdo->prepare("SELECT id FROM document_request_items WHERE request_id=? AND entity_type<=>? AND entity_id<=>? AND period<=>? AND doc_type<=>? LIMIT 1");
+            $chk->execute([$reqId, $et ?: null, $eid ?: null, $per ?: null, $dt ?: null]);
+            $existId = (int)$chk->fetchColumn();
+            if ($existId > 0) {
+                // Mise à jour du libellé + remarques (on ne touche pas au statut si déjà reçu).
+                $pdo->prepare("UPDATE document_request_items SET label=?, note=? WHERE id=? AND status<>'recu'")
+                    ->execute([trim((string)$it['label']), $note, $existId]);
+            } else {
+                $pdo->prepare("INSERT INTO document_request_items
+                    (request_id, label, doc_type, kind, max_files, entity_type, entity_id, period, required, sort_order, note)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+                    ->execute([$reqId, trim((string)$it['label']), $dt ?: null, $kind, $maxF, $et ?: null, $eid ?: null, $per ?: null, 1, $ord++, $note]);
+                $added++;
+            }
+        }
+        try { dr_recompute_status($pdo, $reqId); } catch (Throwable) {}
+        return $added;
+    }
+}
+
 /* ── Lecture ──────────────────────────────────────────────────────────── */
 if (!function_exists('dr_get_by_token')) {
     function dr_get_by_token(PDO $pdo, string $token): ?array
