@@ -60,6 +60,9 @@ $_bInit = strtoupper(
 .sb-bail-logout { color:rgba(255,255,255,.35); font-size:.7em; text-decoration:none; }
 .sb-bail-logout:hover { color:rgba(255,255,255,.8); }
 .agency-content, .sb-content { margin-left:240px !important; }
+/* Compat layout_maboximmo : .mbi-layout-main est en position:fixed left:220px
+   (calé pour sidebar_agency) → on le recale sur la largeur 240px de cette sidebar. */
+.mbi-layout-main { left:240px !important; }
 </style>
 
 <nav class="sb-bail" aria-label="Navigation Bailleur">

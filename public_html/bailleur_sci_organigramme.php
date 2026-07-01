@@ -73,7 +73,7 @@ if (!empty($propIds)) {
     foreach ($stmtC->fetchAll(PDO::FETCH_ASSOC) as $r) { $stats[(int)$r['id_proprietaire']]['last_crg'] = $r['last_crg']; }
 }
 
-$layout_title = 'Organigramme SCI'; $layout_module = 'Ma Box Bailleur'; $layout_sidebar = 'sidebar_agency';
+$layout_title = 'Organigramme SCI'; $layout_module = 'Ma Box Bailleur'; $layout_sidebar = 'sidebar_bailleur_module';
 $_act = 'padding:8px 24px;border-radius:10px;text-decoration:none;font-size:13px;font-weight:600;';
 $_on = $_act.'background:#4a6038;color:#fff;border:1px solid #4a6038;';
 $_off = $_act.'background:#fff;color:#555;border:1px solid #d4d7de;';
