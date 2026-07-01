@@ -102,7 +102,9 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) 
             $flash = 'Aucun fichier reçu (ou trop volumineux).'; $flashOk = false;
         } else {
             $f = $_FILES['file'];
+            $chk = dr_allowed_upload((string)$f['name'], (string)($f['type'] ?? ''), (string)$f['tmp_name']);
             if ((int)$f['size'] > 25 * 1024 * 1024) { $flash = 'Fichier trop volumineux (max 25 Mo).'; $flashOk = false; }
+            elseif (empty($chk['ok'])) { $flash = $chk['error'] ?? 'Fichier refusé.'; $flashOk = false; }
             else {
                 $res = dr_commit_deposit($pdo, $req, $item, [
                     'tmp_path'      => $f['tmp_name'],
@@ -118,6 +120,64 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) 
         }
     }
     $req = dr_get_by_token($pdo, $token); // refresh statut
+}
+
+// ── Supprimer / remplacer un dépôt ────────────────────────────────────────
+if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_item') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $item = null;
+    foreach (dr_items($pdo, $reqId) as $i) { if ((int)$i['id'] === $itemId) { $item = $i; break; } }
+    if ($item && ($item['status'] ?? '') === 'recu') {
+        try { dr_delete_deposit($pdo, $req, $item); $flash = 'Document retiré — vous pouvez en déposer un nouveau.'; }
+        catch (Throwable $e) { $flash = 'Suppression impossible.'; $flashOk = false; }
+    } else { $flash = 'Pièce introuvable.'; $flashOk = false; }
+    $req = dr_get_by_token($pdo, $token);
+}
+
+// ── Rotation d'une image déposée ──────────────────────────────────────────
+if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'rotate_item') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $deg    = (int)($_POST['deg'] ?? 90);
+    $item = null;
+    foreach (dr_items($pdo, $reqId) as $i) { if ((int)$i['id'] === $itemId) { $item = $i; break; } }
+    if ($item && ($item['status'] ?? '') === 'recu') {
+        $r = dr_rotate_item_image($pdo, $item, $deg);
+        if (!empty($r['ok'])) { $flash = 'Image pivotée.'; } else { $flash = $r['error'] ?? 'Rotation impossible.'; $flashOk = false; }
+    }
+    $req = dr_get_by_token($pdo, $token);
+}
+
+// ── Dépôt d'une pièce LIBRE (hors checklist) ──────────────────────────────
+if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_free') {
+    $freeLabel = trim((string)($_POST['free_label'] ?? '')) ?: 'Autre document';
+    if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $flash = 'Aucun fichier reçu.'; $flashOk = false;
+    } else {
+        $f = $_FILES['file'];
+        $chk = dr_allowed_upload((string)$f['name'], (string)($f['type'] ?? ''), (string)$f['tmp_name']);
+        if ((int)$f['size'] > 25 * 1024 * 1024) { $flash = 'Fichier trop volumineux (max 25 Mo).'; $flashOk = false; }
+        elseif (empty($chk['ok'])) { $flash = $chk['error'] ?? 'Fichier refusé.'; $flashOk = false; }
+        else {
+            // Crée une pièce à la volée, rattachée à l'entité de la demande, puis dépose.
+            $ins = $pdo->prepare("INSERT INTO document_request_items
+                (request_id, label, doc_type, kind, max_files, entity_type, entity_id, required, sort_order)
+                VALUES (?,?,?,?,?,?,?,?,?)");
+            $ins->execute([$reqId, $freeLabel, 'AUTRE', 'file', 1,
+                $req['entity_type'] ?? null, isset($req['entity_id']) ? (int)$req['entity_id'] : null, 0, 999]);
+            $newId = (int)$pdo->lastInsertId();
+            $item = null;
+            foreach (dr_items($pdo, $reqId) as $i) { if ((int)$i['id'] === $newId) { $item = $i; break; } }
+            if ($item) {
+                $res = dr_commit_deposit($pdo, $req, $item, [
+                    'tmp_path' => $f['tmp_name'], 'name_original' => $f['name'],
+                    'mime_type' => $f['type'] ?? '', 'size_bytes' => (int)$f['size'],
+                ]);
+                if (!empty($res['ok'])) { dr_notify_requester($pdo, $req, $freeLabel); $flash = '« ' . $freeLabel . " » déposé. Merci !"; }
+                else { $flash = 'Échec du dépôt : ' . ($res['error'] ?? 'inconnu'); $flashOk = false; }
+            }
+        }
+    }
+    $req = dr_get_by_token($pdo, $token);
 }
 
 // Pièces déjà présentes en GED (déposées par l'agence) → marquées « reçues »
@@ -180,6 +240,15 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
 .gate{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:24px;max-width:440px;margin:30px auto}
 .gate input{width:100%;padding:11px;border:1px solid #c3ccd8;border-radius:10px;font-size:14px;margin:10px 0}
 .foot{text-align:center;color:#9aa4b1;font-size:12px;margin-top:24px}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}
+.mini{background:#fff;border:1px solid #c3ccd8;border-radius:8px;padding:6px 10px;font-size:12.5px;font-weight:700;color:#0e7490;cursor:pointer}
+.mini:hover{background:#f3fbfd;border-color:#0e7490}
+.dmodal{display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);z-index:9999;padding:24px}
+.dmodal.open{display:flex;align-items:center;justify-content:center}
+.dmodal-box{background:#fff;border-radius:14px;max-width:920px;width:100%;max-height:92vh;position:relative;padding:14px;overflow:auto}
+.dmodal-x{position:absolute;top:8px;right:10px;background:#243B5C;color:#fff;border:none;border-radius:8px;width:32px;height:32px;font-size:15px;cursor:pointer;z-index:2}
+.dmodal-box img{max-width:100%;height:auto;display:block;margin:0 auto}
+.dmodal-box iframe{width:100%;height:80vh;border:none}
 </style></head><body>
 <div class="wrap">
   <?php if ($staffView): ?>
@@ -245,9 +314,53 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
           </form>
         <?php elseif ($it['kind']==='text' && $it['text_value']): ?>
           <div class="meta" style="white-space:pre-wrap;color:#1a2330"><?= dh($it['text_value']) ?></div>
+        <?php else:
+          $oName  = trim((string)($it['original_name'] ?? ''));
+          $dejaGed = ($oName === '[déjà présent en GED]');
+          $oExt   = strtolower(pathinfo($oName, PATHINFO_EXTENSION));
+          $isImg  = in_array($oExt, ['jpg','jpeg','png','gif','webp','bmp'], true);
+          $viewUrl = 'document_depot_file.php?t=' . dh($token) . '&item=' . (int)$it['id'];
+        ?>
+          <?php if ($oName !== '' && !$dejaGed): ?><div class="meta" style="color:#176a3a">📄 <?= dh($oName) ?></div><?php endif; ?>
+          <div class="acts">
+            <button type="button" class="mini" onclick="depotView('<?= $viewUrl ?>', <?= $isImg?'1':'0' ?>)">👁️ Voir</button>
+            <?php if ($isImg): ?>
+              <form method="post" style="display:inline"><input type="hidden" name="t" value="<?= dh($token) ?>"><input type="hidden" name="action" value="rotate_item"><input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>"><input type="hidden" name="deg" value="90">
+                <button type="submit" class="mini" title="Pivoter à droite">⟳</button></form>
+              <form method="post" style="display:inline"><input type="hidden" name="t" value="<?= dh($token) ?>"><input type="hidden" name="action" value="rotate_item"><input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>"><input type="hidden" name="deg" value="270">
+                <button type="submit" class="mini" title="Pivoter à gauche">⟲</button></form>
+            <?php endif; ?>
+            <?php if (!$dejaGed): ?>
+              <form method="post" style="display:inline" onsubmit="return confirm('Retirer ce document pour en déposer un autre ?')"><input type="hidden" name="t" value="<?= dh($token) ?>"><input type="hidden" name="action" value="delete_item"><input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>">
+                <button type="submit" class="mini">🗑️ Remplacer / supprimer</button></form>
+            <?php endif; ?>
+          </div>
         <?php endif; ?>
       </div>
     <?php endforeach; ?>
+      <?php if ($authed): ?>
+      <div class="card">
+        <div class="lbl">➕ Autre document <span class="badge opt">Optionnel</span></div>
+        <div class="meta">Un document en plus, hors liste ci-dessus ? Déposez-le ici.</div>
+        <form method="post" enctype="multipart/form-data">
+          <input type="hidden" name="t" value="<?= dh($token) ?>">
+          <input type="hidden" name="action" value="upload_free">
+          <input type="text" name="free_label" placeholder="Intitulé (ex. RIB, attestation…)" style="width:100%;padding:9px;border:1px solid #c3ccd8;border-radius:9px;margin-bottom:8px;font-size:13px">
+          <label class="drop">
+            <span class="drop-hint">📎 Glissez le fichier ici<br>ou cliquez pour choisir</span>
+            <span class="drop-file"></span>
+            <input type="file" name="file" required>
+          </label>
+          <button class="btn" type="submit">Déposer</button>
+        </form>
+      </div>
+      <?php endif; ?>
+    </div>
+    <div id="depotModal" class="dmodal" onclick="if(event.target===this)depotClose()">
+      <div class="dmodal-box">
+        <button type="button" class="dmodal-x" onclick="depotClose()">✕</button>
+        <div id="depotModalBody"></div>
+      </div>
     </div>
     <?php if ($total && $recus >= $total): ?>
       <div class="flash ok" style="margin-top:14px">🎉 Tous les documents ont été déposés. Merci !</div>
@@ -272,6 +385,16 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
     input.addEventListener('change', function(){ show(); if(input.files && input.files.length && form) (form.requestSubmit?form.requestSubmit():form.submit()); });
   });
 })();
+function depotView(url, isImg){
+  var body = document.getElementById('depotModalBody');
+  body.innerHTML = isImg
+    ? '<img src="'+url+'" alt="aperçu">'
+    : '<iframe src="'+url+'"></iframe>';
+  body.innerHTML += '<div style="text-align:center;margin-top:10px"><a href="'+url+'&dl=1" class="btn" style="text-decoration:none;display:inline-block">⬇️ Télécharger</a></div>';
+  document.getElementById('depotModal').classList.add('open');
+}
+function depotClose(){ document.getElementById('depotModal').classList.remove('open'); document.getElementById('depotModalBody').innerHTML=''; }
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') depotClose(); });
 </script>
 </div>
 </body></html>

@@ -10,6 +10,7 @@ declare(strict_types=1);
  * Briques réutilisées : gus_commit_document (pipeline GED), send_mail (notif).
  */
 require_once __DIR__ . '/ged_document_links.php';
+if (is_file(__DIR__ . '/ged_file_path.php')) require_once __DIR__ . '/ged_file_path.php';
 
 /* ── Modèles par défaut (seed idempotent) ─────────────────────────────── */
 if (!function_exists('dr_default_templates')) {
@@ -124,6 +125,28 @@ if (!function_exists('dr_public_url')) {
         $https   = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on');
         $scheme  = ($https || !$isLocal) ? 'https' : 'http';
         return $scheme . '://' . $host . $base . '?t=' . $token;
+    }
+}
+
+/* ── Envoi du lien de dépôt par mail (mutualisé) ──────────────────────────
+   Utilisé par l'envoi simple ET par la scission par comptable. */
+if (!function_exists('dr_send_link_mail')) {
+    function dr_send_link_mail(string $to, string $titre, array $items, string $url, string $expiresAt,
+                               string $message = '', string $senderNom = '', string $replyTo = ''): bool
+    {
+        if (!function_exists('send_mail')) return false;
+        $liste = '';
+        foreach ($items as $it) $liste .= '<li>' . htmlspecialchars((string)($it['label'] ?? ''), ENT_QUOTES, 'UTF-8') . '</li>';
+        $body = '<p>Bonjour,</p>'
+            . '<p>' . htmlspecialchars($senderNom ?: 'La Régie', ENT_QUOTES, 'UTF-8') . ' vous demande de déposer le(s) document(s) suivant(s) :</p>'
+            . '<ul>' . $liste . '</ul>'
+            . ($message !== '' ? '<p>' . nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8')) . '</p>' : '')
+            . '<p style="margin:24px 0;"><a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" '
+            . 'style="background:#0e7490;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">Déposer mes documents</a></p>'
+            . '<p style="color:#64748b;font-size:12px;">Lien sécurisé, valable jusqu\'au ' . date('d/m/Y', strtotime($expiresAt)) . '. '
+            . 'Si le bouton ne fonctionne pas, copiez ce lien : ' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '</p>';
+        try { return (bool)send_mail($to, 'Demande de documents : ' . $titre, $body, [], true, '', $replyTo, '', $senderNom); }
+        catch (Throwable) { return false; }
     }
 }
 
@@ -411,8 +434,59 @@ if (!function_exists('dr_commit_deposit')) {
         $docId = (int)($res['doc_id'] ?? 0);
         $pdo->prepare("UPDATE document_request_items SET status='recu', ged_document_id=?, original_name=?, received_at=NOW() WHERE id=?")
             ->execute([$docId, (string)$upload['name_original'], (int)$item['id']]);
+        // Pont vers le module Salaires : un dépôt sur une carte AGENCE de type
+        // projet/bulletins alimente l'Historique des échanges (rh_salaire_workflow_log).
+        try { dr_bridge_salaires_workflow($pdo, $req, $item, $permPath, (string)$upload['name_original']); } catch (Throwable) {}
         dr_recompute_status($pdo, (int)$req['id']);
         return ['ok' => true, 'doc_id' => $docId];
+    }
+}
+
+/* ── Pont « Demander un document » → workflow Salaires ─────────────────────
+   Une carte AGENCE de type PROJET_SALAIRES / BULLETIN_SALAIRE, déposée via le
+   lien public, est aussi journalisée dans rh_salaire_workflow_log pour la bonne
+   société/agence/mois → visible dans l'« Historique des échanges » du module
+   Salaires, sans ressaisie. Silencieux si non applicable. */
+if (!function_exists('dr_bridge_salaires_workflow')) {
+    function dr_bridge_salaires_workflow(PDO $pdo, array $req, array $item, string $filePath, string $originalName): void
+    {
+        if (strtoupper((string)($item['entity_type'] ?? '')) !== 'AGENCE') return;
+        $docType = strtoupper((string)($item['doc_type'] ?? ''));
+        $map = [
+            'PROJET_SALAIRES'   => 'import_projet',
+            'BULLETIN_SALAIRE'  => 'import_bulletins',
+            'BULLETINS_SALAIRE' => 'import_bulletins',
+        ];
+        if (!isset($map[$docType])) return;
+        $type     = $map[$docType];
+        $idAgence = (int)($item['entity_id'] ?? 0);
+        if ($idAgence <= 0) return;
+        // Période AAAA-MM → mois_reference AAAA-MM-01 (format de la table workflow).
+        if (!preg_match('/^(\d{4})-(\d{2})$/', (string)($item['period'] ?? ''), $m)) return;
+        $moisRef = $m[1] . '-' . $m[2] . '-01';
+        // Société de l'agence (fallback : société de la demande).
+        $st = $pdo->prepare("SELECT id_societe FROM agences WHERE id = ? LIMIT 1");
+        $st->execute([$idAgence]);
+        $idSociete = (int)$st->fetchColumn() ?: (int)($req['societe_id'] ?? 0);
+        if ($idSociete <= 0) return;
+
+        if (!function_exists('rh_wf_log_action')) {
+            $wf = __DIR__ . '/rh_salaire_workflow.php';
+            if (!is_file($wf)) return;
+            require_once $wf;
+        }
+        $content = @file_get_contents($filePath);
+        if ($content === false) return;
+        $iter    = rh_wf_next_iteration($pdo, $idAgence, $moisRef, $type);
+        $relPath = rh_wf_save_file($idSociete, $idAgence, $moisRef, $type, $iter, $content, $originalName);
+        rh_wf_log_action(
+            $pdo, $idSociete, $idAgence, $moisRef, $type,
+            $relPath, $originalName, strlen($content),
+            (string)($req['recipient_email'] ?? ''),
+            isset($req['created_by']) ? (int)$req['created_by'] : null,
+            'ok', null,
+            'Déposé via lien « Demander un document » #' . (int)($req['id'] ?? 0)
+        );
     }
 }
 
@@ -465,6 +539,103 @@ if (!function_exists('dr_commit_file_to_entity')) {
         } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
         if (empty($res['ok'])) return ['ok' => false, 'error' => 'GED: ' . json_encode($res['errors'] ?? ['unknown'])];
         return ['ok' => true, 'doc_id' => (int)($res['doc_id'] ?? 0)];
+    }
+}
+
+/* ── Contrôle de sécurité d'un dépôt (allowlist + heuristique exécutable) ──
+   Page publique : on refuse tout ce qui n'est pas un format documentaire connu,
+   et on sniffe les magic bytes pour bloquer binaires/scripts. Pas un vrai AV,
+   mais une première barrière indispensable. */
+if (!function_exists('dr_allowed_upload')) {
+    function dr_allowed_upload(string $name, string $mime = '', string $tmpPath = ''): array
+    {
+        $ext   = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        $allow = ['pdf','jpg','jpeg','png','gif','webp','heic','heif','bmp','tif','tiff',
+                  'doc','docx','xls','xlsx','ppt','pptx','txt','csv','rtf','odt','ods','odp','zip'];
+        if ($ext === '' || !in_array($ext, $allow, true)) {
+            return ['ok' => false, 'error' => 'Type de fichier non autorisé (.' . $ext . '). Formats acceptés : PDF, images, Word, Excel, ZIP…'];
+        }
+        if ($tmpPath !== '' && is_file($tmpPath)) {
+            $fh = @fopen($tmpPath, 'rb');
+            if ($fh) {
+                $head = (string)fread($fh, 512); fclose($fh);
+                $sigs = ["MZ", "\x7fELF", "\xca\xfe\xba\xbe", "#!/"];
+                foreach ($sigs as $s) { if (strncmp($head, $s, strlen($s)) === 0) return ['ok' => false, 'error' => 'Fichier exécutable refusé.']; }
+                if (stripos($head, '<?php') !== false || stripos($head, '<script') !== false) {
+                    return ['ok' => false, 'error' => 'Contenu potentiellement dangereux refusé.'];
+                }
+            }
+        }
+        return ['ok' => true];
+    }
+}
+
+/* ── Chemin physique du fichier déposé pour une pièce reçue ──────────────── */
+if (!function_exists('dr_item_file_path')) {
+    function dr_item_file_path(PDO $pdo, array $item): ?string
+    {
+        // 1) Fichier de dépôt persistant (uploads/document_requests/{req}/item{id}_*)
+        $reqId = (int)($item['request_id'] ?? 0);
+        $dir = __DIR__ . '/../uploads/document_requests/' . $reqId . '/';
+        $hits = $reqId > 0 ? (glob($dir . 'item' . (int)$item['id'] . '_*') ?: []) : [];
+        if ($hits) { rsort($hits); return $hits[0]; }
+        // 2) Fallback : résolution via la GED
+        $docId = (int)($item['ged_document_id'] ?? 0);
+        if ($docId > 0 && function_exists('ged_file_path')) {
+            try { $p = ged_file_path($pdo, $docId); if ($p && is_file($p)) return $p; } catch (Throwable) {}
+        }
+        return null;
+    }
+}
+
+/* ── Suppression d'un dépôt (remet la pièce en attente) ───────────────────
+   Détache + supprime le doc GED posé par ce dépôt, efface le fichier physique,
+   et repasse la pièce à « en_attente » pour permettre un nouveau dépôt. */
+if (!function_exists('dr_delete_deposit')) {
+    function dr_delete_deposit(PDO $pdo, array $req, array $item): bool
+    {
+        $reqId = (int)$req['id']; $itemId = (int)$item['id'];
+        $dir = __DIR__ . '/../uploads/document_requests/' . $reqId . '/';
+        foreach (glob($dir . 'item' . $itemId . '_*') ?: [] as $f) { @unlink($f); }
+        $docId = (int)($item['ged_document_id'] ?? 0);
+        if ($docId > 0) {
+            try { $pdo->prepare("DELETE FROM ged_document_links WHERE document_id = ?")->execute([$docId]); } catch (Throwable) {}
+            try { $pdo->prepare("DELETE FROM ged_documents WHERE id = ?")->execute([$docId]); } catch (Throwable) {}
+        }
+        $pdo->prepare("UPDATE document_request_items
+                       SET status='en_attente', ged_document_id=NULL, original_name=NULL, text_value=NULL, received_at=NULL
+                       WHERE id=?")->execute([$itemId]);
+        dr_recompute_status($pdo, $reqId);
+        return true;
+    }
+}
+
+/* ── Rotation d'une image déposée (GD) ────────────────────────────────────
+   Fait pivoter sur place le fichier image d'une pièce reçue. JPG/PNG/GIF/WebP. */
+if (!function_exists('dr_rotate_item_image')) {
+    function dr_rotate_item_image(PDO $pdo, array $item, int $degrees): array
+    {
+        if (!function_exists('imagerotate')) return ['ok' => false, 'error' => 'Rotation indisponible (GD absent).'];
+        $path = dr_item_file_path($pdo, $item);
+        if (!$path || !is_file($path)) return ['ok' => false, 'error' => 'Fichier introuvable.'];
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $loaders = ['jpg' => 'imagecreatefromjpeg', 'jpeg' => 'imagecreatefromjpeg', 'png' => 'imagecreatefrompng', 'gif' => 'imagecreatefromgif', 'webp' => 'imagecreatefromwebp'];
+        if (!isset($loaders[$ext]) || !function_exists($loaders[$ext])) return ['ok' => false, 'error' => 'Format image non pris en charge pour la rotation.'];
+        $src = @($loaders[$ext])($path);
+        if (!$src) return ['ok' => false, 'error' => 'Image illisible.'];
+        $deg = (($degrees % 360) + 360) % 360; // normalise
+        $rot = imagerotate($src, -$deg, 0); // sens horaire
+        imagedestroy($src);
+        if (!$rot) return ['ok' => false, 'error' => 'Échec rotation.'];
+        $ok = false;
+        switch ($ext) {
+            case 'png':  $ok = imagepng($rot, $path); break;
+            case 'gif':  $ok = imagegif($rot, $path); break;
+            case 'webp': $ok = imagewebp($rot, $path); break;
+            default:     $ok = imagejpeg($rot, $path, 90); break;
+        }
+        imagedestroy($rot);
+        return $ok ? ['ok' => true] : ['ok' => false, 'error' => 'Écriture impossible.'];
     }
 }
 

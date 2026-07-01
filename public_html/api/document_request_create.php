@@ -16,8 +16,13 @@ if (!is_array($in)) $in = $_POST;
 
 $titre = trim((string)($in['titre'] ?? ''));
 $email = trim((string)($in['recipient_email'] ?? ''));
-if ($titre === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    echo json_encode(['ok' => false, 'error' => 'Titre et email destinataire requis']); exit;
+$gen   = $in['generator'] ?? null;
+// Mode « scission par comptable » : le destinataire est dérivé de chaque société,
+// l'email saisi en tête n'est donc pas requis (seul le titre l'est).
+$splitByComptable = is_array($gen) && ($gen['type'] ?? '') === 'agences' && !empty($gen['by_comptable']);
+if ($titre === '') { echo json_encode(['ok' => false, 'error' => 'Titre requis']); exit; }
+if (!$splitByComptable && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    echo json_encode(['ok' => false, 'error' => 'Email destinataire requis']); exit;
 }
 
 // ── Construction des pièces ──────────────────────────────────────────────
@@ -36,8 +41,9 @@ foreach ((array)($in['items'] ?? []) as $it) {
 }
 
 // Génération automatique d'une pièce par agence (ex. projet de salaires par agence).
-$gen = $in['generator'] ?? null;
-if (is_array($gen) && ($gen['type'] ?? '') === 'agences') {
+// En mode scission par comptable, la génération est traitée plus bas (une demande
+// par comptable) : on n'ajoute donc rien à la liste plate ici.
+if (is_array($gen) && ($gen['type'] ?? '') === 'agences' && !$splitByComptable) {
     $baseLabel = trim((string)($gen['label'] ?? 'Document'));
     $baseType  = (string)($gen['doc_type'] ?? '');
     $period    = (string)($gen['period'] ?? '');
@@ -86,7 +92,7 @@ foreach ($items as &$it) {
 }
 unset($it);
 
-if (!$items) { echo json_encode(['ok' => false, 'error' => 'Aucune pièce à demander']); exit; }
+if (!$items && !$splitByComptable) { echo json_encode(['ok' => false, 'error' => 'Aucune pièce à demander']); exit; }
 
 // ── Échéance + rappels ───────────────────────────────────────────────────
 $expDays = isset($in['expires_days']) && $in['expires_days'] !== '' ? max(1, (int)$in['expires_days']) : 30;
@@ -100,6 +106,77 @@ if ($remMode === 'once' || $remMode === 'recurring') {
 }
 if ($remMode === 'recurring') {
     $remInterval = isset($in['reminder_interval_days']) && $in['reminder_interval_days'] !== '' ? max(1, (int)$in['reminder_interval_days']) : 7;
+}
+
+// Expéditeur (pour reply-to + signature du mail), commun aux deux chemins.
+$senderEmail = ''; $senderNom = '';
+try {
+    $stE = $pdo->prepare("SELECT email, TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,''))) AS nom FROM users WHERE id = ? LIMIT 1");
+    $stE->execute([(int)current_user_id()]);
+    if ($u = $stE->fetch(PDO::FETCH_ASSOC)) { $senderEmail = (string)$u['email']; $senderNom = trim((string)$u['nom']); }
+} catch (Throwable $e) {}
+$replyTo = filter_var($senderEmail, FILTER_VALIDATE_EMAIL) ? $senderEmail : '';
+
+// ── SCISSION PAR COMPTABLE ────────────────────────────────────────────────
+// Une demande distincte par comptable (societes.comptable_email), ne contenant
+// que les agences des sociétés qu'il gère → chacun reçoit son propre lien, zéro
+// mélange. Les agences sans comptable renseigné sont signalées (skipped).
+if ($splitByComptable) {
+    $baseLabel = trim((string)($gen['label'] ?? 'Document'));
+    $baseType  = (string)($gen['doc_type'] ?? '');
+    $period    = (string)($gen['period'] ?? '');
+    $rows = $pdo->query(
+        "SELECT a.id AS id_agence, a.nom_agence, a.id_societe,
+                s.comptable_email, s.comptable_nom
+         FROM agences a JOIN societes s ON s.id = a.id_societe
+         ORDER BY s.comptable_email, a.nom_agence"
+    )->fetchAll(PDO::FETCH_ASSOC);
+
+    $groups = []; $skipped = [];
+    foreach ($rows as $r) {
+        $ce = strtolower(trim((string)$r['comptable_email']));
+        if ($ce === '' || !filter_var($ce, FILTER_VALIDATE_EMAIL)) { $skipped[] = (string)$r['nom_agence']; continue; }
+        if (!isset($groups[$ce])) $groups[$ce] = ['email' => trim((string)$r['comptable_email']), 'nom' => trim((string)$r['comptable_nom']), 'agences' => []];
+        $groups[$ce]['agences'][] = $r;
+    }
+    if (!$groups) { echo json_encode(['ok' => false, 'error' => 'Aucun comptable renseigné sur les sociétés — impossible de scinder. Renseigne l\'email comptable dans le module Salaires.', 'skipped' => $skipped], JSON_UNESCAPED_UNICODE); exit; }
+
+    $created = [];
+    foreach ($groups as $g) {
+        $gItems = [];
+        foreach ($g['agences'] as $a) {
+            $gItems[] = [
+                'label'       => $baseLabel . ' · ' . $a['nom_agence'],
+                'doc_type'    => $baseType ?: null,
+                'entity_type' => 'AGENCE',
+                'entity_id'   => (int)$a['id_agence'],
+                'period'      => $period ?: null,
+                'required'    => 1,
+            ];
+        }
+        $r = dr_create_request($pdo, [
+            'titre'           => $titre,
+            'message'         => $in['message'] ?? null,
+            'recipient_email' => $g['email'],
+            'recipient_name'  => $g['nom'],
+            'template_code'   => $in['template_code'] ?? null,
+            'societe_id'      => (int)($g['agences'][0]['id_societe'] ?? 0) ?: ($_SESSION['id_societe'] ?? null),
+            'created_by'      => (int)current_user_id(),
+            'require_email_gate' => isset($in['require_email_gate']) ? (int)!empty($in['require_email_gate']) : 1,
+            'expires_at'      => $expiresAt,
+            'reminder_mode'   => $remMode,
+            'reminder_first_at' => $remFirstAt,
+            'reminder_interval_days' => $remInterval,
+        ], $gItems);
+        if (empty($r['ok'])) { $created[] = ['email' => $g['email'], 'ok' => false, 'error' => $r['error'] ?? 'échec']; continue; }
+        $mailOk = dr_send_link_mail($g['email'], $titre, $gItems, $r['url'], $expiresAt, (string)($in['message'] ?? ''), $senderNom, $replyTo);
+        $created[] = ['email' => $g['email'], 'nom' => $g['nom'], 'ok' => true, 'id' => $r['id'], 'url' => $r['url'], 'nb_pieces' => count($gItems), 'mail_sent' => $mailOk];
+    }
+    echo json_encode([
+        'ok' => true, 'split' => true, 'nb_requests' => count($created),
+        'requests' => $created, 'skipped' => $skipped,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 $res = dr_create_request($pdo, [
@@ -125,13 +202,6 @@ if (empty($res['ok'])) { echo json_encode(['ok' => false, 'error' => $res['error
 // ── Envoi du lien par mail (interne, pas Outlook) ────────────────────────
 $url = $res['url'];
 $nbPieces = count($items);
-$senderEmail = ''; $senderNom = '';
-try {
-    $stE = $pdo->prepare("SELECT email, TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,''))) AS nom FROM users WHERE id = ? LIMIT 1");
-    $stE->execute([(int)current_user_id()]);
-    if ($u = $stE->fetch(PDO::FETCH_ASSOC)) { $senderEmail = (string)$u['email']; $senderNom = trim((string)$u['nom']); }
-} catch (Throwable $e) {}
-$replyTo = filter_var($senderEmail, FILTER_VALIDATE_EMAIL) ? $senderEmail : '';
 
 $liste = '';
 foreach ($items as $it) $liste .= '<li>' . htmlspecialchars($it['label'], ENT_QUOTES, 'UTF-8') . '</li>';

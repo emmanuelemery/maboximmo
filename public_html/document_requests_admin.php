@@ -102,7 +102,7 @@ $itemsByReq = [];
 if ($rows) {
     $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
     try {
-        foreach ($pdo->query("SELECT request_id, label, status, entity_type, entity_id FROM document_request_items WHERE request_id IN ($ids) ORDER BY sort_order, id") as $it) {
+        foreach ($pdo->query("SELECT request_id, label, status, entity_type, entity_id, ged_document_id FROM document_request_items WHERE request_id IN ($ids) ORDER BY sort_order, id") as $it) {
             $itemsByReq[(int)$it['request_id']][] = $it;
         }
     } catch (Throwable $e) {}
@@ -225,9 +225,11 @@ table.dra td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:mid
     <tr id="dra-det-<?= (int)$r['id'] ?>" style="display:none;background:#fafbfc">
       <td colspan="<?= $isSuper?9:8 ?>" style="padding:8px 14px">
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          <?php foreach (($itemsByReq[(int)$r['id']] ?? []) as $it): $ok = ($it['status']==='recu'); $iel = $it['entity_type'] ? dr_entity_label($pdo, $it['entity_type'], (int)$it['entity_id']) : null; ?>
-            <span class="pill" style="background:<?= $ok?'#e7f6ec':'#fdecec' ?>;color:<?= $ok?'#176a3a':'#a01818' ?>" <?= $iel?('title="Classé sur '.$h($iel['type'].' : '.$iel['label']).'"'):'' ?>>
-              <?= $ok?'✅':'⬜' ?> <?= $h($it['label']) ?><?php if($iel): ?> <span style="opacity:.7">· <?= $iel['icon'] ?> <?= $h($iel['label']) ?></span><?php endif; ?>
+          <?php foreach (($itemsByReq[(int)$r['id']] ?? []) as $it): $ok = ($it['status']==='recu'); $iel = $it['entity_type'] ? dr_entity_label($pdo, $it['entity_type'], (int)$it['entity_id']) : null;
+            $gid = (int)($it['ged_document_id'] ?? 0); $clickable = ($ok && $gid > 0); ?>
+            <span class="pill<?= $clickable?' dra-view':'' ?>" style="background:<?= $ok?'#e7f6ec':'#fdecec' ?>;color:<?= $ok?'#176a3a':'#a01818' ?><?= $clickable?';cursor:pointer':'' ?>"
+              <?= $clickable ? ('data-gid="'.$gid.'" title="Cliquer pour visualiser le document"') : ($iel?('title="Classé sur '.$h($iel['type'].' : '.$iel['label']).'"'):'') ?>>
+              <?= $ok?'✅':'⬜' ?> <?= $h($it['label']) ?><?php if($iel): ?> <span style="opacity:.7">· <?= $iel['icon'] ?> <?= $h($iel['label']) ?></span><?php endif; ?><?php if($clickable): ?> 👁️<?php endif; ?>
             </span>
           <?php endforeach; ?>
           <?php if (empty($itemsByReq[(int)$r['id']])): ?><span class="muted">Aucune pièce.</span><?php endif; ?>
@@ -261,7 +263,27 @@ table.dra td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:mid
   </form>
 </div>
 
+<!-- Modal visualisation document -->
+<div id="dra-view" style="display:none;position:fixed;inset:0;z-index:9600;padding:24px">
+  <div style="position:absolute;inset:0;background:rgba(15,23,42,.7)" onclick="draViewClose()"></div>
+  <div style="position:relative;background:#fff;border-radius:14px;max-width:960px;width:100%;max-height:92vh;margin:0 auto;padding:14px;overflow:auto">
+    <button type="button" onclick="draViewClose()" style="position:absolute;top:8px;right:10px;background:#243B5C;color:#fff;border:none;border-radius:8px;width:32px;height:32px;cursor:pointer;z-index:2">✕</button>
+    <div id="dra-view-body"></div>
+  </div>
+</div>
+
 <script>
+var DRA_SERVE = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_serve.php') : '/api/ged_doc_serve.php') ?>;
+document.addEventListener('click', function(e){
+  var p = e.target.closest ? e.target.closest('.dra-view') : null;
+  if(!p || !p.dataset.gid) return;
+  var url = DRA_SERVE + '?id=' + encodeURIComponent(p.dataset.gid);
+  document.getElementById('dra-view-body').innerHTML = '<iframe src="'+url+'" style="width:100%;height:80vh;border:none"></iframe>'
+    + '<div style="text-align:center;margin-top:10px"><a href="'+url+'" target="_blank" style="color:#0e7490;font-weight:700">Ouvrir dans un onglet</a></div>';
+  document.getElementById('dra-view').style.display='block';
+});
+function draViewClose(){ document.getElementById('dra-view').style.display='none'; document.getElementById('dra-view-body').innerHTML=''; }
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') draViewClose(); });
 function draToggle(id){ var r=document.getElementById('dra-det-'+id); if(r) r.style.display = (r.style.display==='none'?'':'none'); }
 function draEdit(d){
   document.getElementById('dra-e-id').value=d.id;

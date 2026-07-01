@@ -20,6 +20,22 @@ if ($onlyTpl !== '') {
 $agences = $pdo->query("SELECT id, nom_agence FROM agences ORDER BY nom_agence")->fetchAll(PDO::FETCH_ASSOC);
 $csrf = function_exists('csrf_token') ? csrf_token() : '';
 
+// Comptable de la société courante (societes.comptable_email/nom) : pré-remplit
+// le destinataire pour les demandes comptables (projet/bulletins de salaires,
+// bilan…). Modifiable côté UI. Silencieux si colonnes/valeur absentes.
+$comptableEmail = ''; $comptableNom = '';
+try {
+    $socId = (int)($_SESSION['id_societe'] ?? 0);
+    if ($socId > 0) {
+        $stC = $pdo->prepare("SELECT comptable_email, comptable_nom FROM societes WHERE id = ? LIMIT 1");
+        $stC->execute([$socId]);
+        if ($c = $stC->fetch(PDO::FETCH_ASSOC)) {
+            $comptableEmail = trim((string)($c['comptable_email'] ?? ''));
+            $comptableNom   = trim((string)($c['comptable_nom'] ?? ''));
+        }
+    }
+} catch (Throwable $e) {}
+
 // ── Contexte d'origine (rattachement automatique à un dossier) ───────────
 // Appelé depuis un bouton de fiche : ?ctx=BIEN&id=123&back=<url>. Les pièces
 // déposées seront classées en GED sur cette entité, sans intervention.
@@ -89,7 +105,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
     <select id="tplSelect" class="dr-select" onchange="applyTemplate()">
       <?php if ($onlyTpl === ''): ?><option value="">— Demande personnalisée —</option><?php endif; ?>
       <?php foreach ($templates as $t): ?>
-        <option value="<?= h($t['code']) ?>" data-items='<?= h($t['items_json']) ?>' data-nom="<?= h($t['nom']) ?>" data-desc="<?= h($t['description'] ?? '') ?>"><?= h($t['nom']) ?></option>
+        <option value="<?= h($t['code']) ?>" data-items='<?= h($t['items_json']) ?>' data-nom="<?= h($t['nom']) ?>" data-desc="<?= h($t['description'] ?? '') ?>" data-audience="<?= h($t['audience'] ?? '') ?>"><?= h($t['nom']) ?></option>
       <?php endforeach; ?>
     </select>
     <p class="dr-mini" id="tplDesc" style="margin-top:8px"></p>
@@ -113,9 +129,17 @@ include __DIR__ . '/inc/agency_layout_top.php';
       <label class="dr-mini" style="font-weight:700">Génération auto : une pièce par agence (ex. projet de salaires)</label>
       <div class="dr-row" style="margin-top:6px;align-items:flex-end">
         <div class="dr-field" style="margin:0"><label>Libellé</label><input type="text" id="genLabel" class="dr-input" placeholder="Projet de salaires"></div>
-        <div class="dr-field" style="margin:0"><label>Période</label><input type="text" id="genPeriod" class="dr-input" placeholder="2026-06"></div>
+        <div class="dr-field" style="margin:0"><label>Période (AAAA-MM)</label><input type="text" id="genPeriod" class="dr-input" placeholder="2026-06"></div>
+        <div class="dr-field" style="margin:0;max-width:180px"><label>Étape workflow</label>
+          <select id="genDocType" class="dr-select">
+            <option value="">— (aucune)</option>
+            <option value="PROJET_SALAIRES">Projet de salaires</option>
+            <option value="BULLETIN_SALAIRE">Bulletins finaux</option>
+          </select>
+        </div>
         <button type="button" class="dr-btn ghost" style="padding:9px 14px;font-size:13px" onclick="genAgences()">Générer par agence</button>
       </div>
+      <p class="dr-mini" id="genSplitNote" style="margin-top:6px;color:#0e7490;display:none">🔀 Demande comptable : un lien distinct sera envoyé à <b>chaque comptable</b> (email de sa société), avec seulement ses agences — l'email saisi plus haut est ignoré.</p>
     </div>
   </div>
 
@@ -148,6 +172,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
 const CSRF = <?= json_encode($csrf) ?>;
 const API  = <?= json_encode(app_url('/api/document_request_create.php')) ?>;
 const CTX  = { type: <?= json_encode($ctxType ?: null) ?>, id: <?= (int)$ctxId ?>, title: <?= json_encode($ctxTitle) ?>, email: <?= json_encode($ctxEmail) ?> };
+const COMPTABLE = { email: <?= json_encode($comptableEmail) ?>, nom: <?= json_encode($comptableNom) ?> };
 
 function itemRow(it){
   it = it || {};
@@ -171,14 +196,35 @@ function applyTemplate(){
   document.getElementById('itemsList').innerHTML = '';
   if(!sel.value){ document.getElementById('tplDesc').textContent=''; return; }
   if(!document.getElementById('titre').value) document.getElementById('titre').value = opt.dataset.nom || '';
+  // Demande de nature comptable → pré-remplit le comptable de la société (si vide).
+  window._genAudience = (opt.dataset.audience||'');
+  if(window._genAudience==='comptable' && COMPTABLE.email){
+    const em = document.getElementById('recEmail');
+    if(!em.value){ em.value = COMPTABLE.email; if(COMPTABLE.nom && !document.getElementById('recName').value) document.getElementById('recName').value = COMPTABLE.nom; }
+  }
+  document.getElementById('genSplitNote').style.display = (window._genAudience==='comptable') ? 'block' : 'none';
   let items=[]; try{ items = JSON.parse(opt.dataset.items||'[]'); }catch(e){}
-  items.forEach(it => { if(it.generator==='agences'){ document.getElementById('genLabel').value = it.label; } else addItem(it); });
+  items.forEach(it => {
+    if(it.generator==='agences'){
+      document.getElementById('genLabel').value = it.label;
+      const dt = (it.doc_type||'').toUpperCase(); const gs = document.getElementById('genDocType');
+      if(dt && Array.from(gs.options).some(o=>o.value===dt)) gs.value = dt;
+    } else addItem(it);
+  });
   document.getElementById('tplDesc').textContent = items.length ? (items.length+' pièce(s) pré-remplie(s) — modifiable') : '';
 }
 function genAgences(){
   // marque une génération côté serveur : on stocke un flag via un item caché spécial
-  window._genAgences = { label: document.getElementById('genLabel').value.trim(), period: document.getElementById('genPeriod').value.trim() };
-  document.getElementById('dr-msg').textContent = window._genAgences.label ? ('✓ une pièce sera générée par agence : '+window._genAgences.label) : '';
+  window._genAgences = {
+    label: document.getElementById('genLabel').value.trim(),
+    period: document.getElementById('genPeriod').value.trim(),
+    doc_type: document.getElementById('genDocType').value,
+  };
+  const split = (window._genAudience==='comptable');
+  document.getElementById('dr-msg').style.color = '#0e7490';
+  document.getElementById('dr-msg').textContent = window._genAgences.label
+    ? ('✓ une pièce sera générée par agence : '+window._genAgences.label + (split ? ' — scindé par comptable' : ''))
+    : '';
 }
 function remToggle(){
   const m = document.getElementById('remMode').value;
@@ -212,16 +258,35 @@ async function submitRequest(){
     reminder_interval_days: document.getElementById('remInt').value,
     items: collectItems(),
   };
+  const splitMode = (window._genAudience==='comptable' && window._genAgences && window._genAgences.label);
   if(window._genAgences && window._genAgences.label){
-    payload.generator = { type:'agences', label: window._genAgences.label, period: window._genAgences.period };
+    payload.generator = {
+      type:'agences', label: window._genAgences.label, period: window._genAgences.period,
+      doc_type: window._genAgences.doc_type || '', by_comptable: splitMode ? 1 : 0,
+    };
   }
-  if(!payload.titre || !payload.recipient_email){ msg.style.color='#ef4444'; msg.textContent='Titre et email requis.'; return; }
+  if(!payload.titre){ msg.style.color='#ef4444'; msg.textContent='Titre requis.'; return; }
+  if(!splitMode && !payload.recipient_email){ msg.style.color='#ef4444'; msg.textContent='Email requis.'; return; }
   if(!payload.items.length && !payload.generator){ msg.style.color='#ef4444'; msg.textContent='Ajoute au moins une pièce.'; return; }
   msg.style.color='#64748b'; msg.textContent='Création…';
   try{
     const r = await fetch(API, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(payload)});
     const j = await r.json();
-    if(j.ok){
+    if(j.ok && j.split){
+      msg.textContent='';
+      const box = document.getElementById('dr-result');
+      box.classList.remove('hidden');
+      let html = '<strong>✅ '+j.nb_requests+' demande(s) créée(s) — une par comptable.</strong>';
+      (j.requests||[]).forEach(function(r){
+        html += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #cfe9d6">'
+          + '<b>'+(r.nom||r.email)+'</b> ('+r.email+') — '+r.nb_pieces+' agence(s) · '
+          + (r.mail_sent ? 'lien envoyé ✅' : '⚠️ mail non parti')
+          + '<div><a href="'+r.url+'" target="_blank" style="word-break:break-all">'+r.url+'</a></div></div>';
+      });
+      if((j.skipped||[]).length){ html += '<div style="margin-top:8px;color:#b45309;font-size:12px">⚠️ Agences sans comptable renseigné (ignorées) : '+j.skipped.join(', ')+'</div>'; }
+      box.innerHTML = html;
+      box.scrollIntoView({behavior:'smooth'});
+    } else if(j.ok){
       msg.textContent='';
       const box = document.getElementById('dr-result');
       box.classList.remove('hidden');
