@@ -661,6 +661,11 @@ function rhDxFieldMapping(): array
             'lieu_naissance'   => 'lieu_naissance',
             'nationalite'      => 'nationalite',
             'civilite'         => 'civilite',
+            // Adresse personnelle (présente sur les CNI qui la portent) → fiche
+            // salarié → reprise auto dans le « demeurant » du contrat.
+            'adresse'          => 'adresse',
+            'code_postal'      => 'code_postal',
+            'ville'            => 'ville',
         ],
         'passeport' => [
             'nom'              => 'nom',

@@ -778,7 +778,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compare_existing'])) 
         $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $compare['total_pdf'], $compare['total_expected'], $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
     }
     $_SESSION['message_ok'] = ($compare['ok'] ? '✅ Comparaison OK' : '⚠️ Écarts détectés') . ' — rapport ' . $type . ' généré depuis le fichier déposé.';
-    $back .= (strpos($back, '?') === false ? '?' : '&') . 'open_compare=1';
+    // Flag one-shot en session (PAS dans l'URL : sinon les liens d'agence le
+    // propagent et rouvrent le modal à chaque changement d'agence).
+    $_SESSION['dr_open_compare'] = true;
     header("Location: $back"); exit;
 }
 
@@ -2543,8 +2545,9 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                 <script>
                 function ouvrirRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'flex'; }
                 function fermerRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'none'; }
-                // Ouverture auto après génération de la comparaison (?open_compare=1)
-                try { if (new URLSearchParams(location.search).get('open_compare') === '1') { document.addEventListener('DOMContentLoaded', function(){ var m=document.getElementById('rapport-comparaison-modal'); if(m) m.style.display='flex'; }); } } catch(e){}
+                // Ouverture auto UNE SEULE FOIS après génération (flag session consommé côté PHP).
+                <?php $autoOpenCompare = !empty($_SESSION['dr_open_compare']); unset($_SESSION['dr_open_compare']); ?>
+                <?php if ($autoOpenCompare): ?>document.addEventListener('DOMContentLoaded', function(){ var m=document.getElementById('rapport-comparaison-modal'); if(m) m.style.display='flex'; });<?php endif; ?>
                 var CMP_ID = <?= (int)($projetRow['id'] ?? 0) ?>;
                 var CMP_CSRF = <?= json_encode(csrf_token()) ?>;
                 function saveRemarques(){

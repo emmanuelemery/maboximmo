@@ -182,7 +182,7 @@ $titreType = $type === 'cdd' ? 'À DURÉE DÉTERMINÉE' : 'À DURÉE INDÉTERMIN
 <?php endif; ?>
 
       <h3>1.2. — RÉMUNÉRATION ET DURÉE DU TRAVAIL</h3>
-      <p>En contrepartie de son activité, le salarié perçoit un salaire global brut mensuel contractuel de <b><span class="cv" id="d-salaire">…</span> €</b>. Le salarié bénéficie d'une prime d'ancienneté tous les trois ans au 1er janvier dans les conditions définies par l'article 36 de la convention collective.</p>
+      <p>En contrepartie de son activité, le salarié perçoit un salaire global brut mensuel contractuel de <b><span class="cv" id="d-salaire">…</span> €</b>. La durée de travail est fixée à <b><span class="cv" id="d-dureeHebdo">…</span> heures par semaine</b>. Le salarié bénéficie d'une prime d'ancienneté tous les trois ans au 1er janvier dans les conditions définies par l'article 36 de la convention collective.</p>
 
       <h3>1.3. — COUVERTURE PRÉVOYANCE ET FRAIS DE SANTÉ</h3>
       <p>La souscription d'une couverture prévoyance et santé est obligatoire dans la branche (avenant n° 91 du 11 avril 2022 de la CCN I). Contrats souscrits auprès de : prévoyance <span class="cv" id="d-prev">…</span> ; frais de santé <span class="cv" id="d-sante">…</span>. Le coût est réparti entre l'employeur et le salarié conformément aux dispositions conventionnelles.</p>
@@ -296,6 +296,7 @@ $titreType = $type === 'cdd' ? 'À DURÉE DÉTERMINÉE' : 'À DURÉE INDÉTERMIN
 
     <div class="grp"><div class="gt">Rémunération & couvertures</div>
       <div class="fg"><label>Salaire brut mensuel (€)</label><input data-bind="d-salaire" value="<?= h($preSalaire) ?>" placeholder="ex : 2 200"></div>
+      <div class="fg"><label>Durée hebdomadaire (h/sem.)</label><input data-bind="d-dureeHebdo" value="" placeholder="ex : 35"></div>
       <div class="fg"><label>Organisme prévoyance</label><input data-bind="d-prev" placeholder="…"></div>
       <div class="fg"><label>Organisme frais de santé</label><input data-bind="d-sante" placeholder="…"></div>
     </div>

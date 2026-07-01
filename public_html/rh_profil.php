@@ -1295,7 +1295,12 @@ ob_start();
                 <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #eef0f3;border-radius:10px;background:#fafbfc;font-size:13px;flex-wrap:wrap">
                   <span style="font-weight:800;color:#243B5C;background:#eef2f8;border-radius:6px;padding:2px 9px"><?= h($c['type_contrat'] ?: '—') ?></span>
                   <?php if (!empty($c['niveau'])): ?><span title="Niveau">🎚️ <?= h($c['niveau']) ?></span><?php endif; ?>
-                  <?php if (!empty($c['salaire_brut'])): ?><span title="Salaire brut mensuel">💶 <?= h($c['salaire_brut']) ?> €</span><?php endif; ?>
+                  <?php if (!empty($c['salaire_brut'])):
+                    // Valeur parfois polluée ("2022.65 € par mois 1") -> on ne garde
+                    // que le 1er montant numérique.
+                    $sb = (string)$c['salaire_brut'];
+                    if (preg_match('/\d[\d .,]*/', $sb, $mm)) $sb = trim($mm[0]);
+                  ?><span title="Salaire brut mensuel">💶 <?= h($sb) ?> € / mois</span><?php endif; ?>
                   <?php if (!empty($c['fonction'])): ?><span style="color:#5a5650"><?= h($c['fonction']) ?></span><?php endif; ?>
                   <span style="color:#9a9690;font-size:12px">
                     <?= h($c['date_debut'] ?: '') ?><?= !empty($c['date_fin']) ? ' → '.h($c['date_fin']) : '' ?>
