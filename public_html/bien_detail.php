@@ -3716,7 +3716,7 @@ if (!$embed) {
           </div>
 
           <!-- Résultat : même présentation que les diags (PDF à gauche, données extraites à droite) -->
-          <div id="v2-erp-result" class="v2-split" style="margin-top:14px; min-height:520px; display:none;">
+          <div id="v2-erp-result" style="margin-top:14px; min-height:520px; display:none; grid-template-columns:1fr 300px; gap:20px;">
             <div class="v2-split-left">
               <iframe id="v2-erp-pdf" src="" title="Rapport ERP Géorisques" loading="lazy"></iframe>
             </div>

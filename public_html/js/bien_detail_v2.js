@@ -454,8 +454,8 @@
       if (!lat || !lng) { if (st) { st.textContent = '⚠️ Bien non géolocalisé.'; st.className = 'v2-form-status err'; } return; }
       btn.disabled = true;
       if (st) { st.textContent = '⏳ Interrogation de Géorisques (données publiques)…'; st.className = 'v2-form-status'; }
-      // PDF officiel (proxy même-origine) à gauche
-      if (box) box.style.display = '';
+      // PDF officiel (proxy même-origine) à gauche · champs à droite (grille 2 col)
+      if (box) box.style.display = 'grid';
       if (pdf) pdf.src = (data.erpPdfEndpoint || '/api/erp_rapport_pdf.php') + '?lat=' + lat + '&lng=' + lng;
       // Données extraites (risques) à droite, mêmes codes couleur que les diags
       try {
