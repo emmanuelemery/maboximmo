@@ -708,6 +708,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_projet_pdf']))
     exit;
 }
 
+// ── COMPARER un fichier DÉJÀ DÉPOSÉ (via lien « Demander un document ») ────
+// Zéro ré-upload : on parse le PDF déjà présent dans l'historique workflow
+// (rh_salaire_workflow_log) et on génère le rapport de comparaison.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compare_existing'])) {
+    $societeId = (int)($_POST['societe_id'] ?? 0);
+    $idAgence  = (int)($_POST['agence'] ?? 0);
+    $moisPost  = (int)($_POST['mois'] ?? 0);
+    $anneePost = (int)($_POST['annee'] ?? 0);
+    $type      = (($_POST['compare_type'] ?? 'projet') === 'bulletins') ? 'bulletins' : 'projet';
+    $wfType    = $type === 'bulletins' ? RH_WF_TYPE_BULLETINS : RH_WF_TYPE_PROJET;
+    $moisRef   = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $back = "rh_salaires.php" . ($currentQS ? '?' . $currentQS : '');
+    if ($societeId <= 0 || $idAgence <= 0) { $_SESSION['message_err'] = 'Sélectionnez une agence précise pour comparer.'; header("Location: $back"); exit; }
+
+    $q = $pdo->prepare("SELECT fichier_path, fichier_nom_original FROM rh_salaire_workflow_log
+                        WHERE id_agence=? AND mois_reference=? AND type_action=? AND fichier_path IS NOT NULL
+                        ORDER BY date_action DESC, id DESC LIMIT 1");
+    $q->execute([$idAgence, $moisRef, $wfType]);
+    $row = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$row) { $_SESSION['message_err'] = 'Aucun fichier déposé à comparer pour cette agence/ce mois.'; header("Location: $back"); exit; }
+    $abs = __DIR__ . '/' . ltrim((string)$row['fichier_path'], '/');
+    if (!is_file($abs)) { $_SESSION['message_err'] = 'Fichier introuvable sur le serveur.'; header("Location: $back"); exit; }
+
+    $meta = []; $parsed = rh_parse_bulletins_file($abs, $meta);
+    $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+    if (empty($parsed['ok']) || empty($employees)) { $_SESSION['message_err'] = 'Extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ').'; header("Location: $back"); exit; }
+
+    $groups = rh_dispatch_bulletins_by_agence($pdo, $societeId, $employees);
+    $group  = $groups[$idAgence] ?? null;
+    if (!$group) { $_SESSION['message_err'] = 'Aucun bulletin de ce PDF ne correspond à cette agence (matricules : ' . implode(', ', array_keys($employees)) . ').'; header("Location: $back"); exit; }
+
+    $expected = rh_load_expected_map($pdo, $societeId, $moisRef, $idAgence);
+    $compare  = rh_compare_bulletins_expected($expected, $group['employees']);
+    $compare['conges'] = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+
+    if ($type === 'bulletins') {
+        $totalNet = 0.0; foreach ($group['employees'] as $e) { if (isset($e['net']) && $e['net'] !== null) $totalNet += (float)$e['net']; }
+        $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_net,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'bulletins',?,?,?,?,?,?,?)");
+        $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, (string)$row['fichier_nom_original'], (string)$row['fichier_path'], $totalNet, $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
+    } else {
+        $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_brut,total_expected_brut,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'projet',?,?,?,?,?,?,?,?)");
+        $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, (string)$row['fichier_nom_original'], (string)$row['fichier_path'], $compare['total_pdf'], $compare['total_expected'], $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
+    }
+    $_SESSION['message_ok'] = ($compare['ok'] ? '✅ Comparaison OK' : '⚠️ Écarts détectés') . ' — rapport ' . $type . ' généré depuis le fichier déposé.';
+    header("Location: $back"); exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_pdf'])) {
     $societeId = (int)($_POST['societe_id'] ?? 0);
     $moisPost = (int)($_POST['mois'] ?? date('n'));
@@ -2137,6 +2184,24 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     document.getElementById('comptable-form').submit();
                 }
                 </script>
+                <?php
+                // Fichiers déjà DÉPOSÉS via le lien (rh_salaire_workflow_log) pour cette agence/mois
+                // → bouton « Comparer » sans ré-upload.
+                $wfHasProjet = false; $wfHasBulletins = false;
+                if ((int)$agenceWf > 0) {
+                    try {
+                        $moisRefBtn = sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel);
+                        $qh = $pdo->prepare("SELECT type_action, COUNT(*) n FROM rh_salaire_workflow_log
+                                             WHERE id_agence=? AND mois_reference=? AND type_action IN ('import_projet','import_bulletins') AND fichier_path IS NOT NULL
+                                             GROUP BY type_action");
+                        $qh->execute([(int)$agenceWf, $moisRefBtn]);
+                        foreach ($qh->fetchAll(PDO::FETCH_ASSOC) as $hr) {
+                            if ($hr['type_action'] === 'import_projet') $wfHasProjet = (int)$hr['n'] > 0;
+                            if ($hr['type_action'] === 'import_bulletins') $wfHasBulletins = (int)$hr['n'] > 0;
+                        }
+                    } catch (Throwable $e) {}
+                }
+                ?>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>2. <?= $projetRow ? 'Réimporter' : 'Importer' ?> le projet</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
@@ -2144,8 +2209,13 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="file" name="projet_pdf" accept="application/pdf" required>
-                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn"><?= $projetRow ? 'Réimporter' : 'Importer' ?></button>
+                    <input type="hidden" name="compare_type" value="projet">
+                    <?php if ($wfHasProjet): ?>
+                    <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#155e75;">📎 Un projet a été <b>déposé via le lien</b> — comparez-le directement, sans re-télécharger.</div>
+                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Comparer le fichier déposé</button>
+                    <?php endif; ?>
+                    <input type="file" name="projet_pdf" accept="application/pdf">
+                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn"><?= $projetRow ? 'Réimporter' : 'Importer' ?> un autre PDF</button>
                 </form>
 
                 <?php if ($projetRow): ?>
@@ -2200,8 +2270,13 @@ Emmanuel</textarea>
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="file" name="bulletins_pdf" accept="application/pdf" required>
-                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn">Importer</button>
+                    <input type="hidden" name="compare_type" value="bulletins">
+                    <?php if ($wfHasBulletins): ?>
+                    <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#155e75;">📎 Des bulletins ont été <b>déposés via le lien</b> — comparez-les directement, sans re-télécharger.</div>
+                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Comparer le fichier déposé</button>
+                    <?php endif; ?>
+                    <input type="file" name="bulletins_pdf" accept="application/pdf">
+                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn">Importer un autre PDF</button>
                 </form>
             </div>
 
