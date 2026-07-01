@@ -98,6 +98,9 @@ $_bInit = strtoupper(
     <a href="<?= $_sbBase ?>bailleur_immeubles.php" class="sb-bail-link <?= sb_bail_active('bailleur_immeubles.php') ?>">
       <span class="sb-bail-icon">🏢</span> Immeubles
     </a>
+    <a href="<?= $_sbBase ?>bailleur_biens.php" class="sb-bail-link <?= sb_bail_active('bailleur_biens.php') ?>">
+      <span class="sb-bail-icon">🏠</span> Mes biens
+    </a>
     <a href="<?= $_sbBase ?>bailleur_sci_organigramme.php" class="sb-bail-link <?= sb_bail_active('bailleur_sci_organigramme.php') ?>">
       <span class="sb-bail-icon">🗂️</span> Organigramme SCI
     </a>
