@@ -446,6 +446,22 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
                     $bien['honoraires_inclus'] = $cA ? 'charge acquéreur' : ($cV ? 'charge vendeur' : '');
                 }
             }
+            // Fallback (règle user 2026-07-01) : si les booléens ne sont pas posés mais
+            // que l'annonce porte des honoraires, on DÉDUIT la charge depuis la structure
+            // de prix — c'est l'annonce qui fait foi, pas biens.honoraires_charge :
+            //   Prix FAI > Prix net vendeur  → honoraires EN SUS → charge ACQUÉREUR
+            //   sinon (honoraires inclus dans le prix)          → charge VENDEUR
+            if (empty($bien['honoraires_charge']) && (float)($annonce['honoraires'] ?? 0) > 0) {
+                $prixFai = (float)($annonce['prix'] ?? 0);
+                $prixNet = (float)($annonce['prix_net_vendeur'] ?? 0);
+                if ($prixFai > 0 && $prixNet > 0 && $prixFai > $prixNet) {
+                    $bien['honoraires_charge'] = 'acquereur';
+                    if (empty($bien['honoraires_inclus'])) $bien['honoraires_inclus'] = 'charge acquéreur';
+                } elseif ($prixNet > 0 || $prixFai > 0) {
+                    $bien['honoraires_charge'] = 'vendeur';
+                    if (empty($bien['honoraires_inclus'])) $bien['honoraires_inclus'] = 'charge vendeur';
+                }
+            }
         }
 
         return [

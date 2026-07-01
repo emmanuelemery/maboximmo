@@ -96,6 +96,24 @@ if ($mbiSupCritiqueCtx && $mbiSupPdo instanceof PDO) {
     }
 }
 
+// ── Nombre RÉEL d'actions à corriger (dédupliqué) ─────────────────────
+// $mbiSupNbBd compte les blocs durs bruts ; or plusieurs blocs pointent
+// souvent vers le MÊME champ (ex : autorisation « signée » + « couvre canaux »).
+// Le modal n'affiche qu'un champ par (table.colonne) + les orphelins dédupliqués
+// par libellé. On aligne le compteur affiché sur ce qui est réellement montré.
+$mbiSupNbReel = $mbiSupNbBd;
+if (!empty($mbiSupBlocsDurs) && function_exists('mbi_supports_completer_fields_pour_code')) {
+    $_uniqKeys = []; $_orphLib = [];
+    foreach ($mbiSupBlocsDurs as $_b) {
+        $_flds = mbi_supports_completer_fields_pour_code((string)($_b['code'] ?? ''), $mbiSupContexte);
+        if (empty($_flds)) { $_orphLib[(string)($_b['libelle'] ?? $_b['code'] ?? '')] = true; continue; }
+        foreach ($_flds as $_d) {
+            if (!empty($_d['table']) && !empty($_d['column'])) $_uniqKeys[$_d['table'] . '.' . $_d['column']] = true;
+        }
+    }
+    $mbiSupNbReel = count($_uniqKeys) + count($_orphLib);
+}
+
 // Titre annonce courant (pour la card editable du modal de choix de style).
 // Priorité : titre persisté pour l'affiche (biens.bien_titre_affiche) > titre annonce > designation.
 $mbiSupTitre = '';
@@ -186,7 +204,7 @@ $scoreColor = match (true) {
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-size:24px; line-height:1; color:#7a2828;">✗</span>
               <span style="font-size:14px; font-weight:600; color:#7a2828;">
-                <?= $mbiSupNbBd ?> mention<?= $mbiSupNbBd > 1 ? 's' : '' ?> à corriger
+                <?= $mbiSupNbReel ?> mention<?= $mbiSupNbReel > 1 ? 's' : '' ?> à corriger
               </span>
             </div>
             <button type="button"
@@ -269,7 +287,7 @@ $scoreColor = match (true) {
       <div>
         <div id="mbiSupCompleterTitle" style="font-size:18px; font-weight:700;">📋 Compléter les mentions légales</div>
         <div style="font-size:12px; opacity:0.85; margin-top:2px;">
-          <?= (int)$mbiSupNbBd ?> mention<?= $mbiSupNbBd > 1 ? 's' : '' ?> à corriger pour autoriser l'export d'une affiche.
+          <?= (int)$mbiSupNbReel ?> mention<?= $mbiSupNbReel > 1 ? 's' : '' ?> à corriger pour autoriser l'export d'une affiche.
         </div>
       </div>
       <button type="button" onclick="mbiSupCompleterClose()"
@@ -296,7 +314,8 @@ $scoreColor = match (true) {
                      ? mbi_supports_completer_fields_pour_code($code, $mbiSupContexte)
                      : [];
           if (empty($fields)) {
-              $orphans[] = ['code'=>$code, 'libelle'=>$libelle, 'detail'=>$detail];
+              // Dédup par libellé : plusieurs codes « Mandat absent » → 1 seule ligne.
+              $orphans[$libelle] = ['code'=>$code, 'libelle'=>$libelle, 'detail'=>$detail];
               continue;
           }
           foreach ($fields as $def) {
