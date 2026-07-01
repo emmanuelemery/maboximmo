@@ -105,7 +105,7 @@ $_bInit = strtoupper(
   </div>
 
   <!-- Gestion (selon modules autorisés) -->
-  <?php $hasGestion = $isSA || !empty(array_intersect(['revision','bail','ged'], $allowedModules)); ?>
+  <?php $hasGestion = $isSA || !empty(array_intersect(['revision','bail','ged','contentieux'], $allowedModules)); ?>
   <?php if ($hasGestion): ?>
   <div class="sb-bail-section">
     <div class="sb-bail-section-title">Gestion</div>
@@ -127,7 +127,11 @@ $_bInit = strtoupper(
       <span class="sb-bail-icon">🔎</span> Audit CRG
     </a>
     <?php endif; ?>
-    <?php /* Contentieux : module au catalogue mais page bailleur_contentieux.php à créer (étape ultérieure) */ ?>
+    <?php if ($isSA || in_array('contentieux', $allowedModules)): ?>
+    <a href="<?= $_sbBase ?>bailleur_contentieux.php" class="sb-bail-link <?= sb_bail_active('bailleur_contentieux.php') ?>">
+      <span class="sb-bail-icon">⚖️</span> Contentieux
+    </a>
+    <?php endif; ?>
   </div>
   <?php endif; ?>
 
