@@ -483,6 +483,22 @@
         }
         if (fld) fld.innerHTML = html;
         if (st) { st.textContent = '✅ ' + (risks.length ? (risks.length + ' risque(s) recensé(s)') : 'Aucun risque') + ' · PDF chargé'; st.className = 'v2-form-status ok'; }
+
+        // ── Dépôt AUTO du rapport ERP dans l'immeuble (1re recherche réussie) ──
+        // L'endpoint dédup lui-même (un seul ERP par immeuble) → appel idempotent.
+        try {
+          const fd = new FormData();
+          fd.append('id_bien', data.bienId || '');
+          fd.append('lat', lat); fd.append('lng', lng);
+          fd.append('csrf_token', data.csrfToken || csrf || '');
+          const rs = await fetch(data.erpSaveEndpoint || '/api/erp_save_immeuble.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+          });
+          const js = await rs.json();
+          if (js && js.ok && js.saved && st) {
+            st.textContent += ' · 💾 rapport enregistré dans l\'immeuble';
+          }
+        } catch (_) { /* silencieux : le dépôt est un bonus, pas bloquant */ }
       } catch (e) {
         if (st) { st.textContent = '❌ ' + e.message; st.className = 'v2-form-status err'; }
       } finally {

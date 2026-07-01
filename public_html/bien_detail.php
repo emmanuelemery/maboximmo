@@ -3969,6 +3969,7 @@ $peLogoUrl = $peLogoEnc !== '' ? app_url('/' . $peLogoEnc) : '';
     dpeReextractEndpoint:<?= json_encode(app_url('/api/dpe_reextract_free.php'),        JSON_UNESCAPED_SLASHES) ?>,
     geoRisquesEndpoint:  <?= json_encode(app_url('/api/geo_risques.php'),               JSON_UNESCAPED_SLASHES) ?>,
     erpPdfEndpoint:      <?= json_encode(app_url('/api/erp_rapport_pdf.php'),            JSON_UNESCAPED_SLASHES) ?>,
+    erpSaveEndpoint:     <?= json_encode(app_url('/api/erp_save_immeuble.php'),          JSON_UNESCAPED_SLASHES) ?>,
     autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),            JSON_UNESCAPED_SLASHES) ?>,
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,
