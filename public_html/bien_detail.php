@@ -1351,7 +1351,8 @@ if (!$embed) {
               if(!confirm('Dissocier cet immeuble du bien ?')) return;
               var fd=new FormData(); fd.append('id_bien', btn.getAttribute('data-bien-id')); fd.append('csrf_token', btn.getAttribute('data-csrf'));
               fetch('<?= h(app_url('/api/bien_immeuble_unlink.php')) ?>',{method:'POST',body:fd,credentials:'same-origin'})
-                .then(function(r){return r.json();}).then(function(j){ if(!j||!j.ok){ alert((j&&j.error)||'Erreur'); return; } location.reload(); })
+                .then(function(r){return r.json();}).then(function(j){ if(!j||!j.ok){ alert((j&&j.error)||'Erreur'); return; }
+                  location.href='<?= h(app_url('/bien_detail.php')) ?>?edit='+btn.getAttribute('data-bien-id')+'&section=validation'; })
                 .catch(function(){ alert('Erreur réseau'); });
             });
           })();
@@ -2105,9 +2106,22 @@ if (!$embed) {
           <!-- Sortie de portefeuille : Vendu / Gestion perdue -->
           <div style="margin-bottom:18px; padding:16px; background:#fff; border:1px solid #eef0f2; border-radius:12px;">
             <div style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px;">🚪 Sortie du portefeuille</div>
+            <?php
+              // Transparence : un bouton n'est en pleine couleur que s'il correspond au
+              // statut ACTUEL du bien. Sinon estompé (c'est une action possible, pas l'état
+              // courant) — évite de laisser croire que le bien est déjà vendu / gestion perdue.
+              $opVendu = ($statutBien === 'vendu')         ? '1' : '.4';
+              $opGp    = ($statutBien === 'gestion_perdu') ? '1' : '.4';
+            ?>
             <div style="display:flex; gap:12px; flex-wrap:wrap;">
-              <button type="button" onclick="bienSetStatut('vendu','VENDU')" style="flex:1; min-width:180px; padding:14px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-weight:800; font-size:15px; cursor:pointer;">🔴 Marquer VENDU</button>
-              <button type="button" onclick="bienSetStatut('gestion_perdu','GESTION PERDUE')" style="flex:1; min-width:180px; padding:14px; border:none; border-radius:10px; background:#ea580c; color:#fff; font-weight:800; font-size:15px; cursor:pointer;">🟠 GESTION PERDUE</button>
+              <button type="button" onclick="bienSetStatut('vendu','VENDU')"
+                      onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='<?= $opVendu ?>'"
+                      title="<?= $statutBien === 'vendu' ? 'Statut actuel' : 'Marquer ce bien comme vendu' ?>"
+                      style="flex:1; min-width:180px; padding:14px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-weight:800; font-size:15px; cursor:pointer; opacity:<?= $opVendu ?>; transition:opacity .15s;">🔴 Marquer VENDU</button>
+              <button type="button" onclick="bienSetStatut('gestion_perdu','GESTION PERDUE')"
+                      onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='<?= $opGp ?>'"
+                      title="<?= $statutBien === 'gestion_perdu' ? 'Statut actuel' : 'Marquer la gestion comme perdue' ?>"
+                      style="flex:1; min-width:180px; padding:14px; border:none; border-radius:10px; background:#ea580c; color:#fff; font-weight:800; font-size:15px; cursor:pointer; opacity:<?= $opGp ?>; transition:opacity .15s;">🟠 GESTION PERDUE</button>
             </div>
             <div id="v2-statut-msg" style="margin-top:10px; font-size:13px; font-weight:700;"></div>
             <?php if (in_array($statutBien, ['vendu','gestion_perdu'], true)): ?>

@@ -974,7 +974,11 @@
         unlinkBtn.disabled = true;
         unlinkBtn.textContent = '⏳ Dissociation…';
         const res = await linkTiersToBien('');
-        if (res.ok) setTimeout(() => window.location.reload(), 400);
+        if (res.ok) {
+          const bid = parseInt(data.bienId, 10) || 0;
+          const base = data.bienDetailUrl || 'bien_detail.php';
+          setTimeout(() => { window.location.href = base + '?edit=' + bid + '&section=validation'; }, 300);
+        }
         else { unlinkBtn.disabled = false; unlinkBtn.textContent = '❌ Erreur'; }
       });
     }
