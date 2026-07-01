@@ -2930,18 +2930,18 @@ if (!$embed) {
                   </select>
                 </div>
                 <div class="v2-field">
-                  <label class="v2-field-label">Cible à adresser</label>
-                  <select class="v2-input" id="v2-ia-cible">
-                    <option value="">— Aucune cible particulière —</option>
-                    <option value="Primo-accédant">Primo-accédant</option>
-                    <option value="Investisseur locatif">Investisseur locatif</option>
-                    <option value="Famille avec enfants">Famille avec enfants</option>
-                    <option value="Jeune couple">Jeune couple</option>
-                    <option value="Étudiant">Étudiant</option>
-                    <option value="Sénior / retraité">Sénior / retraité</option>
-                    <option value="Résidence secondaire">Résidence secondaire</option>
-                    <option value="Professionnel / bureaux">Professionnel / bureaux</option>
-                  </select>
+                  <label class="v2-field-label">Cibles à adresser <small>(3 maximum)</small></label>
+                  <div id="v2-ia-cible-group" style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <?php foreach ([
+                        'Primo-accédant','Investisseur locatif','Famille avec enfants','Jeune couple',
+                        'Étudiant','Sénior / retraité','Résidence secondaire','Professionnel / bureaux',
+                    ] as $cibleOpt): ?>
+                      <label class="v2-cible-chk" style="display:inline-flex;align-items:center;gap:5px;border:1px solid #cbd5e1;border-radius:8px;padding:5px 9px;font-size:12.5px;cursor:pointer;background:#fff;">
+                        <input type="checkbox" class="v2-ia-cible-cb" value="<?= h($cibleOpt) ?>"> <?= h($cibleOpt) ?>
+                      </label>
+                    <?php endforeach; ?>
+                  </div>
+                  <input type="hidden" id="v2-ia-cible" value="">
                 </div>
                 <div class="v2-field">
                   <label class="v2-field-label">Mots-clés à intégrer <small>(séparés par virgules)</small></label>

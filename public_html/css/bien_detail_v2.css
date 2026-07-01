@@ -2842,3 +2842,7 @@ input.v2-input.is-from-dpe {
 
 .v2-histo-photos { font-size: 11px; color: var(--v2-accent, #36577d); white-space: nowrap; }
 .v2-histo-photos.is-zero { color: var(--v2-muted, #94a3b8); }
+
+/* Cibles annonce : chips à cocher (multi-sélection, 3 max) */
+.v2-cible-chk:has(input:checked){ border-color:#0e7490 !important; background:#ecfeff !important; color:#0c5f78; font-weight:700; }
+.v2-cible-chk input{ accent-color:#0e7490; }

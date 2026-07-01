@@ -2206,6 +2206,29 @@
       el.addEventListener('blur',   persistOrientation);
     });
 
+    // ── Cibles : cases à cocher multi-sélection (3 max) → alimentent le hidden
+    //    #v2-ia-cible (valeurs séparées par ", "), lu tel quel par le générateur IA. ──
+    const cibleCbs = Array.from(document.querySelectorAll('.v2-ia-cible-cb'));
+    if (cibleCbs.length && cibleEl) {
+      const CIBLE_MAX = 3;
+      const syncCbFromHidden = () => {
+        const vals = (cibleEl.value || '').split(',').map(s => s.trim()).filter(Boolean);
+        cibleCbs.forEach(cb => { cb.checked = vals.includes(cb.value); });
+      };
+      const updateHiddenFromCb = () => {
+        cibleEl.value = cibleCbs.filter(cb => cb.checked).map(cb => cb.value).join(', ');
+        persistOrientation();
+      };
+      cibleCbs.forEach(cb => cb.addEventListener('change', () => {
+        if (cb.checked && cibleCbs.filter(x => x.checked).length > CIBLE_MAX) {
+          cb.checked = false;              // refuse au-delà de 3
+          return;
+        }
+        updateHiddenFromCb();
+      }));
+      syncCbFromHidden();                  // reflète l'état restauré (sessionStorage)
+    }
+
     // ── Helpers d'écriture + autosave ──
     function setField(id, value) {
       const el = document.getElementById(id);
