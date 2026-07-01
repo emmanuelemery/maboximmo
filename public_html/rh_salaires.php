@@ -96,6 +96,18 @@ try {
         INDEX idx_type (type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 } catch (Exception $e) {}
+// Colonnes additionnelles (remarques agent + statut de validation par agence)
+try {
+    $existingCmp = array_column($pdo->query("SHOW COLUMNS FROM rh_salaires_comparaisons")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    $colsCmp = [
+        'remarques'    => 'TEXT NULL',
+        'validated_at' => 'DATETIME NULL',
+        'validated_by' => 'INT NULL',
+    ];
+    foreach ($colsCmp as $c => $def) {
+        if (!in_array($c, $existingCmp, true)) $pdo->exec("ALTER TABLE rh_salaires_comparaisons ADD COLUMN `$c` $def");
+    }
+} catch (Exception $e) {}
 function h($v){ return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 function mois_fr($m){ $n=[1=>'Janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']; return $n[(int)$m]??''; }
 function first_day_of($y,$m){ return sprintf('%04d-%02d-01',$y,$m); }
@@ -2230,6 +2242,11 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                 <!-- Bouton Valider le projet (apparait apres import) -->
                 <div class="workflow-step">
                     <h4>2bis. Valider le projet</h4>
+                    <?php if (!empty($projetRow['remarques'])): ?>
+                    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;color:#78350f;white-space:pre-wrap;line-height:1.5;">
+                        📝 <strong>Mes remarques</strong> (jointes au mail au comptable) :<br><?=h($projetRow['remarques'])?>
+                    </div>
+                    <?php endif; ?>
                     <button type="button" onclick="ouvrirValidationModal()" class="workflow-step-btn is-success">
                         ✅ Valider et envoyer au comptable
                     </button>
@@ -2247,7 +2264,7 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                                     Le PDF du projet sera envoyé en pièce jointe au comptable de la société, avec ton commentaire dans le corps du mail.
                                 </p>
                                 <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Message au comptable (modifiable)</label>
-                                <textarea name="commentaire" rows="7" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;">Bonjour,
+                                <textarea name="commentaire" id="validation-commentaire" rows="9" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;">Bonjour,
 
 C'est OK pour ce projet, merci de valider et envoyer les bulletins dans digiposte.
 
@@ -2267,7 +2284,7 @@ Emmanuel</textarea>
                     </div>
                 </div>
                 <script>
-                function ouvrirValidationModal() { document.getElementById('validation-modal').style.display = 'flex'; }
+                function ouvrirValidationModal() { if(typeof syncValidationComment==='function') syncValidationComment(); document.getElementById('validation-modal').style.display = 'flex'; }
                 function fermerValidationModal() { document.getElementById('validation-modal').style.display = 'none'; }
                 </script>
                 <?php endif; ?>
@@ -2445,6 +2462,14 @@ Emmanuel</textarea>
                                         <a href="<?=h($projetRow['file_path'])?>" target="_blank" style="color:#0ea5e9;text-decoration:none;font-weight:600;">↗ Ouvrir nouvel onglet</a>
                                     <?php endif; ?>
                                 </div>
+                                <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;background:#fff;">
+                                    <label style="display:block;font-size:11px;font-weight:700;color:#475569;margin-bottom:4px;">📝 Mes remarques sur les différences <span style="font-weight:400;color:#94a3b8;">(reprises dans le mail au comptable)</span></label>
+                                    <textarea id="cmp-remarques" style="width:100%;min-height:60px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;" placeholder="Ex. Sur BRIAND, prime d'ancienneté à revoir…"><?=h($projetRow['remarques'] ?? '')?></textarea>
+                                    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                                        <button type="button" onclick="saveRemarques()" style="padding:7px 14px;border-radius:8px;background:#0891b2;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;">💾 Enregistrer mes remarques</button>
+                                        <span id="cmp-remarques-msg" style="font-size:11px;color:#64748b;"></span>
+                                    </div>
+                                </div>
                                 <?php if (!empty($projetRow['file_path']) && !empty($projetRow['id'])): ?>
                                     <iframe src="rh_compare_pdf_view.php?id=<?=(int)$projetRow['id']?>#toolbar=1&navpanes=0&scrollbar=1" style="flex:1;width:100%;border:none;"></iframe>
                                 <?php else: ?>
@@ -2481,6 +2506,30 @@ Emmanuel</textarea>
                 <script>
                 function ouvrirRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'flex'; }
                 function fermerRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'none'; }
+                var CMP_ID = <?= (int)($projetRow['id'] ?? 0) ?>;
+                var CMP_CSRF = <?= json_encode(csrf_token()) ?>;
+                function saveRemarques(){
+                    var ta = document.getElementById('cmp-remarques');
+                    var msg = document.getElementById('cmp-remarques-msg');
+                    if(!ta || !CMP_ID){ return; }
+                    msg.textContent = 'Enregistrement…'; msg.style.color = '#64748b';
+                    var body = 'compare_id='+encodeURIComponent(CMP_ID)+'&csrf_token='+encodeURIComponent(CMP_CSRF)+'&remarques='+encodeURIComponent(ta.value);
+                    fetch('rh_compare_remarques_save.php', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:body})
+                      .then(r=>r.json()).then(j=>{
+                        if(j.ok){ msg.textContent='✅ Enregistré'; msg.style.color='#16a34a';
+                          var vc = document.getElementById('validation-commentaire'); if(vc) syncValidationComment(); }
+                        else { msg.textContent = '⚠️ '+(j.error||'échec'); msg.style.color='#dc2626'; }
+                      }).catch(()=>{ msg.textContent='⚠️ erreur réseau'; msg.style.color='#dc2626'; });
+                }
+                // Reprend les remarques en tête du commentaire de validation au comptable.
+                function syncValidationComment(){
+                    var ta = document.getElementById('cmp-remarques');
+                    var vc = document.getElementById('validation-commentaire');
+                    if(!ta || !vc) return;
+                    var rem = (ta.value||'').trim();
+                    if(rem === '') return;
+                    if(vc.value.indexOf(rem) === -1){ vc.value = rem + "\n\n" + vc.value; }
+                }
                 </script>
             <?php endif; ?>
 
