@@ -18,10 +18,13 @@ if (!function_exists('e')) {
 
 // ── Modules disponibles ──────────────────────────────────
 const MODULES = [
-    'patrimoine' => ['label' => 'Patrimoine actif',    'icon' => '🏛️', 'desc' => 'Vue des immeubles et locataires'],
-    'ged'        => ['label' => 'GED Documents',       'icon' => '📁', 'desc' => 'Accès aux CRGs et documents'],
-    'revision'   => ['label' => 'Révision des loyers', 'icon' => '📈', 'desc' => 'Calcul IRL et courriers'],
-    'bail'       => ['label' => 'Bail 360°',           'icon' => '📋', 'desc' => 'Fiche complète d\'un bail'],
+    'patrimoine'  => ['label' => 'Patrimoine actif',    'icon' => '🏛️', 'desc' => 'Immeubles, locataires, organigramme SCI', 'cat' => 'auto'],
+    'ged'         => ['label' => 'GED Documents',       'icon' => '📁', 'desc' => 'CRGs, documents et audit CRG',           'cat' => 'auto'],
+    'revision'    => ['label' => 'Révision des loyers', 'icon' => '📈', 'desc' => 'Calcul IRL et courriers',                'cat' => 'option'],
+    'bail'        => ['label' => 'Bail 360°',           'icon' => '📋', 'desc' => 'Fiche complète d\'un bail',              'cat' => 'option'],
+    'contentieux' => ['label' => 'Contentieux',         'icon' => '⚖️', 'desc' => 'Suivi des impayés et procédures',        'cat' => 'option'],
+    'edl'         => ['label' => 'États des lieux',     'icon' => '📝', 'desc' => 'EDL entrée/sortie (usage payant)',       'cat' => 'payant'],
+    'transaction' => ['label' => 'Mise en vente',       'icon' => '🎯', 'desc' => 'Transactions du bailleur (usage payant)', 'cat' => 'payant'],
 ];
 
 // ── Rôle bailleur (id=9 PROPRIO) ────────────────────────

@@ -12,7 +12,7 @@ $userId  = function_exists('current_user_id') ? (int)current_user_id() : 0;
 // Modules autorisés pour ce bailleur (super admin = tous)
 $allowedModules = [];
 if ($isSA) {
-    $allowedModules = ['patrimoine','ged','revision','bail','comptes','imports'];
+    $allowedModules = ['patrimoine','ged','revision','bail','contentieux','edl','transaction','comptes','imports'];
 } elseif ($userId > 0 && isset($GLOBALS['pdo'])) {
     $stmtMod = $GLOBALS['pdo']->prepare("SELECT module_code FROM user_bailleur_modules WHERE id_user=?");
     $stmtMod->execute([$userId]);
@@ -95,6 +95,12 @@ $_bInit = strtoupper(
     <a href="<?= $_sbBase ?>bailleur_patrimoine_actif.php" class="sb-bail-link <?= sb_bail_active('bailleur_patrimoine_actif.php') ?>">
       <span class="sb-bail-icon">🏛️</span> Patrimoine actif
     </a>
+    <a href="<?= $_sbBase ?>bailleur_immeubles.php" class="sb-bail-link <?= sb_bail_active('bailleur_immeubles.php') ?>">
+      <span class="sb-bail-icon">🏢</span> Immeubles
+    </a>
+    <a href="<?= $_sbBase ?>bailleur_sci_organigramme.php" class="sb-bail-link <?= sb_bail_active('bailleur_sci_organigramme.php') ?>">
+      <span class="sb-bail-icon">🗂️</span> Organigramme SCI
+    </a>
     <?php endif; ?>
   </div>
 
@@ -117,7 +123,11 @@ $_bInit = strtoupper(
     <a href="<?= $_sbBase ?>bailleur_ged.php" class="sb-bail-link <?= sb_bail_active('bailleur_ged.php') ?>">
       <span class="sb-bail-icon">📁</span> GED Documents
     </a>
+    <a href="<?= $_sbBase ?>bailleur_crg_audit.php" class="sb-bail-link <?= sb_bail_active('bailleur_crg_audit.php') ?>">
+      <span class="sb-bail-icon">🔎</span> Audit CRG
+    </a>
     <?php endif; ?>
+    <?php /* Contentieux : module au catalogue mais page bailleur_contentieux.php à créer (étape ultérieure) */ ?>
   </div>
   <?php endif; ?>
 
