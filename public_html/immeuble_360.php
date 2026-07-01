@@ -547,7 +547,35 @@ fiche360_header(
         <?= $fld('Année de construction', $imm['annee_construction']) ?>
         <?= $fld('Niveaux', $imm['nb_niveaux']) ?>
         <?= $fld('Bâtiments', $imm['nb_batiments']) ?>
-        <?= $fld('Nombre de lots', $imm['nb_lots']) ?>
+        <?php $nbLotsEff = ((int)($imm['nb_lots'] ?? 0)) ?: ((int)($imm['copro_nb_lots'] ?? 0)); ?>
+        <div class="f360-fld" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0;">
+          <span style="min-width:150px;color:#64748b;font-size:12px;">Nombre de lots</span>
+          <input type="number" id="imm-nb-lots" value="<?= $nbLotsEff ?: '' ?>" min="0"
+                 placeholder="—" style="width:90px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
+          <button type="button" id="imm-nb-lots-save"
+                  style="border:none;background:#0e7490;color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">💾 Enregistrer</button>
+          <span id="imm-nb-lots-status" style="font-size:11px;"></span>
+        </div>
+        <script>
+        (function(){
+          var btn=document.getElementById('imm-nb-lots-save'); if(!btn) return;
+          btn.addEventListener('click', async function(){
+            var inp=document.getElementById('imm-nb-lots');
+            var st=document.getElementById('imm-nb-lots-status');
+            st.textContent='⏳…'; st.style.color='#64748b';
+            var fd=new FormData();
+            fd.append('immeuble_id', '<?= (int)$immId ?>');
+            fd.append('nb_lots', inp.value || '0');
+            fd.append('csrf_token', <?= json_encode(csrf_token('immeuble_lots')) ?>);
+            try{
+              var r=await fetch(<?= json_encode(app_url('/api/immeuble_lots_save.php')) ?>, {method:'POST', body:fd, credentials:'same-origin'});
+              var j=await r.json();
+              st.textContent = j.ok ? '✅ Enregistré' : ('❌ '+(j.error||'Erreur'));
+              st.style.color = j.ok ? '#059669' : '#dc2626';
+            }catch(e){ st.textContent='❌ '+e.message; st.style.color='#dc2626'; }
+          });
+        })();
+        </script>
         <?= $fld('Ascenseur', $oui($imm['presence_ascenseur'] ?? 0)) ?>
         <?= $fld('Gardien', $oui($imm['gardien'] ?? 0)) ?>
         <?= $fld('Chauffage collectif', $oui($imm['chauffage_collectif'] ?? 0)) ?>
