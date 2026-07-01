@@ -138,6 +138,16 @@ $_bInit = strtoupper(
   </div>
   <?php endif; ?>
 
+  <!-- Transaction (bailleur avec module transaction) -->
+  <?php if (!$isSA && in_array('transaction', $allowedModules, true)): ?>
+  <div class="sb-bail-section">
+    <div class="sb-bail-section-title">Transaction</div>
+    <a href="<?= $_sbBase ?>bailleur_transactions.php" class="sb-bail-link <?= sb_bail_active('bailleur_transactions.php') ?>">
+      <span class="sb-bail-icon">🎯</span> Mes ventes
+    </a>
+  </div>
+  <?php endif; ?>
+
   <!-- Transaction & analyses (super admin) -->
   <?php if ($isSA): ?>
   <div class="sb-bail-section">
