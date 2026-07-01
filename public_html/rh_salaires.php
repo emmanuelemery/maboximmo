@@ -2248,47 +2248,20 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                 </form>
 
                 <?php if ($projetRow): ?>
-                <!-- Bouton Valider le projet (apparait apres import) -->
+                <!-- Validation inline : remarques éditables directement + bouton -->
                 <div class="workflow-step">
-                    <h4>2bis. Valider le projet</h4>
-                    <?php if (!empty($projetRow['remarques'])): ?>
-                    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;color:#78350f;white-space:pre-wrap;line-height:1.5;">
-                        📝 <strong>Mes remarques</strong> (jointes au mail au comptable) :<br><?=h($projetRow['remarques'])?>
-                    </div>
-                    <?php endif; ?>
-                    <button type="button" onclick="ouvrirValidationModal()" class="workflow-step-btn is-success">
-                        ✅ Valider cette agence
-                    </button>
+                    <h4>2bis. Valider</h4>
+                    <form method="post" action="rh_salaire_validate_projet.php">
+                        <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+                        <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
+                        <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
+                        <textarea name="commentaire" rows="4" placeholder="📝 Mes remarques (rappelées au comptable)…" style="width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;margin-bottom:8px;"><?=h($projetRow['remarques'] ?? '')?></textarea>
+                        <?php if (!empty($projetRow['validated_at'])): ?>
+                        <div style="font-size:11px;color:#065f46;margin-bottom:8px;">✅ Validée le <?= h(date('d/m/Y à H:i', strtotime((string)$projetRow['validated_at']))) ?></div>
+                        <?php endif; ?>
+                        <button type="submit" class="workflow-step-btn is-success">✅ <?= !empty($projetRow['validated_at']) ? 'Revalider (maj remarques)' : 'Valider cette agence' ?></button>
+                    </form>
                 </div>
-                <!-- Modal validation : marque l'agence validée + remarques (mail consolidé plus tard) -->
-                <div id="validation-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerValidationModal()">
-                    <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
-                        <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-                            <h3 style="margin:0;font-size:15px;color:#15803d;">✅ Valider cette agence</h3>
-                            <button type="button" onclick="fermerValidationModal()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
-                        </div>
-                        <form method="post" action="rh_salaire_validate_projet.php">
-                            <div style="padding:18px 20px;">
-                                <p style="margin:0 0 10px;font-size:12px;color:#64748b;">
-                                    L'agence sera marquée <strong>validée</strong>. Le mail au comptable partira <strong>une fois toutes les agences validées</strong> (un seul mail groupé). Tes remarques ci-dessous seront rappelées dans le mail et sur le lien de dépôt.
-                                </p>
-                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Mes remarques sur cette agence (modifiable)</label>
-                                <textarea name="commentaire" id="validation-commentaire" rows="6" placeholder="Ex. Sur BRIAND, prime d'ancienneté à revoir…" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;"><?=h($projetRow['remarques'] ?? '')?></textarea>
-                                <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                                <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
-                                <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
-                            </div>
-                            <div style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;gap:8px;">
-                                <button type="button" onclick="fermerValidationModal()" style="padding:9px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
-                                <button type="submit" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">✅ Valider cette agence</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-                <script>
-                function ouvrirValidationModal() { if(typeof syncValidationComment==='function') syncValidationComment(); document.getElementById('validation-modal').style.display = 'flex'; }
-                function fermerValidationModal() { document.getElementById('validation-modal').style.display = 'none'; }
-                </script>
                 <?php endif; ?>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>3. Importer les bulletins</h4>
