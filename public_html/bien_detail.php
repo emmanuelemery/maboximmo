@@ -430,16 +430,13 @@ if ($section === 'dpe') {
         if ($docRow = $stDoc->fetch(PDO::FETCH_ASSOC)) {
             $mArr = json_decode((string)$docRow['metadata'], true) ?: [];
             $iaF  = $mArr['extra']['ia_result_last']['fields'] ?? null;
-            $iaAt = (string)($mArr['extra']['ia_result_last']['at'] ?? '');
-            // On n'applique QUE si l'extraction est plus récente que le diag actuel :
-            //   - évite de ré-écraser biens.dpe_* à chaque ouverture (apply_dpe overwrite
-            //     les champs propres au DPE) → préserve les corrections manuelles ;
-            //   - déclenche la reprise juste après une (re)analyse dans l'onglet Documents.
-            $diagRef  = (string)($dpeDiag['date_modification'] ?? ($dpeDiag['date_creation'] ?? ''));
-            $iaNewer  = $iaAt !== '' && ($dpeDiag === null || $diagRef === '' || strtotime($iaAt) > strtotime($diagRef));
-            if (is_array($iaF) && $iaF && $iaNewer && function_exists('apply_dpe_extracted_to_bien')) {
+            // Reprise à CHAQUE ouverture, mais en mode NON DESTRUCTIF (fillOnly=true) :
+            // remplit tous les champs VIDES du DPE avec l'extraction du doc, sans jamais
+            // écraser une valeur déjà saisie/corrigée. → « Détails DPE » se remplit tout
+            // seul dès qu'un doc DPE est rattaché, sans avoir à relancer l'extraction.
+            if (is_array($iaF) && $iaF && function_exists('apply_dpe_extracted_to_bien')) {
                 $uId = function_exists('current_user_id') ? (int)current_user_id() : null;
-                apply_dpe_extracted_to_bien($pdo, $editingBienId, $iaF, ((string)($mArr['public_url'] ?? '')) ?: null, $uId);
+                apply_dpe_extracted_to_bien($pdo, $editingBienId, $iaF, ((string)($mArr['public_url'] ?? '')) ?: null, $uId, true);
                 // Recharge le dpe_diag après application pour afficher les valeurs à jour
                 if ($st) {
                     $st->execute([$editingBienId]);
@@ -3721,7 +3718,7 @@ if (!$embed) {
       <section class="v2-card is-next" role="tabpanel" aria-label="ERP Géorisques">
         <div class="v2-card-label">🌍 ERP / Géorisques</div>
         <div class="v2-card-body">
-          <div class="v2-kv-grid">
+          <div class="v2-kv-grid v2-kv-erp">
             <div class="v2-kv">
               <div class="v2-kv-k">Mention Géorisques</div>
               <div class="v2-kv-v <?= (int)($bienLoaded['zone_georisque'] ?? 0) === 1 ? 'bad' : 'ok' ?>">

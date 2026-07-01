@@ -309,7 +309,11 @@ if (!function_exists('apply_dpe_extracted_to_bien')) {
      * UPSERT dpe_diags + sync biens (UPDATE défensif).
      * Idempotence par (id_bien + numero_ademe) ; sinon nouvel INSERT principal.
      */
-    function apply_dpe_extracted_to_bien(PDO $pdo, int $bienId, array $fields, ?string $publicUrl, ?int $userId): array {
+    function apply_dpe_extracted_to_bien(PDO $pdo, int $bienId, array $fields, ?string $publicUrl, ?int $userId, bool $fillOnly = false): array {
+        // $fillOnly = true : NON destructif — ne remplit que les colonnes vides (COALESCE),
+        // n'écrase JAMAIS une valeur existante (utilisé par l'auto-reprise à l'ouverture
+        // de l'onglet DPE). false = comportement historique (les champs propres au DPE
+        // sont écrasés par la dernière extraction — pour les (ré)analyses explicites).
         $notes = [];
         if ($bienId <= 0) return ['ok' => false, 'action' => 'skipped', 'dpe_id' => 0, 'notes' => ['bien_id invalide']];
 
@@ -456,7 +460,9 @@ if (!function_exists('apply_dpe_extracted_to_bien')) {
             $sets = []; $params = [':id' => $bienId];
             foreach ($alwaysOverwrite as $col => $val) {
                 if ($val === null || $val === '' || !isset($bienCols[$col])) continue;
-                $sets[] = "`$col` = :v_$col";
+                $sets[] = $fillOnly
+                    ? "`$col` = COALESCE(NULLIF(`$col`, ''), :v_$col)"
+                    : "`$col` = :v_$col";
                 $params[":v_$col"] = $val;
             }
             foreach ($fillIfEmpty as $col => $val) {
