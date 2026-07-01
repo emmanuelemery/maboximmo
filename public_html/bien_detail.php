@@ -253,6 +253,7 @@ $docsDiag = [];
 $docsMandat = [];
 $docsAutre = [];
 $lastDpePdf = null;
+$lastErpPdf = null;   // rapport ERP/Géorisques rattaché au bien (affiché direct dans l'onglet ERP)
 
 // ─── GED CENTRALE UNIQUE (2026-05-25) ──
 // Source de vérité unique = ged_documents + ged_document_links (pivot polymorphe).
@@ -268,7 +269,8 @@ try {
     $typeMapGed = [
         'DIAG_DPE' => 'dpe', 'DIAG_AMIANTE' => 'amiante', 'DIAG_PLOMB' => 'plomb',
         'DIAG_GAZ' => 'gaz', 'DIAG_ELEC' => 'electricite', 'DIAG_TERMITES' => 'termites',
-        'DIAG_ERP' => 'erp', 'SURFACE_CARREZ' => 'mesurage_loi_carrez',
+        'DIAG_ERP' => 'erp', 'ETAT_RISQUES' => 'erp', 'ERP' => 'erp',
+        'SURFACE_CARREZ' => 'mesurage_loi_carrez',
         'MANDAT_VENTE' => 'mandat', 'MANDAT_LOCATION' => 'mandat',
         'MANDAT_RECHERCHE' => 'mandat', 'MANDAT_GESTION' => 'mandat',
         'BAIL' => 'bail', 'COMPROMIS' => 'compromis', 'PROMESSE_VENTE' => 'promesse_vente',
@@ -305,6 +307,10 @@ try {
             if ($lastDpePdf === null && $row['url_fichier']
                 && in_array($t, ['dpe','diag','dossier_complet','dossier_diagnostics'], true)) {
                 $lastDpePdf = $row;
+            }
+            // Rapport ERP / État des Risques rattaché au bien → affiché direct dans l'onglet ERP
+            if ($lastErpPdf === null && $row['url_fichier'] && $t === 'erp') {
+                $lastErpPdf = $row;
             }
         } elseif (in_array($t, $mandatTypes, true)) {
             $docsMandat[] = $row;
@@ -3759,13 +3765,37 @@ if (!$embed) {
             </span>
           </div>
 
-          <!-- Résultat : même présentation que les diags (PDF à gauche, données extraites à droite) -->
-          <div id="v2-erp-result" style="margin-top:14px; min-height:520px; display:none; grid-template-columns:1fr 300px; gap:20px;">
+          <!-- Résultat : même présentation que les diags (PDF à gauche, données extraites à droite).
+               Affiché D'EMBLÉE si un rapport ERP est déjà rattaché au bien (créé à la création). -->
+          <div id="v2-erp-result" style="margin-top:14px; min-height:520px; <?= $lastErpPdf ? 'display:grid;' : 'display:none;' ?> grid-template-columns:1fr 300px; gap:20px;">
             <div class="v2-split-left">
-              <iframe id="v2-erp-pdf" src="" title="Rapport ERP Géorisques" loading="lazy"></iframe>
+              <iframe id="v2-erp-pdf" src="<?= $lastErpPdf ? h($lastErpPdf['url_fichier']) . '#navpanes=0&toolbar=1&view=FitH' : '' ?>" title="Rapport ERP / État des Risques" loading="lazy"></iframe>
+              <?php if ($lastErpPdf): ?>
+                <a href="<?= h($lastErpPdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
+              <?php endif; ?>
             </div>
             <div class="v2-split-right">
-              <div id="v2-erp-fields" class="v2-form"></div>
+              <div id="v2-erp-fields" class="v2-form">
+                <?php if ($lastErpPdf): ?>
+                  <div class="v2-field is-filled">
+                    <label>Rapport ERP au dossier <span class="v2-field-tag">✓ document</span></label>
+                    <input class="v2-input" value="<?= h((string)$lastErpPdf['nom_original']) ?>" readonly>
+                  </div>
+                  <div class="v2-field <?= (int)($bienLoaded['zone_georisque'] ?? 0) === 1 ? 'is-empty' : 'is-filled' ?>">
+                    <label>Mention Géorisques</label>
+                    <input class="v2-input" value="<?= (int)($bienLoaded['zone_georisque'] ?? 0) === 1 ? '⚠️ Zone à risques' : '✅ Hors zone' ?>" readonly>
+                  </div>
+                  <?php if (!empty($dpeDiag['sismicite_zone'])): ?>
+                  <div class="v2-field is-filled"><label>Zone sismicité</label>
+                    <input class="v2-input" value="<?= h((string)$dpeDiag['sismicite_zone']) ?>" readonly></div>
+                  <?php endif; ?>
+                  <div class="v2-field <?= (int)($dpeDiag['alerte_inondation'] ?? 0) === 1 ? 'is-empty' : 'is-filled' ?>">
+                    <label>Zone inondation</label>
+                    <input class="v2-input" value="<?= (int)($dpeDiag['alerte_inondation'] ?? 0) === 1 ? '💧 Oui' : 'Non' ?>" readonly>
+                  </div>
+                  <div style="font-size:11px;color:#64748b;margin-top:6px;">📡 Clique « Rechercher » pour actualiser la liste des risques depuis Géorisques.</div>
+                <?php endif; ?>
+              </div>
             </div>
           </div>
         </div>
