@@ -1170,6 +1170,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 onclick="<?= h($fbxOnClickDossier) ?>">📥 Charger un document</button>
         <button type="button" class="dvk-act-btn" onclick="odClasserOpen()">📥 Importer docs OneDrive</button>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_360.php?id=' . $idBien)) ?>">🏠 Vue 360° du bien</a>
+        <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_detail.php?edit=' . $idBien . '&section=descriptif&return_dossier=' . $idDossier)) ?>">📐 Descriptif du bien</a>
         <a class="dvk-act-btn" style="text-decoration:none;" href="<?= h(app_url('/bien_documents_list.php?id=' . $idBien)) ?>">📁 Documents du bien</a>
       </div>
 
