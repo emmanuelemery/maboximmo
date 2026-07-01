@@ -1739,7 +1739,6 @@ if (!$embed) {
             <?= $numField('🏠', 'surface_habitable', 'Habitable', 'm²') ?>
             <?= $numField('📐', 'surface_carrez',    'Carrez',    'm²') ?>
             <?= $numField('🛋️', 'surface_sejour',    'Séjour',    'm²') ?>
-            <?= $numField('🏞️', 'surface_totale',    'Totale',    'm²') ?>
             <?= $numField('🌳', 'surface_terrain',   'Terrain',   'm²') ?>
             <?= $numField('↕️', 'hauteur_plafond',   'Plafond',   'm') ?>
           </div>
@@ -3572,81 +3571,100 @@ if (!$embed) {
 
     <?php else: /* section = dpe */ ?>
 
-      <!-- Card 1 : DPE (visu) -->
-      <section class="v2-card is-active" role="tabpanel" aria-label="DPE">
-        <div class="v2-card-label">⚡ DPE</div>
-        <div class="v2-card-body">
-
-          <?php if ($dpeDiag && (!empty($dpeDiag['diagnostiqueur_nom']) || !empty($dpeDiag['diagnostiqueur_societe']) || !empty($dpeDiag['numero_rapport']))): ?>
-            <div class="v2-dpe-diag-header">
-              <div class="v2-dpe-diag-label">📄 Diagnostiqueur</div>
-              <div class="v2-dpe-diag-info">
-                <?php if (!empty($dpeDiag['diagnostiqueur_nom'])): ?>
-                  <strong><?= h((string)$dpeDiag['diagnostiqueur_nom']) ?></strong>
-                <?php endif; ?>
-                <?php if (!empty($dpeDiag['diagnostiqueur_societe'])): ?>
-                  <span class="v2-dpe-diag-societe">· <?= h((string)$dpeDiag['diagnostiqueur_societe']) ?></span>
-                <?php endif; ?>
-                <?php if (!empty($dpeDiag['numero_rapport'])): ?>
-                  <span class="v2-dpe-diag-meta">· N° rapport : <?= h((string)$dpeDiag['numero_rapport']) ?></span>
-                <?php endif; ?>
-                <?php if (!empty($dpeDiag['numero_ademe'])): ?>
-                  <span class="v2-dpe-diag-meta">· ADEME : <?= h((string)$dpeDiag['numero_ademe']) ?></span>
-                <?php endif; ?>
-              </div>
-            </div>
-          <?php endif; ?>
-
-          <div class="v2-dpe-visu">
-            <div class="v2-dpe-col">
-              <div class="v2-dpe-col-title">⚡ Énergie (kWh/m²/an)</div>
-              <?php
-                $currentDpe = strtoupper((string)($bienLoaded['dpe_classe'] ?? ''));
-                foreach ($dpeColors as $l => $color):
-                  $active = ($currentDpe === $l);
-              ?>
-                <div class="v2-dpe-bar <?= $active ? 'is-active' : '' ?>">
-                  <div class="v2-dpe-letter" style="--w:<?= 40 + (ord($l) - 65) * 22 ?>px;background:<?= $color ?>;opacity:<?= $active ? 1 : 0.35 ?>;"><?= $l ?></div>
-                  <?php if ($active): ?><span class="v2-dpe-arrow" style="color:<?= $color ?>;">◀</span><?php endif; ?>
-                </div>
-              <?php endforeach; ?>
-              <div class="v2-dpe-value">
-                <?php if (!empty($bienLoaded['dpe_valeur'])): ?>
-                  <strong><?= h((string)$bienLoaded['dpe_valeur']) ?></strong> kWh/m²/an
-                <?php else: ?><em>Valeur non renseignée</em><?php endif; ?>
-              </div>
-            </div>
-
-            <div class="v2-dpe-col">
-              <div class="v2-dpe-col-title">🌍 GES (kgCO₂/m²/an)</div>
-              <?php
-                $currentGes = strtoupper((string)($bienLoaded['ges_classe'] ?? ''));
-                foreach ($gesColors as $l => $color):
-                  $active = ($currentGes === $l);
-                  $txt = in_array($l, ['A','B']) ? '#7c3aed' : '#fff';
-              ?>
-                <div class="v2-dpe-bar <?= $active ? 'is-active' : '' ?>">
-                  <div class="v2-dpe-letter" style="--w:<?= 40 + (ord($l) - 65) * 22 ?>px;background:<?= $color ?>;color:<?= $txt ?>;opacity:<?= $active ? 1 : 0.35 ?>;"><?= $l ?></div>
-                  <?php if ($active): ?><span class="v2-dpe-arrow" style="color:<?= $color ?>;">◀</span><?php endif; ?>
-                </div>
-              <?php endforeach; ?>
-              <div class="v2-dpe-value">
-                <?php if (!empty($bienLoaded['ges_valeur'])): ?>
-                  <strong><?= h((string)$bienLoaded['ges_valeur']) ?></strong> kgCO₂/m²/an
-                <?php else: ?><em>Valeur non renseignée</em><?php endif; ?>
-              </div>
-            </div>
-
-            <div class="v2-dpe-meta">
-              <div><span class="v2-meta-k">Date réalisation</span><span class="v2-meta-v"><?= h((string)($bienLoaded['dpe_date_realisation'] ?? '—')) ?></span></div>
-              <div><span class="v2-meta-k">Version DPE</span><span class="v2-meta-v"><?= h((string)($bienLoaded['dpe_version'] ?? '—')) ?></span></div>
-              <div><span class="v2-meta-k">N° certificat</span><span class="v2-meta-v"><?= h((string)($bienLoaded['dpe_reference_certificat'] ?? '—')) ?></span></div>
-              <div><span class="v2-meta-k">DPE vierge</span><span class="v2-meta-v"><?= (int)($bienLoaded['dpe_vierge'] ?? 0) === 1 ? 'Oui' : 'Non' ?></span></div>
-              <div><span class="v2-meta-k">Dépenses min</span><span class="v2-meta-v"><?= !empty($bienLoaded['montant_estime_depenses_min']) ? number_format((float)$bienLoaded['montant_estime_depenses_min'], 0, ',', ' ') . ' €' : '—' ?></span></div>
-              <div><span class="v2-meta-k">Dépenses max</span><span class="v2-meta-v"><?= !empty($bienLoaded['montant_estime_depenses_max']) ? number_format((float)$bienLoaded['montant_estime_depenses_max'], 0, ',', ' ') . ' €' : '—' ?></span></div>
-            </div>
-          </div>
+      <?php
+        // ── Prep carte « Détails DPE » (fusion visu + champs + complétude) ──
+        $dpeFieldsTotal  = count($dpeFieldDefs);
+        $dpeFieldsFilled = $dpeFieldsTotal - count($dpeMissingFields);
+        $dpeScoreLive    = $dpeFieldsTotal > 0 ? (int)round(100 * $dpeFieldsFilled / $dpeFieldsTotal) : 0;
+        $dpeGedDocId = 0;
+        if ($lastDpePdf && !empty($lastDpePdf['id'])) {
+            $dpeGedDocId = (int)preg_replace('/\D/', '', (string)$lastDpePdf['id']);
+        }
+        // Rendu d'un champ éditable pré-rempli + classe couleur (vert=rempli / orange=vide)
+        $renderDpeInput = static function (string $col, array $def, $val): void {
+            $filled = !($val === null || $val === '' || (is_string($val) && trim($val) === ''));
+            $cls    = 'v2-field ' . ($filled ? 'is-filled' : 'is-empty');
+            $id     = 'v2-f-' . $col;
+            $sv     = htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+            echo '<div class="' . $cls . '" data-field-wrap="' . h($col) . '">';
+            echo '<label for="' . h($id) . '">' . h($def['label'])
+               . ' <span class="v2-field-tag">' . ($filled ? '✓ renseigné' : '○ à compléter') . '</span></label>';
+            $type = $def['type'] ?? 'text';
+            if ($type === 'bool') {
+                $b = ($val === '' || $val === null) ? '' : ((string)(int)(!empty($val)));
+                echo '<select id="' . h($id) . '" name="' . h($col) . '" class="v2-input">'
+                   . '<option value="">—</option>'
+                   . '<option value="1"' . ($b === '1' ? ' selected' : '') . '>Oui</option>'
+                   . '<option value="0"' . ($b === '0' ? ' selected' : '') . '>Non</option>'
+                   . '</select>';
+            } elseif ($type === 'class') {
+                echo '<select id="' . h($id) . '" name="' . h($col) . '" class="v2-input"><option value="">—</option>';
+                foreach (['A','B','C','D','E','F','G'] as $l) {
+                    echo '<option value="' . $l . '"' . (strtoupper((string)$val) === $l ? ' selected' : '') . '>' . $l . '</option>';
+                }
+                echo '</select>';
+            } elseif ($type === 'dpe_version') {
+                echo '<select id="' . h($id) . '" name="' . h($col) . '" class="v2-input"><option value="">—</option>'
+                   . '<option value="2011"' . ((string)$val === '2011' ? ' selected' : '') . '>2011 (avant réforme du 1ᵉʳ juillet 2021)</option>'
+                   . '<option value="2021"' . ((string)$val === '2021' ? ' selected' : '') . '>2021 (méthode actuelle)</option>'
+                   . '</select>';
+            } elseif ($type === 'date') {
+                $d = '';
+                if ($val) { $ts = strtotime((string)$val); if ($ts) $d = date('Y-m-d', $ts); }
+                echo '<input type="date" id="' . h($id) . '" name="' . h($col) . '" class="v2-input" value="' . h($d) . '">';
+            } elseif ($type === 'number') {
+                echo '<input type="number" step="0.01" id="' . h($id) . '" name="' . h($col) . '" class="v2-input" value="' . $sv . '">';
+            } elseif ($type === 'textarea') {
+                echo '<textarea id="' . h($id) . '" name="' . h($col) . '" class="v2-input" rows="3">' . $sv . '</textarea>';
+            } else {
+                echo '<input type="text" id="' . h($id) . '" name="' . h($col) . '" class="v2-input" value="' . $sv . '">';
+            }
+            echo '</div>';
+        };
+      ?>
+      <!-- Card 1 : Détails DPE (fusion : visu énergie/GES + champs éditables + complétude) -->
+      <section class="v2-card is-active" role="tabpanel" aria-label="Détails DPE">
+        <div class="v2-card-label">⚡ Détails DPE
+          <span class="v2-count" id="v2-count-missing"><?= count($dpeMissingFields) ?></span>
+          <?php if ($dpeDiag): ?><span class="v2-count" title="Complétude"><?= $dpeScoreLive ?>%</span><?php endif; ?>
         </div>
+        <div class="v2-card-body v2-split">
+            <div class="v2-split-left">
+              <?php if ($lastDpePdf): ?>
+                <iframe src="<?= h($lastDpePdf['url_fichier']) ?>#navpanes=0&toolbar=1&view=FitH" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
+                <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
+              <?php else: ?>
+                <div class="v2-doc-empty">
+                  <div class="v2-doc-empty-icon">📎</div>
+                  <div>Aucun PDF DPE chargé<br>
+                    <a href="?edit=<?= (int)$editingBienId ?>&section=documents" class="v2-btn-outline" style="margin-top:12px;display:inline-block;">📎 Charger un PDF</a>
+                  </div>
+                </div>
+              <?php endif; ?>
+            </div>
+            <div class="v2-split-right">
+              <form id="v2-missing-form" class="v2-form"
+                    data-diag-id="<?= (int)($dpeDiag['id'] ?? 0) ?>"
+                    data-bien-id="<?= (int)$editingBienId ?>"
+                    data-ged-doc-id="<?= (int)$dpeGedDocId ?>">
+                <?php if ($dpeGedDocId > 0): ?>
+                <div class="v2-reextract-bar">
+                  <button type="button" id="v2-reextract-btn" class="v2-btn-outline" title="Réapplique l'extraction IA déjà réalisée sur ce PDF (même qualité que l'onglet Documents) — gratuit, aucun nouvel appel IA">
+                    🔄 Réappliquer l'extraction (gratuit)
+                  </button>
+                  <span id="v2-reextract-status" class="v2-form-status"></span>
+                </div>
+                <?php endif; ?>
+                <?php foreach ($dpeFieldDefs as $col => $def): ?>
+                  <?php $renderDpeInput($col, $def, $dpeDiag[$col] ?? ''); ?>
+                <?php endforeach; ?>
+                <div class="v2-form-actions">
+                  <button type="submit" class="v2-btn-primary">💾 Enregistrer</button>
+                  <span id="v2-missing-status" class="v2-form-status"></span>
+                </div>
+              </form>
+            </div>
+        </div><!-- /card-body (= split) -->
       </section>
 
       <!-- Card 2 : ERP / Géorisques (visu) -->
@@ -3678,119 +3696,33 @@ if (!$embed) {
             </div>
           </div>
           <p class="v2-card-note">📌 Obligations légales : Mention Géorisques depuis 01/01/2023 · Débroussaillement renforcé 2025.</p>
-        </div>
-      </section>
 
-      <!-- Card 3 : Données extraites (visu tableau) -->
-      <?php
-        // Score d'extraction recalculé en LIVE = % de colonnes whitelistées remplies
-        // (au lieu de dpe_diags.extraction_score figé à l'upload, qui restait
-        //  désaligné du compteur "Champs à compléter" → 100% / 17 à compléter)
-        $dpeFieldsTotal  = count($dpeFieldDefs);
-        $dpeFieldsFilled = $dpeFieldsTotal - count($dpeMissingFields);
-        $dpeScoreLive    = $dpeFieldsTotal > 0
-            ? (int)round(100 * $dpeFieldsFilled / $dpeFieldsTotal)
-            : 0;
-      ?>
-      <section class="v2-card is-hidden" role="tabpanel" aria-label="Données extraites du DPE">
-        <div class="v2-card-label">📊 Données extraites
-          <?php if ($dpeDiag): ?>
-            <span class="v2-count"><?= $dpeScoreLive ?>%</span>
-          <?php endif; ?>
-        </div>
-        <div class="v2-card-body">
-          <?php if ($dpeDiag): ?>
-            <table class="v2-extract-table">
-              <thead>
-                <tr><th>Champ</th><th>Valeur extraite</th></tr>
-              </thead>
-              <tbody>
-                <?php foreach ($dpeFieldDefs as $col => $def):
-                  $v = $dpeDiag[$col] ?? null;
-                  if ($v === null || $v === '') continue;
-                ?>
-                  <tr>
-                    <td><?= h($def['label']) ?></td>
-                    <td><?= h((string)$v) ?></td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
-          <?php else: ?>
-            <div class="v2-doc-empty">
-              <div class="v2-doc-empty-icon">📊</div>
-              <div>Aucune analyse DPE disponible.<br><small>Uploadez un PDF DPE dans la section Documents pour déclencher l'extraction.</small></div>
-            </div>
-          <?php endif; ?>
-        </div>
-      </section>
-
-      <!-- Card 4 : Champs à compléter (édition + split PDF) -->
-      <section class="v2-card is-hidden" role="tabpanel" aria-label="Champs à compléter">
-        <div class="v2-card-label">✍️ Champs à compléter
-          <span class="v2-count" id="v2-count-missing"><?= count($dpeMissingFields) ?></span>
-        </div>
-        <div class="v2-card-body v2-split">
-          <div class="v2-split-left">
-            <?php if ($lastDpePdf): ?>
-              <iframe src="<?= h($lastDpePdf['url_fichier']) ?>#navpanes=0&toolbar=1&view=FitH" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
-              <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
-            <?php else: ?>
-              <div class="v2-doc-empty">
-                <div class="v2-doc-empty-icon">📎</div>
-                <div>Aucun PDF DPE chargé<br>
-                  <a href="?edit=<?= (int)$editingBienId ?>&section=documents" class="v2-btn-outline" style="margin-top:12px;display:inline-block;">📎 Charger un PDF</a>
-                </div>
-              </div>
-            <?php endif; ?>
+          <!-- Recherche « données publiques » Géorisques (gratuit, officiel) -->
+          <?php
+            $erpLat = (string)($bienLoaded['_imm_latitude']  ?? ($bienLoaded['latitude']  ?? ''));
+            $erpLng = (string)($bienLoaded['_imm_longitude'] ?? ($bienLoaded['longitude'] ?? ''));
+            $erpGeo = ($erpLat !== '' && $erpLng !== '' && (float)$erpLat !== 0.0 && (float)$erpLng !== 0.0);
+          ?>
+          <div class="v2-reextract-bar" style="margin-top:14px;">
+            <button type="button" id="v2-erp-search-btn" class="v2-btn-outline"
+                    data-lat="<?= h($erpLat) ?>" data-lng="<?= h($erpLng) ?>"
+                    <?= $erpGeo ? '' : 'disabled' ?>
+                    title="<?= $erpGeo ? 'Récupère l\'État des Risques officiel (Géorisques) + le PDF' : 'Le bien doit être géolocalisé (adresse validée) pour interroger Géorisques' ?>">
+              🔎 Rechercher (données publiques Géorisques)
+            </button>
+            <span id="v2-erp-search-status" class="v2-form-status">
+              <?= $erpGeo ? '' : '⚠️ Bien non géolocalisé — validez l\'adresse dans Descriptif.' ?>
+            </span>
           </div>
-          <div class="v2-split-right">
-            <form id="v2-missing-form" class="v2-form" data-diag-id="<?= (int)($dpeDiag['id'] ?? 0) ?>" data-bien-id="<?= (int)$editingBienId ?>">
-              <?php if (empty($dpeMissingFields)): ?>
-                <div class="v2-doc-empty">
-                  <div class="v2-doc-empty-icon">🎉</div>
-                  <div>Tous les champs sont renseignés !</div>
-                </div>
-              <?php else: ?>
-                <?php foreach ($dpeMissingFields as $col => $def): ?>
-                  <div class="v2-field">
-                    <label for="v2-f-<?= h($col) ?>"><?= h($def['label']) ?></label>
-                    <?php if ($def['type'] === 'bool'): ?>
-                      <select id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
-                        <option value="">—</option>
-                        <option value="1">Oui</option>
-                        <option value="0">Non</option>
-                      </select>
-                    <?php elseif ($def['type'] === 'class'): ?>
-                      <select id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
-                        <option value="">—</option>
-                        <?php foreach (['A','B','C','D','E','F','G'] as $l): ?>
-                          <option value="<?= $l ?>"><?= $l ?></option>
-                        <?php endforeach; ?>
-                      </select>
-                    <?php elseif ($def['type'] === 'dpe_version'): ?>
-                      <select id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
-                        <option value="">—</option>
-                        <option value="2011">2011 (avant réforme du 1ᵉʳ juillet 2021)</option>
-                        <option value="2021">2021 (méthode actuelle)</option>
-                      </select>
-                    <?php elseif ($def['type'] === 'date'): ?>
-                      <input type="date" id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
-                    <?php elseif ($def['type'] === 'number'): ?>
-                      <input type="number" step="0.01" id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
-                    <?php elseif ($def['type'] === 'textarea'): ?>
-                      <textarea id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input" rows="3"></textarea>
-                    <?php else: ?>
-                      <input type="text" id="v2-f-<?= h($col) ?>" name="<?= h($col) ?>" class="v2-input">
-                    <?php endif; ?>
-                  </div>
-                <?php endforeach; ?>
-                <div class="v2-form-actions">
-                  <button type="submit" class="v2-btn-primary">💾 Enregistrer</button>
-                  <span id="v2-missing-status" class="v2-form-status"></span>
-                </div>
-              <?php endif; ?>
-            </form>
+
+          <!-- Résultat : même présentation que les diags (PDF à gauche, données extraites à droite) -->
+          <div id="v2-erp-result" class="v2-split" style="margin-top:14px; min-height:520px; display:none;">
+            <div class="v2-split-left">
+              <iframe id="v2-erp-pdf" src="" title="Rapport ERP Géorisques" loading="lazy"></iframe>
+            </div>
+            <div class="v2-split-right">
+              <div id="v2-erp-fields" class="v2-form"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -3963,6 +3895,9 @@ $peLogoUrl = $peLogoEnc !== '' ? app_url('/' . $peLogoEnc) : '';
     uploadEndpoint:      <?= json_encode(app_url('/api/bien_intake_upload.php'),       JSON_UNESCAPED_SLASHES) ?>,
     photoUploadEndpoint: <?= json_encode(app_url('/api/bien_intake_photo_upload.php'), JSON_UNESCAPED_SLASHES) ?>,
     updateEndpoint:      <?= json_encode(app_url('/api/dpe_diag_update.php'),          JSON_UNESCAPED_SLASHES) ?>,
+    dpeReextractEndpoint:<?= json_encode(app_url('/api/dpe_reextract_free.php'),        JSON_UNESCAPED_SLASHES) ?>,
+    geoRisquesEndpoint:  <?= json_encode(app_url('/api/geo_risques.php'),               JSON_UNESCAPED_SLASHES) ?>,
+    erpPdfEndpoint:      <?= json_encode(app_url('/api/erp_rapport_pdf.php'),            JSON_UNESCAPED_SLASHES) ?>,
     autosaveEndpoint:    <?= json_encode(app_url('/api/bien_autosave.php'),            JSON_UNESCAPED_SLASHES) ?>,
     tiersLookupEndpoint: <?= json_encode(app_url('/api/tiers_lookup.php'),             JSON_UNESCAPED_SLASHES) ?>,
     tiersCreateEndpoint: <?= json_encode(app_url('/api/tiers_create.php'),             JSON_UNESCAPED_SLASHES) ?>,

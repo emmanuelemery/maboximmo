@@ -13,7 +13,7 @@ declare(strict_types=1);
  */
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
-require_admin_or_super_admin();
+require_login();   // données publiques Géorisques (proxy même-origine) — accessible tous niveaux
 
 $lat = (float)($_GET['lat'] ?? 0);
 $lng = (float)($_GET['lng'] ?? 0);

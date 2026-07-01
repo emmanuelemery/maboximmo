@@ -831,6 +831,38 @@ html.v2-no-scroll, body.v2-no-scroll {
 .v2-form-status.ok  { color: #0ea572; }
 .v2-form-status.err { color: #dc2626; }
 
+/* ── Code couleur des champs DPE (Card « Champs à compléter ») ──
+   Vert = extrait/renseigné · Orange = à compléter · Bleu = saisi/modifié par l'user */
+.v2-field { border-left: 3px solid transparent; padding-left: 8px; border-radius: 4px; transition: background .15s, border-color .15s; }
+.v2-field.is-filled { border-left-color: #16a34a; background: #f0fdf4; }
+.v2-field.is-empty  { border-left-color: #f59e0b; background: #fffbeb; }
+.v2-field.is-usered { border-left-color: #2563eb; background: #eff6ff; }
+.v2-field-tag { font-weight: 600; font-size: 10px; text-transform: none; letter-spacing: 0; }
+.v2-field.is-filled .v2-field-tag { color: #16a34a; }
+.v2-field.is-empty  .v2-field-tag { color: #b45309; }
+.v2-field.is-usered .v2-field-tag { color: #2563eb; }
+.v2-field.is-usered .v2-field-tag::after { content: " · modifié"; }
+
+/* Légende couleurs (mini-ligne au-dessus du visualiseur PDF) */
+.v2-dpe-legend {
+  position: absolute; top: 6px; left: 6px; right: 6px; z-index: 3;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  font-size: 10px; font-weight: 700;
+  background: rgba(255,255,255,.92); padding: 4px 6px; border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(15,23,42,.12);
+}
+.v2-lg { padding: 1px 7px; border-radius: 6px; border-left: 3px solid transparent; }
+.v2-lg.is-filled { background: #f0fdf4; border-left-color: #16a34a; color: #15803d; }
+.v2-lg.is-empty  { background: #fffbeb; border-left-color: #f59e0b; color: #b45309; }
+.v2-lg.is-usered { background: #eff6ff; border-left-color: #2563eb; color: #2563eb; }
+
+/* Barre « relancer extraction gratuite » */
+.v2-reextract-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 8px; padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(54, 87, 125, 0.16);
+}
+
 /* ─────────────────────────────────
    CARD 5 — Analyse
 ───────────────────────────────── */

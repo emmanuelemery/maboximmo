@@ -90,7 +90,7 @@ if (($body['action'] ?? '') === 'optimize_designation') {
             CURLOPT_POSTFIELDS => json_encode([
                 'model' => 'gpt-4o-mini',
                 'messages' => [['role' => 'user', 'content' => $prompt]],
-                'temperature' => 0.7,
+                'temperature' => 0,
                 'max_tokens' => 500,
             ]),
             CURLOPT_TIMEOUT => 30,
@@ -414,12 +414,14 @@ $systemPrompt = <<<SYSTEM
 Tu es un expert immobilier rédacteur pour une agence professionnelle française.
 Tu génères des contenus pour des fiches biens et des annonces immobilières.
 
-RÈGLES DE RÉDACTION :
-- TYPE DE BIEN IMPÉRATIF : ce bien est un « {$typeBien} ». Emploie EXACTEMENT ce type (et ses synonymes corrects) PARTOUT — titre, accroche, description, meta_title, meta_description, mots_cles, slug. Tu n'as ABSOLUMENT PAS le droit d'écrire « maison », « appartement », « studio » ou tout autre type si ce n'est pas « {$typeBien} ». Pour des bureaux/locaux commerciaux : pas de « pièces de vie », « chambres », « séjour » — parle de surfaces, postes de travail, accessibilité, stationnement.
-- Textes précis, attrayants, professionnels — AUCUN superlatif vide ("magnifique", "exceptionnel" sans justification).
-- Intègre NATURELLEMENT les éléments visuels fournis (analyses des photos) — par exemple si une photo mentionne "cuisine ouverte sur séjour, îlot central, tons clairs", cela DOIT transparaître dans la description.
-- Ne fabule JAMAIS : ne mentionne que des éléments présents dans les données (caractéristiques + notes de l'agent + analyses photos).
-- Respecte la réglementation française : pas de mention discriminatoire, données DPE factuelles.
+RÈGLES DE RÉDACTION — FACTUEL STRICT (créativité ZÉRO) :
+- INTERDICTION ABSOLUE D'INVENTER, DE PRÉSUMER OU D'EMBELLIR. Tu n'utilises QUE les informations explicitement fournies (caractéristiques saisies du bien, données de l'immeuble, notes de l'agent). Si une information n'est pas fournie, tu ne l'écris PAS — tu ne la déduis pas, tu ne l'imagines pas.
+- VOCABULAIRE EXACT : nomme chaque élément par son terme EXACT. Un « balcon » est un « balcon » (jamais « terrasse », jamais « donnant sur un espace vert » si ce n'est pas indiqué). Ex correct : « balcon offrant un accès à l'extérieur ». N'ajoute AUCUN qualificatif d'environnement (vue, verdure, calme, proximité…) qui ne soit pas dans les données.
+- AUCUN superlatif, AUCun adjectif d'ambiance non justifié (« magnifique », « lumineux », « exceptionnel », « spacieux »… interdits sauf si une donnée chiffrée/explicite le justifie).
+- TYPE DE BIEN IMPÉRATIF : ce bien est un « {$typeBien} ». Emploie EXACTEMENT ce type PARTOUT. Interdiction d'écrire un autre type. Bureaux/locaux : pas de « pièces de vie », « chambres », « séjour ».
+- Photos : ne décris QUE ce qui est objectivement certain ; n'extrapole rien à partir d'une image.
+- Le texte est une reformulation COMMERCIALE mais FIDÈLE des données saisies — des phrases correctes, pas un inventaire brut, mais RIEN qui ne soit dans les données.
+- Réglementation française : pas de mention discriminatoire, données DPE factuelles.
 - Format : UNIQUEMENT du JSON valide, sans markdown, sans backticks, sans balise.
 SYSTEM;
 
@@ -470,7 +472,7 @@ if (!empty($photos)) {
 $payload = [
     'model'       => 'gpt-4o',
     'messages'    => $messages,
-    'temperature' => 0.7,
+    'temperature' => 0,
     'max_tokens'  => 1500,
     'response_format' => ['type' => 'json_object'],
 ];

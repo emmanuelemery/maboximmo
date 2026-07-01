@@ -337,6 +337,55 @@
   function bindMissingForm() {
     const form = document.getElementById('v2-missing-form');
     if (!form) return;
+    const dataCtx = window.__v2DocsData || {};
+
+    // ── Bleu = saisi/modifié par l'utilisateur : au 1er changement d'un champ,
+    //    on repeint son cadre en bleu (vert/orange = état initial extrait/manquant). ──
+    Array.from(form.elements).forEach(el => {
+      if (!el.name) return;
+      const paint = () => {
+        const wrap = el.closest('.v2-field');
+        if (!wrap) return;
+        wrap.classList.remove('is-filled', 'is-empty');
+        wrap.classList.add('is-usered');
+        const tag = wrap.querySelector('.v2-field-tag');
+        if (tag) tag.textContent = '✎ saisi';
+      };
+      el.addEventListener('input', paint);
+      el.addEventListener('change', paint);
+    });
+
+    // ── Bouton « Relancer l'extraction (gratuit) » : regex sur le PDF déjà chargé,
+    //    aucun coût IA. Au succès, on recharge pour réafficher les champs remontés. ──
+    const reBtn = document.getElementById('v2-reextract-btn');
+    if (reBtn) {
+      reBtn.addEventListener('click', async () => {
+        const st = document.getElementById('v2-reextract-status');
+        const bienId = parseInt(form.getAttribute('data-bien-id'), 10) || 0;
+        const gedId  = parseInt(form.getAttribute('data-ged-doc-id'), 10) || 0;
+        if (!gedId) { if (st) { st.textContent = '❌ Aucun PDF DPE en GED.'; st.className = 'v2-form-status err'; } return; }
+        reBtn.disabled = true;
+        if (st) { st.textContent = '⏳ Ré-extraction gratuite (regex, sans IA)…'; st.className = 'v2-form-status'; }
+        try {
+          const fd = new FormData();
+          fd.append('id_bien', bienId);
+          fd.append('ged_document_id', gedId);
+          fd.append('csrf_token', dataCtx.csrfToken || csrf || '');
+          const r = await fetch(dataCtx.dpeReextractEndpoint || '/api/dpe_reextract_free.php', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Échec');
+          const via = j.method === 'ia_cache' ? 'IA (déjà faite)' : 'regex';
+          if (st) { st.textContent = `✅ ${j.count || 0} champ(s) réappliqués via ${via}. Rechargement…`; st.className = 'v2-form-status ok'; }
+          setTimeout(() => window.location.reload(), 800);
+        } catch (err) {
+          if (st) { st.textContent = '❌ ' + err.message; st.className = 'v2-form-status err'; }
+          reBtn.disabled = false;
+        }
+      });
+    }
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const status = document.getElementById('v2-missing-status');
@@ -386,6 +435,58 @@
         setTimeout(() => window.location.reload(), 900);
       } catch (err) {
         if (status) { status.textContent = '❌ ' + err.message; status.className = 'v2-form-status err'; }
+      }
+    });
+  }
+
+  // ── Card ERP — recherche « données publiques » Géorisques (PDF + risques) ──
+  function bindErpSearch() {
+    const btn = document.getElementById('v2-erp-search-btn');
+    if (!btn) return;
+    const data = window.__v2DocsData || {};
+    btn.addEventListener('click', async () => {
+      const lat = parseFloat(btn.dataset.lat || '');
+      const lng = parseFloat(btn.dataset.lng || '');
+      const st  = document.getElementById('v2-erp-search-status');
+      const box = document.getElementById('v2-erp-result');
+      const pdf = document.getElementById('v2-erp-pdf');
+      const fld = document.getElementById('v2-erp-fields');
+      if (!lat || !lng) { if (st) { st.textContent = '⚠️ Bien non géolocalisé.'; st.className = 'v2-form-status err'; } return; }
+      btn.disabled = true;
+      if (st) { st.textContent = '⏳ Interrogation de Géorisques (données publiques)…'; st.className = 'v2-form-status'; }
+      // PDF officiel (proxy même-origine) à gauche
+      if (box) box.style.display = '';
+      if (pdf) pdf.src = (data.erpPdfEndpoint || '/api/erp_rapport_pdf.php') + '?lat=' + lat + '&lng=' + lng;
+      // Données extraites (risques) à droite, mêmes codes couleur que les diags
+      try {
+        const r = await fetch((data.geoRisquesEndpoint || '/api/geo_risques.php') + '?lat=' + lat + '&lng=' + lng, { credentials: 'same-origin' });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Géorisques indisponible');
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        let html = '';
+        html += '<div class="v2-field is-filled"><label>Commune <span class="v2-field-tag">✓ Géorisques</span></label>'
+              + '<input class="v2-input" value="' + esc(j.commune + (j.code_insee ? ' (' + j.code_insee + ')' : '')) + '" readonly></div>';
+        const risks = Array.isArray(j.risques) ? j.risques : [];
+        if (!risks.length) {
+          html += '<div class="v2-field is-filled"><label>Risques recensés <span class="v2-field-tag">✓ aucun</span></label>'
+                + '<input class="v2-input" value="✅ Aucun risque présent à cette adresse" readonly></div>';
+        } else {
+          risks.forEach(rk => {
+            html += '<div class="v2-field is-empty"><label>' + esc(rk.label || rk.famille)
+                  + ' <span class="v2-field-tag">⚠️ ' + esc(rk.famille) + '</span></label>'
+                  + '<input class="v2-input" value="' + esc(rk.statut || 'Risque présent') + '" readonly></div>';
+          });
+        }
+        if (j.url) {
+          html += '<div class="v2-field"><label>Source officielle</label>'
+                + '<a class="v2-btn-outline" href="' + esc(j.url) + '" target="_blank" rel="noopener" style="display:inline-block;">↗ Fiche Géorisques</a></div>';
+        }
+        if (fld) fld.innerHTML = html;
+        if (st) { st.textContent = '✅ ' + (risks.length ? (risks.length + ' risque(s) recensé(s)') : 'Aucun risque') + ' · PDF chargé'; st.className = 'v2-form-status ok'; }
+      } catch (e) {
+        if (st) { st.textContent = '❌ ' + e.message; st.className = 'v2-form-status err'; }
+      } finally {
+        btn.disabled = false;
       }
     });
   }
@@ -1745,6 +1846,20 @@
       });
     });
 
+    // ═══ Par défaut : pré-cocher les 3 canaux si aucun n'est encore sélectionné ═══
+    // (l'utilisateur reste libre d'en décocher). On persiste pour que la diffusion
+    // serveur (qui lit visible_* en BDD) reflète bien la sélection par défaut.
+    (function preselectChannels(){
+      const cards = document.querySelectorAll('.v2-chan-card[data-annonce-bool]');
+      if (!cards.length || cards[0].disabled) return;   // pas si complétude verrouillée
+      const anySel = Array.from(cards).some(c => c.classList.contains('is-selected'));
+      if (anySel) return;                                 // l'utilisateur a déjà choisi
+      cards.forEach(c => {
+        c.classList.add('is-selected');
+        saveAnnonce(c.dataset.annonceBool, '1');
+      });
+    })();
+
     // ═══ Card 5 Récap Ubiflow : click → scroll vers champ ou redirect section ═══
     document.querySelectorAll('.v2-ubi-item').forEach(item => {
       const go = () => {
@@ -1797,7 +1912,11 @@
           });
           const j = await r.json();
           if (!j.ok) {
-            diffuseStatus.textContent = '❌ ' + (j.error || 'Échec');
+            // Nomme précisément le(s) champ(s) bloquant(s) renvoyés par l'API (au lieu d'un simple compte).
+            var champs = (Array.isArray(j.missing) && j.missing.length)
+              ? ' → ' + j.missing.map(function(m){ return (m.label || m.key || ''); }).filter(Boolean).join(', ')
+              : '';
+            diffuseStatus.innerHTML = '❌ ' + ((j.error || 'Échec') + champs).replace(/</g,'&lt;');
             diffuseStatus.className = 'v2-form-status err';
             diffuseBtn.disabled = false;
             diffuseBtn.innerHTML = originalLabel;
@@ -2857,22 +2976,40 @@
           return r.json();
         }
 
+        // Compteurs partagés entre lots (permet de déposer 4 puis encore 4
+        // sans attendre : chaque lot s'exécute en parallèle et met à jour le total).
+        let upInFlight = 0, upDone = 0, upErr = 0, upNew = 0;
+
+        // Met à jour les décomptes visibles (onglet Photos) immédiatement, sans reload.
+        function bumpPhotoCounts(n) {
+          if (!n) return;
+          ['v2-count-photos', 'v2-photos-count'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String((parseInt(el.textContent, 10) || 0) + n);
+          });
+        }
+
         async function uploadAll(files) {
           const list = Array.from(files).filter(f => /^image\//.test(f.type));
           if (list.length === 0) { setStatus('err', '❌ Aucune image valide'); return; }
-          let done = 0, errs = 0;
-          setStatus('', `⏳ 0 / ${list.length}…`);
-          for (const f of list) {
+          upInFlight += list.length;
+          setStatus('', `⏳ ${upDone + upErr} / ${upDone + upErr + upInFlight}…`);
+          // Tous les fichiers du lot partent EN PARALLÈLE (pas d'attente séquentielle).
+          await Promise.all(list.map(async (f) => {
             const ref = addThumb(f);
             try {
               const j = await uploadPhoto(f);
               resolveThumb(ref, j);
-              if (j.ok) done++; else errs++;
-            } catch (e) { resolveThumb(ref, { ok: false, error: e.message }); errs++; }
-            setStatus('', `⏳ ${done + errs} / ${list.length}…`);
+              if (j.ok) { upDone++; if (!j.duplicate) { upNew++; bumpPhotoCounts(1); } }
+              else upErr++;
+            } catch (e) { resolveThumb(ref, { ok: false, error: e.message }); upErr++; }
+            upInFlight--;
+            setStatus('', `⏳ ${upDone + upErr} traitée(s)${upInFlight ? ` · ${upInFlight} en cours…` : ''}`);
+          }));
+          if (upInFlight === 0) {
+            if (upErr === 0) setStatus('ok', `✅ ${upDone} photo(s) ajoutée(s)`);
+            else setStatus('err', `⚠️ ${upDone} OK · ${upErr} échec(s)`);
           }
-          if (errs === 0) setStatus('ok', `✅ ${done} photo(s) ajoutée(s)`);
-          else setStatus('err', `⚠️ ${done} OK · ${errs} échec(s)`);
         }
 
         dz.addEventListener('click', () => dzInput.click());
@@ -2895,6 +3032,7 @@
       bindPhotoEditor(data, dzThumbs);
     } else if (section === 'dpe') {
       bindMissingForm();
+      bindErpSearch();
     }
 
     const stage = document.getElementById('v2-stage');
