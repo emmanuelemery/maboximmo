@@ -9,15 +9,26 @@ declare(strict_types=1);
  * inclure toute la page (qui derouleait session, handlers POST, HTML...).
  */
 
+if (!function_exists('rh_prime_anciennete_montant')) {
+    // Montant € de la prime d'ancienneté attendu pour un salarié/mois.
+    // Source réelle : colonne "Anc." du tableau des salaires -> champ `anciennete`
+    // (montant en €). Repli sur `prime_anciennete_montant` (ancien champ dédié).
+    function rh_prime_anciennete_montant(array $u): float {
+        if (!empty($u['prime_anciennete_montant'])) return (float)$u['prime_anciennete_montant'];
+        if (!empty($u['anciennete']))               return (float)$u['anciennete'];
+        return 0.0;
+    }
+}
+
 if (!function_exists('rh_expected_salary_lines')) {
     function rh_expected_salary_lines(array $u): array {
       $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
-      // Prime ancienneté : valeur saisie à la main (champ ajouté par
-      // migration 04_alter_salaires_prime_anciennete_montant.sql), pour
-      // matcher le barème CCN immobilier du comptable (et plus la formule
-      // auto bidonnée brut * anciennete * 1% / 12).
-      $primeAnciennete = !empty($u['prime_anciennete_montant'])
-          ? (float)$u['prime_anciennete_montant'] : 0;
+      // Prime ancienneté = MONTANT € saisi à la main. La colonne "Anc." du
+      // tableau des salaires écrit ce montant dans `anciennete` (cf.
+      // rh_salaires.php : « Ancienneté = MONTANT de la prime en € »). On lit
+      // donc `anciennete` en priorité, avec repli sur l'ancien champ dédié
+      // `prime_anciennete_montant` s'il a été renseigné.
+      $primeAnciennete = rh_prime_anciennete_montant($u);
       $lines = [
         'Salaire de base' => $brut,
         'Prime ancienneté' => $primeAnciennete,
@@ -50,7 +61,7 @@ if (!function_exists('rh_expected_brut_total')) {
     function rh_expected_brut_total(array $u): float {
       $brut = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
       return $brut
-           + (!empty($u['prime_anciennete_montant']) ? (float)$u['prime_anciennete_montant'] : 0)
+           + rh_prime_anciennete_montant($u)
            + (!empty($u['treizieme_mois']) ? (float)$u['treizieme_mois'] : 0)
            + (!empty($u['commission_ca']) ? (float)$u['commission_ca'] : 0)
            + (!empty($u['commission_ca_nouvelles_affaires']) ? (float)$u['commission_ca_nouvelles_affaires'] : 0)
