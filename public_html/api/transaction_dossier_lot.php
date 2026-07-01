@@ -51,19 +51,53 @@ try {
                 echo json_encode(['ok'=>true,'items'=>[]]); exit; // pas d'immeuble + pas de requête
             }
             $sql = 'SELECT b.id, b.reference_bien, b.designation, b.etage, b.numero_lot,
-                           b.loyer_hc, b.id_immeuble,
+                           b.loyer_hc, b.id_immeuble, b.surface_habitable, b.adresse_1,
                            COALESCE(NULLIF(b.ville,""), i.ville) AS ville,
+                           tl.libelle AS type_lib,
                            (b.id_immeuble = :imm) AS meme_immeuble
                     FROM biens b
                     LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                    LEFT JOIN types_bien_legacy tl ON tl.id = b.id_type_bien
                     WHERE ' . implode(' AND ', $where) . '
-                    ORDER BY meme_immeuble DESC, b.date_modification DESC LIMIT 25';
+                    ORDER BY meme_immeuble DESC, b.date_modification DESC LIMIT 40';
             $params[':imm'] = $immId;
             $stS = $pdo->prepare($sql);
             foreach ($params as $k=>$v) { $stS->bindValue($k, $v, is_int($v) ? PDO::PARAM_INT : PDO::PARAM_STR); }
             $stS->execute();
             echo json_encode(['ok'=>true, 'items'=>$stS->fetchAll(PDO::FETCH_ASSOC) ?: []], JSON_UNESCAPED_UNICODE);
             exit;
+
+        case 'owner_lots': {
+            // Biens du PROPRIÉTAIRE du dossier — priorité au même immeuble, hors lots déjà rattachés.
+            $stM = $pdo->prepare("SELECT id_proprietaire, id_immeuble FROM biens WHERE id=? LIMIT 1");
+            $stM->execute([(int)$dossier['id_bien']]);
+            $m = $stM->fetch(PDO::FETCH_ASSOC) ?: [];
+            $ownerId = (int)($m['id_proprietaire'] ?? 0);
+            $immId   = (int)($m['id_immeuble'] ?? 0);
+            if ($ownerId <= 0) { echo json_encode(['ok'=>true,'items'=>[],'owner'=>'','immeuble'=>'','owner_id'=>0]); exit; }
+            $where  = ['b.id_proprietaire = :own',
+                       '(b.statut_bien IS NULL OR b.statut_bien NOT IN ("supprime","archive"))',
+                       'b.id NOT IN (SELECT id_bien FROM dossier_vente_bien WHERE id_dossier = :doss)'];
+            $params = [':own'=>$ownerId, ':doss'=>$idDossier, ':imm'=>$immId];
+            if (!$isManager && $idSoc !== null) { $where[] = '(b.id_societe = :s OR b.id_societe IS NULL)'; $params[':s'] = $idSoc; }
+            $sql = 'SELECT b.id, b.reference_bien, b.designation, b.etage, b.numero_lot, b.surface_habitable,
+                           b.adresse_1, COALESCE(NULLIF(b.ville,""), i.ville) AS ville, b.id_immeuble,
+                           tl.libelle AS type_lib, (b.id_immeuble = :imm) AS meme_immeuble
+                    FROM biens b
+                    LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                    LEFT JOIN types_bien_legacy tl ON tl.id = b.id_type_bien
+                    WHERE ' . implode(' AND ', $where) . '
+                    ORDER BY meme_immeuble DESC, b.reference_bien LIMIT 60';
+            $stS = $pdo->prepare($sql);
+            foreach ($params as $k=>$v) { $stS->bindValue($k, $v, is_int($v) ? PDO::PARAM_INT : PDO::PARAM_STR); }
+            $stS->execute();
+            $items = $stS->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $ownerNom = ''; $immNom = '';
+            try { $o = $pdo->prepare("SELECT COALESCE(NULLIF(societe,''), TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,'')))) n FROM proprietaires WHERE id=?"); $o->execute([$ownerId]); $ownerNom = (string)$o->fetchColumn(); } catch (Throwable) {}
+            if ($immId > 0) { try { $ii = $pdo->prepare("SELECT COALESCE(NULLIF(nom_immeuble,''), adresse_formatee) n FROM immeubles WHERE id=?"); $ii->execute([$immId]); $immNom = (string)$ii->fetchColumn(); } catch (Throwable) {} }
+            echo json_encode(['ok'=>true, 'items'=>$items, 'owner'=>$ownerNom, 'immeuble'=>$immNom, 'owner_id'=>$ownerId], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
 
         case 'add':
             $idBien = (int)(post('id_bien') ?? 0);

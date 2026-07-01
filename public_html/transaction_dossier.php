@@ -64,6 +64,43 @@ $stB->execute([$idBien]);
 $bien = $stB->fetch(PDO::FETCH_ASSOC);
 if (!$bien) { http_response_code(404); exit('Bien introuvable.'); }
 
+// ── Checklist « Documents à récupérer » (modèle mise en vente) + statut GED ──
+$recupItems = [];
+if (is_file(__DIR__ . '/inc/document_requests.php')) {
+    require_once __DIR__ . '/inc/document_requests.php';
+    $entMap = ['BIEN' => $idBien];
+    if (!empty($bien['immeuble_id']))      $entMap['IMMEUBLE'] = (int)$bien['immeuble_id'];
+    if (!empty($bien['proprio_tiers_id']))  $entMap['TIERS']    = (int)$bien['proprio_tiers_id'];
+    // Mapping doc_type (modèle) → type_document accepté par l'endpoint d'upload.
+    $typeDocMap = [
+        'pv_assemblee'=>'COPROPRIETE','reglement_copropriete'=>'COPROPRIETE','carnet_entretien'=>'COPROPRIETE',
+        'charges_copropriete'=>'COPROPRIETE','pre_etat_date'=>'COPROPRIETE','cni'=>'IDENTITE',
+        'acte_propriete'=>'TITRE_PROPRIETE','taxe_fonciere'=>'AUTRE','bail'=>'BAIL','conge_dedite'=>'BAIL',
+        'edl'=>'BAIL','dpe'=>'DIAG_DPE','diagnostics_techniques'=>'DIAG_DPE',
+    ];
+    $tpl = null;
+    if (function_exists('dr_default_templates')) {
+        foreach (dr_default_templates() as $t) { if (($t['code'] ?? '') === 'mise_en_vente_proprietaire') { $tpl = $t; break; } }
+    }
+    if ($tpl) {
+        foreach ($tpl['items'] as $it) {
+            $et  = strtoupper((string)($it['entity_type'] ?? ''));
+            $eid = (int)($entMap[$et] ?? 0);
+            $inGed = false; $docId = 0;
+            if ($eid > 0 && function_exists('gdl_documents_for_entity') && function_exists('dr_doctype_synonyms')) {
+                try { $docs = gdl_documents_for_entity($pdo, $et, $eid, ['document_type' => dr_doctype_synonyms((string)$it['doc_type'])]);
+                      if ($docs) { $inGed = true; $docId = (int)($docs[0]['id'] ?? 0); } } catch (Throwable) {}
+            }
+            $recupItems[] = [
+                'label' => (string)$it['label'], 'doc_type' => (string)$it['doc_type'],
+                'entity_type' => $et, 'type_document' => $typeDocMap[$it['doc_type']] ?? 'AUTRE',
+                'required' => (int)($it['required'] ?? 0), 'in_ged' => $inGed, 'doc_id' => $docId,
+            ];
+        }
+    }
+}
+$csrfDocUpload = function_exists('csrf_token') ? csrf_token('dossier_checklist') : '';
+
 // ── Mandat de vente lié (référence) ──
 $mandat = null;
 if (!empty($dossier['id_mandat'])) {
@@ -670,11 +707,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
           </div>
           <div id="dv-lot-msg" style="font-size:11px;color:#94a3b8;margin-top:4px;min-height:14px;"></div>
           <!-- Ajout d'un lot -->
-          <div style="margin-top:8px;position:relative;">
-            <input type="text" id="dv-lot-search" placeholder="➕ Ajouter un lot (réf., ville, immeuble…)" autocomplete="off"
-                   style="width:100%;padding:8px 10px;border:1px dashed #cbd5e1;border-radius:9px;font-size:12px;">
-            <div id="dv-lot-results" style="display:none;position:absolute;z-index:30;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.12);max-height:240px;overflow:auto;margin-top:4px;"></div>
-          </div>
+          <button type="button" onclick="dvLotModalOpen()" style="margin-top:8px;width:100%;padding:10px;border:1px dashed #0e7490;border-radius:9px;font-size:13px;font-weight:700;color:#0e7490;background:#f3fbfd;cursor:pointer;">➕ Ajouter un lot</button>
           <!-- Totaux / rent roll -->
           <div style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:10px;">
             <div class="dv-row"><span class="k">Prix mandat total (Σ lots)</span><span class="v" id="dv-tot-prix"><?= h($fmtPrix($totaux['prix_total'])) ?></span></div>
@@ -684,42 +717,44 @@ include __DIR__ . '/inc/agency_layout_top.php';
         </div><!-- /colstack col2 -->
       </div>
 
+      <!-- ===== MODAL AJOUTER UN LOT ===== -->
+      <div id="dv-lot-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:center;justify-content:center;padding:20px;">
+        <div style="position:absolute;inset:0;background:rgba(15,23,42,.55);" onclick="dvLotModalClose()"></div>
+        <div style="position:relative;background:#fff;border-radius:16px;width:min(880px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.3);">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #eef2f7;">
+            <div><strong style="font-size:16px;color:#143A41;">➕ Ajouter un lot au dossier</strong>
+              <div id="dv-lot-modal-sub" style="font-size:12px;color:#7a8694;margin-top:2px;"></div></div>
+            <button type="button" onclick="dvLotModalClose()" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 11px;font-size:15px;cursor:pointer;">✕</button>
+          </div>
+          <div style="padding:14px 20px;border-bottom:1px solid #f1f5f9;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <a href="<?= h(app_url('/bien_nouveau.php')) ?>" target="_blank" style="background:linear-gradient(135deg,#D4A047,#c97b2e);color:#fff;text-decoration:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;">🆕 Nouveau lot (hors gestion)</a>
+            <input type="text" id="dv-lot-msearch" placeholder="🔎 Rechercher un bien (réf, ville, immeuble…)" style="flex:1;min-width:220px;padding:9px 12px;border:1px solid #cbd5e1;border-radius:9px;font-size:13px;">
+          </div>
+          <div id="dv-lot-grid" style="padding:14px 20px;overflow:auto;display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+            <div style="color:#94a3b8;font-size:13px;padding:20px;grid-column:1/-1;text-align:center;">Chargement…</div>
+          </div>
+        </div>
+      </div>
+
       <!-- ===== DOCUMENTS ===== -->
       <div class="dvk-panel solo" id="dvk-documents">
-        <!-- Card 1 : Documents du dossier -->
-        <div class="dv-card">
-          <h3>📄 Documents du dossier</h3>
-          <?php
-            $seen = [];
-            $allDocs = [];
-            foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
-            foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'bien'; $allDocs[] = $d; }
-            foreach ($docsLies as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'lié'; $allDocs[] = $d; }
-          ?>
-          <?php if (!$allDocs): ?>
-            <div class="dv-empty">Aucun document rattaché.</div>
-          <?php else: foreach (array_slice($allDocs, 0, 60) as $d):
-            $dispo = ged_file_path($pdo, (int)$d['id']) !== null; ?>
-            <div class="dv-doc" style="<?= $dispo ? '' : 'opacity:.55;' ?>">
-              <?php if ($dispo): ?>
-                <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank">
-                  <?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?>
-                </a>
-              <?php else: ?>
-                <span title="Fichier physique absent sur cet environnement"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?> <small style="color:#ef4444;">⚠ indisponible</small></span>
-              <?php endif; ?>
-              <span>
-                <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
-                <span class="dv-badge"><?= $d['_scope'] === 'dossier' ? 'dossier' : 'bien' ?></span>
-              </span>
-            </div>
-          <?php endforeach; endif; ?>
-          <div class="dv-note">GED unique — un même document peut être rattaché au bien et au dossier sans duplication physique.</div>
-        </div>
+        <!-- 2 colonnes : COL 1 (Données publiques + À faire) · COL 2 (Documents du dossier + À récupérer replié) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;" class="dv-docs-2col">
 
-        <!-- Card 2 : Documents types (modèles) — placés sous les documents du dossier -->
-        <div class="dv-card dvc-mandat">
-          <h3>📑 Documents types <span style="font-weight:400;color:#94a3b8;font-size:12px;">(modèles)</span></h3>
+        <div><!-- COL 1 : données publiques + doc types -->
+        <?php if (!empty($bien['immeuble_id'])):
+            require_once __DIR__ . '/inc/immeuble_public_card.php';
+            $canEnrich = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,7,8], true))
+                      || (function_exists('is_super_admin') && is_super_admin());
+            $gvLabel = trim((string)(($bien['nom_immeuble'] ?? '') ?: ($bien['imm_adresse'] ?? '')));
+            if (($bien['bien_ville'] ?? '') !== '') $gvLabel = trim($gvLabel . ' · ' . $bien['bien_ville']);
+            immeuble_public_card($pdo, (int)$bien['immeuble_id'], $canEnrich,
+                ['lat' => $bien['latitude'] ?? '', 'lng' => $bien['longitude'] ?? '', 'label' => $gvLabel]);
+        endif; ?>
+
+        <!-- Card : Documents À FAIRE (modèles : mandats, compromis…) — repliée par défaut -->
+        <details class="dv-card dvc-mandat">
+          <summary style="cursor:pointer;list-style:none;outline:none;"><h3 style="display:inline-block;margin:0;">📝 Documents à faire <span style="font-weight:400;color:#94a3b8;font-size:12px;">(mandats, compromis…)</span> <span style="font-size:11px;color:#0e7490;font-weight:700;">— déplier ▾</span></h3></summary>
           <?php if (!$modeles): ?>
             <div class="dv-empty">Aucun modèle disponible.</div>
           <?php else:
@@ -742,8 +777,101 @@ include __DIR__ . '/inc/agency_layout_top.php';
             </div>
           <?php endforeach; endif; ?>
           <div class="dv-note">Mandats : aperçu pré-rempli depuis le dossier. Autres modèles : visualisation du gabarit (remplissage à venir).</div>
+        </details>
+        </div><!-- /COL 1 -->
+
+        <div><!-- COL 2 : documents du dossier + à récupérer replié -->
+        <!-- Card : Documents du dossier -->
+        <div class="dv-card">
+          <h3>📄 Documents du dossier</h3>
+          <?php
+            $seen = [];
+            $allDocs = [];
+            foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
+            foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'bien'; $allDocs[] = $d; }
+            foreach ($docsLies as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'lié'; $allDocs[] = $d; }
+          ?>
+          <?php if (!$allDocs): ?>
+            <div class="dv-empty">Aucun document rattaché.</div>
+          <?php else: foreach (array_slice($allDocs, 0, 60) as $d):
+            $dispo = ged_file_path($pdo, (int)$d['id']) !== null; ?>
+            <div class="dv-doc" style="<?= $dispo ? '' : 'opacity:.55;' ?>">
+              <?php if ($dispo): ?>
+                <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?></a>
+              <?php else: ?>
+                <span title="Fichier physique absent sur cet environnement"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?> <small style="color:#ef4444;">⚠ indisponible</small></span>
+              <?php endif; ?>
+              <span>
+                <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
+                <span class="dv-badge"><?= $d['_scope'] === 'dossier' ? 'dossier' : 'bien' ?></span>
+              </span>
+            </div>
+          <?php endforeach; endif; ?>
+          <div class="dv-note">GED unique — un même document peut être rattaché au bien et au dossier sans duplication physique.</div>
         </div>
+
+        <!-- Card : Documents À RÉCUPÉRER (checklist mise en vente, upload auto-classé) — repliée -->
+        <details class="dv-card">
+          <summary style="cursor:pointer;list-style:none;outline:none;"><h3 style="display:inline-block;margin:0;">📥 Documents à récupérer <span style="font-weight:400;color:#94a3b8;font-size:12px;">(dossier de vente)</span> <span style="font-size:11px;color:#0e7490;font-weight:700;">— déplier ▾</span></h3></summary>
+          <style>
+            .dv-recup{border:1px solid #eef2f6;border-radius:10px;padding:9px 11px;margin-bottom:8px;}
+            .dv-recup.is-ok{background:#f6fcf8;border-color:#c8ecd6;}
+            .dv-recup-h{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+            .dv-recup-lbl{font-size:12.5px;font-weight:600;color:#1e293b;}
+            .dv-recup-drop{margin-top:7px;display:flex;align-items:center;justify-content:center;gap:6px;text-align:center;
+              padding:9px;border:1.5px dashed #cbd5e1;border-radius:8px;background:#fafbfc;cursor:pointer;font-size:11.5px;color:#64748b;font-weight:600;transition:.15s;}
+            .dv-recup-drop:hover,.dv-recup-drop.drag{border-color:#0e7490;background:#eefafd;color:#0e7490;}
+          </style>
+          <?php if (!$recupItems): ?>
+            <div class="dv-empty">Checklist indisponible (propriétaire/immeuble du bien non résolus).</div>
+          <?php else: foreach ($recupItems as $ri): $rok = $ri['in_ged']; ?>
+            <div class="dv-recup <?= $rok?'is-ok':'' ?>" data-doctype="<?= h($ri['doc_type']) ?>" data-entity="<?= h($ri['entity_type']) ?>" data-label="<?= h($ri['label']) ?>">
+              <div class="dv-recup-h">
+                <span class="dv-recup-lbl"><?= $rok?'✅':'⬜' ?> <?= h($ri['label']) ?></span>
+                <?php if ($ri['required']): ?><span class="dv-badge" style="background:#fef3d8;color:#b7791f;">requis</span><?php endif; ?>
+              </div>
+              <?php if ($rok): ?>
+                <a href="javascript:void(0)" onclick="mvptModalView(<?= (int)$ri['doc_id'] ?>, <?= htmlspecialchars(json_encode((string)$ri['label']), ENT_QUOTES) ?>)" style="font-size:11px;color:#176a3a;font-weight:700;">📄 Visualiser le document →</a>
+              <?php else: ?>
+                <label class="dv-recup-drop"><span>📎 Glissez le fichier ici ou cliquez</span><input type="file" style="display:none"></label>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; endif; ?>
+          <div class="dv-note">Glissez un fichier sur une pièce → classé automatiquement en GED (bien · immeuble · propriétaire). ✅ = déjà présent.</div>
+        </details>
+        </div><!-- /COL 2 -->
+
+        </div><!-- /grid 2col -->
       </div>
+      <script>
+      (function(){
+        var CSRF=<?= json_encode((string)$csrfDocUpload) ?>, DOSS=<?= (int)$idDossier ?>,
+            UP=<?= json_encode(app_url('/api/transaction_dossier_checklist_upload.php')) ?>;
+        document.querySelectorAll('.dv-recup-drop').forEach(function(zone){
+          var input=zone.querySelector('input[type=file]'), card=zone.closest('.dv-recup');
+          function upload(file){
+            if(!file) return;
+            zone.querySelector('span').textContent='⏳ Envoi de '+file.name+'…';
+            var fd=new FormData();
+            fd.append('csrf_token',CSRF); fd.append('id_dossier',DOSS);
+            fd.append('doc_type',card.getAttribute('data-doctype'));
+            fd.append('entity_type',card.getAttribute('data-entity'));
+            fd.append('label',card.getAttribute('data-label'));
+            fd.append('file',file);
+            fetch(UP,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(j){
+              if(j.ok){ zone.querySelector('span').textContent='✅ Classé — actualisation…'; setTimeout(function(){location.reload();},700); }
+              else { zone.querySelector('span').textContent='⚠️ '+((j.errors&&j.errors[0])||j.error||'échec'); }
+            }).catch(function(){ zone.querySelector('span').textContent='⚠️ erreur réseau'; });
+          }
+          ['dragenter','dragover'].forEach(function(e){zone.addEventListener(e,function(ev){ev.preventDefault();zone.classList.add('drag');});});
+          ['dragleave','dragend','drop'].forEach(function(e){zone.addEventListener(e,function(ev){ev.preventDefault();zone.classList.remove('drag');});});
+          zone.addEventListener('drop',function(ev){ var f=ev.dataTransfer&&ev.dataTransfer.files; if(f&&f.length) upload(f[0]); });
+          input.addEventListener('change',function(){ if(input.files&&input.files.length) upload(input.files[0]); });
+        });
+      })();
+      </script>
+      <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; /* modale standard mvptModalView (pièces déjà chargées) */ ?>
+      <?php require_once __DIR__ . '/inc/geo_views_modal.php'; /* définit window.openGeoViews → bouton « 🛰️ 3 vues » de la card infos publiques */ ?>
 
       <!-- ===== ACTES (progression de la vente) ===== -->
       <div class="dvk-panel" id="dvk-actes">
@@ -1373,29 +1501,48 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   };
 
   let lotSearchTimer = null;
-  function dvLotSearch(q){
+  function dvLotCard(b){
+    const lib  = b.reference_bien || b.designation || ('Bien #'+b.id);
+    const sub  = [b.type_lib||'', b.surface_habitable?(parseFloat(b.surface_habitable)+' m²'):'', b.etage?('Ét. '+b.etage):'', b.numero_lot?('Lot '+b.numero_lot):''].filter(Boolean).join(' · ');
+    const adr  = [b.adresse_1||'', b.ville||''].filter(Boolean).join(', ');
+    const tag  = (+b.meme_immeuble) ? '<span style="background:#e7f6ec;color:#176a3a;font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;white-space:nowrap;">🏛️ même immeuble</span>' : '';
+    return `<div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:5px;background:#fff;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><strong style="font-size:13px;color:#143A41;">${lib}</strong>${tag}</div>
+      <div style="font-size:11.5px;color:#64748b;">${sub||'—'}</div>
+      <div style="font-size:11px;color:#94a3b8;">${adr}</div>
+      <button type="button" onclick="dvLotAdd(${b.id})" style="margin-top:4px;background:#0e7490;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;">➕ Ajouter au dossier</button>
+    </div>`;
+  }
+  function dvLotRenderGrid(items, emptyMsg){
+    const g = document.getElementById('dv-lot-grid');
+    if(!items || !items.length){ g.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#94a3b8;font-size:13px;padding:20px;">'+(emptyMsg||'Aucun bien.')+'</div>'; return; }
+    g.innerHTML = items.map(dvLotCard).join('');
+  }
+  window.dvLotModalOpen = async function(){
+    document.getElementById('dv-lot-modal').style.display='flex';
+    document.getElementById('dv-lot-grid').innerHTML='<div style="grid-column:1/-1;text-align:center;color:#94a3b8;padding:20px;">Chargement…</div>';
+    const s = document.getElementById('dv-lot-msearch'); if(s) s.value='';
+    const j = await lotPost(new URLSearchParams({action:'owner_lots'}));
+    const sub = document.getElementById('dv-lot-modal-sub');
+    if(j.ok){
+      sub.textContent = (j.owner?('Propriétaire : '+j.owner):'Aucun propriétaire') + (j.immeuble?(' · '+j.immeuble):'');
+      dvLotRenderGrid(j.items, 'Aucun autre lot du propriétaire. Créez un nouveau lot ou recherchez un bien ci-dessus.');
+    } else dvLotRenderGrid([], j.error||'Erreur');
+  };
+  window.dvLotModalClose = function(){ document.getElementById('dv-lot-modal').style.display='none'; };
+  function dvLotModalSearch(q){
     clearTimeout(lotSearchTimer);
-    const box = document.getElementById('dv-lot-results');
-    lotSearchTimer = setTimeout(async () => {
+    lotSearchTimer = setTimeout(async ()=>{
+      if(q.length < 2){ dvLotModalOpen(); return; }               // < 2 car. → revient aux lots du propriétaire
       const j = await lotPost(new URLSearchParams({action:'search', q:q}));
-      if(!j.ok){ box.style.display='none'; return; }
-      if(!j.items.length){ box.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:12px;">Aucun bien.</div>'; box.style.display='block'; return; }
-      box.innerHTML = j.items.map(b => {
-        const lib = b.reference_bien || b.designation || ('Bien #'+b.id);
-        const sub = [b.numero_lot?('Lot '+b.numero_lot):'', b.etage?('Ét. '+b.etage):'', b.ville||''].filter(Boolean).join(' · ');
-        const tag = (+b.meme_immeuble) ? ' <span style="color:#7c9885;font-size:10px;">même immeuble</span>' : '';
-        return `<div class="dv-lot-opt" data-id="${b.id}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:12px;">
-                  <strong>${lib}</strong>${tag}<div style="color:#94a3b8;font-size:10px;">${sub}</div></div>`;
-      }).join('');
-      box.style.display='block';
-      box.querySelectorAll('.dv-lot-opt').forEach(o => o.onclick = () => dvLotAdd(o.dataset.id));
+      if(j.ok) dvLotRenderGrid(j.items, 'Aucun bien pour « '+q+' ».');
     }, 250);
   }
-
   async function dvLotAdd(idBien){
     const j = await lotPost(new URLSearchParams({action:'add', id_bien:idBien}));
-    if(j.ok){ location.reload(); } else { lotMsg(j.error || 'Erreur', true); }
+    if(j.ok){ location.reload(); } else { lotMsg(j.error || 'Erreur', true); alert(j.error || 'Ajout impossible'); }
   }
+  window.dvLotAdd = dvLotAdd;
 
   (function initLots(){
     const fmtMontant = v => { v=(''+v).replace(/[^0-9]/g,''); return v ? new Intl.NumberFormat('fr-FR').format(parseInt(v,10))+' €' : ''; };
@@ -1408,14 +1555,8 @@ require_once __DIR__ . '/inc/adresse_modal.php';
       i.addEventListener('change', () => { const el = i.closest('.dv-lot'); dvLotSave(el); dvLotRdt(el); });
     });
     document.querySelectorAll('#dv-lots-body .dv-lot').forEach(el => dvLotRdt(el));
-    const s = document.getElementById('dv-lot-search');
-    if(s){
-      s.addEventListener('input', e => dvLotSearch(e.target.value.trim()));
-      document.addEventListener('click', e => {
-        if(!e.target.closest('#dv-lot-search') && !e.target.closest('#dv-lot-results'))
-          document.getElementById('dv-lot-results').style.display='none';
-      });
-    }
+    const ms = document.getElementById('dv-lot-msearch');
+    if(ms){ ms.addEventListener('input', e => dvLotModalSearch(e.target.value.trim())); }
   })();
 
   // Onglets du cockpit (Dashboard / Documents / Actes / Estimation).

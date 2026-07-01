@@ -416,6 +416,58 @@ if (!function_exists('dr_commit_deposit')) {
     }
 }
 
+/* ── Commit générique d'un fichier en GED sur une entité (upload interne) ──
+   Réutilisé par le dossier de vente : on dépose un doc, il est classé sur la
+   bonne entité (BIEN/IMMEUBLE/TIERS) avec son type — comme un dépôt tiers. */
+if (!function_exists('dr_commit_file_to_entity')) {
+    function dr_commit_file_to_entity(PDO $pdo, array $upload, string $docType, string $entityType, int $entityId, array $ctx = []): array
+    {
+        if (!function_exists('gus_commit_document')) return ['ok' => false, 'error' => 'GED indisponible'];
+        $gedLinkTypes = ['BIEN','IMMEUBLE','IMB','TIERS','BAIL'];
+        $et    = strtoupper($entityType);
+        $socId = (int)($ctx['societe_id'] ?? 0) ?: 1;
+        $ageId = (int)($ctx['agence_id'] ?? 0) ?: null;
+        $dossId = (int)($ctx['id_dossier'] ?? 0);
+        $dateDoc = date('Y-m-d');
+
+        $permDir = __DIR__ . '/../uploads/dossier_docs/' . $dossId . '/';
+        if (!is_dir($permDir)) @mkdir($permDir, 0775, true);
+        $ext = pathinfo((string)$upload['name_original'], PATHINFO_EXTENSION);
+        $permName = strtolower(preg_replace('/[^A-Za-z0-9]+/', '_', $docType ?: 'doc')) . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . ($ext ? '.' . $ext : '');
+        $permPath = $permDir . $permName;
+        if (!@rename($upload['tmp_path'], $permPath)) { @copy($upload['tmp_path'], $permPath); @unlink($upload['tmp_path']); }
+        $publicUrl = '/uploads/dossier_docs/' . $dossId . '/' . $permName;
+
+        $docTypeU = strtoupper($docType ?: 'DOCUMENT');
+        $links = [];
+        if ($et && $entityId > 0 && in_array($et, $gedLinkTypes, true)) $links[] = ['entity_type' => $et, 'entity_id' => $entityId, 'relation_type' => 'main'];
+        // Liens supplémentaires (ex. DOSSIER + BIEN) pour rester visible partout.
+        foreach ((array)($ctx['extra_links'] ?? []) as $lk) {
+            $lt = strtoupper((string)($lk['entity_type'] ?? '')); $li = (int)($lk['entity_id'] ?? 0);
+            if ($lt !== '' && $li > 0 && !($lt === $et && $li === $entityId)) {
+                $links[] = ['entity_type' => $lt, 'entity_id' => $li, 'relation_type' => ($lk['relation_type'] ?? 'reference')];
+            }
+        }
+
+        try {
+            $res = gus_commit_document($pdo,
+                ['path_on_disk' => $permPath, 'name_original' => (string)$upload['name_original'],
+                 'mime_type' => (string)($upload['mime_type'] ?: 'application/octet-stream'),
+                 'size_bytes' => (int)($upload['size_bytes'] ?? (filesize($permPath) ?: 0)), 'public_url' => $publicUrl],
+                ['document_type' => $docTypeU, 'source_module' => 'DOSSIER_VENTE', 'security_level' => 'interne',
+                 'societe_id' => $socId, 'agence_id' => $ageId, 'tenant_id' => $socId,
+                 'created_by' => (int)($ctx['created_by'] ?? 0) ?: null, 'storage_provider' => 'local',
+                 'name_display' => (string)($ctx['label'] ?? $docTypeU),
+                 'metadata_extra' => ['source' => 'dossier_vente', 'id_dossier' => $dossId, 'doc_date' => $dateDoc],
+                 'naming_ctx' => ['type_doc' => $docTypeU, 'entity_type' => $et ?: 'SOCIETE', 'entity_id' => $entityId ?: $socId,
+                                  'date_doc' => $dateDoc, 'source_filename' => (string)$upload['name_original']]],
+                $links);
+        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
+        if (empty($res['ok'])) return ['ok' => false, 'error' => 'GED: ' . json_encode($res['errors'] ?? ['unknown'])];
+        return ['ok' => true, 'doc_id' => (int)($res['doc_id'] ?? 0)];
+    }
+}
+
 /* ── Statut global recalculé ──────────────────────────────────────────── */
 if (!function_exists('dr_recompute_status')) {
     function dr_recompute_status(PDO $pdo, int $requestId): string
