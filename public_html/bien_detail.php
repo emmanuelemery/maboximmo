@@ -399,6 +399,50 @@ if ($section === 'dpe') {
         $dpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) {
         error_log('[bien_detail_v2] dpe_diags: ' . $e->getMessage());
+        $st = null;
+    }
+
+    // ── AUTO-REPRISE de l'extraction IA vers dpe_diags ────────────────────────
+    // Garantit que « Détails DPE » reflète TOUJOURS l'extraction du doc dans
+    // l'onglet Documents (ged_documents.metadata.extra.ia_result_last), sans
+    // action manuelle. Idempotent : apply_dpe_extracted_to_bien() n'écrit qu'avec
+    // COALESCE(NULLIF(col,''), val) → ne remplit que les champs VIDES, ne touche
+    // jamais une valeur déjà saisie/validée.
+    try {
+        require_once __DIR__ . '/inc/bien_apply_extracted.php';
+        $stDoc = $pdo->prepare("
+            SELECT d.id, d.metadata
+            FROM ged_documents d
+            JOIN ged_document_links l ON l.document_id = d.id
+            WHERE UPPER(l.entity_type) IN ('BIEN','B','BN') AND l.entity_id = ?
+              AND UPPER(d.document_type) = 'DIAG_DPE'
+              AND COALESCE(d.status,'active') = 'active'
+            ORDER BY d.updated_at DESC, d.id DESC
+            LIMIT 1
+        ");
+        $stDoc->execute([$editingBienId]);
+        if ($docRow = $stDoc->fetch(PDO::FETCH_ASSOC)) {
+            $mArr = json_decode((string)$docRow['metadata'], true) ?: [];
+            $iaF  = $mArr['extra']['ia_result_last']['fields'] ?? null;
+            $iaAt = (string)($mArr['extra']['ia_result_last']['at'] ?? '');
+            // On n'applique QUE si l'extraction est plus récente que le diag actuel :
+            //   - évite de ré-écraser biens.dpe_* à chaque ouverture (apply_dpe overwrite
+            //     les champs propres au DPE) → préserve les corrections manuelles ;
+            //   - déclenche la reprise juste après une (re)analyse dans l'onglet Documents.
+            $diagRef  = (string)($dpeDiag['date_modification'] ?? ($dpeDiag['date_creation'] ?? ''));
+            $iaNewer  = $iaAt !== '' && ($dpeDiag === null || $diagRef === '' || strtotime($iaAt) > strtotime($diagRef));
+            if (is_array($iaF) && $iaF && $iaNewer && function_exists('apply_dpe_extracted_to_bien')) {
+                $uId = function_exists('current_user_id') ? (int)current_user_id() : null;
+                apply_dpe_extracted_to_bien($pdo, $editingBienId, $iaF, ((string)($mArr['public_url'] ?? '')) ?: null, $uId);
+                // Recharge le dpe_diag après application pour afficher les valeurs à jour
+                if ($st) {
+                    $st->execute([$editingBienId]);
+                    $dpeDiag = $st->fetch(PDO::FETCH_ASSOC) ?: $dpeDiag;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[bien_detail_v2] dpe auto-apply: ' . $e->getMessage());
     }
 }
 
