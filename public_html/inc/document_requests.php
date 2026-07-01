@@ -168,6 +168,12 @@ if (!function_exists('dr_create_request')) {
         $items = array_values(array_filter($items, fn($i) => trim((string)($i['label'] ?? '')) !== ''));
         if (!$items) return ['ok' => false, 'error' => 'Au moins une pièce est requise'];
 
+        // Colonne `note` (remarques rappelées au-dessus de la card de dépôt) — idempotent.
+        try {
+            $cols = array_column($pdo->query("SHOW COLUMNS FROM document_request_items")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            if (!in_array('note', $cols, true)) $pdo->exec("ALTER TABLE document_request_items ADD COLUMN note TEXT NULL");
+        } catch (Throwable) {}
+
         $token = dr_gen_token();
         try {
             $pdo->beginTransaction();
@@ -197,8 +203,8 @@ if (!function_exists('dr_create_request')) {
             $reqId = (int)$pdo->lastInsertId();
 
             $sti = $pdo->prepare("INSERT INTO document_request_items
-                (request_id, label, doc_type, kind, max_files, entity_type, entity_id, period, required, sort_order)
-                VALUES (?,?,?,?,?,?,?,?,?,?)");
+                (request_id, label, doc_type, kind, max_files, entity_type, entity_id, period, required, sort_order, note)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)");
             $ord = 0;
             $kinds = ['file','files','text','photos'];
             foreach ($items as $it) {
@@ -215,6 +221,7 @@ if (!function_exists('dr_create_request')) {
                     $it['period'] ?? null,
                     isset($it['required']) ? (int)!empty($it['required']) : 1,
                     $ord++,
+                    (isset($it['note']) && trim((string)$it['note']) !== '') ? trim((string)$it['note']) : null,
                 ]);
             }
             $pdo->commit();

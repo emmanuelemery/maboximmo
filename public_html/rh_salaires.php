@@ -772,6 +772,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compare_existing'])) 
         $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $compare['total_pdf'], $compare['total_expected'], $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
     }
     $_SESSION['message_ok'] = ($compare['ok'] ? '✅ Comparaison OK' : '⚠️ Écarts détectés') . ' — rapport ' . $type . ' généré depuis le fichier déposé.';
+    $back .= (strpos($back, '?') === false ? '?' : '&') . 'open_compare=1';
     header("Location: $back"); exit;
 }
 
@@ -2230,7 +2231,9 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                     <input type="hidden" name="compare_type" value="projet">
-                    <?php if ($wfHasProjet): ?>
+                    <?php if ($projetData): ?>
+                    <button type="button" onclick="ouvrirRapportComparaison()" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Voir la comparaison</button>
+                    <?php elseif ($wfHasProjet): ?>
                     <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#155e75;">📎 Un projet a été <b>déposé via le lien</b> — comparez-le directement, sans re-télécharger.</div>
                     <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Comparer le fichier déposé</button>
                     <?php endif; ?>
@@ -2301,24 +2304,9 @@ Emmanuel</textarea>
             </div>
 
             <?php if ($projetData): ?>
-                <div class="workflow-step" style="margin-top:12px;display:flex;align-items:center;gap:14px;">
-                    <h4 style="margin:0;">Comparaison projet comptable</h4>
-                    <span style="font-size:12px;color:#64748b;">
-                        Attendu <strong style="color:#0f172a;"><?=number_format((float)($projetData['total_expected'] ?? 0), 2, ',', ' ')?> €</strong>
-                        &nbsp;·&nbsp;
-                        PDF <strong style="color:#0f172a;"><?=number_format((float)($projetData['total_pdf'] ?? 0), 2, ',', ' ')?> €</strong>
-                    </span>
-                    <?php if (!empty($projetData['ok'])): ?>
-                        <span class="v2-badge ok">OK</span>
-                    <?php else: ?>
-                        <span class="v2-badge bad">Différences</span>
-                    <?php endif; ?>
-                    <button type="button"
-                            onclick="ouvrirRapportComparaison()"
-                            style="padding:8px 14px;border-radius:8px;background:#0ea5e9;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto;">
-                        📊 Voir le rapport ligne par ligne
-                    </button>
-                </div>
+                <!-- Card « Comparaison projet comptable » retirée : le bouton « Voir la
+                     comparaison » est désormais dans la card 2 (Réimporter le projet).
+                     On conserve uniquement le modal ci-dessous. -->
 
                 <!-- Modal rapport de comparaison -->
                 <div id="rapport-comparaison-modal" class="rh-compare-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRapportComparaison()">
@@ -2419,9 +2407,26 @@ Emmanuel</textarea>
                                 </tbody>
                             </table>
 
-                            <?php if (!empty($projetData['conges'])): ?>
+                            <?php
+                            // Congés recalculés EN DIRECT : la table `conges` évolue
+                            // indépendamment du PDF. Sans ça, un congé saisi APRÈS la
+                            // génération de la comparaison resterait à 0 (cas FRANCISCO).
+                            $congesDisplay = $projetData['conges'] ?? [];
+                            try {
+                                if (!empty($projetRow['parsed_json']) && !empty($projetRow['id_agence'])) {
+                                    $parsedLive = json_decode((string)$projetRow['parsed_json'], true);
+                                    $empLive = $parsedLive['employees'] ?? [];
+                                    if ($empLive) {
+                                        $moisRefLive = sprintf('%04d-%02d-01', (int)$projetRow['annee'], (int)$projetRow['mois']);
+                                        $expLive = rh_load_expected_map($pdo, (int)$projetRow['id_societe'], $moisRefLive, (int)$projetRow['id_agence']);
+                                        $congesDisplay = rh_compute_conges_summary($pdo, $expLive, (int)$projetRow['mois'], (int)$projetRow['annee'], $empLive);
+                                    }
+                                }
+                            } catch (Throwable $e) {}
+                            ?>
+                            <?php if (!empty($congesDisplay)): ?>
                             <div style="margin-top:18px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;">
-                                <h4 style="margin:0 0 10px;font-size:13px;color:#1e40af;">🏖 Congés du mois (MBI ↔ PDF)</h4>
+                                <h4 style="margin:0 0 10px;font-size:13px;color:#1e40af;">🏖 Congés du mois (MBI ↔ PDF) <span style="font-weight:400;color:#64748b;font-size:11px;">— recalculé en direct</span></h4>
                                 <table style="width:100%;border-collapse:collapse;font-size:11px;">
                                     <thead>
                                         <tr style="color:#64748b;border-bottom:1px solid #bfdbfe;">
@@ -2433,7 +2438,7 @@ Emmanuel</textarea>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                    <?php foreach ($projetData['conges'] as $cg):
+                                    <?php foreach ($congesDisplay as $cg):
                                         $cgOk = !empty($cg['ok']);
                                     ?>
                                         <tr style="border-bottom:1px solid #f1f5f9;<?=!$cgOk?'background:#fef9c3;':''?>">
@@ -2506,6 +2511,8 @@ Emmanuel</textarea>
                 <script>
                 function ouvrirRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'flex'; }
                 function fermerRapportComparaison() { document.getElementById('rapport-comparaison-modal').style.display = 'none'; }
+                // Ouverture auto après génération de la comparaison (?open_compare=1)
+                try { if (new URLSearchParams(location.search).get('open_compare') === '1') { document.addEventListener('DOMContentLoaded', function(){ var m=document.getElementById('rapport-comparaison-modal'); if(m) m.style.display='flex'; }); } } catch(e){}
                 var CMP_ID = <?= (int)($projetRow['id'] ?? 0) ?>;
                 var CMP_CSRF = <?= json_encode(csrf_token()) ?>;
                 function saveRemarques(){

@@ -240,6 +240,7 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
 .gate{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:24px;max-width:440px;margin:30px auto}
 .gate input{width:100%;padding:11px;border:1px solid #c3ccd8;border-radius:10px;font-size:14px;margin:10px 0}
 .foot{text-align:center;color:#9aa4b1;font-size:12px;margin-top:24px}
+.note-rappel{background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px 11px;margin-bottom:10px;font-size:12.5px;color:#78350f;line-height:1.5}
 .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}
 .mini{background:#fff;border:1px solid #c3ccd8;border-radius:8px;padding:6px 10px;font-size:12.5px;font-weight:700;color:#0e7490;cursor:pointer}
 .mini:hover{background:#f3fbfd;border-color:#0e7490}
@@ -290,6 +291,7 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
     <div class="items-grid">
     <?php foreach ($items as $it): $done = $it['status'] === 'recu'; ?>
       <div class="card <?= $done?'done':'' ?>">
+        <?php if (!empty($it['note'])): ?><div class="note-rappel">📝 <strong>À noter :</strong> <?= nl2br(dh($it['note'])) ?></div><?php endif; ?>
         <div class="lbl"><?= dh($it['label']) ?>
           <?php if ($done): ?><span class="badge recu"><?= (trim((string)($it['original_name'] ?? ''))==='[déjà présent en GED]') ? '✅ Déjà fourni (dans nos dossiers)' : '✅ Reçu' ?></span>
           <?php elseif ((int)$it['required']===1): ?><span class="badge req">Requis</span>
