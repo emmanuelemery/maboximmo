@@ -2247,10 +2247,10 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn"><?= $projetRow ? 'Réimporter' : 'Importer' ?> un autre PDF</button>
                 </form>
 
-                <?php if ($projetRow): ?>
-                <!-- Validation inline : remarques éditables directement + bouton -->
+                <!-- Validation inline : remarques éditables directement + bouton (toujours visible) -->
                 <div class="workflow-step">
                     <h4>2bis. Valider</h4>
+                    <?php if ($projetRow): ?>
                     <form method="post" action="rh_salaire_validate_projet.php">
                         <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                         <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
@@ -2261,8 +2261,11 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                         <?php endif; ?>
                         <button type="submit" class="workflow-step-btn is-success">✅ <?= !empty($projetRow['validated_at']) ? 'Revalider (maj remarques)' : 'Valider cette agence' ?></button>
                     </form>
+                    <?php else: ?>
+                    <textarea rows="4" disabled placeholder="📝 Compare d'abord le projet (card 2) pour saisir tes remarques et valider…" style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;background:#f8fafc;color:#94a3b8;margin-bottom:8px;"></textarea>
+                    <button type="button" class="workflow-step-btn is-success" disabled style="opacity:.5;cursor:not-allowed;">✅ Valider cette agence</button>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
                 <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" enctype="multipart/form-data" class="workflow-step">
                     <h4>3. Importer les bulletins</h4>
                     <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
