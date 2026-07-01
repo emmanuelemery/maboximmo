@@ -31,6 +31,11 @@ $token = trim((string)($_GET['token'] ?? ''));
 $moisG = trim((string)($_GET['mois'] ?? ''));           // AAAA-MM
 $type  = (string)($_GET['type'] ?? 'import_bulletins');
 if (!in_array($type, ['import_bulletins','import_projet'], true)) $type = 'import_bulletins';
+// Purge optionnelle : supprime les entrées d'un AUTRE type créées PAR LA REPRISE
+// (commentaire « Reprise depuis lien … ») pour les mêmes agences/mois. Sert à
+// corriger un backfill fait avec le mauvais type. Ne touche jamais les vrais imports.
+$purge = (string)($_GET['purge'] ?? '');
+if (!in_array($purge, ['import_bulletins','import_projet'], true)) $purge = '';
 $go    = !empty($_GET['go']);
 
 echo '<div style="font-family:system-ui;max-width:900px;margin:24px auto;padding:0 16px">';
@@ -52,6 +57,21 @@ foreach (dr_items($pdo, (int)$req['id']) as $it) {
     if (strtoupper((string)($it['entity_type'] ?? '')) !== 'AGENCE') continue;
     $idAgence = (int)($it['entity_id'] ?? 0);
     if ($idAgence <= 0) continue;
+
+    // Purge des entrées reprise de l'AUTRE type (ex. bulletins créés par erreur) — même agence/mois.
+    if ($purge !== '' && $purge !== $type) {
+        $moisPurge = preg_match('/^\d{4}-\d{2}$/', (string)($it['period'] ?? '')) ? ($it['period'] . '-01') : (preg_match('/^\d{4}-\d{2}$/', $moisG) ? $moisG . '-01' : '');
+        $agP = (int)($it['entity_id'] ?? 0);
+        if ($moisPurge !== '' && $agP > 0) {
+            if ($go) {
+                $del = $pdo->prepare("DELETE FROM rh_salaire_workflow_log WHERE id_agence=? AND mois_reference=? AND type_action=? AND commentaire LIKE 'Reprise depuis lien%'");
+                $del->execute([$agP, $moisPurge, $purge]);
+                if ($del->rowCount() > 0) echo '<tr><td colspan="5" style="color:#b45309">🧹 Purge ' . e($purge) . ' (reprise) sur agence #' . $agP . ' / ' . e($moisPurge) . ' : ' . (int)$del->rowCount() . ' supprimée(s)</td></tr>';
+            } else {
+                echo '<tr><td colspan="5" style="color:#b45309">🧹 (simulation) purgerait les entrées ' . e($purge) . ' reprise sur agence #' . $agP . ' / ' . e($moisPurge) . '</td></tr>';
+            }
+        }
+    }
 
     // Mois : période de la pièce (AAAA-MM) sinon paramètre global.
     $per = (string)($it['period'] ?? '');
