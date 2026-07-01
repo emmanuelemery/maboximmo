@@ -57,21 +57,15 @@ if ($comptableEmail === '' || !filter_var($comptableEmail, FILTER_VALIDATE_EMAIL
 $moisLabel = mois_fr($mois);
 $periode   = sprintf('%04d-%02d', $annee, $mois);
 
-// Construit les infos par agence (nom, remarques, PDF projet).
-$publicHtml = __DIR__;
-$expectedDir = realpath($publicHtml . '/uploads/salaires_comptable');
-$agencesInfo = [];  // [id_agence => ['nom','remarques','pdf'=>abs|null]]
+// Construit les infos par agence (nom + remarques). Aucun PDF joint : on
+// n'envoie QUE les remarques + le lien de dépôt (le comptable renvoie tout).
+$agencesInfo = [];  // [id_agence => ['nom','remarques']]
 foreach ($cmps as $c) {
     $idAg = (int)$c['id_agence'];
     $stAg = $pdo->prepare("SELECT nom_agence FROM agences WHERE id = ? LIMIT 1");
     $stAg->execute([$idAg]);
     $nomAg = (string)($stAg->fetchColumn() ?: ('Agence #' . $idAg));
-    $pdfAbs = null;
-    if (!empty($c['file_path'])) {
-        $real = realpath($publicHtml . '/' . ltrim((string)$c['file_path'], '/'));
-        if ($real !== false && $expectedDir !== false && strpos($real, $expectedDir) === 0 && is_file($real)) $pdfAbs = $real;
-    }
-    $agencesInfo[$idAg] = ['nom' => $nomAg, 'remarques' => trim((string)($c['remarques'] ?? '')), 'pdf' => $pdfAbs];
+    $agencesInfo[$idAg] = ['nom' => $nomAg, 'remarques' => trim((string)($c['remarques'] ?? ''))];
 }
 
 // 1) Crée le lien de dépôt unique : une pièce par agence (bulletins définitifs).
@@ -119,11 +113,10 @@ $bodyHtml = '<p>' . $bonjour . ',</p>'
     . $cards
     . '<p style="margin-top:16px;padding:10px 14px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;"><strong>Merci de nous retourner l\'ENSEMBLE des bulletins définitifs</strong> de chaque agence (pas seulement les modifiés), via le lien ci-dessous. Une card de dépôt par agence vous y attend, avec le rappel de nos remarques.</p>'
     . '<p style="margin:22px 0;"><a href="' . htmlspecialchars($depotUrl, ENT_QUOTES, 'UTF-8') . '" style="background:#0e7490;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:700;">📤 Déposer les bulletins définitifs</a></p>'
-    . '<p style="color:#64748b;font-size:12px;">Lien sécurisé. Les projets validés sont joints à ce mail. Si le bouton ne fonctionne pas : ' . htmlspecialchars($depotUrl, ENT_QUOTES, 'UTF-8') . '</p>';
+    . '<p style="color:#64748b;font-size:12px;">Lien sécurisé. Si le bouton ne fonctionne pas : ' . htmlspecialchars($depotUrl, ENT_QUOTES, 'UTF-8') . '</p>';
 
-// Pièces jointes : les PDF projets validés.
+// Aucune pièce jointe : on n'envoie QUE les remarques + le lien.
 $attachments = [];
-foreach ($agencesInfo as $inf) { if ($inf['pdf']) $attachments[] = $inf['pdf']; }
 
 $subject = 'Projets validés — bulletins définitifs à retourner — ' . $moisLabel . ' ' . $annee;
 $hostNow = (string)($_SERVER['HTTP_HOST'] ?? '');
