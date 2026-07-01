@@ -64,7 +64,7 @@ function bien_form_load_record(PDO $pdo, int $idBien, ?int $idSociete): ?array
             i.pays AS _imm_pays,
             i.latitude AS _imm_latitude,
             i.longitude AS _imm_longitude,
-            i.nb_lots AS _imm_nb_lots,
+            COALESCE(NULLIF(i.nb_lots, 0), i.copro_nb_lots) AS _imm_nb_lots,
             -- Champs ALUR statut juridique copropriété (info commune à l'immeuble)
             i.copro_procedure                  AS _imm_copro_procedure,
             i.alur_copropriete_plan_sauvegarde AS _imm_alur_copropriete_plan_sauvegarde,

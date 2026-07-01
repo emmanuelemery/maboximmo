@@ -59,16 +59,19 @@ try {
     //                    vides alors que l'immeuble lié a bien les bonnes valeurs.
     $bienRow = $pdo->prepare("
         SELECT b.*,
-               tb.code      AS _type_bien_code,
+               COALESCE(bt.code, btb.code) AS _type_bien_code,
                i.adresse_1  AS _imm_adresse_1,
                i.adresse_2  AS _imm_adresse_2,
                i.code_postal AS _imm_code_postal,
                i.ville      AS _imm_ville,
                i.pays       AS _imm_pays,
                i.latitude   AS _imm_latitude,
-               i.longitude  AS _imm_longitude
+               i.longitude  AS _imm_longitude,
+               -- Nb lots copropriété : nb_lots (saisi) sinon copro_nb_lots (registre RNC)
+               COALESCE(NULLIF(i.nb_lots, 0), i.copro_nb_lots) AS _imm_nb_lots
         FROM biens b
-        LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+        LEFT JOIN bien_types      bt  ON bt.id  = b.id_bien_type
+        LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
         LEFT JOIN immeubles  i  ON i.id  = b.id_immeuble
         WHERE b.id = ?
         LIMIT 1
