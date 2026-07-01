@@ -331,14 +331,34 @@ if (!function_exists('mbi_supports_critic_load_contexte')) {
         // Mandat actif
         $mandat = null;
         try {
+            // Tout mandat rattaché au bien compte (règle user 2026-07-01 : mandat
+            // renseigné/chargé = autorisation de diffusion). On le retrouve par id_bien
+            // OU via le dossier de vente (dossier_vente.id_mandat) — car un mandat créé
+            // dans transaction_dossier peut être en statut « projet ». On exclut seulement
+            // les mandats explicitement annulés/résiliés/archivés.
             $st = $pdo->prepare("
                 SELECT * FROM mandats
                 WHERE id_bien = :id
-                  AND (statut = 'actif' OR statut = 'en_cours' OR statut IS NULL)
+                  AND COALESCE(LOWER(statut),'') NOT IN ('annule','annulé','resilie','résilié','archive','archivé')
                 ORDER BY id DESC LIMIT 1
             ");
             $st->execute([':id' => $id_bien]);
             $mandat = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            // Repli : mandat lié via le dossier de vente si rien trouvé par id_bien
+            if (!$mandat) {
+                try {
+                    $st2 = $pdo->prepare("
+                        SELECT m.* FROM mandats m
+                        JOIN dossier_vente dv ON dv.id_mandat = m.id
+                        WHERE dv.id_bien = :id
+                          AND COALESCE(LOWER(m.statut),'') NOT IN ('annule','annulé','resilie','résilié','archive','archivé')
+                        ORDER BY m.id DESC LIMIT 1
+                    ");
+                    $st2->execute([':id' => $id_bien]);
+                    $mandat = $st2->fetch(PDO::FETCH_ASSOC) ?: null;
+                } catch (Throwable) { /* table/colonne absente : on ignore */ }
+            }
         } catch (Throwable) { $mandat = null; }
 
         // Annonce active (priorité aux statuts actifs ; fallback dernière non-brouillon)
