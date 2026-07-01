@@ -381,11 +381,17 @@ if ($societe_sel !== 'toutes') {
     $stmtSocInfo->execute([(int)$societe_sel]);
     $societeInfo = $stmtSocInfo->fetch(PDO::FETCH_ASSOC) ?: [];
 
+    // Agence effectivement affichée (onglet AGC pour l'admin, ou scope forcé pour
+    // un manager). ⚠️ NE PAS utiliser $agenceScope seul : il vaut 0 pour un admin,
+    // ce qui chargeait la dernière comparaison de la SOCIÉTÉ (ex. Lyon) au lieu de
+    // l'agence sélectionnée (ex. Vienne).
+    $agenceEff = $agenceScope > 0 ? (int)$agenceScope : (ctype_digit((string)($agence_sel ?? '')) ? (int)$agence_sel : 0);
+
     // Si une agence est sélectionnée, on affiche son rapport spécifique.
     // Sinon on charge la dernière comparaison toutes agences confondues.
-    if ($agenceScope > 0) {
+    if ($agenceEff > 0) {
         $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND id_agence = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
-        $stmtProj->execute([(int)$societe_sel, $agenceScope, (int)$mois_sel, (int)$annee_sel]);
+        $stmtProj->execute([(int)$societe_sel, $agenceEff, (int)$mois_sel, (int)$annee_sel]);
     } else {
         $stmtProj = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'projet' ORDER BY created_at DESC LIMIT 1");
         $stmtProj->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
@@ -395,9 +401,9 @@ if ($societe_sel !== 'toutes') {
         $projetData = json_decode($projetRow['compare_json'] ?? '', true) ?: null;
     }
 
-    if ($agenceScope > 0) {
+    if ($agenceEff > 0) {
         $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND id_agence = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
-        $stmtBull->execute([(int)$societe_sel, $agenceScope, (int)$mois_sel, (int)$annee_sel]);
+        $stmtBull->execute([(int)$societe_sel, $agenceEff, (int)$mois_sel, (int)$annee_sel]);
     } else {
         $stmtBull = $pdo->prepare("SELECT * FROM rh_salaires_comparaisons WHERE id_societe = ? AND mois = ? AND annee = ? AND type = 'bulletins' ORDER BY created_at DESC LIMIT 1");
         $stmtBull->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
@@ -2251,37 +2257,30 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     </div>
                     <?php endif; ?>
                     <button type="button" onclick="ouvrirValidationModal()" class="workflow-step-btn is-success">
-                        ✅ Valider et envoyer au comptable
+                        ✅ Valider cette agence
                     </button>
                 </div>
-                <!-- Modal validation : saisie du commentaire -->
+                <!-- Modal validation : marque l'agence validée + remarques (mail consolidé plus tard) -->
                 <div id="validation-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerValidationModal()">
                     <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
                         <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-                            <h3 style="margin:0;font-size:15px;color:#15803d;">✅ Valider le projet — envoi au comptable</h3>
+                            <h3 style="margin:0;font-size:15px;color:#15803d;">✅ Valider cette agence</h3>
                             <button type="button" onclick="fermerValidationModal()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
                         </div>
                         <form method="post" action="rh_salaire_validate_projet.php">
                             <div style="padding:18px 20px;">
                                 <p style="margin:0 0 10px;font-size:12px;color:#64748b;">
-                                    Le PDF du projet sera envoyé en pièce jointe au comptable de la société, avec ton commentaire dans le corps du mail.
+                                    L'agence sera marquée <strong>validée</strong>. Le mail au comptable partira <strong>une fois toutes les agences validées</strong> (un seul mail groupé). Tes remarques ci-dessous seront rappelées dans le mail et sur le lien de dépôt.
                                 </p>
-                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Message au comptable (modifiable)</label>
-                                <textarea name="commentaire" id="validation-commentaire" rows="9" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;">Bonjour,
-
-C'est OK pour ce projet, merci de valider et envoyer les bulletins dans digiposte.
-
-Je reste dans l'attente des bulletins définitifs pour mon dossier.
-
-À plus tard,
-Emmanuel</textarea>
+                                <label style="display:block;font-size:12px;color:#475569;font-weight:600;margin-bottom:6px;">Mes remarques sur cette agence (modifiable)</label>
+                                <textarea name="commentaire" id="validation-commentaire" rows="6" placeholder="Ex. Sur BRIAND, prime d'ancienneté à revoir…" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;"><?=h($projetRow['remarques'] ?? '')?></textarea>
                                 <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                                 <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
                                 <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
                             </div>
                             <div style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;gap:8px;">
                                 <button type="button" onclick="fermerValidationModal()" style="padding:9px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
-                                <button type="submit" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">✅ Valider et envoyer</button>
+                                <button type="submit" style="padding:9px 18px;border-radius:8px;background:#16a34a;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">✅ Valider cette agence</button>
                             </div>
                         </form>
                     </div>
@@ -2302,6 +2301,64 @@ Emmanuel</textarea>
                     <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn">Importer</button>
                 </form>
             </div>
+
+            <?php
+            // ── Envoi consolidé au comptable : proposé quand TOUTES les agences
+            // (ayant un projet) de la société sont validées. Vue admin seulement. ──
+            $sendReady = false; $sendAgences = []; $sendComptable = (string)($societeInfo['comptable_email'] ?? '');
+            if ($agenceScope === 0) {
+                try {
+                    $stV = $pdo->prepare("SELECT c.id_agence, a.nom_agence, MAX(c.validated_at IS NOT NULL) AS v
+                                          FROM rh_salaires_comparaisons c LEFT JOIN agences a ON a.id = c.id_agence
+                                          WHERE c.id_societe=? AND c.mois=? AND c.annee=? AND c.type='projet'
+                                          GROUP BY c.id_agence, a.nom_agence");
+                    $stV->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+                    $sendAgences = $stV->fetchAll(PDO::FETCH_ASSOC);
+                    $sendReady = count($sendAgences) > 0 && count(array_filter($sendAgences, fn($r)=>(int)$r['v']===1)) === count($sendAgences);
+                } catch (Throwable $e) {}
+            }
+            $offer = $_SESSION['dr_offer_send'] ?? null;
+            $autoOpenSend = $sendReady && is_array($offer)
+                && (int)($offer['societe'] ?? 0) === (int)$societe_sel
+                && (int)($offer['mois'] ?? 0) === (int)$mois_sel
+                && (int)($offer['annee'] ?? 0) === (int)$annee_sel;
+            unset($_SESSION['dr_offer_send']);
+            ?>
+            <?php if ($sendReady): ?>
+            <div class="workflow-step" style="margin-top:12px;background:#ecfdf5;border:1px solid #a7f3d0;">
+                <h4 style="color:#065f46;margin:0 0 4px;">✅ Toutes les agences sont validées (<?= count($sendAgences) ?>)</h4>
+                <p style="font-size:12px;color:#475569;margin:0 0 10px;">Un <strong>seul mail</strong> au comptable <?= $sendComptable!=='' ? '(<strong>'.h($sendComptable).'</strong>)' : '<span style="color:#dc2626;">(email comptable manquant)</span>' ?> : une card par agence + un lien de dépôt unique pour retourner l'<strong>ensemble des bulletins définitifs</strong>.</p>
+                <button type="button" onclick="ouvrirEnvoiConsolide()" class="workflow-step-btn is-success">📤 Envoyer au comptable</button>
+            </div>
+            <div id="envoi-consolide-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerEnvoiConsolide()">
+                <div style="background:#fff;border-radius:14px;max-width:620px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+                    <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                        <h3 style="margin:0;font-size:15px;color:#15803d;">📤 Envoyer au comptable — <?=h(mois_fr((int)$mois_sel).' '.$annee_sel)?></h3>
+                        <button type="button" onclick="fermerEnvoiConsolide()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
+                    </div>
+                    <div style="padding:16px 20px;max-height:56vh;overflow:auto;">
+                        <p style="font-size:13px;color:#334155;margin:0 0 10px;">Confirme l'envoi d'<strong>un seul mail</strong> à <strong><?=h($sendComptable ?: '—')?></strong> : cards de remarques par agence + <strong>lien de dépôt unique</strong> demandant l'<strong>ensemble des bulletins définitifs</strong> (pas seulement les modifiés).</p>
+                        <?php foreach ($sendAgences as $sa): ?>
+                            <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:12px;">🏢 <strong><?=h($sa['nom_agence'] ?? ('Agence #'.$sa['id_agence']))?></strong></div>
+                        <?php endforeach; ?>
+                    </div>
+                    <form method="post" action="rh_salaire_envoyer_comptable.php" style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;gap:8px;">
+                        <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+                        <input type="hidden" name="societe_id" value="<?=h($societe_sel)?>">
+                        <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
+                        <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
+                        <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?'.h($currentQS) : '' ?>">
+                        <button type="button" onclick="fermerEnvoiConsolide()" style="padding:9px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
+                        <button type="submit" <?= $sendComptable==='' ? 'disabled' : '' ?> style="padding:9px 18px;border-radius:8px;background:<?= $sendComptable==='' ? '#94a3b8' : '#16a34a' ?>;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">📤 Confirmer l'envoi</button>
+                    </form>
+                </div>
+            </div>
+            <script>
+            function ouvrirEnvoiConsolide(){ document.getElementById('envoi-consolide-modal').style.display='flex'; }
+            function fermerEnvoiConsolide(){ document.getElementById('envoi-consolide-modal').style.display='none'; }
+            <?php if ($autoOpenSend): ?>document.addEventListener('DOMContentLoaded', ouvrirEnvoiConsolide);<?php endif; ?>
+            </script>
+            <?php endif; ?>
 
             <?php if ($projetData): ?>
                 <!-- Card « Comparaison projet comptable » retirée : le bouton « Voir la
@@ -2528,14 +2585,13 @@ Emmanuel</textarea>
                         else { msg.textContent = '⚠️ '+(j.error||'échec'); msg.style.color='#dc2626'; }
                       }).catch(()=>{ msg.textContent='⚠️ erreur réseau'; msg.style.color='#dc2626'; });
                 }
-                // Reprend les remarques en tête du commentaire de validation au comptable.
+                // Le commentaire de validation EST les remarques : on synchronise.
                 function syncValidationComment(){
                     var ta = document.getElementById('cmp-remarques');
                     var vc = document.getElementById('validation-commentaire');
                     if(!ta || !vc) return;
                     var rem = (ta.value||'').trim();
-                    if(rem === '') return;
-                    if(vc.value.indexOf(rem) === -1){ vc.value = rem + "\n\n" + vc.value; }
+                    if(rem !== '') vc.value = rem;
                 }
                 </script>
             <?php endif; ?>
