@@ -743,13 +743,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compare_existing'])) 
     $compare  = rh_compare_bulletins_expected($expected, $group['employees']);
     $compare['conges'] = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
 
+    // Copie du PDF dans uploads/salaires_comptable/ (seul dossier servi par
+    // rh_compare_pdf_view.php) pour que le volet PDF du modal s'affiche.
+    $destDir = __DIR__ . '/uploads/salaires_comptable';
+    if (!is_dir($destDir)) @mkdir($destDir, 0777, true);
+    $destName = 'depot_' . $type . '_' . $societeId . '_ag' . $idAgence . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.pdf';
+    $filePathRel = @copy($abs, $destDir . '/' . $destName) ? ('/uploads/salaires_comptable/' . $destName) : (string)$row['fichier_path'];
+    $fileName = (string)$row['fichier_nom_original'];
+
     if ($type === 'bulletins') {
         $totalNet = 0.0; foreach ($group['employees'] as $e) { if (isset($e['net']) && $e['net'] !== null) $totalNet += (float)$e['net']; }
         $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_net,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'bulletins',?,?,?,?,?,?,?)");
-        $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, (string)$row['fichier_nom_original'], (string)$row['fichier_path'], $totalNet, $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
+        $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $totalNet, $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
     } else {
         $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_brut,total_expected_brut,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'projet',?,?,?,?,?,?,?,?)");
-        $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, (string)$row['fichier_nom_original'], (string)$row['fichier_path'], $compare['total_pdf'], $compare['total_expected'], $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
+        $ins->execute([$societeId, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $compare['total_pdf'], $compare['total_expected'], $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
     }
     $_SESSION['message_ok'] = ($compare['ok'] ? '✅ Comparaison OK' : '⚠️ Écarts détectés') . ' — rapport ' . $type . ' généré depuis le fichier déposé.';
     header("Location: $back"); exit;
@@ -2270,13 +2278,8 @@ Emmanuel</textarea>
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="hidden" name="compare_type" value="bulletins">
-                    <?php if ($wfHasBulletins): ?>
-                    <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#155e75;">📎 Des bulletins ont été <b>déposés via le lien</b> — comparez-les directement, sans re-télécharger.</div>
-                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Comparer le fichier déposé</button>
-                    <?php endif; ?>
-                    <input type="file" name="bulletins_pdf" accept="application/pdf">
-                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn">Importer un autre PDF</button>
+                    <input type="file" name="bulletins_pdf" accept="application/pdf" required>
+                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn">Importer</button>
                 </form>
             </div>
 
