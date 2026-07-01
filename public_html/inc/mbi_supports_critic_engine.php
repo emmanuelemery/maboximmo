@@ -633,15 +633,13 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 if ($mandatBien === 'gestion' || $mandatBien === 'location') {
                     return [true, null];
                 }
+                // Règle user 2026-07-01 : dès qu'un MANDAT est renseigné/chargé pour le bien,
+                // l'autorisation de diffusion est validée automatiquement (le mandat vaut
+                // autorisation). Seul le cas « aucun mandat » reste bloquant.
                 if (is_array($mandat) && !empty($mandat)) {
-                    $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
-                    if (!empty($autoris) && (int)$autoris !== 0) return [true, null];
-                    $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
-                    if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
-                        return [true, null];
-                    }
+                    return [true, null];
                 }
-                return [false, is_array($mandat) ? 'Autorisation de diffusion non signée' : 'Mandat absent'];
+                return [false, 'Mandat absent'];
 
             case 'autorisation_diffusion_couvre_canaux':
                 // Même règle : MANDAT bien = gestion/location → OK auto
@@ -649,15 +647,11 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 if ($mandatBien === 'gestion' || $mandatBien === 'location') {
                     return [true, null];
                 }
+                // Mandat renseigné = périmètre de diffusion couvert (règle user 2026-07-01).
                 if (is_array($mandat) && !empty($mandat)) {
-                    $autoris = $mandat['autorisation_diffusion'] ?? $mandat['autorisation_publication'] ?? null;
-                    if (!empty($autoris)) return [true, null];
-                    $typeM = strtolower((string)($mandat['type'] ?? $mandat['type_mandat'] ?? $mandat['nature'] ?? ''));
-                    if (str_contains($typeM, 'gestion') || str_contains($typeM, 'location')) {
-                        return [true, null];
-                    }
+                    return [true, null];
                 }
-                return [false, is_array($mandat) ? 'Périmètre de diffusion à vérifier sur le mandat' : 'Mandat absent'];
+                return [false, 'Mandat absent'];
 
             case 'mandat_numero_registre':
                 if (!is_array($mandat)) return [false, 'Mandat absent'];
@@ -896,13 +890,16 @@ if (!function_exists('mbi_supports_critic_regle_custom')) {
                 return [$n > 0, $n > 0 ? null : 'Nombre de lots de la copropriété non renseigné'];
 
             case 'copro_quote_part_charges':
-                $c = (float)($bien['copro_charges_annuelles'] ?? $bien['quote_part_charges'] ?? 0);
+                // Source de vérité = biens.copro_quote_part_charges (« Charges annuelles du lot »
+                // saisi dans Descriptif > Environnement). Fallbacks legacy conservés.
+                $c = (float)($bien['copro_quote_part_charges'] ?? $bien['copro_charges_annuelles'] ?? $bien['quote_part_charges'] ?? 0);
                 return [$c > 0, $c > 0 ? null : 'Quote-part des charges courantes non renseignée'];
 
             case 'copro_procedures_l611':
-                if (!array_key_exists('copro_procedures_l611', $bien) && !array_key_exists('procedures_l611', $bien)) {
-                    return [false, 'Mention présence/absence procédures L.611-1 manquante'];
-                }
+                // Règle user 2026-07-01 : le toggle « Syndic en procédure »
+                // (biens/immeuble copro_procedure) NON coché = ABSENCE de procédure
+                // L.611-1 → réponse valable. La mention est donc toujours renseignée
+                // (Non par défaut, Oui si le toggle est activé).
                 return [true, null];
 
             case 'copro_travaux_votes_communiques':

@@ -172,7 +172,7 @@ if (!function_exists('mbi_supports_completer_fields_map')) {
 
             // Copropriété (résidentiel uniquement, si est_copro)
             'copro_nb_lots'         => ['entity'=>'bien','table'=>'biens','column'=>'copro_nb_lots','label'=>'Nombre de lots de la copropriété','type'=>'number','required'=>true],
-            'copro_charges'         => ['entity'=>'bien','table'=>'biens','column'=>'copro_charges_annuelles','label'=>'Charges annuelles copro (€/an)','type'=>'number','required'=>true],
+            'copro_charges'         => ['entity'=>'bien','table'=>'biens','column'=>'copro_quote_part_charges','label'=>'Charges annuelles du lot (€/an)','type'=>'number','required'=>true],
             'copro_l611'            => ['entity'=>'bien','table'=>'biens','column'=>'copro_procedures_l611','label'=>'Procédures L.611-1 en cours','type'=>'select','options'=>['' => '—','0'=>'Non','1'=>'Oui'],'required'=>true],
 
             // ERP / risques
