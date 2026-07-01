@@ -1,20 +1,27 @@
 <?php
 /**
- * api/dpe_reextract_free.php — Relance une extraction DPE GRATUITE (regex, zéro IA)
- * sur un PDF DPE déjà présent en GED, puis enregistre les champs détectés sur le bien.
+ * api/dpe_reextract_free.php — Réapplique GRATUITEMENT l'extraction DPE déjà réalisée.
  *
- * « Gratuit car déjà fait » : aucun appel IA / OCR payant. On relit le PDF avec le
- * parser regex (BienImportParser + DpeImportParser) et on remappe via dpe_enregistrer().
- * Si le PDF est un scan (peu de texte), on refuse proprement (pas de bascule payante).
+ * « Gratuit car déjà fait » : AUCUN nouvel appel IA/OCR payant. On réutilise
+ * l'extraction déjà stockée (même résultat que l'onglet Documents), et on la
+ * persiste dans dpe_diags + biens via apply_dpe_extracted_to_bien() — exactement
+ * le même chemin que l'analyse des Documents. Résultat : l'onglet « Détails DPE »
+ * reprend automatiquement toutes les infos et la complétude remonte.
+ *
+ * Sources des champs, par priorité :
+ *   1) ged_documents.metadata.extra.ia_result_last.fields  (extraction IA gpt-4o — LA bonne)
+ *   2) dpe_diags.champs_extraits_json                       (cache IA alternatif)
+ *   3) regex sur le PDF (BienImportParser + DpeImportParser)  (repli, si aucun cache)
  *
  * POST : { id_bien:int, ged_document_id:int, csrf_token }
- * Réponse : { ok:bool, diag_id?:int, count?:int, score?:int, error?:string }
+ * Réponse : { ok:bool, count?:int, method?:string, error?:string }
  */
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/auth.php';
 require_once dirname(__DIR__) . '/inc/dpe_service.php';
-require_once dirname(__DIR__) . '/inc/mandat_registre.php';   // mr_ged_doc_path()
+require_once dirname(__DIR__) . '/inc/bien_apply_extracted.php';   // apply_dpe_extracted_to_bien()
+require_once dirname(__DIR__) . '/inc/mandat_registre.php';        // mr_ged_doc_path()
 require_login();
 
 ini_set('display_errors', '0');
@@ -44,29 +51,37 @@ if (!$isSuperAdmin && $societeId > 0 && (int)$bSoc !== $societeId) {
     exit(json_encode(['ok' => false, 'error' => 'Hors périmètre.']));
 }
 
-if (!function_exists('mr_ged_doc_path')) exit(json_encode(['ok' => false, 'error' => 'Résolveur GED indisponible.']));
-$path = mr_ged_doc_path($pdo, $docId);
-if ($path === '' || !is_file($path)) {
-    exit(json_encode(['ok' => false, 'error' => 'Fichier PDF DPE introuvable sur le serveur.']));
-}
-
 try {
-    $fields = [];
-    $method = '';
+    $fields    = [];
+    $method    = '';
+    $publicUrl = '';
 
-    // ── 1) PRIORITÉ : réutiliser l'extraction IA DÉJÀ FAITE (stockée en base) ──
-    //    C'est EXACTEMENT le résultat du puissant extracteur des Documents
-    //    (gpt-4o vision, 32 champs) → même qualité, mais 0 € car déjà payé.
+    // ── 1) PRIORITÉ : l'extraction IA déjà stockée sur le doc GED (la meilleure) ──
     try {
-        $stJ = $pdo->prepare(
-            "SELECT champs_extraits_json FROM dpe_diags
-             WHERE id_bien = ? AND champs_extraits_json IS NOT NULL AND champs_extraits_json <> ''
-             ORDER BY date_creation DESC, id DESC LIMIT 1"
-        );
-        $stJ->execute([$bienId]);
-        $json = (string)($stJ->fetchColumn() ?: '');
-        if ($json !== '') {
-            $decoded = json_decode($json, true);
+        $stM = $pdo->prepare("SELECT metadata FROM ged_documents WHERE id = ? LIMIT 1");
+        $stM->execute([$docId]);
+        $meta = json_decode((string)($stM->fetchColumn() ?: ''), true) ?: [];
+        $publicUrl = (string)($meta['public_url'] ?? '');
+        $iaFields  = $meta['extra']['ia_result_last']['fields'] ?? null;
+        if (is_array($iaFields) && $iaFields) {
+            foreach ($iaFields as $k => $v) {
+                if ($v === '' || $v === null) continue;
+                $fields[$k] = $v;
+            }
+            if ($fields) $method = 'ia_ged';
+        }
+    } catch (Throwable $e) { /* pas de metadata → étape suivante */ }
+
+    // ── 2) FALLBACK : cache IA dans dpe_diags.champs_extraits_json ──
+    if (!$fields) {
+        try {
+            $stJ = $pdo->prepare(
+                "SELECT champs_extraits_json FROM dpe_diags
+                 WHERE id_bien = ? AND champs_extraits_json IS NOT NULL AND champs_extraits_json <> ''
+                 ORDER BY date_creation DESC, id DESC LIMIT 1"
+            );
+            $stJ->execute([$bienId]);
+            $decoded = json_decode((string)($stJ->fetchColumn() ?: ''), true);
             if (is_array($decoded) && $decoded) {
                 foreach ($decoded as $k => $v) {
                     if ($v === '' || $v === null) continue;
@@ -74,11 +89,16 @@ try {
                 }
                 if ($fields) $method = 'ia_cache';
             }
-        }
-    } catch (Throwable $e) { /* pas de cache → on tombera sur le regex */ }
+        } catch (Throwable $e) { /* → regex */ }
+    }
 
-    // ── 2) FALLBACK : regex gratuit (texte + regex, aucun appel IA) ──
+    // ── 3) FALLBACK : regex gratuit sur le PDF (aucun appel IA) ──
     if (!$fields) {
+        if (!function_exists('mr_ged_doc_path')) exit(json_encode(['ok' => false, 'error' => 'Résolveur GED indisponible.']));
+        $path = mr_ged_doc_path($pdo, $docId);
+        if ($path === '' || !is_file($path)) {
+            exit(json_encode(['ok' => false, 'error' => 'Aucune extraction en cache et PDF introuvable sur le serveur.']));
+        }
         $texte = (string) BienImportParser::extractText($path);
         if (mb_strlen(trim($texte)) < 200) {
             exit(json_encode([
@@ -98,20 +118,15 @@ try {
         exit(json_encode(['ok' => false, 'error' => 'Aucun champ à réappliquer (ni cache IA ni regex).']));
     }
 
-    $res = dpe_enregistrer($pdo, $bienId, $fields, [
-        'method'          => $method,
-        'score'           => dpe_score($fields),
-        'ged_document_id' => $docId,
-    ]);
-    if (empty($res['ok'])) {
-        exit(json_encode(['ok' => false, 'error' => $res['error'] ?? 'Enregistrement échoué.']));
-    }
+    // ── Persistance : MÊME fonction que l'analyse Documents → dpe_diags + biens ──
+    $userId = function_exists('current_user_id') ? (int)current_user_id() : null;
+    $report = apply_dpe_extracted_to_bien($pdo, $bienId, $fields, ($publicUrl !== '' ? $publicUrl : null), $userId);
+
     echo json_encode([
-        'ok'      => true,
-        'diag_id' => (int)($res['diag_id'] ?? 0),
-        'count'   => count($fields),
-        'score'   => dpe_score($fields),
-        'method'  => $method,   // 'ia_cache' (réutilise l'IA déjà faite) | 'regex_gratuit'
+        'ok'     => true,
+        'count'  => count($fields),
+        'method' => $method,   // 'ia_ged' | 'ia_cache' | 'regex_gratuit'
+        'report' => is_array($report) ? $report : null,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[dpe_reextract_free] ' . $e->getMessage());

@@ -376,7 +376,7 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'Échec');
-          const via = j.method === 'ia_cache' ? 'IA (déjà faite)' : 'regex';
+          const via = j.method === 'regex_gratuit' ? 'regex' : 'IA (déjà faite)';
           if (st) { st.textContent = `✅ ${j.count || 0} champ(s) réappliqués via ${via}. Rechargement…`; st.className = 'v2-form-status ok'; }
           setTimeout(() => window.location.reload(), 800);
         } catch (err) {
