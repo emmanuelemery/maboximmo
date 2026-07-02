@@ -543,6 +543,22 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
                 $resolvedSocieteId = (int)($r['id_societe'] ?? 0) ?: (int)($r['imm_soc'] ?? 0);
                 $resolvedAgenceId  = (int)($r['id_agence']  ?? 0) ?: (int)($r['imm_age'] ?? 0);
             } catch (Throwable) {}
+        } elseif (($entityType === 'IMB' || $entityType === 'IMMEUBLE') && $entityId) {
+            try {
+                $st = $pdo->prepare("SELECT id_societe, id_agence FROM immeubles WHERE id = ?");
+                $st->execute([$entityId]);
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $resolvedSocieteId = (int)($r['id_societe'] ?? 0);
+                $resolvedAgenceId  = (int)($r['id_agence']  ?? 0);
+            } catch (Throwable) {}
+        } elseif ($entityType === 'TIERS' && $entityId) {
+            try {
+                $st = $pdo->prepare("SELECT id_societe, id_agence FROM tiers WHERE id = ?");
+                $st->execute([$entityId]);
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $resolvedSocieteId = (int)($r['id_societe'] ?? 0);
+                $resolvedAgenceId  = (int)($r['id_agence']  ?? 0);
+            } catch (Throwable) {}
         } elseif ($entityType === 'CREANCIER_DOSSIER' && $entityId) {
             try {
                 $st = $pdo->prepare("SELECT id_societe, id_agence FROM creancier_dossier WHERE id = ?");

@@ -51,7 +51,7 @@ try {
         WHERE d.status = 'active'
           AND (
               (l.entity_type = 'IMB' AND l.entity_id = :imm_a)
-              OR l.entity_id IN (SELECT id FROM biens WHERE id_immeuble = :imm_b)
+              OR (l.entity_type = 'BIEN' AND l.entity_id IN (SELECT id FROM biens WHERE id_immeuble = :imm_b))
           )
         GROUP BY d.id
         ORDER BY d.created_at DESC

@@ -640,7 +640,7 @@ fiche360_header(
         : '03_GESTION_LOCATIVE';
     // Panneau Actions — remonté EN HAUT de la colonne pour visibilité immédiate
     fiche360_actions_panel('Actions immeuble', [
-        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'immeuble_360', immeuble_id:" . (int)$immId . ", entite_id_bdd:" . (int)$immId . ", n1:'" . $n1Imm . "', entite_nom:'" . addslashes((string)($imm['reference_immeuble'] ?: $nomAffichage)) . "'});return false;"],
+        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'immeuble_360', immeuble_id:" . (int)$immId . ", entite_id_bdd:" . (int)$immId . ", soc_id:" . (int)($imm['id_societe'] ?? 0) . ", age_id:" . (int)($imm['id_agence'] ?? 0) . ", n1:'" . $n1Imm . "', entite_nom:'" . addslashes((string)($imm['reference_immeuble'] ?: $nomAffichage)) . "'});return false;"],
         ['icon'=>'➕','label'=>'Ajouter un bien à cet immeuble','url'=>app_url('/bien_detail.php?id_immeuble=' . $immId)],
         ['icon'=>'📁','label'=>'Documents de l\'immeuble',     'url'=>app_url('/immeuble_documents_list.php?id=' . $immId)],
         ['icon'=>'✏️','label'=>'Éditer l\'immeuble',           'url'=>app_url('/agency_immeuble_form.php?id=' . $immId)],

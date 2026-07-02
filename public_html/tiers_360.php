@@ -781,7 +781,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     $actionsList = [];
     $tiersIsMgr = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,3,7], true)) || (function_exists('is_super_admin') && is_super_admin());
     // Tiers (propriétaire/locataire) → métier GESTION par défaut (jamais transaction).
-    $actionsList[] = ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'tiers_360', proprio_tiers_id:" . (int)$tiersId . ", entite_id_bdd:" . (int)$tiersId . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes((string)$nomAffichage) . "'});return false;"];
+    $actionsList[] = ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'tiers_360', proprio_tiers_id:" . (int)$tiersId . ", entite_id_bdd:" . (int)$tiersId . ", soc_id:" . (int)($tiers['id_societe'] ?? 0) . ", age_id:" . (int)($tiers['id_agence'] ?? 0) . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes((string)$nomAffichage) . "'});return false;"];
     $actionsList[] = ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=TIERS&id=' . (int)$tiersId . '&back=' . urlencode('tiers_360.php?id=' . (int)$tiersId))];
     if ($idProprioLegacy > 0) {
         $actionsList[] = ['icon'=>'📄','label'=>'Voir la fiche propriétaire','url'=>app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy)];

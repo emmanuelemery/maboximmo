@@ -184,30 +184,38 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) return ['ok' => false, 'ged_doc_id' => null, 'links_created' => 0, 'audit' => [], 'erreur' => 'carte_not_found'];
 
-        // Tenant_id : récup depuis bien/immeuble/tiers selon entité
-        $tenantId = null;
+        // Société + agence : TIRÉES DE L'ENTITÉ (jamais de la session user) → scoping correct.
+        $tenantId = null; $agenceId = null;
         switch ($eligibility['entity_type']) {
             case 'BIEN':
-                $st = $pdo->prepare("SELECT b.id_societe, i.id_societe AS imm_soc FROM biens b LEFT JOIN immeubles i ON i.id = b.id_immeuble WHERE b.id = ?");
+                $st = $pdo->prepare("SELECT b.id_societe, b.id_agence, i.id_societe AS imm_soc, i.id_agence AS imm_age
+                                     FROM biens b LEFT JOIN immeubles i ON i.id = b.id_immeuble WHERE b.id = ?");
                 $st->execute([$eligibility['entity_id']]);
                 $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
                 $tenantId = (int)($r['id_societe'] ?? 0) ?: (int)($r['imm_soc'] ?? 0);
+                $agenceId = (int)($r['id_agence'] ?? 0) ?: (int)($r['imm_age'] ?? 0) ?: null;
                 break;
             case 'IMB':
             case 'IMMEUBLE':
-                $st = $pdo->prepare("SELECT id_societe FROM immeubles WHERE id = ?");
+                $st = $pdo->prepare("SELECT id_societe, id_agence FROM immeubles WHERE id = ?");
                 $st->execute([$eligibility['entity_id']]);
-                $tenantId = (int)$st->fetchColumn();
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tenantId = (int)($r['id_societe'] ?? 0);
+                $agenceId = (int)($r['id_agence'] ?? 0) ?: null;
                 break;
             case 'TIERS':
-                $st = $pdo->prepare("SELECT id_societe FROM tiers WHERE id = ?");
+                $st = $pdo->prepare("SELECT id_societe, id_agence FROM tiers WHERE id = ?");
                 $st->execute([$eligibility['entity_id']]);
-                $tenantId = (int)$st->fetchColumn();
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tenantId = (int)($r['id_societe'] ?? 0);
+                $agenceId = (int)($r['id_agence'] ?? 0) ?: null;
                 break;
             case 'CREANCIER_DOSSIER':
-                $st = $pdo->prepare("SELECT id_societe FROM creancier_dossier WHERE id = ?");
+                $st = $pdo->prepare("SELECT id_societe, id_agence FROM creancier_dossier WHERE id = ?");
                 $st->execute([$eligibility['entity_id']]);
-                $tenantId = (int)$st->fetchColumn();
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tenantId = (int)($r['id_societe'] ?? 0);
+                $agenceId = (int)($r['id_agence'] ?? 0) ?: null;
                 break;
         }
         if (!$tenantId) $tenantId = 1; // Régie EMERY par défaut
@@ -255,13 +263,13 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                 };
                 $stIns = $pdo->prepare("
                     INSERT INTO ged_documents
-                        (uuid, tenant_id, fluxbox_source_id, name_file, name_display, name_canonical,
+                        (uuid, tenant_id, societe_id, agence_id, fluxbox_source_id, name_file, name_display, name_canonical,
                          document_type, source_module, mime_type, size_bytes, hash_sha256,
                          folder_id, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())
                 ");
                 $stIns->execute([
-                    $uuid, $tenantId, (int)$row['doc_id'],
+                    $uuid, $tenantId, $tenantId, $agenceId, (int)$row['doc_id'],
                     $nameV3, (string)$row['fichier_nom'], $nameCanon,
                     $eligibility['type_doc'] ?: null, $sourceModule,
                     (string)$row['mime_type'], (int)$row['taille_octets'], $hash,
