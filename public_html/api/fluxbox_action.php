@@ -1038,6 +1038,7 @@ try {
             $prefillTiersId    = (int)($_POST['prefill_tiers_id']    ?? 0);
             $prefillBailId     = (int)($_POST['prefill_bail_id']     ?? 0);
             $prefillCreancierDossierId = (int)($_POST['prefill_creancier_dossier_id'] ?? 0);
+            $forcedTypeDoc     = preg_replace('/[^a-z0-9_]/', '', strtolower(trim((string)($_POST['forced_type_doc'] ?? '')))) ?: null;
             $prefillOrigin     = (string)($_POST['prefill_origin']   ?? '');
 
             // Contexte dossier créancier → tenant résolu depuis le dossier (autorité métier).
@@ -1236,6 +1237,7 @@ try {
                     'tiers_id'          => $prefillTiersId ?: null,
                     'bail_id'           => $prefillBailId ?: null,
                     'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
+                    'forced_type_doc'   => $forcedTypeDoc,
                     'prefill_origin'    => $prefillOrigin,
                 ],
             ], $pdo);
@@ -1387,6 +1389,7 @@ try {
                     'tiers_id'           => $prefillTiersId ?: null,
                     'bail_id'            => $prefillBailId ?: null,
                     'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
+                    'forced_type_doc'    => $forcedTypeDoc,
                     'prefill_origin'     => $prefillOrigin,
                 ],
             ], $pdo);

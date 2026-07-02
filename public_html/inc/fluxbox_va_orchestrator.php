@@ -465,9 +465,10 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
         $fileName = (string)($doc['fichier_nom'] ?? '');
 
         // ─── 1. Détecter entité depuis proposition_json ou source_meta du doc ──
-        $entityType = null; $entityId = null;
+        $entityType = null; $entityId = null; $forcedTypeDoc = '';
         $prop = !empty($carte['proposition_json']) ? json_decode((string)$carte['proposition_json'], true) : null;
         if (is_array($prop)) {
+            if (!empty($prop['forced_type_doc'])) $forcedTypeDoc = (string)$prop['forced_type_doc'];
             // Contexte créancier imposé (depuis le cockpit) → prioritaire.
             if (!empty($prop['creancier_dossier_id'])) { $entityType = 'CREANCIER_DOSSIER'; $entityId = (int)$prop['creancier_dossier_id']; }
             elseif (!empty($prop['bail_id']))     { $entityType = 'BAIL'; $entityId = (int)$prop['bail_id']; }
@@ -482,6 +483,7 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
                 $st->execute([(int)$doc['id']]);
                 $meta = json_decode((string)$st->fetchColumn(), true);
                 if (is_array($meta)) {
+                    if ($forcedTypeDoc === '' && !empty($meta['forced_type_doc'])) $forcedTypeDoc = (string)$meta['forced_type_doc'];
                     if (!empty($meta['creancier_dossier_id'])) { $entityType = 'CREANCIER_DOSSIER'; $entityId = (int)$meta['creancier_dossier_id']; }
                     elseif (!empty($meta['bail_id']))     { $entityType = 'BAIL'; $entityId = (int)$meta['bail_id']; }
                     elseif (!empty($meta['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$meta['bien_id']; }
@@ -636,6 +638,9 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
         elseif (in_array($iaType, $generic, true) && $detectedType !== '') $effectiveType = $detectedType;
         elseif ($iaType !== '' && $iaConf >= 50) $effectiveType = $iaType;
         else $effectiveType = $detectedType ?: $iaType;
+
+        // Type pré-déclaré par l'utilisateur (boutons « Documents fréquents ») → prioritaire.
+        if ($forcedTypeDoc !== '') $effectiveType = $forcedTypeDoc;
 
         // ─── 6. N2/N3 GED depuis mapping ──
         $gedMappingTransaction = [

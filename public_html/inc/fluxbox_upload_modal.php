@@ -192,6 +192,21 @@ try {
         </div>
         </details>
 
+        <!-- ───── Rappel contexte (société · agence · métier) + types fréquents, AU-DESSUS de la zone de dépôt ───── -->
+        <div class="fbx-top-context" id="fbx-top-context">
+            <div class="fbx-ctx-bar fbx-ctx-bar-top" id="fbx-ctx-bar-top">
+                <span class="fbx-ctx-chip" data-k="soc">🏢 <b>—</b></span>
+                <span class="fbx-ctx-sep">·</span>
+                <span class="fbx-ctx-chip" data-k="age">🏬 <b>—</b></span>
+                <span class="fbx-ctx-sep">·</span>
+                <span class="fbx-ctx-chip" data-k="met">💼 <b>—</b></span>
+            </div>
+            <div class="fbx-quicktypes-wrap" id="fbx-quicktypes-wrap" hidden>
+                <div class="fbx-quicktypes-label">📌 Documents fréquents <span class="fbx-quicktypes-hint">(clique pour pré-déclarer le type)</span></div>
+                <div class="fbx-quicktypes" id="fbx-quicktypes"></div>
+            </div>
+        </div>
+
         <!-- Onglets options -->
         <div class="fbx-upload-tabs" role="tablist">
             <button type="button" class="fbx-tab is-active" data-tab="dragdrop">📂 Fichiers</button>
@@ -704,6 +719,26 @@ try {
 .fbx-meta-summary-hint { font-size: 11.5px; color: #94a3b8; font-weight: 400; }
 /* Barre de contexte compacte (société · agence · métier) dans le summary */
 .fbx-ctx-bar { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* ── Contexte + types fréquents au-dessus de la zone de dépôt ── */
+.fbx-top-context { margin: 4px 0 10px; }
+.fbx-ctx-bar-top {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #f3f6fb; border: 1px solid #e3ebf5; border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; color: #2d4a72; font-weight: 600;
+}
+.fbx-ctx-bar-top .fbx-ctx-chip b { color: #243B5C; }
+.fbx-quicktypes-wrap { margin-top: 10px; }
+.fbx-quicktypes-label { font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 6px; }
+.fbx-quicktypes-hint { font-weight: 400; color: #94a3b8; }
+.fbx-quicktypes { display: flex; flex-wrap: wrap; gap: 8px; }
+.fbx-qtype-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border: 1px solid #d4a047; background: #fffdf7;
+    color: #92400e; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; transition: all .12s;
+}
+.fbx-qtype-btn:hover { background: #fdf3d8; }
+.fbx-qtype-btn.is-selected { background: #d4a047; color: #fff; border-color: #b8860b; }
 .fbx-ctx-chip {
     display: inline-flex; align-items: center; gap: 4px;
     font-size: 12px; color: #475569;
@@ -1221,7 +1256,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     const dateEl     = document.getElementById('fbx-meta-date-input');
 
     // État sélection courante
-    const choice = { societe_id: 0, agence_id: 0, n1: '', n2: '', n3: '', n4: '', n5: '' };
+    const choice = { societe_id: 0, agence_id: 0, n1: '', n2: '', n3: '', n4: '', n5: '', forced_type_doc: '' };
 
     // État GLOBAL uploads (singleton — survit à la fermeture de la modale)
     if (!window.FluxBoxUploadState) {
@@ -1678,14 +1713,16 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         return sel ? sel.textContent.trim() : '';
     }
     function fbxUpdateCtxBar() {
-        const bar = document.getElementById('fbx-ctx-bar');
-        if (!bar) return;
         const vals = { soc: fbxCtxLabel(rowSoc) || '—',
                        age: fbxCtxLabel(rowAg) || '—',
                        met: fbxCtxLabel(rowMet) || '—' };
-        Object.keys(vals).forEach(k => {
-            const b = bar.querySelector('.fbx-ctx-chip[data-k="' + k + '"] b');
-            if (b) b.textContent = vals[k];
+        ['fbx-ctx-bar', 'fbx-ctx-bar-top'].forEach(id => {
+            const bar = document.getElementById(id);
+            if (!bar) return;
+            Object.keys(vals).forEach(k => {
+                const b = bar.querySelector('.fbx-ctx-chip[data-k="' + k + '"] b');
+                if (b) b.textContent = vals[k];
+            });
         });
     }
 
@@ -1708,6 +1745,78 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         '05_TRANSACTION':            { icon: '🤝', label: 'Transaction',  pos: 14 },
         '13_FOURNISSEURS':           { icon: '🚚', label: 'Fournisseurs', pos: 15 },
     };
+
+    /* ─── Types de documents fréquents / indispensables par entité ─── */
+    // slug = document_type (aligné sur le mapping GED serveur pour classement + nommage V3.1)
+    const QUICKTYPES = {
+        bien: [
+            {t:'dpe', i:'⚡', l:'DPE'},
+            {t:'diagnostic_elec', i:'🔌', l:'Élec'},
+            {t:'diagnostic_gaz', i:'🔥', l:'Gaz'},
+            {t:'diagnostic_amiante', i:'🧪', l:'Amiante'},
+            {t:'diagnostic_plomb', i:'🩸', l:'Plomb'},
+            {t:'erp_ernmt', i:'⚠️', l:'ERP/ERNMT'},
+            {t:'surface_carrez', i:'📐', l:'Carrez'},
+            {t:'taxe_fonciere', i:'🏛️', l:'Taxe foncière'},
+            {t:'attestation_assurance', i:'🛡️', l:'Assurance PNO'},
+        ],
+        tiers: [
+            {t:'mandat_gestion', i:'📝', l:'Mandat gestion'},
+            {t:'piece_identite', i:'🪪', l:'Pièce identité'},
+            {t:'rib', i:'🏦', l:'RIB'},
+            {t:'attestation_propriete', i:'📜', l:'Attestation propriété'},
+        ],
+        immeuble: [
+            {t:'reglement_copro', i:'📕', l:'Règlement copro'},
+            {t:'pv_ag', i:'🗳️', l:"PV d'AG"},
+            {t:'carnet_entretien', i:'📔', l:'Carnet entretien'},
+            {t:'contrat', i:'📄', l:'Contrat'},
+            {t:'dtg', i:'🏗️', l:'DTG'},
+            {t:'fiche_immeuble', i:'🏢', l:'Fiche immeuble'},
+        ],
+        bail: [
+            {t:'bail_signe', i:'✍️', l:'Bail signé'},
+            {t:'edl_entree', i:'📥', l:'EDL entrée'},
+            {t:'edl_sortie', i:'📤', l:'EDL sortie'},
+            {t:'caution_garant', i:'🤝', l:'Caution/garant'},
+            {t:'attestation_assurance', i:'🛡️', l:'Assurance loc.'},
+            {t:'quittance', i:'🧾', l:'Quittance'},
+        ],
+    };
+
+    function fbxEntityKind(prefill) {
+        if (!prefill) return '';
+        if (prefill.bail_id)          return 'bail';
+        if (prefill.bien_id)          return 'bien';
+        if (prefill.immeuble_id)      return 'immeuble';
+        if (prefill.proprio_tiers_id || prefill.tiers_id) return 'tiers';
+        return '';
+    }
+
+    function fbxRenderQuickTypes(prefill) {
+        const wrap = document.getElementById('fbx-quicktypes-wrap');
+        const row  = document.getElementById('fbx-quicktypes');
+        if (!wrap || !row) return;
+        const kind = fbxEntityKind(prefill);
+        const list = QUICKTYPES[kind];
+        if (!kind || !list) { wrap.hidden = true; row.innerHTML = ''; return; }
+        row.innerHTML = '';
+        list.forEach(d => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'fbx-qtype-btn';
+            btn.dataset.type = d.t;
+            btn.innerHTML = `<span>${d.i}</span><span>${d.l}</span>`;
+            btn.addEventListener('click', () => {
+                const already = choice.forced_type_doc === d.t;
+                choice.forced_type_doc = already ? '' : d.t;
+                row.querySelectorAll('.fbx-qtype-btn').forEach(b =>
+                    b.classList.toggle('is-selected', !already && b.dataset.type === d.t));
+            });
+            row.appendChild(btn);
+        });
+        wrap.hidden = false;
+    }
 
     function renderMetierButtons(grouped) {
         if (!grouped || grouped.length === 0) {
@@ -2021,6 +2130,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                                : (pf.tiers_id ? parseInt(pf.tiers_id, 10) : 0),
             prefill_bail_id:     pf.bail_id ? parseInt(pf.bail_id, 10) : 0,
             prefill_creancier_dossier_id: pf.creancier_dossier_id ? parseInt(pf.creancier_dossier_id, 10) : 0,
+            forced_type_doc:     choice.forced_type_doc || '',
             prefill_origin:      pf.origin || '',
         };
     }
@@ -2051,7 +2161,9 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
        car le prefill contient toutes les infos (ref, ID BDD, adresse, proprio).
        Clic = ouvre bien_360 / tiers_360 dans nouvel onglet. */
     function renderTargetCard(prefill) {
-        if (!prefill || !prefill.entite_nom) { removeTargetCard(); return; }
+        if (!prefill || !prefill.entite_nom) { removeTargetCard(); fbxRenderQuickTypes(null); return; }
+        // Types fréquents contextuels au-dessus de la zone de dépôt
+        fbxRenderQuickTypes(prefill);
         // Fix Bug 1 (2026-05-26) : mettre à jour les hidden inputs HTML visibles pour QA + audit
         const setHidden = (id, val) => { const el = document.getElementById(id); if (el) el.value = String(val ?? ''); };
         setHidden('fbx-prefill-bien-id',     prefill.bien_id          || 0);
@@ -2442,6 +2554,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             fd.append('prefill_tiers_id',    String(meta.prefill_tiers_id || 0));
             fd.append('prefill_bail_id',     String(meta.prefill_bail_id || 0));
             fd.append('prefill_creancier_dossier_id', String(meta.prefill_creancier_dossier_id || 0));
+            fd.append('forced_type_doc',     meta.forced_type_doc || '');
             fd.append('prefill_origin',      meta.prefill_origin || '');
             // Path relatif si le file vient d'un panneau "Dossier" (<input webkitdirectory>)
             // Permet au serveur d'extraire le nom du dossier parent comme instance entité
