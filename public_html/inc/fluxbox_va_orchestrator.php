@@ -381,6 +381,8 @@ if (!function_exists('fluxbox_va_detect_n1_from_context')) {
             return ['n1' => '04_syndic', 'raison' => 'doc immeuble (syndic)'];
         } elseif ($type === 'TIERS') {
             return ['n1' => '02_referentiel', 'raison' => 'doc tiers'];
+        } elseif ($type === 'BAIL') {
+            return ['n1' => '05_gestion_locative', 'raison' => 'doc bail (gestion)'];
         } elseif ($type === 'MANDAT' || $type === 'MDT') {
             return ['n1' => '06_transaction', 'raison' => 'doc mandat'];
         } elseif ($type === 'CREANCIER_DOSSIER') {
@@ -468,6 +470,7 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
         if (is_array($prop)) {
             // Contexte créancier imposé (depuis le cockpit) → prioritaire.
             if (!empty($prop['creancier_dossier_id'])) { $entityType = 'CREANCIER_DOSSIER'; $entityId = (int)$prop['creancier_dossier_id']; }
+            elseif (!empty($prop['bail_id']))     { $entityType = 'BAIL'; $entityId = (int)$prop['bail_id']; }
             elseif (!empty($prop['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$prop['bien_id']; }
             elseif (!empty($prop['immeuble_id'])) { $entityType = 'IMB'; $entityId = (int)$prop['immeuble_id']; }
             elseif (!empty($prop['tiers_id']))    { $entityType = 'TIERS'; $entityId = (int)$prop['tiers_id']; }
@@ -480,6 +483,7 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
                 $meta = json_decode((string)$st->fetchColumn(), true);
                 if (is_array($meta)) {
                     if (!empty($meta['creancier_dossier_id'])) { $entityType = 'CREANCIER_DOSSIER'; $entityId = (int)$meta['creancier_dossier_id']; }
+                    elseif (!empty($meta['bail_id']))     { $entityType = 'BAIL'; $entityId = (int)$meta['bail_id']; }
                     elseif (!empty($meta['bien_id']))     { $entityType = 'BIEN';  $entityId = (int)$meta['bien_id']; }
                     elseif (!empty($meta['immeuble_id'])) { $entityType = 'IMB'; $entityId = (int)$meta['immeuble_id']; }
                     elseif (!empty($meta['tiers_id']))    { $entityType = 'TIERS'; $entityId = (int)$meta['tiers_id']; }
@@ -558,6 +562,16 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
                 $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
                 $resolvedSocieteId = (int)($r['id_societe'] ?? 0);
                 $resolvedAgenceId  = (int)($r['id_agence']  ?? 0);
+            } catch (Throwable) {}
+        } elseif ($entityType === 'BAIL' && $entityId) {
+            try {
+                $st = $pdo->prepare("SELECT b.id_societe, b.id_agence, i.id_societe AS imm_soc, i.id_agence AS imm_age
+                    FROM bien_baux bb JOIN biens b ON b.id = bb.id_bien
+                    LEFT JOIN immeubles i ON i.id = b.id_immeuble WHERE bb.id = ?");
+                $st->execute([$entityId]);
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $resolvedSocieteId = (int)($r['id_societe'] ?? 0) ?: (int)($r['imm_soc'] ?? 0);
+                $resolvedAgenceId  = (int)($r['id_agence']  ?? 0) ?: (int)($r['imm_age'] ?? 0);
             } catch (Throwable) {}
         } elseif ($entityType === 'CREANCIER_DOSSIER' && $entityId) {
             try {

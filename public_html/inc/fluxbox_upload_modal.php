@@ -66,6 +66,7 @@ try {
         <input type="hidden" name="prefill_creancier_dossier_id" id="fbx-prefill-creancier-dossier-id" value="0">
         <input type="hidden" name="prefill_immeuble_id" id="fbx-prefill-immeuble-id" value="0">
         <input type="hidden" name="prefill_tiers_id"    id="fbx-prefill-tiers-id"    value="0">
+        <input type="hidden" name="prefill_bail_id"     id="fbx-prefill-bail-id"     value="0">
         <input type="hidden" name="prefill_soc_id"      id="fbx-prefill-soc-id"      value="0">
         <input type="hidden" name="prefill_age_id"      id="fbx-prefill-age-id"      value="0">
         <input type="hidden" name="prefill_origin"      id="fbx-prefill-origin"      value="">
@@ -139,8 +140,9 @@ try {
                     👤 Nom de l'entité
                     <span class="fbx-meta-optional" id="fbx-meta-entity-hint">(rempli auto si tu uploades un dossier nommé — sinon saisis ici : Dupont-Pierre, BNP Paribas, Immeuble Foch…)</span>
                 </label>
-                <input type="text" id="fbx-meta-entity-input" maxlength="120"
-                       placeholder="Ex : « Dupont-Pierre » pour un collaborateur, « CACE » pour une banque, « Imm-Foch » pour un immeuble…">
+                <input type="text" id="fbx-meta-entity-input" maxlength="120" autocomplete="off"
+                       placeholder="🔎 Cherche un propriétaire, un locataire, un immeuble, un bien, un collaborateur…">
+                <div id="fbx-entity-results" class="fbx-entity-results"></div>
                 <div class="fbx-meta-hint" id="fbx-meta-entity-required-msg" style="display:none; color:#dc2626;">⚠️ Ce sous-domaine attend une entité — sans nom, le doc sera classé sous « COLLABORATEUR » générique.</div>
             </div>
 
@@ -711,6 +713,21 @@ try {
 .fbx-ctx-chip b { color: #243B5C; font-weight: 800; }
 .fbx-meta-collapse[open] .fbx-ctx-chip { background: #eef2ff; border-color: #c7d2fe; }
 .fbx-ctx-sep { color: #cbd5e1; font-weight: 700; }
+/* Résultats de la recherche universelle d'entité (champ « Nom de l'entité ») */
+.fbx-entity-results { display: none; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 260px; overflow: auto; }
+.fbx-entity-results.is-open { display: flex; }
+.fbx-entity-res {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+    border: 1px solid #e2e8f0; background: #fff; border-radius: 9px; padding: 7px 11px;
+    cursor: pointer; text-align: left; width: 100%;
+}
+.fbx-entity-res:hover { border-color: #0e7490; background: #f0fdff; }
+.fbx-entity-res .ttl { font-size: 13px; font-weight: 700; color: #243B5C; }
+.fbx-entity-res .b {
+    font-size: 9.5px; font-weight: 800; color: #0e7490; background: #ecfeff;
+    border: 1px solid #a5f3fc; border-radius: 5px; padding: 0 5px; margin-right: 7px; vertical-align: middle;
+}
+.fbx-entity-res .rp { font-size: 11px; color: #64748b; }
 @keyframes fbx-modal-in {
     from { opacity: 0; transform: translateY(20px) scale(0.98); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -2002,6 +2019,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             prefill_immeuble_id: pf.immeuble_id ? parseInt(pf.immeuble_id, 10) : 0,
             prefill_tiers_id:    pf.proprio_tiers_id ? parseInt(pf.proprio_tiers_id, 10)
                                : (pf.tiers_id ? parseInt(pf.tiers_id, 10) : 0),
+            prefill_bail_id:     pf.bail_id ? parseInt(pf.bail_id, 10) : 0,
             prefill_creancier_dossier_id: pf.creancier_dossier_id ? parseInt(pf.creancier_dossier_id, 10) : 0,
             prefill_origin:      pf.origin || '',
         };
@@ -2040,6 +2058,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         setHidden('fbx-prefill-creancier-dossier-id', prefill.creancier_dossier_id || 0);
         setHidden('fbx-prefill-immeuble-id', prefill.immeuble_id      || 0);
         setHidden('fbx-prefill-tiers-id',    prefill.proprio_tiers_id || prefill.tiers_id || 0);
+        setHidden('fbx-prefill-bail-id',     prefill.bail_id          || 0);
         setHidden('fbx-prefill-soc-id',      prefill.soc_id           || 0);
         setHidden('fbx-prefill-age-id',      prefill.age_id           || 0);
         setHidden('fbx-prefill-origin',      prefill.origin           || '');
@@ -2135,6 +2154,83 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         openModal();
     };
     modal.querySelectorAll('[data-fbx-close]').forEach(el => el.addEventListener('click', closeModal));
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       RECHERCHE UNIVERSELLE D'ENTITÉ (champ « Nom de l'entité »)
+       Tape un nom → propriétaire / locataire / immeuble / bien / collaborateur.
+       Choisir un résultat renseigne d'un coup : société · agence · métier ·
+       domaine · sous-domaine (branche GED de la fiche), et ouvre la CATÉGORIE.
+       Zéro <select>, cascade de boutons. Si l'user ne cherche pas → l'IA décide.
+       ═══════════════════════════════════════════════════════════════════════ */
+    (function initEntitySearch() {
+        const input = document.getElementById('fbx-meta-entity-input');
+        const out   = document.getElementById('fbx-entity-results');
+        if (!input || !out) return;
+        const base = () => (typeof window.APP_BASE === 'string' && window.APP_BASE) ? window.APP_BASE : '';
+        let timer = null;
+
+        function esc(s){ return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+        async function applyEntity(it) {
+            // 1. Prefill global (attache le doc à la bonne entité côté upload)
+            const pf = { origin: 'fluxbox_search', n1: it.n1 || '', n2: it.n2 || '', n3: it.n3 || '',
+                         soc_id: it.societe_id || 0, age_id: it.agence_id || 0,
+                         entite_nom: it.label, entite_id_bdd: it.id };
+            if (it.entity_type === 'bien')          pf.bien_id = it.id;
+            else if (it.entity_type === 'immeuble') pf.immeuble_id = it.id;
+            else if (it.entity_type === 'tiers')    pf.proprio_tiers_id = it.id;
+            window.FBX_PREFILL = pf;
+
+            // 2. Société + agence de la fiche (source=fiche/vert)
+            if (pf.soc_id) { try { await selectSociete(parseInt(pf.soc_id,10), null, parseInt(pf.age_id,10)||0); } catch(e){} }
+            // 3. Métier › Domaine › Sous-domaine (branche entité) → ouvre la Catégorie
+            if (pf.n1) { try { await applyPrefillCascade(pf.n1, pf.n2, pf.n3, ''); } catch(e){} }
+            // 4. Mini-card + hidden inputs + verrouillage du champ
+            try { renderTargetCard(pf); } catch(e){}
+            input.value = it.label;
+            input.readOnly = true;
+            input.style.background = '#f0fdf4'; input.style.borderColor = '#86efac'; input.style.cursor = 'not-allowed';
+            const hint = document.getElementById('fbx-meta-entity-hint');
+            if (hint) hint.innerHTML = '<span style="color:#15803d;font-weight:700;">✅ ' + esc(it.badge) + ' : ' + esc(it.label) + ' — classement rempli. Choisis la catégorie du document.</span>';
+            // 5. Déplie pour montrer la Catégorie + rafraîchit la barre compacte
+            const md = document.getElementById('fbx-meta-details'); if (md) md.open = true;
+            fbxUpdateCtxBar();
+            out.classList.remove('is-open'); out.innerHTML = '';
+        }
+
+        function render(items) {
+            out.innerHTML = '';
+            if (!items || !items.length) { out.classList.remove('is-open'); return; }
+            items.forEach(it => {
+                const el = document.createElement('button');
+                el.type = 'button'; el.className = 'fbx-entity-res';
+                el.innerHTML = '<div class="ttl"><span class="b">' + esc(it.badge) + '</span>' + esc(it.label) + '</div>'
+                             + (it.repere1 ? '<div class="rp">' + esc(it.repere1) + '</div>' : '')
+                             + (it.repere2 ? '<div class="rp">' + esc(it.repere2) + '</div>' : '');
+                el.addEventListener('click', () => applyEntity(it));
+                out.appendChild(el);
+            });
+            out.classList.add('is-open');
+        }
+
+        input.addEventListener('input', () => {
+            if (input.readOnly) return;
+            const q = input.value.trim();
+            clearTimeout(timer);
+            if (q.length < 2) { out.classList.remove('is-open'); out.innerHTML = ''; return; }
+            timer = setTimeout(async () => {
+                try {
+                    const res = await fetch(base() + '/api/fluxbox_entity_search.php?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+                    const data = await res.json();
+                    render(data.ok ? (data.results || []) : []);
+                } catch (e) { out.classList.remove('is-open'); }
+            }, 220);
+        });
+        // Clic hors résultats → ferme
+        document.addEventListener('click', (e) => {
+            if (!out.contains(e.target) && e.target !== input) out.classList.remove('is-open');
+        });
+    })();
 
     // Raccourci Ctrl+U / Cmd+U
     document.addEventListener('keydown', (e) => {
@@ -2344,6 +2440,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             fd.append('prefill_bien_id',     String(meta.prefill_bien_id || 0));
             fd.append('prefill_immeuble_id', String(meta.prefill_immeuble_id || 0));
             fd.append('prefill_tiers_id',    String(meta.prefill_tiers_id || 0));
+            fd.append('prefill_bail_id',     String(meta.prefill_bail_id || 0));
             fd.append('prefill_creancier_dossier_id', String(meta.prefill_creancier_dossier_id || 0));
             fd.append('prefill_origin',      meta.prefill_origin || '');
             // Path relatif si le file vient d'un panneau "Dossier" (<input webkitdirectory>)

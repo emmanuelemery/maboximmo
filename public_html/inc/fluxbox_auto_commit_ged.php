@@ -109,6 +109,11 @@ if (!function_exists('fluxbox_auto_commit_eligible')) {
                 $st->execute([$v3['entity_id']]);
                 $entityValid = (bool)$st->fetchColumn();
                 break;
+            case 'BAIL':
+                $st = $pdo->prepare("SELECT 1 FROM bien_baux WHERE id = ? LIMIT 1");
+                $st->execute([$v3['entity_id']]);
+                $entityValid = (bool)$st->fetchColumn();
+                break;
             case 'CREANCIER_DOSSIER':
                 $st = $pdo->prepare("SELECT 1 FROM creancier_dossier WHERE id = ? LIMIT 1");
                 $st->execute([$v3['entity_id']]);
@@ -210,6 +215,15 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                 $tenantId = (int)($r['id_societe'] ?? 0);
                 $agenceId = (int)($r['id_agence'] ?? 0) ?: null;
                 break;
+            case 'BAIL':
+                $st = $pdo->prepare("SELECT b.id_societe, b.id_agence, i.id_societe AS imm_soc, i.id_agence AS imm_age
+                                     FROM bien_baux bb JOIN biens b ON b.id = bb.id_bien
+                                     LEFT JOIN immeubles i ON i.id = b.id_immeuble WHERE bb.id = ?");
+                $st->execute([$eligibility['entity_id']]);
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tenantId = (int)($r['id_societe'] ?? 0) ?: (int)($r['imm_soc'] ?? 0);
+                $agenceId = (int)($r['id_agence'] ?? 0) ?: (int)($r['imm_age'] ?? 0) ?: null;
+                break;
             case 'CREANCIER_DOSSIER':
                 $st = $pdo->prepare("SELECT id_societe, id_agence FROM creancier_dossier WHERE id = ?");
                 $st->execute([$eligibility['entity_id']]);
@@ -256,7 +270,7 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                 $nameCanon = strtoupper(preg_replace('/[^A-Z0-9]+/i', '_', pathinfo($nameV3, PATHINFO_FILENAME)) ?: 'DOC');
 
                 $sourceModule = match ($eligibility['entity_type']) {
-                    'BIEN', 'IMB', 'IMMEUBLE' => 'GESTION',
+                    'BIEN', 'IMB', 'IMMEUBLE', 'BAIL' => 'GESTION',
                     'TIERS' => 'REFERENTIEL',
                     'CREANCIER_DOSSIER' => 'CONTENTIEUX',
                     default => 'AUTRE',
@@ -280,9 +294,9 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
             }
 
             // 2. INSERT ged_document_links (entité concernée)
-            // Map BIEN → main, IMB/IMMEUBLE → reference, TIERS → reference
+            // Map BIEN/BAIL/CREANCIER → main, IMB/IMMEUBLE/TIERS → reference
             $entityType = $eligibility['entity_type'] === 'IMMEUBLE' ? 'IMB' : $eligibility['entity_type'];
-            $relationType = ($entityType === 'BIEN' || $entityType === 'CREANCIER_DOSSIER') ? 'main' : 'reference';
+            $relationType = in_array($entityType, ['BIEN', 'BAIL', 'CREANCIER_DOSSIER'], true) ? 'main' : 'reference';
 
             $stLink = $pdo->prepare("
                 INSERT INTO ged_document_links
@@ -303,6 +317,25 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                     $stLink->execute([$tenantId, $newGedDocId, 'IMB', $immId, 'reference']);
                     $linksCreated++;
                     $audit[] = "✅ INSERT ged_document_links auto IMB#$immId (reference)";
+                }
+            }
+
+            // 3bis. Un doc de BAIL remonte aussi sur son bien + son immeuble (annexe).
+            if ($entityType === 'BAIL') {
+                $st = $pdo->prepare("SELECT bb.id_bien, b.id_immeuble
+                                     FROM bien_baux bb JOIN biens b ON b.id = bb.id_bien
+                                     WHERE bb.id = ?");
+                $st->execute([$eligibility['entity_id']]);
+                $rb = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (!empty($rb['id_bien'])) {
+                    $stLink->execute([$tenantId, $newGedDocId, 'BIEN', (int)$rb['id_bien'], 'reference']);
+                    $linksCreated++;
+                    $audit[] = "✅ INSERT ged_document_links auto BIEN#" . (int)$rb['id_bien'] . " (reference)";
+                }
+                if (!empty($rb['id_immeuble'])) {
+                    $stLink->execute([$tenantId, $newGedDocId, 'IMB', (int)$rb['id_immeuble'], 'reference']);
+                    $linksCreated++;
+                    $audit[] = "✅ INSERT ged_document_links auto IMB#" . (int)$rb['id_immeuble'] . " (reference)";
                 }
             }
 

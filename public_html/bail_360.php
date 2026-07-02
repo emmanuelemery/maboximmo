@@ -18,6 +18,7 @@ if ($bailId <= 0) {
 $sql = "SELECT bb.*,
     b.id AS bien_id, b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
     b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot, b.id_immeuble,
+    b.id_societe AS bien_soc, b.id_agence AS bien_age,
     i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
     p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
     COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
@@ -143,7 +144,11 @@ $statusAlertes   = $piecesManquantes > 0 ? $piecesManquantes . ' pièce(s) à ch
 
 $pageTitle    = 'Bail · ' . ($bail['bail_nature'] ?? 'bail') . ' #' . $bailId;
 $pageSubtitle = 'Vue 360° · ' . $bienLabel;
-$extraCss     = fiche360_css();
+$extraCss     = fiche360_css() . '<style>
+/* Bouton d\'action d\'en-tête : même style doux que bien_360 / immeuble_360 */
+.f360-header-actions .tr-btn-primary { background:#f3f6fb; color:#2d4a72; border-color:#e3ebf5; }
+.f360-header-actions .tr-btn-primary:hover { background:#eaf1fa; color:#243B5C; }
+</style>';
 include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 
@@ -359,6 +364,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
     <?php
     // Panneau Actions — EN HAUT de la colonne (convention 360°)
     fiche360_actions_panel('Actions bail', [
+        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'bail_360', bail_id:" . (int)$bailId . ", bien_id:" . (int)$bail['bien_id'] . ", immeuble_id:" . (int)($bail['id_immeuble'] ?? 0) . ", soc_id:" . (int)($bail['bien_soc'] ?? 0) . ", age_id:" . (int)($bail['bien_age'] ?? 0) . ", entite_id_bdd:" . (int)$bailId . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes('Bail #' . $bailId . ' · ' . $bienLabel) . "'});return false;"],
         ['icon'=>'📨','label'=>'Demander un document (locataire)','url'=>app_url('/document_request_new.php?ctx=BAIL&id=' . $bailId . '&back=' . urlencode('bail_360.php?id=' . $bailId))],
         ['icon'=>'📥','label'=>'Importer docs du bail (OneDrive)','url'=>'javascript:odClasserOpen()'],
         ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],

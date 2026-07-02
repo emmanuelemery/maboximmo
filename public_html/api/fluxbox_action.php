@@ -1010,6 +1010,15 @@ try {
             //  - Sinon (upload « libre ») → on respecte un choix explicite ; à défaut Régie EMERY (1/3).
             require_once dirname(__DIR__) . '/inc/bien_scope_resolver.php';
             $prefillBienId = (int)($_POST['prefill_bien_id'] ?? 0);
+            $prefillBailId = (int)($_POST['prefill_bail_id'] ?? 0);
+            // Un bail → on résout via son bien (autorité métier = le bien du bail).
+            if ($prefillBienId <= 0 && $prefillBailId > 0) {
+                try {
+                    $stBb = $pdo->prepare("SELECT id_bien FROM bien_baux WHERE id = ? LIMIT 1");
+                    $stBb->execute([$prefillBailId]);
+                    $prefillBienId = (int)$stBb->fetchColumn();
+                } catch (Throwable) {}
+            }
             if ($prefillBienId > 0) {
                 $rv = bien_resolve_soc_age($pdo, $prefillBienId);
                 $targetSocieteId = $rv['societe_id'];
@@ -1027,6 +1036,7 @@ try {
             $prefillBienId     = (int)($_POST['prefill_bien_id']     ?? 0);
             $prefillImmeubleId = (int)($_POST['prefill_immeuble_id'] ?? 0);
             $prefillTiersId    = (int)($_POST['prefill_tiers_id']    ?? 0);
+            $prefillBailId     = (int)($_POST['prefill_bail_id']     ?? 0);
             $prefillCreancierDossierId = (int)($_POST['prefill_creancier_dossier_id'] ?? 0);
             $prefillOrigin     = (string)($_POST['prefill_origin']   ?? '');
 
@@ -1224,6 +1234,7 @@ try {
                     'bien_id'           => $prefillBienId ?: null,
                     'immeuble_id'       => $prefillImmeubleId ?: null,
                     'tiers_id'          => $prefillTiersId ?: null,
+                    'bail_id'           => $prefillBailId ?: null,
                     'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
                     'prefill_origin'    => $prefillOrigin,
                 ],
@@ -1374,6 +1385,7 @@ try {
                     'bien_id'            => $prefillBienId ?: null,
                     'immeuble_id'        => $prefillImmeubleId ?: null,
                     'tiers_id'           => $prefillTiersId ?: null,
+                    'bail_id'            => $prefillBailId ?: null,
                     'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
                     'prefill_origin'     => $prefillOrigin,
                 ],
