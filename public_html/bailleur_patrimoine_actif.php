@@ -147,7 +147,12 @@ function sumLoyerMois(array $locs): float {
 // (ex: T1 2026) et on affiche TOUS les locataires de ce trimestre.
 // Les locataires d'anciens trimestres ne sont PAS inclus.
 require_once __DIR__ . '/inc/patrimoine_base.php';   // source unique partagée avec le hub
-$base_sql = patrimoine_base_sql($propFilterWhere);
+// Scénario sélectionné (server-side) : par défaut 'courant'. Quand un scénario alternatif
+// est passé en ?scenario=CODE, les "lots porteurs de scénario" (prix courant nul, mais
+// valorisés dans CE scénario) entrent dans la population et deviennent visibles UNIQUEMENT
+// sous ce scénario. La surcouche JS remplit ensuite leurs prix.
+$scenarioSel = preg_replace('/[^a-z0-9_\-]/', '', strtolower((string)($_GET['scenario'] ?? 'courant'))) ?: 'courant';
+$base_sql = patrimoine_base_sql($propFilterWhere, $scenarioSel);
 
 // ── STATS GLOBALES ───────────────────────────────────────
 $stats = $pdo->query("
@@ -199,7 +204,7 @@ $detailStmt = $pdo->query("
       sub.total_regle, sub.total_impaye, sub.presence,
       sub.imm_vendu, sub.loc_archive, sub.hors_crg,
       CASE WHEN sub.hors_crg=1 THEN '—' ELSE CONCAT(sub.annee,' T',sub.trimestre) END AS dernier_crg,
-      (SELECT bp.montant FROM bien_prix bp WHERE bp.id_bien=sub.id_bien AND bp.type_valeur='loyer' AND bp.is_courant=1 ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS loyer_estime_valide,
+      (SELECT bp.montant FROM bien_prix bp WHERE bp.id_bien=sub.id_bien AND bp.type_valeur='loyer' AND bp.is_courant=1 AND bp.scenario_code='courant' ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS loyer_estime_valide,
       b.reference_bien, b.surface_habitable, b.surface_carrez,
       b.prix_demande_initial, b.rendement_brut, b.type_commercialisation, b.a_proposer,
       b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
@@ -208,7 +213,7 @@ $detailStmt = $pdo->query("
          WHERE bx.id_bien = sub.id_bien AND bx.id_proprietaire = sub.id_proprietaire
          ORDER BY (bx.statut='actif') DESC, bx.id DESC LIMIT 1) AS bail_loyer,
       (SELECT bp.montant FROM bien_prix bp
-         WHERE bp.id_bien = sub.id_bien AND bp.type_valeur='prix_vente' AND bp.is_courant=1
+         WHERE bp.id_bien = sub.id_bien AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code='courant'
          ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS prix_valide_montant
     FROM ({$base_sql}) sub
     LEFT JOIN biens b ON b.id = sub.id_bien
@@ -245,7 +250,7 @@ foreach ($PATRIMOINE_ATTACH as $targetPid => $srcPids) {
             b.reference_bien,
             COALESCE(b.surface_habitable, b.surface_carrez) AS surface,
             b.loyer_hc,
-            COALESCE((SELECT bp.montant FROM bien_prix bp WHERE bp.id_bien=b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1 ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
+            COALESCE((SELECT bp.montant FROM bien_prix bp WHERE bp.id_bien=b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code='courant' ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
                      b.prix_demande_initial, b.prix_vente_estime) AS prix_vente,
             pr.societe AS proprio
         FROM biens b
@@ -274,6 +279,7 @@ function groupByImmeuble(array $rows): array {
             $groups[$iid] = [
                 'id_immeuble'  => $d['id_immeuble'] ?? 0,
                 'nom_immeuble' => $sansImmeuble ? '' : ($d['nom_immeuble'] ?? '—'),
+                'ville'        => $sansImmeuble ? (string)($d['bien_ville'] ?? '') : (string)($d['imm_ville'] ?? ''),
                 'adresse_1'    => $sansImmeuble
                     ? trim((string)($d['bien_adresse'] ?? '') . ' ' . (string)($d['bien_ville'] ?? ''))
                     : ($d['adresse_1'] ?? ''),
@@ -499,14 +505,17 @@ $extraCss = '
                border-radius:4px; font-size:.84em; margin-bottom:16px; }
 
 /* TABLE PRINCIPALE */
+.main-pat-wrap { width:100%; overflow-x:auto; border-radius:6px; }
 table.main-pat { border-collapse:collapse; width:100%; background:white;
                  box-shadow:0 2px 6px rgba(0,0,0,.1); border-radius:6px; overflow:hidden; }
 table.main-pat thead tr { background:#1a237e; color:white; }
-table.main-pat thead th { padding:10px 12px; text-align:left; font-size:.82em; white-space:nowrap; }
+table.main-pat thead th { padding:7px 7px; text-align:left; font-size:.7em; line-height:1.15;
+                          white-space:nowrap; letter-spacing:-.01em; }
 table.main-pat tbody tr.prop-row { cursor:pointer; transition:background .15s; }
 table.main-pat tbody tr.prop-row:hover td { background:#e8f4fd; }
 table.main-pat tbody tr.prop-row.active td { background:#dbeafe; }
-table.main-pat tbody td { padding:9px 12px; border-bottom:1px solid #eee; font-size:.88em; vertical-align:middle; }
+table.main-pat tbody td { padding:7px 7px; border-bottom:1px solid #eee; font-size:.8em; vertical-align:middle; white-space:nowrap; }
+table.main-pat tbody td:first-child { white-space:normal; }
 table.main-pat tr.total-row td { background:#e8eaf6; font-weight:bold; border-top:2px solid #3f51b5; }
 
 /* DÉTAIL INLINE */
@@ -598,6 +607,8 @@ tr.detail-row td { padding:0; background:#f8f9ff; border-bottom:3px solid #3f51b
 .fold-toggle.open .fold-arrow { transform:rotate(90deg); }
 .fold-content { display:none; }
 .fold-content.open { display:block; }
+/* Surbrillance de la ligne trouvée par la recherche */
+tr.pat-hit > td { background:#fff8d8 !important; box-shadow: inset 3px 0 0 #f5a623; }
 
 /* TABLE DÉTAIL */
 table.detail { border-collapse:collapse; width:100%; font-size:.92em; table-layout:fixed; }
@@ -901,21 +912,22 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   <input type="hidden" name="scenario_label" id="export-scenario">
 </form>
 
+<div class="main-pat-wrap">
 <table class="main-pat">
 <thead<?= $singlePropMode ? ' style="display:none"' : '' ?>><tr>
   <th class="mp-sort" onclick="sortMainPat(this,0)" style="cursor:pointer">PROPRIÉTAIRE <span class="sort-icon">⇅</span></th>
   <th class="mp-sort" onclick="sortMainPat(this,1)" style="cursor:pointer">TYPE <span class="sort-icon">⇅</span></th>
   <th class="mp-sort" onclick="sortMainPat(this,2)" style="text-align:center;cursor:pointer">BIENS <span class="sort-icon">⇅</span></th>
   <th class="mp-sort" onclick="sortMainPat(this,3)" style="text-align:center;cursor:pointer">ACTIFS <span class="sort-icon">⇅</span></th>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,4)" style="cursor:pointer">LOYERS /mois € <span class="sort-icon">⇅</span></th>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,5)" style="cursor:pointer">ENCAISSÉ T1 2026 <span class="sort-icon">⇅</span></th>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,6)" style="cursor:pointer">ENCAISSÉ 2025 <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,4)" style="cursor:pointer" title="Loyers appelés par mois">LOYER<br>/mois € <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,5)" style="cursor:pointer" title="Encaissé T1 2026">ENC.<br>T1 26 € <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,6)" style="cursor:pointer" title="Encaissé 2025">ENC.<br>2025 € <span class="sort-icon">⇅</span></th>
 <?php if ($mode === 'proposer'): ?>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,7)" style="cursor:pointer">VALEUR PATRIMOINE PROPOSÉ € <span class="sort-icon">⇅</span></th>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,8)" style="cursor:pointer">BIENS PROPOSÉS <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,7)" style="cursor:pointer" title="Valeur patrimoine proposé">VALEUR<br>proposé € <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,8)" style="cursor:pointer">BIENS<br>proposés <span class="sort-icon">⇅</span></th>
 <?php else: ?>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,7)" style="cursor:pointer">IMPAYÉS ACTIFS € <span class="sort-icon">⇅</span></th>
-  <th class="mp-sort num-r" onclick="sortMainPat(this,8)" style="cursor:pointer">VALEUR PATRIMOINE € <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,7)" style="cursor:pointer" title="Impayés des locataires actifs">IMPAYÉS<br>actifs € <span class="sort-icon">⇅</span></th>
+  <th class="mp-sort num-r" onclick="sortMainPat(this,8)" style="cursor:pointer" title="Valeur du patrimoine">VALEUR<br>patrim. € <span class="sort-icon">⇅</span></th>
 <?php endif; ?>
 </tr></thead>
 <tbody>
@@ -1106,6 +1118,7 @@ foreach ($rows as $row):
 <?php foreach ($actifs_imm as $g):
     $iid   = (int)$g['id_immeuble'];
     $iname = e($g['nom_immeuble']);
+    $iville = e(trim((string)($g['ville'] ?? '')));
     $iaddr = e($g['adresse_1']);
     $nb_a  = count($g['actifs']); $nb_p = count($g['partis']); $nb_ar = count($g['archives']);
     $uid   = "imm-{$pid}-{$iid}";
@@ -1135,7 +1148,7 @@ foreach ($rows as $row):
         <div class="imm-header">
           <span class="imm-title">
             <?php if ($canMerge): ?><input type="checkbox" class="imm-pick" data-iid="<?=$iid?>" data-label="<?=e(($iname?:'').' '.($iaddr?:''))?>" title="Cocher 2 immeubles pour fusionner les doublons" onclick="event.stopPropagation();immMergeSync();"> <?php endif; ?>
-            🏢 <?=$iname?>
+            🏢 <?=$iname?><?= $iville ? " <span class='imm-ville' style='color:#5a6678;font-weight:700;'>_ {$iville}</span>" : "" ?>
             <?=$iaddr?"<span class='imm-addr'>— {$iaddr}</span>":""?>
             <span class="imm-meta">
               <?=$nb_a?> actif(s)<?=$nb_p>0?"·<span style='color:#c62828'> {$nb_p}p</span>":""?><?=$nb_ar>0?"·<span style='color:#9e9e9e'> {$nb_ar}ar</span>":""?>
@@ -1227,13 +1240,14 @@ foreach ($rows as $row):
 <?php foreach ($vendus_imm as $g):
     $iid   = (int)$g['id_immeuble'];
     $iname = e($g['nom_immeuble']); $iaddr = e($g['adresse_1']);
+    $iville = e(trim((string)($g['ville'] ?? '')));
     $dvente = $g['date_vente'] ? ' · vendu '.date('d/m/Y',strtotime($g['date_vente'])) : '';
     $all_nb = count($g['actifs'])+count($g['partis'])+count($g['archives']);
 ?>
         <div class="imm-block vendu-block">
           <div class="imm-header vendu-header">
             <span class="imm-title vendu-title">
-              🏢 <?=$iname?><?=$iaddr?"<span class='imm-addr'> — {$iaddr}</span>":""?>
+              🏢 <?=$iname?><?= $iville ? " <span style='color:#5a6678;font-weight:700;'>_ {$iville}</span>" : "" ?><?=$iaddr?"<span class='imm-addr'> — {$iaddr}</span>":""?>
               <span style="color:#9e9e9e;font-size:.76em"><?=$dvente?></span>
             </span>
             <button class="btn-vendu unmark"
@@ -1301,6 +1315,7 @@ foreach ($rows as $row):
 </tr>
 </tbody>
 </table>
+</div><!-- /main-pat-wrap -->
 
 </div><!-- /main container -->
 
@@ -1384,30 +1399,50 @@ function paNorm(s){
 function patSearch(q){
     var cnt=document.getElementById('pat-search-count');
     q=paNorm(q);
+    document.querySelectorAll('.pat-hit').forEach(function(el){ el.classList.remove('pat-hit'); });
     if(!q){ patSearchReset(); if(cnt) cnt.textContent=''; return; }
     var toks=q.split(' ').filter(Boolean);
     function hit(hay){ hay=hay||''; for(var i=0;i<toks.length;i++){ if(hay.indexOf(toks[i])<0) return false; } return true; }
 
-    // Filtrage PAR PROPRIÉTAIRE : si le NOM du propriétaire correspond (data-search de la
-    // ligne proprio, qui contient le nom), on affiche le proprio ET toutes ses lignes.
-    // Sinon, on n'affiche que les lignes (locataire/adresse/ville) qui correspondent.
-    var shownRows=0, shownProps=0;
+    // Règle : on va DIRECTEMENT sur ce qui correspond, on n'ouvre PAS tout le patrimoine.
+    //  · une ligne (locataire/immeuble/ville/réf) ne s'affiche que si ELLE correspond ;
+    //  · le détail d'un propriétaire ne se déplie que s'il contient au moins une ligne trouvée ;
+    //  · si seul le NOM du propriétaire correspond (sans ligne), on met sa ligne en évidence
+    //    sans déballer son patrimoine (l'utilisateur clique pour l'ouvrir).
+    var shownRows=0, shownProps=0, firstHit=null;
     document.querySelectorAll('.prop-row').forEach(function(r){
         var pid=r.id.replace('row-','');
         var d=document.getElementById('detail-'+pid);
-        var propMatch=hit(r.getAttribute('data-search')||'');   // ← inclut le nom du propriétaire
+        var propMatch=hit(r.getAttribute('data-search')||'');   // nom du propriétaire uniquement
         var anyRow=false;
         if(d){
             d.querySelectorAll('tr.pf-frow').forEach(function(tr){
-                var ok=propMatch || hit(tr.getAttribute('data-search')||'');
+                var ok=hit(tr.getAttribute('data-search')||'');
                 tr.style.display = ok ? '' : 'none';
-                if(ok){ anyRow=true; shownRows++; }
+                if(ok){ anyRow=true; shownRows++; tr.classList.add('pat-hit'); if(!firstHit) firstHit=tr; }
             });
+            // Sections repliables : ouvrir celles qui contiennent un match, masquer les vides.
+            d.querySelectorAll('.fold-content').forEach(function(fc){
+                var vis=false;
+                fc.querySelectorAll('tr.pf-frow').forEach(function(tr){ if(tr.style.display!=='none') vis=true; });
+                var tg=(fc.previousElementSibling && fc.previousElementSibling.classList.contains('fold-toggle')) ? fc.previousElementSibling : null;
+                fc.classList.toggle('open', vis);
+                fc.style.display = vis ? '' : 'none';
+                if(tg){ tg.classList.toggle('open', vis); tg.style.display = vis ? '' : 'none'; }
+            });
+            // Masque les lignes de totaux pendant la recherche.
+            d.querySelectorAll('tr.tot-sub').forEach(function(tr){ tr.style.display='none'; });
         }
-        var show=propMatch||anyRow;
+        var show=anyRow||propMatch;
         if(!PAT_SINGLE){
-            if(show){ r.style.display=''; r.classList.add('active'); if(d) d.classList.add('open'); shownProps++; }
-            else    { r.style.display='none'; r.classList.remove('active'); if(d) d.classList.remove('open'); }
+            if(show){
+                r.style.display=''; r.classList.add('active'); shownProps++;
+                // On ne déplie QUE si des lignes correspondent (pas juste le nom).
+                if(d){ if(anyRow){ d.classList.add('open'); } else { d.classList.remove('open'); } }
+                if(!anyRow && propMatch){ r.classList.add('pat-hit'); if(!firstHit) firstHit=r; }
+            } else {
+                r.style.display='none'; r.classList.remove('active'); if(d) d.classList.remove('open');
+            }
         } else if(show){ shownProps++; }
     });
     // Blocs immeuble : masque ceux sans aucune ligne visible.
@@ -1417,6 +1452,7 @@ function patSearch(q){
         b.style.display = vis ? '' : 'none';
     });
     if(cnt) cnt.textContent = (PAT_SINGLE ? '' : (shownProps+' propriétaire(s) · ')) + shownRows+' bien(s)';
+    if(firstHit){ try{ firstHit.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){ try{ firstHit.scrollIntoView(); }catch(_){} } }
 }
 
 // Tri du tableau principal par GROUPE (ligne propriétaire + sa ligne détail bougent ensemble).
@@ -1448,8 +1484,13 @@ function sortMainPat(th, col){
 }
 
 function patSearchReset(){
+    document.querySelectorAll('.pat-hit').forEach(function(el){ el.classList.remove('pat-hit'); });
     document.querySelectorAll('tr.pf-frow').forEach(function(tr){ tr.style.display=''; });
+    document.querySelectorAll('tr.tot-sub').forEach(function(tr){ tr.style.display=''; });
     document.querySelectorAll('.imm-block').forEach(function(b){ b.style.display=''; });
+    // Referme les sections repliables et restaure leurs boutons (état par défaut).
+    document.querySelectorAll('.fold-content').forEach(function(fc){ fc.classList.remove('open'); fc.style.display=''; });
+    document.querySelectorAll('.fold-toggle').forEach(function(tg){ tg.classList.remove('open'); tg.style.display=''; });
     if(PAT_SINGLE) return; // layout mono-propriétaire : détail déjà ouvert, prop-row masquée
     document.querySelectorAll('.prop-row').forEach(function(r){ r.style.display=''; r.classList.remove('active'); });
     document.querySelectorAll('.detail-row.open').forEach(function(d){ d.classList.remove('open'); });
@@ -1742,7 +1783,11 @@ function refreshValiderBtn(btn){
     }
 }
 // ── SCÉNARIOS DE VALORISATION ───────────────────────────
-var _scenarioCode='courant', _scenarioLabel='Courant';
+// Scénario initial = celui passé dans l'URL (?scenario=CODE), rendu côté serveur.
+// Permet aux "lots porteurs de scénario" (invisibles en Courant) d'être déjà présents
+// dans le tableau ; la surcouche JS remplit ensuite leurs prix.
+var _scnParam=(new URLSearchParams(location.search).get('scenario')||'courant').toLowerCase().replace(/[^a-z0-9_\-]/g,'')||'courant';
+var _scenarioCode=_scnParam, _scenarioLabel=(_scnParam==='courant'?'Courant':_scnParam);
 // État « modifications non enregistrées » : passe à true dès qu'un prix est saisi
 // dans un scénario ≠ Courant, et n'est remis à false qu'après enregistrement ou
 // chargement d'un scénario. Sert à AVERTIR avant de tout perdre (changement de
@@ -1772,8 +1817,15 @@ function reprendreScenario(){
     var sel=document.getElementById('scenario-select'); if(!sel) return;
     if(!confirmDiscardScenario()) return;
     var parts=(sel.value||'courant|Courant').split('|');
-    _scenarioCode=parts[0]||'courant'; _scenarioLabel=parts[1]||_scenarioCode;
-    applyScenario();
+    var code=parts[0]||'courant';
+    // Un scénario peut contenir des "lots porteurs" absents de la vue Courant : il faut
+    // un RE-RENDU serveur (?scenario=CODE) pour les faire entrer dans le tableau, puis
+    // la surcouche JS s'applique automatiquement au chargement (cf. DOMContentLoaded).
+    var u=new URL(location.href);
+    if(code==='courant'){ u.searchParams.delete('scenario'); }
+    else { u.searchParams.set('scenario', code); }
+    if(window.patSave) window.patSave();
+    location.href=u.toString();
 }
 function applyScenario(){
     var info=document.getElementById('scenario-info');
@@ -1790,9 +1842,16 @@ function applyScenario(){
       .then(function(r){ if(!r.ok){ return r.text().then(function(t){ throw new Error('HTTP '+r.status+' — '+t.slice(0,160)); }); } return r.json(); })
       .then(function(d){
         if(!d.ok){ alert('❌ '+(d.error||'Erreur')); return; }
+        // Scénarios EXCLUSIFS (ex. DUSART) : seuls les lots valorisés DANS le scénario comptent ;
+        // tous les autres passent à 0 → total = somme des seules valeurs du scénario, "pile au total".
+        // Les scénarios classiques (IFI, mini, maxi) gardent le prix courant des lots non repricés.
+        var EXCLUSIVE_SCENARIOS={dusart:1};
+        var excl=!!EXCLUSIVE_SCENARIOS[_scenarioCode];
         var n=0;
         document.querySelectorAll('.v-pv').forEach(function(pv){
-            var bid=pv.dataset.bien; if(d.prix && d.prix[bid]!=null){ pv.value=Math.round(d.prix[bid]); recalcVente(pv,'pv'); n++; }
+            var bid=pv.dataset.bien;
+            if(d.prix && d.prix[bid]!=null){ pv.value=Math.round(d.prix[bid]); recalcVente(pv,'pv'); n++; }
+            else if(excl){ pv.value=0; recalcVente(pv,'pv'); }
         });
         if(info) info.textContent='— '+_scenarioLabel+' : '+n+' prix chargé(s). Validez pour compléter ce scénario.';
         document.querySelectorAll('.btn-valider').forEach(function(b){ b.classList.remove('is-valide'); b.textContent='✓ Valider le prix'; });
@@ -2061,6 +2120,15 @@ document.addEventListener('DOMContentLoaded',function(){
     });
     recomputeAllPVTotals();
     chargerListeScenarios();
+    // Scénario passé dans l'URL (rendu serveur) → présélection + surcouche des prix.
+    if(_scenarioCode && _scenarioCode!=='courant'){
+        var sel=document.getElementById('scenario-select');
+        if(sel){
+            var found=Array.prototype.some.call(sel.options,function(o){ if(o.value.split('|')[0]===_scenarioCode){ sel.value=o.value; _scenarioLabel=(o.value.split('|')[1]||_scenarioCode); return true; } return false; });
+            if(!found){ var opt=document.createElement('option'); opt.value=_scenarioCode+'|'+_scenarioLabel; opt.textContent=_scenarioLabel; sel.appendChild(opt); sel.value=opt.value; }
+        }
+        applyScenario();  // remplit les prix du scénario (dont les lots porteurs)
+    }
 });
 </script>
 JS;

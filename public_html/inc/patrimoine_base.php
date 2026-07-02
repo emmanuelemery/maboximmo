@@ -14,11 +14,25 @@ if (!function_exists('patrimoine_base_sql')) {
      *                                ou "AND 1=0" (aucun périmètre) ou '' (tous).
      * @return string Sous-requête SELECT (à envelopper : "SELECT ... FROM (".patrimoine_base_sql(..).") sub").
      */
-    function patrimoine_base_sql(string $propFilterWhere): string
+    function patrimoine_base_sql(string $propFilterWhere, string $scenarioCode = 'courant'): string
     {
         // Filtre équivalent côté table biens (pour la partie "hors CRG").
         // $propFilterWhere ne référence que ct.id_proprietaire → simple substitution.
         $bienFilterWhere = str_replace('ct.id_proprietaire', 'b.id_proprietaire', $propFilterWhere);
+
+        // Scénario sélectionné : par défaut 'courant' (comportement historique inchangé).
+        // Quand un scénario alternatif est chargé (ex. 'dusart'), on fait AUSSI entrer dans
+        // la population les biens hors-CRG qui portent une valeur DANS CE SCÉNARIO — même si
+        // leur prix COURANT est nul. Ces "lots porteurs de scénario" restent donc invisibles
+        // en vue Courant (et partout ailleurs), et n'apparaissent QUE sous ce scénario.
+        $scenarioCode = preg_replace('/[^a-z0-9_\-]/', '', strtolower($scenarioCode)) ?: 'courant';
+        $scenarioInclude = '';
+        if ($scenarioCode !== 'courant') {
+            $scenarioInclude = "
+        OR EXISTS (SELECT 1 FROM bien_prix bps
+                     WHERE bps.id_bien = b.id AND bps.type_valeur='prix_vente'
+                       AND bps.is_courant=1 AND bps.scenario_code='{$scenarioCode}' AND bps.montant > 0)";
+        }
 
         return "
     SELECT
@@ -78,16 +92,25 @@ if (!function_exists('patrimoine_base_sql')) {
       1                       AS hors_crg
     FROM biens b
     LEFT JOIN immeubles i ON i.id = b.id_immeuble
-    WHERE (b.statut_bien IS NULL OR b.statut_bien NOT IN ('supprime','archive','vendu'))
-      AND (b.date_retrait_commercialisation IS NULL AND b.prix_final_vente IS NULL)
+    WHERE 1=1
       {$bienFilterWhere}
-      -- On n'intègre QUE les biens hors CRG réellement valorisés (prix de vente renseigné).
-      -- Les biens sans prix (brouillons / doublons / fiches temporaires) sont ignorés.
-      AND COALESCE(
-            (SELECT bp.montant FROM bien_prix bp
-               WHERE bp.id_bien = b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1
-               ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
-            b.prix_demande_initial, 0) > 0
+      -- Deux portes d'entrée hors-CRG :
+      --  1) Bien VALORISÉ COURANT : actif, non retiré, prix courant > 0 (comportement historique).
+      --     Lecture verrouillée sur scenario_code='courant' → aucun prix de scénario ne fuit ici.
+      --  2) LOT PORTEUR DE SCÉNARIO : dès qu'un bien porte une valeur dans le scénario chargé,
+      --     il entre dans la population MÊME s'il est vendu/archivé/sans prix courant → il
+      --     n'apparaît alors QUE sous ce scénario (invisible en Courant et partout ailleurs).
+      AND (
+        (
+          (b.statut_bien IS NULL OR b.statut_bien NOT IN ('supprime','archive','vendu'))
+          AND b.date_retrait_commercialisation IS NULL AND b.prix_final_vente IS NULL
+          AND COALESCE(
+                (SELECT bp.montant FROM bien_prix bp
+                   WHERE bp.id_bien = b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code='courant'
+                   ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
+                b.prix_demande_initial, 0) > 0
+        ){$scenarioInclude}
+      )
       AND NOT EXISTS (
         SELECT 1 FROM crg_situations_locataires c
         JOIN crg_trimestres t ON t.id = c.id_crg
@@ -116,7 +139,7 @@ if (!function_exists('patrimoine_totaux')) {
         $base = patrimoine_base_sql($propFilterWhere);
         $prix = "COALESCE(
             (SELECT bp.montant FROM bien_prix bp
-               WHERE bp.id_bien = x.id_bien AND bp.type_valeur='prix_vente' AND bp.is_courant=1
+               WHERE bp.id_bien = x.id_bien AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code='courant'
                ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
             (SELECT b2.prix_demande_initial FROM biens b2 WHERE b2.id = x.id_bien),
             0)";
