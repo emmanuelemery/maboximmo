@@ -173,16 +173,26 @@ if (!function_exists('dr_create_request')) {
             $cols = array_column($pdo->query("SHOW COLUMNS FROM document_request_items")->fetchAll(PDO::FETCH_ASSOC), 'Field');
             if (!in_array('note', $cols, true)) $pdo->exec("ALTER TABLE document_request_items ADD COLUMN note TEXT NULL");
         } catch (Throwable) {}
+        // Colonne `close_on_complete` (le lien tombe dès la complétion) — idempotent,
+        // pour ne pas dépendre de l'ordre de passage des migrations.
+        $hasCloseCol = false;
+        try {
+            $dcols = array_column($pdo->query("SHOW COLUMNS FROM document_requests")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            $hasCloseCol = in_array('close_on_complete', $dcols, true);
+            if (!$hasCloseCol) { $pdo->exec("ALTER TABLE document_requests ADD COLUMN close_on_complete TINYINT(1) NOT NULL DEFAULT 0"); $hasCloseCol = true; }
+        } catch (Throwable) {}
 
         $token = dr_gen_token();
         try {
             $pdo->beginTransaction();
+            $closeCol = ($hasCloseCol ? ', close_on_complete' : '');
+            $closeVal = ($hasCloseCol ? ', ?' : '');
             $st = $pdo->prepare("INSERT INTO document_requests
                 (token, template_code, titre, message, recipient_email, recipient_name, entity_type, entity_id,
                  societe_id, agence_id, created_by, require_email_gate, expires_at,
-                 reminder_mode, reminder_first_at, reminder_interval_days)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $st->execute([
+                 reminder_mode, reminder_first_at, reminder_interval_days{$closeCol})
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?{$closeVal})");
+            $params = [
                 $token,
                 $req['template_code'] ?? null,
                 $titre,
@@ -199,7 +209,9 @@ if (!function_exists('dr_create_request')) {
                 in_array(($req['reminder_mode'] ?? 'none'), ['none','once','recurring'], true) ? ($req['reminder_mode'] ?? 'none') : 'none',
                 $req['reminder_first_at'] ?? null,
                 isset($req['reminder_interval_days']) && $req['reminder_interval_days'] !== '' ? (int)$req['reminder_interval_days'] : null,
-            ]);
+            ];
+            if ($hasCloseCol) $params[] = !empty($req['close_on_complete']) ? 1 : 0;
+            $st->execute($params);
             $reqId = (int)$pdo->lastInsertId();
 
             $sti = $pdo->prepare("INSERT INTO document_request_items
@@ -494,6 +506,36 @@ if (!function_exists('dr_commit_deposit')) {
    lien public, est aussi journalisée dans rh_salaire_workflow_log pour la bonne
    société/agence/mois → visible dans l'« Historique des échanges » du module
    Salaires, sans ressaisie. Silencieux si non applicable. */
+/* Résout un mois de référence AAAA-MM-01 depuis un champ period (multi-format)
+   ou, à défaut, depuis un texte libre (titre/message : « juin 2026 », « 06/2026 »).
+   Retourne '' si aucun mois exploitable. Robustesse du pont Salaires. */
+if (!function_exists('dr_resolve_mois_reference')) {
+    function dr_resolve_mois_reference(string $period, string $fallbackText = ''): string
+    {
+        $period = trim($period);
+        // 1) Formats numériques directs sur period.
+        if (preg_match('/^(\d{4})-(\d{2})(?:-\d{2})?$/', $period, $m)) return $m[1] . '-' . $m[2] . '-01';
+        if (preg_match('~^(\d{1,2})[/-](\d{4})$~', $period, $m)) return $m[2] . '-' . str_pad($m[1], 2, '0', STR_PAD_LEFT) . '-01';
+        if (preg_match('~^(\d{4})[/](\d{1,2})$~', $period, $m)) return $m[1] . '-' . str_pad($m[2], 2, '0', STR_PAD_LEFT) . '-01';
+        // 2) Recherche dans period puis dans le texte de secours.
+        $mois = ['janvier'=>'01','février'=>'02','fevrier'=>'02','mars'=>'03','avril'=>'04',
+                 'mai'=>'05','juin'=>'06','juillet'=>'07','août'=>'08','aout'=>'08',
+                 'septembre'=>'09','octobre'=>'10','novembre'=>'11','décembre'=>'12','decembre'=>'12'];
+        foreach ([$period, $fallbackText] as $txt) {
+            $t = mb_strtolower(trim($txt));
+            if ($t === '') continue;
+            // « juin 2026 » (mois en lettres + année).
+            if (preg_match('~\b(' . implode('|', array_keys($mois)) . ')\s+(\d{4})\b~u', $t, $m)) {
+                return $m[2] . '-' . $mois[$m[1]] . '-01';
+            }
+            // « 06/2026 » ou « 06-2026 » n'importe où dans le texte.
+            if (preg_match('~\b(0[1-9]|1[0-2])[/-](\d{4})\b~', $t, $m)) return $m[2] . '-' . $m[1] . '-01';
+            if (preg_match('~\b(\d{4})-(0[1-9]|1[0-2])\b~', $t, $m)) return $m[1] . '-' . $m[2] . '-01';
+        }
+        return '';
+    }
+}
+
 if (!function_exists('dr_bridge_salaires_workflow')) {
     function dr_bridge_salaires_workflow(PDO $pdo, array $req, array $item, string $filePath, string $originalName): void
     {
@@ -508,22 +550,37 @@ if (!function_exists('dr_bridge_salaires_workflow')) {
         $type     = $map[$docType];
         $idAgence = (int)($item['entity_id'] ?? 0);
         if ($idAgence <= 0) return;
-        // Période AAAA-MM → mois_reference AAAA-MM-01 (format de la table workflow).
-        if (!preg_match('/^(\d{4})-(\d{2})$/', (string)($item['period'] ?? ''), $m)) return;
-        $moisRef = $m[1] . '-' . $m[2] . '-01';
+        // Mois → mois_reference AAAA-MM-01 (format de la table workflow). On ne se
+        // contente PAS du champ period strict AAAA-MM : les demandes créées à la main
+        // portent souvent le mois dans le titre (« … juin 2026 ») et period vide, ce
+        // qui faisait sortir le pont en silence → fichier déposé mais invisible dans
+        // le workflow Salaires. On résout donc le mois depuis period (multi-format)
+        // puis, en dernier recours, depuis le titre/message de la demande.
+        $moisRef = dr_resolve_mois_reference(
+            (string)($item['period'] ?? ''),
+            (string)($req['titre'] ?? '') . ' ' . (string)($req['message'] ?? '') . ' ' . (string)($item['label'] ?? '')
+        );
+        // À partir d'ici, le dépôt EST un salaire-agence : tout échec doit laisser
+        // une trace (fini les sorties muettes qui rendaient le fichier invisible).
+        $fail = function (string $why) use ($req, $item, $idAgence) {
+            error_log('[dr_bridge_salaires] ABANDON (' . $why . ') req#' . (int)($req['id'] ?? 0)
+                . ' item#' . (int)($item['id'] ?? 0) . ' agence#' . $idAgence
+                . ' period=' . (string)($item['period'] ?? '') . ' titre=' . (string)($req['titre'] ?? ''));
+        };
+        if ($moisRef === '') { $fail('mois introuvable'); return; }
         // Société de l'agence (fallback : société de la demande).
         $st = $pdo->prepare("SELECT id_societe FROM agences WHERE id = ? LIMIT 1");
         $st->execute([$idAgence]);
         $idSociete = (int)$st->fetchColumn() ?: (int)($req['societe_id'] ?? 0);
-        if ($idSociete <= 0) return;
+        if ($idSociete <= 0) { $fail('societe inconnue'); return; }
 
         if (!function_exists('rh_wf_log_action')) {
             $wf = __DIR__ . '/rh_salaire_workflow.php';
-            if (!is_file($wf)) return;
+            if (!is_file($wf)) { $fail('rh_salaire_workflow.php absent'); return; }
             require_once $wf;
         }
         $content = @file_get_contents($filePath);
-        if ($content === false) return;
+        if ($content === false) { $fail('lecture fichier KO: ' . $filePath); return; }
         $iter    = rh_wf_next_iteration($pdo, $idAgence, $moisRef, $type);
         $relPath = rh_wf_save_file($idSociete, $idAgence, $moisRef, $type, $iter, $content, $originalName);
         rh_wf_log_action(
@@ -700,6 +757,24 @@ if (!function_exists('dr_recompute_status')) {
         $completed = $status === 'complet' ? date('Y-m-d H:i:s') : null;
         $pdo->prepare("UPDATE document_requests SET status = ?, completed_at = ? WHERE id = ? AND status NOT IN ('revoque','expire')")
             ->execute([$status, $completed, $requestId]);
+        // Fermeture auto à la complétion (opt-in par demande : close_on_complete).
+        // Le lien « tombe » aussitôt (expires_at = maintenant) → plus déposable pour
+        // le tiers, SANS changer le statut « complet »/Terminé (les fichiers restent).
+        // Cas comptable : terminé = clos. Le dossier locataire (close_on_complete=0)
+        // reste ouvert et tombera sur un autre déclencheur métier (ex. bien loué).
+        if ($status === 'complet') {
+            try {
+                $c = $pdo->prepare("SELECT close_on_complete, expires_at FROM document_requests WHERE id = ?");
+                $c->execute([$requestId]);
+                $row = $c->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (!empty($row['close_on_complete'])
+                    && (empty($row['expires_at']) || strtotime((string)$row['expires_at']) > time())) {
+                    // 1 s dans le passé : dr_is_valid teste « expires_at < now » (strict),
+                    // donc NOW() pile laisserait le lien ouvert dans la même seconde.
+                    $pdo->prepare("UPDATE document_requests SET expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND) WHERE id = ?")->execute([$requestId]);
+                }
+            } catch (Throwable) {}
+        }
         return $status;
     }
 }

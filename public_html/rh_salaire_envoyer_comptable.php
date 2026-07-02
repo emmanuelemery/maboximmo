@@ -104,6 +104,11 @@ try {
 
 if ($existReq) {
     dr_add_agence_items($pdo, (int)$existReq['id'], $items);
+    // On rouvre une fenêtre de 5 jours et on (re)pose le drapeau de fermeture auto :
+    // ce renvoi ajoute des agences → le lien doit rester déposable 5 j puis tomber
+    // à la complétion, comme un lien neuf.
+    try { $pdo->prepare("UPDATE document_requests SET expires_at = DATE_ADD(NOW(), INTERVAL 5 DAY) WHERE id = ?")->execute([(int)$existReq['id']]); } catch (Throwable) {}
+    try { $pdo->prepare("UPDATE document_requests SET close_on_complete = 1 WHERE id = ?")->execute([(int)$existReq['id']]); } catch (Throwable) {}
     $depotUrl = dr_public_url((string)$existReq['token']);
 } else {
     $res = dr_create_request($pdo, [
@@ -115,7 +120,10 @@ if ($existReq) {
         'societe_id'      => $societeId,
         'created_by'      => $userId,
         'require_email_gate' => 1,
-        'expires_at'      => date('Y-m-d H:i:s', strtotime('+30 days')),
+        // Lien comptable : ouvert 5 jours, puis « tombe » dès qu'il est complet
+        // (terminé = clos pour le comptable). close_on_complete géré au recompute.
+        'expires_at'      => date('Y-m-d H:i:s', strtotime('+5 days')),
+        'close_on_complete' => 1,
         'reminder_mode'   => 'none',
     ], $items);
     if (empty($res['ok'])) { $_SESSION['message_err'] = 'Échec création du lien de dépôt : ' . ($res['error'] ?? '?'); header('Location: ' . $redirect); exit; }

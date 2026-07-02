@@ -73,11 +73,14 @@ foreach (dr_items($pdo, (int)$req['id']) as $it) {
         }
     }
 
-    // Mois : période de la pièce (AAAA-MM) sinon paramètre global.
+    // Mois : période de la pièce (AAAA-MM) sinon paramètre global, sinon résolu
+    // depuis le titre/message de la demande (« … juin 2026 ») comme le pont live.
     $per = (string)($it['period'] ?? '');
     $moisSrc = preg_match('/^\d{4}-\d{2}$/', $per) ? $per : $moisG;
-    if (!preg_match('/^\d{4}-\d{2}$/', $moisSrc)) { echo '<tr><td>' . e($it['label']) . '</td><td>#' . $idAgence . '</td><td>—</td><td>—</td><td style="color:#b91c1c">mois inconnu (ajoute &mois=AAAA-MM)</td></tr>'; $skip++; continue; }
-    $moisRef = $moisSrc . '-01';
+    $moisRef = preg_match('/^\d{4}-\d{2}$/', $moisSrc)
+        ? $moisSrc . '-01'
+        : dr_resolve_mois_reference($per, (string)($req['titre'] ?? '') . ' ' . (string)($req['message'] ?? '') . ' ' . (string)($it['label'] ?? ''));
+    if ($moisRef === '' || !preg_match('/^\d{4}-\d{2}-01$/', $moisRef)) { echo '<tr><td>' . e($it['label']) . '</td><td>#' . $idAgence . '</td><td>—</td><td>—</td><td style="color:#b91c1c">mois inconnu (ajoute &mois=AAAA-MM)</td></tr>'; $skip++; continue; }
 
     // Société de l'agence + libellé
     $a = $pdo->prepare("SELECT id_societe, nom_agence FROM agences WHERE id=?"); $a->execute([$idAgence]); $ag = $a->fetch(PDO::FETCH_ASSOC) ?: [];
