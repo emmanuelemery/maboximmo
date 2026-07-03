@@ -1394,10 +1394,20 @@ if ($rhAdmin) {
         if ($socId <= 0) continue;
         try {
             $expMap = rh_load_expected_map($pdo, $socId, $mois_ref, 0);
+            // ⚠️ rh_load_expected_map fait SELECT u.id, ... s.* : le s.id écrase u.id
+            // dans le fetch assoc → 'id_user' y vaut un salaires.id, PAS un users.id.
+            // On résout donc le VRAI users.id via matricule_paie directement.
+            $matToRealId = [];
+            $qri = $pdo->prepare("SELECT id, matricule_paie FROM users
+                                  WHERE id_societe=? AND matricule_paie IS NOT NULL AND matricule_paie<>''");
+            $qri->execute([$socId]);
+            foreach ($qri->fetchAll(PDO::FETCH_ASSOC) as $ru) {
+                $matToRealId[(string)$ru['matricule_paie']] = (int)$ru['id'];
+            }
             $matToUser = [];
             foreach ($expMap as $mat => $e) {
                 $matToUser[(string)$mat] = [
-                    'id_user'    => (int)($e['id_user'] ?? 0),
+                    'id_user'    => $matToRealId[(string)$mat] ?? 0,
                     'name'       => $e['name'] ?? '',
                     'total_brut' => (float)($e['total_brut'] ?? 0),
                     'id_agence'  => (int)($e['id_agence'] ?? 0),
