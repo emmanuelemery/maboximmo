@@ -316,8 +316,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
     if ($moisPost < 1 || $moisPost > 12) { http_response_code(400); exit('Mois invalide'); }
     $moisRefNet = sprintf('%04d-%02d-01', $anneePost, $moisPost);
 
+    // Auto-réparation : garantir la colonne net_verse (au cas où l'ALTER de
+    // chargement de page n'aurait pas été appliqué sur cet environnement).
+    try {
+        $colsSal = array_column($pdo->query("SHOW COLUMNS FROM salaires")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+        if (!in_array('net_verse', $colsSal, true)) {
+            $pdo->exec("ALTER TABLE salaires ADD COLUMN net_verse DECIMAL(12,2) NULL");
+        }
+    } catch (Throwable $e) {
+        $_SESSION['message_err'] = 'Colonne net_verse indisponible : ' . $e->getMessage();
+        header("Location: rh_salaires.php" . (qs_keep(['mois','annee','societe','agence']) ? '?' . qs_keep(['mois','annee','societe','agence']) : ''));
+        exit;
+    }
+
     $nets = $_POST['net'] ?? [];
-    $nbSaved = 0; $nbErr = 0;
+    $nbSaved = 0; $nbErr = 0; $firstErr = '';
     if (is_array($nets)) {
         foreach ($nets as $idUser => $netStr) {
             $idU = (int)$idUser;
@@ -340,16 +353,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
                 $nbSaved++;
             } catch (Throwable $e) {
                 $nbErr++;
+                if ($firstErr === '') $firstErr = $e->getMessage();
                 error_log('[save_nets_virements] user#' . $idU . ' : ' . $e->getMessage());
             }
         }
     }
     if ($nbSaved > 0) {
         $_SESSION['message_ok'] = "Net versé enregistré pour $nbSaved salarié(s) ✅"
-            . ($nbErr > 0 ? " · $nbErr en échec (voir logs)" : '');
+            . ($nbErr > 0 ? " · $nbErr en échec ($firstErr)" : '');
     } else {
         $_SESSION['message_err'] = $nbErr > 0
-            ? "Échec de l'enregistrement des nets ($nbErr) — voir logs serveur."
+            ? "Échec de l'enregistrement des nets ($nbErr) : " . $firstErr
             : 'Aucun net à enregistrer.';
     }
     header("Location: rh_salaires.php" . (qs_keep(['mois','annee','societe','agence']) ? '?' . qs_keep(['mois','annee','societe','agence']) : ''));
@@ -1849,6 +1863,9 @@ $layout_extra_css = <<<'EXTRACSS'
         font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700;
         letter-spacing: 0.04em; white-space: nowrap; line-height: 1.4;
     }
+    .row-net-btn--empty {
+        background: #f3ede1; color: #b4832f;
+    }
     .row-net-lbl {
         font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 0.08em; color: #b4832f;
@@ -3247,13 +3264,13 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                         $_net = (float)($u['net_verse'] ?? 0);
                         // Cohérence : net doit être >0 et < brut du mois (net = brut - charges).
                         $_netIncoherent = $_net > 0 && $_total > 0 && ($_net >= $_total || $_net < $_total * 0.4);
-                        if ($_net > 0):
+                        // Bouton net TOUJOURS affiché (même vide) : rappelle qu'il reste à
+                        // renseigner via « Récap virements ».
                         ?>
-                        <span class="row-net-btn" title="NET réellement versé (bulletin définitif)"><?=number_format($_net, 0, ',', ' ')?> &euro;</span>
+                        <span class="row-net-btn<?= $_net > 0 ? '' : ' row-net-btn--empty' ?>" title="NET réellement versé (bulletin définitif)"><?= $_net > 0 ? number_format($_net, 0, ',', ' ') . ' &euro;' : '—' ?></span>
                         <span class="row-net-lbl">net</span>
                         <?php if ($_netIncoherent): ?>
                         <span title="Net incohérent vs brut (<?=number_format($_total, 0, ',', ' ')?> €) — à vérifier" style="color:#dc2626;font-weight:700;font-size:12px;">⚠</span>
-                        <?php endif; ?>
                         <?php endif; ?>
                         </div>
                     </td>
