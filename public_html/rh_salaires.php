@@ -3284,7 +3284,7 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     </td>
                     <!-- Total sur brut + 13e + anc (cols 1-3) + net versé (bouton doré) -->
                     <td colspan="3" style="text-align:left;vertical-align:middle;padding-left:4px">
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;">
                         <?php if ($_total > 0): ?>
                         <div class="row-total-btn"><?=number_format($_total, 0, ',', ' ')?> &euro;</div>
                         <?php endif; ?>
