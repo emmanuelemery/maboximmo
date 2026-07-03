@@ -378,7 +378,8 @@ if (!function_exists('fluxbox_va_detect_n1_from_context')) {
                 }
             } catch (Throwable) {}
         } elseif ($type === 'IMB' || $type === 'IMMEUBLE') {
-            return ['n1' => '04_syndic', 'raison' => 'doc immeuble (syndic)'];
+            // « syndic » n'est qu'un rôle : par défaut un doc d'immeuble se classe sur l'immeuble (gestion).
+            return ['n1' => '05_gestion_locative', 'raison' => 'doc immeuble'];
         } elseif ($type === 'TIERS') {
             return ['n1' => '02_referentiel', 'raison' => 'doc tiers'];
         } elseif ($type === 'BAIL') {
@@ -679,13 +680,13 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
             // Loyers (N1 05_gestion_locative)
             'quittance' => ['03_loyers', '01_quittance'],
             'avis_echeance' => ['03_loyers', '02_avis_echeance'],
-            // Syndic / immeuble (N1 04_syndic)
-            'reglement_copro'  => ['01_administratif', '01_reglement_copro'],
-            'carnet_entretien' => ['01_administratif', '02_carnet_entretien'],
-            'dtg'              => ['01_administratif', '03_dtg'],
-            'fiche_immeuble'   => ['01_administratif', '04_fiche_immeuble'],
-            'pv_ag'            => ['02_assemblees', '01_pv_ag'],
-            'contrat'          => ['03_contrats', '01_contrat'],
+            // Immeuble (N1 05_gestion_locative — syndic = simple rôle)
+            'reglement_copro'  => ['04_immeuble', '01_reglement_copro'],
+            'pv_ag'            => ['04_immeuble', '02_pv_ag'],
+            'carnet_entretien' => ['04_immeuble', '03_carnet_entretien'],
+            'dtg'              => ['04_immeuble', '04_dtg'],
+            'fiche_immeuble'   => ['04_immeuble', '05_fiche_immeuble'],
+            'contrat'          => ['04_immeuble', '06_contrat'],
         ];
         $map = ($contexteN1 === '06_transaction') ? $gedMappingTransaction : $gedMappingGestion;
         [$n2Slug, $n3Slug] = $map[$effectiveType] ?? [null, null];
