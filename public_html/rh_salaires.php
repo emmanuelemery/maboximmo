@@ -339,16 +339,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
             if ($netStr === '') continue;
             $net = (float)str_replace([' ', ','], ['', '.'], $netStr);
             try {
-                $legacyId = rh_user_salary_id($pdo, $idU);
-                $chk = $pdo->prepare("SELECT id FROM salaires WHERE id_user=? AND mois_reference=? LIMIT 1");
-                $chk->execute([$legacyId, $moisRefNet]);
+                // Ligne existante recherchée sous l'id réel ET l'id_legacy.
+                $ids = rh_user_salary_ids($pdo, $idU);
+                if (empty($ids)) $ids = [$idU];
+                $ph  = implode(',', array_fill(0, count($ids), '?'));
+                $chk = $pdo->prepare("SELECT id FROM salaires WHERE id_user IN ($ph) AND mois_reference=? LIMIT 1");
+                $chk->execute([...$ids, $moisRefNet]);
                 $sid = $chk->fetchColumn();
                 if ($sid) {
                     $pdo->prepare("UPDATE salaires SET net_verse=? WHERE id=?")->execute([$net, $sid]);
                 } else {
-                    // termine_user inclus : certaines installs ont la colonne NOT NULL.
+                    // INSERT avec l'id RÉEL users.id (contrainte FK salaires_ibfk_1).
+                    // termine_user inclus : colonne NOT NULL sur certaines installs.
                     $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, termine_user, net_verse) VALUES (?, ?, 0, ?)")
-                        ->execute([$legacyId, $moisRefNet, $net]);
+                        ->execute([$idU, $moisRefNet, $net]);
                 }
                 $nbSaved++;
             } catch (Throwable $e) {
