@@ -652,11 +652,21 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
             'dpe' => ['03_diagnostics_transaction', '01_dpe'],
             'erp_ernmt' => ['03_diagnostics_transaction', '02_erp_ernmt'],
         ];
+        // NB : slugs alignés sur les dossiers seedés par admin_ged_seed_quicktypes.php.
+        // Le N1 réel vient de detect_n1 (tiers→02_referentiel, immeuble→04_syndic, sinon gestion).
         $gedMappingGestion = [
-            'mandat_gestion' => ['01_mandat_gestion', '01_mandat_signe'],
-            'mandat_simple' => ['01_mandat_gestion', '01_mandat_signe'],
+            // Tiers / propriétaire (N1 02_referentiel)
+            'mandat_gestion' => ['01_tiers', '04_mandat_gestion'],
+            'mandat_simple'  => ['01_tiers', '04_mandat_gestion'],
+            'piece_identite' => ['01_tiers', '01_piece_identite'],
+            'rib'            => ['01_tiers', '02_rib'],
+            'attestation_propriete' => ['01_tiers', '03_attestation_propriete'],
+            // Bail (N1 05_gestion_locative)
             'bail_signe' => ['02_bail', '01_bail_signe'],
             'edl_entree' => ['02_bail', '02_edl_entree'],
+            'caution_garant' => ['02_bail', '03_caution_garant'],
+            'edl_sortie' => ['02_bail', '04_edl_sortie'],
+            // Bien — diagnostics & taxe (N1 05_gestion_locative)
             'dpe' => ['03_bien', '01_dpe'], 'erp_ernmt' => ['03_bien', '02_erp_ernmt'],
             'diagnostic_amiante' => ['03_bien', '03_amiante'],
             'diagnostic_plomb' => ['03_bien', '04_plomb_crep'],
@@ -665,9 +675,17 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
             'diagnostic_termites' => ['03_bien', '07_termites'],
             'surface_carrez' => ['03_bien', '08_surface_carrez'],
             'attestation_assurance' => ['03_bien', '09_assurance_proprietaire'],
+            'taxe_fonciere' => ['03_bien', '10_taxe_fonciere'],
+            // Loyers (N1 05_gestion_locative)
             'quittance' => ['03_loyers', '01_quittance'],
             'avis_echeance' => ['03_loyers', '02_avis_echeance'],
-            'caution_garant' => ['02_bail', '03_caution_garant'],
+            // Syndic / immeuble (N1 04_syndic)
+            'reglement_copro'  => ['01_administratif', '01_reglement_copro'],
+            'carnet_entretien' => ['01_administratif', '02_carnet_entretien'],
+            'dtg'              => ['01_administratif', '03_dtg'],
+            'fiche_immeuble'   => ['01_administratif', '04_fiche_immeuble'],
+            'pv_ag'            => ['02_assemblees', '01_pv_ag'],
+            'contrat'          => ['03_contrats', '01_contrat'],
         ];
         $map = ($contexteN1 === '06_transaction') ? $gedMappingTransaction : $gedMappingGestion;
         [$n2Slug, $n3Slug] = $map[$effectiveType] ?? [null, null];
