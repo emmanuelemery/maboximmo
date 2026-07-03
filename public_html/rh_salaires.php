@@ -349,10 +349,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
                 if ($sid) {
                     $pdo->prepare("UPDATE salaires SET net_verse=? WHERE id=?")->execute([$net, $sid]);
                 } else {
-                    // INSERT avec l'id RÉEL users.id (contrainte FK salaires_ibfk_1).
+                    // Résolution d'un id_user FK-valide (doit exister dans users.id,
+                    // contrainte salaires_ibfk_1). On teste l'id posté, puis via id_legacy.
+                    $fkId = 0;
+                    $qu = $pdo->prepare("SELECT id FROM users WHERE id=? LIMIT 1");
+                    $qu->execute([$idU]);
+                    if ($qu->fetchColumn()) {
+                        $fkId = $idU;
+                    } else {
+                        $ql = $pdo->prepare("SELECT id FROM users WHERE id_legacy=? LIMIT 1");
+                        $ql->execute([$idU]);
+                        $fkId = (int)$ql->fetchColumn();
+                    }
+                    if ($fkId <= 0) {
+                        throw new RuntimeException("user #$idU introuvable dans users");
+                    }
                     // termine_user inclus : colonne NOT NULL sur certaines installs.
                     $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, termine_user, net_verse) VALUES (?, ?, 0, ?)")
-                        ->execute([$idU, $moisRefNet, $net]);
+                        ->execute([$fkId, $moisRefNet, $net]);
                 }
                 $nbSaved++;
             } catch (Throwable $e) {
