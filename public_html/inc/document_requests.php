@@ -536,20 +536,38 @@ if (!function_exists('dr_resolve_mois_reference')) {
     }
 }
 
-if (!function_exists('dr_bridge_salaires_workflow')) {
-    function dr_bridge_salaires_workflow(PDO $pdo, array $req, array $item, string $filePath, string $originalName): void
+if (!function_exists('dr_is_salaire_item')) {
+    /* Une pièce est « salaire-agence » ssi carte AGENCE + doc_type projet/bulletins.
+       Sert au pont ET à l'affichage du bouton « Rejouer l'ingestion » (staff). */
+    function dr_is_salaire_item(array $item): bool
     {
-        if (strtoupper((string)($item['entity_type'] ?? '')) !== 'AGENCE') return;
+        if (strtoupper((string)($item['entity_type'] ?? '')) !== 'AGENCE') return false;
+        $docType = strtoupper((string)($item['doc_type'] ?? ''));
+        return in_array($docType, ['PROJET_SALAIRES', 'BULLETIN_SALAIRE', 'BULLETINS_SALAIRE'], true);
+    }
+}
+
+if (!function_exists('dr_bridge_salaires_workflow')) {
+    /* @return array{ok:bool,reason?:string} — succès ou motif d'abandon (loggué). */
+    function dr_bridge_salaires_workflow(PDO $pdo, array $req, array $item, string $filePath, string $originalName): array
+    {
+        if (strtoupper((string)($item['entity_type'] ?? '')) !== 'AGENCE') return ['ok' => false, 'reason' => 'non applicable (pas une carte agence)'];
         $docType = strtoupper((string)($item['doc_type'] ?? ''));
         $map = [
             'PROJET_SALAIRES'   => 'import_projet',
             'BULLETIN_SALAIRE'  => 'import_bulletins',
             'BULLETINS_SALAIRE' => 'import_bulletins',
         ];
-        if (!isset($map[$docType])) return;
+        // Ancien trou : ce cas sortait EN SILENCE → fichier déposé mais jamais dans
+        // le module Salaires, sans aucune trace. Désormais loggué + remonté.
+        if (!isset($map[$docType])) {
+            error_log('[dr_bridge_salaires] ABANDON (doc_type non-salaire « ' . $docType . ' ») req#'
+                . (int)($req['id'] ?? 0) . ' item#' . (int)($item['id'] ?? 0));
+            return ['ok' => false, 'reason' => 'type de pièce non-salaire (« ' . $docType . ' ») — le pont Salaires ne s\'applique pas'];
+        }
         $type     = $map[$docType];
         $idAgence = (int)($item['entity_id'] ?? 0);
-        if ($idAgence <= 0) return;
+        if ($idAgence <= 0) return ['ok' => false, 'reason' => 'agence non identifiée sur la pièce'];
         // Mois → mois_reference AAAA-MM-01 (format de la table workflow). On ne se
         // contente PAS du champ period strict AAAA-MM : les demandes créées à la main
         // portent souvent le mois dans le titre (« … juin 2026 ») et period vide, ce
@@ -562,25 +580,26 @@ if (!function_exists('dr_bridge_salaires_workflow')) {
         );
         // À partir d'ici, le dépôt EST un salaire-agence : tout échec doit laisser
         // une trace (fini les sorties muettes qui rendaient le fichier invisible).
-        $fail = function (string $why) use ($req, $item, $idAgence) {
+        $fail = function (string $why) use ($req, $item, $idAgence): array {
             error_log('[dr_bridge_salaires] ABANDON (' . $why . ') req#' . (int)($req['id'] ?? 0)
                 . ' item#' . (int)($item['id'] ?? 0) . ' agence#' . $idAgence
                 . ' period=' . (string)($item['period'] ?? '') . ' titre=' . (string)($req['titre'] ?? ''));
+            return ['ok' => false, 'reason' => $why];
         };
-        if ($moisRef === '') { $fail('mois introuvable'); return; }
+        if ($moisRef === '') { return $fail('mois introuvable (ni période ni titre exploitables)'); }
         // Société de l'agence (fallback : société de la demande).
         $st = $pdo->prepare("SELECT id_societe FROM agences WHERE id = ? LIMIT 1");
         $st->execute([$idAgence]);
         $idSociete = (int)$st->fetchColumn() ?: (int)($req['societe_id'] ?? 0);
-        if ($idSociete <= 0) { $fail('societe inconnue'); return; }
+        if ($idSociete <= 0) { return $fail('société de l\'agence inconnue'); }
 
         if (!function_exists('rh_wf_log_action')) {
             $wf = __DIR__ . '/rh_salaire_workflow.php';
-            if (!is_file($wf)) { $fail('rh_salaire_workflow.php absent'); return; }
+            if (!is_file($wf)) { return $fail('rh_salaire_workflow.php absent'); }
             require_once $wf;
         }
         $content = @file_get_contents($filePath);
-        if ($content === false) { $fail('lecture fichier KO: ' . $filePath); return; }
+        if ($content === false) { return $fail('lecture fichier KO: ' . $filePath); }
         $iter    = rh_wf_next_iteration($pdo, $idAgence, $moisRef, $type);
         $relPath = rh_wf_save_file($idSociete, $idAgence, $moisRef, $type, $iter, $content, $originalName);
         rh_wf_log_action(
@@ -613,6 +632,48 @@ if (!function_exists('dr_bridge_salaires_workflow')) {
             } catch (Throwable $e) {
                 error_log('[dr_bridge_salaires] auto-intégration exception ag#' . $idAgence . ' : ' . $e->getMessage());
             }
+        }
+        return ['ok' => true, 'mois' => $moisRef, 'type' => $type];
+    }
+}
+
+/* La pièce salaire déposée est-elle DÉJÀ remontée dans le module Salaires ?
+   (une ligne rh_salaire_workflow_log existe pour agence+mois+type). Sert à
+   afficher l'état du bouton « Rejouer ingestion » sur la page de dépôt. */
+if (!function_exists('dr_salaire_item_ingested')) {
+    function dr_salaire_item_ingested(PDO $pdo, array $req, array $item): bool
+    {
+        if (!dr_is_salaire_item($item)) return false;
+        $idAgence = (int)($item['entity_id'] ?? 0);
+        if ($idAgence <= 0) return false;
+        $docType = strtoupper((string)($item['doc_type'] ?? ''));
+        $type = ($docType === 'PROJET_SALAIRES') ? 'import_projet' : 'import_bulletins';
+        $moisRef = dr_resolve_mois_reference((string)($item['period'] ?? ''),
+            (string)($req['titre'] ?? '') . ' ' . (string)($req['message'] ?? '') . ' ' . (string)($item['label'] ?? ''));
+        if ($moisRef === '') return false;
+        try {
+            $st = $pdo->prepare("SELECT 1 FROM rh_salaire_workflow_log
+                                 WHERE id_agence=? AND mois_reference=? AND type_action=? AND fichier_path IS NOT NULL LIMIT 1");
+            $st->execute([$idAgence, $moisRef, $type]);
+            return (bool)$st->fetchColumn();
+        } catch (Throwable) { return false; }
+    }
+}
+
+/* Rejoue le pont Salaires sur un fichier DÉJÀ déposé (pas de re-upload).
+   Réservé au staff : débloque une carte « Reçu » qui n'est jamais remontée
+   dans le module Salaires, en affichant le motif exact d'échec. */
+if (!function_exists('dr_replay_salaire_bridge')) {
+    function dr_replay_salaire_bridge(PDO $pdo, array $req, array $item): array
+    {
+        $fp = dr_item_file_path($pdo, $item);
+        if (!$fp || !is_file($fp)) return ['ok' => false, 'reason' => 'fichier déposé introuvable sur disque'];
+        $orig = trim((string)($item['original_name'] ?? '')) ?: basename($fp);
+        try {
+            return dr_bridge_salaires_workflow($pdo, $req, $item, $fp, $orig);
+        } catch (Throwable $e) {
+            error_log('[dr_replay_salaire] exception item#' . (int)($item['id'] ?? 0) . ' : ' . $e->getMessage());
+            return ['ok' => false, 'reason' => 'exception : ' . $e->getMessage()];
         }
     }
 }

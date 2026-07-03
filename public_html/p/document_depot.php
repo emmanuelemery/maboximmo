@@ -134,6 +134,20 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '')
     $req = dr_get_by_token($pdo, $token);
 }
 
+// ── Rejouer l'ingestion Salaires (staff only) ─────────────────────────────
+// Débloque une carte « Reçu » qui n'est jamais remontée dans le module Salaires.
+if ($staffView && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'replay_salaire') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $item = null;
+    foreach (dr_items($pdo, $reqId) as $i) { if ((int)$i['id'] === $itemId) { $item = $i; break; } }
+    if ($item && ($item['status'] ?? '') === 'recu' && function_exists('dr_replay_salaire_bridge')) {
+        $r = dr_replay_salaire_bridge($pdo, $req, $item);
+        if (!empty($r['ok'])) { $flash = '« ' . $item['label'] . ' » ré-ingéré dans le module Salaires (mois ' . dh($r['mois'] ?? '?') . '). ✅'; }
+        else { $flash = 'Ré-ingestion impossible : ' . ($r['reason'] ?? 'inconnu'); $flashOk = false; }
+    } else { $flash = 'Pièce non ré-ingérable.'; $flashOk = false; }
+    $req = dr_get_by_token($pdo, $token);
+}
+
 // ── Rotation d'une image déposée ──────────────────────────────────────────
 if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'rotate_item') {
     $itemId = (int)($_POST['item_id'] ?? 0);
@@ -335,6 +349,19 @@ textarea{width:100%;min-height:110px;padding:11px;border:1px solid #c3ccd8;borde
             <?php if (!$dejaGed): ?>
               <form method="post" style="display:inline" onsubmit="return confirm('Retirer ce document pour en déposer un autre ?')"><input type="hidden" name="t" value="<?= dh($token) ?>"><input type="hidden" name="action" value="delete_item"><input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>">
                 <button type="submit" class="mini">🗑️ Remplacer / supprimer</button></form>
+            <?php endif; ?>
+            <?php if ($staffView && function_exists('dr_is_salaire_item') && dr_is_salaire_item($it) && !$dejaGed):
+                    $ingested = function_exists('dr_salaire_item_ingested') && dr_salaire_item_ingested($pdo, $req, $it); ?>
+              <?php if ($ingested): ?>
+                <span class="mini" style="border-color:#16a34a;color:#166534;background:#f0fdf4;cursor:default" title="Déjà remonté dans le module Salaires">✅ Ingéré (Salaires)</span>
+                <form method="post" style="display:inline" title="Forcer une nouvelle ingestion (ex. après remplacement du fichier)">
+                  <input type="hidden" name="t" value="<?= dh($token) ?>"><input type="hidden" name="action" value="replay_salaire"><input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>">
+                  <button type="submit" class="mini" style="border-color:#cbd5e1;color:#64748b" title="Rejouer l'ingestion (écrase par la version la plus récente)">🔁 Ré-ingérer</button></form>
+              <?php else: ?>
+                <form method="post" style="display:inline" title="Réservé interne : force la remontée du fichier dans le module Salaires">
+                  <input type="hidden" name="t" value="<?= dh($token) ?>"><input type="hidden" name="action" value="replay_salaire"><input type="hidden" name="item_id" value="<?= (int)$it['id'] ?>">
+                  <button type="submit" class="mini" style="border-color:#b7791f;color:#b7791f">🔁 Rejouer ingestion Salaires</button></form>
+              <?php endif; ?>
             <?php endif; ?>
           </div>
         <?php endif; ?>

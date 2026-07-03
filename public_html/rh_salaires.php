@@ -11,6 +11,7 @@ require_once __DIR__ . '/inc/rh_salaires_conges_pdf.php';
 require_once __DIR__ . '/inc/rh_sepa.php';
 require_once __DIR__ . '/inc/mailer.php';
 require_once __DIR__ . '/inc/rh_salaire_workflow.php';
+require_once __DIR__ . '/inc/document_requests.php'; // rejeu du pont Salaires depuis le lien de dépôt
 require_login();
 
 $roleId = current_role_id();
@@ -38,6 +39,51 @@ try {
     }
 } catch (Exception $e) {
     // Société might exist, continue
+}
+
+/**
+ * Get-or-create la page de dépôt « retour du projet » pour une agence/mois.
+ * Le comptable y dépose le PROJET → le pont Salaires l'ingère (card 2).
+ * @param bool $create false = ne crée pas (pour la preview), renvoie l'existant ou null.
+ * @return array{token:string,url:string}|null
+ */
+function rh_ensure_projet_depot_link(PDO $pdo, int $societeId, int $idAgence, int $mois, int $annee, string $agenceNom, string $comptableEmail, bool $create = true): ?array
+{
+    if ($idAgence <= 0 || $societeId <= 0 || !function_exists('dr_create_request')) return null;
+    $moisRef = sprintf('%04d-%02d-01', $annee, $mois);
+    // Déjà créée ?
+    try {
+        $q = $pdo->prepare("SELECT r.token, r.titre, r.message
+                            FROM document_request_items i JOIN document_requests r ON r.id=i.request_id
+                            WHERE i.entity_type='AGENCE' AND i.entity_id=? AND UPPER(i.doc_type)='PROJET_SALAIRES'
+                              AND r.societe_id=? ORDER BY r.id DESC");
+        $q->execute([$idAgence, $societeId]);
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $mr = function_exists('dr_resolve_mois_reference')
+                ? dr_resolve_mois_reference('', (string)$r['titre'] . ' ' . (string)$r['message']) : '';
+            if ($mr === $moisRef && !empty($r['token'])) {
+                return ['token' => (string)$r['token'], 'url' => dr_public_url((string)$r['token'])];
+            }
+        }
+    } catch (Throwable $e) {}
+    if (!$create) return null;
+    if (!filter_var($comptableEmail, FILTER_VALIDATE_EMAIL)) return null;
+    $moisLabel = function_exists('mois_fr') ? mois_fr($mois) : (string)$mois;
+    $label = $agenceNom !== '' ? $agenceNom : ('Agence ' . $idAgence);
+    $res = dr_create_request($pdo, [
+        'titre'           => "Projet de salaires — {$label} — {$moisLabel} {$annee}",
+        'message'         => "Merci de déposer ici le PROJET de bulletins pour {$label} ({$moisLabel} {$annee}).",
+        'recipient_email' => $comptableEmail,
+        'entity_type'     => 'AGENCE', 'entity_id' => $idAgence,
+        'societe_id'      => $societeId, 'agence_id' => $idAgence,
+        'created_by'      => (int)current_user_id(),
+    ], [[
+        'label'       => "Projet de salaires · {$label}",
+        'doc_type'    => 'PROJET_SALAIRES', 'kind' => 'file',
+        'entity_type' => 'AGENCE', 'entity_id' => $idAgence,
+        'period'      => $moisRef, 'required' => 1,
+    ]]);
+    return !empty($res['ok']) ? ['token' => (string)$res['token'], 'url' => (string)$res['url']] : null;
 }
 
 // Add missing columns if needed
@@ -460,6 +506,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_finaux_batch']
     exit;
 }
 
+// ── Rattrapage : rejoue le pont Salaires sur les bulletins DÉPOSÉS SUR LE LIEN
+//    mais jamais remontés ici (ingestion en échec au dépôt → aucune ligne de log,
+//    donc invisibles du bouton « Importer les finaux »). On repart de la source
+//    (document_request_items) et on rejoue dr_bridge → log + intégration.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rattrapage_bulletins_lien'])) {
+    verify_csrf();
+    if (!in_array(current_role_id(), [1, 7, 8], true)) { http_response_code(403); exit('Accès refusé'); }
+    $moisPost   = (int)($_POST['mois'] ?? 0);
+    $anneePost  = (int)($_POST['annee'] ?? 0);
+    $agencePost = (int)($_POST['agence'] ?? 0);
+    if ($moisPost < 1 || $moisPost > 12 || $agencePost <= 0) { http_response_code(400); exit('Paramètres invalides'); }
+    $moisRefR = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $done = 0; $errs = [];
+    try {
+        $q = $pdo->prepare("SELECT i.*, r.titre AS r_titre, r.message AS r_message, r.societe_id AS r_soc,
+                                   r.created_by AS r_cb, r.recipient_email AS r_recip
+                            FROM document_request_items i
+                            JOIN document_requests r ON r.id = i.request_id
+                            WHERE i.status='recu' AND i.entity_type='AGENCE' AND i.entity_id=?
+                              AND UPPER(i.doc_type) IN ('BULLETIN_SALAIRE','BULLETINS_SALAIRE')");
+        $q->execute([$agencePost]);
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $mref = dr_resolve_mois_reference((string)($row['period'] ?? ''),
+                (string)$row['r_titre'] . ' ' . (string)$row['r_message'] . ' ' . (string)($row['label'] ?? ''));
+            if ($mref !== $moisRefR) continue; // autre mois : on ne touche pas
+            $req = ['id' => (int)$row['request_id'], 'titre' => $row['r_titre'], 'message' => $row['r_message'],
+                    'societe_id' => (int)$row['r_soc'], 'created_by' => $row['r_cb'], 'recipient_email' => $row['r_recip']];
+            $res = dr_replay_salaire_bridge($pdo, $req, $row);
+            if (!empty($res['ok'])) { $done++; }
+            else { $errs[] = ((string)($row['label'] ?? ('pièce#' . $row['id']))) . ' : ' . ($res['reason'] ?? '?'); }
+        }
+    } catch (Throwable $e) { $errs[] = 'erreur : ' . $e->getMessage(); }
+    if ($done > 0) {
+        $_SESSION['message_ok'] = "🔁 Rattrapage : $done bulletin(s) ré-ingéré(s) depuis le lien de dépôt."
+            . ($errs ? ' · ' . count($errs) . ' échec(s) : ' . implode(' ; ', array_slice($errs, 0, 4)) : '');
+    } else {
+        $_SESSION['message_err'] = $errs
+            ? ('Rattrapage sans succès — ' . implode(' ; ', array_slice($errs, 0, 4)))
+            : 'Aucun bulletin déposé sur le lien à rattraper pour cette agence/mois.';
+    }
+    header("Location: rh_salaires.php" . (qs_keep(['mois','annee','societe','agence']) ? '?' . qs_keep(['mois','annee','societe','agence']) : ''));
+    exit;
+}
+
 // Permission gestion salaires agence (non-admin avec flag spécial)
 $agenceScope = can_manage_salaires_agence(); // 0 = pas de scope spécial, >0 = id_agence forcé
 
@@ -662,7 +752,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_to_comptable']))
             ? 'Bonjour ' . trim((string)preg_split('/\s+/', $comptableNom)[0])
             : 'Bonjour';
         $subject = "Salaires & Congés — $nomAgence — $moisLabel $anneePost";
-        $body = "$bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $nomAgence ($moisLabel $anneePost).\n\nCordialement,\nRégie EMERY";
+        // Page de dépôt « retour du projet » : le comptable renvoie le projet via ce
+        // lien (pas d'aller-retour email) → alimente la card 2.
+        $projetLink = rh_ensure_projet_depot_link($pdo, $societeId, $idAgenceLog, $moisPost, $anneePost, $nomAgence, $to, true);
+        $depotBloc  = $projetLink
+            ? "\n\nPour me retourner le PROJET de bulletins, déposez-le directement ici (dépôt sécurisé, sans email) :\n{$projetLink['url']}"
+            : '';
+        $body = "$bonjour,\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour $nomAgence ($moisLabel $anneePost).{$depotBloc}\n\nCordialement,\nRégie EMERY";
 
         // ─── DEV / LOCAL : pas d'envoi réel — on logue + on conserve le PDF ───
         // Détection environnement : dev.maboximmo.fr ou localhost = mode test
@@ -1375,6 +1471,23 @@ $msg_ok = $_SESSION['message_ok'] ?? '';
 $msg_err = $_SESSION['message_err'] ?? '';
 unset($_SESSION['message_ok']);
 unset($_SESSION['message_err']);
+
+// ── Lien de dépôt « bulletins définitifs » de la société/mois (accès direct) ──
+// Retrouve le token de la demande consolidée pour ouvrir la page de dépôt en 1 clic.
+$depotToken = '';
+if ($rhAdmin && $societe_sel !== 'toutes' && function_exists('dr_resolve_mois_reference')) {
+    try {
+        $moisRefTok = sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel);
+        $qd = $pdo->prepare("SELECT token, titre, message FROM document_requests
+                             WHERE societe_id=? AND UPPER(titre) LIKE '%BULLETIN%'
+                             ORDER BY id DESC LIMIT 20");
+        $qd->execute([(int)$societe_sel]);
+        foreach ($qd->fetchAll(PDO::FETCH_ASSOC) as $dr) {
+            $mr = dr_resolve_mois_reference('', (string)$dr['titre'] . ' ' . (string)$dr['message']);
+            if ($mr === $moisRefTok && !empty($dr['token'])) { $depotToken = (string)$dr['token']; break; }
+        }
+    } catch (Throwable $e) {}
+}
 
 // ── Récap virements (admin) : NET à virer issu des bulletins définitifs ──
 // Scope : société sélectionnée, ou TOUTES les sociétés du périmètre admin si
@@ -2363,6 +2476,13 @@ ob_start();
                 💶 Récap virements
             </button>
             <?php endif; ?>
+            <?php if ($depotToken !== ''): ?>
+            <a href="/p/document_depot.php?t=<?=h($depotToken)?>" target="_blank" class="v2-btn"
+               style="background:#0891b2;color:#fff;border-color:#0891b2;"
+               title="Ouvrir le lien de dépôt des bulletins définitifs (vue interne : état des dépôts, voir/remplacer les fichiers)">
+                📎 Lien de dépôt
+            </a>
+            <?php endif; ?>
         <?php else: ?>
             <button type="button" class="v2-btn" disabled style="opacity:.35;cursor:not-allowed">en attente</button>
         <?php endif; ?>
@@ -2535,12 +2655,32 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
             $previewComptable = trim((string)($societeInfo['comptable_nom'] ?? ''));
             $previewBonjour   = $previewComptable !== '' ? 'Bonjour ' . trim((string)preg_split('/\s+/', $previewComptable)[0]) : 'Bonjour';
             $previewSubject   = "Salaires & Congés — {$previewSubjectLabel} — {$previewMoisLabel} {$annee_sel}";
-            $previewBody      = "{$previewBonjour},\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSubjectLabel} ({$previewMoisLabel} {$annee_sel}).\n\nCordialement,\nRégie EMERY";
+            $previewTo        = (string)($societeInfo['comptable_email'] ?? '');
+            // Lien de dépôt « retour du projet » : existant (pas de création en preview).
+            $previewDepot = ($agenceWf > 0)
+                ? rh_ensure_projet_depot_link($pdo, (int)$societe_sel, $agenceWf, (int)$mois_sel, (int)$annee_sel, $previewAgenceNom, $previewTo, false)
+                : null;
+            $previewDepotBloc = $previewDepot
+                ? "\n\nPour me retourner le PROJET de bulletins, déposez-le directement ici (dépôt sécurisé, sans email) :\n{$previewDepot['url']}"
+                : "\n\n🔗 Un lien de dépôt sécurisé sera généré et inséré ici automatiquement à l'envoi (le comptable y déposera le projet).";
+            $previewBody      = "{$previewBonjour},\n\nVeuillez trouver en pièce jointe le registre des salaires et congés pour {$previewSubjectLabel} ({$previewMoisLabel} {$annee_sel}).{$previewDepotBloc}\n\nCordialement,\nRégie EMERY";
             $previewFilename  = $previewAgenceNom !== ''
                 ? rh_wf_pdf_filename($previewAgenceNom, (int)$annee_sel, (int)$mois_sel)
                 : 'salaires_conges_*.pdf';
-            $previewTo        = (string)($societeInfo['comptable_email'] ?? '');
+            // PDF (registre salaires & congés) servi en iframe pour la preview à droite.
+            $previewPdfUrl    = 'exporter_salaires_conges_pdf.php?mois=' . (int)$mois_sel . '&annee=' . (int)$annee_sel
+                              . '&societe=' . urlencode((string)$societe_sel) . '&agence=' . $agenceWf . '&inline=1';
             $previewFrom      = 'salaire@maboximmo.fr';
+            // Statut d'envoi (card 1) : date du dernier envoi au comptable pour agence/mois.
+            $envoiAt = null;
+            if ($agenceWf > 0) {
+                try {
+                    $qEnvoi = $pdo->prepare("SELECT MAX(date_action) FROM rh_salaire_workflow_log
+                                             WHERE id_agence=? AND mois_reference=? AND type_action='envoi_comptable'");
+                    $qEnvoi->execute([$agenceWf, sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel)]);
+                    $envoiAt = $qEnvoi->fetchColumn() ?: null;
+                } catch (Throwable $e) {}
+            }
             // Mode test : pas d'envoi réel sur dev/localhost
             $previewIsDev = str_contains((string)($_SERVER['HTTP_HOST'] ?? ''), 'dev.maboximmo')
                          || str_contains((string)($_SERVER['HTTP_HOST'] ?? ''), 'localhost')
@@ -2555,17 +2695,24 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                     <input type="hidden" name="send_to_comptable" value="1">
-                    <button type="button" class="workflow-step-btn" onclick="ouvrirPreviewMail()">👁️ Prévisualiser puis envoyer</button>
+                    <?php if ($envoiAt): ?>
+                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;text-align:left;align-self:stretch;">
+                        ✅ Préparation des salaires <?= h($previewMoisLabel . ' ' . $annee_sel) ?> envoyée le <b><?= h(date('d/m à H:i', strtotime((string)$envoiAt))) ?></b>.
+                        <span style="color:#3f6212;">Un lien de dépôt a été créé et joint au mail (retour du projet par le comptable).</span>
+                    </div>
+                    <?php endif; ?>
+                    <button type="button" class="workflow-step-btn" onclick="ouvrirPreviewMail()"><?= $envoiAt ? '🔁 Renvoyer / prévisualiser' : '👁️ Prévisualiser puis envoyer' ?></button>
                 </form>
 
                 <!-- Modal preview du mail comptable -->
                 <div id="preview-mail-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)fermerPreviewMail()">
-                    <div style="background:#fff;border-radius:14px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+                    <div style="background:#fff;border-radius:14px;max-width:<?= $agenceWf > 0 ? '1080px' : '680px' ?>;width:100%;max-height:92vh;overflow-y:auto;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.4);">
                         <div style="padding:18px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
                             <h3 style="margin:0;font-size:17px;color:#0f172a;">📨 Prévisualisation du mail au comptable</h3>
                             <button type="button" onclick="fermerPreviewMail()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;">×</button>
                         </div>
-                        <div style="padding:20px 24px;">
+                        <div style="padding:20px 24px;display:flex;gap:18px;align-items:stretch;">
+                          <div style="flex:1 1 0;min-width:0;">
                             <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:14px;font-size:13px;line-height:1.6;">
                                 <div><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">DE :</strong> <?=h($previewFrom)?></div>
                                 <div style="margin-top:6px;"><strong style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">À :</strong>
@@ -2593,6 +2740,13 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                                     💡 Le PDF (registre des salaires et congés du mois sélectionné) sera généré et joint à l'envoi.
                                 </div>
                             <?php endif; ?>
+                          </div>
+                          <?php if ($agenceWf > 0): ?>
+                          <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;">
+                            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">📎 Pièce jointe (aperçu)</div>
+                            <iframe src="<?= h($previewPdfUrl) ?>" style="flex:1;width:100%;min-height:60vh;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"></iframe>
+                          </div>
+                          <?php endif; ?>
                         </div>
                         <div style="padding:14px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#f8fafc;border-radius:0 0 14px 14px;">
                             <button type="button" onclick="fermerPreviewMail()" style="padding:9px 18px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Annuler</button>
@@ -2609,7 +2763,11 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
 
                 <script>
                 function ouvrirPreviewMail() {
-                    document.getElementById('preview-mail-modal').style.display = 'flex';
+                    var m = document.getElementById('preview-mail-modal');
+                    // Sort le modal du wrapper .mbi-layout-main (position:fixed;left:220px)
+                    // qui le confinerait sous la sidebar → on le rattache au <body>.
+                    if (m.parentNode !== document.body) document.body.appendChild(m);
+                    m.style.display = 'flex';
                 }
                 function fermerPreviewMail() {
                     document.getElementById('preview-mail-modal').style.display = 'none';
@@ -2622,6 +2780,12 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                 // Fichiers déjà DÉPOSÉS via le lien (rh_salaire_workflow_log) pour cette agence/mois
                 // → bouton « Comparer » sans ré-upload.
                 $wfHasProjet = false; $wfHasBulletins = false;
+                // Détecteur de fraîcheur : le lien de dépôt est la source de vérité, le
+                // module RH un cache. On compare la date du DERNIER dépôt sur le lien
+                // (received_at) à celle de la DERNIÈRE intégration RH (comparaisons).
+                $linkDepositAt = null;   // dernier dépôt bulletins sur le lien (cette agence/mois)
+                $rhIntegAt     = null;   // dernière intégration bulletins en RH
+                $linkIsNewer   = false;  // le lien a une version plus récente que l'intégration
                 if ((int)$agenceWf > 0) {
                     try {
                         $moisRefBtn = sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel);
@@ -2633,6 +2797,29 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                             if ($hr['type_action'] === 'import_projet') $wfHasProjet = (int)$hr['n'] > 0;
                             if ($hr['type_action'] === 'import_bulletins') $wfHasBulletins = (int)$hr['n'] > 0;
                         }
+                        // Dernier dépôt bulletins sur le lien pour cette agence/mois.
+                        if (function_exists('dr_resolve_mois_reference')) {
+                            $ql = $pdo->prepare("SELECT i.received_at, i.period, i.label, r.titre, r.message
+                                                 FROM document_request_items i JOIN document_requests r ON r.id=i.request_id
+                                                 WHERE i.status='recu' AND i.entity_type='AGENCE' AND i.entity_id=?
+                                                   AND UPPER(i.doc_type) IN ('BULLETIN_SALAIRE','BULLETINS_SALAIRE')");
+                            $ql->execute([(int)$agenceWf]);
+                            foreach ($ql->fetchAll(PDO::FETCH_ASSOC) as $lr) {
+                                $mr = dr_resolve_mois_reference((string)($lr['period'] ?? ''),
+                                    (string)$lr['titre'] . ' ' . (string)$lr['message'] . ' ' . (string)($lr['label'] ?? ''));
+                                if ($mr !== $moisRefBtn) continue;
+                                $ra = (string)($lr['received_at'] ?? '');
+                                if ($ra !== '' && ($linkDepositAt === null || strtotime($ra) > strtotime($linkDepositAt))) $linkDepositAt = $ra;
+                            }
+                        }
+                        // Dernière intégration RH (bulletins) pour cette agence/mois.
+                        $qi = $pdo->prepare("SELECT MAX(created_at) FROM rh_salaires_comparaisons
+                                             WHERE id_agence=? AND mois=? AND annee=? AND type='bulletins'");
+                        $qi->execute([(int)$agenceWf, (int)$mois_sel, (int)$annee_sel]);
+                        $rhIntegAt = $qi->fetchColumn() ?: null;
+                        // « Plus récent » = un dépôt existe ET (jamais intégré OU dépôt postérieur à l'intégration).
+                        $linkIsNewer = $linkDepositAt !== null
+                            && ($rhIntegAt === null || strtotime($linkDepositAt) > strtotime((string)$rhIntegAt));
                     } catch (Throwable $e) {}
                 }
                 ?>
@@ -2644,32 +2831,42 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                     <input type="hidden" name="compare_type" value="projet">
-                    <?php if ($projetData): ?>
-                    <button type="button" onclick="ouvrirRapportComparaison()" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Voir la comparaison</button>
-                    <?php elseif ($wfHasProjet): ?>
-                    <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#155e75;">📎 Un projet a été <b>déposé via le lien</b> — comparez-le directement, sans re-télécharger.</div>
-                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#0891b2;color:#fff;">📊 Comparer le fichier déposé</button>
+                    <?php
+                    $projetAt  = $projetRow['created_at'] ?? null;
+                    $projetSrc = ($projetRow && strncmp(basename((string)($projetRow['file_path'] ?? '')), 'auto_', 5) === 0)
+                        ? 'automatiquement (dépôt sur le lien)' : 'manuellement (PDF importé)';
+                    ?>
+                    <?php if ($projetRow): ?>
+                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;text-align:left;align-self:stretch;">✅ Projet comptable intégré<?= $projetAt ? ' le ' . h(date('d/m à H:i', strtotime((string)$projetAt))) : '' ?> — <?= h($projetSrc) ?>.</div>
                     <?php endif; ?>
-                    <input type="file" name="projet_pdf" accept="application/pdf">
-                    <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn"><?= $projetRow ? 'Réimporter' : 'Importer' ?> un autre PDF</button>
+                    <?php if ($projetData): ?>
+                    <button type="button" onclick="ouvrirRapportComparaison()" class="workflow-step-btn" style="margin-top:0;margin-bottom:8px;background:#0891b2;color:#fff;">📊 Voir la comparaison</button>
+                    <?php elseif ($wfHasProjet): ?>
+                    <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#155e75;text-align:left;align-self:stretch;">📎 Un projet a été <b>déposé via le lien</b> — comparez-le directement, sans re-télécharger.</div>
+                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-top:0;margin-bottom:8px;background:#0891b2;color:#fff;">📊 Comparer le fichier déposé</button>
+                    <?php endif; ?>
+                    <div style="margin-top:auto;align-self:stretch;">
+                        <input type="file" name="projet_pdf" accept="application/pdf">
+                        <button type="submit" name="upload_projet_pdf" value="1" class="workflow-step-btn" style="margin-top:0;"><?= $projetRow ? 'Réimporter' : 'Importer' ?> un autre PDF</button>
+                    </div>
                 </form>
 
                 <!-- Validation inline : remarques éditables directement + bouton (toujours visible) -->
                 <div class="workflow-step">
                     <h4>2bis. Valider</h4>
                     <?php if ($projetRow): ?>
-                    <form method="post" action="rh_salaire_validate_projet.php">
+                    <form method="post" action="rh_salaire_validate_projet.php" style="align-self:stretch;width:100%;">
                         <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                         <input type="hidden" name="compare_id" value="<?= (int)$projetRow['id'] ?>">
                         <input type="hidden" name="redirect_to" value="rh_salaires.php<?= $currentQS ? '?' . h($currentQS) : '' ?>">
-                        <textarea name="commentaire" rows="4" placeholder="📝 Mes remarques (rappelées au comptable)…" style="width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;margin-bottom:8px;"><?=h($projetRow['remarques'] ?? '')?></textarea>
+                        <textarea name="commentaire" rows="4" placeholder="📝 Mes remarques (rappelées au comptable)…" style="width:100%;min-height:84px;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5;margin-bottom:8px;"><?=h($projetRow['remarques'] ?? '')?></textarea>
                         <?php if (!empty($projetRow['validated_at'])): ?>
                         <div style="font-size:11px;color:#065f46;margin-bottom:8px;">✅ Validée le <?= h(date('d/m/Y à H:i', strtotime((string)$projetRow['validated_at']))) ?></div>
                         <?php endif; ?>
                         <button type="submit" class="workflow-step-btn is-success">✅ <?= !empty($projetRow['validated_at']) ? 'Revalider (maj remarques)' : 'Valider cette agence' ?></button>
                     </form>
                     <?php else: ?>
-                    <textarea rows="4" disabled placeholder="📝 Compare d'abord le projet (card 2) pour saisir tes remarques et valider…" style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;background:#f8fafc;color:#94a3b8;margin-bottom:8px;"></textarea>
+                    <textarea rows="4" disabled placeholder="📝 Compare d'abord le projet (card 2) pour saisir tes remarques et valider…" style="width:100%;align-self:stretch;min-height:84px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;background:#f8fafc;color:#94a3b8;line-height:1.5;margin-bottom:8px;"></textarea>
                     <button type="button" class="workflow-step-btn is-success" disabled style="opacity:.5;cursor:not-allowed;">✅ Valider cette agence</button>
                     <?php endif; ?>
                 </div>
@@ -2681,14 +2878,27 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
                     <input type="hidden" name="compare_type" value="bulletins">
-                    <?php if ($bulletinsRow): ?>
-                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;">✅ Bulletins intégrés — NET disponible dans « Récap virements ».</div>
+                    <?php
+                    $bullSrc = ($bulletinsRow && strncmp(basename((string)($bulletinsRow['file_path'] ?? '')), 'auto_', 5) === 0)
+                        ? 'automatiquement (dépôt sur le lien)' : 'manuellement (PDF importé)';
+                    ?>
+                    <?php if ($linkIsNewer): ?>
+                    <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#9a3412;text-align:left;align-self:stretch;">
+                        🔄 <b>Nouvelle version déposée sur le lien</b> le <b><?= h(date('d/m à H:i', strtotime((string)$linkDepositAt))) ?></b>
+                        <?= $rhIntegAt ? ' — plus récente que l\'intégration actuelle (' . h(date('d/m à H:i', strtotime((string)$rhIntegAt))) . ').' : ' — jamais intégrée ici.' ?>
+                        Mettez à jour :
+                    </div>
+                    <button type="submit" name="rattrapage_bulletins_lien" value="1" class="workflow-step-btn" style="margin-top:0;margin-bottom:8px;background:#ea580c;color:#fff;">🔄 Mettre à jour depuis le lien</button>
+                    <?php elseif ($bulletinsRow): ?>
+                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;text-align:left;align-self:stretch;">✅ Bulletins intégrés<?= $rhIntegAt ? ' le ' . h(date('d/m à H:i', strtotime((string)$rhIntegAt))) : '' ?> <?= h($bullSrc) ?> — NET disponible dans « Récap virements ».</div>
                     <?php elseif ($wfHasBulletins): ?>
-                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;">📎 Des bulletins ont été <b>déposés via le lien</b> — intégrez-les directement, sans re-télécharger.</div>
-                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#16a34a;color:#fff;">📥 Intégrer les bulletins déposés</button>
+                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;text-align:left;align-self:stretch;">📎 Des bulletins ont été <b>déposés via le lien</b> — intégrez-les directement, sans re-télécharger.</div>
+                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-top:0;margin-bottom:8px;background:#16a34a;color:#fff;">📥 Intégrer les bulletins déposés</button>
                     <?php endif; ?>
-                    <input type="file" name="bulletins_pdf" accept="application/pdf">
-                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn"><?= $bulletinsRow ? 'Réimporter' : 'Importer' ?> un PDF</button>
+                    <div style="margin-top:auto;align-self:stretch;">
+                        <input type="file" name="bulletins_pdf" accept="application/pdf">
+                        <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn" style="margin-top:0;"><?= $bulletinsRow ? 'Réimporter' : 'Importer' ?> un PDF</button>
+                    </div>
                 </form>
             </div>
 
@@ -3010,6 +3220,15 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
             <?php
             $moisRefWf = sprintf('%04d-%02d-01', (int)$annee_sel, (int)$mois_sel);
             $wfHistory = rh_wf_history($pdo, $agenceWf, $moisRefWf);
+            // Version ACTUELLE par type de fichier (projet/bulletins) = dernière itération
+            // avec fichier. Les précédentes sont « remplacées » → badge + alerte à l'ouverture.
+            $wfLatestIter = [];
+            foreach ($wfHistory as $wr) {
+                if (empty($wr['fichier_path'])) continue;
+                if (!in_array($wr['type_action'], ['import_projet', 'import_bulletins'], true)) continue;
+                $ta = $wr['type_action']; $it = (int)$wr['iteration'];
+                if (!isset($wfLatestIter[$ta]) || $it > $wfLatestIter[$ta]) $wfLatestIter[$ta] = $it;
+            }
             ?>
             <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #e5e7eb;">
                 <h4 style="margin:0 0 12px;font-size:13px;color:#475569;">📜 Historique des échanges — <?= h(mois_fr((int)$mois_sel)) ?> <?= h($annee_sel) ?></h4>
@@ -3028,10 +3247,18 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                                 default             => '#f1f5f9',
                             };
                             $statusClass = $wfRow['status'] === 'ok' ? 'color:#16a34a;' : ($wfRow['status'] === 'error' ? 'color:#dc2626;' : 'color:#64748b;');
+                            // Version de fichier remplacée (une itération plus récente existe) ?
+                            $isFileVersion = !empty($wfRow['fichier_path']) && in_array($wfRow['type_action'], ['import_projet','import_bulletins'], true);
+                            $latestIter    = $wfLatestIter[$wfRow['type_action']] ?? 0;
+                            $isSuperseded  = $isFileVersion && (int)$wfRow['iteration'] < $latestIter;
+                            $isCurrent     = $isFileVersion && (int)$wfRow['iteration'] === $latestIter;
+                            $oldWarnJs     = "⚠️ Version ANCIENNE (remplacée par la #" . $latestIter . "). Vous consultez un fichier qui n\'est plus le fichier de référence. Continuer quand même ?";
                         ?>
-                            <div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:12px;align-items:center;padding:10px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;">
+                            <div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:12px;align-items:center;padding:10px 14px;background:<?= $isSuperseded ? '#fafafa' : '#fff' ?>;border:1px solid <?= $isSuperseded ? '#e5e7eb' : '#e5e7eb' ?>;border-radius:8px;font-size:12px;<?= $isSuperseded ? 'opacity:.72;' : '' ?>">
                                 <span style="background:<?= $iconBg ?>;padding:4px 10px;border-radius:99px;font-weight:700;font-size:11px;white-space:nowrap;">
                                     <?= h($typeLabel) ?> #<?= (int)$wfRow['iteration'] ?>
+                                    <?php if ($isCurrent && $latestIter > 1): ?><span style="color:#166534;">· actuelle</span><?php endif; ?>
+                                    <?php if ($isSuperseded): ?><span style="color:#b45309;">· remplacée</span><?php endif; ?>
                                 </span>
                                 <span style="color:#64748b;">
                                     <?= h(date('d/m/Y H:i', strtotime((string)$wfRow['date_action']))) ?>
@@ -3056,12 +3283,13 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                                 ?>
                                     <span style="display:inline-flex;gap:6px;">
                                         <button type="button"
-                                            onclick="ouvrirWfPreview(<?= (int)$wfRow['id'] ?>, '<?= addslashes($wfFileLabel) ?>')"
-                                            style="padding:4px 10px;border-radius:6px;background:#7c3aed;color:#fff;border:none;cursor:pointer;font-size:11px;font-weight:600;">
+                                            onclick="<?= $isSuperseded ? 'if(!confirm(\'' . h($oldWarnJs) . '\'))return false;' : '' ?>ouvrirWfPreview(<?= (int)$wfRow['id'] ?>, '<?= addslashes($wfFileLabel) ?>')"
+                                            style="padding:4px 10px;border-radius:6px;background:<?= $isSuperseded ? '#94a3b8' : '#7c3aed' ?>;color:#fff;border:none;cursor:pointer;font-size:11px;font-weight:600;">
                                             👁 Voir
                                         </button>
                                         <a href="rh_salaire_workflow_download.php?id=<?= (int)$wfRow['id'] ?>"
-                                           style="padding:4px 10px;border-radius:6px;background:#0ea5e9;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
+                                           <?= $isSuperseded ? 'onclick="return confirm(\'' . h($oldWarnJs) . '\')"' : '' ?>
+                                           style="padding:4px 10px;border-radius:6px;background:<?= $isSuperseded ? '#94a3b8' : '#0ea5e9' ?>;color:#fff;text-decoration:none;font-size:11px;font-weight:600;">
                                             📎 Télécharger
                                         </a>
                                         <form method="post" action="rh_salaire_workflow_delete.php" style="display:inline;margin:0;"

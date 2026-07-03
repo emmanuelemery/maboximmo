@@ -26,13 +26,17 @@ try {
 
     $mois  = (int)($_GET['mois']  ?? date('n'));
     $annee = (int)($_GET['annee'] ?? date('Y'));
+    // Scope agence : forcé si gestion_salaires, sinon param GET (admin) — 0 = toutes.
+    $agenceParam = $agenceScope > 0 ? $agenceScope : (int)($_GET['agence'] ?? 0);
 
-    $pdfContent = rh_generate_salaires_conges_pdf($pdo, $mois, $annee, $agenceScope);
+    $pdfContent = rh_generate_salaires_conges_pdf($pdo, $mois, $annee, $agenceParam);
     $baseName = 'SALAIRES_CONGES_' . $annee . '_' . str_pad((string)$mois, 2, '0', STR_PAD_LEFT) . '.pdf';
 
     if (ob_get_length()) ob_end_clean();
+    // inline=1 : affichage dans une iframe (preview) ; sinon téléchargement.
+    $disposition = !empty($_GET['inline']) ? 'inline' : 'attachment';
     header('Content-Type: application/pdf');
-    header('Content-Disposition: attachment; filename="' . $baseName . '"');
+    header('Content-Disposition: ' . $disposition . '; filename="' . $baseName . '"');
     echo $pdfContent;
     exit;
 
