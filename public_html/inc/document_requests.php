@@ -591,6 +591,29 @@ if (!function_exists('dr_bridge_salaires_workflow')) {
             'ok', null,
             'Déposé via lien « Demander un document » #' . (int)($req['id'] ?? 0)
         );
+
+        // ── Intégration AUTOMATIQUE en rapport de comparaison ──
+        // Le dépôt via lien est immédiatement parsé et transformé en
+        // rapport (projet ou bulletins) : le NET est disponible sans clic
+        // (« Récap virements »). Best-effort : un échec de parse ne casse
+        // pas le dépôt (le bouton manuel « Importer les finaux » reste un
+        // filet de secours).
+        if (function_exists('rh_wf_integrate_comparaison')) {
+            $cmpType = ($type === RH_WF_TYPE_BULLETINS) ? 'bulletins' : 'projet';
+            $abs = dirname(__DIR__) . '/' . ltrim((string)$relPath, '/');
+            try {
+                $res = rh_wf_integrate_comparaison(
+                    $pdo, $idSociete, $idAgence, $moisRef, $cmpType,
+                    is_file($abs) ? $abs : $filePath, $originalName,
+                    isset($req['created_by']) ? (int)$req['created_by'] : null
+                );
+                if (empty($res['ok'])) {
+                    error_log('[dr_bridge_salaires] auto-intégration KO ag#' . $idAgence . ' : ' . ($res['error'] ?? '?'));
+                }
+            } catch (Throwable $e) {
+                error_log('[dr_bridge_salaires] auto-intégration exception ag#' . $idAgence . ' : ' . $e->getMessage());
+            }
+        }
     }
 }
 

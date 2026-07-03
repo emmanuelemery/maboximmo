@@ -217,3 +217,68 @@ function rh_wf_human_size(?int $bytes): string
     if ($bytes < 1024 * 1024) return number_format($bytes / 1024, 1, ',', ' ') . ' Ko';
     return number_format($bytes / (1024 * 1024), 2, ',', ' ') . ' Mo';
 }
+
+/**
+ * Intègre un fichier PDF déposé (projet ou bulletins) en rapport de comparaison
+ * `rh_salaires_comparaisons`, pour UNE agence. Factorise la logique utilisée par
+ * rh_salaires.php afin de pouvoir intégrer AUTOMATIQUEMENT un dépôt via lien
+ * « Demander un document » (plus besoin du bouton manuel « Importer les finaux »).
+ *
+ * @param string $type 'projet' | 'bulletins'
+ * @return array ['ok'=>bool, 'created'=>bool, 'error'=>?string, 'total_net'=>float]
+ */
+function rh_wf_integrate_comparaison(PDO $pdo, int $idSociete, int $idAgence, string $moisRef, string $type, string $absPath, string $fileName, ?int $createdBy = null): array
+{
+    $type = ($type === 'bulletins') ? 'bulletins' : 'projet';
+    // Dépendances (parser + lib de comparaison) chargées à la demande.
+    if (!function_exists('rh_parse_bulletins_file')) {
+        $p = __DIR__ . '/rh_salaires_parser.php';
+        if (is_file($p)) require_once $p;
+    }
+    if (!function_exists('rh_compare_bulletins_expected')) {
+        $c = __DIR__ . '/rh_compare_lib.php';
+        if (is_file($c)) require_once $c;
+    }
+    if (!function_exists('rh_parse_bulletins_file') || !function_exists('rh_compare_bulletins_expected')) {
+        return ['ok' => false, 'created' => false, 'error' => 'dépendances RH indisponibles', 'total_net' => 0.0];
+    }
+    if (!is_file($absPath)) {
+        return ['ok' => false, 'created' => false, 'error' => 'fichier introuvable', 'total_net' => 0.0];
+    }
+
+    $moisPost  = (int)substr($moisRef, 5, 2);
+    $anneePost = (int)substr($moisRef, 0, 4);
+
+    $meta = []; $parsed = rh_parse_bulletins_file($absPath, $meta);
+    $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+    if (empty($employees)) {
+        return ['ok' => false, 'created' => false, 'error' => 'extraction PDF impossible (' . ($parsed['error'] ?? 'parser KO') . ')', 'total_net' => 0.0];
+    }
+    $groups = rh_dispatch_bulletins_by_agence($pdo, $idSociete, $employees);
+    $group  = $groups[$idAgence] ?? null;
+    if (!$group) {
+        return ['ok' => false, 'created' => false, 'error' => 'aucun matricule ne correspond à l\'agence', 'total_net' => 0.0];
+    }
+
+    $expected = rh_load_expected_map($pdo, $idSociete, $moisRef, $idAgence);
+    $compare  = rh_compare_bulletins_expected($expected, $group['employees']);
+    $compare['conges'] = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+
+    // Copie du PDF dans le dossier servable (volet PDF des modals).
+    $destDir = dirname(__DIR__) . '/uploads/salaires_comptable';
+    if (!is_dir($destDir)) @mkdir($destDir, 0777, true);
+    $destName = 'auto_' . $type . '_' . $idSociete . '_ag' . $idAgence . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.pdf';
+    $filePathRel = @copy($absPath, $destDir . '/' . $destName) ? ('/uploads/salaires_comptable/' . $destName) : $absPath;
+
+    if ($type === 'bulletins') {
+        $totalNet = 0.0;
+        foreach ($group['employees'] as $e) { if (isset($e['net']) && $e['net'] !== null) $totalNet += (float)$e['net']; }
+        $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_net,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'bulletins',?,?,?,?,?,?,?)");
+        $ins->execute([$idSociete, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $totalNet, $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), $createdBy]);
+        return ['ok' => true, 'created' => true, 'error' => null, 'total_net' => $totalNet];
+    }
+
+    $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_brut,total_expected_brut,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'projet',?,?,?,?,?,?,?,?)");
+    $ins->execute([$idSociete, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $compare['total_pdf'], $compare['total_expected'], $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), $createdBy]);
+    return ['ok' => true, 'created' => true, 'error' => null, 'total_net' => 0.0];
+}
