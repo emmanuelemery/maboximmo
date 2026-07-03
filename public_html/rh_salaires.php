@@ -345,6 +345,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
     exit;
 }
 
+// Handle « Importer les finaux » : intégration BATCH de tous les bulletins
+// définitifs déposés (via lien) — TOUTES sociétés & agences du périmètre admin.
+// Chaque agence est traitée indépendamment : si une société n'a pas toutes ses
+// agences déposées, on intègre quand même les agences des autres sociétés.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_finaux_batch'])) {
+    verify_csrf();
+    if (!in_array(current_role_id(), [1, 7, 8], true)) {
+        http_response_code(403);
+        exit('Accès refusé');
+    }
+    $moisPost  = (int)($_POST['mois'] ?? 0);
+    $anneePost = (int)($_POST['annee'] ?? 0);
+    if ($moisPost < 1 || $moisPost > 12) { http_response_code(400); exit('Mois invalide'); }
+    $moisRefB   = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+    $isSuper    = in_array(current_role_id(), [1, 7], true);
+    $mySocScope = (int)($_SESSION['id_societe'] ?? 0);
+
+    // Dernier fichier bulletins déposé par agence pour ce mois.
+    $depSt = $pdo->prepare("SELECT w.id_agence, w.id_societe, w.fichier_path, w.fichier_nom_original
+                            FROM rh_salaire_workflow_log w
+                            JOIN (SELECT id_agence, MAX(id) AS mx FROM rh_salaire_workflow_log
+                                  WHERE mois_reference=? AND type_action='import_bulletins' AND fichier_path IS NOT NULL
+                                  GROUP BY id_agence) l ON l.mx = w.id");
+    $depSt->execute([$moisRefB]);
+    $deposits = $depSt->fetchAll(PDO::FETCH_ASSOC);
+
+    $done = 0; $skip = 0; $errs = [];
+    $insB = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_net,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'bulletins',?,?,?,?,?,?,?)");
+    foreach ($deposits as $dep) {
+        $idAgence = (int)$dep['id_agence'];
+        $idSoc    = (int)$dep['id_societe'];
+        if ($idAgence <= 0) continue;
+        if (!$isSuper && $idSoc !== $mySocScope) continue; // admin 8 : sa société uniquement
+        // Déjà intégré ? on saute (ré-intégration = re-déposer + re-cliquer).
+        $chk = $pdo->prepare("SELECT id FROM rh_salaires_comparaisons WHERE id_societe=? AND id_agence=? AND mois=? AND annee=? AND type='bulletins' LIMIT 1");
+        $chk->execute([$idSoc, $idAgence, $moisPost, $anneePost]);
+        if ($chk->fetchColumn()) { $skip++; continue; }
+
+        $abs = __DIR__ . '/' . ltrim((string)$dep['fichier_path'], '/');
+        if (!is_file($abs)) { $errs[] = "ag$idAgence: fichier introuvable"; continue; }
+        $meta = []; $parsed = rh_parse_bulletins_file($abs, $meta);
+        $employees = ($parsed['ok'] ?? false) ? ($parsed['data']['employees'] ?? []) : [];
+        if (empty($employees)) { $errs[] = "ag$idAgence: extraction KO"; continue; }
+        $groups = rh_dispatch_bulletins_by_agence($pdo, $idSoc, $employees);
+        $group  = $groups[$idAgence] ?? null;
+        if (!$group) { $errs[] = "ag$idAgence: aucun matricule reconnu"; continue; }
+
+        $expected = rh_load_expected_map($pdo, $idSoc, $moisRefB, $idAgence);
+        $compare  = rh_compare_bulletins_expected($expected, $group['employees']);
+        $compare['conges'] = rh_compute_conges_summary($pdo, $expected, $moisPost, $anneePost, $group['employees']);
+        $totalNet = 0.0;
+        foreach ($group['employees'] as $e) { if (isset($e['net']) && $e['net'] !== null) $totalNet += (float)$e['net']; }
+
+        // Copie du PDF dans le dossier servable (pour le volet PDF des modals).
+        $destDir = __DIR__ . '/uploads/salaires_comptable';
+        if (!is_dir($destDir)) @mkdir($destDir, 0777, true);
+        $destName = 'finaux_' . $idSoc . '_ag' . $idAgence . '_' . $anneePost . str_pad((string)$moisPost, 2, '0', STR_PAD_LEFT) . '_' . time() . '.pdf';
+        $filePathRel = @copy($abs, $destDir . '/' . $destName) ? ('/uploads/salaires_comptable/' . $destName) : (string)$dep['fichier_path'];
+
+        $insB->execute([$idSoc, $idAgence, $moisPost, $anneePost, (string)$dep['fichier_nom_original'], $filePathRel,
+            $totalNet, $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE),
+            json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), current_user_id()]);
+        $done++;
+    }
+    $msg = "Bulletins finaux intégrés : $done agence(s)";
+    if ($skip > 0) $msg .= " · $skip déjà intégrée(s)";
+    if ($errs)     $msg .= " · " . count($errs) . " en échec (" . implode(' ; ', array_slice($errs, 0, 6)) . ")";
+    $_SESSION['message_ok'] = $msg;
+    header("Location: rh_salaires.php" . (qs_keep(['mois','annee','societe','agence']) ? '?' . qs_keep(['mois','annee','societe','agence']) : ''));
+    exit;
+}
+
 // Permission gestion salaires agence (non-admin avec flag spécial)
 $agenceScope = can_manage_salaires_agence(); // 0 = pas de scope spécial, >0 = id_agence forcé
 
@@ -1262,51 +1334,82 @@ unset($_SESSION['message_ok']);
 unset($_SESSION['message_err']);
 
 // ── Récap virements (admin) : NET à virer issu des bulletins définitifs ──
-// On agrège tous les rapports "bulletins" de la société pour le mois/année,
-// on décode le NET par matricule (parsé en bas du bulletin) et on le rattache
-// au collaborateur via matricule_paie. Un import plus récent écrase l'ancien.
-$recapNets = [];        // matricule => ['id_user','name','net']
+// Scope : société sélectionnée, ou TOUTES les sociétés du périmètre admin si
+// « toutes » est sélectionné (super admin). On agrège les rapports "bulletins"
+// et on décode le NET par matricule, rattaché au collaborateur via matricule_paie.
+$recapNets = [];        // "socId_matricule" => ['id_user','name','net',...]
 $recapTotalNet = 0.0;
-if ($rhAdmin && $societe_sel !== 'toutes') {
-    try {
-        $expMap = rh_load_expected_map($pdo, (int)$societe_sel, $mois_ref, 0);
-        $matToUser = [];
-        foreach ($expMap as $mat => $e) {
-            $matToUser[(string)$mat] = [
-                'id_user'    => (int)($e['id_user'] ?? 0),
-                'name'       => $e['name'] ?? '',
-                'total_brut' => (float)($e['total_brut'] ?? 0),
-            ];
-        }
-        $qB = $pdo->prepare("SELECT parsed_json FROM rh_salaires_comparaisons
-                             WHERE id_societe=? AND mois=? AND annee=? AND type='bulletins'
-                             ORDER BY created_at ASC");
-        $qB->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
-        foreach ($qB->fetchAll(PDO::FETCH_ASSOC) as $br) {
-            $pj = json_decode($br['parsed_json'] ?? '', true);
-            foreach (($pj['employees'] ?? []) as $mat => $emp) {
-                if (!isset($emp['net']) || $emp['net'] === null || $emp['net'] === '') continue;
-                $info = $matToUser[(string)$mat] ?? null;
-                $netVal  = (float)$emp['net'];
-                $brutVal = (float)($info['total_brut'] ?? 0);
-                // Cohérence : le net doit être > 0 et < brut attendu (net = brut - charges).
-                // net >= brut ou net nul/absent alors qu'un brut existe = anomalie.
-                $incoherent = ($netVal <= 0)
-                    || ($brutVal > 0 && $netVal >= $brutVal)
-                    || ($brutVal > 0 && $netVal < $brutVal * 0.4); // net anormalement bas (< 40% du brut)
-                $recapNets[(string)$mat] = [
-                    'id_user'    => $info['id_user'] ?? 0,
-                    'name'       => ($info['name'] ?? '') !== '' ? $info['name'] : ($emp['name'] ?? ('mat ' . $mat)),
-                    'net'        => $netVal,
-                    'brut'       => $brutVal,
-                    'incoherent' => $incoherent,
-                    'matricule'  => (string)$mat,
+if ($rhAdmin) {
+    if ($societe_sel !== 'toutes') {
+        $socScope = [(int)$societe_sel];
+    } elseif ($rhSuperAdmin) {
+        $socScope = array_map(fn($s) => (int)$s['id'], $societes);
+    } else {
+        $socScope = $rhSocieteId > 0 ? [$rhSocieteId] : [];
+    }
+    foreach ($socScope as $socId) {
+        if ($socId <= 0) continue;
+        try {
+            $expMap = rh_load_expected_map($pdo, $socId, $mois_ref, 0);
+            $matToUser = [];
+            foreach ($expMap as $mat => $e) {
+                $matToUser[(string)$mat] = [
+                    'id_user'    => (int)($e['id_user'] ?? 0),
+                    'name'       => $e['name'] ?? '',
+                    'total_brut' => (float)($e['total_brut'] ?? 0),
                 ];
             }
+            $qB = $pdo->prepare("SELECT parsed_json FROM rh_salaires_comparaisons
+                                 WHERE id_societe=? AND mois=? AND annee=? AND type='bulletins'
+                                 ORDER BY created_at ASC");
+            $qB->execute([$socId, (int)$mois_sel, (int)$annee_sel]);
+            foreach ($qB->fetchAll(PDO::FETCH_ASSOC) as $br) {
+                $pj = json_decode($br['parsed_json'] ?? '', true);
+                foreach (($pj['employees'] ?? []) as $mat => $emp) {
+                    if (!isset($emp['net']) || $emp['net'] === null || $emp['net'] === '') continue;
+                    $info = $matToUser[(string)$mat] ?? null;
+                    $netVal  = (float)$emp['net'];
+                    $brutVal = (float)($info['total_brut'] ?? 0);
+                    // Cohérence : net > 0 et < brut attendu (net = brut - charges).
+                    $incoherent = ($netVal <= 0)
+                        || ($brutVal > 0 && $netVal >= $brutVal)
+                        || ($brutVal > 0 && $netVal < $brutVal * 0.4);
+                    $recapNets[$socId . '_' . $mat] = [
+                        'id_user'    => $info['id_user'] ?? 0,
+                        'name'       => ($info['name'] ?? '') !== '' ? $info['name'] : ($emp['name'] ?? ('mat ' . $mat)),
+                        'net'        => $netVal,
+                        'brut'       => $brutVal,
+                        'incoherent' => $incoherent,
+                        'matricule'  => (string)$mat,
+                    ];
+                }
+            }
+        } catch (Throwable $e) { /* société ignorée en cas d'erreur */ }
+    }
+    foreach ($recapNets as $r) { $recapTotalNet += $r['net']; }
+    uasort($recapNets, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+}
+
+// ── Bulletins finaux DÉPOSÉS mais PAS ENCORE intégrés (périmètre admin) ──
+// Sert à afficher/masquer le bouton « Importer les finaux ». Global (indépendant
+// de la société sélectionnée) : le batch intègre tout le périmètre en un clic.
+$pendingFinauxCount = 0;
+if ($rhAdmin) {
+    try {
+        $depAg = $pdo->prepare("SELECT DISTINCT w.id_agence, w.id_societe
+                                FROM rh_salaire_workflow_log w
+                                WHERE w.mois_reference=? AND w.type_action='import_bulletins' AND w.fichier_path IS NOT NULL");
+        $depAg->execute([$mois_ref]);
+        $intg = $pdo->prepare("SELECT DISTINCT id_agence FROM rh_salaires_comparaisons WHERE mois=? AND annee=? AND type='bulletins'");
+        $intg->execute([(int)$mois_sel, (int)$annee_sel]);
+        $intgSet = array_flip(array_map('intval', array_column($intg->fetchAll(PDO::FETCH_ASSOC), 'id_agence')));
+        foreach ($depAg->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $ag = (int)$d['id_agence']; $so = (int)$d['id_societe'];
+            if ($ag <= 0) continue;
+            if (!$rhSuperAdmin && $so !== $rhSocieteId) continue;
+            if (!isset($intgSet[$ag])) $pendingFinauxCount++;
         }
-        foreach ($recapNets as $r) { $recapTotalNet += $r['net']; }
-        uasort($recapNets, fn($a, $b) => strcasecmp($a['name'], $b['name']));
-    } catch (Throwable $e) { $recapNets = []; }
+    } catch (Throwable $e) { $pendingFinauxCount = 0; }
 }
 
 // Boutons rapides mois/année
@@ -2158,11 +2261,26 @@ ob_start();
         <?php endif; ?>
 
         <?php if ($rhAdmin): ?>
+            <?php if ($pendingFinauxCount > 0): ?>
+            <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" style="display:inline;margin:0;"
+                  onsubmit="return confirm('Intégrer tous les bulletins définitifs déposés (toutes sociétés et agences) ?');">
+                <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+                <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
+                <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
+                <button type="submit" name="import_finaux_batch" value="1" class="v2-btn"
+                        style="background:#16a34a;color:#fff;border-color:#16a34a;"
+                        title="Intègre tous les bulletins définitifs déposés — toutes sociétés et agences du périmètre">
+                    📥 Importer les finaux (<?=$pendingFinauxCount?>)
+                </button>
+            </form>
+            <?php endif; ?>
+            <?php if (!empty($recapNets)): ?>
             <button type="button" onclick="ouvrirRecapVirements()" class="v2-btn"
                     style="background:#D4A047;color:#fff;border-color:#D4A047;"
                     title="Liste des NET à virer (bulletins définitifs) + enregistrement du net versé">
                 💶 Récap virements
             </button>
+            <?php endif; ?>
         <?php else: ?>
             <button type="button" class="v2-btn" disabled style="opacity:.35;cursor:not-allowed">en attente</button>
         <?php endif; ?>
@@ -2192,7 +2310,12 @@ ob_start();
 <div id="recap-virements-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRecapVirements()">
     <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
         <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-            <h3 style="margin:0;font-size:15px;color:#243B5C;">💶 Récap virements — <?=h(mois_fr((int)$mois_sel).' '.$annee_sel)?></h3>
+            <?php
+            $recapScopeLabel = $societe_sel !== 'toutes'
+                ? (string)($societeInfo['nom'] ?? 'Société')
+                : ($rhSuperAdmin ? 'Toutes sociétés' : 'Votre société');
+            ?>
+            <h3 style="margin:0;font-size:15px;color:#243B5C;">💶 Récap virements — <?=h($recapScopeLabel)?> — <?=h(mois_fr((int)$mois_sel).' '.$annee_sel)?></h3>
             <button type="button" onclick="fermerRecapVirements()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
         </div>
         <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" style="display:flex;flex-direction:column;min-height:0;flex:1;">
