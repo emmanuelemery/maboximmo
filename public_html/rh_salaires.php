@@ -2462,8 +2462,15 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
                     <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
                     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                    <input type="file" name="bulletins_pdf" accept="application/pdf" required>
-                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn">Importer</button>
+                    <input type="hidden" name="compare_type" value="bulletins">
+                    <?php if ($bulletinsRow): ?>
+                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;">✅ Bulletins intégrés — NET disponible dans « Récap virements ».</div>
+                    <?php elseif ($wfHasBulletins): ?>
+                    <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#166534;">📎 Des bulletins ont été <b>déposés via le lien</b> — intégrez-les directement, sans re-télécharger.</div>
+                    <button type="submit" name="compare_existing" value="1" class="workflow-step-btn" style="margin-bottom:8px;background:#16a34a;color:#fff;">📥 Intégrer les bulletins déposés</button>
+                    <?php endif; ?>
+                    <input type="file" name="bulletins_pdf" accept="application/pdf">
+                    <button type="submit" name="upload_bulletins_pdf" value="1" class="workflow-step-btn"><?= $bulletinsRow ? 'Réimporter' : 'Importer' ?> un PDF</button>
                 </form>
             </div>
 
