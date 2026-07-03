@@ -146,12 +146,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
             $nb = count($L['baux']);
             $first = $L['baux'][0];
             // Contexte AGENCE : tiers 360° moderne si le locataire est rattaché à un tiers,
-            // sinon la fiche bien (qui montre le bail + locataire).
+            // sinon la fiche BAIL (qui montre le locataire + le bien) — surtout PAS le bien seul.
             // NB : on n'envoie PAS vers locataire_360.php (page du module Bailleur, sidebar bailleur).
             $idTiersLoc = (int)($L['id_tiers'] ?? 0);
             $url = $idTiersLoc > 0
                 ? app_url('/tiers_360.php?id=' . $idTiersLoc)
-                : app_url('/bien_360.php?id=' . (int)$first['id_bien']);
+                : app_url('/bail_360.php?id=' . (int)$first['bail_id']);
             $loyerTot = array_sum(array_map(fn($b) => (float)($b['loyer_mensuel_hc'] ?? 0), $L['baux']));
 
             $chips = [];
