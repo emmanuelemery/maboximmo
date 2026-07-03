@@ -51,6 +51,10 @@ try {
     if (!in_array('commentaire_general', $existing)) {
         $pdo->exec("ALTER TABLE salaires ADD COLUMN commentaire_general TEXT NULL");
     }
+    // Net réellement versé (récap virements) : montant NET à virer issu du bulletin définitif.
+    if (!in_array('net_verse', $existing)) {
+        $pdo->exec("ALTER TABLE salaires ADD COLUMN net_verse DECIMAL(12,2) NULL");
+    }
 } catch (Exception $e) {}
 
 // Ensure societes comptable + emetteur columns
@@ -298,6 +302,47 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['close_month'])) {
 
     http_response_code(200);
     exit('Mois clôturé avec succès');
+}
+
+// Handle « Récap virements » : enregistrement des NET versés (admin only)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements'])) {
+    verify_csrf();
+    if (!in_array(current_role_id(), [1, 7, 8], true)) {
+        http_response_code(403);
+        exit('Accès refusé');
+    }
+    $moisPost  = (int)($_POST['mois'] ?? 0);
+    $anneePost = (int)($_POST['annee'] ?? 0);
+    if ($moisPost < 1 || $moisPost > 12) { http_response_code(400); exit('Mois invalide'); }
+    $moisRefNet = sprintf('%04d-%02d-01', $anneePost, $moisPost);
+
+    $nets = $_POST['net'] ?? [];
+    $nbSaved = 0;
+    if (is_array($nets)) {
+        foreach ($nets as $idUser => $netStr) {
+            $idU = (int)$idUser;
+            if ($idU <= 0) continue;
+            $netStr = trim((string)$netStr);
+            if ($netStr === '') continue;
+            $net = (float)str_replace([' ', ','], ['', '.'], $netStr);
+            $legacyId = rh_user_salary_id($pdo, $idU);
+            $chk = $pdo->prepare("SELECT id FROM salaires WHERE id_user=? AND mois_reference=? LIMIT 1");
+            $chk->execute([$legacyId, $moisRefNet]);
+            $sid = $chk->fetchColumn();
+            if ($sid) {
+                $pdo->prepare("UPDATE salaires SET net_verse=? WHERE id=?")->execute([$net, $sid]);
+            } else {
+                $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, net_verse) VALUES (?, ?, ?)")
+                    ->execute([$legacyId, $moisRefNet, $net]);
+            }
+            $nbSaved++;
+        }
+    }
+    $_SESSION['message_ok'] = $nbSaved > 0
+        ? "Net versé enregistré pour $nbSaved salarié(s) ✅"
+        : 'Aucun net à enregistrer.';
+    header("Location: rh_salaires.php" . (qs_keep(['mois','annee','societe','agence']) ? '?' . qs_keep(['mois','annee','societe','agence']) : ''));
+    exit;
 }
 
 // Permission gestion salaires agence (non-admin avec flag spécial)
@@ -1121,7 +1166,7 @@ if ($modeles_only) {
     $sql = "
         SELECT u.id AS id_user, " . rh_user_name_expr('u') . " AS nom_complet,
                u.indemnite_km AS u_indemnite_km,
-               s.id AS id_salaire, s.mois_reference, s.termine_user, s.mois_cloture, $selectCols
+               s.id AS id_salaire, s.mois_reference, s.termine_user, s.mois_cloture, s.net_verse, $selectCols
         FROM users u
         LEFT JOIN salaires s ON (s.id_user=u.id OR (s.id_user=u.id_legacy AND u.id_legacy IS NOT NULL)) AND s.mois_reference='0000-00-00' AND s.salaire_modele=1
         LEFT JOIN societes soc ON u.id_societe = soc.id
@@ -1131,7 +1176,7 @@ if ($modeles_only) {
     $sql = "
         SELECT u.id AS id_user, " . rh_user_name_expr('u') . " AS nom_complet,
                u.indemnite_km AS u_indemnite_km,
-               s.id AS id_salaire, s.mois_reference, s.termine_user, s.mois_cloture, $selectCols
+               s.id AS id_salaire, s.mois_reference, s.termine_user, s.mois_cloture, s.net_verse, $selectCols
         FROM users u
         LEFT JOIN salaires s ON (s.id_user=u.id OR (s.id_user=u.id_legacy AND u.id_legacy IS NOT NULL)) AND s.mois_reference=:mr
         LEFT JOIN societes soc ON u.id_societe = soc.id
@@ -1178,9 +1223,11 @@ $totalCommCA     = 0.0;
 $totalCommNA     = 0.0;
 $totalAutres     = 0.0;
 $totalAll        = 0.0;
+$totalNet        = 0.0;
 
 try {
     foreach ($users as $u) {
+        if (!empty($u['net_verse'])) $totalNet += (float)$u['net_verse'];
         $brut      = !empty($u['salaire_brut_base']) ? (float)$u['salaire_brut_base'] : 0;
         // Ancienneté = MONTANT de la prime en € (saisi tel quel), pas un nombre de mois.
         $anci_val  = !empty($u['anciennete']) ? (float)$u['anciennete'] : 0;
@@ -1214,6 +1261,54 @@ $msg_err = $_SESSION['message_err'] ?? '';
 unset($_SESSION['message_ok']);
 unset($_SESSION['message_err']);
 
+// ── Récap virements (admin) : NET à virer issu des bulletins définitifs ──
+// On agrège tous les rapports "bulletins" de la société pour le mois/année,
+// on décode le NET par matricule (parsé en bas du bulletin) et on le rattache
+// au collaborateur via matricule_paie. Un import plus récent écrase l'ancien.
+$recapNets = [];        // matricule => ['id_user','name','net']
+$recapTotalNet = 0.0;
+if ($rhAdmin && $societe_sel !== 'toutes') {
+    try {
+        $expMap = rh_load_expected_map($pdo, (int)$societe_sel, $mois_ref, 0);
+        $matToUser = [];
+        foreach ($expMap as $mat => $e) {
+            $matToUser[(string)$mat] = [
+                'id_user'    => (int)($e['id_user'] ?? 0),
+                'name'       => $e['name'] ?? '',
+                'total_brut' => (float)($e['total_brut'] ?? 0),
+            ];
+        }
+        $qB = $pdo->prepare("SELECT parsed_json FROM rh_salaires_comparaisons
+                             WHERE id_societe=? AND mois=? AND annee=? AND type='bulletins'
+                             ORDER BY created_at ASC");
+        $qB->execute([(int)$societe_sel, (int)$mois_sel, (int)$annee_sel]);
+        foreach ($qB->fetchAll(PDO::FETCH_ASSOC) as $br) {
+            $pj = json_decode($br['parsed_json'] ?? '', true);
+            foreach (($pj['employees'] ?? []) as $mat => $emp) {
+                if (!isset($emp['net']) || $emp['net'] === null || $emp['net'] === '') continue;
+                $info = $matToUser[(string)$mat] ?? null;
+                $netVal  = (float)$emp['net'];
+                $brutVal = (float)($info['total_brut'] ?? 0);
+                // Cohérence : le net doit être > 0 et < brut attendu (net = brut - charges).
+                // net >= brut ou net nul/absent alors qu'un brut existe = anomalie.
+                $incoherent = ($netVal <= 0)
+                    || ($brutVal > 0 && $netVal >= $brutVal)
+                    || ($brutVal > 0 && $netVal < $brutVal * 0.4); // net anormalement bas (< 40% du brut)
+                $recapNets[(string)$mat] = [
+                    'id_user'    => $info['id_user'] ?? 0,
+                    'name'       => ($info['name'] ?? '') !== '' ? $info['name'] : ($emp['name'] ?? ('mat ' . $mat)),
+                    'net'        => $netVal,
+                    'brut'       => $brutVal,
+                    'incoherent' => $incoherent,
+                    'matricule'  => (string)$mat,
+                ];
+            }
+        }
+        foreach ($recapNets as $r) { $recapTotalNet += $r['net']; }
+        uasort($recapNets, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+    } catch (Throwable $e) { $recapNets = []; }
+}
+
 // Boutons rapides mois/année
 $cur_m  = (int)$now->format('n');
 $cur_y  = (int)$now->format('Y');
@@ -1239,6 +1334,7 @@ $layout_head_kpis = '
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#4878a6">'.number_format($totalCommCA + $totalCommNA, 0, ',', ' ').'</div><div class="ph-kpi-lbl">Commissions</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#8a5040">'.number_format($totalAutres, 0, ',', ' ').'</div><div class="ph-kpi-lbl">Autres</div></div>
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#2f587d;font-weight:700">'.number_format($totalAll, 0, ',', ' ').'</div><div class="ph-kpi-lbl">Total brut</div></div>
+    <div class="ph-kpi"><div class="ph-kpi-val" style="color:#D4A047;font-weight:700">'.number_format($totalNet, 0, ',', ' ').'</div><div class="ph-kpi-lbl">Total net versé</div></div>
 ';
 
 $layout_head_actions = '
@@ -1603,6 +1699,19 @@ $layout_extra_css = <<<'EXTRACSS'
         font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700;
         color: #36577d; letter-spacing: 0.04em;
         white-space: nowrap; line-height: 1.4;
+    }
+    /* Bouton doré « net versé » (récap virements) */
+    .row-net-btn {
+        display: inline-block;
+        padding: 1px 8px; border-radius: 999px;
+        background: #D4A047; color: #fff;
+        box-shadow: 2px 2px 5px var(--shadow-dark, #d4d7de), -1px -1px 3px #f5f2ed;
+        font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700;
+        letter-spacing: 0.04em; white-space: nowrap; line-height: 1.4;
+    }
+    .row-net-lbl {
+        font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.08em; color: #b4832f;
     }
 
     /* ── Page head local (scope + badge) ── */
@@ -2048,7 +2157,15 @@ ob_start();
                target="_blank" class="v2-btn success" title="Salaires &amp; Congés — vue globale toutes agences/sociétés">Salaires &amp; Congés</a>
         <?php endif; ?>
 
-        <button type="button" class="v2-btn" disabled style="opacity:.35;cursor:not-allowed">en attente</button>
+        <?php if ($rhAdmin): ?>
+            <button type="button" onclick="ouvrirRecapVirements()" class="v2-btn"
+                    style="background:#D4A047;color:#fff;border-color:#D4A047;"
+                    title="Liste des NET à virer (bulletins définitifs) + enregistrement du net versé">
+                💶 Récap virements
+            </button>
+        <?php else: ?>
+            <button type="button" class="v2-btn" disabled style="opacity:.35;cursor:not-allowed">en attente</button>
+        <?php endif; ?>
 
         <?php if ($rhAdmin): ?>
             <button onclick="createMissingSalariesOnly(<?=$mois_sel?>, <?=$annee_sel?>, 0)"
@@ -2069,6 +2186,77 @@ ob_start();
     </div>
 
 </div>
+
+<?php if ($rhAdmin): ?>
+<!-- ── Modal « Récap virements » : liste NET à virer + enregistrement net versé ── -->
+<div id="recap-virements-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;padding:14px;" onclick="if(event.target===this)fermerRecapVirements()">
+    <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden;">
+        <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+            <h3 style="margin:0;font-size:15px;color:#243B5C;">💶 Récap virements — <?=h(mois_fr((int)$mois_sel).' '.$annee_sel)?></h3>
+            <button type="button" onclick="fermerRecapVirements()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#64748b;">×</button>
+        </div>
+        <form method="post" action="rh_salaires.php?<?=h($currentQS)?>" style="display:flex;flex-direction:column;min-height:0;flex:1;">
+            <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+            <input type="hidden" name="mois" value="<?=h($mois_sel)?>">
+            <input type="hidden" name="annee" value="<?=h($annee_sel)?>">
+            <div style="padding:12px 20px;overflow:auto;flex:1;">
+                <?php if (empty($recapNets)): ?>
+                    <div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:16px;font-size:12.5px;color:#64748b;text-align:center;">
+                        Aucun NET détecté. Importez d'abord les <strong>bulletins définitifs</strong> (workflow comptable, card 3) pour cette société.
+                    </div>
+                <?php else: ?>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="border-bottom:2px solid #e5e7eb;">
+                                <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600;">Collaborateur</th>
+                                <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600;white-space:nowrap;">NET à virer</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($recapNets as $r):
+                            $rowBg = $r['id_user'] <= 0 ? 'background:#fffbeb;' : ($r['incoherent'] ? 'background:#fef2f2;' : '');
+                        ?>
+                            <tr style="border-bottom:1px solid #f1f5f9;<?=$rowBg?>">
+                                <td style="padding:6px 8px;">
+                                    <strong><?=h($r['name'])?></strong>
+                                    <?php if ($r['id_user'] <= 0): ?>
+                                        <span style="color:#b45309;font-size:11px;"> (non rattaché — mat <?=h($r['matricule'])?>)</span>
+                                    <?php elseif ($r['incoherent']): ?>
+                                        <span style="color:#dc2626;font-size:11px;font-weight:700;" title="Net incohérent vs brut attendu (<?=number_format($r['brut'], 2, ',', ' ')?> €)">⚠ à vérifier</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="padding:6px 8px;text-align:right;font-family:monospace;white-space:nowrap;font-weight:700;color:<?= $r['incoherent'] ? '#dc2626' : '#243B5C' ?>;">
+                                    <?=number_format($r['net'], 2, ',', ' ')?> €
+                                    <?php if ($r['id_user'] > 0): ?>
+                                        <input type="hidden" name="net[<?=$r['id_user']?>]" value="<?=h(number_format($r['net'], 2, '.', ''))?>">
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                        <tfoot>
+                            <tr style="border-top:2px solid #e5e7eb;">
+                                <td style="padding:8px;font-weight:700;color:#0f172a;">Total NET à virer</td>
+                                <td style="padding:8px;text-align:right;font-family:monospace;font-weight:800;font-size:15px;color:#D4A047;"><?=number_format($recapTotalNet, 2, ',', ' ')?> €</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                <?php endif; ?>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" onclick="fermerRecapVirements()" style="padding:9px 14px;border-radius:8px;background:#fff;color:#475569;border:1px solid #cbd5e1;font-size:13px;font-weight:600;cursor:pointer;">Fermer</button>
+                <?php if (!empty($recapNets)): ?>
+                <button type="submit" name="save_nets_virements" value="1" style="padding:9px 18px;border-radius:8px;background:#D4A047;color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;">💾 Enregistrer le net versé</button>
+                <?php endif; ?>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function ouvrirRecapVirements(){ document.getElementById('recap-virements-modal').style.display='flex'; }
+function fermerRecapVirements(){ document.getElementById('recap-virements-modal').style.display='none'; }
+</script>
+<?php endif; ?>
 
 <?php
 // Workflow comptable : visible pour admin (roleId=1) ET pour gestion_salaires=1 (Géraldine, Alexandra).
@@ -2869,11 +3057,25 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                             </button>
                         </div>
                     </td>
-                    <!-- Total sur brut + 13e + anc (cols 1-3) -->
+                    <!-- Total sur brut + 13e + anc (cols 1-3) + net versé (bouton doré) -->
                     <td colspan="3" style="text-align:left;vertical-align:middle;padding-left:4px">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                         <?php if ($_total > 0): ?>
                         <div class="row-total-btn"><?=number_format($_total, 0, ',', ' ')?> &euro;</div>
                         <?php endif; ?>
+                        <?php
+                        $_net = (float)($u['net_verse'] ?? 0);
+                        // Cohérence : net doit être >0 et < brut du mois (net = brut - charges).
+                        $_netIncoherent = $_net > 0 && $_total > 0 && ($_net >= $_total || $_net < $_total * 0.4);
+                        if ($_net > 0):
+                        ?>
+                        <span class="row-net-btn" title="NET réellement versé (bulletin définitif)"><?=number_format($_net, 0, ',', ' ')?> &euro;</span>
+                        <span class="row-net-lbl">net</span>
+                        <?php if ($_netIncoherent): ?>
+                        <span title="Net incohérent vs brut (<?=number_format($_total, 0, ',', ' ')?> €) — à vérifier" style="color:#dc2626;font-weight:700;font-size:12px;">⚠</span>
+                        <?php endif; ?>
+                        <?php endif; ?>
+                        </div>
                     </td>
                     <!-- Vide : av_nature + h_supp (cols 4-5) -->
                     <td colspan="2"></td>
