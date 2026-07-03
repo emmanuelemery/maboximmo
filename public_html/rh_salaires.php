@@ -317,7 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
     $moisRefNet = sprintf('%04d-%02d-01', $anneePost, $moisPost);
 
     $nets = $_POST['net'] ?? [];
-    $nbSaved = 0;
+    $nbSaved = 0; $nbErr = 0;
     if (is_array($nets)) {
         foreach ($nets as $idUser => $netStr) {
             $idU = (int)$idUser;
@@ -325,22 +325,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_nets_virements']
             $netStr = trim((string)$netStr);
             if ($netStr === '') continue;
             $net = (float)str_replace([' ', ','], ['', '.'], $netStr);
-            $legacyId = rh_user_salary_id($pdo, $idU);
-            $chk = $pdo->prepare("SELECT id FROM salaires WHERE id_user=? AND mois_reference=? LIMIT 1");
-            $chk->execute([$legacyId, $moisRefNet]);
-            $sid = $chk->fetchColumn();
-            if ($sid) {
-                $pdo->prepare("UPDATE salaires SET net_verse=? WHERE id=?")->execute([$net, $sid]);
-            } else {
-                $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, net_verse) VALUES (?, ?, ?)")
-                    ->execute([$legacyId, $moisRefNet, $net]);
+            try {
+                $legacyId = rh_user_salary_id($pdo, $idU);
+                $chk = $pdo->prepare("SELECT id FROM salaires WHERE id_user=? AND mois_reference=? LIMIT 1");
+                $chk->execute([$legacyId, $moisRefNet]);
+                $sid = $chk->fetchColumn();
+                if ($sid) {
+                    $pdo->prepare("UPDATE salaires SET net_verse=? WHERE id=?")->execute([$net, $sid]);
+                } else {
+                    // termine_user inclus : certaines installs ont la colonne NOT NULL.
+                    $pdo->prepare("INSERT INTO salaires (id_user, mois_reference, termine_user, net_verse) VALUES (?, ?, 0, ?)")
+                        ->execute([$legacyId, $moisRefNet, $net]);
+                }
+                $nbSaved++;
+            } catch (Throwable $e) {
+                $nbErr++;
+                error_log('[save_nets_virements] user#' . $idU . ' : ' . $e->getMessage());
             }
-            $nbSaved++;
         }
     }
-    $_SESSION['message_ok'] = $nbSaved > 0
-        ? "Net versé enregistré pour $nbSaved salarié(s) ✅"
-        : 'Aucun net à enregistrer.';
+    if ($nbSaved > 0) {
+        $_SESSION['message_ok'] = "Net versé enregistré pour $nbSaved salarié(s) ✅"
+            . ($nbErr > 0 ? " · $nbErr en échec (voir logs)" : '');
+    } else {
+        $_SESSION['message_err'] = $nbErr > 0
+            ? "Échec de l'enregistrement des nets ($nbErr) — voir logs serveur."
+            : 'Aucun net à enregistrer.';
+    }
     header("Location: rh_salaires.php" . (qs_keep(['mois','annee','societe','agence']) ? '?' . qs_keep(['mois','annee','societe','agence']) : ''));
     exit;
 }
@@ -1357,6 +1368,7 @@ if ($rhAdmin) {
                     'id_user'    => (int)($e['id_user'] ?? 0),
                     'name'       => $e['name'] ?? '',
                     'total_brut' => (float)($e['total_brut'] ?? 0),
+                    'id_agence'  => (int)($e['id_agence'] ?? 0),
                 ];
             }
             $qB = $pdo->prepare("SELECT parsed_json FROM rh_salaires_comparaisons
@@ -1381,6 +1393,8 @@ if ($rhAdmin) {
                         'brut'       => $brutVal,
                         'incoherent' => $incoherent,
                         'matricule'  => (string)$mat,
+                        'id_societe' => $socId,
+                        'id_agence'  => (int)($info['id_agence'] ?? 0),
                     ];
                 }
             }
@@ -1388,6 +1402,29 @@ if ($rhAdmin) {
     }
     foreach ($recapNets as $r) { $recapTotalNet += $r['net']; }
     uasort($recapNets, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+
+    // Regroupement pour le modal : société → agence → salariés, avec sous-totaux.
+    $societeNomById = [];
+    foreach ($societes as $s) { $societeNomById[(int)$s['id']] = $s['nom']; }
+    $agenceNomById = [];
+    foreach ($agences as $a) { $agenceNomById[(int)$a['id']] = $a['nom_agence']; }
+    $recapGrouped = [];
+    foreach ($recapNets as $r) {
+        $so = (int)$r['id_societe']; $ag = (int)$r['id_agence'];
+        if (!isset($recapGrouped[$so])) {
+            $recapGrouped[$so] = ['nom' => $societeNomById[$so] ?? ('Société #' . $so), 'total' => 0.0, 'agences' => []];
+        }
+        if (!isset($recapGrouped[$so]['agences'][$ag])) {
+            $recapGrouped[$so]['agences'][$ag] = [
+                'nom'   => $ag > 0 ? ($agenceNomById[$ag] ?? ('Agence #' . $ag)) : '— Non rattaché',
+                'total' => 0.0, 'rows' => [],
+            ];
+        }
+        $recapGrouped[$so]['agences'][$ag]['rows'][]  = $r;
+        $recapGrouped[$so]['agences'][$ag]['total']  += $r['net'];
+        $recapGrouped[$so]['total']                  += $r['net'];
+    }
+    uasort($recapGrouped, fn($a, $b) => strcasecmp($a['nom'], $b['nom']));
 }
 
 // ── Bulletins finaux DÉPOSÉS mais PAS ENCORE intégrés (périmètre admin) ──
@@ -2329,38 +2366,51 @@ ob_start();
                     </div>
                 <?php else: ?>
                     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-                        <thead>
-                            <tr style="border-bottom:2px solid #e5e7eb;">
-                                <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600;">Collaborateur</th>
-                                <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600;white-space:nowrap;">NET à virer</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($recapNets as $r):
-                            $rowBg = $r['id_user'] <= 0 ? 'background:#fffbeb;' : ($r['incoherent'] ? 'background:#fef2f2;' : '');
-                        ?>
-                            <tr style="border-bottom:1px solid #f1f5f9;<?=$rowBg?>">
-                                <td style="padding:6px 8px;">
-                                    <strong><?=h($r['name'])?></strong>
-                                    <?php if ($r['id_user'] <= 0): ?>
-                                        <span style="color:#b45309;font-size:11px;"> (non rattaché — mat <?=h($r['matricule'])?>)</span>
-                                    <?php elseif ($r['incoherent']): ?>
-                                        <span style="color:#dc2626;font-size:11px;font-weight:700;" title="Net incohérent vs brut attendu (<?=number_format($r['brut'], 2, ',', ' ')?> €)">⚠ à vérifier</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td style="padding:6px 8px;text-align:right;font-family:monospace;white-space:nowrap;font-weight:700;color:<?= $r['incoherent'] ? '#dc2626' : '#243B5C' ?>;">
-                                    <?=number_format($r['net'], 2, ',', ' ')?> €
-                                    <?php if ($r['id_user'] > 0): ?>
-                                        <input type="hidden" name="net[<?=$r['id_user']?>]" value="<?=h(number_format($r['net'], 2, '.', ''))?>">
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
+                        <?php $showSoc = count($recapGrouped) > 1; ?>
+                        <?php foreach ($recapGrouped as $soc): ?>
+                            <?php if ($showSoc): ?>
+                            <tbody>
+                                <tr><td colspan="2" style="padding:10px 8px 4px;font-size:13px;font-weight:800;color:#243B5C;border-bottom:2px solid #243B5C;">🏢 <?=h($soc['nom'])?></td></tr>
+                            </tbody>
+                            <?php endif; ?>
+                            <?php foreach ($soc['agences'] as $agc): ?>
+                            <tbody>
+                                <tr style="background:#f1f5f9;">
+                                    <td style="padding:6px 8px;font-weight:700;color:#334155;">🏬 <?=h($agc['nom'])?></td>
+                                    <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:#334155;white-space:nowrap;"><?=number_format($agc['total'], 2, ',', ' ')?> €</td>
+                                </tr>
+                                <?php foreach ($agc['rows'] as $r):
+                                    $rowBg = $r['id_user'] <= 0 ? 'background:#fffbeb;' : ($r['incoherent'] ? 'background:#fef2f2;' : '');
+                                ?>
+                                <tr style="border-bottom:1px solid #f1f5f9;<?=$rowBg?>">
+                                    <td style="padding:6px 8px 6px 22px;">
+                                        <?=h($r['name'])?>
+                                        <?php if ($r['id_user'] <= 0): ?>
+                                            <span style="color:#b45309;font-size:11px;"> (non rattaché — mat <?=h($r['matricule'])?>)</span>
+                                        <?php elseif ($r['incoherent']): ?>
+                                            <span style="color:#dc2626;font-size:11px;font-weight:700;" title="Net incohérent vs brut attendu (<?=number_format($r['brut'], 2, ',', ' ')?> €)">⚠ à vérifier</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding:6px 8px;text-align:right;font-family:monospace;white-space:nowrap;font-weight:700;color:<?= $r['incoherent'] ? '#dc2626' : '#243B5C' ?>;">
+                                        <?=number_format($r['net'], 2, ',', ' ')?> €
+                                        <?php if ($r['id_user'] > 0): ?>
+                                            <input type="hidden" name="net[<?=$r['id_user']?>]" value="<?=h(number_format($r['net'], 2, '.', ''))?>">
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                            <?php endforeach; ?>
+                            <?php if ($showSoc): ?>
+                            <tbody>
+                                <tr><td style="padding:6px 8px;text-align:right;font-weight:700;color:#243B5C;">Sous-total <?=h($soc['nom'])?></td><td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:800;color:#243B5C;white-space:nowrap;border-bottom:2px solid #cbd5e1;"><?=number_format($soc['total'], 2, ',', ' ')?> €</td></tr>
+                            </tbody>
+                            <?php endif; ?>
                         <?php endforeach; ?>
-                        </tbody>
                         <tfoot>
                             <tr style="border-top:2px solid #e5e7eb;">
                                 <td style="padding:8px;font-weight:700;color:#0f172a;">Total NET à virer</td>
-                                <td style="padding:8px;text-align:right;font-family:monospace;font-weight:800;font-size:15px;color:#D4A047;"><?=number_format($recapTotalNet, 2, ',', ' ')?> €</td>
+                                <td style="padding:8px;text-align:right;font-family:monospace;font-weight:800;font-size:15px;color:#D4A047;white-space:nowrap;"><?=number_format($recapTotalNet, 2, ',', ' ')?> €</td>
                             </tr>
                         </tfoot>
                     </table>
