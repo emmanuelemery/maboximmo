@@ -22,9 +22,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); ec
 $userId    = function_exists('current_user_id') ? (int)current_user_id() : (int)($_SESSION['user_id'] ?? 0);
 $placeholder = (int)($_POST['placeholder_id'] ?? 0);
 $target      = (int)($_POST['target_id'] ?? 0);
+$action      = (string)($_POST['action'] ?? 'concordance');
 $scenario    = preg_replace('/[^a-z0-9_\-]/', '', strtolower((string)($_POST['scenario'] ?? 'dusart'))) ?: 'dusart';
 if ($scenario === 'courant') { echo json_encode(['ok'=>false,'error'=>'Interdit sur le Courant']); exit; }
-if ($placeholder <= 0 || $target <= 0) { echo json_encode(['ok'=>false,'error'=>'Paramètres manquants']); exit; }
+if ($placeholder <= 0) { echo json_encode(['ok'=>false,'error'=>'Lot manquant']); exit; }
+
+// ── Action « vendu » : retire le lot de la file (valeur non comptée + marquée VENDU) ──
+if ($action === 'vendu') {
+    try {
+        $n = $pdo->prepare("UPDATE bien_prix SET is_courant=0, commentaire='VENDU (concordance)'
+                            WHERE id_bien=? AND type_valeur='prix_vente' AND scenario_code=? AND is_courant=1");
+        $n->execute([$placeholder, $scenario]);
+        echo json_encode(['ok'=>true, 'vendu'=>true]); exit;
+    } catch (Throwable $e) { http_response_code(500); echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); exit; }
+}
+
+if ($target <= 0) { echo json_encode(['ok'=>false,'error'=>'Paramètres manquants']); exit; }
 if ($placeholder === $target)          { echo json_encode(['ok'=>false,'error'=>'Placeholder = cible']); exit; }
 
 // Montant du placeholder pour ce scénario

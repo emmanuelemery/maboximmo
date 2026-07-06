@@ -84,6 +84,8 @@ table.dc thead th{background:#243B5C;color:#fff;text-align:left;font-size:11.5px
 .dc-sugg{background:#fff7ed;border:1px dashed #fdba74;border-radius:8px;padding:6px 10px;font-size:12px;color:#9a3412;cursor:pointer;}
 .dc-btn{border:none;background:#0e6b75;color:#fff;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer;font-size:12.5px;}
 .dc-btn:disabled{background:#cbd5e1;cursor:not-allowed;}
+.dc-vendu{background:#b45309;margin-left:6px;}
+.dc-vendu:hover{background:#92400e;}
 .dc-ok{color:#166534;font-weight:700;} .dc-none{color:#94a3b8;}
 tr.done{opacity:.55;}
 </style>';
@@ -118,7 +120,10 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
               <?php endif; ?>
             </div>
           </td>
-          <td><button type="button" class="dc-btn" id="btn-<?= (int)$lot['id'] ?>" disabled onclick="dcValider(<?= (int)$lot['id'] ?>)">✓ Valider</button></td>
+          <td style="white-space:nowrap;">
+            <button type="button" class="dc-btn" id="btn-<?= (int)$lot['id'] ?>" disabled onclick="dcValider(<?= (int)$lot['id'] ?>)">✓ Valider</button>
+            <button type="button" class="dc-btn dc-vendu" id="vbtn-<?= (int)$lot['id'] ?>" onclick="dcVendu(<?= (int)$lot['id'] ?>)" title="Bien déjà vendu — retirer de la liste">🏷️ Vendu</button>
+          </td>
         </tr>
       <?php endforeach; ?>
     </tbody>
@@ -159,6 +164,18 @@ async function dcValider(ph){
     if(d.ok){ const row=document.getElementById('row-'+ph); row.classList.add('done'); btn.textContent='✅ '+d.target_ref; btn.style.background='#166534'; }
     else { btn.disabled=false; btn.textContent='✓ Valider'; alert('❌ '+(d.error||'échec')); }
   }catch(e){ btn.disabled=false; btn.textContent='✓ Valider'; alert('❌ '+e.message); }
+}
+async function dcVendu(ph){
+  const row=document.getElementById('row-'+ph);
+  const vbtn=document.getElementById('vbtn-'+ph); vbtn.disabled=true; vbtn.textContent='…';
+  try{
+    const fd=new FormData(); fd.append('placeholder_id',ph); fd.append('action','vendu'); fd.append('scenario',DC_SCEN);
+    const r=await fetch('bailleur_dusart_concordance_save.php',{method:'POST',body:fd,credentials:'same-origin'});
+    const d=await r.json();
+    if(d.ok){ row.classList.add('done'); vbtn.textContent='🏷️ Vendu ✓'; vbtn.style.background='#6b7280';
+              const b=document.getElementById('btn-'+ph); if(b){b.disabled=true;} }
+    else { vbtn.disabled=false; vbtn.textContent='🏷️ Vendu'; alert('❌ '+(d.error||'échec')); }
+  }catch(e){ vbtn.disabled=false; vbtn.textContent='🏷️ Vendu'; alert('❌ '+e.message); }
 }
 document.addEventListener('click', e=>{ if(!e.target.closest('td')) document.querySelectorAll('.dc-results').forEach(b=>b.style.display='none'); });
 </script>
