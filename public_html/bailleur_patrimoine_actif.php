@@ -871,6 +871,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   <button type="button" class="btn-scenario-new" onclick="creerScenario()">＋ Nouveau scénario</button>
   <button type="button" class="btn-scenario-save" id="btn-scenario-save" onclick="enregistrerScenario()" style="display:none">💾 Enregistrer ce scénario</button>
   <button type="button" class="btn-export-xls" onclick="exporterPatrimoine()" title="Exporter l'état du patrimoine affiché À L'INSTANT (prix en cours de saisie) — fichier nommé par propriétaire + utilisateur, à archiver en GED">📥 Export Excel</button>
+  <button type="button" class="btn-scenario-reprendre" onclick="ouvrirCompareScenarios()" title="Comparer 2 ou 3 scénarios côte à côte">⚖️ Comparer des scénarios</button>
   <span id="scenario-info" class="scenario-info"></span>
   <?php if ($mode === 'proposer'): ?>
   <!-- Ligne 1 : montants (poussés à droite) -->
@@ -2557,4 +2558,56 @@ if ($mode === 'proposer'): ?>
 </script>
 <?php endif;
 
+// ── Scénarios disponibles (pour le modal « Comparer ») ──
+$cmpScenarios = [];
+try {
+    $rowsSc = $pdo->query("SELECT scenario_code, COALESCE(MAX(NULLIF(scenario_label,'')), scenario_code) AS lbl, COUNT(DISTINCT id_bien) AS nb
+                           FROM bien_prix WHERE type_valeur='prix_vente' AND is_courant=1 AND montant>0
+                           GROUP BY scenario_code ORDER BY (scenario_code='courant') DESC, nb DESC")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rowsSc as $r) { $cmpScenarios[] = $r; }
+} catch (Throwable) {}
+$cmpBailleur = isset($_GET['bailleur']) ? (int)$_GET['bailleur'] : 0;
+?>
+<div id="cmp-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;max-width:520px;width:92%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <h3 style="margin:0;color:#243B5C;font-size:18px;">⚖️ Comparer des scénarios</h3>
+      <button type="button" onclick="fermerCompareScenarios()" style="border:none;background:#f1f5f9;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px;">✕</button>
+    </div>
+    <p style="color:#64748b;font-size:13px;margin:4px 0 14px;">Sélectionne <strong>2 ou 3</strong> scénarios à comparer côte à côte.</p>
+    <div id="cmp-list" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto;">
+      <?php foreach ($cmpScenarios as $s): ?>
+        <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e3ebf5;border-radius:10px;cursor:pointer;">
+          <input type="checkbox" class="cmp-cb" value="<?= htmlspecialchars($s['scenario_code'], ENT_QUOTES) ?>" onchange="cmpLimit(this)">
+          <span style="font-weight:700;color:#2d4a72;"><?= htmlspecialchars($s['lbl'], ENT_QUOTES) ?></span>
+          <span style="color:#94a3b8;font-size:12px;margin-left:auto;"><?= (int)$s['nb'] ?> biens</span>
+        </label>
+      <?php endforeach; ?>
+      <?php if (!$cmpScenarios): ?><em style="color:#94a3b8;">Aucun scénario avec des prix.</em><?php endif; ?>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+      <button type="button" onclick="fermerCompareScenarios()" style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;">Annuler</button>
+      <button type="button" id="cmp-go" onclick="lancerCompareScenarios()" disabled style="border:none;background:#0e6b75;color:#fff;border-radius:8px;padding:8px 18px;font-weight:700;cursor:pointer;">Comparer →</button>
+    </div>
+  </div>
+</div>
+<script>
+const CMP_BAILLEUR = <?= $cmpBailleur ?>;
+function ouvrirCompareScenarios(){ document.getElementById('cmp-modal').style.display='flex'; }
+function fermerCompareScenarios(){ document.getElementById('cmp-modal').style.display='none'; }
+function cmpChecked(){ return [...document.querySelectorAll('.cmp-cb:checked')].map(c=>c.value); }
+function cmpLimit(cb){
+  const sel=cmpChecked();
+  if(sel.length>3){ cb.checked=false; }
+  const n=cmpChecked().length;
+  document.getElementById('cmp-go').disabled = (n<2);
+}
+function lancerCompareScenarios(){
+  const sel=cmpChecked(); if(sel.length<2) return;
+  let url='bailleur_scenarios_compare.php?scenarios='+encodeURIComponent(sel.join(','));
+  if(CMP_BAILLEUR>0) url+='&bailleur='+CMP_BAILLEUR;
+  window.location.href=url;
+}
+</script>
+<?php
 require_once __DIR__ . '/inc/agency_layout_bottom.php';
