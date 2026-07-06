@@ -2566,6 +2566,11 @@ try {
                            GROUP BY scenario_code ORDER BY (scenario_code='courant') DESC, nb DESC")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rowsSc as $r) { $cmpScenarios[] = $r; }
 } catch (Throwable) {}
+// + scénarios canoniques (mêmes que le sélecteur) même sans prix enregistrés
+$_canon = [['scenario_code'=>'courant','lbl'=>'Courant'],['scenario_code'=>'ifi','lbl'=>'IFI'],
+           ['scenario_code'=>'prix_min','lbl'=>'Prix mini'],['scenario_code'=>'prix_max','lbl'=>'Prix maxi']];
+$_seen = array_column($cmpScenarios, 'scenario_code');
+foreach ($_canon as $cs) { if (!in_array($cs['scenario_code'], $_seen, true)) { $cs['nb'] = 0; $cmpScenarios[] = $cs; } }
 $cmpBailleur = isset($_GET['bailleur']) ? (int)$_GET['bailleur'] : 0;
 ?>
 <div id="cmp-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;align-items:center;justify-content:center;">
@@ -2606,7 +2611,7 @@ function lancerCompareScenarios(){
   const sel=cmpChecked(); if(sel.length<2) return;
   let url='bailleur_scenarios_compare.php?scenarios='+encodeURIComponent(sel.join(','));
   if(CMP_BAILLEUR>0) url+='&bailleur='+CMP_BAILLEUR;
-  window.location.href=url;
+  (window.top||window).location.href=url;   // sortir de l'iframe du hub
 }
 </script>
 <?php

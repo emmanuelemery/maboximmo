@@ -71,7 +71,9 @@ $TABS = [
     ['k'=>'patrimoine','lbl'=>'Patrimoine actif','ic'=>'🏛️','url'=>app_url('/bailleur_patrimoine_actif.php?embed=1' . $bSuffix)],
     ['k'=>'avendre','lbl'=>'Biens à proposer','ic'=>'🏷️','url'=>app_url('/bailleur_patrimoine_actif.php?embed=1&mode=proposer' . $bSuffix)],
     ['k'=>'enreg','lbl'=>'Portefeuilles enregistrés','ic'=>'📚','url'=>app_url('/transaction_portefeuilles_liste.php?embed=1' . $bSuffix)],
-    ['k'=>'biens','lbl'=>'Biens en vente (transaction)','ic'=>'🎯','url'=>app_url('/transaction_index.php?embed=1' . $bSuffix)],
+    // Bailleur (non-staff) : la vue transaction complète est hors de sa cage → on pointe
+    // vers sa page dédiée (whitelistée, embed = sans sidebar) pour éviter tout redirect/double-layout.
+    ['k'=>'biens','lbl'=>'Biens en vente (transaction)','ic'=>'🎯','url'=>app_url(($isStaff ? '/transaction_index.php?embed=1' : '/bailleur_transactions.php?embed=1') . $bSuffix)],
 ];
 
 $extraCss = <<<'CSS'
@@ -142,6 +144,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
         </select>
     </div>
     <?php endif; ?>
+    <button type="button" class="hb-cmp-btn" onclick="ouvrirCompareScenarios()" title="Comparer 2 ou 3 scénarios de valorisation côte à côte">⚖️ Comparer des scénarios</button>
 </div>
 
 <div class="hb-body">
@@ -216,4 +219,56 @@ function hbGo(key){ hbActivate(key); }
 const h = (location.hash||'').replace('#',''); if (h && document.querySelector('.hb-tab[data-tab="'+h+'"]')) hbActivate(h);
 </script>
 
+<?php
+// ── Scénarios disponibles (canoniques + ceux qui portent des prix) ──
+$cmpScenarios = [];
+try {
+    foreach ($pdo->query("SELECT scenario_code, COALESCE(MAX(NULLIF(scenario_label,'')), scenario_code) AS lbl, COUNT(DISTINCT id_bien) AS nb
+                          FROM bien_prix WHERE type_valeur='prix_vente' AND is_courant=1 AND montant>0
+                          GROUP BY scenario_code ORDER BY (scenario_code='courant') DESC, nb DESC") as $r) { $cmpScenarios[] = $r; }
+} catch (Throwable) {}
+$_canon = [['scenario_code'=>'courant','lbl'=>'Courant'],['scenario_code'=>'ifi','lbl'=>'IFI'],
+           ['scenario_code'=>'prix_min','lbl'=>'Prix mini'],['scenario_code'=>'prix_max','lbl'=>'Prix maxi']];
+$_seen = array_column($cmpScenarios, 'scenario_code');
+foreach ($_canon as $cs) { if (!in_array($cs['scenario_code'], $_seen, true)) { $cs['nb'] = 0; $cmpScenarios[] = $cs; } }
+?>
+<style>
+.hb-cmp-btn{ margin-left:auto; background:#0e6b75; color:#fff; border:none; border-radius:8px; padding:7px 14px; font-weight:700; font-size:13px; cursor:pointer; white-space:nowrap; }
+.hb-cmp-btn:hover{ background:#0b565e; }
+</style>
+<div id="cmp-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;max-width:520px;width:92%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <h3 style="margin:0;color:#243B5C;font-size:18px;">⚖️ Comparer des scénarios</h3>
+      <button type="button" onclick="fermerCompareScenarios()" style="border:none;background:#f1f5f9;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px;">✕</button>
+    </div>
+    <p style="color:#64748b;font-size:13px;margin:4px 0 14px;">Sélectionne <strong>2 ou 3</strong> scénarios à comparer côte à côte.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto;">
+      <?php foreach ($cmpScenarios as $s): ?>
+        <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e3ebf5;border-radius:10px;cursor:pointer;">
+          <input type="checkbox" class="cmp-cb" value="<?= $e($s['scenario_code']) ?>" onchange="cmpLimit(this)">
+          <span style="font-weight:700;color:#2d4a72;"><?= $e($s['lbl']) ?></span>
+          <span style="color:#94a3b8;font-size:12px;margin-left:auto;"><?= (int)$s['nb'] ?> prix</span>
+        </label>
+      <?php endforeach; ?>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+      <button type="button" onclick="fermerCompareScenarios()" style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;">Annuler</button>
+      <button type="button" id="cmp-go" onclick="lancerCompareScenarios()" disabled style="border:none;background:#0e6b75;color:#fff;border-radius:8px;padding:8px 18px;font-weight:700;cursor:pointer;">Comparer →</button>
+    </div>
+  </div>
+</div>
+<script>
+const CMP_BAILLEUR = <?= (int)$viewAs ?>;
+function ouvrirCompareScenarios(){ document.getElementById('cmp-modal').style.display='flex'; }
+function fermerCompareScenarios(){ document.getElementById('cmp-modal').style.display='none'; }
+function cmpChecked(){ return [...document.querySelectorAll('.cmp-cb:checked')].map(c=>c.value); }
+function cmpLimit(cb){ if(cmpChecked().length>3){ cb.checked=false; } document.getElementById('cmp-go').disabled = (cmpChecked().length<2); }
+function lancerCompareScenarios(){
+  const sel=cmpChecked(); if(sel.length<2) return;
+  let url='bailleur_scenarios_compare.php?scenarios='+encodeURIComponent(sel.join(','));
+  if(CMP_BAILLEUR>0) url+='&bailleur='+CMP_BAILLEUR;
+  window.location.href=url;
+}
+</script>
 <?php include __DIR__ . '/inc/agency_layout_bottom.php'; ?>
