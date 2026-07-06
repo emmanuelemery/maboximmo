@@ -246,7 +246,19 @@ try {
 // (Le mandat n'est PLUS affiché dans la topbar : il est déjà visible dans « Mandats actifs ».)
 // $mandatTypes reste utilisé plus bas pour l'état des boutons « À vendre » / « À louer ».
 
-$extraCss     = fiche360_css();
+$extraCss     = fiche360_css() . '<style>
+/* Palette modules MaBoxImmo (rappel couleur par card sur bien_360) */
+:root{
+  --c-bien:#84A763; --c-immeuble:#3D7465; --c-tiers:#316887; --c-bail:#84A7AB;
+  --c-creancier:#DD4735; --c-document:#A2658C; --c-fluxbox:#BF527A; --c-bailleur:#BF8837;
+  --c-action:#3D4762;
+}
+.f360-card{ border-left:4px solid var(--acc,#e8e4da); }
+details.f360-card > summary{ margin-left:-2px; }
+/* Carte Actions → Twilight Indigo */
+.f360-actions{ background:var(--c-action); }
+.f360-actions h4{ color:#e9c877; }
+</style>';
 include __DIR__ . '/inc/agency_layout_top.php';
 ?>
 
@@ -841,7 +853,7 @@ if ($kpis) {
     </script>
 
     <!-- Bail actif / Archives -->
-    <div class="f360-card">
+    <div class="f360-card" style="--acc:var(--c-bail);">
         <div class="f360-tabs">
             <button type="button" class="f360-tab active" onclick="f360tab(this, 'tab-bail')">📋 Bail actif <span class="count"><?= $bailActif ? 1 : 0 ?></span></button>
             <button type="button" class="f360-tab"        onclick="f360tab(this, 'tab-arch')">🗂 Archives <span class="count"><?= count($archivesBaux) ?></span></button>
@@ -908,7 +920,7 @@ if ($kpis) {
     <!-- CARD 1 — Documents de base (checklist pliable, complétude en titre) -->
     <?php $pctP = $totP>0 ? round($nbOkP/$totP*100) : 0;
           $barCol = $pctP>=100 ? '#166534' : ($pctP>=50 ? '#b45309' : '#b91c1c'); ?>
-    <details class="f360-card" style="margin-bottom:14px;">
+    <details class="f360-card" style="margin-bottom:14px; --acc:var(--c-document);">
       <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;">
         <span style="font-weight:700;color:#2c2a28;font-size:13.5px;">📋 Documents de base</span>
         <span style="background:#f4f1ec;color:#565434;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:800;"><?= (int)$nbOkP ?>/<?= (int)$totP ?></span>
@@ -919,7 +931,7 @@ if ($kpis) {
     </details>
 
     <!-- CARD 2 — Documents divers (hors pièces de base) -->
-    <div class="f360-card">
+    <div class="f360-card" style="--acc:var(--c-document);">
         <h3>📂 Documents divers <span class="count"><?= count($docsDivers) ?></span></h3>
         <?php if (empty($docsDivers)): ?>
             <div class="f360-empty"><div class="em-ico">📄</div>Aucun document divers. <a href="<?= h(app_url('/bien_documents_list.php?id=' . $bienId)) ?>">→ Gérer les documents</a></div>
@@ -949,7 +961,7 @@ if ($kpis) {
 
     <!-- Photos du bien (sous-dossiers par groupe) -->
     <?php $photosUrl = app_url('/bien_detail.php?edit=' . $bienId . '&section=documents&focus=photos'); ?>
-    <div class="f360-card">
+    <div class="f360-card" style="--acc:var(--c-bien);">
         <h3>📸 Photos <span class="count"><?= (int)$photosTotal ?></span></h3>
         <?php if (empty($photoGroups)): ?>
             <div class="f360-empty"><div class="em-ico">📷</div>Aucune photo. Déverse-les depuis MaBoxOffice (bouton « 📸 Enregistrer en photos »).</div>
