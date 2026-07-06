@@ -133,6 +133,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
             <span><?= $t['ic'] ?></span><?= $e($t['lbl']) ?>
         </button>
     <?php endforeach; ?>
+    <button type="button" class="hb-cmp-btn" onclick="ouvrirCompareScenarios()" title="Comparer 2 ou 3 scénarios de valorisation côte à côte">⚖️ Comparer des scénarios</button>
     <?php if ($isStaff): ?>
     <div class="hb-asbar">
         <label>👁️ Voir en tant que</label>
@@ -144,7 +145,6 @@ include __DIR__ . '/inc/agency_layout_top.php';
         </select>
     </div>
     <?php endif; ?>
-    <button type="button" class="hb-cmp-btn" onclick="ouvrirCompareScenarios()" title="Comparer 2 ou 3 scénarios de valorisation côte à côte">⚖️ Comparer des scénarios</button>
 </div>
 
 <div class="hb-body">
@@ -233,7 +233,7 @@ $_seen = array_column($cmpScenarios, 'scenario_code');
 foreach ($_canon as $cs) { if (!in_array($cs['scenario_code'], $_seen, true)) { $cs['nb'] = 0; $cmpScenarios[] = $cs; } }
 ?>
 <style>
-.hb-cmp-btn{ margin-left:auto; background:#0e6b75; color:#fff; border:none; border-radius:8px; padding:7px 14px; font-weight:700; font-size:13px; cursor:pointer; white-space:nowrap; }
+.hb-cmp-btn{ align-self:center; margin-left:12px; background:#0e6b75; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:13px; cursor:pointer; white-space:nowrap; flex:none; }
 .hb-cmp-btn:hover{ background:#0b565e; }
 </style>
 <div id="cmp-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;align-items:center;justify-content:center;">
