@@ -6,6 +6,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 require_once __DIR__ . '/inc/ged_document_links.php';   // GED CENTRALE UNIQUE (2026-05-25)
+require_once __DIR__ . '/inc/fluxbox_functions.php';    // résolveur société/agence d'entité (contexte modale)
+require_once __DIR__ . '/inc/ged_name_pills.php';       // affichage contextuel du nom GED (pills)
 require_login();
 
 $bienId = (int)($_GET['id'] ?? 0);
@@ -101,28 +103,61 @@ try {
 $docsByType = [];
 foreach ($docs as $d) $docsByType[$d['document_type']] = ($docsByType[$d['document_type']] ?? 0) + 1;
 
+// ─── Photos du bien (biens_photos), regroupées en sous-dossiers (groupe_no / groupe_label) ──
+$photoGroups = []; $photosTotal = 0;
+try {
+    $stP = $pdo->prepare("SELECT id, COALESCE(groupe_no,0) gno, COALESCE(NULLIF(groupe_label,''),'Sans groupe') glabel,
+                                 url_photo, url_lbc, nom_original, ordre
+                          FROM biens_photos WHERE id_bien = ? ORDER BY groupe_no ASC, ordre ASC, id ASC");
+    $stP->execute([$bienId]);
+    foreach ($stP->fetchAll(PDO::FETCH_ASSOC) as $p) {
+        $g = (int)$p['gno'];
+        if (!isset($photoGroups[$g])) $photoGroups[$g] = ['no'=>$g, 'label'=>(string)$p['glabel'], 'photos'=>[]];
+        $photoGroups[$g]['photos'][] = $p;
+        $photosTotal++;
+    }
+    ksort($photoGroups);
+} catch (Throwable $e) {}
+
 // ─── Checklist pièces obligatoires ──
+// Référentiel « Documents de base » du BIEN/LOT (impératif → important).
 $pieces = [
-    ['code'=>'DIAG_DPE',      'label'=>'Diagnostic DPE',          'sublabel'=>'Performance énergétique'],
-    ['code'=>'DIAG_ERP',      'label'=>'État des risques (ERP)',  'sublabel'=>'ERRIAL'],
-    ['code'=>'DIAG_PLOMB',    'label'=>'Diagnostic plomb',        'sublabel'=>'CREP (logements <1949)'],
-    ['code'=>'DIAG_AMIANTE',  'label'=>'Diagnostic amiante',      'sublabel'=>'Permis <1997'],
-    ['code'=>'DIAG_GAZ',      'label'=>'Diagnostic gaz',          'sublabel'=>'Installation >15 ans'],
-    ['code'=>'DIAG_ELEC',     'label'=>'Diagnostic électricité',  'sublabel'=>'Installation >15 ans'],
-    ['code'=>'SURFACE_CARREZ','label'=>'Surface Carrez / Boutin', 'sublabel'=>'Mesurage loi Carrez'],
-    ['code'=>'ETAT_LIEUX',    'label'=>'État des lieux d\'entrée','sublabel'=>'Si bail actif'],
-    ['code'=>'PHOTO',         'label'=>'Photos du bien',          'sublabel'=>'Pour annonce / dossier'],
+    ['code'=>'DIAG_DPE',      'label'=>'DPE',                     'sublabel'=>'Performance énergétique · 10 ans'],
+    ['code'=>'DIAG_ERP',      'label'=>'ERP',                     'sublabel'=>'État des risques · 6 mois'],
+    ['code'=>'DIAG_PLOMB',    'label'=>'CREP plomb',              'sublabel'=>'Logements < 1949'],
+    ['code'=>'DIAG_AMIANTE',  'label'=>'Amiante',                 'sublabel'=>'Permis < 07/1997'],
+    ['code'=>'DIAG_GAZ',      'label'=>'État gaz',                'sublabel'=>'Installation > 15 ans'],
+    ['code'=>'DIAG_ELEC',     'label'=>'État électricité',        'sublabel'=>'Installation > 15 ans'],
+    ['code'=>'DIAG_TERMITES', 'label'=>'Termites',                'sublabel'=>'Si zone préfectorale'],
+    ['code'=>'DIAG_ANC',      'label'=>'ANC (assainissement)',    'sublabel'=>'Si non raccordé'],
+    ['code'=>'SURFACE_CARREZ','label'=>'Surface Carrez / Boutin', 'sublabel'=>'Carrez=vente · Boutin=loc'],
+    ['code'=>'TITRE_PROP',    'label'=>'Titre de propriété',      'sublabel'=>'Du lot'],
+    ['code'=>'TAXE_FONCIERE', 'label'=>'Taxe foncière',           'sublabel'=>'Dernier millésime'],
 ];
-// Le bail signé est une pièce attendue dès qu'un bail est actif sur le bien.
-// Détection souple : plusieurs codes coexistent en base (BAIL / bail_signe / BAIL_SIGNE).
+// Le bail signé + EDL sont attendus dès qu'un bail est actif sur le bien.
 if ($bailActif) {
-    $pieces[] = ['code'=>'BAIL', 'label'=>'Bail signé', 'sublabel'=>'Contrat de location', 'alt_codes'=>['bail_signe','BAIL_SIGNE','BAIL_LOCATION']];
+    $pieces[] = ['code'=>'BAIL',       'label'=>'Bail signé',           'sublabel'=>'Contrat de location', 'alt_codes'=>['bail_signe','BAIL_SIGNE','BAIL_LOCATION']];
+    $pieces[] = ['code'=>'ETAT_LIEUX', 'label'=>'État des lieux d\'entrée', 'sublabel'=>'Si bail actif',   'alt_codes'=>['edl_entree','EDL_ENTREE']];
 }
+// Mapping code pièce → type FluxBox (forced_type_doc) pour le pré-remplissage au clic.
+$fbxTypeByCode = [
+    'DIAG_DPE'=>'dpe', 'DIAG_ERP'=>'erp_ernmt', 'DIAG_PLOMB'=>'diagnostic_plomb',
+    'DIAG_AMIANTE'=>'diagnostic_amiante', 'DIAG_GAZ'=>'diagnostic_gaz', 'DIAG_ELEC'=>'diagnostic_elec',
+    'DIAG_TERMITES'=>'diagnostic_termites', 'DIAG_ANC'=>'diagnostic_anc',
+    'SURFACE_CARREZ'=>'surface_carrez', 'TITRE_PROP'=>'titre_propriete', 'TAXE_FONCIERE'=>'taxe_fonciere',
+    'BAIL'=>'bail_signe', 'ETAT_LIEUX'=>'edl_entree',
+];
 $piecesItems = [];
+// Types FluxBox « de base » présents → pour filtrer la card « Documents divers » (mode A).
+$baseTypes = [];
 foreach ($pieces as $p) {
-    $okCodes = array_merge([$p['code']], $p['alt_codes'] ?? []);
+    $ft = $fbxTypeByCode[$p['code']] ?? null;
+    // Détection : par code legacy, alt_codes, ET par le type FluxBox réel (ex. document_type='dpe').
+    $okCodes = array_merge([$p['code']], $p['alt_codes'] ?? [], $ft ? [$ft] : []);
     $ok = false;
     foreach ($okCodes as $c) { if (isset($docsByType[$c])) { $ok = true; break; } }
+    if ($ft) $baseTypes[$ft] = true;
+    foreach ($p['alt_codes'] ?? [] as $ac) $baseTypes[$ac] = true;
     $piecesItems[] = [
         'label'    => $p['label'],
         'sublabel' => $p['sublabel'],
@@ -130,6 +165,7 @@ foreach ($pieces as $p) {
         'add_url'  => app_url('/transaction_chargement.php'),
         // Recherche assistée OneDrive — v1 limitée au DPE (cf. décision 2026-06-06)
         'search_code' => ($p['code'] === 'DIAG_DPE') ? $p['code'] : null,
+        'fbx_type'    => $fbxTypeByCode[$p['code']] ?? null,
     ];
 }
 $nbPieces   = count($piecesItems);
@@ -279,6 +315,15 @@ if (!empty($bien['numero_lot']))        $metas[] = ['icon'=>'🔢','text'=>'Lot 
 $idSocBien    = (int)($bien['id_societe'] ?? 0);
 $idAgeBien    = (int)($bien['id_agence'] ?? 0);
 $idProprioBien= (int)($bien['id_proprietaire'] ?? 0);
+// Société/agence non attribuées au bien (fréquent) → on REPREND la résolution éprouvée
+// de MaBoxOffice (bien → immeuble/propriétaire → agence → société). Sans ça la modale
+// « Charger des documents » retombe sur la société du USER connecté (fausse).
+if ($idAgeBien <= 0) {
+    $idAgeBien = fluxbox_resolve_agence_of_entity($pdo, 'BIEN', $bienId);
+}
+if ($idSocBien <= 0 && $idAgeBien > 0) {
+    try { $q=$pdo->prepare("SELECT id_societe FROM agences WHERE id=?"); $q->execute([$idAgeBien]); $idSocBien=(int)$q->fetchColumn(); } catch (Throwable) {}
+}
 
 // N1 suggéré : priorité au mandat actif, fallback bien.type_commercialisation.
 // Voir transaction_index.php pour la doctrine complète.
@@ -330,6 +375,29 @@ if (!empty($representants[0])) {
     $proprioRepJs = addslashes($repNom . ($r0['qualite'] ? ' (' . $r0['qualite'] . ')' : ''));
 }
 $fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, proprio_nom:'{$proprioNomJs}', proprio_tiers_id:{$proprioTiersId}, proprio_representant:'{$proprioRepJs}', n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', entite_id_bdd:{$bienId}, entite_adresse:'{$adrBienJs}', origin:'bien_360'});return false;";
+// Prefill FluxBox de la fiche bien (réutilisé par la checklist des pièces).
+$fbxPrefillBien = [
+    'origin'           => 'bien_360',
+    'bien_id'          => (int)$bienId,
+    'soc_id'           => (int)$idSocBien,
+    'age_id'           => (int)$idAgeBien,
+    'proprio_id'       => (int)$idProprioBien,
+    'proprio_nom'      => (string)$proprietaireNom,
+    'proprio_tiers_id' => (int)$proprioTiersId,
+    'n1'               => (string)$n1Bien, 'n2' => 'BIENS', 'n3' => 'BIEN',
+    'entite_nom'       => (string)($bien['reference_bien'] ?: 'Bien #' . $bienId),
+    'entite_id_bdd'    => (int)$bienId,
+    'entite_adresse'   => trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')),
+];
+
+// Checklist « Documents de base » : rendu capturé ici pour l'afficher en tête de la colonne 2.
+$nbOkP = 0; foreach ($piecesItems as $i) if (!empty($i['ok'])) $nbOkP++;
+$totP  = count($piecesItems);
+ob_start();
+fiche360_checklist('Documents de base', $piecesItems, $fbxPrefillBien);
+$piecesHtml = ob_get_clean();
+// « Documents divers » = docs du bien dont le type n'est PAS une pièce de base (mode A).
+$docsDivers = array_values(array_filter($docs, fn($d) => empty($baseTypes[$d['document_type']])));
 
 // Le bouton « Dossier de vente » est contextuel : "Voir" si un dossier existe
 // déjà pour ce bien, "Créer" sinon (la cible transaction_dossier.php est idempotente).
@@ -837,23 +905,118 @@ if ($kpis) {
       <!-- ─────────────── COLONNE 2 — DOCUMENTS ─────────────── -->
       <div style="min-width:0;">
 
-    <!-- Documents du bien -->
+    <!-- CARD 1 — Documents de base (checklist pliable, complétude en titre) -->
+    <?php $pctP = $totP>0 ? round($nbOkP/$totP*100) : 0;
+          $barCol = $pctP>=100 ? '#166534' : ($pctP>=50 ? '#b45309' : '#b91c1c'); ?>
+    <details class="f360-card" style="margin-bottom:14px;">
+      <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;">
+        <span style="font-weight:700;color:#2c2a28;font-size:13.5px;">📋 Documents de base</span>
+        <span style="background:#f4f1ec;color:#565434;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:800;"><?= (int)$nbOkP ?>/<?= (int)$totP ?></span>
+        <span style="flex:1;height:6px;background:#eef2f7;border-radius:4px;overflow:hidden;"><span style="display:block;height:100%;width:<?= $pctP ?>%;background:<?= $barCol ?>;"></span></span>
+        <span style="color:#94a3b8;font-size:12px;">déplier ▾</span>
+      </summary>
+      <div style="margin-top:10px;"><?= preg_replace('#<h3>.*?</h3>#s', '', $piecesHtml) ?></div>
+    </details>
+
+    <!-- CARD 2 — Documents divers (hors pièces de base) -->
     <div class="f360-card">
-        <h3>📂 Documents du bien <span class="count"><?= count($docs) ?></span></h3>
-        <?php if (empty($docs)): ?>
-            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document. <a href="<?= h(app_url('/bien_documents_list.php?id=' . $bienId)) ?>">→ Gérer les documents</a></div>
-        <?php else: foreach ($docs as $d): ?>
+        <h3>📂 Documents divers <span class="count"><?= count($docsDivers) ?></span></h3>
+        <?php if (empty($docsDivers)): ?>
+            <div class="f360-empty"><div class="em-ico">📄</div>Aucun document divers. <a href="<?= h(app_url('/bien_documents_list.php?id=' . $bienId)) ?>">→ Gérer les documents</a></div>
+        <?php else: foreach ($docsDivers as $d): ?>
             <div onclick="mvptModalView(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>)"
-                 style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center; cursor:pointer;"
+                 style="padding:8px 0; border-bottom:1px solid #f0ece6; cursor:pointer;"
                  onmouseover="this.style.background='#faf8ff'" onmouseout="this.style.background='transparent'">
-                <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:120px;">[<?= h($d['document_type']) ?>]</span>
-                <span style="flex:1;">📄 <?= h($d['name_display']) ?></span>
-                <span style="color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
-                <span style="color:#5b21b6; font-size:11px; font-weight:700;">Ouvrir ›</span>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:2px;" title="<?= h($d['name_display']) ?>"><?= ged_name_pills((string)$d['name_display'], 'BIEN') ?></div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:4px; font-size:10px; color:#9a9690;">
+                    <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700;">[<?= h($d['document_type']) ?>]</span>
+                    <span><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
+                    <span style="margin-left:auto; color:#5b21b6; font-weight:700;">Ouvrir ›</span>
+                </div>
             </div>
         <?php endforeach; endif; ?>
     </div>
     <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; /* modale standard mvptModalView */ ?>
+
+    <!-- Dossiers sources (archives OneDrive liées, non importées) — inclusion défensive -->
+    <?php
+    $gsfCardFile = __DIR__ . '/inc/ged_source_folders_card.php';
+    if (is_file($gsfCardFile)) { require_once $gsfCardFile;
+        if (function_exists('ged_source_folders_card')) { try {
+            ged_source_folders_card($pdo, 'BIEN', $bienId, ['id_societe'=>$idSocBien, 'id_agence'=>$idAgeBien, 'metier'=>'gestion']);
+        } catch (Throwable $e) {} } }
+    ?>
+
+    <!-- Photos du bien (sous-dossiers par groupe) -->
+    <?php $photosUrl = app_url('/bien_detail.php?edit=' . $bienId . '&section=documents&focus=photos'); ?>
+    <div class="f360-card">
+        <h3>📸 Photos <span class="count"><?= (int)$photosTotal ?></span></h3>
+        <?php if (empty($photoGroups)): ?>
+            <div class="f360-empty"><div class="em-ico">📷</div>Aucune photo. Déverse-les depuis MaBoxOffice (bouton « 📸 Enregistrer en photos »).</div>
+        <?php else: foreach ($photoGroups as $g): ?>
+            <details class="ph-grp">
+                <summary style="cursor:pointer; padding:8px 0; font-size:13px; font-weight:700; color:#243B5C; list-style:none; display:flex; align-items:center; gap:8px;">
+                    <span style="font-family:'DM Mono',monospace; color:#84a98c;"><?= str_pad((string)$g['no'], 2, '0', STR_PAD_LEFT) ?></span>
+                    📁 <?= h($g['label']) ?>
+                    <span style="font-size:11px; color:#9a9690; font-weight:600;"><?= count($g['photos']) ?> photo<?= count($g['photos'])>1?'s':'' ?></span>
+                    <button type="button" onclick="event.preventDefault();openPhotosFrame('<?= h($photosUrl) ?>');"
+                            style="margin-left:auto; border:1px solid #cbd5e1; background:#fff; color:#5b21b6; border-radius:7px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer;">Détails ↗</button>
+                </summary>
+                <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:6px; padding:6px 0 12px;">
+                    <?php foreach ($g['photos'] as $p): $thumb = app_url('/' . ltrim((string)($p['url_lbc'] ?: $p['url_photo']), '/')); ?>
+                        <a href="<?= h($photosUrl) ?>" onclick="event.preventDefault();openPhotosFrame(this.getAttribute('href'));" title="<?= h($p['nom_original'] ?: '') ?>" style="display:block; aspect-ratio:1; border-radius:8px; overflow:hidden; border:1px solid #f0ece6; cursor:zoom-in;">
+                            <img src="<?= h($thumb) ?>" alt="<?= h($p['nom_original'] ?: '') ?>" loading="lazy" style="width:100%; height:100%; object-fit:cover; display:block;">
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </details>
+        <?php endforeach; endif; ?>
+    </div>
+
+    <!-- Overlay iframe : gestion des photos (onglet Photos de bien_details, réutilisé tel quel) -->
+    <div id="photosFrameOverlay" style="display:none; position:fixed; inset:0; z-index:9000; background:rgba(20,26,40,.55); backdrop-filter:blur(2px);">
+        <div style="position:absolute; inset:24px; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 30px 80px rgba(20,26,40,.4); display:flex; flex-direction:column;">
+            <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid #eef1f6; background:#f8fafc;">
+                <b style="font-size:14px; color:#243B5C;">📸 Photos du bien</b>
+                <a href="<?= h($photosUrl) ?>" target="_blank" style="font-size:12px; color:#5b21b6; font-weight:600; text-decoration:none;">Ouvrir en plein écran ↗</a>
+                <button type="button" onclick="closePhotosFrame()" style="margin-left:auto; border:none; background:#eef1f6; width:32px; height:32px; border-radius:50%; font-size:15px; cursor:pointer; color:#556;">✕</button>
+            </div>
+            <iframe id="photosFrame" src="about:blank" style="flex:1; width:100%; border:0;"></iframe>
+        </div>
+    </div>
+    <script>
+    function openPhotosFrame(url){ var o=document.getElementById('photosFrameOverlay'), f=document.getElementById('photosFrame');
+        if(f.getAttribute('data-src')!==url){ f.src=url; f.setAttribute('data-src',url); } o.style.display='block'; document.body.style.overflow='hidden'; }
+    function closePhotosFrame(){ document.getElementById('photosFrameOverlay').style.display='none'; document.body.style.overflow=''; }
+    document.getElementById('photosFrameOverlay').addEventListener('click', function(e){ if(e.target===this) closePhotosFrame(); });
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePhotosFrame(); });
+    </script>
+
+    <!-- Repli par défaut de TOUTES les cards de la page (titre = toggle) -->
+    <style>
+      .f360-collapsible > h3 { cursor:pointer; display:flex; align-items:center; gap:8px; user-select:none; }
+      .f360-collapsible.collapsed > .f360-cardbody { display:none; }
+      .f360-chev { margin-left:auto; font-size:12px; color:#9a9690; transition:transform .15s ease; }
+      .f360-collapsible:not(.collapsed) > h3 .f360-chev { transform:rotate(90deg); }
+    </style>
+    <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      document.querySelectorAll('.f360-card').forEach(function(card){
+        var h = card.querySelector(':scope > h3');
+        if(!h) return; // pas de titre → on laisse la card telle quelle
+        var body = document.createElement('div'); body.className = 'f360-cardbody';
+        while(h.nextSibling){ body.appendChild(h.nextSibling); }
+        card.appendChild(body);
+        card.classList.add('f360-collapsible','collapsed');
+        var chev = document.createElement('span'); chev.className='f360-chev'; chev.textContent='▸';
+        h.appendChild(chev);
+        h.addEventListener('click', function(e){
+          if(e.target.closest('a,button')) return; // ne pas toggler sur un lien/bouton du titre
+          card.classList.toggle('collapsed');
+        });
+      });
+    });
+    </script>
 
     <!-- Mentionné dans -->
     <?php
@@ -892,41 +1055,11 @@ if ($kpis) {
             ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
             ['icon'=>'📡','label'=>'Créer une annonce',        'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],
             ['icon'=>'📁','label'=>'Documents du bien',        'url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
-            ['icon'=>'💰','label'=>'Saisir une offre',         'url'=>app_url('/transaction_index.php?q=' . urlencode((string)$bien['reference_bien']))],
-            ['icon'=>'🎯','label'=>'Retour au tableau Transactions','url'=>app_url('/transaction_index.php')],
         ]);
     }
 
-    // Checklist pièces obligatoires : compactée dans un MODAL (gain de place)
-    $nbOkP = 0; foreach ($piecesItems as $i) if (!empty($i['ok'])) $nbOkP++;
-    $totP = count($piecesItems);
-    ob_start();
-    fiche360_checklist('Pièces du bien', $piecesItems);
-    $piecesHtml = ob_get_clean();
-    ?>
-    <div style="background:#fff;border:1px solid #e8e4da;border-radius:14px;padding:14px 16px;margin:12px 0">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <span style="font-weight:800;color:#1B4A52;font-size:14px">📋 Pièces du bien</span>
-        <span style="background:#f4f1ea;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;color:#565434"><?= (int)$nbOkP ?>/<?= (int)$totP ?></span>
-      </div>
-      <button type="button" id="pieces-open" style="margin-top:10px;width:100%;background:#1B4A52;color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">📎 Charger / compléter les pièces</button>
-    </div>
-    <div id="pieces-modal" style="display:none;position:fixed;inset:0;z-index:9000;align-items:center;justify-content:center;padding:20px">
-      <div style="position:absolute;inset:0;background:rgba(15,23,42,.55)" id="pieces-ov"></div>
-      <div style="position:relative;background:#fff;border-radius:14px;width:min(560px,100%);max-height:88vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,.3);padding:14px 16px">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:-6px"><button type="button" id="pieces-close" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 11px;font-size:15px;cursor:pointer">✕</button></div>
-        <?= $piecesHtml ?>
-      </div>
-    </div>
-    <script>
-    (function(){
-      var m=document.getElementById('pieces-modal');
-      document.getElementById('pieces-open').addEventListener('click', function(){ m.style.display='flex'; });
-      document.getElementById('pieces-close').addEventListener('click', function(){ m.style.display='none'; });
-      document.getElementById('pieces-ov').addEventListener('click', function(){ m.style.display='none'; });
-    })();
-    </script>
-    <?php
+    // (La checklist « Documents de base » est désormais en CARD 1 de la colonne 2.)
+
 
     // ── CONTACTS : propriétaire + locataire (+ représentants) surfacés systématiquement ──
     $contactLinks = [];
@@ -958,7 +1091,9 @@ if ($kpis) {
     // Données publiques de l'immeuble (enrichissement persisté + bouton de relance pour admin)
     if (!empty($bien['immeuble_id'])) {
         require_once __DIR__ . '/inc/immeuble_public_card.php';
-        $canEnrich = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,7], true))
+        // Admin/super admin + bailleurs (9/10) : peuvent lancer les recherches publiques
+        // sur leur immeuble (les API immeuble_/geo_ d'enrichissement sont whitelistées).
+        $canEnrich = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,7,9,10], true))
                   || (function_exists('is_super_admin') && is_super_admin());
         $gvLabel = trim((string)(($bien['nom_immeuble'] ?? '') ?: ($bien['imm_adresse'] ?? '')));
         if (($bien['imm_ville'] ?? '') !== '') $gvLabel = trim($gvLabel . ' · ' . $bien['imm_ville']);

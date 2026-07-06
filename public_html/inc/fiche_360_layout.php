@@ -261,7 +261,11 @@ if (!function_exists('fiche360_checklist')) {
      * @param string $titre ex: "Pièces du bien"
      * @param array  $items [['label'=>'DPE','sublabel'=>'Diag de performance énergétique','ok'=>false,'add_url'=>'...','count'=>3,'total'=>4], ...]
      */
-    function fiche360_checklist(string $titre, array $items): void {
+    function fiche360_checklist(string $titre, array $items, ?array $fbxPrefill = null): void {
+        // $fbxPrefill = contexte FluxBox de la fiche (bien_id/bail_id/immeuble_id/tiers_id +
+        // soc/age/entite…). Si fourni ET qu'une pièce a 'fbx_type', son « + » ouvre le modal
+        // FluxBox avec le TYPE pré-sélectionné (générique à toutes les fiches 360).
+        $fbxHasPrefill = ($fbxPrefill !== null && $fbxPrefill !== []);
         $nbOk = 0;
         foreach ($items as $i) if (!empty($i['ok'])) $nbOk++;
         $total = count($items);
@@ -271,7 +275,17 @@ if (!function_exists('fiche360_checklist')) {
         echo '<h3>📋 ' . h($titre) . ' <span class="ratio">' . $nbOk . '/' . $total . '</span></h3>';
         foreach ($items as $it) {
             $ok = !empty($it['ok']);
-            echo '<div class="f360-checkitem ' . ($ok ? 'ok' : 'missing') . '">';
+            // Libellé cliquable : pièce manquante + prefill + type → tout l'item ouvre le modal pré-rempli.
+            $rowClickable = (!$ok && $fbxHasPrefill && !empty($it['fbx_type']));
+            $rowAttr = '';
+            if ($rowClickable) {
+                $pfRow = $fbxPrefill; $pfRow['forced_type_doc'] = (string)$it['fbx_type'];
+                $pfRowJson = htmlspecialchars(json_encode($pfRow, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+                $rowAttr = ' style="cursor:pointer" title="Charger : ' . h($it['label']) . ' — type pré-sélectionné"'
+                    . ' data-pf="' . $pfRowJson . '"'
+                    . ' onclick="if(event.target.closest(\'button,a\'))return; try{window.fbxOpenUploadModal(JSON.parse(this.dataset.pf));}catch(e){console.error(e);}"';
+            }
+            echo '<div class="f360-checkitem ' . ($ok ? 'ok' : 'missing') . '"' . $rowAttr . '>';
             echo '<span class="ico">' . ($ok ? '✓' : '⚠') . '</span>';
             echo '<span class="label">' . h($it['label']);
             if (!empty($it['sublabel'])) echo ' <small>' . h($it['sublabel']) . '</small>';
@@ -284,7 +298,20 @@ if (!function_exists('fiche360_checklist')) {
                    . 'data-type-label="' . h($it['label']) . '" '
                    . 'title="Rechercher ce document dans le OneDrive général">🔎 Rechercher</button>';
             }
-            if (!$ok && !empty($it['add_url'])) {
+            // « + » : ouvre le modal FluxBox avec le TYPE pré-sélectionné si on a un prefill
+            // fiche + un type de pièce. Sinon fallback vers l'ancien lien add_url.
+            if (!$ok && $fbxHasPrefill && !empty($it['fbx_type'])) {
+                $pf = $fbxPrefill;
+                $pf['forced_type_doc'] = (string)$it['fbx_type'];
+                // JSON encodé normalement (avec de vrais "), puis htmlspecialchars(ENT_QUOTES)
+                // transforme " en &quot; pour l'attribut. Le navigateur les redécode → JSON.parse
+                // reçoit un JSON valide. (NE PAS utiliser JSON_HEX_QUOT : casse la structure.)
+                $pfJson = htmlspecialchars(json_encode($pf, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+                echo '<button type="button" class="add" '
+                   . 'onclick="try{window.fbxOpenUploadModal(JSON.parse(this.dataset.pf));}catch(e){console.error(e);}return false;" '
+                   . 'data-pf="' . $pfJson . '" '
+                   . 'title="Charger cette pièce (' . h($it['label']) . ') — type pré-sélectionné">+</button>';
+            } elseif (!$ok && !empty($it['add_url'])) {
                 echo '<a class="add" href="' . h($it['add_url']) . '">+</a>';
             }
             echo '</div>';
@@ -359,7 +386,7 @@ if (!function_exists('fiche360_mention_dans')) {
             foreach ($mentions as $m) {
                 echo '<div class="f360-mention">';
                 echo '<span class="ico">' . h($m['icon'] ?? '📄') . '</span>';
-                echo '<span class="info"><strong>' . h($m['title']) . '</strong>';
+                echo '<span class="info" style="min-width:0;"><strong style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-height:1.3;" title="' . h($m['title']) . '">' . h($m['title']) . '</strong>';
                 if (!empty($m['ref'])) echo '<small>' . h($m['ref']) . '</small>';
                 echo '</span>';
                 if (!empty($m['url'])) echo '<a class="see" href="' . h($m['url']) . '" target="_blank">👁 Voir</a>';
