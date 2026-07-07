@@ -52,6 +52,18 @@ if (!function_exists('cb_resolve')) {
         };
         $cand = null; $src = '';
         if ($idAgence) { $cand = $pick("id_societe=? AND id_agence=? AND type_compte=?", [$idSociete,$idAgence,$type]); $src = 'agence+type'; }
+        // RIB principal de l'agence (carte historique agences.*) si son usage correspond.
+        if (!$cand && $idAgence) {
+            try {
+                $st = $pdo->prepare("SELECT iban, bic, banque_nom AS banque, titulaire_compte AS titulaire
+                                       FROM agences WHERE id=? AND rib_type=? AND iban IS NOT NULL AND iban<>'' LIMIT 1");
+                $st->execute([$idAgence, $type]);
+                if ($a = $st->fetch(PDO::FETCH_ASSOC)) return [
+                    'iban'=>(string)$a['iban'], 'bic'=>(string)($a['bic']??''), 'banque'=>(string)($a['banque']??''),
+                    'titulaire'=>(string)($a['titulaire']??''), 'libelle'=>'', 'source'=>'agence (carte principale)',
+                ];
+            } catch (Throwable) { /* colonne rib_type absente → ignore */ }
+        }
         if (!$cand)    { $cand = $pick("id_societe=? AND id_agence IS NULL AND type_compte=?", [$idSociete,$type]); $src = 'société+type'; }
         if (!$cand)    { $cand = $pick("id_societe=? AND type_compte=?", [$idSociete,$type]); $src = 'type (toute agence)'; }
         if (!$cand)    { $cand = $pick("id_societe=?", [$idSociete]); $src = 'défaut société'; }

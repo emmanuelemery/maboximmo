@@ -21,6 +21,9 @@ function rs_render_rib_card(array $rb, array $types): string {
     $v = fn(string $k) => htmlspecialchars((string)($rb[$k] ?? ''), ENT_QUOTES);
     return '<div class="rib-card" data-id="' . $id . '">'
         . '<div class="rib-usage">' . $btns . '<label class="rib-def"><input type="checkbox" class="rib-default" ' . $def . '> compte par défaut</label></div>'
+        . '<div class="rib-scanrow"><label class="rib-scan">📎 Scanner ou glisser un RIB (PDF/image)'
+        . '<input type="file" class="rib-file" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none" onchange="ribScan(this)"></label>'
+        . '<span class="rib-scanmsg"></span></div>'
         . '<input class="rib-libelle" placeholder="Libellé (ex. Gestion clients)" value="' . $v('libelle') . '">'
         . '<input class="rib-titulaire" placeholder="Titulaire du compte" value="' . $v('titulaire') . '">'
         . '<input class="rib-iban" placeholder="IBAN FR76 …" value="' . $v('iban') . '">'
@@ -395,7 +398,7 @@ if (is_post()) {
                          adresse_1, adresse_2, code_postal, ville, pays,
                          telephone, email, email_contact, email_facturation, site_web,
                          siret, siren_siret, rcs, tva_intracom,
-                         iban, bic, banque_nom, titulaire_compte,
+                         iban, bic, banque_nom, titulaire_compte, rib_type,
                          actif, ordre_affichage)
                     VALUES
                         (:id_societe, :nom_agence, :nom_commercial, :code_agence, :type_agence, :type_etab,
@@ -403,7 +406,7 @@ if (is_post()) {
                          :adresse_1, :adresse_2, :code_postal, :ville, :pays,
                          :telephone, :email, :email_contact, :email_facturation, :site_web,
                          :siret, :siren_siret, :rcs, :tva_intracom,
-                         :iban, :bic, :banque_nom, :titulaire_compte,
+                         :iban, :bic, :banque_nom, :titulaire_compte, :rib_type,
                          1, 0)
                 ")->execute([
                     ':id_societe'          => $societeId,
@@ -435,6 +438,7 @@ if (is_post()) {
                     ':bic'                 => trim((string)post('ag_bic', '')) ?: null,
                     ':banque_nom'          => trim((string)post('ag_banque_nom', '')) ?: null,
                     ':titulaire_compte'    => trim((string)post('ag_titulaire_compte', '')) ?: null,
+                    ':rib_type'            => in_array(post('ag_rib_type'), ['gestion','sequestre','societe'], true) ? post('ag_rib_type') : 'gestion',
                 ]);
                 $newAgId = (int)$pdo->lastInsertId();
                 $success = 'Agence créée.';
@@ -494,6 +498,7 @@ if (is_post()) {
                         bic                 = :bic,
                         banque_nom          = :banque_nom,
                         titulaire_compte    = :titulaire_compte,
+                        rib_type            = :rib_type,
                         actif               = :actif
                     WHERE id = :id AND id_societe = :id_societe
                 ")->execute([
@@ -525,6 +530,7 @@ if (is_post()) {
                     ':bic'                 => trim((string)post('ag_bic', '')) ?: null,
                     ':banque_nom'          => trim((string)post('ag_banque_nom', '')) ?: null,
                     ':titulaire_compte'    => trim((string)post('ag_titulaire_compte', '')) ?: null,
+                    ':rib_type'            => in_array(post('ag_rib_type'), ['gestion','sequestre','societe'], true) ? post('ag_rib_type') : 'gestion',
                     ':actif'               => post('ag_actif') ? 1 : 0,
                     ':id'                  => $agId,
                     ':id_societe'          => $societeId,
@@ -2581,6 +2587,17 @@ $pageTitle = 'Fiche société';
               </div>
               <div id="ribStatus_<?= (int)$ag['id'] ?>" style="display:none;font-size:11px;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-family:'DM Mono',monospace;"></div>
 
+              <?php $agRibType = $ag['rib_type'] ?? 'gestion'; ?>
+              <div style="margin-bottom:12px;">
+                <label style="font-size:11px;color:#5b6b70;font-weight:700;display:block;margin-bottom:5px;">Usage de ce compte</label>
+                <input type="hidden" name="ag_rib_type" id="agRibType_<?= (int)$ag['id'] ?>" value="<?= h($agRibType) ?>">
+                <div style="display:inline-flex;gap:6px;flex-wrap:wrap;">
+                  <?php foreach (cb_types() as $__k => $__lbl): ?>
+                  <button type="button" class="agrt<?= $__k === $agRibType ? ' on' : '' ?>" data-type="<?= $__k ?>" data-tgt="agRibType_<?= (int)$ag['id'] ?>" onclick="agRibPick(this)"><?= h($__lbl) ?></button>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+
               <div class="rs-field-row">
                 <div class="rs-field">
                   <label>Titulaire du compte</label>
@@ -2643,11 +2660,52 @@ $pageTitle = 'Fiche société';
         .rib-save{border:none;background:#1f7a4d;color:#fff;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer;font-size:12.5px;}
         .rib-del{border:1px solid #f0b8b0;background:#fdecea;color:#c0392b;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:12.5px;}
         .rib-msg{font-size:12px;font-weight:700;}
+        .rib-scanrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+        .rib-scan{display:inline-block;border:1.5px dashed #a9b6c9;background:#fff;color:#3a5a5c;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;}
+        .rib-scan:hover{border-color:#1f7a4d;background:#f2fbf5;}
+        .rib-scanmsg{font-size:11.5px;font-weight:700;font-family:'DM Mono',monospace;}
+        .rib-card.rib-drop{outline:2px dashed #1f7a4d;outline-offset:2px;background:#f2fbf5;}
+        .agrt{border:1.5px solid #ccc;background:#fff;color:#555;border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Sora',sans-serif;}
+        .agrt.on{background:#243B5C;color:#fff;border-color:#243B5C;}
       </style>
       <script>
         var RIB_URL_SAVE = <?= json_encode(app_url('/api/societe_rib_save.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
         var RIB_URL_DEL  = <?= json_encode(app_url('/api/societe_rib_delete.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+        var RIB_URL_ANALYZE = 'api/agence_rib_analyze.php';
+        var RIB_CSRF = <?= json_encode(csrf_token('rh_societe'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+        var RIB_SOC_OVERRIDE = <?= (int)($saOverride ?? 0) ?>;
+        // Analyse IA d'un RIB → remplit les champs de la card.
+        function ribScanFile(card, file){
+          if(!file || !card) return;
+          if(file.size > 8*1024*1024){ alert('⚠ Fichier trop volumineux (max 8 Mo)'); return; }
+          var cont=card.closest('.rib-cards'), msg=card.querySelector('.rib-scanmsg');
+          var fd=new FormData(); fd.append('csrf_token',RIB_CSRF); fd.append('id_agence',cont.dataset.age);
+          fd.append('soc_override',RIB_SOC_OVERRIDE); fd.append('rib_file',file);
+          if(msg){ msg.style.color='#3730a3'; msg.textContent='⟳ Analyse IA du RIB…'; }
+          fetch(RIB_URL_ANALYZE,{method:'POST',credentials:'same-origin',body:fd})
+            .then(function(r){return r.json();}).then(function(d){
+              if(!d||!d.ok) throw new Error((d&&d.error)||'Analyse impossible');
+              var ex=d.extracted||{};
+              var set=function(sel,val){ if(val){ var el=card.querySelector(sel); if(el){ el.value=val; el.style.transition='background-color 1.5s'; el.style.backgroundColor='#dcfce7'; setTimeout(function(){el.style.backgroundColor='';},1800);} } };
+              set('.rib-titulaire',ex.titulaire); set('.rib-banque',ex.banque); set('.rib-iban',ex.iban); set('.rib-bic',ex.bic);
+              var lib=card.querySelector('.rib-libelle'); if(lib && !lib.value && ex.banque) lib.value=ex.banque;
+              if(msg){ msg.style.color='#166534'; msg.textContent='✓ Champs remplis — vérifie puis « Enregistrer ».'; }
+            }).catch(function(e){ if(msg){ msg.style.color='#991b1b'; msg.textContent='❌ '+(e.message||e); } });
+        }
+        function ribScan(input){ ribScanFile(input.closest('.rib-card'), input.files[0]); input.value=''; }
+        // Glisser-déposer sur n'importe quelle card (délégation, couvre aussi les cards ajoutées).
+        document.querySelectorAll('.rib-cards').forEach(function(cont){
+          cont.addEventListener('dragover', function(e){ e.preventDefault(); var c=e.target.closest('.rib-card'); if(c) c.classList.add('rib-drop'); });
+          cont.addEventListener('dragleave', function(e){ var c=e.target.closest('.rib-card'); if(c) c.classList.remove('rib-drop'); });
+          cont.addEventListener('drop', function(e){ e.preventDefault(); var c=e.target.closest('.rib-card'); if(c){ c.classList.remove('rib-drop'); if(e.dataTransfer.files && e.dataTransfer.files[0]) ribScanFile(c, e.dataTransfer.files[0]); } });
+        });
         function ribPickType(b){ b.parentNode.querySelectorAll('.rib-type').forEach(function(x){x.classList.remove('on');}); b.classList.add('on'); }
+        // Usage du RIB principal de l'agence (carte existante) → maj hidden + auto-save du form.
+        function agRibPick(b){
+          b.parentNode.querySelectorAll('.agrt').forEach(function(x){x.classList.remove('on');}); b.classList.add('on');
+          var h=document.getElementById(b.dataset.tgt);
+          if(h){ h.value=b.dataset.type; h.dispatchEvent(new Event('input',{bubbles:true})); h.dispatchEvent(new Event('change',{bubbles:true})); }
+        }
         function ribAddCard(age){ var c=document.getElementById('ribCards_'+age), t=document.getElementById('ribCardTpl');
           var n=t.content.firstElementChild.cloneNode(true); c.appendChild(n); n.querySelector('.rib-libelle').focus(); }
         function ribCardData(card){ var t=card.querySelector('.rib-type.on');
