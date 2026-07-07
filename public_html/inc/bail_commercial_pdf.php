@@ -298,6 +298,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
             'Le présent bail est consenti moyennant un loyer annuel de <b>' . bcp_e($mut($loyerA)) . ' hors taxes et hors charges</b>'
             . ($loyerM ? ', soit ' . bcp_e($loyerM) . ' par mois' : '') . '. '
             . 'Il est payable <b>' . $perioTxt . '</b>, au domicile du Bailleur ou de son mandataire. '
+            . (($c['prorata_date'] ?? '') && bcp_date($c['prorata_date']) ? 'Le loyer est décompté à compter du <b>' . bcp_e((string)bcp_date($c['prorata_date'])) . '</b> (point de départ du calcul au prorata). ' : '')
             . ($tvaOn ? 'Le loyer est majoré de la taxe sur la valeur ajoutée au taux de ' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %. ' : 'Le loyer n\'est pas assujetti à la TVA (article 261 D du CGI). ')
             . (($ctx['cond_loyer'] ?? '') ? '<b>Conditions particulières sur le loyer :</b> ' . bcp_e($ctx['cond_loyer']) . '. ' : '')
             . ($ge['rib_iban'] ? 'Les loyers et accessoires sont réglés par virement sur le compte ' . bcp_e($ge['rib_nom'] ?: 'du mandataire') . ' — IBAN ' . bcp_e($ge['rib_iban']) . '. ' : '')

@@ -18,7 +18,7 @@ if ($bailId <= 0) {
 $sql = "SELECT bb.*,
     b.id AS bien_id, b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
     b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot, b.id_immeuble,
-    b.description AS bien_description, b.etage AS bien_etage, b.bien_en_copropriete, b.lot_tantiemes, b.copro_nb_lots,
+    b.description AS bien_description, b.etage AS bien_etage, b.bien_en_copropriete, b.lot_tantiemes AS bien_lot_tantiemes_src, b.copro_nb_lots,
     b.id_societe AS bien_soc, b.id_agence AS bien_age,
     i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
     p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
@@ -258,7 +258,8 @@ if ($isProjetBail) {
         'bien_surface' => (float)($bail['surface_habitable'] ?? 0),
         'bien_lot'     => (string)($bail['numero_lot'] ?? ''),
         'bien_etage'   => (($bail['bien_etage'] ?? null) !== null && $bail['bien_etage'] !== '' ? ((int)$bail['bien_etage'] === 0 ? 'rez-de-chaussée' : (int)$bail['bien_etage'] . 'ᵉ étage') : ''),
-        'bien_copro'   => (!empty($bail['bien_en_copropriete']) ? 'bien en copropriété' . (!empty($bail['lot_tantiemes']) ? ' (' . (int)$bail['lot_tantiemes'] . ' / ' . (int)($bail['copro_nb_lots'] ?: 0) . ' tantièmes)' : '') : ''),
+        'bien_copro'   => (!empty($bail['bien_en_copropriete']) ? 'bien en copropriété' . (!empty($bail['bien_lot_tantiemes_src']) ? ' (' . (int)$bail['bien_lot_tantiemes_src'] . ' / ' . (int)($bail['copro_nb_lots'] ?: 0) . ' tantièmes)' : '') : ''),
+        'bien_tantiemes' => (string)($bail['bien_lot_tantiemes_src'] ?? ''),
         'bien_description' => (string)($bail['bien_description'] ?? ''),
         'gestionnaire' => [
             'raison'    => (string)(($socRow['raison_sociale'] ?? '') ?: ($socRow['nom'] ?? '')),
