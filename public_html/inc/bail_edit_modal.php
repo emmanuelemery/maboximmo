@@ -88,11 +88,21 @@ function bail_edit_modal(): void
           <label class="bel-f bel-check"><input type="checkbox" id="bel-garant-solidaire" checked> <span>Caution solidaire</span></label>
         </div>
 
+        <div class="bel-sec">🏢 Désignation du bien</div>
+        <div class="bel-grid">
+          <label class="bel-f bel-wide"><span>Désignation du bien (reprise du bien, éditable)</span>
+            <textarea id="bel-bien-desig" rows="2" placeholder="Ex. Local commercial en rez-de-chaussée, une vitrine, réserve et sanitaires…" style="margin-top:4px;padding:8px 10px;border:1px solid #cbd8da;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;"></textarea></label>
+          <label class="bel-f bel-check"><input type="checkbox" id="bel-copro" onchange="belToggleCopro()"> <span>Le bien est en copropriété</span></label>
+          <label class="bel-f bel-copro-only" hidden><span>Lot de copropriété n°</span><input type="text" id="bel-lot" placeholder="Ex. 12"></label>
+          <label class="bel-f bel-copro-only" hidden><span>Tantièmes du lot</span><input type="text" id="bel-tantiemes" placeholder="Ex. 125 / 10 000èmes"></label>
+        </div>
+
         <div class="bel-sec">📄 Conditions du bail</div>
         <div class="bel-grid">
           <label class="bel-f bel-wide"><span>Destination / activité autorisée</span>
             <input type="text" id="bel-destination" placeholder="Ex. Vente et réparation de cycles et motocycles"></label>
           <label class="bel-f"><span>Prise d'effet</span><input type="date" id="bel-date-effet"></label>
+          <label class="bel-f"><span>Loyer calculé à partir du (prorata)</span><input type="date" id="bel-prorata-date" title="Si vide = date de prise d'effet. Point de départ du calcul du 1er loyer au prorata (ex. après franchise)."></label>
           <label class="bel-f"><span>Durée</span>
             <select id="bel-duree">
               <option value="108" selected>9 ans (108 mois)</option>
@@ -127,6 +137,14 @@ function bail_edit_modal(): void
           <label class="bel-f bel-wide"><span>Conditions particulières — loyer</span>
             <textarea id="bel-cp-loyer" rows="3" placeholder="Ex. loyer progressif par paliers, franchise 3 mois, indexation dérogatoire…" style="margin-top:4px;padding:8px 10px;border:1px solid #cbd8da;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;"></textarea></label>
         </div>
+
+        <div class="bel-sec">🔨 Travaux (Annexe 2 — art. L.145-40-2)</div>
+        <div class="bel-grid">
+          <label class="bel-f bel-wide"><span>Travaux réalisés (3 années écoulées)</span>
+            <textarea id="bel-travaux-realises" rows="2" placeholder="Ex. réfection toiture 2024, ravalement façade 2023…" style="margin-top:4px;padding:8px 10px;border:1px solid #cbd8da;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;"></textarea></label>
+          <label class="bel-f bel-wide"><span>Travaux prévus (3 années à venir)</span>
+            <textarea id="bel-travaux-prevus" rows="2" placeholder="Ex. mise aux normes électriques prévue 2026, ascenseur 2027…" style="margin-top:4px;padding:8px 10px;border:1px solid #cbd8da;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;"></textarea></label>
+        </div>
       </div>
     </div>
 
@@ -157,6 +175,7 @@ function bail_edit_modal(): void
 .bel-sec{font-size:12px;font-weight:800;color:#5f8f93;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 8px;border-bottom:1px solid #eef2f2;padding-bottom:5px}
 .bel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
 .bel-f{display:flex;flex-direction:column;font-size:12px;color:#5b6b70;font-weight:600}
+.bel-f[hidden],.bel-grid[hidden]{display:none !important}
 .bel-f.bel-wide{grid-column:1/-1}
 .bel-f input,.bel-f select{margin-top:4px;padding:8px 10px;border:1px solid #cbd8da;border-radius:8px;font-size:13px}
 .bel-f.bel-check{flex-direction:row;align-items:center;gap:8px;color:#3a5a5c}
@@ -526,11 +545,17 @@ function bail_edit_modal(): void
       var m=g('bel-up-msg'); if(m){ m.style.color='#c62828'; m.textContent='Module FluxBox indisponible sur cette page.'; }
       return;
     }
+    // Crée d'abord le projet si on est en création (sinon les pièces ne peuvent pas se
+    // rattacher au bail). Puis ouvre FluxBox avec le vrai bail_id → workflow non-stop.
+    belEnsureProjet(function(ok){ if(ok) belFluxOpenCandDocs(); });
+  };
+  function belFluxOpenCandDocs(){
     var pf = M._pf || {};
     var type = g('bel-cand-type').value;
     var preneur = type==='societe' ? v('bel-cand-raison') : (v('bel-cand-prenom')+' '+v('bel-cand-nom')).trim();
     window.fbxOpenUploadModal({
       origin: 'bail_360',
+      onCandidateFile: belExtractCandIdentity,   // pièce traitée → extraction IA → pré-remplissage
       bail_id: M._editId || 0,
       bail_locataire: preneur || (pf.bail_locataire||''),
       bien_id: parseInt(pf.bien_id,10)||0,
@@ -544,6 +569,26 @@ function bail_edit_modal(): void
       dossier_provisoire: 1   // marqueur RGPD : dossier candidat provisoire (voir statut dédié)
     });
   };
+  // Extraction identité d'une pièce candidat (CNI, passeport, titre séjour, KBIS…) via l'IA,
+  // puis pré-remplissage des champs VIDES (non destructif). Rebranche le fil coupé par la refonte.
+  function belExtractCandIdentity(file){
+    if(!file || !file.name) return;
+    if(!/\.(pdf|jpe?g|png|webp|heic|heif|tiff?)$/i.test(file.name)) return;   // formats lisibles
+    var msg=g('bel-up-msg');
+    if(msg){ msg.style.color='#5f8f93'; msg.textContent='🔎 Lecture de '+file.name+'…'; }
+    var fd=new FormData(); fd.append('document', file, file.name);
+    fetch(API_EXTRACT,{method:'POST',credentials:'same-origin',body:fd})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(j&&j.ok&&j.fields){
+          applyCandFields(j.fields);
+          if(msg){ msg.style.color='#2d8a4e'; msg.textContent='✅ Champs pré-remplis depuis '+file.name+' — vérifie avant d\'enregistrer.'; }
+        } else if(msg){
+          msg.style.color='#b45309'; msg.textContent='⚠️ '+file.name+' : '+((j&&j.error)||'rien d\'exploitable extrait');
+        }
+      })
+      .catch(function(e){ if(msg){ msg.style.color='#c62828'; msg.textContent='❌ Extraction : '+e; } });
+  }
 
   function resetForm(){
     ['bel-cand-raison','bel-cand-siren','bel-cand-nom','bel-cand-prenom','bel-cand-email','bel-cand-tel',
@@ -552,15 +597,16 @@ function bail_edit_modal(): void
      'bel-indice-trim','bel-indice-val','bel-dg','bel-opt-prix','bel-opt-delai',
      'bel-garant-nom','bel-garant-prenom','bel-garant-raison','bel-garant-siren','bel-garant-adresse',
      'bel-garant-birthdate','bel-garant-birthplace','bel-garant-email','bel-garant-tel',
-     'bel-garant-montant','bel-garant-duree','bel-tf','bel-hono-bail','bel-hono-loc','bel-cp','bel-cp-loyer'].forEach(function(id){ var e=g(id); if(e) e.value=''; });
+     'bel-garant-montant','bel-garant-duree','bel-tf','bel-hono-bail','bel-hono-loc','bel-cp','bel-cp-loyer',
+     'bel-bien-desig','bel-lot','bel-tantiemes','bel-prorata-date','bel-travaux-realises','bel-travaux-prevus'].forEach(function(id){ var e=g(id); if(e) e.value=''; });
     g('bel-cand-type').value='societe'; g('bel-duree').value='108'; g('bel-indice').value='ILC';
     g('bel-garant-type').value='physique'; g('bel-perio').value='mensuelle';
     g('bel-tech-pct').value='1.5';
     var d0=BEL_INDICES['ILC']; if(d0){ g('bel-indice-trim').value=d0.trim; g('bel-indice-val').value=d0.val; } // dernier ILC connu
-    ['bel-ferme','bel-erp','bel-opt','bel-garant-present'].forEach(function(id){ g(id).checked=false; });
+    ['bel-ferme','bel-erp','bel-opt','bel-garant-present','bel-copro'].forEach(function(id){ g(id).checked=false; });
     g('bel-garant-solidaire').checked=true; g('bel-tva').checked=true; g('bel-tech').checked=true;
     document.querySelectorAll('.bel-opt-only').forEach(function(e){ e.hidden=true; });
-    toggleGarant(); toggleTech();
+    toggleGarant(); toggleTech(); belToggleCopro();
   }
   function fillForm(val){
     val=val||{};
@@ -608,11 +654,23 @@ function bail_edit_modal(): void
     set('bel-hono-loc', val.honoraires_locataire_ttc);
     set('bel-cp', val.conditions_particulieres);
     set('bel-cp-loyer', val.conditions_particulieres_loyer);
+    set('bel-bien-desig', val.bien_designation);
+    set('bel-lot', val.lot_copropriete); set('bel-tantiemes', val.lot_tantiemes);
+    g('bel-copro').checked = !!(Number(val.en_copropriete)); belToggleCopro();
+    set('bel-prorata-date', val.prorata_date_debut);
+    set('bel-travaux-realises', val.travaux_realises_3ans); set('bel-travaux-prevus', val.travaux_prevus_3ans);
   }
 
   window.bailOpenCreateModal = function(pf){
     resetForm();
     M._pf = pf || {}; M._editId = 0; M._bienId = parseInt((pf||{}).bien_id,10) || 0; M._origin = (pf||{}).origin || 'bien_360';
+    // Reprise du bien : désignation + lot/tantièmes de copropriété (éditables ensuite).
+    var _pf = pf || {};
+    if(_pf.bien_designation){ g('bel-bien-desig').value = _pf.bien_designation; }
+    else if(_pf.bien_description){ g('bel-bien-desig').value = _pf.bien_description; }
+    if(Number(_pf.bien_en_copropriete)){ g('bel-copro').checked = true;
+      g('bel-lot').value = _pf.bien_numero_lot || ''; g('bel-tantiemes').value = _pf.bien_tantiemes || ''; }
+    belToggleCopro();
     g('bel-title-text') && (g('bel-title-text').textContent='Créer un projet de bail commercial');
     g('bel-save').textContent='💾 Créer le projet';
     g('bel-msg').textContent=''; toggleType(); render();
@@ -639,20 +697,14 @@ function bail_edit_modal(): void
   M.addEventListener('mousedown', function(e){ if(e.target===M) bailCloseModal(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !M.hidden) bailCloseModal(); });
 
-  window.bailSubmitProjet = function(){
-    var msg = g('bel-msg'), btn = g('bel-save');
-    var edit = M._editId > 0;
-    if (!edit && !M._bienId){ msg.style.color='#c62828'; msg.textContent='Bien manquant.'; return; }
+  // Construit le payload complet du projet (partagé création / enregistrement / auto-création).
+  function belBuildPayload(){
     var type = g('bel-cand-type').value;
-    var raison = v('bel-cand-raison'), nom = v('bel-cand-nom');
-    if ((type==='societe' && !raison) || (type==='physique' && !nom)){
-      msg.style.color='#c62828'; msg.textContent='Renseigne le candidat (raison sociale ou nom).'; return;
-    }
-    var payload = {
+    return {
       bail_id: M._editId || undefined,
       bien_id: M._bienId, origin: M._origin,
-      candidat: { type:type, raison_sociale:raison, siren:v('bel-cand-siren'),
-        nom:nom, prenom:v('bel-cand-prenom'), email:v('bel-cand-email'),
+      candidat: { type:type, raison_sociale:v('bel-cand-raison'), siren:v('bel-cand-siren'),
+        nom:v('bel-cand-nom'), prenom:v('bel-cand-prenom'), email:v('bel-cand-email'),
         telephone:v('bel-cand-tel'), representant_nom:v('bel-cand-rep'),
         representant_qualite:v('bel-cand-repq'),
         adresse:v('bel-cand-adresse'), date_naissance:g('bel-cand-birthdate').value,
@@ -688,8 +740,57 @@ function bail_edit_modal(): void
       honoraires_bailleur: v('bel-hono-bail')!=='' ? parseFloat(v('bel-hono-bail')) : null,
       honoraires_locataire: v('bel-hono-loc')!=='' ? parseFloat(v('bel-hono-loc')) : null,
       conditions_particulieres: v('bel-cp'),
-      conditions_particulieres_loyer: v('bel-cp-loyer')
+      conditions_particulieres_loyer: v('bel-cp-loyer'),
+      bien_designation: v('bel-bien-desig'),
+      en_copropriete: g('bel-copro').checked?1:0,
+      lot_copropriete: g('bel-copro').checked ? v('bel-lot') : '',
+      lot_tantiemes: g('bel-copro').checked ? v('bel-tantiemes') : '',
+      prorata_date_debut: g('bel-prorata-date').value,
+      travaux_realises: v('bel-travaux-realises'),
+      travaux_prevus: v('bel-travaux-prevus')
     };
+  }
+  // Affiche/masque les champs lot + tantièmes selon la case « copropriété ».
+  window.belToggleCopro = function(){
+    var on = g('bel-copro') && g('bel-copro').checked;
+    document.querySelectorAll('.bel-copro-only').forEach(function(e){ e.hidden = !on; });
+    render();
+  };
+
+  // Assure qu'un projet existe (le crée à la volée si on est en création et que le nom est saisi).
+  // callback(ok) ; en édition → ok immédiat. Permet de rattacher les pièces AU BAIL dès le départ.
+  function belEnsureProjet(cb){
+    if (M._editId > 0) { cb(true); return; }
+    var type = g('bel-cand-type').value;
+    var raison = v('bel-cand-raison'), nom = v('bel-cand-nom');
+    if ((type==='societe' && !raison) || (type==='physique' && !nom)){
+      var m=g('bel-up-msg'); if(m){ m.style.color='#c62828'; m.textContent='Renseigne d\'abord le nom / la raison sociale du candidat — je crée le projet, puis tu charges les pièces.'; }
+      cb(false); return;
+    }
+    if (!M._bienId){ cb(false); return; }
+    var m2=g('bel-up-msg'); if(m2){ m2.style.color='#5f8f93'; m2.textContent='⏳ Création du projet…'; }
+    fetch(API,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(belBuildPayload())})
+      .then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok&&j.bail_id){
+          M._editId = parseInt(j.bail_id,10);
+          g('bel-title-text') && (g('bel-title-text').textContent='Modifier le projet de bail');
+          g('bel-save').textContent='💾 Enregistrer les modifications';
+          var m3=g('bel-up-msg'); if(m3){ m3.style.color='#2d8a4e'; m3.textContent='✅ Projet '+(j.numero_bail||'')+' créé — les pièces seront rattachées au bail.'; }
+          cb(true);
+        } else { var m4=g('bel-up-msg'); if(m4){ m4.style.color='#c62828'; m4.textContent='❌ '+((j&&j.error)||'Création échouée'); } cb(false); }
+      }).catch(function(e){ var m5=g('bel-up-msg'); if(m5){ m5.style.color='#c62828'; m5.textContent='❌ Réseau : '+e; } cb(false); });
+  }
+
+  window.bailSubmitProjet = function(){
+    var msg = g('bel-msg'), btn = g('bel-save');
+    var edit = M._editId > 0;
+    if (!edit && !M._bienId){ msg.style.color='#c62828'; msg.textContent='Bien manquant.'; return; }
+    var type = g('bel-cand-type').value;
+    var raison = v('bel-cand-raison'), nom = v('bel-cand-nom');
+    if ((type==='societe' && !raison) || (type==='physique' && !nom)){
+      msg.style.color='#c62828'; msg.textContent='Renseigne le candidat (raison sociale ou nom).'; return;
+    }
+    var payload = belBuildPayload();
     btn.disabled=true; msg.style.color='#5f8f93'; msg.textContent = edit ? '⏳ Enregistrement…' : '⏳ Création…';
     fetch(edit ? API_SAVE : API,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
       .then(function(r){return r.json();}).then(function(j){

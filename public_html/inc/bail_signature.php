@@ -124,47 +124,225 @@ if (!function_exists('bsig_sign')) {
      * signé → bail `signe` + BASCULE : bail actif du bien = ce bail ; ancien → `resilie`.
      * @return array{ok:bool, already?:bool, all_signed?:bool, error?:string}
      */
-    function bsig_sign(PDO $pdo, string $token, string $nom, string $ip, string $ua): array {
+    function bsig_sign(PDO $pdo, string $token, string $nom, string $ip, string $ua, ?string $signatureData = null, ?string $photoData = null): array {
         $row = bsig_get_by_token($pdo, $token);
         if (!$row) return ['ok' => false, 'error' => 'lien invalide'];
         if ($row['statut'] === 'signe') return ['ok' => true, 'already' => true];
         $nom = trim($nom);
         if ($nom === '') return ['ok' => false, 'error' => 'nom requis'];
+        // signature_data : image du tracé (data URI PNG, présentiel) sinon le nom saisi (email).
+        $sigData = ($signatureData !== null && strncmp($signatureData, 'data:image', 10) === 0)
+            ? substr($signatureData, 0, 400000) : $nom;
 
         $pdo->prepare("
             UPDATE bail_signatures
                SET statut = 'signe', nom_signataire = ?, lu_approuve = 1,
                    ip = ?, user_agent = ?, signature_data = ?, signed_at = NOW()
              WHERE id = ? AND statut <> 'signe'
-        ")->execute([$nom, substr($ip, 0, 45), substr($ua, 0, 500), $nom, (int)$row['id']]);
+        ")->execute([$nom, substr($ip, 0, 45), substr($ua, 0, 500), $sigData, (int)$row['id']]);
+
+        // Photo-preuve (best-effort) : ne casse JAMAIS la signature si la colonne n'existe pas encore.
+        if ($photoData !== null && strncmp($photoData, 'data:image', 10) === 0) {
+            try {
+                $pdo->prepare("UPDATE bail_signatures SET photo_preuve = ? WHERE id = ?")
+                    ->execute([substr($photoData, 0, 1500000), (int)$row['id']]);
+            } catch (Throwable $e) { error_log('[bsig_sign photo] ' . $e->getMessage()); }
+        }
 
         $idBail = (int)$row['id_bail'];
-        $idBien = (int)$row['id_bien'];
 
-        // Tous signés ?
+        // NB : signer n'a AUCUN effet de bord. La cérémonie continue jusqu'à ce que TOUTES les
+        // parties aient signé ; c'est l'AGENT qui clôture ensuite explicitement (bail_cloturer)
+        // → bascule candidat→locataire + PDF signé en GED + envoi. `all_signed` est purement
+        // informatif (pour activer le bouton « Clôturer » côté UI).
         $stCnt = $pdo->prepare("SELECT COUNT(*) total, SUM(statut='signe') signes FROM bail_signatures WHERE id_bail = ?");
         $stCnt->execute([$idBail]);
         $c = $stCnt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'signes' => 0];
         $allSigned = ((int)$c['total'] > 0 && (int)$c['total'] === (int)$c['signes']);
 
-        if ($allSigned) {
-            try {
-                $pdo->beginTransaction();
-                // 1) Ancien bail actif du bien (autre que celui-ci) → resilie.
-                $pdo->prepare("UPDATE bien_baux SET statut = 'resilie', date_fin = COALESCE(date_fin, CURDATE()), updated_at = NOW()
-                                WHERE id_bien = ? AND id <> ? AND statut IN ('actif','signe')")
-                    ->execute([$idBien, $idBail]);
-                // 2) Ce bail devient signé (figé) + actif locataire.
-                $pdo->prepare("UPDATE bien_baux
-                                  SET statut = 'signe', date_signature = COALESCE(date_signature, CURDATE()),
-                                      candidat_tiers_id = NULL, updated_at = NOW()
-                                WHERE id = ?")->execute([$idBail]);
-                $pdo->commit();
-            } catch (Throwable $e) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                error_log('[bsig_sign bascule] ' . $e->getMessage());
-            }
+        return ['ok' => true, 'all_signed' => $allSigned, 'signes' => (int)$c['signes'], 'total' => (int)$c['total']];
+    }
+}
+
+if (!function_exists('bail_finalize_signed')) {
+    /**
+     * Une fois le bail signé par TOUTES les parties :
+     *   1) génère le PDF DÉFINITIF (sans filigrane, tracés incrustés) ;
+     *   2) le CLASSE en GED (type `bail_signe`, lié au BAIL en `main` → coche « Bail signé »
+     *      dans « Pièces bail » = voyant vert) + lien BIEN en `reference` ;
+     *   3) l'ENVOIE par mail à tous les signataires (preneur + caution) et à l'agent créateur.
+     *
+     * Idempotent : si un document `bail_signe` est déjà lié au bail, on ne re-classe pas.
+     * Best-effort : toute erreur est journalisée, jamais propagée (ne casse pas la signature).
+     *
+     * @return array{ok:bool, doc_id?:int, mailed?:array, error?:string}
+     */
+    function bail_finalize_signed(PDO $pdo, int $bailId): array
+    {
+        if ($bailId <= 0) return ['ok' => false, 'error' => 'bail_id invalide'];
+
+        // Contexte minimal (société / agence / bien) — jamais en dur.
+        $st = $pdo->prepare("
+            SELECT bb.numero_bail, bb.id_bien, bb.id_societe AS bail_soc, bb.id_agence AS bail_age,
+                   bb.locataire_email, bb.locataire_raison_sociale, bb.locataire_nom, bb.locataire_prenom,
+                   bb.id_user_created,
+                   b.reference_bien, b.id_societe AS bien_soc, b.id_agence AS bien_age,
+                   s.raison_sociale AS soc_raison, a.code_agence, a.nom_agence
+              FROM bien_baux bb
+              JOIN biens b     ON b.id = bb.id_bien
+              LEFT JOIN societes s ON s.id = COALESCE(b.id_societe, bb.id_societe)
+              LEFT JOIN agences  a ON a.id = COALESCE(b.id_agence, bb.id_agence)
+             WHERE bb.id = ? LIMIT 1");
+        $st->execute([$bailId]);
+        $bail = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$bail) return ['ok' => false, 'error' => 'bail introuvable'];
+
+        $socId = (int)($bail['bien_soc'] ?? 0) ?: (int)($bail['bail_soc'] ?? 0) ?: null;
+        $ageId = (int)($bail['bien_age'] ?? 0) ?: (int)($bail['bail_age'] ?? 0) ?: null;
+        $idBien = (int)$bail['id_bien'];
+        $refBail = (string)($bail['numero_bail'] ?: ('bail_' . $bailId));
+        $userId = (int)($bail['id_user_created'] ?? 0) ?: null;
+
+        require_once __DIR__ . '/ged_document_links.php';
+        require_once __DIR__ . '/bail_commercial_pdf.php';
+
+        // Idempotence : déjà classé (type bail_signe lié au bail) ? → on ne recommence pas le classement.
+        $docId = 0;
+        try {
+            $q = $pdo->prepare("SELECT d.id FROM ged_documents d
+                                 JOIN ged_document_links l ON l.document_id = d.id AND l.entity_type='BAIL' AND l.entity_id = ?
+                                WHERE d.document_type='bail_signe' AND d.status='active' ORDER BY d.id DESC LIMIT 1");
+            $q->execute([$bailId]); $docId = (int)$q->fetchColumn();
+        } catch (Throwable) {}
+
+        if ($docId <= 0) {
+            // 1) PDF définitif (forceProjet = false → sans filigrane, tracés incrustés).
+            $tmpPdf = bail_commercial_build_pdf($pdo, $bailId, false);
+            // Persistant (la GED référence le fichier sur disque).
+            $permDir = __DIR__ . '/../uploads/baux/';
+            if (!is_dir($permDir)) @mkdir($permDir, 0775, true);
+            $permName = 'bail_' . $bailId . '_signe_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.pdf';
+            $permPath = $permDir . $permName;
+            if (!@rename($tmpPdf, $permPath)) { @copy($tmpPdf, $permPath); @unlink($tmpPdf); }
+
+            $dateDoc = date('Y-m-d');
+            $res = gus_commit_document($pdo,
+                ['path_on_disk'=>$permPath, 'name_original'=>'Bail_signe_'.$refBail.'.pdf',
+                 'mime_type'=>'application/pdf', 'size_bytes'=>filesize($permPath) ?: 0,
+                 'public_url'=>'/uploads/baux/'.$permName],
+                [
+                    'document_type'=>'bail_signe', 'source_module'=>'03_GESTION_LOCATIVE', 'security_level'=>'interne',
+                    'societe_id'=>$socId, 'agence_id'=>$ageId, 'tenant_id'=>$socId, 'created_by'=>$userId, 'storage_provider'=>'local',
+                    'name_display'=>'Bail commercial signé — '.$refBail,
+                    'metadata_extra'=>['statut'=>'signe','id_bail'=>$bailId,'doc_date'=>$dateDoc,'legacy_source'=>'bail_finalize_signed',
+                        'classement'=>['bail_id_bdd'=>$bailId,'bien_id_bdd'=>$idBien,'date_doc'=>$dateDoc]],
+                    'naming_ctx'=>['societe_raison'=>$bail['soc_raison'] ?? '', 'agence_code'=>$bail['code_agence'] ?? '', 'agence_nom'=>$bail['nom_agence'] ?? '',
+                        'user_id'=>$userId, 'n1_slug'=>'03_gestion_locative', 'type_doc'=>'bail_signe',
+                        'entity_type'=>'BAIL', 'entity_id'=>$bailId, 'date_doc'=>$dateDoc, 'source_filename'=>'Bail_signe.pdf'],
+                ],
+                [
+                    ['entity_type'=>'BAIL','entity_id'=>$bailId,'relation_type'=>'main'],
+                    ['entity_type'=>'BIEN','entity_id'=>$idBien,'relation_type'=>'reference'],
+                ]
+            );
+            if (empty($res['ok'])) return ['ok'=>false, 'error'=>'GED: '.json_encode($res['errors'] ?? ['unknown'])];
+            $docId = (int)($res['doc_id'] ?? 0);
         }
-        return ['ok' => true, 'all_signed' => $allSigned];
+
+        // 3) Envoi du bail signé aux signataires (+ agent créateur).
+        $mailed = [];
+        try {
+            require_once __DIR__ . '/mailer.php';
+            if (function_exists('send_mail')) {
+                // Le PDF définitif en pièce jointe (régénéré proprement pour le mail).
+                $attach = [];
+                try {
+                    $p = bail_commercial_build_pdf($pdo, $bailId, false);
+                    $clean = sys_get_temp_dir() . '/Bail_signe_' . preg_replace('/[^A-Za-z0-9_-]/','', $refBail) . '.pdf';
+                    $attach = (@copy($p, $clean)) ? [$clean] : [$p];
+                } catch (Throwable) {}
+
+                // Destinataires = emails des signataires + email du preneur + agent.
+                $dest = [];
+                $qE = $pdo->prepare("SELECT destinataire_email, nom_signataire, role_code FROM bail_signatures WHERE id_bail=? AND statut='signe'");
+                $qE->execute([$bailId]);
+                foreach ($qE->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $e = trim((string)($r['destinataire_email'] ?? ''));
+                    if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) $dest[strtolower($e)] = $e;
+                }
+                $le = trim((string)($bail['locataire_email'] ?? ''));
+                if ($le !== '' && filter_var($le, FILTER_VALIDATE_EMAIL)) $dest[strtolower($le)] = $le;
+
+                $preneur = $bail['locataire_raison_sociale'] ?: trim((string)$bail['locataire_prenom'].' '.$bail['locataire_nom']) ?: 'Madame, Monsieur';
+                $refB = $bail['reference_bien'] ?: ('#'.$bailId);
+                $subject = 'Votre bail commercial signé — ' . $refB;
+                $body =
+                    '<p>Bonjour '.htmlspecialchars((string)$preneur).',</p>'.
+                    '<p>Le <strong>bail commercial</strong> concernant le local <strong>'.htmlspecialchars((string)$refB).'</strong> a été '.
+                    '<strong>signé par l\'ensemble des parties</strong>. Vous en trouverez un exemplaire définitif en pièce jointe.</p>'.
+                    '<p>Ce document est archivé dans votre espace documentaire. Nous restons à votre disposition.</p>';
+
+                foreach ($dest as $to) {
+                    $ok = false;
+                    try { $ok = send_mail($to, $subject, $body, $attach, true); } catch (Throwable $e) { error_log('[bail_finalize mail] '.$e->getMessage()); }
+                    $mailed[] = ['to'=>$to, 'sent'=>$ok];
+                }
+            }
+        } catch (Throwable $e) { error_log('[bail_finalize_signed mail] '.$e->getMessage()); }
+
+        return ['ok'=>true, 'doc_id'=>$docId, 'mailed'=>$mailed];
+    }
+}
+
+if (!function_exists('bail_cloturer')) {
+    /**
+     * CLÔTURE de la cérémonie de signature, déclenchée EXPLICITEMENT par l'agent (bouton +
+     * modal de validation). N'agit que si TOUTES les parties enregistrées ont signé.
+     *   1) bascule métier : ce bail → `signe` (actif locataire) ; ancien bail du bien → `resilie` ;
+     *      le candidat prend la place du locataire ;
+     *   2) finalisation : PDF signé → GED (voyant vert) → envoi aux signataires.
+     *
+     * @return array{ok:bool, error?:string, finalize?:array, signes?:int, total?:int}
+     */
+    function bail_cloturer(PDO $pdo, int $bailId): array
+    {
+        if ($bailId <= 0) return ['ok' => false, 'error' => 'bail_id invalide'];
+
+        $st = $pdo->prepare("SELECT COUNT(*) total, SUM(statut='signe') signes FROM bail_signatures WHERE id_bail = ?");
+        $st->execute([$bailId]);
+        $c = $st->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'signes' => 0];
+        $total = (int)$c['total']; $signes = (int)$c['signes'];
+        if ($total === 0)      return ['ok' => false, 'error' => 'Aucun signataire enregistré sur ce bail.'];
+        if ($total !== $signes) return ['ok' => false, 'error' => "Toutes les parties n'ont pas encore signé ($signes/$total). Clôture impossible.", 'signes' => $signes, 'total' => $total];
+
+        // id_bien pour la bascule
+        $qb = $pdo->prepare("SELECT id_bien FROM bien_baux WHERE id = ? LIMIT 1");
+        $qb->execute([$bailId]);
+        $idBien = (int)$qb->fetchColumn();
+
+        try {
+            $pdo->beginTransaction();
+            // 1) Ancien bail actif du bien (autre que celui-ci) → resilie.
+            $pdo->prepare("UPDATE bien_baux SET statut = 'resilie', date_fin = COALESCE(date_fin, CURDATE()), updated_at = NOW()
+                            WHERE id_bien = ? AND id <> ? AND statut IN ('actif','signe')")
+                ->execute([$idBien, $bailId]);
+            // 2) Ce bail devient signé (figé) + actif locataire.
+            $pdo->prepare("UPDATE bien_baux
+                              SET statut = 'signe', date_signature = COALESCE(date_signature, CURDATE()),
+                                  candidat_tiers_id = NULL, updated_at = NOW()
+                            WHERE id = ?")->execute([$bailId]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('[bail_cloturer bascule] ' . $e->getMessage());
+            return ['ok' => false, 'error' => 'Bascule échouée : ' . $e->getMessage()];
+        }
+
+        // 3) Finalisation (best-effort) : PDF signé → GED (voyant vert) → mail aux signataires.
+        $fin = ['ok' => false];
+        try { $fin = bail_finalize_signed($pdo, $bailId); }
+        catch (Throwable $e) { error_log('[bail_cloturer finalize] ' . $e->getMessage()); $fin = ['ok' => false, 'error' => $e->getMessage()]; }
+
+        return ['ok' => true, 'finalize' => $fin, 'signes' => $signes, 'total' => $total];
     }
 }

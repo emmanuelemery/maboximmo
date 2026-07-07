@@ -300,12 +300,32 @@ if ($isProjetBail) {
             'provision_tf_mensuelle'=>$bail['provision_tf_mensuelle'] ?? null, 'honoraires_gestion_tech_pct'=>$bail['honoraires_gestion_tech_pct'] ?? null,
             'honoraires_bailleur_ttc'=>$bail['honoraires_bailleur_ttc'] ?? null, 'honoraires_locataire_ttc'=>$bail['honoraires_locataire_ttc'] ?? null,
             'conditions_particulieres'=>$bail['conditions_particulieres'] ?? null, 'conditions_particulieres_loyer'=>$bail['conditions_particulieres_loyer'] ?? null,
+            'bien_designation'=>$bail['bien_designation'] ?? null, 'en_copropriete'=>$bail['en_copropriete'] ?? 0,
+            'lot_copropriete'=>$bail['lot_copropriete'] ?? null, 'lot_tantiemes'=>$bail['lot_tantiemes'] ?? null,
+            'prorata_date_debut'=>$bail['prorata_date_debut'] ?? null,
+            'travaux_realises_3ans'=>$bail['travaux_realises_3ans'] ?? null, 'travaux_prevus_3ans'=>$bail['travaux_prevus_3ans'] ?? null,
         ],
     ];
     echo '<script>window.BEL_PREFILL_EDIT = ' . json_encode($belEditPrefill, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';</script>';
     $belEditOnClick = 'bailOpenEditModal(window.BEL_PREFILL_EDIT);return false;';
     require_once __DIR__ . '/inc/bail_edit_modal.php';
     bail_edit_modal();
+    // Signataires enregistrés (pour la cérémonie + la clôture explicite).
+    require_once __DIR__ . '/inc/bail_signature.php';
+    $belSignataires = function_exists('bsig_list_for_bail') ? bsig_list_for_bail($pdo, $bailId) : [];
+    $belSigTotal = count($belSignataires);
+    $belSigDone  = count(array_filter($belSignataires, fn($s) => ($s['statut'] ?? '') === 'signe'));
+    $belRoleLbl  = ['preneur'=>'Preneur','caution'=>'Garant','bailleur'=>'Bailleur','mandataire'=>'Mandataire'];
+    // État par rôle (léger, sans les images) pour le modal : savoir si déjà signé + l'id.
+    $belSignState = [];
+    foreach ($belSignataires as $s) {
+        $belSignState[$s['role_code']] = [
+            'id'     => (int)$s['id'],
+            'signed' => ($s['statut'] ?? '') === 'signe',
+            'nom'    => (string)($s['nom_signataire'] ?? ''),
+            'date'   => !empty($s['signed_at']) ? date('d/m/Y', strtotime((string)$s['signed_at'])) : '',
+        ];
+    }
     ?>
     <div style="background:<?= $stB[3] ?>;border:1px solid <?= $stB[2] ?>33;border-left:4px solid <?= $stB[2] ?>;border-radius:12px;padding:14px 18px;margin:8px 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;">
         <div style="flex:1;min-width:220px;">
@@ -325,9 +345,26 @@ if ($isProjetBail) {
         </span>
         <?php if ($canEditProjet): ?>
             <button type="button" onclick="<?= h($belEditOnClick) ?>" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✏️ Modifier le projet</button>
+            <button type="button" onclick="belSendProjet(<?= (int)$bailId ?>, this)" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📄 Envoyer le projet (relecture)</button>
             <button type="button" id="bel-send-btn" onclick="belSendBail(<?= (int)$bailId ?>, this)" style="border:none;background:#5f8f93;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨 Envoyer pour signature</button>
+            <button type="button" onclick="belSignOpen()" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✍️ Signer en présentiel</button>
+            <?php if ($belSigTotal > 0): $belAllSigned = ($belSigDone === $belSigTotal); ?>
+            <button type="button" onclick="belCloturer(<?= (int)$bailId ?>, this)" <?= $belAllSigned ? '' : 'disabled' ?>
+                title="<?= $belAllSigned ? 'Clôturer : générer le bail signé, le classer en GED et l\'envoyer' : 'Toutes les parties doivent avoir signé avant de clôturer' ?>"
+                style="border:none;background:<?= $belAllSigned ? '#15803d' : '#c4cec8' ?>;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:<?= $belAllSigned ? 'pointer' : 'not-allowed' ?>;white-space:nowrap;">✅ Clôturer la signature (<?= $belSigDone ?>/<?= $belSigTotal ?>)</button>
+            <?php endif; ?>
         <?php else: ?>
             <span style="font-size:12px;color:#7a766f;font-style:italic;">Bail <?= h($stB[1]) ?> — figé (modif par avenant).</span>
+        <?php endif; ?>
+        <?php if ($belSigTotal > 0): ?>
+        <div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
+            <?php foreach ($belSignataires as $s): $sg = ($s['statut'] ?? '') === 'signe'; ?>
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;background:<?= $sg ? '#e7f6ec' : '#fbf3e6' ?>;color:<?= $sg ? '#15803d' : '#a26a1c' ?>;border:1px solid <?= $sg ? '#bfe6cc' : '#f0dcbf' ?>;">
+                <?= $sg ? '✓' : '⏳' ?> <?= h($belRoleLbl[$s['role_code']] ?? ucfirst((string)$s['role_code'])) ?><?= !empty($s['nom_signataire']) ? ' — ' . h($s['nom_signataire']) : '' ?>
+                <?php if ($sg): ?><button type="button" onclick="belSignAnnuler(<?= (int)$s['id'] ?>, this)" title="Annuler / effacer cette signature" style="border:none;background:transparent;color:#c0392b;font-weight:900;cursor:pointer;padding:0 0 0 4px;line-height:1;font-size:13px;">✕</button><?php endif; ?>
+            </span>
+            <?php endforeach; ?>
+        </div>
         <?php endif; ?>
     </div>
     <?php if ($canEditProjet): ?>
@@ -345,7 +382,311 @@ if ($isProjetBail) {
             } else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&j.error)||'Échec de l\'envoi')); }
           }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
     };
+    // Envoi du PROJET (filigrané) pour relecture — ne lance PAS la signature.
+    window.belSendProjet = function(bailId, btn){
+        var email = prompt('Envoyer le projet de bail (filigrané, pour relecture) à quel email ?', '');
+        if (email === null) return;
+        btn.disabled = true; var old = btn.textContent; btn.textContent = '⏳ Envoi…';
+        fetch('<?= h(app_url('/api/bail_send_projet.php')) ?>', {method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json'}, body: JSON.stringify({bail_id: bailId, email: email})})
+          .then(function(r){return r.json();}).then(function(j){
+            btn.disabled=false; btn.textContent=old;
+            if(j && j.ok){ alert('✅ '+j.message); } else { alert('❌ '+((j&&j.error)||j.message||'Échec de l\'envoi')); }
+          }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
+    };
+    // ── Annuler / effacer une signature déjà prise (avant clôture) ──
+    window.belSignAnnuler = function(sigId, btn){
+        if(!confirm('Annuler cette signature ? Le signataire pourra re-signer.')) return;
+        if(btn) btn.disabled = true;
+        fetch('<?= h(app_url('/api/bail_sign_annuler.php')) ?>', {method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json'}, body: JSON.stringify({bail_id: <?= (int)$bailId ?>, sig_id: sigId})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j && j.ok){ location.reload(); }
+            else { if(btn) btn.disabled=false; alert('❌ '+((j&&j.error)||'Annulation impossible')); }
+          }).catch(function(e){ if(btn) btn.disabled=false; alert('❌ Réseau : '+e); });
+    };
+    // ── Clôture de la cérémonie de signature (action explicite de l'agent) ──
+    window.belCloturer = function(){ document.getElementById('bel-clot-modal').style.display='flex'; };
+    window.belClotClose = function(){ document.getElementById('bel-clot-modal').style.display='none'; };
+    window.belClotConfirm = function(btn){
+        var msg=document.getElementById('bel-clot-msg');
+        btn.disabled=true; msg.style.color='#5f8f93'; msg.textContent='⏳ Clôture, génération du PDF signé et envoi…';
+        fetch('<?= h(app_url('/api/bail_cloturer.php')) ?>', {method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json'}, body: JSON.stringify({bail_id: <?= (int)$bailId ?>})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j && j.ok){ msg.style.color='#2d8a4e'; msg.textContent='✅ '+j.message; setTimeout(function(){ location.reload(); }, 1400); }
+            else { btn.disabled=false; msg.style.color='#c62828'; msg.textContent='❌ '+((j&&j.error)||'Clôture impossible'); }
+          }).catch(function(e){ btn.disabled=false; msg.style.color='#c62828'; msg.textContent='❌ Réseau : '+e; });
+    };
+    // ── Signature en présentiel (pad à l'écran) ──
+    (function(){
+      var BAIL_ID = <?= (int)$bailId ?>;
+      var API_SIGN = '<?= h(app_url('/api/bail_sign_presentiel.php')) ?>';
+      // Noms des signataires repris du bail → pré-remplissage automatique du champ « Nom ».
+      var BEL_SIGN_NAMES = {
+        preneur:    <?= json_encode($bail['locataire_raison_sociale'] ?: trim((string)($bail['locataire_prenom'] ?? '').' '.($bail['locataire_nom'] ?? '')), JSON_UNESCAPED_UNICODE) ?>,
+        caution:    <?= json_encode($bail['garant_raison_sociale'] ?: trim((string)($bail['garant_prenom'] ?? '').' '.($bail['garant_nom'] ?? '')), JSON_UNESCAPED_UNICODE) ?>,
+        bailleur:   <?= json_encode($proprietaireNom !== '—' ? $proprietaireNom : '', JSON_UNESCAPED_UNICODE) ?>,
+        mandataire: <?= json_encode(trim((string)($bail['bailleur_representant_nom'] ?? '')), JSON_UNESCAPED_UNICODE) ?>
+      };
+      // État par rôle (déjà signé ?) — pour ré-afficher la signature/photo au retour.
+      var BEL_SIGN_STATE = <?= json_encode($belSignState, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+      var API_GET = '<?= h(app_url('/api/bail_sign_get.php')) ?>';
+      window.belSignFillName = function(){
+        var role=document.getElementById('bel-sign-role').value;
+        var nomEl=document.getElementById('bel-sign-nom');
+        // n'écrase pas une saisie manuelle existante
+        if(nomEl && !nomEl.value.trim()) nomEl.value = BEL_SIGN_NAMES[role] || '';
+      };
+      // Changement de signataire → remplace le nom par celui du rôle + affiche le bon panneau
+      // (formulaire de signature OU récap « déjà signé » avec possibilité d'effacer).
+      window.belSignRoleChange = function(role){
+        var nomEl=document.getElementById('bel-sign-nom');
+        if(nomEl) nomEl.value = BEL_SIGN_NAMES[role] || '';
+        belApplyRolePanel(role);
+      };
+      var belSignedFlag=false;   // au moins une signature enregistrée dans cette séance → reload à la fermeture
+      var belDoneSigId=0;        // id de la signature affichée dans le panneau « déjà signé »
+      // Affiche le panneau adapté au rôle : déjà signé (récap + effacer) ou formulaire vierge.
+      function belApplyRolePanel(role){
+        var st=BEL_SIGN_STATE[role], done=document.getElementById('bel-sign-done'), form=document.getElementById('bel-sign-form');
+        if(st && st.signed){
+          belDoneSigId = st.id;
+          document.getElementById('bel-done-title').textContent = '✓ Déjà signé' + (st.nom?' par '+st.nom:'') + (st.date?' le '+st.date:'');
+          var sig=document.getElementById('bel-done-sig'), ph=document.getElementById('bel-done-photo');
+          sig.src=''; ph.style.display='none'; ph.src='';
+          // Récupère tracé + photo à la demande.
+          fetch(API_GET,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({bail_id:BAIL_ID, sig_id:st.id})})
+            .then(function(r){return r.json();}).then(function(j){
+              if(j&&j.ok){ if(j.signature_data){ sig.src=j.signature_data; } if(j.photo_preuve){ ph.src=j.photo_preuve; ph.style.display='block'; } }
+            }).catch(function(){});
+          done.hidden=false; form.hidden=true;
+        } else {
+          belDoneSigId=0; done.hidden=true; form.hidden=false;
+        }
+      }
+      // Effacer la signature affichée (tracé + photo) → le rôle redevient signable.
+      window.belDoneErase = function(){
+        if(!belDoneSigId) return;
+        if(!confirm('Effacer la signature et la photo de ce signataire ? Il pourra re-signer.')) return;
+        fetch('<?= h(app_url('/api/bail_sign_annuler.php')) ?>',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({bail_id:BAIL_ID, sig_id:belDoneSigId})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j&&j.ok){
+              belSignedFlag=true;   // la bannière devra se rafraîchir à la fermeture
+              var role=document.getElementById('bel-sign-role').value;
+              if(BEL_SIGN_STATE[role]) BEL_SIGN_STATE[role].signed=false;
+              belApplyRolePanel(role);   // repasse en mode formulaire
+              var msg=document.getElementById('bel-sign-msg'); if(msg){ msg.style.color='#2d8a4e'; msg.textContent='✅ Signature effacée — tu peux re-signer.'; }
+            } else { alert('❌ '+((j&&j.error)||'Effacement impossible')); }
+          }).catch(function(e){ alert('❌ Réseau : '+e); });
+      };
+      var canvas, ctx, drawing=false, hasDrawn=false, padInit=false;
+      window.belSignOpen = function(){
+        document.getElementById('bel-sign-modal').style.display='flex';
+        belSignFillName();
+        belApplyRolePanel(document.getElementById('bel-sign-role').value);
+        // reset caméra/photo
+        photoData=null; belCamStop();
+        var pv=document.getElementById('bel-cam-preview'); if(pv) pv.style.display='none';
+        var vv=document.getElementById('bel-cam-video'); if(vv) vv.style.display='none';
+        var cs=document.getElementById('bel-cam-start'); if(cs) cs.style.display='';
+        var sh=document.getElementById('bel-cam-shot'); if(sh) sh.style.display='none';
+        var rt=document.getElementById('bel-cam-retake'); if(rt) rt.style.display='none';
+        // Attend le layout du modal puis (re)dimensionne le canvas et branche les Pointer Events.
+        requestAnimationFrame(function(){ setTimeout(initPad, 20); });
+      };
+      window.belSignClose = function(){
+        belCamStop(); document.getElementById('bel-sign-modal').style.display='none';
+        // Si des signatures ont été prises → recharge pour rafraîchir la bannière (statuts + bouton Clôturer).
+        if(belSignedFlag) location.reload();
+      };
+      // ── Photo-preuve : caméra PC/téléphone (getUserMedia) ──
+      var photoData=null, camStream=null;
+      function belCamStop(){ if(camStream){ camStream.getTracks().forEach(function(t){t.stop();}); camStream=null; } }
+      window.belCamStart=function(){
+        var v=document.getElementById('bel-cam-video'), msg=document.getElementById('bel-sign-msg');
+        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ msg.style.color='#c62828'; msg.textContent='📷 Caméra non disponible sur ce navigateur.'; return; }
+        navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false})
+          .then(function(s){ camStream=s; v.srcObject=s; v.style.display='block';
+            document.getElementById('bel-cam-start').style.display='none';
+            document.getElementById('bel-cam-shot').style.display='';
+            document.getElementById('bel-cam-preview').style.display='none';
+            document.getElementById('bel-cam-retake').style.display='none'; })
+          .catch(function(e){ msg.style.color='#c62828'; msg.textContent='📷 Caméra bloquée par le navigateur. Autorise-la (icône caméra dans la barre d\'adresse) ou utilise « 📁 Prendre / choisir une photo ».'; });
+      };
+      // Plan B : photo via l'appareil natif (téléphone) ou sélecteur de fichier (PC) — sans getUserMedia.
+      window.belCamFile=function(inp){
+        var f=inp.files&&inp.files[0]; if(!f) return;
+        var msg=document.getElementById('bel-sign-msg');
+        var rd=new FileReader();
+        rd.onload=function(ev){
+          var im=new Image();
+          im.onload=function(){
+            var max=640, w=im.width, h=im.height;
+            if(w>max||h>max){ if(w>=h){ h=Math.round(h*max/w); w=max; } else { w=Math.round(w*max/h); h=max; } }
+            var c=document.createElement('canvas'); c.width=w; c.height=h;
+            c.getContext('2d').drawImage(im,0,0,w,h);
+            photoData=c.toDataURL('image/jpeg',0.72);
+            var pv=document.getElementById('bel-cam-preview'); pv.src=photoData; pv.style.display='block';
+            document.getElementById('bel-cam-video').style.display='none';
+            document.getElementById('bel-cam-retake').style.display='';
+            if(msg){ msg.style.color='#2d8a4e'; msg.textContent='✅ Photo ajoutée.'; }
+          };
+          im.src=ev.target.result;
+        };
+        rd.readAsDataURL(f);
+      };
+      window.belCamCapture=function(){
+        var v=document.getElementById('bel-cam-video');
+        var c=document.createElement('canvas'); c.width=v.videoWidth||320; c.height=v.videoHeight||240;
+        c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+        photoData=c.toDataURL('image/jpeg',0.72);
+        var img=document.getElementById('bel-cam-preview'); img.src=photoData; img.style.display='block';
+        v.style.display='none'; belCamStop();
+        document.getElementById('bel-cam-shot').style.display='none';
+        document.getElementById('bel-cam-retake').style.display='';
+      };
+      window.belCamRetake=function(){ photoData=null; document.getElementById('bel-cam-preview').style.display='none'; belCamStart(); };
+      function initPad(){
+        canvas = document.getElementById('bel-sign-pad'); if(!canvas) return;
+        // Taille réelle (CSS px) — indispensable pour un mapping correct des coordonnées.
+        var r = canvas.getBoundingClientRect();
+        if (r.width < 5) { setTimeout(initPad, 60); return; }   // pas encore layouté
+        canvas.width = Math.round(r.width); canvas.height = Math.round(r.height);
+        ctx = canvas.getContext('2d'); ctx.lineWidth=2.6; ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle='#1f2937';
+        hasDrawn=false;
+        if (padInit) return;   // ne branche les listeners qu'une fois
+        padInit = true;
+        canvas.style.touchAction = 'none';   // empêche le scroll pendant qu'on signe
+        function pos(e){ var b=canvas.getBoundingClientRect(); return { x:(e.clientX-b.left)*(canvas.width/b.width), y:(e.clientY-b.top)*(canvas.height/b.height) }; }
+        canvas.addEventListener('pointerdown', function(e){
+          drawing=true; try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
+          var p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y);
+          // point initial visible même sur un simple tap
+          ctx.lineTo(p.x+0.1,p.y+0.1); ctx.stroke(); hasDrawn=true; e.preventDefault();
+        });
+        canvas.addEventListener('pointermove', function(e){
+          if(!drawing) return; var p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault();
+        });
+        var stop=function(e){ drawing=false; e && e.preventDefault && e.preventDefault(); };
+        canvas.addEventListener('pointerup', stop);
+        canvas.addEventListener('pointercancel', stop);
+        canvas.addEventListener('pointerleave', function(){ drawing=false; });
+      }
+      window.belSignClear = function(){ if(ctx) ctx.clearRect(0,0,canvas.width,canvas.height); hasDrawn=false; };
+      window.belSignSubmit = function(btn){
+        var role=document.getElementById('bel-sign-role').value;
+        var nom=document.getElementById('bel-sign-nom').value.trim();
+        var appr=document.getElementById('bel-sign-appr').checked;
+        var msg=document.getElementById('bel-sign-msg');
+        if(!nom){ msg.textContent='Nom du signataire requis.'; return; }
+        if(!appr){ msg.textContent='Merci de cocher « lu et approuvé ».'; return; }
+        if(!hasDrawn){ msg.textContent='Merci de signer dans le cadre.'; return; }
+        var data = canvas.toDataURL('image/png');
+        btn.disabled=true; msg.style.color='#5f8f93'; msg.textContent='⏳ Enregistrement…';
+        fetch(API_SIGN,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({bail_id:BAIL_ID, role:role, nom:nom, signature:data, photo:photoData||''})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j&&j.ok){
+              belSignedFlag=true;
+              // Mémorise l'état signé de ce rôle (retour sur ce rôle → affiche sa signature/photo).
+              if(j.sig_id){ BEL_SIGN_STATE[role]={id:j.sig_id, signed:true, nom:nom, date:''}; }
+              msg.style.color='#2d8a4e';
+              msg.textContent='✅ Signé ('+(j.signes||'?')+'/'+(j.total||'?')+'). Choisis le signataire suivant, ou ferme pour clôturer.';
+              // Reset pour le signataire SUIVANT (sans fermer le modal, sans clôturer).
+              belSignClear();
+              photoData=null;
+              var pv=document.getElementById('bel-cam-preview'); if(pv) pv.style.display='none';
+              document.getElementById('bel-cam-retake').style.display='none';
+              document.getElementById('bel-cam-start').style.display='';
+              document.getElementById('bel-sign-appr').checked=false;
+              document.getElementById('bel-sign-nom').value='';
+              btn.disabled=false;
+            }
+            else { btn.disabled=false; msg.style.color='#c62828'; msg.textContent='❌ '+((j&&j.error)||'Échec'); }
+          }).catch(function(e){ btn.disabled=false; msg.style.color='#c62828'; msg.textContent='❌ Réseau : '+e; });
+      };
+    })();
     </script>
+    <div id="bel-sign-modal" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(15,18,24,.55);align-items:center;justify-content:center;padding:18px;">
+      <div style="background:#fff;border-radius:16px;width:min(560px,96vw);padding:22px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:17px;color:#243B5C;">✍️ Signature en présentiel</h3>
+          <button type="button" onclick="belSignClose()" style="border:none;background:#eceef1;border-radius:50%;width:30px;height:30px;cursor:pointer;font-weight:700;">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <label style="font-size:12px;font-weight:700;color:#475569;">Signataire
+            <select id="bel-sign-role" onchange="belSignRoleChange(this.value)" style="width:100%;margin-top:4px;padding:9px;border:1px solid #cbd8da;border-radius:8px;">
+              <option value="preneur">Preneur</option>
+              <?php if (!empty($bail['garant_present'])): ?><option value="caution">Garant (caution)</option><?php endif; ?>
+              <option value="bailleur">Bailleur</option>
+              <option value="mandataire">Représentant du bailleur (mandataire)</option>
+            </select></label>
+          <label style="font-size:12px;font-weight:700;color:#475569;">Nom et prénom
+            <input type="text" id="bel-sign-nom" placeholder="Ex. Jean Dupont" style="width:100%;margin-top:4px;padding:9px;border:1px solid #cbd8da;border-radius:8px;"></label>
+        </div>
+        <!-- Panneau « déjà signé » : affiché quand on revient sur un signataire validé -->
+        <div id="bel-sign-done" hidden style="border:1px solid #bfe6cc;background:#f2fbf5;border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+          <div id="bel-done-title" style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:8px;">✓ Déjà signé</div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <img id="bel-done-sig" alt="signature" style="max-height:70px;max-width:200px;border:1px solid #d6e0e0;border-radius:6px;background:#fff;">
+            <img id="bel-done-photo" alt="photo" style="display:none;max-height:80px;max-width:80px;border:1px solid #d6e0e0;border-radius:6px;">
+          </div>
+          <button type="button" onclick="belDoneErase()" style="margin-top:10px;border:1px solid #f0b8b0;background:#fdecea;color:#c0392b;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:12.5px;">🗑️ Effacer la signature et la photo (re-signer)</button>
+        </div>
+        <div id="bel-sign-form">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px;">Signez dans le cadre 👇</div>
+        <canvas id="bel-sign-pad" style="width:100%;height:180px;border:2px dashed #b7cdcf;border-radius:10px;background:#fbfdfd;touch-action:none;cursor:crosshair;"></canvas>
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#3a5a5c;margin:12px 0;">
+          <input type="checkbox" id="bel-sign-appr" style="margin-top:3px;transform:scale(1.2);">
+          <span>J'ai lu et j'approuve les termes de ce bail commercial. Ma signature vaut engagement.</span>
+        </label>
+        <!-- Photo-preuve (optionnelle) : webcam PC ou caméra du téléphone -->
+        <div style="border:1px dashed #cbd8da;border-radius:10px;padding:10px 12px;margin-bottom:12px;background:#fafcfc;">
+          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;">📷 Photo-preuve du signataire <span style="font-weight:500;color:#94a3b8;">(optionnel — placée à côté de la signature)</span></div>
+          <video id="bel-cam-video" autoplay playsinline muted style="display:none;width:100%;max-height:200px;border-radius:8px;background:#000;"></video>
+          <img id="bel-cam-preview" alt="" style="display:none;max-height:150px;border-radius:8px;border:1px solid #d6e0e0;">
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <button type="button" id="bel-cam-start"  onclick="belCamStart()"   style="border:1px solid #cbd8da;background:#eef5f5;color:#3a5a5c;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:12.5px;">📷 Activer la caméra</button>
+            <button type="button" id="bel-cam-shot"   onclick="belCamCapture()" style="display:none;border:none;background:#5f8f93;color:#fff;border-radius:8px;padding:7px 12px;font-weight:800;cursor:pointer;font-size:12.5px;">📸 Capturer</button>
+            <button type="button" id="bel-cam-retake" onclick="belCamRetake()"  style="display:none;border:1px solid #cbd8da;background:#f4f9f9;color:#5b6b70;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:12.5px;">🔄 Reprendre</button>
+            <label style="border:1px solid #cbd8da;background:#fff;color:#3a5a5c;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:12.5px;">📁 Prendre / choisir une photo
+              <input type="file" id="bel-cam-file" accept="image/*" capture="user" onchange="belCamFile(this)" style="display:none;">
+            </label>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button type="button" onclick="belSignClear()" style="border:1px solid #cbd8da;background:#f4f9f9;color:#5b6b70;border-radius:9px;padding:9px 14px;font-weight:800;cursor:pointer;">🧹 Effacer</button>
+          <button type="button" onclick="belSignSubmit(this)" style="border:none;background:#5f8f93;color:#fff;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer;">✍️ Signer</button>
+          <span id="bel-sign-msg" style="flex:1;font-size:12.5px;font-weight:700;"></span>
+        </div>
+        </div><!-- /bel-sign-form -->
+      </div>
+    </div>
+    <!-- Modal de CLÔTURE : récap des signataires + validation explicite -->
+    <div id="bel-clot-modal" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(15,18,24,.55);align-items:center;justify-content:center;padding:18px;">
+      <div style="background:#fff;border-radius:16px;width:min(520px,96vw);padding:22px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h3 style="margin:0;font-size:17px;color:#243B5C;">✅ Clôturer la signature du bail</h3>
+          <button type="button" onclick="belClotClose()" style="border:none;background:#eceef1;border-radius:50%;width:30px;height:30px;cursor:pointer;font-weight:700;">✕</button>
+        </div>
+        <p style="font-size:13px;color:#475569;margin:0 0 10px;">Vérifiez que <b>toutes les parties</b> ont bien signé. La clôture est <b>définitive</b> : le bail devient signé, le PDF signé est classé en GED et envoyé aux signataires.</p>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+          <?php foreach ($belSignataires as $s): $sg = ($s['statut'] ?? '') === 'signe'; ?>
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 10px;border-radius:8px;background:<?= $sg ? '#e7f6ec' : '#fbf3e6' ?>;">
+            <span style="font-weight:800;color:<?= $sg ? '#15803d' : '#a26a1c' ?>;"><?= $sg ? '✓ signé' : '⏳ en attente' ?></span>
+            <span style="font-weight:700;color:#334155;"><?= h($belRoleLbl[$s['role_code']] ?? ucfirst((string)$s['role_code'])) ?></span>
+            <span style="color:#64748b;"><?= !empty($s['nom_signataire']) ? h($s['nom_signataire']) : '' ?></span>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button type="button" onclick="belClotClose()" style="border:1px solid #cbd8da;background:#f4f9f9;color:#5b6b70;border-radius:9px;padding:9px 16px;font-weight:800;cursor:pointer;">Annuler</button>
+          <button type="button" onclick="belClotConfirm(this)" <?= ($belSigTotal > 0 && $belSigDone === $belSigTotal) ? '' : 'disabled' ?> style="border:none;background:#15803d;color:#fff;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer;">✅ Valider et clôturer</button>
+          <span id="bel-clot-msg" style="flex:1;font-size:12.5px;font-weight:700;"></span>
+        </div>
+      </div>
+    </div>
     <?php endif; ?>
     <?php
 }

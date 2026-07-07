@@ -907,6 +907,10 @@ if ($kpis) {
         'bien_etage'       => (($bien['etage'] ?? null) !== null && $bien['etage'] !== '' ? ((int)$bien['etage'] === 0 ? 'rez-de-chaussée' : (int)$bien['etage'] . 'ᵉ étage') : ''),
         'bien_copro'       => (!empty($bien['bien_en_copropriete']) ? 'bien en copropriété' . (!empty($bien['lot_tantiemes']) ? ' (' . (int)$bien['lot_tantiemes'] . ' / ' . (int)($bien['copro_nb_lots'] ?: 0) . ' tantièmes)' : '') : ''),
         'bien_description' => (string)($bien['description'] ?? ''),
+        'bien_designation'    => (string)($bien['designation'] ?? ''),
+        'bien_en_copropriete' => !empty($bien['bien_en_copropriete']) ? 1 : 0,
+        'bien_numero_lot'     => (string)($bien['numero_lot'] ?? ''),
+        'bien_tantiemes'      => (string)($bien['lot_tantiemes'] ?? ''),
         'gestionnaire'     => [
             'raison'    => (string)(($socRow['raison_sociale'] ?? '') ?: ($socRow['nom'] ?? '')),
             'forme'     => (string)($socRow['forme_juridique'] ?? ''),
@@ -976,14 +980,19 @@ if ($kpis) {
                     $bpCand = $bp['locataire_raison_sociale'] ?: trim((string)$bp['locataire_prenom'] . ' ' . $bp['locataire_nom']) ?: 'Candidat à définir';
                     $bpSt = $belStatutLbl[$bp['statut']] ?? ['•', $bp['statut']];
                 ?>
-                    <a href="<?= h(app_url('/bail_360.php?id=' . (int)$bp['id'])) ?>" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e5e0ee;border-radius:9px;text-decoration:none;color:#2c2a28;margin-bottom:6px;background:#fbfaff;">
+                    <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #e5e0ee;border-radius:9px;color:#2c2a28;margin-bottom:6px;background:#fbfaff;">
                         <span style="font-size:15px;"><?= $bpSt[0] ?></span>
                         <span style="flex:1;min-width:0;">
-                            <strong style="font-size:13px;"><?= h($bpCand) ?></strong>
-                            <span style="font-size:11px;color:#8a8694;"> · <?= h($bp['numero_bail'] ?: ('#' . $bp['id'])) ?><?= $bp['loyer_mensuel_hc'] ? ' · ' . number_format((float)$bp['loyer_mensuel_hc']*12, 0, ',', ' ') . ' €/an' : '' ?></span>
+                            <strong style="font-size:13px;">🔑 <?= h($bpCand) ?></strong>
+                            <span style="font-size:11px;font-weight:700;color:#5f8f93;"> · <?= h($bpSt[1]) ?></span>
+                            <div style="font-size:11px;color:#8a8694;margin-top:1px;">
+                                <?= h($bp['numero_bail'] ?: ('#' . $bp['id'])) ?>
+                                <?= $bp['date_prise_effet'] ? ' · effet ' . h(date('d/m/Y', strtotime((string)$bp['date_prise_effet']))) : '' ?>
+                                <?= $bp['loyer_mensuel_hc'] ? ' · ' . number_format((float)$bp['loyer_mensuel_hc']*12, 0, ',', ' ') . ' €/an' : '' ?>
+                            </div>
                         </span>
-                        <span style="font-size:11px;font-weight:800;color:#5f8f93;"><?= h($bpSt[1]) ?> ↗</span>
-                    </a>
+                        <a href="<?= h(app_url('/bail_360.php?id=' . (int)$bp['id'])) ?>" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;text-decoration:none;white-space:nowrap;">📂 Reprendre le dossier</a>
+                    </div>
                 <?php endforeach; endif; ?>
             </div>
         </div>

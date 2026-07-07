@@ -3301,6 +3301,12 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                         showToast(file.name, 'success', 'Traité');
                     }
                 }
+                // Rappel appelant (ex. modal bail) : pièce candidat traitée → extraction identité
+                // pour pré-remplir le formulaire. Vaut aussi pour un doublon déjà classé.
+                if (r.data.ok && !d.is_zip && window.FBX_PREFILL
+                    && typeof window.FBX_PREFILL.onCandidateFile === 'function') {
+                    try { window.FBX_PREFILL.onCandidateFile(file, d); } catch (_) {}
+                }
             }
         } catch (e) {
             STATE.errCount++;

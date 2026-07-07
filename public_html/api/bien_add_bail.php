@@ -122,6 +122,13 @@ $honoLoc  = ($body['honoraires_locataire'] ?? null) !== null && $body['honoraire
 $honoChg  = ($honoBail !== null && $honoLoc !== null) ? 'partage' : ($honoBail !== null ? 'bailleur' : 'locataire');
 $cpGen    = trim((string)($body['conditions_particulieres'] ?? '')) ?: null;
 $cpLoyer  = trim((string)($body['conditions_particulieres_loyer'] ?? '')) ?: null;
+$bienDesig = trim((string)($body['bien_designation'] ?? '')) ?: null;
+$enCopro   = !empty($body['en_copropriete']) ? 1 : 0;
+$lotCopro  = $enCopro ? (trim((string)($body['lot_copropriete'] ?? '')) ?: null) : null;
+$lotTant   = $enCopro ? (trim((string)($body['lot_tantiemes'] ?? '')) ?: null) : null;
+$proDate   = (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($body['prorata_date_debut'] ?? '')) ? $body['prorata_date_debut'] : null);
+$travR     = trim((string)($body['travaux_realises'] ?? '')) ?: null;
+$travP     = trim((string)($body['travaux_prevus'] ?? '')) ?: null;
 
 // ── N° séquentiel par société : BX-<soc>-<AA>-<NNNN> ──
 $seq = 1;
@@ -150,6 +157,8 @@ try {
          loyer_mensuel_hc, charges_mensuelles, charges_type, tva_applicable, tva_taux, periodicite_paiement,
          provision_tf_mensuelle, honoraires_gestion_tech_pct, honoraires_locataire_ttc, honoraires_bailleur_ttc, honoraires_charge,
          conditions_particulieres, conditions_particulieres_loyer,
+         bien_designation, en_copropriete, lot_copropriete, lot_tantiemes,
+         prorata_date_debut, travaux_realises_3ans, travaux_prevus_3ans,
          indice_type, indice_trimestre, indice_valeur, depot_garantie, nb_termes_garantie,
          clause_resolutoire, locataire_type, locataire_nom, locataire_prenom, locataire_raison_sociale,
          locataire_siren, locataire_email, locataire_telephone,
@@ -166,6 +175,8 @@ try {
          ?, ?, 'provisions', ?, ?, ?,
          ?, ?, ?, ?, ?,
          ?, ?,
+         ?, ?, ?, ?,
+         ?, ?, ?,
          ?, ?, ?, ?, ?,
          1, ?, ?, ?, ?,
          ?, ?, ?,
@@ -182,6 +193,8 @@ try {
         $loyerMensuel, $charges, $tvaApp, $tvaTaux, $perio,
         $provTf, $techPct, $honoLoc, $honoBail, $honoChg,
         $cpGen, $cpLoyer,
+        $bienDesig, $enCopro, $lotCopro, $lotTant,
+        $proDate, $travR, $travP,
         $indiceType, $indiceTrim, $indiceVal, $depotGar, $nbTermesDG,
         $candType, ($candType === 'physique' ? $candNom : null), ($candType === 'physique' ? $candPrenom : null),
         ($candType === 'societe' ? $candRaison : null),

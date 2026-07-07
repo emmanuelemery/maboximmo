@@ -30,9 +30,9 @@ if (!function_exists('bail_commercial_pdf_context')) {
     {
         $sql = "SELECT bb.*,
             b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
-            b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot, b.id_immeuble,
+            b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot AS bien_numero_lot_src, b.id_immeuble,
             b.description AS bien_description, b.etage AS bien_etage,
-            b.bien_en_copropriete, b.lot_tantiemes, b.copro_nb_lots,
+            b.bien_en_copropriete, b.lot_tantiemes AS bien_tantiemes_src, b.copro_nb_lots,
             b.id_societe AS bien_soc, b.id_agence AS bien_age,
             i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
             p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
@@ -48,16 +48,20 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $bail = $st->fetch(PDO::FETCH_ASSOC);
         if (!$bail) return null;
 
-        // Société gestionnaire (jamais en dur)
+        // Société gestionnaire (jamais en dur). Le bien peut avoir id_societe/id_agence NULL
+        // → on retombe sur ceux stockés SUR LE BAIL (posés à la création) pour ne jamais laisser
+        // le Bailleur sans société de gestion.
+        $socId = (int)($bail['bien_soc'] ?? 0) ?: (int)($bail['id_societe'] ?? 0);
+        $ageId = (int)($bail['bien_age'] ?? 0) ?: (int)($bail['id_agence'] ?? 0);
         $soc = [];
-        if (!empty($bail['bien_soc'])) {
+        if ($socId > 0) {
             $q = $pdo->prepare("SELECT raison_sociale,nom,forme_juridique,capital_social,siren,siret,adresse_1,code_postal,ville,carte_pro_numero,numero_carte_t,carte_pro_cci,cci_carte_t,assurance_rcp,garantie_financiere,rib_emetteur_iban,rib_emetteur_bic,rib_emetteur_nom FROM societes WHERE id=?");
-            $q->execute([(int)$bail['bien_soc']]); $soc = $q->fetch(PDO::FETCH_ASSOC) ?: [];
+            $q->execute([$socId]); $soc = $q->fetch(PDO::FETCH_ASSOC) ?: [];
         }
         $age = [];
-        if (!empty($bail['bien_age'])) {
+        if ($ageId > 0) {
             $q = $pdo->prepare("SELECT nom_agence,adresse_1,code_postal,ville,rcs,iban,bic,banque_nom FROM agences WHERE id=?");
-            $q->execute([(int)$bail['bien_age']]); $age = $q->fetch(PDO::FETCH_ASSOC) ?: [];
+            $q->execute([$ageId]); $age = $q->fetch(PDO::FETCH_ASSOC) ?: [];
         }
 
         $proprioNom = $bail['proprio_tiers_nom'] ?: $bail['proprio_nom_legacy'] ?: '';
@@ -71,13 +75,23 @@ if (!function_exists('bail_commercial_pdf_context')) {
             'bien_ref'     => (string)($bail['reference_bien'] ?: $bail['designation'] ?: ('Bien #' . $bail['id_bien'])),
             'bien_adresse' => trim((string)($bail['bien_adresse'] ?? '') . ' ' . ($bail['bien_cp'] ?? '') . ' ' . ($bail['bien_ville'] ?? '')),
             'immeuble'     => (string)($bail['nom_immeuble'] ?: $bail['imm_adresse'] ?: ''),
-            'numero_lot'   => (string)($bail['numero_lot'] ?? ''),
+            // Lot / tantièmes : priorité aux valeurs CAPTÉES SUR LE BAIL (instantané), sinon celles du bien.
+            'numero_lot'   => (string)(($bail['lot_copropriete'] ?? '') ?: ($bail['bien_numero_lot_src'] ?? '')),
             'surface'      => (float)($bail['surface_habitable'] ?? 0),
-            'bien_description' => (string)($bail['bien_description'] ?? ''),
+            // Désignation du bien : celle saisie sur le bail prime, sinon description du bien.
+            'bien_description' => (string)(($bail['bien_designation'] ?? '') ?: ($bail['bien_description'] ?? '')),
             'bien_etage'   => (($bail['bien_etage'] ?? null) !== null && $bail['bien_etage'] !== '' ? ((int)$bail['bien_etage'] === 0 ? 'rez-de-chaussée' : (int)$bail['bien_etage'] . 'ᵉ étage') : ''),
-            'bien_copro'   => (!empty($bail['bien_en_copropriete']) ? 'bien en copropriété' . (!empty($bail['lot_tantiemes']) ? ' (' . (int)$bail['lot_tantiemes'] . ' / ' . (int)($bail['copro_nb_lots'] ?: 0) . ' tantièmes)' : '') : ''),
+            'bien_copro'   => (function() use ($bail) {
+                $lot  = (string)(($bail['lot_copropriete'] ?? '') ?: ($bail['bien_numero_lot_src'] ?? ''));
+                $tant = (string)(($bail['lot_tantiemes'] ?? '') ?: ($bail['bien_tantiemes_src'] ?? ''));
+                $on   = !empty($bail['en_copropriete']) || !empty($bail['bien_en_copropriete']) || $lot !== '' || $tant !== '';
+                if (!$on) return '';
+                return 'bien en copropriété' . ($tant !== '' ? ' (' . $tant . ' tantièmes)' : '');
+            })(),
             'cond_particulieres' => (string)($bail['conditions_particulieres'] ?? ''),
             'cond_loyer'   => (string)($bail['conditions_particulieres_loyer'] ?? ''),
+            'travaux_realises' => (string)($bail['travaux_realises_3ans'] ?? ''),
+            'travaux_prevus'   => (string)($bail['travaux_prevus_3ans'] ?? ''),
             'preneur' => [
                 'type'      => ($bail['locataire_type'] ?? 'societe') === 'physique' ? 'physique' : 'societe',
                 'raison'    => (string)($bail['locataire_raison_sociale'] ?? ''),
@@ -147,6 +161,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 'hono_bail'     => ($bail['honoraires_bailleur_ttc'] ?? null) !== null ? (float)$bail['honoraires_bailleur_ttc'] : null,
                 'hono_charge'   => (string)($bail['honoraires_charge'] ?? 'locataire'),
                 'date_effet_raw'=> (string)($bail['date_prise_effet'] ?? ''),
+                'prorata_date'  => (string)($bail['prorata_date_debut'] ?? ''),
             ],
         ];
     }
@@ -155,7 +170,9 @@ if (!function_exists('bail_commercial_pdf_context')) {
     function bail_commercial_articles_html(array $ctx): string
     {
         $ge = $ctx['gestionnaire']; $pr = $ctx['preneur']; $c = $ctx['cond'];
-        $mut = fn($v) => $v !== null && $v !== '' ? $v : '<span style="color:#999">………………</span>';
+        // Placeholder en TEXTE SIMPLE (pas de HTML) : le résultat passe par bcp_e() partout,
+        // qui échapperait des balises → on ne met qu'une ligne de pointillés à compléter.
+        $mut = fn($v) => $v !== null && $v !== '' ? $v : '……………………';
 
         // Preneur (bloc identité complet)
         if ($pr['type'] === 'societe') {
@@ -210,8 +227,10 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $ttc = fn($x) => $tvaOn ? $x * (1 + $tvaTaux / 100) : $x;
         // prorata 1er terme selon la date d'effet
         $ratio = 1.0; $prLabel = '';
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $c['date_effet_raw'])) {
-            $ts = strtotime($c['date_effet_raw']); $y=(int)date('Y',$ts); $m=(int)date('n',$ts); $d=(int)date('j',$ts);
+        // Point de départ du prorata : date de prorata saisie, sinon date de prise d'effet.
+        $prorataRaw = ($c['prorata_date'] ?? '') ?: $c['date_effet_raw'];
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $prorataRaw)) {
+            $ts = strtotime($prorataRaw); $y=(int)date('Y',$ts); $m=(int)date('n',$ts); $d=(int)date('j',$ts);
             if ($c['perio'] === 'trimestrielle') {
                 $qs = intdiv($m-1,3)*3+1; $start=mktime(0,0,0,$qs,1,$y); $end=mktime(0,0,0,$qs+3,0,$y);
                 $tot=(int)round(($end-$start)/86400)+1; $rem=(int)round(($end-$ts)/86400)+1; $ratio=$tot>0?$rem/$tot:1; $prLabel='trimestre';
@@ -321,6 +340,27 @@ if (!function_exists('bail_commercial_pdf_context')) {
             $h .= '<h2>Décompte des sommes à verser à la signature</h2>';
             $h .= '<table class="tbl"><tbody>' . $rowsD . '</tbody></table>';
             $h .= '<p class="mut">Règlement par virement' . ($ge['rib_iban'] ? ' — ' . bcp_e($ge['rib_nom'] ?: 'compte de l\'agence') . ', IBAN ' . bcp_e($ge['rib_iban']) : ' sur le compte de l\'agence') . '.</p>';
+        }
+
+        // ── Échéance périodique : appel de loyer complet (loyer + charges + provisions + TVA) ──
+        $baseHT   = ($loyerMn + $chargesMn + $techMn) * $mult;   // assiette assujettie à la TVA
+        $tfPeriod = $tfMn * $mult;                               // provision TF (hors TVA)
+        $tvaMt    = $tvaOn ? $baseHT * $tvaTaux / 100 : 0.0;
+        $totalEch = $baseHT + $tvaMt + $tfPeriod;
+        if ($totalEch > 0) {
+            $per = $c['perio'] === 'trimestrielle' ? 'trimestrielle' : 'mensuelle';
+            $rowsE = '';
+            $rowsE .= '<tr><td>Loyer hors charges</td><td style="text-align:right">' . bcp_e((string)bcp_eur($loyerMn * $mult)) . '</td></tr>';
+            if ($chargesMn) $rowsE .= '<tr><td>Provision pour charges</td><td style="text-align:right">' . bcp_e((string)bcp_eur($chargesMn * $mult)) . '</td></tr>';
+            if ($techMn)    $rowsE .= '<tr><td>Honoraires de gestion technique (' . rtrim(rtrim(number_format($techPct,2,',',''),'0'),',') . ' %)</td><td style="text-align:right">' . bcp_e((string)bcp_eur($techMn * $mult)) . '</td></tr>';
+            $rowsE .= '<tr><td><b>Sous-total hors taxes</b></td><td style="text-align:right"><b>' . bcp_e((string)bcp_eur($baseHT)) . '</b></td></tr>';
+            if ($tvaOn) $rowsE .= '<tr><td>TVA ' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %</td><td style="text-align:right">' . bcp_e((string)bcp_eur($tvaMt)) . '</td></tr>';
+            if ($tfPeriod) $rowsE .= '<tr><td>Provision taxe foncière' . ($tvaOn ? ' (non soumise à TVA)' : '') . '</td><td style="text-align:right">' . bcp_e((string)bcp_eur($tfPeriod)) . '</td></tr>';
+            $rowsE .= '<tr><td><b>Total de l\'échéance ' . $per . ($tvaOn ? ' TTC' : '') . '</b></td><td style="text-align:right"><b>' . bcp_e((string)bcp_eur($totalEch)) . '</b></td></tr>';
+            $h .= '<h2>Échéance périodique &ndash; appel de loyer</h2>';
+            $h .= '<p>Le Preneur réglera, ' . $perioTxt . ', l\'échéance suivante regroupant le loyer, les provisions et, le cas échéant, la taxe sur la valeur ajoutée&nbsp;:</p>';
+            $h .= '<table class="tbl"><tbody>' . $rowsE . '</tbody></table>';
+            $h .= '<p class="mut">Les provisions de charges et de taxe foncière sont régularisées annuellement sur justificatifs. Le loyer est révisé selon l\'indice ci-dessus.</p>';
         }
 
         $h .= $art('Entretien et réparations',
@@ -447,20 +487,67 @@ if (!function_exists('bail_commercial_pdf_context')) {
         // ── Annexe 2 : travaux (L.145-40-2) ──
         $h .= '<h2>Annexe 2 &ndash; État prévisionnel et récapitulatif des travaux</h2>';
         $h .= '<p class="sub2">Article L.145-40-2 du Code de commerce.</p>';
-        $h .= '<table class="tbl"><thead><tr><th>Période</th><th>Travaux</th><th>Coût / à la charge de</th></tr></thead><tbody>'
-            . '<tr><td>Trois années écoulées</td><td>Récapitulatif des travaux réalisés</td><td>Néant / à compléter</td></tr>'
-            . '<tr><td>Trois années à venir</td><td>État prévisionnel des travaux envisagés</td><td>Néant / à compléter</td></tr>'
+        $travR = trim((string)($ctx['travaux_realises'] ?? '')); $travP = trim((string)($ctx['travaux_prevus'] ?? ''));
+        $h .= '<table class="tbl"><thead><tr><th>Période</th><th>Travaux</th></tr></thead><tbody>'
+            . '<tr><td style="width:32%;">Trois années écoulées<br><span class="mut">Récapitulatif des travaux réalisés</span></td><td>' . ($travR !== '' ? nl2br(bcp_e($travR)) : '<span class="mut">Néant</span>') . '</td></tr>'
+            . '<tr><td>Trois années à venir<br><span class="mut">État prévisionnel des travaux envisagés</span></td><td>' . ($travP !== '' ? nl2br(bcp_e($travP)) : '<span class="mut">Néant</span>') . '</td></tr>'
             . '</tbody></table>';
         $h .= '<p class="mut">Le Bailleur informera le Preneur, en cours de bail, de tout nouveau travaux envisagé et de son coût prévisionnel.</p>';
 
-        // ── Signatures ──
+        // ── Signatures (tracés incrustés si le bail est signé) ──
+        $sigs = $ctx['signatures'] ?? [];
+        $findSig = function (string $role) use ($sigs): ?array {
+            foreach ($sigs as $s) {
+                if (($s['role_code'] ?? '') === $role && ($s['statut'] ?? '') === 'signe') return $s;
+            }
+            return null;
+        };
+        // Rendu d'une case signataire : image du tracé + « Lu et approuvé » + date, sinon ligne à signer.
+        $sigCell = function (?array $sig, string $mention = 'Lu et approuvé'): string {
+            if ($sig && !empty($sig['signature_data']) && strncmp((string)$sig['signature_data'], 'data:image', 10) === 0) {
+                $dt = bcp_date($sig['signed_at'] ?? null);
+                $hasPhoto = !empty($sig['photo_preuve']) && strncmp((string)$sig['photo_preuve'], 'data:image', 10) === 0;
+                $out = '<span class="mut">« ' . $mention . ' »</span><br>';
+                if ($hasPhoto) {
+                    // Tracé + photo-preuve côte à côte.
+                    $out .= '<table style="border-collapse:collapse;"><tr>'
+                        . '<td style="vertical-align:middle;padding:0 8px 0 0;"><img src="' . $sig['signature_data'] . '" style="max-height:60px;max-width:150px;"></td>'
+                        . '<td style="vertical-align:middle;"><img src="' . $sig['photo_preuve'] . '" style="max-height:64px;max-width:64px;border:0.5pt solid #999;">'
+                        . '<br><span class="mut" style="font-size:7pt;">photo-preuve</span></td>'
+                        . '</tr></table>';
+                } else {
+                    $out .= '<img src="' . $sig['signature_data'] . '" style="max-height:64px;max-width:190px;">';
+                }
+                $out .= '<span class="mut">' . bcp_e((string)($sig['nom_signataire'] ?? '')) . ($dt ? ' &mdash; signé le ' . bcp_e($dt) : '') . '</span>';
+                return $out;
+            }
+            return 'Signature précédée de la mention « ' . $mention . ' »<br><br><br>………………………………';
+        };
+        $sigPreneur = $findSig('preneur');
+        $sigCaution = $findSig('caution');
+        $sigBailleur = $findSig('mandataire') ?: $findSig('bailleur');
+
         $lieu = $ge['ville_sig'] ?: '……………………';
+        $anySigned = $sigPreneur || $sigCaution || $sigBailleur;
+        $dateFait = $anySigned ? (bcp_date(($sigPreneur['signed_at'] ?? null) ?: ($sigCaution['signed_at'] ?? null) ?: ($sigBailleur['signed_at'] ?? null)) ?: '……………………') : '……………………';
         $h .= '<div class="sign">';
-        $h .= '<p>Fait à ' . bcp_e($lieu) . ', le ……………………, en deux exemplaires originaux, dont un remis à chaque partie.</p>';
+        $h .= '<p>Fait à ' . bcp_e($lieu) . ', le ' . bcp_e($dateFait) . ', en deux exemplaires originaux, dont un remis à chaque partie.</p>';
         $h .= '<table class="sigtbl"><tr>'
-            . '<td><b>LE BAILLEUR</b><br><span class="mut">(ou son mandataire)</span><br><br>Signature précédée de la mention « Lu et approuvé »<br><br><br>………………………………</td>'
-            . '<td><b>LE PRENEUR</b><br><span class="mut">&nbsp;</span><br><br>Signature précédée de la mention « Lu et approuvé »<br><br><br>………………………………</td>'
-            . '</tr></table>';
+            . '<td><b>LE BAILLEUR</b><br><span class="mut">(ou son mandataire)</span><br><br>' . $sigCell($sigBailleur) . '</td>'
+            . '<td><b>LE PRENEUR</b><br><span class="mut">&nbsp;</span><br><br>' . $sigCell($sigPreneur) . '</td>'
+            . '</tr>'
+            . (!empty($gar['present']) ? '<tr><td colspan="2" style="padding-top:14px;"><b>LA CAUTION</b> <span class="mut">(bon pour caution solidaire)</span><br><br>' . $sigCell($sigCaution, 'Bon pour caution solidaire, lu et approuvé') . '</td></tr>' : '')
+            . '</table>';
+        if ($anySigned) {
+            $preuve = [];
+            foreach ($sigs as $s) {
+                if (($s['statut'] ?? '') !== 'signe') continue;
+                $preuve[] = ucfirst((string)($s['role_code'] ?? '')) . ' : ' . bcp_e((string)($s['nom_signataire'] ?? ''))
+                    . (!empty($s['ip']) ? ' — IP ' . bcp_e((string)$s['ip']) : '')
+                    . (!empty($s['signed_at']) ? ' — ' . bcp_e((string)$s['signed_at']) : '');
+            }
+            if ($preuve) $h .= '<p class="mut" style="margin-top:10px;">Preuve de signature électronique &mdash; ' . implode(' · ', $preuve) . '.</p>';
+        }
         $h .= '</div>';
 
         $h .= '</div>';
@@ -472,6 +559,34 @@ if (!function_exists('bail_commercial_pdf_context')) {
     {
         $ctx = bail_commercial_pdf_context($pdo, $bailId);
         if ($ctx === null) throw new RuntimeException('Bail #' . $bailId . ' introuvable.');
+
+        // Signatures électroniques (tracés PNG) — pour incrustation dans le bloc signatures + paraphe.
+        $ctx['signatures'] = [];
+        try {
+            // photo_preuve peut ne pas exister (migration 20260707c non passée) → repli sans la colonne.
+            try {
+                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, photo_preuve, statut, ip, signed_at
+                                       FROM bail_signatures WHERE id_bail = ? ORDER BY id ASC");
+                $qs->execute([$bailId]);
+            } catch (Throwable) {
+                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, statut, ip, signed_at
+                                       FROM bail_signatures WHERE id_bail = ? ORDER BY id ASC");
+                $qs->execute([$bailId]);
+            }
+            $ctx['signatures'] = $qs->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable) { /* table absente / bail non signé → aucun tracé */ }
+        // Paraphe (initiales du preneur) répété en pied de page une fois signé.
+        $paraphe = '……';
+        foreach ($ctx['signatures'] as $s) {
+            if (($s['role_code'] ?? '') === 'preneur' && ($s['statut'] ?? '') === 'signe') {
+                $ini = '';
+                foreach (preg_split('/\s+/', trim((string)($s['nom_signataire'] ?? ''))) as $w) {
+                    if ($w !== '') $ini .= mb_strtoupper(mb_substr($w, 0, 1));
+                }
+                if ($ini !== '') $paraphe = $ini;
+                break;
+            }
+        }
 
         // Filigrane PROJET : par défaut selon le statut ; forçable via le toggle (true = filigrané,
         // false = version définitive sans filigrane), quel que soit le statut.
@@ -521,7 +636,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $mpdf->SetAuthor($ctx['gestionnaire']['raison'] ?: 'MaBoxImmo');
         $mpdf->SetHTMLFooter('<div style="text-align:center;font-size:7.5pt;color:#999;border-top:0.4pt solid #ddd;padding-top:3px;">'
             . 'Bail commercial' . ($ctx['numero_bail'] ? ' &mdash; ' . bcp_e($ctx['numero_bail']) : '')
-            . ' &mdash; page {PAGENO}/{nbpg} &mdash; paraphe : ……</div>');
+            . ' &mdash; page {PAGENO}/{nbpg} &mdash; paraphe : ' . bcp_e($paraphe) . '</div>');
 
         if ($withProjet) {
             $mpdf->SetWatermarkText('PROJET');

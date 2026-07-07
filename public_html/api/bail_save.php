@@ -61,6 +61,13 @@ $honoLoc=($body['honoraires_locataire']??null)!==null&&$body['honoraires_locatai
 $honoChg=($honoBail!==null&&$honoLoc!==null)?'partage':($honoBail!==null?'bailleur':'locataire');
 $cpGen=trim((string)($body['conditions_particulieres']??''))?:null;
 $cpLoyer=trim((string)($body['conditions_particulieres_loyer']??''))?:null;
+$bienDesig=trim((string)($body['bien_designation']??''))?:null;
+$enCopro=!empty($body['en_copropriete'])?1:0;
+$lotCopro=$enCopro?(trim((string)($body['lot_copropriete']??''))?:null):null;
+$lotTant=$enCopro?(trim((string)($body['lot_tantiemes']??''))?:null):null;
+$proDate=(preg_match('/^\d{4}-\d{2}-\d{2}$/',(string)($body['prorata_date_debut']??''))?$body['prorata_date_debut']:null);
+$travR=trim((string)($body['travaux_realises']??''))?:null;
+$travP=trim((string)($body['travaux_prevus']??''))?:null;
 $loyerAnnuel=(float)($body['loyer_annuel_ht']??0); $loyerMensuel=$loyerAnnuel>0?round($loyerAnnuel/12,2):null;
 $nbDG=($body['nb_termes_garantie']??null)!==null?(int)$body['nb_termes_garantie']:null;
 $depotGar=($nbDG&&$loyerMensuel)?round($nbDG*$loyerMensuel,2):null;
@@ -81,6 +88,8 @@ $sql="UPDATE bien_baux SET
     tva_applicable=?, tva_taux=?, periodicite_paiement=?, provision_tf_mensuelle=?, honoraires_gestion_tech_pct=?,
     honoraires_locataire_ttc=?, honoraires_bailleur_ttc=?, honoraires_charge=?,
     conditions_particulieres=?, conditions_particulieres_loyer=?,
+    bien_designation=?, en_copropriete=?, lot_copropriete=?, lot_tantiemes=?,
+    prorata_date_debut=?, travaux_realises_3ans=?, travaux_prevus_3ans=?,
     updated_at=NOW()
     WHERE id=?";
 try {
@@ -108,6 +117,8 @@ try {
         $tvaApp, $tvaTaux, $perio, $provTf, $techPct,
         $honoLoc, $honoBail, $honoChg,
         $cpGen, $cpLoyer,
+        $bienDesig, $enCopro, $lotCopro, $lotTant,
+        $proDate, $travR, $travP,
         $bailId,
     ]);
 } catch (Throwable $e) { http_response_code(500); exit(json_encode(['ok'=>false,'error'=>'Enregistrement échoué : '.$e->getMessage()], JSON_UNESCAPED_UNICODE)); }
