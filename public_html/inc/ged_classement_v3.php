@@ -292,18 +292,21 @@ if (!function_exists('ged_v3_suggest_n1_by_role')) {
 
 if (!function_exists('ged_v3_validate_minimum')) {
     /**
-     * Valide qu'un classement candidat respecte le minimum obligatoire N1+N2+N3.
+     * Valide le minimum obligatoire d'un classement candidat.
+     *
+     * MODÈLE 11 ZONES (2026-07) : le rangement est déterminé par le Type de document
+     * + l'entité (Société · Agence · Métier · Propriétaire · Immeuble · Bien · Bail ·
+     * Type · Réf · Libellé · Date). Le Domaine (N2) et le Sous-domaine (N3) sont
+     * désormais DÉRIVÉS/optionnels — plus saisis à la main. On n'exige donc plus que
+     * le Métier (N1). (Auparavant : N1+N2+N3, ce qui bloquait à tort les types comme la CNI.)
      *
      * @return array{ok:bool, errors:array<string>}
      */
     function ged_v3_validate_minimum(array $classement): array
     {
         $errors = [];
-        foreach (['n1' => 'Métier (N1)', 'n2' => 'Domaine (N2)', 'n3' => 'Sous-domaine (N3)'] as $k => $label) {
-            $v = trim((string)($classement[$k] ?? ''));
-            if ($v === '') {
-                $errors[] = "$label requis";
-            }
+        if (trim((string)($classement['n1'] ?? '')) === '') {
+            $errors[] = 'Métier (N1) requis';
         }
         return ['ok' => count($errors) === 0, 'errors' => $errors];
     }

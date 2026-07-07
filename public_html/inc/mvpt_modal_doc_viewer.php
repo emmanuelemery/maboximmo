@@ -72,6 +72,9 @@
 <script>
 (function() {
     let mvptCurrentDocId = 0;
+    // URLs API préfixées par la base de l'app (sinon 404 en local sous sous-dossier).
+    const MVPT_SERVE = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_serve.php') : '/api/ged_doc_serve.php') ?>;
+    const MVPT_INFO  = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_info.php') : '/api/ged_doc_info.php') ?>;
     const esc = function(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; };
 
     function renderFields(fields){
@@ -93,7 +96,7 @@
         if (mvptCurrentDocId <= 0) return;
         if (!confirm('Re-classer ce document via la pile FluxBox ?')) return;
         try {
-            const res = await fetch('/api/ged_doc_send_to_reclass.php', {
+            const res = await fetch(<?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_send_to_reclass.php') : '/api/ged_doc_send_to_reclass.php') ?>, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ doc_id: mvptCurrentDocId }), credentials: 'same-origin',
             });
@@ -115,20 +118,25 @@
         title.textContent = '📄 ' + (name || 'Document #' + docId);
         body.innerHTML = '<div class="mvpt-modal-loading">⏳ Chargement…</div>';
         footer.textContent = 'doc #' + docId + ' · récupération métadonnées…';
-        openLink.href = '/api/ged_doc_serve.php?id=' + docId;
+        openLink.href = MVPT_SERVE + '?id=' + docId;
         renderFields(fields);
         backdrop.classList.add('open');
 
         try {
-            const r = await fetch('/api/ged_doc_info.php?id=' + docId, {credentials:'same-origin'});
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const r = await fetch(MVPT_INFO + '?id=' + docId, {credentials:'same-origin'});
+            if (!r.ok) {
+                // Remonte le motif exact du serveur (ex. « Hors société », « chemin hors zone »)
+                let motif = '';
+                try { const t = await r.text(); try { motif = (JSON.parse(t).error || '').toString(); } catch(_) { motif = t; } } catch(_) {}
+                throw new Error('HTTP ' + r.status + (motif ? ' — ' + motif.slice(0, 160) : ''));
+            }
             const j = await r.json();
             if (j.error) throw new Error(j.error);
             if (!j.ged_document) throw new Error('Document introuvable');
 
             const doc = j.ged_document;
             const mime = (doc.mime_type || '').toLowerCase();
-            const viewerUrl = '/api/ged_doc_serve.php?id=' + docId;
+            const viewerUrl = MVPT_SERVE + '?id=' + docId;
 
             if (mime.includes('pdf')) {
                 body.innerHTML = '<iframe src="' + viewerUrl + '" title="' + esc(doc.name_file || '') + '"></iframe>';

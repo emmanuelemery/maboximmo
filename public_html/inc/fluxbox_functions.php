@@ -879,15 +879,34 @@ if (!function_exists('fluxbox_carte_validate')) {
 
             // 1. Promotion vers ged_documents si la carte a un document attaché
             if (!empty($carte['document_id'])) {
-                // V2 : si on a une entity_instance, on ignore le namingOverride Variante A pour
-                // forcer le passage par le builder V3 qui injecte l'instance dans le segment N3.
-                // Si pas d'instance, on garde le naming VA si dispo.
                 $namingOverride = null;
-                $hasEntityInstance = trim((string)$classement['entity_instance']) !== '';
-                if (!$hasEntityInstance
-                    && !empty($carte['naming_proposed'])
-                    && in_array((string)($carte['naming_status'] ?? ''), ['ready','needs_review'], true)) {
-                    $namingOverride = (string)$carte['naming_proposed'];
+                // ── CONVERGENCE GED : base fonctionnelle = MaBoxOffice ───────────────
+                // Entité connue (bail/bien/immeuble/tiers) → on NOMME via le moteur MaBoxOffice
+                // (entité + type glossaire), qui devient la base unique du nom GED. Fallback
+                // sur le naming historique (VA) uniquement si MBO ne peut rien produire.
+                $mboEntType = ''; $mboEntId = 0;
+                if (!empty($proposition['bail_id']))         { $mboEntType='BAIL';  $mboEntId=(int)$proposition['bail_id']; }
+                elseif (!empty($proposition['bien_id']))     { $mboEntType='BIEN';  $mboEntId=(int)$proposition['bien_id']; }
+                elseif (!empty($proposition['immeuble_id'])) { $mboEntType='IMB';   $mboEntId=(int)$proposition['immeuble_id']; }
+                elseif (!empty($proposition['tiers_id']))    { $mboEntType='TIERS'; $mboEntId=(int)$proposition['tiers_id']; }
+                $mboType = strtoupper((string)(
+                    $overrides['forced_type_doc']
+                    ?? $proposition['forced_type_doc']
+                    ?? $classement['type_doc']
+                    ?? ''
+                ));
+                if ($mboEntType !== '' && $mboEntId > 0 && function_exists('fluxbox_mbo_ged_name')) {
+                    $mboName = fluxbox_mbo_ged_name($pdo, (int)$carte['document_id'], $mboEntType, $mboEntId, $mboType, true);
+                    if ($mboName !== '') $namingOverride = $mboName;
+                }
+                // Fallback historique (Variante A) si pas de nom MaBoxOffice.
+                if ($namingOverride === null) {
+                    $hasEntityInstance = trim((string)$classement['entity_instance']) !== '';
+                    if (!$hasEntityInstance
+                        && !empty($carte['naming_proposed'])
+                        && in_array((string)($carte['naming_status'] ?? ''), ['ready','needs_review'], true)) {
+                        $namingOverride = (string)$carte['naming_proposed'];
+                    }
                 }
                 $gedDocId = fluxbox_promote_to_ged((int)$carte['document_id'], $classement, $pdo, $namingOverride);
 
@@ -1223,32 +1242,148 @@ if (!function_exists('fluxbox_promote_to_ged')) {
         $uuid = ged_generate_uuid();
         $sourceModule = (string)($classement['n1'] ?? '');
 
-        $stIns = $pdo->prepare("
-            INSERT INTO `ged_documents`
-              (`uuid`, `tenant_id`, `folder_id`, `societe_id`, `agence_id`,
-               `name_display`, `name_canonical`, `name_file`,
-               `source_module`, `storage_provider`, `mime_type`, `size_bytes`,
-               `hash_sha256`, `metadata`, `status`, `version`,
-               `fluxbox_source_id`, `created_by`)
-            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'local', ?, ?, ?, ?, 'active', 1, ?, ?)
-        ");
-        $stIns->execute([
-            $uuid, $tenantId,
-            $ctx['societe_id'], $ctx['agence_id'],
-            $nameDisplay, $nameCanonical, $nameCanonical,
-            $sourceModule,
-            (string)$fluxDoc['mime_type'],
-            (int)$fluxDoc['taille_octets'],
-            (string)$fluxDoc['hash_sha256'],
-            json_encode([
-                'classement' => $classement,
-                'fluxbox_id' => $fluxboxDocId,
-                'source_type' => $fluxDoc['source_type'],
-            ], JSON_UNESCAPED_UNICODE),
-            $fluxboxDocId,
-            $userId ?: null,
-        ]);
-        return (int)$pdo->lastInsertId();
+        // Type de document (glossaire) : sans lui, le doc tombe en « Documents divers » et ne
+        // coche aucune pièce de base (ex. « Bail signé »). On le reprend de la carte.
+        $docTypeCode = strtolower(trim((string)($classement['type_doc'] ?? $classement['document_type'] ?? '')));
+        if ($docTypeCode === '') {
+            try {
+                $stT = $pdo->prepare("SELECT proposition_json FROM fluxbox_cartes WHERE document_id = ? ORDER BY id DESC LIMIT 1");
+                $stT->execute([$fluxboxDocId]);
+                $pT = json_decode((string)$stT->fetchColumn(), true) ?: [];
+                $docTypeCode = strtolower(trim((string)($pT['forced_type_doc'] ?? ($pT['classement']['type_doc'] ?? ''))));
+            } catch (Throwable) {}
+        }
+
+        // ── ANTI-DOUBLON TRANSVERSAL PAR HASH ──────────────────────────────────
+        // Le MÊME fichier peut déjà être en GED via un AUTRE chemin (MaBoxOffice /
+        // gus_commit_document) : la garde `fluxbox_source_id` plus haut ne le voit pas.
+        // On ne recrée JAMAIS de ligne pour un fichier identique → on réutilise la
+        // ligne existante et on lui attache simplement les liens d'entité ci-dessous.
+        $hashDoc  = (string)($fluxDoc['hash_sha256'] ?? '');
+        $gedDocId = 0;
+        if ($hashDoc !== '') {
+            $stH = $pdo->prepare("SELECT id FROM ged_documents
+                                   WHERE hash_sha256 = ? AND tenant_id = ?
+                                     AND status IN ('active','archived')
+                                   ORDER BY id ASC LIMIT 1");
+            $stH->execute([$hashDoc, $tenantId]);
+            $gedDocId = (int)$stH->fetchColumn();
+            if ($gedDocId > 0) {
+                // Rattache la source fluxbox si absente (on garde le nom déjà en base).
+                $pdo->prepare("UPDATE ged_documents SET fluxbox_source_id = COALESCE(fluxbox_source_id, ?) WHERE id = ?")
+                    ->execute([$fluxboxDocId, $gedDocId]);
+            }
+        }
+        if ($gedDocId === 0) {
+            $stIns = $pdo->prepare("
+                INSERT INTO `ged_documents`
+                  (`uuid`, `tenant_id`, `folder_id`, `societe_id`, `agence_id`,
+                   `name_display`, `name_canonical`, `name_file`,
+                   `document_type`, `source_module`, `storage_provider`, `mime_type`, `size_bytes`,
+                   `hash_sha256`, `metadata`, `status`, `version`,
+                   `fluxbox_source_id`, `created_by`)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?, ?, ?, 'active', 1, ?, ?)
+            ");
+            $stIns->execute([
+                $uuid, $tenantId,
+                $ctx['societe_id'], $ctx['agence_id'],
+                $nameDisplay, $nameCanonical, $nameCanonical,
+                ($docTypeCode !== '' ? $docTypeCode : null),
+                $sourceModule,
+                (string)$fluxDoc['mime_type'],
+                (int)$fluxDoc['taille_octets'],
+                (string)$fluxDoc['hash_sha256'],
+                json_encode([
+                    'classement' => $classement,
+                    'fluxbox_id' => $fluxboxDocId,
+                    'source_type' => $fluxDoc['source_type'],
+                ], JSON_UNESCAPED_UNICODE),
+                $fluxboxDocId,
+                $userId ?: null,
+            ]);
+            $gedDocId = (int)$pdo->lastInsertId();
+        }
+
+        // ── LIENS D'ENTITÉ (CRITIQUE) ──────────────────────────────────────────
+        // Sans ça, un doc validé manuellement est ORPHELIN : invisible dans les fiches
+        // 360 (bien/bail/immeuble) qui lisent via ged_document_links. On aligne le
+        // classement manuel sur l'auto-commit : entité principale + références (immeuble…).
+        try {
+            $stC = $pdo->prepare("SELECT proposition_json FROM fluxbox_cartes WHERE document_id = ? ORDER BY id DESC LIMIT 1");
+            $stC->execute([$fluxboxDocId]);
+            $prop = json_decode((string)$stC->fetchColumn(), true) ?: [];
+
+            $bailId  = (int)($prop['bail_id']     ?? $classement['bail_id']     ?? 0);
+            $bienId  = (int)($prop['bien_id']     ?? $classement['bien_id']     ?? 0);
+            $immId   = (int)($prop['immeuble_id'] ?? $classement['immeuble_id'] ?? 0);
+            $tiersId = (int)($prop['tiers_id']    ?? $classement['tiers_id']    ?? 0);
+            $creaId  = (int)($prop['creancier_dossier_id'] ?? 0);
+
+            $stLink = $pdo->prepare("
+                INSERT INTO ged_document_links
+                    (tenant_id, document_id, entity_type, entity_id, relation_type, is_validated, validated_at, created_at)
+                VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE is_validated = 1, validated_at = NOW()
+            ");
+
+            if ($creaId > 0) {
+                $stLink->execute([$tenantId, $gedDocId, 'CREANCIER_DOSSIER', $creaId, 'main']);
+            } elseif ($bailId > 0) {
+                // Bail → principal ; bien + immeuble en référence (le doc remonte sur le bien).
+                $stLink->execute([$tenantId, $gedDocId, 'BAIL', $bailId, 'main']);
+                $rb = $pdo->prepare("SELECT bb.id_bien, b.id_immeuble FROM bien_baux bb JOIN biens b ON b.id = bb.id_bien WHERE bb.id = ?");
+                $rb->execute([$bailId]); $r = $rb->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (!empty($r['id_bien']))     $stLink->execute([$tenantId, $gedDocId, 'BIEN', (int)$r['id_bien'], 'reference']);
+                if (!empty($r['id_immeuble'])) $stLink->execute([$tenantId, $gedDocId, 'IMB', (int)$r['id_immeuble'], 'reference']);
+            } elseif ($bienId > 0) {
+                $ri = $pdo->prepare("SELECT id_immeuble, id_proprietaire FROM biens WHERE id = ?");
+                $ri->execute([$bienId]); $rbi = $ri->fetch(PDO::FETCH_ASSOC) ?: [];
+                $immFromBien = (int)($rbi['id_immeuble'] ?? 0);
+                // Règle TAXE FONCIÈRE : une TF couvre TOUS les lots de l'immeuble. Si le
+                // propriétaire a >1 bien dans cet immeuble → principal = IMMEUBLE (bien en réf).
+                $typeDoc = strtolower((string)($prop['forced_type_doc'] ?? $classement['type_doc'] ?? ''));
+                $isTF = ($typeDoc === 'taxe_fonciere')
+                     || stripos((string)$nameCanonical, 'taxe') !== false
+                     || stripos((string)($classement['n3'] ?? ''), 'taxe_fonciere') !== false;
+                $multiLots = false;
+                if ($isTF && $immFromBien > 0 && !empty($rbi['id_proprietaire'])) {
+                    $cnt = $pdo->prepare("SELECT COUNT(*) FROM biens WHERE id_immeuble = ? AND id_proprietaire = ?");
+                    $cnt->execute([$immFromBien, (int)$rbi['id_proprietaire']]);
+                    $multiLots = ((int)$cnt->fetchColumn()) > 1;
+                }
+                if ($multiLots) {
+                    // TF multi-lots → immeuble principal, bien en référence.
+                    $stLink->execute([$tenantId, $gedDocId, 'IMB', $immFromBien, 'main']);
+                    $stLink->execute([$tenantId, $gedDocId, 'BIEN', $bienId, 'reference']);
+                } else {
+                    // Cas standard → bien principal, immeuble en référence.
+                    $stLink->execute([$tenantId, $gedDocId, 'BIEN', $bienId, 'main']);
+                    if ($immFromBien > 0) $stLink->execute([$tenantId, $gedDocId, 'IMB', $immFromBien, 'reference']);
+                }
+                // Doc de TYPE BAIL chargé depuis le bien (sans bail_id explicite) → on le rattache
+                // AUSSI au bail actif du bien, sinon il n'apparaît jamais dans « Documents du bail »
+                // ni dans « Pièces bail » sur bail_360.
+                $n4 = strtoupper((string)($classement['n4'] ?? ''));
+                $isBailDoc = ($n4 === 'BAIL')
+                          || (bool)preg_match('/^(bail|edl|etat_des_lieux|avenant|caution|acte_de_caution)/', $typeDoc);
+                if ($isBailDoc) {
+                    $ab = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien = ? AND statut IN ('actif','signe') ORDER BY id DESC LIMIT 1");
+                    $ab->execute([$bienId]);
+                    $activeBail = (int)$ab->fetchColumn();
+                    // relation MAIN : c'est LE document du bail (bail signé, EDL…) → apparaît dans
+                    // « Documents du bail » et coche « Pièces bail », pas seulement « Mentionné dans ».
+                    if ($activeBail > 0) $stLink->execute([$tenantId, $gedDocId, 'BAIL', $activeBail, 'main']);
+                }
+            } elseif ($immId > 0) {
+                $stLink->execute([$tenantId, $gedDocId, 'IMB', $immId, 'main']);
+            } elseif ($tiersId > 0) {
+                $stLink->execute([$tenantId, $gedDocId, 'TIERS', $tiersId, 'reference']);
+            }
+        } catch (Throwable $e) {
+            error_log('[fluxbox_promote_to_ged] liens entité échoués doc#' . $gedDocId . ' : ' . $e->getMessage());
+        }
+
+        return $gedDocId;
     }
 }
 
@@ -1288,5 +1423,71 @@ if (!function_exists('fluxbox_action_execute')) {
             SET `statut` = ?, `executed_at` = NOW(), `result_json` = ?
             WHERE `id` = ?
         ")->execute([$statut, $resultJson, (int)$action['id']]);
+    }
+}
+
+if (!function_exists('fluxbox_resolve_agence_of_entity')) {
+    /**
+     * Agence de rattachement d'une entité (bien/immeuble/bail/propriétaire/salarié),
+     * en cascade : bien → immeuble/propriétaire → agence. Logique UNIQUE reprise de
+     * MaBoxOffice (mbo_agence_of_entity) pour un contexte société/agence FIABLE dans
+     * TOUS les points d'entrée FluxBox (modale « Charger des documents » des fiches 360).
+     */
+    function fluxbox_resolve_agence_of_entity(PDO $pdo, string $type, int $id): int
+    {
+        if ($id <= 0) return 0;
+        $type = strtoupper($type); $idBien = $idImm = $idProp = $idAgence = 0;
+        if ($type === 'EMP')   { $st=$pdo->prepare("SELECT id_agence FROM users WHERE id=?"); $st->execute([$id]); return (int)$st->fetchColumn(); }
+        if ($type === 'BAIL')  { $st=$pdo->prepare("SELECT id_bien FROM bien_baux WHERE id=?"); $st->execute([$id]); $idBien=(int)$st->fetchColumn(); }
+        elseif ($type === 'BIEN')  $idBien = $id;
+        elseif ($type === 'IMB')   $idImm  = $id;
+        elseif ($type === 'PROP')  $idProp = $id;   // PROP = proprietaires.id (clé directe)
+        elseif ($type === 'TIERS') {
+            // TIERS = tiers.id (≠ proprietaires.id). On retrouve le rôle propriétaire via id_tiers,
+            // sinon on prend l'agence portée directement par le tiers.
+            $st=$pdo->prepare("SELECT id, id_agence FROM proprietaires WHERE id_tiers=? LIMIT 1"); $st->execute([$id]);
+            if ($r=$st->fetch(PDO::FETCH_ASSOC)) { $idProp=(int)$r['id']; if (!empty($r['id_agence'])) $idAgence=(int)$r['id_agence']; }
+            if (!$idAgence) { $st2=$pdo->prepare("SELECT id_agence FROM tiers WHERE id=?"); $st2->execute([$id]); $idAgence=(int)$st2->fetchColumn(); }
+        }
+        if ($idBien>0){ $st=$pdo->prepare("SELECT id_immeuble,id_proprietaire,id_agence FROM biens WHERE id=?"); $st->execute([$idBien]); if($r=$st->fetch(PDO::FETCH_ASSOC)){ $idImm=$idImm?:(int)$r['id_immeuble']; $idProp=$idProp?:(int)$r['id_proprietaire']; $idAgence=(int)$r['id_agence']; } }
+        if (!$idAgence && $idImm>0){ $st=$pdo->prepare("SELECT id_agence FROM immeubles WHERE id=?"); $st->execute([$idImm]); $idAgence=(int)$st->fetchColumn(); }
+        if (!$idAgence && $idProp>0){ $st=$pdo->prepare("SELECT id_agence FROM proprietaires WHERE id=?"); $st->execute([$idProp]); $idAgence=(int)$st->fetchColumn(); }
+        return $idAgence;
+    }
+    /** Société de rattachement d'une entité, via son agence (fallback tenant fourni). */
+    function fluxbox_resolve_societe_of_entity(PDO $pdo, string $type, int $id, int $fallbackTenant = 0): int
+    {
+        $age = fluxbox_resolve_agence_of_entity($pdo, $type, $id);
+        if ($age > 0) { $st=$pdo->prepare("SELECT id_societe FROM agences WHERE id=?"); $st->execute([$age]); $s=(int)$st->fetchColumn(); if ($s) return $s; }
+        return $fallbackTenant;
+    }
+}
+
+if (!function_exists('fluxbox_mbo_ged_name')) {
+    /**
+     * CONVERGENCE FluxBox → MaBoxOffice : construit le NOM GED via le moteur
+     * MaBoxOffice (entité + type) pour un document fluxbox donné, en contexte
+     * « entité connue » (fiches 360). Renvoie '' si indisponible (→ l'appelant
+     * garde alors le nommage catégorie/N1-N5 historique : zéro régression).
+     *
+     * @param string $entityType  BIEN | BAIL | IMB | TIERS | EMP (types MaBoxOffice)
+     * @param string $mboType     code type (glossaire ged_document_types), ex. ETAT_LIEUX
+     */
+    function fluxbox_mbo_ged_name(PDO $pdo, int $fluxDocId, string $entityType, int $entityId, string $mboType, bool $ensure = false): string
+    {
+        $match = __DIR__ . '/maboxoffice_match.php';
+        if ($fluxDocId <= 0 || $entityId <= 0 || !is_file($match)) return '';
+        require_once $match;
+        if (!function_exists('mbo_build_ged_name')) return '';
+        $st = $pdo->prepare("SELECT * FROM fluxbox_documents WHERE id = ?");
+        $st->execute([$fluxDocId]);
+        $d = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$d) return '';
+        // On alimente les champs MBO attendus par le moteur (sans écraser la BDD ici).
+        $d['mbo_entity_type']  = strtoupper($entityType);
+        $d['mbo_entity_id']    = $entityId;
+        $d['mbo_type_propose'] = strtolower($mboType);
+        try { return mbo_build_ged_name($pdo, $d, $ensure); }
+        catch (Throwable $e) { error_log('[fluxbox_mbo_ged_name] '.$e->getMessage()); return ''; }
     }
 }

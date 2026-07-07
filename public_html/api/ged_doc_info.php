@@ -15,12 +15,11 @@ require_once dirname(__DIR__) . '/inc/bootstrap.php';
 require_once dirname(__DIR__) . '/inc/auth.php';
 require_login();
 
-if ((int)($_SESSION['id_role'] ?? 0) !== 1) {
-    http_response_code(403);
-    header('Content-Type: application/json');
-    echo json_encode(['error' => 'super admin uniquement']);
-    exit;
-}
+// Accès : super admin OU agent scopé à la société du document (même règle que
+// api/ged_doc_serve.php). Avant : super-admin-only → tout user « tous niveaux »
+// tombait en 403 alors que le binaire (serve), lui, autorisait l'accès scopé.
+// Le contrôle de société se fait APRÈS lecture du doc (on a besoin de societe_id).
+$isAdmin = ((int)($_SESSION['id_role'] ?? 0) === 1);
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -44,6 +43,15 @@ try {
                          FROM ged_documents WHERE id = ?");
     $st->execute([$id]);
     $out['ged_document'] = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    // Scope société (bypass super admin) — aligné sur ged_doc_serve.php.
+    if ($out['ged_document'] && !$isAdmin
+        && !empty($out['ged_document']['societe_id'])
+        && (int)$out['ged_document']['societe_id'] !== (int)($_SESSION['id_societe'] ?? 0)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Hors société']);
+        exit;
+    }
 
     if ($out['ged_document']) {
         // Links

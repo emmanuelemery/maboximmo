@@ -650,6 +650,10 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
             'mandat_exclusif' => ['01_mandat_vente', '01_mandat_exclusif'],
             'mandat_simple' => ['01_mandat_vente', '02_mandat_simple'],
             'mandat_vente' => ['01_mandat_vente', '01_mandat_exclusif'],
+            'mandat' => ['01_mandat_vente', '01_mandat_exclusif'],
+            'offre_achat' => ['02_acte', '01_compromis'],
+            'acte_vente' => ['02_acte', '02_acte_authentique'],
+            'estimation' => ['01_mandat_vente', '01_mandat_exclusif'],
             'dpe' => ['03_diagnostics_transaction', '01_dpe'],
             'erp_ernmt' => ['03_diagnostics_transaction', '02_erp_ernmt'],
         ];
@@ -660,13 +664,28 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
             'mandat_gestion' => ['01_tiers', '04_mandat_gestion'],
             'mandat_simple'  => ['01_tiers', '04_mandat_gestion'],
             'piece_identite' => ['01_tiers', '01_piece_identite'],
+            'cni'            => ['01_tiers', '01_piece_identite'],
+            'passeport'      => ['01_tiers', '01_piece_identite'],
+            'titre_sejour'   => ['01_tiers', '01_piece_identite'],
             'rib'            => ['01_tiers', '02_rib'],
             'attestation_propriete' => ['01_tiers', '03_attestation_propriete'],
             // Bail (N1 05_gestion_locative)
             'bail_signe' => ['02_bail', '01_bail_signe'],
+            'bail'       => ['02_bail', '01_bail_signe'],
+            'bail_projet'=> ['02_bail', '01_bail_signe'],
+            'demande_renouvellement' => ['02_bail', '01_bail_signe'],
             'edl_entree' => ['02_bail', '02_edl_entree'],
+            'etat_lieux' => ['02_bail', '02_edl_entree'],
             'caution_garant' => ['02_bail', '03_caution_garant'],
             'edl_sortie' => ['02_bail', '04_edl_sortie'],
+            // Tiers — types génériques rattachés au preneur/propriétaire
+            'mandat'          => ['01_tiers', '04_mandat_gestion'],
+            'kbis'            => ['01_tiers', '03_attestation_propriete'],
+            'attestation'     => ['01_tiers', '03_attestation_propriete'],
+            'releve_bancaire' => ['01_tiers', '02_rib'],
+            'courrier'        => ['01_tiers', '03_attestation_propriete'],
+            'jugement'        => ['01_tiers', '03_attestation_propriete'],
+            'cv'              => ['01_tiers', '01_piece_identite'],
             // Bien — diagnostics & taxe (N1 05_gestion_locative)
             'dpe' => ['03_bien', '01_dpe'], 'erp_ernmt' => ['03_bien', '02_erp_ernmt'],
             'diagnostic_amiante' => ['03_bien', '03_amiante'],
@@ -689,10 +708,21 @@ if (!function_exists('fluxbox_va_compute_v3_1_name')) {
             'contrat'          => ['04_immeuble', '06_contrat'],
         ];
         $map = ($contexteN1 === '06_transaction') ? $gedMappingTransaction : $gedMappingGestion;
-        [$n2Slug, $n3Slug] = $map[$effectiveType] ?? [null, null];
+        // Recherche insensible à la casse (le type forcé peut arriver en majuscules : « CNI »).
+        // Fallback générique « à classer » : un type non mappé ne bloque JAMAIS la validation
+        // (il atterrit dans un dossier de tri, on affine ensuite). Fin des « N2/N3 requis ».
+        [$n2Slug, $n3Slug] = $map[$effectiveType] ?? ($map[strtolower((string)$effectiveType)] ?? ['00_divers', '00_a_classer']);
 
         // ─── 7. Date doc depuis IA ──
         $iaDate = (string)($extracted['date_signature'] ?? $extracted['date_doc'] ?? $extracted['date_debut_bail'] ?? '');
+        // Remplissage sûr du segment 9 (date du doc) : si l'IA n'a rien, on reprend la date
+        // DÉTECTÉE à l'ingest (proposition_json.classement.date / target_date) — évite le « - ».
+        if ($iaDate === '') {
+            $propJson = json_decode((string)($carte['proposition_json'] ?? ''), true);
+            if (is_array($propJson)) {
+                $iaDate = (string)($propJson['classement']['date'] ?? $propJson['target_date'] ?? '');
+            }
+        }
 
         // ─── 8. BUILD V3.1 ──
         $ctx = [

@@ -139,13 +139,14 @@ if ($bailActif) {
     $pieces[] = ['code'=>'BAIL',       'label'=>'Bail signé',           'sublabel'=>'Contrat de location', 'alt_codes'=>['bail_signe','BAIL_SIGNE','BAIL_LOCATION']];
     $pieces[] = ['code'=>'ETAT_LIEUX', 'label'=>'État des lieux d\'entrée', 'sublabel'=>'Si bail actif',   'alt_codes'=>['edl_entree','EDL_ENTREE']];
 }
-// Mapping code pièce → type FluxBox (forced_type_doc) pour le pré-remplissage au clic.
+// Mapping code pièce → type FluxBox (forced_type_doc) = code GLOSSAIRE canonique
+// (ged_level_codes) pour que le modal pré-sélectionne la bonne pastille.
 $fbxTypeByCode = [
-    'DIAG_DPE'=>'dpe', 'DIAG_ERP'=>'erp_ernmt', 'DIAG_PLOMB'=>'diagnostic_plomb',
-    'DIAG_AMIANTE'=>'diagnostic_amiante', 'DIAG_GAZ'=>'diagnostic_gaz', 'DIAG_ELEC'=>'diagnostic_elec',
-    'DIAG_TERMITES'=>'diagnostic_termites', 'DIAG_ANC'=>'diagnostic_anc',
-    'SURFACE_CARREZ'=>'surface_carrez', 'TITRE_PROP'=>'titre_propriete', 'TAXE_FONCIERE'=>'taxe_fonciere',
-    'BAIL'=>'bail_signe', 'ETAT_LIEUX'=>'edl_entree',
+    'DIAG_DPE'=>'DPE', 'DIAG_ERP'=>'ERP_ERNMT', 'DIAG_PLOMB'=>'PLOMB',
+    'DIAG_AMIANTE'=>'AMIANTE', 'DIAG_GAZ'=>'GAZ', 'DIAG_ELEC'=>'ELECTRICITE',
+    'DIAG_TERMITES'=>'TERMITES', 'DIAG_ANC'=>'ASSAINISSEMENT',
+    'SURFACE_CARREZ'=>'SURFACE', 'TITRE_PROP'=>'TITRE_PROPRIETE', 'TAXE_FONCIERE'=>'TAXES_FONCIERES',
+    'BAIL'=>'BAIL', 'ETAT_LIEUX'=>'EDL_ENTREE',
 ];
 $piecesItems = [];
 // Types FluxBox « de base » présents → pour filtrer la card « Documents divers » (mode A).
@@ -153,9 +154,13 @@ $baseTypes = [];
 foreach ($pieces as $p) {
     $ft = $fbxTypeByCode[$p['code']] ?? null;
     // Détection : par code legacy, alt_codes, ET par le type FluxBox réel (ex. document_type='dpe').
-    $okCodes = array_merge([$p['code']], $p['alt_codes'] ?? [], $ft ? [$ft] : []);
+    // Comparaison INSENSIBLE à la casse et au séparateur (-/_) : BAIL, bail, bail_signe,
+    // BAIL-SIGNE… doivent tous cocher la même pièce (fin des « types jumeaux » non reconnus).
+    $normType = static fn($s) => strtoupper(str_replace('-', '_', trim((string)$s)));
+    $okCodes  = array_merge([$p['code']], $p['alt_codes'] ?? [], $ft ? [$ft] : []);
+    $haveTypes = array_map($normType, array_keys($docsByType));
     $ok = false;
-    foreach ($okCodes as $c) { if (isset($docsByType[$c])) { $ok = true; break; } }
+    foreach ($okCodes as $c) { if (in_array($normType($c), $haveTypes, true)) { $ok = true; break; } }
     if ($ft) $baseTypes[$ft] = true;
     foreach ($p['alt_codes'] ?? [] as $ac) $baseTypes[$ac] = true;
     $piecesItems[] = [
@@ -386,13 +391,18 @@ if (!empty($representants[0])) {
     $repNom    = trim((string)($r0['prenom'] ?? '') . ' ' . ($r0['nom'] ?? ''));
     $proprioRepJs = addslashes($repNom . ($r0['qualite'] ? ' (' . $r0['qualite'] . ')' : ''));
 }
-$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, proprio_id:{$idProprioBien}, proprio_nom:'{$proprioNomJs}', proprio_tiers_id:{$proprioTiersId}, proprio_representant:'{$proprioRepJs}', n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', entite_id_bdd:{$bienId}, entite_adresse:'{$adrBienJs}', origin:'bien_360'});return false;";
+// Immeuble de rattachement du bien → pour renseigner la ligne « Immeuble » du modal.
+$immIdBien = (int)($bien['immeuble_id'] ?? 0);
+$immNomJs  = addslashes((string)($bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: ''));
+$fbxOnClickBien = "window.fbxOpenUploadModal({bien_id:{$bienId}, soc_id:{$idSocBien}, age_id:{$idAgeBien}, immeuble_id:{$immIdBien}, immeuble_nom:'{$immNomJs}', proprio_id:{$idProprioBien}, proprio_nom:'{$proprioNomJs}', proprio_tiers_id:{$proprioTiersId}, proprio_representant:'{$proprioRepJs}', n1:'{$n1Bien}', n2:'BIENS', n3:'BIEN', entite_nom:'{$refBienJs}', entite_id_bdd:{$bienId}, entite_adresse:'{$adrBienJs}', origin:'bien_360'});return false;";
 // Prefill FluxBox de la fiche bien (réutilisé par la checklist des pièces).
 $fbxPrefillBien = [
     'origin'           => 'bien_360',
     'bien_id'          => (int)$bienId,
     'soc_id'           => (int)$idSocBien,
     'age_id'           => (int)$idAgeBien,
+    'immeuble_id'      => (int)$immIdBien,
+    'immeuble_nom'     => (string)($bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: ''),
     'proprio_id'       => (int)$idProprioBien,
     'proprio_nom'      => (string)$proprietaireNom,
     'proprio_tiers_id' => (int)$proprioTiersId,
@@ -401,6 +411,34 @@ $fbxPrefillBien = [
     'entite_id_bdd'    => (int)$bienId,
     'entite_adresse'   => trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')),
 ];
+
+// Bail signé + EDL = docs du BAIL (= locataire), pas du bien nu. Si un bail est actif,
+// ces pièces ouvrent le modal avec le CONTEXTE BAIL (comme depuis bail_360) : bail +
+// locataire remplis, bien/immeuble en annexe, classement en gestion locative.
+if ($bailActif) {
+    $fbxPrefillBailFromBien = [
+        'origin'           => 'bien_360',
+        'bail_id'          => (int)$bailActif['id'],
+        'bail_locataire'   => (string)$locataireNom,
+        'bien_id'          => (int)$bienId,
+        'immeuble_id'      => (int)$immIdBien,
+        'immeuble_nom'     => (string)($bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: ''),
+        'soc_id'           => (int)$idSocBien,
+        'age_id'           => (int)$idAgeBien,
+        'proprio_id'       => (int)$idProprioBien,
+        'proprio_nom'      => (string)$proprietaireNom,
+        'proprio_tiers_id' => (int)$proprioTiersId,
+        'entite_id_bdd'    => (int)$bienId,
+        'entite_nom'       => (string)($bien['reference_bien'] ?: 'Bien #' . $bienId),
+        'entite_adresse'   => trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')),
+        'card_label'       => 'DOCUMENT POUR LE BAIL',
+        'n1'               => '03_GESTION_LOCATIVE',
+    ];
+    foreach ($piecesItems as &$pit) {
+        if (in_array($pit['fbx_type'] ?? '', ['BAIL', 'EDL_ENTREE'], true)) $pit['fbx_prefill'] = $fbxPrefillBailFromBien;
+    }
+    unset($pit);
+}
 
 // Checklist « Documents de base » : rendu capturé ici pour l'afficher en tête de la colonne 2.
 $nbOkP = 0; foreach ($piecesItems as $i) if (!empty($i['ok'])) $nbOkP++;
@@ -852,6 +890,51 @@ if ($kpis) {
     };
     </script>
 
+    <?php
+    // ── Prefill projet de bail (gestionnaire lu en BDD, jamais en dur) + projets en cours ──
+    $socRow = [];
+    try { if ($idSocBien) { $q=$pdo->prepare("SELECT raison_sociale,nom,forme_juridique,capital_social,siren,siret,adresse_1,code_postal,ville,carte_pro_numero,numero_carte_t,carte_pro_cci,cci_carte_t,assurance_rcp,garantie_financiere,rib_emetteur_iban,rib_emetteur_bic,rib_emetteur_nom FROM societes WHERE id=?"); $q->execute([$idSocBien]); $socRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
+    $ageRow = [];
+    try { if ($idAgeBien) { $q=$pdo->prepare("SELECT nom_agence,adresse_1,code_postal,ville,rcs,iban,bic,banque_nom FROM agences WHERE id=?"); $q->execute([$idAgeBien]); $ageRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
+    $belPrefill = [
+        'bien_id'          => (int)$bienId,
+        'proprio_nom'      => (string)$proprietaireNom,
+        'immeuble_nom'     => (string)($bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: ''),
+        'bien_ref'         => (string)($bien['reference_bien'] ?: ('Bien #' . $bienId)),
+        'bien_adresse'     => trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')),
+        'bien_surface'     => (float)($bien['surface_habitable'] ?? 0),
+        'bien_lot'         => (string)($bien['numero_lot'] ?? ''),
+        'bien_etage'       => (($bien['etage'] ?? null) !== null && $bien['etage'] !== '' ? ((int)$bien['etage'] === 0 ? 'rez-de-chaussée' : (int)$bien['etage'] . 'ᵉ étage') : ''),
+        'bien_copro'       => (!empty($bien['bien_en_copropriete']) ? 'bien en copropriété' . (!empty($bien['lot_tantiemes']) ? ' (' . (int)$bien['lot_tantiemes'] . ' / ' . (int)($bien['copro_nb_lots'] ?: 0) . ' tantièmes)' : '') : ''),
+        'bien_description' => (string)($bien['description'] ?? ''),
+        'gestionnaire'     => [
+            'raison'    => (string)(($socRow['raison_sociale'] ?? '') ?: ($socRow['nom'] ?? '')),
+            'forme'     => (string)($socRow['forme_juridique'] ?? ''),
+            'capital'   => $socRow['capital_social'] ?? null,
+            'siren'     => (string)(($socRow['siren'] ?? '') ?: ($socRow['siret'] ?? '')),
+            'adresse'   => trim((string)($socRow['adresse_1'] ?? '') . ' ' . ($socRow['code_postal'] ?? '') . ' ' . ($socRow['ville'] ?? '')),
+            'carte'     => (string)(($socRow['carte_pro_numero'] ?? '') ?: ($socRow['numero_carte_t'] ?? '')),
+            'carte_cci' => (string)(($socRow['carte_pro_cci'] ?? '') ?: ($socRow['cci_carte_t'] ?? '')),
+            'rcp'       => (string)($socRow['assurance_rcp'] ?? ''),
+            'garantie'  => (string)($socRow['garantie_financiere'] ?? ''),
+            'age_nom'   => (string)($ageRow['nom_agence'] ?? ''),
+            'age_adresse'=> trim((string)($ageRow['adresse_1'] ?? '') . ' ' . ($ageRow['code_postal'] ?? '') . ' ' . ($ageRow['ville'] ?? '')),
+            'rib_iban'  => (string)(($socRow['rib_emetteur_iban'] ?? '') ?: ($ageRow['iban'] ?? '')),
+            'rib_bic'   => (string)(($socRow['rib_emetteur_bic'] ?? '') ?: ($ageRow['bic'] ?? '')),
+            'rib_nom'   => (string)(($socRow['rib_emetteur_nom'] ?? '') ?: ($ageRow['banque_nom'] ?? '')),
+        ],
+        'origin'           => 'bien_360',
+    ];
+    echo '<script>window.BEL_PREFILL_CREATE = ' . json_encode($belPrefill, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';</script>';
+    $belOnClick = 'bailOpenCreateModal(window.BEL_PREFILL_CREATE);return false;';
+    // Émission du modal (idempotente) — garantit sa présence même si le panneau Actions ne s'exécute pas.
+    require_once __DIR__ . '/inc/bail_edit_modal.php';
+    bail_edit_modal();
+
+    $bailProjets = [];
+    try { $qp=$pdo->prepare("SELECT id,numero_bail,statut,locataire_raison_sociale,locataire_nom,locataire_prenom,loyer_mensuel_hc,date_prise_effet FROM bien_baux WHERE id_bien=? AND statut IN ('projet','envoye','signe','avenant') ORDER BY id DESC"); $qp->execute([$bienId]); $bailProjets=$qp->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable) {}
+    $belStatutLbl = ['projet'=>['🟡','Projet'],'envoye'=>['📨','Envoyé à signer'],'signe'=>['✅','Signé'],'avenant'=>['📝','Avenant']];
+    ?>
     <!-- Bail actif / Archives -->
     <div class="f360-card" style="--acc:var(--c-bail);">
         <div class="f360-tabs">
@@ -880,6 +963,29 @@ if ($kpis) {
             <?php else: ?>
                 <div class="f360-empty"><div class="em-ico">🔓</div>Aucun bail actif sur ce bien.</div>
             <?php endif; ?>
+
+            <!-- ── Projet(s) de nouveau bail (workflow type mandat) ── -->
+            <div style="margin-top:14px;border-top:1px dashed #d9d2e6;padding-top:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+                    <div style="font-size:12px;font-weight:800;color:#5f8f93;text-transform:uppercase;letter-spacing:.04em;">🔑 Projet de nouveau bail <span style="color:#9a9690;font-weight:600;">(<?= count($bailProjets) ?>)</span></div>
+                    <button type="button" onclick="<?= h($belOnClick) ?>" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">＋ Nouveau projet</button>
+                </div>
+                <?php if (empty($bailProjets)): ?>
+                    <div style="font-size:12px;color:#8a97a0;">Aucun projet en cours. « Nouveau projet » ouvre le générateur de bail commercial (candidat + conditions).</div>
+                <?php else: foreach ($bailProjets as $bp):
+                    $bpCand = $bp['locataire_raison_sociale'] ?: trim((string)$bp['locataire_prenom'] . ' ' . $bp['locataire_nom']) ?: 'Candidat à définir';
+                    $bpSt = $belStatutLbl[$bp['statut']] ?? ['•', $bp['statut']];
+                ?>
+                    <a href="<?= h(app_url('/bail_360.php?id=' . (int)$bp['id'])) ?>" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e5e0ee;border-radius:9px;text-decoration:none;color:#2c2a28;margin-bottom:6px;background:#fbfaff;">
+                        <span style="font-size:15px;"><?= $bpSt[0] ?></span>
+                        <span style="flex:1;min-width:0;">
+                            <strong style="font-size:13px;"><?= h($bpCand) ?></strong>
+                            <span style="font-size:11px;color:#8a8694;"> · <?= h($bp['numero_bail'] ?: ('#' . $bp['id'])) ?><?= $bp['loyer_mensuel_hc'] ? ' · ' . number_format((float)$bp['loyer_mensuel_hc']*12, 0, ',', ' ') . ' €/an' : '' ?></span>
+                        </span>
+                        <span style="font-size:11px;font-weight:800;color:#5f8f93;"><?= h($bpSt[1]) ?> ↗</span>
+                    </a>
+                <?php endforeach; endif; ?>
+            </div>
         </div>
 
         <div id="tab-arch" style="display:none;">
@@ -1061,6 +1167,7 @@ if ($kpis) {
         fiche360_actions_panel('Actions bien', [
             ['icon'=>'📝','label'=>'Descriptif du bien','url'=>app_url('/bien_detail.php?edit=' . $bienId)],
             ['icon'=>'🗂️','label'=>($hasDossierVente ? 'Voir le dossier de vente' : 'Créer le dossier de vente'),'url'=>app_url('/transaction_dossier.php?id_bien=' . $bienId)],
+            ['icon'=>'🔑','label'=>'Créer un projet de bail','url'=>'#','onclick'=>$belOnClick],
             ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>$fbxOnClickBien],
             ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=BIEN&id=' . $bienId . '&back=' . urlencode('bien_360.php?id=' . $bienId))],
             ['icon'=>'📥','label'=>'Importer docs OneDrive (bien + locataires)','url'=>'javascript:odClasserOpen()'],
@@ -1068,6 +1175,9 @@ if ($kpis) {
             ['icon'=>'📡','label'=>'Créer une annonce',        'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],
             ['icon'=>'📁','label'=>'Documents du bien',        'url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
         ]);
+        // Modal « Créer un projet de bail commercial » (émis une seule fois).
+        require_once __DIR__ . '/inc/bail_edit_modal.php';
+        bail_edit_modal();
     }
 
     // (La checklist « Documents de base » est désormais en CARD 1 de la colonne 2.)

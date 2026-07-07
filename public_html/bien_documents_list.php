@@ -90,7 +90,7 @@ $nbModules = count($byModule);
 $cardsPending = [];
 try {
     $st = $pdo->prepare("
-        SELECT c.id, c.document_id, c.titre, c.statut, c.created_at, d.fichier_nom
+        SELECT c.id, c.document_id, c.titre, c.statut, c.created_at, c.proposition_json, d.fichier_nom
         FROM fluxbox_cartes c
         JOIN fluxbox_documents d ON d.id = c.document_id
         WHERE c.statut IN ('pending','in_progress')
@@ -314,12 +314,31 @@ document.getElementById('bdlOpenFluxModal')?.addEventListener('click', function(
                 <span class="name">📄 <?= bdl_html((string)($c['titre'] ?: $c['fichier_nom'])) ?>
                     <small style="color:#7a766f;">· uploadé le <?= bdl_html(substr((string)$c['created_at'], 0, 10)) ?></small>
                 </span>
+                <button type="button" class="review-btn" style="background:#15803d; border:none; cursor:pointer;"
+                        onclick="bdlValiderDirect(<?= (int)$c['id'] ?>, this)">
+                    ✅ Valider directement
+                </button>
                 <a class="review-btn"
-                   href="<?= bdl_html(app_url('/bien_doc_360.php?bien_id=' . $bienId . '&doc_id=' . (int)$c['document_id'] . '&card_id=' . (int)$c['id'] . '&source=transaction')) ?>">
+                   href="<?= bdl_html(app_url('/fluxbox_pile.php?carte=' . (int)$c['id'])) ?>">
                     📋 Réviser
                 </a>
             </div>
         <?php endforeach; ?>
+        <script>
+        var BDL_CSRF = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+        window.bdlValiderDirect = function(carteId, btn){
+            if (!confirm('Classer définitivement ce document en GED (sans révision) ?')) return;
+            btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳ Classement…';
+            fetch('<?= bdl_html(app_url('/api/fluxbox_action.php')) ?>', {
+                method:'POST', credentials:'same-origin',
+                headers:{'Content-Type':'application/json','X-CSRF-Token':BDL_CSRF},
+                body: JSON.stringify({ action:'validate', carte_id: carteId, csrf:BDL_CSRF })
+            }).then(r=>r.json()).then(j=>{
+                if (j && (j.ok || (j.data && j.data.ok))) { btn.textContent = '✅ Classé'; setTimeout(()=>location.reload(), 700); }
+                else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&(j.error||(j.errors||[]).join(', ')))||'Échec du classement')); }
+            }).catch(e=>{ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
+        };
+        </script>
     </div>
 <?php endif; ?>
 

@@ -18,6 +18,7 @@ if ($bailId <= 0) {
 $sql = "SELECT bb.*,
     b.id AS bien_id, b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
     b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot, b.id_immeuble,
+    b.description AS bien_description, b.etage AS bien_etage, b.bien_en_copropriete, b.lot_tantiemes, b.copro_nb_lots,
     b.id_societe AS bien_soc, b.id_agence AS bien_age,
     i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
     p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
@@ -56,7 +57,21 @@ $bienLabel       = $bail['reference_bien'] ?: $bail['designation'] ?: 'Bien #' .
 $bienAdresse     = trim((string)($bail['bien_adresse'] ?? '') . ' ' . ($bail['bien_cp'] ?? '') . ' ' . ($bail['bien_ville'] ?? ''));
 
 // ─── Documents GED du bail ──
+// Source PRINCIPALE = GED centrale via ged_document_links (c'est là qu'écrit le pipeline
+// FluxBox de classement : entity_type=BAIL). On merge avec la requête legacy (id_bail /
+// metadata / linked_entities) pour les docs classés par d'anciens chemins. Dédup par id.
 $docs = [];
+$docsById = [];
+try {
+    if (is_file(__DIR__ . '/inc/ged_document_links.php')) {
+        require_once __DIR__ . '/inc/ged_document_links.php';
+    }
+    if (function_exists('gdl_documents_for_entity')) {
+        foreach (gdl_documents_for_entity($pdo, 'BAIL', $bailId, ['limit' => 60]) as $d) {
+            $docsById[(int)$d['id']] = $d;
+        }
+    }
+} catch (Throwable $e) {}
 try {
     $stD = $pdo->prepare("SELECT id, name_display, document_type, created_at
         FROM ged_documents
@@ -68,8 +83,20 @@ try {
           )
         ORDER BY created_at DESC LIMIT 30");
     $stD->execute([$bailId, $bailId, $bailId]);
-    $docs = $stD->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($stD->fetchAll(PDO::FETCH_ASSOC) ?: [] as $d) {
+        if (!isset($docsById[(int)$d['id']])) $docsById[(int)$d['id']] = $d;
+    }
 } catch (Throwable $e) {}
+// Split par type de lien : main = documents PROPRES du bail ; reference = docs qui CITENT
+// le bail (CRG, quittances…) → alimentent la card « Mentionné dans ». Legacy (sans lien) = main.
+$docs = []; $mentions = [];
+foreach (array_values($docsById) as $d) {
+    if (($d['link_relation_type'] ?? 'main') === 'reference') $mentions[] = $d;
+    else $docs[] = $d;
+}
+$byDate = fn($a, $b) => strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? ''));
+usort($docs, $byDate);     $docs = array_slice($docs, 0, 30);
+usort($mentions, $byDate); $mentions = array_slice($mentions, 0, 10);
 // Index des document_type présents (normalisés en minuscules).
 $docsByType = [];
 foreach ($docs as $d) {
@@ -78,14 +105,17 @@ foreach ($docs as $d) {
 }
 
 // ─── Checklist pièces bail ──
-// 'types' = les document_type GED (minuscule) qui valident la pièce.
+// 'fbx_type' = code GLOSSAIRE canonique (ged_level_codes) pré-sélectionné au « + »
+//   → le modal FluxBox affiche la vraie pastille du glossaire (respect du référentiel).
+// 'types'    = codes acceptés pour valider la pièce (glossaire EN TÊTE + variantes
+//   legacy minuscules, pour ne pas « décrocher » les docs déjà classés à l'ancienne).
 $pieces = [
-    ['label'=>'Bail signé',              'sublabel'=>'Document principal',           'types'=>['bail_signe','bail']],
-    ['label'=>"État des lieux d'entrée", 'sublabel'=>"Obligatoire à la prise d'effet",'types'=>['edl_entree','etat_lieux_entree']],
-    ['label'=>"Attestation d'assurance", 'sublabel'=>'Locataire — annuel',           'types'=>['attestation_assurance','att_assurance','assurance']],
-    ['label'=>'DPE',                     'sublabel'=>'Annexé au bail',               'types'=>['dpe']],
-    ['label'=>'Acte de caution',         'sublabel'=>'Si garant',                    'types'=>['caution_garant','caution']],
-    ['label'=>"État des lieux de sortie",'sublabel'=>'Si bail terminé',              'types'=>['edl_sortie','etat_lieux_sortie']],
+    ['label'=>'Bail signé',              'sublabel'=>'Document principal',           'fbx_type'=>'BAIL',                  'types'=>['BAIL','bail_signe','bail']],
+    ['label'=>"État des lieux d'entrée", 'sublabel'=>"Obligatoire à la prise d'effet",'fbx_type'=>'EDL_ENTREE',            'types'=>['EDL_ENTREE','edl_entree','etat_lieux_entree']],
+    ['label'=>"Attestation d'assurance", 'sublabel'=>'Locataire — annuel',           'fbx_type'=>'ATTESTATIONS_ASSURANCE','types'=>['ATTESTATIONS_ASSURANCE','attestation_assurance','att_assurance','assurance']],
+    ['label'=>'DPE',                     'sublabel'=>'Annexé au bail',               'fbx_type'=>'DPE',                   'types'=>['DPE','dpe']],
+    ['label'=>'Acte de caution',         'sublabel'=>'Si garant',                    'fbx_type'=>'ACTES_CAUTION',         'types'=>['ACTES_CAUTION','caution_garant','caution']],
+    ['label'=>"État des lieux de sortie",'sublabel'=>'Si bail terminé',              'fbx_type'=>'EDL_SORTIE',            'types'=>['EDL_SORTIE','edl_sortie','etat_lieux_sortie']],
 ];
 $piecesItems = [];
 foreach ($pieces as $p) {
@@ -96,24 +126,33 @@ foreach ($pieces as $p) {
         'sublabel' => $p['sublabel'],
         'ok'       => $ok,
         'add_url'  => app_url('/bail_360.php?id=' . $bailId),
+        // Type pré-sélectionné au clic sur « + » = code glossaire canonique.
+        'fbx_type' => $p['fbx_type'] ?? $p['types'][0],
     ];
 }
+// Prefill FluxBox de la fiche (contexte bail complet) — réutilisé par la checklist.
+$fbxPrefillBail = [
+    'origin'           => 'bail_360',
+    'bail_id'          => (int)$bailId,
+    'bail_locataire'   => (string)$locataireNom,
+    'bien_id'          => (int)$bail['bien_id'],
+    'immeuble_id'      => (int)($bail['id_immeuble'] ?? 0),
+    'immeuble_nom'     => (string)($bail['nom_immeuble'] ?? ''),
+    'soc_id'           => (int)($bail['bien_soc'] ?? 0),
+    'age_id'           => (int)($bail['bien_age'] ?? 0),
+    'proprio_id'       => (int)($bail['proprio_id'] ?? 0),
+    'proprio_nom'      => (string)$proprietaireNom,
+    'proprio_tiers_id' => (int)($bail['proprio_tiers_id'] ?? 0),
+    'entite_id_bdd'    => (int)$bail['bien_id'],
+    'entite_nom'       => (string)$bienLabel,
+    'entite_adresse'   => (string)$bienAdresse,
+    'card_label'       => 'DOCUMENT POUR LE BAIL',
+    'n1'               => '03_GESTION_LOCATIVE',
+];
 
-// ─── Mentions (CRG, quittances, courriers qui citent ce bail) ──
-$mentions = [];
-try {
-    $stM = $pdo->prepare("SELECT id, name_display, document_type, created_at
-        FROM ged_documents
-        WHERE status = 'active'
-          AND source_module <> '05_TRANSACTION'
-          AND (
-              id_bail = ?
-              OR JSON_CONTAINS(linked_entities, JSON_OBJECT('type', 'bail', 'id', ?), '$')
-          )
-        ORDER BY created_at DESC LIMIT 10");
-    $stM->execute([$bailId, $bailId]);
-    $mentions = $stM->fetchAll(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
+// NB : « Mentionné dans » ($mentions) est désormais alimenté plus haut depuis
+// ged_document_links (liens 'reference' sur le bail). L'ancienne requête id_bail/
+// linked_entities (colonnes non alimentées par le pipeline) a été retirée.
 
 // ─── Statut visuel intelligent ──
 $today = date('Y-m-d');
@@ -171,8 +210,13 @@ fiche360_breadcrumb($chaine, 'Hiérarchie');
 $badge = match($bail['statut'] ?? '') {
     'actif'   => ['label'=>'Actif','class'=>'actif'],
     'termine' => ['label'=>'Terminé','class'=>'vendu'],
+    'projet'  => ['label'=>'Projet','class'=>'loue'],
+    'envoye'  => ['label'=>'Envoyé à signer','class'=>'loue'],
+    'signe'   => ['label'=>'Signé','class'=>'actif'],
+    'avenant' => ['label'=>'Avenant','class'=>'loue'],
     default   => null,
 };
+$isProjetBail = in_array($bail['statut'] ?? '', ['projet','envoye','signe','avenant'], true);
 
 $metas = [];
 if (!empty($bail['bail_nature']))      $metas[] = ['icon'=>'📋','text'=>$bail['bail_nature']];
@@ -192,6 +236,128 @@ fiche360_header(
     ]
 );
 
+// ─── BANDEAU PROJET DE BAIL (workflow type mandat) ──
+if ($isProjetBail) {
+    $socRow = [];
+    try { if (!empty($bail['bien_soc'])) { $q=$pdo->prepare("SELECT raison_sociale,nom,forme_juridique,capital_social,siren,siret,adresse_1,code_postal,ville,carte_pro_numero,numero_carte_t,carte_pro_cci,cci_carte_t,assurance_rcp,garantie_financiere,rib_emetteur_iban,rib_emetteur_bic,rib_emetteur_nom FROM societes WHERE id=?"); $q->execute([(int)$bail['bien_soc']]); $socRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
+    $ageRow = [];
+    try { if (!empty($bail['bien_age'])) { $q=$pdo->prepare("SELECT nom_agence,adresse_1,code_postal,ville,rcs,iban,bic,banque_nom FROM agences WHERE id=?"); $q->execute([(int)$bail['bien_age']]); $ageRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
+    $candLabel = $bail['locataire_raison_sociale'] ?: trim((string)$bail['locataire_prenom'] . ' ' . $bail['locataire_nom']) ?: 'Candidat à définir';
+    $stMap = ['projet'=>['🟡','Projet','#8a6d1b','#fef7e6'],'envoye'=>['📨','Envoyé à signer','#1d4ed8','#eef3ff'],'signe'=>['✅','Signé','#2d8a4e','#eef7f0'],'avenant'=>['📝','Avenant','#7c3aed','#f5f0ff']];
+    $stB = $stMap[$bail['statut']] ?? ['•','—','#5b6b70','#f2f4f5'];
+    $canEditProjet = in_array($bail['statut'], ['projet','envoye'], true);
+
+    $belEditPrefill = [
+        'bail_id'      => (int)$bailId,
+        'bien_id'      => (int)$bail['bien_id'],
+        'origin'       => 'bail_360',
+        'proprio_nom'  => (string)$proprietaireNom,
+        'immeuble_nom' => (string)($bail['nom_immeuble'] ?: $bail['imm_adresse'] ?: ''),
+        'bien_ref'     => (string)$bienLabel,
+        'bien_adresse' => (string)$bienAdresse,
+        'bien_surface' => (float)($bail['surface_habitable'] ?? 0),
+        'bien_lot'     => (string)($bail['numero_lot'] ?? ''),
+        'bien_etage'   => (($bail['bien_etage'] ?? null) !== null && $bail['bien_etage'] !== '' ? ((int)$bail['bien_etage'] === 0 ? 'rez-de-chaussée' : (int)$bail['bien_etage'] . 'ᵉ étage') : ''),
+        'bien_copro'   => (!empty($bail['bien_en_copropriete']) ? 'bien en copropriété' . (!empty($bail['lot_tantiemes']) ? ' (' . (int)$bail['lot_tantiemes'] . ' / ' . (int)($bail['copro_nb_lots'] ?: 0) . ' tantièmes)' : '') : ''),
+        'bien_description' => (string)($bail['bien_description'] ?? ''),
+        'gestionnaire' => [
+            'raison'    => (string)(($socRow['raison_sociale'] ?? '') ?: ($socRow['nom'] ?? '')),
+            'forme'     => (string)($socRow['forme_juridique'] ?? ''),
+            'capital'   => $socRow['capital_social'] ?? null,
+            'siren'     => (string)(($socRow['siren'] ?? '') ?: ($socRow['siret'] ?? '')),
+            'adresse'   => trim((string)($socRow['adresse_1'] ?? '') . ' ' . ($socRow['code_postal'] ?? '') . ' ' . ($socRow['ville'] ?? '')),
+            'carte'     => (string)(($socRow['carte_pro_numero'] ?? '') ?: ($socRow['numero_carte_t'] ?? '')),
+            'carte_cci' => (string)(($socRow['carte_pro_cci'] ?? '') ?: ($socRow['cci_carte_t'] ?? '')),
+            'rcp'       => (string)($socRow['assurance_rcp'] ?? ''),
+            'garantie'  => (string)($socRow['garantie_financiere'] ?? ''),
+            'age_nom'   => (string)($ageRow['nom_agence'] ?? ''),
+            'age_adresse'=> trim((string)($ageRow['adresse_1'] ?? '') . ' ' . ($ageRow['code_postal'] ?? '') . ' ' . ($ageRow['ville'] ?? '')),
+            'rib_iban'  => (string)(($socRow['rib_emetteur_iban'] ?? '') ?: ($ageRow['iban'] ?? '')),
+            'rib_bic'   => (string)(($socRow['rib_emetteur_bic'] ?? '') ?: ($ageRow['bic'] ?? '')),
+            'rib_nom'   => (string)(($socRow['rib_emetteur_nom'] ?? '') ?: ($ageRow['banque_nom'] ?? '')),
+        ],
+        'values' => [
+            'locataire_type'=>$bail['locataire_type'], 'locataire_raison_sociale'=>$bail['locataire_raison_sociale'],
+            'locataire_siren'=>$bail['locataire_siren'], 'locataire_nom'=>$bail['locataire_nom'], 'locataire_prenom'=>$bail['locataire_prenom'],
+            'locataire_email'=>$bail['locataire_email'], 'locataire_telephone'=>$bail['locataire_telephone'],
+            'locataire_representant_nom'=>$bail['locataire_representant_nom'], 'locataire_representant_qualite'=>$bail['locataire_representant_qualite'],
+            'locataire_adresse'=>$bail['locataire_adresse'] ?? null, 'locataire_date_naissance'=>$bail['locataire_date_naissance'] ?? null,
+            'locataire_lieu_naissance'=>$bail['locataire_lieu_naissance'] ?? null, 'locataire_nationalite'=>$bail['locataire_nationalite'] ?? null,
+            'garant_present'=>$bail['garant_present'] ?? 0, 'garant_type'=>$bail['garant_type'] ?? null,
+            'garant_nom'=>$bail['garant_nom'] ?? null, 'garant_prenom'=>$bail['garant_prenom'] ?? null,
+            'garant_raison_sociale'=>$bail['garant_raison_sociale'] ?? null, 'garant_siren'=>$bail['garant_siren'] ?? null,
+            'garant_adresse'=>$bail['garant_adresse'] ?? null, 'garant_date_naissance'=>$bail['garant_date_naissance'] ?? null,
+            'garant_lieu_naissance'=>$bail['garant_lieu_naissance'] ?? null, 'garant_email'=>$bail['garant_email'] ?? null,
+            'garant_telephone'=>$bail['garant_telephone'] ?? null, 'garant_montant_max'=>$bail['garant_montant_max'] ?? null,
+            'garant_duree_ans'=>$bail['garant_duree_ans'] ?? null, 'garant_solidaire'=>$bail['garant_solidaire'] ?? 1,
+            'destination_activite'=>$bail['destination_activite'], 'date_prise_effet'=>$bail['date_prise_effet'],
+            'duree_mois'=>$bail['duree_mois'], 'duree_ferme_ans'=>$bail['duree_ferme_ans'],
+            'loyer_mensuel_hc'=>$bail['loyer_mensuel_hc'], 'charges_mensuelles'=>$bail['charges_mensuelles'],
+            'indice_type'=>$bail['indice_type'], 'indice_trimestre'=>$bail['indice_trimestre'], 'indice_valeur'=>$bail['indice_valeur'],
+            'nb_termes_garantie'=>$bail['nb_termes_garantie'], 'erp_local'=>$bail['erp_local'] ?? 0,
+            'option_achat'=>$bail['option_achat'] ?? 0, 'option_achat_prix'=>$bail['option_achat_prix'] ?? null, 'option_achat_delai_mois'=>$bail['option_achat_delai_mois'] ?? null,
+            'tva_applicable'=>$bail['tva_applicable'] ?? 1, 'periodicite_paiement'=>$bail['periodicite_paiement'] ?? 'mensuelle',
+            'provision_tf_mensuelle'=>$bail['provision_tf_mensuelle'] ?? null, 'honoraires_gestion_tech_pct'=>$bail['honoraires_gestion_tech_pct'] ?? null,
+            'honoraires_bailleur_ttc'=>$bail['honoraires_bailleur_ttc'] ?? null, 'honoraires_locataire_ttc'=>$bail['honoraires_locataire_ttc'] ?? null,
+            'conditions_particulieres'=>$bail['conditions_particulieres'] ?? null, 'conditions_particulieres_loyer'=>$bail['conditions_particulieres_loyer'] ?? null,
+        ],
+    ];
+    echo '<script>window.BEL_PREFILL_EDIT = ' . json_encode($belEditPrefill, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';</script>';
+    $belEditOnClick = 'bailOpenEditModal(window.BEL_PREFILL_EDIT);return false;';
+    require_once __DIR__ . '/inc/bail_edit_modal.php';
+    bail_edit_modal();
+    ?>
+    <div style="background:<?= $stB[3] ?>;border:1px solid <?= $stB[2] ?>33;border-left:4px solid <?= $stB[2] ?>;border-radius:12px;padding:14px 18px;margin:8px 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;">
+        <div style="flex:1;min-width:220px;">
+            <div style="font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:<?= $stB[2] ?>;"><?= $stB[0] ?> Projet de bail commercial — <?= h($stB[1]) ?></div>
+            <div style="font-size:14px;font-weight:700;color:#2c2a28;margin-top:3px;">Candidat : <?= h($candLabel) ?> · <?= h($bail['numero_bail'] ?: ('#' . $bailId)) ?></div>
+            <div style="font-size:12px;color:#7a766f;margin-top:2px;">
+                <?= $bail['loyer_mensuel_hc'] ? number_format((float)$bail['loyer_mensuel_hc']*12, 0, ',', ' ') . ' €/an HT · ' : '' ?>
+                <?= $bail['duree_ferme_ans'] ? (int)$bail['duree_ferme_ans'] . ' ans fermes · ' : '' ?>
+                indice <?= h($bail['indice_type'] ?: 'ILC') ?><?= !empty($bail['option_achat']) ? ' · avec option d\'achat' : '' ?>
+            </div>
+        </div>
+        <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <a id="bel-pdf-link" href="<?= h(app_url('/api/bail_pdf.php?id=' . $bailId)) ?>" target="_blank" rel="noopener" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;text-decoration:none;">🖨️ Générer le bail (PDF)</a>
+            <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#5b6b70;font-weight:600;cursor:pointer;white-space:nowrap;">
+                <input type="checkbox" id="bel-pdf-final" onchange="var l=document.getElementById('bel-pdf-link'); l.href='<?= h(app_url('/api/bail_pdf.php?id=' . $bailId)) ?>'+(this.checked?'&final=1':'');"> Version définitive (sans filigrane)
+            </label>
+        </span>
+        <?php if ($canEditProjet): ?>
+            <button type="button" onclick="<?= h($belEditOnClick) ?>" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✏️ Modifier le projet</button>
+            <button type="button" id="bel-send-btn" onclick="belSendBail(<?= (int)$bailId ?>, this)" style="border:none;background:#5f8f93;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨 Envoyer pour signature</button>
+        <?php else: ?>
+            <span style="font-size:12px;color:#7a766f;font-style:italic;">Bail <?= h($stB[1]) ?> — figé (modif par avenant).</span>
+        <?php endif; ?>
+    </div>
+    <?php if ($canEditProjet): ?>
+    <script>
+    window.belSendBail = function(bailId, btn){
+        if(!confirm('Envoyer le projet de bail au preneur' + ' (et au garant) pour signature en ligne ?')) return;
+        btn.disabled = true; var old = btn.textContent; btn.textContent = '⏳ Envoi…';
+        fetch('<?= h(app_url('/api/bail_send.php')) ?>', {method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json'}, body: JSON.stringify({bail_id: bailId})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j && j.ok){
+                var lignes = (j.envois||[]).map(function(e){ return (e.sent?'✅':'⚠️')+' '+(e.role||'')+' '+(e.email||'(sans email)'); }).join('\n');
+                alert('✅ '+j.message+'\n\n'+lignes);
+                location.reload();
+            } else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&j.error)||'Échec de l\'envoi')); }
+          }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
+    };
+    </script>
+    <?php endif; ?>
+    <?php
+}
+
+// ─── RÉSUMÉ IA du bail (synthèse générée à l'analyse du document, persistée sur le bail) ──
+$resumeIa = trim((string)($bail['resume_ia'] ?? ''));
+if ($resumeIa !== '') {
+    echo '<div style="background:linear-gradient(180deg,#f5f0ff 0%,#faf7ff 100%);border:1px solid #d8c9f0;border-left:4px solid #7c3aed;border-radius:12px;padding:14px 18px;margin:8px 0 14px;box-shadow:0 1px 3px rgba(124,58,237,.08)">'
+       . '<div style="font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6b21a8;margin-bottom:6px">🧠 Résumé du bail</div>'
+       . '<div style="font-size:14px;line-height:1.55;color:#334155">' . h($resumeIa) . '</div>'
+       . '</div>';
+}
 fiche360_ia_bar('bail', $bailId, "Demander à l'IA sur ce bail (loyer, échéances, conformité, indexation…)");
 fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 ?>
@@ -240,50 +406,8 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         </div>
     </div>
 
-    <!-- Charger un document (rangé automatiquement : bail + bien) -->
-    <div class="f360-card">
-        <h3>📥 Charger un document du bail</h3>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">
-            Le contexte est déjà connu (propriétaire → immeuble → bien → bail). Le document est
-            <b>rangé automatiquement</b> : rattaché au <b>bail</b> et visible dans le <b>bien</b>. Aucun chemin à choisir.
-        </div>
-        <form id="bailUpForm" enctype="multipart/form-data">
-            <?= csrf_field('bail_doc_upload') ?>
-            <input type="hidden" name="id_bail" value="<?= (int)$bailId ?>">
-            <input type="file" name="document[]" id="bailUpFile" multiple
-                   accept=".pdf,.jpg,.jpeg,.png,.tiff,.docx,.xlsx,.heic" style="display:none;">
-
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-                <label style="font-size:12.5px;font-weight:700;color:#5b21b6;">Type de pièce :</label>
-                <select id="bailUpType" name="type_piece"
-                        style="padding:7px 10px;border:1px solid #b39ddb;border-radius:8px;background:#fff;font-size:13px;">
-                    <option value="bail_signe">📄 Bail signé</option>
-                    <option value="edl_entree">🔑 État des lieux d'entrée</option>
-                    <option value="attestation_assurance">🛡 Attestation d'assurance</option>
-                    <option value="dpe">⚡ DPE</option>
-                    <option value="caution_garant">✍️ Acte de caution</option>
-                    <option value="edl_sortie">📦 État des lieux de sortie</option>
-                    <option value="autre">📎 Autre document</option>
-                </select>
-            </div>
-
-            <div id="bailDropzone" tabindex="0"
-                 style="border:2px dashed #b39ddb;border-radius:12px;background:#faf8ff;padding:26px 18px;text-align:center;cursor:pointer;transition:.15s;">
-                <div style="font-size:30px;line-height:1;">📥</div>
-                <div style="font-weight:800;color:#5b21b6;margin-top:6px;">Glissez un document ici</div>
-                <div style="font-size:12px;color:#7a766f;margin-top:3px;">ou cliquez pour parcourir · PDF, images, DOCX… (50 Mo max/fichier)</div>
-                <div id="bailUpPicked" style="font-size:12px;color:#2d8a4e;font-weight:700;margin-top:8px;"></div>
-            </div>
-
-            <div style="display:flex;gap:10px;align-items:center;margin-top:10px;">
-                <button type="submit" id="bailUpBtn"
-                        style="background:linear-gradient(135deg,#5e35b1,#7e57c2);color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:800;cursor:pointer;">
-                    📎 Charger sur ce bail
-                </button>
-                <span id="bailUpMsg" style="font-size:12.5px;font-weight:600;"></span>
-            </div>
-        </form>
-    </div>
+    <!-- Chargement de documents : uniformisé via FluxBox (bouton « Charger des documents »
+         du panneau Actions). La card d'upload dédiée a été retirée (2026-07-03). -->
 
     <!-- Documents du bail -->
     <div class="f360-card">
@@ -302,6 +426,15 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         <?php endforeach; endif; ?>
     </div>
     <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; ?>
+
+    <!-- Dossiers sources (archives OneDrive liées, non importées) — inclusion défensive -->
+    <?php
+    $gsfCardFile = __DIR__ . '/inc/ged_source_folders_card.php';
+    if (is_file($gsfCardFile)) { require_once $gsfCardFile;
+        if (function_exists('ged_source_folders_card')) { try {
+            ged_source_folders_card($pdo, 'BAIL', $bailId, ['id_societe'=>(int)($bail['bien_soc'] ?? 0), 'id_agence'=>(int)($bail['bien_age'] ?? 0)]);
+        } catch (Throwable $e) {} } }
+    ?>
     <?php
     // ── Champs extraits du bail (panneau gauche du modal) ──
     $eur = fn($v) => ($v === null || $v === '' || (float)$v == 0.0) ? null : number_format((float)$v, 0, ',', ' ') . ' €';
@@ -362,9 +495,18 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
   <div>
 
     <?php
+    // Prefill FluxBox : on passe le CHEMIN complet propriétaire → immeuble → bien → bail
+    // (comme sur bien_360) pour que la modale affiche la filiation complète avec les IDs.
+    $fbxProprioNomJs   = addslashes((string)$proprietaireNom);
+    $fbxProprioId      = (int)($bail['proprio_id'] ?? 0);
+    $fbxProprioTiersId = (int)($bail['proprio_tiers_id'] ?? 0);
+    $fbxImmeubleNomJs  = addslashes((string)($bail['nom_immeuble'] ?? ''));
+    $fbxBienRefJs      = addslashes((string)$bienLabel);        // réf du bien (nom propre de la card)
+    $fbxBienAdrJs      = addslashes((string)$bienAdresse);      // adresse du bien seule
+    $fbxLocataireJs    = addslashes((string)$locataireNom);
     // Panneau Actions — EN HAUT de la colonne (convention 360°)
     fiche360_actions_panel('Actions bail', [
-        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'bail_360', bail_id:" . (int)$bailId . ", bien_id:" . (int)$bail['bien_id'] . ", immeuble_id:" . (int)($bail['id_immeuble'] ?? 0) . ", soc_id:" . (int)($bail['bien_soc'] ?? 0) . ", age_id:" . (int)($bail['bien_age'] ?? 0) . ", entite_id_bdd:" . (int)$bailId . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes('Bail #' . $bailId . ' · ' . $bienLabel) . "'});return false;"],
+        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'bail_360', bail_id:" . (int)$bailId . ", bail_locataire:'" . $fbxLocataireJs . "', bien_id:" . (int)$bail['bien_id'] . ", immeuble_id:" . (int)($bail['id_immeuble'] ?? 0) . ", immeuble_nom:'" . $fbxImmeubleNomJs . "', soc_id:" . (int)($bail['bien_soc'] ?? 0) . ", age_id:" . (int)($bail['bien_age'] ?? 0) . ", proprio_id:" . $fbxProprioId . ", proprio_nom:'" . $fbxProprioNomJs . "', proprio_tiers_id:" . $fbxProprioTiersId . ", entite_id_bdd:" . (int)$bail['bien_id'] . ", entite_nom:'" . $fbxBienRefJs . "', entite_adresse:'" . $fbxBienAdrJs . "', card_label:'DOCUMENT POUR LE BAIL', n1:'03_GESTION_LOCATIVE'});return false;"],
         ['icon'=>'📨','label'=>'Demander un document (locataire)','url'=>app_url('/document_request_new.php?ctx=BAIL&id=' . $bailId . '&back=' . urlencode('bail_360.php?id=' . $bailId))],
         ['icon'=>'📥','label'=>'Importer docs du bail (OneDrive)','url'=>'javascript:odClasserOpen()'],
         ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
@@ -374,7 +516,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         ['icon'=>'🎯','label'=>'Retour au tableau Baux',   'url'=>app_url('/bien_baux_liste.php')],
     ]);
 
-    fiche360_checklist('Pièces bail', $piecesItems);
+    fiche360_checklist('Pièces bail', $piecesItems, $fbxPrefillBail);
 
     // Bien concerné
     fiche360_attach('BIEN CONCERNÉ', [[
@@ -424,79 +566,10 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 </div>
 
 <?= fiche360_js() ?>
-<script>
-(function(){
-  var form = document.getElementById('bailUpForm');
-  if (!form) return;
-  var input = document.getElementById('bailUpFile');
-  var zone  = document.getElementById('bailDropzone');
-  var picked= document.getElementById('bailUpPicked');
-  var UP_URL = <?= json_encode(app_url('/api/bail_doc_upload.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
-
-  function listNames(files){
-    return Array.prototype.map.call(files, function(f){ return f.name; }).join(', ');
-  }
-  function doUpload(files){
-    var btn = document.getElementById('bailUpBtn');
-    var msg = document.getElementById('bailUpMsg');
-    if (!files || !files.length){ msg.style.color='#c62828'; msg.textContent='❌ Aucun fichier sélectionné.'; return; }
-    var fd = new FormData();
-    fd.append('csrf_token', form.querySelector('[name=csrf_token]') ? form.querySelector('[name=csrf_token]').value : '');
-    fd.append('id_bail', form.querySelector('[name=id_bail]').value);
-    var tSel = document.getElementById('bailUpType');
-    fd.append('type_piece', tSel ? tSel.value : 'bail_signe');
-    for (var i=0;i<files.length;i++) fd.append('document[]', files[i]);
-    var prev = btn.textContent;
-    btn.disabled = true; btn.textContent = '⏳ Chargement…'; msg.textContent='';
-    fetch(UP_URL, { method:'POST', body:fd, credentials:'same-origin' })
-      .then(function(r){ return r.json(); })
-      .then(function(j){
-        btn.disabled=false; btn.textContent=prev;
-        if (j && j.ok){
-          msg.style.color='#2d8a4e';
-          var t = '✓ '+j.n+' document(s) rangé(s) sur le bail et le bien.';
-          if (j.analyse && j.analyse.ok){
-            var nf = (j.analyse.champs_remplis||[]).length;
-            t += nf>0 ? ' 🤖 Bail analysé — '+nf+' champ(s) renseigné(s).' : ' 🤖 Bail analysé (champs déjà remplis).';
-          } else if (j.analyse && j.analyse.error){
-            t += ' ⚠️ Analyse IA : '+j.analyse.error+'.';
-          }
-          msg.textContent = t;
-          setTimeout(function(){ location.reload(); }, 1400);
-        } else {
-          msg.style.color='#c62828';
-          msg.textContent='❌ '+((j && (j.error || (j.errors||[]).join(' / '))) || 'Échec');
-        }
-      })
-      .catch(function(e){ btn.disabled=false; btn.textContent=prev; msg.style.color='#c62828'; msg.textContent='❌ Erreur réseau : '+e; });
-  }
-
-  // Clic sur la zone → ouvre le sélecteur
-  zone.addEventListener('click', function(){ input.click(); });
-  zone.addEventListener('keydown', function(e){ if (e.key==='Enter'||e.key===' '){ e.preventDefault(); input.click(); } });
-  input.addEventListener('change', function(){ if (input.files.length) picked.textContent = '📄 '+listNames(input.files); });
-
-  // Drag & drop
-  ['dragenter','dragover'].forEach(function(ev){
-    zone.addEventListener(ev, function(e){ e.preventDefault(); e.stopPropagation(); zone.style.background='#efe7f7'; zone.style.borderColor='#5e35b1'; });
-  });
-  ['dragleave','dragend'].forEach(function(ev){
-    zone.addEventListener(ev, function(e){ e.preventDefault(); e.stopPropagation(); zone.style.background='#faf8ff'; zone.style.borderColor='#b39ddb'; });
-  });
-  zone.addEventListener('drop', function(e){
-    e.preventDefault(); e.stopPropagation();
-    zone.style.background='#faf8ff'; zone.style.borderColor='#b39ddb';
-    var files = e.dataTransfer && e.dataTransfer.files;
-    if (files && files.length){ picked.textContent = '📄 '+listNames(files); doUpload(files); }
-  });
-
-  // Empêche le navigateur d'ouvrir le fichier si lâché à côté
-  ['dragover','drop'].forEach(function(ev){ document.addEventListener(ev, function(e){ if (e.target!==zone && !zone.contains(e.target)) e.preventDefault(); }); });
-
-  // Bouton / submit → upload des fichiers du sélecteur
-  form.addEventListener('submit', function(ev){ ev.preventDefault(); doUpload(input.files); });
-})();
-</script>
+<!-- Ancien uploader `bail_doc_upload.php` (hors glossaire) retiré le 2026-07-06.
+     Tout le chargement passe désormais par le modal FluxBox unique
+     (window.fbxOpenUploadModal), déclenché par « Charger des documents » (Actions bail)
+     et par les « + » de la checklist Pièces bail (type glossaire pré-sélectionné). -->
 
 <!-- ── Modal classement OneDrive → GED (scope BAIL : bail + EDL entrée) ── -->
 <div id="odModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(15,18,24,.55);align-items:center;justify-content:center;">

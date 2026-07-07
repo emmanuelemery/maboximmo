@@ -612,6 +612,40 @@ if (!function_exists('fluxbox_resoudre_carte')) {
         $carte = $st->fetch(PDO::FETCH_ASSOC);
         if (!$carte) return [];
 
+        // 1bis. Contexte PRÉREMPLI à l'upload (fiche d'origine : bien/bail/immeuble/proprio +
+        // société/agence choisies). Il était IGNORÉ ici → la pile affichait des défauts
+        // « supposés » FAUX (société du compte, entité « manquante »). On l'injecte comme
+        // choix EXPLICITE (vert), SOUS les éventuels choix faits par l'utilisateur dans la
+        // pile (qui priment, via array_merge). L'entité affichée = la plus tangible SUPPORTÉE
+        // par le résolveur de scope (bien > immeuble > tiers) → montre le BIEN précis.
+        $prop = !empty($carte['proposition_json']) ? json_decode((string)$carte['proposition_json'], true) : null;
+        if (is_array($prop)) {
+            $propExplicite = [];
+            $ts = (int)($prop['target_societe_id'] ?? 0);
+            $ta = (int)($prop['target_agence_id'] ?? 0);
+            if ($ts > 0) $propExplicite['societe_id'] = $ts;
+            if ($ta > 0) $propExplicite['agence_id']  = $ta;
+            $bienId  = (int)($prop['bien_id'] ?? 0);
+            $immId   = (int)($prop['immeuble_id'] ?? 0);
+            $tiersId = (int)($prop['tiers_id'] ?? 0);
+            if ($bienId > 0)      { $propExplicite['entite_type'] = 'bien';     $propExplicite['entite_id'] = $bienId; }
+            elseif ($immId > 0)   { $propExplicite['entite_type'] = 'immeuble'; $propExplicite['entite_id'] = $immId; }
+            elseif ($tiersId > 0) { $propExplicite['entite_type'] = 'tiers';    $propExplicite['entite_id'] = $tiersId; }
+            if (!empty($prop['entity_instance'])) $propExplicite['entite_nom'] = (string)$prop['entity_instance'];
+            // Métier (N1) / Domaine (N2) / Type : mêmes valeurs que le modal « Ajuster »
+            // (proposition_json.classement) → la pile affiche vert « choix explicite » au lieu
+            // de recalculer depuis l'IA (jaune/vide). N3 est conservé dans le classement complet
+            // pour le nom/dossier, mais n'a pas de champ dédié dans ce récap.
+            $cl = is_array($prop['classement'] ?? null) ? $prop['classement'] : [];
+            $n1 = trim((string)($cl['n1'] ?? ''));
+            $n2 = trim((string)($cl['n2'] ?? ''));
+            if ($n1 !== '') $propExplicite['metier']  = strtoupper(preg_replace('/^\d+[_\-]/', '', $n1));
+            if ($n2 !== '') $propExplicite['domaine'] = strtoupper(preg_replace('/^\d+[_\-]/', '', $n2));
+            $td = trim((string)($prop['forced_type_doc'] ?? $cl['type_doc'] ?? $cl['type'] ?? ''));
+            if ($td !== '') $propExplicite['type_document'] = $td;
+            if ($propExplicite) $explicite = array_merge($propExplicite, $explicite);
+        }
+
         // 2. Contexte compte (utilisateur connecté = dernier recours, jaune)
         $userId = (int)($carte['created_by'] ?? ($_SESSION['user_id'] ?? 0));
         $compte = ['user_id'=>$userId];
@@ -680,7 +714,31 @@ if (!function_exists('fluxbox_resoudre_carte')) {
             } catch (Throwable) {}
         }
 
-        return fluxbox_resoudre_contexte($carteId, ['explicite'=>$explicite, 'compte'=>$compte], $extraction_ia, $contexteLot, $pdo);
+        $res = fluxbox_resoudre_contexte($carteId, ['explicite'=>$explicite, 'compte'=>$compte], $extraction_ia, $contexteLot, $pdo);
+
+        // Niveaux inférieurs (N3 sous-domaine, N4 catégorie, N5 sous-catégorie, N6 signature)
+        // pour affichage MODIFIABLE dans le récap — repris du classement proposé (= modal Ajuster).
+        if (is_array($prop)) {
+            $cl = is_array($prop['classement'] ?? null) ? $prop['classement'] : [];
+            $mk = static function ($slug) {
+                $s = trim((string)$slug);
+                return $s !== ''
+                    ? flux_champ(flux_humaniser_slug($s), 'vert', 'contexte_explicite')
+                    : flux_champ(null, 'jaune', 'defaut');
+            };
+            $res['sousdomaine']   = $mk($cl['n3'] ?? '');
+            $res['categorie']     = $mk($cl['n4'] ?? '');
+            $res['souscategorie'] = $mk($cl['n5'] ?? '');
+            $sig = strtolower(trim((string)($cl['n6'] ?? $cl['signature'] ?? '')));
+            if ($sig !== '') {
+                $lbl = in_array($sig, ['signe','signé','1','oui','true'], true) ? 'Signé'
+                     : (in_array($sig, ['non_signe','non signé','0','non','false'], true) ? 'Non signé' : ucfirst($sig));
+                $res['signature'] = flux_champ($lbl, 'vert', 'contexte_explicite');
+            } else {
+                $res['signature'] = flux_champ(null, 'jaune', 'defaut');
+            }
+        }
+        return $res;
     }
 }
 
@@ -710,14 +768,22 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
             'contexte_user'      => 'ton compte (supposé)',
             'defaut'             => 'défaut',
         ];
+        // Ordre calqué sur le modal « Ajuster » : Société › Agence › Métier › Domaine ›
+        // Sous-domaine › Entité › Type › Catégorie › Sous-catégorie › Signature.
         $champs = [
             'societe'       => '🏢 Société',
             'agence'        => '🏬 Agence',
-            'entite'        => '👤 Entité',
-            'type_document' => '🏷️ Type de document',
             'metier'        => '💼 Métier',
             'domaine'       => '📂 Domaine',
+            'sousdomaine'   => '📁 Sous-domaine',
+            'entite'        => '👤 Entité',
+            'type_document' => '🏷️ Type de document',
+            'categorie'     => '📄 Catégorie',
+            'souscategorie' => '📑 Sous-catégorie',
+            'signature'     => '✍️ Signature',
         ];
+        // Niveaux inférieurs : modifiables via le modal « Ajuster » (bouton par ligne).
+        $lowerLevels = ['sousdomaine','categorie','souscategorie','signature'];
 
         $rows = '';
         foreach ($champs as $key => $libelle) {
@@ -733,6 +799,13 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
             $confirmBtn = '';
             if (in_array($key, ['societe','agence'], true) && $conf === 'jaune') {
                 $confirmBtn = '<button type="button" class="fbx-reso-confirm" data-field="'.$h($key).'">✓ Confirmer</button>';
+            }
+            // Niveaux inférieurs (N3-N6) : bouton « Ajuster » (ouvre l'éditeur complet, data-action lié
+            // par fluxbox.js). Libellé « Compléter » si vide, « Modifier » sinon.
+            if (in_array($key, $lowerLevels, true)) {
+                $isEmpty = ($val === null || $val === '');
+                $confirmBtn = '<button type="button" class="fbx-reso-adjust" data-action="adjust">'
+                            . ($isEmpty ? '✏️ Compléter' : '✏️ Modifier') . '</button>';
             }
             // Candidats alternatifs (entité) — cascade
             $cands = '';
@@ -764,6 +837,14 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
         }
 
         $bloquant = !empty($r['bloquant']);
+        // « Tout reconnu » : les 6 champs principaux sont verts (sûrs) et rien ne bloque.
+        // → affichage compact (bannière + détail repliable) pour valider sans friction.
+        $allGreen = !$bloquant;
+        foreach (['societe','agence','metier','domaine','entite','type_document'] as $mk2) {
+            $ff = $r[$mk2] ?? null;
+            if (!is_array($ff)) continue;
+            if (($ff['confiance'] ?? '') !== 'vert') { $allGreen = false; break; }
+        }
         $chemin = (string)($r['chemin'] ?? '');
         $cheminCode = (string)($r['chemin_code'] ?? '');
         $nom    = (string)($r['nom_fichier'] ?? '');
@@ -791,6 +872,8 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
     .fbx-reso-new{color:#92400e;background:#fef3c7;}
     .fbx-reso-confirm{font-size:11px;font-weight:700;border:1px solid #d4a047;background:#fff7e6;color:#92400e;border-radius:8px;padding:3px 10px;cursor:pointer;}
     .fbx-reso-confirm.is-done{background:#d9f0db;border-color:#2d6a35;color:#2d6a35;}
+    .fbx-reso-adjust{font-size:10.5px;font-weight:700;border:1px solid #c7b3ea;background:#f6f1fd;color:#6b21a8;border-radius:8px;padding:3px 10px;cursor:pointer;white-space:nowrap;}
+    .fbx-reso-adjust:hover{background:#efe6fb;border-color:#7c3aed;}
     .fbx-reso-change{font-size:10.5px;font-weight:600;border:1px solid #cbd5e1;background:#f8fafc;color:#475569;border-radius:7px;padding:2px 8px;cursor:pointer;margin-left:4px;}
     .fbx-reso-cands{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
     .fbx-reso-cand{font-size:11px;border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:3px 9px;cursor:pointer;}
@@ -811,10 +894,27 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
     .fbx-reso-dest .cc{margin-top:3px;font-size:10px;color:#94a3b8;}
     .fbx-reso-block{margin-top:8px;font-size:12px;font-weight:700;color:#991b1b;}
     .fbx-reso-block.ok{color:#2d6a35;}
+    .fbx-reso-allok{background:linear-gradient(180deg,#e9f9ec 0%,#d9f0db 100%);border:1px solid #86c493;border-radius:10px;padding:12px 14px;font-size:14px;color:#2d6a35;font-weight:700;margin-bottom:6px;}
+    .fbx-reso-allok strong{color:#1e4d26;}
+    .fbx-reso-detail{margin-top:4px;}
+    .fbx-reso-detail>summary{cursor:pointer;font-size:12px;font-weight:700;color:#6b21a8;list-style:none;padding:4px 0;user-select:none;}
+    .fbx-reso-detail>summary::-webkit-details-marker{display:none;}
+    .fbx-reso-detail>summary::before{content:"▸ ";color:#a78bda;}
+    .fbx-reso-detail[open]>summary::before{content:"▾ ";}
+    .fbx-reso-detail-body{margin-top:6px;}
   </style>
-  <div class="fbx-reso-head">🎯 Proposition de classement — vérifiez champ par champ</div>
-  <?= $lotHeader ?>
-  <?= $rows ?>
+  <?php if ($allGreen): ?>
+    <div class="fbx-reso-allok">✅ <strong>Tout est reconnu</strong> — prêt à classer, rien à vérifier.</div>
+    <?= $lotHeader ?>
+    <details class="fbx-reso-detail">
+      <summary>🔎 Voir / ajuster le détail</summary>
+      <div class="fbx-reso-detail-body"><?= $rows ?></div>
+    </details>
+  <?php else: ?>
+    <div class="fbx-reso-head">🎯 Proposition de classement — vérifiez champ par champ</div>
+    <?= $lotHeader ?>
+    <?= $rows ?>
+  <?php endif; ?>
 
   <!-- Correctif 8 — aperçu destination AVANT validation -->
   <div class="fbx-reso-dest">
@@ -830,6 +930,10 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
   <script>
   (function(){
     var CARTE = <?= (int)$carteId ?>;
+    // Base API correcte (installation en sous-dossier : /MaBoxImmo2026/public_html/…).
+    // Avant : fetch('/api/…') en dur → 404 hors racine → « Changer l'entité »/candidats muets.
+    var API_RESOLVE = <?= json_encode(function_exists('app_url') ? app_url('/api/fluxbox_resolve.php') : '/api/fluxbox_resolve.php', JSON_UNESCAPED_SLASHES) ?>;
+    var API_SEARCH  = <?= json_encode(function_exists('app_url') ? app_url('/api/fluxbox_entity_search.php') : '/api/fluxbox_entity_search.php', JSON_UNESCAPED_SLASHES) ?>;
     var root = document.getElementById('fbx-reso-'+CARTE);
     if(!root) return;
     var PAS = {vert:['#2d6a35','#d9f0db','🟢','sûr'],jaune:['#92400e','#fef3c7','🟡','à confirmer'],rouge:['#991b1b','#fee2e2','🔴','manquant']};
@@ -888,7 +992,7 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
       payload.carte_id = CARTE;
       payload.confirme_societe = confirmed.societe?1:0;
       payload.confirme_agence  = confirmed.agence?1:0;
-      fetch('/api/fluxbox_resolve.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      fetch(API_RESOLVE, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
         .then(function(r){return r.json();})
         .then(function(d){ if(d && d.ok && d.resolution) applyResolution(d.resolution); })
         .catch(function(){});
@@ -911,7 +1015,7 @@ if (!function_exists('fluxbox_render_proposition_inline')) {
       input.addEventListener('input', function(){
         clearTimeout(tmr); var q=input.value.trim(); if(q.length<2){ out.innerHTML=''; return; }
         tmr=setTimeout(function(){
-          fetch('/api/fluxbox_entity_search.php?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(d){
+          fetch(API_SEARCH+'?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(d){
             out.innerHTML='';
             (d.results||[]).forEach(function(it){
               var el=document.createElement('button'); el.type='button'; el.className='fbx-reso-res';
