@@ -63,6 +63,9 @@ if (!function_exists('bail_commercial_pdf_context')) {
             $q = $pdo->prepare("SELECT nom_agence,adresse_1,code_postal,ville,rcs,iban,bic,banque_nom FROM agences WHERE id=?");
             $q->execute([$ageId]); $age = $q->fetch(PDO::FETCH_ASSOC) ?: [];
         }
+        // Compte bancaire de GESTION (baux + compta gestion) — jamais le compte société.
+        require_once __DIR__ . '/comptes_bancaires.php';
+        $ribG = cb_resolve($pdo, $socId, $ageId ?: null, 'gestion');
 
         $proprioNom = $bail['proprio_tiers_nom'] ?: $bail['proprio_nom_legacy'] ?: '';
         $loyerM = (float)($bail['loyer_mensuel_hc'] ?? 0);
@@ -131,8 +134,10 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 'garantie'  => (string)($soc['garantie_financiere'] ?? ''),
                 'age_nom'   => (string)($age['nom_agence'] ?? ''),
                 'age_adr'   => trim((string)($age['adresse_1'] ?? '') . ' ' . ($age['code_postal'] ?? '') . ' ' . ($age['ville'] ?? '')),
-                'rib_iban'  => (string)(($soc['rib_emetteur_iban'] ?? '') ?: ($age['iban'] ?? '')),
-                'rib_nom'   => (string)(($soc['rib_emetteur_nom'] ?? '') ?: ($age['banque_nom'] ?? '')),
+                // Compte de GESTION (résolu par agence/type), repli legacy inclus dans cb_resolve.
+                'rib_iban'  => (string)($ribG['iban'] ?: ($soc['rib_emetteur_iban'] ?? '') ?: ($age['iban'] ?? '')),
+                'rib_nom'   => (string)($ribG['banque'] ?: $ribG['titulaire'] ?: ($soc['rib_emetteur_nom'] ?? '') ?: ($age['banque_nom'] ?? '')),
+                'rib_bic'   => (string)($ribG['bic'] ?: ($soc['rib_emetteur_bic'] ?? '') ?: ($age['bic'] ?? '')),
                 'ville_sig' => (string)($age['ville'] ?? ($soc['ville'] ?? '')),
             ],
             'cond' => [

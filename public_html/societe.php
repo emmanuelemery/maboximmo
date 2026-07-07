@@ -2,11 +2,34 @@
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/auth.php';
+require_once __DIR__ . '/inc/comptes_bancaires.php';
 require_login();
 
 $pdo          = $GLOBALS['pdo'];
 $roleId       = current_role_id();
 $isSuperAdmin = function_exists('is_super_admin') ? is_super_admin() : false;
+
+/** Rendu d'une card compte bancaire (societes_rib). $rb vide = card vierge (template). */
+function rs_render_rib_card(array $rb, array $types): string {
+    $id = (int)($rb['id'] ?? 0);
+    $type = (string)($rb['type_compte'] ?? 'gestion');
+    $btns = '';
+    foreach ($types as $k => $lbl) {
+        $btns .= '<button type="button" class="rib-type' . ($k === $type ? ' on' : '') . '" data-type="' . $k . '" onclick="ribPickType(this)">' . htmlspecialchars($lbl) . '</button>';
+    }
+    $def = !empty($rb['is_default']) ? 'checked' : '';
+    $v = fn(string $k) => htmlspecialchars((string)($rb[$k] ?? ''), ENT_QUOTES);
+    return '<div class="rib-card" data-id="' . $id . '">'
+        . '<div class="rib-usage">' . $btns . '<label class="rib-def"><input type="checkbox" class="rib-default" ' . $def . '> compte par défaut</label></div>'
+        . '<input class="rib-libelle" placeholder="Libellé (ex. Gestion clients)" value="' . $v('libelle') . '">'
+        . '<input class="rib-titulaire" placeholder="Titulaire du compte" value="' . $v('titulaire') . '">'
+        . '<input class="rib-iban" placeholder="IBAN FR76 …" value="' . $v('iban') . '">'
+        . '<div class="rib-row2"><input class="rib-bic" placeholder="BIC" value="' . $v('bic') . '"><input class="rib-banque" placeholder="Banque" value="' . $v('banque') . '"></div>'
+        . '<div class="rib-actions"><button type="button" class="rib-save" onclick="ribSave(this)">💾 Enregistrer</button>'
+        . '<button type="button" class="rib-del" onclick="ribDelete(this)">🗑️ Supprimer</button>'
+        . '<span class="rib-msg"></span></div>'
+        . '</div>';
+}
 
 // Super Admin peut consulter/modifier n'importe quelle société via ?sa_id=X
 $saOverride = $isSuperAdmin ? (int)($_GET['sa_id'] ?? 0) : 0;
@@ -2583,8 +2606,69 @@ $pageTitle = 'Fiche société';
           </div><!-- /.ag-grid -->
 
         </form>
+
+        <!-- ── Comptes bancaires multiples (par usage) ── -->
+        <?php
+          $__types = cb_types();
+          $__ribs  = array_values(array_filter(cb_list($pdo, (int)$societeId, (int)$ag['id']), fn($r) => (int)$r['id_agence'] === (int)$ag['id']));
+        ?>
+        <div class="rs-card ag-card" style="margin-top:14px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
+            <div>
+              <div class="rs-card-title" style="margin:0;">Comptes bancaires (par usage)</div>
+              <div class="rs-card-desc" style="margin-top:2px;">Le compte <b>Gestion</b> alimente les baux et la compta de gestion ; <b>Société</b> les factures transaction/location hors gestion ; <b>Séquestre</b> les fonds séquestrés.</div>
+            </div>
+            <button type="button" onclick="ribAddCard(<?= (int)$ag['id'] ?>)" style="background:linear-gradient(135deg,#1f7a4d,#25955d);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-family:'Sora',sans-serif;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">＋ Ajouter un RIB</button>
+          </div>
+          <div id="ribCards_<?= (int)$ag['id'] ?>" class="rib-cards" data-soc="<?= (int)$societeId ?>" data-age="<?= (int)$ag['id'] ?>">
+            <?php foreach ($__ribs as $rb) echo rs_render_rib_card($rb, $__types); ?>
+          </div>
+        </div>
+
       </div><!-- /.ag-panel -->
       <?php endforeach; ?>
+
+      <!-- Template de card RIB (cloné à l'ajout) + styles + JS AJAX -->
+      <template id="ribCardTpl"><?= rs_render_rib_card([], cb_types()) ?></template>
+      <style>
+        .rib-cards{display:flex;flex-direction:column;gap:12px;}
+        .rib-card{border:1px solid #e3e0ea;border-radius:10px;padding:12px;background:#fbfaff;display:flex;flex-direction:column;gap:8px;}
+        .rib-usage{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+        .rib-type{border:1.5px solid #ccc;background:#fff;color:#555;border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Sora',sans-serif;}
+        .rib-type.on{background:#243B5C;color:#fff;border-color:#243B5C;}
+        .rib-def{margin-left:auto;font-size:12px;color:#5b6b70;display:inline-flex;align-items:center;gap:5px;cursor:pointer;}
+        .rib-card input[type=text],.rib-card input:not([type]){width:100%;padding:8px 10px;border:1px solid #cbd8da;border-radius:8px;font-size:13px;box-sizing:border-box;}
+        .rib-row2{display:flex;gap:8px;}.rib-row2 input{flex:1;}
+        .rib-actions{display:flex;align-items:center;gap:8px;}
+        .rib-save{border:none;background:#1f7a4d;color:#fff;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer;font-size:12.5px;}
+        .rib-del{border:1px solid #f0b8b0;background:#fdecea;color:#c0392b;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:12.5px;}
+        .rib-msg{font-size:12px;font-weight:700;}
+      </style>
+      <script>
+        var RIB_URL_SAVE = <?= json_encode(app_url('/api/societe_rib_save.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+        var RIB_URL_DEL  = <?= json_encode(app_url('/api/societe_rib_delete.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+        function ribPickType(b){ b.parentNode.querySelectorAll('.rib-type').forEach(function(x){x.classList.remove('on');}); b.classList.add('on'); }
+        function ribAddCard(age){ var c=document.getElementById('ribCards_'+age), t=document.getElementById('ribCardTpl');
+          var n=t.content.firstElementChild.cloneNode(true); c.appendChild(n); n.querySelector('.rib-libelle').focus(); }
+        function ribCardData(card){ var t=card.querySelector('.rib-type.on');
+          return { id:parseInt(card.dataset.id||'0',10), type_compte:t?t.dataset.type:'gestion',
+            libelle:card.querySelector('.rib-libelle').value, titulaire:card.querySelector('.rib-titulaire').value,
+            iban:card.querySelector('.rib-iban').value, bic:card.querySelector('.rib-bic').value,
+            banque:card.querySelector('.rib-banque').value, is_default:card.querySelector('.rib-default').checked }; }
+        function ribSave(btn){ var card=btn.closest('.rib-card'), cont=card.closest('.rib-cards'), msg=card.querySelector('.rib-msg');
+          var d=ribCardData(card); d.id_societe=parseInt(cont.dataset.soc,10); d.id_agence=parseInt(cont.dataset.age,10);
+          if(!d.iban){ msg.style.color='#c0392b'; msg.textContent='IBAN requis'; return; }
+          msg.style.color='#5f8f93'; msg.textContent='⏳ Enregistrement…';
+          fetch(RIB_URL_SAVE,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+            .then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ card.dataset.id=j.id; msg.style.color='#15803d'; msg.textContent='✅ Enregistré'; }
+              else { msg.style.color='#c0392b'; msg.textContent='❌ '+((j&&j.error)||'Échec'); } })
+            .catch(function(e){ msg.style.color='#c0392b'; msg.textContent='❌ '+e; }); }
+        function ribDelete(btn){ var card=btn.closest('.rib-card'), id=parseInt(card.dataset.id||'0',10);
+          if(!id){ card.remove(); return; } if(!confirm('Supprimer ce compte bancaire ?')) return;
+          var cont=card.closest('.rib-cards');
+          fetch(RIB_URL_DEL,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,id_societe:parseInt(cont.dataset.soc,10)})})
+            .then(function(r){return r.json();}).then(function(j){ if(j&&j.ok) card.remove(); else alert('❌ '+((j&&j.error)||'Échec')); }); }
+      </script>
 
       <!-- Panel nouvelle agence -->
       <div class="ag-panel <?= empty($agences) ? 'active' : '' ?>" id="ag-new">
