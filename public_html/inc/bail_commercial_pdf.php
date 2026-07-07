@@ -238,11 +238,20 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 $dim=(int)date('t',$ts); $ratio=($dim-$d+1)/$dim; $prLabel='mois';
             }
         }
+        // Franchise : le loyer démarre APRÈS la prise d'effet → rien à verser au titre du loyer
+        // à la signature (loyer/charges/TF/gestion appelés à compter de la date de loyer).
+        $franchise = false;
+        if (($c['prorata_date'] ?? '') && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$c['prorata_date'])
+            && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$c['date_effet_raw'])) {
+            $franchise = strtotime($c['prorata_date']) > strtotime($c['date_effet_raw']);
+        }
         $decompte = [];
-        if ($loyerMn)  $decompte[] = ['1ᵉʳ loyer' . ($prLabel?' (prorata '.$prLabel.')':'') . ($tvaOn?' TTC':' HT'), $ttc($loyerMn*$mult*$ratio)];
-        if ($chargesMn)$decompte[] = ['Provision charges courantes' . ($prLabel?' (prorata)':'') . ($tvaOn?' TTC':''), $ttc($chargesMn*$mult*$ratio)];
-        if ($tfMn)     $decompte[] = ['Provision taxe foncière' . ($prLabel?' (prorata)':'') . ($tvaOn?' TTC':''), $ttc($tfMn*$mult*$ratio)];
-        if ($techMn)   $decompte[] = ['Honoraires gestion technique ' . rtrim(rtrim(number_format($techPct,2,',',''),'0'),',') . ' %' . ($prLabel?' (prorata)':'') . ($tvaOn?' TTC':''), $ttc($techMn*$mult*$ratio)];
+        if (!$franchise) {
+            if ($loyerMn)  $decompte[] = ['1ᵉʳ loyer' . ($prLabel?' (prorata '.$prLabel.')':'') . ($tvaOn?' TTC':' HT'), $ttc($loyerMn*$mult*$ratio)];
+            if ($chargesMn)$decompte[] = ['Provision charges courantes' . ($prLabel?' (prorata)':'') . ($tvaOn?' TTC':''), $ttc($chargesMn*$mult*$ratio)];
+            if ($tfMn)     $decompte[] = ['Provision taxe foncière' . ($prLabel?' (prorata)':'') . ($tvaOn?' TTC':''), $ttc($tfMn*$mult*$ratio)];
+            if ($techMn)   $decompte[] = ['Honoraires gestion technique ' . rtrim(rtrim(number_format($techPct,2,',',''),'0'),',') . ' %' . ($prLabel?' (prorata)':'') . ($tvaOn?' TTC':''), $ttc($techMn*$mult*$ratio)];
+        }
         if ($honoTtc)  $decompte[] = ['Honoraires agence TTC', $honoTtc];
         if ($c['dg_montant']) $decompte[] = ['Dépôt de garantie', (float)$c['dg_montant']];
         $totalVerser = array_sum(array_map(fn($l)=>$l[1], $decompte));
@@ -341,6 +350,9 @@ if (!function_exists('bail_commercial_pdf_context')) {
             $h .= '<h2>Décompte des sommes à verser à la signature</h2>';
             $h .= '<table class="tbl"><tbody>' . $rowsD . '</tbody></table>';
             $h .= '<p class="mut">Règlement par virement' . ($ge['rib_iban'] ? ' — ' . bcp_e($ge['rib_nom'] ?: 'compte de l\'agence') . ', IBAN ' . bcp_e($ge['rib_iban']) : ' sur le compte de l\'agence') . '.</p>';
+        }
+        if ($franchise) {
+            $h .= '<p class="mut"><b>Franchise de loyer :</b> le loyer est gratuit depuis la prise d\'effet jusqu\'au ' . bcp_e((string)(bcp_date($c['prorata_date']) ?: '')) . ' ; aucun loyer, charge ou provision n\'est dû au titre de cette période. Le loyer est appelé à compter de cette date selon l\'échéance ci-dessous.</p>';
         }
 
         // ── Échéance périodique : appel de loyer complet (loyer + charges + provisions + TVA) ──

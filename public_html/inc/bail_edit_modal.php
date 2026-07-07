@@ -284,8 +284,16 @@ function bail_edit_modal(): void
     var cp = v('bel-cp'), cpLoyer = v('bel-cp-loyer');
     var dgN = parseFloat(v('bel-dg'))||0, dgMontant = dgN*loyerMn;
     function ttc(x){ return tvaOn ? x*(1+tauxTva/100) : x; }
+    // Date de départ du LOYER = « loyer calculé à partir du » sinon prise d'effet.
+    var effDate = v('bel-date-effet'), loyerStart = v('bel-prorata-date') || effDate;
+    // Franchise : le loyer démarre APRÈS la prise d'effet → rien à verser au titre du loyer à la signature.
+    var franchise = false;
+    if(v('bel-prorata-date') && effDate){
+      var _dp=new Date(v('bel-prorata-date')+'T00:00:00'), _de=new Date(effDate+'T00:00:00');
+      if(!isNaN(_dp.getTime())&&!isNaN(_de.getTime())) franchise = _dp.getTime() > _de.getTime();
+    }
     function prorata(){
-      var ds=v('bel-date-effet'); if(!ds) return null; var d=new Date(ds+'T00:00:00'); if(isNaN(d.getTime())) return null;
+      if(!loyerStart) return null; var d=new Date(loyerStart+'T00:00:00'); if(isNaN(d.getTime())) return null;
       var y=d.getFullYear(), m=d.getMonth(), day=d.getDate();
       if(perio==='trimestrielle'){ var qs=Math.floor(m/3)*3, s=new Date(y,qs,1), e=new Date(y,qs+3,0);
         var td=Math.round((e-s)/86400000)+1, rm=Math.round((e-d)/86400000)+1; return {ratio:rm/td, label:'trimestre'}; }
@@ -293,21 +301,46 @@ function bail_edit_modal(): void
     }
     var pr=prorata(), rr = pr?pr.ratio:1;
     var decompte = [];
-    if(loyerMn) decompte.push(['1ᵉʳ loyer'+(pr?' (prorata '+pr.label+')':'')+(tvaOn?' TTC':' HT'), ttc(loyerMn*mult*rr)]);
-    if(chargesMn) decompte.push(['Provision charges courantes'+(pr?' (prorata)':'')+(tvaOn?' TTC':''), ttc(chargesMn*mult*rr)]);
-    if(tfMn) decompte.push(['Provision taxe foncière'+(pr?' (prorata)':'')+(tvaOn?' TTC':''), ttc(tfMn*mult*rr)]);
-    if(techMn) decompte.push(['Honoraires gestion technique '+techPct+' %'+(pr?' (prorata)':'')+(tvaOn?' TTC':''), ttc(techMn*mult*rr)]);
+    // En cas de franchise, on n'appelle NI loyer NI charges/TF/gestion à la signature (payés à compter de la date de loyer).
+    if(!franchise){
+      if(loyerMn) decompte.push(['1ᵉʳ loyer'+(pr?' (prorata '+pr.label+')':'')+(tvaOn?' TTC':' HT'), ttc(loyerMn*mult*rr)]);
+      if(chargesMn) decompte.push(['Provision charges courantes'+(pr?' (prorata)':'')+(tvaOn?' TTC':''), ttc(chargesMn*mult*rr)]);
+      if(tfMn) decompte.push(['Provision taxe foncière'+(pr?' (prorata)':'')+(tvaOn?' TTC':''), ttc(tfMn*mult*rr)]);
+      if(techMn) decompte.push(['Honoraires gestion technique '+techPct+' %'+(pr?' (prorata)':'')+(tvaOn?' TTC':''), ttc(techMn*mult*rr)]);
+    }
     if(honoLoc) decompte.push(['Honoraires locataire TTC', honoLoc]);
     if(dgMontant) decompte.push(['Dépôt de garantie', dgMontant]);
     var totalVerser = decompte.reduce(function(s,l){return s+l[1];},0);
+    // Échéance périodique (montant récurrent à payer) : loyer + charges + gestion + TVA + TF.
+    var baseHT=(loyerMn+chargesMn+techMn)*mult, tfPer=tfMn*mult, tvaEch=tvaOn?baseHT*tauxTva/100:0, totalEch=baseHT+tvaEch+tfPer;
+    function echeanceHtml(){
+      if(totalEch<=0) return '';
+      var er='';
+      er+='<tr><td>Loyer hors charges</td><td style="text-align:right;white-space:nowrap">'+(eur(loyerMn*mult)||'—')+'</td></tr>';
+      if(chargesMn) er+='<tr><td>Provision charges</td><td style="text-align:right;white-space:nowrap">'+eur(chargesMn*mult)+'</td></tr>';
+      if(techMn) er+='<tr><td>Gestion technique '+techPct+' %</td><td style="text-align:right;white-space:nowrap">'+eur(techMn*mult)+'</td></tr>';
+      er+='<tr><td><b>Sous-total HT</b></td><td style="text-align:right;white-space:nowrap"><b>'+eur(baseHT)+'</b></td></tr>';
+      if(tvaOn) er+='<tr><td>TVA '+tauxTva+' %</td><td style="text-align:right;white-space:nowrap">'+eur(tvaEch)+'</td></tr>';
+      if(tfPer) er+='<tr><td>Provision taxe foncière</td><td style="text-align:right;white-space:nowrap">'+eur(tfPer)+'</td></tr>';
+      er+='<tr><td><b>Total échéance '+(perio==='trimestrielle'?'trimestrielle':'mensuelle')+(tvaOn?' TTC':'')+'</b></td><td style="text-align:right;white-space:nowrap"><b>'+eur(totalEch)+'</b></td></tr>';
+      return '<h2>Échéance périodique — montant à payer '+(perio==='trimestrielle'?'par trimestre':'par mois')+'</h2>'
+        +'<table class="bel-tbl"><tbody>'+er+'</tbody></table>';
+    }
+    function franchiseNote(){
+      if(!franchise) return '';
+      var dtxt = v('bel-prorata-date') ? v('bel-prorata-date').split('-').reverse().join('/') : '';
+      return '<p class="mut" style="color:#a26a1c;">⚑ Franchise de loyer : le loyer est gratuit de la prise d\'effet jusqu\'au '+esc(dtxt)+'. <b>Rien à verser au titre du loyer à la signature</b> — le loyer sera appelé à compter de cette date.</p>';
+    }
     function decompteHtml(){
-      if(!decompte.length) return '';
+      if(!decompte.length && !franchise) return '';
+      if(!decompte.length) return '<h2>Décompte à verser à la signature</h2>'+franchiseNote();
       var geX = M._pf && M._pf.gestionnaire || {};
       var dr=''; for(var di=0; di<decompte.length; di++){ dr+='<tr><td>'+esc(decompte[di][0])+'</td><td style="text-align:right;white-space:nowrap">'+(eur(decompte[di][1])||'—')+'</td></tr>'; }
       return '<h2>Décompte à verser à la signature</h2>'
         +'<table class="bel-tbl"><tbody>'+dr
         +'<tr><td><b>Total à verser ('+(g('bel-tva').checked?'TVA incluse sur loyer/charges':'hors TVA')+')</b></td><td style="text-align:right"><b>'+(eur(totalVerser)||'—')+'</b></td></tr></tbody></table>'
-        +(geX.rib_iban?'<p class="mut">Règlement par virement — '+esc(geX.rib_nom||'compte de l\'agence')+', IBAN '+esc(geX.rib_iban)+'.</p>':'<p class="mut">Règlement par virement sur le compte de l\'agence (RIB en base à compléter).</p>');
+        +(geX.rib_iban?'<p class="mut">Règlement par virement — '+esc(geX.rib_nom||'compte de l\'agence')+', IBAN '+esc(geX.rib_iban)+'.</p>':'<p class="mut">Règlement par virement sur le compte de l\'agence (RIB en base à compléter).</p>')
+        +franchiseNote();
     }
     var loyerMots = loyerA ? (eur(loyerA)+' hors taxes et hors charges') : '…';
     var dgTxt = dg ? (esc(dg)+' mois de loyer'+(dgEur?' ('+dgEur+')':'')) : '…';
@@ -351,7 +384,7 @@ function bail_edit_modal(): void
       html += '<h2>4. Loyer</h2><p><b>'+loyerMots+'</b>'+(loyerM?' (soit '+eur(loyerM)+'/mois)':'')+(v('bel-charges')?' + charges '+eur(v('bel-charges'))+'/mois':'')+(techMn?' + gestion technique '+techPct+' %':'')+', '+perioTxt+', '+(tvaOn?'+ TVA 20 %':'non assujetti TVA')+'.</p>';
       html += '<h2>5. Indexation</h2><p>Indice '+indice+(v('bel-indice-trim')?', base '+esc(v('bel-indice-trim')):'')+(v('bel-indice-val')?' (valeur '+esc(v('bel-indice-val'))+')':'')+', révision annuelle.</p>';
       html += '<h2>6. Dépôt de garantie</h2><p>'+dgTxt+'.</p>';
-      html += decompteHtml();
+      html += decompteHtml(); html += echeanceHtml();
       var sx=[];
       if(erp) sx.push('Local ERP — accessibilité à charge du preneur.');
       if(opt) sx.push('Option d\'achat'+(v('bel-opt-prix')?' au prix de '+eur(v('bel-opt-prix')):'')+'.');
