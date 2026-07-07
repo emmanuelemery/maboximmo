@@ -336,9 +336,16 @@ function bail_edit_modal(): void
           + ',<br>ci-après « <b>le Preneur</b> », d\'autre part.</p>';
     html += '<p>Lesquels ont préalablement exposé et arrêté ce qui suit.</p>';
 
+    // Désignation / lot / copropriété : ce que l'utilisateur SAISIT prime sur le bien figé.
+    var _desig = v('bel-bien-desig') || pf.bien_description || '';
+    var _coproOn = g('bel-copro') && g('bel-copro').checked;
+    var _lot  = _coproOn ? v('bel-lot') : (pf.bien_lot||'');
+    var _tant = _coproOn ? v('bel-tantiemes') : (pf.bien_tantiemes||'');
+    var _copro = _coproOn ? ('bien en copropriété'+(_tant?' ('+esc(_tant)+' tantièmes)':'')) : (pf.bien_copro||'');
+
     // ── Mode RÉSUMÉ : version condensée (le PDF sort toujours le complet) ──
     if(mode==='simple'){
-      html += '<h2>1. Désignation</h2><p>'+ph(pf.bien_ref)+(pf.bien_adresse?', '+esc(pf.bien_adresse):'')+(pf.immeuble_nom?' — immeuble '+esc(pf.immeuble_nom):'')+(pf.bien_surface>0?', '+esc(pf.bien_surface)+' m²':'')+'.</p>';
+      html += '<h2>1. Désignation</h2><p>'+ph(pf.bien_ref)+(pf.bien_adresse?', '+esc(pf.bien_adresse):'')+(pf.immeuble_nom?' — immeuble '+esc(pf.immeuble_nom):'')+(_lot?', lot n° '+esc(_lot):'')+(pf.bien_surface>0?', '+esc(pf.bien_surface)+' m²':'')+(_copro?', '+_copro:'')+'.</p>';
       html += '<h2>2. Destination</h2><p>Activité exclusive : '+ph(v('bel-destination'))+'.</p>';
       html += '<h2>3. Durée</h2><p>'+dureeTxt+', à compter du '+ph(v('bel-date-effet'))+'.'+(ferme?' Renonciation à la 1ʳᵉ triennale (6 ans fermes).':'')+'</p>';
       html += '<h2>4. Loyer</h2><p><b>'+loyerMots+'</b>'+(loyerM?' (soit '+eur(loyerM)+'/mois)':'')+(v('bel-charges')?' + charges '+eur(v('bel-charges'))+'/mois':'')+(techMn?' + gestion technique '+techPct+' %':'')+', '+perioTxt+', '+(tvaOn?'+ TVA 20 %':'non assujetti TVA')+'.</p>';
@@ -362,12 +369,12 @@ function bail_edit_modal(): void
         'Le Bailleur donne à bail au Preneur, qui accepte, les locaux à usage commercial ci-après désignés : <b>'
         +ph(pf.bien_ref)+'</b>'+(pf.bien_adresse?', sis '+esc(pf.bien_adresse):'')
         +(pf.immeuble_nom?', dépendant de l\'immeuble '+esc(pf.immeuble_nom):'')
-        +(pf.bien_lot?', lot n° '+esc(pf.bien_lot):'')
+        +(_lot?', lot n° '+esc(_lot):'')
         +(pf.bien_etage?', '+esc(pf.bien_etage):'')
         +(pf.bien_surface>0?', d\'une surface d\'environ '+esc(pf.bien_surface)+' m²':'')
-        +(pf.bien_copro?', '+esc(pf.bien_copro):'')
+        +(_copro?', '+_copro:'')
         +'.'
-        +(pf.bien_description?' <b>Description :</b> '+esc(pf.bien_description):'')
+        +(_desig?' <b>Description :</b> '+esc(_desig):'')
         +' Le Preneur déclare parfaitement connaître les lieux pour les avoir visités et les prend dans leur état actuel, sans pouvoir exiger du Bailleur aucune remise en état, réparation ni travaux.');
 
     html += A('Destination',
