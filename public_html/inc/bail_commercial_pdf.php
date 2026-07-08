@@ -47,7 +47,16 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $st = $pdo->prepare($sql); $st->execute([$bailId]);
         $bail = $st->fetch(PDO::FETCH_ASSOC);
         if (!$bail) return null;
+        return bail_commercial_ctx_build($pdo, $bail);
+    }
 
+    /**
+     * Construit le contexte normalisé à partir d'une ligne bien_baux DÉJÀ JOINTE au bien
+     * (mêmes alias que la requête ci-dessus). Réutilisé par l'aperçu live (données non
+     * encore enregistrées) pour garantir un rendu IDENTIQUE au PDF.
+     */
+    function bail_commercial_ctx_build(PDO $pdo, array $bail): ?array
+    {
         // Société gestionnaire (jamais en dur). Le bien peut avoir id_societe/id_agence NULL
         // → on retombe sur ceux stockés SUR LE BAIL (posés à la création) pour ne jamais laisser
         // le Bailleur sans société de gestion.

@@ -206,11 +206,50 @@ function bail_edit_modal(): void
 .bel-who{display:inline-block;padding:1px 8px;border-radius:999px;font-size:10px;font-weight:800;font-family:Arial,sans-serif}
 .bel-who.bel-p{background:#eaf3ee;color:#2f7d52}
 .bel-who.bel-b{background:#fdeede;color:#b06a1c}
+/* Aperçu rendu par le MOTEUR PDF (api/bail_preview_html.php) — mêmes classes que le PDF, scopées ici. */
+.bel-pdfview{font-family:"Times New Roman",Times,serif;font-size:12.5px;color:#1c2226;line-height:1.5;background:#fff;padding:22px 26px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.bel-pdfview h1{font-size:19px;text-align:center;letter-spacing:1px;margin:0 0 5px}
+.bel-pdfview .sub{text-align:center;font-size:10.5px;font-style:italic;color:#555;margin:0 0 2px}
+.bel-pdfview .ref{text-align:center;font-size:10.5px;color:#777;margin:0 0 14px}
+.bel-pdfview h2{font-size:13px;color:#2c4b4d;border-bottom:1px solid #cddcdc;padding-bottom:2px;margin:14px 0 4px}
+.bel-pdfview p{margin:3px 0 7px;text-align:justify}
+.bel-pdfview .qual{font-style:italic;color:#555}
+.bel-pdfview .sub2{font-size:10.5px;font-style:italic;color:#666;margin:0 0 6px}
+.bel-pdfview .mut{font-size:10.5px;font-style:italic;color:#888}
+.bel-pdfview .tbl{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px}
+.bel-pdfview .tbl th{background:#e3ecec;text-align:left;padding:5px 7px;border:.5px solid #b9cccc;font-size:10.5px;text-transform:uppercase}
+.bel-pdfview .tbl td{padding:4px 7px;border:.5px solid #cddada;vertical-align:top}
+.bel-pdfview .tbl td.who{text-align:center;white-space:nowrap;width:22%}
+.bel-pdfview .sign{margin-top:18px}
+.bel-pdfview .sigtbl{width:100%;margin-top:8px}
+.bel-pdfview .sigtbl td{width:50%;vertical-align:top;padding:8px 10px;font-size:11.5px}
+.bel-pdfview img{max-width:100%}
 </style>
 <script>
 (function(){
   var API = <?= json_encode($api) ?>;
   var API_EXTRACT = <?= json_encode($apiExtract) ?>;
+  var API_PREVIEW = <?= json_encode(function_exists('app_url') ? app_url('/api/bail_preview_html.php') : '/api/bail_preview_html.php') ?>;
+  // Aperçu = MÊME moteur que le PDF (api/bail_preview_html.php). Débounce sur la saisie.
+  var _belPvTimer=null, _belPvSeq=0;
+  function belSchedulePreview(){
+    if(_belPvTimer) clearTimeout(_belPvTimer);
+    _belPvTimer=setTimeout(belRenderPdf, 300);
+  }
+  function belRenderPdf(){
+    var box=g('bel-preview-body'); if(!box) return;
+    if(!M._bienId){ box.innerHTML='<p class="mut">Sélectionne un bien pour l\'aperçu.</p>'; return; }
+    var seq=++_belPvSeq;
+    box.style.opacity='0.55';
+    var payload; try{ payload=belBuildPayload(); }catch(e){ return; }
+    fetch(API_PREVIEW,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+      .then(function(r){return r.json();}).then(function(j){
+        if(seq!==_belPvSeq) return; // réponse obsolète
+        box.style.opacity='';
+        if(j&&j.ok){ box.innerHTML='<div class="bel-pdfview">'+j.html+'</div>'; }
+        else { box.innerHTML='<p class="mut" style="color:#c0392b">Aperçu indisponible : '+((j&&j.error)||'erreur')+'</p>'; }
+      }).catch(function(e){ if(seq===_belPvSeq){ box.style.opacity=''; box.innerHTML='<p class="mut" style="color:#c0392b">Aperçu : '+e+'</p>'; } });
+  }
   var API_SAVE = <?= json_encode(function_exists('app_url') ? app_url('/api/bail_save.php') : '/api/bail_save.php') ?>;
   // Derniers indices INSEE connus à la date de rédaction — à mettre à jour trimestriellement.
   // T1 2026 (publiés fin juin 2026) — ILC 135,26 (commerce) · ILAT 137,42 (bureaux/tertiaire). IRL 146,60 = habitation (hors bail commercial).
@@ -249,7 +288,9 @@ function bail_edit_modal(): void
   M.querySelector('.bel-form').addEventListener('input', render);
   M.querySelector('.bel-form').addEventListener('change', render);
 
-  function render(){
+  function render(){ belSchedulePreview(); }
+  // Ancien rendu JS conservé pour référence (NON utilisé — l'aperçu passe par le moteur PDF).
+  function renderLegacy(){
     var mode = M._view || 'full';   // 'simple' (résumé) | 'full' (étoffé) — pilote le toggle
     var pf = M._pf || {}; var ge = pf.gestionnaire || {};
     var type = g('bel-cand-type').value;
