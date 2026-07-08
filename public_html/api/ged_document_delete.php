@@ -18,7 +18,7 @@ $pdo=$GLOBALS['pdo'];
 $isAdmin=((int)($_SESSION['id_role']??0)===1); $userSoc=(int)($_SESSION['id_societe']??0);
 $body=json_decode(file_get_contents('php://input')?:'{}',true)?:[];
 $idDoc=(int)($body['id_doc']??0);
-$action=in_array(($body['action']??''),['delete','archive'],true)?$body['action']:'delete';
+$action=in_array(($body['action']??''),['delete','archive','restore'],true)?$body['action']:'delete';
 $motif=trim((string)($body['motif']??''));
 if ($idDoc<=0) exit(json_encode(['ok'=>false,'error'=>'id_doc requis']));
 
@@ -38,7 +38,7 @@ if ($isBancaire) {
     if ($motif === '') exit(json_encode(['ok'=>false,'error'=>'Motif obligatoire pour archiver un document bancaire.'], JSON_UNESCAPED_UNICODE));
 }
 
-$newStatus = $action === 'archive' ? 'archived' : 'deleted';
+$newStatus = $action === 'archive' ? 'archived' : ($action === 'restore' ? 'active' : 'deleted');
 $userId=(int)($_SESSION['user_id']??0);
 try {
     // Trace le motif/auteur dans metadata sans écraser le reste.

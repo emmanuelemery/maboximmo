@@ -756,7 +756,8 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 
     <!-- Documents du bail -->
     <div class="f360-card">
-        <h3>📂 Documents du bail <span class="count"><?= count($docs) ?></span></h3>
+        <h3>📂 Documents du bail <span class="count"><?= count($docs) ?></span>
+            <button type="button" onclick="gedToggleArchives(this,'BAIL',<?= (int)$bailId ?>)" style="float:right;border:1px solid #e0d6c4;background:#fbf7ef;color:#a26a1c;border-radius:7px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;">📦 Voir les archives</button></h3>
         <?php if (empty($docs)): ?>
             <div class="f360-empty"><div class="em-ico">📄</div>Aucun document. <a href="<?= h(app_url('/bien_documents_list.php?id=' . $bail['bien_id'])) ?>">→ Gérer les documents du bien</a></div>
         <?php else: foreach ($docs as $d): ?>

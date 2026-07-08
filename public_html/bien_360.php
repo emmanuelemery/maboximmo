@@ -1050,7 +1050,8 @@ if ($kpis) {
 
     <!-- CARD 2 — Documents divers (hors pièces de base) -->
     <div class="f360-card" style="--acc:var(--c-document);">
-        <h3>📂 Documents divers <span class="count"><?= count($docsDivers) ?></span></h3>
+        <h3>📂 Documents divers <span class="count"><?= count($docsDivers) ?></span>
+            <button type="button" onclick="gedToggleArchives(this,'BIEN',<?= (int)$bienId ?>)" style="float:right;border:1px solid #e0d6c4;background:#fbf7ef;color:#a26a1c;border-radius:7px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;">📦 Voir les archives</button></h3>
         <?php if (empty($docsDivers)): ?>
             <div class="f360-empty"><div class="em-ico">📄</div>Aucun document divers. <a href="<?= h(app_url('/bien_documents_list.php?id=' . $bienId)) ?>">→ Gérer les documents</a></div>
         <?php else: foreach ($docsDivers as $d): ?>

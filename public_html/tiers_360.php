@@ -742,7 +742,8 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
 
     <!-- Documents du pro -->
     <div class="f360-card">
-        <h3>📂 Documents du tiers <span class="count"><?= count($docs) ?></span></h3>
+        <h3>📂 Documents du tiers <span class="count"><?= count($docs) ?></span>
+            <button type="button" onclick="gedToggleArchives(this,'TIERS',<?= (int)$tiersId ?>)" style="float:right;border:1px solid #e0d6c4;background:#fbf7ef;color:#a26a1c;border-radius:7px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;">📦 Voir les archives</button></h3>
         <?php if (empty($docs)): ?>
             <div class="f360-empty"><div class="em-ico">📄</div>Aucun document rattaché à ce tiers.</div>
         <?php else: foreach ($docs as $d): ?>
