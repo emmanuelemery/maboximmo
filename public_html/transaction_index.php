@@ -518,6 +518,11 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <?php endforeach; ?>
     </select>
     <?php endif; ?>
+    <select id="tr-f-dossier" title="Filtrer selon la présence d'un dossier de vente" onchange="trFilterDossier(this.value)">
+        <option value="">Dossier : tous</option>
+        <option value="1">✅ Dossier de vente créé</option>
+        <option value="0">⭕ Sans dossier de vente</option>
+    </select>
     <a class="tr-btn tr-btn-ghost" href="<?= h(app_url('/transaction_index.php')) ?>" title="Tout réinitialiser">↺ Reset</a>
 
     <div class="tr-actions-right">
@@ -533,6 +538,12 @@ include __DIR__ . '/inc/agency_layout_top.php';
 </form>
 
 <script>
+// Filtre client-side : présence d'un dossier de vente (data-dossier sur chaque card).
+window.trFilterDossier = function(v){
+    document.querySelectorAll('.trx-card').forEach(function(c){
+        c.style.display = (v==='' || c.dataset.dossier===v) ? '' : 'none';
+    });
+};
 // Filtrage automatique : selects = submit immédiat / input texte = debounce 400ms
 (function(){
     const form = document.getElementById('tr-filters-form');
@@ -671,20 +682,28 @@ include __DIR__ . '/inc/agency_layout_top.php';
             static $bienExtraCache = [];
             if (!isset($bienExtraCache[$bienId])) {
                 try {
-                    $stX = $pdo->prepare("SELECT i.nom_immeuble, TRIM(CONCAT_WS(' ', u.prenom, u.nom)) AS user_nom
+                    $stX = $pdo->prepare("SELECT i.nom_immeuble, TRIM(CONCAT_WS(' ', u.prenom, u.nom)) AS user_nom,
+                        (SELECT COALESCE(NULLIF(bb.locataire_raison_sociale,''), TRIM(CONCAT_WS(' ', bb.locataire_prenom, bb.locataire_nom)))
+                           FROM bien_baux bb
+                          WHERE bb.id_bien = b.id AND bb.statut IN ('actif','signe')
+                          ORDER BY bb.id DESC LIMIT 1) AS occupant,
+                        (SELECT COUNT(*) FROM dossier_vente dv WHERE dv.id_bien = b.id) AS nb_dossier
                         FROM biens b
                         LEFT JOIN immeubles i ON i.id = b.id_immeuble
                         LEFT JOIN users u ON u.id = b.id_user_actuel
                         WHERE b.id = ? LIMIT 1");
                     $stX->execute([$bienId]);
                     $rx = $stX->fetch(PDO::FETCH_ASSOC) ?: [];
-                    $bienExtraCache[$bienId] = ['immeuble'=>trim((string)($rx['nom_immeuble'] ?? '')), 'user'=>trim((string)($rx['user_nom'] ?? ''))];
-                } catch (Throwable) { $bienExtraCache[$bienId] = ['immeuble'=>'', 'user'=>'']; }
+                    $bienExtraCache[$bienId] = ['immeuble'=>trim((string)($rx['nom_immeuble'] ?? '')), 'user'=>trim((string)($rx['user_nom'] ?? '')),
+                        'occupant'=>trim((string)($rx['occupant'] ?? '')), 'has_dossier'=>((int)($rx['nb_dossier'] ?? 0) > 0)];
+                } catch (Throwable) { $bienExtraCache[$bienId] = ['immeuble'=>'', 'user'=>'', 'occupant'=>'', 'has_dossier'=>false]; }
             }
             $immNom  = $bienExtraCache[$bienId]['immeuble'];
             $userNom = $bienExtraCache[$bienId]['user'];
+            $occupant   = $bienExtraCache[$bienId]['occupant'] ?? '';
+            $hasDossier = !empty($bienExtraCache[$bienId]['has_dossier']);
         ?>
-            <div class="trx-card t<?= h($typeClass ?: '') ?> <?= h($rowClass) ?>" data-bien="<?= $bienId ?>">
+            <div class="trx-card t<?= h($typeClass ?: '') ?> <?= h($rowClass) ?>" data-bien="<?= $bienId ?>" data-dossier="<?= $hasDossier ? '1' : '0' ?>">
                 <?php
                 // Titre = NOM DE L'IMMEUBLE en priorité ; sinon désignation ; sinon la rue
                 // seule (on retire CP / ville / pays en coupant à la 1re virgule).
@@ -700,6 +719,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 <div class="trx-ville">📍 <?= h($r['ville'] ?: '—') ?></div>
                 <div class="trx-ref">Réf. <?= h($r['reference_bien'] ?: '#' . $bienId) ?></div>
                 <div class="trx-proprio">👤 <?php if ($proprioTiersId > 0): ?><a href="<?= h(app_url('/tiers_360.php?id=' . $proprioTiersId)) ?>"><?= h($proprioNom ?: '—') ?></a><?php else: ?><strong><?= h($proprioNom ?: '—') ?></strong><?php endif; ?><?php if (!empty($r['usage_bien'])): ?> <span style="color:#9a9690;">· <?= h($r['usage_bien']) ?></span><?php endif; ?></div>
+                <?php if ($occupant !== ''): ?><div class="trx-user" style="color:#2d5f6b;">🔑 Occupant : <b><?= h($occupant) ?></b></div><?php endif; ?>
                 <?php if ($userNom !== ''): ?><div class="trx-user">🧑‍💼 <?= h($userNom) ?></div><?php endif; ?>
                 <div class="trx-meta">
                     <?php if ($prix > 0): ?><span class="prix"><?= number_format($prix, 0, ',', ' ') ?> €</span><?php endif; ?>
