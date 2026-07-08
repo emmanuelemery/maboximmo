@@ -177,26 +177,45 @@ if (!function_exists('oc_find_proprio_folder')) {
 }
 
 if (!function_exists('oc_cache_get')) {
-    /** Dossier OneDrive mémorisé pour un proprio sur une racine (schema_id), ou null. */
-    function oc_cache_get(PDO $pdo, int $proprioId, int $schemaId = 0): ?string {
+    /** Dossier OneDrive mémorisé pour un proprio sur une racine (schema_id), ou null.
+     *  $immeubleId : 0 = racine par_proprietaire ; >0 = dossier propre à cet immeuble
+     *  (racines par_immeuble → un dossier distinct par immeuble, plus de partage à tort). */
+    function oc_cache_get(PDO $pdo, int $proprioId, int $schemaId = 0, int $immeubleId = 0): ?string {
         try {
-            $st = $pdo->prepare("SELECT folder_path FROM proprietaire_onedrive WHERE id_proprietaire=? AND schema_id=?");
-            $st->execute([$proprioId, $schemaId]);
+            $st = $pdo->prepare("SELECT folder_path FROM proprietaire_onedrive WHERE id_proprietaire=? AND schema_id=? AND id_immeuble=?");
+            $st->execute([$proprioId, $schemaId, $immeubleId]);
             $p = (string)($st->fetchColumn() ?: '');
             return $p !== '' ? trim($p, '/') : null;
-        } catch (Throwable $e) { return null; }
+        } catch (Throwable $e) {
+            // Fallback si la colonne id_immeuble n'existe pas encore (migration non appliquée).
+            try {
+                $st = $pdo->prepare("SELECT folder_path FROM proprietaire_onedrive WHERE id_proprietaire=? AND schema_id=?");
+                $st->execute([$proprioId, $schemaId]);
+                $p = (string)($st->fetchColumn() ?: '');
+                return $p !== '' ? trim($p, '/') : null;
+            } catch (Throwable $e2) { return null; }
+        }
     }
     /** Mémorise le dossier OneDrive résolu (auto OU saisi à la main) d'un proprio pour une racine. */
-    function oc_cache_set(PDO $pdo, int $proprioId, string $folderPath, string $source = 'auto', int $userId = 0, int $schemaId = 0): bool {
+    function oc_cache_set(PDO $pdo, int $proprioId, string $folderPath, string $source = 'auto', int $userId = 0, int $schemaId = 0, int $immeubleId = 0): bool {
         $fp = trim($folderPath, '/');
         if ($fp === '') return false;
         try {
-            $pdo->prepare("INSERT INTO proprietaire_onedrive (id_proprietaire, schema_id, folder_path, source, resolved_by)
-                           VALUES (?,?,?,?,?)
+            $pdo->prepare("INSERT INTO proprietaire_onedrive (id_proprietaire, schema_id, id_immeuble, folder_path, source, resolved_by)
+                           VALUES (?,?,?,?,?,?)
                            ON DUPLICATE KEY UPDATE folder_path=VALUES(folder_path), source=VALUES(source), resolved_by=VALUES(resolved_by)")
-                ->execute([$proprioId, $schemaId, $fp, in_array($source,['auto','manuel'],true)?$source:'auto', $userId ?: null]);
+                ->execute([$proprioId, $schemaId, $immeubleId, $fp, in_array($source,['auto','manuel'],true)?$source:'auto', $userId ?: null]);
             return true;
-        } catch (Throwable $e) { return false; }
+        } catch (Throwable $e) {
+            // Fallback si la colonne id_immeuble n'existe pas encore.
+            try {
+                $pdo->prepare("INSERT INTO proprietaire_onedrive (id_proprietaire, schema_id, folder_path, source, resolved_by)
+                               VALUES (?,?,?,?,?)
+                               ON DUPLICATE KEY UPDATE folder_path=VALUES(folder_path), source=VALUES(source), resolved_by=VALUES(resolved_by)")
+                    ->execute([$proprioId, $schemaId, $fp, in_array($source,['auto','manuel'],true)?$source:'auto', $userId ?: null]);
+                return true;
+            } catch (Throwable $e2) { return false; }
+        }
     }
 }
 
@@ -224,6 +243,117 @@ if (!function_exists('oc_match_immeuble_folder')) {
             }
         }
         return $bestScore >= 2 ? $best : null;
+    }
+}
+
+if (!function_exists('oc_match_immeuble_folder_by_id')) {
+    /** Mode par_immeuble : dossier OneDrive d'UN immeuble précis (pas tous ceux du proprio),
+     *  sous $base. Corrige le partage à tort du dossier entre biens d'un proprio multi-immeubles. */
+    function oc_match_immeuble_folder_by_id(PDO $pdo, int $immeubleId, string $base): ?string {
+        if ($immeubleId <= 0) return null;
+        $st = $pdo->prepare("SELECT adresse_1, code_postal, ville, nom_immeuble FROM immeubles WHERE id=?");
+        $st->execute([$immeubleId]); $im = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$im) return null;
+        $needle = oc_tokens(trim(($im['adresse_1'] ?? '').' '.($im['nom_immeuble'] ?? '')));
+        $num    = preg_match('/(\d{1,4})/', (string)($im['adresse_1'] ?? ''), $m) ? (int)$m[1] : null;
+        $children = oc_children($base);
+        $best = null; $bestScore = 0;
+        foreach ($children as $it) {
+            if (!isset($it['folder'])) continue;
+            $fw = oc_tokens((string)$it['name']);
+            $common = count(array_intersect($needle, $fw));
+            if ($common === 0) continue;
+            $fnum = preg_match('/(\d{1,4})/', (string)$it['name'], $mm) ? (int)$mm[1] : null;
+            $score = $common * 2 + ($num !== null && $num === $fnum ? 2 : 0);
+            if ($score > $bestScore) { $bestScore = $score; $best = (string)$it['name']; }
+        }
+        return $bestScore >= 2 ? $best : null;
+    }
+}
+
+if (!function_exists('oc_bien_agence_code')) {
+    /** Code agence à utiliser pour la résolution OneDrive d'un bien :
+     *  agence du BIEN → sinon de son IMMEUBLE → sinon du PROPRIÉTAIRE. Défensif (colonnes variables). */
+    function oc_bien_agence_code(PDO $pdo, int $bienId, int $immeubleId, int $proprioId): string {
+        // 1) agence du bien
+        foreach ([
+            ["SELECT a.code_agence FROM biens b JOIN agences a ON a.id=b.id_agence WHERE b.id=?", $bienId],
+            ["SELECT a.code_agence FROM immeubles i JOIN agences a ON a.id=i.id_agence WHERE i.id=?", $immeubleId],
+            ["SELECT a.code_agence FROM proprietaires p JOIN agences a ON a.id=p.id_agence WHERE p.id=?", $proprioId],
+        ] as [$sql, $arg]) {
+            if ((int)$arg <= 0) continue;
+            try {
+                $st = $pdo->prepare($sql); $st->execute([$arg]);
+                $code = (string)($st->fetchColumn() ?: '');
+                if ($code !== '') return $code;
+            } catch (Throwable $e) { /* colonne absente → racine suivante */ }
+        }
+        return '';
+    }
+}
+
+if (!function_exists('oc_resolve_bien')) {
+    /**
+     * Résout les racines OneDrive pour UN BIEN précis (agence + immeuble du bien),
+     * au lieu de retomber sur le 1er dossier caché du propriétaire.
+     * Renvoie la même forme que oc_resolve_proprio (['ok','roots','base','folder','abs','missing']).
+     */
+    function oc_resolve_bien(PDO $pdo, int $bienId): array {
+        $bq = $pdo->prepare("SELECT id_proprietaire, id_immeuble FROM biens WHERE id=?");
+        $bq->execute([$bienId]); $b = $bq->fetch(PDO::FETCH_ASSOC);
+        if (!$b) return ['ok'=>false, 'error'=>'Bien introuvable', 'needs_manual'=>true, 'missing'=>[]];
+        $proprioId  = (int)($b['id_proprietaire'] ?? 0);
+        $immeubleId = (int)($b['id_immeuble'] ?? 0);
+        if ($proprioId <= 0) return ['ok'=>false, 'error'=>'Bien sans propriétaire', 'needs_manual'=>true, 'missing'=>[]];
+
+        $code = oc_bien_agence_code($pdo, $bienId, $immeubleId, $proprioId);
+        $rootsDef = oc_schema_roots_for_agence($pdo, $code);
+
+        $resolved = []; $missing = [];
+        foreach ($rootsDef as $rd) {
+            $sid = (int)$rd['schema_id'];
+            $perImmeuble = ($rd['mode'] === 'par_immeuble');
+            // Clé de cache : par immeuble pour les racines par_immeuble, sinon par proprio (0).
+            $cacheImm = $perImmeuble ? $immeubleId : 0;
+            $cached = oc_cache_get($pdo, $proprioId, $sid, $cacheImm);
+            if ($cached !== null) {
+                $resolved[] = $rd + ['abs'=>$cached, 'base'=>dirname($cached), 'folder'=>basename($cached), 'source'=>'cache'];
+                continue;
+            }
+            oc_apply_drive($rd['drive_user']);
+            $folder = $perImmeuble
+                ? oc_match_immeuble_folder_by_id($pdo, $immeubleId, $rd['base'])
+                : oc_find_proprio_folder($pdo, $proprioId, $rd['base']);
+            if ($folder === null) { $missing[] = $rd; continue; }
+            $abs = trim($rd['base'].'/'.$folder, '/');
+            oc_cache_set($pdo, $proprioId, $abs, 'auto', 0, $sid, $cacheImm);
+            $resolved[] = $rd + ['abs'=>$abs, 'folder'=>$folder, 'source'=>'auto'];
+        }
+
+        if (!$resolved) {
+            $base = $rootsDef[0]['base'] ?? '';
+            return ['ok'=>false, 'error'=>'Dossier OneDrive introuvable pour ce bien', 'base'=>$base, 'needs_manual'=>true, 'missing'=>$missing];
+        }
+        return ['ok'=>true, 'roots'=>$resolved, 'missing'=>$missing,
+                'base'=>$resolved[0]['base'], 'folder'=>$resolved[0]['folder'], 'abs'=>$resolved[0]['abs']];
+    }
+}
+
+if (!function_exists('oc_bien_folder_url')) {
+    /** URL web OneDrive du dossier d'un BIEN (résolution agence + immeuble du bien). */
+    function oc_bien_folder_url(PDO $pdo, int $bienId): array {
+        $r = oc_resolve_bien($pdo, $bienId);
+        if (empty($r['ok'])) return ['ok'=>false, 'error'=>$r['error'], 'base'=>$r['base'] ?? null, 'needs_manual'=>!empty($r['needs_manual'])];
+        $path    = $r['abs'];
+        $folder  = $r['folder'];
+        $encoded = implode('/', array_map('rawurlencode', explode('/', $path)));
+        try {
+            $res  = graph_request('GET', graph_drive_prefix() . '/root:/' . $encoded);
+            $data = graph_unwrap($res, 'Lecture dossier (item)');
+            $url  = (string)($data['webUrl'] ?? '');
+            if ($url === '') return ['ok'=>false, 'error'=>'URL OneDrive indisponible'];
+            return ['ok'=>true, 'url'=>$url, 'folder'=>$folder];
+        } catch (Throwable $e) { return ['ok'=>false, 'error'=>$e->getMessage()]; }
     }
 }
 
@@ -310,12 +440,13 @@ if (!function_exists('oc_scan_proprio')) {
      * Retourne ['ok','proprio','folder','base','items'=>[...]] (dry-run, n'écrit rien).
      * Chaque item : {type, doc_type, name, item_id, web_url, target, bien_id, bail_id, locataire, status, reason}
      */
-    function oc_scan_proprio(PDO $pdo, int $proprioId): array {
+    function oc_scan_proprio(PDO $pdo, int $proprioId, ?array $rsvOverride = null): array {
         $info = $pdo->prepare("SELECT p.id, COALESCE(NULLIF(p.societe,''),TRIM(CONCAT_WS(' ',p.prenom,p.nom))) nom, p.id_tiers, a.code_agence
                                FROM proprietaires p LEFT JOIN agences a ON a.id=p.id_agence WHERE p.id=?");
         $info->execute([$proprioId]); $prop = $info->fetch(PDO::FETCH_ASSOC);
         if (!$prop) return ['ok'=>false, 'error'=>'Propriétaire introuvable'];
-        $rsv = oc_resolve_proprio($pdo, $proprioId);   // pose aussi le drive_user de l'agence
+        // Résolution bien-aware injectée (scope bien) ou résolution proprio par défaut.
+        $rsv = $rsvOverride ?? oc_resolve_proprio($pdo, $proprioId);   // pose aussi le drive_user de l'agence
         if (empty($rsv['ok'])) return ['ok'=>false, 'error'=>$rsv['error'], 'base'=>$rsv['base'] ?? '', 'needs_manual'=>!empty($rsv['needs_manual']), 'missing'=>$rsv['missing'] ?? [], 'proprio'=>$prop];
         $base   = $rsv['base'];
         $folder = $rsv['folder'];
@@ -477,7 +608,9 @@ if (!function_exists('oc_scan_bien')) {
         $pid = (int)$bien['id_proprietaire'];
         if ($pid <= 0) return ['ok'=>false, 'error'=>'Bien sans propriétaire'];
 
-        $scan = oc_scan_proprio($pdo, $pid);
+        // Résolution OneDrive AGENCE + IMMEUBLE du bien (pas le 1er dossier caché du proprio).
+        $rsvBien = oc_resolve_bien($pdo, $bienId);
+        $scan = oc_scan_proprio($pdo, $pid, !empty($rsvBien['ok']) ? $rsvBien : null);
         if (empty($scan['ok'])) return $scan;
 
         // Baux de CE bien (pour relever l'ambiguïté de la pile)
@@ -624,7 +757,9 @@ if (!function_exists('oc_commit_proposal')) {
         [$n2, $n3] = oc_slugs((string)$it['doc_type']);
         $ctx = ['tenant_id'=>$socId,'societe_id'=>$socId,'agence_id'=>$ageId,'document_type'=>$it['doc_type'],
                 'source_module'=>'05_GESTION_LOCATIVE','security_level'=>'interne','created_by'=>$userId,
-                'metadata_extra'=>['origin'=>'onedrive_import'],   // marqueur → suppression/recommencer ciblée
+                // marqueur + RÉFÉRENCE OneDrive (repli viewer si le fichier local manque un jour).
+                'metadata_extra'=>['origin'=>'onedrive_import',
+                    'onedrive_item_id'=>$itemId, 'onedrive_web_url'=>(string)($it['web_url'] ?? '')],
                 'name_display'=>($it['name_display'] ?? ''),   // nom humain lisible (locataire + réf)
                 'naming_ctx'=>['upload_date'=>'now','n1_slug'=>'05_gestion_locative','n2_slug'=>$n2,'n3_slug'=>$n3,
                     'date_doc'=>null,'type_doc'=>$it['doc_type'],'source_filename'=>$name,'user_id'=>$userId,

@@ -77,6 +77,18 @@ if (!$path && !empty($doc['metadata'])) {
     if ($sp !== '' && is_file($sp)) { $path = $sp; }
 }
 
+// Source 5 : REPLI OneDrive — le fichier vient d'un import OneDrive et n'a plus de copie
+// locale servable → on ouvre directement le fichier sur OneDrive (web_url).
+if (!$path && !empty($doc['metadata'])) {
+    $meta = json_decode((string)$doc['metadata'], true) ?: [];
+    $ex = $meta['extra'] ?? $meta;
+    $webUrl = (string)($ex['onedrive_web_url'] ?? $meta['onedrive_web_url'] ?? '');
+    if ($webUrl !== '' && preg_match('#^https://#i', $webUrl)) {
+        header('Location: ' . $webUrl, true, 302);
+        exit;
+    }
+}
+
 if (!$path || !is_file($path)) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
@@ -85,7 +97,10 @@ if (!$path || !is_file($path)) {
     echo "  - fluxbox_source_id: " . ($doc['fluxbox_source_id'] ?? 'null') . "\n";
     echo "  - final_destination: " . ($doc['final_destination'] ?? 'null') . "\n";
     $meta = $doc['metadata'] ? json_decode((string)$doc['metadata'], true) : null;
+    $ex = $meta['extra'] ?? $meta ?? [];
     echo "  - metadata.public_url: " . ($meta['public_url'] ?? 'null') . "\n";
+    echo "  - metadata.source_path: " . ($meta['source_path'] ?? 'null') . "\n";
+    echo "  - onedrive_web_url: " . ($ex['onedrive_web_url'] ?? 'null') . "\n";
     exit;
 }
 
