@@ -424,6 +424,15 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dvm-role{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 12px;font-size:12.5px;font-weight:800;color:#334155;cursor:pointer;}
 .dvm-role.active{border-color:#0f6cbd;background:#eef5fc;color:#0c5aa0;box-shadow:0 0 0 2px #0f6cbd22;}
 .dvm-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+.dvm-agegrid{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;}
+.dvm-agecard{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:110px;padding:10px 14px;border:1.5px solid #e3ddf3;border-radius:12px;background:#fff;cursor:pointer;font-family:inherit;transition:all .12s;}
+.dvm-agecard:hover{border-color:#b9a7e6;background:#faf8ff;}
+.dvm-agecard.on{background:linear-gradient(135deg,#7c3aed,#8b5cf6);border-color:#7c3aed;box-shadow:0 4px 14px rgba(124,58,237,.28);}
+.dvm-agecard-ico{font-size:18px;}
+.dvm-agecard-soc{font-size:10px;font-weight:700;letter-spacing:.03em;color:#8b5cf6;text-transform:uppercase;}
+.dvm-agecard.on .dvm-agecard-soc{color:#e9ddff;}
+.dvm-agecard-nom{font-size:12.5px;font-weight:800;color:#334155;text-align:center;line-height:1.2;}
+.dvm-agecard.on .dvm-agecard-nom{color:#fff;}
 .dvm-btn{border:none;border-radius:10px;padding:10px 18px;font-weight:800;font-size:13px;cursor:pointer;}
 .dvm-btn.cancel{background:#eceef1;color:#374151;}
 .dvm-btn.ok{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
@@ -1225,10 +1234,46 @@ include __DIR__ . '/inc/agency_layout_top.php';
     'csrf'       => function_exists('csrf_token') ? csrf_token('transaction_acteur') : '',
 ]); ?>
 <!-- ═══ MODAL : créer le mandat de vente (termes) ═══ -->
+<?php
+  // Agences sélectionnables (mandataire commercial). Admin = toutes ; sinon la société du user.
+  $mandatIsAdmin = function_exists('is_super_admin') && is_super_admin();
+  $mandatUserSoc = (int)($_SESSION['id_societe'] ?? 0);
+  try {
+      if ($mandatIsAdmin) {
+          $mandatAgences = $pdo->query("SELECT a.id, a.nom_agence, s.raison_sociale AS soc
+                                          FROM agences a LEFT JOIN societes s ON s.id=a.id_societe
+                                         WHERE a.actif=1 ORDER BY s.raison_sociale, a.nom_agence")->fetchAll(PDO::FETCH_ASSOC);
+      } else {
+          $qA=$pdo->prepare("SELECT a.id, a.nom_agence, s.raison_sociale AS soc
+                               FROM agences a LEFT JOIN societes s ON s.id=a.id_societe
+                              WHERE a.actif=1 AND a.id_societe=? ORDER BY a.nom_agence");
+          $qA->execute([$mandatUserSoc]); $mandatAgences=$qA->fetchAll(PDO::FETCH_ASSOC);
+      }
+  } catch (Throwable) { $mandatAgences = []; }
+  $mandatDefAge = (int)($bien['id_agence'] ?? 0);
+?>
 <div class="dvm-backdrop" id="dvm-mandat">
   <div class="dvm">
     <h3>📝 Créer le mandat de vente</h3>
     <div class="sub">Les termes du mandat. Le bien et le vendeur sont déjà repris du dossier (zéro ressaisie).</div>
+
+    <p class="dvm-label" style="margin-top:12px;">Agence qui prend le mandat <span style="font-weight:400;color:#64748b;">(commercialisation — co-mandat possible)</span></p>
+    <div class="dvm-agegrid" id="dvm-agence">
+      <?php foreach ($mandatAgences as $a): ?>
+        <button type="button" class="dvm-agecard<?= (int)$a['id']===$mandatDefAge ? ' on' : '' ?>" data-age="<?= (int)$a['id'] ?>">
+          <span class="dvm-agecard-ico">🏢</span>
+          <?php if(!empty($a['soc'])): ?><span class="dvm-agecard-soc"><?= h($a['soc']) ?></span><?php endif; ?>
+          <span class="dvm-agecard-nom"><?= h($a['nom_agence']) ?></span>
+        </button>
+      <?php endforeach; ?>
+    </div>
+    <div id="dvm-comandat" style="display:none;margin-top:8px;background:#f6f3ff;border:1px solid #ddd3f5;border-radius:9px;padding:10px 12px;font-size:12px;color:#4c1d95;">
+      🤝 <b>Co-mandat</b> : commercialisation par l'agence choisie ; <b>REGIE EMERY</b> reste collaborateur (soutien administratif, suivi & conseil du propriétaire). Répartition des honoraires :
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;">Part agence mandataire (%) <input type="text" id="dvm-part-mand" inputmode="decimal" placeholder="%" style="width:70px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;text-align:right;"></label>
+        <label style="font-size:12px;">Part REGIE EMERY (%) <input type="text" id="dvm-part-collab" inputmode="decimal" placeholder="%" style="width:70px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;text-align:right;"></label>
+      </div>
+    </div>
 
     <p class="dvm-label">Honoraires</p>
     <div style="display:flex;gap:8px;align-items:center;">
@@ -1260,6 +1305,11 @@ include __DIR__ . '/inc/agency_layout_top.php';
       <div><p class="dvm-label">Prise d'effet</p>
         <input type="date" id="dvm-datedebut" value="<?= date('Y-m-d') ?>" style="padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;"></div>
     </div>
+
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:12.5px;color:#334155;cursor:pointer;">
+      <input type="checkbox" id="dvm-renouv" checked style="margin-top:2px;transform:scale(1.1);">
+      <span>Renouvellement par <b>tacite reconduction</b> pour une durée égale au terme initial, dans la limite de <b>3 ans</b> cumulés (mandat simple comme exclusif).</span>
+    </label>
 
     <div class="dvm-actions">
       <button type="button" class="dvm-btn cancel" onclick="dvCloseMandatModal()">Annuler</button>
@@ -1591,6 +1641,15 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     document.querySelectorAll('#dvm-exclusif .dvm-role').forEach(x=>x.classList.remove('active'));
     b.classList.add('active'); mExcl=b.dataset.excl;
   });
+  // Agence mandataire + affichage co-mandat (si agence ≠ REGIE EMERY / agence du bien).
+  var mAgence = <?= (int)($bien['id_agence'] ?? 0) ?>;
+  var mCollabAge = <?= (int)($bien['id_agence'] ?? 0) ?>;  // REGIE EMERY = agence du bien
+  document.getElementById('dvm-agence')?.addEventListener('click', e=>{
+    const b=e.target.closest('.dvm-agecard'); if(!b)return;
+    document.querySelectorAll('#dvm-agence .dvm-agecard').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); mAgence=parseInt(b.dataset.age,10)||0;
+    document.getElementById('dvm-comandat').style.display = (mAgence && mAgence!==mCollabAge) ? '' : 'none';
+  });
   window.dvSubmitMandat = async function(){
     const msg=document.getElementById('dvm-mandat-form-msg'); msg.textContent='Création…';
     try{
@@ -1599,7 +1658,12 @@ require_once __DIR__ . '/inc/adresse_modal.php';
         honoraires:(document.getElementById('dvm-honoraires').value||'').replace(/[^0-9.,]/g,''),
         honoraires_charge:mCharge, exclusif:mExcl,
         duree_mois:(document.getElementById('dvm-duree').value||'').replace(/[^0-9]/g,''),
-        date_debut:document.getElementById('dvm-datedebut').value||''
+        date_debut:document.getElementById('dvm-datedebut').value||'',
+        id_agence_mandataire:(mAgence||''),
+        id_agence_collaborateur:((mAgence && mAgence!==mCollabAge) ? mCollabAge : ''),
+        part_honoraires_mandataire:((document.getElementById('dvm-part-mand')||{}).value||'').replace(/[^0-9.,]/g,''),
+        part_honoraires_collaborateur:((document.getElementById('dvm-part-collab')||{}).value||'').replace(/[^0-9.,]/g,''),
+        renouvellement_tacite:(document.getElementById('dvm-renouv')&&document.getElementById('dvm-renouv').checked?'1':'0')
       });
       const res=await fetch(API_MANDAT,{method:'POST',credentials:'same-origin',body});
       const out=await res.json();

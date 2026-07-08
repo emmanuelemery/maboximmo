@@ -32,6 +32,11 @@ $honorairesCharge = trim((string)(post('honoraires_charge') ?? '')) ?: null; // 
 $exclusif        = (int)((post('exclusif') ?? '0') === '1' || post('exclusif') === 'on' ? 1 : 0);
 $dureeMois       = (int)($num('duree_mois') ?? 0);
 $dateDebut       = trim((string)(post('date_debut') ?? '')) ?: date('Y-m-d');
+// Co-mandat : agence mandataire choisie (commercialisation) + agence collaboratrice (REGIE EMERY) + répartition.
+$idAgeMand       = (int)(post('id_agence_mandataire') ?? 0);
+$idAgeCollab     = (int)(post('id_agence_collaborateur') ?? 0) ?: null;
+$partMand        = $num('part_honoraires_mandataire');
+$partCollab      = $num('part_honoraires_collaborateur');
 
 if ($honorairesCharge !== null && !in_array($honorairesCharge, ['vendeur','acquereur','partage'], true)) {
     $honorairesCharge = null;
@@ -42,6 +47,14 @@ try {
     $stB->execute([$idBien]);
     $bien = $stB->fetch(PDO::FETCH_ASSOC);
     if (!$bien) { echo json_encode(['ok'=>false,'error'=>'bien introuvable']); exit; }
+
+    // Agence mandataire = celle choisie si accessible (admin = toutes ; sinon même société), sinon celle du bien.
+    $ageMandataire = (int)($bien['id_agence'] ?? 0);
+    if ($idAgeMand > 0) {
+        $ca = $pdo->prepare("SELECT id_societe FROM agences WHERE id=? AND actif=1 LIMIT 1");
+        $ca->execute([$idAgeMand]); $ags = $ca->fetch(PDO::FETCH_ASSOC);
+        if ($ags && ($isManager || (int)$ags['id_societe'] === (int)$idSoc)) { $ageMandataire = $idAgeMand; }
+    }
 
     // Anti-doublon : un seul mandat vente actif par bien.
     $stDup = $pdo->prepare("SELECT id FROM mandats
@@ -67,14 +80,16 @@ try {
     $renouv = (post('renouvellement_tacite') === '0' || post('renouvellement_tacite') === 'off') ? 0 : 1;
     $dureeMax = 36; // 3 ans max cumulés
     $ins = $pdo->prepare("INSERT INTO mandats
-        (id_bien, id_proprietaire, id_agence, numero_mandat, type_mandat, nature_mandat,
+        (id_bien, id_proprietaire, id_agence, id_agence_collaborateur, numero_mandat, type_mandat, nature_mandat,
          exclusif, date_signature, date_debut, date_fin, honoraires, honoraires_charge,
+         part_honoraires_mandataire, part_honoraires_collaborateur,
          renouvellement_tacite, duree_initiale_mois, duree_max_mois,
          statut, id_user, date_creation)
-        VALUES (?, ?, ?, ?, 'vente', NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'actif', ?, NOW())");
+        VALUES (?, ?, ?, ?, ?, 'vente', NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'actif', ?, NOW())");
     $ins->execute([
-        $idBien, $bien['id_proprietaire'] ?: null, $bien['id_agence'] ?: null, $numero,
+        $idBien, $bien['id_proprietaire'] ?: null, $ageMandataire ?: null, $idAgeCollab, $numero,
         $exclusif, $dateDebut, $dateFin, $honoraires, $honorairesCharge,
+        $partMand, $partCollab,
         $renouv, ($dureeMois > 0 ? $dureeMois : null), $dureeMax,
         (int)current_user_id() ?: null,
     ]);
