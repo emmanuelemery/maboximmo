@@ -1282,8 +1282,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <input type="email" id="dvm-pn-email" placeholder="Email" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;">
         <input type="text" id="dvm-pn-tel" placeholder="Téléphone" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;">
       </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
         <button type="button" onclick="dvCreatePartner()" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:12.5px;">Créer et sélectionner</button>
+        <button type="button" id="dvm-pn-reqdocs" onclick="dvRequestPartnerDocs()" style="display:none;border:1px solid #7c3aed;background:#fff;color:#7c3aed;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:12.5px;">📨 Demander KBIS · carte pro · RCP · garantie</button>
         <span id="dvm-pn-msg" style="font-size:12px;font-weight:700;"></span>
       </div>
     </div>
@@ -1700,9 +1701,34 @@ require_once __DIR__ . '/inc/adresse_modal.php';
           grid.insertBefore(c, addBtn);
           mExternalTiers=idt; mAgence=0;
           document.getElementById('dvm-comandat').style.display='';
-          document.getElementById('dvm-partner-form').style.display='none';
-          msg.textContent='';
+          // On garde le formulaire ouvert pour proposer l'envoi de la demande de documents.
+          window._dvmPartner={id:idt, email:(document.getElementById('dvm-pn-email').value||'').trim(), raison:raison};
+          document.getElementById('dvm-pn-reqdocs').style.display='';
+          msg.style.color='#166534'; msg.textContent='✅ Agence partenaire créée et sélectionnée.';
         } else { msg.style.color='#c0392b'; msg.textContent='❌ '+((j&&j.error)||'Échec'); }
+      }).catch(e=>{ msg.style.color='#c0392b'; msg.textContent='❌ '+e; });
+  };
+  var CSRF_DR = <?= json_encode(function_exists('csrf_token') ? csrf_token('document_request') : '') ?>;
+  var API_DR_CREATE = <?= json_encode(app_url('/api/document_request_create.php')) ?>;
+  window.dvRequestPartnerDocs = function(){
+    var pn=window._dvmPartner, msg=document.getElementById('dvm-pn-msg');
+    if(!pn||!pn.id){ return; }
+    var email=(document.getElementById('dvm-pn-email').value||'').trim() || pn.email || '';
+    if(!email){ msg.style.color='#c0392b'; msg.textContent='Renseigne l\'email de l\'agence pour envoyer la demande.'; return; }
+    var items=[
+      {doc_type:'kbis', label:'Extrait KBIS (moins de 3 mois)', entity_type:'TIERS', entity_id:pn.id, required:1},
+      {doc_type:'carte_professionnelle', label:'Carte professionnelle (loi Hoguet)', entity_type:'TIERS', entity_id:pn.id, required:1},
+      {doc_type:'attestation_rcp', label:'Attestation RCP en cours de validité', entity_type:'TIERS', entity_id:pn.id, required:1},
+      {doc_type:'garantie_financiere', label:'Attestation de garantie financière', entity_type:'TIERS', entity_id:pn.id, required:1}
+    ];
+    msg.style.color='#64748b'; msg.textContent='⏳ Envoi de la demande…';
+    fetch(API_DR_CREATE,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF_DR},
+      body:JSON.stringify({csrf_token:CSRF_DR, recipient_email:email, recipient_name:pn.raison,
+        titre:'Documents agence partenaire — '+pn.raison, entity_type:'TIERS', entity_id:pn.id, items:items})})
+      .then(r=>r.json()).then(j=>{
+        if(j&&j.ok){ msg.style.color='#166534'; msg.textContent='✅ Demande envoyée à '+email+' (KBIS, carte pro, RCP, garantie).'; }
+        else { msg.style.color='#c0392b'; msg.textContent='❌ '+((j&&j.error)||'Échec'); }
       }).catch(e=>{ msg.style.color='#c0392b'; msg.textContent='❌ '+e; });
   };
   window.dvSubmitMandat = async function(){
