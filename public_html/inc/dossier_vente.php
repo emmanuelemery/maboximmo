@@ -350,10 +350,20 @@ if (!function_exists('dv_acteurs')) {
     /** Acteurs du dossier (vendeur/acquéreur/notaire…) via tiers_roles + tiers. */
     function dv_acteurs(PDO $pdo, int $idDossier): array {
         if ($idDossier <= 0) return [];
+        // Email : celui du tiers, sinon repli sur la fiche propriétaire liée (l'email est souvent
+        // saisi sur le propriétaire, pas sur le tiers) → le contact apparaît bien dans l'envoi mail.
         $st = $pdo->prepare("
             SELECT tr.id AS role_id, tr.role_code, tr.priorite, tr.metadata, tr.actif,
                    t.id AS id_tiers, t.nom_affichage, t.nom, t.prenom, t.raison_sociale,
-                   t.email, t.telephone, t.type_tiers
+                   COALESCE(NULLIF(t.email,''),
+                            (SELECT p.email FROM proprietaires p
+                              WHERE p.id_tiers = t.id AND p.email IS NOT NULL AND p.email <> '' LIMIT 1)
+                   ) AS email,
+                   COALESCE(NULLIF(t.telephone,''),
+                            (SELECT p.telephone FROM proprietaires p
+                              WHERE p.id_tiers = t.id AND p.telephone IS NOT NULL AND p.telephone <> '' LIMIT 1)
+                   ) AS telephone,
+                   t.type_tiers
               FROM tiers_roles tr
               JOIN tiers t ON t.id = tr.id_tiers
              WHERE tr.objet_type = 'dossier_vente' AND tr.id_objet = ? AND tr.actif = 1
