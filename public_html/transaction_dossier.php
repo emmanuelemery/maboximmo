@@ -1483,7 +1483,7 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     fd.append('id_bien', idBien);
     fd.append('doc_type', docType);
     fd.append('id_dossier', DOSSIER_ID);
-    fd.append('CSRF', CSRF_ESTIM);
+    fd.append('csrf_token', CSRF_ESTIM);
     fd.append('fichier', fileEl.files[0]);
     msg.style.color='#94a3b8'; msg.textContent = 'Dépôt en cours…';
     try{
@@ -1524,7 +1524,7 @@ require_once __DIR__ . '/inc/adresse_modal.php';
         fd2.append('id_bien', DV_DOSSIER_BIEN);
         fd2.append('doc_type', 'OFFRE_ACHAT');
         fd2.append('id_dossier', DOSSIER_ID);
-        fd2.append('CSRF', CSRF_ESTIM);
+        fd2.append('csrf_token', CSRF_ESTIM);
         fd2.append('fichier', fileEl.files[0]);
         try{ await fetch(API_ESTIM_UP, {method:'POST', body:fd2}); }catch(e){}
       }
