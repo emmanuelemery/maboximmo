@@ -34,6 +34,7 @@ $dureeMois       = (int)($num('duree_mois') ?? 0);
 $dateDebut       = trim((string)(post('date_debut') ?? '')) ?: date('Y-m-d');
 // Co-mandat : agence mandataire choisie (commercialisation) + agence collaboratrice (REGIE EMERY) + répartition.
 $idAgeMand       = (int)(post('id_agence_mandataire') ?? 0);
+$idTiersMand     = (int)(post('id_tiers_mandataire') ?? 0) ?: null; // partenaire EXTERNE (tiers)
 $idAgeCollab     = (int)(post('id_agence_collaborateur') ?? 0) ?: null;
 $partMand        = $num('part_honoraires_mandataire');
 $partCollab      = $num('part_honoraires_collaborateur');
@@ -80,14 +81,14 @@ try {
     $renouv = (post('renouvellement_tacite') === '0' || post('renouvellement_tacite') === 'off') ? 0 : 1;
     $dureeMax = 36; // 3 ans max cumulés
     $ins = $pdo->prepare("INSERT INTO mandats
-        (id_bien, id_proprietaire, id_agence, id_agence_collaborateur, numero_mandat, type_mandat, nature_mandat,
+        (id_bien, id_proprietaire, id_agence, id_agence_collaborateur, id_tiers_mandataire, numero_mandat, type_mandat, nature_mandat,
          exclusif, date_signature, date_debut, date_fin, honoraires, honoraires_charge,
          part_honoraires_mandataire, part_honoraires_collaborateur,
          renouvellement_tacite, duree_initiale_mois, duree_max_mois,
          statut, id_user, date_creation)
-        VALUES (?, ?, ?, ?, ?, 'vente', NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'actif', ?, NOW())");
+        VALUES (?, ?, ?, ?, ?, ?, 'vente', NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'actif', ?, NOW())");
     $ins->execute([
-        $idBien, $bien['id_proprietaire'] ?: null, $ageMandataire ?: null, $idAgeCollab, $numero,
+        $idBien, $bien['id_proprietaire'] ?: null, $ageMandataire ?: null, $idAgeCollab, $idTiersMand, $numero,
         $exclusif, $dateDebut, $dateFin, $honoraires, $honorairesCharge,
         $partMand, $partCollab,
         $renouv, ($dureeMois > 0 ? $dureeMois : null), $dureeMax,

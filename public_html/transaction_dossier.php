@@ -434,6 +434,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dvm-agecard.on .dvm-agecard-soc{color:#e9ddff;}
 .dvm-agecard-nom{font-size:12.5px;font-weight:800;color:#334155;text-align:center;line-height:1.2;}
 .dvm-agecard.on .dvm-agecard-nom{color:#fff;}
+.dvm-ageadd{border-style:dashed;border-color:#b9a7e6;color:#7c3aed;justify-content:center;}
+.dvm-ageadd .dvm-agecard-nom{color:#7c3aed;}
 .dvm-btn{border:none;border-radius:10px;padding:10px 18px;font-weight:800;font-size:13px;cursor:pointer;}
 .dvm-btn.cancel{background:#eceef1;color:#374151;}
 .dvm-btn.ok{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
@@ -1267,6 +1269,23 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <span class="dvm-agecard-nom"><?= h($a['nom_agence']) ?></span>
         </button>
       <?php endforeach; ?>
+      <button type="button" class="dvm-agecard dvm-ageadd" id="dvm-age-add" onclick="dvTogglePartnerForm()">
+        <span class="dvm-agecard-ico">➕</span>
+        <span class="dvm-agecard-nom">Agence partenaire</span>
+      </button>
+    </div>
+    <div id="dvm-partner-form" style="display:none;margin-top:8px;background:#faf8ff;border:1px solid #e3ddf3;border-radius:10px;padding:12px;">
+      <div style="font-size:12px;font-weight:800;color:#4c1d95;margin-bottom:8px;">➕ Créer une agence immobilière partenaire (tiers)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <input type="text" id="dvm-pn-raison" placeholder="Raison sociale *" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;">
+        <input type="text" id="dvm-pn-ville" placeholder="Ville" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;">
+        <input type="email" id="dvm-pn-email" placeholder="Email" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;">
+        <input type="text" id="dvm-pn-tel" placeholder="Téléphone" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+        <button type="button" onclick="dvCreatePartner()" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:12.5px;">Créer et sélectionner</button>
+        <span id="dvm-pn-msg" style="font-size:12px;font-weight:700;"></span>
+      </div>
     </div>
     <div id="dvm-comandat" style="display:none;margin-top:8px;background:#f6f3ff;border:1px solid #ddd3f5;border-radius:9px;padding:10px 12px;font-size:12px;color:#4c1d95;">
       🤝 <b>Co-mandat</b> : commercialisation par l'agence choisie ; <b>REGIE EMERY</b> reste collaborateur (soutien administratif, suivi & conseil du propriétaire). Répartition des honoraires :
@@ -1645,12 +1664,47 @@ require_once __DIR__ . '/inc/adresse_modal.php';
   // Agence mandataire + affichage co-mandat (si agence ≠ REGIE EMERY / agence du bien).
   var mAgence = <?= (int)($bien['id_agence'] ?? 0) ?>;
   var mCollabAge = <?= (int)($bien['id_agence'] ?? 0) ?>;  // REGIE EMERY = agence du bien
+  var mExternalTiers = 0;   // agence partenaire EXTERNE (tiers) sélectionnée, 0 sinon
+  var API_TIERS_CREATE = <?= json_encode(app_url('/api/tiers_create.php')) ?>;
   document.getElementById('dvm-agence')?.addEventListener('click', e=>{
-    const b=e.target.closest('.dvm-agecard'); if(!b)return;
+    const b=e.target.closest('.dvm-agecard'); if(!b || b.id==='dvm-age-add')return;
     document.querySelectorAll('#dvm-agence .dvm-agecard').forEach(x=>x.classList.remove('on'));
-    b.classList.add('on'); mAgence=parseInt(b.dataset.age,10)||0;
-    document.getElementById('dvm-comandat').style.display = (mAgence && mAgence!==mCollabAge) ? '' : 'none';
+    b.classList.add('on');
+    if(b.dataset.tiers){ mExternalTiers=parseInt(b.dataset.tiers,10)||0; mAgence=0; }
+    else { mAgence=parseInt(b.dataset.age,10)||0; mExternalTiers=0; }
+    var isComandat = mExternalTiers>0 || (mAgence && mAgence!==mCollabAge);
+    document.getElementById('dvm-comandat').style.display = isComandat ? '' : 'none';
   });
+  window.dvTogglePartnerForm = function(){
+    var f=document.getElementById('dvm-partner-form'); f.style.display = (f.style.display==='none'||!f.style.display) ? '' : 'none';
+    if(f.style.display==='') document.getElementById('dvm-pn-raison').focus();
+  };
+  window.dvCreatePartner = function(){
+    var raison=(document.getElementById('dvm-pn-raison').value||'').trim();
+    var msg=document.getElementById('dvm-pn-msg');
+    if(!raison){ msg.style.color='#c0392b'; msg.textContent='Raison sociale requise.'; return; }
+    msg.style.color='#64748b'; msg.textContent='⏳ Création…';
+    fetch(API_TIERS_CREATE,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type_tiers:'personne_morale', raison_sociale:raison,
+        ville:(document.getElementById('dvm-pn-ville').value||'').trim(),
+        email:(document.getElementById('dvm-pn-email').value||'').trim(),
+        telephone:(document.getElementById('dvm-pn-tel').value||'').trim(),
+        roles:[{role_code:'agence_immobiliere'}]})})
+      .then(r=>r.json()).then(j=>{
+        if(j&&j.ok&&(j.id_tiers||j.id)){
+          var idt=j.id_tiers||j.id;
+          var grid=document.getElementById('dvm-agence'), addBtn=document.getElementById('dvm-age-add');
+          var c=document.createElement('button'); c.type='button'; c.className='dvm-agecard on'; c.dataset.tiers=idt;
+          c.innerHTML='<span class="dvm-agecard-ico">🤝</span><span class="dvm-agecard-soc">PARTENAIRE</span><span class="dvm-agecard-nom">'+raison.replace(/[<>&]/g,'')+'</span>';
+          document.querySelectorAll('#dvm-agence .dvm-agecard').forEach(x=>x.classList.remove('on'));
+          grid.insertBefore(c, addBtn);
+          mExternalTiers=idt; mAgence=0;
+          document.getElementById('dvm-comandat').style.display='';
+          document.getElementById('dvm-partner-form').style.display='none';
+          msg.textContent='';
+        } else { msg.style.color='#c0392b'; msg.textContent='❌ '+((j&&j.error)||'Échec'); }
+      }).catch(e=>{ msg.style.color='#c0392b'; msg.textContent='❌ '+e; });
+  };
   window.dvSubmitMandat = async function(){
     const msg=document.getElementById('dvm-mandat-form-msg'); msg.textContent='Création…';
     try{
@@ -1661,6 +1715,7 @@ require_once __DIR__ . '/inc/adresse_modal.php';
         duree_mois:(document.getElementById('dvm-duree').value||'').replace(/[^0-9]/g,''),
         date_debut:document.getElementById('dvm-datedebut').value||'',
         id_agence_mandataire:(mAgence||''),
+        id_tiers_mandataire:(mExternalTiers||''),
         id_agence_collaborateur:((mAgence && mAgence!==mCollabAge) ? mCollabAge : ''),
         part_honoraires_mandataire:((document.getElementById('dvm-part-mand')||{}).value||'').replace(/[^0-9.,]/g,''),
         part_honoraires_collaborateur:((document.getElementById('dvm-part-collab')||{}).value||'').replace(/[^0-9.,]/g,''),
