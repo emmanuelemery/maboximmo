@@ -417,15 +417,16 @@ include __DIR__ . '/inc/agency_layout_top.php';
 /* Modal acteur */
 .dvm-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9000;align-items:flex-start;justify-content:center;padding:48px 16px;}
 .dvm-backdrop.open{display:flex;}
-.dvm{background:#fff;border-radius:16px;max-width:520px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.dvm{background:#fff;border-radius:16px;max-width:720px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);}
 .dvm h3{margin:0 0 4px;font-size:16px;font-weight:900;}
 .dvm .sub{font-size:12px;color:#64748b;margin-bottom:16px;}
 .dvm-roles{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
 .dvm-role{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 12px;font-size:12.5px;font-weight:800;color:#334155;cursor:pointer;}
 .dvm-role.active{border-color:#0f6cbd;background:#eef5fc;color:#0c5aa0;box-shadow:0 0 0 2px #0f6cbd22;}
 .dvm-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
-.dvm-agegrid{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;}
-.dvm-agecard{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:110px;padding:10px 14px;border:1.5px solid #e3ddf3;border-radius:12px;background:#fff;cursor:pointer;font-family:inherit;transition:all .12s;}
+.dvm-agegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px;}
+@media(max-width:620px){.dvm-agegrid{grid-template-columns:repeat(2,1fr);}}
+.dvm-agecard{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 12px;border:1.5px solid #e3ddf3;border-radius:12px;background:#fff;cursor:pointer;font-family:inherit;transition:all .12s;}
 .dvm-agecard:hover{border-color:#b9a7e6;background:#faf8ff;}
 .dvm-agecard.on{background:linear-gradient(135deg,#7c3aed,#8b5cf6);border-color:#7c3aed;box-shadow:0 4px 14px rgba(124,58,237,.28);}
 .dvm-agecard-ico{font-size:18px;}
