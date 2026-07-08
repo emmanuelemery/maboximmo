@@ -896,6 +896,9 @@ if ($kpis) {
     try { if ($idSocBien) { $q=$pdo->prepare("SELECT raison_sociale,nom,forme_juridique,capital_social,siren,siret,adresse_1,code_postal,ville,carte_pro_numero,numero_carte_t,carte_pro_cci,cci_carte_t,assurance_rcp,garantie_financiere,rib_emetteur_iban,rib_emetteur_bic,rib_emetteur_nom FROM societes WHERE id=?"); $q->execute([$idSocBien]); $socRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
     $ageRow = [];
     try { if ($idAgeBien) { $q=$pdo->prepare("SELECT nom_agence,adresse_1,code_postal,ville,rcs,iban,bic,banque_nom FROM agences WHERE id=?"); $q->execute([$idAgeBien]); $ageRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
+    // RIB de GESTION de l'agence (identique au PDF : cb_resolve …,'gestion'), jamais le compte société.
+    require_once __DIR__ . '/inc/comptes_bancaires.php';
+    $ribGBien = cb_resolve($pdo, $idSocBien, $idAgeBien ?: null, 'gestion');
     $belPrefill = [
         'bien_id'          => (int)$bienId,
         'proprio_nom'      => (string)$proprietaireNom,
@@ -923,9 +926,9 @@ if ($kpis) {
             'garantie'  => (string)($socRow['garantie_financiere'] ?? ''),
             'age_nom'   => (string)($ageRow['nom_agence'] ?? ''),
             'age_adresse'=> trim((string)($ageRow['adresse_1'] ?? '') . ' ' . ($ageRow['code_postal'] ?? '') . ' ' . ($ageRow['ville'] ?? '')),
-            'rib_iban'  => (string)(($socRow['rib_emetteur_iban'] ?? '') ?: ($ageRow['iban'] ?? '')),
-            'rib_bic'   => (string)(($socRow['rib_emetteur_bic'] ?? '') ?: ($ageRow['bic'] ?? '')),
-            'rib_nom'   => (string)(($socRow['rib_emetteur_nom'] ?? '') ?: ($ageRow['banque_nom'] ?? '')),
+            'rib_iban'  => (string)$ribGBien['iban'],
+            'rib_bic'   => (string)$ribGBien['bic'],
+            'rib_nom'   => (string)($ribGBien['banque'] ?: $ribGBien['titulaire']),
         ],
         'origin'           => 'bien_360',
     ];

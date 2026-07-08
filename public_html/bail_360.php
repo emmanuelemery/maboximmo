@@ -242,6 +242,9 @@ if ($isProjetBail) {
     try { if (!empty($bail['bien_soc'])) { $q=$pdo->prepare("SELECT raison_sociale,nom,forme_juridique,capital_social,siren,siret,adresse_1,code_postal,ville,carte_pro_numero,numero_carte_t,carte_pro_cci,cci_carte_t,assurance_rcp,garantie_financiere,rib_emetteur_iban,rib_emetteur_bic,rib_emetteur_nom FROM societes WHERE id=?"); $q->execute([(int)$bail['bien_soc']]); $socRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
     $ageRow = [];
     try { if (!empty($bail['bien_age'])) { $q=$pdo->prepare("SELECT nom_agence,adresse_1,code_postal,ville,rcs,iban,bic,banque_nom FROM agences WHERE id=?"); $q->execute([(int)$bail['bien_age']]); $ageRow=$q->fetch(PDO::FETCH_ASSOC) ?: []; } } catch (Throwable) {}
+    // RIB de GESTION de l'agence (identique au PDF : cb_resolve …,'gestion'), jamais le compte société.
+    require_once __DIR__ . '/inc/comptes_bancaires.php';
+    $ribGBail = cb_resolve($pdo, (int)($bail['bien_soc'] ?? 0) ?: (int)($bail['id_societe'] ?? 0), ((int)($bail['bien_age'] ?? 0) ?: (int)($bail['id_agence'] ?? 0)) ?: null, 'gestion');
     $candLabel = $bail['locataire_raison_sociale'] ?: trim((string)$bail['locataire_prenom'] . ' ' . $bail['locataire_nom']) ?: 'Candidat à définir';
     $stMap = ['projet'=>['🟡','Projet','#8a6d1b','#fef7e6'],'envoye'=>['📨','Envoyé à signer','#1d4ed8','#eef3ff'],'signe'=>['✅','Signé','#2d8a4e','#eef7f0'],'avenant'=>['📝','Avenant','#7c3aed','#f5f0ff']];
     $stB = $stMap[$bail['statut']] ?? ['•','—','#5b6b70','#f2f4f5'];
@@ -273,9 +276,9 @@ if ($isProjetBail) {
             'garantie'  => (string)($socRow['garantie_financiere'] ?? ''),
             'age_nom'   => (string)($ageRow['nom_agence'] ?? ''),
             'age_adresse'=> trim((string)($ageRow['adresse_1'] ?? '') . ' ' . ($ageRow['code_postal'] ?? '') . ' ' . ($ageRow['ville'] ?? '')),
-            'rib_iban'  => (string)(($socRow['rib_emetteur_iban'] ?? '') ?: ($ageRow['iban'] ?? '')),
-            'rib_bic'   => (string)(($socRow['rib_emetteur_bic'] ?? '') ?: ($ageRow['bic'] ?? '')),
-            'rib_nom'   => (string)(($socRow['rib_emetteur_nom'] ?? '') ?: ($ageRow['banque_nom'] ?? '')),
+            'rib_iban'  => (string)$ribGBail['iban'],
+            'rib_bic'   => (string)$ribGBail['bic'],
+            'rib_nom'   => (string)($ribGBail['banque'] ?: $ribGBail['titulaire']),
         ],
         'values' => [
             'locataire_type'=>$bail['locataire_type'], 'locataire_raison_sociale'=>$bail['locataire_raison_sociale'],
