@@ -326,10 +326,11 @@ if (!function_exists('bail_cloturer')) {
             $pdo->prepare("UPDATE bien_baux SET statut = 'resilie', date_fin = COALESCE(date_fin, CURDATE()), updated_at = NOW()
                             WHERE id_bien = ? AND id <> ? AND statut IN ('actif','signe')")
                 ->execute([$idBien, $bailId]);
-            // 2) Ce bail devient signé (figé) + actif locataire.
+            // 2) Ce bail devient signé (figé) + actif locataire. On CONSERVE candidat_tiers_id :
+            //    il devient le locataire (promotion du rôle ci-dessous).
             $pdo->prepare("UPDATE bien_baux
                               SET statut = 'signe', date_signature = COALESCE(date_signature, CURDATE()),
-                                  candidat_tiers_id = NULL, updated_at = NOW()
+                                  updated_at = NOW()
                             WHERE id = ?")->execute([$bailId]);
             $pdo->commit();
         } catch (Throwable $e) {
@@ -337,6 +338,10 @@ if (!function_exists('bail_cloturer')) {
             error_log('[bail_cloturer bascule] ' . $e->getMessage());
             return ['ok' => false, 'error' => 'Bascule échouée : ' . $e->getMessage()];
         }
+
+        // 2bis) Promotion du candidat en LOCATAIRE (rôle tiers). Best-effort.
+        try { require_once __DIR__ . '/candidat_tiers.php'; candidat_promote_to_locataire($pdo, $bailId); }
+        catch (Throwable $e) { error_log('[bail_cloturer promote] ' . $e->getMessage()); }
 
         // 3) Finalisation (best-effort) : PDF signé → GED (voyant vert) → mail aux signataires.
         $fin = ['ok' => false];

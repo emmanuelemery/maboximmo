@@ -217,6 +217,21 @@ try {
     exit(json_encode(['ok'=>false,'error'=>'Création échouée : ' . $e->getMessage()], JSON_UNESCAPED_UNICODE));
 }
 
+// ── Candidat locataire → TIERS provisoire (cherchable), anti-doublon. Best-effort. ──
+try {
+    require_once dirname(__DIR__) . '/inc/candidat_tiers.php';
+    $idTiersCand = candidat_tiers_ensure($pdo, [
+        'type'           => $candType,
+        'nom'            => $candNom, 'prenom' => $candPrenom, 'raison_sociale' => $candRaison,
+        'siren'          => $candSiren, 'email' => $candEmail, 'telephone' => $candTel,
+        'adresse'        => $candAdresse, 'date_naissance' => $candNaissD,
+        'lieu_naissance' => $candNaissL, 'nationalite' => $candNat,
+    ], (int)($socId ?? 0), (int)($ageId ?? 0), $userId ?: null, $bailId);
+    if ($idTiersCand > 0) {
+        $pdo->prepare("UPDATE bien_baux SET candidat_tiers_id=? WHERE id=?")->execute([$idTiersCand, $bailId]);
+    }
+} catch (Throwable $e) { error_log('[bien_add_bail candidat_tiers] ' . $e->getMessage()); }
+
 $candLabel = $candType === 'physique' ? trim($candPrenom . ' ' . $candNom) : $candRaison;
 echo json_encode([
     'ok'          => true,
