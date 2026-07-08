@@ -134,10 +134,11 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 'garantie'  => (string)($soc['garantie_financiere'] ?? ''),
                 'age_nom'   => (string)($age['nom_agence'] ?? ''),
                 'age_adr'   => trim((string)($age['adresse_1'] ?? '') . ' ' . ($age['code_postal'] ?? '') . ' ' . ($age['ville'] ?? '')),
-                // Compte de GESTION (résolu par agence/type), repli legacy inclus dans cb_resolve.
-                'rib_iban'  => (string)($ribG['iban'] ?: ($soc['rib_emetteur_iban'] ?? '') ?: ($age['iban'] ?? '')),
-                'rib_nom'   => (string)($ribG['banque'] ?: $ribG['titulaire'] ?: ($soc['rib_emetteur_nom'] ?? '') ?: ($age['banque_nom'] ?? '')),
-                'rib_bic'   => (string)($ribG['bic'] ?: ($soc['rib_emetteur_bic'] ?? '') ?: ($age['bic'] ?? '')),
+                // Compte de GESTION de l'agence UNIQUEMENT (jamais le compte société sur un doc de gestion).
+                // Si non configuré → vide (le texte affiche « compte de gestion de l'agence » sans IBAN erroné).
+                'rib_iban'  => (string)$ribG['iban'],
+                'rib_nom'   => (string)($ribG['banque'] ?: $ribG['titulaire']),
+                'rib_bic'   => (string)$ribG['bic'],
                 'ville_sig' => (string)($age['ville'] ?? ($soc['ville'] ?? '')),
             ],
             'cond' => [

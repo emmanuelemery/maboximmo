@@ -67,18 +67,21 @@ if (!function_exists('cb_resolve')) {
         }
         if (!$cand)    { $cand = $pick("id_societe=? AND id_agence IS NULL AND type_compte=?", [$idSociete,$type]); $src = 'société+type'; }
         if (!$cand)    { $cand = $pick("id_societe=? AND type_compte=?", [$idSociete,$type]); $src = 'type (toute agence)'; }
-        if (!$cand)    { $cand = $pick("id_societe=?", [$idSociete]); $src = 'défaut société'; }
+        // ⚠️ AUCUN repli « défaut société » ni legacy pour les usages métier (gestion/syndic/séquestre) :
+        // un document de gestion NE DOIT JAMAIS afficher le compte société. Seul le type 'societe'
+        // peut retomber sur l'ancien champ unique de la société.
         if ($cand) return [
             'iban'=>(string)$cand['iban'], 'bic'=>(string)$cand['bic'], 'banque'=>(string)$cand['banque'],
             'titulaire'=>(string)$cand['titulaire'], 'libelle'=>(string)$cand['libelle'], 'source'=>$src,
         ];
-        // Repli legacy : ancien champ unique sur societes.
-        $st = $pdo->prepare("SELECT rib_emetteur_iban iban, rib_emetteur_bic bic, rib_emetteur_nom banque FROM societes WHERE id=?");
-        $st->execute([$idSociete]); $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
-        if (!empty($r['iban'])) return [
-            'iban'=>(string)$r['iban'], 'bic'=>(string)($r['bic']??''), 'banque'=>(string)($r['banque']??''),
-            'titulaire'=>'', 'libelle'=>'', 'source'=>'legacy societes',
-        ];
+        if ($type === 'societe') {
+            $st = $pdo->prepare("SELECT rib_emetteur_iban iban, rib_emetteur_bic bic, rib_emetteur_nom banque FROM societes WHERE id=?");
+            $st->execute([$idSociete]); $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+            if (!empty($r['iban'])) return [
+                'iban'=>(string)$r['iban'], 'bic'=>(string)($r['bic']??''), 'banque'=>(string)($r['banque']??''),
+                'titulaire'=>'', 'libelle'=>'', 'source'=>'legacy societes',
+            ];
+        }
         return $empty;
     }
 }
