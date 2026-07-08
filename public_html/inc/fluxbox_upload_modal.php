@@ -3403,6 +3403,8 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             return v ? '<span class="gz-fill">'+esc(v)+'</span>' : '<span class="gz-empty">—</span>';
         });
         nameEl.innerHTML = parts.join('<span class="gz-sep">_</span>') + '<span class="gz-ext">.pdf</span>';
+        // Nom GED PLAIN (zones vides = « - », comme la convention GED) → repris pour la ligne queue.
+        window.FBX_GED_NAME_LIVE = zones.map(z => norm(z.v) || '-').join('_');
     }
 
     // Remplit la colonne droite « infos extraites » depuis d.prepared (mêmes données qu'Ajuster).
@@ -3466,11 +3468,19 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         if (fieldsEl) fieldsEl.innerHTML = html;
     }
 
-    // Affiche le nom du fichier renommé (proposé par l'IA d'analyse) sous le nom d'import
+    // Affiche le nom du fichier renommé sous le nom d'import.
+    // On REPREND le nom GED du haut du modal (aperçu live 11 zones) pour rester cohérent avec
+    // ce que l'utilisateur voit ; à défaut, le nom proposé par le serveur.
     function setQueueRename(li, proposed) {
         const el = li && li.querySelector('.fbx-queue-rename');
         if (!el) return;
-        const name = (proposed || '').toString().trim();
+        let name = (proposed || '').toString().trim();
+        const live = (window.FBX_GED_NAME_LIVE || '').toString().trim();
+        if (live) {
+            // Conserve l'extension du nom serveur (sinon .pdf).
+            const m = name.match(/\.([A-Za-z0-9]{1,5})$/);
+            name = live + (m ? m[0] : '.pdf');
+        }
         if (!name) { el.hidden = true; return; }
         el.textContent = name;
         el.title = name;
