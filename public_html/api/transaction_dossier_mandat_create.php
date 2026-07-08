@@ -63,14 +63,20 @@ try {
     $dateFin = $dureeMois > 0 ? date('Y-m-d', strtotime($dateDebut . ' +' . $dureeMois . ' months')) : null;
 
     $pdo->beginTransaction();
+    // Renouvellement par tacite reconduction : par défaut OUI, durée = terme initial, plafond 3 ans.
+    $renouv = (post('renouvellement_tacite') === '0' || post('renouvellement_tacite') === 'off') ? 0 : 1;
+    $dureeMax = 36; // 3 ans max cumulés
     $ins = $pdo->prepare("INSERT INTO mandats
         (id_bien, id_proprietaire, id_agence, numero_mandat, type_mandat, nature_mandat,
          exclusif, date_signature, date_debut, date_fin, honoraires, honoraires_charge,
+         renouvellement_tacite, duree_initiale_mois, duree_max_mois,
          statut, id_user, date_creation)
-        VALUES (?, ?, ?, ?, 'vente', NULL, ?, NULL, ?, ?, ?, ?, 'actif', ?, NOW())");
+        VALUES (?, ?, ?, ?, 'vente', NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'actif', ?, NOW())");
     $ins->execute([
         $idBien, $bien['id_proprietaire'] ?: null, $bien['id_agence'] ?: null, $numero,
-        $exclusif, $dateDebut, $dateFin, $honoraires, $honorairesCharge, (int)current_user_id() ?: null,
+        $exclusif, $dateDebut, $dateFin, $honoraires, $honorairesCharge,
+        $renouv, ($dureeMois > 0 ? $dureeMois : null), $dureeMax,
+        (int)current_user_id() ?: null,
     ]);
     $mandatId = (int)$pdo->lastInsertId();
 
