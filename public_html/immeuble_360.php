@@ -68,7 +68,18 @@ try {
 } catch (Throwable $e) {}
 
 // ─── Documents GED de l'immeuble ──
-$docs = [];
+// Source = GED centrale (ged_document_links, entity_type=IMB). Split par type de lien :
+//   main      = documents PROPRES de l'immeuble (règlement copro, PV AG, TF multi-lots…)
+//   reference = docs qui CITENT l'immeuble (docs de bail/bien, CRG…) → « Mentionné dans »
+$docs = []; $mentions = []; $docsById = [];
+try {
+    if (is_file(__DIR__ . '/inc/ged_document_links.php')) require_once __DIR__ . '/inc/ged_document_links.php';
+    if (function_exists('gdl_documents_for_entity')) {
+        foreach (gdl_documents_for_entity($pdo, 'IMB', $immId, ['limit' => 60]) as $d) {
+            $docsById[(int)$d['id']] = $d;
+        }
+    }
+} catch (Throwable $e) {}
 try {
     $stD = $pdo->prepare("SELECT id, name_display, document_type, created_at
         FROM ged_documents
@@ -80,8 +91,17 @@ try {
           )
         ORDER BY created_at DESC LIMIT 30");
     $stD->execute([$immId, $immId, $immId]);
-    $docs = $stD->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($stD->fetchAll(PDO::FETCH_ASSOC) ?: [] as $d) {
+        if (!isset($docsById[(int)$d['id']])) $docsById[(int)$d['id']] = $d;
+    }
 } catch (Throwable $e) {}
+$byDate = fn($a, $b) => strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? ''));
+foreach (array_values($docsById) as $d) {
+    if (($d['link_relation_type'] ?? 'main') === 'reference') $mentions[] = $d;
+    else $docs[] = $d;
+}
+usort($docs, $byDate);     $docs = array_slice($docs, 0, 30);
+usort($mentions, $byDate); $mentions = array_slice($mentions, 0, 10);
 $docsByType = [];
 foreach ($docs as $d) $docsByType[$d['document_type']] = ($docsByType[$d['document_type']] ?? 0) + 1;
 
@@ -93,6 +113,12 @@ $piecesImm = [
     ['code'=>'DIAG_PARTIES_COM', 'label'=>'Diagnostics parties communes','sublabel'=>'Amiante, plomb…'],
     ['code'=>'CADASTRE',         'label'=>'Extrait cadastral',        'sublabel'=>'Référence parcelle'],
 ];
+// Mapping code pièce → type FluxBox (quicktype « immeuble ») pour pré-sélection au « + ».
+$fbxTypeByCodeImm = [
+    'REGLEMENT_COPRO'  => 'reglement_copro',
+    'CARNET_ENTRETIEN' => 'carnet_entretien',
+    'AG_PV'            => 'pv_ag',
+];
 $piecesItems = [];
 foreach ($piecesImm as $p) {
     $piecesItems[] = [
@@ -100,25 +126,12 @@ foreach ($piecesImm as $p) {
         'sublabel' => $p['sublabel'],
         'ok'       => isset($docsByType[$p['code']]),
         'add_url'  => app_url('/transaction_chargement.php'),
+        'fbx_type' => $fbxTypeByCodeImm[$p['code']] ?? null,
     ];
 }
 
-// ─── Mentions (CRG, courriers qui citent cet immeuble) ──
-$mentions = [];
-try {
-    $stM = $pdo->prepare("SELECT id, name_display, document_type, created_at
-        FROM ged_documents
-        WHERE status = 'active'
-          AND source_module <> '05_TRANSACTION'
-          AND (
-              id_immeuble = ?
-              OR JSON_EXTRACT(metadata, '$.classement.immeuble_id_bdd') = ?
-              OR JSON_CONTAINS(linked_entities, JSON_OBJECT('type', 'immeuble', 'id', ?), '$')
-          )
-        ORDER BY created_at DESC LIMIT 10");
-    $stM->execute([$immId, $immId, $immId]);
-    $mentions = $stM->fetchAll(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
+// NB : « Mentionné dans » ($mentions) est désormais alimenté plus haut depuis
+// ged_document_links (liens 'reference' sur l'immeuble). Ancienne requête retirée.
 
 // ─── Infos syndic/gestion (immeubles_infos) ──
 $infos = [];
@@ -146,26 +159,23 @@ try {
     $mandats = $stG->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (Throwable $e) {}
 $mandatTypes = array_values(array_unique(array_filter(array_map(fn($m)=>$m['type'], $mandats))));
-$estSyndic   = in_array('SYNDIC', $mandatTypes, true);
 
-// ─── Catégorie DÉDUITE (même logique que la liste agency_immeubles.php) ──
-// Fallback quand aucun mandat n'est enregistré dans immeubles_gestion :
-// 1) override manuel categorie_mbi ; 2) SYNDIC auto = réf copro 1000-1200/2000-2200/3000-3200
-//    + plusieurs lots + PAS créé par CRG ; 3) GESTION par défaut.
-$catDeduite = '';
-$cmImm = strtoupper(trim((string)($imm['categorie_mbi'] ?? '')));
-if (in_array($cmImm, ['SYNDIC','GESTION','TRANSACTION'], true)) {
-    $catDeduite = $cmImm;
-} else {
-    $refImm = (string)($imm['reference_immeuble'] ?? '');
-    $isCrgImm = trim((string)($imm['code_crg'] ?? '')) !== '';
-    if (!$isCrgImm && (int)($imm['nb_lots'] ?? 0) > 1 && ctype_digit($refImm)) {
-        $n = (int)$refImm;
-        if (($n>=1000&&$n<=1200)||($n>=2000&&$n<=2200)||($n>=3000&&$n<=3200)) $catDeduite = 'SYNDIC';
-    }
-    if ($catDeduite === '') $catDeduite = 'GESTION';
+// ─── RÔLE SYNDIC — RÈGLE MÉTIER (Emmanuel 2026-07-03) ──────────────────────────
+// Nous sommes SYNDIC UNIQUEMENT pour les immeubles dont la référence est un nombre
+// à 4 chiffres dans 1000–3999 (« série 1000/2000/3000 »). Tous les autres = GESTION
+// (mandat de gestion), même si un syndic externe existe (ex. NEYRET). La RÉFÉRENCE
+// fait autorité, elle prime sur immeubles_gestion.type et categorie_mbi.
+$refImmRaw   = trim((string)($imm['reference_immeuble'] ?? ''));
+$refIsSyndic = ctype_digit($refImmRaw) && strlen($refImmRaw) === 4
+             && (int)$refImmRaw >= 1000 && (int)$refImmRaw <= 3999;
+$estSyndic   = $refIsSyndic;
+$catDeduite  = $refIsSyndic ? 'SYNDIC' : 'GESTION';
+// Réf non-syndic → on NE présente PAS de mandat SYNDIC pour nous (donnée immeubles_gestion
+// parfois erronée : on est seulement gestionnaire, le syndic est externe — ex. NEYRET).
+if (!$refIsSyndic) {
+    $mandats     = array_values(array_filter($mandats, fn($m) => strtoupper((string)($m['type'] ?? '')) !== 'SYNDIC'));
+    $mandatTypes = array_values(array_filter($mandatTypes, fn($t) => strtoupper((string)$t) !== 'SYNDIC'));
 }
-$estSyndic = $estSyndic || $catDeduite === 'SYNDIC';
 
 // ─── Mandats de GESTION LOCATIVE au niveau des LOTS (table mandats par bien) ──
 // Un immeuble peut cumuler : syndic (copro) ET 1..n mandats de gestion sur ses lots.
@@ -197,7 +207,9 @@ try {
 // ─── Statut visuel ──
 $nbBiens          = count($biens);
 $nbBauxActifs     = array_sum(array_map(fn($b) => (int)$b['nb_baux_actifs'], $biens));
-$nbBiensVacants   = count(array_filter($biens, fn($b) => ($b['statut_occupation'] ?? '') === 'vacant'));
+// Vacant = AUCUN bail actif ET non vendu. On NE se fie PAS à statut_occupation (enum corrompu
+// en base → un lot loué apparaissait « vacant »). Le bail actif est la source fiable.
+$nbBiensVacants   = count(array_filter($biens, fn($b) => (int)($b['nb_baux_actifs'] ?? 0) === 0 && empty($b['prix_vente'])));
 $nbBiensVendus    = count(array_filter($biens, fn($b) => !empty($b['prix_vente'])));
 $pieceManquantes  = count(array_filter($piecesItems, fn($p) => !$p['ok']));
 
@@ -318,6 +330,24 @@ fiche360_header(
           <div style="padding:8px 0"><a href="https://www.google.com/maps?q=<?= $H($imm['latitude'].','.$imm['longitude']) ?>" target="_blank" rel="noopener">🗺 Voir sur la carte</a></div>
         <?php endif; ?>
       </div>
+
+      <!-- Infos publiques (Registre National des Copropriétés) — repliée + chargée à la demande -->
+      <details class="f360-card" id="imm-public-card">
+        <summary style="cursor:pointer;list-style:none;outline:none;">
+          <h3 style="display:inline;">🏛️ Infos publiques <small style="font-weight:400;color:#94a3b8;">registre copropriété (RNC) · cliquer pour déplier</small></h3>
+        </summary>
+        <div id="imm-public-body" style="margin-top:10px;">
+          <div style="color:#7a766f;font-size:13px;line-height:1.5;">
+            Données officielles du Registre National des Copropriétés (immatriculation, lots, syndic…).
+            <div style="margin-top:10px;">
+              <button type="button" id="imm-public-load"
+                      style="background:#243B5C;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:700;cursor:pointer;">
+                🏛️ Charger les infos publiques
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <!-- Syndic (sous l'identité, colonne gauche) -->
       <div class="f360-card">
@@ -458,7 +488,7 @@ fiche360_header(
         . '<th style="padding:6px 4px;text-align:right;">Surface</th><th style="padding:6px 4px;text-align:center;">Étage</th><th style="padding:6px 4px;">Propriétaire</th>'
         . '<th style="padding:6px 4px;">Statut</th><th style="padding:6px 4px;text-align:right;">Action</th></tr></thead>';
     ?>
-    <div class="f360-card">
+    <div class="f360-card" id="imm-lots">
         <h3>🏘 Lots de l'immeuble <span class="count"><?= count($biensActifs) ?></span></h3>
         <?php if (empty($biensActifs)): ?>
             <div class="f360-empty"><div class="em-ico">🏘</div>Aucun bien actif rattaché à cet immeuble.</div>
@@ -608,9 +638,20 @@ fiche360_header(
                 <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:140px;">[<?= h($d['document_type']) ?>]</span>
                 <span style="flex:1;"><?= h($d['name_display']) ?></span>
                 <span style="color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
+                <button type="button" onclick="gedDeleteDoc(<?= (int)$d['id'] ?>,<?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>,this)" title="Supprimer" style="border:none;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;padding:0 2px;">🗑️</button>
             </div>
         <?php endforeach; endif; ?>
     </div>
+    <?php require_once __DIR__ . '/inc/ged_delete_modal.php'; ?>
+
+    <!-- Dossiers sources (archives OneDrive liées, non importées) — inclusion défensive -->
+    <?php
+    $gsfCardFile = __DIR__ . '/inc/ged_source_folders_card.php';
+    if (is_file($gsfCardFile)) { require_once $gsfCardFile;
+        if (function_exists('ged_source_folders_card')) { try {
+            ged_source_folders_card($pdo, 'IMB', $immId, ['id_societe'=>(int)($imm['id_societe'] ?? 0), 'id_agence'=>(int)($imm['id_agence'] ?? 0)]);
+        } catch (Throwable $e) {} } }
+    ?>
 
     <!-- Mentionné dans -->
     <?php
@@ -634,13 +675,13 @@ fiche360_header(
     <?php
     // Métier (N1) induit par l'immeuble : réf syndic (commence par 1/2/3xxx) → SYNDIC,
     // tous les autres immeubles → GESTION. (Doctrine 2026-06-30 : jamais transaction par défaut.)
-    $refImmDigits = preg_replace('/\D/', '', (string)($imm['reference_immeuble'] ?? '')) ?? '';
-    $n1Imm = (strlen($refImmDigits) >= 4 && in_array($refImmDigits[0], ['1','2','3'], true))
+    $n1Imm = $refIsSyndic
         ? '04_SYNDIC'
         : '03_GESTION_LOCATIVE';
     // Panneau Actions — remonté EN HAUT de la colonne pour visibilité immédiate
     fiche360_actions_panel('Actions immeuble', [
         ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'immeuble_360', immeuble_id:" . (int)$immId . ", entite_id_bdd:" . (int)$immId . ", soc_id:" . (int)($imm['id_societe'] ?? 0) . ", age_id:" . (int)($imm['id_agence'] ?? 0) . ", n1:'" . $n1Imm . "', entite_nom:'" . addslashes((string)($imm['reference_immeuble'] ?: $nomAffichage)) . "'});return false;"],
+        ['icon'=>'🏛️','label'=>'Charger les infos publiques (RNC)','url'=>'#','onclick'=>'immLoadPublicInfo();return false;'],
         ['icon'=>'➕','label'=>'Ajouter un bien à cet immeuble','url'=>app_url('/bien_detail.php?id_immeuble=' . $immId)],
         ['icon'=>'📁','label'=>'Documents de l\'immeuble',     'url'=>app_url('/immeuble_documents_list.php?id=' . $immId)],
         ['icon'=>'✏️','label'=>'Éditer l\'immeuble',           'url'=>app_url('/agency_immeuble_form.php?id=' . $immId)],
@@ -651,7 +692,17 @@ fiche360_header(
          'target'=>'_blank'],
     ]);
 
-    fiche360_checklist('Pièces immeuble', $piecesItems);
+    $fbxPrefillImm = [
+        'origin'        => 'immeuble_360',
+        'immeuble_id'   => (int)$immId,
+        'immeuble_nom'  => (string)($imm['nom_immeuble'] ?? ''),
+        'entite_id_bdd' => (int)$immId,
+        'soc_id'        => (int)($imm['id_societe'] ?? 0),
+        'age_id'        => (int)($imm['id_agence'] ?? 0),
+        'n1'            => (string)$n1Imm,
+        'entite_nom'    => (string)($imm['reference_immeuble'] ?: $nomAffichage),
+    ];
+    fiche360_checklist('Pièces immeuble', $piecesItems, $fbxPrefillImm);
 
     // CONTACTS : propriétaires rattachés (→ fiche tiers 360° si rattaché, sinon recherche proprios)
     if (!empty($proprios)) {
@@ -671,9 +722,11 @@ fiche360_header(
 
     // Synthèse occupation
     fiche360_attach('OCCUPATION', [
-        ['icon'=>'🏘','name'=>$nbBiens . ' lot(s) rattaché(s)','ref'=>'','url'=>'#'],
-        ['icon'=>'✅','name'=>$nbBauxActifs . ' bail(x) actif(s)','ref'=>'','url'=>'#'],
-        ['icon'=>'🔓','name'=>$nbBiensVacants . ' lot(s) vacant(s)','ref'=>'','url'=>'#'],
+        // Ancres vers la section « Lots » de la page (un href="#" nu provoquait une
+        // déconnexion/retour racine .fr en prod). '#imm-lots' = simple fragment, sûr.
+        ['icon'=>'🏘','name'=>$nbBiens . ' lot(s) rattaché(s)','ref'=>'','url'=>'#imm-lots'],
+        ['icon'=>'✅','name'=>$nbBauxActifs . ' bail(x) actif(s)','ref'=>'','url'=>'#imm-lots'],
+        ['icon'=>'🔓','name'=>$nbBiensVacants . ' lot(s) vacant(s)','ref'=>'','url'=>'#imm-lots'],
         ['icon'=>'💰','name'=>$nbBiensVendus . ' lot(s) vendu(s)','ref'=>'','url'=>'#'],
     ]);
 
@@ -683,5 +736,82 @@ fiche360_header(
 </div>
 
 <?= fiche360_js() ?>
+
+<script>
+// ─── Infos publiques (Registre National des Copropriétés) — chargement à la demande ───
+(function(){
+  var API = <?= json_encode(app_url('/api/registre_copro.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var SAVE_API = <?= json_encode(app_url('/api/immeuble_enrichir_save.php'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+  var CTX = {
+    immId: <?= (int)($imm['id'] ?? 0) ?>,
+    canSave: <?= ((function_exists('current_role_id') && in_array((int)current_role_id(), [1,7,9,10], true)) || (function_exists('is_super_admin') && is_super_admin())) ? 'true' : 'false' ?>,
+    csrf: <?= json_encode(function_exists('csrf_token') ? csrf_token('immeuble_enrichir') : '', JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>,
+    cp:   <?= json_encode((string)($imm['code_postal'] ?? '')) ?>,
+    voie: <?= json_encode((string)($imm['adresse_1'] ?? '')) ?>,
+    lat:  <?= json_encode((string)($imm['latitude'] ?? '')) ?>,
+    lng:  <?= json_encode((string)($imm['longitude'] ?? '')) ?>
+  };
+
+  // Persiste le RNC sur l'immeuble (colonnes registre_copro_*) → visible sur les fiches
+  // bien liées. Auto SEULEMENT si le match est cohérent (même CP). Best-effort.
+  function immPersistRegistre(j, body){
+    if (!CTX.canSave || !CTX.immId || j.coherent === false) return;
+    fetch(SAVE_API, {
+      method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        immeuble_id: CTX.immId, csrf: CTX.csrf,
+        registre: { immatriculation: j.immatriculation||'', construction: j.construction||'',
+                    date_maj: j.date_maj||'', nb_lots: j.nb_lots||0 },
+        details: { registre: { title: 'Registre des copropriétés (RNC)', items: (j.infos||[]) } }
+      })
+    }).then(function(r){ return r.json(); }).then(function(s){
+      if (s && s.ok){
+        var tag = document.createElement('div');
+        tag.style.cssText = 'margin-top:8px;font-size:11.5px;color:#2d8a4e;font-weight:700;';
+        tag.textContent = '✓ Enregistré sur l\'immeuble — visible sur les biens liés.';
+        body.appendChild(tag);
+      }
+    }).catch(function(){});
+  }
+  var esc = function(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; };
+
+  window.immLoadPublicInfo = function(){
+    var body = document.getElementById('imm-public-body');
+    if (!body) return;
+    // Déplie la card (details) + fait défiler + affiche le chargement
+    var card = document.getElementById('imm-public-card');
+    if (card && 'open' in card) card.open = true;
+    card?.scrollIntoView({behavior:'smooth', block:'center'});
+    body.innerHTML = '<div style="color:#7a766f;font-size:13px;padding:8px 0;">⏳ Interrogation du registre national…</div>';
+    var qs = new URLSearchParams();
+    if (CTX.cp)   qs.set('cp', CTX.cp);
+    if (CTX.voie) qs.set('voie', CTX.voie);
+    if (CTX.lat)  qs.set('lat', CTX.lat);
+    if (CTX.lng)  qs.set('lng', CTX.lng);
+    fetch(API + '?' + qs.toString(), {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j || !j.ok){ body.innerHTML = '<div style="color:#c62828;font-size:13px;">❌ '+esc((j&&j.error)||'Erreur')+'</div>'; return; }
+        if (!j.trouve){ body.innerHTML = '<div style="color:#8a6d1b;font-size:13px;">ℹ️ Aucune copropriété trouvée au registre ('+esc(j.raison||'')+').</div>'; return; }
+        var html = '';
+        if (j.avertissement){ html += '<div style="background:#fef3c7;border:1px solid #d97706;border-radius:8px;padding:8px 10px;color:#92400e;font-size:12px;margin-bottom:10px;">'+esc(j.avertissement)+'</div>'; }
+        html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+        (j.infos||[]).forEach(function(it){
+          html += '<div style="display:grid;grid-template-columns:150px 1fr;gap:8px;padding:5px 0;border-bottom:1px dashed #f0ece6;">'
+               +   '<span style="font-size:11px;font-weight:700;color:#7a766f;">'+esc(it.label)+'</span>'
+               +   '<span style="font-size:13px;color:#243B5C;font-weight:600;">'+esc(it.value)+'</span>'
+               + '</div>';
+        });
+        html += '</div>';
+        html += '<div style="margin-top:8px;font-size:10.5px;color:#94a3b8;">Source : Registre National des Copropriétés (ANAH / data.gouv.fr)'
+             + (j.date_maj ? ' · maj '+esc(j.date_maj) : '') + '</div>';
+        body.innerHTML = html;
+        immPersistRegistre(j, body);   // ← persiste pour que les biens liés le voient
+      })
+      .catch(function(e){ body.innerHTML = '<div style="color:#c62828;font-size:13px;">❌ Réseau : '+esc(e)+'</div>'; });
+  };
+  document.getElementById('imm-public-load')?.addEventListener('click', window.immLoadPublicInfo);
+})();
+</script>
 
 <?php include __DIR__ . '/inc/agency_layout_bottom.php'; ?>

@@ -1061,12 +1061,14 @@ if ($kpis) {
                 <div style="display:flex; align-items:center; gap:8px; margin-top:4px; font-size:10px; color:#9a9690;">
                     <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700;">[<?= h($d['document_type']) ?>]</span>
                     <span><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
-                    <span style="margin-left:auto; color:#5b21b6; font-weight:700;">Ouvrir ›</span>
+                    <button type="button" onclick="event.stopPropagation();gedDeleteDoc(<?= (int)$d['id'] ?>,<?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>,this)" title="Supprimer" style="margin-left:auto;border:none;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;padding:0 2px;">🗑️</button>
+                    <span style="color:#5b21b6; font-weight:700;">Ouvrir ›</span>
                 </div>
             </div>
         <?php endforeach; endif; ?>
     </div>
     <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; /* modale standard mvptModalView */ ?>
+    <?php require_once __DIR__ . '/inc/ged_delete_modal.php'; ?>
 
     <!-- Dossiers sources (archives OneDrive liées, non importées) — inclusion défensive -->
     <?php

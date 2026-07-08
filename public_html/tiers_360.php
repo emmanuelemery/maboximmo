@@ -692,6 +692,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     </div>
     <?php endif; ?>
     <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; /* modale standard mvptModalView */ ?>
+    <?php require_once __DIR__ . '/inc/ged_delete_modal.php'; /* gedDeleteDoc(id,nom,el) */ ?>
 
     <!-- Mandat de gestion (registre + données IA) -->
     <?php if ($idProprioLegacy > 0): ?>
@@ -751,21 +752,35 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
                 <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; font-size:10px; flex:none;">[<?= h($d['document_type']) ?>]</span>
                 <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= h($d['name_display']) ?>">📄 <?= h($d['name_display']) ?></span>
                 <span style="color:#9a9690; font-size:10px; flex:none;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
+                <button type="button" onclick="event.stopPropagation();gedDeleteDoc(<?= (int)$d['id'] ?>,<?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>,this)" title="Supprimer ce document" style="border:none;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;flex:none;padding:0 2px;">🗑️</button>
                 <span style="color:#5b21b6; font-size:11px; font-weight:700;">›</span>
             </div>
         <?php endforeach; endif; ?>
     </div>
 
-    <!-- Mentionné dans -->
+    <!-- Dossiers sources (archives OneDrive liées, non importées) — inclusion défensive -->
     <?php
-    $mentionsForLayout = array_map(fn($m) => [
-        'icon'  => '📄',
-        'title' => $m['name_display'],
-        'ref'   => $m['document_type'] . ' · ' . date('d/m/y', strtotime((string)$m['created_at'])),
-        'url'   => app_url('/api/ged_document_view.php?id=' . (int)$m['id'] . '&mode=inline'),
-    ], $mentions);
-    if (function_exists('fiche360_mention_dans')) fiche360_mention_dans($mentionsForLayout);
+    $gsfCardFile = __DIR__ . '/inc/ged_source_folders_card.php';
+    if (is_file($gsfCardFile)) { require_once $gsfCardFile;
+        if (function_exists('ged_source_folders_card')) { try {
+            ged_source_folders_card($pdo, 'TIERS', $tiersId, ['id_societe'=>(int)($tiers['id_societe'] ?? 0), 'id_agence'=>(int)($tiers['id_agence'] ?? 0)]);
+        } catch (Throwable $e) {} } }
     ?>
+
+    <!-- Mentionné dans (rendu manuel pour permettre la suppression d'un doc) -->
+    <?php if (!empty($mentions)): ?>
+    <div class="f360-card">
+        <h3>🔗 Mentionné dans <span class="count"><?= count($mentions) ?></span></h3>
+        <?php foreach ($mentions as $m): ?>
+            <div style="padding:6px 0;border-bottom:1px solid #f0ece6;font-size:12px;display:flex;gap:8px;align-items:center;">
+                <span style="font-family:'DM Mono',monospace;color:#0e7490;font-weight:700;font-size:10px;flex:none;">[<?= h($m['document_type']) ?>]</span>
+                <a href="<?= h(app_url('/api/ged_document_view.php?id=' . (int)$m['id'] . '&mode=inline')) ?>" target="_blank" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155;text-decoration:none;" title="<?= h($m['name_display']) ?>">📄 <?= h($m['name_display']) ?></a>
+                <span style="color:#9a9690;font-size:10px;flex:none;"><?= h(date('d/m/y', strtotime((string)$m['created_at']))) ?></span>
+                <button type="button" onclick="gedDeleteDoc(<?= (int)$m['id'] ?>,<?= htmlspecialchars(json_encode((string)$m['name_display']), ENT_QUOTES) ?>,this)" title="Supprimer ce document" style="border:none;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;flex:none;padding:0 2px;">🗑️</button>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 
       </div>
       <!-- fin COLONNE 2 -->
@@ -781,7 +796,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     $actionsList = [];
     $tiersIsMgr = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,3,7], true)) || (function_exists('is_super_admin') && is_super_admin());
     // Tiers (propriétaire/locataire) → métier GESTION par défaut (jamais transaction).
-    $actionsList[] = ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'tiers_360', proprio_tiers_id:" . (int)$tiersId . ", entite_id_bdd:" . (int)$tiersId . ", soc_id:" . (int)($tiers['id_societe'] ?? 0) . ", age_id:" . (int)($tiers['id_agence'] ?? 0) . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes((string)$nomAffichage) . "'});return false;"];
+    $actionsList[] = ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'tiers_360', proprio_tiers_id:" . (int)$tiersId . ", proprio_nom:'" . addslashes((string)$nomAffichage) . "', entite_id_bdd:" . (int)$tiersId . ", soc_id:" . (int)($tiers['id_societe'] ?? 0) . ", age_id:" . (int)($tiers['id_agence'] ?? 0) . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes((string)$nomAffichage) . "'});return false;"];
     $actionsList[] = ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=TIERS&id=' . (int)$tiersId . '&back=' . urlencode('tiers_360.php?id=' . (int)$tiersId))];
     if ($idProprioLegacy > 0) {
         $actionsList[] = ['icon'=>'📄','label'=>'Voir la fiche propriétaire','url'=>app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy)];
