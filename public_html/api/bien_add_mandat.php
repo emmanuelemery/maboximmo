@@ -57,8 +57,18 @@ if (!$bien) {
     exit(json_encode(['ok' => false, 'error' => 'Bien introuvable']));
 }
 if (!$isAdmin && !empty($bien['id_societe']) && (int)$bien['id_societe'] !== $userSocId) {
-    http_response_code(403);
-    exit(json_encode(['ok' => false, 'error' => 'Bien hors de votre société']));
+    // Exception BAILLEUR (rôle 9/10) : autorisé si le bien appartient à un de SES
+    // propriétaires (user_proprietaires) — les comptes bailleurs n'ont pas de société.
+    $okBailleur = false;
+    if (in_array((int)($_SESSION['id_role'] ?? 0), [9, 10], true) && (int)($bien['id_proprietaire'] ?? 0) > 0) {
+        $chk = $pdo->prepare("SELECT 1 FROM user_proprietaires WHERE id_user = ? AND id_proprietaire = ? LIMIT 1");
+        $chk->execute([$userId, (int)$bien['id_proprietaire']]);
+        $okBailleur = (bool)$chk->fetchColumn();
+    }
+    if (!$okBailleur) {
+        http_response_code(403);
+        exit(json_encode(['ok' => false, 'error' => 'Bien hors de votre périmètre']));
+    }
 }
 
 // Numéro AUTO déterministe (utilisé seulement à la 1ʳᵉ création ; un mandat
@@ -116,6 +126,63 @@ try {
             $annonceCreated = (int)$pdo->lastInsertId();
         } else {
             $annonceCreated = $annId; // existait déjà
+        }
+
+        // ── AUTO-REMPLISSAGE annonce VENTE (best-effort, ne touche que les champs vides) ──
+        if ($typeNorm === 'vente' && $annonceCreated > 0) {
+            try {
+                require_once __DIR__ . '/../inc/honoraires_helper.php';
+                // 1) Ancien loyer ALUR ← bail actif du bien.
+                $qb = $pdo->prepare("SELECT loyer_mensuel_hc, charges_mensuelles, date_fin, date_prise_effet
+                                       FROM bien_baux WHERE id_bien=? AND statut IN ('actif','signe') ORDER BY id DESC LIMIT 1");
+                $qb->execute([$bienId]); $bAct = $qb->fetch(PDO::FETCH_ASSOC);
+                if ($bAct) {
+                    $pdo->prepare("UPDATE annonces SET
+                            ancien_loyer_montant = COALESCE(NULLIF(ancien_loyer_montant,0), ?),
+                            ancien_loyer_charges = COALESCE(NULLIF(ancien_loyer_charges,0), ?),
+                            ancien_locataire_date_sortie = COALESCE(ancien_locataire_date_sortie, ?),
+                            ancien_loyer_date_revision   = COALESCE(ancien_loyer_date_revision, ?),
+                            ancien_loyer_communique = 1, date_modification = NOW()
+                          WHERE id=?")->execute([
+                        (float)($bAct['loyer_mensuel_hc'] ?? 0) ?: null,
+                        (float)($bAct['charges_mensuelles'] ?? 0) ?: null,
+                        $bAct['date_fin'] ?: null,
+                        $bAct['date_prise_effet'] ?: null,
+                        $annonceCreated,
+                    ]);
+                }
+                // 2) Prix ← patrimoine actif (prix de vente courant), si l'annonce n'a pas de prix.
+                $qp = $pdo->prepare("SELECT montant FROM bien_prix
+                                       WHERE id_bien=? AND type_valeur='prix_vente' AND is_courant=1 AND montant>0
+                                       ORDER BY id DESC LIMIT 1");
+                $qp->execute([$bienId]); $prixPat = (float)$qp->fetchColumn();
+                if ($prixPat > 0) {
+                    $pdo->prepare("UPDATE annonces SET prix = COALESCE(NULLIF(prix,0), ?), date_modification=NOW() WHERE id=?")
+                        ->execute([$prixPat, $annonceCreated]);
+                }
+                // 3) Honoraires ← barème vente (agence → société → modèle MBI), si vides.
+                $qa = $pdo->prepare("SELECT prix, honoraires FROM annonces WHERE id=?"); $qa->execute([$annonceCreated]);
+                $ann = $qa->fetch(PDO::FETCH_ASSOC) ?: [];
+                $prixAnn = (float)($ann['prix'] ?? 0);
+                if ($prixAnn > 0 && (float)($ann['honoraires'] ?? 0) <= 0) {
+                    $h = honoraires_vente_bareme($pdo, (int)($bien['id_societe'] ?? 0) ?: null, (int)($bien['id_agence'] ?? 0), $prixAnn);
+                    if ($h['montant'] > 0) {
+                        $pdo->prepare("UPDATE annonces SET honoraires=?, alur_pourcentage_honoraires_ttc=?,
+                                pourcentage_honoraires_vendeur=?, honoraires_charge=?,
+                                honoraires_charge_acquereur=?, honoraires_charge_vendeur=?,
+                                prix_net_vendeur=?, date_modification=NOW() WHERE id=?")
+                            ->execute([
+                                $h['montant'], $h['pct'],
+                                ($h['charge']==='vendeur' ? $h['pct'] : 0),
+                                $h['charge'],
+                                ($h['charge']==='acquereur' ? 1 : 0),
+                                ($h['charge']==='vendeur' ? 1 : 0),
+                                max(0, $prixAnn - $h['montant']),
+                                $annonceCreated,
+                            ]);
+                    }
+                }
+            } catch (Throwable $e) { error_log('[bien_add_mandat autofill] ' . $e->getMessage()); }
         }
     }
 

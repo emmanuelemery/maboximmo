@@ -653,3 +653,66 @@ function honoraires_locataire_total(PDO $pdo, int $idAnnonce): float
         return 0.0;
     }
 }
+
+/**
+ * Honoraires de VENTE selon le barème de l'agence (societe_tarifs_honoraires.vente_*).
+ * Méthodes : 'tranches' (dégressif marginal via vente_tranches_json), 'taux' (vente_taux_unique %),
+ * 'forfait' (vente_forfait €). Plancher = vente_montant_minimum.
+ *
+ * @return array{montant: float, pct: float, charge: string, methode: string}
+ */
+function honoraires_vente_bareme(PDO $pdo, ?int $idSociete, int $idAgence, float $prix): array
+{
+    $out = ['montant' => 0.0, 'pct' => 0.0, 'charge' => 'acquereur', 'methode' => ''];
+    if ($prix <= 0) return $out;
+
+    // Barème : agence (override) → société (id_agence=0) → base (id_societe=0).
+    $row = null;
+    $sel = "SELECT vente_methode, vente_taux_unique, vente_forfait, vente_tranches_json,
+                   vente_charge_par_defaut, vente_montant_minimum
+              FROM societe_tarifs_honoraires WHERE %s AND actif = 1 LIMIT 1";
+    try {
+        if ($idAgence > 0) {
+            $st = $pdo->prepare(sprintf($sel, "id_agence = ?")); $st->execute([$idAgence]);
+            $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        if (!$row && $idSociete) {
+            $st = $pdo->prepare(sprintf($sel, "id_societe = ? AND id_agence = 0")); $st->execute([$idSociete]);
+            $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        if (!$row) {
+            $st = $pdo->prepare(sprintf($sel, "id_societe = 0")); $st->execute();
+            $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+    } catch (Throwable $e) { error_log('[honoraires_vente_bareme] ' . $e->getMessage()); return $out; }
+    if (!$row) return $out;
+
+    $methode = (string)($row['vente_methode'] ?: 'tranches');
+    $charge  = (string)($row['vente_charge_par_defaut'] ?: 'acquereur');
+    $plancher = (float)($row['vente_montant_minimum'] ?? 0);
+    $montant = 0.0;
+
+    if ($methode === 'forfait') {
+        $montant = (float)($row['vente_forfait'] ?? 0);
+    } elseif ($methode === 'taux') {
+        $montant = $prix * ((float)($row['vente_taux_unique'] ?? 0)) / 100.0;
+    } else { // tranches dégressives (marginal : chaque tranche appliquée sur sa part du prix)
+        $tr = json_decode((string)($row['vente_tranches_json'] ?? '[]'), true) ?: [];
+        usort($tr, fn($a, $b) => ((float)($a['min'] ?? 0)) <=> ((float)($b['min'] ?? 0)));
+        foreach ($tr as $t) {
+            $min = (float)($t['min'] ?? 0);
+            $max = ($t['max'] ?? null) !== null && $t['max'] !== '' ? (float)$t['max'] : INF;
+            $pct = (float)($t['pct'] ?? 0);
+            if ($prix <= $min) break;
+            $part = min($prix, $max) - $min;
+            if ($part > 0) $montant += $part * $pct / 100.0;
+        }
+    }
+    if ($plancher > 0 && $montant < $plancher) $montant = $plancher;
+    $montant = round($montant, 2);
+    $out['montant'] = $montant;
+    $out['pct']     = $prix > 0 ? round($montant / $prix * 100, 2) : 0.0;
+    $out['charge']  = $charge;
+    $out['methode'] = $methode;
+    return $out;
+}
