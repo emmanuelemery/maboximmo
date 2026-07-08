@@ -22,7 +22,7 @@ $action=in_array(($body['action']??''),['delete','archive','restore'],true)?$bod
 $motif=trim((string)($body['motif']??''));
 if ($idDoc<=0) exit(json_encode(['ok'=>false,'error'=>'id_doc requis']));
 
-$st=$pdo->prepare("SELECT id, societe_id, document_type, security_level FROM ged_documents WHERE id=? LIMIT 1");
+$st=$pdo->prepare("SELECT id, societe_id, document_type, security_level, hash_sha256, fluxbox_source_id FROM ged_documents WHERE id=? LIMIT 1");
 $st->execute([$idDoc]); $doc=$st->fetch(PDO::FETCH_ASSOC);
 if (!$doc){ http_response_code(404); exit(json_encode(['ok'=>false,'error'=>'Document introuvable'])); }
 if (!$isAdmin && !empty($doc['societe_id']) && (int)$doc['societe_id']!==$userSoc){
@@ -53,4 +53,31 @@ try {
     $pdo->prepare("UPDATE ged_documents SET status=?, updated_at=NOW() WHERE id=?")->execute([$newStatus, $idDoc]);
 }
 
-echo json_encode(['ok'=>true,'action'=>$action,'status'=>$newStatus], JSON_UNESCAPED_UNICODE);
+// Suppression réelle → « oublier » le hash dans le registre FluxBox (fluxbox_documents),
+// sinon l'anti-doublon continue de bloquer le ré-import du MÊME fichier après suppression.
+// (L'archivage NE touche pas au registre : le doc existe toujours.)
+$forgot = 0;
+if ($action === 'delete') {
+    try {
+        $srcId = (int)($doc['fluxbox_source_id'] ?? 0);
+        $hash  = (string)($doc['hash_sha256'] ?? '');
+        if ($srcId > 0) {
+            $q = $pdo->prepare("DELETE FROM fluxbox_documents WHERE id=?");
+            $q->execute([$srcId]); $forgot += $q->rowCount();
+        }
+        // Filet : purge aussi toute entrée résiduelle du même hash (tenant = société du doc).
+        if ($hash !== '') {
+            $tenant = (int)($doc['societe_id'] ?? 0);
+            if ($tenant > 0) {
+                $q = $pdo->prepare("DELETE FROM fluxbox_documents WHERE hash_sha256=? AND tenant_id=?");
+                $q->execute([$hash, $tenant]);
+            } else {
+                $q = $pdo->prepare("DELETE FROM fluxbox_documents WHERE hash_sha256=?");
+                $q->execute([$hash]);
+            }
+            $forgot += $q->rowCount();
+        }
+    } catch (Throwable $e) { /* registre absent/colonnes différentes : suppression GED reste effective */ }
+}
+
+echo json_encode(['ok'=>true,'action'=>$action,'status'=>$newStatus,'hash_forgotten'=>$forgot], JSON_UNESCAPED_UNICODE);

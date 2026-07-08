@@ -1578,6 +1578,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
 (function () {
     'use strict';
     const API           = <?= json_encode($_fbxApiUrl, JSON_UNESCAPED_SLASHES) ?>;
+    const API_GED_NAME  = API.replace('fluxbox_action.php', 'fluxbox_ged_name_preview.php');
     const FLUXBOX_URL   = <?= json_encode($_fbxFluxboxUrl, JSON_UNESCAPED_SLASHES) ?>;
     const CSRF          = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
     const IS_ADMIN      = <?= $_fbxIsAdmin ? 'true' : 'false' ?>;
@@ -2753,6 +2754,11 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         modal.classList.add('is-open');
         modal.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
+        // RESET de la barre du nom GED à chaque ouverture (aucune mémoire d'un doc précédent) :
+        // le nom sera régénéré par le moteur dès le chargement du contexte.
+        const _gn = document.getElementById('fbx-gedbar-name');
+        if (_gn) { _gn.innerHTML = ''; delete _gn.dataset.engineReady; }
+        window.FBX_GED_NAME_LIVE = '';
         // Si un prefill est posé par la page appelante, force le reload du contexte
         // pour appliquer le nouveau bien/société/agence (sinon la 2ème ouverture ignore).
         // Et auto-ouvre l'accordéon classement pour que l'user voie la pré-sélection.
@@ -3398,13 +3404,67 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         const nameEl = document.getElementById('fbx-gedbar-name'); if(!nameEl) return;
         const esc = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
         const norm = (v) => String(v||'').trim().toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9\-]/g,'');
-        const parts = zones.map(z => {
-            const v = norm(z.v);
-            return v ? '<span class="gz-fill">'+esc(v)+'</span>' : '<span class="gz-empty">—</span>';
-        });
-        nameEl.innerHTML = parts.join('<span class="gz-sep">_</span>') + '<span class="gz-ext">.pdf</span>';
-        // Nom GED PLAIN (zones vides = « - », comme la convention GED) → repris pour la ligne queue.
+        // Nom GED PLAIN interne (zones vides = « - ») → fallback pour la ligne queue.
         window.FBX_GED_NAME_LIVE = zones.map(z => norm(z.v) || '-').join('_');
+        // Une entité (bail/bien/immeuble/tiers) est-elle connue ? Si oui, le VRAI nom
+        // (codes glossaire) vient du MOTEUR serveur. On ne peint PLUS les libellés en JS
+        // (sinon flash libellés→codes à chaque clic) : seul le moteur écrit la barre.
+        const pf = window.FBX_PREFILL || {};
+        const hasEntity = !!(pf.bail_id || pf.bien_id || pf.immeuble_id || pf.proprio_tiers_id || pf.tiers_id);
+        if (hasEntity) {
+            if (!nameEl.dataset.engineReady) nameEl.innerHTML = '<span class="gz-empty">Génération du nom…</span>';
+            fbxFetchEngineGedName(zones);
+        } else {
+            // Aucune entité → le moteur ne peut rien de fiable : aperçu libellés JS.
+            const parts = zones.map(z => { const v=norm(z.v); return v?'<span class="gz-fill">'+esc(v)+'</span>':'<span class="gz-empty">—</span>'; });
+            nameEl.innerHTML = parts.join('<span class="gz-sep">_</span>') + '<span class="gz-ext">.pdf</span>';
+        }
+    }
+
+    // Appel debouncé au moteur serveur mbo_build_ged_name (via api/fluxbox_ged_name_preview.php).
+    let _gedNameTimer = null, _gedNameAbort = null;
+    function fbxFetchEngineGedName(zones){
+        const nameEl = document.getElementById('fbx-gedbar-name'); if(!nameEl) return;
+        const pf = window.FBX_PREFILL || {};
+        const val = (id) => { const el=document.getElementById(id); return el ? String(el.value||'').trim() : ''; };
+        const payload = {
+            csrf: CSRF,
+            bail_id:     pf.bail_id     || 0,
+            bien_id:     pf.bien_id     || 0,
+            immeuble_id: pf.immeuble_id || 0,
+            tiers_id:    pf.proprio_tiers_id || pf.tiers_id || 0,
+            societe_id:  (choice.societe_id || pf.soc_id || 0),
+            agence_id:   (choice.agence_id  || pf.age_id || 0),
+            metier:      (zones[2] && zones[2].v) ? String(zones[2].v).toLowerCase() : '',
+            type_doc:    choice.forced_type_doc || '',
+            libelle:     val('fbx-doc-libelle'),
+            ref:         val('fbx-doc-period'),
+            date_doc:    val('fbx-doc-date'),
+            filename:    'x.pdf'
+        };
+        // Pas d'entité connue → le moteur ne peut rien de fiable : on garde l'aperçu JS.
+        if (!payload.bail_id && !payload.bien_id && !payload.immeuble_id && !payload.tiers_id) return;
+        clearTimeout(_gedNameTimer);
+        _gedNameTimer = setTimeout(() => {
+            try { if (_gedNameAbort) _gedNameAbort.abort(); } catch(e){}
+            _gedNameAbort = new AbortController();
+            fetch(API_GED_NAME, {
+                method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},
+                body: JSON.stringify(payload), signal: _gedNameAbort.signal
+            }).then(r => r.json()).then(d => {
+                if (!d || !d.ok || !d.name) return;
+                const esc = (s) => String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+                // Découpe nom.ext → segments colorés (vide « - » grisé), + extension.
+                const m = String(d.name).match(/^(.*)\.([A-Za-z0-9]{1,5})$/);
+                const stem = m ? m[1] : String(d.name), ext = m ? ('.'+m[2]) : '.pdf';
+                const html = stem.split('_').map(seg =>
+                    (seg && seg !== '-') ? '<span class="gz-fill">'+esc(seg)+'</span>' : '<span class="gz-empty">—</span>'
+                ).join('<span class="gz-sep">_</span>') + '<span class="gz-ext">'+esc(ext)+'</span>';
+                nameEl.innerHTML = html;
+                nameEl.dataset.engineReady = '1';
+                window.FBX_GED_NAME_LIVE = String(d.name).replace(/\.[A-Za-z0-9]{1,5}$/,''); // stem (l'ext est rajoutée ailleurs)
+            }).catch(()=>{ /* réseau/abort : l'aperçu JS reste affiché */ });
+        }, 220);
     }
 
     // Remplit la colonne droite « infos extraites » depuis d.prepared (mêmes données qu'Ajuster).

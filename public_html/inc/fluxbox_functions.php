@@ -1377,7 +1377,9 @@ if (!function_exists('fluxbox_promote_to_ged')) {
             } elseif ($immId > 0) {
                 $stLink->execute([$tenantId, $gedDocId, 'IMB', $immId, 'main']);
             } elseif ($tiersId > 0) {
-                $stLink->execute([$tenantId, $gedDocId, 'TIERS', $tiersId, 'reference']);
+                // Le TIERS est la cible PRINCIPALE (aucun bail/bien/immeuble) → relation 'main'
+                // pour que le doc apparaisse dans « Documents du tiers », pas « Mentionné dans ».
+                $stLink->execute([$tenantId, $gedDocId, 'TIERS', $tiersId, 'main']);
             }
         } catch (Throwable $e) {
             error_log('[fluxbox_promote_to_ged] liens entité échoués doc#' . $gedDocId . ' : ' . $e->getMessage());
