@@ -426,16 +426,23 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dvm-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
 .dvm-agegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px;}
 @media(max-width:620px){.dvm-agegrid{grid-template-columns:repeat(2,1fr);}}
-.dvm-agecard{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 12px;border:1.5px solid #e3ddf3;border-radius:12px;background:#fff;cursor:pointer;font-family:inherit;transition:all .12s;}
-.dvm-agecard:hover{border-color:#b9a7e6;background:#faf8ff;}
-.dvm-agecard.on{background:linear-gradient(135deg,#7c3aed,#8b5cf6);border-color:#7c3aed;box-shadow:0 4px 14px rgba(124,58,237,.28);}
-.dvm-agecard-ico{font-size:18px;}
-.dvm-agecard-soc{font-size:10px;font-weight:700;letter-spacing:.03em;color:#8b5cf6;text-transform:uppercase;}
-.dvm-agecard.on .dvm-agecard-soc{color:#e9ddff;}
-.dvm-agecard-nom{font-size:12.5px;font-weight:800;color:#334155;text-align:center;line-height:1.2;}
-.dvm-agecard.on .dvm-agecard-nom{color:#fff;}
-.dvm-ageadd{border-style:dashed;border-color:#b9a7e6;color:#7c3aed;justify-content:center;}
-.dvm-ageadd .dvm-agecard-nom{color:#7c3aed;}
+/* Aligné sur .fbx-choice-btn du modal de chargement (charte FluxBox). */
+.dvm-agecard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:10px 8px;border-radius:10px;border:1.5px solid #cbd5e1;background:#fff;color:#243B5C;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s ease;line-height:1.2;text-align:center;}
+.dvm-agecard:hover{border-color:#6B33B5;background:#fef3c7;}
+.dvm-agecard.on{background:linear-gradient(180deg,#E5D5F5 0%,#BFA0E0 100%);border-color:#9F7BCC;color:#3D1A6E;box-shadow:inset 0 1px 2px rgba(255,255,255,.9),0 4px 12px rgba(124,58,237,.22);}
+.dvm-agecard-ico{font-size:22px;line-height:1;}
+.dvm-agecard-soc{font-size:10px;font-weight:700;letter-spacing:.03em;color:#6B33B5;text-transform:uppercase;}
+.dvm-agecard.on .dvm-agecard-soc{color:#5b2b8f;}
+.dvm-agecard-nom{font-size:12px;font-weight:700;line-height:1.15;}
+/* Carte AGENCE PARTENAIRE (tiers) → couleur module Tiers #316887 (Baltic Blue). */
+.dvm-agecard-tiers{border-color:#9dc0d1;}
+.dvm-agecard-tiers .dvm-agecard-soc{color:#316887;}
+.dvm-agecard-tiers:hover{border-color:#316887;background:#eef5f8;}
+.dvm-agecard-tiers.on{background:linear-gradient(180deg,#d6e7ef 0%,#8fb6c8 100%);border-color:#316887;color:#1c3b48;box-shadow:inset 0 1px 2px rgba(255,255,255,.9),0 4px 12px rgba(49,104,135,.25);}
+.dvm-agecard-tiers.on .dvm-agecard-soc{color:#1c3b48;}
+.dvm-ageadd{border-style:dashed;border-color:#9dc0d1;color:#316887;}
+.dvm-ageadd .dvm-agecard-nom{color:#316887;}
+.dvm-ageadd:hover{border-color:#316887;background:#eef5f8;}
 .dvm-btn{border:none;border-radius:10px;padding:10px 18px;font-weight:800;font-size:13px;cursor:pointer;}
 .dvm-btn.cancel{background:#eceef1;color:#374151;}
 .dvm-btn.ok{background:linear-gradient(135deg,#0f9d58,#0b8043);color:#fff;}
@@ -1695,7 +1702,7 @@ require_once __DIR__ . '/inc/adresse_modal.php';
         if(j&&j.ok&&(j.id_tiers||j.id)){
           var idt=j.id_tiers||j.id;
           var grid=document.getElementById('dvm-agence'), addBtn=document.getElementById('dvm-age-add');
-          var c=document.createElement('button'); c.type='button'; c.className='dvm-agecard on'; c.dataset.tiers=idt;
+          var c=document.createElement('button'); c.type='button'; c.className='dvm-agecard dvm-agecard-tiers on'; c.dataset.tiers=idt;
           c.innerHTML='<span class="dvm-agecard-ico">🤝</span><span class="dvm-agecard-soc">PARTENAIRE</span><span class="dvm-agecard-nom">'+raison.replace(/[<>&]/g,'')+'</span>';
           document.querySelectorAll('#dvm-agence .dvm-agecard').forEach(x=>x.classList.remove('on'));
           grid.insertBefore(c, addBtn);
