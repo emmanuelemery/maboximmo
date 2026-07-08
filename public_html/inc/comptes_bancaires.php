@@ -15,6 +15,7 @@ if (!function_exists('cb_types')) {
     function cb_types(): array {
         return [
             'gestion'   => 'Gestion (clients)',
+            'syndic'    => 'Syndic',
             'sequestre' => 'Séquestre',
             'societe'   => 'Société',
         ];

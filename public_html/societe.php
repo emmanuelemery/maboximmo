@@ -438,7 +438,7 @@ if (is_post()) {
                     ':bic'                 => trim((string)post('ag_bic', '')) ?: null,
                     ':banque_nom'          => trim((string)post('ag_banque_nom', '')) ?: null,
                     ':titulaire_compte'    => trim((string)post('ag_titulaire_compte', '')) ?: null,
-                    ':rib_type'            => in_array(post('ag_rib_type'), ['gestion','sequestre','societe'], true) ? post('ag_rib_type') : 'gestion',
+                    ':rib_type'            => in_array(post('ag_rib_type'), ['gestion','syndic','sequestre','societe'], true) ? post('ag_rib_type') : 'gestion',
                 ]);
                 $newAgId = (int)$pdo->lastInsertId();
                 $success = 'Agence créée.';
@@ -530,7 +530,7 @@ if (is_post()) {
                     ':bic'                 => trim((string)post('ag_bic', '')) ?: null,
                     ':banque_nom'          => trim((string)post('ag_banque_nom', '')) ?: null,
                     ':titulaire_compte'    => trim((string)post('ag_titulaire_compte', '')) ?: null,
-                    ':rib_type'            => in_array(post('ag_rib_type'), ['gestion','sequestre','societe'], true) ? post('ag_rib_type') : 'gestion',
+                    ':rib_type'            => in_array(post('ag_rib_type'), ['gestion','syndic','sequestre','societe'], true) ? post('ag_rib_type') : 'gestion',
                     ':actif'               => post('ag_actif') ? 1 : 0,
                     ':id'                  => $agId,
                     ':id_societe'          => $societeId,
