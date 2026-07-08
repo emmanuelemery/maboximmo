@@ -30,11 +30,20 @@ $GVKEY = $GLOBALS['GOOGLE_MAPS_API_KEY'] ?? (defined('GOOGLE_MAPS_API_KEY') ? GO
       <button type="button" class="bn-tab active" data-gv-go="0"><span class="bn-tab-ico">🗺️</span> Plan 2D</button>
       <button type="button" class="bn-tab" data-gv-go="1"><span class="bn-tab-ico">📷</span> Street View</button>
       <button type="button" class="bn-tab" data-gv-go="2"><span class="bn-tab-ico">🌍</span> Vue 3D / Earth</button>
+      <button type="button" class="bn-tab" data-gv-go="3" id="gv-tab-adjust" style="display:none;"><span class="bn-tab-ico">📍</span> Ajuster la position</button>
     </div>
     <div class="bn-modal-body">
       <div class="bn-pane show" id="gv-pane-0"><div class="bn-pane-empty">Chargement du plan…</div></div>
       <div class="bn-pane"      id="gv-pane-1"><div class="bn-pane-empty">Chargement Street View…</div></div>
       <div class="bn-pane"      id="gv-pane-2"><div class="bn-pane-empty">Chargement de la vue aérienne…</div></div>
+      <div class="bn-pane"      id="gv-pane-3">
+        <div style="padding:10px 16px;background:#0f1a2e;color:#c7d4e6;font-size:12.5px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <span>🎯 Fais glisser le point (ou clique) sur le <b>bâtiment exact</b>, puis enregistre.</span>
+          <button type="button" id="gv-save-pos" style="margin-left:auto;border:none;background:#1f7a4d;color:#fff;border-radius:9px;padding:8px 16px;font-weight:800;cursor:pointer;">💾 Enregistrer la position</button>
+          <span id="gv-save-msg" style="font-size:12px;font-weight:700;"></span>
+        </div>
+        <div id="gv-map-adjust" style="width:100%;height:56vh;background:#0b1220;"></div>
+      </div>
     </div>
     <div class="bn-modal-foot">
       <a href="#" id="gv-ext" target="_blank" rel="noopener">↗ Ouvrir dans Google Maps</a>
@@ -69,8 +78,10 @@ $GVKEY = $GLOBALS['GOOGLE_MAPS_API_KEY'] ?? (defined('GOOGLE_MAPS_API_KEY') ? GO
 <script>
 (function(){
   var GKEY = <?= json_encode((string)$GVKEY) ?>;
+  var SAVE_URL = <?= json_encode(function_exists('app_url') ? app_url('/api/geo_save_coords.php') : '/api/geo_save_coords.php') ?>;
   var modal = document.getElementById('gv-modal');
   var cur = 0, loaded = [false,false,false], lat=0, lng=0;
+  var saveCtx=null, adjLat=0, adjLng=0, mapsJs=false, adjMap=null, adjMarker=null;
   function url(i){
     var c = lat + ',' + lng;
     if (i === 0) return 'https://www.google.com/maps/embed/v1/place?key=' + GKEY + '&q=' + encodeURIComponent(c) + '&zoom=18&maptype=roadmap';
@@ -90,19 +101,59 @@ $GVKEY = $GLOBALS['GOOGLE_MAPS_API_KEY'] ?? (defined('GOOGLE_MAPS_API_KEY') ? GO
     cur = i;
     document.querySelectorAll('#gv-modal .bn-tab').forEach(function(t,idx){ t.classList.toggle('active', idx===i); });
     document.querySelectorAll('#gv-modal .bn-pane').forEach(function(p,idx){ p.classList.toggle('show', idx===i); });
-    load(i);
+    if (i === 3) { buildAdjust(); } else { load(i); }
   }
-  window.openGeoViews = function(la, ln, label){
+  // Charge l'API JS Google Maps une fois (pour la carte interactive d'ajustement).
+  function loadMapsJs(cb){
+    if (mapsJs && window.google && window.google.maps) { cb(); return; }
+    if (!GKEY) { cb(); return; }
+    var s=document.createElement('script');
+    s.src='https://maps.googleapis.com/maps/api/js?key='+GKEY;
+    s.async=true; s.onload=function(){ mapsJs=true; cb(); };
+    s.onerror=function(){ document.getElementById('gv-map-adjust').innerHTML='<div class="bn-pane-empty">Carte interactive indisponible (activer « Maps JavaScript API » sur la clé Google).</div>'; };
+    document.head.appendChild(s);
+  }
+  function buildAdjust(){
+    var host=document.getElementById('gv-map-adjust'); if(!host) return;
+    loadMapsJs(function(){
+      if(!(window.google&&window.google.maps)){ return; }
+      adjLat=lat; adjLng=lng;
+      adjMap=new google.maps.Map(host,{center:{lat:lat,lng:lng},zoom:20,mapTypeId:'hybrid',streetViewControl:false,mapTypeControl:true});
+      adjMarker=new google.maps.Marker({position:{lat:lat,lng:lng},map:adjMap,draggable:true,title:'Position du bâtiment'});
+      function set(p){ adjLat=p.lat(); adjLng=p.lng(); }
+      adjMarker.addListener('dragend',function(e){ set(e.latLng); });
+      adjMap.addListener('click',function(e){ adjMarker.setPosition(e.latLng); set(e.latLng); });
+    });
+  }
+  window.openGeoViews = function(la, ln, label, ctx){
     lat = parseFloat(la); lng = parseFloat(ln);
     if (!lat || !lng) { alert('Coordonnées GPS indisponibles pour cet immeuble.'); return; }
+    saveCtx = (ctx && ctx.type && ctx.id) ? ctx : null;
+    var adjTab=document.getElementById('gv-tab-adjust'); if(adjTab) adjTab.style.display = saveCtx ? '' : 'none';
+    var sm=document.getElementById('gv-save-msg'); if(sm) sm.textContent='';
     document.getElementById('gv-addr').textContent = label || (lat + ', ' + lng);
     document.getElementById('gv-ext').href = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
-    loaded = [false,false,false];
+    loaded = [false,false,false]; adjMap=null;
     document.querySelectorAll('#gv-modal .bn-pane').forEach(function(p,idx){
-      p.innerHTML = '<div class="bn-pane-empty">Chargement…</div>'; p.classList.toggle('show', idx===0);
+      if(idx<3) p.innerHTML = '<div class="bn-pane-empty">Chargement…</div>';
+      p.classList.toggle('show', idx===0);
     });
     modal.classList.add('open'); go(0);
   };
+  // Enregistrement de la position ajustée.
+  document.getElementById('gv-save-pos').addEventListener('click', function(){
+    if(!saveCtx){ return; }
+    var msg=document.getElementById('gv-save-msg');
+    msg.style.color='#c7d4e6'; msg.textContent='⏳ Enregistrement…';
+    fetch(SAVE_URL,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:saveCtx.type, id:saveCtx.id, lat:adjLat, lng:adjLng})})
+      .then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok){ lat=adjLat; lng=adjLng; loaded=[false,false,false];
+          document.getElementById('gv-ext').href='https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+          msg.style.color='#4ade80'; msg.textContent='✅ Position enregistrée.'; }
+        else { msg.style.color='#f87171'; msg.textContent='❌ '+((j&&j.error)||'Échec'); }
+      }).catch(function(e){ msg.style.color='#f87171'; msg.textContent='❌ '+e; });
+  });
   function close(){ modal.classList.remove('open'); }
   document.querySelectorAll('[data-gv-close]').forEach(function(el){ el.addEventListener('click', close); });
   document.querySelectorAll('#gv-modal [data-gv-go]').forEach(function(t){ t.addEventListener('click', function(){ go(+t.getAttribute('data-gv-go')); }); });

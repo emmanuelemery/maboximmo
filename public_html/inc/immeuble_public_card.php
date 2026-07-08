@@ -67,7 +67,7 @@ function immeuble_public_card(PDO $pdo, int $immId, bool $canAct = false, array 
         <div style="display:flex;align-items:center;gap:8px">
           <?php if ($lat && $lng): $gvLabel = trim((string)($fallback['label'] ?? '')); ?>
             <button type="button" class="imc-btn" style="background:linear-gradient(135deg,#243B5C,#1a2c45);color:#fff;border-color:#243B5C"
-              onclick="if(window.openGeoViews)openGeoViews(<?= $h($lat) ?>,<?= $h($lng) ?>,<?= htmlspecialchars(json_encode($gvLabel ?: ($lat.', '.$lng)), ENT_QUOTES, 'UTF-8') ?>)"
+              onclick="if(window.openGeoViews)openGeoViews(<?= $h($lat) ?>,<?= $h($lng) ?>,<?= htmlspecialchars(json_encode($gvLabel ?: ($lat.', '.$lng)), ENT_QUOTES, 'UTF-8') ?>,{type:'IMB',id:<?= (int)$immId ?>})"
               title="Plan 2D · Street View · Vue 3D / Earth">🛰️ 3 vues</button>
           <?php endif; ?>
           <?php if ($canAct): ?>
