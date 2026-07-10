@@ -58,7 +58,7 @@ if (!$isAdmin && !empty($tiers['id_societe']) && (int)$tiers['id_societe'] !== $
 }
 
 // Champs autorisés à modifier (whitelist sécurité)
-$allowed = ['raison_sociale', 'nom', 'prenom', 'email', 'telephone', 'nom_affichage'];
+$allowed = ['raison_sociale', 'nom', 'prenom', 'email', 'telephone', 'nom_affichage', 'adresse_ligne1', 'adresse_ligne2', 'code_postal', 'ville'];
 $updates = [];
 $params  = [];
 $changes = [];

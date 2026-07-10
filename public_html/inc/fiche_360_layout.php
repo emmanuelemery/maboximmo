@@ -275,11 +275,16 @@ if (!function_exists('fiche360_checklist')) {
         echo '<h3>📋 ' . h($titre) . ' <span class="ratio">' . $nbOk . '/' . $total . '</span></h3>';
         foreach ($items as $it) {
             $ok = !empty($it['ok']);
+            // Prefill effectif de la pièce : un override PAR ITEM ('fbx_prefill') prime sur
+            // le prefill global de la fiche. Permet, ex., que « Bail signé »/« EDL » d'une
+            // fiche BIEN ciblent le BAIL (= locataire) au lieu du bien nu.
+            $itemPrefill = (!empty($it['fbx_prefill']) && is_array($it['fbx_prefill'])) ? $it['fbx_prefill'] : $fbxPrefill;
+            $itemHasPrefill = ($itemPrefill !== null && $itemPrefill !== []);
             // Libellé cliquable : pièce manquante + prefill + type → tout l'item ouvre le modal pré-rempli.
-            $rowClickable = (!$ok && $fbxHasPrefill && !empty($it['fbx_type']));
+            $rowClickable = (!$ok && $itemHasPrefill && !empty($it['fbx_type']));
             $rowAttr = '';
             if ($rowClickable) {
-                $pfRow = $fbxPrefill; $pfRow['forced_type_doc'] = (string)$it['fbx_type'];
+                $pfRow = $itemPrefill; $pfRow['forced_type_doc'] = (string)$it['fbx_type'];
                 $pfRowJson = htmlspecialchars(json_encode($pfRow, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                 $rowAttr = ' style="cursor:pointer" title="Charger : ' . h($it['label']) . ' — type pré-sélectionné"'
                     . ' data-pf="' . $pfRowJson . '"'
@@ -300,8 +305,8 @@ if (!function_exists('fiche360_checklist')) {
             }
             // « + » : ouvre le modal FluxBox avec le TYPE pré-sélectionné si on a un prefill
             // fiche + un type de pièce. Sinon fallback vers l'ancien lien add_url.
-            if (!$ok && $fbxHasPrefill && !empty($it['fbx_type'])) {
-                $pf = $fbxPrefill;
+            if (!$ok && $itemHasPrefill && !empty($it['fbx_type'])) {
+                $pf = $itemPrefill;
                 $pf['forced_type_doc'] = (string)$it['fbx_type'];
                 // JSON encodé normalement (avec de vrais "), puis htmlspecialchars(ENT_QUOTES)
                 // transforme " en &quot; pour l'attribut. Le navigateur les redécode → JSON.parse
@@ -335,13 +340,16 @@ if (!function_exists('fiche360_attach')) {
             echo '<div class="lbl">' . h($sectionLabel) . '</div>';
         }
         foreach ($links as $l) {
-            echo '<a href="' . h($l['url'] ?? '#') . '">';
+            $action = (string)($l['action'] ?? '');   // bouton optionnel (ex. supprimer) rendu HORS du lien
+            if ($action !== '') echo '<div style="display:flex;align-items:center;gap:2px;">';
+            echo '<a href="' . h($l['url'] ?? '#') . '"' . ($action !== '' ? ' style="flex:1;min-width:0;"' : '') . '>';
             echo '<span class="ico">' . h($l['icon'] ?? '🔗') . '</span>';
             echo '<span class="name">' . h($l['name']);
             if (!empty($l['ref'])) echo '<div class="ref">' . h($l['ref']) . '</div>';
             echo '</span>';
             echo '<span style="color:#c8c4be;">→</span>';
             echo '</a>';
+            if ($action !== '') { echo $action; echo '</div>'; }
         }
         echo '</div>';
     }

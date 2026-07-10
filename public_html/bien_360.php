@@ -481,20 +481,31 @@ $annonceActiveBtn = $annonceActive ? [[
 $mandatLower = array_map('strtolower', $mandatTypes);
 $aVendre = in_array('vente', $mandatLower, true);
 $aLouer  = in_array('location', $mandatLower, true);
-$btnB360 = function(string $type, string $labelOff, string $labelOn, bool $on, string $cOn, string $cOnD, string $shadow) use ($bienId): string {
+$btnB360 = function(string $type, string $labelOff, string $labelOn, bool $on, string $cOn, string $cOnD, string $shadow, ?string $href = null) use ($bienId): string {
     // Boutons TOUJOURS pleins de couleur (le bouton est coloré, pas seulement l'écriture)
     $bg    = "linear-gradient(135deg,$cOn,$cOnD)";
     $icon  = $on ? '✓' : $labelOff;       // $labelOff = l'emoji (💼 / 🔑)
     $txt   = $labelOn;
     $sh    = "box-shadow:0 3px 0 $shadow,0 4px 10px rgba(0,0,0,.18);";
-    return '<button type="button" onclick="b360SetMandat(' . $bienId . ',\'' . $type . '\',this)" '
+    // Si un href est fourni (ex. dossier de vente existant) → navigation directe au lieu du toggle mandat.
+    $onclick = $href !== null
+        ? "window.location.href='" . htmlspecialchars($href, ENT_QUOTES) . "'"
+        : "b360SetMandat(" . $bienId . ",'" . $type . "',this)";
+    return '<button type="button" onclick="' . $onclick . '" '
          . 'style="flex:1 1 0;min-width:0;cursor:pointer;font-family:inherit;font-weight:800;font-size:14px;letter-spacing:.02em;'
          . 'display:flex;align-items:center;justify-content:center;gap:8px;text-align:center;white-space:nowrap;'
          . 'padding:15px 14px;border-radius:12px;border:none;background:' . $bg . ';color:#fff;' . $sh . '">'
          . '<span style="font-size:28px;line-height:1">' . $icon . '</span>' . $txt . '</button>';
 };
 $rightBtns  = '<div style="width:291px;display:flex;gap:12px;justify-content:center">';
-$rightBtns .= $btnB360('vente',    '💼', 'À vendre', $aVendre, '#3b6fb0', '#274d80', '#1d3a61');
+// Dossier de vente déjà créé → bouton « En vente » (vert), clic ouvre le dossier.
+// Sinon → « À vendre » (bleu) qui pilote le mandat de vente.
+if ($hasDossierVente) {
+    $rightBtns .= $btnB360('vente', '🗂️', 'En vente', false, '#2d8a4e', '#1f6e3a', '#155029',
+                           app_url('/transaction_dossier.php?id_bien=' . $bienId));
+} else {
+    $rightBtns .= $btnB360('vente', '💼', 'À vendre', $aVendre, '#3b6fb0', '#274d80', '#1d3a61');
+}
 $rightBtns .= $btnB360('location', '🔑', 'À louer', $aLouer, '#3f9d5a', '#2d6a35', '#1f4d26');
 $rightBtns .= '</div>';
 fiche360_breadcrumb($chaine, '', $rightBtns);
@@ -768,6 +779,45 @@ if ($kpis) {
         <div style="font-size:13px;color:#94a3b8;font-style:italic;">Aucun commentaire.</div>
       <?php endif; ?>
     </div>
+
+    <?php // ─────────────── NOTES INTERNES : VISITES & CLÉS (persisté biens.notes_internes) ───────────────
+    $canViewNotes = !(function_exists('is_caged_bailleur') && is_caged_bailleur());
+    if ($canViewNotes):
+      $notesValue = (string)($bien['notes_internes'] ?? '');
+    ?>
+    <div class="f360-card">
+      <h3>🔑 Notes internes — visites &amp; clés</h3>
+      <?php if ($canEditCmt): ?>
+        <textarea id="bien-notes" rows="4" placeholder="Organisation des visites, emplacement / remise des clés, codes, contacts terrain… (interne, jamais publié)"
+                  style="width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;font-size:13.5px;box-sizing:border-box;font-family:inherit;resize:vertical;"><?= h($notesValue) ?></textarea>
+        <div id="bien-notes-status" style="font-size:12px;color:#64748b;margin-top:6px;min-height:16px;"></div>
+        <script>
+        (function(){
+          var SAVE = <?= json_encode(app_url('/api/bien_notes_internes_save.php')) ?>;
+          var BID  = <?= (int)$bienId ?>, CSRF = <?= json_encode(csrf_token('bien_notes_internes')) ?>;
+          var ta = document.getElementById('bien-notes'), st = document.getElementById('bien-notes-status');
+          var t = null, last = ta.value;
+          function save(){
+            if (ta.value === last) return;
+            last = ta.value;
+            st.textContent = '⏳ Enregistrement…';
+            fetch(SAVE, { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ bien_id:BID, csrf:CSRF, notes:ta.value }) })
+              .then(function(r){ return r.json(); })
+              .then(function(d){ st.textContent = d && d.ok ? '✓ Enregistré' : ('⚠️ ' + ((d&&d.error)||'Erreur')); })
+              .catch(function(){ st.textContent = '⚠️ Erreur réseau'; });
+          }
+          ta.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(save, 900); });
+          ta.addEventListener('blur', function(){ clearTimeout(t); save(); });
+        })();
+        </script>
+      <?php elseif (trim($notesValue) !== ''): ?>
+        <div style="white-space:pre-wrap;font-size:13.5px;color:#334155;"><?= h($notesValue) ?></div>
+      <?php else: ?>
+        <div style="font-size:13px;color:#94a3b8;font-style:italic;">Aucune note.</div>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <div class="b360-inner">
 
@@ -1189,6 +1239,7 @@ if ($kpis) {
             ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
             ['icon'=>'📡','label'=>'Créer une annonce',        'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],
             ['icon'=>'📁','label'=>'Documents du bien',        'url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
+            ['icon'=>'📮','label'=>'Envoyer la fiche vitrine par mail','url'=>app_url('/mail_compose.php?ctx=BIEN&id=' . $bienId . '&gen_affiche_vitrine=1&back=' . urlencode('bien_360.php?id=' . $bienId))],
         ]);
         // Modal « Créer un projet de bail commercial » (émis une seule fois).
         require_once __DIR__ . '/inc/bail_edit_modal.php';

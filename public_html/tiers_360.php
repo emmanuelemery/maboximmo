@@ -160,7 +160,7 @@ try {
 // ─── Représentants du tiers (si personne morale / indivision) ──
 $representants = [];
 try {
-    $stRep = $pdo->prepare("SELECT tc.qualite, tc.priorite, t.id, t.nom, t.prenom, t.email, t.telephone
+    $stRep = $pdo->prepare("SELECT tc.id AS lien_id, tc.qualite, tc.priorite, t.id, t.nom, t.prenom, t.email, t.telephone
         FROM tiers_contacts tc
         INNER JOIN tiers t ON t.id = tc.id_tiers_contact
         WHERE tc.id_tiers_entite = ? AND tc.actif = 1
@@ -481,7 +481,9 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
 
     <?php
     // ═══════ CARD Coordonnées du contact ═══════
-    $coAdr  = trim((string)($tiers['adresse'] ?? ''));
+    $coAdr1 = trim((string)($tiers['adresse_ligne1'] ?? ''));
+    $coAdr2 = trim((string)($tiers['adresse_ligne2'] ?? ''));
+    $coAdr  = trim($coAdr1 . ($coAdr2 !== '' ? ' ' . $coAdr2 : ''));
     $coCpV  = trim(trim((string)($tiers['code_postal'] ?? '') . ' ' . (string)($tiers['ville'] ?? '')));
     $coMail = trim((string)($tiers['email'] ?? ''));
     $coTel  = trim((string)($tiers['telephone'] ?? ''));
@@ -498,16 +500,45 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     if ($coTel !== '')  $coRows[] = ['📞','Téléphone', '<a href="tel:'.h(preg_replace('/\s+/','',$coTel)).'" style="color:#4878a6;text-decoration:none">'.h($coTel).'</a>'];
     if (!empty($tiers['siren'])) $coRows[] = ['🆔','SIREN', h((string)$tiers['siren'])];
     ?>
+    <?php
+      // Champ d'édition inline réutilisable (label + input pré-rempli).
+      $coInput = fn($k,$lbl,$val,$ph='') =>
+          '<label style="display:block;font-size:10px;font-weight:700;color:#9a9690;margin:7px 0 2px;">'.$lbl.'</label>'
+        .'<input id="coord-'.$k.'" value="'.h($val).'" placeholder="'.h($ph).'" '
+        .'style="width:100%;padding:7px 9px;border:1px solid #d9cdbb;border-radius:8px;font-size:12.5px;box-sizing:border-box;">';
+    ?>
     <div class="f360-card" style="margin-bottom:14px">
-      <h3>📇 Coordonnées du contact</h3>
-      <?php if ($coRows): foreach ($coRows as $cr): ?>
-        <div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #f0ece6;font-size:12.5px;align-items:baseline;">
-          <span style="flex:none;color:#9a9690;white-space:nowrap;"><?= $cr[0] ?> <?= h($cr[1]) ?></span>
-          <span style="color:#2c2a28;font-weight:600;margin-left:auto;text-align:right;word-break:break-word;"><?= $cr[2] ?></span>
+      <h3 style="display:flex;align-items:center;gap:8px;">📇 Coordonnées du contact
+        <button type="button" id="coord-edit-btn" onclick="coordEdit(true)"
+                style="margin-left:auto;border:1px solid #d9cdbb;background:#fff;color:#8a6d3b;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;">✏️ Modifier</button>
+      </h3>
+      <!-- VUE lecture -->
+      <div id="coord-view">
+        <?php if ($coRows): foreach ($coRows as $cr): ?>
+          <div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #f0ece6;font-size:12.5px;align-items:baseline;">
+            <span style="flex:none;color:#9a9690;white-space:nowrap;"><?= $cr[0] ?> <?= h($cr[1]) ?></span>
+            <span style="color:#2c2a28;font-weight:600;margin-left:auto;text-align:right;word-break:break-word;"><?= $cr[2] ?></span>
+          </div>
+        <?php endforeach; else: ?>
+          <div style="color:#9a9690;font-style:italic;padding:6px 0;font-size:12.5px;">Aucune coordonnée renseignée — clique « Modifier » pour les ajouter.</div>
+        <?php endif; ?>
+      </div>
+      <!-- ÉDITION inline (email / tel / adresse) — pas de navigation -->
+      <div id="coord-edit" hidden>
+        <?= $coInput('email','✉️ Email',$coMail,'nom@exemple.fr') ?>
+        <?= $coInput('telephone','📞 Téléphone',$coTel,'06 12 34 56 78') ?>
+        <?= $coInput('adresse_ligne1','📍 Adresse',$coAdr1,'N° et voie') ?>
+        <?= $coInput('adresse_ligne2','Complément',$coAdr2,'Bât., étage… (optionnel)') ?>
+        <div style="display:flex;gap:8px;">
+          <div style="width:110px;"><?= $coInput('code_postal','CP',(string)($tiers['code_postal'] ?? '')) ?></div>
+          <div style="flex:1;"><?= $coInput('ville','Ville',(string)($tiers['ville'] ?? '')) ?></div>
         </div>
-      <?php endforeach; else: ?>
-        <div style="color:#9a9690;font-style:italic;padding:6px 0;font-size:12.5px;">Aucune coordonnée renseignée.</div>
-      <?php endif; ?>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="button" onclick="coordSave()" style="flex:1;background:#3a7a6a;color:#fff;border:none;border-radius:8px;padding:9px;font-weight:700;cursor:pointer;">💾 Enregistrer</button>
+          <button type="button" onclick="coordEdit(false)" style="border:1px solid #d9cdbb;background:#fff;border-radius:8px;padding:9px 14px;cursor:pointer;">Annuler</button>
+        </div>
+        <div id="coord-msg" style="font-size:11px;margin-top:7px;"></div>
+      </div>
     </div>
     <?php $jurCoordHtml = ob_get_clean(); // fin capture juridique + coordonnées ?>
 
@@ -849,11 +880,15 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
 
     // 3) Représentants / contacts (tiers_contacts)
     foreach ($representants as $r) {
+        $rNom = trim((string)$r['prenom'] . ' ' . $r['nom']);
         $coLinks[] = [
             'icon' => '👥',
-            'name' => trim((string)$r['prenom'] . ' ' . $r['nom']) . ' (' . $r['qualite'] . ')',
+            'name' => $rNom . ' (' . $r['qualite'] . ')',
             'ref'  => $r['email'] ?: $r['telephone'] ?: '',
             'url'  => app_url('/tiers_360.php?id=' . $r['id']),
+            'action' => '<button type="button" title="Retirer ce contact" onclick="tiersContactRemove('
+                        . (int)$r['lien_id'] . ',\'' . addslashes($rNom) . '\')" '
+                        . 'style="border:none;background:none;color:#c0392b;cursor:pointer;font-size:15px;padding:2px 6px;">✕</button>',
         ];
     }
 
@@ -885,7 +920,10 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
                 'representant'   => 'Représentant légal',
                 'associe'        => 'Associé',
                 'indivisaire'    => 'Indivisaire',
-                'conjoint'       => 'Conjoint',
+                'conjoint'       => 'Conjoint / époux(se)',
+                'enfant'         => 'Enfant',
+                'parent'         => 'Parent',
+                'proche'         => 'Proche / famille',
                 'comptable'      => 'Comptable',
                 'contact'        => 'Contact',
             ],
@@ -972,6 +1010,44 @@ dialog.tiers-edit-modal::backdrop { background: rgba(15,23,42,.6); backdrop-filt
 </style>
 
 <script>
+// ── Édition inline des COORDONNÉES (email / tél / adresse) — sans navigation ──
+window.coordEdit = function(on){
+    const v = document.getElementById('coord-view'), e = document.getElementById('coord-edit'),
+          b = document.getElementById('coord-edit-btn');
+    if (v) v.hidden = on; if (e) e.hidden = !on; if (b) b.style.display = on ? 'none' : '';
+};
+window.coordSave = async function(){
+    const id = <?= (int)$tiersId ?>;
+    const g = k => { const el = document.getElementById('coord-' + k); return el ? el.value.trim() : ''; };
+    const msg = document.getElementById('coord-msg'); if (msg) msg.textContent = '⏳ Enregistrement…';
+    try {
+        const res = await fetch('<?= h(app_url("/api/tiers_quick_update.php")) ?>', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ id: id, email: g('email'), telephone: g('telephone'),
+                adresse_ligne1: g('adresse_ligne1'), adresse_ligne2: g('adresse_ligne2'),
+                code_postal: g('code_postal'), ville: g('ville') })
+        });
+        const d = await res.json();
+        if (d.ok) { if (msg) msg.textContent = '✅ Enregistré — rechargement…'; setTimeout(() => location.reload(), 600); }
+        else if (msg) msg.textContent = '❌ ' + (d.error || 'Erreur');
+    } catch (e) { if (msg) msg.textContent = '❌ ' + e.message; }
+};
+// ── Retirer un contact lié (soft-delete) — le clic sur la ligne ouvre le contact ──
+window.tiersContactRemove = async function(lienId, nom){
+    if (!lienId) return;
+    if (!confirm('Retirer « ' + (nom || 'ce contact') + ' » des contacts ?\n(Le tiers n\'est pas supprimé, seul le lien est retiré.)')) return;
+    try {
+        const fd = new FormData();
+        fd.append('lien_id', lienId);
+        fd.append('csrf_token', '<?= h(csrf_token("tiers_contact")) ?>');
+        const res = await fetch('<?= h(app_url("/api/tiers_contact_remove.php")) ?>', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+        });
+        const d = await res.json();
+        if (d.ok) location.reload();
+        else alert('❌ ' + (d.error || 'Erreur'));
+    } catch (e) { alert('❌ Réseau : ' + e.message); }
+};
 window.tiersEditOpen = function(id) {
     const modal = document.getElementById('tiersEditModal');
     if (!modal) return;

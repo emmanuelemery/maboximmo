@@ -198,9 +198,26 @@ try {
 // (Doctrine 2026-06-30 : transaction UNIQUEMENT quand le chargement provient de transaction_dossier.)
 $dossRefJs = addslashes((string)($bien['reference_bien'] ?: ('Bien #' . $idBien)));
 $dossAdrJs = addslashes(trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')));
+// Nom du propriétaire pour le prefill du modal (card + panneau droit) — résolu tôt,
+// sinon le modal affiche « Propriétaire #id » et le panneau reste vide.
+$fbxProprioNom = '';
+if (!empty($bien['proprio_tiers_id'])) {
+    $stFP = $pdo->prepare("SELECT COALESCE(NULLIF(nom_affichage,''), NULLIF(raison_sociale,''),
+                                  NULLIF(TRIM(CONCAT(COALESCE(prenom,''),' ',COALESCE(nom,''))),''))
+                             FROM tiers WHERE id = ? LIMIT 1");
+    $stFP->execute([(int)$bien['proprio_tiers_id']]);
+    $fbxProprioNom = (string)($stFP->fetchColumn() ?: '');
+}
+if ($fbxProprioNom === '' && !empty($bien['proprio_id'])) {
+    $stFP = $pdo->prepare("SELECT COALESCE(NULLIF(societe,''), NULLIF(TRIM(CONCAT_WS(' ',prenom,nom)),''))
+                             FROM proprietaires WHERE id = ? LIMIT 1");
+    $stFP->execute([(int)$bien['proprio_id']]);
+    $fbxProprioNom = (string)($stFP->fetchColumn() ?: '');
+}
 $fbxOnClickDossier = "window.fbxOpenUploadModal({"
     . "bien_id:" . $idBien . ", soc_id:" . (int)($bien['id_societe'] ?? 0) . ", age_id:" . (int)($bien['id_agence'] ?? 0)
     . ", proprio_id:" . (int)($bien['proprio_id'] ?? 0) . ", proprio_tiers_id:" . (int)($bien['proprio_tiers_id'] ?? 0)
+    . ", proprio_nom:'" . addslashes($fbxProprioNom) . "'"
     . ", immeuble_id:" . (int)($bien['immeuble_id'] ?? 0)
     . ", n1:'05_TRANSACTION', n2:'BIENS', n3:'BIEN'"
     . ", entite_nom:'" . $dossRefJs . "', entite_id_bdd:" . $idBien . ", entite_adresse:'" . $dossAdrJs . "'"

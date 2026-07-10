@@ -102,6 +102,17 @@ try {
             <div class="fbx-pop" id="fbx-pop-met" hidden><div class="fbx-pop-inner"></div></div>
         </div>
 
+        <!-- ───── Recherche universelle de l'entité concernée (toujours visible) ───── -->
+        <div class="fbx-entity-top" id="fbx-entity-top">
+            <div class="fbx-entity-top-field">
+                <span class="fbx-entity-top-ico">🔎</span>
+                <input type="text" id="fbx-entity-search-top" autocomplete="off" maxlength="120"
+                       placeholder="Rechercher l'entité : bien, propriétaire, locataire, immeuble, tiers, collaborateur…">
+                <button type="button" id="fbx-entity-top-clear" class="fbx-entity-top-clear" hidden title="Changer d'entité">✕</button>
+            </div>
+            <div id="fbx-entity-results-top" class="fbx-entity-results"></div>
+        </div>
+
         <!-- ───── Aperçu LIVE du nom GED (entre les cards et le type) ───── -->
         <div class="fbx-gedbar" id="fbx-gedbar">
             <span class="fbx-gedbar-ico">🏷️</span>
@@ -1087,6 +1098,22 @@ try {
     border: 1px solid #a5f3fc; border-radius: 5px; padding: 0 5px; margin-right: 7px; vertical-align: middle;
 }
 .fbx-entity-res .rp { font-size: 11px; color: #64748b; }
+/* Facettes cliquables d'un résultat bien (proprio / immeuble / locataire) */
+.fbx-entity-res-main { width: 100%; text-align: left; border: none; background: transparent; cursor: pointer; font: inherit; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.fbx-facet-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.fbx-facet-chip { border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 999px; padding: 3px 9px; font-size: 11px; cursor: pointer; color: #334155; white-space: nowrap; }
+.fbx-facet-chip:hover { border-color: #0e7490; background: #ecfeff; color: #0e7490; }
+.fbx-facet-chip b { font-weight: 800; }
+/* ── Recherche universelle d'entité (visible, sous les cards) ── */
+.fbx-entity-top { order: 4; margin: 10px 0 2px; }
+.fbx-entity-top-field { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border: 1.5px solid #ddd0f5; background: #fbfaff; border-radius: 11px; transition: border-color .12s, background .12s; }
+.fbx-entity-top-field:focus-within { border-color: #9F7BCC; background: #fff; }
+.fbx-entity-top-ico { font-size: 15px; flex-shrink: 0; }
+.fbx-entity-top-field input { flex: 1; border: none; background: transparent; outline: none; font-size: 13px; font-weight: 600; color: #243B5C; }
+.fbx-entity-top-field input::placeholder { color: #a89bc9; font-weight: 500; }
+.fbx-entity-top-clear { border: none; background: #ede7fa; color: #6b46a8; border-radius: 7px; width: 24px; height: 24px; cursor: pointer; font-size: 12px; flex-shrink: 0; }
+.fbx-entity-top-clear:hover { background: #dcd0f5; }
+.fbx-entity-top .fbx-entity-results { margin-top: 6px; }
 @keyframes fbx-modal-in {
     from { opacity: 0; transform: translateY(20px) scale(0.98); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1579,6 +1606,8 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     'use strict';
     const API           = <?= json_encode($_fbxApiUrl, JSON_UNESCAPED_SLASHES) ?>;
     const API_GED_NAME  = API.replace('fluxbox_action.php', 'fluxbox_ged_name_preview.php');
+    const API_ENTITY    = API.replace('fluxbox_action.php', 'fluxbox_entity_search.php');
+    const API_RESOLVE   = API.replace('fluxbox_action.php', 'fluxbox_entity_resolve.php');
     const FLUXBOX_URL   = <?= json_encode($_fbxFluxboxUrl, JSON_UNESCAPED_SLASHES) ?>;
     const CSRF          = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
     const IS_ADMIN      = <?= $_fbxIsAdmin ? 'true' : 'false' ?>;
@@ -2759,6 +2788,11 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         const _gn = document.getElementById('fbx-gedbar-name');
         if (_gn) { _gn.innerHTML = ''; delete _gn.dataset.engineReady; }
         window.FBX_GED_NAME_LIVE = '';
+        // Reset du champ de recherche d'entité (visible) — pas de mémoire d'une ouverture précédente.
+        const _es = document.getElementById('fbx-entity-search-top');
+        if (_es) { _es.readOnly = false; _es.value = ''; _es.style.background = ''; _es.style.borderColor = ''; _es.style.cursor = ''; }
+        const _ec = document.getElementById('fbx-entity-top-clear'); if (_ec) _ec.hidden = true;
+        const _er = document.getElementById('fbx-entity-results-top'); if (_er) { _er.classList.remove('is-open'); _er.innerHTML = ''; }
         // Si un prefill est posé par la page appelante, force le reload du contexte
         // pour appliquer le nouveau bien/société/agence (sinon la 2ème ouverture ignore).
         // Et auto-ouvre l'accordéon classement pour que l'user voie la pré-sélection.
@@ -2920,11 +2954,43 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     // ─── API globale pour ouvrir la modal depuis n'importe où ────────
     // Usage : window.fbxOpenUploadModal({ bien_id:897, soc_id:3, age_id:12, proprio_id:52, origin:'transaction' })
     // Le prefill est posé sur window.FBX_PREFILL et appliqué au load_context.
+    // AUTO-RÉSOLUTION des libellés manquants à partir des ID : garantit la MÊME qualité
+    // de contexte QUELLE QUE SOIT la page appelante (jamais de « Propriétaire #id »).
+    // La page peut ne passer que des id → le modal complète les noms tout seul.
+    async function fbxResolvePrefillNames() {
+        const pf = window.FBX_PREFILL; if (!pf || typeof pf !== 'object') return;
+        // Cascade : bail → bien → immeuble → proprio. On déclenche dès qu'un maillon manque.
+        const missing = ((pf.proprio_tiers_id || pf.proprio_id) && !pf.proprio_nom)
+                     || (pf.immeuble_id && !pf.immeuble_nom)
+                     || (pf.bien_id && (!pf.bien_ref || !pf.proprio_nom || !pf.immeuble_nom))
+                     || (pf.bail_id && (!pf.bien_id || !pf.bail_locataire));
+        if (!missing) return;
+        const q = new URLSearchParams({
+            proprio_tiers_id: pf.proprio_tiers_id || 0, proprio_id: pf.proprio_id || 0,
+            bien_id: pf.bien_id || 0, immeuble_id: pf.immeuble_id || 0, bail_id: pf.bail_id || 0
+        });
+        try {
+            const res = await fetch(API_RESOLVE + '?' + q.toString(), { credentials: 'same-origin' });
+            const d = await res.json();
+            if (!d || !d.ok) return;
+            if (d.bien_id          && !pf.bien_id)          pf.bien_id          = d.bien_id;
+            if (d.bien_ref         && !pf.bien_ref)         pf.bien_ref         = d.bien_ref;
+            if (d.proprio_nom      && !pf.proprio_nom)      pf.proprio_nom      = d.proprio_nom;
+            if (d.proprio_tiers_id && !pf.proprio_tiers_id) pf.proprio_tiers_id = d.proprio_tiers_id;
+            if (d.immeuble_id      && !pf.immeuble_id)      pf.immeuble_id      = d.immeuble_id;
+            if (d.immeuble_nom     && !pf.immeuble_nom)     pf.immeuble_nom     = d.immeuble_nom;
+            if (d.bail_locataire   && !pf.bail_locataire)   pf.bail_locataire   = d.bail_locataire;
+            window.FBX_PREFILL = pf;
+            try { renderTargetCard(pf); } catch(e){}
+            try { fbxRenderGedZonesContext(); } catch(e){}
+        } catch(e){}
+    }
     window.fbxOpenUploadModal = function(prefill) {
         if (prefill && typeof prefill === 'object') {
             window.FBX_PREFILL = prefill;
         }
         openModal();
+        fbxResolvePrefillNames();   // complète les noms manquants puis re-render (async)
     };
     modal.querySelectorAll('[data-fbx-close]').forEach(el => el.addEventListener('click', closeModal));
 
@@ -2936,73 +3002,130 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
        Zéro <select>, cascade de boutons. Si l'user ne cherche pas → l'IA décide.
        ═══════════════════════════════════════════════════════════════════════ */
     (function initEntitySearch() {
-        const input = document.getElementById('fbx-meta-entity-input');
-        const out   = document.getElementById('fbx-entity-results');
-        if (!input || !out) return;
         const base = () => (typeof window.APP_BASE === 'string' && window.APP_BASE) ? window.APP_BASE : '';
-        let timer = null;
-
         function esc(s){ return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 
+        // Applique l'entité choisie au contexte du modal (prefill → cards → nom GED).
         async function applyEntity(it) {
-            // 1. Prefill global (attache le doc à la bonne entité côté upload)
             const pf = { origin: 'fluxbox_search', n1: it.n1 || '', n2: it.n2 || '', n3: it.n3 || '',
                          soc_id: it.societe_id || 0, age_id: it.agence_id || 0,
                          entite_nom: it.label, entite_id_bdd: it.id };
-            if (it.entity_type === 'bien')          pf.bien_id = it.id;
-            else if (it.entity_type === 'immeuble') pf.immeuble_id = it.id;
-            else if (it.entity_type === 'tiers')    pf.proprio_tiers_id = it.id;
+            const bt = String(it.badge || '').toLowerCase();
+            if (it.entity_type === 'bien')          { pf.bien_id = it.id; }
+            else if (it.entity_type === 'immeuble') { pf.immeuble_id = it.id; pf.immeuble_nom = it.label; }
+            else if (it.entity_type === 'bail')     { pf.bail_id = it.id; pf.bail_locataire = it.label; }
+            else if (it.entity_type === 'tiers') {
+                if (bt.indexOf('propri') >= 0) {
+                    if (it.id > 0) pf.proprio_tiers_id = it.id; else if (it.proprio_id) pf.proprio_id = it.proprio_id;
+                    pf.proprio_nom = it.label; pf.mode_dossier_proprio = true;
+                } else if (bt.indexOf('locat') >= 0) {
+                    pf.tiers_id = it.id; pf.bail_locataire = it.label;
+                } else {
+                    pf.tiers_id = it.id;
+                }
+            }
+            else if (it.entity_type === 'societe')  { pf.soc_id = it.id; }
             window.FBX_PREFILL = pf;
 
-            // 2. Société + agence de la fiche (source=fiche/vert)
             if (pf.soc_id) { try { await selectSociete(parseInt(pf.soc_id,10), null, parseInt(pf.age_id,10)||0); } catch(e){} }
-            // 3. Métier › Domaine › Sous-domaine (branche entité) → ouvre la Catégorie
-            if (pf.n1) { try { await applyPrefillCascade(pf.n1, pf.n2, pf.n3, ''); } catch(e){} }
-            // 4. Mini-card + hidden inputs + verrouillage du champ
+            if (pf.n1)     { try { await applyPrefillCascade(pf.n1, pf.n2, pf.n3, ''); } catch(e){} }
             try { renderTargetCard(pf); } catch(e){}
-            input.value = it.label;
-            input.readOnly = true;
-            input.style.background = '#f0fdf4'; input.style.borderColor = '#86efac'; input.style.cursor = 'not-allowed';
-            const hint = document.getElementById('fbx-meta-entity-hint');
-            if (hint) hint.innerHTML = '<span style="color:#15803d;font-weight:700;">✅ ' + esc(it.badge) + ' : ' + esc(it.label) + ' — classement rempli. Choisis la catégorie du document.</span>';
-            // 5. Déplie pour montrer la Catégorie + rafraîchit la barre compacte
             const md = document.getElementById('fbx-meta-details'); if (md) md.open = true;
             fbxUpdateCtxBar();
-            out.classList.remove('is-open'); out.innerHTML = '';
+            // Complète automatiquement les libellés reliés manquants (proprio/immeuble depuis un bien, etc.)
+            try { if (typeof fbxResolvePrefillNames === 'function') await fbxResolvePrefillNames(); } catch(e){}
         }
 
-        function render(items) {
-            out.innerHTML = '';
-            if (!items || !items.length) { out.classList.remove('is-open'); return; }
-            items.forEach(it => {
-                const el = document.createElement('button');
-                el.type = 'button'; el.className = 'fbx-entity-res';
-                el.innerHTML = '<div class="ttl"><span class="b">' + esc(it.badge) + '</span>' + esc(it.label) + '</div>'
-                             + (it.repere1 ? '<div class="rp">' + esc(it.repere1) + '</div>' : '')
-                             + (it.repere2 ? '<div class="rp">' + esc(it.repere2) + '</div>' : '');
-                el.addEventListener('click', () => applyEntity(it));
-                out.appendChild(el);
+        // Branche un couple (input, résultats) sur la recherche universelle.
+        function bind(input, out, onSelect) {
+            if (!input || !out) return;
+            let timer = null;
+            const FACET_ICO = {'Propriétaire':'👤','Immeuble':'🏛️','Locataire':'🔑','Bien':'🚪'};
+            function render(items) {
+                out.innerHTML = '';
+                if (!items || !items.length) { out.classList.remove('is-open'); return; }
+                const choose = async (target, displayIt) => {
+                    await applyEntity(target);
+                    out.classList.remove('is-open'); out.innerHTML = '';
+                    if (onSelect) onSelect(displayIt || target);
+                };
+                items.forEach(it => {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'fbx-entity-res';
+                    // Ligne principale (l'entité trouvée) — cliquable.
+                    const main = document.createElement('button');
+                    main.type = 'button'; main.className = 'fbx-entity-res-main';
+                    main.innerHTML = '<div class="ttl"><span class="b">' + esc(it.badge) + '</span>' + esc(it.label) + '</div>'
+                                   + (it.repere1 ? '<div class="rp">' + esc(it.repere1) + '</div>' : '')
+                                   + (it.repere2 ? '<div class="rp">' + esc(it.repere2) + '</div>' : '');
+                    main.addEventListener('click', () => choose(it, it));
+                    wrap.appendChild(main);
+                    // Facettes reliées (proprio / immeuble / locataire) — on clique celle qu'on veut.
+                    const links = Array.isArray(it.links)
+                        ? it.links.filter(l => l.entity_type !== 'bien' && ((l.id||0) > 0 || (l.proprio_id||0) > 0))
+                        : [];
+                    if (links.length) {
+                        const row = document.createElement('div');
+                        row.className = 'fbx-facet-row';
+                        links.forEach(l => {
+                            const chip = document.createElement('button');
+                            chip.type = 'button'; chip.className = 'fbx-facet-chip';
+                            chip.innerHTML = (FACET_ICO[l.badge] || '🔗') + ' <b>' + esc(l.badge) + '</b> · ' + esc(l.label);
+                            chip.addEventListener('click', (e) => { e.stopPropagation(); choose(l, l); });
+                            row.appendChild(chip);
+                        });
+                        wrap.appendChild(row);
+                    }
+                    out.appendChild(wrap);
+                });
+                out.classList.add('is-open');
+            }
+            input.addEventListener('input', () => {
+                if (input.readOnly) return;
+                const q = input.value.trim();
+                clearTimeout(timer);
+                if (q.length < 2) { out.classList.remove('is-open'); out.innerHTML = ''; return; }
+                timer = setTimeout(async () => {
+                    try {
+                        const res = await fetch(API_ENTITY + '?q=' + encodeURIComponent(q)
+                                    + '&types=bien,immeuble,tiers', { credentials: 'same-origin' });
+                        const data = await res.json();
+                        render(data.ok ? (data.results || []) : []);
+                    } catch (e) { out.classList.remove('is-open'); }
+                }, 220);
             });
-            out.classList.add('is-open');
+            document.addEventListener('click', (e) => {
+                if (!out.contains(e.target) && e.target !== input) out.classList.remove('is-open');
+            });
         }
 
-        input.addEventListener('input', () => {
-            if (input.readOnly) return;
-            const q = input.value.trim();
-            clearTimeout(timer);
-            if (q.length < 2) { out.classList.remove('is-open'); out.innerHTML = ''; return; }
-            timer = setTimeout(async () => {
-                try {
-                    const res = await fetch(base() + '/api/fluxbox_entity_search.php?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
-                    const data = await res.json();
-                    render(data.ok ? (data.results || []) : []);
-                } catch (e) { out.classList.remove('is-open'); }
-            }, 220);
+        // 1) Champ VISIBLE principal (sous les cards) — le nouveau, mis en avant.
+        const topIn    = document.getElementById('fbx-entity-search-top');
+        const topOut   = document.getElementById('fbx-entity-results-top');
+        const topClear = document.getElementById('fbx-entity-top-clear');
+        bind(topIn, topOut, (it) => {
+            if (topIn) { topIn.value = it.label; topIn.readOnly = true;
+                         topIn.style.background = '#f0fdf4'; topIn.style.borderColor = '#86efac'; topIn.style.cursor = 'not-allowed'; }
+            if (topClear) topClear.hidden = false;
+            // Reflète aussi dans l'input historique (cohérence classement).
+            const meta = document.getElementById('fbx-meta-entity-input');
+            if (meta) { meta.value = it.label; meta.readOnly = true; }
         });
-        // Clic hors résultats → ferme
-        document.addEventListener('click', (e) => {
-            if (!out.contains(e.target) && e.target !== input) out.classList.remove('is-open');
+        if (topClear) topClear.addEventListener('click', () => {
+            if (topIn) { topIn.readOnly = false; topIn.value = '';
+                         topIn.style.background = ''; topIn.style.borderColor = ''; topIn.style.cursor = ''; topIn.focus(); }
+            topClear.hidden = true;
+            const meta = document.getElementById('fbx-meta-entity-input');
+            if (meta) { meta.readOnly = false; meta.value = ''; }
         });
+
+        // 2) Champ historique (dans l'accordéon classement) — conserve son comportement.
+        bind(document.getElementById('fbx-meta-entity-input'),
+             document.getElementById('fbx-entity-results'),
+             (it) => {
+                const hint = document.getElementById('fbx-meta-entity-hint');
+                if (hint) hint.innerHTML = '<span style="color:#15803d;font-weight:700;">✅ ' + esc(it.badge) + ' : ' + esc(it.label) + ' — classement rempli.</span>';
+             });
     })();
 
     // Raccourci Ctrl+U / Cmd+U
@@ -3379,18 +3502,25 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             {k:'Métier',       v: fbxCtxVal('met')},
             {k:'Propriétaire', v: pf.proprio_nom || ''},
             {k:'Immeuble',     v: pf.immeuble_nom || (pf.immeuble_id ? ('imm #' + pf.immeuble_id) : '')},
-            {k:'Bien',         v: pf.bien_id ? (pf.entite_nom || ('bien #' + pf.bien_id)) : ''},
+            {k:'Bien',         v: pf.bien_id ? (pf.bien_ref || pf.entite_nom || ('bien #' + pf.bien_id)) : ''},
             {k:'Bail',         v: pf.bail_locataire || (pf.bail_id ? ('bail #' + pf.bail_id) : '')},
             {k:'Type',         v: (typeof choice!=='undefined' && choice.forced_type_doc) ? String(choice.forced_type_doc).toUpperCase() : ''},
             {k:'Réf / mois',   v: (function(){ const el=document.getElementById('fbx-doc-period'); const w=document.getElementById('fbx-doc-period-wrap'); return (el && w && !w.hidden) ? el.value : ''; })()},
             {k:'Libellé',      v: (function(){ const el=document.getElementById('fbx-doc-libelle'); return el ? el.value.trim() : ''; })()},
             {k:'Date',         v: (function(){ const el=document.getElementById('fbx-doc-date'); return el ? el.value : ''; })()},
         ];
-        fe.innerHTML = zones.map((z,i) =>
-            '<div class="fx-line fx-zone" data-zone="'+esc(z.k)+'">'
+        // Ligne du POINT D'ENTRÉE (entité pour laquelle le modal est ouvert) → surlignée vert clair.
+        const entryKey = pf.bail_id ? 'Bail'
+                       : pf.bien_id ? 'Bien'
+                       : pf.immeuble_id ? 'Immeuble'
+                       : (pf.proprio_tiers_id || pf.proprio_id || pf.tiers_id) ? 'Propriétaire' : '';
+        fe.innerHTML = zones.map((z,i) => {
+            const hi = (z.k === entryKey) ? ' style="background:#dcfce7;border-radius:8px;box-shadow:inset 3px 0 0 #22c55e;"' : '';
+            return '<div class="fx-line fx-zone" data-zone="'+esc(z.k)+'"'+hi+'>'
           +   '<span class="fx-k">'+FBX_ZICON[i]+' '+esc(z.k)+'</span>'
           +   '<span class="fx-v"><span class="fx-dot" style="background:'+(z.v?'#22c55e':'#cbd5e1')+'"></span>'+esc(z.v||'—')+'</span>'
-          + '</div>').join('');
+          + '</div>';
+        }).join('');
         const xb=document.getElementById('fbx-extract-body'); if(xb) xb.hidden=false;
         const xe=document.getElementById('fbx-extract-empty'); if(xe) xe.hidden=true;
         const fileEl=document.getElementById('fbx-extract-file'); if(fileEl && !fileEl.textContent) fileEl.textContent='📍 Contexte 360 — complète Type / Date';
@@ -3509,17 +3639,23 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             {i:'💼', k:'Métier',     f: pick('métier','metier'),   v: fbxCtxVal('met')},
             {i:'👤', k:'Propriétaire', v: pf.proprio_nom || ''},
             {i:'🏛️', k:'Immeuble',   v: pf.immeuble_nom || (pf.immeuble_id ? ('imm #' + pf.immeuble_id) : '')},
-            {i:'🚪', k:'Bien',       v: pf.bien_id ? (pf.entite_nom || ('bien #' + pf.bien_id)) : ''},
+            {i:'🚪', k:'Bien',       v: pf.bien_id ? (pf.bien_ref || pf.entite_nom || ('bien #' + pf.bien_id)) : ''},
             {i:'🔑', k:'Bail',       v: pf.bail_locataire || (pf.bail_id ? ('bail #' + pf.bail_id) : '')},
             {i:'📄', k:'Type',       f: pick('type de document','type'), v: forcedType},
             {i:'📅', k:'Réf / mois', v: periodV},
             {i:'📝', k:'Libellé',    v: libelleV},
             {i:'🗓', k:'Date',       f: pick('date'), v: dateV},
         ];
+        // Point d'entrée surligné vert clair (même repère visuel que le panneau contexte).
+        const entryKey = pf.bail_id ? 'Bail'
+                       : pf.bien_id ? 'Bien'
+                       : pf.immeuble_id ? 'Immeuble'
+                       : (pf.proprio_tiers_id || pf.proprio_id || pf.tiers_id) ? 'Propriétaire' : '';
         ZONES.forEach(z => {
             const val = z.f ? z.f.value : (z.v || '');
             const dcol = z.f ? dot(z.f.conf) : (val ? '#22c55e' : '#cbd5e1');
-            html += '<div class="fx-line fx-zone" data-zone="' + esc(z.k) + '">'
+            const hi = (z.k === entryKey) ? ' style="background:#dcfce7;border-radius:8px;box-shadow:inset 3px 0 0 #22c55e;"' : '';
+            html += '<div class="fx-line fx-zone" data-zone="' + esc(z.k) + '"' + hi + '>'
                  +    '<span class="fx-k">' + z.i + ' ' + esc(z.k) + '</span>'
                  +    '<span class="fx-v"><span class="fx-dot" style="background:' + dcol + '"></span>' + esc(val || '—') + '</span>'
                  +  '</div>';

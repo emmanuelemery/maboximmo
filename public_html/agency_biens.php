@@ -37,9 +37,10 @@ function bi_street_letter(string $a): string {
     return preg_match('/[A-Z]/', $f) ? $f : '#';
 }
 
-/* ── Scope société / agence ── Par DÉFAUT : société de l'utilisateur (societe=0 = voir toutes). ── */
+/* ── Scope société / agence ── Par DÉFAUT : TOUTES sociétés + TOUTES agences (0/0).
+   Les non-admins sont re-verrouillés sur leur société juste en dessous. ── */
 $mySoc    = (int)($_SESSION['id_societe'] ?? 0);
-$scopeSoc = isset($_GET['societe']) && ctype_digit((string)$_GET['societe']) ? (int)$_GET['societe'] : $mySoc;
+$scopeSoc = isset($_GET['societe']) && ctype_digit((string)$_GET['societe']) ? (int)$_GET['societe'] : 0;
 $scopeAg  = isset($_GET['agence'])  && ctype_digit((string)$_GET['agence'])  ? (int)$_GET['agence']  : 0;
 if (!$isAdmin && $mySoc > 0) $scopeSoc = $mySoc;   // non-admin : verrouillé sur sa société
 
@@ -82,6 +83,16 @@ try {
                      ORDER BY a.id DESC LIMIT 1) AS annonce_user_nom,
                    EXISTS(SELECT 1 FROM mandats m WHERE m.id_bien = b.id AND m.statut='actif' AND m.type_mandat='vente')                  AS m_vente,
                    EXISTS(SELECT 1 FROM mandats m WHERE m.id_bien = b.id AND m.statut='actif' AND m.type_mandat IN ('location','gestion')) AS m_loc,
+                   /* Prix de vente courant (patrimoine), repli annonce ; loyer mensuel (bail actif), repli annonce/bien */
+                   COALESCE(
+                     (SELECT bp.montant FROM bien_prix bp WHERE bp.id_bien=b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1 ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
+                     (SELECT COALESCE(a.prix_net_vendeur, a.prix) FROM annonces a WHERE a.id_bien=b.id AND COALESCE(a.type_transaction,'vente')<>'location' ORDER BY a.id DESC LIMIT 1)
+                   ) AS prix_vente_aff,
+                   COALESCE(
+                     (SELECT bb.loyer_mensuel_hc FROM bien_baux bb WHERE bb.id_bien=b.id AND bb.statut='actif' ORDER BY bb.id DESC LIMIT 1),
+                     (SELECT a.loyer FROM annonces a WHERE a.id_bien=b.id AND (a.etat_publication IS NULL OR a.etat_publication NOT IN ('archive','archivee','archived','supprime')) ORDER BY a.id DESC LIMIT 1),
+                     b.loyer_hc
+                   ) AS loyer_mensuel_aff,
                    (SELECT dv.id FROM dossier_vente dv WHERE dv.id_bien = b.id AND dv.statut <> 'sans_suite'
                       ORDER BY (dv.etape NOT IN ('acte','solde')) DESC, dv.id DESC LIMIT 1) AS dv_id,
                    (SELECT dv.etape FROM dossier_vente dv WHERE dv.id_bien = b.id AND dv.statut <> 'sans_suite'
@@ -349,7 +360,17 @@ include __DIR__ . '/inc/sidebar_agency.php';
             $bid = (int)$b['id'];
             $extra = '<div class="bi-meta">';
             if ($mandLabel !== '') {
-                $extra .= '<div class="bi-mandat" style="background:' . $accent . '14;color:' . $accent . ';border:1px solid ' . $accent . '33;">📑 ' . e($mandLabel) . '</div>';
+                // Prix à droite : vente → prix de vente ; location → loyer mensuel ; les deux → les deux.
+                $prixV = (float)($b['prix_vente_aff'] ?? 0);
+                $loyM  = (float)($b['loyer_mensuel_aff'] ?? 0);
+                $prixParts = [];
+                if ($mVente && $prixV > 0) $prixParts[] = '🏷️ ' . number_format($prixV, 0, ',', ' ') . ' €';
+                if ($mLoc   && $loyM  > 0) $prixParts[] = '🔑 ' . number_format($loyM, 0, ',', ' ') . ' €/mois';
+                $prixHtml = $prixParts
+                    ? '<span style="margin-left:auto;font-weight:800;white-space:nowrap;">' . implode(' · ', $prixParts) . '</span>'
+                    : '';
+                $extra .= '<div class="bi-mandat" style="display:flex;align-items:center;gap:8px;background:' . $accent . '14;color:' . $accent . ';border:1px solid ' . $accent . '33;">'
+                        . '<span>📑 ' . e($mandLabel) . '</span>' . $prixHtml . '</div>';
             }
             if ($proprio !== '') {
                 $extra .= '<div class="bi-line">👤 ' . ($proprioUrl !== ''

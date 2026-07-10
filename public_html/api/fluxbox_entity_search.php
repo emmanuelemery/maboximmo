@@ -55,9 +55,13 @@ try {
     // ── BIENS ──────────────────────────────────────────────────────────
     if ($want('bien')) {
         [$sc, $scArgs] = $scope('b');
-        $sql = "SELECT b.id, b.reference_bien, b.designation,
+        $sql = "SELECT b.id, b.reference_bien, b.designation, b.id_immeuble, b.id_proprietaire,
                        COALESCE(NULLIF(b.adresse_1,''), i.adresse_1) AS adresse,
                        COALESCE(NULLIF(b.ville,''), i.ville) AS ville,
+                       COALESCE(NULLIF(i.nom_immeuble,''), NULLIF(i.adresse_1,'')) AS immeuble_label,
+                       (SELECT p.id_tiers FROM proprietaires p WHERE p.id=b.id_proprietaire LIMIT 1) AS proprio_tiers_id,
+                       (SELECT bb.id FROM bien_baux bb WHERE bb.id_bien=b.id ORDER BY (bb.statut='actif') DESC, bb.date_prise_effet DESC LIMIT 1) AS bail_id,
+                       (SELECT bb.id_tiers_locataire FROM bien_baux bb WHERE bb.id_bien=b.id ORDER BY (bb.statut='actif') DESC, bb.date_prise_effet DESC LIMIT 1) AS loc_tiers_id,
                        (SELECT COALESCE(NULLIF(tl.nom_affichage,''), bb.locataire_raison_sociale,
                                 NULLIF(TRIM(CONCAT_WS(' ',bb.locataire_prenom,bb.locataire_nom)),''))
                           FROM bien_baux bb LEFT JOIN tiers tl ON tl.id=bb.id_tiers_locataire
@@ -78,9 +82,28 @@ try {
             $rep2 = [];
             if (!empty($r['loc']))    $rep2[] = '🔑 ' . $r['loc'];
             if (!empty($r['proprio'])) $rep2[] = '👤 ' . $r['proprio'];
+            $bienLabel = trim((string)($r['designation'] ?: $adr ?: ('Bien #'.$r['id'])));
+            // Liens cliquables : le bien + ses entités reliées (proprio / immeuble / locataire)
+            // → l'utilisateur choisit la facette qu'il veut attacher (« aller dans tous les sens »).
+            $links = [['entity_type'=>'bien','badge'=>'Bien','id'=>(int)$r['id'],'label'=>$bienLabel]];
+            if (!empty($r['proprio'])) {
+                $links[] = ['entity_type'=>'tiers','badge'=>'Propriétaire',
+                    'id'=>(int)($r['proprio_tiers_id'] ?? 0), 'proprio_id'=>(int)($r['id_proprietaire'] ?? 0),
+                    'label'=>(string)$r['proprio']];
+            }
+            if (!empty($r['id_immeuble'])) {
+                $links[] = ['entity_type'=>'immeuble','badge'=>'Immeuble','id'=>(int)$r['id_immeuble'],
+                    'label'=>(string)($r['immeuble_label'] ?: ('Immeuble #'.$r['id_immeuble']))];
+            }
+            if (!empty($r['loc'])) {
+                // Locataire : tiers si connu, sinon le bail (qui porte le locataire).
+                $links[] = (int)($r['loc_tiers_id'] ?? 0) > 0
+                    ? ['entity_type'=>'tiers','badge'=>'Locataire','id'=>(int)$r['loc_tiers_id'],'label'=>(string)$r['loc']]
+                    : ['entity_type'=>'bail','badge'=>'Locataire','id'=>(int)($r['bail_id'] ?? 0),'label'=>(string)$r['loc']];
+            }
             $results[] = ['entity_type'=>'bien','badge'=>'Bien','id'=>(int)$r['id'],
-                'label'=>trim((string)($r['designation'] ?: $adr ?: ('Bien #'.$r['id']))),
-                'repere1'=>$adr, 'repere2'=>implode(' · ', $rep2), 'score'=>0];
+                'label'=>$bienLabel,
+                'repere1'=>$adr, 'repere2'=>implode(' · ', $rep2), 'score'=>0, 'links'=>$links];
         }
     }
 
@@ -169,5 +192,31 @@ foreach ($results as &$r) {
 }
 unset($r);
 usort($results, static fn($a,$b) => $b['score'] <=> $a['score']);
+$results = array_slice($results, 0, 20);
 
-echo json_encode(['ok'=>true,'results'=>array_slice($results, 0, 20)], JSON_UNESCAPED_UNICODE);
+// ── Enrichissement : branche GED induite (n1/n2/n3) + société/agence de la fiche ──
+// (doctrine centralisée : choisir une entité renseigne tout le QUI en source=fiche/vert)
+require_once __DIR__ . '/../inc/fluxbox_resolution.php';
+$branche = static function(string $type, string $badge): array {
+    switch ($type) {
+        case 'bien':     return ['03_GESTION_LOCATIVE','BIENS','BIEN'];
+        case 'immeuble': return ['04_SYNDIC','IMMEUBLES','IMMEUBLE'];
+        case 'user':     return ['02_RH','COLLABORATEURS','COLLABORATEUR'];
+        case 'societe':  return ['','',''];               // société seule → métier au choix
+        case 'tiers':
+        default:
+            return ($badge === 'Locataire')
+                ? ['03_GESTION_LOCATIVE','LOCATAIRES','LOCATAIRE']
+                : ['03_GESTION_LOCATIVE','PROPRIETAIRES','PROPRIETAIRE'];
+    }
+};
+foreach ($results as &$r) {
+    [$n1,$n2,$n3] = $branche((string)$r['entity_type'], (string)$r['badge']);
+    $r['n1'] = $n1; $r['n2'] = $n2; $r['n3'] = $n3;
+    $sc = flux_charger_scope_entite($pdo, (string)$r['entity_type'], (int)$r['id']);
+    $r['societe_id'] = $sc['societe_id'] ?? null;
+    $r['agence_id']  = $sc['agence_id']  ?? null;
+}
+unset($r);
+
+echo json_encode(['ok'=>true,'results'=>$results], JSON_UNESCAPED_UNICODE);

@@ -30,7 +30,7 @@ if ($idEntite <= 0 || $idContact <= 0) { echo json_encode(['ok'=>false,'error'=>
 if ($idEntite === $idContact) { echo json_encode(['ok'=>false,'error'=>'Un tiers ne peut pas être son propre contact']); exit; }
 
 // Whitelist douce des qualités.
-$ALLOWED = ['gerant','contact','representant','associe','indivisaire','conjoint','comptable','avocat','notaire','expert_comptable','conseil','syndic','autre'];
+$ALLOWED = ['gerant','contact','representant','associe','indivisaire','conjoint','enfant','parent','proche','comptable','avocat','notaire','expert_comptable','conseil','syndic','autre'];
 if (!in_array($qualite, $ALLOWED, true)) $qualite = 'contact';
 
 // Vérifie les deux tiers.
