@@ -358,7 +358,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
 .dv-lot-rm{margin-left:auto;border:none;background:none;color:#ef4444;cursor:pointer;font-size:14px;}
 .dv-lot-adr{font-size:11px;color:#64748b;margin-top:2px;}
 .dv-lot-loc{font-size:11px;color:#0e7490;margin-top:2px;font-weight:600;}
-.dv-lot-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px;}
+.dv-lot-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:8px;}
+.dv-lot-f input.dv-lot-ro{color:#64748b;background:#f1f5f9;border-color:#e2e8f0;cursor:default;}
 .dv-lot-fields3{display:grid;grid-template-columns:1fr 1fr 0.95fr;gap:6px;margin-top:7px;align-items:end;}
 .dv-lot-rdt{padding:6px 6px;border:1px solid #bfe3cc;border-radius:7px;text-align:right;font-size:13px;font-weight:800;color:#15803d;background:#f6fcf8;white-space:nowrap;overflow:hidden;}
 .dv-lot-f label{display:block;font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:2px;}
@@ -704,6 +705,11 @@ include __DIR__ . '/inc/agency_layout_top.php';
                   <div class="dv-lot-f"><label>Estimation €</label>
                     <input type="text" inputmode="numeric" class="dv-lot-in" data-f="estimation"
                            value="<?= $l['estimation'] !== null ? (int)$l['estimation'] : '' ?>"></div>
+                  <div class="dv-lot-f"><label title="Prix net vendeur courant du patrimoine (annonce/bien) — indicatif, non modifié ici">Prix patrimoine €</label>
+                    <input type="text" class="dv-lot-ro" data-f="patrimoine" readonly tabindex="-1"
+                           title="Cliquer pour reprendre ce prix dans le mandat"
+                           onclick="dvUsePatrimoine(this)"
+                           value="<?= $l['_prix_vente_bien'] !== null ? number_format((float)$l['_prix_vente_bien'],0,',',' ') : '—' ?>"></div>
                   <div class="dv-lot-f"><label>Prix du mandat €</label>
                     <input type="text" inputmode="numeric" class="dv-lot-in" data-f="prix_vente"
                            value="<?= $l['prix_vente'] !== null ? (int)$l['prix_vente'] : '' ?>"
@@ -1571,6 +1577,15 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     const j = await lotPost(p);
     if(j.ok){ lotMsg('✓ Enregistré'); lotRefreshTotaux(j.totaux); setTimeout(()=>lotMsg(''),1500); }
     else { lotMsg(j.error || 'Erreur', true); }
+  };
+
+  // Clic sur « Prix patrimoine » → recopie ce prix dans « Prix du mandat » et enregistre.
+  window.dvUsePatrimoine = function(roEl){
+    const lot = roEl.closest('.dv-lot'); if(!lot) return;
+    const dst = lot.querySelector('.dv-lot-in[data-f="prix_vente"]'); if(!dst) return;
+    const val = (roEl.value||'').replace(/[^0-9.]/g,''); if(!val) return;
+    dst.value = val;
+    dst.dispatchEvent(new Event('change', {bubbles:true})); // déclenche l'autosave + rentabilité
   };
 
   window.dvLotRemove = async function(lotId){

@@ -278,9 +278,17 @@ function complement_loyer_sync_from_mode(PDO $pdo, int $idAnnonce): float
 {
     if ($idAnnonce <= 0) return 0.0;
     try {
-        $stM = $pdo->prepare("SELECT COALESCE(loyer_mode, 'libre') FROM annonces WHERE id = ? LIMIT 1");
+        $stM = $pdo->prepare("SELECT COALESCE(loyer_mode, 'libre') AS m, COALESCE(loyer_proprietaire, 0) AS lp FROM annonces WHERE id = ? LIMIT 1");
         $stM->execute([$idAnnonce]);
-        $mode = (string)($stM->fetchColumn() ?: 'libre');
+        $rowM = $stM->fetch(PDO::FETCH_ASSOC) ?: ['m'=>'libre','lp'=>0];
+        $mode = (string)$rowM['m'];
+
+        // Loyer propriétaire renseigné → complément interdit (le loyer intermédiaire s'impose).
+        if ((float)$rowM['lp'] > 0) {
+            $pdo->prepare("UPDATE annonces SET complement_loyer = 0, date_modification = NOW() WHERE id = ?")
+                ->execute([$idAnnonce]);
+            return 0.0;
+        }
 
         if ($mode !== 'majore') {
             $pdo->prepare("UPDATE annonces SET complement_loyer = 0, date_modification = NOW() WHERE id = ?")
@@ -349,6 +357,7 @@ function loyer_hc_recalc_save(PDO $pdo, int $idAnnonce): ?float
     try {
         $st = $pdo->prepare("
             SELECT a.loyer, a.loyer_reference_majore, a.complement_loyer, a.loyer_mode,
+                   a.loyer_proprietaire,
                    COALESCE(b.surface_habitable, b.surface_totale, 0) AS surface,
                    COALESCE(b.enc_loyer_ref, 0)  AS enc_ref,
                    COALESCE(b.enc_loyer_min, 0)  AS enc_min,
@@ -365,6 +374,25 @@ function loyer_hc_recalc_save(PDO $pdo, int $idAnnonce): ?float
         $surface = (float)$row['surface'];
         $majore  = (float)($row['loyer_reference_majore'] ?? 0);
         $cpl     = (float)($row['complement_loyer'] ?? 0);
+
+        // ── LOYER DÉCIDÉ PAR LE PROPRIÉTAIRE (loyer intermédiaire) ──────────────
+        // S'il est renseigné, il S'IMPOSE comme loyer HC, quel que soit le mode.
+        // Plafonné au loyer réf. majoré (jamais au-dessus) : si supérieur, on le
+        // ramène AU majoré (clamp aussi en base). Il bloque le complément (art. 18).
+        $loyerProp = (float)($row['loyer_proprietaire'] ?? 0);
+        if ($loyerProp > 0) {
+            $capped = ($majore > 0 && $loyerProp > $majore) ? $majore : $loyerProp;
+            if ($capped !== $loyerProp) {
+                $pdo->prepare("UPDATE annonces SET loyer_proprietaire = ? WHERE id = ?")
+                    ->execute([$capped, $idAnnonce]);
+            }
+            $calc = round($capped, 2);
+            if ($row['loyer'] === null || abs(((float)$row['loyer']) - $calc) > 0.001) {
+                $pdo->prepare("UPDATE annonces SET loyer = ?, complement_loyer = 0, date_modification = NOW() WHERE id = ?")
+                    ->execute([$calc, $idAnnonce]);
+            }
+            return $calc;
+        }
 
         $calc = null;
         switch ($mode) {

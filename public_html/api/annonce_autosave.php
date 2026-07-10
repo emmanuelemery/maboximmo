@@ -78,6 +78,7 @@ $data = [
     'loyer_cc'                 => $flt('loyer_cc'),
     'loyer_de_base'            => $flt('loyer_de_base'),
     'loyer_reference_majore'   => $flt('loyer_reference_majore'),
+    'loyer_proprietaire'       => $flt('loyer_proprietaire'),
     'complement_loyer'         => $flt('complement_loyer'),
     'depot_garantie'           => $flt('depot_garantie'),
     'zone_encadrement_loyer'   => $bool('zone_encadrement_loyer'),

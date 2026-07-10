@@ -3514,7 +3514,7 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <td colspan="3" style="text-align:left;vertical-align:middle;padding-left:4px">
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;">
                         <?php if ($_total > 0): ?>
-                        <div class="row-total-btn"><?=number_format($_total, 0, ',', ' ')?> &euro;</div>
+                        <div class="row-total-btn"><?=number_format($_total, 2, ',', ' ')?> &euro;</div>
                         <?php endif; ?>
                         <?php
                         $_net = (float)($u['net_verse'] ?? 0);
@@ -3523,10 +3523,10 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                         // Bouton net TOUJOURS affiché (même vide) : rappelle qu'il reste à
                         // renseigner via « Récap virements ».
                         ?>
-                        <span class="row-net-btn<?= $_net > 0 ? '' : ' row-net-btn--empty' ?>" title="NET réellement versé (bulletin définitif)"><?= $_net > 0 ? number_format($_net, 0, ',', ' ') . ' &euro;' : '—' ?></span>
+                        <span class="row-net-btn<?= $_net > 0 ? '' : ' row-net-btn--empty' ?>" title="NET réellement versé (bulletin définitif)"><?= $_net > 0 ? number_format($_net, 2, ',', ' ') . ' &euro;' : '—' ?></span>
                         <span class="row-net-lbl">net</span>
                         <?php if ($_netIncoherent): ?>
-                        <span title="Net incohérent vs brut (<?=number_format($_total, 0, ',', ' ')?> €) — à vérifier" style="color:#dc2626;font-weight:700;font-size:12px;">⚠</span>
+                        <span title="Net incohérent vs brut (<?=number_format($_total, 2, ',', ' ')?> €) — à vérifier" style="color:#dc2626;font-weight:700;font-size:12px;">⚠</span>
                         <?php endif; ?>
                         </div>
                     </td>

@@ -32,7 +32,7 @@ $robots    = 'noindex, nofollow';
 
 $editingBienId = isset($_GET['edit']) && ctype_digit((string)$_GET['edit']) ? (int)$_GET['edit'] : 0;
 // Compte en lecture seule : interdiction de créer un bien (pas de brouillon à la volée).
-if ($editingBienId <= 0 && function_exists('is_readonly_user') && is_readonly_user()) {
+if ($editingBienId <= 0 && !can_create_bien()) {
     header('Location: ' . app_url('/transaction_portefeuilles_hub.php#patrimoine'));
     exit;
 }
@@ -2019,6 +2019,7 @@ if (!$embed) {
           <?= $iconRadios('exposition', $expositions, $curExpo) ?>
           <div class="v2-bool-toggles" style="margin-top:8px;">
             <?= $boolToggle('🔝', 'dernier_etage', 'Dernier étage') ?>
+            <?= $boolToggle('⬆️', 'rdc_sureleve', 'RDC surélevé') ?>
           </div>
 
           <div class="v2-desc-group-title">👀 Vue <small>(plusieurs choix possibles)</small></div>
@@ -2851,6 +2852,32 @@ if (!$embed) {
               </div>
             </div>
 
+            <!-- Loyer décidé par le propriétaire (loyer intermédiaire ≤ majoré) -->
+            <?php
+              $curLoyerProp = (float)($a['loyer_proprietaire'] ?? 0);
+              $majoreCap    = (float)($lRefMaj !== '' ? $lRefMaj : $majoreAuto);
+            ?>
+            <div style="margin-top:16px;padding:14px 16px;border:2px solid #84a7ab;border-radius:12px;background:#f2f9fa;">
+              <label style="display:block;font-size:12px;font-weight:800;color:#2b6a70;text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;">
+                🏛️ Loyer décidé par le propriétaire
+                <small style="font-weight:600;color:#5b8085;text-transform:none;">— loyer intermédiaire, ≤ loyer majoré</small>
+              </label>
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <input type="number" step="0.01" min="0"<?= $majoreCap > 0 ? ' max="' . h(number_format($majoreCap, 2, '.', '')) . '"' : '' ?>
+                       class="v2-num-input" style="width:170px;font-size:17px;font-weight:800;color:#2b6a70;background:#fff;border-color:#84a7ab;"
+                       name="loyer_proprietaire" data-annonce-save id="v2-loyer-prop-input"
+                       value="<?= $curLoyerProp > 0 ? h(number_format($curLoyerProp, 2, '.', '')) : '' ?>"
+                       placeholder="€ / mois HC"
+                       oninput="var mi=document.getElementById('v2-loyer-majore-input');var m=parseFloat((mi&&(mi.value||mi.placeholder))||0)||0;if(m>0&&parseFloat(this.value)>m){this.value=m.toFixed(2);}">
+                <span style="font-size:12px;color:#5b8085;line-height:1.45;flex:1;min-width:200px;">
+                  S'il est rempli, <strong>ce loyer s'impose</strong> comme loyer hors charges des conditions financières
+                  et <strong>bloque le complément de loyer</strong>.
+                  Plafonné au loyer réf. majoré<?= $majoreCap > 0 ? ' (' . number_format($majoreCap, 0, ',', ' ') . ' €)' : '' ?> —
+                  jamais au-dessus. Laisser vide pour revenir au calcul normal.
+                </span>
+              </div>
+            </div>
+
             <!-- Modalité récupération des charges -->
             <div class="v2-field" style="margin-top:12px;">
               <label style="font-size:11px;font-weight:600;color:var(--v2-muted);">Modalité récupération des charges</label>
@@ -3469,6 +3496,20 @@ if (!$embed) {
             </div>
 
             <!-- Bouton Diffuser -->
+            <?php
+              // La diffusion sur les portails (leboncoin/Ubiflow) est une activité
+              // réglementée réservée à l'AGENCE — jamais au bailleur (rôle 9/10).
+              $isBailleurView = in_array((int)(function_exists('current_role_id') ? current_role_id() : ($_SESSION['id_role'] ?? 0)), [9, 10], true)
+                                && !(function_exists('is_super_admin') && is_super_admin());
+            ?>
+            <?php if ($isBailleurView): ?>
+            <div class="v2-diffuse-actions">
+              <div style="background:#f3f6fb;border:1px solid #e3ebf5;border-radius:10px;padding:12px 14px;font-size:13px;color:#2d4a72;">
+                📣 La diffusion sur les portails (leboncoin…) est assurée par <strong>votre agence</strong>.
+                Préparez l'annonce ici : elle sera diffusée par nos soins.
+              </div>
+            </div>
+            <?php else: ?>
             <div class="v2-diffuse-actions">
               <button type="button" id="v2-diffuse-btn" class="v2-btn-primary v2-btn-diffuse"
                       <?= $canDiffuse ? '' : 'disabled' ?>
@@ -3477,6 +3518,7 @@ if (!$embed) {
               </button>
               <span id="v2-diffuse-status" class="v2-form-status" aria-live="polite"></span>
             </div>
+            <?php endif; ?>
               </div><!-- /col gauche -->
 
               <!-- 👁️ Aperçu de l'annonce diffusée (colonne droite, sticky) -->
