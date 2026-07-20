@@ -695,7 +695,10 @@ if (
     && (isset($_POST['send_to_comptable']) || isset($_POST['upload_projet_pdf']) || isset($_POST['upload_bulletins_pdf']))
 ) {
     verify_csrf();
-    if (!$rhAdmin) {
+    // Actions du workflow comptable : autorisées aux admins ET aux managers habilités
+    // à la paie de LEUR agence (gestion_salaires=1 → agenceScope>0). Le handler d'envoi
+    // force ensuite l'agence sur agenceScope, donc le périmètre reste sûr.
+    if (!$rhAdmin && !($agenceScope > 0)) {
         http_response_code(403);
         exit('Accès refusé');
     }

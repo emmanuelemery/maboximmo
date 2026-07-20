@@ -18,6 +18,10 @@ $roleId = function_exists('current_role_id') ? (int)current_role_id() : (int)($_
 $isSuper = in_array($roleId, [1, 7], true) || (function_exists('is_super_admin') && is_super_admin());
 if (!in_array($roleId, [1, 2, 7, 8], true) && !$isSuper) { http_response_code(403); exit('Accès réservé.'); }
 $myAgence = (int)($_SESSION['id_agence'] ?? 0);
+$myUid    = (int)(function_exists('current_user_id') ? current_user_id() : ($_SESSION['user_id'] ?? 0));
+// Manager (rôle 2) : ne voit et n'agit QUE sur les dépôts qu'il a lui-même initiés
+// (created_by). Admins (1/8) et super (7) gardent la vue agence / globale.
+$onlyMine = (!$isSuper && $roleId === 2);
 $h = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 
 // ── Actions POST (révoquer / relancer / supprimer / modifier) ────────────
@@ -25,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== '') {
     if (function_exists('verify_csrf')) verify_csrf('dr_admin');
     $action = (string)$_POST['action'];
     $rid    = (int)($_POST['id'] ?? 0);
-    $scope  = $isSuper ? '' : ' AND agence_id=' . $myAgence;
+    $scope  = $isSuper ? '' : ' AND agence_id=' . $myAgence . ($onlyMine ? ' AND created_by=' . $myUid : '');
     // Vérifie l'appartenance au périmètre + récupère la demande
     $rq = null;
     if ($rid > 0) { $s = $pdo->prepare("SELECT * FROM document_requests WHERE id=?$scope"); $s->execute([$rid]); $rq = $s->fetch(PDO::FETCH_ASSOC) ?: null; }
@@ -76,6 +80,7 @@ switch ($fEtat) {
 }
 if ($fAgence > 0) { $where[] = "dr.agence_id = ?"; $args[] = $fAgence; }
 if ($fQ !== '')   { $where[] = "(dr.titre LIKE ? OR dr.recipient_email LIKE ? OR dr.recipient_name LIKE ?)"; $like = '%' . $fQ . '%'; array_push($args, $like, $like, $like); }
+if ($onlyMine)    { $where[] = "dr.created_by = ?"; $args[] = $myUid; } // manager : uniquement ses propres dépôts
 $whereSql = implode(' AND ', $where);
 
 $rows = [];
@@ -110,6 +115,7 @@ if ($rows) {
 
 // KPIs (selon le périmètre agence courant, indépendants du filtre d'état)
 $kpiWhere = $isSuper && $fAgence <= 0 ? '1=1' : 'agence_id = ' . (int)($fAgence ?: $myAgence);
+if ($onlyMine) $kpiWhere .= ' AND created_by = ' . $myUid; // KPI managers : uniquement leurs dépôts
 $kpi = ['en_cours'=>0,'termine'=>0,'cloture'=>0];
 try {
     foreach ($pdo->query("SELECT
