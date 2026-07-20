@@ -119,6 +119,11 @@ if (!function_exists('fluxbox_auto_commit_eligible')) {
                 $st->execute([$v3['entity_id']]);
                 $entityValid = (bool)$st->fetchColumn();
                 break;
+            case 'EMP':
+                $st = $pdo->prepare("SELECT 1 FROM users WHERE id = ? LIMIT 1");
+                $st->execute([$v3['entity_id']]);
+                $entityValid = (bool)$st->fetchColumn();
+                break;
             default:
                 $result['reason'] = 'entity_type_unsupported (' . $v3['entity_type'] . ')';
                 return $result;
@@ -231,6 +236,14 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                 $tenantId = (int)($r['id_societe'] ?? 0);
                 $agenceId = (int)($r['id_agence'] ?? 0) ?: null;
                 break;
+            case 'EMP':
+                // Doc RH : société + agence tirées du salarié lui-même.
+                $st = $pdo->prepare("SELECT id_societe, id_agence FROM users WHERE id = ?");
+                $st->execute([$eligibility['entity_id']]);
+                $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tenantId = (int)($r['id_societe'] ?? 0);
+                $agenceId = (int)($r['id_agence'] ?? 0) ?: null;
+                break;
         }
         if (!$tenantId) $tenantId = 1; // Régie EMERY par défaut
 
@@ -273,6 +286,7 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                     'BIEN', 'IMB', 'IMMEUBLE', 'BAIL' => 'GESTION',
                     'TIERS' => 'REFERENTIEL',
                     'CREANCIER_DOSSIER' => 'CONTENTIEUX',
+                    'EMP' => 'RH',
                     default => 'AUTRE',
                 };
                 $stIns = $pdo->prepare("
@@ -296,7 +310,7 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
             // 2. INSERT ged_document_links (entité concernée)
             // Map BIEN/BAIL/CREANCIER → main, IMB/IMMEUBLE/TIERS → reference
             $entityType = $eligibility['entity_type'] === 'IMMEUBLE' ? 'IMB' : $eligibility['entity_type'];
-            $relationType = in_array($entityType, ['BIEN', 'BAIL', 'CREANCIER_DOSSIER'], true) ? 'main' : 'reference';
+            $relationType = in_array($entityType, ['BIEN', 'BAIL', 'CREANCIER_DOSSIER', 'EMP'], true) ? 'main' : 'reference';
 
             $stLink = $pdo->prepare("
                 INSERT INTO ged_document_links
@@ -304,19 +318,45 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                 VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW())
                 ON DUPLICATE KEY UPDATE is_validated = 1, validated_at = NOW()
             ");
-            $stLink->execute([$tenantId, $newGedDocId, $entityType, (int)$eligibility['entity_id'], $relationType]);
-            $linksCreated++;
-            $audit[] = "✅ INSERT ged_document_links ($entityType#" . $eligibility['entity_id'] . " / $relationType)";
 
-            // 3. Lien immeuble auto si BIEN avec id_immeuble (annexe)
+            // Règle TAXE FONCIÈRE : une TF couvre TOUS les lots de l'immeuble. Si le bien
+            // porte une TF et que le propriétaire a >1 bien dans cet immeuble → principal =
+            // IMMEUBLE (bien en référence). Sinon comportement standard (bien principal).
+            $tfImmMain = 0;
             if ($entityType === 'BIEN') {
-                $st = $pdo->prepare("SELECT id_immeuble FROM biens WHERE id = ?");
-                $st->execute([$eligibility['entity_id']]);
-                $immId = (int)$st->fetchColumn();
-                if ($immId > 0) {
-                    $stLink->execute([$tenantId, $newGedDocId, 'IMB', $immId, 'reference']);
-                    $linksCreated++;
-                    $audit[] = "✅ INSERT ged_document_links auto IMB#$immId (reference)";
+                $stB = $pdo->prepare("SELECT id_immeuble, id_proprietaire FROM biens WHERE id = ?");
+                $stB->execute([$eligibility['entity_id']]);
+                $rbi = $stB->fetch(PDO::FETCH_ASSOC) ?: [];
+                $immB = (int)($rbi['id_immeuble'] ?? 0);
+                $typeDoc = strtolower((string)($eligibility['type_doc'] ?? ''));
+                $isTF = ($typeDoc === 'taxe_fonciere') || stripos((string)$nameV3, 'taxe') !== false;
+                if ($isTF && $immB > 0 && !empty($rbi['id_proprietaire'])) {
+                    $cnt = $pdo->prepare("SELECT COUNT(*) FROM biens WHERE id_immeuble = ? AND id_proprietaire = ?");
+                    $cnt->execute([$immB, (int)$rbi['id_proprietaire']]);
+                    if ((int)$cnt->fetchColumn() > 1) $tfImmMain = $immB;
+                }
+            }
+
+            if ($tfImmMain > 0) {
+                // TF multi-lots → immeuble principal, bien en référence.
+                $stLink->execute([$tenantId, $newGedDocId, 'IMB', $tfImmMain, 'main']);
+                $stLink->execute([$tenantId, $newGedDocId, 'BIEN', (int)$eligibility['entity_id'], 'reference']);
+                $linksCreated += 2;
+                $audit[] = "✅ INSERT ged_document_links TF multi-lots → IMB#$tfImmMain (main) + BIEN#{$eligibility['entity_id']} (reference)";
+            } else {
+                $stLink->execute([$tenantId, $newGedDocId, $entityType, (int)$eligibility['entity_id'], $relationType]);
+                $linksCreated++;
+                $audit[] = "✅ INSERT ged_document_links ($entityType#" . $eligibility['entity_id'] . " / $relationType)";
+                // 3. Lien immeuble auto si BIEN avec id_immeuble (annexe)
+                if ($entityType === 'BIEN') {
+                    $st = $pdo->prepare("SELECT id_immeuble FROM biens WHERE id = ?");
+                    $st->execute([$eligibility['entity_id']]);
+                    $immId = (int)$st->fetchColumn();
+                    if ($immId > 0) {
+                        $stLink->execute([$tenantId, $newGedDocId, 'IMB', $immId, 'reference']);
+                        $linksCreated++;
+                        $audit[] = "✅ INSERT ged_document_links auto IMB#$immId (reference)";
+                    }
                 }
             }
 
@@ -337,6 +377,20 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                     $linksCreated++;
                     $audit[] = "✅ INSERT ged_document_links auto IMB#" . (int)$rb['id_immeuble'] . " (reference)";
                 }
+                // Résumé IA du bail → persisté sur bien_baux (affiché en haut de bail_360),
+                // si pas déjà renseigné. On ne stocke que la vraie synthèse IA (pas un
+                // commentaire utilisateur, préfixé 💬).
+                try {
+                    $stRc = $pdo->prepare("SELECT sous_titre FROM fluxbox_cartes WHERE id = ?");
+                    $stRc->execute([$carteId]);
+                    $resume = trim((string)($stRc->fetchColumn() ?: ''));
+                    if ($resume !== '' && mb_substr($resume, 0, 1) !== '💬') {
+                        $pdo->prepare("UPDATE bien_baux SET resume_ia = ?, resume_ia_at = NOW()
+                                       WHERE id = ? AND (resume_ia IS NULL OR resume_ia = '')")
+                            ->execute([$resume, (int)$eligibility['entity_id']]);
+                        $audit[] = "✅ résumé IA → bien_baux #" . (int)$eligibility['entity_id'];
+                    }
+                } catch (Throwable $e) { /* colonne absente (migration non appliquée) → ignoré */ }
             }
 
             // 4. UPDATE fluxbox_cartes : status validé + naming applied
@@ -371,6 +425,19 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
 
             $pdo->commit();
             $audit[] = "✅ COMMIT";
+
+            // [COPIE DURABLE — 2026-07-20] Le doc GED reçoit sa PROPRE copie physique
+            // (uploads/ged/…) → il ne dépend plus de la survie de la ligne/fichier FluxBox.
+            // Supprimer ensuite le doc dans la pile (doublon, purge) ne l'orpheline plus.
+            // Best-effort, hors transaction : en cas d'échec on garde l'ancien pointeur FluxBox.
+            try {
+                require_once __DIR__ . '/ged_durable.php';
+                $srcAbs = ged_flux_src_abspath((string)($row['fichier_chemin'] ?? ''));
+                if ($srcAbs !== '' && is_file($srcAbs)) {
+                    $rel = ged_ensure_own_copy($pdo, $newGedDocId, $srcAbs, $tenantId);
+                    if ($rel !== null) $audit[] = "🗄️ copie durable GED → $rel";
+                }
+            } catch (Throwable $e) { $audit[] = "⚠️ copie durable GED échec : " . $e->getMessage(); }
 
             // [Étape 3 — 2026-05-25] Enrichissement BDD post-commit (anti-doublon + UPDATE)
             // Hors transaction principale pour ne pas rollback le commit GED en cas d'erreur enrichissement.

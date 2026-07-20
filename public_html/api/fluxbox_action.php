@@ -217,6 +217,10 @@ try {
                             $path = __DIR__ . '/../storage_fluxbox/' . $path;
                         }
                         if ($path !== '' && is_file($path)) {
+                            // FILET : sauve une copie durable pour tout doc GED encore adossé à
+                            // ce fichier AVANT de l'effacer → la suppression pile n'orpheline plus la GED.
+                            require_once __DIR__ . '/../inc/ged_durable.php';
+                            try { ged_ensure_durable_from_fluxbox($pdo, $docId); } catch (Throwable) {}
                             $fileDeleted = @unlink($path);
                         }
                         // Flag le doc supprimé dans son source_meta
@@ -1037,6 +1041,7 @@ try {
             $prefillImmeubleId = (int)($_POST['prefill_immeuble_id'] ?? 0);
             $prefillTiersId    = (int)($_POST['prefill_tiers_id']    ?? 0);
             $prefillBailId     = (int)($_POST['prefill_bail_id']     ?? 0);
+            $prefillEmpId      = (int)($_POST['prefill_emp_id']      ?? 0);
             $prefillCreancierDossierId = (int)($_POST['prefill_creancier_dossier_id'] ?? 0);
             $forcedTypeDoc     = preg_replace('/[^a-z0-9_]/', '', strtolower(trim((string)($_POST['forced_type_doc'] ?? '')))) ?: null;
             $prefillOrigin     = (string)($_POST['prefill_origin']   ?? '');
@@ -1236,6 +1241,7 @@ try {
                     'immeuble_id'       => $prefillImmeubleId ?: null,
                     'tiers_id'          => $prefillTiersId ?: null,
                     'bail_id'           => $prefillBailId ?: null,
+                    'emp_id'            => $prefillEmpId ?: null,
                     'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
                     'forced_type_doc'   => $forcedTypeDoc,
                     'prefill_origin'    => $prefillOrigin,
@@ -1388,6 +1394,7 @@ try {
                     'immeuble_id'        => $prefillImmeubleId ?: null,
                     'tiers_id'           => $prefillTiersId ?: null,
                     'bail_id'            => $prefillBailId ?: null,
+                    'emp_id'             => $prefillEmpId ?: null,
                     'creancier_dossier_id' => $prefillCreancierDossierId ?: null,
                     'forced_type_doc'    => $forcedTypeDoc,
                     'prefill_origin'     => $prefillOrigin,
@@ -1446,6 +1453,36 @@ try {
                         'ged_doc_id' => $autoCommit['ged_doc_id'],
                         'reason'     => $autoCommit['eligibility']['reason'] ?? '',
                     ] : null,
+                    // Infos PRÉPARÉES par l'IA (mêmes données que le modal « Ajuster ») —
+                    // pour affichage immédiat des champs extraits à droite du modal de chargement.
+                    'prepared'     => [
+                        'titre'      => $titre,
+                        // Vrai résumé IA (pas un commentaire user préfixé 💬).
+                        'resume'     => (mb_substr((string)$sousTitre, 0, 1) === '💬') ? null : ($sousTitre ?: null),
+                        'confiance'  => (float)$cascade['confiance'],
+                        // Copie EXACTE des champs de la pile (résolution) — 2 colonnes lecture seule.
+                        'fields'     => (function () use ($carteId, $pdo) {
+                            try {
+                                require_once __DIR__ . '/../inc/fluxbox_resolution.php';
+                                if (!function_exists('fluxbox_resoudre_carte')) return [];
+                                $reso = fluxbox_resoudre_carte((int)$carteId, $pdo);
+                                $defs = [
+                                    ['🏢 Société', 'societe'], ['🏬 Agence', 'agence'],
+                                    ['💼 Métier', 'metier'], ['📂 Domaine', 'domaine'],
+                                    ['📁 Sous-domaine', 'sousdomaine'], ['👤 Entité', 'entite'],
+                                    ['🏷️ Type de document', 'type_document'], ['📄 Catégorie', 'categorie'],
+                                    ['📑 Sous-catégorie', 'souscategorie'], ['✍️ Signature', 'signature'],
+                                ];
+                                $out = [];
+                                foreach ($defs as [$lbl, $key]) {
+                                    $f = $reso[$key] ?? null;
+                                    if (!is_array($f)) continue;
+                                    $out[] = ['label' => $lbl, 'value' => $f['valeur'] ?? null, 'conf' => $f['confiance'] ?? null];
+                                }
+                                return $out;
+                            } catch (Throwable $e) { return []; }
+                        })(),
+                    ],
                 ],
             ]);
         }
