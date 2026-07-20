@@ -15,11 +15,15 @@ $prenom = (string)($_SESSION['prenom'] ?? $_SESSION['user_prenom'] ?? '');
 $societeNom = (string)($_SESSION['societe_nom'] ?? '');
 
 $tools = [
+    ['label' => 'Vider le cache (OPcache)', 'url' => 'opcache_reset.php',                  'icon' => '♻️', 'color' => '#2d8a4e'],
     ['label' => 'Toutes les sociétés',     'url' => 'societe_super_admin.php',             'icon' => '🏢', 'color' => '#36577d'],
+    ['label' => 'Dashboard Admin',         'url' => 'admin_dashboard.php',                'icon' => '🛠️', 'color' => '#334155'],
+    ['label' => 'Historique chargements',  'url' => 'admin/admin_ged_uploads_history.php','icon' => '📊', 'color' => '#7a6898'],
     ['label' => 'Accès tiers / module',    'url' => 'admin/admin_acces_tiers.php',        'icon' => '🔐', 'color' => '#243B5C'],
     ['label' => 'Base de données',         'url' => 'admin/admin_database.php',           'icon' => '🗄', 'color' => '#7a6830'],
     ['label' => 'Agences / Codes',         'url' => 'admin/admin_agences_codes.php',      'icon' => '🏷️', 'color' => '#6b8e6f'],
     ['label' => 'Init paramétrage',        'url' => 'admin/init_parametrage_societes.php','icon' => '⚙️', 'color' => '#7a6830'],
+    ['label' => 'Pilotage : init Location', 'url' => 'admin/pilotage_seed.php',            'icon' => '🔑', 'color' => '#84A7AB'],
     ['label' => 'Rattrapage honoraires',   'url' => 'admin/admin_honoraires_recalc.php',  'icon' => '⚖️', 'color' => '#a85858'],
     ['label' => 'URL barème honoraires',   'url' => 'admin/admin_bareme.php',             'icon' => '📜', 'color' => '#c97b2e'],
     ['label' => 'Flux XML Ubiflow',        'url' => 'admin/admin_flux_ubiflow.php',       'icon' => '📡', 'color' => '#2d5f6b'],

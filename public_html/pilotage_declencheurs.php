@@ -79,10 +79,14 @@ textarea.dc-field{resize:vertical;min-height:52px}
 .dc-head .em{font-size:30px}
 .dc-head input{font-size:17px;font-weight:800;color:#243B5C;border:none;background:transparent;flex:1;outline:none}
 .dc-act{display:flex;align-items:flex-start;gap:9px;background:rgba(255,255,255,.92);border-radius:10px;padding:9px 11px;margin-bottom:7px}
-.dc-act .n{width:22px;height:22px;border-radius:50%;background:#DD4735;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.dc-act .n{width:22px;height:22px;border-radius:50%;background:#DD4735;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;cursor:grab}
+.dc-act .n:active{cursor:grabbing}
+.dc-act.dragging{opacity:.45}
+.dc-act.drop{outline:2px dashed #DD4735;outline-offset:-2px}
 .dc-act .ab{flex:1;min-width:0}
 .dc-act .al{font-size:13.5px;font-weight:600;color:#2a2a2a;border:none;background:transparent;width:100%;outline:none}
-.dc-act .ad{font-size:12px;color:#7a746e;border:none;background:transparent;width:100%;outline:none;margin-top:2px}
+.dc-act .ad{font-size:12px;color:#7a746e;border:none;background:transparent;width:100%;outline:none;margin-top:3px;font-family:inherit;line-height:1.4;resize:none;overflow:hidden;min-height:36px;box-sizing:border-box}
+.dc-act .ad:focus{background:#fff;border:1px solid #eadfd8;border-radius:7px;padding:5px 7px}
 .dc-act .ad::placeholder{color:#c3bcb5}
 .dc-act .au{font-size:10px;color:#a89f98;margin-top:2px}
 .dc-act .x{border:none;background:rgba(0,0,0,.05);cursor:pointer;width:22px;height:22px;border-radius:50%;color:#c0392b;font-weight:800;flex-shrink:0}
@@ -136,7 +140,7 @@ let dcSvc='', dcList=[], dcCur=null;
 
 function esc(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML;}
 function jget(u){return fetch(u,{credentials:'same-origin'}).then(r=>r.json());}
-function jpost(data){const fd=new FormData();Object.entries(data).forEach(([k,v])=>fd.append(k,v));
+function jpost(data){const fd=new FormData();Object.entries(data).forEach(([k,v])=>{ if(Array.isArray(v)){ v.forEach(x=>fd.append(k+'[]',x)); } else { fd.append(k,v); } });
   return fetch(DC_URL,{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':DC_CSRF},body:fd}).then(r=>r.json());}
 
 function load(keepSel){
@@ -180,14 +184,14 @@ function renderPv(){
   const t=dcCur, pv=document.getElementById('dcPv');
   const svcPick=Object.entries(DC_SVC).map(([k,s])=>`<button class="dc-svc-sq${k===t.service_slug?' on':''}" style="--cc:${s[1]}" onclick="setSvc('${k}')">${s[2]} ${esc(s[0])}</button>`).join('');
   const acts=(t.actions||[]).map((a,i)=>`
-    <div class="dc-act">
-      <span class="n">${i+1}</span>
+    <div class="dc-act" data-id="${a.id}" ondragover="dcActOver(event,this)" ondragleave="this.classList.remove('drop')" ondrop="dcActDrop(event,${a.id})">
+      <span class="n" draggable="true" title="Glisser pour réordonner" ondragstart="dcActStart(event,${a.id})" ondragend="dcActEnd()">${i+1}</span>
       <div class="ab">
         <input class="al" value="${esc(a.label_libre||'')}" onchange="updAct(${a.id},'label_libre',this.value)">
-        <input class="ad" value="${esc(a.detail||'')}" placeholder="Détail de l'action (facultatif)…" onchange="updAct(${a.id},'detail',this.value)">
+        <textarea class="ad" rows="2" placeholder="Détail de l'action (facultatif)…" oninput="dcAutoGrow(this)" onchange="updAct(${a.id},'detail',this.value)">${esc(a.detail||'')}</textarea>
         ${a.author?`<div class="au">proposé par ${esc(a.author)}</div>`:''}
       </div>
-      <button class="x" title="Supprimer" onclick="delAct(${a.id})">✕</button>
+      <button class="x" title="Retirer cette action" onclick="delAct(${a.id})">✕</button>
     </div>`).join('');
   pv.innerHTML=`
     <div class="dc-head"><span class="em">${t.icon?esc(t.icon):'⚡'}</span>
@@ -199,18 +203,36 @@ function renderPv(){
     <textarea class="dc-field" onchange="updTrig('example_text',this.value)" placeholder="Ex. Préavis de Mme Martin reçu par courrier le 12/07 pour le 15 rue X.">${esc(t.example_text||'')}</textarea>
     <div class="dc-lbl">Actions déclenchées <span style="text-transform:none;letter-spacing:0;color:#b79a8d;font-weight:600">— tout le monde peut compléter</span></div>
     <div id="dcActs">${acts||'<div style="color:#c0a99b;font-size:12.5px;padding:4px 0">Aucune action listée. Ajoutez la première ↓</div>'}</div>
-    <div class="dc-addact"><span class="p">+</span><input id="dcNewAct" placeholder="Ajouter une action (ex. Accuser réception du préavis)… puis Entrée" autocomplete="off"></div>
-    <button class="dc-del" onclick="delTrig()">Supprimer ce déclencheur</button>`;
+    <div class="dc-addact"><span class="p">+</span><input id="dcNewAct" placeholder="Ajouter une action (ex. Accuser réception du préavis)… puis Entrée" autocomplete="off"></div>`;
   const na=document.getElementById('dcNewAct');
   na.addEventListener('keydown',function(e){ if(e.key!=='Enter')return; const label=this.value.trim(); if(!label)return; this.value='';
     jpost({action:'add_action',declencheur_id:t.id,label}).then(d=>{ if(!d.ok){alert(d.error||'Erreur');return;} load(true); }); });
+  pv.querySelectorAll('.ad').forEach(dcAutoGrow); // dimensionne les détails existants
 }
+function dcAutoGrow(el){ el.style.height='auto'; el.style.height=(el.scrollHeight)+'px'; }
 function flash(){const s=document.getElementById('dcSaved'); if(s){s.classList.add('on');setTimeout(()=>s.classList.remove('on'),1200);}}
 function updTrig(field,value){ jpost({action:'update_trigger',id:dcCur.id,field,value}).then(d=>{ if(d.ok){dcCur[field]=value;flash();load(true);} else alert(d.error||'Erreur'); }); }
 function setSvc(k){ updTrig('service_slug',k); }
 function updAct(id,field,value){ jpost({action:'update_action',id,field,value}).then(d=>{ if(!d.ok)alert(d.error||'Erreur'); else load(true); }); }
-function delAct(id){ if(!confirm('Supprimer cette action ?'))return; jpost({action:'delete_action',id}).then(d=>{ if(d.ok)load(true); else alert(d.error||'Erreur'); }); }
-function delTrig(){ if(!confirm('Supprimer ce déclencheur et ses actions ?'))return; jpost({action:'delete_trigger',id:dcCur.id}).then(d=>{ if(d.ok){dcCur=null;emptyPv();load();} else alert(d.error||'Erreur'); }); }
+function delAct(id){ if(!confirm('Retirer cette action ?'))return; jpost({action:'delete_action',id}).then(d=>{ if(d.ok)load(true); else alert(d.error||'Erreur'); }); }
+
+// ---- Glisser-déposer : réordonner les actions ----
+let dcDragActId=null;
+function dcActStart(e,id){ dcDragActId=id; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',String(id));}catch(_){} const card=e.target.closest('.dc-act'); if(card) card.classList.add('dragging'); }
+function dcActEnd(){ dcDragActId=null; document.querySelectorAll('.dc-act.dragging,.dc-act.drop').forEach(n=>n.classList.remove('dragging','drop')); }
+function dcActOver(e,el){ if(dcDragActId==null) return; e.preventDefault(); el.classList.add('drop'); }
+function dcActDrop(e,targetId){
+  e.preventDefault();
+  document.querySelectorAll('.dc-act.drop').forEach(n=>n.classList.remove('drop'));
+  if(dcDragActId==null || dcDragActId===targetId) return;
+  const arr=dcCur.actions||[];
+  const from=arr.findIndex(a=>a.id===dcDragActId), to=arr.findIndex(a=>a.id===targetId);
+  if(from<0||to<0) return;
+  const [moved]=arr.splice(from,1); arr.splice(to,0,moved);
+  dcDragActId=null;
+  renderPv();
+  jpost({action:'reorder_actions',declencheur_id:dcCur.id,ids:arr.map(a=>a.id)}).then(d=>{ if(!d.ok) alert(d.error||'Erreur'); });
+}
 
 load();
 </script>

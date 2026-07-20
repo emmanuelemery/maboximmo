@@ -89,9 +89,22 @@ try {
     }
 
     if ($action === 'delete_trigger') {
+        // On garde toutes les idées : suppression réservée aux habilités (synthèse plus tard).
+        $isAdmin = in_array((int)current_role_id(), [1, 2, 7], true) || (function_exists('is_super_admin') && is_super_admin());
+        if (!$isAdmin) pl_out(['ok' => false, 'error' => 'Suppression réservée à un responsable (on conserve les propositions).'], 403);
         $id = (int)($_POST['id'] ?? 0);
         if (!$ownTrigger($id)) pl_out(['ok' => false, 'error' => 'Hors périmètre'], 403);
         $pdo->prepare("UPDATE pilotage_declencheurs SET is_active=0 WHERE id=? AND id_societe=?")->execute([$id, $soc]);
+        pl_out(['ok' => true]);
+    }
+
+    if ($action === 'reorder_actions') {
+        $did = (int)($_POST['declencheur_id'] ?? 0);
+        if (!$ownTrigger($did)) pl_out(['ok' => false, 'error' => 'Hors périmètre'], 403);
+        $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])), fn($v) => $v > 0));
+        $up = $pdo->prepare("UPDATE pilotage_declencheur_missions SET display_order=? WHERE id=? AND declencheur_id=? AND id_societe=?");
+        $pos = 1;
+        foreach ($ids as $id) { $up->execute([$pos++, $id, $did, $soc]); }
         pl_out(['ok' => true]);
     }
 
