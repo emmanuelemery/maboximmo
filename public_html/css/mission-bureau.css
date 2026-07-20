@@ -1,0 +1,139 @@
+/*
+ * mission-bureau.css
+ * Rôle   : Bureau de mission (§4.13) + panneau Actions (§4.14) + panneaux hébergés (§4.15)
+ *          + santé de mission (§4.16). Rail à icône seule (D3).
+ * Portée : scopé .mbi-mission. Dépend : mission-tokens.css + mission-components.css.
+ * Réf    : mbi_gabarit_mission.html (transcription fidèle, sélecteurs préfixés).
+ * Date   : 2026-07-18
+ *
+ * Le drawer se superpose au parcours (on ne quitte jamais la mission).
+ * Desktop : scrim transparent/non bloquant (on continue à travailler derrière).
+ * Mobile  : drawer plein écran + scrim opaque, rail masqué → FAB.
+ */
+
+/* Réserve la gouttière du rail en desktop */
+@media(min-width:1081px){
+  .mbi-mission .shell{padding-right:74px}
+  .mbi-mission .actbar .in{padding-right:92px}
+}
+
+/* ── Rail (icône seule, D3) ───────────────────────────────────── */
+.mbi-mission .rail{position:fixed; top:50%; right:14px; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; gap:8px; padding:9px 8px; border-radius:18px; background:linear-gradient(160deg,#2f587d,#233f5a); border:1px solid rgba(255,255,255,.08); box-shadow:0 14px 34px rgba(35,63,90,.4)}
+.mbi-mission .rbtn{position:relative; width:46px; height:46px; border-radius:13px; display:grid; place-items:center; font-size:19px; background:#fff; border:1.5px solid var(--line); transition:all .14s}
+.mbi-mission .rbtn:hover{background:#f4f8f8; transform:translateY(-1px)}
+.mbi-mission .rbtn.act{background:linear-gradient(135deg,var(--c-immeuble),var(--c-tiers)); border-color:transparent; box-shadow:0 6px 14px rgba(46,158,134,.3)}
+.mbi-mission .rbtn .cnt{position:absolute; top:-5px; right:-5px; min-width:19px; height:19px; padding:0 4px; border-radius:999px; background:var(--c-fluxbox); color:#fff; font-size:10px; font-weight:800; display:grid; place-items:center; border:2px solid #fff}
+
+/* FAB mobile */
+.mbi-mission .fab{display:none; position:fixed; right:16px; bottom:calc(76px + var(--safe)); z-index:40; width:56px; height:56px; border-radius:50%; font-size:24px; background:linear-gradient(135deg,var(--c-immeuble),var(--c-tiers)); color:#fff; box-shadow:0 10px 26px rgba(46,158,134,.4)}
+.mbi-mission .fab .cnt{position:absolute; top:-2px; right:-2px; min-width:21px; height:21px; padding:0 5px; border-radius:999px; background:var(--c-fluxbox); color:#fff; font-size:11px; font-weight:800; display:grid; place-items:center; border:2px solid #fff}
+
+/* Scrim */
+.mbi-mission .dscrim{position:fixed; inset:0; z-index:44; background:rgba(43,76,86,.34); opacity:0; pointer-events:none; transition:opacity .38s}
+.mbi-mission .dscrim.on{opacity:1; pointer-events:auto}
+@media(min-width:1081px){ .mbi-mission .dscrim{background:transparent} .mbi-mission .dscrim.on{pointer-events:none} }
+
+/* ── Drawer coulissant ────────────────────────────────────────── */
+.mbi-mission .drawer{position:fixed; top:0; right:0; bottom:0; z-index:46; width:400px; max-width:93vw; display:flex; flex-direction:column; background:#fff; border-left:1px solid var(--line); box-shadow:-24px 0 60px rgba(43,76,86,.18); transform:translateX(104%); transition:transform .42s cubic-bezier(.4,0,.15,1)}
+.mbi-mission .drawer.on{transform:translateX(0)}
+.mbi-mission .dhead{display:flex; align-items:center; gap:11px; padding:16px 16px 14px; border-bottom:1px solid var(--line-soft)}
+.mbi-mission .dhead .dico{font-size:20px}
+.mbi-mission .dhead h3{margin:0; font-family:var(--font-title); font-weight:800; font-size:16px; letter-spacing:-.01em}
+.mbi-mission .dhead .x{margin-left:auto; width:36px; height:36px; border-radius:10px; display:grid; place-items:center; color:var(--muted); font-size:22px}
+.mbi-mission .dhead .x:hover{background:#f2f5f6}
+.mbi-mission .dtabs{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:11px 12px; border-bottom:1px solid var(--line-soft)}
+.mbi-mission .dtab{padding:9px 6px; border-radius:9px; font-size:12.5px; font-weight:600; color:var(--muted); display:inline-flex; gap:5px; align-items:center; justify-content:center; border:1.5px solid var(--line); background:#fff; white-space:nowrap}
+.mbi-mission .dtab b{font-size:11px; background:var(--c-fluxbox); color:#fff; padding:1px 7px; border-radius:999px}
+.mbi-mission .dtab:hover{background:#f4f7f7}
+.mbi-mission .dtab.act{background:linear-gradient(135deg,var(--ink),#39616d); color:#fff}
+.mbi-mission .dtab.act b{background:rgba(255,255,255,.28)}
+.mbi-mission .dbody{flex:1; overflow:auto; padding:15px 16px calc(20px + var(--safe))}
+.mbi-mission .dpane{display:none; flex-direction:column; gap:11px; animation:mbi-din .32s ease}
+.mbi-mission .dpane.on{display:flex}
+@keyframes mbi-din{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
+
+/* Éléments internes des panneaux */
+.mbi-mission .depbtn{display:flex; align-items:center; justify-content:center; gap:8px; padding:13px; border-radius:12px; font-size:14px; font-weight:700; color:#fff; background:linear-gradient(135deg,var(--c-immeuble),#2b8f7a); box-shadow:0 6px 16px rgba(46,158,134,.28)}
+.mbi-mission .srcs{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.mbi-mission .src{display:inline-flex; align-items:center; gap:8px; padding:11px 12px; min-height:44px; border-radius:11px; border:1.5px solid var(--line); background:#fff; font-size:13px; font-weight:600; color:var(--ink-soft)}
+.mbi-mission .src:hover{border-color:#c7d2d4; background:#fafbfb}
+.mbi-mission .dz{border:2px dashed #cdd9db; border-radius:12px; padding:16px; text-align:center; font-size:12.5px; color:var(--muted); background:#fafcfc}
+.mbi-mission .dnote{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--c-document); background:rgba(178,104,166,.1); border:1px solid rgba(178,104,166,.22); padding:9px 11px; border-radius:10px; font-weight:600}
+.mbi-mission .doclist{display:flex; flex-direction:column; gap:8px}
+.mbi-mission .docrow{display:flex; align-items:center; gap:10px; padding:11px 12px; border-radius:11px; border:1px solid var(--line); background:#fff}
+.mbi-mission .docrow .ic{width:34px; height:34px; border-radius:9px; display:grid; place-items:center; font-size:16px; background:#f1f5f5; flex:0 0 auto}
+.mbi-mission .docrow .nm{flex:1; min-width:0}
+.mbi-mission .docrow .nm .t{font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.mbi-mission .docrow .nm .sub{font-size:11.5px; color:var(--muted)}
+.mbi-mission .docrow .mini{padding:6px 10px; min-height:0}
+.mbi-mission .acard{border:1px solid var(--line); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:9px}
+.mbi-mission .acard .row{display:flex; justify-content:space-between; align-items:baseline; font-size:13px}
+.mbi-mission .acard .row .k{color:var(--muted)}
+.mbi-mission .acard .row .v{font-weight:700; color:var(--ink)}
+.mbi-mission .acard .big{font-family:var(--font-title); font-weight:800; font-size:22px; color:var(--c-immeuble)}
+.mbi-mission .verdict{display:flex; align-items:center; gap:8px; padding:11px 13px; border-radius:11px; font-weight:700; font-size:13.5px}
+.mbi-mission .verdict.ok{background:var(--ok-bg); color:var(--ok-tx)}
+.mbi-mission .dsrc{font-size:11px; color:var(--muted); font-style:italic}
+.mbi-mission .fiche.alt{color:var(--blk,var(--c-immeuble)); background:color-mix(in srgb, var(--blk,var(--c-immeuble)) 12%, #fff)}
+.mbi-mission .fiche.alt:hover{background:color-mix(in srgb, var(--blk,var(--c-immeuble)) 22%, #fff)}
+.mbi-mission .dcom{padding:11px 12px; border:1px solid var(--line); border-radius:11px; font-size:12.5px}
+.mbi-mission .dcom .au{font-weight:700; color:var(--ink); font-size:12px; margin-bottom:3px}
+.mbi-mission .iaprop{display:flex; flex-direction:column; gap:8px; padding:11px 12px; border:1px solid rgba(178,104,166,.3); background:rgba(178,104,166,.06); border-radius:11px}
+.mbi-mission .iaprop .h{font-size:12.5px; color:var(--ink); font-weight:600}
+.mbi-mission .iaprop .btns{display:flex; gap:8px}
+@media(max-width:1080px){ .mbi-mission .rail{display:none} .mbi-mission .fab{display:grid} }
+
+/* ── 4.16 Santé mission + documents attendus ──────────────────── */
+.mbi-mission .dhealth{display:flex; align-items:center; gap:9px; padding:10px 16px; border-bottom:1px solid var(--line-soft); flex-wrap:wrap; background:linear-gradient(120deg,rgba(47,169,107,.09),rgba(44,130,184,.06))}
+.mbi-mission .dhealth .hp{font-family:var(--font-title); font-weight:800; font-size:15px; color:var(--c-immeuble)}
+.mbi-mission .dhealth .hbar{flex:1 1 70px; min-width:56px; height:7px; border-radius:999px; background:#dbe6e5; overflow:hidden}
+.mbi-mission .dhealth .hbar i{display:block; height:100%; width:92%; border-radius:999px; background:linear-gradient(90deg,var(--c-immeuble),var(--c-tiers))}
+.mbi-mission .dhealth .hchips{display:flex; gap:6px; flex-wrap:wrap; width:100%}
+.mbi-mission .dhealth .hc{font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px; background:#fff; border:1px solid var(--line); color:var(--ink-soft)}
+.mbi-mission .dhealth .hc.ia{color:var(--c-document); border-color:rgba(178,104,166,.3)} .mbi-mission .dhealth .hc.doc{color:var(--ia-tx); border-color:rgba(239,169,43,.35)} .mbi-mission .dhealth .hc.val{color:var(--c-tiers); border-color:rgba(44,130,184,.3)}
+.mbi-mission .attendus{border:1px solid var(--line); border-radius:11px; padding:10px 12px; display:flex; flex-direction:column; gap:5px}
+.mbi-mission .attendus .ah{font-family:var(--font-title); font-weight:700; font-size:12px; color:var(--ink); margin-bottom:2px}
+.mbi-mission .arow{font-size:12.5px; font-weight:600}
+.mbi-mission .arow.ok{color:var(--ok-tx)} .mbi-mission .arow.miss{color:var(--miss-tx)}
+
+/* Boîte à outils / uploads / mail */
+.mbi-mission .toolgrid{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.mbi-mission .tool{display:flex; flex-direction:column; align-items:flex-start; gap:5px; padding:14px 13px; border-radius:13px; border:1.5px solid var(--line); background:#fff; text-align:left; transition:all .14s; min-height:92px}
+.mbi-mission .tool:hover{border-color:#c7d2d4; background:#fafbfb; transform:translateY(-2px); box-shadow:var(--shadow-sm)}
+.mbi-mission .tool .ti{font-size:23px}
+.mbi-mission .tool .tn{font-family:var(--font-title); font-weight:700; font-size:13.5px; color:var(--ink)}
+.mbi-mission .tool .td{font-size:11px; color:var(--muted)}
+.mbi-mission .backbtn{align-self:flex-start; font-size:12.5px; font-weight:700; color:var(--muted); padding:6px 2px}
+.mbi-mission .backbtn:hover{color:var(--ink)}
+.mbi-mission .uprow{display:flex; align-items:center; gap:11px; padding:11px 12px; border:1px solid var(--line); border-radius:11px}
+.mbi-mission .uprow .ic{font-size:18px; flex:0 0 auto}
+.mbi-mission .uprow .nm{flex:1; min-width:0}
+.mbi-mission .uprow .nm .t{font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.mbi-mission .uprow .upb{height:6px; border-radius:999px; background:#e6edee; overflow:hidden; margin-top:7px}
+.mbi-mission .uprow .upb i{display:block; height:100%; width:0; border-radius:999px; background:linear-gradient(90deg,var(--c-immeuble),var(--c-tiers))}
+.mbi-mission .uprow .st{font-size:11px; font-weight:700; color:var(--muted); flex:0 0 auto; min-width:48px; text-align:right}
+.mbi-mission .mailprev{border:1px solid var(--line); border-radius:11px; padding:12px; background:#fafcfc; font-size:12.5px; line-height:1.55; color:var(--ink-soft)}
+.mbi-mission .mailprev .sub{font-weight:700; color:var(--ink); margin-bottom:6px}
+.mbi-mission .sendbtn{display:flex; align-items:center; justify-content:center; gap:8px; padding:13px; border-radius:12px; font-weight:700; color:#fff; background:linear-gradient(135deg,var(--c-tiers),#2b6f9c); box-shadow:0 6px 16px rgba(44,130,184,.28)}
+.mbi-mission .simplelist{display:flex; flex-direction:column; gap:8px}
+
+/* ── 4.14 Panneau Actions contextuelles ───────────────────────── */
+.mbi-mission .ctxbar{background:linear-gradient(120deg,rgba(224,169,59,.13),rgba(44,130,184,.08)); border:1px solid rgba(224,169,59,.3); border-radius:12px; padding:11px 13px; font-size:12.5px; color:var(--ink)}
+.mbi-mission .ctxbar b{color:var(--gold-deep)}
+.mbi-mission .ctxchips{display:flex; gap:6px; flex-wrap:wrap; margin-top:9px}
+.mbi-mission .ctxchips span{font-size:11px; font-weight:600; background:#fff; border:1px solid var(--line); padding:4px 9px; border-radius:999px; color:var(--ink-soft)}
+.mbi-mission .ctxchips span b{color:var(--c-immeuble)}
+.mbi-mission .favlab{font-family:var(--font-title); font-weight:800; font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--gold-deep); margin:6px 2px 0}
+.mbi-mission .actlist{display:flex; flex-direction:column; gap:8px}
+.mbi-mission .actrow{display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:11px 12px; border:1px solid var(--line); border-radius:12px; background:#fff; transition:all .14s}
+.mbi-mission .actrow:hover{border-color:#c7d2d4; background:#fafbfb; transform:translateX(2px)}
+.mbi-mission .actrow .ai{font-size:18px; flex:0 0 auto; width:24px; text-align:center}
+.mbi-mission .actrow .an{flex:1; min-width:0}
+.mbi-mission .actrow .an .t{font-size:13.5px; font-weight:600; color:var(--ink)}
+.mbi-mission .actrow .an .s{font-size:11px; color:var(--muted)}
+.mbi-mission .actrow .fav{color:var(--gold); flex:0 0 auto; font-size:13px}
+.mbi-mission .actrow .pf{font-size:9px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:var(--ok-tx); background:var(--ok-bg); padding:3px 7px; border-radius:999px; flex:0 0 auto}
+.mbi-mission .actrow .cv{color:#b9c4c6; flex:0 0 auto; font-size:16px}
+.mbi-mission .actbig{display:flex; align-items:center; gap:11px; font-family:var(--font-title); font-weight:800; font-size:17px; color:var(--ink)}
+.mbi-mission .actbig .e{font-size:25px}
+.mbi-mission .moreb{align-self:flex-start; font-size:12px; font-weight:700; color:var(--c-immeuble); padding:8px 2px}

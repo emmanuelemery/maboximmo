@@ -352,6 +352,15 @@
             Promise.all([localPromise, googlePromise]).then(function (results) {
                 if (value !== lastRequest) return;
                 var combined = [].concat(results[0] || [], results[1] || []);
+                // Dédup : local + Google renvoient souvent la MÊME adresse → on ne garde
+                // qu'une ligne par libellé (le local, listé en premier, prime = reprise base).
+                var seen = {};
+                combined = combined.filter(function (p) {
+                    var key = ((p && p.label) || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                    if (!key || seen[key]) return false;
+                    seen[key] = true;
+                    return true;
+                });
                 renderPredictions(combined);
             });
         }

@@ -1,0 +1,61 @@
+/*
+ * mission-tokens.css
+ * Rôle   : Design tokens du NOUVEAU paradigme « missions autoguidées » (§2 du spec).
+ *          Fichier de thème UNIQUE de l'UI mission (§7 étape 2).
+ * Portée : SCOPÉ sous .mbi-mission — n'écrase PAS le :root global (tokens.css legacy).
+ *          Évite notamment la collision sur --shadow-sm (neumorphique côté legacy).
+ * Dépend : rien. À charger via $extraCss sur les pages/parties mission.
+ * Réf    : mbi_spec_composants.md v1.0 — mbi_gabarit_mission.html
+ * Date   : 2026-07-18
+ *
+ * Décisions figées (spec §0) :
+ *   D1 = « ⚡ Actions » (panneau contextuel, en verbe)
+ *   D2 = RÉVISÉ 19/07 → CHARTE OFFICIELLE design_palette_modules (Baltic Blue #316887, etc.)
+ *   D3 = rail à icône seule (tooltip au survol)
+ *   D4 = accent famille mission = AGENCY teal (--c-immeuble)
+ *
+ * IMPORTANT — deux axes de couleur à ne JAMAIS mélanger :
+ *   • couleurs MODULES (--c-*)  = catégorie / provenance d'une donnée
+ *   • tricolore CONFIANCE (--ok/--ia/--miss) = niveau de fiabilité, rien d'autre
+ *
+ * Polices attendues (à charger dans le <head> des pages mission) :
+ *   Manrope (titres, jauges, boutons) + Inter (corps, données)
+ */
+
+.mbi-mission {
+  /* ── Couleurs sémantiques par module (CHARTE OFFICIELLE = design_palette_modules 06/07) ── */
+  /* Bien=Sage Green · Immeuble=Deep Teal · Tiers=Baltic Blue · Bail=Cool Steel · Créancier=Cinnabar */
+  --c-bien:#84A763; --c-immeuble:#3D7465; --c-tiers:#316887; --c-bail:#84A7AB;
+  --c-creancier:#DD4735; --c-document:#A2658C; --c-fluxbox:#BF527A; --c-bailleur:#BF8837;
+
+  /* ── Accent de la famille de mission (D4 : Service Location = teal) ── */
+  --mission-accent:      var(--c-immeuble);
+  --mission-accent-2:    var(--c-tiers);
+
+  /* ── Neutres UI ── */
+  --ink:#2b4c56; --ink-soft:#4a6b74; --muted:#7C7A7A;
+  --gold:#E0A93B; --gold-deep:#c7912a;
+
+  /* ── Confiance (tricolore) — RÉSERVÉ, ne jamais réutiliser ailleurs ── */
+  --ok:#2FA96B;  --ok-bg:#e4f6ec;  --ok-tx:#1c7d4c;   /* vérifié    */
+  --ia:#EFA92B;  --ia-bg:#fdf1d8;  --ia-tx:#9a6c0d;   /* IA proposé */
+  --miss:#E8563F; --miss-bg:#fce4e0; --miss-tx:#b83a26; /* manquant  */
+
+  /* ── Surfaces ── */
+  --paper:#eef3f5; --card:#ffffff; --line:#e2e9eb; --line-soft:#eef2f3;
+  --shadow:0 1px 2px rgba(43,76,86,.05), 0 10px 26px rgba(43,76,86,.08);
+  --shadow-sm:0 1px 2px rgba(43,76,86,.06);
+  --r:16px; --r-sm:12px;
+  --safe:env(safe-area-inset-bottom,0px);
+
+  /* ── Typographie ── */
+  --font-title:'Manrope', system-ui, sans-serif;
+  --font-body:'Inter', system-ui, sans-serif;
+}
+
+/* Coupe les animations pour l'accessibilité (checklist §6) */
+@media (prefers-reduced-motion:reduce){
+  .mbi-mission *,
+  .mbi-mission *::before,
+  .mbi-mission *::after { transition:none !important; animation:none !important; }
+}

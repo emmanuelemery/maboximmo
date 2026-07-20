@@ -1,0 +1,5 @@
+# Missions — partials protégés : aucun fichier _*.php n'est servi directement.
+# (Ceinture + bretelles avec la garde PHP `defined('MBI') or exit(403)`.)
+<FilesMatch "^_.*\.php$">
+    Require all denied
+</FilesMatch>

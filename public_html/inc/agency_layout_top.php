@@ -21,6 +21,15 @@ $extraCss     = $extraCss     ?? '';
 $bodyAttr     = $bodyAttr     ?? '';
 // Sidebar : nom sans .php, fichier attendu dans inc/. Fallback = sidebar_agency.
 $layoutSidebar = $layoutSidebar ?? 'sidebar_agency';
+
+// Comptes bailleurs cagés (rôle 9/10) : forcer la sidebar module Bailleur sur
+// TOUTES les pages partagées (baux, bien 360°, GED…). Sans effet pour le
+// personnel interne / super admin → zéro régression.
+if (function_exists('is_caged_bailleur') && is_caged_bailleur()
+    && !in_array($layoutSidebar, ['sidebar_bailleur_module', 'sidebar_bailleur'], true)) {
+    $layoutSidebar = 'sidebar_bailleur_module';
+}
+
 $_lySidebarFile = __DIR__ . '/' . basename((string)$layoutSidebar) . '.php';
 if (!is_file($_lySidebarFile)) $_lySidebarFile = __DIR__ . '/sidebar_agency.php';
 
@@ -29,6 +38,11 @@ if (!is_file($_lySidebarFile)) $_lySidebarFile = __DIR__ . '/sidebar_agency.php'
 //   $layoutNoSidebar : masque uniquement la sidebar (topbar conservée) — pour les pages "hub" à onglets
 $layoutEmbed     = $layoutEmbed     ?? ((($_GET['embed'] ?? '') === '1'));
 $layoutNoSidebar = $layoutNoSidebar ?? $layoutEmbed;
+// Comptes bailleurs cagés : conserver TOUJOURS la sidebar module Bailleur, même
+// sur les pages "hub" plein écran (ex. portefeuilles) — sauf en iframe embarqué.
+if (!$layoutEmbed && function_exists('is_caged_bailleur') && is_caged_bailleur()) {
+    $layoutNoSidebar = false;
+}
 // Pages embarquées (iframes du hub) : jamais mises en cache (évite le double-layout sur version périmée).
 if ($layoutEmbed && !headers_sent()) { header('Cache-Control: no-store, no-cache, must-revalidate'); }
 
@@ -121,6 +135,14 @@ body { margin:0; background:#ffffff; font-family:'Sora',sans-serif; }
     transition: background .15s, color .15s, border-color .15s;
 }
 .agency-topbar .tb-logout:hover { background: #fdecea; border-color: #f0c8c4; }
+/* Bouton « Ma journée » (point d'entrée) — accent or de la charte */
+.agency-topbar .tb-mj { display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:11px; font-weight:800; font-size:13.5px; color:#fff; text-decoration:none; white-space:nowrap; background:linear-gradient(135deg,#D4A047,#b8863a); box-shadow:0 6px 16px rgba(212,160,71,.34); transition:filter .14s, transform .14s; }
+.agency-topbar .tb-mj:hover { filter:brightness(1.06); transform:translateY(-1px); }
+/* Badge MISSION (pages mission) : même style/hauteur que « Ma journée » (doré), à gauche du titre */
+.agency-topbar .tb-mission { display:inline-flex; align-items:center; gap:6px; padding:0; margin:0 24px 0 -40px; background:none; box-shadow:none; border-radius:0; font-weight:800; font-size:15.5px; letter-spacing:.06em; color:#fff; white-space:nowrap; text-shadow:0 1px 2px rgba(20,42,52,.55), 0 0 1px rgba(20,42,52,.4); }
+/* Bouton « Mes déclencheurs » (secondaire, outline) */
+.agency-topbar .tb-trg { display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:11px; font-weight:700; font-size:13px; color:#4a6b74; text-decoration:none; white-space:nowrap; background:#fff; border:1.5px solid #e2e9eb; transition:all .14s; }
+.agency-topbar .tb-trg:hover { border-color:#c7d2d4; background:#f5f8f8; transform:translateY(-1px); }
 
 /* Bouton icône standard */
 .btn-icon {
@@ -211,6 +233,7 @@ document.addEventListener('DOMContentLoaded', function(){
     <?php if (!$layoutEmbed): ?>
     <!-- ── Topbar ── -->
     <div class="agency-topbar">
+        <?php if (!defined('MBI')) include __DIR__ . '/todobox_button.php'; /* Modules : ToDoBox à gauche (inchangé) */ ?>
         <button class="tb-nav-btn" onclick="history.back()" title="Retour">
             <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
@@ -218,6 +241,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
         <div class="tb-gap"></div>
+        <?php if (defined('MBI')): ?><span class="tb-mission" title="Mission"><span aria-hidden="true">★</span> MISSION</span><?php endif; ?>
         <div class="tb-title-block">
             <?php if ($pageIcon !== ''): ?><span class="tb-icon"><?= htmlspecialchars($pageIcon) ?></span><?php endif; ?>
             <div class="tb-title"><?= htmlspecialchars($pageTitle) ?></div>
@@ -226,8 +250,15 @@ document.addEventListener('DOMContentLoaded', function(){
         <div class="tb-center"><?php if (!empty($topbarCenter)) echo $topbarCenter; ?></div>
         <div class="tb-actions">
             <?php if (!empty($topbarActions)) echo $topbarActions; ?>
+            <?php if (defined('MBI')): /* PAGES MISSION UNIQUEMENT : ToDoBox → Mes déclencheurs → Ma journée */ ?>
+            <?php include __DIR__ . '/todobox_button.php'; ?>
+            <a href="<?= htmlspecialchars(app_url('/missions/mes_declencheurs.php')) ?>" class="tb-trg" title="Mes déclencheurs"><span aria-hidden="true">⚡</span> Mes déclencheurs</a>
+            <a href="<?= htmlspecialchars(app_url('/missions/ma_journee.php')) ?>" class="tb-mj" title="Ma journée"><span aria-hidden="true">🏠</span> Ma journée</a>
+            <?php endif; ?>
             <div class="tb-avatar" title="<?= htmlspecialchars(trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? '')) ?: 'Mon compte') ?>"><?= htmlspecialchars($_agInitials) ?></div>
+            <?php if (!defined('MBI')): /* Modules : lien « Nos services » conservé */ ?>
             <a href="<?= htmlspecialchars(app_url('/accueil.php')) ?>" title="Nos services pro & particuliers" aria-label="Nos services" style="font-size:11px;color:#9aa3ad;text-decoration:none;white-space:nowrap;">Nos services</a>
+            <?php endif; ?>
             <a href="<?= htmlspecialchars(app_url('/logout.php')) ?>" class="tb-logout" title="Se déconnecter" aria-label="Se déconnecter">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             </a>

@@ -37,7 +37,9 @@ $sql = "SELECT b.id, b.reference_bien, b.designation,
                         NULLIF(p.societe,''), NULLIF(CONCAT_WS(' ', p.prenom, p.nom),'')) AS proprio,
                EXISTS(SELECT 1 FROM mandats m WHERE m.id_bien = b.id
                         AND m.type_mandat='vente' AND m.statut NOT IN ($TERM)) AS has_mandat_vente,
-               EXISTS(SELECT 1 FROM dpe_diags dd WHERE dd.id_bien = b.id) AS has_dpe_diag
+               EXISTS(SELECT 1 FROM dpe_diags dd WHERE dd.id_bien = b.id) AS has_dpe_diag,
+               (SELECT COALESCE(NULLIF(bb.locataire_raison_sociale,''), NULLIF(TRIM(CONCAT_WS(' ', bb.locataire_prenom, bb.locataire_nom)),''))
+                  FROM bien_baux bb WHERE bb.id_bien = b.id AND bb.statut='actif' ORDER BY bb.id DESC LIMIT 1) AS locataire
         FROM biens b
         LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
         LEFT JOIN tiers tp        ON tp.id = p.id_tiers
@@ -77,6 +79,7 @@ foreach ($rows as $r) {
         'mission'    => (string)($r['type_commercialisation'] ?? ''),
         'proprio_id' => (int)($r['id_proprietaire'] ?? 0),
         'proprio'    => (string)($r['proprio'] ?? ''),
+        'locataire'  => (string)($r['locataire'] ?? ''), // bail actif (bien_baux)
         // Pièces requises pour la vente (portes — Loi 6)
         'has_dpe'    => (!empty($r['dpe_classe']) || !empty($r['has_dpe_diag'])),
         'has_mandat_vente' => (bool)($r['has_mandat_vente'] ?? false),

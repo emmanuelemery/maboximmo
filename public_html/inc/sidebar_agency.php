@@ -82,6 +82,9 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
         <ul class="sb-nav">
             <li><a href="<?= htmlspecialchars($homeRh) ?>" class="<?= sb_active(basename($homeRh)) ?>"><span class="sb-icon">👥</span><span class="sb-label">RH</span></a></li>
             <li><a href="<?= htmlspecialchars($homeAgency) ?>" class="<?= sb_active(basename($homeAgency)) ?>"><span class="sb-icon">🏠</span><span class="sb-label">Agency</span></a></li>
+            <?php if ($isAdminOrSup): /* Assistant métier « Missions » — admin only (déploiement restreint) */ ?>
+            <li><a href="<?= htmlspecialchars($_sbBase . 'missions/missions_dashboard.php') ?>" class="<?= sb_active('missions_dashboard.php') ?>"><span class="sb-icon">⭐</span><span class="sb-label">Missions</span></a></li>
+            <?php endif; ?>
             <li><a href="<?= htmlspecialchars($homeFlux) ?>" class="<?= sb_active(basename($homeFlux)) ?>"><span class="sb-icon">🃏</span><span class="sb-label">FluxBox</span></a></li>
             <li><a href="<?= htmlspecialchars($homeNet) ?>" class="<?= sb_active(basename($homeNet)) ?>"><span class="sb-icon">🌐</span><span class="sb-label">Ma Box Net</span></a></li>
             <?php if ($isAdminOrSup || (function_exists('hasServiceAccess') && hasServiceAccess($roleId, 'bailleur'))): ?>

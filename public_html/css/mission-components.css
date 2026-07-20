@@ -1,0 +1,415 @@
+/*
+ * mission-components.css
+ * Rôle   : Composants de base du paradigme missions (§4.1–4.12 du spec).
+ *          MissionLayout + héro + ruban + jauge + étapes + worktop + blocs module
+ *          + tags + confiance + iabox + chips cascade + barre d'action + modale.
+ * Portée : TOUT est scopé sous .mbi-mission (aucune fuite vers le legacy).
+ * Dépend : mission-tokens.css (variables). Rail/Drawer/Actions → mission-bureau.css (brique 3).
+ * Réf    : mbi_gabarit_mission.html (transcription fidèle, sélecteurs préfixés).
+ * Date   : 2026-07-18
+ *
+ * Le fond du héro (--hero-img) est injectable par la page (data-URI ou URL agence).
+ */
+
+/* ── Reset local + base ───────────────────────────────────────── */
+.mbi-mission *{box-sizing:border-box}
+.mbi-mission{
+  font-family:var(--font-body); color:var(--ink);
+  background:linear-gradient(180deg,#eef3f5,#e9f0f1);
+  -webkit-font-smoothing:antialiased;
+  --hero-img:none;
+}
+.mbi-mission h1,.mbi-mission h2,.mbi-mission h3,.mbi-mission .dsp{font-family:var(--font-title)}
+.mbi-mission button{font-family:inherit; cursor:pointer; border:0; background:none; color:inherit}
+.mbi-mission a{color:inherit}
+.mbi-mission :focus-visible{outline:2.5px solid var(--gold); outline-offset:2px; border-radius:8px}
+.mbi-mission .shell{max-width:none; margin:0 auto; padding:0 4px calc(140px + var(--safe))}
+
+/* ── 4.2 Héro de mission ──────────────────────────────────────── */
+.mbi-mission .hero{position:relative; overflow:hidden; margin:16px 0 14px; border-radius:var(--r);
+  background:var(--card); box-shadow:var(--shadow); border:1px solid var(--line);}
+.mbi-mission .hero-bg{position:absolute; inset:0;
+  background-image: var(--hero-img);
+  background-size:cover; background-position:center right; background-repeat:no-repeat;}
+.mbi-mission .hero-row{position:relative; display:flex; align-items:center; gap:20px; padding:16px 22px 5px; flex-wrap:wrap}
+/* Bouton « Ma journée » — point d'entrée, très visible (accent or) */
+.mbi-mission .mj-btn{flex:0 0 auto; display:inline-flex; align-items:center; gap:9px; padding:12px 20px; border-radius:13px; font-weight:800; font-size:14.5px; color:#fff; text-decoration:none; background:linear-gradient(135deg, var(--gold), var(--gold-deep)); box-shadow:0 10px 24px color-mix(in srgb, var(--gold) 40%, transparent)}
+.mbi-mission .mj-btn:hover{transform:translateY(-1px); filter:brightness(1.06)}
+.mbi-mission .mj-btn .mj-ic{font-size:18px; line-height:1}
+.mbi-mission .logo{height:50px; width:auto; display:block; flex:0 0 auto}
+.mbi-mission .hero-mid{flex:1 1 260px; min-width:0}
+.mbi-mission .eyebrow{display:flex; align-items:center; gap:9px; font-size:22px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); flex-wrap:wrap}
+.mbi-mission .eyebrow .badge{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; background:linear-gradient(135deg,var(--gold),var(--gold-deep)); color:#fff; letter-spacing:.08em}
+.mbi-mission .mtitle{font-size:24px; font-weight:800; line-height:1.14; margin:6px 0 3px; letter-spacing:-.01em; color:var(--ink)}
+.mbi-mission .instance{font-size:26px; color:var(--ink-soft)}
+.mbi-mission .instance b{color:var(--ink); font-weight:600}
+.mbi-mission .search{flex:0 0 300px; display:flex; align-items:center; gap:9px; background:#fff;
+  border:1.5px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow-sm); min-height:46px}
+.mbi-mission .search:focus-within{border-color:var(--gold)}
+.mbi-mission .search svg{flex:0 0 auto; color:var(--muted)}
+.mbi-mission .search input{border:0; outline:0; width:100%; font-size:14px; font-family:inherit; color:var(--ink); background:transparent}
+.mbi-mission .search input::placeholder{color:#9aa6a9}
+.mbi-mission .search kbd{font-family:var(--font-body); font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:6px; padding:1px 6px; background:#fafbfb}
+
+/* Ruban de progression mission */
+.mbi-mission .mribbon{position:relative; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  margin:4px 22px 0; padding:12px 16px; border-radius:13px;
+  background:linear-gradient(120deg, rgba(95,174,90,.10), rgba(44,130,184,.09) 38%, rgba(178,104,166,.09) 68%, rgba(224,169,59,.11)); border:1px solid rgba(46,158,134,.16)}
+.mbi-mission .mribbon .big{font-family:var(--font-title); font-weight:800; font-size:26px; line-height:1; color:var(--c-immeuble)}
+.mbi-mission .mribbon .big small{font-size:12px; color:var(--muted); font-weight:700; margin-left:4px}
+.mbi-mission .mrbar{flex:1 1 180px; min-width:140px}
+.mbi-mission .mrbar .track{height:9px; border-radius:999px; background:#dbe6e5; overflow:hidden}
+.mbi-mission .mrbar .track i{display:block; height:100%; width:0; border-radius:999px;
+  background:linear-gradient(90deg,var(--c-immeuble),var(--c-tiers)); transition:width 1s cubic-bezier(.3,0,.2,1)}
+.mbi-mission .mrbar .meta{margin-top:6px; font-size:11.5px; color:var(--ink-soft); display:flex; gap:12px; flex-wrap:wrap}
+.mbi-mission .mrbar .meta b{color:var(--ink); font-weight:700}
+.mbi-mission .nextpill{display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px;
+  background:#fff; border:1.5px solid rgba(46,158,134,.3); font-size:12.5px; font-weight:600; color:var(--ink); box-shadow:var(--shadow-sm)}
+.mbi-mission .nextpill b{color:var(--c-immeuble)}
+.mbi-mission .nextpill .lab{font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:800}
+
+/* ── 4.3 Jauge de phases ──────────────────────────────────────── */
+.mbi-mission .gaugehead{display:flex; align-items:baseline; justify-content:space-between; padding:7px 22px 10px; flex-wrap:wrap; gap:6px}
+.mbi-mission .gaugehead .ph{font-family:var(--font-title); font-weight:800; font-size:14px; color:var(--ink); letter-spacing:.02em}
+.mbi-mission .gaugehead .ph small{font-weight:600; color:var(--muted); font-size:12px; margin-left:8px}
+.mbi-mission .gaugehead .pct{font-family:var(--font-title); font-weight:800; font-size:14px; color:var(--c-immeuble)}
+.mbi-mission .gauge{position:relative; display:flex; gap:8px; padding:0 22px 18px; overflow-x:auto; scrollbar-width:none}
+.mbi-mission .gauge::-webkit-scrollbar{display:none}
+.mbi-mission .seg{flex:1 1 0; min-width:96px}
+.mbi-mission .seg .bar{height:8px; border-radius:999px; background:#dde7e7; overflow:hidden}
+.mbi-mission .seg .bar i{display:block; height:100%; width:0; border-radius:999px; transition:width .8s cubic-bezier(.3,0,.2,1)}
+.mbi-mission .seg.done .bar i{width:100%; background:var(--sc,var(--ok))}
+.mbi-mission .seg.cur .bar i{width:var(--p,55%); background:var(--sc,linear-gradient(90deg,var(--c-immeuble),var(--c-tiers)))}
+.mbi-mission .seg .lab{display:flex; align-items:center; gap:8px; margin-top:9px; font-size:17px; color:var(--ink); font-weight:800; text-shadow:0 0 5px rgba(255,255,255,.98), 0 1px 3px rgba(255,255,255,.9)}
+.mbi-mission .seg .num{font-family:var(--font-title); font-weight:800; font-size:12px; width:22px; height:22px; border-radius:50%;
+  display:grid; place-items:center; background:#e2ebeb; color:var(--muted); flex:0 0 auto}
+.mbi-mission .seg.done .num{background:var(--sc,var(--ok)); color:#fff}
+.mbi-mission .seg.cur .num{background:var(--sc,var(--ink)); color:#fff; box-shadow:0 0 0 4px color-mix(in srgb, var(--sc,var(--ink)) 22%, transparent)}
+.mbi-mission .seg.cur .lab{color:var(--sc,var(--ink)); font-weight:700}
+.mbi-mission .seg .lab span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+
+/* ── 4.0 Dashboard missions : tuiles ──────────────────────────── */
+.mbi-mission .mgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px}
+.mbi-mission .mtile{display:flex; flex-direction:column; gap:9px; padding:20px; min-height:168px;
+  background:var(--card); border:1px solid var(--line); border-top:3px solid var(--blk,var(--mission-accent));
+  border-radius:var(--r); box-shadow:var(--shadow); text-decoration:none; color:inherit; transition:transform .15s, box-shadow .15s}
+.mbi-mission a.mtile:hover{transform:translateY(-3px); box-shadow:0 16px 34px rgba(43,76,86,.15)}
+.mbi-mission .mtile .mt-ic{font-size:30px; line-height:1}
+.mbi-mission .mtile h3{font-family:var(--font-title); font-size:17px; font-weight:800; margin:0; color:var(--ink)}
+.mbi-mission .mtile p{margin:0; font-size:13px; line-height:1.5; color:var(--muted)}
+.mbi-mission .mtile .mt-foot{margin-top:auto; display:flex; align-items:center; gap:8px; font-size:13px; font-weight:800}
+.mbi-mission .mtile .mt-go{color:var(--blk,var(--mission-accent))}
+.mbi-mission .mtile .mt-badge{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:#eef2f3; color:var(--muted)}
+.mbi-mission .mtile.soon{opacity:.62}
+
+/* ── 4.1 Grille MissionLayout + carte ─────────────────────────── */
+.mbi-mission .grid{display:grid; grid-template-columns:270px 1fr 322px; gap:16px; align-items:start}
+.mbi-mission .card{background:var(--card); border:1px solid var(--line); border-top:3px solid var(--mission-accent); border-radius:var(--r); box-shadow:var(--shadow)}
+.mbi-mission .card>.hd{display:flex; align-items:center; gap:9px; padding:15px 17px 13px; border-bottom:1px solid var(--line-soft)}
+.mbi-mission .card>.hd .t{font-family:var(--font-title); font-weight:800; font-size:13.5px; letter-spacing:.02em}
+.mbi-mission .card>.hd .t small{display:block; font-family:var(--font-body); font-weight:500; font-size:11.5px; color:var(--muted); margin-top:1px}
+.mbi-mission .card .bd{padding:12px}
+
+/* ── 4.7 Étiquette module ─────────────────────────────────────── */
+.mbi-mission .tag{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; letter-spacing:.02em; padding:4px 10px 4px 7px; border-radius:999px; color:#fff}
+.mbi-mission .tag svg{width:13px; height:13px}
+.mbi-mission .t-bien{background:var(--c-bien)} .mbi-mission .t-immeuble{background:var(--c-immeuble)} .mbi-mission .t-tiers{background:var(--c-tiers)}
+.mbi-mission .t-bail{background:var(--c-bail)} .mbi-mission .t-doc{background:var(--c-document)} .mbi-mission .t-bailleur{background:var(--c-bailleur)}
+
+/* ── 4.4 Ligne d'étape ────────────────────────────────────────── */
+.mbi-mission .steps{display:flex; flex-direction:column; gap:5px}
+/* étape = colonne : ligne 1 (puce + « ÉTAPE X ») alignée à gauche, ligne 2 = titre à gauche.
+   flex:0 0 auto + ::after:none neutralisent le .step global (components.css) qui étire et trace un trait. */
+.mbi-mission .step{display:flex; flex-direction:column; align-items:flex-start; flex:0 0 auto; gap:5px; width:100%; text-align:left; padding:11px 12px; min-height:0; cursor:pointer;
+  border-radius:var(--r-sm); border:1.5px solid transparent; transition:background .14s,border-color .14s,transform .14s}
+.mbi-mission .step::after{display:none !important}
+.mbi-mission .step:hover{background:#f4f8f8}
+.mbi-mission .step .srow{display:flex; align-items:center; gap:9px; width:100%}
+.mbi-mission .step .mk{flex:0 0 auto; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:800; font-family:var(--font-title)}
+.mbi-mission .step.done .mk{background:var(--ok); color:#fff}
+.mbi-mission .step.cur .mk{background:linear-gradient(135deg,var(--c-immeuble),var(--c-tiers)); color:#fff}
+.mbi-mission .step.todo .mk{border:2px solid #cfd9db; color:transparent}
+.mbi-mission .step .txt{display:flex; flex-direction:column; min-width:0}
+.mbi-mission .step .en{font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#9aa6a9; margin:0; text-shadow:0 1px 1px rgba(20,42,52,.14)}
+.mbi-mission .step .lb{font-size:15.5px; font-weight:700; color:var(--ink); text-align:left; max-width:none; margin:0; text-shadow:0 1px 2px rgba(20,42,52,.18)}
+.mbi-mission .step.todo .lb{color:var(--muted); font-weight:500}
+.mbi-mission .step.cur{background:linear-gradient(120deg,#e9f5f2,#eaf3f8); border-color:#c6e2dc}
+.mbi-mission .step.cur .en{color:var(--c-immeuble)}
+.mbi-mission .step.cur .lb{color:var(--c-immeuble); font-weight:700}
+.mbi-mission .step .arrow{margin-left:auto; color:var(--c-immeuble); opacity:0; transition:opacity .14s,transform .2s}
+.mbi-mission .step.cur .arrow{opacity:1; animation:mbi-nudge 1.6s ease-in-out infinite}
+@keyframes mbi-nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+
+/* ── 4.5 En-tête de travail + zone travail ────────────────────── */
+.mbi-mission .worktop{display:flex; flex-direction:column; gap:2px; margin:2px 2px 14px}
+.mbi-mission .worktop .eb{font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--c-immeuble)}
+.mbi-mission .worktop .st{font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.04em}
+.mbi-mission .worktop h2{margin:3px 0 0; font-size:20px; font-weight:800; color:var(--ink); letter-spacing:-.01em}
+.mbi-mission .work{display:flex; flex-direction:column; gap:14px}
+
+/* ── 4.6 Bloc de données module ───────────────────────────────── */
+.mbi-mission .block{border:1px solid var(--line); border-top:3px solid var(--blk, var(--mission-accent)); border-radius:var(--r-sm); overflow:hidden}
+.mbi-mission .block .bh{display:flex; align-items:center; gap:10px; padding:11px 13px; border-bottom:1px solid var(--line-soft)}
+.mbi-mission .block .bh .bt{font-family:var(--font-title); font-weight:700; font-size:13px}
+.mbi-mission .block .bh .fiche{margin-left:auto; font-size:11.5px; font-weight:700; color:var(--blk,var(--c-immeuble)); background:color-mix(in srgb, var(--blk,var(--c-immeuble)) 12%, #fff); padding:6px 11px; border-radius:8px; display:inline-flex; align-items:center; gap:5px}
+.mbi-mission .block .bh .fiche:hover{background:color-mix(in srgb, var(--blk,var(--c-immeuble)) 22%, #fff)}
+/* Uniforme : pastille près du titre, « Voir la fiche » toujours à droite */
+.mbi-mission .block .bh .fiche + .fiche{margin-left:8px}
+/* Gros « + » coloré (ajouter un propriétaire quand l'immeuble est nouveau) */
+.mbi-mission .ml-bigadd{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:12px; padding:22px; border-radius:14px; border:2px dashed color-mix(in srgb, var(--c-tiers) 42%, #fff); background:color-mix(in srgb, var(--c-tiers) 8%, #fff); color:var(--c-tiers); font-weight:800; font-size:15px; transition:all .15s}
+.mbi-mission .ml-bigadd:hover{background:var(--c-tiers); color:#fff; border-color:var(--c-tiers); transform:translateY(-2px); box-shadow:0 10px 24px color-mix(in srgb, var(--c-tiers) 30%, transparent)}
+.mbi-mission .ml-bigadd .plus{font-size:40px; line-height:1; font-weight:400}
+.mbi-mission .ml-bigadd.bien{border-color:color-mix(in srgb, var(--c-bien) 42%, #fff); background:color-mix(in srgb, var(--c-bien) 8%, #fff); color:var(--c-bien)}
+.mbi-mission .ml-bigadd.bien:hover{background:var(--c-bien); color:#fff; border-color:var(--c-bien); box-shadow:0 10px 24px color-mix(in srgb, var(--c-bien) 30%, transparent)}
+/* Propriétaires de l'immeuble : boutons colorés charte Tiers */
+.mbi-mission .ml-propbtn{display:inline-flex; align-items:center; gap:7px; padding:10px 15px; min-height:44px; border-radius:11px; border:1.5px solid color-mix(in srgb, var(--c-tiers) 40%, #fff); background:color-mix(in srgb, var(--c-tiers) 10%, #fff); color:var(--c-tiers); font-size:13px; font-weight:700; transition:all .14s}
+.mbi-mission .ml-propbtn:hover{background:var(--c-tiers); color:#fff; border-color:var(--c-tiers); transform:translateY(-1px); box-shadow:0 8px 18px color-mix(in srgb, var(--c-tiers) 30%, transparent)}
+.mbi-mission .ml-propbtn small{opacity:.85; font-weight:600}
+.mbi-mission .ml-propbtn.add{border-style:dashed}
+/* Biens de l'immeuble : grille 3/ligne (lot · étage · locataire), charte Bien */
+.mbi-mission .ml-lotgrid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px}
+.mbi-mission .ml-lotbtn{display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:11px 12px; border-radius:12px; border:1.5px solid color-mix(in srgb, var(--c-bien) 40%, #fff); background:color-mix(in srgb, var(--c-bien) 9%, #fff); text-align:left; transition:all .14s}
+.mbi-mission .ml-lotbtn:hover{background:var(--c-bien); border-color:var(--c-bien); transform:translateY(-2px); box-shadow:0 8px 18px color-mix(in srgb, var(--c-bien) 30%, transparent)}
+.mbi-mission .ml-lotbtn:hover *{color:#fff !important}
+.mbi-mission .ml-lotbtn .lt{font-family:var(--font-title); font-weight:800; font-size:13.5px; color:var(--c-bien)}
+.mbi-mission .ml-lotbtn .lm{font-size:11.5px; color:var(--muted)}
+.mbi-mission .ml-lotbtn .lloc{font-size:11.5px; font-weight:600; color:var(--ink)}
+@media(max-width:620px){ .mbi-mission .ml-lotgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }
+/* Rappel du propriétaire en haut de la page proprio */
+.mbi-mission .ml-recap{display:flex; align-items:center; gap:11px; padding:11px 13px; border-radius:12px; background:color-mix(in srgb, var(--c-tiers) 9%, #fff); border:1px solid color-mix(in srgb, var(--c-tiers) 26%, #fff)}
+.mbi-mission .ml-recap .ini{flex:0 0 auto; width:40px; height:40px; border-radius:11px; display:grid; place-items:center; font-family:var(--font-title); font-weight:800; font-size:15px; color:#fff; background:linear-gradient(140deg, var(--c-tiers), color-mix(in srgb, var(--c-tiers) 70%, #10202b))}
+.mbi-mission .ml-recap .rn{font-family:var(--font-title); font-weight:800; font-size:15px; color:var(--ink)}
+.mbi-mission .ml-recap .rsub{font-size:12px; color:var(--muted)}
+.mbi-mission .ml-recap .fiche{margin-left:auto; font-size:11.5px; font-weight:700; color:var(--c-tiers); background:color-mix(in srgb, var(--c-tiers) 12%, #fff); padding:6px 11px; border-radius:8px}
+.mbi-mission .ml-recap .fiche:hover{background:color-mix(in srgb, var(--c-tiers) 22%, #fff)}
+.mbi-mission .block.m-bien .bh{background:linear-gradient(90deg,rgba(95,174,90,.13),rgba(95,174,90,.03))}
+.mbi-mission .block.m-immeuble .bh{background:linear-gradient(90deg,rgba(46,158,134,.13),rgba(46,158,134,.03))}
+.mbi-mission .block.m-doc .bh{background:linear-gradient(90deg,rgba(178,104,166,.13),rgba(178,104,166,.03))}
+/* Couleur du module par bloc (--blk) : liseré haut + bouton fiche + étiquette */
+.mbi-mission .block.m-bien{--blk:var(--c-bien)}
+.mbi-mission .block.m-immeuble{--blk:var(--c-immeuble)}
+.mbi-mission .block.m-tiers{--blk:var(--c-tiers)}
+.mbi-mission .block.m-bail{--blk:var(--c-bail)}
+.mbi-mission .block.m-doc{--blk:var(--c-document)}
+/* Étiquettes toutes de la même longueur (équilibre) + centrées */
+.mbi-mission .block .bh .tag{min-width:98px; justify-content:center}
+.mbi-mission .block.m-tiers .bh{background:linear-gradient(90deg,rgba(44,130,184,.13),rgba(44,130,184,.03))}
+.mbi-mission .block.m-bail .bh{background:linear-gradient(90deg,rgba(63,176,182,.13),rgba(63,176,182,.03))}
+.mbi-mission .block .bb{padding:12px 13px; display:flex; flex-direction:column; gap:9px}
+.mbi-mission .datarow{display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:10px; background:#fbfcfc; border:1px solid var(--line-soft); flex-wrap:wrap}
+.mbi-mission .datarow .k{font-size:12.5px; color:var(--muted); width:118px; flex:0 0 auto}
+.mbi-mission .datarow .v{font-size:13.5px; font-weight:600; color:var(--ink); flex:1 1 120px}
+
+/* ── 4.8 Badge de confiance (tricolore) ───────────────────────── */
+.mbi-mission .conf{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; flex:0 0 auto}
+.mbi-mission .conf .d{width:7px; height:7px; border-radius:50%}
+.mbi-mission .conf.ok{background:var(--ok-bg); color:var(--ok-tx)} .mbi-mission .conf.ok .d{background:var(--ok)}
+.mbi-mission .conf.ia{background:var(--ia-bg); color:var(--ia-tx)} .mbi-mission .conf.ia .d{background:var(--ia)}
+.mbi-mission .conf.miss{background:var(--miss-bg); color:var(--miss-tx)} .mbi-mission .conf.miss .d{background:var(--miss)}
+
+/* Boutons compacts (mini) */
+.mbi-mission .mini{border:0; font:inherit; font-size:11.5px; font-weight:700; color:#fff; background:linear-gradient(135deg,var(--c-immeuble),#2b8f7a); padding:7px 13px; border-radius:9px; min-height:34px}
+.mbi-mission .mini:hover{filter:brightness(1.06)}
+.mbi-mission .mini.ghost{background:#f0eef2; color:var(--c-document)}
+
+/* ── 4.9 Bloc IA proposé ──────────────────────────────────────── */
+.mbi-mission .iabox{border:1.5px dashed var(--ia); background:var(--ia-bg); border-radius:11px; padding:12px}
+.mbi-mission .iabox .lab{display:flex; align-items:center; gap:7px; font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ia-tx); margin-bottom:6px}
+.mbi-mission .iabox p{margin:0; font-size:13px; line-height:1.5; color:#6a5320}
+.mbi-mission .iabox .act{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap}
+
+/* ── 4.10 Boutons en cascade (remplace les selects) ───────────── */
+.mbi-mission .field{padding:2px 0}
+.mbi-mission .field .fl{font-size:12px; font-weight:700; color:var(--ink-soft); margin:0 0 8px 2px; display:flex; align-items:center; gap:7px; flex-wrap:wrap}
+.mbi-mission .field .fl .hint{font-weight:500; color:#9aa6a9; font-size:11px}
+.mbi-mission .choices{display:flex; flex-wrap:wrap; gap:8px}
+.mbi-mission .chip{display:inline-flex; align-items:center; gap:8px; padding:10px 15px; min-height:44px; border-radius:11px; border:1.5px solid var(--line); background:#fff; font-size:13px; font-weight:600; color:var(--ink-soft); transition:all .14s}
+.mbi-mission .chip:hover{border-color:#c7d2d4; background:#fafbfb}
+.mbi-mission .chip .ck{width:16px; height:16px; border-radius:5px; border:2px solid #cfd9db; display:grid; place-items:center; flex:0 0 auto; font-size:11px}
+.mbi-mission .chip[aria-pressed="true"]{border-color:var(--c-immeuble); background:linear-gradient(120deg,#eaf5f1,#e9f2f7); color:var(--c-immeuble)}
+.mbi-mission .chip[aria-pressed="true"] .ck{background:var(--c-immeuble); border-color:var(--c-immeuble); color:#fff}
+.mbi-mission .chip.solo[aria-pressed="true"]{background:linear-gradient(135deg,var(--ink),#39616d); border-color:var(--ink); color:#fff}
+.mbi-mission .chip.solo .ck{display:none}
+
+/* ── Colonne aides : onglets / pourquoi / aide / automatisations ── */
+.mbi-mission .tabs{display:flex; flex-wrap:wrap; gap:6px; padding:12px 12px 0}
+.mbi-mission .tab{padding:9px 13px; min-height:38px; border-radius:9px; font-size:12.5px; font-weight:600; color:var(--muted); border:1.5px solid transparent}
+.mbi-mission .tab:hover{background:#f4f7f7}
+.mbi-mission .tab[aria-selected="true"]{background:linear-gradient(135deg,var(--ink),#39616d); color:#fff}
+.mbi-mission .why{margin:12px 14px 0; padding:11px 13px; border-radius:11px; background:linear-gradient(120deg,rgba(224,169,59,.13),rgba(224,169,59,.04)); border:1px solid rgba(224,169,59,.25)}
+.mbi-mission .why .h{display:flex; align-items:center; gap:7px; font-family:var(--font-title); font-weight:800; font-size:12px; color:var(--gold-deep); margin-bottom:5px}
+.mbi-mission .why p{margin:0; font-size:12.5px; line-height:1.5; color:#6a5320}
+.mbi-mission .aide{padding:12px 15px 18px; font-size:13px; line-height:1.6; color:var(--ink-soft)}
+.mbi-mission .aide h4{font-family:var(--font-title); font-size:13px; margin:0 0 7px; color:var(--ink)}
+.mbi-mission .aide ul{margin:0; padding-left:16px; display:flex; flex-direction:column; gap:5px}
+.mbi-mission .aide li b{color:var(--ink)}
+.mbi-mission .aide .doc{display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px dashed var(--line); font-size:12.5px}
+.mbi-mission .aide .doc:last-child{border:0}
+.mbi-mission .aide .doc .s{margin-left:auto; font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px}
+.mbi-mission .aide .doc .s.ok{background:var(--ok-bg); color:var(--ok-tx)}
+.mbi-mission .aide .doc .s.wait{background:var(--ia-bg); color:var(--ia-tx)}
+.mbi-mission .auto{border-top:1px solid var(--line-soft); margin-top:14px; padding:14px 15px}
+.mbi-mission .auto .ttl{display:flex; align-items:center; gap:8px; font-family:var(--font-title); font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; color:var(--c-fluxbox); margin-bottom:13px}
+.mbi-mission .tl{position:relative; padding-left:22px}
+.mbi-mission .tl::before{content:""; position:absolute; left:6px; top:5px; bottom:8px; width:2px; background:linear-gradient(180deg,var(--c-fluxbox),#f0cede)}
+.mbi-mission .tl .ev{position:relative; padding:0 0 15px}
+.mbi-mission .tl .ev:last-child{padding-bottom:0}
+.mbi-mission .tl .ev::before{content:""; position:absolute; left:-18px; top:2px; width:11px; height:11px; border-radius:50%; background:#fff; border:2.5px solid var(--c-fluxbox)}
+.mbi-mission .tl .ev.done::before{background:var(--ok); border-color:var(--ok)}
+.mbi-mission .tl .ev.pending::before{border-color:#cbd6d8}
+.mbi-mission .tl .ev .h{font-size:12.5px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:7px; flex-wrap:wrap}
+.mbi-mission .tl .ev .d{font-size:11.5px; color:var(--muted); margin-top:2px}
+.mbi-mission .tl .ev.pending .h{color:var(--ink-soft)}
+.mbi-mission .actor{font-size:9.5px; font-weight:800; letter-spacing:.04em; padding:2px 7px; border-radius:999px; text-transform:uppercase}
+.mbi-mission .actor.auto{background:rgba(224,98,154,.14); color:#c23c74}
+.mbi-mission .actor.user{background:rgba(44,130,184,.14); color:#1f6a9c}
+.mbi-mission .actor.ok{background:var(--ok-bg); color:var(--ok-tx)}
+.mbi-mission .actor.wait{background:#eef2f3; color:var(--muted)}
+
+/* ── 4.11 Barre d'action basse ────────────────────────────────── */
+.mbi-mission .actbar{position:fixed; left:0; right:0; bottom:0; z-index:30; background:rgba(255,255,255,.9); backdrop-filter:blur(12px); border-top:1px solid var(--line); padding-bottom:var(--safe)}
+.mbi-mission .actbar .in{max-width:1340px; margin:0 auto; padding:12px 18px; display:flex; align-items:center; gap:11px; flex-wrap:wrap}
+.mbi-mission .abtn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 20px; min-height:48px; border-radius:12px; font-size:13.5px; font-weight:700; box-shadow:var(--shadow-sm); transition:transform .14s, box-shadow .14s, background .14s, filter .14s}
+.mbi-mission .abtn svg{width:16px; height:16px}
+.mbi-mission .abtn.ghost{color:var(--ink-soft); border:1.5px solid var(--line); background:#fff}
+.mbi-mission .abtn.ghost:hover{background:#f5f8f8; transform:translateY(-1px)}
+.mbi-mission .abtn.save{color:var(--mission-accent); border:1.5px solid color-mix(in srgb, var(--mission-accent) 45%, #fff); background:#fff}
+.mbi-mission .abtn.save:hover{background:color-mix(in srgb, var(--mission-accent) 8%, #fff); transform:translateY(-1px)}
+.mbi-mission .savehint{font-size:12px; color:var(--muted); margin-left:2px}
+.mbi-mission .abtn.next{margin-left:auto; color:#fff; padding:12px 26px; background:linear-gradient(135deg, var(--mission-accent), color-mix(in srgb, var(--mission-accent) 66%, #10202b)); box-shadow:0 8px 22px color-mix(in srgb, var(--mission-accent) 36%, transparent)}
+.mbi-mission .abtn.next:hover{transform:translateY(-1px); filter:brightness(1.06)}
+.mbi-mission .abtn.next:disabled{opacity:.45; filter:grayscale(.4); box-shadow:none; cursor:not-allowed; transform:none}
+
+/* ── 4.12 Modale fiche ────────────────────────────────────────── */
+/* Fiche = modale CENTRÉE et LARGE. Un « petit modal » glisse à sa droite (≈1/3). */
+.mbi-mission .ov{position:fixed; inset:0; z-index:50; background:rgba(30,54,64,.45); backdrop-filter:blur(5px); display:none; align-items:center; justify-content:center; padding:22px}
+.mbi-mission .ov.on{display:flex}
+.mbi-mission .modal{position:relative; display:flex; flex-direction:column; background:#fff; border-radius:22px; width:min(700px,100%); max-height:88vh; box-shadow:0 40px 90px rgba(20,42,52,.34); animation:mbi-pop .3s cubic-bezier(.34,1.2,.5,1)}
+/* Petit modal latéral : glisse depuis le bord droit du principal, ~1/3 de sa largeur */
+.mbi-mission .modal .side{position:absolute; top:17%; height:66%; left:calc(100% + 12px); width:34%; background:#fff; border-radius:18px; box-shadow:0 40px 90px rgba(20,42,52,.30); overflow:auto; padding:16px; transform:translateX(-26px); opacity:0; pointer-events:none; transition:transform .32s cubic-bezier(.4,0,.15,1), opacity .28s}
+.mbi-mission .modal .side.on{transform:translateX(0); opacity:1; pointer-events:auto}
+.mbi-mission .modal .side .sh{display:flex; align-items:center; gap:8px; font-family:var(--font-title); font-weight:800; font-size:14px; color:var(--mod-deep); margin-bottom:12px}
+.mbi-mission .modal .side .sback{margin-left:auto; font-size:12px; font-weight:700; color:var(--muted); padding:4px 6px}
+@keyframes mbi-pop{from{transform:translateY(14px) scale(.98); opacity:0}to{transform:none; opacity:1}}
+.mbi-mission .modal .mh{display:flex; align-items:center; gap:11px; padding:16px 18px; border-bottom:1px solid var(--line-soft)}
+.mbi-mission .modal .mh h3{margin:0; font-size:16px; font-weight:800}
+.mbi-mission .modal .mh .x{margin-left:auto; width:34px; height:34px; border-radius:9px; display:grid; place-items:center; color:var(--muted); font-size:20px}
+.mbi-mission .modal .mh .x:hover{background:#f2f5f6}
+.mbi-mission .modal .mb{padding:16px 18px; display:flex; flex-direction:column; gap:9px}
+.mbi-mission .modal .mf{padding:12px 18px 16px; display:flex; justify-content:flex-end; gap:9px}
+
+/* ── FICHE MODÈLE : thémable par module (--mod) + éditable + liste 2 lignes ──
+   C'est LE gabarit de fiche réutilisé partout. Poser --mod sur .modal (via mission.js
+   data-fiche-mod) pour teinter toute la fiche à la couleur du module concerné. */
+.mbi-mission .modal{
+  --mod:var(--c-tiers);
+  --mod-soft:color-mix(in srgb, var(--mod) 24%, #fff);
+  --mod-tint:color-mix(in srgb, var(--mod) 13%, #fff);
+  --mod-line:color-mix(in srgb, var(--mod) 36%, #fff);
+  --mod-deep:color-mix(in srgb, var(--mod) 84%, #10202b);
+}
+/* (largeur/rayon de la modale définis dans le bloc modale de base : 700px centré) */
+/* Champ multi-valeurs (ex. plusieurs téléphones) avec bouton « + » */
+.mbi-mission .modal .fmulti{flex:1; min-width:0; display:flex; flex-direction:column; gap:6px}
+.mbi-mission .modal .addline{align-self:flex-start; font-size:11.5px; font-weight:700; color:var(--mod-deep); background:color-mix(in srgb, var(--mod) 8%, #fff); border:1px dashed var(--mod-line); border-radius:8px; padding:5px 10px}
+.mbi-mission .modal .addline:hover{background:var(--mod); color:#fff; border-style:solid}
+/* Petit « + » rond et coloré (ouvre le modal latéral pour ajouter une valeur) */
+.mbi-mission .modal .addbtn{flex:0 0 auto; width:30px; height:30px; border-radius:9px; font-size:18px; font-weight:700; line-height:1; color:var(--mod-deep); background:color-mix(in srgb, var(--mod) 12%, #fff); border:1px solid var(--mod-line); display:grid; place-items:center; transition:all .14s}
+.mbi-mission .modal .addbtn:hover{background:var(--mod); color:#fff; transform:translateY(-1px)}
+/* En-tête teinté module + barre dégradée */
+.mbi-mission .modal .mh{display:block; flex:0 0 auto; padding:20px 22px 18px; position:relative; border-radius:22px 22px 0 0; overflow:hidden;
+  background:linear-gradient(140deg,var(--mod-soft),var(--mod-tint)); border-bottom:1px solid var(--mod-line)}
+.mbi-mission .modal .mh::before{content:""; position:absolute; top:0; left:0; right:0; height:4px; border-radius:22px 22px 0 0; background:linear-gradient(90deg,var(--mod),var(--mod-deep))}
+.mbi-mission .modal .mh .top{display:flex; align-items:flex-start; gap:15px}
+.mbi-mission .modal .avatar{flex:0 0 auto; width:56px; height:56px; border-radius:16px; display:grid; place-items:center; font-family:var(--font-title); font-weight:800; font-size:20px; color:#fff; background:linear-gradient(140deg,var(--mod),var(--mod-deep)); box-shadow:0 8px 18px color-mix(in srgb, var(--mod) 40%, transparent)}
+.mbi-mission .modal .who{flex:1; min-width:0}
+.mbi-mission .modal .eyebrow{display:flex; align-items:center; gap:8px; font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--mod-deep)}
+.mbi-mission .modal .mh .tag{display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; background:var(--mod); color:#fff; font-size:10px; font-weight:800; letter-spacing:.03em}
+.mbi-mission .modal .mh .tag svg{width:11px; height:11px}
+.mbi-mission .modal .mh h3{font-family:var(--font-title); font-size:22px; font-weight:800; color:var(--ink); letter-spacing:-.01em; margin:5px 0 2px}
+.mbi-mission .modal .mh .sub{font-size:13px; color:var(--ink-soft); font-weight:500}
+.mbi-mission .modal .mh .x{position:absolute; top:16px; right:16px; width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:var(--ink-soft); font-size:20px; background:rgba(255,255,255,.6); margin:0}
+.mbi-mission .modal .mh .x:hover{background:#fff}
+/* Actions rapides (verbes) */
+.mbi-mission .modal .quick{display:flex; gap:8px; margin-top:16px; flex-wrap:wrap}
+.mbi-mission .modal .qbtn{display:inline-flex; align-items:center; gap:7px; padding:9px 14px; border-radius:11px; font-size:12.5px; font-weight:700; color:var(--mod-deep); background:#fff; border:1.5px solid var(--mod-line); transition:all .14s}
+.mbi-mission .modal .qbtn:hover{background:var(--mod); color:#fff; border-color:var(--mod); transform:translateY(-1px)}
+/* Corps : lignes vivantes à icône */
+.mbi-mission .modal .mb{padding:16px 22px 8px; display:flex; flex-direction:column; gap:8px; flex:1 1 auto; overflow:auto; min-height:0}
+.mbi-mission .modal .row{display:flex; align-items:center; gap:13px; padding:11px 14px; border-radius:13px; background:var(--mod-tint); border:1px solid var(--line-soft); position:relative; overflow:hidden}
+.mbi-mission .modal .row::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--mod); opacity:.9}
+.mbi-mission .modal .row .ic{flex:0 0 auto; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:15px; background:color-mix(in srgb, var(--mod) 10%, #fff); border:1px solid var(--mod-line)}
+.mbi-mission .modal .row .k{flex:0 0 96px; font-size:11.5px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em}
+.mbi-mission .modal .row .v{flex:1; font-size:14px; font-weight:600; color:var(--ink)}
+.mbi-mission .modal .row .v small{display:block; font-weight:500; color:var(--muted); font-size:11.5px; margin-top:1px}
+/* Valeurs multiples sur la MÊME ligne (ex. plusieurs téléphones/emails) */
+.mbi-mission .modal .vmulti{flex:1; min-width:0; display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center}
+.mbi-mission .modal .vmulti .v{flex:0 0 auto}
+.mbi-mission .modal .vmulti .fval{flex:1 1 160px}
+.mbi-mission .modal .vchip{flex:0 0 auto; font-size:13px; font-weight:600; color:var(--ink); background:var(--mod-tint); border:1px solid var(--mod-line); border-radius:8px; padding:3px 10px}
+.mbi-mission .modal .chip-ok{flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; background:var(--ok-bg); color:var(--ok-tx)}
+.mbi-mission .modal .chip-ok .d{width:6px; height:6px; border-radius:50%; background:var(--ok)}
+.mbi-mission .modal .lots{display:flex; gap:6px; flex-wrap:wrap}
+.mbi-mission .modal .lot{font-size:11px; font-weight:700; color:var(--mod-deep); background:#fff; border:1px solid var(--mod-line); padding:3px 9px; border-radius:8px}
+/* Champ éditable inline */
+.mbi-mission .modal .row .fval{flex:1; min-width:0; font:inherit; font-size:14px; font-weight:600; color:var(--ink); border:1.5px solid transparent; background:transparent; border-radius:8px; padding:5px 7px; transition:border-color .12s, background .12s}
+.mbi-mission .modal .row .fval:hover{border-color:var(--mod-line)}
+.mbi-mission .modal .row .fval:focus{outline:none; border-color:var(--mod); background:#fff}
+/* Liste (biens gérés) limitée à ~2 lignes puis scroll */
+.mbi-mission .modal .fiche-list{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; flex:1; min-width:0; max-height:64px; overflow-y:auto; overflow-x:hidden; padding-right:2px}
+.mbi-mission .modal .fiche-list .lot{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center}
+/* Pied */
+.mbi-mission .modal .mf{padding:14px 22px 20px; display:flex; gap:10px; align-items:center; justify-content:flex-start; flex:0 0 auto; border-radius:0 0 22px 22px}
+.mbi-mission .modal .mf .spacer{flex:1}
+.mbi-mission .modal .mbtn{padding:12px 18px; border-radius:12px; font-size:13.5px; font-weight:700; min-height:46px; display:inline-flex; align-items:center; gap:8px}
+.mbi-mission .modal .mbtn.ghost{color:var(--ink-soft); border:1.5px solid var(--line); background:#fff}
+.mbi-mission .modal .mbtn.ghost:hover{background:#f5f8f8}
+.mbi-mission .modal .mbtn.go{color:#fff; background:linear-gradient(135deg,var(--mod),var(--mod-deep)); box-shadow:0 8px 20px color-mix(in srgb, var(--mod) 34%, transparent)}
+.mbi-mission .modal .mbtn.go:hover{filter:brightness(1.06)}
+/* Barre « Aperçu du thème » (démo) */
+.mbi-mission .themebar{position:fixed; left:0; right:0; bottom:0; z-index:60; display:flex; gap:8px; justify-content:center; align-items:center; flex-wrap:wrap; padding:12px; background:rgba(255,255,255,.9); backdrop-filter:blur(10px); border-top:1px solid var(--line)}
+.mbi-mission .sw{display:inline-flex; align-items:center; gap:7px; padding:8px 13px; border-radius:10px; border:1.5px solid var(--line); background:#fff; font-size:12.5px; font-weight:600; color:var(--ink-soft)}
+.mbi-mission .sw .dot{width:12px; height:12px; border-radius:4px}
+.mbi-mission .sw.act{border-color:var(--ink); color:var(--ink)}
+/* Petit modal latéral : sous la modale (empilé) quand la place manque à droite */
+@media(max-width:1100px){ .mbi-mission .modal .side{position:relative; left:auto; width:auto; transform:none; margin-top:12px; border-radius:14px} .mbi-mission .modal .side:not(.on){display:none} }
+@media(max-width:520px){ .mbi-mission .modal .mh h3{font-size:19px} .mbi-mission .modal .row{flex-wrap:wrap} .mbi-mission .modal .row .k{flex-basis:100%} }
+/* Champ de fiche ÉDITABLE (clic = on modifie ; pas de <select>) */
+.mbi-mission .frow{display:flex; align-items:center; gap:11px; padding:6px 9px; border-radius:10px; background:var(--mod-tint); border:1px solid var(--line-soft); flex-wrap:wrap}
+.mbi-mission .frow .k{font-size:12.5px; color:var(--muted); width:120px; flex:0 0 auto}
+.mbi-mission .frow .fval{flex:1 1 140px; min-width:0; font:inherit; font-size:13.5px; font-weight:600; color:var(--ink); border:1.5px solid transparent; background:transparent; border-radius:8px; padding:6px 8px; transition:border-color .12s, background .12s}
+.mbi-mission .frow .fval:hover{border-color:var(--mod-line)}
+.mbi-mission .frow .fval:focus{outline:none; border-color:var(--mod); background:#fff; box-shadow:0 0 0 3px color-mix(in srgb, var(--mod) 16%, transparent)}
+.mbi-mission .frow .fval::placeholder{color:#a9b3b5; font-weight:500}
+/* Liste (ex. biens gérés) limitée à ~2 lignes, puis scroll */
+.mbi-mission .fiche-list{display:flex; flex-direction:column; gap:6px; max-height:82px; overflow:auto; padding-right:4px; scrollbar-width:thin}
+.mbi-mission .fiche-list .fli{display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600; color:var(--ink); padding:7px 10px; border:1px solid var(--mod-line); border-radius:9px; background:#fff}
+.mbi-mission .fiche-list .fli .sub{color:var(--muted); font-weight:500; margin-left:auto; font-size:11.5px}
+.mbi-mission .fiche-count{font-size:11px; color:var(--muted); margin:2px 2px 0}
+/* Bouton principal de la fiche teinté module */
+.mbi-mission .modal .mf .abtn.next{background:var(--mod); box-shadow:0 8px 20px color-mix(in srgb, var(--mod) 32%, transparent)}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width:1080px){
+  .mbi-mission .grid{grid-template-columns:1fr}
+  .mbi-mission .search{flex:1 1 100%; order:5}
+  .mbi-mission .hero-mid{flex-basis:100%}
+}
+@media (max-width:620px){
+  .mbi-mission .shell{padding:0 12px calc(150px + var(--safe))}
+  .mbi-mission .hero-row{padding:14px 15px 8px; gap:14px}
+  .mbi-mission .mribbon{margin:4px 15px 0; padding:12px}
+  .mbi-mission .mribbon .nextpill{flex-basis:100%}
+  .mbi-mission .gaugehead{padding:12px 15px 8px}
+  .mbi-mission .gauge{padding:0 15px 16px}
+  .mbi-mission .seg{min-width:120px}
+  .mbi-mission .mtitle{font-size:21px}
+  .mbi-mission .worktop h2{font-size:18px}
+  .mbi-mission .datarow .k{width:100%}
+  .mbi-mission .card .bd{padding:11px}
+  .mbi-mission .actbar .in{padding:10px 12px; gap:8px}
+  .mbi-mission .abtn.ghost, .mbi-mission .abtn.save{flex:1 1 auto; padding:12px 10px}
+  .mbi-mission .abtn.next{flex:1 1 100%; order:-1; margin-left:0}
+  .mbi-mission .savehint{flex:1 1 100%; text-align:center; order:9}
+  .mbi-mission .block .bh .fiche{padding:8px 10px}
+}
