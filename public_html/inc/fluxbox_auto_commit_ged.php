@@ -458,7 +458,7 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                     }
                     if ($autoBienId > 0) {
                         $srcPath = isset($srcAbs) && $srcAbs !== '' ? $srcAbs : ged_flux_src_abspath((string)($row['fichier_chemin'] ?? ''));
-                        $ax = bef_autoextract_on_load($pdo, $carteId, $typeDocLc, (string)$srcPath, $autoBienId);
+                        $ax = bef_autoextract_on_load($pdo, $carteId, $typeDocLc, (string)$srcPath, $autoBienId, (string)($row['hash_sha256'] ?? ''));
                         if (!empty($ax['ran'])) $audit[] = "🤖 Auto-extraction : " . implode(', ', $ax['ran']);
                     }
                 }

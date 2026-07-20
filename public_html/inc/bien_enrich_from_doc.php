@@ -313,10 +313,11 @@ if (!function_exists('bef_enrich_from_carte')) {
      *   - dpe    : dpe_analyser (texte→OCR→IA) → dpe_diags + biens (apply_dpe, non destructif)
      * Best-effort, idempotent (extractions à cache/anti-doublon internes). $bienId requis.
      */
-    function bef_autoextract_on_load(PDO $pdo, int $carteId, string $typeDoc, string $pdfPath, int $bienId): array {
+    function bef_autoextract_on_load(PDO $pdo, int $carteId, string $typeDoc, string $pdfPath, int $bienId, string $hash = ''): array {
         $t = strtolower($typeDoc);
         $out = ['ran' => []];
         if ($pdfPath === '' || !is_file($pdfPath) || $bienId <= 0) { $out['ran'][] = 'skip(no_path/bien)'; return $out; }
+        if ($hash === '' && is_file($pdfPath)) $hash = (string)(@hash_file('sha256', $pdfPath) ?: '');
         require_once __DIR__ . '/bien_apply_extracted.php';
 
         if (str_contains($t, 'bail')) {
@@ -349,12 +350,41 @@ if (!function_exists('bef_enrich_from_carte')) {
             } catch (Throwable $e) { $out['ran'][] = 'mandat_err'; error_log('[autoextract mandat] ' . $e->getMessage()); }
         } elseif (str_contains($t, 'dpe') || str_contains($t, 'diagnostic')) {
             try {
-                require_once __DIR__ . '/dpe_service.php';
-                $r = dpe_analyser($pdfPath);
-                if (!empty($r['ok']) && !empty($r['fields'])) {
-                    $out['dpe'] = apply_dpe_extracted_to_bien($pdo, $bienId, $r['fields'], null, null, true);
-                    $out['ran'][] = 'dpe:' . ($out['dpe']['action'] ?? '?');
-                    bef_log_audit($pdo, 0, $carteId, 'autoextract_dpe', 'DPE auto-extrait → dpe_diags/biens', ['score' => $r['score'] ?? 0], (int)($r['score'] ?? 0) / 100);
+                // ANTI DOUBLE-PAIEMENT : dpe_analyser n'a pas de cache → on gère le nôtre par hash
+                // dans ia_extract_cache (model='dpe'). Un même fichier n'est JAMAIS ré-extrait.
+                $fields = null; $score = 0; $fromCache = false;
+                if ($hash !== '') {
+                    try {
+                        $st = $pdo->prepare("SELECT response_json, confidence FROM ia_extract_cache
+                                              WHERE hash_sha256 = ? AND model = 'dpe' AND prompt_version = 'dpe1' LIMIT 1");
+                        $st->execute([$hash]);
+                        if ($cj = $st->fetch(PDO::FETCH_ASSOC)) {
+                            $fields = json_decode((string)$cj['response_json'], true) ?: null;
+                            $score = (int)($cj['confidence'] ?? 0);
+                            if ($fields) { $fromCache = true; }
+                        }
+                    } catch (Throwable $e) { /* table auto-créée par transaction_doc_extract_ia */ }
+                }
+                if ($fields === null) {
+                    require_once __DIR__ . '/dpe_service.php';
+                    $r = dpe_analyser($pdfPath);
+                    if (!empty($r['ok']) && !empty($r['fields'])) {
+                        $fields = $r['fields']; $score = (int)($r['score'] ?? 0);
+                        // Mémorise le résultat par hash → jamais de second appel IA sur ce fichier.
+                        if ($hash !== '') {
+                            try {
+                                $pdo->prepare("INSERT IGNORE INTO ia_extract_cache
+                                    (hash_sha256, model, prompt_version, response_json, cout_centimes, confidence, source_origin)
+                                    VALUES (?, 'dpe', 'dpe1', ?, 0, ?, 'autoextract')")
+                                    ->execute([$hash, json_encode($fields, JSON_UNESCAPED_UNICODE), $score]);
+                            } catch (Throwable $e) { /* best-effort */ }
+                        }
+                    }
+                }
+                if (!empty($fields)) {
+                    $out['dpe'] = apply_dpe_extracted_to_bien($pdo, $bienId, $fields, null, null, true);
+                    $out['ran'][] = 'dpe:' . ($out['dpe']['action'] ?? '?') . ($fromCache ? '(cache)' : '');
+                    bef_log_audit($pdo, 0, $carteId, 'autoextract_dpe', 'DPE auto-extrait → dpe_diags/biens' . ($fromCache ? ' (cache)' : ''), ['score' => $score, 'cache' => $fromCache], $score / 100);
                 } else { $out['ran'][] = 'dpe:extract_ko'; }
             } catch (Throwable $e) { $out['ran'][] = 'dpe_err'; error_log('[autoextract dpe] ' . $e->getMessage()); }
         }
