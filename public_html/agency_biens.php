@@ -428,14 +428,24 @@ function biToggleAnn(btn){ biAnnOnly = !biAnnOnly; btn.classList.toggle('active'
 function biToggleVac(btn){ biVacOnly = !biVacOnly; btn.classList.toggle('active', biVacOnly); biFilter(); }
 function biToggleDv(btn){ biDvOnly = !biDvOnly; btn.classList.toggle('active', biDvOnly); biFilter(); }
 function biInRange(l){ if(!biRange) return true; var p=biRange.split('-'); return l>=p[0] && l<=p[1]; }
+// Normalisation : minuscules, sans accents, ponctuation → espaces, espaces compactés.
+function biNorm(s){
+  return (s||'').toString().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')   // enlève les accents
+    .replace(/[^a-z0-9]+/g,' ')                          // tout séparateur (tiret, apostrophe…) → espace
+    .replace(/\s+/g,' ').trim();
+}
 function biFilter(){
-  var q=(document.getElementById('biSearch').value||'').toLowerCase().trim();
+  // recherche par MOTS : chaque mot saisi doit se retrouver dans la fiche, quel que soit l'ordre
+  var terms=biNorm(document.getElementById('biSearch').value).split(' ').filter(Boolean);
   document.querySelectorAll('.ec-grid .ec-card').forEach(function(c){
-    var name=c.getAttribute('data-name')||'', letter=c.getAttribute('data-letter')||'#';
+    if(c._n===undefined) c._n=biNorm(c.getAttribute('data-name')||''); // normalisé une seule fois puis mis en cache
+    var name=c._n, letter=c.getAttribute('data-letter')||'#';
     var ann=(c.getAttribute('data-annonce')==='1'), vac=(c.getAttribute('data-vacant')==='1'), dv=(c.getAttribute('data-dossier')==='1');
     var vente=(c.getAttribute('data-vente')==='1'), loc=(c.getAttribute('data-loc')==='1');
     var mandatOk = (biMandat==='') || (biMandat==='vente' && vente) || (biMandat==='location' && loc);
-    var ok=(q===''||name.indexOf(q)!==-1) && biInRange(letter) && mandatOk && (!biAnnOnly || ann) && (!biVacOnly || vac) && (!biDvOnly || dv);
+    var textOk = terms.length===0 || terms.every(function(t){ return name.indexOf(t)!==-1; });
+    var ok = textOk && biInRange(letter) && mandatOk && (!biAnnOnly || ann) && (!biVacOnly || vac) && (!biDvOnly || dv);
     c.style.display=ok?'':'none';
   });
 }
