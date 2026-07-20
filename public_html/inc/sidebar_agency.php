@@ -3,6 +3,14 @@ declare(strict_types=1);
 require_once __DIR__ . '/security.php'; // app_url()
 require_once __DIR__ . '/roles_services.php'; // hasServiceAccess()
 
+// ── Cage bailleur : toute page qui inclut la sidebar agency en dur (ex. module
+// Créanciers) doit afficher la sidebar MODULE BAILLEUR pour un compte bailleur
+// cagé (rôle 9/10). Un seul point de bascule couvre toutes ces pages. ──
+if (function_exists('is_caged_bailleur') && is_caged_bailleur()) {
+    include __DIR__ . '/sidebar_bailleur_module.php';
+    return;
+}
+
 // Sidebar minimale : navigation uniquement (RH / Agency / FluxBox / Net)
 $_sbBase = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/';
 
@@ -31,8 +39,14 @@ $linkImms    = $_sbBase . 'agency_immeubles.php';
 $linkTrans   = $_sbBase . 'transaction_index.php';
 $dashDiff    = $_sbBase . 'agency_dashboard_diffusion.php';
 $dashAdmin   = $_sbBase . 'super_admin_dashboard.php';
+$linkIdees   = $_sbBase . 'admin/boite_idees.php';
+$linkBureau  = $_sbBase . 'maboxoffice.php';
+$linkBoxes   = $_sbBase . 'admin/maboxoffice_mailboxes.php';
 $linkPatrimoine = $_sbBase . 'bailleur_patrimoine_actif.php';
 $linkCreanciers = $_sbBase . 'creancier_dashboard.php';
+$linkGerance    = $_sbBase . 'gerance_dashboard.php';
+$linkPilotageLoc = $_sbBase . 'pilotage_service_location.php';
+$linkDeclencheurs = $_sbBase . 'pilotage_declencheurs.php';
 
 // Module CRÉANCIERS (sensible) : visible si super admin OU au moins 1 dossier en ACL.
 $canCreanciers = $isAdminOrSup;
@@ -74,6 +88,13 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
             <li><a href="<?= htmlspecialchars($_sbBase . 'bailleur_dashboard.php') ?>" class="<?= sb_active('bailleur_dashboard.php') ?>"><span class="sb-icon">🏦</span><span class="sb-label">Ma Box Bailleur</span></a></li>
             <?php endif; ?>
             <li><a href="<?= htmlspecialchars($linkTrans) ?>" class="<?= sb_active('transaction_index.php') ?: sb_active('transaction_chargement.php') ?>"><span class="sb-icon">🎯</span><span class="sb-label">Transactions</span></a></li>
+            <?php // GÉRANCE = module (périmètre propre du groupe : flotte, financements), pas un
+                  // raccourci → sa place est ici, avec les autres modules. Réservé admin/super admin.
+                  // Actif sur TOUTES les pages gerance_* (dashboard, listes, fiches) : sb_active() ne
+                  // sait comparer qu'un nom de fichier exact, d'où le str_starts_with(). ?>
+            <?php if ($isAdminOrSup): ?>
+            <li><a href="<?= htmlspecialchars($linkGerance) ?>" class="<?= str_starts_with($currentPage, 'gerance_') ? 'active' : '' ?>"><span class="sb-icon">🏛️</span><span class="sb-label">Gérance</span></a></li>
+            <?php endif; ?>
         </ul>
     </div>
 
@@ -88,8 +109,17 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
             <li><a href="<?= htmlspecialchars($linkImms) ?>" class="<?= sb_active('agency_immeubles.php') ?>"><span class="sb-icon">🏢</span><span class="sb-label">Immeubles</span></a></li>
             <li><a href="<?= htmlspecialchars($dashDiff) ?>" class="<?= sb_active('agency_dashboard_diffusion.php') ?>"><span class="sb-icon">📡</span><span class="sb-label">Diffusion</span></a></li>
             <li><a href="<?= htmlspecialchars($dashMetier) ?>" class="<?= sb_active('agency_dashboard_metier.php') ?>"><span class="sb-icon">🧭</span><span class="sb-label">Métier</span></a></li>
+            <?php if ($isManager) : ?>
+            <li><a href="<?= htmlspecialchars($linkPilotageLoc) ?>" class="<?= sb_active('pilotage_service_location.php') ?>"><span class="sb-icon">🔑</span><span class="sb-label">Service Location</span></a></li>
+            <?php endif; ?>
+            <li><a href="<?= htmlspecialchars($linkDeclencheurs) ?>" class="<?= sb_active('pilotage_declencheurs.php') ?>"><span class="sb-icon">⚡</span><span class="sb-label">Déclencheurs</span></a></li>
             <?php if ($isAdminOrSup): ?>
                 <li><a href="<?= htmlspecialchars($dashAdmin) ?>" class="<?= sb_active('super_admin_dashboard.php') ?>"><span class="sb-icon">🧰</span><span class="sb-label">Dashboard Admin</span></a></li>
+            <?php endif; ?>
+            <?php if (function_exists('is_super_admin') ? is_super_admin() : ($roleId === 1)): ?>
+                <li><a href="<?= htmlspecialchars($linkBureau) ?>" class="<?= sb_active('maboxoffice.php') ?>"><span class="sb-icon">🗂️</span><span class="sb-label">MaBoxOffice</span></a></li>
+                <li><a href="<?= htmlspecialchars($linkBoxes) ?>" class="<?= sb_active('maboxoffice_mailboxes.php') ?>"><span class="sb-icon">📬</span><span class="sb-label">Boîtes mail</span></a></li>
+                <li><a href="<?= htmlspecialchars($linkIdees) ?>" class="<?= sb_active('boite_idees.php') ?>"><span class="sb-icon">💡</span><span class="sb-label">Boîte à idées</span></a></li>
             <?php endif; ?>
         </ul>
     </div>
