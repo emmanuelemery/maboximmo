@@ -159,11 +159,18 @@ textarea.f3-syn{width:100%;box-sizing:border-box;min-height:70px;padding:9px 11p
             <button class="f3-x" onclick="detachDoc(<?= (int)$doc['id'] ?>)">Retirer</button></div>
         <?php endforeach; ?>
       </div>
+      <div style="font-weight:700;color:#5c4e22;font-size:.85rem;margin:14px 0 4px">📤 Charger un nouveau document</div>
+      <div class="f3-add">
+        <select id="upCat"><?php foreach ($catL as $k => $l): ?><option value="<?= h($k) ?>"><?= h($l) ?></option><?php endforeach; ?></select>
+        <input type="file" id="upFile" style="font-size:.82rem">
+        <button class="f3-btn" id="upBtn" onclick="uploadDoc()">Charger</button>
+      </div>
+      <div style="font-weight:700;color:#5c4e22;font-size:.85rem;margin:16px 0 4px">🔗 Ou rattacher un document déjà présent en GED</div>
       <div class="f3-add">
         <select id="docCat"><?php foreach ($catL as $k => $l): ?><option value="<?= h($k) ?>"><?= h($l) ?></option><?php endforeach; ?></select>
         <div class="f3-res"><input id="docQ" placeholder="Rechercher un document GED existant…" autocomplete="off"><div class="r" id="docRes"></div></div>
       </div>
-      <p style="color:#98917f;font-size:.8rem;margin-top:8px">Les documents restent dans la GED : ici on les <b>relie</b> au dossier (« Retirer » enlève le lien, pas le document). L'analyse IA et l'extraction des informations arrivent en Tranche 2.</p>
+      <p style="color:#98917f;font-size:.8rem;margin-top:8px">Le document est <b>conservé dans la GED générale</b> et relié à ce dossier (« Retirer » enlève le lien, pas le document). Formats : PDF, images, Word, Excel, ZIP… (max 25 Mo). L'analyse IA et l'extraction arrivent en Tranche 2.</p>
     </div>
   </div>
 
@@ -237,6 +244,18 @@ const U_SAVE='<?= h(app_url('/api/financement_save.php')) ?>';
 const U_LIEN='<?= h(app_url('/api/financement_lien.php')) ?>';
 const U_ACC='<?= h(app_url('/api/financement_acces.php')) ?>';
 const U_GED='<?= h(app_url('/api/financement_ged.php')) ?>';
+const U_UP='<?= h(app_url('/api/financement_upload.php')) ?>';
+async function uploadDoc(){
+  const fi=document.getElementById('upFile'); if(!fi.files||!fi.files[0]){alert('Choisissez un fichier');return;}
+  const btn=document.getElementById('upBtn'); btn.disabled=true; btn.textContent='…';
+  const fd=new FormData();
+  fd.append('id_dossier',FID); fd.append('categorie',document.getElementById('upCat').value); fd.append('file',fi.files[0]);
+  try{
+    const r=await fetch(U_UP,{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':FIN_CSRF},body:fd});
+    const j=await r.json(); if(!j.ok){alert(j.error||'Erreur');btn.disabled=false;btn.textContent='Charger';return;}
+    location.reload();
+  }catch(e){alert('Erreur réseau');btn.disabled=false;btn.textContent='Charger';}
+}
 function esc(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML;}
 function P(url,data){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':FIN_CSRF},body:JSON.stringify(data)}).then(r=>r.json());}
 
