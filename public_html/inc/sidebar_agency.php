@@ -47,6 +47,7 @@ $linkCreanciers = $_sbBase . 'creancier_dashboard.php';
 $linkGerance    = $_sbBase . 'gerance_dashboard.php';
 $linkPilotageLoc = $_sbBase . 'pilotage_service_location.php';
 $linkDeclencheurs = $_sbBase . 'pilotage_declencheurs.php';
+$linkFinancement  = $_sbBase . 'financement_liste.php';
 
 // Module CRÉANCIERS (sensible) : visible si super admin OU au moins 1 dossier en ACL.
 $canCreanciers = $isAdminOrSup;
@@ -97,6 +98,9 @@ $__sbVer = @filemtime(__DIR__ . '/../css/sidebar.css');
                   // sait comparer qu'un nom de fichier exact, d'où le str_starts_with(). ?>
             <?php if ($isAdminOrSup): ?>
             <li><a href="<?= htmlspecialchars($linkGerance) ?>" class="<?= str_starts_with($currentPage, 'gerance_') ? 'active' : '' ?>"><span class="sb-icon">🏛️</span><span class="sb-label">Gérance</span></a></li>
+            <?php endif; ?>
+            <?php if (function_exists('is_super_admin') ? is_super_admin() : ($roleId === 1)): /* Financement — super admin (déploiement restreint T1) */ ?>
+            <li><a href="<?= htmlspecialchars($linkFinancement) ?>" class="<?= str_starts_with($currentPage, 'financement_') ? 'active' : '' ?>"><span class="sb-icon">💶</span><span class="sb-label">Financement</span></a></li>
             <?php endif; ?>
         </ul>
     </div>

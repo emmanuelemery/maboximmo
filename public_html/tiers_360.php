@@ -349,6 +349,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     background:#eaf1fa; color:#243B5C;
 }
 </style>
+<?php require_once __DIR__ . '/inc/financement.php'; echo fin_related_block($pdo, 'TIERS', $tiersId); ?>
 <div class="tiers360-grid3">
 
   <!-- ═══════ ZONE GAUCHE (sur 2 colonnes) : Barre IA + Biens + Documents ═══════ -->
