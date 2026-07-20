@@ -272,6 +272,7 @@ if (!function_exists('fin_related_block')) {
     function fin_related_block(PDO $pdo, string $type, int $entityId, ?int $soc = null): string {
         $isAdmin = (function_exists('is_super_admin') && is_super_admin()) || in_array((int)(function_exists('current_role_id') ? current_role_id() : 0), [1, 7], true);
         if (!$isAdmin || $entityId <= 0) return '';
+        try {
         $soc = $soc ?? fin_soc();
         $type = strtoupper($type);
         $rows = $type === 'TIERS'
@@ -298,5 +299,6 @@ if (!function_exists('fin_related_block')) {
             . '<strong style="color:#243B5C;font-size:.9rem">💶 Dossiers financiers</strong>'
             . '<span>' . $createBtn . '<a href="' . $h($app('/financement_liste.php')) . '" style="font-size:.78rem;color:#7a6830">Tous →</a></span></div>'
             . $items . '</div>';
+        } catch (\Throwable $e) { return ''; } // ne JAMAIS casser la fiche hôte (ex. tables absentes avant migration)
     }
 }
