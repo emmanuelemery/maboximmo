@@ -563,6 +563,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
 <?php endif; ?>
 
 <div class="pf-container">
+  <?php require_once __DIR__ . '/inc/financement.php'; echo fin_related_block($pdo, 'TIERS', (int)($prop['id_tiers'] ?? 0)); ?>
 
   <!-- TABS -->
   <nav class="pf-tabs">
@@ -636,10 +637,12 @@ include __DIR__ . '/inc/sidebar_agency.php';
   <!-- ══════════ ONGLET BIENS ══════════ -->
   <div class="pf-panel <?= $tab === 'biens' ? 'active' : '' ?>">
     <div style="margin:0 0 12px;text-align:right;">
+      <?php if (can_create_bien()): ?>
       <a href="bien_creation.php?id_proprietaire=<?= $propId ?>" class="pf-badge pf-badge-actif"
          style="display:inline-block;padding:8px 14px;text-decoration:none;font-weight:600;">
         + Créer un bien / une annonce
       </a>
+      <?php endif; ?>
     </div>
     <?php if (empty($biens)): ?>
     <div class="pf-card"><div style="text-align:center;padding:20px;color:#888;">Aucun bien rattaché à ce propriétaire.</div></div>

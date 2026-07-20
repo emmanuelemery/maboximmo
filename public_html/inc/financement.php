@@ -243,6 +243,25 @@ if (!function_exists('fin_ged_docs')) {
         $st->execute([$tiersId, $soc]);
         return $st->fetchAll(PDO::FETCH_ASSOC);
     }
+    /**
+     * Détection FIABLE d'un propriétaire réel (données historiques non homogènes) : vrai si AU MOINS
+     * un critère est rempli — rôle 'proprietaire', présence dans `proprietaires.id_tiers`, ou
+     * possession d'un bien (biens.id_proprietaire → proprietaires.id → proprietaires.id_tiers).
+     * Centralisé ici pour ne pas recopier la requête dans plusieurs pages.
+     */
+    function fin_is_proprietaire(PDO $pdo, int $tiersId, ?int $soc = null): bool {
+        if ($tiersId <= 0) return false;
+        $soc = $soc ?? fin_soc();
+        try {
+            $r = $pdo->prepare("SELECT 1 FROM tiers_roles WHERE id_tiers=? AND role_code='proprietaire' LIMIT 1");
+            $r->execute([$tiersId]); if ($r->fetchColumn()) return true;
+            $p = $pdo->prepare("SELECT 1 FROM proprietaires WHERE id_tiers=? LIMIT 1");
+            $p->execute([$tiersId]); if ($p->fetchColumn()) return true;
+            $b = $pdo->prepare("SELECT 1 FROM biens b JOIN proprietaires p ON p.id=b.id_proprietaire WHERE p.id_tiers=? AND b.id_societe=? LIMIT 1");
+            $b->execute([$tiersId, $soc]); if ($b->fetchColumn()) return true;
+        } catch (Throwable $e) { /* table absente → non bloquant */ }
+        return false;
+    }
     /** Biens d'un propriétaire (tiers) — chaîne biens.id_proprietaire → proprietaires.id_tiers. */
     function fin_biens_of_tiers(PDO $pdo, int $tiersId, int $soc): array {
         $st = $pdo->prepare("SELECT b.id, TRIM(CONCAT(COALESCE(b.reference_bien,''),' · ',COALESCE(b.adresse_1,''),' ',COALESCE(b.ville,''))) AS label
@@ -281,6 +300,10 @@ if (!function_exists('fin_related_block')) {
         // dédoublonne par id
         $seen = []; $uniq = [];
         foreach ($rows as $r) { if (!isset($seen[$r['id']])) { $seen[$r['id']] = 1; $uniq[] = $r; } }
+        // Contexte TIERS : propriétaire réel → liste + création ; non-propriétaire mais lié → liste seule ;
+        // ni propriétaire ni lié → on n'affiche RIEN (pas de bloc sur un locataire/avocat/notaire…).
+        $isProprio = ($type === 'TIERS') && fin_is_proprietaire($pdo, $entityId, $soc);
+        if ($type === 'TIERS' && !$isProprio && empty($uniq)) return '';
         $app = fn($p) => function_exists('app_url') ? app_url($p) : $p;
         $h = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
         $tl = fin_type_labels(); $sl = fin_statut_labels();
@@ -290,9 +313,9 @@ if (!function_exists('fin_related_block')) {
                 . $h($r['libelle']) . ' <span style="color:#98917f">· ' . $h($tl[$r['type']] ?? $r['type']) . ' · ' . $h($sl[$r['statut']] ?? $r['statut']) . '</span></a>';
         }
         if ($items === '') $items = '<div style="color:#98917f;font-size:.84rem;padding:4px 0">Aucun dossier financier lié.</div>';
-        // Depuis la fiche PROPRIÉTAIRE (tiers) : bouton de création pré-branchée sur ce propriétaire.
-        $createBtn = $type === 'TIERS'
-            ? '<a href="' . $h($app('/financement_liste.php?tiers=' . $entityId)) . '" style="font-size:.78rem;color:#fff;background:#7a6830;border-radius:8px;padding:3px 10px;text-decoration:none">+ Créer un dossier</a> '
+        // Bouton de création UNIQUEMENT sur la fiche d'un propriétaire réel (jamais locataire/pro externe).
+        $createBtn = $isProprio
+            ? '<a href="' . $h($app('/financement_liste.php?tiers=' . $entityId)) . '" style="font-size:.78rem;color:#fff;background:#7a6830;border-radius:8px;padding:3px 10px;text-decoration:none">+ Créer un dossier financier</a> '
             : '';
         return '<div style="background:#fff;border:1px solid #ece7d6;border-left:4px solid #7a6830;border-radius:12px;padding:12px 14px;margin:12px 0">'
             . '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">'
