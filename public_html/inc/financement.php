@@ -28,9 +28,24 @@ if (!function_exists('fin_type_labels')) {
     function fin_niveau_labels(): array {
         return ['lecture' => 'Lecture', 'contribution' => 'Contribution', 'validation' => 'Validation', 'pilote' => 'Pilote'];
     }
-    /** Catégories documentaires générales (relation_type du lien GED). */
+    /**
+     * Rubrique FINANCEMENT — types de documents à charger (10 max).
+     * Les clés = codes GED (ged_document_types, metier='financement' + 3 génériques réutilisés) ;
+     * rangées dans `relation_type` du lien GED.
+     */
     function fin_ged_categories(): array {
-        return ['pret_banque' => 'Prêt et banque', 'procedure' => 'Assignation et procédure', 'decompte' => 'Décompte', 'paiement' => 'Paiement', 'garantie' => 'Garantie et hypothèque', 'comptabilite' => 'Comptabilité', 'notaire' => 'Notaire', 'avocat' => 'Avocat', 'correspondance' => 'Correspondance', 'autre' => 'Autre'];
+        return [
+            'OFFRE_PRET'            => 'Offre de prêt',
+            'ACCORD_BANCAIRE'       => 'Accord bancaire',
+            'TABLEAU_AMORTISSEMENT' => "Tableau d'amortissement",
+            'GARANTIE'              => 'Garantie',
+            'ASSURANCE_EMPRUNTEUR'  => 'Assurance emprunteur',
+            'APPEL_FONDS'           => 'Appel de fonds',
+            'DEBLOCAGE_FONDS'       => 'Déblocage des fonds',
+            'CORRESPONDANCE'        => 'Correspondance',
+            'ATTESTATION'           => 'Attestation',
+            'AUTRE'                 => 'Autre',
+        ];
     }
     function fin_L(array $map, ?string $k, string $fallback = '—'): string { return $k !== null && isset($map[$k]) ? $map[$k] : $fallback; }
 }
