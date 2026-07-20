@@ -255,8 +255,58 @@ if (!function_exists('bef_enrich_from_carte')) {
      *
      * Appelé après auto-commit GED (ou manuellement depuis review).
      */
+    /**
+     * T3 — Enrichit DÉFENSIVEMENT le propriétaire (SIREN) et l'immeuble (adresse) DÉJÀ liés au
+     * bien, depuis l'extraction. Jamais de création ni de re-lien : on ne complète que des
+     * colonnes vides d'entités existantes (biens.id_proprietaire / biens.id_immeuble).
+     */
+    function bef_enrich_proprio_immeuble(PDO $pdo, int $bienId, array $ext, ?int $carteId, int $iaConf): array {
+        $out = ['proprio_siren' => null, 'immeuble' => null];
+
+        // Propriétaire : biens.id_proprietaire → proprietaires.id_tiers → tiers.siren (si vide).
+        $siren = preg_replace('/\D/', '', (string)($ext['proprietaire_siren'] ?? $ext['bailleur_siren'] ?? ''));
+        if (strlen((string)$siren) === 9) {
+            try {
+                $st = $pdo->prepare("SELECT t.id, COALESCE(t.siren,'') siren
+                                       FROM biens b JOIN proprietaires p ON p.id = b.id_proprietaire
+                                       JOIN tiers t ON t.id = p.id_tiers WHERE b.id = ? LIMIT 1");
+                $st->execute([$bienId]);
+                $r = $st->fetch(PDO::FETCH_ASSOC);
+                if ($r && $r['siren'] === '') {
+                    $pdo->prepare("UPDATE tiers SET siren = ? WHERE id = ?")->execute([$siren, (int)$r['id']]);
+                    $out['proprio_siren'] = $siren;
+                    bef_log_audit($pdo, 0, $carteId, 'enrich_proprio', 'SIREN propriétaire → tiers #' . $r['id'], ['siren' => $siren], $iaConf / 100);
+                }
+            } catch (Throwable $e) { /* best-effort */ }
+        }
+
+        // Immeuble : adresse/cp/ville (si vides) depuis l'adresse du bien extraite.
+        $adr = trim((string)($ext['adresse_bien'] ?? '')); $cp = trim((string)($ext['code_postal'] ?? '')); $ville = trim((string)($ext['ville'] ?? ''));
+        if ($adr !== '' || $cp !== '' || $ville !== '') {
+            try {
+                $st = $pdo->prepare("SELECT i.id, COALESCE(i.adresse_1,'') a, COALESCE(i.code_postal,'') cp, COALESCE(i.ville,'') v
+                                       FROM biens b JOIN immeubles i ON i.id = b.id_immeuble WHERE b.id = ? LIMIT 1");
+                $st->execute([$bienId]);
+                $im = $st->fetch(PDO::FETCH_ASSOC);
+                if ($im) {
+                    $sets = []; $p = [];
+                    if ($adr !== ''   && $im['a']  === '') { $sets[] = 'adresse_1 = ?';   $p[] = $adr; }
+                    if ($cp !== ''    && $im['cp'] === '') { $sets[] = 'code_postal = ?'; $p[] = $cp; }
+                    if ($ville !== '' && $im['v']  === '') { $sets[] = 'ville = ?';       $p[] = $ville; }
+                    if ($sets) {
+                        $p[] = (int)$im['id'];
+                        $pdo->prepare('UPDATE immeubles SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($p);
+                        $out['immeuble'] = ['id' => (int)$im['id'], 'champs' => count($sets)];
+                        bef_log_audit($pdo, 0, $carteId, 'enrich_immeuble', 'Adresse immeuble #' . $im['id'], ['champs' => $sets], $iaConf / 100);
+                    }
+                }
+            } catch (Throwable $e) { /* best-effort */ }
+        }
+        return $out;
+    }
+
     function bef_enrich_from_carte(int $carteId, PDO $pdo): array {
-        $result = ['bien' => null, 'mandat' => null, 'bail' => null, 'tiers_resolution' => null, 'skipped' => null];
+        $result = ['bien' => null, 'mandat' => null, 'bail' => null, 'dpe' => null, 'proprio_immeuble' => null, 'tiers_resolution' => null, 'skipped' => null];
 
         // Lit carte + doc + hash + entity
         $st = $pdo->prepare("SELECT c.proposition_json, d.hash_sha256 FROM fluxbox_cartes c LEFT JOIN fluxbox_documents d ON d.id = c.document_id WHERE c.id = ?");
@@ -309,6 +359,22 @@ if (!function_exists('bef_enrich_from_carte')) {
                     'Report bail → bien_baux #' . ($result['bail']['bail_id'] ?? 0),
                     ['champs' => array_keys($bailFields), 'action' => $result['bail']['action'] ?? null], $iaConf / 100);
             }
+        }
+
+        // Si type_doc = DPE/diagnostic → report complet (dpe_diags + sync biens) via la fonction
+        // dédiée, en mode NON destructif (fillOnly). Complète bef_enrich_bien (qui ne pose qu'un
+        // sous-ensemble sur biens) et crée la ligne dpe_diags. Corrige « le DPE ne remplit rien ».
+        if ((str_contains($typeDoc, 'dpe') || str_contains($typeDoc, 'diagnostic')) && !empty($prop['bien_id'])) {
+            require_once __DIR__ . '/bien_apply_extracted.php';
+            $result['dpe'] = apply_dpe_extracted_to_bien($pdo, (int)$prop['bien_id'], $extraction, null, null, true);
+            bef_log_audit($pdo, 0, $carteId, 'enrich_dpe',
+                'Report DPE → dpe_diags/biens #' . ($result['dpe']['dpe_id'] ?? 0),
+                ['action' => $result['dpe']['action'] ?? null], $iaConf / 100);
+        }
+
+        // T3 : enrichit défensivement le propriétaire (SIREN) + l'immeuble (adresse) existants.
+        if (!empty($prop['bien_id'])) {
+            $result['proprio_immeuble'] = bef_enrich_proprio_immeuble($pdo, (int)$prop['bien_id'], $extraction, $carteId, $iaConf);
         }
 
         // Résolution tiers anti-doublon (propose, ne crée pas auto)
