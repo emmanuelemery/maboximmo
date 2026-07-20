@@ -256,7 +256,7 @@ if (!function_exists('bef_enrich_from_carte')) {
      * Appelé après auto-commit GED (ou manuellement depuis review).
      */
     function bef_enrich_from_carte(int $carteId, PDO $pdo): array {
-        $result = ['bien' => null, 'mandat' => null, 'tiers_resolution' => null, 'skipped' => null];
+        $result = ['bien' => null, 'mandat' => null, 'bail' => null, 'tiers_resolution' => null, 'skipped' => null];
 
         // Lit carte + doc + hash + entity
         $st = $pdo->prepare("SELECT c.proposition_json, d.hash_sha256 FROM fluxbox_cartes c LEFT JOIN fluxbox_documents d ON d.id = c.document_id WHERE c.id = ?");
@@ -295,6 +295,19 @@ if (!function_exists('bef_enrich_from_carte')) {
             $mandatId = (int)$st->fetchColumn();
             if ($mandatId > 0) {
                 $result['mandat'] = bef_enrich_mandat($mandatId, $extraction, $iaConf, $pdo, $carteId);
+            }
+        }
+
+        // Si type_doc = bail → reporte l'extraction dans bien_baux (via l'adaptateur, sans IA
+        // supplémentaire). Corrige le fait que le flux FluxBox n'alimentait jamais le bail.
+        if (str_contains($typeDoc, 'bail') && !empty($prop['bien_id'])) {
+            require_once __DIR__ . '/bien_apply_extracted.php';
+            $bailFields = bail_map_transaction_extraction($extraction);
+            if (!empty($bailFields)) {
+                $result['bail'] = apply_bail_extracted_to_bien($pdo, (int)$prop['bien_id'], $bailFields, null, null);
+                bef_log_audit($pdo, 0, $carteId, 'enrich_bail',
+                    'Report bail → bien_baux #' . ($result['bail']['bail_id'] ?? 0),
+                    ['champs' => array_keys($bailFields), 'action' => $result['bail']['action'] ?? null], $iaConf / 100);
             }
         }
 

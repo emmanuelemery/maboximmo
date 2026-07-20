@@ -94,6 +94,22 @@ if (!function_exists('apply_bail_extracted_to_bien')) {
             'caution_type'             => $fields['caution_type_caution']    ?? ($fields['caution_type'] ?? null),
             'caution_nom'              => $fields['caution_nom']             ?? null,
             'caution_prenom'           => $fields['caution_prenom']          ?? null,
+            // Représentants légaux (colonnes migration 20260518_bien_baux_representants)
+            'bailleur_representant_nom'       => $fields['proprio_representant_nom']       ?? ($fields['bailleur_representant_nom'] ?? null),
+            'bailleur_representant_qualite'   => $fields['proprio_representant_qualite']   ?? ($fields['bailleur_representant_qualite'] ?? null),
+            'bailleur_representant_email'     => $fields['bailleur_representant_email']     ?? null,
+            'bailleur_representant_telephone' => $fields['bailleur_representant_telephone'] ?? null,
+            'locataire_representant_nom'       => $fields['locataire_representant_nom']       ?? null,
+            'locataire_representant_qualite'   => $fields['locataire_representant_qualite']   ?? null,
+            'locataire_representant_email'     => $fields['locataire_representant_email']     ?? null,
+            'locataire_representant_telephone' => $fields['locataire_representant_telephone'] ?? null,
+            // Assurance / renonciation à recours (migration 20260518_bail_assurance_et_descriptif)
+            'renonciation_recours_reciproque' => isset($fields['renonciation_recours_reciproque']) ? (!empty($fields['renonciation_recours_reciproque']) ? 1 : 0) : null,
+            'renonciation_recours_locataire'  => isset($fields['renonciation_recours_locataire'])  ? (!empty($fields['renonciation_recours_locataire'])  ? 1 : 0) : null,
+            'renonciation_recours_bailleur'   => isset($fields['renonciation_recours_bailleur'])   ? (!empty($fields['renonciation_recours_bailleur'])   ? 1 : 0) : null,
+            'assurance_surprimes_a_charge'    => $fields['assurance_surprimes_a_charge']    ?? null,
+            'assurance_justification_annuelle'=> isset($fields['assurance_justification_annuelle']) ? (!empty($fields['assurance_justification_annuelle']) ? 1 : 0) : null,
+            'assurance_risques_couverts'      => $fields['assurance_risques_couverts_json'] ?? null,
         ];
         // Garde uniquement les colonnes qui existent + valeurs non vides
         $map = array_filter($map, fn($v) => $v !== null && $v !== '');
@@ -497,5 +513,77 @@ if (!function_exists('apply_dpe_extracted_to_bien')) {
         }
 
         return ['ok' => true, 'action' => $action, 'dpe_id' => $dpeId, 'notes' => $notes];
+    }
+}
+
+if (!function_exists('bail_map_transaction_extraction')) {
+    /**
+     * Adapte une extraction au format transaction_doc_extract_ia (clés "plates" locataire,
+     * loyer_mensuel_ht, date_debut_bail, indice_revision, conditions_particulieres…) vers les
+     * clés attendues par apply_bail_extracted_to_bien (format bien_intake_bail : bail_*, etc.).
+     *
+     * Ne fabrique rien : renvoie uniquement les clés dont la source existe. Sert de pont pour
+     * reporter dans bien_baux une extraction bail DÉJÀ réalisée (aucun appel IA supplémentaire).
+     */
+    function bail_map_transaction_extraction(array $x): array {
+        $g = fn(string $k) => (isset($x[$k]) && $x[$k] !== '' && $x[$k] !== null) ? $x[$k] : null;
+        $typeDoc = strtolower((string)($x['type_doc'] ?? ''));
+        $nature  = str_contains($typeDoc, 'commercial') ? 'commercial'
+                 : (str_contains($typeDoc, 'habitation') ? 'habitation'
+                 : (str_contains($typeDoc, 'professionnel') ? 'professionnel' : null));
+
+        // Loyer : mensuel HT si dispo, sinon annuel/12. Charges : annuelles/12.
+        $loyerMensuel = $g('loyer_mensuel_ht');
+        if ($loyerMensuel === null && $g('loyer_annuel_ht')) $loyerMensuel = round((float)$x['loyer_annuel_ht'] / 12, 2);
+        $chargesMensuelles = $g('charges_mensuelles');
+        if ($chargesMensuelles === null && $g('charges_annuelles')) $chargesMensuelles = round((float)$x['charges_annuelles'] / 12, 2);
+
+        $locForme = strtolower((string)($x['locataire_forme'] ?? ''));
+        $locEstSociete = str_contains($locForme, 'societe') || str_contains($locForme, 'société');
+
+        $out = [
+            'bail_bail_nature'         => $nature,
+            'bail_date_signature'      => $g('date_signature'),
+            'bail_date_prise_effet'    => $g('date_debut_bail'),
+            'bail_date_fin'            => $g('date_fin_bail'),
+            'bail_duree_mois'          => $g('duree_mois'),
+            'signature_status'         => $g('signature_status'),
+            'bail_destination_activite' => $g('bien_destination_usage') ?? $g('destination'),
+            // Locataire
+            'locataire_type_personne'  => $locEstSociete ? 'societe' : ($locForme ? 'physique' : null),
+            'locataire_nom'            => $g('locataire'),
+            'locataire_raison_sociale' => $locEstSociete ? $g('locataire') : null,
+            'locataire_representant_nom'       => $g('locataire_representant_nom'),
+            'locataire_representant_qualite'   => $g('locataire_representant_qualite'),
+            'locataire_representant_email'     => $g('locataire_representant_email'),
+            'locataire_representant_telephone' => $g('locataire_representant_telephone'),
+            // Bailleur (représentant seulement ici — le tiers propriétaire = T3)
+            'proprio_representant_nom'     => $g('bailleur_representant_nom'),
+            'proprio_representant_qualite' => $g('bailleur_representant_qualite'),
+            'bailleur_representant_email'     => $g('bailleur_representant_email'),
+            'bailleur_representant_telephone' => $g('bailleur_representant_telephone'),
+            // Finances
+            'loyer_mensuel_hc'         => $loyerMensuel,
+            'charges_mensuelles'       => $chargesMensuelles,
+            'depot_garantie'           => $g('depot_garantie'),
+            'tva_applicable'           => $g('tva_applicable'),
+            'indice_type'              => $g('indice_revision'),
+            'indice_trimestre'         => $g('indice_reference_trimestre'),
+            'indice_valeur'            => $g('indice_reference_valeur'),
+            // Assurance / renonciation
+            'renonciation_recours_reciproque' => $g('renonciation_recours_reciproque'),
+            'renonciation_recours_locataire'  => $g('renonciation_recours_locataire'),
+            'renonciation_recours_bailleur'   => $g('renonciation_recours_bailleur'),
+            'assurance_surprimes_a_charge'    => $g('assurance_surprimes_a_charge'),
+            'assurance_justification_annuelle'=> $g('assurance_justification_annuelle'),
+            // Clauses
+            'conditions_particulieres' => $g('conditions_particulieres'),
+            'bien_designation'         => $g('bien_description'),
+        ];
+        // Risques couverts (array) → colonne JSON
+        if (!empty($x['assurance_risques_couverts']) && is_array($x['assurance_risques_couverts'])) {
+            $out['assurance_risques_couverts_json'] = json_encode(array_values($x['assurance_risques_couverts']), JSON_UNESCAPED_UNICODE);
+        }
+        return array_filter($out, fn($v) => $v !== null && $v !== '');
     }
 }
