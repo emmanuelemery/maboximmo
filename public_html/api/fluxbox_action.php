@@ -1257,6 +1257,7 @@ try {
                 $origUploadedAt = '';
                 $origUploaderId = 0;
                 $origTitre = '';
+                $origGedName = '';
                 try {
                     $stC = $pdo->prepare("SELECT id, statut, titre, created_at, created_by FROM fluxbox_cartes WHERE document_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1");
                     $stC->execute([(int)$ingest['id'], fluxbox_current_tenant_id()]);
@@ -1270,10 +1271,10 @@ try {
                     $stD = $pdo->prepare("SELECT fichier_nom FROM fluxbox_documents WHERE id = ? LIMIT 1");
                     $stD->execute([(int)$ingest['id']]);
                     $origFilename = (string)$stD->fetchColumn();
-                    $stG = $pdo->prepare("SELECT id FROM ged_documents WHERE fluxbox_source_id = ? LIMIT 1");
+                    $stG = $pdo->prepare("SELECT id, name_display FROM ged_documents WHERE fluxbox_source_id = ? LIMIT 1");
                     $stG->execute([(int)$ingest['id']]);
                     $row = $stG->fetch(PDO::FETCH_ASSOC);
-                    if ($row) $origGedDocId = (int)$row['id'];
+                    if ($row) { $origGedDocId = (int)$row['id']; $origGedName = (string)$row['name_display']; }
                 } catch (Throwable) {}
 
                 fbx_api_respond(true, [
@@ -1283,6 +1284,7 @@ try {
                         'orig_doc_id'     => (int)$ingest['id'],
                         'orig_carte_id'   => $origCarteId,
                         'orig_ged_doc_id' => $origGedDocId,
+                        'orig_ged_name'   => $origGedName,
                         'orig_carte_status' => $origStatut,
                         'orig_filename'   => $origFilename,
                         'orig_uploaded_at' => $origUploadedAt,

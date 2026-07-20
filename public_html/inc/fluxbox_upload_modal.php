@@ -67,6 +67,7 @@ try {
         <input type="hidden" name="prefill_immeuble_id" id="fbx-prefill-immeuble-id" value="0">
         <input type="hidden" name="prefill_tiers_id"    id="fbx-prefill-tiers-id"    value="0">
         <input type="hidden" name="prefill_bail_id"     id="fbx-prefill-bail-id"     value="0">
+        <input type="hidden" name="prefill_emp_id"      id="fbx-prefill-emp-id"      value="0">
         <input type="hidden" name="prefill_soc_id"      id="fbx-prefill-soc-id"      value="0">
         <input type="hidden" name="prefill_age_id"      id="fbx-prefill-age-id"      value="0">
         <input type="hidden" name="prefill_origin"      id="fbx-prefill-origin"      value="">
@@ -900,6 +901,60 @@ try {
 .fbx-target-proprio .fbx-target-label { color: #0e7490; }
 .fbx-target-proprio .fbx-target-name  { color: #0e2a3a; }
 
+/* COLLABORATEUR (RH) — mauve #7a6898 */
+.fbx-target-emp {
+    background: linear-gradient(135deg, rgba(122,104,152,0.08) 0%, rgba(122,104,152,0.16) 100%);
+    border: 1px solid #7a6898;
+    border-left: 4px solid #7a6898;
+    box-shadow: 4px 4px 12px rgba(122,104,152,0.18);
+}
+.fbx-target-emp .fbx-target-icon {
+    background: linear-gradient(135deg, rgba(122,104,152,0.55), rgba(122,104,152,0.95));
+}
+.fbx-target-emp .fbx-target-label { color: #5a4878; }
+.fbx-target-emp .fbx-target-name  { color: #2e2547; }
+
+/* IMMEUBLE — vert profond #3D7465 (palette module) */
+.fbx-target-immeuble {
+    background: linear-gradient(135deg, rgba(61,116,101,0.08) 0%, rgba(61,116,101,0.16) 100%);
+    border: 1px solid #3D7465;
+    border-left: 4px solid #3D7465;
+    box-shadow: 4px 4px 12px rgba(61,116,101,0.18);
+}
+.fbx-target-immeuble:hover { box-shadow: 6px 6px 16px rgba(61,116,101,0.28); }
+.fbx-target-immeuble .fbx-target-icon {
+    background: linear-gradient(135deg, rgba(61,116,101,0.55), rgba(61,116,101,0.95));
+}
+.fbx-target-immeuble .fbx-target-label { color: #2e5a4d; }
+.fbx-target-immeuble .fbx-target-name  { color: #16352b; }
+
+/* Card VIDE (propriétaire à rattacher) — pointillés + champ de recherche inline */
+.fbx-target-card.fbx-target-empty {
+    cursor: default;
+    border-style: dashed;
+    background: linear-gradient(135deg, rgba(14,116,144,0.04) 0%, rgba(14,116,144,0.09) 100%);
+}
+.fbx-target-card.fbx-target-empty:hover { transform: none; }
+.fbx-target-empty .fbx-target-icon { opacity: .55; }
+.fbx-target-search { position: relative; margin-top: 6px; }
+.fbx-target-search input {
+    width: 100%; box-sizing: border-box;
+    padding: 8px 10px; font-size: 13px;
+    border: 1px solid #0e7490; border-radius: 9px;
+    background: #fff; color: #0e2a3a;
+}
+.fbx-target-search input:focus { outline: 2px solid #0e7490; outline-offset: 0; }
+.fbx-target-search .fbx-entity-results {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 40;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.16);
+    max-height: 260px; overflow-y: auto; display: none;
+}
+.fbx-target-search .fbx-entity-results.is-open { display: block; }
+.fbx-target-search .fbx-entity-res-main { padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+.fbx-target-search .fbx-entity-res-main:hover { background: #f0fdf4; }
+.fbx-target-search .fbx-entity-res-main .b { font-size: 10px; font-weight: 700; color: #0e7490; margin-right: 6px; text-transform: uppercase; }
+
 .fbx-target-icon {
     width: 48px; height: 48px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
@@ -1607,7 +1662,13 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     const API           = <?= json_encode($_fbxApiUrl, JSON_UNESCAPED_SLASHES) ?>;
     const API_GED_NAME  = API.replace('fluxbox_action.php', 'fluxbox_ged_name_preview.php');
     const API_ENTITY    = API.replace('fluxbox_action.php', 'fluxbox_entity_search.php');
+    const API_SET_PROPRIO = API.replace('fluxbox_action.php', 'fluxbox_bien_set_proprio.php');
     const API_RESOLVE   = API.replace('fluxbox_action.php', 'fluxbox_entity_resolve.php');
+    const RENAME_API    = API.replace('fluxbox_action.php', 'ged_rename.php');
+    // Onglet Photo d'un BIEN : on court-circuite le pipeline GED (qui ignore les images) et on
+    // réutilise l'endpoint galerie du bien qui fonctionne (biens_photos). Token dédié 'ajouter_bien'.
+    const API_BIEN_PHOTO = API.replace('fluxbox_action.php', 'bien_intake_photo_upload.php');
+    const CSRF_BIEN_PHOTO = <?= json_encode(function_exists('csrf_token') ? csrf_token('ajouter_bien') : '', JSON_UNESCAPED_SLASHES) ?>;
     const FLUXBOX_URL   = <?= json_encode($_fbxFluxboxUrl, JSON_UNESCAPED_SLASHES) ?>;
     const CSRF          = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
     const IS_ADMIN      = <?= $_fbxIsAdmin ? 'true' : 'false' ?>;
@@ -1712,10 +1773,26 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                         <button type="button" class="fbx-dedup-dismiss" data-carte="${encodeURIComponent(d.orig_carte_id)}"
                             style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:6px 12px;font-weight:800;cursor:pointer;margin-left:6px;">🗑️ Supprimer</button>
                         <a href="${pileBase}?carte=${encodeURIComponent(d.orig_carte_id)}" target="_blank" style="margin-left:8px;">→ Voir</a>`;
+            } else if (d.orig_ged_doc_id) {
+                // Déjà classé en GED : fichier identique → on ne re-traite pas, mais on peut
+                // RENOMMER le doc GED existant (fichier + liens conservés). L'ancien nom est
+                // affiché, éditable, pour voir précisément ce qui change avant d'appliquer.
+                const esc0 = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                const gid = parseInt(d.orig_ged_doc_id, 10);
+                const cur = d.orig_ged_name || d.orig_filename || '';
+                orig = `<div style="width:100%">
+                        <div style="font-size:11px;color:#6b7280;font-weight:700;margin-bottom:2px">Nom GED actuel</div>
+                        <div style="font-family:monospace;font-size:11.5px;color:#334155;word-break:break-all;margin-bottom:6px">📚 #${gid} — ${esc0(cur)}</div>
+                        <input type="text" class="fbx-ged-rename-input" data-ged="${gid}" value="${esc0(cur)}"
+                               style="width:100%;padding:6px 8px;border:1px solid #cbd8da;border-radius:8px;font-size:11.5px;font-family:monospace;margin-bottom:6px">
+                        <button type="button" class="fbx-ged-rename-btn" data-ged="${gid}"
+                               style="background:#243B5C;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;cursor:pointer;">✏️ Renommer le doc GED</button>
+                        <a href="${API.replace('fluxbox_action.php','ged_document_view.php')}?id=${gid}&mode=inline" target="_blank" style="margin-left:8px;font-size:12px;">→ Voir</a>
+                       </div>`;
             } else if (d.orig_carte_id) {
                 orig = `<a href="${pileBase}?carte=${encodeURIComponent(d.orig_carte_id)}" target="_blank">→ Voir carte #${d.orig_carte_id}</a>`;
             } else {
-                orig = (d.orig_ged_doc_id ? `📚 Déjà en GED #${d.orig_ged_doc_id}` : '⚠ supprimée');
+                orig = '⚠ supprimée';
             }
             const uploadedAt = d.orig_uploaded_at ? new Date(d.orig_uploaded_at.replace(' ', 'T')).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}) : '';
             const escape = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1737,8 +1814,34 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             if (vb) vb.addEventListener('click', () => fbxValidateCarteInline(decodeURIComponent(vb.getAttribute('data-carte')), vb));
             const db = item.querySelector('.fbx-dedup-dismiss');
             if (db) db.addEventListener('click', () => fbxDismissCarteInline(decodeURIComponent(db.getAttribute('data-carte')), db));
+            const rb = item.querySelector('.fbx-ged-rename-btn');
+            if (rb) rb.addEventListener('click', () => {
+                const inp = item.querySelector('.fbx-ged-rename-input');
+                fbxRenameGedInline(parseInt(rb.getAttribute('data-ged'), 10), inp ? inp.value : '', rb);
+            });
         });
         wrap.hidden = false;
+    }
+
+    // Renomme le doc GED déjà classé (fichier + liens conservés) — cf. api/ged_rename.php.
+    async function fbxRenameGedInline(gedId, newName, btn) {
+        newName = (newName || '').trim();
+        if (!gedId || !newName) { alert('Nom vide'); return; }
+        btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳…';
+        try {
+            const r = await fetch(RENAME_API, { method:'POST',
+                headers:{ 'Content-Type':'application/json', 'X-CSRF-Token':CSRF },
+                body: JSON.stringify({ ged_id: gedId, name: newName, csrf: CSRF }) });
+            const j = await r.json();
+            if (j && j.ok) {
+                btn.textContent = '✅ Renommé'; btn.style.background = '#15803d';
+                window.FBX_FICHE_DIRTY = true;
+                showToast('', 'success', 'Doc GED #' + gedId + ' renommé.');
+            } else {
+                btn.disabled = false; btn.textContent = old;
+                alert('❌ ' + ((j && j.error) || 'Échec du renommage'));
+            }
+        } catch (e) { btn.disabled = false; btn.textContent = old; alert('❌ Réseau : ' + e); }
     }
 
     // Supprime (dismiss) une carte pending + son fichier physique — annule le chargement.
@@ -2071,6 +2174,20 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                     // (mini-card top "fbx-target-card" affichée par openModal — pas de doublon ici)
                 }, 100);
             }
+
+            // Amorce d'année pour un PV d'assemblée (bouton « + charger 2025 » de la fiche immeuble) :
+            // on pré-remplit la PÉRIODE (= date de l'assemblée) au 1er janvier de l'année cliquée ;
+            // l'utilisateur affine jour/mois. Le champ « Date du document » reste auto.
+            if (prefill && prefill.doc_period_hint && /^\d{4}$/.test(String(prefill.doc_period_hint))) {
+                setTimeout(() => {
+                    const pEl = document.getElementById('fbx-doc-period');
+                    if (pEl && pEl.type === 'date' && !pEl.value) {
+                        pEl.value = String(prefill.doc_period_hint) + '-01-01';
+                        choice.doc_period = pEl.value;
+                        try { fbxRenderGedZonesContext(); } catch (e) {}
+                    }
+                }, 250);
+            }
         } catch (e) {
             rowSoc.innerHTML = '<div class="fbx-row-empty">Réseau : ' + e.message + '</div>';
         }
@@ -2339,7 +2456,16 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             var rw=document.getElementById('fbx-doc-rhcat-wrap');
             if(!pw||!pin) return;
             var C=(code||'').toUpperCase(), M=(metier||'').toLowerCase(), lbl='', kind='', rh=false;
-            if (M==='rh' || C.indexOf('BULLETIN')!==-1 || C.indexOf('PAIE')!==-1){ lbl='📅 Bulletin (mois de paie)'; kind='month'; rh=(C.indexOf('BULLETIN')!==-1||C.indexOf('PAIE')!==-1); }
+            // ── Cas particulier PV d'assemblée : le champ « Période » sert de DATE de l'assemblée
+            //    (date exacte). Le libellé personnel se met par défaut à ORDINAIRE (éditable).
+            //    Le champ « Date du document » reste la date auto d'intégration (on n'y touche pas). ──
+            var isPV = (C.indexOf('PV_AG')!==-1 || C.indexOf('ASSEMBLEE')!==-1);
+            if (isPV){
+                var libEl=document.getElementById('fbx-doc-libelle');
+                if (libEl && !libEl.value){ libEl.value='ORDINAIRE'; choice.doc_libelle='ORDINAIRE'; }
+            }
+            if (isPV){ lbl='📅 Date de l\'assemblée'; kind='date'; }
+            else if (M==='rh' || C.indexOf('BULLETIN')!==-1 || C.indexOf('PAIE')!==-1){ lbl='📅 Bulletin (mois de paie)'; kind='month'; rh=(C.indexOf('BULLETIN')!==-1||C.indexOf('PAIE')!==-1); }
             else if (C==='CRG'){ lbl='📅 Trimestre (1er mois)'; kind='month'; }
             else if (C.indexOf('MANDAT')!==-1){ lbl='🔖 N° / réf mandat'; kind='text'; }
             else if (C.indexOf('FACTURE')!==-1){ lbl='📅 Mois (facultatif)'; kind='month'; }
@@ -2754,6 +2880,22 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             const ci = document.getElementById('fbx-qtype-custom-input');
             if (ci) userLabel = ci.value.trim();
         }
+        // Repli sur le « LIBELLÉ PERSONNEL » visible (ex. « ORDINAIRE » pour un PV d'AG).
+        if (!userLabel && choice.doc_libelle) userLabel = String(choice.doc_libelle).trim();
+        // Date cible : champ date explicite, sinon la PÉRIODE mois/année visible (ex. PV → « Mois de
+        // l'assemblée » = 2025-01) convertie en 1er du mois → alimente le nom + metadata.classement.date.
+        // Priorité à la PÉRIODE : pour un PV c'est la date exacte de l'assemblée (YYYY-MM-DD),
+        // pour CRG/bulletin un mois (YYYY-MM → 1er du mois). Elle prime sur la date d'intégration.
+        let targetDate = '';
+        const per = String(choice.doc_period || '');
+        if (/^\d{4}-\d{2}-\d{2}$/.test(per)) targetDate = per;
+        else if (/^\d{4}-\d{2}$/.test(per)) targetDate = per + '-01';
+        // Sinon : date explicite du classement, puis date visible du document.
+        if (!targetDate) targetDate = (dateEl?.value || '').trim();
+        if (!targetDate) {
+            const dv = (document.getElementById('fbx-doc-date')?.value || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dv)) targetDate = dv;
+        }
         return {
             user_comment:    (commentEl?.value || '').trim(),
             user_label:      userLabel,
@@ -2765,13 +2907,14 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             ged_n5: choice.n5 || '',
             target_societe_id: choice.societe_id || '',
             target_agence_id:  choice.agence_id  || '',
-            target_date: (dateEl?.value || '').trim(), // YYYY-MM-DD
+            target_date: targetDate, // YYYY-MM-DD (date explicite ou période mois/année du PV)
             // [V3.1 — 2026-05-25] Prefill métier propagé pour naming entité polymorphe
             prefill_bien_id:     pf.bien_id     ? parseInt(pf.bien_id, 10)     : 0,
             prefill_immeuble_id: pf.immeuble_id ? parseInt(pf.immeuble_id, 10) : 0,
             prefill_tiers_id:    pf.proprio_tiers_id ? parseInt(pf.proprio_tiers_id, 10)
                                : (pf.tiers_id ? parseInt(pf.tiers_id, 10) : 0),
             prefill_bail_id:     pf.bail_id ? parseInt(pf.bail_id, 10) : 0,
+            prefill_emp_id:      pf.emp_id  ? parseInt(pf.emp_id, 10)  : 0,
             prefill_creancier_dossier_id: pf.creancier_dossier_id ? parseInt(pf.creancier_dossier_id, 10) : 0,
             forced_type_doc:     choice.forced_type_doc || '',
             prefill_origin:      pf.origin || '',
@@ -2846,6 +2989,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         setHidden('fbx-prefill-immeuble-id', prefill.immeuble_id      || 0);
         setHidden('fbx-prefill-tiers-id',    prefill.proprio_tiers_id || prefill.tiers_id || 0);
         setHidden('fbx-prefill-bail-id',     prefill.bail_id          || 0);
+        setHidden('fbx-prefill-emp-id',      prefill.emp_id           || 0);
         setHidden('fbx-prefill-soc-id',      prefill.soc_id           || 0);
         setHidden('fbx-prefill-age-id',      prefill.age_id           || 0);
         setHidden('fbx-prefill-origin',      prefill.origin           || '');
@@ -2875,6 +3019,21 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                          : prefill.origin === 'transaction_index' ? 'tableau Transaction'
                          : (prefill.origin || 'page appelante');
 
+        // ── Mode COLLABORATEUR (EMP) : une seule card RH, pas de bien/immeuble/proprio ──
+        if (prefill.mode_emp && prefill.emp_id) {
+            const eNom = prefill.emp_nom ? String(prefill.emp_nom) : ('collaborateur #' + parseInt(prefill.emp_id, 10));
+            row.innerHTML =
+                '<div class="fbx-target-card fbx-target-emp">'
+              +   '<div class="fbx-target-icon">🧑‍💼</div>'
+              +   '<div class="fbx-target-body">'
+              +     '<div class="fbx-target-label">COLLABORATEUR (RH)</div>'
+              +     '<div class="fbx-target-name">' + eNom + '<span class="fbx-target-id">user #' + parseInt(prefill.emp_id, 10) + '</span></div>'
+              +     '<div class="fbx-target-from">→ document classé sous le salarié</div>'
+              +   '</div>'
+              + '</div>';
+            return;
+        }
+
         // ── Mini-card BIEN (gauche) — vert amande #84a98c ──
         const ref      = String(prefill.entite_nom);
         const idBdd    = prefill.entite_id_bdd ? parseInt(prefill.entite_id_bdd, 10) : 0;
@@ -2900,14 +3059,50 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
           +   '<div class="fbx-target-body">'
           +     '<div class="fbx-target-label">' + cardLabel + '</div>'
           +     '<div class="fbx-target-name">' + ref + idBadge + '</div>'
-          +     adrLine + immLine + bailLine
+          +     bailLine
           +     '<div class="fbx-target-from">→ depuis ' + originLbl + ' · 🔗 360°</div>'
           +   '</div>'
           + '</a>';
 
-        // ── Mini-card PROPRIÉTAIRE (droite) — pétrole cyan #0e7490 ──
+        // ── Mini-card IMMEUBLE (milieu) — vert profond #3D7465 ──
+        // Séparée du bien : un bien SANS immeuble rattaché affiche quand même le bâtiment
+        // (adresse) résolu par le moteur ; sinon « — » discret.
+        const hasBien   = !!(prefill.bien_id && parseInt(prefill.bien_id, 10) > 0);
+        const immUrl    = immId > 0 ? base + '/immeuble_360.php?id=' + immId : '';
+        const immBadge  = immId > 0 ? '<span class="fbx-target-id">imm #' + immId + '</span>' : '';
+        const immInner  =
+                '<div class="fbx-target-icon">🏛️</div>'
+              + '<div class="fbx-target-body">'
+              +   '<div class="fbx-target-label">IMMEUBLE</div>'
+              +   '<div class="fbx-target-name">' + (immNom || '—') + immBadge + '</div>'
+              +   (immId > 0 ? '<div class="fbx-target-from">🔗 360°</div>'
+                             : (immNom ? '<div class="fbx-target-from">adresse du bien</div>' : ''))
+              + '</div>';
+        const immeubleHtml = (immNom || immId > 0 || hasBien)
+            ? (immUrl
+                ? '<a class="fbx-target-card fbx-target-immeuble" href="' + immUrl + '" target="_blank" rel="noopener" title="Ouvrir la fiche 360° de l\'immeuble">' + immInner + '</a>'
+                : '<div class="fbx-target-card fbx-target-immeuble">' + immInner + '</div>')
+            : '';
+
+        // ── Mini-card PROPRIÉTAIRE (gauche) — pétrole cyan #0e7490 ──
+        // TOUJOURS visible dès qu'un bien est ciblé : si aucun propriétaire rattaché, on
+        // affiche un champ de recherche pour en sélectionner un (rattachement durable) →
+        // jamais de « — » pour un bien en gestion.
         let proprioHtml = '';
-        if (prefill.proprio_nom || prefill.proprio_id) {
+        if (!(prefill.proprio_nom || prefill.proprio_id) && hasBien) {
+            proprioHtml =
+                '<div class="fbx-target-card fbx-target-proprio fbx-target-empty">'
+              +   '<div class="fbx-target-icon">👤</div>'
+              +   '<div class="fbx-target-body">'
+              +     '<div class="fbx-target-label">PROPRIÉTAIRE</div>'
+              +     '<div class="fbx-target-name" style="font-size:13px;color:#0e7490;">À rattacher</div>'
+              +     '<div class="fbx-target-search">'
+              +       '<input type="text" id="fbx-proprio-search" placeholder="Rechercher un propriétaire…" autocomplete="off">'
+              +       '<div class="fbx-entity-results" id="fbx-proprio-results"></div>'
+              +     '</div>'
+              +   '</div>'
+              + '</div>';
+        } else if (prefill.proprio_nom || prefill.proprio_id) {
             const pNom      = prefill.proprio_nom ? String(prefill.proprio_nom) : 'Propriétaire #' + parseInt(prefill.proprio_id || 0, 10);
             const pTiersId  = prefill.proprio_tiers_id ? parseInt(prefill.proprio_tiers_id, 10) : 0;
             const pId       = prefill.proprio_id ? parseInt(prefill.proprio_id, 10) : 0;
@@ -2926,9 +3121,65 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
               +   '</div>'
               + '</a>';
         }
-        // Ordre demandé : PROPRIÉTAIRE d'abord, puis BIEN.
-        // Fix P0-2 : en mode propriétaire seul, on masque la card BIEN.
-        row.innerHTML = isProprietaireOnly ? proprioHtml : (proprioHtml + bienHtml);
+        // Ordre demandé : PROPRIÉTAIRE · IMMEUBLE · BIEN, sur une même ligne.
+        // Fix P0-2 : en mode propriétaire seul, on masque les cards IMMEUBLE + BIEN.
+        row.innerHTML = isProprietaireOnly ? proprioHtml : (proprioHtml + immeubleHtml + bienHtml);
+        // Card propriétaire vide → branche la recherche inline (sélection = rattachement durable).
+        try { fbxBindProprioAttachSearch(prefill); } catch (e) {}
+    }
+
+    // Recherche inline dans la card « Propriétaire » vide : sélectionne un tiers propriétaire
+    // et le RATTACHE durablement au bien (biens.id_proprietaire) puis re-render les cards.
+    function fbxBindProprioAttachSearch(prefill) {
+        const input = document.getElementById('fbx-proprio-search');
+        const out   = document.getElementById('fbx-proprio-results');
+        if (!input || !out) return;
+        const esc = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+        const bienId = prefill && prefill.bien_id ? parseInt(prefill.bien_id, 10) : 0;
+        let timer = null;
+        async function choose(it) {
+            out.classList.remove('is-open'); out.innerHTML = '';
+            const pf = window.FBX_PREFILL || {};
+            pf.proprio_tiers_id = it.id; pf.proprio_nom = it.label;
+            window.FBX_PREFILL = pf;
+            // Rattachement DURABLE côté serveur (biens.id_proprietaire).
+            if (bienId > 0 && it.id > 0) {
+                try {
+                    const r = await fetch(API_SET_PROPRIO, {
+                        method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},
+                        body: JSON.stringify({ csrf: CSRF, bien_id: bienId, tiers_id: it.id })
+                    });
+                    const d = await r.json();
+                    if (d && d.ok) { if (d.proprio_id) pf.proprio_id = d.proprio_id; if (d.proprio_nom) pf.proprio_nom = d.proprio_nom; window.FBX_PREFILL = pf; window.FBX_FICHE_DIRTY = true; }
+                } catch (e) {}
+            }
+            try { renderTargetCard(window.FBX_PREFILL); } catch(e){}
+            try { fbxRenderGedZonesContext(); } catch(e){}
+        }
+        input.addEventListener('input', () => {
+            const q = input.value.trim();
+            clearTimeout(timer);
+            if (q.length < 2) { out.classList.remove('is-open'); out.innerHTML = ''; return; }
+            timer = setTimeout(async () => {
+                try {
+                    const res = await fetch(API_ENTITY + '?q=' + encodeURIComponent(q) + '&types=tiers', { credentials:'same-origin' });
+                    const data = await res.json();
+                    const items = (data.ok ? (data.results || []) : []).filter(x => x.entity_type === 'tiers' && (x.id||0) > 0);
+                    out.innerHTML = '';
+                    if (!items.length) { out.classList.remove('is-open'); return; }
+                    items.forEach(it => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button'; btn.className = 'fbx-entity-res-main';
+                        btn.innerHTML = '<div class="ttl"><span class="b">' + esc(it.badge) + '</span>' + esc(it.label) + '</div>'
+                                      + (it.repere1 ? '<div class="rp">' + esc(it.repere1) + '</div>' : '');
+                        btn.addEventListener('click', () => choose(it));
+                        out.appendChild(btn);
+                    });
+                    out.classList.add('is-open');
+                } catch (e) { out.classList.remove('is-open'); }
+            }, 220);
+        });
+        document.addEventListener('click', (e) => { if (!out.contains(e.target) && e.target !== input) out.classList.remove('is-open'); });
     }
     function removeTargetCard() {
         const c = document.getElementById('fbx-target-row');
@@ -3024,6 +3275,10 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                     pf.tiers_id = it.id;
                 }
             }
+            else if (it.entity_type === 'user' || it.entity_type === 'collaborateur') {
+                // Collaborateur (RH) → entité EMP : le doc se classe SOUS le salarié.
+                pf.emp_id = it.id; pf.emp_nom = it.label; pf.mode_emp = true;
+            }
             else if (it.entity_type === 'societe')  { pf.soc_id = it.id; }
             window.FBX_PREFILL = pf;
 
@@ -3088,7 +3343,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 timer = setTimeout(async () => {
                     try {
                         const res = await fetch(API_ENTITY + '?q=' + encodeURIComponent(q)
-                                    + '&types=bien,immeuble,tiers', { credentials: 'same-origin' });
+                                    + '&types=bien,immeuble,tiers,user', { credentials: 'same-origin' });
                         const data = await res.json();
                         render(data.ok ? (data.results || []) : []);
                     } catch (e) { out.classList.remove('is-open'); }
@@ -3168,7 +3423,13 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         if (inputFolder.files && inputFolder.files.length > 0) uploadFiles(inputFolder.files);
     });
     inputPhoto?.addEventListener('change', () => {
-        if (inputPhoto.files && inputPhoto.files.length > 0) uploadFiles(inputPhoto.files);
+        if (!inputPhoto.files || inputPhoto.files.length === 0) return;
+        // Si le modal est ouvert sur un BIEN, les photos vont dans la GALERIE du bien
+        // (endpoint dédié qui fonctionne), pas dans le pipeline GED qui n'exploite pas les images.
+        const pf = window.FBX_PREFILL || {};
+        const bienId = pf.bien_id ? parseInt(pf.bien_id, 10) : 0;
+        if (bienId > 0) { uploadBienPhotos(inputPhoto.files, bienId); }
+        else { uploadFiles(inputPhoto.files); }
     });
 
     /* ─── URL distante ─── */
@@ -3322,6 +3583,56 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         // (le user peut fermer la modale, naviguer, le state.activeCount reste juste pour le badge)
     }
 
+    // Onglet Photo d'un BIEN : ajout direct à la galerie (biens_photos) via l'endpoint qui marche,
+    // exactement comme bien_detail. Pas de gate « type de doc » (une photo n'en a pas besoin),
+    // pas de cascade IA GED (qui n'exploite pas les images).
+    async function uploadBienPhotos(fileList, bienId) {
+        queueWrap.hidden = false;
+        const files = Array.from(fileList);
+        STATE.batchTotal += files.length;
+        updateProgress();
+        for (const file of files) {
+            STATE.activeCount++; updateBadges();
+            const li = addQueueItem(file.name, '⏳', 'Ajout à la galerie du bien…');
+            try {
+                const ext = (file.name.split('.').pop() || '').toLowerCase();
+                if (['jpg','jpeg','png','webp','heic','heif'].indexOf(ext) === -1) {
+                    STATE.errCount++;
+                    updateQueueItem(li, '❌', 'Format non supporté (JPG/PNG/WebP/HEIC).', 'error');
+                    showToast(file.name, 'error', 'Format non supporté');
+                    continue;
+                }
+                if (ext === 'heic' || ext === 'heif') { updateQueueItem(li, '⏳', 'Conversion iPhone (HEIC)…'); }
+                const fd = new FormData();
+                fd.append('fichier', file, file.name);
+                fd.append('id_bien', String(bienId));
+                fd.append('csrf_token', CSRF_BIEN_PHOTO);
+                // Libellé personnel = nom du GROUPE de photos (sous-dossier). Vide = groupe par défaut.
+                var _lib = document.getElementById('fbx-doc-libelle');
+                if (_lib && _lib.value.trim() !== '') fd.append('groupe_label', _lib.value.trim());
+                const res = await fetch(API_BIEN_PHOTO, { method: 'POST', body: fd, credentials: 'same-origin' });
+                const data = await res.json().catch(() => ({ ok: false, error: 'Réponse serveur invalide' }));
+                if (data && data.ok) {
+                    STATE.doneCount++;
+                    updateQueueItem(li, '✅', 'Photo ajoutée à la galerie du bien.', 'ok');
+                    showToast(file.name, 'success', 'Photo ajoutée au bien');
+                } else {
+                    STATE.errCount++;
+                    const err = (data && data.error) || 'Échec de l\'ajout.';
+                    updateQueueItem(li, '❌', err, 'error');
+                    showToast(file.name, 'error', err);
+                }
+            } catch (e) {
+                STATE.errCount++;
+                updateQueueItem(li, '❌', 'Erreur réseau : ' + e.message, 'error');
+            } finally {
+                STATE.activeCount = Math.max(0, STATE.activeCount - 1);
+                updateBadges();
+            }
+        }
+        if (inputPhoto) inputPhoto.value = '';
+    }
+
     async function uploadOne(file, meta) {
         const isZip = /\.zip$/i.test(file.name) || file.type === 'application/zip';
         const initMsg = isZip ? 'Envoi + extraction ZIP…' : 'Envoi…';
@@ -3347,6 +3658,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             fd.append('prefill_immeuble_id', String(meta.prefill_immeuble_id || 0));
             fd.append('prefill_tiers_id',    String(meta.prefill_tiers_id || 0));
             fd.append('prefill_bail_id',     String(meta.prefill_bail_id || 0));
+            fd.append('prefill_emp_id',      String(meta.prefill_emp_id || 0));
             fd.append('prefill_creancier_dossier_id', String(meta.prefill_creancier_dossier_id || 0));
             fd.append('forced_type_doc',     meta.forced_type_doc || '');
             fd.append('prefill_origin',      meta.prefill_origin || '');
@@ -3378,6 +3690,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                         orig_carte_id:   d.orig_carte_id || null,
                         orig_carte_status: d.orig_carte_status || '',
                         orig_ged_doc_id: d.orig_ged_doc_id || null,
+                        orig_ged_name:   d.orig_ged_name || '',
                         orig_uploaded_at: d.orig_uploaded_at || '',
                         orig_titre:      d.orig_titre || '',
                         seen_count:      d.seen_count || 1,
@@ -3540,7 +3853,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         // (codes glossaire) vient du MOTEUR serveur. On ne peint PLUS les libellés en JS
         // (sinon flash libellés→codes à chaque clic) : seul le moteur écrit la barre.
         const pf = window.FBX_PREFILL || {};
-        const hasEntity = !!(pf.bail_id || pf.bien_id || pf.immeuble_id || pf.proprio_tiers_id || pf.tiers_id);
+        const hasEntity = !!(pf.bail_id || pf.bien_id || pf.immeuble_id || pf.proprio_tiers_id || pf.tiers_id || pf.emp_id);
         if (hasEntity) {
             if (!nameEl.dataset.engineReady) nameEl.innerHTML = '<span class="gz-empty">Génération du nom…</span>';
             fbxFetchEngineGedName(zones);
@@ -3563,6 +3876,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             bien_id:     pf.bien_id     || 0,
             immeuble_id: pf.immeuble_id || 0,
             tiers_id:    pf.proprio_tiers_id || pf.tiers_id || 0,
+            emp_id:      pf.emp_id      || 0,
             societe_id:  (choice.societe_id || pf.soc_id || 0),
             agence_id:   (choice.agence_id  || pf.age_id || 0),
             metier:      (zones[2] && zones[2].v) ? String(zones[2].v).toLowerCase() : '',
@@ -3573,7 +3887,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             filename:    'x.pdf'
         };
         // Pas d'entité connue → le moteur ne peut rien de fiable : on garde l'aperçu JS.
-        if (!payload.bail_id && !payload.bien_id && !payload.immeuble_id && !payload.tiers_id) return;
+        if (!payload.bail_id && !payload.bien_id && !payload.immeuble_id && !payload.tiers_id && !payload.emp_id) return;
         clearTimeout(_gedNameTimer);
         _gedNameTimer = setTimeout(() => {
             try { if (_gedNameAbort) _gedNameAbort.abort(); } catch(e){}
@@ -3593,6 +3907,18 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 nameEl.innerHTML = html;
                 nameEl.dataset.engineReady = '1';
                 window.FBX_GED_NAME_LIVE = String(d.name).replace(/\.[A-Za-z0-9]{1,5}$/,''); // stem (l'ext est rajoutée ailleurs)
+                // COHÉRENCE nom ↔ panneau : le moteur remplit la position 5 (immeuble) avec
+                // l'immeuble rattaché OU, à défaut, l'ADRESSE du bien. Le panneau ne connaît
+                // que l'immeuble rattaché → il afficherait « — » alors que le nom montre le
+                // bâtiment. On récupère le libellé réel du moteur et on ré-affiche le panneau.
+                const pf2 = window.FBX_PREFILL || {};
+                if (d.immeuble_label && !pf2.immeuble_nom) {
+                    pf2.immeuble_nom = d.immeuble_label;
+                    if (d.immeuble_id && !pf2.immeuble_id) pf2.immeuble_id = d.immeuble_id;
+                    window.FBX_PREFILL = pf2;
+                    try { fbxRenderGedZonesContext(); } catch(e){}
+                    try { renderTargetCard(pf2); } catch(e){}
+                }
             }).catch(()=>{ /* réseau/abort : l'aperçu JS reste affiché */ });
         }, 220);
     }
