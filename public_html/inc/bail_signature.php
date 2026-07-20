@@ -71,9 +71,13 @@ if (!function_exists('bsig_create_for_signataires')) {
         // Liste des signataires : preneur (obligatoire) + garant (si présent).
         $signataires = [];
         $preneurNom = $bail['locataire_raison_sociale'] ?: trim((string)$bail['locataire_prenom'] . ' ' . $bail['locataire_nom']);
+        // Destinataire = la PERSONNE qui signe (représentant légal du preneur) en priorité,
+        // et non l'email générique du tiers. Fallback sur l'email preneur si non renseigné.
+        $preneurEmail = trim((string)($bail['locataire_representant_email'] ?? ''))
+                     ?: trim((string)($bail['locataire_email'] ?? ''));
         $signataires[] = [
             'role'  => 'preneur',
-            'email' => trim((string)($bail['locataire_email'] ?? '')) ?: null,
+            'email' => $preneurEmail ?: null,
             'nom'   => $preneurNom ?: 'Le preneur',
             'tiers' => (int)($bail['candidat_tiers_id'] ?? 0) ?: null,
         ];
@@ -94,7 +98,19 @@ if (!function_exists('bsig_create_for_signataires')) {
                                     ORDER BY id DESC LIMIT 1");
             $stEx->execute([$idBail, $sg['role']]);
             $ex = $stEx->fetch(PDO::FETCH_ASSOC);
-            if ($ex) { $created[] = $ex + ['nom' => $sg['nom']]; continue; }
+            if ($ex) {
+                // Token déjà créé (bail déjà envoyé) mais pas encore signé : on rafraîchit
+                // l'email/nom si l'agent a corrigé le signataire entre-temps.
+                if (($ex['statut'] ?? '') !== 'signe'
+                    && ($ex['destinataire_email'] !== $sg['email'] || $ex['nom_signataire'] !== $sg['nom'])) {
+                    $pdo->prepare("UPDATE bail_signatures SET destinataire_email = ?, nom_signataire = ? WHERE id = ?")
+                        ->execute([$sg['email'], $sg['nom'], (int)$ex['id']]);
+                    $ex['destinataire_email'] = $sg['email'];
+                    $ex['nom_signataire'] = $sg['nom'];
+                }
+                $created[] = $ex + ['nom' => $sg['nom']];
+                continue;
+            }
 
             $token = bsig_token();
             $pdo->prepare("
@@ -326,10 +342,12 @@ if (!function_exists('bail_cloturer')) {
             $pdo->prepare("UPDATE bien_baux SET statut = 'resilie', date_fin = COALESCE(date_fin, CURDATE()), updated_at = NOW()
                             WHERE id_bien = ? AND id <> ? AND statut IN ('actif','signe')")
                 ->execute([$idBien, $bailId]);
-            // 2) Ce bail devient signé (figé) + actif locataire. On CONSERVE candidat_tiers_id :
+            // 2) Ce bail devient ACTIF (signé + en vigueur). On CONSERVE candidat_tiers_id :
             //    il devient le locataire (promotion du rôle ci-dessous).
+            //    NB : on met 'actif' (et non 'signe') car les listes « baux actifs » filtrent
+            //    sur statut='actif' — un bail 'signe' n'y apparaissait pas.
             $pdo->prepare("UPDATE bien_baux
-                              SET statut = 'signe', date_signature = COALESCE(date_signature, CURDATE()),
+                              SET statut = 'actif', date_signature = COALESCE(date_signature, CURDATE()),
                                   updated_at = NOW()
                             WHERE id = ?")->execute([$bailId]);
             $pdo->commit();
