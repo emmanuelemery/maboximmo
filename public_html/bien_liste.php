@@ -1200,21 +1200,31 @@ require_once $_sbFile;
   <div class="bl-modal">
     <h3>📦 Archiver ce bien ?</h3>
     <p id="deleteModalText">Le bien sera archivé et retiré des portails. Vous pourrez le réactiver à tout moment.</p>
+    <label style="display:block;font-size:12px;font-weight:700;color:#5a5750;margin:6px 0 4px">Motif d'archivage (obligatoire)</label>
+    <input type="text" id="deleteMotif" maxlength="200" placeholder="Ex. bien vendu hors agence, mandat résilié, doublon…" autocomplete="off"
+           style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #d6d3cc;border-radius:9px;font-size:14px;margin-bottom:6px">
     <div class="bl-modal-actions">
       <button class="bl-btn bl-btn-ghost" onclick="closeModal()">Annuler</button>
-      <a id="deleteConfirmBtn" href="#" class="bl-btn" style="background:#e6a141;color:#fff;box-shadow:0 4px 10px rgba(230,161,65,0.3);">Archiver</a>
+      <button id="deleteConfirmBtn" type="button" class="bl-btn" style="background:#e6a141;color:#fff;box-shadow:0 4px 10px rgba(230,161,65,0.3);">Archiver</button>
     </div>
   </div>
 </div>
 
 <script>
+let _delBienId = 0;
 function confirmDelete(id, ref) {
+    _delBienId = id;
     document.getElementById('deleteModalText').textContent =
         'Archiver le bien "' + ref + '" ? Il sera retiré des portails mais restera accessible.';
-    document.getElementById('deleteConfirmBtn').href =
-        'bien_supprimer.php?id=' + id + '&csrf=<?= csrf_token() ?>';
+    document.getElementById('deleteMotif').value = '';
     document.getElementById('deleteModal').classList.add('open');
+    setTimeout(function(){ document.getElementById('deleteMotif').focus(); }, 50);
 }
+document.getElementById('deleteConfirmBtn').addEventListener('click', function() {
+    var motif = document.getElementById('deleteMotif').value.trim();
+    if (!motif) { document.getElementById('deleteMotif').focus(); document.getElementById('deleteMotif').style.borderColor = '#DD4735'; return; }
+    window.location.href = 'bien_supprimer.php?id=' + _delBienId + '&csrf=<?= csrf_token() ?>&motif=' + encodeURIComponent(motif);
+});
 function closeModal() {
     document.getElementById('deleteModal').classList.remove('open');
 }

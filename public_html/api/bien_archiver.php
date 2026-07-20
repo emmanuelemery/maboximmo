@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
+require_once __DIR__ . '/../inc/bien_statut.php';
 require_login();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -32,6 +33,20 @@ if ($idBien <= 0) {
     exit(json_encode(['success' => false, 'message' => 'Bien invalide.']));
 }
 
+// ── DOUBLE VALIDATION : confirmation explicite + motif obligatoire ──
+$confirm = (string)($_POST['confirm'] ?? '');
+$motif   = trim((string)($_POST['motif'] ?? ''));
+if ($confirm !== '1') {
+    http_response_code(400);
+    exit(json_encode(['success' => false, 'code' => 'CONFIRM_REQUIRED',
+        'message' => "Confirmation requise avant archivage."]));
+}
+if ($motif === '') {
+    http_response_code(400);
+    exit(json_encode(['success' => false, 'code' => 'MOTIF_REQUIRED',
+        'message' => "Un motif d'archivage est obligatoire."]));
+}
+
 // Le bien doit exister et ne pas être déjà archivé/supprimé.
 $chk = $pdo->prepare("SELECT id, statut_bien FROM biens WHERE id = ? LIMIT 1");
 $chk->execute([$idBien]);
@@ -44,26 +59,19 @@ if (in_array((string)$bien['statut_bien'], ['archive', 'supprime'], true)) {
     exit(json_encode(['success' => false, 'message' => 'Bien déjà archivé.']));
 }
 
-// GARDE-FOU : annonce active (publiée ou diffusée) → on bloque.
-$an = $pdo->prepare("SELECT COUNT(*) FROM annonces
-                     WHERE id_bien = ?
-                       AND (statut = 'publiee' OR etat_publication = 'diffusee')");
-$an->execute([$idBien]);
-if ((int)$an->fetchColumn() > 0) {
+// GARDE-FOU métier : annonce active (publiée ou diffusée) → on bloque.
+$can = bien_statut_can_archive($pdo, $idBien);
+if (!$can['ok']) {
     http_response_code(409);
-    exit(json_encode([
-        'success' => false,
-        'code'    => 'ANNONCE_ACTIVE',
-        'message' => "Impossible d'archiver : ce bien a une annonce active. Retirez/archivez d'abord l'annonce.",
-    ]));
+    exit(json_encode(['success' => false, 'code' => $can['code'] ?? 'BLOCKED', 'message' => $can['error']]));
 }
 
-try {
-    $pdo->prepare("UPDATE biens SET statut_bien = 'archive', date_modification = NOW() WHERE id = ?")
-        ->execute([$idBien]);
-} catch (Throwable $e) {
+// Changement de statut CENTRALISÉ + TRACÉ (AuditLog) + cascade annonces.
+$res = bien_set_statut($pdo, $idBien, 'archive', ['motif' => $motif, 'source' => 'bien_archiver']);
+if (!$res['ok']) {
     http_response_code(500);
-    exit(json_encode(['success' => false, 'message' => 'Erreur : ' . $e->getMessage()]));
+    exit(json_encode(['success' => false, 'message' => 'Erreur : ' . ($res['error'] ?? 'inconnue')]));
 }
 
-echo json_encode(['success' => true, 'id_bien' => $idBien, 'statut_bien' => 'archive']);
+echo json_encode(['success' => true, 'id_bien' => $idBien, 'statut_bien' => 'archive',
+                  'cascaded_annonces' => $res['cascaded_annonces'] ?? 0]);

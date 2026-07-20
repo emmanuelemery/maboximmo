@@ -218,12 +218,12 @@ if ($section === 'documents') {
         // et on retombe sur l'ancien schéma si la migration n'a pas encore été appliquée.
         try {
             $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia,
-                        critique_niveau, critique_points_forts, critique_points_faibles, critique_conseil, analyse_statut
+                        groupe_label, critique_niveau, critique_points_forts, critique_points_faibles, critique_conseil, analyse_statut
                 FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
             $st->execute([$editingBienId]);
             $rows = $st->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable) {
-            $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia
+            $st = $pdo->prepare("SELECT id, url_photo, nom_original, largeur, hauteur, categorie, description_ia, groupe_label
                 FROM biens_photos WHERE id_bien = ? ORDER BY ordre ASC, id ASC LIMIT 100");
             $st->execute([$editingBienId]);
             $rows = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -235,6 +235,7 @@ if ($section === 'documents') {
                 'id'                       => (int)$p['id'],
                 'url'                      => $p['url_photo'] ? app_url('/' . ltrim((string)$p['url_photo'], '/')) : '',
                 'nom_original'             => (string)($p['nom_original'] ?? ''),
+                'groupe_label'             => (string)($p['groupe_label'] ?? ''),
                 'largeur'                  => (int)($p['largeur'] ?? 0),
                 'hauteur'                  => (int)($p['hauteur'] ?? 0),
                 'categorie'                => (string)($p['categorie'] ?? ''),
@@ -281,16 +282,11 @@ try {
         $rawType = (string)($d['document_type'] ?? 'AUTRE');
         $t = $typeMapGed[$rawType] ?? mb_strtolower($rawType);
 
-        // URL : metadata.public_url si présent, sinon fallback servable via
-        // api/ged_doc_serve.php (résout source_path / final_destination des docs
-        // committés par gus_commit_document — qui n'ont PAS de public_url).
+        // URL : TOUJOURS servi par le script PHP (api/ged_doc_serve.php), comme le
+        // viewer 360. L'URL directe metadata.public_url est bloquée par le serveur
+        // (403 Apache) sur l'hébergement → ne jamais l'utiliser pour l'affichage.
         $meta = json_decode((string)($d['metadata'] ?? '{}'), true) ?: [];
-        $url  = (string)($meta['public_url'] ?? '');
-        if ($url !== '') {
-            $url = app_url('/' . ltrim($url, '/'));
-        } else {
-            $url = app_url('/api/ged_doc_serve.php?id=' . (int)$d['id']);
-        }
+        $url  = app_url('/api/ged_doc_serve.php?id=' . (int)$d['id']);
 
         $row = [
             'id'             => 'ged_' . (int)$d['id'],
@@ -863,6 +859,40 @@ if (!$embed) {
 
 <main class="mbi-main v2-main">
 
+  <?php if (!$embed && $statutBien === 'archive'): ?>
+  <!-- BANDEAU : bien archivé + désarchivage tracé -->
+  <div id="bienArchiveBanner" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px;padding:12px 18px;
+       background:#fff4e0;border:1px solid #f0d190;border-left:5px solid #e6a141;border-radius:12px;color:#8a5f22">
+    <span style="font-size:20px">📦</span>
+    <div style="flex:1;min-width:200px">
+      <b>Ce bien est archivé.</b> Il est retiré de la gestion active et des portails. Le désarchivage est journalisé (qui / quand).
+    </div>
+    <button type="button" id="bienDesarchiverBtn" data-id="<?= (int)$editingBienId ?>"
+            style="border:none;cursor:pointer;background:#2f9e5b;color:#fff;font-weight:700;border-radius:9px;padding:9px 16px;font-size:13.5px">
+      ↩ Désarchiver
+    </button>
+  </div>
+  <script>
+  (function(){
+    var btn = document.getElementById('bienDesarchiverBtn'); if(!btn) return;
+    btn.addEventListener('click', function(){
+      if(!confirm('Désarchiver ce bien et le remettre en gestion active ?')) return;
+      btn.disabled = true; btn.textContent = '…';
+      var fd = new FormData();
+      fd.append('id_bien', btn.dataset.id);
+      fd.append('reopen_annonces', '0');
+      fetch('<?= h(app_url('/api/bien_desarchiver.php')) ?>', {
+        method:'POST', credentials:'same-origin',
+        headers:{'X-CSRF-Token':'<?= h(csrf_token('archiver_bien')) ?>'}, body: fd
+      }).then(function(r){return r.json();}).then(function(j){
+        if(j && j.success){ location.reload(); }
+        else { alert((j && j.message) || 'Erreur'); btn.disabled=false; btn.textContent='↩ Désarchiver'; }
+      }).catch(function(){ alert('Erreur réseau'); btn.disabled=false; btn.textContent='↩ Désarchiver'; });
+    });
+  })();
+  </script>
+  <?php endif; ?>
+
   <?php if (!$embed): ?>
   <!-- TOPBAR -->
   <header class="mbi-topbar">
@@ -974,6 +1004,19 @@ if (!$embed) {
           <!-- Dropzone Photos (en dessous du DocumentUploader) -->
           <div class="v2-photo-drop-wrap">
             <div class="v2-desc-group-title">📸 Photos du bien</div>
+            <!-- Nom de groupe (sous-dossier) : les photos chargées ci-dessous vont dans ce groupe.
+                 Vide = groupe par défaut. Un nom déjà utilisé = on ajoute au groupe existant. -->
+            <div style="margin:0 0 10px;">
+              <label for="v2-photo-groupe" style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:4px;">🏷️ Nom du groupe (optionnel)</label>
+              <input type="text" id="v2-photo-groupe" list="v2-photo-groupe-list" autocomplete="off"
+                     placeholder="ex. « Façade », « Avant travaux », « Séjour »…"
+                     style="width:100%;max-width:360px;padding:9px 12px;border:1px solid #cbd5e1;border-radius:9px;font-size:13px;box-sizing:border-box;">
+              <datalist id="v2-photo-groupe-list">
+                <?php foreach (array_values(array_unique(array_filter(array_map(fn($p)=>trim((string)($p['groupe_label'] ?? '')), $docsPhotos)))) as $gl): ?>
+                  <option value="<?= h($gl) ?>"></option>
+                <?php endforeach; ?>
+              </datalist>
+            </div>
             <div id="v2-photo-drop" class="v2-photo-drop">
               <input type="file" id="v2-photo-input" accept="image/jpeg,image/png,image/webp" multiple hidden>
               <div class="v2-photo-drop-icon">📸</div>
@@ -3324,9 +3367,14 @@ if (!$embed) {
                               style="<?= $selectStyle ?>"
                               title="Agence responsable de la diffusion (peut différer de l'agence du bien)">
                         <option value="">— Aucune (à attribuer) —</option>
-                        <?php foreach ($agencesDiffusion as $ag):
+                        <?php
+                        // Sélection = valeur RÉELLEMENT enregistrée (annonces.id_agence), PAS le
+                        // repli sur l'agence du bien : si vide, on montre « — Aucune — » pour que
+                        // le champ bloquant (complétude Ubiflow) reste cohérent avec l'affichage.
+                        $idAgenceSelected = (int)($a['id_agence'] ?? 0);
+                        foreach ($agencesDiffusion as $ag):
                           $aid = (int)$ag['id'];
-                          $sel = ($aid === $idAgenceAnnonce) ? ' selected' : '';
+                          $sel = ($aid === $idAgenceSelected) ? ' selected' : '';
                         ?>
                           <option value="<?= $aid ?>"<?= $sel ?>><?= h($ag['label']) ?></option>
                         <?php endforeach; ?>
@@ -3733,9 +3781,13 @@ if (!$embed) {
         </div>
         <div class="v2-card-body v2-split">
             <div class="v2-split-left">
-              <?php if ($lastDpePdf): ?>
-                <iframe src="<?= h($lastDpePdf['url_fichier']) ?>#navpanes=0&toolbar=1&view=FitH" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
-                <a href="<?= h($lastDpePdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
+              <?php if ($lastDpePdf):
+                    // Servage via le script PHP (comme le viewer 360) : l'URL directe
+                    // (metadata.public_url) est bloquée 403 par le serveur. Repli sur url_fichier.
+                    $dpeViewUrl = $dpeGedDocId > 0 ? app_url('/api/ged_doc_serve.php?id=' . $dpeGedDocId) : (string)$lastDpePdf['url_fichier'];
+              ?>
+                <iframe src="<?= h($dpeViewUrl) ?>#navpanes=0&toolbar=1&view=FitH" title="<?= h((string)$lastDpePdf['nom_original']) ?>" loading="lazy"></iframe>
+                <a href="<?= h($dpeViewUrl) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
               <?php else: ?>
                 <div class="v2-doc-empty">
                   <div class="v2-doc-empty-icon">📎</div>
@@ -3820,11 +3872,16 @@ if (!$embed) {
 
           <!-- Résultat : même présentation que les diags (PDF à gauche, données extraites à droite).
                Affiché D'EMBLÉE si un rapport ERP est déjà rattaché au bien (créé à la création). -->
+          <?php
+            // Servage ERP via le script PHP (URL directe = 403 serveur). Repli sur url_fichier.
+            $erpGedDocId = ($lastErpPdf && !empty($lastErpPdf['id'])) ? (int)preg_replace('/\D/', '', (string)$lastErpPdf['id']) : 0;
+            $erpViewUrl  = $erpGedDocId > 0 ? app_url('/api/ged_doc_serve.php?id=' . $erpGedDocId) : (string)($lastErpPdf['url_fichier'] ?? '');
+          ?>
           <div id="v2-erp-result" style="margin-top:14px; min-height:520px; <?= $lastErpPdf ? 'display:grid;' : 'display:none;' ?> grid-template-columns:1fr 300px; gap:20px;">
             <div class="v2-split-left">
-              <iframe id="v2-erp-pdf" src="<?= $lastErpPdf ? h($lastErpPdf['url_fichier']) . '#navpanes=0&toolbar=1&view=FitH' : '' ?>" title="Rapport ERP / État des Risques" loading="lazy"></iframe>
+              <iframe id="v2-erp-pdf" src="<?= $lastErpPdf ? h($erpViewUrl) . '#navpanes=0&toolbar=1&view=FitH' : '' ?>" title="Rapport ERP / État des Risques" loading="lazy"></iframe>
               <?php if ($lastErpPdf): ?>
-                <a href="<?= h($lastErpPdf['url_fichier']) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
+                <a href="<?= h($erpViewUrl) ?>" target="_blank" rel="noopener" class="v2-pdf-open-btn" title="Ouvrir dans un nouvel onglet">↗</a>
               <?php endif; ?>
             </div>
             <div class="v2-split-right">

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/bien_statut.php';
 require_login();
 
 // ── Vérification CSRF (token passé en GET) ──
@@ -29,20 +30,19 @@ if (!$stmt->fetch()) {
     exit;
 }
 
-// ── Archivage (pas de suppression) ──
-try {
-    // Passe le bien en statut "archive"
-    $pdo->prepare("UPDATE biens SET statut_bien = 'archive' WHERE id = ? AND id_societe = ?")
-        ->execute([$bienId, $idSociete]);
-
-    // Désactive la visibilité portails des annonces liées
-    $pdo->prepare("UPDATE annonces SET visible_portails = 0 WHERE id_bien = ?")
-        ->execute([$bienId]);
-
-    header('Location: ' . app_url('/bien_liste.php?success=bien_archive'));
+// ── DOUBLE VALIDATION : motif obligatoire (fourni par la modale de confirmation) ──
+$motif = trim((string)($_GET['motif'] ?? ''));
+if ($motif === '') {
+    header('Location: ' . app_url('/bien_liste.php?err=motif_requis&archive_id=' . $bienId));
     exit;
-} catch (Throwable $e) {
-    error_log('[bien_supprimer] Erreur archivage bien #' . $bienId . ' : ' . $e->getMessage());
+}
+
+// ── Archivage CENTRALISÉ + TRACÉ (AuditLog) + cascade annonces ──
+$res = bien_set_statut($pdo, $bienId, 'archive', ['motif' => $motif, 'source' => 'bien_supprimer_liste']);
+if (!$res['ok']) {
+    error_log('[bien_supprimer] Erreur archivage bien #' . $bienId . ' : ' . ($res['error'] ?? ''));
     header('Location: ' . app_url('/bien_liste.php?err=erreur_archivage'));
     exit;
 }
+header('Location: ' . app_url('/bien_liste.php?success=bien_archive'));
+exit;

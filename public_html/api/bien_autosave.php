@@ -262,6 +262,7 @@ $data = [
     'parking_nb'              => $int('parking_nb'),
     'numero_porte'            => $str('numero_porte'),
     'dernier_etage'           => $bool('dernier_etage'),
+    'rdc_sureleve'            => $bool('rdc_sureleve'),
 
     // ── Équipements ──
     'cuisine_type'            => $str('cuisine_type'),
@@ -613,7 +614,14 @@ if ($adresse1 !== '' || $immeubleSelected > 0) {
 // Résultat : biens fantômes invisibles du modal purge cascade (filtre par
 // liste de statuts valides).
 // ══════════════════════════════════════════════════════════════
-if (isset($data['statut_bien']) && trim((string)$data['statut_bien']) === '') {
+// ══════════════════════════════════════════════════════════════
+// SÉCURITÉ (2026-07-20) : l'autosave ne doit JAMAIS modifier le statut du bien.
+// L'archivage / désarchivage passe EXCLUSIVEMENT par les endpoints dédiés
+// (api/bien_archiver.php / api/bien_desarchiver.php) : confirmation + motif + journal.
+// Cause du bug corrigé : un sélecteur de statut sauvegardé par l'autosave
+// archivait le bien SILENCIEUSEMENT (sans confirmation ni trace) pendant l'édition.
+// ══════════════════════════════════════════════════════════════
+if (array_key_exists('statut_bien', $data)) {
     unset($data['statut_bien']);
 }
 
@@ -681,7 +689,7 @@ $protectedFields = [
     'cuisine_type', 'cuisine_equipee', 'ascenseur', 'interphone',
     'digicode', 'alarme', 'fibre', 'cheminee',
     // Environnement Card 4 v2
-    'dernier_etage', 'numero_porte', 'adresse_visible_public', 'etage',
+    'dernier_etage', 'rdc_sureleve', 'numero_porte', 'adresse_visible_public', 'etage',
     // Card 3 v2 : chauffage / énergie / VMC / isolation
     'chauffage_plancher', 'chauffage_thermostat', 'chauffage_regulateur',
     'chauffage_vmc', 'chauffage_vmc_df', 'climatisation',
