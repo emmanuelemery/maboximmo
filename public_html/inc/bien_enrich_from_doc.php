@@ -305,6 +305,62 @@ if (!function_exists('bef_enrich_from_carte')) {
         return $out;
     }
 
+    /**
+     * T2b — AUTO-EXTRACTION AU CHARGEMENT. Lance l'extraction IA dédiée dès le classement
+     * d'un bail / mandat / DPE, puis reporte dans les tables (sans attendre un cache préalable).
+     *   - bail   : transaction_doc_extract_ia (cache auto) → bien_baux (adaptateur) + proprio/immeuble
+     *   - mandat : transaction_doc_extract_ia → mandat actif du bien (bef_enrich_mandat)
+     *   - dpe    : dpe_analyser (texte→OCR→IA) → dpe_diags + biens (apply_dpe, non destructif)
+     * Best-effort, idempotent (extractions à cache/anti-doublon internes). $bienId requis.
+     */
+    function bef_autoextract_on_load(PDO $pdo, int $carteId, string $typeDoc, string $pdfPath, int $bienId): array {
+        $t = strtolower($typeDoc);
+        $out = ['ran' => []];
+        if ($pdfPath === '' || !is_file($pdfPath) || $bienId <= 0) { $out['ran'][] = 'skip(no_path/bien)'; return $out; }
+        require_once __DIR__ . '/bien_apply_extracted.php';
+
+        if (str_contains($t, 'bail')) {
+            try {
+                require_once __DIR__ . '/transaction_doc_extract_ia.php';
+                $r = transaction_doc_extract_ia($pdfPath);
+                if (!empty($r['ok']) && !empty($r['data'])) {
+                    $f = bail_map_transaction_extraction($r['data']);
+                    if ($f) {
+                        $out['bail'] = apply_bail_extracted_to_bien($pdo, $bienId, $f, null, null);
+                        bef_enrich_proprio_immeuble($pdo, $bienId, $r['data'], $carteId, (int)($r['confidence'] ?? 0));
+                        $out['ran'][] = 'bail:' . ($out['bail']['action'] ?? '?');
+                        bef_log_audit($pdo, 0, $carteId, 'autoextract_bail', 'Bail auto-extrait → bien_baux', ['conf' => $r['confidence'] ?? 0], (int)($r['confidence'] ?? 0) / 100);
+                    }
+                } else { $out['ran'][] = 'bail:extract_ko'; }
+            } catch (Throwable $e) { $out['ran'][] = 'bail_err'; error_log('[autoextract bail] ' . $e->getMessage()); }
+        } elseif (str_contains($t, 'mandat')) {
+            try {
+                require_once __DIR__ . '/transaction_doc_extract_ia.php';
+                $r = transaction_doc_extract_ia($pdfPath);
+                if (!empty($r['ok']) && !empty($r['data'])) {
+                    $st = $pdo->prepare("SELECT id FROM mandats WHERE id_bien = ? ORDER BY (statut IN ('actif','en_cours','signe')) DESC, date_signature DESC LIMIT 1");
+                    $st->execute([$bienId]);
+                    $mid = (int)$st->fetchColumn();
+                    if ($mid > 0) {
+                        $out['mandat'] = bef_enrich_mandat($mid, $r['data'], (int)($r['confidence'] ?? 0), $pdo, $carteId);
+                        $out['ran'][] = 'mandat:#' . $mid;
+                    } else { $out['ran'][] = 'mandat:aucun_mandat'; }
+                } else { $out['ran'][] = 'mandat:extract_ko'; }
+            } catch (Throwable $e) { $out['ran'][] = 'mandat_err'; error_log('[autoextract mandat] ' . $e->getMessage()); }
+        } elseif (str_contains($t, 'dpe') || str_contains($t, 'diagnostic')) {
+            try {
+                require_once __DIR__ . '/dpe_service.php';
+                $r = dpe_analyser($pdfPath);
+                if (!empty($r['ok']) && !empty($r['fields'])) {
+                    $out['dpe'] = apply_dpe_extracted_to_bien($pdo, $bienId, $r['fields'], null, null, true);
+                    $out['ran'][] = 'dpe:' . ($out['dpe']['action'] ?? '?');
+                    bef_log_audit($pdo, 0, $carteId, 'autoextract_dpe', 'DPE auto-extrait → dpe_diags/biens', ['score' => $r['score'] ?? 0], (int)($r['score'] ?? 0) / 100);
+                } else { $out['ran'][] = 'dpe:extract_ko'; }
+            } catch (Throwable $e) { $out['ran'][] = 'dpe_err'; error_log('[autoextract dpe] ' . $e->getMessage()); }
+        }
+        return $out;
+    }
+
     function bef_enrich_from_carte(int $carteId, PDO $pdo): array {
         $result = ['bien' => null, 'mandat' => null, 'bail' => null, 'dpe' => null, 'proprio_immeuble' => null, 'tiers_resolution' => null, 'skipped' => null];
 

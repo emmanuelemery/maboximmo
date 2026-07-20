@@ -443,6 +443,26 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
             // Hors transaction principale pour ne pas rollback le commit GED en cas d'erreur enrichissement.
             try {
                 require_once __DIR__ . '/bien_enrich_from_doc.php';
+
+                // [T2b — 2026-07-21] AUTO-EXTRACTION au chargement pour bail / mandat / DPE :
+                // lance l'extraction IA dédiée dès le classement et remplit les tables.
+                $typeDocLc = strtolower((string)($eligibility['type_doc'] ?? ''));
+                if (preg_match('/bail|mandat|dpe|diagnostic/', $typeDocLc)) {
+                    $autoBienId = 0;
+                    $et = (string)$eligibility['entity_type']; $eid = (int)$eligibility['entity_id'];
+                    if ($et === 'BIEN') {
+                        $autoBienId = $eid;
+                    } elseif ($et === 'BAIL') {
+                        $qb = $pdo->prepare("SELECT id_bien FROM bien_baux WHERE id = ? LIMIT 1");
+                        $qb->execute([$eid]); $autoBienId = (int)$qb->fetchColumn();
+                    }
+                    if ($autoBienId > 0) {
+                        $srcPath = isset($srcAbs) && $srcAbs !== '' ? $srcAbs : ged_flux_src_abspath((string)($row['fichier_chemin'] ?? ''));
+                        $ax = bef_autoextract_on_load($pdo, $carteId, $typeDocLc, (string)$srcPath, $autoBienId);
+                        if (!empty($ax['ran'])) $audit[] = "🤖 Auto-extraction : " . implode(', ', $ax['ran']);
+                    }
+                }
+
                 $enrich = bef_enrich_from_carte($carteId, $pdo);
                 if ($enrich['bien'] && !empty($enrich['bien']['updated'])) {
                     $audit[] = "✨ Enrichissement bien : " . implode(',', $enrich['bien']['updated']);
