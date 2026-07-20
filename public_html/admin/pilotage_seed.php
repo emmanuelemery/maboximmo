@@ -29,8 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'confi
             $pdo->beginTransaction();
             $seed = pilotage_seed_referentiel($pdo, $targetSociete);          // référentiel (idempotent)
             $map = [];
-            foreach ((array)($_POST['map'] ?? []) as $poste => $uid) {
-                $uid = (int)$uid; if ($uid > 0) $map[$poste] = $uid;
+            foreach ((array)($_POST['map'] ?? []) as $poste => $uids) {
+                $list = array_values(array_filter(array_map('intval', (array)$uids), fn($v) => $v > 0));
+                if ($list) $map[(string)$poste] = $list; // PLUSIEURS collaborateurs par poste
             }
             $applied = pilotage_apply_poste_mapping($pdo, $targetSociete, $map); // affectations réelles
             $pdo->commit();
@@ -45,12 +46,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'confi
 // Données de prévisualisation
 $preview = $targetSociete > 0 ? pilotage_seed_preview($pdo, $targetSociete) : null;
 
-// Liste des utilisateurs de la société (pour les selects de mapping)
-$users = [];
+// Utilisateurs de la société, GROUPÉS PAR AGENCE (pour cocher plusieurs comptes / poste)
+$usersByAgence = []; // [ ['agence'=>nom, 'users'=>[...] ], ... ]
 if ($targetSociete > 0) {
-    $st = $pdo->prepare("SELECT id, prenom, nom, fonction FROM users WHERE id_societe=? AND actif=1 ORDER BY prenom, nom");
+    $st = $pdo->prepare("SELECT u.id, u.prenom, u.nom, u.fonction, u.id_agence,
+                                COALESCE(a.nom_agence, a.ville, CONCAT('Agence #', u.id_agence)) AS agence_nom
+                         FROM users u LEFT JOIN agences a ON a.id = u.id_agence
+                         WHERE u.id_societe=? AND u.actif=1
+                         ORDER BY agence_nom, u.prenom, u.nom");
     $st->execute([$targetSociete]);
-    $users = $st->fetchAll(PDO::FETCH_ASSOC);
+    $grp = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $u) {
+        $key = $u['agence_nom'] ?: 'Sans agence';
+        $grp[$key][] = $u;
+    }
+    foreach ($grp as $ag => $us) $usersByAgence[] = ['agence' => $ag, 'users' => $us];
 }
 
 $societes = [];
@@ -75,7 +85,17 @@ header('Content-Type: text/html; charset=utf-8');
  button.sec{background:#fff;color:#334155;border:1px solid #cbd5e1;font-weight:400}
  .found{color:#2FA36B} .nf{color:#DD4735}
  .muted{color:#64748b;font-size:.85rem} a{color:#5c8388}
-</style></head><body>
+ .poste-block{border:1px solid #e6ebf0;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fbfcfd}
+ .poste-h{font-weight:700;margin-bottom:8px}
+ .ag-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#8a5f22;font-weight:700;margin:8px 0 5px}
+ .chk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px}
+ .chk{display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid #d6e0e6;border-radius:8px;font-size:.86rem;cursor:pointer;background:#fff}
+ .chk.on{border-color:#84A7AB;background:#eef5f6}
+ .chk input{margin:0}
+</style>
+<script>
+ document.addEventListener('change',function(e){ if(e.target.matches('.chk input')) e.target.closest('.chk').classList.toggle('on', e.target.checked); });
+</script></head><body>
 <h1>🔑 Initialisation du Service Location</h1>
 
 <?php if ($err): ?><div class="card err">Erreur : <?= h($err) ?></div><?php endif; ?>
@@ -122,29 +142,32 @@ header('Content-Type: text/html; charset=utf-8');
   </div>
   <p class="muted">Affectations existantes conservées : <b><?= (int)$preview['existing_assignments_preserved'] ?></b>. L'initialisation est <b>idempotente</b> et n'écrase aucune affectation personnalisée.</p>
 
-  <h2 style="margin-top:18px">Correspondance poste → compte MBI</h2>
-  <table>
-    <thead><tr><th>Poste (référentiel)</th><th>Compte MBI réel</th></tr></thead>
-    <tbody>
-    <?php foreach ($preview['postes'] as $p): ?>
-      <tr>
-        <td><?= h($p['poste_label']) ?><br><span class="muted"><?= h($p['poste_code']) ?></span></td>
-        <td>
-          <select name="map[<?= h($p['poste_code']) ?>]">
-            <option value="0">— Ne pas affecter (mission reste au poste) —</option>
-            <?php foreach ($users as $u): $lbl = trim($u['prenom'].' '.$u['nom']).($u['fonction']?' — '.$u['fonction']:''); ?>
-              <option value="<?= (int)$u['id'] ?>" <?= ((int)$p['suggested_user_id'] === (int)$u['id'] ? 'selected' : '') ?>><?= h($lbl) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <?php if ($p['found']): ?><span class="muted found">suggestion : <?= h($p['suggested_label']) ?></span>
-          <?php else: ?><span class="muted nf">aucun compte suggéré — à choisir manuellement</span><?php endif; ?>
-        </td>
-      </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
+  <h2 style="margin-top:18px">Correspondance poste → comptes MBI</h2>
+  <p class="muted">Cochez <b>un ou plusieurs</b> collaborateurs par poste (les comptes sont regroupés par agence). Un poste peut être tenu par plusieurs personnes de la société.</p>
+  <?php foreach ($preview['postes'] as $p):
+        $mapped = array_map('intval', $p['mapped_user_ids'] ?? []);
+        $suggest = (int)($p['suggested_user_id'] ?? 0); ?>
+    <div class="poste-block">
+      <div class="poste-h"><?= h($p['poste_label']) ?> <span class="muted"><?= h($p['poste_code']) ?></span></div>
+      <?php foreach ($usersByAgence as $grp): ?>
+        <div class="ag-h"><?= h($grp['agence']) ?></div>
+        <div class="chk-grid">
+        <?php foreach ($grp['users'] as $u):
+              $id = (int)$u['id'];
+              $checked = in_array($id, $mapped, true) || ($id === $suggest && $id > 0);
+              $lbl = trim($u['prenom'].' '.$u['nom']); ?>
+          <label class="chk<?= $checked ? ' on' : '' ?>">
+            <input type="checkbox" name="map[<?= h($p['poste_code']) ?>][]" value="<?= $id ?>" <?= $checked ? 'checked' : '' ?>>
+            <?= h($lbl) ?><?= $u['fonction'] ? ' <span class="muted">· '.h($u['fonction']).'</span>' : '' ?>
+          </label>
+        <?php endforeach; ?>
+        </div>
+      <?php endforeach; ?>
+      <?php if (empty($mapped) && !$suggest): ?><span class="muted nf">aucun compte suggéré — à cocher manuellement</span><?php endif; ?>
+    </div>
+  <?php endforeach; ?>
 
-  <p class="muted" style="margin-top:14px">Les suggestions proviennent d'une recherche par prénom mais ne sont <b>jamais</b> appliquées automatiquement : c'est votre confirmation qui crée les affectations, sur l'identifiant réel du compte sélectionné.</p>
+  <p class="muted" style="margin-top:14px">Les suggestions (pré-cochées) proviennent d'une recherche par prénom mais ne sont <b>jamais</b> appliquées automatiquement : c'est votre confirmation qui crée les affectations, sur l'identifiant réel des comptes cochés. Rejouable sans doublon.</p>
 
   <div style="margin-top:16px">
     <button type="submit">Confirmer l'initialisation du Service Location</button>

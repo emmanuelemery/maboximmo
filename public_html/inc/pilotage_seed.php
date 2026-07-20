@@ -441,30 +441,24 @@ if (!function_exists('pilotage_seed_preview')) {
             $existingTasks = (int)$q->fetchColumn();
         }
 
-        // Postes utilisés par le référentiel (catalogue) + mapping actuel + suggestion
+        // Postes du référentiel + mapping actuel (PLUSIEURS comptes possibles / poste) + suggestion
         $cat = pilotage_poste_catalog();
         $mapRows = [];
         $mp = $pdo->prepare("SELECT poste_code, user_id FROM pilotage_poste_mapping WHERE id_societe=?");
         $mp->execute([$soc]);
         $current = [];
-        foreach ($mp->fetchAll(PDO::FETCH_ASSOC) as $r) $current[$r['poste_code']] = (int)$r['user_id'];
+        foreach ($mp->fetchAll(PDO::FETCH_ASSOC) as $r) $current[$r['poste_code']][] = (int)$r['user_id'];
 
         foreach ($cat as $code => $info) {
-            $mappedUid = $current[$code] ?? null;
-            $suggestUid = $mappedUid ?: pilotage_suggest_user($pdo, $soc, $code);
-            $userLabel = null;
-            if ($suggestUid) {
-                $u = $pdo->prepare("SELECT prenom, nom FROM users WHERE id=? AND id_societe=?");
-                $u->execute([$suggestUid, $soc]);
-                if ($ur = $u->fetch(PDO::FETCH_ASSOC)) $userLabel = trim($ur['prenom'] . ' ' . $ur['nom']);
-            }
+            $mappedUids = $current[$code] ?? [];
+            // suggestion pré-cochée uniquement si aucun compte encore mappé
+            $suggestUid = $mappedUids ? null : pilotage_suggest_user($pdo, $soc, $code);
             $mapRows[] = [
                 'poste_code' => $code,
                 'poste_label' => $info['label'],
-                'mapped_user_id' => $mappedUid,
+                'mapped_user_ids' => $mappedUids,
                 'suggested_user_id' => $suggestUid,
-                'suggested_label' => $userLabel,
-                'found' => $suggestUid !== null,
+                'found' => !empty($mappedUids) || $suggestUid !== null,
             ];
         }
 
@@ -498,53 +492,74 @@ if (!function_exists('pilotage_apply_poste_mapping')) {
      *  - ne supprime jamais une affectation existante ;
      *  - ne pose is_primary=1 que si aucun exécutant principal humain n'existe déjà
      *    (préserve une personnalisation manuelle).
-     * @param array<string,int> $mapping poste_code => user_id (0/absent = ignoré)
+     * @param array<string,int|array<int>> $mapping poste_code => user_id OU liste d'user_ids
+     *        (PLUSIEURS collaborateurs par poste supportés). 0/vide = ignoré.
      * @return array{mapped:int,assignments_created:int,skipped_existing_primary:int}
      */
     function pilotage_apply_poste_mapping(PDO $pdo, int $soc, array $mapping): array {
         $out = ['mapped' => 0, 'assignments_created' => 0, 'skipped_existing_primary' => 0];
-        $uid = (int)(function_exists('current_user_id') ? current_user_id() : 0);
+        $by = (int)(function_exists('current_user_id') ? current_user_id() : 0);
 
-        foreach ($mapping as $poste => $userId) {
-            $userId = (int)$userId;
-            if ($userId <= 0) continue;
-            // garde-fou tenant : le user doit appartenir à la société
-            $chk = $pdo->prepare("SELECT 1 FROM users WHERE id=? AND id_societe=?");
-            $chk->execute([$userId, $soc]);
-            if (!$chk->fetchColumn()) continue;
+        foreach ($mapping as $poste => $userIds) {
+            // normalise : accepte un scalaire ou une liste ; dédoublonne ; garde société
+            $userIds = array_values(array_unique(array_filter(array_map('intval', (array)$userIds), fn($v) => $v > 0)));
+            if (!$userIds) continue;
 
-            $pdo->prepare("INSERT INTO pilotage_poste_mapping (id_societe,poste_code,user_id,updated_by)
-                           VALUES (?,?,?,?)
-                           ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), updated_by=VALUES(updated_by), updated_at=NOW()")
-                ->execute([$soc, $poste, $userId, $uid]);
-            $out['mapped']++;
+            // affectations canoniques de ce poste (une fois)
+            $rowsStmt = $pdo->prepare("SELECT tp.task_id, tp.assignment_role, tp.is_primary
+                                       FROM pilotage_task_postes tp WHERE tp.id_societe=? AND tp.poste_code=?");
+            $rowsStmt->execute([$soc, $poste]);
+            $canon = $rowsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Parcourt les affectations canoniques de ce poste
-            $rows = $pdo->prepare("SELECT tp.task_id, tp.assignment_role, tp.is_primary
-                                   FROM pilotage_task_postes tp WHERE tp.id_societe=? AND tp.poste_code=?");
-            $rows->execute([$soc, $poste]);
-            foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $taskId = (int)$r['task_id']; $role = $r['assignment_role']; $primary = (int)$r['is_primary'] === 1;
+            $rank = 0; // rang du collaborateur dans le poste (seul le 1er devient exécutant principal)
+            foreach ($userIds as $userId) {
+                // garde-fou tenant : le user doit appartenir à la société
+                $chk = $pdo->prepare("SELECT id_agence FROM users WHERE id=? AND id_societe=?");
+                $chk->execute([$userId, $soc]);
+                $urow = $chk->fetch(PDO::FETCH_ASSOC);
+                if (!$urow) continue;
+                $agence = $urow['id_agence'] !== null ? (int)$urow['id_agence'] : null;
 
-                // Existe-t-il déjà un exécutant principal HUMAIN sur cette mission ?
-                if ($primary && $role === 'executor') {
-                    $ex = $pdo->prepare("SELECT user_id FROM pilotage_task_assignments
-                                         WHERE task_id=? AND assignment_role='executor' AND is_primary=1 AND is_active=1 LIMIT 1");
-                    $ex->execute([$taskId]);
-                    $existing = $ex->fetchColumn();
-                    if ($existing && (int)$existing !== $userId) { $out['skipped_existing_primary']++; $primary = false; }
+                // enregistre le mapping (1 ligne par poste+user ; anti-doublon manuel car plus de clé unique)
+                $exM = $pdo->prepare("SELECT id FROM pilotage_poste_mapping WHERE id_societe=? AND poste_code=? AND user_id=?");
+                $exM->execute([$soc, $poste, $userId]);
+                if ($exM->fetchColumn()) {
+                    $pdo->prepare("UPDATE pilotage_poste_mapping SET id_agence=?, updated_by=?, updated_at=NOW() WHERE id_societe=? AND poste_code=? AND user_id=?")
+                        ->execute([$agence, $by, $soc, $poste, $userId]);
+                } else {
+                    $pdo->prepare("INSERT INTO pilotage_poste_mapping (id_societe,poste_code,id_agence,user_id,updated_by) VALUES (?,?,?,?,?)")
+                        ->execute([$soc, $poste, $agence, $userId, $by]);
                 }
+                $out['mapped']++;
+                $rank++;
 
-                // Affectation déjà présente ? (idempotent)
-                $has = $pdo->prepare("SELECT id FROM pilotage_task_assignments
-                                      WHERE task_id=? AND user_id=? AND assignment_role=?");
-                $has->execute([$taskId, $userId, $role]);
-                if ($has->fetchColumn()) continue;
+                foreach ($canon as $r) {
+                    $taskId = (int)$r['task_id']; $role = $r['assignment_role'];
+                    $primary = ((int)$r['is_primary'] === 1) && $role === 'executor';
 
-                $pdo->prepare("INSERT INTO pilotage_task_assignments (id_societe,task_id,user_id,assignment_role,is_primary,is_active)
-                               VALUES (?,?,?,?,?,1)")
-                    ->execute([$soc, $taskId, $userId, $role, $primary ? 1 : 0]);
-                $out['assignments_created']++;
+                    // Un seul exécutant principal : seul le 1er collaborateur du poste, et
+                    // seulement si aucun principal humain n'existe déjà (personnalisation préservée).
+                    if ($primary) {
+                        if ($rank > 1) { $primary = false; }
+                        else {
+                            $ex = $pdo->prepare("SELECT user_id FROM pilotage_task_assignments
+                                                 WHERE task_id=? AND assignment_role='executor' AND is_primary=1 AND is_active=1 LIMIT 1");
+                            $ex->execute([$taskId]);
+                            $existing = $ex->fetchColumn();
+                            if ($existing && (int)$existing !== $userId) { $out['skipped_existing_primary']++; $primary = false; }
+                        }
+                    }
+
+                    // idempotent : ne recrée pas une affectation existante
+                    $has = $pdo->prepare("SELECT id FROM pilotage_task_assignments WHERE task_id=? AND user_id=? AND assignment_role=?");
+                    $has->execute([$taskId, $userId, $role]);
+                    if ($has->fetchColumn()) continue;
+
+                    $pdo->prepare("INSERT INTO pilotage_task_assignments (id_societe,task_id,user_id,assignment_role,is_primary,is_active)
+                                   VALUES (?,?,?,?,?,1)")
+                        ->execute([$soc, $taskId, $userId, $role, $primary ? 1 : 0]);
+                    $out['assignments_created']++;
+                }
             }
         }
         return $out;
