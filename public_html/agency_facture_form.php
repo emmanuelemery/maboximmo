@@ -138,6 +138,29 @@ if (!$isNew) {
     $lst->execute([$id]); $lignes = $lst->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// ── Pré-remplissage depuis une source externe (ex. dossier de transaction) ──
+// N'enregistre RIEN : ouvre simplement le formulaire pré-rempli, l'utilisateur
+// contrôle/édite puis valide comme d'habitude. Aucun envoi automatique.
+if ($isNew && isset($_GET['prefill'])) {
+    $facture = [
+        'client'            => trim((string)($_GET['client'] ?? '')),
+        'type_client'       => in_array(($_GET['type_client'] ?? ''), ['syndicat','mandant','autre'], true) ? $_GET['type_client'] : 'autre',
+        'mail_destinataire' => trim((string)($_GET['mail'] ?? '')),
+        'immeuble_txt'      => trim((string)($_GET['immeuble_txt'] ?? '')),
+        'notes'             => trim((string)($_GET['notes'] ?? '')),
+        'tva_defaut'        => (float)str_replace(',', '.', (string)($_GET['tva'] ?? '20')),
+    ];
+    $montantPrefill = (float)str_replace(',', '.', (string)($_GET['montant'] ?? '0'));
+    if ($montantPrefill > 0) {
+        $lignes = [[
+            'designation'      => trim((string)($_GET['ligne'] ?? 'Honoraires de négociation')),
+            'quantite'         => 1,
+            'prix_unitaire_ht' => $montantPrefill,
+            'tva_taux'         => (float)str_replace(',', '.', (string)($_GET['tva'] ?? '20')),
+        ]];
+    }
+}
+
 $immeubles = $pdo->query("SELECT id, nom_immeuble AS nom, reference_immeuble AS reference FROM immeubles ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
 $etabs     = $pdo->query("SELECT id,nom,sigle FROM etablissements ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
 

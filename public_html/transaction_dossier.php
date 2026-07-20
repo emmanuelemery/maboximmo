@@ -18,7 +18,7 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 require_once __DIR__ . '/inc/ged_document_links.php';
 require_once __DIR__ . '/inc/dossier_vente.php';
-require_once __DIR__ . '/inc/ged_file_path.php';
+require_once __DIR__ . '/inc/ged_access.php'; // POINT DE PASSAGE — dispo fichier via GedAccess (require ged_file_path.php)
 require_once __DIR__ . '/inc/avant_contrat.php';
 require_once __DIR__ . '/inc/tiers_selector.php';   // composant recherche/création tiers réutilisable
 require_once __DIR__ . '/inc/acteur_modal.php';     // composant partagé « Ajouter un acteur »
@@ -28,7 +28,9 @@ $pdo = $GLOBALS['pdo'];
 
 // ── Résolution du dossier (par bien = crée/retrouve, ou par id dossier) ──
 $idBien    = (int)($_GET['id_bien'] ?? 0);
-$idDossier = (int)($_GET['id'] ?? 0);
+// Accepte `id` ET `id_dossier` (alias) : le retour « ← Dossier » depuis la page mail
+// passe id_dossier=… → sans cet alias, le dossier ressortait « introuvable ».
+$idDossier = (int)($_GET['id'] ?? $_GET['id_dossier'] ?? 0);
 $confirm   = isset($_GET['confirm']) && $_GET['confirm'] === '1';
 
 if ($idBien > 0) {
@@ -654,7 +656,14 @@ include __DIR__ . '/inc/agency_layout_top.php';
               </select>
               <a id="dv-mandat-preview" class="dvm-btn cancel" style="padding:9px 16px;text-decoration:none;display:inline-block;margin-bottom:6px;" target="_blank"
                  href="<?= h(app_url('/transaction_mandat_preview.php?id_dossier=' . $idDossier . '&modele=mandat_simple')) ?>">👁️ Voir le mandat complété</a><br>
-              <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvSendMandat()">✉️ Envoyer au vendeur pour signature</button>
+              <!-- Aperçu EXACT de la page que verra le vendeur (lots + prix total) — à vérifier AVANT envoi. -->
+              <a class="dvm-btn cancel" style="padding:9px 16px;text-decoration:none;display:inline-block;margin-bottom:6px;" target="_blank"
+                 href="<?= h(app_url('/p/mandat_signature.php?preview=' . $idDossier)) ?>">👁 Aperçu page de signature (vendeur)</a><br>
+              <!-- Signature MANDATAIRE (agence) : tu signes directement ici, sans lien mail. -->
+              <button type="button" class="dvm-btn cancel" style="padding:9px 16px;margin-bottom:6px;" onclick="dvSignMandataire()">✍️ Signer en tant que mandataire</button><br>
+              <button type="button" class="dvm-btn ok" style="padding:9px 16px;" onclick="dvSendMandat()">✉️ Envoyer au vendeur pour signature</button><br>
+              <!-- Journal de preuve : ouverture / lecture intégrale / téléchargement / signature (horodaté + IP). -->
+              <button type="button" class="dvm-btn cancel" style="padding:7px 14px;margin-top:6px;font-size:11px;" onclick="dvSignHistory()">🕓 Historique de signature</button>
               <div id="dv-mandat-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
             </div>
             <script>
@@ -836,7 +845,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <?php if (!$allDocs): ?>
             <div class="dv-empty">Aucun document rattaché.</div>
           <?php else: foreach (array_slice($allDocs, 0, 60) as $d):
-            $dispo = ged_file_path($pdo, (int)$d['id']) !== null; ?>
+            // Dispo = ce que le lien ged_doc_serve.php servira réellement (identité session,
+            // même autorité que le clic). Un doc hors scope société → non servable → grisé.
+            $dispo = ged_internal_path((int)$d['id'], 'preview') !== null; ?>
             <div class="dv-doc" style="<?= $dispo ? '' : 'opacity:.55;' ?>">
               <?php if ($dispo): ?>
                 <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?></a>
@@ -1200,8 +1211,35 @@ include __DIR__ . '/inc/agency_layout_top.php';
 
     <!-- ═══════════ COLONNE DROITE : ACTIONS + CONTACTS ═══════════ -->
     <div class="dvk-aside">
+      <?php
+      // ── Facture d'honoraires (à tout moment) : destinataire = NOTAIRE du dossier,
+      //    montant = honoraires du mandat, charge vendeur/acquéreur selon le mandat.
+      //    Ne crée rien : pré-remplit agency_facture_form.php (éditable, sans envoi auto).
+      $factNotaireNom = ''; $factNotaireMail = '';
+      foreach ($acteurs as $a) {
+          if (in_array($a['role_code'], ['notaire', 'notaire_acquereur'], true)) {
+              $factNotaireNom  = $acteurNom($a);
+              $factNotaireMail = (string)($a['email'] ?? '');
+              break;
+          }
+      }
+      $factHono   = (float)($mandat['honoraires'] ?? 0);
+      $factCharge = trim((string)($mandat['honoraires_charge'] ?? ''));
+      $factLigne  = 'Honoraires de négociation' . ($factCharge !== '' ? ' — charge ' . $factCharge : '');
+      $factUrl = app_url('/agency_facture_form.php?' . http_build_query([
+          'prefill'      => 1,
+          'type_client'  => 'autre',
+          'client'       => $factNotaireNom,
+          'mail'         => $factNotaireMail,
+          'montant'      => $factHono > 0 ? (string)$factHono : '',
+          'ligne'        => $factLigne,
+          'immeuble_txt' => (string)($refDossier ?? ''),
+          'notes'        => "Facture d'honoraires — dossier " . (string)($refDossier ?? '') . ($factCharge !== '' ? ' · charge ' . $factCharge : ''),
+      ]));
+      ?>
       <div class="dvk-actions">
         <h4>⚡ Actions</h4>
+        <a class="dvk-act-btn" style="text-decoration:none;background:#fff7e6;border-color:#e6c877;color:#8a5f22;" href="<?= h($factUrl) ?>">🧾 Créer la facture d'honoraires</a>
         <?php if (!$mandat): ?>
           <button type="button" class="dvk-act-btn" onclick="dvOpenMandatModal()">📝 Créer le mandat de vente</button>
         <?php else: ?>
@@ -1809,6 +1847,59 @@ require_once __DIR__ . '/inc/adresse_modal.php';
       });
       msg.style.color='#0b8043'; msg.innerHTML='✓ '+lignes.join('<br>');
     }catch(err){ msg.textContent='Erreur réseau : '+err.message; }
+  };
+
+  // ── Historique de signature (preuve : horodatage + IP de chaque action) ──
+  window.dvSignHistory = async function(){
+    var ov = document.getElementById('dv-sighist');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id = 'dv-sighist';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+      ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:720px;width:100%;max-height:80vh;overflow:auto;padding:18px 20px;">'
+        + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><b style="font-size:15px;color:#243B5C;">🕓 Historique de signature</b>'
+        + '<button type="button" id="dv-sighist-x" style="margin-left:auto;border:none;background:#eef1f6;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;">✕</button></div>'
+        + '<div id="dv-sighist-body" style="font-size:13px;color:#475569;">Chargement…</div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+      ov.querySelector('#dv-sighist-x').onclick = function(){ ov.remove(); };
+    }
+    var body = ov.querySelector('#dv-sighist-body'); body.textContent = 'Chargement…';
+    try{
+      const res = await fetch(<?= json_encode(app_url('/api/transaction_mandat_signature_history.php?id_dossier=')) ?> + DOSSIER_ID, {credentials:'same-origin'});
+      const out = await res.json();
+      if(!out.ok){ body.textContent = 'Erreur : ' + (out.error||'inconnue'); return; }
+      if(!out.signataires.length){ body.innerHTML = '<em>Aucune demande de signature envoyée pour ce dossier.</em>'; return; }
+      body.innerHTML = out.signataires.map(function(s){
+        var head = '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:10px;">'
+          + '<b>' + (s.nom||'—') + '</b> <span style="color:#94a3b8;font-size:11px;">(' + s.role + ')</span>'
+          + (s.email ? ' · <span style="color:#64748b;">' + s.email + '</span>' : '')
+          + ' — <b style="color:' + (s.statut==='signe' ? '#166534' : '#b45309') + '">' + (s.statut==='signe' ? 'SIGNÉ' : 'en attente') + '</b>'
+          + (s.envoye ? '<div style="font-size:11.5px;color:#64748b;">✉️ Envoyé le ' + s.envoye + '</div>' : '');
+        var ev = s.events.length
+          ? '<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;line-height:1.7;">'
+            + s.events.map(function(e){ return '<li>' + e.libelle + ' — <b>' + e.quand + '</b> <span style="color:#94a3b8;">IP ' + e.ip + '</span></li>'; }).join('')
+            + '</ul>'
+          : '<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Aucune action enregistrée (page pas encore ouverte).</div>';
+        return head + ev + '</div>';
+      }).join('');
+    }catch(err){ body.textContent = 'Erreur réseau : ' + err.message; }
+  };
+
+  // ── Signature MANDATAIRE (agence) : l'agent signe directement, sans lien mail ──
+  window.dvSignMandataire = async function(){
+    if(!confirm('Signer ce mandat en tant que MANDATAIRE (agence) ?\nTa signature sera horodatée et tracée (IP).')) return;
+    const msg=document.getElementById('dv-mandat-msg'); msg.style.color='#94a3b8'; msg.textContent='Signature…';
+    try{
+      const body=new URLSearchParams({ id_dossier:DOSSIER_ID });
+      const res=await fetch(<?= json_encode(app_url('/api/transaction_mandat_sign_mandataire.php')) ?>,{method:'POST',credentials:'same-origin',body});
+      const out=await res.json();
+      if(!out.ok){ msg.style.color='#c0492f'; msg.textContent='Erreur : '+(out.error||'inconnue'); return; }
+      msg.style.color='#0b8043';
+      msg.textContent = out.already ? ('✓ Déjà signé par '+(out.nom||'toi'))
+                      : (out.all_signed ? '✅ Signé — toutes les parties ont signé, mandat actif.'
+                                        : '✓ Signé en tant que mandataire — en attente du vendeur.');
+      setTimeout(()=>location.reload(), 1200);
+    }catch(err){ msg.style.color='#c0492f'; msg.textContent='Erreur réseau : '+err.message; }
   };
 
   // ── Estimation inline (écrit dans bien_prix via l'endpoint dédié) ──
