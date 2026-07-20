@@ -80,6 +80,17 @@ if (!function_exists('apply_bail_extracted_to_bien')) {
             'locataire_siren'          => $fields['locataire_siren']         ?? null,
             'locataire_email'          => $fields['locataire_email']         ?? null,
             'locataire_telephone'      => $fields['locataire_telephone']     ?? null,
+            // Coordonnées / identité du locataire — colonnes existantes (migration 20260706d)
+            // jusqu'ici jamais reportées → « pas de coordonnées locataire » dans le 360.
+            'locataire_adresse'        => $fields['locataire_adresse_1']     ?? ($fields['locataire_adresse'] ?? null),
+            'locataire_date_naissance' => $fields['locataire_date_naissance'] ?? null,
+            'locataire_lieu_naissance' => $fields['locataire_lieu_naissance'] ?? null,
+            'locataire_nationalite'    => $fields['locataire_nationalite']    ?? null,
+            // Champs présents selon l'extracteur (transaction) — mappés défensivement si fournis
+            // (array_filter supprime les null, array_intersect_key ignore les colonnes absentes).
+            'periodicite_paiement'      => $fields['periodicite_paiement']     ?? null,
+            'conditions_particulieres'  => $fields['conditions_particulieres'] ?? null,
+            'bien_designation'          => $fields['bien_designation']         ?? ($fields['bien_description'] ?? null),
             'caution_type'             => $fields['caution_type_caution']    ?? ($fields['caution_type'] ?? null),
             'caution_nom'              => $fields['caution_nom']             ?? null,
             'caution_prenom'           => $fields['caution_prenom']          ?? null,
@@ -132,9 +143,14 @@ if (!function_exists('apply_bail_extracted_to_bien')) {
                     $hasLocataire = !empty($map['locataire_nom']) || !empty($map['locataire_raison_sociale']);
                     $hasLoyer     = !empty($map['loyer_mensuel_hc']);
                     $hasDate      = !empty($map['date_prise_effet']);
-                    $map['statut'] = ($hasLocataire && $hasLoyer && $hasDate) ? 'actif' : 'brouillon';
+                    // Un bail SIGNÉ est actif par nature (date de signature présente ou signature
+                    // détectée par l'IA) → il doit apparaître dans les listes « baux actifs ».
+                    $estSigne     = !empty($map['date_signature'])
+                                 || in_array((string)($fields['signature_status'] ?? ''), ['signe','signé'], true);
+                    $map['statut'] = ($estSigne || ($hasLocataire && $hasLoyer && $hasDate)) ? 'actif' : 'brouillon';
                     $notes[] = 'statut bail = ' . $map['statut']
-                            . ' (loc:' . ($hasLocataire ? 'ok' : 'manque')
+                            . ' (signe:' . ($estSigne ? 'ok' : 'non')
+                            . ' loc:' . ($hasLocataire ? 'ok' : 'manque')
                             . ' loyer:' . ($hasLoyer ? 'ok' : 'manque')
                             . ' date:' . ($hasDate ? 'ok' : 'manque') . ')';
                 }
