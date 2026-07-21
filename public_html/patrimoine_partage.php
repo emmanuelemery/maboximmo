@@ -239,7 +239,11 @@ foreach ($props as $pr) { $details[(int)$pr['id']] = []; }
 $detStmt = $pdo->query("
     SELECT sub.id_proprietaire, sub.id_bien, sub.locataire_nom, sub.loyer_appele,
            sub.presence, sub.imm_vendu, sub.loc_archive, sub.hors_crg,
-           b.reference_bien, b.surface_habitable, b.surface_carrez, b.prix_demande_initial,
+           b.reference_bien, b.prix_demande_initial,
+           COALESCE(NULLIF(b.surface_habitable,0), NULLIF(b.surface_carrez,0), NULLIF(b.surface_totale,0),
+                    NULLIF(b.surface_commerciale,0), NULLIF(b.surface_depot,0), NULLIF(b.surface_bureau,0)) AS surface,
+           COALESCE(bt.categorie, btb.categorie_usage) AS bat_cat,
+           COALESCE(bt.libelle, btb.label)             AS bat_label,
            b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
            i.id AS id_immeuble, i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
            (SELECT bx.loyer FROM baux bx WHERE bx.id_bien=sub.id_bien AND bx.id_proprietaire=sub.id_proprietaire
@@ -249,6 +253,8 @@ $detStmt = $pdo->query("
               ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS prix_scenario
     FROM ({$base_sql}) sub
     LEFT JOIN biens b ON b.id = sub.id_bien
+    LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
+    LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
     LEFT JOIN immeubles i ON i.id = b.id_immeuble
     WHERE sub.imm_vendu = 0 AND sub.loc_archive = 0
     ORDER BY sub.id_proprietaire, b.reference_bien ASC, sub.locataire_nom
@@ -257,13 +263,31 @@ foreach ($detStmt as $r) { $details[(int)$r['id_proprietaire']][] = $r; }
 
 // Helpers d'affichage bien
 function pp_bien_desc(array $d): string {
+    // Adresse seule (la surface passe en colonne dédiée alignée).
     $bits = array_filter([
         trim((string)($d['bien_adresse'] ?? '')) ?: trim((string)($d['imm_adresse'] ?? '')),
         trim((string)($d['bien_ville'] ?? '')) ?: trim((string)($d['imm_ville'] ?? '')),
     ]);
-    $surf = (float)($d['surface_habitable'] ?? 0) ?: (float)($d['surface_carrez'] ?? 0);
-    if ($surf > 0) $bits[] = rtrim(rtrim(number_format($surf, 1, ',', ' '), '0'), ',') . ' m²';
     return implode(' · ', $bits);
+}
+function pp_surface(array $d): string {
+    $s = (float)($d['surface'] ?? 0);
+    return $s > 0 ? rtrim(rtrim(number_format($s, 1, ',', ' '), '0'), ',') . ' m²' : '—';
+}
+/** Type de bâtiment simplifié : Habitation / Commerce / Entrepôt-Pro / Terrain / Stationnement. */
+function pp_batiment(array $d): array {
+    $cat = strtolower(trim((string)($d['bat_cat'] ?? '')));
+    $label = trim((string)($d['bat_label'] ?? ''));
+    switch ($cat) {
+        case 'habitation':    return ['🏠', 'Habitation', $label];
+        case 'commerce':
+        case 'commercial':    return ['🏪', 'Commerce', $label];
+        case 'professionnel': return ['🏭', 'Entrepôt / Pro', $label];
+        case 'terrain':       return ['🌳', 'Terrain', $label];
+        case 'stationnement': return ['🅿️', 'Stationnement', $label];
+        case 'annexe':        return ['📦', 'Annexe', $label];
+        default:              return ['🏢', $label ?: '—', ''];
+    }
 }
 function pp_loyer_mois(array $d): float {
     $bl = (float)($d['bail_loyer'] ?? 0);
@@ -277,7 +301,7 @@ function pp_prix(array $d): float {
 if (!function_exists('fmt_euro')) { function fmt_euro($v){ return number_format((float)$v, 0, ',', ' ') . ' €'; } }
 
 $destNom = $share['destinataire_nom'] ?: 'Consultation patrimoine';
-$colspan = 1 + $showLoc + $showLoyer + $showPrix; // Bien + colonnes optionnelles
+$colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + colonnes optionnelles
 ?>
 <!doctype html>
 <html lang="fr">
@@ -313,8 +337,18 @@ $colspan = 1 + $showLoc + $showLoyer + $showPrix; // Bien + colonnes optionnelle
   .prop-caret{transition:transform .15s;color:#8592ad;}
   .prop.open .prop-caret{transform:rotate(90deg);}
   .prop-name{font-weight:700;font-size:1.02em;}
-  .prop-meta{margin-left:auto;display:flex;gap:18px;font-size:.85em;color:#5a6884;}
+  .prop-meta{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:.85em;color:#5a6884;}
   .prop-meta b{color:#1f2a44;}
+  .prop-meta .pm-nb{white-space:nowrap;}
+  /* Totaux accolés, alignés sous les colonnes Loyer / Prix (mêmes largeurs). */
+  .prop-meta .tot-wrap{display:flex;gap:0;}
+  .prop-meta .tot-loyer,.prop-meta .tot-prix{width:150px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .prop-meta .tot-loyer{padding-right:14px;} .prop-meta .tot-prix{padding-right:18px;}
+  .prop-meta .tot-loyer small,.prop-meta .tot-prix small{display:block;font-size:.72em;color:#8592ad;font-weight:400;}
+  /* Largeurs colonnes = largeurs des totaux (alignement vertical). */
+  table.biens th.col-loyer,table.biens td.col-loyer,
+  table.biens th.col-prix,table.biens td.col-prix{width:150px;}
+  table.biens th:last-child,table.biens td:last-child{padding-right:18px;}
   .cre-kpi{display:inline-flex;align-items:center;gap:6px;background:#fff4e5;color:#a15c00;border:1px solid #f3d6a8;border-radius:20px;padding:3px 11px;font-size:.86em;}
   .cre-kpi.urg{background:#fdecec;color:#b52a2a;border-color:#f3b8b8;}
   .cre-kpi.zero{background:#f2f4f8;color:#8592ad;border-color:#e2e7f0;}
@@ -333,6 +367,10 @@ $colspan = 1 + $showLoc + $showLoyer + $showPrix; // Bien + colonnes optionnelle
   .ref{font-weight:600;color:var(--accent);}
   .desc{color:#6b7796;font-size:.92em;}
   .num{text-align:right;white-space:nowrap;}
+  .col-type{white-space:nowrap;} .col-surf{width:92px;}
+  .bat{display:inline-flex;align-items:center;gap:5px;background:#eef1f6;color:#3a4b6e;border-radius:20px;padding:2px 10px;font-size:.92em;}
+  .prix-cell{font-weight:600;color:#1f2a44;}
+  table.biens td.num{font-variant-numeric:tabular-nums;}
   .vacant{color:#b0851f;font-style:italic;}
   .empty{padding:40px;text-align:center;color:#9aa6bd;}
   footer.legal{text-align:center;color:#9aa6bd;font-size:.76em;margin-top:30px;line-height:1.6;}
@@ -393,6 +431,9 @@ $colspan = 1 + $showLoc + $showLoyer + $showPrix; // Bien + colonnes optionnelle
       $biens = array_values($parBien);
       if (empty($biens)) continue; // propriétaire sans bien actif dans ce périmètre
       $nbBiens = count($biens);
+      // Totaux alignés colonnes (calculés sur les biens réellement affichés).
+      $sumLoyer = 0.0; $sumPrix = 0.0;
+      foreach ($biens as $d) { $sumLoyer += pp_loyer_mois($d); $sumPrix += pp_prix($d); }
   ?>
   <div class="prop" data-prop>
     <div class="prop-head" onclick="this.parentNode.classList.toggle('open')">
@@ -424,36 +465,51 @@ $colspan = 1 + $showLoc + $showLoyer + $showPrix; // Bien + colonnes optionnelle
             <?php endif; ?>
           </<?= $tag ?>>
         <?php endif; ?>
-        <span><b><?= $nbBiens ?></b> bien<?= $nbBiens > 1 ? 's' : '' ?></span>
-        <?php if ($showLoyer): ?><span><b><?= fmt_euro((float)$pr['loyer_total']) ?></b>/mois</span><?php endif; ?>
+        <span class="pm-nb"><b><?= $nbBiens ?></b> bien<?= $nbBiens > 1 ? 's' : '' ?></span>
+        <span class="tot-wrap">
+          <?php if ($showLoc): ?><span class="tot-loc"></span><?php endif; ?>
+          <?php if ($showLoyer): ?>
+          <span class="tot-loyer" title="Total des loyers mensuels"><b><?= fmt_euro($sumLoyer) ?></b><small>/mois</small></span>
+          <?php endif; ?>
+          <?php if ($showPrix): ?>
+          <span class="tot-prix" title="Valorisation totale (prix de vente)"><b><?= fmt_euro($sumPrix) ?></b><small>valorisation</small></span>
+          <?php endif; ?>
+        </span>
       </span>
     </div>
     <div class="prop-body">
       <table class="biens">
         <thead><tr>
           <th>Bien<?= $showDesc ? ' — descriptif' : '' ?></th>
+          <th class="col-type">Type</th>
+          <th class="num col-surf">Surface</th>
           <?php if ($showLoc): ?><th>Locataire</th><?php endif; ?>
-          <?php if ($showLoyer): ?><th class="num">Loyer/mois</th><?php endif; ?>
-          <?php if ($showPrix): ?><th class="num">Prix de vente</th><?php endif; ?>
+          <?php if ($showLoyer): ?><th class="num col-loyer">Loyer/mois</th><?php endif; ?>
+          <?php if ($showPrix): ?><th class="num col-prix">Prix de vente</th><?php endif; ?>
         </tr></thead>
         <tbody>
         <?php foreach ($biens as $d):
             $vacant = !empty($d['hors_crg']) || $d['presence'] !== 'present';
             $loc = trim((string)$d['locataire_nom']);
+            [$batIcon, $batCat, $batLabel] = pp_batiment($d);
         ?>
-        <tr data-search="<?= $e(mb_strtolower($pr['nom'].' '.($d['reference_bien']??'').' '.pp_bien_desc($d).' '.$loc)) ?>">
+        <tr data-search="<?= $e(mb_strtolower($pr['nom'].' '.($d['reference_bien']??'').' '.pp_bien_desc($d).' '.$batCat.' '.$batLabel.' '.$loc)) ?>">
           <td>
             <span class="ref"><?= $e($d['reference_bien'] ?: '—') ?></span>
             <?php if ($showDesc): ?><div class="desc"><?= $e(pp_bien_desc($d)) ?></div><?php endif; ?>
           </td>
+          <td class="col-type">
+            <span class="bat" title="<?= $e($batLabel ?: $batCat) ?>"><?= $batIcon ?> <?= $e($batCat) ?></span>
+          </td>
+          <td class="num col-surf"><?= $e(pp_surface($d)) ?></td>
           <?php if ($showLoc): ?>
           <td class="<?= $vacant ? 'vacant' : '' ?>"><?= $vacant ? 'Vacant' : $e($loc) ?></td>
           <?php endif; ?>
           <?php if ($showLoyer): ?>
-          <td class="num"><?= pp_loyer_mois($d) > 0 ? fmt_euro(pp_loyer_mois($d)) : '—' ?></td>
+          <td class="num col-loyer"><?= pp_loyer_mois($d) > 0 ? fmt_euro(pp_loyer_mois($d)) : '—' ?></td>
           <?php endif; ?>
           <?php if ($showPrix): ?>
-          <td class="num"><?= pp_prix($d) > 0 ? fmt_euro(pp_prix($d)) : '—' ?></td>
+          <td class="num col-prix prix-cell"><?= pp_prix($d) > 0 ? fmt_euro(pp_prix($d)) : '—' ?></td>
           <?php endif; ?>
         </tr>
         <?php endforeach; ?>
