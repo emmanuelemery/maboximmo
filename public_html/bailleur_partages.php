@@ -17,7 +17,11 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/auth.php';
 require_login();
 
-if (!can_admin_bailleur()) { http_response_code(403); exit('Accès réservé aux administrateurs.'); }
+// Accès : admins bailleur (super admin / 1 / 2 / 8) OU un bailleur externe, mais alors SCOPÉ
+// à son seul patrimoine (il ne peut créer / voir / révoquer que des partages de SON compte).
+$ppIsCagedBailleur = function_exists('is_caged_bailleur') && is_caged_bailleur();
+if (!can_admin_bailleur() && !$ppIsCagedBailleur) { http_response_code(403); exit('Accès réservé aux administrateurs.'); }
+$ppScopeUid = $ppIsCagedBailleur ? (int)current_user_id() : 0; // 0 = admin (tous comptes)
 
 $pdo = $GLOBALS['pdo'];
 if (!function_exists('e')) {
@@ -38,6 +42,8 @@ $bailleurs = $pdo->query("
            OR EXISTS (SELECT 1 FROM user_proprietaires WHERE id_user=u.id))
     ORDER BY u.nom, u.prenom
 ")->fetchAll(\PDO::FETCH_ASSOC);
+// Bailleur scopé : il ne peut partager que SON propre compte.
+if ($ppScopeUid) $bailleurs = array_values(array_filter($bailleurs, fn($b) => (int)$b['id'] === $ppScopeUid));
 
 // ── Gestionnaires (staff dont on affiche les coordonnées) ────────────
 $gestionnaires = $pdo->query("
@@ -67,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create') {
-        $idBailleur = (int)($_POST['id_user_bailleur'] ?? 0);
+        $idBailleur = $ppScopeUid ?: (int)($_POST['id_user_bailleur'] ?? 0); // bailleur scopé → forcé à son compte
         $idGest     = (int)($_POST['id_user_gestionnaire'] ?? 0) ?: null;
         $idTiers    = (int)($_POST['id_tiers_destinataire'] ?? 0) ?: null;
         $destNom    = trim($_POST['destinataire_nom'] ?? '');
@@ -118,17 +124,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'revoke') {
         $id = (int)($_POST['id'] ?? 0);
-        $pdo->prepare("UPDATE patrimoine_partages SET actif=0, revoked_at=NOW() WHERE id=?")->execute([$id]);
+        $pdo->prepare("UPDATE patrimoine_partages SET actif=0, revoked_at=NOW() WHERE id=?" . ($ppScopeUid ? " AND id_user_bailleur=" . $ppScopeUid : ""))->execute([$id]);
         $msg = 'Partage révoqué.'; $msgType = 'success';
     }
     if ($action === 'reactivate') {
         $id = (int)($_POST['id'] ?? 0);
-        $pdo->prepare("UPDATE patrimoine_partages SET actif=1, revoked_at=NULL WHERE id=?")->execute([$id]);
+        $pdo->prepare("UPDATE patrimoine_partages SET actif=1, revoked_at=NULL WHERE id=?" . ($ppScopeUid ? " AND id_user_bailleur=" . $ppScopeUid : ""))->execute([$id]);
         $msg = 'Partage réactivé.'; $msgType = 'success';
     }
     if ($action === 'delete') {
         $id = (int)($_POST['id'] ?? 0);
-        $pdo->prepare("DELETE FROM patrimoine_partages WHERE id=?")->execute([$id]);
+        $pdo->prepare("DELETE FROM patrimoine_partages WHERE id=?" . ($ppScopeUid ? " AND id_user_bailleur=" . $ppScopeUid : ""))->execute([$id]);
         $msg = 'Partage supprimé définitivement.'; $msgType = 'success';
     }
 
@@ -154,6 +160,7 @@ $partages = $pdo->query("
     FROM patrimoine_partages pp
     LEFT JOIN users ub ON ub.id = pp.id_user_bailleur
     LEFT JOIN users ug ON ug.id = pp.id_user_gestionnaire
+    " . ($ppScopeUid ? "WHERE pp.id_user_bailleur = " . $ppScopeUid : "") . "
     ORDER BY pp.actif DESC, pp.created_at DESC
 ")->fetchAll(\PDO::FETCH_ASSOC);
 
