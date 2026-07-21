@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
+if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_once __DIR__ . '/inc/csrf.php';
 require_login();
 
@@ -909,10 +910,15 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         ]]);
     }
 
-    // Contacts génériques du bail (socle acteurs) + bouton « + » d'ajout.
-    require_once __DIR__ . '/inc/entite_acteurs.php';
-    $eaBailLinks = entite_acteurs_links($pdo, 'BAIL', $bailId, csrf_token('default'));
-    $eaBailBtn   = entite_acteurs_header_button('ea_bail', 'BAIL', $bailId, csrf_token('default'));
+    // Contacts génériques du bail (socle acteurs) — DÉFENSIF : ne casse jamais la colonne.
+    $eaBailLinks = []; $eaBailBtn = '';
+    try {
+        if (is_file(__DIR__ . '/inc/entite_acteurs.php')) {
+            require_once __DIR__ . '/inc/entite_acteurs.php';
+            if (function_exists('entite_acteurs_links'))         $eaBailLinks = entite_acteurs_links($pdo, 'BAIL', $bailId, csrf_token('default'));
+            if (function_exists('entite_acteurs_header_button')) $eaBailBtn   = entite_acteurs_header_button('ea_bail', 'BAIL', $bailId, csrf_token('default'));
+        }
+    } catch (\Throwable $e) { $eaBailBtn = ''; }
     fiche360_attach('CONTACTS (' . count($eaBailLinks) . ')', $eaBailLinks, $eaBailBtn);
 
     ?>

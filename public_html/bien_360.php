@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
+if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_once __DIR__ . '/inc/ged_document_links.php';   // GED CENTRALE UNIQUE (2026-05-25)
 require_once __DIR__ . '/inc/fluxbox_functions.php';    // résolveur société/agence d'entité (contexte modale)
 require_once __DIR__ . '/inc/ged_name_pills.php';       // affichage contextuel du nom GED (pills)
@@ -1351,7 +1352,17 @@ if ($kpis) {
         $rUrl = !empty($r['id']) ? app_url('/tiers_360.php?id=' . (int)$r['id']) : '#';
         $contactLinks[] = ['icon'=>'👥','name'=>$rNom . ' (' . $r['qualite'] . ')','ref'=>$r['email'] ?: '','url'=>$rUrl];
     }
-    if (!empty($contactLinks)) fiche360_attach('CONTACTS (' . count($contactLinks) . ')', $contactLinks);
+    // Contacts génériques (socle acteurs) + bouton « + » — DÉFENSIF : ne casse jamais la colonne
+    // même si l'include, la table ou une dépendance manque (déploiement partiel).
+    $eaBtn = '';
+    try {
+        if (is_file(__DIR__ . '/inc/entite_acteurs.php')) {
+            require_once __DIR__ . '/inc/entite_acteurs.php';
+            if (function_exists('entite_acteurs_links'))         $contactLinks = array_merge($contactLinks, entite_acteurs_links($pdo, 'BIEN', $bienId, csrf_token('default')));
+            if (function_exists('entite_acteurs_header_button')) $eaBtn = entite_acteurs_header_button('ea_bien', 'BIEN', $bienId, csrf_token('default'));
+        }
+    } catch (\Throwable $e) { $eaBtn = ''; }
+    fiche360_attach('CONTACTS (' . count($contactLinks) . ')', $contactLinks, $eaBtn);
 
     // (card IMMEUBLE retirée : l'immeuble est déjà dans la chaîne en haut + la carte « Données publiques »)
     // Bouton « changer l'immeuble » (relink simple) — staff manager

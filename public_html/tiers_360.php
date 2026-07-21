@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
+if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_once __DIR__ . '/inc/tiers_selector.php';
 require_once __DIR__ . '/inc/acteur_modal.php';
 require_once __DIR__ . '/inc/csrf.php';
