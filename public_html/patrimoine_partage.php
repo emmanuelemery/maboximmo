@@ -456,6 +456,7 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   .col-type{white-space:nowrap;} .col-surf{width:92px;}
   .bat{display:inline-flex;align-items:center;gap:5px;background:#eef1f6;color:#3a4b6e;border-radius:20px;padding:2px 10px;font-size:.92em;}
   .prix-cell{font-weight:600;color:#1f2a44;}
+  .pxm2{color:#8592ad;font-size:.8em;font-weight:400;margin-right:8px;white-space:nowrap;}
   .ifi-form{display:inline-flex;gap:5px;align-items:center;justify-content:flex-end;}
   .ifi-input{width:104px;border:1px solid #cdd4e0;border-radius:7px;padding:5px 8px;font-size:.92em;text-align:right;font-variant-numeric:tabular-nums;}
   .ifi-btn{border:none;background:#1f6b4e;color:#fff;border-radius:7px;width:28px;height:28px;cursor:pointer;font-weight:700;}
@@ -652,7 +653,12 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
               </form>
             </td>
             <?php else: ?>
-            <td class="num col-prix prix-cell"><?= pp_prix($d) > 0 ? fmt_euro(pp_prix($d)) : '—' ?></td>
+            <td class="num col-prix prix-cell">
+              <?php if (pp_prix($d) > 0): $pxSurf = (float)($d['surface'] ?? 0); ?>
+                <?php if ($pxSurf > 0): ?><span class="pxm2"><?= number_format(pp_prix($d) / $pxSurf, 0, ',', ' ') ?> €/m²</span><?php endif; ?>
+                <?= fmt_euro(pp_prix($d)) ?>
+              <?php else: ?>—<?php endif; ?>
+            </td>
             <?php endif; ?>
           <?php endif; ?>
         </tr>
