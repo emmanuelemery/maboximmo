@@ -86,8 +86,24 @@ if ($adminMode) {
         'montrer_loyer' => 1, 'montrer_locataire' => 1, 'montrer_descriptif' => 1,
         'niveau_acces' => 'contribution', 'expire_at' => null, 'actif' => 1, 'consent_at' => date('Y-m-d H:i:s'),
     ];
-    $isPreview = true;  // staff-like : écriture autorisée, pas de journalisation
-    $isAdmin   = true;
+    $isPreview     = true;  // staff-like : écriture autorisée, pas de journalisation
+    $isAdmin       = true;
+    $adminIsStaff  = $isStaff;
+    $adminBailleur = $admBailleur;
+    // Staff : liste des comptes bailleurs pour le sélecteur.
+    $adminBailleurs = [];
+    if ($isStaff) {
+        $adminBailleurs = $pdo->query("
+            SELECT u.id, TRIM(CONCAT_WS(' ', u.prenom, u.nom)) AS nom,
+                   (SELECT COUNT(*) FROM user_proprietaires WHERE id_user=u.id) AS nb
+            FROM users u JOIN roles r ON r.id=u.id_role
+            WHERE u.super_admin=0
+              AND (r.code IN ('PROPRIO','PROPRIO_VIP','bailleur')
+                   OR EXISTS (SELECT 1 FROM user_proprietaires WHERE id_user=u.id))
+            HAVING nb > 0
+            ORDER BY nom
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    }
 } elseif ($previewId > 0) {
     // ── APERÇU STAFF : rendu live, sans jeton ni consentement ──
     require_once __DIR__ . '/inc/auth.php';
@@ -373,6 +389,7 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   .scen-pill{border:1px solid #cdd4e0;background:#fff;border-radius:20px;padding:7px 14px;font-size:.82em;text-decoration:none;color:#3a4b6e;}
   .scen-pill.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;}
   .btn-toggle-all{border:1px solid #cdd4e0;background:#fff;border-radius:10px;padding:9px 14px;font-size:.85em;cursor:pointer;color:#3a4b6e;}
+  .admin-bailleur{border:1px solid var(--accent);background:#fff;border-radius:10px;padding:9px 12px;font-size:.9em;color:#1f2a44;font-weight:600;min-width:220px;}
 
   .prop{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:12px;overflow:hidden;}
   .prop-head{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;user-select:none;}
@@ -459,6 +476,17 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
 <div class="wrap">
 
   <div class="toolbar">
+    <?php if ($isAdmin && !empty($adminIsStaff)): ?>
+    <select class="admin-bailleur" onchange="if(this.value)location.href=this.value">
+      <option value="patrimoine_partage.php?admin=1&scenario=<?= $e($scenSel) ?>" <?= empty($adminBailleur) ? 'selected' : '' ?>>👥 Tous les bailleurs</option>
+      <?php foreach (($adminBailleurs ?? []) as $b): ?>
+      <option value="patrimoine_partage.php?admin=1&bailleur=<?= (int)$b['id'] ?>&scenario=<?= $e($scenSel) ?>"
+              <?= (int)$adminBailleur === (int)$b['id'] ? 'selected' : '' ?>>
+        <?= $e($b['nom'] ?: ('Compte #' . $b['id'])) ?> (<?= (int)$b['nb'] ?>)
+      </option>
+      <?php endforeach; ?>
+    </select>
+    <?php endif; ?>
     <input type="text" class="search" id="pp-search" placeholder="🔎 Rechercher un propriétaire, une adresse, un locataire…">
     <?php if (count($scenAllowed) > 1): ?>
     <div class="scen-pills">
