@@ -251,76 +251,9 @@ if ($showFin && $propIds) {
     foreach ($stF as $r) { $finStats[(int)$r['pid']] = $r; }
 }
 
-// Détail par propriétaire (biens + locataire + loyer + prix scénario)
-$details = [];
-foreach ($props as $pr) { $details[(int)$pr['id']] = []; }
-$detStmt = $pdo->query("
-    SELECT sub.id_proprietaire, sub.id_bien, sub.locataire_nom, sub.loyer_appele,
-           sub.presence, sub.imm_vendu, sub.loc_archive, sub.hors_crg,
-           b.reference_bien, b.prix_demande_initial,
-           COALESCE(NULLIF(b.surface_habitable,0), NULLIF(b.surface_carrez,0), NULLIF(b.surface_totale,0),
-                    NULLIF(b.surface_commerciale,0), NULLIF(b.surface_depot,0), NULLIF(b.surface_bureau,0)) AS surface,
-           COALESCE(bt.categorie, btb.categorie_usage) AS bat_cat,
-           COALESCE(bt.libelle, btb.label)             AS bat_label,
-           b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
-           i.id AS id_immeuble, i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
-           (SELECT bx.loyer FROM baux bx WHERE bx.id_bien=sub.id_bien AND bx.id_proprietaire=sub.id_proprietaire
-              ORDER BY (bx.statut='actif') DESC, bx.id DESC LIMIT 1) AS bail_loyer,
-           (SELECT bp.montant FROM bien_prix bp
-              WHERE bp.id_bien=sub.id_bien AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code=" . $pdo->quote($scenSel) . "
-              ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS prix_scenario
-    FROM ({$base_sql}) sub
-    LEFT JOIN biens b ON b.id = sub.id_bien
-    LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
-    LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
-    LEFT JOIN immeubles i ON i.id = b.id_immeuble
-    WHERE sub.imm_vendu = 0 AND sub.loc_archive = 0
-      -- Bien lui-même vendu / archivé / supprimé, ou retiré de commercialisation → hors patrimoine actif
-      AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))
-      AND b.prix_final_vente IS NULL
-    ORDER BY sub.id_proprietaire, b.reference_bien ASC, sub.locataire_nom
-");
-foreach ($detStmt as $r) { $details[(int)$r['id_proprietaire']][] = $r; }
-
-// Helpers d'affichage bien
-function pp_bien_desc(array $d): string {
-    // Adresse seule (la surface passe en colonne dédiée alignée).
-    $bits = array_filter([
-        trim((string)($d['bien_adresse'] ?? '')) ?: trim((string)($d['imm_adresse'] ?? '')),
-        trim((string)($d['bien_ville'] ?? '')) ?: trim((string)($d['imm_ville'] ?? '')),
-    ]);
-    return implode(' · ', $bits);
-}
-function pp_surface(array $d): string {
-    $s = (float)($d['surface'] ?? 0);
-    return $s > 0 ? rtrim(rtrim(number_format($s, 1, ',', ' '), '0'), ',') . ' m²' : '—';
-}
-/**
- * Type de bien : on affiche le LIBELLÉ PRÉCIS (Bureau, Entrepôt, Local commercial,
- * Appartement…). L'icône reflète la grande catégorie (usage). On ne collapse pas
- * un Bureau en « Entrepôt » — le libellé exact prime.
- * @return array{0:string icône, 1:string libellé affiché, 2:string catégorie (tooltip)}
- */
-function pp_batiment(array $d): array {
-    $cat   = strtolower(trim((string)($d['bat_cat'] ?? '')));
-    $label = trim((string)($d['bat_label'] ?? ''));
-    $catLbl = ['habitation'=>'Habitation','commerce'=>'Commerce','commercial'=>'Commerce',
-               'professionnel'=>'Professionnel','terrain'=>'Terrain','stationnement'=>'Stationnement','annexe'=>'Annexe'][$cat] ?? '';
-    $icon = ['habitation'=>'🏠','commerce'=>'🏪','commercial'=>'🏪','professionnel'=>'🏭',
-             'terrain'=>'🌳','stationnement'=>'🅿️','annexe'=>'📦'][$cat] ?? '🏢';
-    $display = $label !== '' ? $label : ($catLbl ?: '—');
-    return [$icon, $display, $catLbl];
-}
-function pp_loyer_mois(array $d): float {
-    $bl = (float)($d['bail_loyer'] ?? 0);
-    return $bl > 0 ? $bl : ((float)($d['loyer_appele'] ?? 0) / 3);
-}
-function pp_prix(array $d): float {
-    $px = (float)($d['prix_scenario'] ?? 0);
-    if ($px <= 0) $px = (float)($d['prix_demande_initial'] ?? 0);
-    return $px;
-}
-if (!function_exists('fmt_euro')) { function fmt_euro($v){ return number_format((float)$v, 0, ',', ' ') . ' €'; } }
+// Détail par propriétaire — source unique partagée avec l'export Excel.
+require_once __DIR__ . '/inc/patrimoine_partage_data.php';
+$details = pp_load_details($pdo, $propFilterWhere, $scenSel);
 
 $destNom = $share['destinataire_nom'] ?: 'Consultation patrimoine';
 $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + colonnes optionnelles
@@ -362,6 +295,8 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   .prop-meta{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:.85em;color:#5a6884;}
   .prop-meta b{color:#1f2a44;}
   .prop-meta .pm-nb{white-space:nowrap;}
+  .prop-meta .pm-export{white-space:nowrap;text-decoration:none;background:#1f6b4e;color:#fff;border-radius:8px;padding:6px 11px;font-size:.82em;font-weight:600;}
+  .prop-meta .pm-export:hover{background:#175a41;}
   /* Totaux accolés, alignés sous les colonnes Loyer / Prix (mêmes largeurs). */
   .prop-meta .tot-wrap{display:flex;gap:0;}
   .prop-meta .tot-loyer,.prop-meta .tot-prix{width:150px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
@@ -522,6 +457,12 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
           <span class="tot-prix" title="Valorisation totale (prix de vente)"><b><?= fmt_euro($sumPrix) ?></b><small>valorisation</small></span>
           <?php endif; ?>
         </span>
+        <?php
+          $expHref = ($isPreview ? 'patrimoine_export.php?preview=' . (int)$share['id'] : 'patrimoine_export.php?t=' . urlencode($token ?? ''))
+                   . '&proprio=' . $pid . '&scenario=' . urlencode($scenSel);
+        ?>
+        <a class="pm-export" href="<?= $e($expHref) ?>" onclick="event.stopPropagation();"
+           title="Exporter la liste de ce propriétaire en Excel (notaire, propriétaire, comptable)">⬇ Excel</a>
       </span>
     </div>
     <div class="prop-body">
