@@ -125,6 +125,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE patrimoine_partages SET actif=1, revoked_at=NULL WHERE id=?")->execute([$id]);
         $msg = 'Partage réactivé.'; $msgType = 'success';
     }
+
+    // ── Post/Redirect/Get : évite qu'un F5 ne re-soumette le formulaire
+    //    (sinon un partage se recrée à chaque rechargement).
+    $_SESSION['pp_flash'] = ['msg' => $msg, 'type' => $msgType];
+    header('Location: bailleur_partages.php');
+    exit;
+}
+
+// Flash après redirection
+if (!empty($_SESSION['pp_flash'])) {
+    $msg = (string)$_SESSION['pp_flash']['msg'];
+    $msgType = (string)$_SESSION['pp_flash']['type'];
+    unset($_SESSION['pp_flash']);
 }
 
 // ── Liste des partages ───────────────────────────────────────────────
