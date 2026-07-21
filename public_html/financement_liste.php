@@ -11,7 +11,8 @@ require_login();
 
 $roleId = (int)current_role_id();
 $isSuper = (function_exists('is_super_admin') && is_super_admin()) || in_array($roleId, [1, 7], true);
-if (!$isSuper) { http_response_code(403); exit('Accès réservé.'); }
+$isBailleur = function_exists('is_caged_bailleur') && is_caged_bailleur();
+if (!$isSuper && !$isBailleur) { http_response_code(403); exit('Accès réservé.'); }
 
 $appLayout = true;
 $pageTitle = 'Dossiers financiers';
@@ -19,7 +20,8 @@ $robots = 'noindex, nofollow';
 $pdo = $GLOBALS['pdo'];
 $soc = fin_soc();
 
-$dossiers = fin_list($pdo, $soc);
+// Bailleur : uniquement les dossiers de SON patrimoine (propriétaires/biens). Super/staff : tout.
+$dossiers = $isBailleur ? fin_list($pdo, $soc, (int)current_user_id()) : fin_list($pdo, $soc);
 $typeL = fin_type_labels(); $statL = fin_statut_labels(); $confL = fin_confid_labels();
 
 // ── Création pré-branchée sur un PROPRIÉTAIRE (depuis sa fiche) : c'est lui qui emprunte.

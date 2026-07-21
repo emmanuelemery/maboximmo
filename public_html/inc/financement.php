@@ -55,6 +55,33 @@ if (!function_exists('fin_soc')) {
     function fin_soc(): int { return (int)(function_exists('current_societe_id') ? (current_societe_id() ?? 0) : ($_SESSION['id_societe'] ?? 0)); }
     function fin_uid(): int { return (int)(function_exists('current_user_id') ? current_user_id() : ($_SESSION['user_id'] ?? 0)); }
     /** T1 : réservé super admin ; sinon rôle 1/2/7 de la même société OU acces explicite. */
+    // Dossiers de financement rattachés au PATRIMOINE d'un bailleur (ses propriétaires / biens /
+    // immeubles) OU dont il est participant. Placeholders positionnels (prod: émulation off).
+    function fin_bailleur_dossier_ids(PDO $pdo, int $userId): array {
+        if ($userId <= 0) return [];
+        $ids = [];
+        $add = function ($rows) use (&$ids) { foreach ($rows as $x) $ids[(int)$x] = 1; };
+        try {
+            // 1. Tiers principal du dossier = un propriétaire du bailleur.
+            $q = $pdo->prepare("SELECT dd.id FROM fin_dossier dd
+                                  JOIN proprietaires p ON p.id_tiers = dd.id_tiers
+                                  JOIN user_proprietaires up ON up.id_proprietaire = p.id
+                                 WHERE up.id_user = ?");
+            $q->execute([$userId]); $add($q->fetchAll(PDO::FETCH_COLUMN));
+            // 2. Lien du dossier vers une entité de son patrimoine (tiers / bien / immeuble / proprio).
+            $q = $pdo->prepare("SELECT l.id_dossier FROM fin_dossier_lien l WHERE
+                  (l.entity_type='TIERS'        AND l.entity_id IN (SELECT p.id_tiers FROM proprietaires p JOIN user_proprietaires up ON up.id_proprietaire=p.id WHERE up.id_user=?))
+               OR (l.entity_type='BIEN'         AND l.entity_id IN (SELECT b.id FROM biens b JOIN user_proprietaires up ON up.id_proprietaire=b.id_proprietaire WHERE up.id_user=?))
+               OR (l.entity_type IN ('IMB','IMMEUBLE') AND l.entity_id IN (SELECT DISTINCT b.id_immeuble FROM biens b JOIN user_proprietaires up ON up.id_proprietaire=b.id_proprietaire WHERE up.id_user=? AND b.id_immeuble IS NOT NULL))
+               OR (l.entity_type='PROPRIETAIRE' AND l.entity_id IN (SELECT id_proprietaire FROM user_proprietaires WHERE id_user=?))");
+            $q->execute([$userId, $userId, $userId, $userId]); $add($q->fetchAll(PDO::FETCH_COLUMN));
+            // 3. Participant explicite au dossier.
+            $q = $pdo->prepare("SELECT id_dossier FROM fin_dossier_acces WHERE identite_type='user' AND identite_id=? AND actif=1");
+            $q->execute([$userId]); $add($q->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) { /* best-effort */ }
+        return array_map('intval', array_keys($ids));
+    }
+
     function fin_can_view(PDO $pdo, array $dossier): bool {
         if (function_exists('is_super_admin') && is_super_admin()) return true;
         $r = (int)(function_exists('current_role_id') ? current_role_id() : 0);
@@ -62,7 +89,12 @@ if (!function_exists('fin_soc')) {
         if (in_array($r, [1, 2, 7], true) && (int)$dossier['id_societe'] === $soc) return true;
         $st = $pdo->prepare("SELECT 1 FROM fin_dossier_acces WHERE id_dossier=? AND identite_type='user' AND identite_id=? AND actif=1");
         $st->execute([(int)$dossier['id'], fin_uid()]);
-        return (bool)$st->fetchColumn();
+        if ($st->fetchColumn()) return true;
+        // Bailleur cagé : accès aux dossiers de SON patrimoine (propriétaires / biens).
+        if (function_exists('is_caged_bailleur') && is_caged_bailleur()) {
+            return in_array((int)$dossier['id'], fin_bailleur_dossier_ids($pdo, fin_uid()), true);
+        }
+        return false;
     }
     function fin_scope_ok(PDO $pdo, int $dossierId): ?array {
         $st = $pdo->prepare("SELECT * FROM fin_dossier WHERE id=?");
@@ -104,7 +136,18 @@ if (!function_exists('fin_create')) {
         AuditLog::log($pdo, 'UPDATE', 'fin_dossier', $id, [], $fields);
     }
     /** Liste des dossiers de la société (+ compteurs liens/participants). */
-    function fin_list(PDO $pdo, int $soc): array {
+    // $bailleurUserId != null → liste restreinte aux dossiers du PATRIMOINE de ce bailleur
+    // (ignore le filtre société : les ids patrimoine sont déjà le périmètre le plus strict).
+    function fin_list(PDO $pdo, int $soc, ?int $bailleurUserId = null): array {
+        if ($bailleurUserId !== null) {
+            $ids = fin_bailleur_dossier_ids($pdo, $bailleurUserId);
+            if (empty($ids)) return [];
+            $whereClause = "WHERE d.id IN (" . implode(',', array_map('intval', $ids)) . ")";
+            $args = [];
+        } else {
+            $whereClause = "WHERE d.id_societe = ?";
+            $args = [$soc];
+        }
         $sql = "SELECT d.*,
                        TRIM(CONCAT(COALESCE(t.civilite,''),' ',COALESCE(t.nom_affichage, CONCAT(COALESCE(t.nom,''),' ',COALESCE(t.prenom,''))))) AS tiers_nom,
                        s.nom AS societe_concernee_nom,
@@ -116,9 +159,9 @@ if (!function_exists('fin_create')) {
                 LEFT JOIN tiers t     ON t.id = d.id_tiers
                 LEFT JOIN societes s  ON s.id = d.id_societe_concernee
                 LEFT JOIN users u     ON u.id = d.pilote_user_id
-                WHERE d.id_societe = ?
+                $whereClause
                 ORDER BY d.created_at DESC";
-        $st = $pdo->prepare($sql); $st->execute([$soc]);
+        $st = $pdo->prepare($sql); $st->execute($args);
         return $st->fetchAll(PDO::FETCH_ASSOC);
     }
     function fin_get(PDO $pdo, int $id): ?array {

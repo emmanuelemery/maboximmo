@@ -157,7 +157,8 @@ $_bInit = strtoupper(
     $showPortefeuille = $isSA || in_array('portefeuille', $allowedModules, true);
     $showInvest       = $isSA || in_array('investisseur', $allowedModules, true);
     $showTransaction  = $isSA || in_array('transaction', $allowedModules, true);
-    $hasTiroirs = $showCreancier || $showPortefeuille || $showInvest || $showTransaction;
+    $showFinancement  = true; // dossiers de financement : la page est scopée au patrimoine du bailleur
+    $hasTiroirs = $showCreancier || $showPortefeuille || $showInvest || $showTransaction || $showFinancement;
   ?>
   <?php if ($hasTiroirs): ?>
   <div class="sb-bail-section">
@@ -170,6 +171,11 @@ $_bInit = strtoupper(
     <?php if ($showCreancier): ?>
     <a href="<?= $_sbBase ?>creancier_dashboard.php" class="sb-bail-link <?= sb_bail_active('creancier_dashboard.php') ?: (sb_bail_active('creancier_liste.php') ?: sb_bail_active('creancier_dossier360.php')) ?>">
       <span class="sb-bail-icon">⚖️</span> Créanciers
+    </a>
+    <?php endif; ?>
+    <?php if ($showFinancement): ?>
+    <a href="<?= $_sbBase ?>financement_liste.php" class="sb-bail-link <?= sb_bail_active('financement_liste.php') ?: sb_bail_active('financement_360.php') ?>">
+      <span class="sb-bail-icon">💶</span> Financement
     </a>
     <?php endif; ?>
     <?php if ($showPortefeuille): ?>
