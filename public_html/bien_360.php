@@ -1154,9 +1154,12 @@ if ($kpis) {
                     <span style="font-family:'DM Mono',monospace; color:#84a98c;"><?= str_pad((string)$g['no'], 2, '0', STR_PAD_LEFT) ?></span>
                     📁 <?= h($g['label']) ?>
                     <span style="font-size:11px; color:#9a9690; font-weight:600;"><?= count($g['photos']) ?> photo<?= count($g['photos'])>1?'s':'' ?></span>
+                    <button type="button" title="Ajouter des photos à ce groupe"
+                            onclick="event.preventDefault();event.stopPropagation();bienAddPhotos(<?= json_encode((string)$g['label'] === 'Sans groupe' ? '' : (string)$g['label']) ?>);"
+                            style="margin-left:auto; border:1px solid #9fd3b0; background:#eef7f0; color:#15803d; border-radius:7px; padding:3px 9px; font-size:12px; font-weight:800; cursor:pointer;">＋ Photos</button>
                     <button type="button" title="Renommer le groupe"
                             onclick="event.preventDefault();event.stopPropagation();renameBienPhotoGroup(<?= (int)$bienId ?>, <?= (int)$g['no'] ?>, <?= json_encode((string)$g['label']) ?>);"
-                            style="margin-left:auto; border:1px solid #cbd5e1; background:#fff; color:#64748b; border-radius:7px; padding:3px 8px; font-size:11px; font-weight:700; cursor:pointer;">✏️</button>
+                            style="border:1px solid #cbd5e1; background:#fff; color:#64748b; border-radius:7px; padding:3px 8px; font-size:11px; font-weight:700; cursor:pointer;">✏️</button>
                     <button type="button" onclick="event.preventDefault();openPhotosFrame('<?= h($photosUrl) ?>');"
                             style="border:1px solid #cbd5e1; background:#fff; color:#5b21b6; border-radius:7px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer;">Détails ↗</button>
                 </summary>
@@ -1170,6 +1173,39 @@ if ($kpis) {
             </details>
         <?php endforeach; endif; ?>
     </div>
+
+    <!-- Mini-modal « nom du groupe » avant le modal de chargement (onglet Photo pré-rempli) -->
+    <div id="bienPhotoGrpModal" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(15,18,24,.55);align-items:center;justify-content:center;padding:18px;">
+      <div style="background:#fff;border-radius:16px;width:min(400px,96vw);padding:22px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+        <h3 style="margin:0 0 6px;font-size:17px;color:#334155;">📸 Ajouter des photos</h3>
+        <p style="font-size:12.5px;color:#64748b;margin:0 0 12px;">Nom du groupe (sous-dossier) où ranger ces photos :</p>
+        <input type="text" id="bienPhotoGrpName" placeholder="ex. Salon, Façade, Avant travaux…"
+               style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #cbd8da;border-radius:9px;font-size:13px;margin-bottom:14px;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();bienAddPhotosConfirm();}">
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button type="button" onclick="document.getElementById('bienPhotoGrpModal').style.display='none'" style="border:1px solid #cbd8da;background:#f4f9f9;color:#5b6b70;border-radius:9px;padding:9px 16px;font-weight:800;cursor:pointer;">Annuler</button>
+          <button type="button" onclick="bienAddPhotosConfirm()" style="border:none;background:#84a98c;color:#fff;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer;">Continuer →</button>
+        </div>
+      </div>
+    </div>
+    <script>
+    window.BIEN_PHOTO_PREFILL = {bien_id:<?= (int)$bienId ?>, soc_id:<?= (int)$idSocBien ?>, age_id:<?= (int)$idAgeBien ?>, immeuble_id:<?= (int)$immIdBien ?>, immeuble_nom:'<?= $immNomJs ?>', proprio_id:<?= (int)$idProprioBien ?>, proprio_nom:'<?= $proprioNomJs ?>', proprio_tiers_id:<?= (int)$proprioTiersId ?>, proprio_representant:'<?= $proprioRepJs ?>', n1:'<?= $n1Bien ?>', n2:'BIENS', n3:'BIEN', entite_nom:'<?= $refBienJs ?>', entite_id_bdd:<?= (int)$bienId ?>, entite_adresse:'<?= $adrBienJs ?>', origin:'bien_360'};
+    function bienAddPhotos(groupeLabel){
+      var pf = Object.assign({}, window.BIEN_PHOTO_PREFILL, { groupe_label: (groupeLabel||''), photo_mode:true });
+      if (typeof window.fbxOpenUploadModal === 'function') window.fbxOpenUploadModal(pf);
+      else alert('Module de chargement indisponible.');
+    }
+    function bienAddPhotosPrompt(){
+      var m=document.getElementById('bienPhotoGrpModal'); if(!m) return; m.style.display='flex';
+      var i=document.getElementById('bienPhotoGrpName'); if(i){ i.value=''; setTimeout(function(){i.focus();},50); }
+    }
+    function bienAddPhotosConfirm(){
+      var name=(document.getElementById('bienPhotoGrpName').value||'').trim();
+      document.getElementById('bienPhotoGrpModal').style.display='none';
+      bienAddPhotos(name);
+    }
+    document.getElementById('bienPhotoGrpModal').addEventListener('mousedown', function(e){ if(e.target===this) this.style.display='none'; });
+    </script>
 
     <!-- Overlay iframe : gestion des photos (onglet Photos de bien_details, réutilisé tel quel) -->
     <div id="photosFrameOverlay" style="display:none; position:fixed; inset:0; z-index:9000; background:rgba(20,26,40,.55); backdrop-filter:blur(2px);">
@@ -1271,9 +1307,13 @@ if ($kpis) {
         // Bouton CHARGER UN DOCUMENT (2e position) — coloré (accent FluxBox).
         $chargerItem = ['icon'=>'📤','label'=>'Charger un document','url'=>'#','onclick'=>$fbxOnClickBien,
                'style'=>'background:linear-gradient(135deg,#BF527A,#9d3f63);color:#fff;'];
+        // Bouton AJOUTER DES PHOTOS : mini-modal (nom du groupe) → modal de chargement (onglet Photo).
+        $photosItem = ['icon'=>'📸','label'=>'Ajouter des photos','url'=>'#','onclick'=>'bienAddPhotosPrompt();return false;',
+               'style'=>'background:linear-gradient(135deg,#84a98c,#5f7f68);color:#fff;'];
         fiche360_actions_panel('Actions bien', [
             $annonceItem,
             $chargerItem,
+            $photosItem,
             ['icon'=>'📝','label'=>'Descriptif du bien','url'=>app_url('/bien_detail.php?edit=' . $bienId)],
             ['icon'=>'🗂️','label'=>($hasDossierVente ? 'Voir le dossier de vente' : 'Créer le dossier de vente'),'url'=>app_url('/transaction_dossier.php?id_bien=' . $bienId)],
             ['icon'=>'🔑','label'=>'Créer un projet de bail','url'=>'#','onclick'=>$belOnClick],

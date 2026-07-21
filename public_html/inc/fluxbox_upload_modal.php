@@ -3242,6 +3242,16 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         }
         openModal();
         fbxResolvePrefillNames();   // complète les noms manquants puis re-render (async)
+        // [Photos galerie] Si on ouvre pour AJOUTER DES PHOTOS à un bien : pré-remplir le
+        // nom du groupe (libellé) et basculer directement sur l'onglet Photo.
+        if (prefill && (prefill.photo_mode || prefill.groupe_label != null)) {
+            setTimeout(function () {
+                var lib = document.getElementById('fbx-doc-libelle');
+                if (lib && prefill.groupe_label != null) lib.value = prefill.groupe_label;
+                var tab = modal.querySelector('.fbx-tab[data-tab="photo"]');
+                if (tab) tab.click();
+            }, 80);
+        }
     };
     modal.querySelectorAll('[data-fbx-close]').forEach(el => el.addEventListener('click', closeModal));
 
