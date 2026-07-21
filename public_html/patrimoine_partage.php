@@ -232,8 +232,14 @@ if (!empty($share['id_user_gestionnaire'])) {
 
 // MARQUE (logo + nom + coordonnées) = AGENCE DU PROPRIÉTAIRE BAILLEUR (pas du user).
 // On prend l'agence dominante des propriétaires du périmètre.
+// EXCEPTION vue admin « Tous les bailleurs » : périmètre = tous les propriétaires
+// → l'agence dominante n'a aucun sens (elle donnerait celle qui a le plus de biens).
+// On affiche alors l'agence du compte connecté (staff).
 $idAgence = 0;
-if ($propIds) {
+if ($isAdmin && !empty($adminIsStaff) && empty($adminBailleur)) {
+    $idAgence = (int)($_SESSION['id_agence'] ?? 0);
+}
+if (!$idAgence && $propIds) {
     $inP = implode(',', $propIds);
     $idAgence = (int)($pdo->query("
         SELECT pr.id_agence FROM proprietaires pr
