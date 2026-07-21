@@ -453,8 +453,19 @@ $docsDivers = array_values(array_filter($docs, fn($d) => empty($baseTypes[$d['do
 // déjà pour ce bien, "Créer" sinon (la cible transaction_dossier.php est idempotente).
 $hasDossierVente = false;
 try {
-    $stDV = $pdo->prepare("SELECT 1 FROM dossier_vente WHERE id_bien = ? LIMIT 1");
-    $stDV->execute([$bienId]);
+    // Lot principal (dossier_vente.id_bien) OU lot secondaire (dossier_vente_bien.id_bien)
+    // → un lot secondaire d'un dossier multi-lots voit bien « Voir le dossier », pas « Créer ».
+    try {
+        // Placeholders POSITIONNELS (?) — un :nom réutilisé plante en prod (prep. natives).
+        $stDV = $pdo->prepare("
+            SELECT 1 FROM dossier_vente dv
+            LEFT JOIN dossier_vente_bien dvb ON dvb.id_dossier = dv.id AND dvb.id_bien = ?
+            WHERE dv.id_bien = ? OR dvb.id_bien = ? LIMIT 1");
+        $stDV->execute([$bienId, $bienId, $bienId]);
+    } catch (Throwable $eLots) {
+        $stDV = $pdo->prepare("SELECT 1 FROM dossier_vente WHERE id_bien = ? LIMIT 1");
+        $stDV->execute([$bienId]);
+    }
     $hasDossierVente = (bool)$stDV->fetchColumn();
 } catch (Throwable $e) {}
 $dossierVenteBtn = [
@@ -658,6 +669,7 @@ if ($kpis) {
 .f360-header-actions .tr-btn-primary:hover { background:#eaf1fa; color:#243B5C; }
 </style>
 
+<?php require_once __DIR__ . '/inc/financement.php'; echo fin_related_block($pdo, 'BIEN', $bienId); ?>
 <div class="b360-grid3">
 
   <!-- ═══════ ZONE GAUCHE (2 colonnes) : Barre IA + Core + Documents ═══════ -->
@@ -1142,8 +1154,11 @@ if ($kpis) {
                     <span style="font-family:'DM Mono',monospace; color:#84a98c;"><?= str_pad((string)$g['no'], 2, '0', STR_PAD_LEFT) ?></span>
                     📁 <?= h($g['label']) ?>
                     <span style="font-size:11px; color:#9a9690; font-weight:600;"><?= count($g['photos']) ?> photo<?= count($g['photos'])>1?'s':'' ?></span>
+                    <button type="button" title="Renommer le groupe"
+                            onclick="event.preventDefault();event.stopPropagation();renameBienPhotoGroup(<?= (int)$bienId ?>, <?= (int)$g['no'] ?>, <?= json_encode((string)$g['label']) ?>);"
+                            style="margin-left:auto; border:1px solid #cbd5e1; background:#fff; color:#64748b; border-radius:7px; padding:3px 8px; font-size:11px; font-weight:700; cursor:pointer;">✏️</button>
                     <button type="button" onclick="event.preventDefault();openPhotosFrame('<?= h($photosUrl) ?>');"
-                            style="margin-left:auto; border:1px solid #cbd5e1; background:#fff; color:#5b21b6; border-radius:7px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer;">Détails ↗</button>
+                            style="border:1px solid #cbd5e1; background:#fff; color:#5b21b6; border-radius:7px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer;">Détails ↗</button>
                 </summary>
                 <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:6px; padding:6px 0 12px;">
                     <?php foreach ($g['photos'] as $p): $thumb = app_url('/' . ltrim((string)($p['url_lbc'] ?: $p['url_photo']), '/')); ?>
@@ -1172,6 +1187,23 @@ if ($kpis) {
         if(f.getAttribute('data-src')!==url){ f.src=url; f.setAttribute('data-src',url); } o.style.display='block'; document.body.style.overflow='hidden'; }
     function closePhotosFrame(){ document.getElementById('photosFrameOverlay').style.display='none'; document.body.style.overflow=''; }
     document.getElementById('photosFrameOverlay').addEventListener('click', function(e){ if(e.target===this) closePhotosFrame(); });
+    // Renommage d'un groupe de photos (met à jour groupe_label de toutes ses photos).
+    var FBX_GRP_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token('bien_photo_group') : '', JSON_UNESCAPED_SLASHES) ?>;
+    function renameBienPhotoGroup(bienId, groupeNo, current){
+        var nv = prompt('Nom du groupe de photos :', current || '');
+        if (nv === null) return;
+        nv = nv.trim();
+        var fd = new FormData();
+        fd.append('id_bien', String(bienId));
+        fd.append('groupe_no', String(groupeNo));
+        fd.append('groupe_label', nv);
+        fd.append('csrf_token', FBX_GRP_CSRF);
+        fetch(<?= json_encode(app_url('/api/bien_photo_group_rename.php')) ?>, {method:'POST', body:fd, credentials:'same-origin'})
+          .then(function(r){return r.json();}).then(function(j){
+            if (j && j.ok) { location.reload(); }
+            else { alert((j && j.error) || 'Échec du renommage.'); }
+          }).catch(function(){ alert('Erreur réseau.'); });
+    }
     document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePhotosFrame(); });
     </script>
 
@@ -1229,15 +1261,25 @@ if ($kpis) {
             ['icon'=>'📁','label'=>'Documents du bien','url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
         ]);
     } else {
+        // Bouton ANNONCE (1re position) : « Voir l'annonce » si une annonce est active et
+        // diffusée, sinon « Créer une annonce ». Coloré pour ressortir.
+        $annonceItem = $annonceActive
+            ? ['icon'=>'👁','label'=>"Voir l'annonce", 'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce'),
+               'style'=>'background:linear-gradient(135deg,#2d8a4e,#1f6e3a);color:#fff;']
+            : ['icon'=>'📡','label'=>'Créer une annonce', 'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce'),
+               'style'=>'background:linear-gradient(135deg,#3b6fb0,#274d80);color:#fff;'];
+        // Bouton CHARGER UN DOCUMENT (2e position) — coloré (accent FluxBox).
+        $chargerItem = ['icon'=>'📤','label'=>'Charger un document','url'=>'#','onclick'=>$fbxOnClickBien,
+               'style'=>'background:linear-gradient(135deg,#BF527A,#9d3f63);color:#fff;'];
         fiche360_actions_panel('Actions bien', [
+            $annonceItem,
+            $chargerItem,
             ['icon'=>'📝','label'=>'Descriptif du bien','url'=>app_url('/bien_detail.php?edit=' . $bienId)],
             ['icon'=>'🗂️','label'=>($hasDossierVente ? 'Voir le dossier de vente' : 'Créer le dossier de vente'),'url'=>app_url('/transaction_dossier.php?id_bien=' . $bienId)],
             ['icon'=>'🔑','label'=>'Créer un projet de bail','url'=>'#','onclick'=>$belOnClick],
-            ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>$fbxOnClickBien],
             ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=BIEN&id=' . $bienId . '&back=' . urlencode('bien_360.php?id=' . $bienId))],
             ['icon'=>'📥','label'=>'Importer docs OneDrive (bien + locataires)','url'=>'javascript:odClasserOpen()'],
             ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
-            ['icon'=>'📡','label'=>'Créer une annonce',        'url'=>app_url('/bien_detail.php?edit=' . $bienId . '&section=annonce')],
             ['icon'=>'📁','label'=>'Documents du bien',        'url'=>app_url('/bien_documents_list.php?id=' . $bienId)],
             ['icon'=>'📮','label'=>'Envoyer la fiche vitrine par mail','url'=>app_url('/mail_compose.php?ctx=BIEN&id=' . $bienId . '&gen_affiche_vitrine=1&back=' . urlencode('bien_360.php?id=' . $bienId))],
         ]);
@@ -1289,23 +1331,50 @@ if ($kpis) {
             ['lat' => $bien['latitude'] ?? '', 'lng' => $bien['longitude'] ?? '', 'label' => $gvLabel]);
     }
 
-    // ── Marquer vendu (sort des « à vendre », garde l'historique) ──
-    // « Déjà vendu » = vraiment vendu (statut_bien) ou prix final posé — PAS un simple retrait.
-    $dejaVendu = (($bien['statut_bien'] ?? '') === 'vendu') || !empty($bien['prix_final_vente']);
+    // ── Retirer du portefeuille = ARCHIVAGE (jamais de suppression physique) ──
+    // Un seul bouton « Supprimer » → modal : on choisit le motif (Vente / Perte de gestion).
+    // Les deux archivent le bien (conservé en base). La suppression d'un lot est réservée
+    // au super admin, directement en base.
+    $dejaSorti = in_array(($bien['statut_bien'] ?? ''), ['vendu', 'perdu_gestion', 'archive'], true)
+              || !empty($bien['prix_final_vente']);
     ?>
     <div style="margin-top:14px;">
       <?php if (!empty($_GET['vendu'])): ?>
-        <div style="background:#e3f3e8;color:#2d8a4e;border:1px solid #9fd3b0;border-radius:10px;padding:10px 14px;font-weight:700;margin-bottom:10px;">✅ Bien marqué vendu — sorti des « à vendre », historique conservé.</div>
+        <div style="background:#e3f3e8;color:#2d8a4e;border:1px solid #9fd3b0;border-radius:10px;padding:10px 14px;font-weight:700;margin-bottom:10px;">✅ Bien archivé (motif : vente) — sorti du portefeuille actif, historique conservé.</div>
+      <?php elseif (!empty($_GET['perte_gestion'])): ?>
+        <div style="background:#fbeaea;color:#a8342a;border:1px solid #e6b3ae;border-radius:10px;padding:10px 14px;font-weight:700;margin-bottom:10px;">✅ Bien archivé (motif : perte de gestion) — sorti du portefeuille actif, historique conservé.</div>
       <?php endif; ?>
-      <?php if ($dejaVendu): ?>
-        <div style="background:#efe7f7;color:#6b4aa0;border:1px solid #c9b8e6;border-radius:10px;padding:10px 14px;font-weight:700;">🏷️ Ce bien est déjà marqué vendu / retiré de la commercialisation.</div>
+      <?php if ($dejaSorti): ?>
+        <div style="background:#efe7f7;color:#6b4aa0;border:1px solid #c9b8e6;border-radius:10px;padding:10px 14px;font-weight:700;">🗂️ Ce bien est déjà sorti du portefeuille (vendu / perte de gestion / archivé).</div>
       <?php elseif (!$bailleurEmbed): ?>
-        <form method="post" action="<?= h(app_url('/api/bien_marquer_vendu.php')) ?>" onsubmit="return confirm('Marquer ce bien comme VENDU ?\nIl sortira des « à vendre » (l\'historique est conservé).');">
-          <?= csrf_field('bien_vendu') ?>
-          <input type="hidden" name="id_bien" value="<?= (int)$bienId ?>">
-          <input type="hidden" name="retour" value="<?= h(app_url('/bien_360.php?id=' . $bienId)) ?>">
-          <button type="submit" style="width:100%;cursor:pointer;background:linear-gradient(135deg,#2d8a4e,#23703f);color:#fff;border:none;border-radius:10px;padding:11px 14px;font-size:14px;font-weight:800;">🏷️ Marquer ce bien vendu</button>
-        </form>
+        <button type="button" onclick="document.getElementById('bienSortieModal').style.display='flex'"
+                style="width:100%;cursor:pointer;background:linear-gradient(135deg,#c0392b,#96271b);color:#fff;border:none;border-radius:10px;padding:11px 14px;font-size:14px;font-weight:800;">🗑️ Supprimer ce bien</button>
+
+        <!-- Modal : choix du motif (archivage, jamais suppression physique) -->
+        <div id="bienSortieModal" style="display:none;position:fixed;inset:0;z-index:9800;background:rgba(15,18,24,.55);align-items:center;justify-content:center;padding:18px;">
+          <form method="post" id="bienSortieForm" action="<?= h(app_url('/api/bien_sortie_gestion.php')) ?>" onsubmit="return confirm('Archiver ce bien (sortie du portefeuille) ?');" style="background:#fff;border-radius:16px;width:min(460px,96vw);padding:22px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+            <h3 style="margin:0 0 6px;font-size:17px;color:#334155;">🗂️ Retirer ce bien du portefeuille</h3>
+            <p style="font-size:12.5px;color:#64748b;line-height:1.5;margin:0 0 12px;">Le bien sera <b>archivé</b> (conservé en base, <b>pas supprimé</b>) et sortira du portefeuille actif. C'est <b>réversible</b> (désarchivage possible). Choisis le motif :</p>
+            <?= csrf_field('bien_sortie_gestion') ?>
+            <input type="hidden" name="id_bien" value="<?= (int)$bienId ?>">
+            <input type="hidden" name="retour" value="<?= h(app_url('/bien_360.php?id=' . $bienId)) ?>">
+            <label style="display:flex;gap:9px;align-items:center;padding:10px 12px;border:1px solid #cbd8da;border-radius:10px;margin-bottom:8px;cursor:pointer;font-weight:700;color:#2d8a4e;">
+              <input type="radio" name="motif" value="vente" checked> 🏷️ Vente (bien vendu, sort de la gestion)</label>
+            <label style="display:flex;gap:9px;align-items:center;padding:10px 12px;border:1px solid #cbd8da;border-radius:10px;margin-bottom:10px;cursor:pointer;font-weight:700;color:#a8342a;">
+              <input type="radio" name="motif" value="perte_gestion"> 📉 Perte de gestion</label>
+            <textarea name="commentaire" rows="2" placeholder="Commentaire (optionnel) — ex. propriétaire parti chez X" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd8da;border-radius:9px;font-size:12.5px;margin-bottom:10px;"></textarea>
+            <p style="font-size:11px;color:#a26a1c;font-style:italic;margin:0 0 14px;">⚠️ Si le bien a une annonce en ligne, elle sera retirée. La suppression définitive d'un lot est réservée au super administrateur (base de données).</p>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button type="button" onclick="document.getElementById('bienSortieModal').style.display='none'" style="border:1px solid #cbd8da;background:#f4f9f9;color:#5b6b70;border-radius:9px;padding:9px 16px;font-weight:800;cursor:pointer;">Annuler</button>
+              <button type="submit" style="border:none;background:#c0392b;color:#fff;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer;">Confirmer l'archivage</button>
+            </div>
+          </form>
+        </div>
+        <script>
+        (function(){
+          document.getElementById('bienSortieModal').addEventListener('mousedown', function(e){ if(e.target===this) this.style.display='none'; });
+        })();
+        </script>
       <?php endif; ?>
     </div>
 
