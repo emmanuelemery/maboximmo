@@ -208,6 +208,7 @@ $base_sql = patrimoine_base_sql($propFilterWhere, $scenSel);
 // Propriétaires (repliés par défaut) + agrégats
 $props = $pdo->query("
     SELECT p.id, COALESCE(NULLIF(p.societe,''), TRIM(CONCAT_WS(' ',p.prenom,p.nom))) AS nom,
+           COALESCE(p.ifi_personnel,0) AS ifi_personnel,
            COUNT(DISTINCT CASE WHEN sub.imm_vendu=0 THEN sub.id_bien END) AS nb_biens,
            ROUND(SUM(CASE WHEN sub.imm_vendu=0 AND sub.loc_archive=0 THEN sub.loyer_appele ELSE 0 END)/3,0) AS loyer_total
     FROM proprietaires p
@@ -215,6 +216,43 @@ $props = $pdo->query("
     GROUP BY p.id
     ORDER BY nom
 ")->fetchAll(PDO::FETCH_ASSOC);
+
+// Mode IFI : impôt PERSONNEL → seuls les propriétaires marqués ifi_personnel.
+$isIfi   = ($scenSel === 'ifi');
+$ifiEdit = ($isIfi && $canWrite && $showFin); // édition réservée au comptable (contribution)
+if ($isIfi) {
+    $props = array_values(array_filter($props, fn($p) => !empty($p['ifi_personnel'])));
+    $showPrix = 1;              // la colonne « Valeur IFI » s'affiche toujours en scénario IFI
+    $colspan  = 3 + $showLoc + $showLoyer + $showPrix;
+}
+
+// ── Validation d'une valeur IFI (comptable) → nouvelle ligne bien_prix (historique natif) ──
+if ($ifiEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'validate_ifi') {
+    $bienId  = (int)($_POST['bien_id'] ?? 0);
+    $montant = round((float)str_replace([' ', ','], ['', '.'], (string)($_POST['montant'] ?? '0')), 2);
+    // Le bien doit appartenir à un propriétaire IFI-perso du périmètre.
+    $chk = $pdo->prepare("SELECT COUNT(*) FROM biens b JOIN proprietaires p ON p.id=b.id_proprietaire
+                          WHERE b.id=? AND p.ifi_personnel=1 AND b.id_proprietaire IN (" . implode(',', $propIds ?: [0]) . ")");
+    $chk->execute([$bienId]);
+    if ($bienId && $montant > 0 && (int)$chk->fetchColumn()) {
+        $uid = ($isPreview && function_exists('current_user_id')) ? (int)current_user_id() : null;
+        $pdo->beginTransaction();
+        try {
+            // Historisation : l'ancienne valeur IFI courante passe à is_courant=0.
+            $pdo->prepare("UPDATE bien_prix SET is_courant=0
+                           WHERE id_bien=? AND type_valeur='prix_vente' AND scenario_code='ifi' AND is_courant=1")->execute([$bienId]);
+            $pdo->prepare("INSERT INTO bien_prix
+                (id_bien, type_valeur, scenario_code, scenario_label, montant, source, id_user, commentaire, is_courant, date_validation)
+                VALUES (?, 'prix_vente', 'ifi', 'IFI', ?, 'comptable', ?, ?, 1, NOW())")
+                ->execute([$bienId, $montant, $uid, 'Valeur IFI validée via partage']);
+            $pdo->commit();
+        } catch (Throwable $ex) { $pdo->rollBack(); }
+    }
+    $selfUrl = ($isPreview ? 'patrimoine_partage.php?preview=' . (int)$share['id'] : 'patrimoine_partage.php?t=' . urlencode((string)($token ?? '')))
+             . '&scenario=ifi#p' . (int)($_POST['back_pid'] ?? 0);
+    header('Location: ' . $selfUrl);
+    exit;
+}
 
 // Stats dossiers créanciers par propriétaire (voyant/KPI ligne repliée) — si autorisé.
 $creStats = [];
@@ -331,6 +369,12 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   .col-type{white-space:nowrap;} .col-surf{width:92px;}
   .bat{display:inline-flex;align-items:center;gap:5px;background:#eef1f6;color:#3a4b6e;border-radius:20px;padding:2px 10px;font-size:.92em;}
   .prix-cell{font-weight:600;color:#1f2a44;}
+  .ifi-form{display:inline-flex;gap:5px;align-items:center;justify-content:flex-end;}
+  .ifi-input{width:104px;border:1px solid #cdd4e0;border-radius:7px;padding:5px 8px;font-size:.92em;text-align:right;font-variant-numeric:tabular-nums;}
+  .ifi-btn{border:none;background:#1f6b4e;color:#fff;border-radius:7px;width:28px;height:28px;cursor:pointer;font-weight:700;}
+  .ifi-btn:hover{background:#175a41;}
+  .ifi-note{background:#eef4ff;border:1px solid #cdddf7;color:#274b8a;border-radius:10px;padding:10px 14px;font-size:.85em;margin:0 0 14px;}
+  .ifi-note b{color:#1a3566;}
   table.biens td.num{font-variant-numeric:tabular-nums;}
   .vacant{color:#b0851f;font-style:italic;}
   .empty{padding:40px;text-align:center;color:#9aa6bd;}
@@ -376,6 +420,13 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
     <button type="button" class="btn-toggle-all" id="pp-toggle-all">Tout déplier</button>
   </div>
 
+  <?php if ($isIfi): ?>
+  <div class="ifi-note">
+    🏛️ <b>Scénario IFI</b> — l'IFI est un impôt personnel : seuls les propriétaires détenus personnellement sont affichés (SCI FOCH, SMH, SABY).
+    <?php if ($ifiEdit): ?> Vous pouvez <b>saisir et valider</b> la valeur IFI de chaque bien (bouton ✓) — chaque validation est <b>historisée</b> et enregistrée sur le bien.<?php endif; ?>
+  </div>
+  <?php endif; ?>
+
   <?php if (empty($props)): ?>
     <div class="prop"><div class="empty">Aucun bien à afficher dans ce périmètre.</div></div>
   <?php else: foreach ($props as $pr):
@@ -396,7 +447,7 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
       $sumLoyer = 0.0; $sumPrix = 0.0;
       foreach ($biens as $d) { $sumLoyer += pp_loyer_mois($d); $sumPrix += pp_prix($d); }
   ?>
-  <div class="prop" data-prop>
+  <div class="prop" data-prop id="p<?= $pid ?>">
     <div class="prop-head" onclick="this.parentNode.classList.toggle('open')">
       <span class="prop-caret">▶</span>
       <span class="prop-name"><?= $e($pr['nom']) ?></span>
@@ -473,7 +524,7 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
           <th class="num col-surf">Surface</th>
           <?php if ($showLoc): ?><th>Locataire</th><?php endif; ?>
           <?php if ($showLoyer): ?><th class="num col-loyer">Loyer/mois</th><?php endif; ?>
-          <?php if ($showPrix): ?><th class="num col-prix">Prix de vente</th><?php endif; ?>
+          <?php if ($showPrix): ?><th class="num col-prix"><?= $isIfi ? 'Valeur IFI' : 'Prix de vente' ?></th><?php endif; ?>
         </tr></thead>
         <tbody>
         <?php foreach ($biens as $d):
@@ -497,7 +548,21 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
           <td class="num col-loyer"><?= pp_loyer_mois($d) > 0 ? fmt_euro(pp_loyer_mois($d)) : '—' ?></td>
           <?php endif; ?>
           <?php if ($showPrix): ?>
-          <td class="num col-prix prix-cell"><?= pp_prix($d) > 0 ? fmt_euro(pp_prix($d)) : '—' ?></td>
+            <?php if ($ifiEdit): ?>
+            <td class="num col-prix prix-cell">
+              <form method="POST" class="ifi-form" onclick="event.stopPropagation();">
+                <?php if (function_exists('csrf_field')) echo csrf_field(); ?>
+                <input type="hidden" name="action" value="validate_ifi">
+                <input type="hidden" name="bien_id" value="<?= (int)$d['id_bien'] ?>">
+                <input type="hidden" name="back_pid" value="<?= $pid ?>">
+                <input type="text" name="montant" class="ifi-input" inputmode="numeric"
+                       value="<?= pp_prix($d) > 0 ? (int)pp_prix($d) : '' ?>" placeholder="montant €">
+                <button type="submit" class="ifi-btn" title="Valider cette valeur IFI (historisée)">✓</button>
+              </form>
+            </td>
+            <?php else: ?>
+            <td class="num col-prix prix-cell"><?= pp_prix($d) > 0 ? fmt_euro(pp_prix($d)) : '—' ?></td>
+            <?php endif; ?>
           <?php endif; ?>
         </tr>
         <?php endforeach; ?>
