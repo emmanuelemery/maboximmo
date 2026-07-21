@@ -292,20 +292,21 @@ function pp_surface(array $d): string {
     $s = (float)($d['surface'] ?? 0);
     return $s > 0 ? rtrim(rtrim(number_format($s, 1, ',', ' '), '0'), ',') . ' m²' : '—';
 }
-/** Type de bâtiment simplifié : Habitation / Commerce / Entrepôt-Pro / Terrain / Stationnement. */
+/**
+ * Type de bien : on affiche le LIBELLÉ PRÉCIS (Bureau, Entrepôt, Local commercial,
+ * Appartement…). L'icône reflète la grande catégorie (usage). On ne collapse pas
+ * un Bureau en « Entrepôt » — le libellé exact prime.
+ * @return array{0:string icône, 1:string libellé affiché, 2:string catégorie (tooltip)}
+ */
 function pp_batiment(array $d): array {
-    $cat = strtolower(trim((string)($d['bat_cat'] ?? '')));
+    $cat   = strtolower(trim((string)($d['bat_cat'] ?? '')));
     $label = trim((string)($d['bat_label'] ?? ''));
-    switch ($cat) {
-        case 'habitation':    return ['🏠', 'Habitation', $label];
-        case 'commerce':
-        case 'commercial':    return ['🏪', 'Commerce', $label];
-        case 'professionnel': return ['🏭', 'Entrepôt / Pro', $label];
-        case 'terrain':       return ['🌳', 'Terrain', $label];
-        case 'stationnement': return ['🅿️', 'Stationnement', $label];
-        case 'annexe':        return ['📦', 'Annexe', $label];
-        default:              return ['🏢', $label ?: '—', ''];
-    }
+    $catLbl = ['habitation'=>'Habitation','commerce'=>'Commerce','commercial'=>'Commerce',
+               'professionnel'=>'Professionnel','terrain'=>'Terrain','stationnement'=>'Stationnement','annexe'=>'Annexe'][$cat] ?? '';
+    $icon = ['habitation'=>'🏠','commerce'=>'🏪','commercial'=>'🏪','professionnel'=>'🏭',
+             'terrain'=>'🌳','stationnement'=>'🅿️','annexe'=>'📦'][$cat] ?? '🏢';
+    $display = $label !== '' ? $label : ($catLbl ?: '—');
+    return [$icon, $display, $catLbl];
 }
 function pp_loyer_mois(array $d): float {
     $bl = (float)($d['bail_loyer'] ?? 0);
