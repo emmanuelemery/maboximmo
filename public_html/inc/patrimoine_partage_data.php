@@ -90,6 +90,53 @@ if (!function_exists('pp_load_details')) {
     }
 }
 
+if (!function_exists('pp_load_all_biens')) {
+    /**
+     * TOUS les biens actifs des propriétaires (indépendamment du CRG et d'une valeur).
+     * Utilisé en mode IFI : on doit pouvoir saisir la valeur sur chaque bien, même vide.
+     * @return array<int, array<int, array>>  [id_proprietaire => rows]
+     */
+    function pp_load_all_biens(PDO $pdo, array $propIds, string $scenSel): array {
+        $ids = implode(',', array_map('intval', array_filter($propIds)));
+        if ($ids === '') return [];
+        $scenQuoted = $pdo->quote($scenSel);
+        $sql = "
+            SELECT b.id_proprietaire, b.id AS id_bien, b.reference_bien, b.prix_demande_initial,
+                   COALESCE(NULLIF(b.surface_habitable,0), NULLIF(b.surface_carrez,0), NULLIF(b.surface_totale,0),
+                            NULLIF(b.surface_commerciale,0), NULLIF(b.surface_depot,0), NULLIF(b.surface_bureau,0)) AS surface,
+                   COALESCE(bt.categorie, btb.categorie_usage) AS bat_cat,
+                   COALESCE(bt.libelle, btb.label)             AS bat_label,
+                   b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
+                   i.id AS id_immeuble, i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
+                   0 AS imm_vendu, 0 AS loc_archive, 0 AS loyer_appele,
+                   (SELECT COALESCE(NULLIF(tl.nom_affichage,''), bb.locataire_raison_sociale,
+                            NULLIF(TRIM(CONCAT_WS(' ', bb.locataire_prenom, bb.locataire_nom)),''))
+                      FROM bien_baux bb LEFT JOIN tiers tl ON tl.id = bb.id_tiers_locataire
+                     WHERE bb.id_bien = b.id ORDER BY (bb.statut='actif') DESC, bb.date_prise_effet DESC LIMIT 1) AS locataire_nom,
+                   (SELECT bx.loyer FROM baux bx WHERE bx.id_bien=b.id AND bx.id_proprietaire=b.id_proprietaire
+                      ORDER BY (bx.statut='actif') DESC, bx.id DESC LIMIT 1) AS bail_loyer,
+                   (SELECT bp.montant FROM bien_prix bp
+                      WHERE bp.id_bien=b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code={$scenQuoted}
+                      ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS prix_scenario
+            FROM biens b
+            LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
+            LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
+            LEFT JOIN immeubles i ON i.id = b.id_immeuble
+            WHERE b.id_proprietaire IN ($ids)
+              AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))
+              AND b.prix_final_vente IS NULL
+            ORDER BY b.id_proprietaire, b.reference_bien";
+        $byProp = [];
+        foreach ($pdo->query($sql) as $r) {
+            // Occupé si un locataire est rattaché, sinon vacant.
+            $r['presence'] = trim((string)$r['locataire_nom']) !== '' ? 'present' : 'parti';
+            $r['hors_crg'] = $r['presence'] === 'present' ? 0 : 1;
+            $byProp[(int)$r['id_proprietaire']][] = $r;
+        }
+        return $byProp;
+    }
+}
+
 if (!function_exists('pp_dedup_biens')) {
     /** Une seule ligne par bien : garde la ligne OCCUPÉE en priorité (repli vacant). */
     function pp_dedup_biens(array $rows): array {

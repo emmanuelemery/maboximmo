@@ -371,7 +371,13 @@ if ($showFin && $propIds) {
 
 // Détail par propriétaire — source unique partagée avec l'export Excel.
 require_once __DIR__ . '/inc/patrimoine_partage_data.php';
-$details = pp_load_details($pdo, $propFilterWhere, $scenSel);
+if ($isIfi) {
+    // Mode IFI : TOUS les biens actifs des propriétaires (même sans valeur) — le but
+    // est de pouvoir saisir/valider la valeur IFI de chaque bien.
+    $details = pp_load_all_biens($pdo, array_map(fn($p) => (int)$p['id'], $props), $scenSel);
+} else {
+    $details = pp_load_details($pdo, $propFilterWhere, $scenSel);
+}
 
 $destNom = $share['destinataire_nom'] ?: 'Consultation patrimoine';
 $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + colonnes optionnelles
