@@ -29,7 +29,7 @@ if (!pp_perimeter_ok($pdo, $share, $proprioId)) {
     pp_auth_stop('Hors périmètre', 'Ce propriétaire n\'est pas accessible depuis ce lien.');
 }
 
-$pr = $pdo->prepare("SELECT id, COALESCE(NULLIF(societe,''),TRIM(CONCAT_WS(' ',prenom,nom))) AS nom, id_agence
+$pr = $pdo->prepare("SELECT id, id_tiers, COALESCE(NULLIF(societe,''),TRIM(CONCAT_WS(' ',prenom,nom))) AS nom, id_agence
                      FROM proprietaires WHERE id=?");
 $pr->execute([$proprioId]);
 $proprio = $pr->fetch(PDO::FETCH_ASSOC);
@@ -90,11 +90,12 @@ $stD = $pdo->prepare("
            (SELECT COUNT(*) FROM creancier_dossier_message m WHERE m.id_dossier=d.id) AS nb_messages
     FROM creancier_dossier_lien dl
     JOIN creancier_dossier d ON d.id = dl.id_dossier
-    WHERE dl.entity_type='PROPRIETAIRE' AND dl.entity_id=?
+    WHERE (dl.entity_type='PROPRIETAIRE' AND dl.entity_id=?)
+       OR (dl.entity_type='TIERS' AND dl.entity_id=?)   -- tiers du propriétaire (créancier/débiteur/garant)
     GROUP BY d.id
     ORDER BY (d.statut='clos') ASC, (d.niveau_risque='rouge') DESC, d.created_at DESC
 ");
-$stD->execute([$proprioId]);
+$stD->execute([$proprioId, (int)($proprio['id_tiers'] ?? 0)]);
 $dossiers = $stD->fetchAll(PDO::FETCH_ASSOC);
 
 $riskLabel = ['rouge' => '🔴 Urgent', 'orange' => '🟠 À suivre', 'vert' => '🟢 Maîtrisé'];

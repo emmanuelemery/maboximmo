@@ -26,10 +26,16 @@ if ((int)($share['montrer_financements'] ?? 0) !== 1) {
 // ── Dossier + périmètre (lié PROPRIETAIRE à un proprio du partage) ──
 $dossierId = (int)($_GET['dossier'] ?? 0);
 $isAdmin = !empty($_GET['admin']);
+// Résout le propriétaire via lien PROPRIETAIRE, sinon lien TIERS (=id_tiers d'un proprio),
+// sinon le tiers principal du dossier (d.id_tiers) — cohérent avec la liste.
 $stD = $pdo->prepare("
-    SELECT d.*, dl.entity_id AS id_proprietaire
+    SELECT d.*,
+           COALESCE(
+             (SELECT dl.entity_id FROM fin_dossier_lien dl WHERE dl.id_dossier=d.id AND dl.entity_type='PROPRIETAIRE' LIMIT 1),
+             (SELECT p.id FROM fin_dossier_lien dl JOIN proprietaires p ON p.id_tiers = dl.entity_id WHERE dl.id_dossier=d.id AND dl.entity_type='TIERS' LIMIT 1),
+             (SELECT p.id FROM proprietaires p WHERE p.id_tiers = d.id_tiers LIMIT 1)
+           ) AS id_proprietaire
     FROM fin_dossier d
-    JOIN fin_dossier_lien dl ON dl.id_dossier = d.id AND dl.entity_type='PROPRIETAIRE'
     WHERE d.id = ? LIMIT 1");
 $stD->execute([$dossierId]);
 $dossier = $stD->fetch(PDO::FETCH_ASSOC);

@@ -29,10 +29,18 @@ if ((int)($share['montrer_creanciers'] ?? 0) !== 1) {
 // ── Dossier + vérification de périmètre (lié PROPRIETAIRE à un proprio du partage) ──
 $isAdmin   = !empty($_GET['admin']);
 $dossierId = (int)($_GET['dossier'] ?? 0);
+// Résout le propriétaire du dossier via le lien PROPRIETAIRE, sinon via le lien TIERS
+// (tiers = id_tiers d'un propriétaire) — cohérent avec la liste patrimoine_creancier.php.
 $stD = $pdo->prepare("
-    SELECT d.*, dl.entity_id AS id_proprietaire
+    SELECT d.*,
+           COALESCE(
+             (SELECT dl.entity_id FROM creancier_dossier_lien dl
+               WHERE dl.id_dossier=d.id AND dl.entity_type='PROPRIETAIRE' LIMIT 1),
+             (SELECT p.id FROM creancier_dossier_lien dl
+               JOIN proprietaires p ON p.id_tiers = dl.entity_id
+               WHERE dl.id_dossier=d.id AND dl.entity_type='TIERS' LIMIT 1)
+           ) AS id_proprietaire
     FROM creancier_dossier d
-    JOIN creancier_dossier_lien dl ON dl.id_dossier = d.id AND dl.entity_type='PROPRIETAIRE'
     WHERE d.id = ? LIMIT 1");
 $stD->execute([$dossierId]);
 $dossier = $stD->fetch(PDO::FETCH_ASSOC);

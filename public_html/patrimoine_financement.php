@@ -74,13 +74,14 @@ $stD = $pdo->prepare("
     SELECT d.id, d.libelle, d.organisme, d.montant_total, d.mensualite, d.solde_restant,
            d.date_echeance, d.statut,
            (SELECT COUNT(*) FROM fin_dossier_lien l WHERE l.id_dossier=d.id AND l.entity_type='BIEN') AS nb_biens
-    FROM fin_dossier_lien dl
-    JOIN fin_dossier d ON d.id = dl.id_dossier
-    WHERE dl.entity_type='PROPRIETAIRE' AND dl.entity_id=?
-    GROUP BY d.id
+    FROM fin_dossier d
+    WHERE d.id_tiers = ?
+       OR EXISTS (SELECT 1 FROM fin_dossier_lien l WHERE l.id_dossier=d.id
+                   AND ((l.entity_type='PROPRIETAIRE' AND l.entity_id=?)
+                        OR (l.entity_type='TIERS' AND l.entity_id=?)))
     ORDER BY (d.statut='clos') ASC, d.date_echeance ASC, d.id DESC
 ");
-$stD->execute([$proprioId]);
+$stD->execute([(int)($proprio['id_tiers'] ?? 0), $proprioId, (int)($proprio['id_tiers'] ?? 0)]);
 $dossiers = $stD->fetchAll(PDO::FETCH_ASSOC);
 
 $dosBase = 'patrimoine_financement_dossier.php?' . $subQS;
