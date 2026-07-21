@@ -83,6 +83,8 @@ if (!function_exists('pp_load_details')) {
             WHERE sub.imm_vendu = 0 AND sub.loc_archive = 0
               AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))
               AND b.prix_final_vente IS NULL
+              -- Squelettes de vente (VTE-…) = doublons du bien réel (CRG) → exclus
+              AND (b.reference_bien IS NULL OR b.reference_bien NOT LIKE 'VTE-%')
             ORDER BY sub.id_proprietaire, b.reference_bien ASC, sub.locataire_nom";
         $byProp = [];
         foreach ($pdo->query($sql) as $r) { $byProp[(int)$r['id_proprietaire']][] = $r; }
@@ -125,6 +127,7 @@ if (!function_exists('pp_load_all_biens')) {
             WHERE b.id_proprietaire IN ($ids)
               AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))
               AND b.prix_final_vente IS NULL
+              AND (b.reference_bien IS NULL OR b.reference_bien NOT LIKE 'VTE-%')
             ORDER BY b.id_proprietaire, b.reference_bien";
         $byProp = [];
         foreach ($pdo->query($sql) as $r) {
