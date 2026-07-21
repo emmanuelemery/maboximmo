@@ -102,6 +102,11 @@ $_bInit = strtoupper(
     <a href="<?= $_sbBase ?>patrimoine_partage.php?admin=1" target="_blank" class="sb-bail-link">
       <span class="sb-bail-icon">🔓</span> Patrimoine (plein accès)
     </a>
+    <?php if (!$canAdminBailleur): /* les admins l'ont déjà dans la section Administration */ ?>
+    <a href="<?= $_sbBase ?>bailleur_partages.php" class="sb-bail-link <?= sb_bail_active('bailleur_partages.php') ?>">
+      <span class="sb-bail-icon">🔗</span> Partages patrimoine
+    </a>
+    <?php endif; ?>
     <a href="<?= $_sbBase ?>bailleur_immeubles.php" class="sb-bail-link <?= sb_bail_active('bailleur_immeubles.php') ?>">
       <span class="sb-bail-icon">🏢</span> Immeubles
     </a>
