@@ -275,6 +275,9 @@ $detStmt = $pdo->query("
     LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
     LEFT JOIN immeubles i ON i.id = b.id_immeuble
     WHERE sub.imm_vendu = 0 AND sub.loc_archive = 0
+      -- Bien lui-même vendu / archivé / supprimé, ou retiré de commercialisation → hors patrimoine actif
+      AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))
+      AND b.prix_final_vente IS NULL
     ORDER BY sub.id_proprietaire, b.reference_bien ASC, sub.locataire_nom
 ");
 foreach ($detStmt as $r) { $details[(int)$r['id_proprietaire']][] = $r; }
