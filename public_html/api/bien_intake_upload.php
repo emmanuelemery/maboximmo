@@ -815,7 +815,7 @@ try {
     // Tables créées par la migration 20260418_baux_et_actes.
     // Try/catch large : si la table n'existe pas encore, on log et on continue.
     $bailId = 0;
-    if ($docType === 'bail') {
+    if (str_contains(strtolower((string)$docType), 'bail')) {
         try {
             // Extrait les colonnes connues ; tout le reste va dans metadata JSON.
             $bailCols = [
@@ -902,23 +902,38 @@ try {
                 if (is_array($multiDecoded)) $metaPayload['multi'] = $multiDecoded;
             }
 
+            // Statut : un bail SIGNÉ est actif ; sinon actif si minimum vital (loc+loyer+date).
+            $bailSigne = !empty($fields['bail_date_signature'])
+                      || in_array(strtolower((string)($fields['signature_status'] ?? '')), ['signe', 'signé'], true);
+            $bailComplet = (!empty($bailCols['locataire_nom']) || !empty($bailCols['locataire_raison_sociale']))
+                        && !empty($bailCols['loyer_mensuel_hc']) && !empty($bailCols['date_prise_effet']);
+            $bailStatut = ($bailSigne || $bailComplet) ? 'actif' : 'brouillon';
+
             $cols   = array_keys($bailCols);
             $placeholders = array_map(fn($c) => ':' . $c, $cols);
             $sql    = "INSERT INTO bien_baux (id_bien, id_proprietaire, id_agence, id_societe, "
                     . implode(', ', $cols) . ", metadata, document_pdf, statut, id_user_created) "
                     . "VALUES (:id_bien, :id_prop, :id_ag, :id_soc, "
-                    . implode(', ', $placeholders) . ", :metadata, :document_pdf, 'brouillon', :id_user)";
+                    . implode(', ', $placeholders) . ", :metadata, :document_pdf, :statut, :id_user)";
             $stmt = $pdo->prepare($sql);
             $params = array_combine($placeholders, array_values($bailCols));
             $params[':id_bien']      = $bienId;
-            $params[':id_prop']      = $newProprioId ?: null;
-            $params[':id_ag']        = $agenceId ?: null;
-            $params[':id_soc']       = $societeId ?: null;
+            $params[':id_prop']      = ($newProprioId ?? 0) ?: null;
+            $params[':id_ag']        = ($agenceId ?? 0) ?: null;
+            $params[':id_soc']       = ($societeId ?? 0) ?: null;
             $params[':metadata']     = json_encode($metaPayload, JSON_UNESCAPED_UNICODE);
             $params[':document_pdf'] = $publicUrl;
+            $params[':statut']       = $bailStatut;
             $params[':id_user']      = $userId ?: null;
             $stmt->execute($params);
             $bailId = (int)$pdo->lastInsertId();
+
+            // Crée le locataire (tiers + rôles) et complète les colonnes vides via la fonction
+            // canonique testée — sans ça le locataire n'apparaît pas dans le 360 du bien.
+            try {
+                require_once __DIR__ . '/../inc/bien_apply_extracted.php';
+                apply_bail_extracted_to_bien($pdo, $bienId, $fields, $publicUrl, $userId);
+            } catch (Throwable $e) { error_log('[bien_intake] apply_bail (locataire) : ' . $e->getMessage()); }
         } catch (Throwable $e) {
             error_log('[bien_intake] bien_baux insert failed: ' . $e->getMessage());
         }
@@ -998,6 +1013,16 @@ try {
     // - GESTION : socle automatique (déjà créé par bien_form_create_draft)
     // - VENTE / LOCATION : missions commerciales additionnelles, cumulables
     // - Évite uniquement le doublon du MÊME type_mandat actif
+    // Si l'IA n'a pas posé type_mandat mais que le document EST un mandat, on le déduit du
+    // type de doc (mandat_vente/location/gestion) — sinon le mandat n'était jamais créé.
+    if (empty($fields['type_mandat'])) {
+        $dtm = strtolower((string)$docType);
+        if (str_contains($dtm, 'mandat')) {
+            $fields['type_mandat'] = str_contains($dtm, 'location') ? 'location'
+                                   : (str_contains($dtm, 'gestion') ? 'gestion'
+                                   : (str_contains($dtm, 'recherche') ? 'recherche' : 'vente'));
+        }
+    }
     if (!empty($fields['type_mandat'])) {
         try {
             $newType = strtolower((string)$fields['type_mandat']);
