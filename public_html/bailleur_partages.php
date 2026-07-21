@@ -81,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $scenario   = implode(',', $scenCodes);
         $mPrix      = isset($_POST['montrer_prix_vente']) ? 1 : 0;
         $mCrea      = isset($_POST['montrer_creanciers']) ? 1 : 0;
+        $mFin       = isset($_POST['montrer_financements']) ? 1 : 0;
         $mLoyer     = isset($_POST['montrer_loyer']) ? 1 : 0;
         $mLoc       = isset($_POST['montrer_locataire']) ? 1 : 0;
         $mDesc      = isset($_POST['montrer_descriptif']) ? 1 : 0;
@@ -100,12 +101,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO patrimoine_partages
                     (token, id_user_bailleur, id_user_gestionnaire, id_tiers_destinataire,
                      destinataire_nom, destinataire_email,
-                     scenario_code, montrer_prix_vente, montrer_creanciers, montrer_loyer, montrer_locataire, montrer_descriptif,
+                     scenario_code, montrer_prix_vente, montrer_creanciers, montrer_financements, montrer_loyer, montrer_locataire, montrer_descriptif,
                      niveau_acces, expire_at, actif, created_by)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ")->execute([
                 $token, $idBailleur, $idGest, $idTiers, $destNom, $destMail,
-                $scenario, $mPrix, $mCrea, $mLoyer, $mLoc, $mDesc,
+                $scenario, $mPrix, $mCrea, $mFin, $mLoyer, $mLoc, $mDesc,
                 $niveauAcces, $expireAt, $actif, (int)current_user_id()
             ]);
             $msg = $actif
@@ -304,6 +305,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
         <label class="col-check"><input type="checkbox" name="montrer_loyer" checked> 💶 Loyer</label>
         <label class="col-check"><input type="checkbox" name="montrer_prix_vente"> 🏷️ Prix de vente</label>
         <label class="col-check"><input type="checkbox" name="montrer_creanciers"> ⚖️ Dossiers créanciers (avocat)</label>
+        <label class="col-check"><input type="checkbox" name="montrer_financements"> 💶 Financements (comptable)</label>
       </div>
     </div>
 
@@ -348,6 +350,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
         <?php if ($p['montrer_loyer']): ?><span class="pill">💶</span><?php endif; ?>
         <?php if ($p['montrer_prix_vente']): ?><span class="pill">🏷️ prix</span><?php endif; ?>
         <?php if (!empty($p['montrer_creanciers'])): ?><span class="pill">⚖️ créanciers</span><?php endif; ?>
+        <?php if (!empty($p['montrer_financements'])): ?><span class="pill">💶 financements</span><?php endif; ?>
         <?php if (($p['niveau_acces'] ?? 'lecture') === 'contribution'): ?><span class="pill" style="background:#e8f5e9;color:#1b5e20;">✍️ contribution</span><?php endif; ?>
       </div>
     </td>

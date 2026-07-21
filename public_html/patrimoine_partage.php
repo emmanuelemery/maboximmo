@@ -136,6 +136,7 @@ $showLoc   = (int)$share['montrer_locataire'];
 $showLoyer = (int)$share['montrer_loyer'];
 $showPrix  = (int)$share['montrer_prix_vente'];
 $showCrea  = (int)($share['montrer_creanciers'] ?? 0);
+$showFin   = (int)($share['montrer_financements'] ?? 0);
 // Droit d'écriture : staff en aperçu écrit toujours ; sinon selon niveau_acces du partage.
 $canWrite  = $isPreview || (($share['niveau_acces'] ?? 'lecture') === 'contribution');
 
@@ -231,6 +232,23 @@ if ($showCrea && $propIds) {
         GROUP BY dl.entity_id
     ");
     foreach ($stC as $r) { $creStats[(int)$r['pid']] = $r; }
+}
+
+// Stats financements par propriétaire (voyant/KPI 💶) — si autorisé.
+$finStats = [];
+if ($showFin && $propIds) {
+    $inP = implode(',', $propIds);
+    $stF = $pdo->query("
+        SELECT dl.entity_id AS pid,
+               SUM(d.statut <> 'clos')            AS encours,
+               SUM(d.statut = 'clos')             AS soldes,
+               ROUND(SUM(CASE WHEN d.statut <> 'clos' THEN COALESCE(d.solde_restant, d.montant_total, 0) ELSE 0 END)) AS solde_du
+        FROM fin_dossier_lien dl
+        JOIN fin_dossier d ON d.id = dl.id_dossier
+        WHERE dl.entity_type = 'PROPRIETAIRE' AND dl.entity_id IN ($inP)
+        GROUP BY dl.entity_id
+    ");
+    foreach ($stF as $r) { $finStats[(int)$r['pid']] = $r; }
 }
 
 // Détail par propriétaire (biens + locataire + loyer + prix scénario)
@@ -355,6 +373,10 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   a.cre-kpi{text-decoration:none;cursor:pointer;}
   a.cre-kpi:hover{filter:brightness(.97);border-color:#c7d0e0;}
   .cre-kpi .cre-add{font-weight:700;color:#2f6d4a;}
+  .fin-kpi{display:inline-flex;align-items:center;gap:6px;background:#e9f2ee;color:#1f6b4e;border:1px solid #bfe0d1;border-radius:20px;padding:3px 11px;font-size:.86em;text-decoration:none;}
+  .fin-kpi.zero{background:#f2f4f8;color:#8592ad;border-color:#e2e7f0;}
+  a.fin-kpi{cursor:pointer;} a.fin-kpi:hover{filter:brightness(.97);}
+  .fin-kpi .cre-add{color:#2f6d4a;font-weight:700;}
   .cre-kpi .voyant{width:9px;height:9px;border-radius:50%;background:#e23b3b;box-shadow:0 0 0 3px rgba(226,59,59,.18);animation:crePulse 1.6s infinite;}
   .cre-kpi .tag-env{font-size:1.05em;}
   @keyframes crePulse{0%,100%{opacity:1;}50%{opacity:.35;}}
@@ -464,6 +486,27 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
               <?php if ($csEnv): ?><span class="tag-env" title="Débiteur énervé">😤</span><?php endif; ?>
             <?php endif; ?>
           </<?= $tag ?>>
+        <?php endif; ?>
+        <?php if ($showFin):
+            $fs = $finStats[$pid] ?? null;
+            $fsE = (int)($fs['encours'] ?? 0); $fsS = (int)($fs['soldes'] ?? 0);
+            $fsTotal = $fsE + $fsS;
+            $finHref = $isPreview
+                ? 'patrimoine_financement.php?preview=' . (int)$share['id'] . '&proprio=' . $pid
+                : 'patrimoine_financement.php?t=' . urlencode($token ?? '') . '&proprio=' . $pid;
+            $fIsLink = $canWrite || $fsTotal > 0;
+            $fTag = $fIsLink ? 'a' : 'span';
+            $fHref = $fIsLink ? ('href="' . $e($finHref) . '"') : '';
+        ?>
+          <<?= $fTag ?> <?= $fHref ?> class="fin-kpi <?= $fsTotal === 0 ? 'zero' : '' ?>"
+             onclick="event.stopPropagation();"
+             title="<?= $fsTotal ? 'Financements de ce propriétaire' : ($canWrite ? 'Aucun financement — cliquer pour en créer' : 'Aucun financement') ?>">
+            <?php if ($fsTotal === 0): ?>
+              💶 <b>0</b><?php if ($canWrite): ?> <span class="cre-add">+ créer</span><?php endif; ?>
+            <?php else: ?>
+              💶 <b><?= $fsE ?></b> en cours<?php if ($fsS): ?> · <?= $fsS ?> soldé<?= $fsS > 1 ? 's' : '' ?><?php endif; ?>
+            <?php endif; ?>
+          </<?= $fTag ?>>
         <?php endif; ?>
         <span class="pm-nb"><b><?= $nbBiens ?></b> bien<?= $nbBiens > 1 ? 's' : '' ?></span>
         <span class="tot-wrap">
