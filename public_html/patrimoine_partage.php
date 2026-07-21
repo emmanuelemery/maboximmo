@@ -40,9 +40,55 @@ function pp_stop(string $titre, string $msg): void {
 // ════════════════════════════════════════════════════════════════════
 $isPreview = false;
 $needConsent = false;
+$isAdmin   = false;
+$ADMIN_PROP_IDS = null;
 $previewId = (int)($_GET['preview'] ?? 0);
+$adminMode = !empty($_GET['admin']);
 
-if ($previewId > 0) {
+if ($adminMode) {
+    // ── VUE ADMIN / PLEIN ACCÈS (staff = tout ; bailleur = son patrimoine) ──
+    require_once __DIR__ . '/inc/auth.php';
+    require_login();
+    $uid    = function_exists('current_user_id') ? (int)current_user_id() : (int)($_SESSION['id_user'] ?? 0);
+    $isSA   = function_exists('is_super_admin') && is_super_admin();
+    $realRole = (int)($_SESSION['id_role'] ?? 0);
+    $isStaff  = $isSA || in_array($realRole, [1, 2, 3, 7], true);
+
+    if ($isStaff) {
+        // Staff : périmètre = un bailleur ciblé (&bailleur=ID) OU tous les propriétaires.
+        $bArg = (int)($_GET['bailleur'] ?? 0);
+        if ($bArg > 0) {
+            $stB = $pdo->prepare("SELECT id_proprietaire FROM user_proprietaires WHERE id_user=?");
+            $stB->execute([$bArg]);
+            $ADMIN_PROP_IDS = array_map('intval', $stB->fetchAll(PDO::FETCH_COLUMN));
+            $admBailleur = $bArg;
+        } else {
+            $ADMIN_PROP_IDS = array_map('intval', $pdo->query("SELECT id FROM proprietaires")->fetchAll(PDO::FETCH_COLUMN));
+            $admBailleur = 0;
+        }
+        $admNom = 'Vue admin — plein accès';
+    } else {
+        // Bailleur (ex: Thomas SABY) : son propre patrimoine, plein accès.
+        $stB = $pdo->prepare("SELECT id_proprietaire FROM user_proprietaires WHERE id_user=?");
+        $stB->execute([$uid]);
+        $ADMIN_PROP_IDS = array_map('intval', $stB->fetchAll(PDO::FETCH_COLUMN));
+        if (empty($ADMIN_PROP_IDS)) pp_stop('Accès refusé', 'Aucun patrimoine associé à votre compte.');
+        $admBailleur = $uid;
+        $admNom = 'Mon patrimoine';
+    }
+
+    $allScen = (string)($pdo->query("SELECT GROUP_CONCAT(DISTINCT scenario_code) FROM bien_prix WHERE type_valeur='prix_vente' AND is_courant=1")->fetchColumn() ?: 'courant');
+    $share = [
+        'id' => 0, 'token' => '', 'id_user_bailleur' => $admBailleur, 'id_user_gestionnaire' => null,
+        'id_tiers_destinataire' => null, 'destinataire_nom' => $admNom, 'destinataire_email' => null,
+        'scenario_code' => $allScen,
+        'montrer_prix_vente' => 1, 'montrer_creanciers' => 1, 'montrer_financements' => 1,
+        'montrer_loyer' => 1, 'montrer_locataire' => 1, 'montrer_descriptif' => 1,
+        'niveau_acces' => 'contribution', 'expire_at' => null, 'actif' => 1, 'consent_at' => date('Y-m-d H:i:s'),
+    ];
+    $isPreview = true;  // staff-like : écriture autorisée, pas de journalisation
+    $isAdmin   = true;
+} elseif ($previewId > 0) {
     // ── APERÇU STAFF : rendu live, sans jeton ni consentement ──
     require_once __DIR__ . '/inc/auth.php';
     require_login();
@@ -124,9 +170,13 @@ if ($needConsent) {
 // 2) PÉRIMÈTRE + CONTEXTE (logo agence / gestionnaire)
 // ════════════════════════════════════════════════════════════════════
 $idBailleur = (int)$share['id_user_bailleur'];
-$stP = $pdo->prepare("SELECT id_proprietaire FROM user_proprietaires WHERE id_user = ?");
-$stP->execute([$idBailleur]);
-$propIds = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN));
+if ($isAdmin) {
+    $propIds = $ADMIN_PROP_IDS ?: [];
+} else {
+    $stP = $pdo->prepare("SELECT id_proprietaire FROM user_proprietaires WHERE id_user = ?");
+    $stP->execute([$idBailleur]);
+    $propIds = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN));
+}
 $propFilterWhere = empty($propIds) ? 'AND 1=0'
                  : 'AND ct.id_proprietaire IN (' . implode(',', $propIds) . ')';
 
@@ -382,7 +432,8 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
 </style>
 </head>
 <body>
-<?php if ($isPreview): ?><div class="preview-band">👁 APERÇU INTERNE — vue exacte du destinataire « <?= $e($destNom) ?> » (non journalisé)</div><?php endif; ?>
+<?php if ($isAdmin): ?><div class="preview-band">🔓 VUE PLEIN ACCÈS — <?= $e($destNom) ?> · toutes colonnes, tous scénarios, édition IFI/valeurs (interne)</div>
+<?php elseif ($isPreview): ?><div class="preview-band">👁 APERÇU INTERNE — vue exacte du destinataire « <?= $e($destNom) ?> » (non journalisé)</div><?php endif; ?>
 
 <header class="top">
   <div class="top-inner">
@@ -461,7 +512,7 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
             $creHref = $isPreview
                 ? 'patrimoine_creancier.php?preview=' . (int)$share['id'] . '&proprio=' . $pid
                 : 'patrimoine_creancier.php?t=' . urlencode($token ?? '') . '&proprio=' . $pid;
-            $isLink = $canWrite || $csTotal > 0; // cliquable si on peut écrire OU s'il y a des dossiers à consulter
+            $isLink = !$isAdmin && ($canWrite || $csTotal > 0); // pas de drill-down en vue admin (pas de partage)
             $tag = $isLink ? 'a' : 'span';
             $hrefAttr = $isLink ? ('href="' . $e($creHref) . '"') : '';
         ?>
@@ -484,7 +535,7 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
             $finHref = $isPreview
                 ? 'patrimoine_financement.php?preview=' . (int)$share['id'] . '&proprio=' . $pid
                 : 'patrimoine_financement.php?t=' . urlencode($token ?? '') . '&proprio=' . $pid;
-            $fIsLink = $canWrite || $fsTotal > 0;
+            $fIsLink = !$isAdmin && ($canWrite || $fsTotal > 0);
             $fTag = $fIsLink ? 'a' : 'span';
             $fHref = $fIsLink ? ('href="' . $e($finHref) . '"') : '';
         ?>
@@ -508,12 +559,13 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
           <span class="tot-prix" title="Valorisation totale (prix de vente)"><b><?= fmt_euro($sumPrix) ?></b><small>valorisation</small></span>
           <?php endif; ?>
         </span>
-        <?php
+        <?php if (!$isAdmin):
           $expHref = ($isPreview ? 'patrimoine_export.php?preview=' . (int)$share['id'] : 'patrimoine_export.php?t=' . urlencode($token ?? ''))
                    . '&proprio=' . $pid . '&scenario=' . urlencode($scenSel);
         ?>
         <a class="pm-export" href="<?= $e($expHref) ?>" onclick="event.stopPropagation();"
            title="Exporter la liste de ce propriétaire en Excel (notaire, propriétaire, comptable)">⬇ Excel</a>
+        <?php endif; ?>
       </span>
     </div>
     <div class="prop-body">
