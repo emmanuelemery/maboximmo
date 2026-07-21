@@ -38,7 +38,8 @@ if (!$bien) {
     http_response_code(404);
     exit(json_encode(['success' => false, 'message' => 'Bien introuvable.']));
 }
-if ((string)$bien['statut_bien'] !== 'archive') {
+// Accepte les 3 formes de sortie de portefeuille (archivage) : archive / vendu / perte de gestion.
+if (!in_array((string)$bien['statut_bien'], ['archive', 'vendu', 'perdu_gestion'], true)) {
     $msg = "Ce bien n'est pas archivé (statut : " . (string)$bien['statut_bien'] . ").";
     exit(json_encode(['success' => false, 'message' => $msg]));
 }

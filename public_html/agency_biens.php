@@ -45,8 +45,15 @@ $scopeAg  = isset($_GET['agence'])  && ctype_digit((string)$_GET['agence'])  ? (
 if (!$isAdmin && $mySoc > 0) $scopeSoc = $mySoc;   // non-admin : verrouillé sur sa société
 
 $conds = []; $params = [];
-// N'affiche jamais les biens supprimés / archivés (sinon les doublons soft-deleted réapparaissent).
-$conds[] = "(b.statut_bien IS NULL OR b.statut_bien NOT IN ('supprime','archive','vendu','perdu_gestion'))";
+// Vue « Archivés » (?archives=1) : montre les biens sortis du portefeuille (vendu / perte de
+// gestion / archivé). Sinon vue normale = uniquement le portefeuille actif.
+$vueArchives = !empty($_GET['archives']);
+if ($vueArchives) {
+    $conds[] = "b.statut_bien IN ('archive','vendu','perdu_gestion')";
+} else {
+    // N'affiche jamais les biens supprimés / archivés (sinon les doublons soft-deleted réapparaissent).
+    $conds[] = "(b.statut_bien IS NULL OR b.statut_bien NOT IN ('supprime','archive','vendu','perdu_gestion'))";
+}
 if ($scopeSoc > 0) { $conds[] = 'b.id_societe = ?'; $params[] = $scopeSoc; }
 if ($scopeAg  > 0) { $conds[] = 'b.id_agence = ?';  $params[] = $scopeAg;  }
 $where = $conds ? ' WHERE ' . implode(' AND ', $conds) : '';
@@ -54,6 +61,7 @@ $where = $conds ? ' WHERE ' . implode(' AND ', $conds) : '';
 $biens = [];
 try {
     $sql = "SELECT b.id, b.reference_bien, b.etage, b.surface_habitable, b.nb_pieces, b.loyer_hc,
+                   b.statut_bien,
                    b.id_societe, b.id_agence, b.id_immeuble, b.dpe_classe, b.dpe_reference_certificat,
                    i.nom_immeuble, i.adresse_1, i.ville,
                    COALESCE(bt.libelle, bt2.label) AS type_libelle,
@@ -299,6 +307,7 @@ include __DIR__ . '/inc/sidebar_agency.php';
           <button type="button" id="vacToggle" class="btn3d b-amber" onclick="biToggleVac(this)" title="N'afficher que les biens vacants (sans bail actif)">🔑 Biens vacants</button>
           <button type="button" id="annToggle" class="btn3d b-navy" onclick="biToggleAnn(this)" title="N'afficher que les biens avec une annonce">📣 Mes annonces</button>
           <button type="button" id="dvToggle" class="btn3d b-orange" onclick="biToggleDv(this)" title="N'afficher que les biens ayant un dossier de vente">🤝 Dossiers vente</button>
+          <a href="<?= e(app_url('/agency_biens.php' . ($vueArchives ? '' : '?archives=1'))) ?>" class="btn3d<?= $vueArchives ? ' active' : '' ?>" style="text-decoration:none;<?= $vueArchives ? 'background:#efe7f7;color:#6b4aa0;' : '' ?>" title="Biens sortis du portefeuille (vendus / perte de gestion / archivés)"><?= $vueArchives ? '← Portefeuille actif' : '🗂 Archivés' ?></a>
         </div>
       </div>
 
@@ -347,6 +356,16 @@ include __DIR__ . '/inc/sidebar_agency.php';
                    . '<a class="bi-actb bi-bcol' . ($annOn ? ' on' : '') . '" href="bien_detail.php?edit=' . $bid0 . '&section=annonce" onclick="event.stopPropagation()" title="' . ($annOn ? 'Voir / éditer l\'annonce' : 'Créer une annonce') . '">📣 Annonce</a>'
                    . $dvBtn
                    . '</div>';
+            // Vue « Archivés » : on remplace la colonne d'actions par le motif + désarchivage.
+            if ($vueArchives) {
+                $st = (string)($b['statut_bien'] ?? '');
+                $stLabel = ['vendu' => '🏷️ Vendu', 'perdu_gestion' => '📉 Perte gestion', 'archive' => '🗂 Archivé'][$st] ?? $st;
+                $stColor = ['vendu' => '#2d8a4e', 'perdu_gestion' => '#a8342a', 'archive' => '#6b4aa0'][$st] ?? '#6b7280';
+                $badge = '<div class="bi-badgecol">'
+                       . '<span class="bi-typebadge bi-bcol" style="background:' . $stColor . '18;color:' . $stColor . ';">' . $stLabel . '</span>'
+                       . '<button type="button" class="bi-actb bi-bcol" onclick="event.stopPropagation();biDesarchiver(' . $bid0 . ')" title="Remettre ce bien dans le portefeuille actif">↩️ Désarchiver</button>'
+                       . '</div>';
+            }
             // Bloc : propriétaire · locataire(s) · pictos bail/DPE
             $proprio = trim((string)($b['proprio_nom'] ?? ''));
             $locs    = trim((string)($b['locataires'] ?? ''));
@@ -453,6 +472,14 @@ document.addEventListener('DOMContentLoaded',function(){ var s=document.getEleme
 
 // ── Pictos : voir un doc GED déjà chargé / charger un doc manquant ──
 var BI_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token('dossier_estimation') : '') ?>;
+var BI_ARCH_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token('archiver_bien') : '') ?>;
+function biDesarchiver(id){
+  if(!confirm('Remettre ce bien dans le portefeuille actif ?')) return;
+  var fd=new FormData(); fd.append('id_bien',id); fd.append('csrf_token',BI_ARCH_CSRF);
+  fetch(<?= json_encode(app_url('/api/bien_desarchiver.php')) ?>,{method:'POST',credentials:'same-origin',body:fd})
+    .then(function(r){return r.json();}).then(function(j){ if(j&&j.success){ location.reload(); } else { alert('❌ '+((j&&j.message)||'Échec')); } })
+    .catch(function(e){ alert('❌ Réseau : '+e); });
+}
 var biUpCtx = {bien:0, docType:''};
 function biViewDoc(ev, docId, label){ ev.stopPropagation(); if(window.mvptModalView){ window.mvptModalView(docId, label); } else { window.location='bien_doc_360.php?doc_id='+docId; } }
 function biUpload(ev, bienId, docType, label){
