@@ -125,6 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE patrimoine_partages SET actif=1, revoked_at=NULL WHERE id=?")->execute([$id]);
         $msg = 'Partage réactivé.'; $msgType = 'success';
     }
+    if ($action === 'delete') {
+        $id = (int)($_POST['id'] ?? 0);
+        $pdo->prepare("DELETE FROM patrimoine_partages WHERE id=?")->execute([$id]);
+        $msg = 'Partage supprimé définitivement.'; $msgType = 'success';
+    }
 
     // ── Post/Redirect/Get : évite qu'un F5 ne re-soumette le formulaire
     //    (sinon un partage se recrée à chaque rechargement).
@@ -371,6 +376,13 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
           <input type="hidden" name="action" value="reactivate">
           <button type="submit" class="btn-sm btn-toggle">✓ Réactiver</button>
         <?php endif; ?>
+      </form>
+      <form method="POST" action="bailleur_partages.php" style="display:inline;">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+        <button type="submit" class="btn-sm btn-revoke" title="Supprimer définitivement"
+                onclick="return confirm('Supprimer DÉFINITIVEMENT ce partage ? Le lien sera invalidé et la ligne effacée. Action irréversible.')">🗑️</button>
       </form>
     </td>
   </tr>
