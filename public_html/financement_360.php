@@ -159,6 +159,8 @@ textarea.f3-syn{width:100%;box-sizing:border-box;min-height:70px;padding:9px 11p
             <button class="f3-x" onclick="detachDoc(<?= (int)$doc['id'] ?>)">Retirer</button></div>
         <?php endforeach; ?>
       </div>
+      <?php require_once __DIR__ . '/inc/mail_button.php'; ?>
+      <a href="<?= h(mail_compose_url('FIN', $id, 'financement_360.php?id=' . $id)) ?>" target="_blank" class="f3-btn ghost" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;margin:6px 0 10px">📧 Envoyer un document par mail</a>
       <div style="font-weight:700;color:#5c4e22;font-size:.85rem;margin:14px 0 4px">📤 Charger un nouveau document</div>
       <div class="f3-add">
         <select id="upCat"><?php foreach ($catL as $k => $l): ?><option value="<?= h($k) ?>"><?= h($l) ?></option><?php endforeach; ?></select>

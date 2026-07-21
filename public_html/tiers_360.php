@@ -349,7 +349,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     background:#eaf1fa; color:#243B5C;
 }
 </style>
-<?php require_once __DIR__ . '/inc/financement.php'; echo fin_related_block($pdo, 'TIERS', $tiersId); ?>
+<?php require_once __DIR__ . '/inc/financement.php'; /* card financier déplacée en colonne 1, sous le mandat de gestion */ ?>
 <div class="tiers360-grid3">
 
   <!-- ═══════ ZONE GAUCHE (sur 2 colonnes) : Barre IA + Biens + Documents ═══════ -->
@@ -765,6 +765,9 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     </div>
     <?php endif; ?>
 
+    <!-- Dossiers financiers (déplacé ici : colonne 1, sous le mandat de gestion) -->
+    <?php echo fin_related_block($pdo, 'TIERS', $tiersId); ?>
+
   </div>
 
   <?php echo $jurCoordHtml; // juridique + coordonnées, placées après les biens ?>
@@ -830,6 +833,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
     $tiersIsMgr = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,3,7], true)) || (function_exists('is_super_admin') && is_super_admin());
     // Tiers (propriétaire/locataire) → métier GESTION par défaut (jamais transaction).
     $actionsList[] = ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'tiers_360', proprio_tiers_id:" . (int)$tiersId . ", proprio_nom:'" . addslashes((string)$nomAffichage) . "', entite_id_bdd:" . (int)$tiersId . ", soc_id:" . (int)($tiers['id_societe'] ?? 0) . ", age_id:" . (int)($tiers['id_agence'] ?? 0) . ", n1:'03_GESTION_LOCATIVE', entite_nom:'" . addslashes((string)$nomAffichage) . "'});return false;"];
+    $actionsList[] = ['icon'=>'📧','label'=>'Envoyer un document par mail','url'=>mail_compose_url('TIERS', (int)$tiersId, 'tiers_360.php?id=' . (int)$tiersId)];
     $actionsList[] = ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=TIERS&id=' . (int)$tiersId . '&back=' . urlencode('tiers_360.php?id=' . (int)$tiersId))];
     if ($idProprioLegacy > 0) {
         $actionsList[] = ['icon'=>'📄','label'=>'Voir la fiche propriétaire','url'=>app_url('/agency_proprietaire_fiche.php?id=' . $idProprioLegacy)];

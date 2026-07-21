@@ -4,6 +4,8 @@
 declare(strict_types=1);
 
 if (!function_exists('h')) require_once __DIR__ . '/security.php';
+// Bouton/URL « Envoyer par mail » dispo dans tous les 360 (mail_compose_url()).
+if (!function_exists('mail_compose_url')) require_once __DIR__ . '/mail_button.php';
 
 /**
  * CSS commun pour toutes les pages 360°.
@@ -369,6 +371,8 @@ if (!function_exists('fiche360_actions_panel')) {
             echo '<a href="' . h($a['url'] ?? '#') . '"';
             if (!empty($a['target']))  echo ' target="' . h($a['target']) . '"';
             if (!empty($a['onclick'])) echo ' onclick="' . h($a['onclick']) . '"';
+            if (!empty($a['class']))   echo ' class="' . h($a['class']) . '"';
+            if (!empty($a['style']))   echo ' style="' . h($a['style']) . '"';
             echo '>';
             echo '<span>' . h($a['icon'] ?? '▸') . '</span>';
             echo '<span>' . h($a['label']) . '</span>';

@@ -855,6 +855,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
     // Panneau Actions — EN HAUT de la colonne (convention 360°)
     fiche360_actions_panel('Actions bail', [
         ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'bail_360', bail_id:" . (int)$bailId . ", bail_locataire:'" . $fbxLocataireJs . "', bien_id:" . (int)$bail['bien_id'] . ", immeuble_id:" . (int)($bail['id_immeuble'] ?? 0) . ", immeuble_nom:'" . $fbxImmeubleNomJs . "', soc_id:" . (int)($bail['bien_soc'] ?? 0) . ", age_id:" . (int)($bail['bien_age'] ?? 0) . ", proprio_id:" . $fbxProprioId . ", proprio_nom:'" . $fbxProprioNomJs . "', proprio_tiers_id:" . $fbxProprioTiersId . ", entite_id_bdd:" . (int)$bail['bien_id'] . ", entite_nom:'" . $fbxBienRefJs . "', entite_adresse:'" . $fbxBienAdrJs . "', card_label:'DOCUMENT POUR LE BAIL', n1:'03_GESTION_LOCATIVE'});return false;"],
+        ['icon'=>'📧','label'=>'Envoyer un document par mail','url'=>mail_compose_url('BAIL', $bailId, 'bail_360.php?id=' . $bailId)],
         ['icon'=>'📨','label'=>'Demander un document (locataire)','url'=>app_url('/document_request_new.php?ctx=BAIL&id=' . $bailId . '&back=' . urlencode('bail_360.php?id=' . $bailId))],
         ['icon'=>'📥','label'=>'Importer docs du bail (OneDrive)','url'=>'javascript:odClasserOpen()'],
         ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
