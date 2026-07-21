@@ -25,22 +25,24 @@ if ((int)($share['montrer_financements'] ?? 0) !== 1) {
 
 // ── Dossier + périmètre (lié PROPRIETAIRE à un proprio du partage) ──
 $dossierId = (int)($_GET['dossier'] ?? 0);
+$isAdmin = !empty($_GET['admin']);
 $stD = $pdo->prepare("
     SELECT d.*, dl.entity_id AS id_proprietaire
     FROM fin_dossier d
     JOIN fin_dossier_lien dl ON dl.id_dossier = d.id AND dl.entity_type='PROPRIETAIRE'
-    WHERE d.id = ?
-      AND dl.entity_id IN (SELECT id_proprietaire FROM user_proprietaires WHERE id_user = ?)
-    LIMIT 1");
-$stD->execute([$dossierId, (int)$share['id_user_bailleur']]);
+    WHERE d.id = ? LIMIT 1");
+$stD->execute([$dossierId]);
 $dossier = $stD->fetch(PDO::FETCH_ASSOC);
-if (!$dossier) pp_auth_stop('Hors périmètre', 'Ce financement n\'est pas accessible depuis ce lien.');
+if (!$dossier || !pp_perimeter_ok($pdo, $share, (int)$dossier['id_proprietaire'])) {
+    pp_auth_stop('Hors périmètre', 'Ce financement n\'est pas accessible depuis ce lien.');
+}
 
 $proprioId = (int)$dossier['id_proprietaire'];
 $proprioNom = (string)($pdo->query("SELECT COALESCE(NULLIF(societe,''),TRIM(CONCAT_WS(' ',prenom,nom))) FROM proprietaires WHERE id=" . $proprioId)->fetchColumn() ?: '');
 $idSociete = (int)($dossier['id_societe'] ?? 0) ?: null;
-$backUrl = ($isPreview ? 'patrimoine_financement.php?preview=' . (int)$share['id'] : 'patrimoine_financement.php?t=' . urlencode((string)($_GET['t'] ?? ''))) . '&proprio=' . $proprioId;
-$selfUrl = ($isPreview ? 'patrimoine_financement_dossier.php?preview=' . (int)$share['id'] : 'patrimoine_financement_dossier.php?t=' . urlencode((string)($_GET['t'] ?? ''))) . '&dossier=' . $dossierId;
+$subQS   = pp_sub_qs($share, $isPreview, $isAdmin, (string)($_GET['t'] ?? ''));
+$backUrl = 'patrimoine_financement.php?' . $subQS . '&proprio=' . $proprioId;
+$selfUrl = 'patrimoine_financement_dossier.php?' . $subQS . '&dossier=' . $dossierId;
 
 $msg = ''; $msgType = '';
 $createdBy = ($isPreview && function_exists('current_user_id')) ? (int)current_user_id() : null;

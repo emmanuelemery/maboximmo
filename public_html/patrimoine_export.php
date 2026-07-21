@@ -14,11 +14,9 @@ require_once __DIR__ . '/inc/patrimoine_partage_data.php';
 $pdo = $GLOBALS['pdo'];
 [$share, $isPreview, $canWrite] = pp_resolve_share($pdo);
 
-// Périmètre : le propriétaire doit appartenir au compte bailleur du partage.
+// Périmètre : le propriétaire doit appartenir au partage (bypass staff admin).
 $proprioId = (int)($_GET['proprio'] ?? 0);
-$stChk = $pdo->prepare("SELECT COUNT(*) FROM user_proprietaires WHERE id_user=? AND id_proprietaire=?");
-$stChk->execute([(int)$share['id_user_bailleur'], $proprioId]);
-if (!$proprioId || !(int)$stChk->fetchColumn()) {
+if (!pp_perimeter_ok($pdo, $share, $proprioId)) {
     pp_auth_stop('Hors périmètre', 'Ce propriétaire n\'est pas accessible depuis ce lien.');
 }
 $proprioNom = (string)($pdo->query("SELECT COALESCE(NULLIF(societe,''),TRIM(CONCAT_WS(' ',prenom,nom))) FROM proprietaires WHERE id=" . $proprioId)->fetchColumn() ?: 'proprietaire');

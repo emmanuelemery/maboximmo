@@ -28,6 +28,32 @@ if (!function_exists('pp_resolve_share')) {
         header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
         header('Referrer-Policy: no-referrer');
 
+        // ── VUE ADMIN / PLEIN ACCÈS : staff = tout (ou &bailleur=ID) ; bailleur = son périmètre ──
+        if (!empty($_GET['admin'])) {
+            require_once __DIR__ . '/auth.php';
+            require_login();
+            $uid     = function_exists('current_user_id') ? (int)current_user_id() : (int)($_SESSION['id_user'] ?? 0);
+            $isSA    = function_exists('is_super_admin') && is_super_admin();
+            $isStaff = $isSA || in_array((int)($_SESSION['id_role'] ?? 0), [1, 2, 3, 7], true);
+            $bid     = $isStaff ? (int)($_GET['bailleur'] ?? 0) : $uid;
+            if (!$isStaff) {
+                $chk = $pdo->prepare("SELECT COUNT(*) FROM user_proprietaires WHERE id_user=?");
+                $chk->execute([$uid]);
+                if (!(int)$chk->fetchColumn()) pp_auth_stop('Accès refusé', 'Aucun patrimoine associé à votre compte.');
+            }
+            $allScen = (string)($pdo->query("SELECT GROUP_CONCAT(DISTINCT scenario_code) FROM bien_prix WHERE type_valeur='prix_vente' AND is_courant=1")->fetchColumn() ?: 'courant');
+            $share = [
+                'id' => 0, 'token' => '', 'id_user_bailleur' => $bid, 'id_user_gestionnaire' => null,
+                'id_tiers_destinataire' => null, 'destinataire_nom' => ($isStaff ? 'Vue admin — plein accès' : 'Mon patrimoine'),
+                'scenario_code' => $allScen,
+                'montrer_prix_vente' => 1, 'montrer_creanciers' => 1, 'montrer_financements' => 1,
+                'montrer_loyer' => 1, 'montrer_locataire' => 1, 'montrer_descriptif' => 1,
+                'niveau_acces' => 'contribution', 'actif' => 1, 'consent_at' => date('Y-m-d H:i:s'),
+                '_admin_all' => ($isStaff && $bid === 0), // staff sans bailleur ciblé = accès à tous les propriétaires
+            ];
+            return [$share, true, true];
+        }
+
         $previewId = (int)($_GET['preview'] ?? 0);
         if ($previewId > 0) {
             require_once __DIR__ . '/auth.php';
@@ -59,5 +85,32 @@ if (!function_exists('pp_resolve_share')) {
 
         $canWrite = (($share['niveau_acces'] ?? 'lecture') === 'contribution');
         return [$share, false, $canWrite];
+    }
+}
+
+if (!function_exists('pp_perimeter_ok')) {
+    /** Le propriétaire est-il accessible depuis ce partage ? (bypass staff admin « Tous »). */
+    function pp_perimeter_ok(PDO $pdo, array $share, int $proprioId): bool
+    {
+        if ($proprioId <= 0) return false;
+        if (!empty($share['_admin_all'])) {
+            return (bool)$pdo->query("SELECT 1 FROM proprietaires WHERE id=" . $proprioId)->fetchColumn();
+        }
+        $st = $pdo->prepare("SELECT COUNT(*) FROM user_proprietaires WHERE id_user=? AND id_proprietaire=?");
+        $st->execute([(int)($share['id_user_bailleur'] ?? 0), $proprioId]);
+        return (int)$st->fetchColumn() > 0;
+    }
+}
+
+if (!function_exists('pp_sub_qs')) {
+    /** Query-string pour atteindre les sous-pages (créancier/financement/export) selon le contexte. */
+    function pp_sub_qs(array $share, bool $isPreview, bool $isAdmin = false, string $token = ''): string
+    {
+        if ($isAdmin) {
+            $b = (int)($share['id_user_bailleur'] ?? 0);
+            return 'admin=1' . ($b > 0 ? '&bailleur=' . $b : '');
+        }
+        if ($isPreview) return 'preview=' . (int)($share['id'] ?? 0);
+        return 't=' . urlencode($token);
     }
 }

@@ -255,6 +255,10 @@ if ($idAgence) {
     $stA->execute([$idAgence]);
     $ag = $stA->fetch(PDO::FETCH_ASSOC) ?: null;
 }
+// Query-string commun pour atteindre les sous-pages (créancier/financement/export/IFI).
+$subQS = $isAdmin ? ('admin=1' . (!empty($adminBailleur) ? '&bailleur=' . (int)$adminBailleur : ''))
+                  : ($isPreview ? 'preview=' . (int)$share['id'] : 't=' . urlencode((string)($token ?? '')));
+
 $idSociete = (int)($ag['id_societe'] ?? 1);
 $stS = $pdo->prepare("SELECT nom, raison_sociale, logo_url, telephone, email, adresse_1, code_postal, ville, site_web, couleur_principale
                       FROM societes WHERE id = ?");
@@ -290,18 +294,23 @@ $props = $pdo->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // Mode IFI : impôt PERSONNEL → seuls les propriétaires marqués ifi_personnel.
-$isIfi   = ($scenSel === 'ifi');
-$ifiEdit = ($isIfi && $canWrite && $showFin); // édition réservée au comptable (contribution)
+// Détection robuste : code 'ifi' OU libellé du scénario commençant par « IFI »
+// (en prod le code peut être daté, ex. label « IFI 2025 le 29-05-2026 »).
+$isIfi   = ($scenSel === 'ifi') || (isset($scenLabels[$scenSel]) && stripos((string)$scenLabels[$scenSel], 'ifi') === 0);
+$ifiEdit = ($isIfi && $canWrite && $showFin); // édition réservée au comptable (contribution) — vrai aussi en admin
 if ($isIfi) {
     $props = array_values(array_filter($props, fn($p) => !empty($p['ifi_personnel'])));
     $showPrix = 1;              // la colonne « Valeur IFI » s'affiche toujours en scénario IFI
     $colspan  = 3 + $showLoc + $showLoyer + $showPrix;
 }
 
-// ── Validation d'une valeur IFI (comptable) → nouvelle ligne bien_prix (historique natif) ──
+// ── Validation d'une valeur IFI (comptable/admin) → nouvelle ligne bien_prix (historique natif) ──
 if ($ifiEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'validate_ifi') {
     $bienId  = (int)($_POST['bien_id'] ?? 0);
     $montant = round((float)str_replace([' ', ','], ['', '.'], (string)($_POST['montant'] ?? '0')), 2);
+    // La valeur est écrite dans LE scénario sélectionné (pas 'ifi' en dur → marche en prod).
+    $ifiCode  = $scenSel;
+    $ifiLabel = (string)($scenLabels[$scenSel] ?? 'IFI');
     // Le bien doit appartenir à un propriétaire IFI-perso du périmètre.
     $chk = $pdo->prepare("SELECT COUNT(*) FROM biens b JOIN proprietaires p ON p.id=b.id_proprietaire
                           WHERE b.id=? AND p.ifi_personnel=1 AND b.id_proprietaire IN (" . implode(',', $propIds ?: [0]) . ")");
@@ -310,19 +319,18 @@ if ($ifiEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? ''
         $uid = ($isPreview && function_exists('current_user_id')) ? (int)current_user_id() : null;
         $pdo->beginTransaction();
         try {
-            // Historisation : l'ancienne valeur IFI courante passe à is_courant=0.
             $pdo->prepare("UPDATE bien_prix SET is_courant=0
-                           WHERE id_bien=? AND type_valeur='prix_vente' AND scenario_code='ifi' AND is_courant=1")->execute([$bienId]);
+                           WHERE id_bien=? AND type_valeur='prix_vente' AND scenario_code=? AND is_courant=1")->execute([$bienId, $ifiCode]);
             $pdo->prepare("INSERT INTO bien_prix
                 (id_bien, type_valeur, scenario_code, scenario_label, montant, source, id_user, commentaire, is_courant, date_validation)
-                VALUES (?, 'prix_vente', 'ifi', 'IFI', ?, 'comptable', ?, ?, 1, NOW())")
-                ->execute([$bienId, $montant, $uid, 'Valeur IFI validée via partage']);
+                VALUES (?, 'prix_vente', ?, ?, ?, 'comptable', ?, ?, 1, NOW())")
+                ->execute([$bienId, $ifiCode, $ifiLabel, $montant, $uid, 'Valeur IFI validée via partage']);
             $pdo->commit();
         } catch (Throwable $ex) { $pdo->rollBack(); }
     }
-    $selfUrl = ($isPreview ? 'patrimoine_partage.php?preview=' . (int)$share['id'] : 'patrimoine_partage.php?t=' . urlencode((string)($token ?? '')))
-             . '&scenario=ifi#p' . (int)($_POST['back_pid'] ?? 0);
-    header('Location: ' . $selfUrl);
+    $subQS = $isAdmin ? ('admin=1' . (!empty($adminBailleur) ? '&bailleur=' . (int)$adminBailleur : ''))
+                      : ($isPreview ? 'preview=' . (int)$share['id'] : 't=' . urlencode((string)($token ?? '')));
+    header('Location: patrimoine_partage.php?' . $subQS . '&scenario=' . urlencode($scenSel) . '#p' . (int)($_POST['back_pid'] ?? 0));
     exit;
 }
 
@@ -542,11 +550,8 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
             $csA = (int)($cs['actifs'] ?? 0); $csC = (int)($cs['clos'] ?? 0);
             $csUrg = !empty($cs['urgent']); $csEnv = !empty($cs['enerve']);
             $csTotal = $csA + $csC;
-            // Cible du clic : page dossiers avocat (Phase B). En aperçu on passe l'id du partage.
-            $creHref = $isPreview
-                ? 'patrimoine_creancier.php?preview=' . (int)$share['id'] . '&proprio=' . $pid
-                : 'patrimoine_creancier.php?t=' . urlencode($token ?? '') . '&proprio=' . $pid;
-            $isLink = !$isAdmin && ($canWrite || $csTotal > 0); // pas de drill-down en vue admin (pas de partage)
+            $creHref = 'patrimoine_creancier.php?' . $subQS . '&proprio=' . $pid;
+            $isLink = ($canWrite || $csTotal > 0);
             $tag = $isLink ? 'a' : 'span';
             $hrefAttr = $isLink ? ('href="' . $e($creHref) . '"') : '';
         ?>
@@ -566,10 +571,8 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
             $fs = $finStats[$pid] ?? null;
             $fsE = (int)($fs['encours'] ?? 0); $fsS = (int)($fs['soldes'] ?? 0);
             $fsTotal = $fsE + $fsS;
-            $finHref = $isPreview
-                ? 'patrimoine_financement.php?preview=' . (int)$share['id'] . '&proprio=' . $pid
-                : 'patrimoine_financement.php?t=' . urlencode($token ?? '') . '&proprio=' . $pid;
-            $fIsLink = !$isAdmin && ($canWrite || $fsTotal > 0);
+            $finHref = 'patrimoine_financement.php?' . $subQS . '&proprio=' . $pid;
+            $fIsLink = ($canWrite || $fsTotal > 0);
             $fTag = $fIsLink ? 'a' : 'span';
             $fHref = $fIsLink ? ('href="' . $e($finHref) . '"') : '';
         ?>
@@ -593,13 +596,9 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
           <span class="tot-prix" title="Valorisation totale (prix de vente)"><b><?= fmt_euro($sumPrix) ?></b><small>valorisation</small></span>
           <?php endif; ?>
         </span>
-        <?php if (!$isAdmin):
-          $expHref = ($isPreview ? 'patrimoine_export.php?preview=' . (int)$share['id'] : 'patrimoine_export.php?t=' . urlencode($token ?? ''))
-                   . '&proprio=' . $pid . '&scenario=' . urlencode($scenSel);
-        ?>
+        <?php $expHref = 'patrimoine_export.php?' . $subQS . '&proprio=' . $pid . '&scenario=' . urlencode($scenSel); ?>
         <a class="pm-export" href="<?= $e($expHref) ?>" onclick="event.stopPropagation();"
            title="Exporter la liste de ce propriétaire en Excel (notaire, propriétaire, comptable)">⬇ Excel</a>
-        <?php endif; ?>
       </span>
     </div>
     <div class="prop-body">

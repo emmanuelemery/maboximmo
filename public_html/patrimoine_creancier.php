@@ -22,11 +22,10 @@ if ((int)($share['montrer_creanciers'] ?? 0) !== 1) {
     pp_auth_stop('Non autorisé', 'Les dossiers créanciers ne sont pas partagés sur ce lien.');
 }
 
-// ── Périmètre : le propriétaire doit appartenir au compte bailleur du partage ──
+// ── Périmètre : le propriétaire doit appartenir au partage (bypass staff admin) ──
+$isAdmin   = !empty($_GET['admin']);
 $proprioId = (int)($_GET['proprio'] ?? 0);
-$stChk = $pdo->prepare("SELECT COUNT(*) FROM user_proprietaires WHERE id_user=? AND id_proprietaire=?");
-$stChk->execute([(int)$share['id_user_bailleur'], $proprioId]);
-if (!$proprioId || !(int)$stChk->fetchColumn()) {
+if (!pp_perimeter_ok($pdo, $share, $proprioId)) {
     pp_auth_stop('Hors périmètre', 'Ce propriétaire n\'est pas accessible depuis ce lien.');
 }
 
@@ -37,10 +36,8 @@ $proprio = $pr->fetch(PDO::FETCH_ASSOC);
 if (!$proprio) pp_auth_stop('Introuvable', 'Propriétaire introuvable.');
 $idSociete = (int)($pdo->query("SELECT id_societe FROM agences WHERE id=" . (int)$proprio['id_agence'])->fetchColumn() ?: 0) ?: null;
 
-// Lien retour vers la page patrimoine
-$backUrl = $isPreview
-    ? 'patrimoine_partage.php?preview=' . (int)$share['id']
-    : 'patrimoine_partage.php?t=' . urlencode((string)($_GET['t'] ?? ''));
+$subQS   = pp_sub_qs($share, $isPreview, $isAdmin, (string)($_GET['t'] ?? ''));
+$backUrl = 'patrimoine_partage.php?' . $subQS;
 
 $msg = ''; $msgType = '';
 
@@ -149,9 +146,7 @@ $statutLabel = ['actif' => 'Actif', 'surveillance' => 'Surveillance', 'clos' => 
     <?php if (empty($dossiers)): ?>
       <div class="empty">Aucun dossier créancier sur ce propriétaire<?= $canWrite ? ' — créez-en un ci-dessous.' : '.' ?></div>
     <?php else:
-        $dosBase = $isPreview
-            ? 'patrimoine_creancier_dossier.php?preview=' . (int)$share['id']
-            : 'patrimoine_creancier_dossier.php?t=' . urlencode((string)($_GET['t'] ?? ''));
+        $dosBase = 'patrimoine_creancier_dossier.php?' . $subQS;
         foreach ($dossiers as $d):
         $risk = $d['niveau_risque']; $clos = $d['statut'] === 'clos'; ?>
     <a class="d-row" href="<?= $e($dosBase) ?>&dossier=<?= (int)$d['id'] ?>" style="text-decoration:none;color:inherit;">

@@ -27,22 +27,24 @@ if ((int)($share['montrer_creanciers'] ?? 0) !== 1) {
 }
 
 // ── Dossier + vérification de périmètre (lié PROPRIETAIRE à un proprio du partage) ──
+$isAdmin   = !empty($_GET['admin']);
 $dossierId = (int)($_GET['dossier'] ?? 0);
 $stD = $pdo->prepare("
     SELECT d.*, dl.entity_id AS id_proprietaire
     FROM creancier_dossier d
     JOIN creancier_dossier_lien dl ON dl.id_dossier = d.id AND dl.entity_type='PROPRIETAIRE'
-    WHERE d.id = ?
-      AND dl.entity_id IN (SELECT id_proprietaire FROM user_proprietaires WHERE id_user = ?)
-    LIMIT 1");
-$stD->execute([$dossierId, (int)$share['id_user_bailleur']]);
+    WHERE d.id = ? LIMIT 1");
+$stD->execute([$dossierId]);
 $dossier = $stD->fetch(PDO::FETCH_ASSOC);
-if (!$dossier) pp_auth_stop('Hors périmètre', 'Ce dossier n\'est pas accessible depuis ce lien.');
+if (!$dossier || !pp_perimeter_ok($pdo, $share, (int)$dossier['id_proprietaire'])) {
+    pp_auth_stop('Hors périmètre', 'Ce dossier n\'est pas accessible depuis ce lien.');
+}
 
 $proprioId = (int)$dossier['id_proprietaire'];
 $proprioNom = (string)($pdo->query("SELECT COALESCE(NULLIF(societe,''),TRIM(CONCAT_WS(' ',prenom,nom))) FROM proprietaires WHERE id=" . $proprioId)->fetchColumn() ?: '');
-$backUrl = ($isPreview ? 'patrimoine_creancier.php?preview=' . (int)$share['id'] : 'patrimoine_creancier.php?t=' . urlencode((string)($_GET['t'] ?? ''))) . '&proprio=' . $proprioId;
-$selfUrl = ($isPreview ? 'patrimoine_creancier_dossier.php?preview=' . (int)$share['id'] : 'patrimoine_creancier_dossier.php?t=' . urlencode((string)($_GET['t'] ?? ''))) . '&dossier=' . $dossierId;
+$subQS   = pp_sub_qs($share, $isPreview, $isAdmin, (string)($_GET['t'] ?? ''));
+$backUrl = 'patrimoine_creancier.php?' . $subQS . '&proprio=' . $proprioId;
+$selfUrl = 'patrimoine_creancier_dossier.php?' . $subQS . '&dossier=' . $dossierId;
 
 $msg = ''; $msgType = '';
 $auteur = $isPreview ? 'Staff (aperçu)' : (string)($share['destinataire_nom'] ?: 'Contributeur externe');

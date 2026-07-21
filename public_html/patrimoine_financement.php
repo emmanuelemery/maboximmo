@@ -23,10 +23,9 @@ if ((int)($share['montrer_financements'] ?? 0) !== 1) {
 }
 
 // ── Périmètre ────────────────────────────────────────────────────────
+$isAdmin   = !empty($_GET['admin']);
 $proprioId = (int)($_GET['proprio'] ?? 0);
-$stChk = $pdo->prepare("SELECT COUNT(*) FROM user_proprietaires WHERE id_user=? AND id_proprietaire=?");
-$stChk->execute([(int)$share['id_user_bailleur'], $proprioId]);
-if (!$proprioId || !(int)$stChk->fetchColumn()) {
+if (!pp_perimeter_ok($pdo, $share, $proprioId)) {
     pp_auth_stop('Hors périmètre', 'Ce propriétaire n\'est pas accessible depuis ce lien.');
 }
 $pr = $pdo->prepare("SELECT id, COALESCE(NULLIF(societe,''),TRIM(CONCAT_WS(' ',prenom,nom))) AS nom, id_agence, id_tiers
@@ -36,9 +35,8 @@ $proprio = $pr->fetch(PDO::FETCH_ASSOC);
 if (!$proprio) pp_auth_stop('Introuvable', 'Propriétaire introuvable.');
 $idSociete = (int)($pdo->query("SELECT id_societe FROM agences WHERE id=" . (int)$proprio['id_agence'])->fetchColumn() ?: 0) ?: null;
 
-$backUrl = $isPreview
-    ? 'patrimoine_partage.php?preview=' . (int)$share['id']
-    : 'patrimoine_partage.php?t=' . urlencode((string)($_GET['t'] ?? ''));
+$subQS   = pp_sub_qs($share, $isPreview, $isAdmin, (string)($_GET['t'] ?? ''));
+$backUrl = 'patrimoine_partage.php?' . $subQS;
 
 $msg = ''; $msgType = '';
 $createdBy = ($isPreview && function_exists('current_user_id')) ? (int)current_user_id() : null;
@@ -65,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                 ->execute([$idSociete, $idDossier, $proprioId, $createdBy]);
             $pdo->commit();
             $_SESSION['pf_flash'] = 'Financement créé. Complétez-le (montant, mensualités, biens, échéance).';
-            header('Location: patrimoine_financement_dossier.php?' . ($isPreview ? 'preview=' . (int)$share['id'] : 't=' . urlencode((string)($_GET['t'] ?? ''))) . '&dossier=' . $idDossier);
+            header('Location: patrimoine_financement_dossier.php?' . $subQS . '&dossier=' . $idDossier);
             exit;
         } catch (Throwable $ex) { $pdo->rollBack(); $msg = 'Erreur : ' . $ex->getMessage(); $msgType = 'error'; }
     }
@@ -85,9 +83,7 @@ $stD = $pdo->prepare("
 $stD->execute([$proprioId]);
 $dossiers = $stD->fetchAll(PDO::FETCH_ASSOC);
 
-$dosBase = $isPreview
-    ? 'patrimoine_financement_dossier.php?preview=' . (int)$share['id']
-    : 'patrimoine_financement_dossier.php?t=' . urlencode((string)($_GET['t'] ?? ''));
+$dosBase = 'patrimoine_financement_dossier.php?' . $subQS;
 $statutLbl = ['ouvert'=>'Ouvert','en_cours'=>'En cours','suspendu'=>'Suspendu','clos'=>'Soldé'];
 ?>
 <!doctype html>
