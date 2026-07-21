@@ -27,6 +27,9 @@ function sb_bail_active(string $page): string {
     return basename($_SERVER['SCRIPT_NAME'] ?? '') === $page ? 'active' : '';
 }
 
+// Défini tôt : utilisé dès la section « Vue d'ensemble » (lien Partages) ET plus bas (Administration).
+$canAdminBailleur = $isSA || (function_exists('can_admin_bailleur') && can_admin_bailleur());
+
 $_bNom  = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
 $_bInit = strtoupper(
     mb_substr($_SESSION['prenom'] ?? $_SESSION['nom'] ?? 'B', 0, 1) .
@@ -197,7 +200,6 @@ $_bInit = strtoupper(
   <?php endif; ?>
 
   <!-- Administration (super admin + admin/manager) -->
-  <?php $canAdminBailleur = $isSA || (function_exists('can_admin_bailleur') && can_admin_bailleur()); ?>
   <?php if ($canAdminBailleur): ?>
   <div class="sb-bail-section">
     <div class="sb-bail-section-title">Administration</div>
