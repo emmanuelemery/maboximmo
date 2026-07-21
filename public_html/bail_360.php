@@ -909,6 +909,12 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         ]]);
     }
 
+    // Contacts génériques du bail (socle acteurs) + bouton « + » d'ajout.
+    require_once __DIR__ . '/inc/entite_acteurs.php';
+    $eaBailLinks = entite_acteurs_links($pdo, 'BAIL', $bailId, csrf_token('default'));
+    $eaBailBtn   = entite_acteurs_header_button('ea_bail', 'BAIL', $bailId, csrf_token('default'));
+    fiche360_attach('CONTACTS (' . count($eaBailLinks) . ')', $eaBailLinks, $eaBailBtn);
+
     ?>
 
   </div>
