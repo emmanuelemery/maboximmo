@@ -196,7 +196,11 @@ table.pp tr:hover td{background:#fafbff;}
 .badge-exp{background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-size:.76em;font-weight:bold;}
 .pill{background:#e8eaf6;color:#1a237e;padding:1px 7px;border-radius:10px;font-size:.74em;display:inline-block;margin:1px;}
 .linkbox{display:flex;gap:6px;align-items:center;}
-.linkbox input{border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.75em;width:220px;color:#555;background:#f7f8fc;}
+.linkbox input{border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.75em;width:130px;color:#555;background:#f7f8fc;}
+.pp-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+td.actions-cell{white-space:normal;}
+td.actions-cell .btn-sm{margin:2px 2px 0 0;}
+td.actions-cell form{display:inline;}
 .btn-sm{border:none;border-radius:6px;padding:5px 10px;font-size:.76em;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;}
 .btn-copy{background:#e8eaf6;color:#1a237e;} .btn-copy:hover{background:#c5cae9;}
 .btn-open{background:#e3f2fd;color:#0d47a1;} .btn-open:hover{background:#bbdefb;}
@@ -314,6 +318,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
 </div>
 
 <!-- ══ LISTE ══════════════════════════════════════════════ -->
+<div class="pp-scroll">
 <table class="pp">
   <thead><tr>
     <th>DESTINATAIRE</th><th>PÉRIMÈTRE</th><th>SCÉNARIO / COLONNES</th>
@@ -363,7 +368,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
         <button type="button" class="btn-sm btn-copy" onclick="ppCopy(<?= (int)$p['id'] ?>)">📋</button>
       </div>
     </td>
-    <td style="white-space:nowrap;">
+    <td class="actions-cell">
       <a href="patrimoine_partage.php?preview=<?= (int)$p['id'] ?>" target="_blank" class="btn-sm btn-open">👁 Aperçu</a>
       <a href="<?= $url ?>" target="_blank" class="btn-sm btn-open">↗ Ouvrir</a>
       <form method="POST" action="bailleur_partages.php" style="display:inline;">
@@ -389,6 +394,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
   <?php endforeach; endif; ?>
   </tbody>
 </table>
+</div><!-- /pp-scroll -->
 
 </div>
 
