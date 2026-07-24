@@ -95,8 +95,9 @@ $perLbl = $perM === 3 ? 'trimestre' : 'mois';
 $loyM  = (float)($cond['loyer_m'] ?? ($sig['loyer_mensuel_hc'] ?? 0));
 $chM   = (float)($cond['charges_m'] ?? ($sig['charges_mensuelles'] ?? 0));
 $tfM   = (float)($cond['prov_tf'] ?? 0);
-$echLoyerT = $tvaOn ? $loyM * $perM * (1 + $tvaT / 100) : $loyM * $perM;
-$totEcheance = $echLoyerT + $chM * $perM + $tfM * $perM;     // total dû à chaque terme (loyer TTC + charges + TF)
+$techM = ($cond['tech_pct'] ?? null) !== null ? $loyM * (float)$cond['tech_pct'] / 100 : 0.0; // honoraires gestion technique
+$echLoyerT = $tvaOn ? ($loyM + $techM) * $perM * (1 + $tvaT / 100) : ($loyM + $techM) * $perM; // loyer + gestion technique, TTC si TVA
+$totEcheance = $echLoyerT + $chM * $perM + $tfM * $perM;     // total dû à chaque terme (loyer+tech TTC + charges + TF)
 // Prorata du 1er terme (mêmes règles que le bail) — sur loyer, charges ET taxe foncière.
 $prRatio = 1.0;
 $prRaw = ($cond['prorata_date'] ?? '') ?: ($cond['date_effet'] ?? ($sig['date_prise_effet'] ?? ''));

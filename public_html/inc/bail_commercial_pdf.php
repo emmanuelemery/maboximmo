@@ -828,12 +828,16 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $h .= '<p>La liste des charges, travaux, impôts, taxes et redevances qui ne peuvent être imputés au locataire a été fixée par un décret n° 2014-1317 du 3 novembre 2014 et codifiée à l\'article R. 145-35 du code de commerce.</p>';
 
         // Récapitulatif des sommes versées à chaque terme
+        $techPctT = ($c['tech_pct'] ?? null) !== null ? (float)$c['tech_pct'] : 0.0;
+        $techM    = $techPctT > 0 ? (float)($c['loyer_m'] ?? 0) * $techPctT / 100 : 0.0; // honoraires gestion technique / terme (HT)
+        $tvaBaseT = (float)($c['loyer_m'] ?? 0) + $techM;                                // assiette TVA = loyer + gestion technique
         $rows = '';
         $rows .= '<tr><td>Loyer</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m']) . ' €' : '&nbsp;') . '</td></tr>';
-        if ($tvaOn) $rows .= '<tr><td>TVA (' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m'] * $tvaTaux/100) . ' €' : '&nbsp;') . '</td></tr>';
+        if ($techM > 0) $rows .= '<tr><td>Honoraires de gestion technique (' . rtrim(rtrim(number_format($techPctT,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . bcp_eur($techM) . ' €</td></tr>';
+        if ($tvaOn) $rows .= '<tr><td>TVA (' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . ($tvaBaseT > 0 ? bcp_eur($tvaBaseT * $tvaTaux/100) . ' €' : '&nbsp;') . '</td></tr>';
         $rows .= '<tr><td>Provision pour charges</td><td style="text-align:right;">' . ($c['charges_m'] !== null ? bcp_eur($c['charges_m']) . ' €' : '&nbsp;') . '</td></tr>';
         if ((float)($c['prov_tf'] ?? 0) > 0) $rows .= '<tr><td>Provision taxe foncière</td><td style="text-align:right;">' . bcp_eur($c['prov_tf']) . ' €</td></tr>';
-        $totT = (float)($c['loyer_m'] ?? 0) * ($tvaOn ? (1+$tvaTaux/100) : 1) + (float)($c['charges_m'] ?? 0) + (float)($c['prov_tf'] ?? 0);
+        $totT = $tvaBaseT * ($tvaOn ? (1+$tvaTaux/100) : 1) + (float)($c['charges_m'] ?? 0) + (float)($c['prov_tf'] ?? 0);
         $rows .= '<tr><td><b>Soit un total de</b></td><td style="text-align:right;"><b>' . ($totT>0 ? bcp_eur($totT) . ' €' : '&nbsp;') . '</b></td></tr>';
         $h .= '<p><b>Récapitulatif des sommes versées par le PRENEUR à chaque terme :</b></p>';
         $h .= '<table class="tbl"><thead><tr><th>Somme versée par le LOCATAIRE à chaque terme</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $rows . '</tbody></table>';
@@ -864,10 +868,13 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $dg1   = (float)($c['dg_montant'] ?? 0);
         $de1   = (float)($c['droit_entree'] ?? 0);
         $ho1   = $honoPrenM ? (float)$honoPrenM * 1.20 : 0.0; // honoraires = service agence, TVA 20 %
+        $tech1  = $techM * $perM * $prRatio;                          // honoraires gestion technique (récupérables)
+        $tech1T = $tvaOn ? $tech1 * (1 + $tvaTaux / 100) : $tech1;    // dans l'assiette TVA
         $fpDef = [
             ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance' . $prTxt . ')' . ($tvaOn ? ' TTC' : ' HT'), $loy1T],
-            ['Provision pour charges' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $ch1],
         ];
+        if ($tech1 > 0) $fpDef[] = ['Honoraires de gestion technique (' . rtrim(rtrim(number_format($techPctT,2,',',''),'0'),',') . ' %)' . ($prRatio < 0.9999 ? ' (prorata)' : '') . ($tvaOn ? ' TTC' : ''), $tech1T];
+        $fpDef[] = ['Provision pour charges' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $ch1];
         if ($tf1 > 0) $fpDef[] = ['Provision taxe foncière' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $tf1];
         $fpDef[] = ['Dépôt de garantie', $dg1];
         $fpDef[] = ['Pas-de-porte / droit d\'entrée', $de1];
