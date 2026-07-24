@@ -306,6 +306,8 @@ if ($isProjetBail) {
             'tva_applicable'=>$bail['tva_applicable'] ?? 1, 'periodicite_paiement'=>$bail['periodicite_paiement'] ?? 'mensuelle',
             'provision_tf_mensuelle'=>$bail['provision_tf_mensuelle'] ?? null, 'honoraires_gestion_tech_pct'=>$bail['honoraires_gestion_tech_pct'] ?? null,
             'honoraires_bailleur_ttc'=>$bail['honoraires_bailleur_ttc'] ?? null, 'honoraires_locataire_ttc'=>$bail['honoraires_locataire_ttc'] ?? null,
+            'honoraires_pct_preneur'=>$bail['honoraires_pct_preneur'] ?? null, 'honoraires_pct_bailleur'=>$bail['honoraires_pct_bailleur'] ?? null,
+            'droit_entree'=>$bail['droit_entree'] ?? null, 'taux_penalite'=>$bail['taux_penalite'] ?? null,
             'conditions_particulieres'=>$bail['conditions_particulieres'] ?? null, 'conditions_particulieres_loyer'=>$bail['conditions_particulieres_loyer'] ?? null,
             'bien_designation'=>$bail['bien_designation'] ?? null, 'en_copropriete'=>$bail['en_copropriete'] ?? 0,
             'lot_copropriete'=>$bail['lot_copropriete'] ?? null, 'lot_tantiemes'=>$bail['lot_tantiemes'] ?? null,

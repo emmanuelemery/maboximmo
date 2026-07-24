@@ -233,7 +233,7 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
         </label>
 
         <label class="fld">Recopiez la mention : « <?= $h($mentionAttendue) ?> »</label>
-        <input type="text" name="mention_manuscrite" value="<?= $h($_POST['mention_manuscrite'] ?? '') ?>" placeholder="<?= $h($mentionAttendue) ?>" required>
+        <input type="text" name="mention_manuscrite" value="<?= $h($_POST['mention_manuscrite'] ?? '') ?>" placeholder="Recopiez ici la mention ci-dessus…" required>
 
         <label class="fld">Date</label>
         <input type="text" name="date_manuscrite" value="<?= $h($_POST['date_manuscrite'] ?? '') ?>" placeholder="Ex. <?= date('d/m/Y') ?>" required>
