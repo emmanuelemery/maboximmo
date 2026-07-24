@@ -722,7 +722,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
         } else { $dFin = '……………………'; }
 
         // Champs FNAIM
-        $de     = $c['droit_entree'] !== null ? bcp_eur($c['droit_entree']) . ' €' : '…………… €';
+        $de     = $c['droit_entree'] !== null ? bcp_eur($c['droit_entree']) : '……………';
         $penal  = rtrim(rtrim(number_format((float)($c['taux_penalite'] ?? 10.0), 2, ',', ''), '0'), ',');
         $loyerAn = (float)($c['loyer_a'] ?? 0);
         $hpPren = $c['hono_pct_pren']; $hpBail = $c['hono_pct_bail'];
@@ -832,13 +832,13 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $techM    = $techPctT > 0 ? (float)($c['loyer_m'] ?? 0) * $techPctT / 100 : 0.0; // honoraires gestion technique / terme (HT)
         $tvaBaseT = (float)($c['loyer_m'] ?? 0) + $techM;                                // assiette TVA = loyer + gestion technique
         $rows = '';
-        $rows .= '<tr><td>Loyer</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m']) . ' €' : '&nbsp;') . '</td></tr>';
-        if ($techM > 0) $rows .= '<tr><td>Honoraires de gestion technique (' . rtrim(rtrim(number_format($techPctT,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . bcp_eur($techM) . ' €</td></tr>';
-        if ($tvaOn) $rows .= '<tr><td>TVA (' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . ($tvaBaseT > 0 ? bcp_eur($tvaBaseT * $tvaTaux/100) . ' €' : '&nbsp;') . '</td></tr>';
-        $rows .= '<tr><td>Provision pour charges</td><td style="text-align:right;">' . ($c['charges_m'] !== null ? bcp_eur($c['charges_m']) . ' €' : '&nbsp;') . '</td></tr>';
-        if ((float)($c['prov_tf'] ?? 0) > 0) $rows .= '<tr><td>Provision taxe foncière</td><td style="text-align:right;">' . bcp_eur($c['prov_tf']) . ' €</td></tr>';
+        $rows .= '<tr><td>Loyer</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m']) : '&nbsp;') . '</td></tr>';
+        if ($techM > 0) $rows .= '<tr><td>Honoraires de gestion technique (' . rtrim(rtrim(number_format($techPctT,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . bcp_eur($techM) . '</td></tr>';
+        if ($tvaOn) $rows .= '<tr><td>TVA (' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . ($tvaBaseT > 0 ? bcp_eur($tvaBaseT * $tvaTaux/100) : '&nbsp;') . '</td></tr>';
+        $rows .= '<tr><td>Provision pour charges</td><td style="text-align:right;">' . ($c['charges_m'] !== null ? bcp_eur($c['charges_m']) : '&nbsp;') . '</td></tr>';
+        if ((float)($c['prov_tf'] ?? 0) > 0) $rows .= '<tr><td>Provision taxe foncière</td><td style="text-align:right;">' . bcp_eur($c['prov_tf']) . '</td></tr>';
         $totT = $tvaBaseT * ($tvaOn ? (1+$tvaTaux/100) : 1) + (float)($c['charges_m'] ?? 0) + (float)($c['prov_tf'] ?? 0);
-        $rows .= '<tr><td><b>Soit un total de</b></td><td style="text-align:right;"><b>' . ($totT>0 ? bcp_eur($totT) . ' €' : '&nbsp;') . '</b></td></tr>';
+        $rows .= '<tr><td><b>Soit un total de</b></td><td style="text-align:right;"><b>' . ($totT>0 ? bcp_eur($totT) : '&nbsp;') . '</b></td></tr>';
         $h .= '<p><b>Récapitulatif des sommes versées par le PRENEUR à chaque terme :</b></p>';
         $h .= '<table class="tbl"><thead><tr><th>Somme versée par le LOCATAIRE à chaque terme</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $rows . '</tbody></table>';
 
@@ -880,11 +880,11 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $fpDef[] = ['Pas-de-porte / droit d\'entrée', $de1];
         $fpDef[] = ['Honoraires à la charge du preneur TTC', $ho1]; // PRENEUR : compté dans le total à verser
         $fpRows = ''; $fpTot = 0.0;
-        foreach ($fpDef as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . ((float)$l[1] > 0 ? bcp_eur($l[1]) . ' €' : '……………') . '</td></tr>'; $fpTot += (float)$l[1]; }
-        $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . ($fpTot > 0 ? bcp_eur($fpTot) . ' €' : '……………') . '</b></td></tr>';
+        foreach ($fpDef as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . ((float)$l[1] > 0 ? bcp_eur($l[1]) : '……………') . '</td></tr>'; $fpTot += (float)$l[1]; }
+        $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . ($fpTot > 0 ? bcp_eur($fpTot) : '……………') . '</b></td></tr>';
         // Honoraires du BAILLEUR — POUR INFORMATION, entre parenthèses, NON compris dans le total.
         $hoB = $honoBailM !== null ? (float)$honoBailM * 1.20 : null;
-        if ($hoB) $fpRows .= '<tr><td style="font-style:italic;color:#666;">(Honoraires à la charge du bailleur TTC — pour information)</td><td style="text-align:right;font-style:italic;color:#666;">(' . bcp_eur($hoB) . ' €)</td></tr>';
+        if ($hoB) $fpRows .= '<tr><td style="font-style:italic;color:#666;">(Honoraires à la charge du bailleur TTC — pour information)</td><td style="text-align:right;font-style:italic;color:#666;">(' . bcp_eur($hoB) . ')</td></tr>';
         $h .= '<p><b>Somme à verser par le PRENEUR à la signature (1ᵉʳ versement) :</b></p>';
         $h .= '<table class="tbl"><thead><tr><th>Nature</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $fpRows . '</tbody></table>';
 
@@ -902,7 +902,8 @@ if (!function_exists('bail_commercial_pdf_context')) {
             . ' ; État des risques et pollutions (ERP) ; le cas échéant, constat de risque d\'exposition au plomb (CREP), diagnostic amiante (DAPP/DTA) et diagnostic termites ; État des lieux d\'entrée';
 
         // 11. Inventaire (catégories de charges — à la suite, dans le même document)
-        $blk = '<b>……………</b>';
+        $blk = '<b>du PRENEUR</b>';   // charges d'exploitation récupérables → à la charge du PRENEUR
+        $blB = '<b>du BAILLEUR</b>';  // charges non récupérables → à la charge du BAILLEUR
         $h .= '<h3>11. Inventaire</h3>';
         $h .= '<p><b>CATÉGORIES DE CHARGES, IMPÔTS, TAXES ET REDEVANCES AFFÉRENTES AUX BIENS LOUÉS OU À L\'IMMEUBLE OÙ ILS SE TROUVENT</b></p>';
         $h .= '<p class="clabel">Charges</p><ul>'
@@ -931,12 +932,12 @@ if (!function_exists('bail_commercial_pdf_context')) {
             . '<li>La taxe locale sur les enseignes et publicités extérieures est à la charge du PRENEUR.</li>'
             . '</ul>';
         $h .= '<p class="clabel">Autres charges</p><ul>'
-            . '<li>Les assurances des lieux loués ou de l\'immeuble qui incombent au BAILLEUR sont à la charge ' . $blk . '.</li>'
+            . '<li>Les assurances des lieux loués ou de l\'immeuble qui incombent au BAILLEUR sont à la charge ' . $blB . '.</li>'
             . '<li>Les assurances des lieux loués ou de l\'immeuble qui incombent au PRENEUR sont à la charge ' . $blk . '.</li>'
             . '<li>Les surprimes d\'assurances liées à l\'activité du PRENEUR sont à la charge ' . $blk . '.</li>'
             . '<li>Les assurances sur travaux à la charge du PRENEUR sont à la charge ' . $blk . '.</li>'
-            . '<li>Les assurances sur travaux à la charge du BAILLEUR sont à la charge ' . $blk . '.</li>'
-            . '<li>Les frais d\'établissement des diagnostics obligatoires sont à la charge ' . $blk . '.</li>'
+            . '<li>Les assurances sur travaux à la charge du BAILLEUR sont à la charge ' . $blB . '.</li>'
+            . '<li>Les frais d\'établissement des diagnostics obligatoires sont à la charge ' . $blB . '.</li>'
             . '<li>Les frais d\'établissement des autres diagnostics (accessibilité…) sont à la charge ' . $blk . '.</li>'
             . '<li>Les abonnements, les frais d\'exploitation, les travaux d\'entretien, de réparation et de remplacement des réseaux de communication électroniques sont à la charge ' . $blk . '.</li>'
             . '</ul>';
@@ -1037,8 +1038,8 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $honoBailTTC = $honoBailM !== null ? (float)$honoBailM * $honoTtcF : null;
         $h .= '<h3>31. Honoraires de location</h3>';
         $h .= '<p>Les parties reconnaissent que les présentes ont été négociées par l\'Agence, que les parties déclarent en conséquence bénéficiaire du montant de la rémunération convenue conformément au mandat écrit signé' . ($ctx['numero_bail'] ? ' portant le numéro ' . bcp_e($ctx['numero_bail']) : '') . '. Honoraires de location, calculés sur le loyer annuel HT et répartis comme suit :</p>';
-        $h .= '<p>&mdash; À la charge du PRENEUR (locataire) : ' . ($hpPren !== null ? $fmtPct($hpPren) . ' % soit ' : '…… % soit ') . ($honoPrenTTC !== null ? '<b>' . bcp_eur($honoPrenTTC) . ' € TTC</b>' : '……………') . '<br>'
-            . '&mdash; À la charge du BAILLEUR : ' . ($hpBail !== null ? $fmtPct($hpBail) . ' % soit ' : '…… % soit ') . ($honoBailTTC !== null ? '<b>' . bcp_eur($honoBailTTC) . ' € TTC</b>' : '……………') . '</p>';
+        $h .= '<p>&mdash; À la charge du PRENEUR (locataire) : ' . ($hpPren !== null ? $fmtPct($hpPren) . ' % soit ' : '…… % soit ') . ($honoPrenTTC !== null ? '<b>' . bcp_eur($honoPrenTTC) . ' TTC</b>' : '……………') . '<br>'
+            . '&mdash; À la charge du BAILLEUR : ' . ($hpBail !== null ? $fmtPct($hpBail) . ' % soit ' : '…… % soit ') . ($honoBailTTC !== null ? '<b>' . bcp_eur($honoBailTTC) . ' TTC</b>' : '……………') . '</p>';
 
         // 32. Frais
         $h .= '<h3>32. Frais</h3><p>Tous les frais et droits des présentes, à l\'exception des honoraires de location dont les modalités d\'imputation sont définies ci-dessus, seront supportés par le PRENEUR qui s\'y oblige.</p>';
