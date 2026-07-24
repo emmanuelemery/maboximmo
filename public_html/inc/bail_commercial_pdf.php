@@ -661,7 +661,9 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $ge = $ctx['gestionnaire']; $pr = $ctx['preneur']; $c = $ctx['cond']; $gar = $ctx['garant'];
         $B  = fn($v) => '<b>' . bcp_e((string)$v) . '</b>';
         $blank = fn($v) => ($v !== null && $v !== '' && $v !== 0 && $v !== 0.0) ? bcp_e((string)$v) : '……………………';
-        $cb = fn($on) => $on ? '&#9746;' : '&#9744;'; // ☒ / ☐
+        // Cases à cocher : la police Times du PDF n'a pas les glyphes ☒/☐ → on force dejavusans
+        // (présente dans mPDF et qui possède ces glyphes). Rendu identique en aperçu (navigateur).
+        $cb = fn($on) => '<span style="font-family:dejavusans, \'DejaVu Sans\', sans-serif;">' . ($on ? '&#9746;' : '&#9744;') . '</span>'; // ☒ / ☐
 
         // ── Identités ──
         // BAILLEUR = propriétaire. Les infos légales (forme, capital, siège, RCS, gérant) sont
