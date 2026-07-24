@@ -202,6 +202,8 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 // Si non configuré → vide (le texte affiche « compte de gestion de l'agence » sans IBAN erroné).
                 'rib_iban'  => (string)$ribG['iban'],
                 'rib_nom'   => (string)($ribG['banque'] ?: $ribG['titulaire']),
+                'rib_titulaire' => (string)($ribG['titulaire'] ?? ''),
+                'rib_banque'    => (string)($ribG['banque'] ?? ''),
                 'rib_bic'   => (string)$ribG['bic'],
                 'ville_sig' => (string)($age['ville'] ?? ($soc['ville'] ?? '')),
             ],

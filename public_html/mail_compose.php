@@ -98,7 +98,10 @@ if ($signMode) {
                 $dgM=(float)($cc['dg_montant'] ?? 0);$deM=(float)($cc['droit_entree'] ?? 0);$loyAn=(float)($cc['loyer_a'] ?? $loyM*12);$hpP=$cc['hono_pct_pren'] ?? null;
                 $honoP=$hpP!==null?$loyAn*(float)$hpP/100*1.20:(float)($cc['hono_loc'] ?? 0);
                 $totSign=($echBaseT+$chM*$perM+$tfM*$perM)*$prR+$dgM+$deM+$honoP;
-                $rib = !empty($ge['rib_iban']) ? ('<p style="background:#f4f7f7;border:1px solid #dbe6e6;border-radius:8px;padding:10px 12px;"><strong>RIB de gestion de l\'agence (versement)</strong><br>'.($ge['rib_nom']?htmlspecialchars((string)$ge['rib_nom']).'<br>':'').'IBAN : <strong>'.htmlspecialchars((string)$ge['rib_iban']).'</strong>'.($ge['rib_bic']?' &middot; BIC : <strong>'.htmlspecialchars((string)$ge['rib_bic']).'</strong>':'').'</p>') : '';
+                $ribAgc = trim((string)($ge['age_nom'] ?? '')) ?: trim((string)($ge['raison'] ?? ''));
+                $ribTit = trim((string)($ge['rib_titulaire'] ?? ''));
+                $ribBq  = trim((string)($ge['rib_banque'] ?? '')) ?: trim((string)($ge['rib_nom'] ?? ''));
+                $rib = !empty($ge['rib_iban']) ? ('<p style="background:#f4f7f7;border:1px solid #dbe6e6;border-radius:8px;padding:10px 12px;"><strong>RIB de gestion &mdash; '.htmlspecialchars($ribAgc ?: 'l\'agence').'</strong><br>'.($ribTit?'Titulaire du compte : <strong>'.htmlspecialchars($ribTit).'</strong><br>':'').($ribBq?'Banque : '.htmlspecialchars($ribBq).'<br>':'').'IBAN : <strong>'.htmlspecialchars((string)$ge['rib_iban']).'</strong>'.($ge['rib_bic']?' &middot; BIC : <strong>'.htmlspecialchars((string)$ge['rib_bic']).'</strong>':'').'</p>') : '';
                 $montantTxt = $totSign > 0 ? 'Montant total à verser à la signature : ' . number_format($totSign, 2, ',', ' ') . ' €' : '';
                 $preneurBlock = ($rib ? '<p>Merci de régler <strong>l\'intégralité des sommes</strong> par virement sur le RIB ci-dessous.</p>' . $rib : '')
                     . '<p>Pour prendre possession des lieux, merci de nous transmettre votre <strong>attestation d\'assurance</strong> (vous pourrez la joindre au moment de la signature).</p>';
