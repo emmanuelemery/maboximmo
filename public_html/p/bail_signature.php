@@ -202,7 +202,7 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
     <?php elseif ($expired): ?>
       <div class="exp-banner">
         <strong>⏱️ Lien expiré.</strong><br>
-        Ce lien de signature a dépassé sa durée de validité (<?= (int)BSIG_TTL_MIN ?> minutes). Merci de contacter votre agence pour recevoir un nouveau lien.
+        Ce lien de signature a dépassé sa durée de validité (<?= (int)(BSIG_TTL_MIN/60) ?> heures). Merci de contacter votre agence pour recevoir un nouveau lien.
       </div>
 
     <?php else: ?>
@@ -255,7 +255,7 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
         <button class="btn" type="submit">✍️ Signer le bail</button>
         <p class="legal">
           Signature électronique (procédé simple, art. 1366-1367 du Code civil) : votre adresse IP (<?= $h(bsig_client_ip() ?: 'non détectée') ?>),
-          l'horodatage, la mention recopiée et le tracé de votre signature sont enregistrés comme preuve. Lien valable <?= (int)BSIG_TTL_MIN ?> minutes.
+          l'horodatage, la mention recopiée et le tracé de votre signature sont enregistrés comme preuve. Lien valable <?= (int)(BSIG_TTL_MIN/60) ?> heures.
         </p>
       </form>
     <?php endif; ?>

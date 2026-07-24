@@ -17,7 +17,7 @@ declare(strict_types=1);
 // Durée de validité d'un lien de signature (minutes), à compter de l'envoi (sent_at) ou,
 // à défaut, de la création (created_at). Un lien expiré n'autorise plus la signature ;
 // l'agent peut renvoyer le lien (bsig_mark_sent réarme la fenêtre).
-if (!defined('BSIG_TTL_MIN')) define('BSIG_TTL_MIN', 30);
+if (!defined('BSIG_TTL_MIN')) define('BSIG_TTL_MIN', 48 * 60); // 48 heures
 
 if (!function_exists('bsig_token')) {
     function bsig_token(): string { return bin2hex(random_bytes(32)); }
