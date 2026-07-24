@@ -208,8 +208,15 @@ $loyerA = ($sig['loyer_mensuel_hc'] ?? null) !== null ? (float)$sig['loyer_mensu
             <span class="photo-note">Cette photo sert <strong>uniquement de preuve de signature</strong> et ne sera <strong>jamais diffusée</strong> ni transmise à des tiers.</span></span>
         </label>
         <div id="photo-zone" style="display:none;">
-          <input type="file" accept="image/*" capture="user" id="photo_input">
-          <div class="photo-note" id="photo-status"></div>
+          <video id="photo-video" playsinline autoplay muted style="width:100%;max-width:320px;border-radius:10px;background:#000;display:none;"></video>
+          <canvas id="photo-canvas" style="display:none;"></canvas>
+          <img id="photo-thumb" alt="" style="width:120px;border-radius:10px;display:none;border:1px solid #cbd5e1;">
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <button type="button" class="btn-sec" id="photo-start">📷 Activer la caméra</button>
+            <button type="button" class="btn-sec" id="photo-snap" style="display:none;">📸 Capturer</button>
+            <button type="button" class="btn-sec" id="photo-retake" style="display:none;">↻ Reprendre</button>
+          </div>
+          <div class="photo-note" id="photo-status">La photo est prise <b>en direct</b> par la caméra (aucun fichier à charger).</div>
         </div>
 
         <button class="btn" type="submit">✍️ Signer le bail</button>
@@ -264,32 +271,56 @@ $loyerA = ($sig['loyer_mensuel_hc'] ?? null) !== null ? (float)$sig['loyer_mensu
   });
   window.addEventListener('resize',fit); fit();
 
-  // ── Photo optionnelle (preuve, jamais diffusée) ──
+  // ── Photo-preuve : capture INSTANTANÉE par la caméra (getUserMedia), aucun fichier uploadé ──
   var consent = document.getElementById('photo_consent');
   var zone = document.getElementById('photo-zone');
-  var input = document.getElementById('photo_input');
   var status = document.getElementById('photo-status');
   var photoHidden = document.getElementById('photo_data');
+  var video = document.getElementById('photo-video');
+  var pcanvas = document.getElementById('photo-canvas');
+  var thumb = document.getElementById('photo-thumb');
+  var btnStart = document.getElementById('photo-start');
+  var btnSnap = document.getElementById('photo-snap');
+  var btnRetake = document.getElementById('photo-retake');
+  var pstream = null;
+  function photoStop(){ if(pstream){ pstream.getTracks().forEach(function(t){ t.stop(); }); pstream=null; } }
+  function photoReset(){
+    photoStop(); photoHidden.value='';
+    video.style.display='none'; thumb.style.display='none';
+    btnSnap.style.display='none'; btnRetake.style.display='none';
+    btnStart.style.display='inline-block';
+  }
   consent.addEventListener('change', function(){
     zone.style.display = consent.checked ? 'block' : 'none';
-    if(!consent.checked){ photoHidden.value=''; input.value=''; status.textContent=''; }
+    if(!consent.checked){ photoReset(); status.textContent=''; }
+    else { status.textContent='La photo est prise en direct par la caméra (aucun fichier à charger).'; }
   });
-  input.addEventListener('change', function(){
-    var f = input.files && input.files[0]; if(!f) return;
-    var reader = new FileReader();
-    reader.onload = function(){
-      // Réduit la photo (max 720px) pour limiter le poids stocké.
-      var img = new Image();
-      img.onload = function(){
-        var mx=720, s=Math.min(1, mx/Math.max(img.width,img.height));
-        var c=document.createElement('canvas'); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
-        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-        photoHidden.value = c.toDataURL('image/jpeg',0.82);
-        status.textContent = 'Photo prête (preuve, non diffusée).';
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(f);
+  btnStart.addEventListener('click', function(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      status.textContent='Caméra non disponible sur cet appareil/navigateur.'; return;
+    }
+    navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user' }, audio:false }).then(function(s){
+      pstream=s; video.srcObject=s; video.style.display='block';
+      var p=video.play(); if(p&&p.catch) p.catch(function(){});
+      btnStart.style.display='none'; btnSnap.style.display='inline-block';
+      thumb.style.display='none'; btnRetake.style.display='none';
+      status.textContent='Cadrez votre visage, puis « Capturer ».';
+    }).catch(function(){ status.textContent='Accès caméra refusé. Autorisez la caméra pour la preuve photo.'; });
+  });
+  btnSnap.addEventListener('click', function(){
+    if(!pstream) return;
+    var w=video.videoWidth||320, h=video.videoHeight||240, mx=480, s=Math.min(1, mx/Math.max(w,h));
+    pcanvas.width=Math.round(w*s); pcanvas.height=Math.round(h*s);
+    pcanvas.getContext('2d').drawImage(video,0,0,pcanvas.width,pcanvas.height);
+    photoHidden.value = pcanvas.toDataURL('image/jpeg',0.82);
+    thumb.src = photoHidden.value; thumb.style.display='block';
+    photoStop(); video.style.display='none';
+    btnSnap.style.display='none'; btnRetake.style.display='inline-block';
+    status.textContent='Photo prise en direct (preuve, non diffusée).';
+  });
+  btnRetake.addEventListener('click', function(){
+    photoHidden.value=''; thumb.style.display='none'; btnRetake.style.display='none';
+    btnStart.click();
   });
 
   // ── Soumission : fige le tracé dans le champ caché ──
