@@ -64,6 +64,7 @@ function bail_edit_modal(): void
           <label class="bel-f"><span>Téléphone</span><input type="text" id="bel-cand-tel"></label>
           <label class="bel-f bel-soc-only"><span>Représentant</span><input type="text" id="bel-cand-rep" placeholder="Nom du signataire"></label>
           <label class="bel-f bel-soc-only"><span>Qualité représentant</span><input type="text" id="bel-cand-repq" placeholder="Gérant, Président…"></label>
+          <label class="bel-f bel-soc-only"><span>Email du signataire</span><input type="email" id="bel-cand-rep-email" placeholder="Reçoit le bail à signer"></label>
         </div>
 
         <div class="bel-sec">🛡️ Garant / caution solidaire</div>
@@ -119,6 +120,10 @@ function bail_edit_modal(): void
           <label class="bel-f bel-tech-only"><span>% gestion technique</span><input type="number" step="0.01" id="bel-tech-pct" value="1.5"></label>
           <label class="bel-f"><span>Honoraires bailleur TTC (€)</span><input type="number" step="0.01" id="bel-hono-bail" placeholder="Ex. 2000"></label>
           <label class="bel-f"><span>Honoraires locataire TTC (€)</span><input type="number" step="0.01" id="bel-hono-loc" placeholder="Ex. 8000"></label>
+          <label class="bel-f"><span>Honoraires % preneur (du loyer annuel)</span><input type="number" step="0.01" id="bel-hono-pct-pren" placeholder="Ex. 4"></label>
+          <label class="bel-f"><span>Honoraires % bailleur (du loyer annuel)</span><input type="number" step="0.01" id="bel-hono-pct-bail" placeholder="Ex. 4"></label>
+          <label class="bel-f"><span>Pas-de-porte / droit d'entrée (€)</span><input type="number" step="0.01" id="bel-droit-entree" placeholder="Ex. 5000"></label>
+          <label class="bel-f"><span>Clause pénale — taux de majoration (%)</span><input type="number" step="0.01" id="bel-taux-penalite" value="10"></label>
           <label class="bel-f"><span>Indice</span>
             <select id="bel-indice"><option value="ILC" selected>ILC (commercial)</option><option value="ILAT">ILAT</option><option value="ICC">ICC</option></select></label>
           <label class="bel-f"><span>Trimestre de base</span><input type="text" id="bel-indice-trim" placeholder="Ex. 3T2025"></label>
@@ -224,6 +229,16 @@ function bail_edit_modal(): void
 .bel-pdfview .sigtbl{width:100%;margin-top:8px}
 .bel-pdfview .sigtbl td{width:50%;vertical-align:top;padding:8px 10px;font-size:11.5px}
 .bel-pdfview img{max-width:100%}
+/* Accordéon de l'aperçu : chaque article (h3) devient un titre repliable. Replié par défaut,
+   auto-déplié quand il reste un blanc à compléter (suite de « … » ≥ 2). Purement visuel (aperçu). */
+.bel-pdfview .bel-acc{border:1px solid #e3e9ea;border-radius:6px;margin:6px 0;overflow:hidden;background:#fff}
+.bel-pdfview .bel-acc-h{cursor:pointer;padding:7px 30px 7px 11px;background:#eef2f6;color:#243B5C;font-weight:800;font-size:11.5px;position:relative;user-select:none}
+.bel-pdfview .bel-acc-h:after{content:'\25B8';position:absolute;right:12px;top:6px;transition:transform .15s;color:#7aa}
+.bel-pdfview .bel-acc.open>.bel-acc-h:after{transform:rotate(90deg)}
+.bel-pdfview .bel-acc-b{display:none;padding:5px 12px 9px}
+.bel-pdfview .bel-acc.open>.bel-acc-b{display:block}
+.bel-pdfview .bel-acc-todo>.bel-acc-h{background:#fff6e6;color:#a5641b}
+.bel-pdfview .bel-acc-todo>.bel-acc-h:before{content:'\270E\00A0'}
 </style>
 <script>
 (function(){
@@ -236,6 +251,35 @@ function bail_edit_modal(): void
     if(_belPvTimer) clearTimeout(_belPvTimer);
     _belPvTimer=setTimeout(belRenderPdf, 300);
   }
+  // Transforme l'aperçu en accordéon : chaque <h3> (article) devient un titre repliable
+  // regroupant les éléments qui le suivent (jusqu'au prochain h3/h2). Replié par défaut ;
+  // auto-déplié + marqué « à compléter » si le corps contient un blanc (suite de « … » ≥ 2).
+  // 100% visuel : n'altère ni le payload ni le PDF (généré côté serveur).
+  function belAccordion(box){
+    var view = box.querySelector('.bel-pdfview'); if(!view) return;
+    var nodes = Array.prototype.slice.call(view.childNodes);
+    var body = null;
+    nodes.forEach(function(n){
+      if(n.nodeType===1 && n.tagName==='H3'){
+        var sec=document.createElement('div'); sec.className='bel-acc';
+        var head=document.createElement('div'); head.className='bel-acc-h'; head.innerHTML=n.innerHTML;
+        body=document.createElement('div'); body.className='bel-acc-b';
+        sec.appendChild(head); sec.appendChild(body);
+        view.insertBefore(sec, n); view.removeChild(n);
+        head.addEventListener('click', function(){ sec.classList.toggle('open'); });
+      } else if(n.nodeType===1 && n.tagName==='H2'){
+        body=null; // rupture de section (préambule) : le contenu reste hors accordéon
+      } else if(body){
+        body.appendChild(n);
+      }
+    });
+    // Déplie + marque les articles où il reste un blanc à compléter (≥ 2 points de suite).
+    var todo=/…{2,}/;
+    Array.prototype.forEach.call(view.querySelectorAll('.bel-acc'), function(sec){
+      var b=sec.querySelector('.bel-acc-b');
+      if(b && todo.test(b.textContent||'')){ sec.classList.add('open','bel-acc-todo'); }
+    });
+  }
   function belRenderPdf(){
     var box=g('bel-preview-body'); if(!box) return;
     if(!M._bienId){ box.innerHTML='<p class="mut">Sélectionne un bien pour l\'aperçu.</p>'; return; }
@@ -246,7 +290,7 @@ function bail_edit_modal(): void
       .then(function(r){return r.json();}).then(function(j){
         if(seq!==_belPvSeq) return; // réponse obsolète
         box.style.opacity='';
-        if(j&&j.ok){ box.innerHTML='<div class="bel-pdfview">'+j.html+'</div>'; }
+        if(j&&j.ok){ box.innerHTML='<div class="bel-pdfview">'+j.html+'</div>'; belAccordion(box); }
         else { box.innerHTML='<p class="mut" style="color:#c0392b">Aperçu indisponible : '+((j&&j.error)||'erreur')+'</p>'; }
       }).catch(function(e){ if(seq===_belPvSeq){ box.style.opacity=''; box.innerHTML='<p class="mut" style="color:#c0392b">Aperçu : '+e+'</p>'; } });
   }
@@ -614,6 +658,7 @@ function bail_edit_modal(): void
     setIf('bel-cand-nom', f.nom); setIf('bel-cand-prenom', f.prenom);
     setIf('bel-cand-email', f.email); setIf('bel-cand-tel', f.telephone);
     setIf('bel-cand-rep', f.representant_nom); setIf('bel-cand-repq', f.representant_qualite);
+    setIf('bel-cand-rep-email', f.representant_email);
     setIf('bel-cand-adresse', f.adresse); setIf('bel-cand-birthdate', f.date_naissance);
     setIf('bel-cand-birthplace', f.lieu_naissance); setIf('bel-cand-nat', f.nationalite);
     setIf('bel-destination', f.activite); setIf('bel-loyer', f.loyer_annuel_ht);
@@ -673,14 +718,16 @@ function bail_edit_modal(): void
 
   function resetForm(){
     ['bel-cand-raison','bel-cand-siren','bel-cand-nom','bel-cand-prenom','bel-cand-email','bel-cand-tel',
-     'bel-cand-rep','bel-cand-repq','bel-cand-adresse','bel-cand-birthdate','bel-cand-birthplace','bel-cand-nat',
+     'bel-cand-rep','bel-cand-repq','bel-cand-rep-email','bel-cand-adresse','bel-cand-birthdate','bel-cand-birthplace','bel-cand-nat',
      'bel-destination','bel-date-effet','bel-loyer','bel-charges',
      'bel-indice-trim','bel-indice-val','bel-dg','bel-opt-prix','bel-opt-delai',
      'bel-garant-nom','bel-garant-prenom','bel-garant-raison','bel-garant-siren','bel-garant-adresse',
      'bel-garant-birthdate','bel-garant-birthplace','bel-garant-email','bel-garant-tel',
      'bel-garant-montant','bel-garant-duree','bel-tf','bel-hono-bail','bel-hono-loc','bel-cp','bel-cp-loyer',
+     'bel-hono-pct-pren','bel-hono-pct-bail','bel-droit-entree',
      'bel-bien-desig','bel-lot','bel-tantiemes','bel-prorata-date','bel-travaux-realises','bel-travaux-prevus'].forEach(function(id){ var e=g(id); if(e) e.value=''; });
     g('bel-cand-type').value='societe'; g('bel-duree').value='108'; g('bel-indice').value='ILC';
+    var tp0=g('bel-taux-penalite'); if(tp0) tp0.value='10';
     g('bel-garant-type').value='physique'; g('bel-perio').value='mensuelle';
     g('bel-tech-pct').value='1.5';
     var d0=BEL_INDICES['ILC']; if(d0){ g('bel-indice-trim').value=d0.trim; g('bel-indice-val').value=d0.val; } // dernier ILC connu
@@ -697,6 +744,7 @@ function bail_edit_modal(): void
     set('bel-cand-nom', val.locataire_nom); set('bel-cand-prenom', val.locataire_prenom);
     set('bel-cand-email', val.locataire_email); set('bel-cand-tel', val.locataire_telephone);
     set('bel-cand-rep', val.locataire_representant_nom); set('bel-cand-repq', val.locataire_representant_qualite);
+    set('bel-cand-rep-email', val.locataire_representant_email);
     set('bel-cand-adresse', val.locataire_adresse); set('bel-cand-birthdate', val.locataire_date_naissance);
     set('bel-cand-birthplace', val.locataire_lieu_naissance); set('bel-cand-nat', val.locataire_nationalite);
     if(parseInt(val.garant_present||0,10)){
@@ -733,6 +781,10 @@ function bail_edit_modal(): void
     toggleTech();
     set('bel-hono-bail', val.honoraires_bailleur_ttc);
     set('bel-hono-loc', val.honoraires_locataire_ttc);
+    set('bel-hono-pct-pren', val.honoraires_pct_preneur);
+    set('bel-hono-pct-bail', val.honoraires_pct_bailleur);
+    set('bel-droit-entree', val.droit_entree);
+    if(val.taux_penalite!=null && val.taux_penalite!=='') set('bel-taux-penalite', val.taux_penalite);
     set('bel-cp', val.conditions_particulieres);
     set('bel-cp-loyer', val.conditions_particulieres_loyer);
     set('bel-bien-desig', val.bien_designation);
@@ -752,6 +804,11 @@ function bail_edit_modal(): void
     if(Number(_pf.bien_en_copropriete)){ g('bel-copro').checked = true;
       g('bel-lot').value = _pf.bien_numero_lot || ''; g('bel-tantiemes').value = _pf.bien_tantiemes || ''; }
     belToggleCopro();
+    // Reprise auto des conditions financières de l'ANNONCE (si présente) — n'écrase jamais une saisie.
+    if(_pf.annonce_loyer_annuel){ setIf('bel-loyer', _pf.annonce_loyer_annuel); }
+    if(_pf.annonce_charges_m!=null && _pf.annonce_charges_m!==''){ setIf('bel-charges', _pf.annonce_charges_m); }
+    if(_pf.annonce_honoraires!=null && _pf.annonce_honoraires!==''){ setIf('bel-hono-loc', _pf.annonce_honoraires); }
+    if(_pf.annonce_dg_montant && _pf.annonce_loyer_annuel){ var _m=Math.round(_pf.annonce_dg_montant/(_pf.annonce_loyer_annuel/12)); if(_m>0) setIf('bel-dg', _m); }
     g('bel-title-text') && (g('bel-title-text').textContent='Créer un projet de bail commercial');
     g('bel-save').textContent='💾 Créer le projet';
     g('bel-msg').textContent=''; toggleType(); render();
@@ -787,7 +844,7 @@ function bail_edit_modal(): void
       candidat: { type:type, raison_sociale:v('bel-cand-raison'), siren:v('bel-cand-siren'),
         nom:v('bel-cand-nom'), prenom:v('bel-cand-prenom'), email:v('bel-cand-email'),
         telephone:v('bel-cand-tel'), representant_nom:v('bel-cand-rep'),
-        representant_qualite:v('bel-cand-repq'),
+        representant_qualite:v('bel-cand-repq'), representant_email:v('bel-cand-rep-email'),
         adresse:v('bel-cand-adresse'), date_naissance:g('bel-cand-birthdate').value,
         lieu_naissance:v('bel-cand-birthplace'), nationalite:v('bel-cand-nat') },
       garant: g('bel-garant-present').checked ? {
@@ -820,6 +877,10 @@ function bail_edit_modal(): void
       honoraires_tech_pct: g('bel-tech').checked ? (parseFloat(v('bel-tech-pct'))||0) : null,
       honoraires_bailleur: v('bel-hono-bail')!=='' ? parseFloat(v('bel-hono-bail')) : null,
       honoraires_locataire: v('bel-hono-loc')!=='' ? parseFloat(v('bel-hono-loc')) : null,
+      honoraires_pct_preneur: v('bel-hono-pct-pren')!=='' ? parseFloat(v('bel-hono-pct-pren')) : null,
+      honoraires_pct_bailleur: v('bel-hono-pct-bail')!=='' ? parseFloat(v('bel-hono-pct-bail')) : null,
+      droit_entree: v('bel-droit-entree')!=='' ? parseFloat(v('bel-droit-entree')) : null,
+      taux_penalite: v('bel-taux-penalite')!=='' ? parseFloat(v('bel-taux-penalite')) : 10,
       conditions_particulieres: v('bel-cp'),
       conditions_particulieres_loyer: v('bel-cp-loyer'),
       bien_designation: v('bel-bien-desig'),

@@ -312,7 +312,7 @@ try {
                 <div class="fbx-photo-title">Prendre une photo</div>
                 <div class="fbx-photo-sub">Scan rapide d'un document, d'un courrier ou d'un reçu</div>
                 <label class="fbx-btn fbx-btn-primary">
-                    <input type="file" id="fbx-input-photo" accept="image/*" capture="environment" multiple style="display:none">
+                    <input type="file" id="fbx-input-photo" accept="image/*,.heic,.heif" capture="environment" multiple style="display:none">
                     📸 Ouvrir l'appareil photo
                 </label>
                 <div class="fbx-photo-hint">Sur ordinateur, ouvre la galerie. Sur mobile, ouvre l'appareil photo.</div>
@@ -1669,6 +1669,22 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     // réutilise l'endpoint galerie du bien qui fonctionne (biens_photos). Token dédié 'ajouter_bien'.
     const API_BIEN_PHOTO = API.replace('fluxbox_action.php', 'bien_intake_photo_upload.php');
     const CSRF_BIEN_PHOTO = <?= json_encode(function_exists('csrf_token') ? csrf_token('ajouter_bien') : '', JSON_UNESCAPED_SLASHES) ?>;
+    // Conversion HEIC iPhone CÔTÉ NAVIGATEUR (le serveur n'a pas Imagick/libheif) :
+    // librairie vendored chargée à la demande (lazy) → aucun coût si pas de HEIC.
+    const HEIC_LIB_URL = <?= json_encode(function_exists('app_url') ? app_url('/assets/js/vendor/heic2any.min.js') : '/assets/js/vendor/heic2any.min.js', JSON_UNESCAPED_SLASHES) ?>;
+    let _heicLibPromise = null;
+    function ensureHeic2any() {
+        if (window.heic2any) return Promise.resolve();
+        if (_heicLibPromise) return _heicLibPromise;
+        _heicLibPromise = new Promise(function (resolve, reject) {
+            const s = document.createElement('script');
+            s.src = HEIC_LIB_URL;
+            s.onload = function () { resolve(); };
+            s.onerror = function () { _heicLibPromise = null; reject(new Error('librairie HEIC non chargée')); };
+            document.head.appendChild(s);
+        });
+        return _heicLibPromise;
+    }
     const FLUXBOX_URL   = <?= json_encode($_fbxFluxboxUrl, JSON_UNESCAPED_SLASHES) ?>;
     const CSRF          = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
     const IS_ADMIN      = <?= $_fbxIsAdmin ? 'true' : 'false' ?>;
@@ -1788,6 +1804,8 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                         <button type="button" class="fbx-ged-rename-btn" data-ged="${gid}"
                                style="background:#243B5C;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;cursor:pointer;">✏️ Renommer le doc GED</button>
                         <a href="${API.replace('fluxbox_action.php','ged_document_view.php')}?id=${gid}&mode=inline" target="_blank" style="margin-left:8px;font-size:12px;">→ Voir</a>
+                        <button type="button" class="fbx-ged-del-btn" data-ged="${gid}"
+                               style="background:#fff;color:#c0392b;border:1px solid #e6b0aa;border-radius:8px;padding:6px 12px;font-weight:800;cursor:pointer;margin-left:8px;">🗑️ Supprimer</button>
                        </div>`;
             } else if (d.orig_carte_id) {
                 orig = `<a href="${pileBase}?carte=${encodeURIComponent(d.orig_carte_id)}" target="_blank">→ Voir carte #${d.orig_carte_id}</a>`;
@@ -1819,6 +1837,8 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 const inp = item.querySelector('.fbx-ged-rename-input');
                 fbxRenameGedInline(parseInt(rb.getAttribute('data-ged'), 10), inp ? inp.value : '', rb);
             });
+            const xb = item.querySelector('.fbx-ged-del-btn');
+            if (xb) xb.addEventListener('click', () => fbxDeleteGedInline(parseInt(xb.getAttribute('data-ged'), 10), xb));
         });
         wrap.hidden = false;
     }
@@ -1840,6 +1860,27 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             } else {
                 btn.disabled = false; btn.textContent = old;
                 alert('❌ ' + ((j && j.error) || 'Échec du renommage'));
+            }
+        } catch (e) { btn.disabled = false; btn.textContent = old; alert('❌ Réseau : ' + e); }
+    }
+
+    // Supprime (soft-delete) le doc GED DÉJÀ classé → débloque le re-dépôt sans doublon.
+    async function fbxDeleteGedInline(gedId, btn) {
+        if (!gedId) return;
+        if (!confirm('Supprimer le document GED #' + gedId + ' ? Tu pourras le re-déposer ensuite.')) return;
+        btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳…';
+        try {
+            const r = await fetch(API.replace('fluxbox_action.php','ged_document_delete.php'), { method:'POST',
+                headers:{ 'Content-Type':'application/json', 'X-CSRF-Token':CSRF },
+                body: JSON.stringify({ id_doc: gedId, action:'delete', csrf: CSRF }) });
+            const j = await r.json();
+            if (j && j.ok) {
+                btn.textContent = '✅ Supprimé'; btn.style.background = '#15803d'; btn.style.color = '#fff'; btn.style.borderColor = '#15803d';
+                window.FBX_FICHE_DIRTY = true;
+                showToast('', 'success', 'Doc GED #' + gedId + ' supprimé — re-dépôt possible.');
+            } else {
+                btn.disabled = false; btn.textContent = old;
+                alert('❌ ' + ((j && j.error) || 'Échec de la suppression'));
             }
         } catch (e) { btn.disabled = false; btn.textContent = old; alert('❌ Réseau : ' + e); }
     }
@@ -3612,9 +3653,25 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                     showToast(file.name, 'error', 'Format non supporté');
                     continue;
                 }
-                if (ext === 'heic' || ext === 'heif') { updateQueueItem(li, '⏳', 'Conversion iPhone (HEIC)…'); }
+                // HEIC/HEIF iPhone → conversion JPEG DANS LE NAVIGATEUR (serveur sans Imagick).
+                let sendBlob = file, sendName = file.name;
+                if (ext === 'heic' || ext === 'heif') {
+                    updateQueueItem(li, '⏳', 'Conversion iPhone (HEIC)…');
+                    try {
+                        await ensureHeic2any();
+                        const conv = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+                        sendBlob = Array.isArray(conv) ? conv[0] : conv;
+                        sendName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+                    } catch (convErr) {
+                        STATE.errCount++;
+                        const em = 'Conversion HEIC échouée : ' + ((convErr && convErr.message) || convErr);
+                        updateQueueItem(li, '❌', em, 'error');
+                        showToast(file.name, 'error', 'Conversion HEIC échouée');
+                        continue;
+                    }
+                }
                 const fd = new FormData();
-                fd.append('fichier', file, file.name);
+                fd.append('fichier', sendBlob, sendName);
                 fd.append('id_bien', String(bienId));
                 fd.append('csrf_token', CSRF_BIEN_PHOTO);
                 // Libellé personnel = nom du GROUPE de photos (sous-dossier). Vide = groupe par défaut.
@@ -3651,7 +3708,23 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             const fd = new FormData();
             fd.append('action', 'ingest');
             fd.append('csrf', CSRF);
-            fd.append('file', file, file.name);
+            // Nom transmis ASSAINI : l'apostrophe/les guillemets dans un filename
+            // (ex. « GTC L'EPI DE VIENNE.pdf ») déclenchent une fausse alerte injection SQL du
+            // WAF Hostinger (ModSecurity) → 403 serveur avant PHP. Le serveur recalcule de toute
+            // façon son propre nom GED, donc on peut envoyer un nom neutre sans effet de bord.
+            const _safeName = (function (n) {
+                const dot = n.lastIndexOf('.');
+                let base = dot > 0 ? n.slice(0, dot) : n;
+                let ext  = dot > 0 ? n.slice(dot + 1) : '';
+                base = base.normalize('NFKD').replace(/[̀-ͯ]/g, '') // enlève les accents
+                           .replace(/['"`’“”–—]/g, ' ')            // quotes + tirets longs
+                           .replace(/[^A-Za-z0-9 _-]+/g, ' ')
+                           .replace(/\s+/g, ' ').trim();
+                ext  = ext.replace(/[^A-Za-z0-9]+/g, '');
+                if (!base) base = 'document';
+                return ext ? base + '.' + ext : base;
+            })(file.name);
+            fd.append('file', file, _safeName);
             fd.append('user_comment',    meta.user_comment);
             fd.append('user_label',      meta.user_label);
             fd.append('entity_instance', meta.entity_instance);

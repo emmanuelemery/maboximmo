@@ -34,6 +34,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
             b.description AS bien_description, b.etage AS bien_etage,
             b.bien_en_copropriete, b.lot_tantiemes AS bien_tantiemes_src, b.copro_nb_lots,
             b.id_societe AS bien_soc, b.id_agence AS bien_age,
+            b.dpe_classe, b.ges_classe, b.dpe_valeur, b.ges_valeur, b.dpe_date_realisation,
             i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
             p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
             COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
@@ -177,6 +178,18 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 'hono_charge'   => (string)($bail['honoraires_charge'] ?? 'locataire'),
                 'date_effet_raw'=> (string)($bail['date_prise_effet'] ?? ''),
                 'prorata_date'  => (string)($bail['prorata_date_debut'] ?? ''),
+                // Champs modèle FNAIM (migration 20260724c)
+                'taux_penalite' => ($bail['taux_penalite'] ?? null) !== null && $bail['taux_penalite'] !== '' ? (float)$bail['taux_penalite'] : 10.0,
+                'droit_entree'  => ($bail['droit_entree'] ?? null) !== null && $bail['droit_entree'] !== '' ? (float)$bail['droit_entree'] : null,
+                'hono_pct_pren' => ($bail['honoraires_pct_preneur'] ?? null) !== null && $bail['honoraires_pct_preneur'] !== '' ? (float)$bail['honoraires_pct_preneur'] : null,
+                'hono_pct_bail' => ($bail['honoraires_pct_bailleur'] ?? null) !== null && $bail['honoraires_pct_bailleur'] !== '' ? (float)$bail['honoraires_pct_bailleur'] : null,
+            ],
+            'dpe' => [
+                'classe' => (string)($bail['dpe_classe'] ?? ''),
+                'ges'    => (string)($bail['ges_classe'] ?? ''),
+                'val'    => (string)($bail['dpe_valeur'] ?? ''),
+                'ges_val'=> (string)($bail['ges_valeur'] ?? ''),
+                'date'   => bcp_date($bail['dpe_date_realisation'] ?? null),
             ],
         ];
     }
@@ -582,6 +595,391 @@ if (!function_exists('bail_commercial_pdf_context')) {
         return $h;
     }
 
+    /**
+     * CORPS EXACT du bail commercial FNAIM (Régie EMERY) + annexe « Inventaire des charges »,
+     * UN SEUL document à la suite. Texte reproduit tel quel (exigence RCP), avec injection des
+     * données $ctx aux emplacements du modèle ; les champs sans donnée restent VIDES (comme le
+     * modèle vierge). Ne PAS "améliorer" ni raccourcir. Le bloc signatures (tracés) est repris
+     * de la même machinerie que l'aperçu/PDF.
+     */
+    function bail_commercial_corps_fnaim(array $ctx): string
+    {
+        $ge = $ctx['gestionnaire']; $pr = $ctx['preneur']; $c = $ctx['cond']; $gar = $ctx['garant'];
+        $B  = fn($v) => '<b>' . bcp_e((string)$v) . '</b>';
+        $blank = fn($v) => ($v !== null && $v !== '' && $v !== 0 && $v !== 0.0) ? bcp_e((string)$v) : '……………………';
+        $cb = fn($on) => $on ? '&#9746;' : '&#9744;'; // ☒ / ☐
+
+        // ── Identités ──
+        // BAILLEUR = propriétaire (identité légale : seuls proprio_nom + représentant sont en base ;
+        // capital/siège/RCS restent vides si non renseignés — aucune invention).
+        $bailleur = 'La Société ' . $B($ctx['proprio_nom'] ?: '……………………')
+            . ', au capital social de ' . ($ge['capital'] ? bcp_e((string)bcp_eur($ge['capital'])) : '……')
+            . ', dont le siège social est situé ……………………, immatriculée au RCS sous le numéro ……………………,'
+            . ($ctx['bailleur_rep'] ? ' Représentée par ' . $B($ctx['bailleur_rep']) . ', se déclarant habilité(e) à cet effet aux termes des statuts.' : ' Représentée par …………………….');
+
+        // MANDATAIRE (Agence) = société de gestion + agence, infos réelles de la base.
+        $mandataire = $B($ge['raison'] ?: '……………………')
+            . ($ge['forme'] ? ', ' . bcp_e($ge['forme']) : '')
+            . ($ge['capital'] ? ' au capital de ' . bcp_e((string)bcp_eur($ge['capital'])) . ' €' : '')
+            . ($ge['adresse'] ? ', dont le siège social est situé ' . bcp_e($ge['adresse']) : '')
+            . ($ge['siren'] ? ', immatriculée au RCS sous le n° ' . bcp_e($ge['siren']) : '')
+            . ($ge['carte'] ? ', titulaire de la carte professionnelle portant la mention « Gestion immobilière » n° ' . bcp_e($ge['carte']) . ($ge['carte_cci'] ? ' délivrée par ' . bcp_e($ge['carte_cci']) : '') : '')
+            . ($ge['rcp'] ? ', titulaire d\'une assurance en responsabilité civile professionnelle ' . bcp_e($ge['rcp']) : '')
+            . ($ge['garantie'] ? ', garantie financière ' . bcp_e($ge['garantie']) : '')
+            . ($ge['age_nom'] ? ', par l\'intermédiaire de son agence ' . bcp_e($ge['age_nom']) . ($ge['age_adr'] ? ' — ' . bcp_e($ge['age_adr']) : '') : '')
+            . ', adhérent de la Fédération Nationale de l\'Immobilier (FNAIM), ayant le titre professionnel administrateur de biens et agent immobilier obtenu en France dont l\'activité est régie par la loi n° 70-9 du 2 janvier 1970 (dite « loi Hoguet ») et son décret d\'application n° 72-678 du 20 juillet 1972, et soumis au code d\'éthique et de déontologie de la FNAIM.';
+
+        // PRENEUR
+        if ($pr['type'] === 'societe') {
+            $preneur = 'La Société ' . $B($pr['raison'] ?: '……………………')
+                . ($pr['siren'] ? ', immatriculée sous le numéro ' . bcp_e($pr['siren']) : ', immatriculée sous le numéro ……………………')
+                . ($pr['adresse'] ? ', dont le siège social est situé ' . bcp_e($pr['adresse']) : ', dont le siège social est situé ……………………')
+                . ($pr['rep'] ? ', représentée par ' . $B($pr['rep']) . ($pr['rep_q'] ? ' en qualité de ' . bcp_e($pr['rep_q']) : '') : '');
+        } else {
+            $preneur = $B(trim($pr['nom']) ?: '……………………')
+                . (($pr['naiss_d'] || $pr['naiss_l']) ? ', né(e) le ' . bcp_e($pr['naiss_d'] ?: '……') . ($pr['naiss_l'] ? ' à ' . bcp_e($pr['naiss_l']) : '') : '')
+                . ($pr['nat'] ? ', de nationalité ' . bcp_e($pr['nat']) : '')
+                . ($pr['adresse'] ? ', demeurant ' . bcp_e($pr['adresse']) : '');
+        }
+        $coord = [];
+        if ($pr['email']) $coord[] = bcp_e($pr['email']);
+        if ($pr['tel'])   $coord[] = bcp_e($pr['tel']);
+        if ($coord) $preneur .= ' (' . implode(' · ', $coord) . ')';
+
+        // ── Valeurs financières ──
+        $loyerA = $c['loyer_a'] ? bcp_eur($c['loyer_a']) : '……………………';
+        $loyerM = $c['loyer_m'] ? bcp_eur($c['loyer_m']) : '……………………';
+        $tvaOn  = (bool)$c['tva_app']; $tvaTaux = (float)$c['tva_taux'] ?: 20.0;
+        $dgM    = $c['dg_montant'] !== null ? bcp_eur($c['dg_montant']) : '……………………';
+        $dgMois = $c['dg_mois'] !== null ? (int)$c['dg_mois'] : 1;
+        $indice = ($c['indice_trim'] ?: '……………………') . ($c['indice_val'] ? ' (valeur ' . bcp_e($c['indice_val']) . ')' : '');
+        $dEffet = $c['date_effet'] ? bcp_date($c['date_effet']) : '……………………';
+        $dFin   = '';
+        if ($c['date_effet'] && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$c['date_effet'])) {
+            $mois = $c['duree_mois'] ?: 108; $dFin = bcp_date(date('Y-m-d', strtotime((string)$c['date_effet'] . ' +' . $mois . ' months -1 day')));
+        } else { $dFin = '……………………'; }
+
+        // Champs FNAIM
+        $de     = $c['droit_entree'] !== null ? bcp_eur($c['droit_entree']) . ' €' : '…………… €';
+        $penal  = rtrim(rtrim(number_format((float)($c['taux_penalite'] ?? 10.0), 2, ',', ''), '0'), ',');
+        $loyerAn = (float)($c['loyer_a'] ?? 0);
+        $hpPren = $c['hono_pct_pren']; $hpBail = $c['hono_pct_bail'];
+        $honoPrenM = $hpPren !== null ? $loyerAn * $hpPren / 100 : ($c['hono_loc'] ?? null);
+        $honoBailM = $hpBail !== null ? $loyerAn * $hpBail / 100 : ($c['hono_bail'] ?? null);
+
+        $h = '<div class="doc">';
+        $h .= '<h1>BAIL COMMERCIAL</h1>';
+        $h .= '<p class="sub">Soumis au statut des baux commerciaux &mdash; articles L.145-1 et suivants du Code de commerce</p>';
+        if ($ctx['numero_bail']) $h .= '<p class="ref">Mandat n° ' . bcp_e($ctx['numero_bail']) . '</p>';
+
+        $h .= '<h2>ENTRE LES SOUSSIGNÉS</h2>';
+        $h .= '<p class="clabel">Pour le BAILLEUR</p><p>' . $bailleur . '<br><span class="qual">Ci-après « le BAILLEUR », d\'une part,</span></p>';
+        $h .= '<p class="clabel">Avec le concours de</p><p>' . $mandataire . '</p>';
+        $h .= '<p class="clabel">Le PRENEUR</p><p>' . $preneur . '<br><span class="qual">Ci-après « le PRENEUR », d\'autre part,</span></p>';
+        $h .= '<p>De convention expresse, les parties renoncent aux dispositions de l\'article 57 A de la loi n° 86-1290 du 23 décembre 1986 pour se soumettre de façon définitive et irrévocable au statut des baux commerciaux. Cette adoption conventionnelle du statut des baux commerciaux, effectuée conformément aux dispositions de l\'article L. 145-2, 7° du Code de commerce, constitue une condition essentielle et déterminante du présent bail sans laquelle il n\'aurait pas été conclu.</p>';
+
+        $h .= '<h2>EXPOSÉ</h2>';
+        $h .= '<p>Le présent contrat a fait l\'objet d\'une négociation libre, éclairée et de bonne foi entre les Parties. Les Parties déclarent que le contrat a fait l\'objet de concessions réciproques entre elles. En conséquence, le contrat constitue un contrat de gré à gré au sens de l\'article 1110 du Code civil. Le BAILLEUR est propriétaire de l\'immeuble ci-après désigné, pour l\'avoir acquis, reçu en donation, recueilli dans une succession, ou fait construire, suivant acte en date du NON PRÉCISÉ.</p>';
+        $h .= '<p>Le BAILLEUR déclare : qu\'il n\'existe aucune restriction à l\'utilisation définie ci-dessous des biens loués ni du règlement de copropriété s\'il y a lieu ; qu\'à sa connaissance, les biens loués ne font l\'objet d\'aucune mesure d\'expropriation en cours, que ces biens ne sont pas situés dans un secteur de rénovation et plus généralement, qu\'aucune mesure actuelle d\'urbanisme n\'est susceptible de remettre en cause la jouissance résultant du présent bail.</p>';
+        $h .= '<p><b>CECI EXPOSÉ, BAILLEUR ET PRENEUR ONT ÉTABLI CE QUI SUIT :</b></p>';
+        $h .= '<p><b>CONVENTION.</b> Conformément aux articles L. 145-1 et suivants du code de commerce, le BAILLEUR donne à bail à usage commercial au profit du PRENEUR, qui accepte, l\'immeuble dont la situation et la désignation suivent :</p>';
+
+        // 1. Situation et désignation des lieux loués
+        $desig = ($ctx['bien_ref'] ? $B($ctx['bien_ref']) : '')
+            . ($ctx['bien_adresse'] ? ($ctx['bien_ref'] ? ', sis ' : 'Sis ') . bcp_e($ctx['bien_adresse']) : '')
+            . ($ctx['immeuble'] ? ', dépendant de l\'immeuble ' . bcp_e($ctx['immeuble']) : '')
+            . ($ctx['numero_lot'] ? ', lot n° ' . bcp_e($ctx['numero_lot']) : '')
+            . ($ctx['bien_copro'] ? ', ' . bcp_e($ctx['bien_copro']) : '');
+        $h .= '<h3>1. Situation et désignation des lieux loués</h3>';
+        $h .= '<p><b>Adresse :</b> ' . ($ctx['bien_adresse'] ? bcp_e($ctx['bien_adresse']) : '……………………') . '<br>'
+            . '<b>Description :</b> ' . ($desig ?: '……………………') . ($ctx['bien_description'] ? '. ' . bcp_e($ctx['bien_description']) : '') . '</p>';
+        $h .= '<p>La surface totale des locaux est d\'environ ' . ($ctx['surface'] > 0 ? bcp_e(number_format($ctx['surface'], 0, ',', ' ')) . ' m²' : '……………') . '. Tels que lesdits lieux s\'entendent, se poursuivent et se comportent sans aucune exception ni réserve, le PRENEUR déclarant les connaître pour les avoir vu et visités préalablement à la signature des présentes.</p>';
+        $h .= '<p>Il est précisé que toute différence entre la surface indiquée et les dimensions réelles desdits lieux ne pourra justifier ni réduction ni augmentation du loyer. En conséquence, le PRENEUR ne pourra demander aucune réduction du loyer ou indemnité pour erreur sur la surface.</p>';
+        $h .= '<p>Tel que lesdits locaux existent, s\'étendent, se poursuivent et comportent avec toutes leurs aisances et dépendances, sans aucune exception ni réserve, et sans qu\'il soit nécessaire d\'en faire plus ample désignation, le PRENEUR déclarant parfaitement les connaître, pour les avoir vus et visités préalablement aux présentes.</p>';
+        $h .= '<p>Il est expressément convenu que les biens loués forment un tout matériellement et juridiquement indivisible.</p>';
+
+        // 2. Durée du bail
+        $h .= '<h3>2. Durée du bail</h3>';
+        $h .= '<p>Le présent bail est conclu et accepté pour une durée de <b>9</b> années entières et consécutives, qui commenceront à courir le ' . $dEffet . ' pour se terminer le ' . $dFin . '. Toutefois, conformément aux dispositions de l\'article L. 145-4 du code de commerce :</p>';
+        $h .= '<p>- le PRENEUR aura la faculté de donner congé à l\'expiration de chaque période triennale au moins six mois à l\'avance, par lettre recommandée avec demande d\'avis de réception ou par acte extrajudiciaire ;<br>'
+            . '- le bailleur aura la même faculté, dans les formes et délais de l\'article L. 145-9 du code de commerce (à-savoir par acte extrajudiciare), s\'il entend invoquer les dispositions des articles L. 145-18, L.145-21 et L. 145-24 du code de commerce.</p>';
+        $h .= '<p>Si par cas fortuit ou force majeure, les biens loués venaient à être détruits en totalité, le présent bail sera résilié de plein droit, sans indemnité de la part du BAILLEUR et sans préjudice du recours que ce dernier aurait à l\'encontre du PRENEUR si la destruction lui était imputable.</p>';
+        $h .= '<p>A l\'issue du présent bail, le PRENEUR ne pourra donner congé que par acte extrajudiciaire.</p>';
+
+        // 3. Destination des lieux loués
+        $h .= '<h3>3. Destination des lieux loués</h3>';
+        $h .= '<p>Les lieux loués seront destinés exclusivement aux activités de ' . ($c['destination'] ? $B($c['destination']) : '……………………') . ' à l\'exclusion de toute autre utilisation.</p>';
+        $h .= '<p>Dès lors, le PRENEUR reconnaît et accepte expressément qu\'il ne pourra en aucun cas utiliser les lieux loués à usage d\'habitation principale. Il s\'agit d\'une condition déterminante de l\'engagement du BAILLEUR, sans laquelle il n\'aurait pas contracté.</p>';
+        $h .= '<p>Les locaux loués doivent être affectés uniquement à l\'exercice de l\'activité commerciale prédéfinie ainsi qu\'éventuellement, et à titre accessoire, à usage de remise ou de réserve.</p>';
+        $h .= '<p>Le PRENEUR ne pourra, sous aucun prétexte, changer la destination des lieux loués et ce, même de façon temporaire.</p>';
+        $h .= '<p>Il pourra toutefois adjoindre à ce commerce des activités connexes ou complémentaires, mais à la condition expresse de faire connaître son intention au BAILLEUR en se conformant à la procédure prévue aux articles L. 145 47 et suivants du code de commerce.</p>';
+
+        // 4. Loyer
+        $h .= '<h3>4. Loyer</h3>';
+        $h .= '<p><b>Le présent bail est consenti et accepté moyennant un loyer annuel hors taxes en principal de (' . $loyerA . ' €) que le PRENEUR s\'oblige à payer au BAILLEUR ou à son mandataire :</b></p>';
+        $h .= '<p>' . $cb($c['perio'] !== 'trimestrielle') . ' par mois<br>' . $cb($c['perio'] === 'trimestrielle') . ' selon une autre modalité :<br>' . $cb(true) . ' à terme d\'avance<br>' . $cb(false) . ' à terme échu</p>';
+        $h .= '<p>auquel s\'ajoute la TVA au taux en vigueur à la date d\'exigibilité du loyer, que le PRENEUR s\'engage à régler expressément à la même période que le loyer :</p>';
+        $h .= '<p>' . $cb(!$tvaOn) . ' de plein droit.<br>' . $cb($tvaOn) . ' sur option du BAILLEUR, et ce même en cours de bail, option que le PRENEUR accepte expressément par avance.</p>';
+        $h .= '<p>Tous les paiements auront lieu au domicile du BAILLEUR ou de son mandataire, ou en tout autre lieu indiqué par lui.</p>';
+        $h .= '<p>Le PRENEUR pourra, à tout moment en cours de bail, demander au Bailleur, par lettre recommandée avec demande d\'avis de réception, la mensualisation du paiement du loyer.</p>';
+        $h .= '<p>À compter de la réception de cette demande, le règlement s\'effectuera mensuellement et d\'avance, à l\'échéance suivante, sans frais ni pénalité pour le PRENEUR, dans le respect des dispositions légales en vigueur de l\'article 145-32-1 du Code de commerce.</p>';
+
+        // 5. Pas de porte / Droit d'entrée
+        $h .= '<h3>5. Pas de porte / Droit d\'entrée</h3>';
+        $h .= '<p>Le PRENEUR s\'engage à verser au BAILLEUR, lors de la signature du présent bail, une somme de ' . $de . ', désignée comme pas-de-porte ou droit d\'entrée. Cette somme est définitivement acquise au BAILLEUR et ne pourra donner lieu à restitution, sauf stipulation contraire.</p>';
+        $h .= '<p>Le pas-de-porte est convenu entre les parties comme ……………………</p>';
+        $h .= '<p>Le paiement du pas-de-porte sera effectué ……………………</p>';
+        $h .= '<p>Le pas-de-porte est soumis à la réglementation fiscale en vigueur, notamment en ce qui concerne la taxe sur la valeur ajoutée (TVA). Les parties reconnaissent que le pas-de-porte pourra être pris en compte pour la révision triennale et le calcul du loyer lors du renouvellement du bail, conformément aux dispositions légales applicables.</p>';
+
+        // 6-7. Révision
+        $h .= '<h3>6. Indexation annuelle du loyer</h3>';
+        $h .= '<h3>7. Révision triennale légale</h3>';
+        $h .= '<p>Le loyer ci-dessus fixé pourra être révisé trois ans au moins après la date d\'entrée en jouissance du PRENEUR ou après le point de départ du bail renouvelé conformément à l\'article L. 145-38 du code de commerce. De nouvelles demandes de révision pourront être formées tous les trois ans à compter du jour où le nouveau prix sera applicable par application des dispositions légales.</p>';
+        $h .= '<p>L\'indice servant de base à la révision sera celui du trimestre valeur ' . $indice . '.</p>';
+        $h .= '<p>L\'indice de comparaison sera le dernier indice publié au jour de la demande de révision et d\'une façon générale les indices à prendre en compte seront d\'une part, le dernier indice publié au jour de la dernière fixation amiable ou judiciaire du loyer et, d\'autre part, le dernier indice publié au jour de la date de révision.</p>';
+        $h .= '<p>Si cet indice venait à disparaître, l\'indice qui lui serait substitué s\'appliquerait de plein droit.</p>';
+        $h .= '<p>Si aucun indice de substitution n\'était publié, les parties conviendraient d\'un nouvel indice. A défaut d\'accord, il serait déterminé par un arbitre choisi d\'un commun accord entre les parties.</p>';
+
+        // 8. Dépôt de garantie
+        $h .= '<h3>8. Dépôt de garantie</h3>';
+        $h .= '<p>Pour garantir l\'exécution des obligations lui incombant, le PRENEUR verse au BAILLEUR ou à son mandataire qui le reconnaît, la somme de (' . $dgM . ' €) à titre de garantie correspondant à ' . $dgMois . ' mois de loyer.</p>';
+        $h .= '<p>A l\'expiration des relations contractuelles, cette somme sera restituée au PRENEUR, dans les trois mois suivant la remise des clefs, en main propre ou par lettre recommandée avec demande d\'avis de réception, déduction faite de toute somme dont il pourrait être débiteur à quelque titre que ce soit et notamment au titre de loyers, charges, taxes, réparations ou indemnités quelconques.</p>';
+        $h .= '<p>Il est expressément convenu qu\'au cas où le loyer viendrait à augmenter, la somme versée à titre de garantie sera augmentée automatiquement dans la même proportion.</p>';
+        $h .= '<p>En cas de mutation à titre gratuit ou à titre onéreux des locaux pris à bail, l\'obligation de restitution au PRENEUR des sommes payées à titre de garantie est transmise au nouveau PRENEUR.</p>';
+        $h .= '<p>En cas de procédure collective du PRENEUR, le dépôt de garantie sera acquis au BAILLEUR par compensation avec les loyers, charges, impôts, taxes et accessoires et autres sommes au titre des présentes restant éventuellement dus au jour de l\'ouverture de la procédure collective, à due concurrence.</p>';
+
+        // 9. Etat des lieux
+        $h .= '<h3>9. Etat des lieux</h3>';
+        $h .= '<p>Lors de la prise de possession des locaux et lors de leur restitution, un état des lieux sera établi contradictoirement et amiablement par les parties ou par un tiers mandaté par elles, et joint au contrat de location ou à défaut, conservé par les parties, aux frais partagé entre LE BAILLEUR et LE PRENEUR (50/50) au prix de 4 € HT du m².</p>';
+        $h .= '<p>Si l\'état des lieux ne peut être établi dans les conditions ci-dessus invoquées, il sera établi par un commissaire de justice, sur l\'initiative de la partie la plus diligente, à frais partagés par moitié entre le BAILLEUR et le LOCATAIRE.</p>';
+        $h .= '<p>Le Preneur prend les lieux loués à ses risques et périls et exonère le Bailleur de toute responsabilité à raison des dommages pouvant survenir dans les locaux loués, sauf faute lourde ou dolosive du Bailleur.</p>';
+
+        // 10. Charges, impôts, taxes et redevances
+        $h .= '<h3>10. Charges, impôts, taxes et redevances</h3>';
+        $h .= '<p>Le PRENEUR prendra les biens loués dans l\'état où ils se trouveront au moment de l\'entrée en jouissance.</p>';
+        $h .= '<p>Le PRENEUR devra assurer, sans aucun recours contre le BAILLEUR, l\'entretien complet des biens loués de manière qu\'ils soient constamment maintenus en état de propreté.</p>';
+        $h .= '<p>Le PRENEUR ne pourra rien faire ni laisser faire qui puisse détériorer les biens loués. Il devra prévenir le BAILLEUR, sans aucun retard et par lettre recommandée avec avis de réception, sous peine d\'être personnellement responsable de toute atteinte qui serait portée à la propriété, en cas de travaux, de dégradations et détériorations qui viendraient à se produire dans les biens loués et qui rendraient nécessaire l\'intervention du BAILLEUR.</p>';
+        $h .= '<p>A l\'expiration du bail, le PRENEUR rendra les biens loués en bon état de réparations, d\'entretien et de fonctionnement.</p>';
+        $h .= '<p>En cas d\'exécution et de préfinancement par le propriétaire de travaux dont la charge incombe au PRENEUR, le BAILLEUR pourra demander, sur justificatif, le remboursement au PRENEUR des provisions ou acomptes qu\'il aura fait pour son compte.</p>';
+        $h .= '<p>En conséquence des stipulations ci-dessus, le BAILLEUR sera toujours réputé satisfaire à toutes ses obligations et notamment à celles visées par l\'article 1719 du Code civil.</p>';
+        $h .= '<p>En application de l\'article L. 145-40-2 du code de commerce les charges, impôts, taxes et redevances donnent lieu à un inventaire annexé présenté ci-après (article 11) au présent bail qui indique leur répartition entre le BAILLEUR et le PRENEUR. Cet inventaire donne lieu à un état récapitulatif annuel communiqué au PRENEUR au plus tard le 30 septembre de l\'année suivant celle au titre de laquelle il a été établi ou dans le délai de trois mois à compter de la reddition des charges dans l\'hypothèse où les lieux loués sont situés dans un immeuble en copropriété.</p>';
+        $h .= '<p>La liste des charges, travaux, impôts, taxes et redevances qui ne peuvent être imputés au locataire a été fixée par un décret n° 2014-1317 du 3 novembre 2014 et codifiée à l\'article R. 145-35 du code de commerce.</p>';
+
+        // Récapitulatif des sommes versées à chaque terme
+        $rows = '';
+        $rows .= '<tr><td>Loyer</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m']) . ' €' : '&nbsp;') . '</td></tr>';
+        if ($tvaOn) $rows .= '<tr><td>TVA (' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m'] * $tvaTaux/100) . ' €' : '&nbsp;') . '</td></tr>';
+        $rows .= '<tr><td>Provision pour charges</td><td style="text-align:right;">' . ($c['charges_m'] !== null ? bcp_eur($c['charges_m']) . ' €' : '&nbsp;') . '</td></tr>';
+        $totT = (float)($c['loyer_m'] ?? 0) * ($tvaOn ? (1+$tvaTaux/100) : 1) + (float)($c['charges_m'] ?? 0);
+        $rows .= '<tr><td><b>Soit un total de</b></td><td style="text-align:right;"><b>' . ($totT>0 ? bcp_eur($totT) . ' €' : '&nbsp;') . '</b></td></tr>';
+        $h .= '<p><b>Récapitulatif des sommes versées par le PRENEUR à chaque terme :</b></p>';
+        $h .= '<table class="tbl"><thead><tr><th>Somme versée par le LOCATAIRE à chaque terme</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $rows . '</tbody></table>';
+
+        // Somme à verser à la SIGNATURE (1er versement) : 1er terme + DG + droit d'entrée + honoraires preneur.
+        $perM = $c['perio'] === 'trimestrielle' ? 3 : 1;
+        $fp = [];
+        $loy1 = (float)($c['loyer_m'] ?? 0) * $perM;
+        if ($loy1) $fp[] = ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance)' . ($tvaOn ? ' TTC' : ' HT'), $tvaOn ? $loy1 * (1 + $tvaTaux / 100) : $loy1];
+        if ((float)($c['charges_m'] ?? 0)) $fp[] = ['Provision pour charges', (float)$c['charges_m'] * $perM];
+        if ($c['dg_montant']) $fp[] = ['Dépôt de garantie', (float)$c['dg_montant']];
+        if ($c['droit_entree']) $fp[] = ['Pas-de-porte / droit d\'entrée', (float)$c['droit_entree']];
+        if ($honoPrenM) $fp[] = ['Honoraires à la charge du preneur' . ($tvaOn ? ' TTC' : ''), $tvaOn ? $honoPrenM * (1 + $tvaTaux / 100) : $honoPrenM];
+        if ($fp) {
+            $fpRows = ''; $fpTot = 0;
+            foreach ($fp as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . bcp_eur($l[1]) . ' €</td></tr>'; $fpTot += $l[1]; }
+            $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . bcp_eur($fpTot) . ' €</b></td></tr>';
+            $h .= '<p><b>Somme à verser par le PRENEUR à la signature (1ᵉʳ versement) :</b></p>';
+            $h .= '<table class="tbl"><thead><tr><th>Nature</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $fpRows . '</tbody></table>';
+        }
+
+        // DPE réel du bien (pour l'article 13) + liste des diagnostics annexés (article 27).
+        $dpe = $ctx['dpe'] ?? [];
+        $dpeTxt = '';
+        if (!empty($dpe['classe'])) {
+            $dpeTxt = 'classe ' . bcp_e($dpe['classe'])
+                . (!empty($dpe['val']) ? ' (' . bcp_e($dpe['val']) . ' kWh/m²/an)' : '')
+                . (!empty($dpe['ges']) ? ' — GES classe ' . bcp_e($dpe['ges']) : '')
+                . (!empty($dpe['date']) ? ', réalisé le ' . bcp_e($dpe['date']) : '');
+        }
+        $diagList = 'Inventaire des charges et travaux ; Diagnostic de performance énergétique (DPE)'
+            . ($dpeTxt ? ' — ' . $dpeTxt : '')
+            . ' ; État des risques et pollutions (ERP) ; le cas échéant, constat de risque d\'exposition au plomb (CREP), diagnostic amiante (DAPP/DTA) et diagnostic termites ; État des lieux d\'entrée';
+
+        // 11. Inventaire (catégories de charges — à la suite, dans le même document)
+        $blk = '<b>……………</b>';
+        $h .= '<h3>11. Inventaire</h3>';
+        $h .= '<p><b>CATÉGORIES DE CHARGES, IMPÔTS, TAXES ET REDEVANCES AFFÉRENTES AUX BIENS LOUÉS OU À L\'IMMEUBLE OÙ ILS SE TROUVENT</b></p>';
+        $h .= '<p class="clabel">Charges</p><ul>'
+            . '<li>Les frais de consommation de l\'eau froide, des fluides, combustibles et toutes les énergies nécessaires à la production de l\'eau chaude, du chauffage, de la ventilation mécanique, de réfrigération des locaux privatifs, des locaux communs et des espaces communs (voiries, espaces verts, emplacements de stationnement…) sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais d\'exploitation, de maintenance, d\'entretien, de réparation et de remplacement des équipements qui sont rattachés à ces consommables sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais de consommation d\'énergie nécessaire à l\'éclairage des locaux privatifs et des locaux et espaces communs ainsi que les frais de remplacement, de maintenance, d\'entretien et d\'exploitation des équipements qui leur correspondent sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais d\'exploitation, d\'entretien, de réparation, de maintenance, de contrôle obligatoire et de remplacement des éléments d\'équipements de l\'immeuble et de toutes installations nécessaires à son bon fonctionnement tels qu\'ascenseur, monte charges, nacelles de nettoyage, groupe électrogène, sprinkler, chaudières, armoires électriques, VMC, etc. sont à la charge ' . $blk . '.</li>'
+            . '<li>Les dépenses liées au nettoyage, à l\'hygiène et au maintien en état de propreté des parties communes, locaux communs et espaces communs (fourniture et entretien des équipements et des consommables nécessaires, élimination des déchets et des rejets, entretien et vidange des fosses d\'aisances…) sont à la charge ' . $blk . '.</li>'
+            . '<li>Les dépenses liées à l\'évacuation des déchets et matériaux liés à l\'activité du LOCATAIRE sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais liés à la recherche de fuites de toute nature et de fissures des conduits de fumée ou de ventilation sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais d\'entretien, de réparation et de réfection des espaces extérieurs (voiries, aires de stationnement et de livraison, espaces verts…) en ce compris les frais d\'acquisition et de renouvellement des végétaux sont à la charge ' . $blk . '.</li>'
+            . '<li>Les rémunérations, charges sociales et charges annexes du personnel affecté à l\'immeuble, et notamment au gardiennage, surveillance, au nettoyage, à la sécurité ou à la maintenance ainsi que les frais entraînés par le recours à des entreprises extérieures pour mener à bien ces tâches sont à la charge ' . $blk . '.</li>'
+            . '</ul>';
+        $h .= '<p class="clabel">Charges d\'honoraires</p><ul>'
+            . '<li>Les honoraires de gestion des loyers des lieux loués ou de l\'immeuble faisant l\'objet du bail sont à la charge du BAILLEUR.</li>'
+            . '<li>Les honoraires techniques sont à la charge ' . $blk . '.</li>'
+            . '</ul>';
+        $h .= '<p class="clabel">Impôts, taxes et redevances</p><ul>'
+            . '<li>La contribution économique territoriale dont le redevable légal est le BAILLEUR ou le propriétaire du local ou de l\'immeuble est à la charge du BAILLEUR.</li>'
+            . '<li>La contribution annuelle sur les revenus locatifs est à la charge du BAILLEUR.</li>'
+            . '<li>La taxe foncière est à la charge : ' . $cb(false) . ' du BAILLEUR &nbsp;&nbsp; ' . $cb(true) . ' du PRENEUR &nbsp;&nbsp; ' . $cb(false) . ' Les parties conviennent de fixer le pourcentage de répartition de prise en charge de la taxe foncière dans ces proportions : ……………</li>'
+            . '<li>La taxe ou la redevance d\'enlèvement des ordures ménagères, la taxe de balayage est à la charge du PRENEUR.</li>'
+            . '<li>Les frais de gestion de la fiscalité locale directe afférente aux taxes réglées par le BAILLEUR sont à la charge du PRENEUR.</li>'
+            . '<li>Les taxes et redevances, y compris d\'assainissement, dues sur les consommations en parties privatives, parties communes et sur les espaces verts liées à la consommation des fluides, combustibles et énergie sont à la charge du PRENEUR.</li>'
+            . '<li>La taxe sur les bureaux (le cas échéant) est à la charge ' . $blk . '.</li>'
+            . '<li>La taxe locale sur les enseignes et publicités extérieures est à la charge du PRENEUR.</li>'
+            . '</ul>';
+        $h .= '<p class="clabel">Autres charges</p><ul>'
+            . '<li>Les assurances des lieux loués ou de l\'immeuble qui incombent au BAILLEUR sont à la charge ' . $blk . '.</li>'
+            . '<li>Les assurances des lieux loués ou de l\'immeuble qui incombent au PRENEUR sont à la charge ' . $blk . '.</li>'
+            . '<li>Les surprimes d\'assurances liées à l\'activité du PRENEUR sont à la charge ' . $blk . '.</li>'
+            . '<li>Les assurances sur travaux à la charge du PRENEUR sont à la charge ' . $blk . '.</li>'
+            . '<li>Les assurances sur travaux à la charge du BAILLEUR sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais d\'établissement des diagnostics obligatoires sont à la charge ' . $blk . '.</li>'
+            . '<li>Les frais d\'établissement des autres diagnostics (accessibilité…) sont à la charge ' . $blk . '.</li>'
+            . '<li>Les abonnements, les frais d\'exploitation, les travaux d\'entretien, de réparation et de remplacement des réseaux de communication électroniques sont à la charge ' . $blk . '.</li>'
+            . '</ul>';
+        $h .= '<p class="clabel">Charges de travaux</p><ul>'
+            . '<li>Les dépenses relatives aux grosses réparations mentionnées à l\'article 606 du Code civil dans les lieux loués ou dans l\'immeuble dans lequel ils se trouvent sont à la charge du BAILLEUR.</li>'
+            . '<li>Dès lors qu\'elles relèvent des grosses réparations mentionnées à l\'article 606 du Code civil : les dépenses relatives aux travaux ayant pour objet de remédier à la vétusté ou de mettre en accessibilité ou en conformité avec la réglementation les lieux loués ou l\'immeuble dans lequel ils se trouvent sont à la charge du BAILLEUR.</li>'
+            . '<li>Les dépenses pour travaux d\'embellissement et d\'amélioration qui n\'excèdent pas le coût du remplacement à l\'identique et qui relèvent de l\'article 606 du Code civil sont à la charge du BAILLEUR.</li>'
+            . '<li>Le cas échéant, les honoraires liés à la réalisation de tous les travaux sont à la charge du BAILLEUR.</li>'
+            . '<li>Le cas échéant, les frais d\'assurance liés à la réalisation des travaux ci-avant mentionnés sont à la charge du BAILLEUR.</li>'
+            . '<li>Dès lors qu\'elles ne relèvent pas des dépenses de réparation mentionnées à l\'article 606 du Code civil : celles relatives aux travaux de réfection, remise en état, réparation, même celles rendues nécessaires en raison de la vétusté, d\'un vice caché, de la mise en conformité avec la réglementation, de la mise en accessibilité, que ceux–ci soient afférents aux biens loués ou à l\'immeuble dans lequel ils se trouvent sont à la charge du PRENEUR.</li>'
+            . '<li>celles relatives aux travaux, installations, transformations quelle qu\'en soit la nature, qui seraient imposés par les autorités administratives, la loi ou les règlements présents ou à venir, en raison de ses activités présentes ou futures sont à la charge du PRENEUR.</li>'
+            . '<li>Les dépenses pour travaux d\'embellissement et d\'amélioration qui excèdent le coût du remplacement à l\'identique et qui relèvent de l\'article 606 du Code civil sont à la charge du PRENEUR.</li>'
+            . '<li>Les dépenses pour travaux d\'embellissement et d\'amélioration qui ne relèvent pas de l\'article 606 du Code civil sont à la charge du PRENEUR.</li>'
+            . '<li>Les dépenses pour travaux et réparations rendues nécessaires en raison d\'un défaut d\'entretien ou d\'exécution de travaux incombant au PRENEUR ou en cas de dégradations de son fait, de celui de sa clientèle ou de son personnel, que ces dépenses relèvent ou pas de l\'article 606 du Code civil sont à la charge du PRENEUR.</li>'
+            . '<li>Les dépenses de recherche de fuites de toute nature ou de fissures des conduits de fumée ou de ventilation, que celles-ci soient afférentes aux biens loués ou à l\'immeuble dans lequel ils se trouvent sont à la charge du PRENEUR.</li>'
+            . '</ul>';
+        $h .= '<h3>12. Etat prévisionnel et récapitulatif des travaux</h3>';
+        $h .= '<p>' . ($ctx['travaux_realises'] || $ctx['travaux_prevus'] ? ('Travaux réalisés dans les trois années écoulées : ' . ($ctx['travaux_realises'] ? bcp_e($ctx['travaux_realises']) : 'Néant') . '. Travaux envisagés dans les trois années à venir : ' . ($ctx['travaux_prevus'] ? bcp_e($ctx['travaux_prevus']) : 'Néant') . '.') : 'Le BAILLEUR déclare ne pas envisager de réaliser des travaux dans les trois années suivant celle de la signature du bail.') . '</p>';
+
+        $h .= '<h3>13. Diagnostics et informations relatives aux locaux loués</h3>';
+        $h .= '<p><b>13.1 Informations particulières relatives aux locaux loués.</b></p>';
+        $h .= '<p><b>Relatives au bruit.</b> Le Bailleur déclare que les locaux loués ne sont pas situés à proximité d\'un aérodrome et que les biens loués ne sont pas classés en zone d\'exposition au bruit.</p>';
+        $h .= '<p><b>Relatives à la récupération des eaux de pluie</b> (arrêté du 21 août 2008 pris en application de la loi du 30 décembre 2006). Le Bailleur déclare que les locaux loués ne comportent des équipements de récupération des eaux pluviales.</p>';
+        $h .= '<p><b>13.2 Diagnostics techniques.</b></p>';
+        $h .= '<p><b>13.2.1. DOSSIER DE DIAGNOSTICS TECHNIQUES.</b> UN DOSSIER DE DIAGNOSTICS TECHNIQUES EST ANNEXÉ AU PRÉSENT CONTRAT DE LOCATION ET COMPREND :</p>';
+        $h .= '<p>- le diagnostic de performance énergétique prévu à l\'article L. 134-1 du code de la construction et de l\'habitation' . ($dpeTxt ? ' (' . $dpeTxt . ')' : '') . '. Le PRENEUR reconnaît avoir reçu l\'ensemble des informations concernant le diagnostic de performance énergétique relatif aux biens loués, dont le contenu est annexé au présent bail.<br>'
+            . '- si les locaux comprennent une partie à usage d\'habitation, le constat des risques d\'exposition au plomb prévu aux articles L. 1334-5 et L. 1334-7 du code de la santé publique, lorsque l\'immeuble a été construit avant le 1er janvier 1949. Le PRENEUR reconnaît avoir reçu l\'ensemble des informations concernant le constat des risques d\'exposition au plomb relatif aux biens loués, dont le contenu est annexé au présent bail.<br>'
+            . '- l\'état des risques naturels et technologiques (ERP)<br>'
+            . '- le diagnostic termites (locaux situés dans une zone délimitée par le préfet en application de l\'article L. 133-5 du code de la construction et de l\'habitation)</p>';
+        $h .= '<p>Les biens objet des présentes n\'ont pas fait l\'objet d\'un état parasitaire.</p>';
+        $h .= '<p><b>13.2.2. INFORMATIONS RELATIVES À L\'AMIANTE POUR LES IMMEUBLES COLLECTIFS DONT LE PERMIS DE CONSTRUIRE A ÉTÉ DÉLIVRÉ AVANT LE 1ER JUILLET 1997.</b></p>';
+        $h .= '<p><b>Parties privatives.</b> Le PRENEUR reconnaît avoir été informé de l\'existence d\'un dossier amiante sur les parties privatives qu\'il occupe (DAPP ou DTA). Sur demande écrite, le PRENEUR pourra venir consulter ce document auprès du bailleur ou de son mandataire.</p>';
+        $h .= '<p><b>Parties communes.</b> Le PRENEUR reconnaît avoir été informé que le dossier technique amiante (DTA) sur les parties communes est tenu à disposition chez le syndic de la copropriété (selon ses propres modalités de consultation). Pour les immeubles en monopropriété, sur demande écrite, le PRENEUR pourra venir consulter ce document auprès du bailleur ou de son mandataire.</p>';
+        $h .= '<p>Les frais d\'établissement de ces diagnostics seront supportés conformément aux conditions fixées dans l\'inventaire prévu à la clause 9. « CHARGES, IMPÔTS, TAXES ET REDEVANCES ».</p>';
+
+        $h .= '<h3>13 BIS. Conditions particulières</h3>';
+        $h .= '<p>' . ($ctx['cond_particulieres'] ? nl2br(bcp_e($ctx['cond_particulieres'])) : '…………………………………………………………') . '</p>';
+
+        $h .= '<h3>14. Modalités de jouissance</h3>';
+        $h .= '<p>Le présent bail est consenti et accepté sous les charges et conditions ordinaires et de droit en pareille matière et notamment sous celles suivantes que le PRENEUR s\'oblige à bien et fidèlement exécuter à peine de tous dépens et dommages-intérêts et même de résiliation des présentes.</p>';
+        $h .= '<p class="clabel">1. CONDITIONS GÉNÉRALES DE JOUISSANCE</p>';
+        $h .= '<p>Le PRENEUR fera son affaire personnelle de la garde et de la surveillance des locaux.</p>';
+        $h .= '<p>Le PRENEUR devra jouir des biens loués raisonnablement, suivant leur destination, et se conformer à tous règlements qui s\'appliquent à l\'ensemble immobilier dans lequel il exerce et dont il reconnaît avoir eu connaissance.</p>';
+        $h .= '<p>Le PRENEUR fera son affaire de l\'élimination des déchets liés à son activité. Il s\'oblige notamment à respecter la réglementation applicable en matière d\'évacuation des déchets et des matières dangereux, polluants ou obstruants. Le PRENEUR, qui s\'y oblige, s\'engage en de telles hypothèses à supporter seul toutes conséquences pécuniaires ou autres et ne pourra prétendre à aucun remboursement, indemnité ou avance de la part du BAILLEUR. Il restera garant vis-à-vis du BAILLEUR de toute action notamment en dommages et intérêts de la part des autres locataires ou voisins que pourraient provoquer l\'exercice de ses activités.</p>';
+        $h .= '<p>Sans préjudice des stipulations ci dessus, en cas de réglementation présente ou future, relative à la santé, sécurité, hygiène de l\'immeuble ou de ses occupants, le BAILLEUR effectuera ou fera effectuer les recherches, diagnostics, travaux qui seraient imposés :</p>';
+        $h .= '<p>- En cas de risque d\'accessibilité au plomb ou de contamination déclarée, le BAILLEUR informera le PRENEUR de la nécessité d\'effectuer les travaux prescrits par l\'autorité administrative. Dans le cas où l\'évacuation des locaux est rendue nécessaire par la nature des travaux, aucune indemnité ni réfaction du loyer n\'est due par le BAILLEUR autre que les dépenses relatives au relogement temporaire.<br>'
+            . '- En cas de travaux préventifs ou d\'éradication des termites ou insectes xylophages, le BAILLEUR tient copie de l\'état parasitaire à la disposition du PRENEUR. Dans l\'hypothèse où l\'immeuble doit être totalement démoli, le bail est résolu de plein droit.</p>';
+        $h .= '<p>Les dépenses relatives aux recherches, diagnostics et travaux nécessaires ci-avant mentionnés sont répartis entre le BAILLEUR et le PRENEUR conformément à ce qui est prévu à la clause 10. « DÉPENSES D\'ENTRETIEN ET DE RÉPARATIONS ».</p>';
+        $h .= '<p>Le PRENEUR s\'engage à déclarer à la mairie la présence de termites dans l\'immeuble.</p>';
+        $h .= '<p>Le PRENEUR veillera à ne rien faire qui puisse apporter un trouble de jouissance aux voisins et à n\'exercer aucune activité contraire aux bonnes mœurs.</p>';
+        $h .= '<p>Le PRENEUR s\'engage à ne pas charger les planchers d\'un poids supérieur à celui qu\'ils peuvent supporter et en cas de doute de s\'assurer de ce poids auprès d\'un architecte. Il s\'interdit d\'installer et d\'utiliser des appareils à moteur qui produiraient des nuisances pour le voisinage.</p>';
+        $h .= '<p>Le PRENEUR devra satisfaire à toutes les charges de ville, de police, réglementation sanitaire, voirie, salubrité, hygiène, ainsi qu\'à toutes celles pouvant résulter des plans d\'aménagement de la ville, et autres charges, dont les locataires sont ordinairement tenus, de manière à ce que le BAILLEUR ne puisse aucunement être inquiété ni recherché à ce sujet.</p>';
+        $h .= '<p>Le PRENEUR fera son affaire personnelle pour toutes réclamations ou contestations qui pourraient survenir du fait de son activité dans les biens loués, de façon à ce que le BAILLEUR ne soit jamais inquiété ni recherché à ce sujet.</p>';
+        $h .= '<p>Le PRENEUR s\'engage à maintenir les biens loués en état permanent d\'exploitation effective et normale, sauf les fermetures hebdomadaires et annuelles.</p>';
+        $h .= '<p>Le PRENEUR souffrira tous travaux quelconques qui seraient exécutés dans les biens loués ou dans l\'immeuble dont ils dépendent. Il ne pourra prétendre à cette occasion à aucune indemnité ni réduction de loyer, quand bien même la durée des travaux excéderait vingt et un jours.</p>';
+        $h .= '<p class="clabel">2. EMBELLISSEMENTS ET AMÉNAGEMENTS</p>';
+        $h .= '<p>Le PRENEUR ne pourra effectuer aucuns travaux de transformation, changement de distribution sans accord préalable et écrit du BAILLEUR.</p>';
+        $h .= '<p>En cas d\'autorisation du BAILLEUR pour effectuer de tels travaux, le PRENEUR devra les effectuer à ses risques et périls sans que le BAILLEUR puisse être inquiété ni recherché à ce sujet. Si ces travaux affectent le gros œuvre, ils devront être exécutés sous la surveillance d\'un architecte et garantis par une assurance dommages-ouvrage. Les honoraires d\'architecte et les frais d\'assurance dommages-ouvrages sont répartis conformément à la clause 10. « DÉPENSES D\'ENTRETIEN ET DE RÉPARATIONS ».</p>';
+        $h .= '<p>Tout embellissement, amélioration et installation faits par le PRENEUR dans les lieux loués resteront à la fin du présent bail la propriété du BAILLEUR sans indemnité et devront être remis en bon état d\'entretien en fin de jouissance, sans préjudice du droit réservé au BAILLEUR d\'exiger la remise en l\'état primitif, pour tout ou partie, aux frais du PRENEUR.</p>';
+        $h .= '<p>Le BAILLEUR a la faculté d\'exiger à tout moment, aux frais du PRENEUR, à l\'exception des travaux qu\'il aurait autorisés sans réserve, la remise immédiate des lieux en l\'état lorsque les transformations mettent en péril le bon fonctionnement des équipements ou la sécurité du local ou de l\'immeuble en général.</p>';
+        $h .= '<p>Le PRENEUR devra déposer à ses frais tous coffrages, équipements, installations, décoration qu\'il aurait faits dont l\'enlèvement serait nécessaire notamment pour la recherche et la réparation de fuites de toute nature, de fissures des conduits de fumée ou de ventilation.</p>';
+        $h .= '<p>Dans le cas où l\'immeuble est soumis au régime de la copropriété, préalablement à l\'exécution de tous travaux, le PRENEUR communiquera au BAILLEUR les éléments nécessaires à l\'obtention de l\'autorisation du syndicat des copropriétaires.</p>';
+        $h .= '<p class="clabel">3. PUBLICITÉ</p>';
+        $h .= '<p>Le PRENEUR aura le droit d\'installer, dans l\'emprise de sa façade commerciale, toute publicité extérieure indiquant sa dénomination et sa fonction, à condition qu\'elle respecte les règlements administratifs en vigueur et tous règlements qui s\'appliquent à l\'ensemble immobilier dans lequel il exerce et dont il reconnaît avoir eu connaissance. Il s\'engage à acquitter toutes taxes pouvant être dues à ce sujet.</p>';
+        $h .= '<p>L\'installation sera faite aux frais du PRENEUR. Il devra l\'entretenir constamment en parfait état et sera seul responsable des accidents que sa pose ou son existence pourrait occasionner. En cas de restitution des biens, le PRENEUR devra faire disparaître toute trace de scellement après enlèvement desdites enseignes ou publicités.</p>';
+        $h .= '<p class="clabel">4. VISITE DES LIEUX</p>';
+        $h .= '<p>Le PRENEUR devra laisser le BAILLEUR, son mandataire, son architecte, tous entrepreneurs et ouvriers, et toutes personnes autorisées par lui, pénétrer dans les lieux loués, pour constater leur état quand le BAILLEUR le jugera à propos, sous réserve de prévenir le PRENEUR 48 heures à l\'avance sauf urgence.</p>';
+        $h .= '<p>En cas de mise en vente des murs, le PRENEUR devra laisser visiter les biens loués durant les horaires d\'ouverture du commerce. En cas de relocation, le PRENEUR devra laisser visiter les biens loués suivant les mêmes modalités par le BAILLEUR, ou d\'éventuels candidats preneurs, dès la délivrance du congé donné par l\'une ou l\'autre des parties.</p>';
+        $h .= '<p>Dans tous les cas, le PRENEUR souffrira l\'apposition d\'écriteaux ou d\'affiches annonçant la vente ou la location.</p>';
+
+        // 15 → 30 (clauses — texte exact du modèle ; les articles vides restent en titre seul)
+        $clauses = [
+            '15. Clause de non-concurrence' => '',
+            '16. Garnissement' => 'Le Preneur garnira les lieux et les tiendra constamment garnis pendant toute la durée du bail et de ses renouvellements éventuels, de meubles, matériels et marchandises, en qualité et valeur suffisantes pour répondre du paiement des loyers et accessoires et de l\'exécution des conditions et charges du présent bail.',
+            '17. Autorisations administratives' => 'Pour l\'exercice de son activité, le PRENEUR devra se conformer scrupuleusement aux lois, prescriptions, règlements, et ordonnances en vigueur et applicables aux locaux loués (notamment en faisant effectuer par des entreprises agréées les vérifications et contrôles réglementaires de toutes installations équipant les locaux loués) en fournissant tous justificatifs au bailleur à sa première demande, notamment en ce qui concerne l\'exécution à ses frais et sous sa responsabilité par des entreprises et sous la direction des hommes de l\'art, de tous travaux quels qu\'ils soient, imposés par lesdites dispositions légales ou réglementaires, la voirie, l\'hygiène, les prescriptions des pompiers et du mandataire sécurité, les servitudes passives, la salubrité, la police, la sécurité et l\'inspection du travail, et d\'en supporter les frais y afférents de façon que le bailleur ne soit jamais inquiété ni recherché.</p><p>Le PRENEUR devra réaliser en cours de bail à ses seuls frais l\'ensemble des installations, travaux, aménagements nécessaires à l\'exercice de son activité, y compris ceux rendus nécessaires par la réglementation applicable.',
+            '18. Assurances' => 'Le PRENEUR devra assurer et maintenir assurés, auprès d\'une compagnie notoirement solvable, les biens loués, les aménagements, les objets mobiliers, matériel et marchandises contre l\'incendie, les risques locatifs, les risques professionnels, le recours des voisins et des tiers, les dégâts des eaux, la recherche de fuites, les explosions, les bris de glace, le vandalisme, tous dommages matériels et immatériels et généralement tous les autres risques.</p><p>Si l\'activité exercée par le PRENEUR entraîne pour le BAILLEUR, directement ou indirectement, des surprimes d\'assurances, le PRENEUR sera tenu tout à la fois d\'indemniser le BAILLEUR du montant de la surprime par lui payée et, en outre, de le garantir contre toutes réclamations. Il devra justifier de tout à chaque réquisition du BAILLEUR. Le PRENEUR s\'engage, en cas de sinistre quelconque, à n\'exercer aucun recours en garantie contre le BAILLEUR et ses assureurs. En cas de sinistre, quelle qu\'en soit la cause, les sommes qui seront dues au PRENEUR par la ou les compagnies ou sociétés d\'assurances, formeront, aux lieu et place des objets mobiliers et du matériel, jusqu\'au remplacement et au rétablissement de ceux-ci, la garantie du BAILLEUR. Les présentes vaudront transport en garantie au BAILLEUR de toutes indemnités d\'assurance, jusqu\'à concurrence des sommes qui lui seraient dues, tous pouvoirs étant donnés au porteur d\'un exemplaire des présentes pour faire signifier le transport à qui besoin sera.</p><p>Le LOCATAIRE devra maintenir et renouveler ses assurances pendant toute la durée du bail, acquitter régulièrement les primes et cotisations et justifier du tout à toute réquisition du BAILLEUR et au moins annuellement, à la date anniversaire du bail, sans qu\'il lui en soit fait la demande. Le Bailleur conserve seulement l\'assurance propriétaire liée à l\'article 606 C. civ.',
+            '19. Cession et sous-location' => 'Le PRENEUR ne pourra dans aucun cas et sous aucun prétexte, sous-louer en tout ou en partie, sous quelque forme que ce soit, les biens loués, les prêter, même à titre gratuit.</p><p>Cependant, le PRENEUR pourra, s\'il remplit les conditions légales, consentir une location-gérance du fonds de commerce par lui exploité et concéder au locataire-gérant un droit d\'occupation des lieux loués. Il devra notifier au BAILLEUR cette mise en location-gérance et lui remettre une copie du contrat.</p><p>Le PRENEUR ne pourra, en outre, céder son droit au présent bail, si ce n\'est à son successeur dans son commerce, mais en totalité seulement.</p><p>Le cédant, le cessionnaire de même que les successeurs de celui-ci, demeureront réciproquement et solidairement garants, du paiement des loyers ou accessoires, échus ou à échoir, impôts et taxes, charges, indemnités d\'occupation, complément de loyer, frais de poursuite, etc., d\'une façon générale de toutes sommes dues au titre du Bail ainsi que de l\'entière exécution des clauses du Bail et en résultant et ce, quelle que soit la période pendant laquelle le fonds aura été exploité par l\'un d\'entre eux. Cette garantie devra impérativement être rappelée dans l\'acte de cession.</p><p>Conformément aux dispositions de l\'article L.145-16-2 du Code de commerce, le BAILLEUR ne pourra invoquer la garantie du cédant que durant trois ans à compter de la date d\'effet de la cession du fonds de commerce ou du droit au bail, même si la cession est intervenue moins de trois ans avant l\'expiration du bail, ladite restriction ne s\'appliquant pas au cessionnaire et aux cessionnaires successifs qui demeureront réciproquement et solidairement garants respectivement du cédant et des cédants successifs.</p><p>Dans toutes les cessions, une copie de la cession enregistrée portant la signature manuscrite de chaque partie devra être remise au BAILLEUR, sans frais pour lui, dans le mois de la signature, et le tout à peine de nullité de la cession à l\'égard dudit BAILLEUR et de résiliation des présentes, si bon lui semble, le tout indépendamment de la signification prescrite par l\'article 1690 du Code civil.</p><p>A défaut d\'état des lieux réalisé lors de la cession, les parties conviennent de se rapporter à l\'état des lieux établi dans les conditions prévues à l\'article 8 du présent bail.',
+            '20. Clause résolutoire' => 'Il est expressément convenu, qu\'à défaut de paiement d\'un seul terme de loyer ou à défaut de remboursement à leur échéance exacte de toutes sommes accessoires audit loyer, notamment provisions, frais, taxes, impositions, charges ou en cas d\'inexécution de l\'une quelconque des clauses et conditions du présent bail, celui-ci sera résilié de plein droit, si bon semble au BAILLEUR, un mois après un commandement de payer ou d\'exécuter demeuré infructueux, sans qu\'il soit besoin de former une demande en justice.</p><p>Ainsi, toutes les infractions du PRENEUR aux dispositions du présent bail, et ainsi toutes infractions liées au paiement des loyers, charges, impôts, dépôt de garantie, à la destination du bail, à l\'entretien et aux conditions générales de jouissance des lieux loués, aux aménagements réalisés, à l\'exercice du droit de visite du BAILLEUR, aux conditions d\'installation de publicités en extérieur, aux obligations du PRENEUR en matière d\'assurance, aux dispositions relatives à la cession et à la sous-location du présente bail, seront sanctionnées par le jeu de la présente clause résolutoire.</p><p>Dans le cas où le PRENEUR se refuserait à quitter les biens loués, son expulsion pourrait avoir lieu sur simple ordonnance de référé rendue par le président du tribunal judiciaire territorialement compétent et exécutoire par provisions, nonobstant appel.',
+            '21. Clause pénale' => 'A défaut de paiement de toutes sommes à son échéance, notamment du loyer et de ses accessoires, et dès mise en demeure délivrée par le BAILLEUR ou son mandataire au PRENEUR, ou dès délivrance d\'un commandement de payer, ou encore après tout début d\'engagement d\'instance, les sommes dues par le PRENEUR seront automatiquement majorées de ' . $penal . ' % à titre d\'indemnité forfaitaire et ce, sans préjudice de tous frais, quelle qu\'en soit la nature, engagés pour le recouvrement des sommes ou de toutes indemnités qui pourraient être mises à la charge du PRENEUR.</p><p>En outre, en cas de résiliation judiciaire ou de plein droit du présent bail, le montant du dépôt de garantie restera acquis au BAILLEUR à titre d\'indemnité minimale en réparation du préjudice résultant de cette résiliation.',
+            '22. Solidarité - Indivisibilité' => 'Les obligations résultant du présent bail pour le PRENEUR constitueront pour tous ses ayants droit et pour toutes personnes tenues au paiement et à l\'exécution, une charge solidaire et indivisible, notamment en cas de décès du PRENEUR avant la fin du bail. Il y aura solidarité et indivisibilité entre tous ses héritiers et représentants pour l\'exécution desdites obligations et, s\'il y a lieu de faire les significations prescrites par l\'article 877 du Code civil, le coût de ces significations sera supporté par ceux à qui elles seront faites. Les colocataires soussignés, désignés le «PRENEUR», reconnaissent expressément qu\'ils se sont engagés solidairement et que le BAILLEUR n\'a accepté de consentir le présent bail qu\'en considération de cette cotitularité solidaire et n\'aurait pas consenti la présente location à l\'un seulement d\'entre eux.</p><p>En conséquence, compte tenu de l\'indivisibilité du bail, tout congé pour mettre valablement fin au bail devra émaner de tous les colocataires et être donné pour la même date.',
+            '23. Tolérances' => 'Il est formellement convenu que toutes les tolérances de la part du BAILLEUR relatives aux clauses et conditions énoncées ci dessus, quelles qu\'en aient pu être la fréquence et la durée, ne pourront jamais et en aucun cas être considérées comme apportant une modification ou une suppression de ces clauses et conditions, ni génératrices d\'un droit quelconque ; le BAILLEUR pourra toujours y mettre fin par tous les moyens.',
+            '24. Droit de préférence au profit du PRENEUR' => 'Conformément aux dispositions de l\'article L. 145-46-1 du code de commerce, le PRENEUR bénéficie d\'un droit de préférence en cas de cession des locaux loués. Toutefois, cette disposition n\'est pas applicable en cas de :</p><p>- cession unique de plusieurs locaux d\'un ensemble commercial,<br>- cession unique de locaux commerciaux distincts,<br>- cession d\'un local commercial aux copropriétaires d\'un ensemble commercial,<br>- cession globale d\'un immeuble comprenant des locaux commerciaux,<br>- cession d\'un local au conjoint du BAILLEUR ou un ascendant ou un descendant du BAILLEUR ou de son conjoint.',
+            '25. Protection des données personnelles des parties' => 'Vos données personnelles collectées dans le cadre du présent bail font l\'objet d\'un traitement nécessaire à son exécution. Elles sont susceptibles d\'être utilisées dans le cadre de l\'application de règlementations comme celle relative à la lutte contre le blanchiment des capitaux et le financement du terrorisme.</p><p>Vos données personnelles sont conservées pendant toute la durée de l\'exécution du présent bail, augmentée des délais légaux de prescription applicable. Elles sont destinées au service ……………</p><p>Pour la réalisation de la finalité des présentes, vos données sont, le cas échéant, susceptibles d\'être transmises, notamment :<br>- aux prestataires de la signature électronique et de la lettre recommandée électronique ;<br>- aux entreprises chargées de travaux sur l\'immeuble ;<br>- au commissaire de justice et à l\'avocat en cas de procédures ;<br>- aux organismes d\'assurances souscrites par le bailleur.</p><p>Il est précisé que dans le cadre de l\'exécution de leurs prestations, les tiers limitativement énumérés ci-avant n\'ont qu\'un accès limité aux données et ont l\'obligation de les utiliser en conformité avec les dispositions de la législation applicable en matière de protection des données personnelles.</p><p>Conformément à la loi informatique et libertés, vous bénéficiez d\'un droit d\'accès, de rectification, de suppression, d\'opposition et de portabilité de vos données en vous adressant à …………… ou un courrier à l\'adresse de l\'Agence indiquée en tête des présentes.</p><p>Toute réclamation pourra être introduite auprès de la Commission Nationale de l\'Informatique et des Libertés (www.cnil.fr).</p><p>Dans le cas où des coordonnées téléphoniques ont été recueillies, vous êtes informé(e)(s) de la faculté de vous inscrire sur la liste d\'opposition au démarchage téléphonique prévue en faveur des consommateurs (article L. 223-1 du code de la consommation).',
+            '26. Renonciation à la révision pour imprévision' => 'Chacune des parties, pleinement informée des dispositions de l\'article 1195 du Code civil, accepte le risque lié à tout changement de circonstance imprévisible lors de la conclusion du présent contrat qui rendrait l\'exécution de celui-ci excessivement onéreuse pour elle. En conséquence, les parties, ensemble et séparément, renoncent expressément à exercer toute action en révision pour imprévision telle que définie audit article.',
+            '27. Valeur contractuelle des annexes' => 'Les annexes font partie intégrante du présent bail et ont valeur contractuelle. Liste des annexes :</p><p>- Inventaire des charges et travaux,<br>- Diagnostics à lister : ' . ($dpeTxt ? 'Diagnostic de performance énergétique (DPE) ' . $dpeTxt . ' ; ' : '') . 'État des risques et pollutions (ERP) ; le cas échéant CREP, amiante (DAPP/DTA), termites,<br>- Etat des lieux d\'entrée,',
+            '28. Association des locataires dans les centres commerciaux' => 'Le PRENEUR déclare être informé de l\'existence d\'une association des locataires du centre commercial, dont l\'objet est de promouvoir et d\'animer les activités commerciales au sein du centre. Le PRENEUR accepte librement d\'adhérer à cette association et de participer à ses activités.',
+            '29. Médiation conventionnelle' => '',
+            '30. Décret tertiaire' => 'Conformément aux dispositions de l\'article L. 111-10-3 du Code de la construction et de l\'habitation et du décret n° 2019-771 du 23 juillet 2019, les Parties conviennent de mettre en œuvre les actions nécessaires pour atteindre les objectifs de réduction de la consommation énergétique finale des bâtiments à usage tertiaire concernés par le présent contrat.</p><p>La présente clause s\'applique au bâtiment ou à la partie de bâtiment à usage tertiaire, dont la surface de plancher est supérieure ou égale à 1 000 m², et hébergeant des activités tertiaires marchandes ou non marchandes.</p><p>Les Parties conviennent que la répartition des obligations de réduction de la consommation énergétique sera négociée et définie dans un avenant au présent contrat, en tenant compte des responsabilités respectives du propriétaire et de l\'occupant.</p><p>Les Parties s\'engagent à mettre en œuvre les actions nécessaires pour atteindre les objectifs suivants :<br>- Réduction de 40 % de la consommation énergétique finale d\'ici 2030,<br>- Réduction de 50 % d\'ici 2040,<br>- Réduction de 60 % d\'ici 2050, par rapport à une année de référence choisie entre 2010 et 2019.</p><p>Les Parties peuvent choisir l\'une des deux méthodes suivantes pour atteindre les objectifs :<br>- Réduction en pourcentage par rapport à l\'année de référence,<br>- Atteinte d\'un niveau de consommation énergétique fixé en valeur absolue pour le type d\'activité concerné.</p><p>Les Parties s\'engagent à transmettre les données de consommation énergétique via la plateforme informatique dédiée (operat), conformément aux dispositions du décret tertiaire. Une attestation numérique sera établie pour justifier du respect des obligations.</p><p>En cas de non-respect des obligations de réduction énergétique, les Parties reconnaissent que des sanctions administratives peuvent être appliquées, notamment une mise en demeure par le préfet et la publication des mises en demeure restées sans effet sur un site internet des services de l\'État.</p><p>Les Parties conviennent que la preuve du respect des obligations sera annexée, à titre d\'information, à tout acte de vente ou de location concernant le bâtiment, conformément aux dispositions légales.',
+        ];
+        foreach ($clauses as $t => $txt) { $h .= '<h3>' . $t . '</h3>' . ($txt !== '' ? '<p>' . $txt . '</p>' : ''); }
+
+        // 31. Honoraires de location — % preneur / % bailleur (montants calculés sur le loyer annuel HT).
+        $fmtPct = fn($p) => rtrim(rtrim(number_format((float)$p, 2, ',', ''), '0'), ',');
+        $honoParts = [];
+        if ($hpPren !== null) $honoParts[] = 'PRENEUR ' . $fmtPct($hpPren) . ' % (' . ($honoPrenM !== null ? bcp_eur($honoPrenM) . ' € HT' : '……') . ')';
+        if ($hpBail !== null) $honoParts[] = 'BAILLEUR ' . $fmtPct($hpBail) . ' % (' . ($honoBailM !== null ? bcp_eur($honoBailM) . ' € HT' : '……') . ')';
+        $honoLine = $honoParts ? 'répartis ainsi : ' . implode(' / ', $honoParts) . ', calculés sur le loyer annuel HT' : '……………………………';
+        $h .= '<h3>31. Honoraires de location</h3>';
+        $h .= '<p>Les parties reconnaissent que les présentes ont été négociées par l\'Agence, que les parties déclarent en conséquence bénéficiaire du montant de la rémunération convenue conformément au mandat écrit signé' . ($ctx['numero_bail'] ? ' portant le numéro ' . bcp_e($ctx['numero_bail']) : '') . '. Honoraires de location ' . $honoLine . '.</p>';
+
+        // 32. Frais
+        $h .= '<h3>32. Frais</h3><p>Tous les frais et droits des présentes, à l\'exception des honoraires de location dont les modalités d\'imputation sont définies ci-dessus, seront supportés par le PRENEUR qui s\'y oblige.</p>';
+
+        // 33. Election de domicile
+        $h .= '<h3>33. Élection de domicile - Attribution de juridiction</h3>';
+        $h .= '<p>Pour l\'exécution des présentes et de leurs suites, les parties font élection de domicile, savoir : le BAILLEUR, à l\'adresse indiquée en tête des présentes ; le PRENEUR, dans les lieux loués. Tous les litiges à survenir entre les parties seront de la compétence exclusive des tribunaux du ressort de la situation de l\'immeuble.</p>';
+
+        // ── Date et signatures (bloc commun) — tracés incrustés si signé ──
+        $sigs = $ctx['signatures'] ?? [];
+        $findSig = function (string $role) use ($sigs): ?array {
+            foreach ($sigs as $s) { if (($s['role_code'] ?? '') === $role && ($s['statut'] ?? '') === 'signe') return $s; }
+            return null;
+        };
+        $sigCell = function (?array $sig, string $mention = 'Lu et approuvé'): string {
+            if ($sig && !empty($sig['signature_data']) && strncmp((string)$sig['signature_data'], 'data:image', 10) === 0) {
+                $dt = bcp_date($sig['signed_at'] ?? null);
+                $out = '<span class="mut">« ' . $mention . ' »</span><br><img src="' . $sig['signature_data'] . '" style="max-height:64px;max-width:190px;"><br>'
+                     . '<span class="mut">' . bcp_e((string)($sig['nom_signataire'] ?? '')) . ($dt ? ' &mdash; signé le ' . bcp_e($dt) : '') . '</span>';
+                return $out;
+            }
+            return 'Signature précédée de la mention « ' . $mention . ' »<br><br><br>………………………………';
+        };
+        $sigPreneur = $findSig('preneur'); $sigCaution = $findSig('caution'); $sigBailleur = $findSig('mandataire') ?: $findSig('bailleur');
+        $lieu = $ge['ville_sig'] ?: '……………………';
+        $anySigned = $sigPreneur || $sigCaution || $sigBailleur;
+        $dateFait = $anySigned ? (bcp_date(($sigPreneur['signed_at'] ?? null) ?: ($sigBailleur['signed_at'] ?? null)) ?: '……………………') : '……………………';
+        $h .= '<h3>Date et signatures</h3>';
+        $h .= '<div class="sign"><p>Fait à ' . bcp_e($lieu) . ' et signé électroniquement par l\'ensemble des Parties, chacune d\'elles en conservant un exemplaire original sur un support durable garantissant l\'intégrité de l\'acte' . ($anySigned ? ' — le ' . bcp_e($dateFait) : '') . '.</p>';
+        $h .= '<table class="sigtbl"><tr>'
+            . '<td><b>LE BAILLEUR</b><br><span class="mut">(ou son mandataire dûment habilité)</span><br><br>' . $sigCell($sigBailleur) . '</td>'
+            . '<td><b>LE PRENEUR</b><br><span class="mut">&nbsp;</span><br><br>' . $sigCell($sigPreneur) . '</td>'
+            . '</tr>'
+            . (!empty($gar['present']) ? '<tr><td colspan="2" style="padding-top:14px;"><b>LA CAUTION</b> <span class="mut">(bon pour caution solidaire)</span><br><br>' . $sigCell($sigCaution, 'Bon pour caution solidaire, lu et approuvé') . '</td></tr>' : '')
+            . '</table></div>';
+
+        $h .= '</div>';
+        return $h;
+    }
+
     /** Construit le PDF et renvoie le chemin du fichier temporaire. */
     function bail_commercial_build_pdf(PDO $pdo, int $bailId, ?bool $forceProjet = null): string
     {
@@ -621,7 +1019,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $withProjet = $forceProjet !== null
             ? $forceProjet
             : in_array($ctx['statut'], ['projet', 'envoye', 'brouillon'], true);
-        $body = bail_commercial_articles_html($ctx);
+        $body = bail_commercial_corps_fnaim($ctx);   // modèle FNAIM exact + annexe (un seul document)
 
         $css = '<style>
             body{font-family:"Times",serif;font-size:10.5pt;color:#1c2226;line-height:1.5;}
@@ -629,6 +1027,9 @@ if (!function_exists('bail_commercial_pdf_context')) {
             .sub{text-align:center;font-size:8.5pt;font-style:italic;color:#555;margin:0 0 2px;}
             .ref{text-align:center;font-size:8.5pt;color:#777;margin:0 0 14px;}
             h2{font-size:11pt;color:#2c4b4d;border-bottom:0.6pt solid #cddcdc;padding-bottom:2px;margin:14px 0 4px;}
+            h3{font-size:10pt;color:#243B5C;background:#eef2f6;padding:3px 7px;margin:11px 0 4px;}
+            .clabel{font-weight:bold;color:#2c4b4d;margin:8px 0 2px;}
+            ul{margin:3px 0 8px 0;padding-left:18px;} li{margin:2px 0;text-align:justify;}
             p{margin:3px 0 7px;text-align:justify;}
             .qual{font-style:italic;color:#555;}
             .sub2{font-size:8.5pt;font-style:italic;color:#666;margin:0 0 6px;}
