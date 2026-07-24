@@ -287,6 +287,7 @@ if ($isProjetBail) {
             'locataire_siren'=>$bail['locataire_siren'], 'locataire_nom'=>$bail['locataire_nom'], 'locataire_prenom'=>$bail['locataire_prenom'],
             'locataire_email'=>$bail['locataire_email'], 'locataire_telephone'=>$bail['locataire_telephone'],
             'locataire_representant_nom'=>$bail['locataire_representant_nom'], 'locataire_representant_qualite'=>$bail['locataire_representant_qualite'],
+            'locataire_representant_email'=>$bail['locataire_representant_email'] ?? null,
             'locataire_adresse'=>$bail['locataire_adresse'] ?? null, 'locataire_date_naissance'=>$bail['locataire_date_naissance'] ?? null,
             'locataire_lieu_naissance'=>$bail['locataire_lieu_naissance'] ?? null, 'locataire_nationalite'=>$bail['locataire_nationalite'] ?? null,
             'garant_present'=>$bail['garant_present'] ?? 0, 'garant_type'=>$bail['garant_type'] ?? null,
