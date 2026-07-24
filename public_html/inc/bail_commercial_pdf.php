@@ -794,7 +794,12 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $h .= '<p>Le pas-de-porte est soumis à la réglementation fiscale en vigueur, notamment en ce qui concerne la taxe sur la valeur ajoutée (TVA). Les parties reconnaissent que le pas-de-porte pourra être pris en compte pour la révision triennale et le calcul du loyer lors du renouvellement du bail, conformément aux dispositions légales applicables.</p>';
 
         // 6-7. Révision
+        $indiceType = (string)($c['indice_type'] ?? 'ILC');
+        $indiceLib  = $indiceType === 'ILAT' ? 'indice des loyers des activités tertiaires (ILAT)' : 'indice des loyers commerciaux (ILC)';
         $h .= '<h3>6. Indexation annuelle du loyer</h3>';
+        $h .= '<p>Le loyer sera indexé automatiquement et de plein droit chaque année, à la date anniversaire de la prise d\'effet du présent bail, en fonction de la variation de l\'' . bcp_e($indiceLib) . ' publié par l\'INSEE.</p>';
+        $h .= '<p>L\'indice de référence (indice de base) est celui du trimestre valeur ' . $indice . '. À chaque échéance annuelle, le loyer en vigueur sera ajusté selon la formule : nouveau loyer = loyer en cours × (dernier indice ' . bcp_e($indiceType) . ' publié à la date de révision / indice ' . bcp_e($indiceType) . ' de la même période de l\'année précédente).</p>';
+        $h .= '<p>Cette indexation joue de plein droit, sans qu\'il soit besoin d\'aucune formalité, demande ou notification préalable, et sans que le défaut d\'application à une échéance ne vaille renonciation. Si l\'indice retenu venait à disparaître, il serait remplacé par l\'indice de substitution officiel ; à défaut, par un indice équivalent choisi d\'un commun accord entre les parties.</p>';
         $h .= '<h3>7. Révision triennale légale</h3>';
         $h .= '<p>Le loyer ci-dessus fixé pourra être révisé trois ans au moins après la date d\'entrée en jouissance du PRENEUR ou après le point de départ du bail renouvelé conformément à l\'article L. 145-38 du code de commerce. De nouvelles demandes de révision pourront être formées tous les trois ans à compter du jour où le nouveau prix sera applicable par application des dispositions légales.</p>';
         $h .= '<p>L\'indice servant de base à la révision sera celui du trimestre valeur ' . $indice . '.</p>';

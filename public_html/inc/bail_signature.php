@@ -78,24 +78,39 @@ if (!function_exists('bsig_create_for_signataires')) {
      * Crée un token pour le PRENEUR et (si présent) le GARANT du projet de bail.
      * Réutilise un token existant non refusé. Retourne les lignes créées/existantes.
      */
-    function bsig_create_for_signataires(PDO $pdo, int $idBail, ?int $idUser = null): array {
+    function bsig_create_for_signataires(PDO $pdo, int $idBail, ?int $idUser = null, array $roleEmails = []): array {
         if ($idBail <= 0) return [];
         $st = $pdo->prepare("SELECT * FROM bien_baux WHERE id = ? LIMIT 1");
         $st->execute([$idBail]);
         $bail = $st->fetch(PDO::FETCH_ASSOC);
         if (!$bail) return [];
         $idSoc = (int)($bail['id_societe'] ?? 0) ?: null;
+        $ov = static fn(string $role, string $def) => trim((string)($roleEmails[$role] ?? '')) ?: ($def ?: null);
 
-        // Liste des signataires : preneur (obligatoire) + garant (si présent).
+        // Emails par défaut du BAILLEUR (fiche du propriétaire) et de l'AGENCE (société), best-effort.
+        $bailleurNom = ''; $bailleurEmail = ''; $agenceNom = ''; $agenceEmail = '';
+        try {
+            $q = $pdo->prepare("SELECT COALESCE(NULLIF(tp.nom_affichage,''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS bnom, tp.email AS bemail
+                                  FROM biens b LEFT JOIN proprietaires p ON p.id = b.id_proprietaire LEFT JOIN tiers tp ON tp.id = p.id_tiers
+                                 WHERE b.id = ? LIMIT 1");
+            $q->execute([(int)($bail['id_bien'] ?? 0)]);
+            if ($r = $q->fetch(PDO::FETCH_ASSOC)) { $bailleurNom = (string)($r['bnom'] ?? ''); $bailleurEmail = (string)($r['bemail'] ?? ''); }
+        } catch (Throwable) {}
+        if ($idSoc) { try {
+            $q = $pdo->prepare("SELECT raison_sociale, email FROM societes WHERE id = ? LIMIT 1");
+            $q->execute([$idSoc]);
+            if ($r = $q->fetch(PDO::FETCH_ASSOC)) { $agenceNom = (string)($r['raison_sociale'] ?? ''); $agenceEmail = (string)($r['email'] ?? ''); }
+        } catch (Throwable) {} }
+
+        // Cérémonie : preneur → agence → bailleur (+ garant si présent). Tous reçoivent leur lien ;
+        // le bail signé n'est distribué qu'une fois TOUTES les signatures recueillies (auto-finalisation).
         $signataires = [];
         $preneurNom = $bail['locataire_raison_sociale'] ?: trim((string)$bail['locataire_prenom'] . ' ' . $bail['locataire_nom']);
-        // Destinataire = la PERSONNE qui signe (représentant légal du preneur) en priorité,
-        // et non l'email générique du tiers. Fallback sur l'email preneur si non renseigné.
-        $preneurEmail = trim((string)($bail['locataire_representant_email'] ?? ''))
-                     ?: trim((string)($bail['locataire_email'] ?? ''));
+        // Preneur : email du représentant légal en priorité, sinon email preneur, sinon override modal.
+        $preneurEmail = trim((string)($bail['locataire_representant_email'] ?? '')) ?: trim((string)($bail['locataire_email'] ?? ''));
         $signataires[] = [
             'role'  => 'preneur',
-            'email' => $preneurEmail ?: null,
+            'email' => $ov('preneur', $preneurEmail),
             'nom'   => $preneurNom ?: 'Le preneur',
             'tiers' => (int)($bail['candidat_tiers_id'] ?? 0) ?: null,
         ];
@@ -103,11 +118,28 @@ if (!function_exists('bsig_create_for_signataires')) {
             $garNom = $bail['garant_raison_sociale'] ?: trim((string)$bail['garant_prenom'] . ' ' . $bail['garant_nom']);
             $signataires[] = [
                 'role'  => 'caution',
-                'email' => trim((string)($bail['garant_email'] ?? '')) ?: null,
+                'email' => $ov('caution', trim((string)($bail['garant_email'] ?? ''))),
                 'nom'   => $garNom ?: 'Le garant',
                 'tiers' => null,
             ];
         }
+        // Agence (mandataire) — ajoutée SEULEMENT si un email est disponible (sinon le bail ne
+        // pourrait jamais se finaliser). Le modal récap fournit/complète cet email.
+        $mandEmail = $ov('mandataire', $agenceEmail);
+        if ($mandEmail) $signataires[] = [
+            'role'  => 'mandataire',
+            'email' => $mandEmail,
+            'nom'   => $agenceNom ?: 'L\'agence (mandataire)',
+            'tiers' => null,
+        ];
+        // Bailleur (propriétaire) — idem : uniquement si email disponible.
+        $bailEmail = $ov('bailleur', $bailleurEmail);
+        if ($bailEmail) $signataires[] = [
+            'role'  => 'bailleur',
+            'email' => $bailEmail,
+            'nom'   => ($bail['bailleur_representant_nom'] ?? '') ?: ($bailleurNom ?: 'Le bailleur'),
+            'tiers' => null,
+        ];
 
         $created = [];
         foreach ($signataires as $sg) {
