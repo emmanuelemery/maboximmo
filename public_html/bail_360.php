@@ -512,17 +512,27 @@ if ($isProjetBail) {
           belDoneSigId = st.id;
           document.getElementById('bel-done-title').textContent = '✓ Déjà signé' + (st.nom?' par '+st.nom:'') + (st.date?' le '+st.date:'');
           var sig=document.getElementById('bel-done-sig'), ph=document.getElementById('bel-done-photo');
-          sig.src=''; ph.style.display='none'; ph.src='';
-          // Récupère tracé + photo à la demande.
+          var jw=document.getElementById('bel-done-justif-wrap'), jd=document.getElementById('bel-done-justif');
+          sig.src=''; ph.src=''; if(jw) jw.style.display='none'; if(jd) jd.style.display='none';
+          // Récupère tracé + photo à la demande. La photo (justificatif) reste MASQUÉE
+          // jusqu'au clic sur « Voir le justificatif » (preuve privée, jamais affichée d'office).
           fetch(API_GET,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({bail_id:BAIL_ID, sig_id:st.id})})
             .then(function(r){return r.json();}).then(function(j){
-              if(j&&j.ok){ if(j.signature_data){ sig.src=j.signature_data; } if(j.photo_preuve){ ph.src=j.photo_preuve; ph.style.display='block'; } }
+              if(j&&j.ok){ if(j.signature_data){ sig.src=j.signature_data; } if(j.photo_preuve){ ph.src=j.photo_preuve; if(jw) jw.style.display='block'; } }
             }).catch(function(){});
           done.hidden=false; form.hidden=true;
         } else {
           belDoneSigId=0; done.hidden=true; form.hidden=false;
         }
       }
+      // Bascule d'affichage du justificatif privé (photo-preuve).
+      window.belToggleJustif = function(){
+        var jd=document.getElementById('bel-done-justif'), btn=document.getElementById('bel-done-justif-btn');
+        if(!jd) return;
+        var show = jd.style.display==='none';
+        jd.style.display = show ? 'block' : 'none';
+        if(btn) btn.textContent = show ? '🔒 Masquer le justificatif de la signature électronique' : '🔒 Voir le justificatif de la signature électronique';
+      };
       // Effacer la signature affichée (tracé + photo) → le rôle redevient signable.
       window.belDoneErase = function(){
         if(!belDoneSigId) return;
@@ -688,7 +698,15 @@ if ($isProjetBail) {
           <div id="bel-done-title" style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:8px;">✓ Déjà signé</div>
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <img id="bel-done-sig" alt="signature" style="max-height:70px;max-width:200px;border:1px solid #d6e0e0;border-radius:6px;background:#fff;">
-            <img id="bel-done-photo" alt="photo" style="display:none;max-height:80px;max-width:80px;border:1px solid #d6e0e0;border-radius:6px;">
+          </div>
+          <!-- Justificatif privé : la photo-preuve n'est JAMAIS dans le bail signé ni montrée
+               au preneur. Consultable uniquement en interne, à la demande, via ce bouton. -->
+          <div id="bel-done-justif-wrap" style="display:none;margin-top:10px;">
+            <button type="button" id="bel-done-justif-btn" onclick="belToggleJustif()" style="border:1px solid #c9d6e5;background:#eef3f9;color:#243B5C;border-radius:8px;padding:7px 13px;font-weight:800;cursor:pointer;font-size:12.5px;">🔒 Voir le justificatif de la signature électronique</button>
+            <div id="bel-done-justif" style="display:none;margin-top:10px;">
+              <img id="bel-done-photo" alt="photo-preuve" style="max-height:120px;max-width:120px;border:1px solid #d6e0e0;border-radius:6px;">
+              <div style="font-size:11px;color:#64748b;margin-top:4px;">Preuve interne — jamais imprimée dans le bail ni transmise au preneur.</div>
+            </div>
           </div>
           <button type="button" onclick="belDoneErase()" style="margin-top:10px;border:1px solid #f0b8b0;background:#fdecea;color:#c0392b;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:12.5px;">🗑️ Effacer la signature et la photo (re-signer)</button>
         </div>

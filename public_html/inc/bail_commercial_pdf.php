@@ -603,18 +603,10 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $sigCell = function (?array $sig, string $mention = 'Lu et approuvé'): string {
             if ($sig && !empty($sig['signature_data']) && strncmp((string)$sig['signature_data'], 'data:image', 10) === 0) {
                 $dt = bcp_date($sig['signed_at'] ?? null);
-                $hasPhoto = !empty($sig['photo_preuve']) && strncmp((string)$sig['photo_preuve'], 'data:image', 10) === 0;
+                // La PHOTO-PREUVE n'est JAMAIS imprimée dans le bail signé : c'est une preuve
+                // privée, consultable uniquement en interne via le justificatif de signature.
                 $out = '<span class="mut">« ' . $mention . ' »</span><br>';
-                if ($hasPhoto) {
-                    // Tracé + photo-preuve côte à côte.
-                    $out .= '<table style="border-collapse:collapse;"><tr>'
-                        . '<td style="vertical-align:middle;padding:0 8px 0 0;"><img src="' . $sig['signature_data'] . '" style="max-height:60px;max-width:150px;"></td>'
-                        . '<td style="vertical-align:middle;"><img src="' . $sig['photo_preuve'] . '" style="max-height:64px;max-width:64px;border:0.5pt solid #999;">'
-                        . '<br><span class="mut" style="font-size:7pt;">photo-preuve</span></td>'
-                        . '</tr></table>';
-                } else {
-                    $out .= '<img src="' . $sig['signature_data'] . '" style="max-height:64px;max-width:190px;">';
-                }
+                $out .= '<img src="' . $sig['signature_data'] . '" style="max-height:64px;max-width:190px;">';
                 $out .= '<span class="mut">' . bcp_e((string)($sig['nom_signataire'] ?? '')) . ($dt ? ' &mdash; signé le ' . bcp_e($dt) : '') . '</span>';
                 return $out;
             }
