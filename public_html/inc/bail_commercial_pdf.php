@@ -755,8 +755,12 @@ if (!function_exists('bail_commercial_pdf_context')) {
             . ($ctx['numero_lot'] ? ', lot n° ' . bcp_e($ctx['numero_lot']) : '')
             . ($ctx['bien_copro'] ? ', ' . bcp_e($ctx['bien_copro']) : '');
         $h .= '<h3>1. Situation et désignation des lieux loués</h3>';
-        $h .= '<p><b>Adresse :</b> ' . ($ctx['bien_adresse'] ? bcp_e($ctx['bien_adresse']) : '……………………') . '<br>'
-            . '<b>Description :</b> ' . ($desig ?: '……………………') . ($ctx['bien_description'] ? '. ' . bcp_e($ctx['bien_description']) : '') . '</p>';
+        $h .= '<p><b>Adresse du bien :</b> ' . ($ctx['bien_adresse'] ? bcp_e($ctx['bien_adresse']) : '……………………') . '</p>';
+        if ($ctx['bien_copro'] || $ctx['numero_lot']) {
+            $h .= '<p><b>Lot de copropriété :</b> ' . ($ctx['numero_lot'] ? 'n° ' . bcp_e($ctx['numero_lot']) : '……………') . ($ctx['bien_copro'] ? ' — ' . bcp_e($ctx['bien_copro']) : '') . '</p>';
+        }
+        $h .= '<p><b>Surface du local :</b> ' . ($ctx['surface'] > 0 ? bcp_e(number_format($ctx['surface'], 0, ',', ' ')) . ' m²' : '……………') . '</p>';
+        $h .= '<p><b>Description :</b> ' . ($desig ?: '……………………') . ($ctx['bien_description'] ? '. ' . bcp_e($ctx['bien_description']) : '') . '</p>';
         $h .= '<p>La surface totale des locaux est d\'environ ' . ($ctx['surface'] > 0 ? bcp_e(number_format($ctx['surface'], 0, ',', ' ')) . ' m²' : '……………') . '. Tels que lesdits lieux s\'entendent, se poursuivent et se comportent sans aucune exception ni réserve, le PRENEUR déclarant les connaître pour les avoir vu et visités préalablement à la signature des présentes.</p>';
         $h .= '<p>Il est précisé que toute différence entre la surface indiquée et les dimensions réelles desdits lieux ne pourra justifier ni réduction ni augmentation du loyer. En conséquence, le PRENEUR ne pourra demander aucune réduction du loyer ou indemnité pour erreur sur la surface.</p>';
         $h .= '<p>Tel que lesdits locaux existent, s\'étendent, se poursuivent et comportent avec toutes leurs aisances et dépendances, sans aucune exception ni réserve, et sans qu\'il soit nécessaire d\'en faire plus ample désignation, le PRENEUR déclarant parfaitement les connaître, pour les avoir vus et visités préalablement aux présentes.</p>';

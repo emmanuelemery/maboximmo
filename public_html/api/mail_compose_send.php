@@ -36,8 +36,21 @@ if ($corps === '') { echo json_encode(['ok'=>false,'error'=>'corps requis']); ex
 // Pièces jointes : on ne garde que les uid AUTORISÉS par le contexte (et dont le fichier existe).
 $allowed = mail_context_paths_by_uid($C);
 $uids = array_values(array_unique(array_map('strval', $uids)));
-$attachments = [];
-foreach ($uids as $uid) { if (isset($allowed[$uid])) $attachments[] = $allowed[$uid]; }
+// Nom d'affichage par uid (ex. nom GED) pour renommer la pièce jointe envoyée.
+$nameByUid = [];
+foreach (($C['docs'] ?? []) as $dd) { if (!empty($dd['uid'])) $nameByUid[(string)$dd['uid']] = (string)($dd['name'] ?? ''); }
+$attachments = []; $attachTmp = [];
+foreach ($uids as $uid) {
+    if (!isset($allowed[$uid])) continue;
+    $src = $allowed[$uid];
+    $wanted = trim((string)($nameByUid[$uid] ?? ''));
+    if ($wanted === '') { $attachments[] = $src; continue; }
+    $wanted = preg_replace('#[\\\\/:*?"<>|]+#', '_', $wanted);            // nom de fichier sûr
+    $ext = strtolower(pathinfo($src, PATHINFO_EXTENSION));
+    if ($ext !== '' && !preg_match('/\.' . preg_quote($ext, '/') . '$/i', $wanted)) $wanted .= '.' . $ext;
+    $dst = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mailatt_' . bin2hex(random_bytes(4)) . '_' . $wanted;
+    if (@copy($src, $dst)) { $attachments[] = $dst; $attachTmp[] = $dst; } else { $attachments[] = $src; }
+}
 
 // Expéditeur = utilisateur connecté → Reply-To
 $senderEmail = ''; $senderNom = '';
@@ -48,13 +61,47 @@ try {
 } catch (Throwable $e) {}
 $replyTo = filter_var($senderEmail, FILTER_VALIDATE_EMAIL) ? $senderEmail : '';
 
+// ── MODE SIGNATURE (cérémonie de bail) : PDF projet joint + lien PERSONNALISÉ par destinataire ──
+$signMode = ((string)($_POST['sign_mode'] ?? '') === '1') && $ctxType === 'BAIL';
+$signData = $signMode ? (json_decode((string)($_POST['sign_data'] ?? '{}'), true) ?: []) : [];
+if ($signMode) {
+    try {
+        require_once __DIR__ . '/../inc/bail_commercial_pdf.php';
+        require_once __DIR__ . '/../inc/bail_signature.php';
+        $tmpPdf = bail_commercial_build_pdf($pdo, $ctxId, true); // projet (filigrané)
+        $clean  = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'Bail_projet_' . $ctxId . '_' . bin2hex(random_bytes(3)) . '.pdf';
+        if (@copy($tmpPdf, $clean)) { $attachments[] = $clean; $attachTmp[] = $clean; @unlink($tmpPdf); } else { $attachments[] = $tmpPdf; }
+    } catch (Throwable $e) { error_log('[mail_compose_send bail pdf] ' . $e->getMessage()); }
+}
+
 // Envoi
-$bodyHtml = nl2br(htmlspecialchars($corps, ENT_QUOTES, 'UTF-8'));
+$baseBodyEsc = nl2br(htmlspecialchars($corps, ENT_QUOTES, 'UTF-8'));
 $okCount = 0; $fail = [];
 foreach ($emails as $to) {
+    $bodyHtml = $baseBodyEsc;
+    if ($signMode) {
+        $d = $signData[$to] ?? ($signData[strtolower($to)] ?? null);
+        $lien = '';
+        if ($d && !empty($d['url'])) {
+            $u = htmlspecialchars((string)$d['url'], ENT_QUOTES, 'UTF-8');
+            $lien = '<a href="' . $u . '" style="display:inline-block;padding:12px 22px;background:#84A7AB;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Consulter et signer le bail</a><br><span style="font-size:11px;color:#888;">' . $u . '</span>';
+        }
+        $bloc = is_array($d) ? (string)($d['preneur_block'] ?? '') : '';
+        $bodyHtml = str_replace(['{{LIEN_SIGNATURE}}', '{{BLOC_PRENEUR}}'], [$lien, $bloc], $bodyHtml);
+    }
     $sent = send_mail($to, $sujet, $bodyHtml, $attachments, true, '', $replyTo, '', $senderNom);
-    if ($sent) $okCount++; else $fail[] = $to;
+    if ($sent) {
+        $okCount++;
+        if ($signMode && !empty($signData[$to]['token_id']) && function_exists('bsig_mark_sent')) {
+            try { bsig_mark_sent($pdo, (int)$signData[$to]['token_id']); } catch (Throwable $e) {}
+        }
+    } else { $fail[] = $to; }
 }
+// Bail → « envoye » dès qu'au moins un lien est parti.
+if ($signMode && $okCount > 0) {
+    try { $pdo->prepare("UPDATE bien_baux SET statut='envoye', sent_at=NOW(), updated_at=NOW() WHERE id=? AND statut='projet'")->execute([$ctxId]); } catch (Throwable $e) {}
+}
+foreach ($attachTmp as $t) @unlink($t); // ménage des copies renommées
 
 // Trace historique (toujours, même si SMTP échoue)
 $histId = 0;

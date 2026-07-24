@@ -406,8 +406,13 @@ if ($isProjetBail) {
     var BEL_CEREM_ROLES = <?= json_encode($belCeremRoles, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
     var BEL_CEREM_PRE = <?= json_encode($belCeremPre, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
     function belEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
-    // « Envoyer pour signature » ouvre le modal récap (au lieu d'un simple confirm).
-    window.belSendBail = function(bailId, btn){ belCeremOpen(); };
+    // « Envoyer pour signature » ouvre le MODULE D'ENVOI DE MAIL complet en mode signature
+    // (destinataires = signataires, template, bail PDF + DPE auto, lien personnalisé par personne).
+    var MAILC = '<?= h(app_url('/mail_compose.php')) ?>';
+    var BACK360 = '<?= h(app_url('/bail_360.php?id=' . $bailId)) ?>';
+    window.belSendBail = function(bailId, btn){
+        window.location = MAILC + '?ctx=BAIL&id=' + bailId + '&mode=signature&back=' + encodeURIComponent(BACK360);
+    };
     function belCeremOpen(){
         var list = document.getElementById('belCeremList'); list.innerHTML='';
         BEL_CEREM_ROLES.forEach(function(r){
