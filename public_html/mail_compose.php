@@ -22,6 +22,13 @@ if ($ctxType === 'BIEN' && ($_GET['gen_affiche_vitrine'] ?? '') === '1') {
     } catch (Throwable $e) { error_log('[mail vitrine] ' . $e->getMessage()); }
 }
 
+// Mode signature : classe le PROJET de bail en GED (versionné) AVANT de charger le contexte,
+// pour qu'il apparaisse dans la liste des documents (auto-coché plus bas).
+if ($ctxType === 'BAIL' && (($_GET['mode'] ?? '') === 'signature')) {
+    require_once __DIR__ . '/inc/bail_signature.php';
+    try { bail_commit_projet_ged($pdo, $ctxId); } catch (Throwable $e) { error_log('[mail signature ged] ' . $e->getMessage()); }
+}
+
 $C = mail_context($pdo, $ctxType, $ctxId);
 if (empty($C['ok'])) { http_response_code(404); exit('Contexte introuvable.'); }
 
@@ -96,17 +103,26 @@ if ($signMode) {
                     . '<p>Pour prendre possession des lieux, merci de nous transmettre votre <strong>attestation d\'assurance</strong> (vous pourrez la joindre au moment de la signature).</p>';
             }
         } catch (Throwable $e) {}
-        $to = [];
+        $roleLbls = ['preneur'=>'Preneur','caution'=>'Garant / caution','mandataire'=>'Agence (mandataire)','bailleur'=>'Bailleur'];
+        $to = []; $signContacts = [];
         foreach ($sigs as $s) {
             $email = trim((string)($s['destinataire_email'] ?? ''));
             if ($email==='' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
             $isPre = (($s['role_code'] ?? '')==='preneur');
             $signData[$email] = ['url'=>bsig_build_url((string)$s['token']), 'preneur_block'=>$isPre?$preneurBlock:'', 'token_id'=>(int)$s['id']];
             $to[] = $email;
+            $signContacts[] = ['nom'=>($roleLbls[$s['role_code']] ?? ucfirst((string)$s['role_code'])).' — '.trim((string)($s['nom'] ?? $s['nom_signataire'] ?? '')), 'email'=>$email, 'role'=>'signataire', 'checked'=>true];
         }
-        // DPE du bien auto-coché (parmi les docs du contexte). Le bail PDF est joint côté serveur.
+        // Signataires = CONTACTS pré-cochés (en tête de la liste des destinataires).
+        if ($signContacts) $contacts = array_merge($signContacts, $contacts);
+        // Auto-cochés : le PROJET DE BAIL (classé en GED juste avant) + le DPE du bien.
         $signDocs = [];
-        foreach (($docs ?? []) as $d) { $nm=strtolower((string)($d['name'] ?? '')); $ty=strtolower((string)($d['type'] ?? '')); if (!empty($d['has_file']) && (strpos($ty,'dpe')!==false || strpos($nm,'dpe')!==false)) $signDocs[] = (string)$d['uid']; }
+        foreach (($docs ?? []) as $d) {
+            if (empty($d['has_file'])) continue;
+            $nm=strtolower((string)($d['name'] ?? '')); $ty=strtolower((string)($d['type'] ?? ''));
+            if (strpos($ty,'projet_bail')!==false || strpos($nm,'projet bail')!==false) $signDocs[] = (string)$d['uid'];
+            elseif (strpos($ty,'dpe')!==false || strpos($nm,'dpe')!==false) $signDocs[] = (string)$d['uid'];
+        }
         $signPrefill = [
             'subject' => 'Signature de votre bail commercial — ' . $title,
             'body'    => "Bonjour,\n\nNous sommes heureux de vous transmettre votre bail commercial, prêt à être signé.\n\nLa signature se fait très simplement depuis votre téléphone : ouvrez cet email sur votre mobile, cliquez sur le lien ci-dessous, lisez le bail puis signez avec votre doigt.\n\n{{LIEN_SIGNATURE}}\n\n{{BLOC_PRENEUR}}\n\nLe projet de bail est joint à cet email. Lien valable 48 heures ; votre signature est horodatée et tracée (adresse IP) à des fins de preuve." . $signature,

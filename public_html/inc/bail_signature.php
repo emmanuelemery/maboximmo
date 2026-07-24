@@ -430,3 +430,68 @@ if (!function_exists('bail_cloturer')) {
         return ['ok' => true, 'finalize' => $fin, 'signes' => $signes, 'total' => $total];
     }
 }
+
+if (!function_exists('bail_commit_projet_ged')) {
+    /**
+     * Génère le PROJET de bail (PDF filigrané) et le CLASSE en GED en VERSION incrémentée
+     * (« Projet bail V2 », « V3 »…), lié au BAIL (main) + BIEN (reference). Appelé au moment de
+     * l'ouverture de la cérémonie (« Envoyer pour signature »). Best-effort : renvoie le doc_id.
+     */
+    function bail_commit_projet_ged(PDO $pdo, int $bailId): int
+    {
+        if ($bailId <= 0) return 0;
+        $st = $pdo->prepare("
+            SELECT bb.numero_bail, bb.id_bien, bb.id_societe AS bail_soc, bb.id_agence AS bail_age,
+                   b.reference_bien, b.id_societe AS bien_soc, b.id_agence AS bien_age,
+                   s.raison_sociale AS soc_raison, a.code_agence, a.nom_agence
+              FROM bien_baux bb JOIN biens b ON b.id = bb.id_bien
+              LEFT JOIN societes s ON s.id = COALESCE(b.id_societe, bb.id_societe)
+              LEFT JOIN agences  a ON a.id = COALESCE(b.id_agence, bb.id_agence)
+             WHERE bb.id = ? LIMIT 1");
+        $st->execute([$bailId]);
+        $bail = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$bail) return 0;
+
+        $socId  = (int)($bail['bien_soc'] ?? 0) ?: (int)($bail['bail_soc'] ?? 0) ?: null;
+        $ageId  = (int)($bail['bien_age'] ?? 0) ?: (int)($bail['bail_age'] ?? 0) ?: null;
+        $idBien = (int)$bail['id_bien'];
+        $ref    = (string)($bail['numero_bail'] ?: ('bail_' . $bailId));
+        $userId = function_exists('current_user_id') ? ((int)current_user_id() ?: null) : null;
+
+        // Version = nombre de projets déjà classés + 1.
+        $ver = 1;
+        try {
+            $q = $pdo->prepare("SELECT COUNT(*) FROM ged_documents d
+                                 JOIN ged_document_links l ON l.document_id=d.id AND l.entity_type='BAIL' AND l.entity_id=?
+                                WHERE d.document_type='projet_bail' AND d.status='active'");
+            $q->execute([$bailId]); $ver = (int)$q->fetchColumn() + 1;
+        } catch (Throwable) {}
+
+        require_once __DIR__ . '/ged_document_links.php';
+        require_once __DIR__ . '/bail_commercial_pdf.php';
+        $tmp = bail_commercial_build_pdf($pdo, $bailId, true); // projet filigrané
+        $permDir = __DIR__ . '/../uploads/baux/'; if (!is_dir($permDir)) @mkdir($permDir, 0775, true);
+        $permName = 'bail_' . $bailId . '_projet_v' . $ver . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.pdf';
+        $permPath = $permDir . $permName;
+        if (!@rename($tmp, $permPath)) { @copy($tmp, $permPath); @unlink($tmp); }
+
+        $res = gus_commit_document($pdo,
+            ['path_on_disk'=>$permPath, 'name_original'=>'Projet_bail_V' . $ver . '_' . $ref . '.pdf',
+             'mime_type'=>'application/pdf', 'size_bytes'=>filesize($permPath) ?: 0, 'public_url'=>'/uploads/baux/' . $permName],
+            [
+                'document_type'=>'projet_bail', 'source_module'=>'03_GESTION_LOCATIVE', 'security_level'=>'interne',
+                'societe_id'=>$socId, 'agence_id'=>$ageId, 'tenant_id'=>$socId, 'created_by'=>$userId, 'storage_provider'=>'local',
+                'name_display'=>'Projet bail V' . $ver . ' — ' . $ref,
+                'metadata_extra'=>['statut'=>'projet','version'=>$ver,'id_bail'=>$bailId,'doc_date'=>date('Y-m-d')],
+                'naming_ctx'=>['societe_raison'=>$bail['soc_raison'] ?? '', 'agence_code'=>$bail['code_agence'] ?? '', 'agence_nom'=>$bail['nom_agence'] ?? '',
+                    'user_id'=>$userId, 'n1_slug'=>'03_gestion_locative', 'type_doc'=>'projet_bail',
+                    'entity_type'=>'BAIL', 'entity_id'=>$bailId, 'date_doc'=>date('Y-m-d'), 'source_filename'=>'Projet_bail.pdf'],
+            ],
+            [
+                ['entity_type'=>'BAIL','entity_id'=>$bailId,'relation_type'=>'main'],
+                ['entity_type'=>'BIEN','entity_id'=>$idBien,'relation_type'=>'reference'],
+            ]
+        );
+        return (int)($res['doc_id'] ?? 0);
+    }
+}

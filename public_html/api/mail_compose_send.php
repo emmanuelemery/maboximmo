@@ -64,15 +64,9 @@ $replyTo = filter_var($senderEmail, FILTER_VALIDATE_EMAIL) ? $senderEmail : '';
 // ── MODE SIGNATURE (cérémonie de bail) : PDF projet joint + lien PERSONNALISÉ par destinataire ──
 $signMode = ((string)($_POST['sign_mode'] ?? '') === '1') && $ctxType === 'BAIL';
 $signData = $signMode ? (json_decode((string)($_POST['sign_data'] ?? '{}'), true) ?: []) : [];
-if ($signMode) {
-    try {
-        require_once __DIR__ . '/../inc/bail_commercial_pdf.php';
-        require_once __DIR__ . '/../inc/bail_signature.php';
-        $tmpPdf = bail_commercial_build_pdf($pdo, $ctxId, true); // projet (filigrané)
-        $clean  = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'Bail_projet_' . $ctxId . '_' . bin2hex(random_bytes(3)) . '.pdf';
-        if (@copy($tmpPdf, $clean)) { $attachments[] = $clean; $attachTmp[] = $clean; @unlink($tmpPdf); } else { $attachments[] = $tmpPdf; }
-    } catch (Throwable $e) { error_log('[mail_compose_send bail pdf] ' . $e->getMessage()); }
-}
+// Le projet de bail est joint via la pièce GED sélectionnée (auto-cochée). On charge juste
+// bail_signature pour marquer les tokens comme envoyés.
+if ($signMode) { require_once __DIR__ . '/../inc/bail_signature.php'; }
 
 // Envoi
 $baseBodyEsc = nl2br(htmlspecialchars($corps, ENT_QUOTES, 'UTF-8'));
