@@ -26,7 +26,13 @@ if (!function_exists('bail_commercial_pdf_context')) {
     }
 
     /** Charge et normalise tout ce qu'il faut pour éditer le bail. */
-    function bail_commercial_pdf_context(PDO $pdo, int $bailId): ?array
+    /**
+     * Charge la LIGNE du bail enregistré (bien_baux + TOUTES les jointures : bien, immeuble,
+     * propriétaire + sa fiche juridique, candidat + sa fiche juridique). C'est la BASE COMMUNE
+     * au PDF et à l'aperçu live : en la partageant, « aperçu = PDF » est garanti par construction
+     * (l'aperçu superpose seulement les modifications en cours du formulaire).
+     */
+    function bail_commercial_bail_row(PDO $pdo, int $bailId): ?array
     {
         $sql = "SELECT bb.*,
             b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
@@ -51,7 +57,12 @@ if (!function_exists('bail_commercial_pdf_context')) {
             LEFT JOIN tiers tc        ON tc.id = bb.candidat_tiers_id
             WHERE bb.id = ? LIMIT 1";
         $st = $pdo->prepare($sql); $st->execute([$bailId]);
-        $bail = $st->fetch(PDO::FETCH_ASSOC);
+        return $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    function bail_commercial_pdf_context(PDO $pdo, int $bailId): ?array
+    {
+        $bail = bail_commercial_bail_row($pdo, $bailId);
         if (!$bail) return null;
         return bail_commercial_ctx_build($pdo, $bail);
     }

@@ -22,43 +22,36 @@ $body=json_decode(file_get_contents('php://input')?:'{}',true)?:[];
 $bienId=(int)($body['bien_id']??0);
 if ($bienId<=0) exit(json_encode(['ok'=>false,'error'=>'bien_id requis']));
 
-// Bien + immeuble + propriétaire (mêmes alias que la requête du contexte PDF).
-$sql = "SELECT b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
-        b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot AS bien_numero_lot_src, b.id_immeuble,
-        b.description AS bien_description, b.etage AS bien_etage,
-        b.bien_en_copropriete, b.lot_tantiemes AS bien_tantiemes_src, b.copro_nb_lots,
-        b.id_societe AS bien_soc, b.id_agence AS bien_age, b.id AS id_bien, b.id_proprietaire,
-        i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
-        p.id AS proprio_id, p.id_tiers AS proprio_tiers_id, tp.infos_juridiques_json AS proprio_juridique_json,
-        COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
-        COALESCE(NULLIF(tp.nom_affichage,''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom
-        FROM biens b
-        LEFT JOIN immeubles i     ON i.id = b.id_immeuble
-        LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
-        LEFT JOIN tiers tp        ON tp.id = p.id_tiers
-        WHERE b.id = ? LIMIT 1";
-$st=$pdo->prepare($sql); $st->execute([$bienId]); $b=$st->fetch(PDO::FETCH_ASSOC);
-if (!$b){ http_response_code(404); exit(json_encode(['ok'=>false,'error'=>'Bien introuvable'])); }
-if (!$isAdmin && !empty($b['bien_soc']) && (int)$b['bien_soc']!==$userSoc){ http_response_code(403); exit(json_encode(['ok'=>false,'error'=>'Hors périmètre'])); }
-
-// Base de GESTION (société/agence) + fiche du CANDIDAT, reprises du bail ENREGISTRÉ pour que
-// l'aperçu live corresponde au PDF final (le bien peut ne pas porter la société/agence ; elles
-// sont sur le bail — et la fiche du candidat porte les infos juridiques du preneur).
-$belBase = [];
+// ── BASE COMMUNE AU PDF (invariant « aperçu = PDF ») ──
+// En ÉDITION, on part de la LIGNE BAIL enregistrée (bien_baux + toutes les jointures), EXACTEMENT
+// la même que le PDF (bail_commercial_bail_row) ; puis on superpose plus bas les modifications du
+// formulaire. Ainsi tout champ NON édité (société/agence de gestion, fiches juridiques, DPE…) vient
+// de la base saved comme dans le PDF, et seuls les champs édités priment. Plus de colmatage.
 $bidPrev = (int)($body['bail_id'] ?? 0);
-if ($bidPrev > 0) {
-    try {
-        $qb = $pdo->prepare("SELECT bb.id_societe, bb.id_agence,
-                                    tc.infos_juridiques_json AS preneur_juridique_json,
-                                    tc.raison_sociale AS preneur_tiers_raison,
-                                    COALESCE(NULLIF(tc.nom_affichage,''), tc.raison_sociale, CONCAT_WS(' ', tc.prenom, tc.nom)) AS preneur_tiers_nom
-                               FROM bien_baux bb
-                               LEFT JOIN tiers tc ON tc.id = bb.candidat_tiers_id
-                              WHERE bb.id = ? LIMIT 1");
-        $qb->execute([$bidPrev]);
-        $belBase = $qb->fetch(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable $e) { $belBase = []; }
+$b = null;
+if ($bidPrev > 0) { try { $b = bail_commercial_bail_row($pdo, $bidPrev); } catch (Throwable $e) { $b = null; } }
+if (!$b) {
+    // CRÉATION (bail pas encore enregistré) : base = bien + propriétaire + sa fiche juridique.
+    $sql = "SELECT b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
+            b.code_postal AS bien_cp, b.surface_habitable, b.numero_lot AS bien_numero_lot_src, b.id_immeuble,
+            b.description AS bien_description, b.etage AS bien_etage,
+            b.bien_en_copropriete, b.lot_tantiemes AS bien_tantiemes_src, b.copro_nb_lots,
+            b.id_societe AS bien_soc, b.id_agence AS bien_age, b.id AS id_bien, b.id_proprietaire,
+            b.dpe_classe, b.ges_classe, b.dpe_valeur, b.ges_valeur, b.dpe_date_realisation,
+            i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
+            p.id AS proprio_id, p.id_tiers AS proprio_tiers_id, tp.infos_juridiques_json AS proprio_juridique_json,
+            COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
+            COALESCE(NULLIF(tp.nom_affichage,''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom
+            FROM biens b
+            LEFT JOIN immeubles i     ON i.id = b.id_immeuble
+            LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
+            LEFT JOIN tiers tp        ON tp.id = p.id_tiers
+            WHERE b.id = ? LIMIT 1";
+    $st=$pdo->prepare($sql); $st->execute([$bienId]); $b=$st->fetch(PDO::FETCH_ASSOC);
 }
+if (!$b){ http_response_code(404); exit(json_encode(['ok'=>false,'error'=>'Bien introuvable'])); }
+$scopeSoc = (int)($b['bien_soc'] ?? 0) ?: (int)($b['id_societe'] ?? 0);
+if (!$isAdmin && $scopeSoc && $scopeSoc!==$userSoc){ http_response_code(403); exit(json_encode(['ok'=>false,'error'=>'Hors périmètre'])); }
 
 // Helpers de mapping payload → colonnes bien_baux.
 $cand = is_array($body['candidat']??null) ? $body['candidat'] : [];
@@ -80,11 +73,8 @@ $bail = array_merge($b, [
     'numero_bail'            => (string)($body['numero_bail'] ?? ''),
     'bailleur_representant_nom'     => (string)($body['bailleur_representant_nom'] ?? ''),
     'bailleur_representant_qualite' => (string)($body['bailleur_representant_qualite'] ?? ''),
-    'id_societe'             => (int)($b['bien_soc'] ?? 0) ?: (int)($belBase['id_societe'] ?? 0),
-    'id_agence'              => (int)($b['bien_age'] ?? 0) ?: (int)($belBase['id_agence'] ?? 0),
-    'preneur_juridique_json' => (string)($belBase['preneur_juridique_json'] ?? ''),
-    'preneur_tiers_raison'   => (string)($belBase['preneur_tiers_raison'] ?? ''),
-    'preneur_tiers_nom'      => (string)($belBase['preneur_tiers_nom'] ?? ''),
+    'id_societe'             => (int)($b['bien_soc'] ?? 0) ?: (int)($b['id_societe'] ?? 0),
+    'id_agence'              => (int)($b['bien_age'] ?? 0) ?: (int)($b['id_agence'] ?? 0),
     'destination_activite'   => (string)($body['destination'] ?? ''),
     'date_prise_effet'       => $dateOk($body['date_prise_effet'] ?? ''),
     'prorata_date_debut'     => $dateOk($body['prorata_date_debut'] ?? ''),
