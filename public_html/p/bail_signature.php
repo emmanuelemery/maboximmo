@@ -190,7 +190,7 @@ $loyerA = ($sig['loyer_mensuel_hc'] ?? null) !== null ? (float)$sig['loyer_mensu
         <label class="fld">Recopiez la mention : « <?= $h($mentionAttendue) ?> »</label>
         <input type="text" name="mention_manuscrite" value="<?= $h($_POST['mention_manuscrite'] ?? '') ?>" placeholder="<?= $h($mentionAttendue) ?>" required>
 
-        <label class="fld">Date (inscrite de votre main)</label>
+        <label class="fld">Date</label>
         <input type="text" name="date_manuscrite" value="<?= $h($_POST['date_manuscrite'] ?? '') ?>" placeholder="Ex. <?= date('d/m/Y') ?>" required>
 
         <label class="fld">Signature (avec votre doigt)</label>
