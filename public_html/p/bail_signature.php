@@ -94,16 +94,22 @@ $perM  = (($cond['perio'] ?? '') === 'trimestrielle') ? 3 : 1;
 $perLbl = $perM === 3 ? 'trimestre' : 'mois';
 $loyM  = (float)($cond['loyer_m'] ?? ($sig['loyer_mensuel_hc'] ?? 0));
 $chM   = (float)($cond['charges_m'] ?? ($sig['charges_mensuelles'] ?? 0));
-$echLoyer  = $loyM * $perM;
-$echLoyerT = $tvaOn ? $echLoyer * (1 + $tvaT / 100) : $echLoyer;
-$totEcheance = $echLoyerT + $chM * $perM;                    // total dû à chaque terme (TTC si TVA)
+$tfM   = (float)($cond['prov_tf'] ?? 0);
+$echLoyerT = $tvaOn ? $loyM * $perM * (1 + $tvaT / 100) : $loyM * $perM;
+$totEcheance = $echLoyerT + $chM * $perM + $tfM * $perM;     // total dû à chaque terme (loyer TTC + charges + TF)
+// Prorata du 1er terme (mêmes règles que le bail) — sur loyer, charges ET taxe foncière.
+$prRatio = 1.0;
+$prRaw = ($cond['prorata_date'] ?? '') ?: ($cond['date_effet'] ?? ($sig['date_prise_effet'] ?? ''));
+if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$prRaw)) {
+    $pts = strtotime((string)$prRaw); $pm=(int)date('n',$pts); $pd=(int)date('j',$pts); $py=(int)date('Y',$pts);
+    if ($perM === 3) { $qs=intdiv($pm-1,3)*3+1; $qStart=mktime(0,0,0,$qs,1,$py); $qEnd=mktime(0,0,0,$qs+3,0,$py); $tot=(int)round(($qEnd-$qStart)/86400)+1; $rem=(int)round(($qEnd-$pts)/86400)+1; $prRatio=$tot>0?$rem/$tot:1.0; }
+    else { $dim=(int)date('t',$pts); $prRatio=$dim>0?($dim-$pd+1)/$dim:1.0; }
+}
 $dgM   = (float)($cond['dg_montant'] ?? 0);
 $deM   = (float)($cond['droit_entree'] ?? 0);
-$loyAn = (float)($cond['loyer_a'] ?? ($loyM * 12));
-$hpPren = $cond['hono_pct_pren'] ?? null;
-$honoP  = $hpPren !== null ? $loyAn * (float)$hpPren / 100 : (float)($cond['hono_loc'] ?? 0);
-$honoPT = $tvaOn ? $honoP * (1 + $tvaT / 100) : $honoP;
-$totSignature = $totEcheance + $dgM + $deM + $honoPT;        // 1er versement : 1er terme + DG + pas-de-porte + honoraires preneur
+// 1er versement = 1er terme PRORATISÉ (loyer+charges+TF) + DG + pas-de-porte. Honoraires NON comptés.
+$premierTerme = ($echLoyerT + $chM * $perM + $tfM * $perM) * $prRatio;
+$totSignature = $premierTerme + $dgM + $deM;
 $hasMontants = ($totEcheance > 0 || $totSignature > 0);
 ?>
 <!DOCTYPE html>

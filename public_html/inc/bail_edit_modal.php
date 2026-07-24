@@ -125,10 +125,10 @@ function bail_edit_modal(): void
           <label class="bel-f"><span>Provision taxe foncière / mois (€)</span><input type="number" step="0.01" id="bel-tf" placeholder="Ex. 250"></label>
           <label class="bel-f bel-check"><input type="checkbox" id="bel-tech" checked> <span>Honoraires gestion technique récupérables</span></label>
           <label class="bel-f bel-tech-only"><span>% gestion technique</span><input type="number" step="0.01" id="bel-tech-pct" value="1.5"></label>
-          <label class="bel-f"><span>Honoraires bailleur TTC (€)</span><input type="number" step="0.01" id="bel-hono-bail" placeholder="Ex. 2000"></label>
-          <label class="bel-f"><span>Honoraires locataire TTC (€)</span><input type="number" step="0.01" id="bel-hono-loc" placeholder="Ex. 8000"></label>
-          <label class="bel-f"><span>Honoraires % preneur (du loyer annuel)</span><input type="number" step="0.01" id="bel-hono-pct-pren" placeholder="Ex. 4"></label>
-          <label class="bel-f"><span>Honoraires % bailleur (du loyer annuel)</span><input type="number" step="0.01" id="bel-hono-pct-bail" placeholder="Ex. 4"></label>
+          <label class="bel-f"><span>Honoraires % preneur (du loyer annuel HT)</span><input type="number" step="0.01" id="bel-hono-pct-pren" placeholder="Ex. 8" oninput="belComputeHono()"></label>
+          <label class="bel-f"><span>Honoraires % bailleur (du loyer annuel HT)</span><input type="number" step="0.01" id="bel-hono-pct-bail" placeholder="Ex. 4" oninput="belComputeHono()"></label>
+          <label class="bel-f"><span>Honoraires preneur TTC (calculé)</span><input type="number" step="0.01" id="bel-hono-loc" placeholder="—" readonly style="background:#eef2f6;color:#334155;"></label>
+          <label class="bel-f"><span>Honoraires bailleur TTC (calculé)</span><input type="number" step="0.01" id="bel-hono-bail" placeholder="—" readonly style="background:#eef2f6;color:#334155;"></label>
           <label class="bel-f"><span>Pas-de-porte / droit d'entrée (€)</span><input type="number" step="0.01" id="bel-droit-entree" placeholder="Ex. 5000"></label>
           <label class="bel-f"><span>Clause pénale — taux de majoration (%)</span><input type="number" step="0.01" id="bel-taux-penalite" value="10"></label>
           <label class="bel-f"><span>Indice</span>
@@ -339,7 +339,17 @@ function bail_edit_modal(): void
   M.querySelector('.bel-form').addEventListener('input', render);
   M.querySelector('.bel-form').addEventListener('change', render);
 
-  function render(){ belSchedulePreview(); }
+  // Calcule les honoraires TTC (preneur + bailleur) = loyer annuel HT × % × 1,20 (TVA 20 %).
+  // Les champs TTC sont en lecture seule ; seules les saisies % pilotent le calcul.
+  window.belComputeHono = function(){
+    var loyerAn = parseFloat(v('bel-loyer')) || 0;
+    var pp = parseFloat(v('bel-hono-pct-pren'));
+    var pb = parseFloat(v('bel-hono-pct-bail'));
+    var el = g('bel-hono-loc'), eb = g('bel-hono-bail');
+    if (el) el.value = (!isNaN(pp) && loyerAn > 0) ? (loyerAn * pp / 100 * 1.20).toFixed(2) : '';
+    if (eb) eb.value = (!isNaN(pb) && loyerAn > 0) ? (loyerAn * pb / 100 * 1.20).toFixed(2) : '';
+  };
+  function render(){ if (window.belComputeHono) window.belComputeHono(); belSchedulePreview(); }
   // Ancien rendu JS conservé pour référence (NON utilisé — l'aperçu passe par le moteur PDF).
   function renderLegacy(){
     var mode = M._view || 'full';   // 'simple' (résumé) | 'full' (étoffé) — pilote le toggle
