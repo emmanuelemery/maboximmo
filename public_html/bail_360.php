@@ -876,38 +876,58 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         'url'  => app_url('/bien_360.php?id=' . $bail['bien_id']),
     ]]);
 
-    // Bailleur (propriétaire)
+    // ── CONTACTS DU BAIL — CARTE UNIQUE ──
+    // Regroupe bailleur + (représentant) + locataire + (représentant) + gestionnaire + acteurs
+    // génériques. Remplace les anciennes cartes séparées BAILLEUR / LOCATAIRE (consigne : tout
+    // dans une seule carte, chaque contact cliquable vers sa fiche tiers).
+    $contactsBail = [];
+
+    // Bailleur (propriétaire → fiche tiers)
     if (!empty($bail['proprio_id'])) {
-        fiche360_attach('BAILLEUR', [[
+        $contactsBail[] = [
             'icon' => '👤',
             'name' => $proprietaireNom,
-            'ref'  => !empty($bail['proprio_tiers_id']) ? 'tiers #' . $bail['proprio_tiers_id'] : 'propriétaire #' . $bail['proprio_id'],
+            'ref'  => 'Bailleur' . (!empty($bail['proprio_tiers_id']) ? ' · tiers #' . $bail['proprio_tiers_id'] : ''),
             'url'  => !empty($bail['proprio_tiers_id']) ? app_url('/tiers_360.php?id=' . $bail['proprio_tiers_id']) : app_url('/agency_proprietaires.php?q=' . urlencode($proprietaireNom)),
-        ]]);
+        ];
         if (!empty($bail['bailleur_representant_nom'])) {
-            fiche360_attach('REPRÉSENTANT BAILLEUR', [[
+            $contactsBail[] = [
                 'icon' => '👥',
                 'name' => $bail['bailleur_representant_nom'] . ($bail['bailleur_representant_qualite'] ? ' (' . $bail['bailleur_representant_qualite'] . ')' : ''),
-                'ref'  => $bail['bailleur_representant_email'] ?: $bail['bailleur_representant_telephone'] ?: '',
+                'ref'  => 'Représentant bailleur' . ($bail['bailleur_representant_email'] ? ' · ' . $bail['bailleur_representant_email'] : ''),
                 'url'  => $bail['bailleur_representant_email'] ? 'mailto:' . $bail['bailleur_representant_email'] : '#',
-            ]]);
+            ];
         }
     }
 
-    // Locataire
-    fiche360_attach('LOCATAIRE', [[
+    // Locataire : sur un PROJET, le tiers promu (loc_tiers_id) n'existe pas encore → on pointe la
+    // fiche du CANDIDAT (candidat_tiers_id). Corrige le lien qui renvoyait à l'accueil.
+    $locTiersLink = (int)($bail['loc_tiers_id'] ?? 0) ?: (int)($bail['candidat_tiers_id'] ?? 0);
+    $contactsBail[] = [
         'icon' => '🔑',
         'name' => $locataireNom,
-        'ref'  => !empty($bail['loc_tiers_id']) ? 'tiers #' . $bail['loc_tiers_id'] : '',
-        'url'  => !empty($bail['loc_tiers_id']) ? app_url('/tiers_360.php?id=' . $bail['loc_tiers_id']) : '#',
-    ]]);
+        'ref'  => 'Locataire' . ($locTiersLink ? ' · tiers #' . $locTiersLink : ''),
+        'url'  => $locTiersLink ? app_url('/tiers_360.php?id=' . $locTiersLink) : '#',
+    ];
     if (!empty($bail['locataire_representant_nom'])) {
-        fiche360_attach('REPRÉSENTANT LOCATAIRE', [[
+        $contactsBail[] = [
             'icon' => '👥',
             'name' => $bail['locataire_representant_nom'] . ($bail['locataire_representant_qualite'] ? ' (' . $bail['locataire_representant_qualite'] . ')' : ''),
-            'ref'  => $bail['locataire_representant_email'] ?: $bail['locataire_representant_telephone'] ?: '',
+            'ref'  => 'Représentant locataire' . ($bail['locataire_representant_email'] ? ' · ' . $bail['locataire_representant_email'] : ''),
             'url'  => $bail['locataire_representant_email'] ? 'mailto:' . $bail['locataire_representant_email'] : '#',
-        ]]);
+        ];
+    }
+
+    // Gestionnaire (société de gestion + agence)
+    $gestNom = (string)($socRow['raison_sociale'] ?? '');
+    if ($gestNom !== '') {
+        $ageNom = (string)($ageRow['nom_agence'] ?? '');
+        $contactsBail[] = [
+            'icon' => '🏢',
+            'name' => $gestNom . ($ageNom ? ' — ' . $ageNom : ''),
+            'ref'  => 'Gestionnaire',
+            'url'  => '#',
+        ];
     }
 
     // Contacts génériques du bail (socle acteurs) — DÉFENSIF : ne casse jamais la colonne.
@@ -919,7 +939,8 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
             if (function_exists('entite_acteurs_header_button')) $eaBailBtn   = entite_acteurs_header_button('ea_bail', 'BAIL', $bailId, csrf_token('default'));
         }
     } catch (\Throwable $e) { $eaBailBtn = ''; }
-    fiche360_attach('CONTACTS (' . count($eaBailLinks) . ')', $eaBailLinks, $eaBailBtn);
+    $contactsBail = array_merge($contactsBail, is_array($eaBailLinks) ? $eaBailLinks : []);
+    fiche360_attach('CONTACTS (' . count($contactsBail) . ')', $contactsBail, $eaBailBtn);
 
     ?>
 
