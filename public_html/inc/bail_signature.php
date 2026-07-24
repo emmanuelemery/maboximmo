@@ -101,6 +101,14 @@ if (!function_exists('bsig_create_for_signataires')) {
             $q->execute([$idSoc]);
             if ($r = $q->fetch(PDO::FETCH_ASSOC)) { $agenceNom = (string)($r['raison_sociale'] ?? ''); $agenceEmail = (string)($r['email'] ?? ''); }
         } catch (Throwable) {} }
+        // Mandataire = l'UTILISATEUR CONNECTÉ (celui qui envoie) en priorité, pas l'email
+        // générique de la société. Repli sur l'email société si l'user n'en a pas.
+        if ($idUser) { try {
+            $q = $pdo->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+            $q->execute([(int)$idUser]);
+            $ue = trim((string)($q->fetchColumn() ?: ''));
+            if ($ue !== '' && filter_var($ue, FILTER_VALIDATE_EMAIL)) $agenceEmail = $ue;
+        } catch (Throwable) {} }
 
         // Cérémonie : preneur → agence → bailleur (+ garant si présent). Tous reçoivent leur lien ;
         // le bail signé n'est distribué qu'une fois TOUTES les signatures recueillies (auto-finalisation).

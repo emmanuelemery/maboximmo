@@ -126,7 +126,7 @@ if ($signMode) {
         }
         $signPrefill = [
             'subject' => 'Signature de votre bail commercial' . ($immAdr !== '' ? ' — ' . $immAdr : ' — ' . $title),
-            'body'    => "Bonjour,\n\nNous sommes heureux de vous transmettre votre bail commercial, prêt à être signé.\n\nLa signature se fait très simplement depuis votre téléphone : ouvrez cet email sur votre mobile, cliquez sur le lien ci-dessous, lisez le bail puis signez avec votre doigt.\n\n{{LIEN_SIGNATURE}}\n\n" . ($montantTxt ? $montantTxt . "\n\n" : '') . "La signature définitive sera conditionnée à la réception du virement des fonds demandés à la signature.\n\n{{BLOC_PRENEUR}}\n\nLe projet de bail est joint à cet email. Lien valable 48 heures ; votre signature est horodatée et tracée (adresse IP) à des fins de preuve." . $signature,
+            'body'    => "Bonjour,\n\nNous sommes heureux de vous transmettre votre bail commercial, prêt à être signé.\n\nLa signature se fait très simplement depuis votre téléphone : ouvrez cet email sur votre mobile, cliquez sur le lien ci-dessous, lisez le bail puis signez avec votre doigt.\n\n{{LIEN_SIGNATURE}}\n\n" . ($montantTxt ? $montantTxt . "\n\n" : '') . "La signature définitive sera conditionnée à la réception du virement des fonds demandés à la signature.\n\n{{BLOC_PRENEUR}}\n\nLe projet de bail est joint à cet email. Lien valable 48 heures ; votre signature est horodatée et tracée (adresse IP) à des fins de preuve.\n\nNous vous remercions de votre confiance et restons à votre entière disposition pour toute question." . $signature,
             'to'      => $to,
             'docs'    => $signDocs,
         ];
