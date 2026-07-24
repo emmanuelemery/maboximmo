@@ -837,22 +837,27 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $h .= '<p><b>Récapitulatif des sommes versées par le PRENEUR à chaque terme :</b></p>';
         $h .= '<table class="tbl"><thead><tr><th>Somme versée par le LOCATAIRE à chaque terme</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $rows . '</tbody></table>';
 
-        // Somme à verser à la SIGNATURE (1er versement) : 1er terme + DG + droit d'entrée + honoraires preneur.
-        $perM = $c['perio'] === 'trimestrielle' ? 3 : 1;
-        $fp = [];
-        $loy1 = (float)($c['loyer_m'] ?? 0) * $perM;
-        if ($loy1) $fp[] = ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance)' . ($tvaOn ? ' TTC' : ' HT'), $tvaOn ? $loy1 * (1 + $tvaTaux / 100) : $loy1];
-        if ((float)($c['charges_m'] ?? 0)) $fp[] = ['Provision pour charges', (float)$c['charges_m'] * $perM];
-        if ($c['dg_montant']) $fp[] = ['Dépôt de garantie', (float)$c['dg_montant']];
-        if ($c['droit_entree']) $fp[] = ['Pas-de-porte / droit d\'entrée', (float)$c['droit_entree']];
-        if ($honoPrenM) $fp[] = ['Honoraires à la charge du preneur' . ($tvaOn ? ' TTC' : ''), $tvaOn ? $honoPrenM * (1 + $tvaTaux / 100) : $honoPrenM];
-        if ($fp) {
-            $fpRows = ''; $fpTot = 0;
-            foreach ($fp as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . bcp_eur($l[1]) . ' €</td></tr>'; $fpTot += $l[1]; }
-            $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . bcp_eur($fpTot) . ' €</b></td></tr>';
-            $h .= '<p><b>Somme à verser par le PRENEUR à la signature (1ᵉʳ versement) :</b></p>';
-            $h .= '<table class="tbl"><thead><tr><th>Nature</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $fpRows . '</tbody></table>';
-        }
+        // Somme à verser à la SIGNATURE (1er versement) — TOUJOURS affichée (partie essentielle du
+        // bail), même si des montants restent à compléter (……) : 1er terme + DG + pas-de-porte + honoraires preneur.
+        $perM  = ($c['perio'] ?? '') === 'trimestrielle' ? 3 : 1;
+        $loy1  = (float)($c['loyer_m'] ?? 0) * $perM;
+        $loy1T = $tvaOn ? $loy1 * (1 + $tvaTaux / 100) : $loy1;
+        $ch1   = (float)($c['charges_m'] ?? 0) * $perM;
+        $dg1   = (float)($c['dg_montant'] ?? 0);
+        $de1   = (float)($c['droit_entree'] ?? 0);
+        $ho1   = $honoPrenM ? ($tvaOn ? (float)$honoPrenM * (1 + $tvaTaux / 100) : (float)$honoPrenM) : 0.0;
+        $fpDef = [
+            ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance)' . ($tvaOn ? ' TTC' : ' HT'), $loy1T],
+            ['Provision pour charges', $ch1],
+            ['Dépôt de garantie', $dg1],
+            ['Pas-de-porte / droit d\'entrée', $de1],
+            ['Honoraires à la charge du preneur' . ($tvaOn ? ' TTC' : ''), $ho1],
+        ];
+        $fpRows = ''; $fpTot = 0.0;
+        foreach ($fpDef as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . ((float)$l[1] > 0 ? bcp_eur($l[1]) . ' €' : '……………') . '</td></tr>'; $fpTot += (float)$l[1]; }
+        $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . ($fpTot > 0 ? bcp_eur($fpTot) . ' €' : '……………') . '</b></td></tr>';
+        $h .= '<p><b>Somme à verser par le PRENEUR à la signature (1ᵉʳ versement) :</b></p>';
+        $h .= '<table class="tbl"><thead><tr><th>Nature</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $fpRows . '</tbody></table>';
 
         // DPE réel du bien (pour l'article 13) + liste des diagnostics annexés (article 27).
         $dpe = $ctx['dpe'] ?? [];

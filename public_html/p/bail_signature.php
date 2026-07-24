@@ -84,6 +84,27 @@ $adresse = trim(($sig['bien_adresse'] ?? '') . ' ' . ($sig['bien_cp'] ?? '') . '
 $preneur = $sig['locataire_raison_sociale'] ?: trim((string)($sig['locataire_prenom'] ?? '') . ' ' . ($sig['locataire_nom'] ?? ''));
 $roleLbl = $isCaution ? 'la caution (garant)' : 'le preneur';
 $loyerA = ($sig['loyer_mensuel_hc'] ?? null) !== null ? (float)$sig['loyer_mensuel_hc'] * 12 : null;
+
+// Montants à payer — mêmes règles que le bail (récap par terme + 1er versement à la signature).
+$eur2 = static fn($v) => $v !== null && $v !== '' ? number_format((float)$v, 2, ',', ' ') . ' €' : '—';
+$cond = is_array($ctx['cond'] ?? null) ? $ctx['cond'] : [];
+$tvaOn = !empty($cond['tva_app']);
+$tvaT  = (float)($cond['tva_taux'] ?? 20) ?: 20.0;
+$perM  = (($cond['perio'] ?? '') === 'trimestrielle') ? 3 : 1;
+$perLbl = $perM === 3 ? 'trimestre' : 'mois';
+$loyM  = (float)($cond['loyer_m'] ?? ($sig['loyer_mensuel_hc'] ?? 0));
+$chM   = (float)($cond['charges_m'] ?? ($sig['charges_mensuelles'] ?? 0));
+$echLoyer  = $loyM * $perM;
+$echLoyerT = $tvaOn ? $echLoyer * (1 + $tvaT / 100) : $echLoyer;
+$totEcheance = $echLoyerT + $chM * $perM;                    // total dû à chaque terme (TTC si TVA)
+$dgM   = (float)($cond['dg_montant'] ?? 0);
+$deM   = (float)($cond['droit_entree'] ?? 0);
+$loyAn = (float)($cond['loyer_a'] ?? ($loyM * 12));
+$hpPren = $cond['hono_pct_pren'] ?? null;
+$honoP  = $hpPren !== null ? $loyAn * (float)$hpPren / 100 : (float)($cond['hono_loc'] ?? 0);
+$honoPT = $tvaOn ? $honoP * (1 + $tvaT / 100) : $honoP;
+$totSignature = $totEcheance + $dgM + $deM + $honoPT;        // 1er versement : 1er terme + DG + pas-de-porte + honoraires preneur
+$hasMontants = ($totEcheance > 0 || $totSignature > 0);
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -143,12 +164,13 @@ $loyerA = ($sig['loyer_mensuel_hc'] ?? null) !== null ? (float)$sig['loyer_mensu
     <div class="sub"><?= $h($sig['numero_bail'] ?: '') ?> · <?= $h($sig['designation'] ?: $sig['reference_bien']) ?> · Vous signez en tant que <strong><?= $h($roleLbl) ?></strong></div>
 
     <div class="terms">
-      <div class="row"><span class="k">Local</span><span class="v"><?= $h($sig['reference_bien']) ?></span></div>
-      <?php if ($adresse !== ''): ?><div class="row"><span class="k">Adresse</span><span class="v"><?= $h($adresse) ?></span></div><?php endif; ?>
+      <div class="row"><span class="k">Local</span><span class="v"><?= $h($adresse !== '' ? $adresse : $sig['reference_bien']) ?></span></div>
       <div class="row"><span class="k">Preneur</span><span class="v"><?= $h($preneur ?: '—') ?></span></div>
-      <div class="row"><span class="k">Loyer annuel HT</span><span class="v"><?= $h($eur($loyerA)) ?></span></div>
-      <div class="row"><span class="k">Charges / mois</span><span class="v"><?= $h($eur($sig['charges_mensuelles'] ?? null)) ?></span></div>
       <div class="row"><span class="k">Prise d'effet</span><span class="v"><?= $h($fmtDate($sig['date_prise_effet'] ?? null)) ?></span></div>
+      <?php if ($hasMontants): ?>
+      <div class="row"><span class="k">Total par <?= $h($perLbl) ?><?= $tvaOn ? ' (TTC)' : '' ?></span><span class="v"><?= $h($eur2($totEcheance)) ?></span></div>
+      <div class="row"><span class="k"><strong>Total à verser à la signature</strong></span><span class="v"><strong><?= $h($eur2($totSignature)) ?></strong></span></div>
+      <?php endif; ?>
     </div>
 
     <?php if ($bailHtml !== ''): ?>
