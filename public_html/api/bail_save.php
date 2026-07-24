@@ -59,6 +59,11 @@ $techPct=($body['honoraires_tech_pct']??null)!==null&&$body['honoraires_tech_pct
 $honoBail=($body['honoraires_bailleur']??null)!==null&&$body['honoraires_bailleur']!==''?(float)$body['honoraires_bailleur']:null;
 $honoLoc=($body['honoraires_locataire']??null)!==null&&$body['honoraires_locataire']!==''?(float)$body['honoraires_locataire']:null;
 $honoChg=($honoBail!==null&&$honoLoc!==null)?'partage':($honoBail!==null?'bailleur':'locataire');
+// Champs modèle FNAIM (migration 20260724c) — persistés en UPDATE défensif séparé.
+$tauxPen=($body['taux_penalite']??null)!==null&&$body['taux_penalite']!==''?(float)$body['taux_penalite']:10.0;
+$droitEnt=($body['droit_entree']??null)!==null&&$body['droit_entree']!==''?(float)$body['droit_entree']:null;
+$hpPren=($body['honoraires_pct_preneur']??null)!==null&&$body['honoraires_pct_preneur']!==''?(float)$body['honoraires_pct_preneur']:null;
+$hpBail=($body['honoraires_pct_bailleur']??null)!==null&&$body['honoraires_pct_bailleur']!==''?(float)$body['honoraires_pct_bailleur']:null;
 $cpGen=trim((string)($body['conditions_particulieres']??''))?:null;
 $cpLoyer=trim((string)($body['conditions_particulieres_loyer']??''))?:null;
 $bienDesig=trim((string)($body['bien_designation']??''))?:null;
@@ -80,7 +85,7 @@ $sql="UPDATE bien_baux SET
     indice_type=?, indice_trimestre=?, indice_valeur=?, depot_garantie=?, nb_termes_garantie=?,
     locataire_type=?, locataire_nom=?, locataire_prenom=?, locataire_raison_sociale=?,
     locataire_siren=?, locataire_email=?, locataire_telephone=?,
-    locataire_representant_nom=?, locataire_representant_qualite=?,
+    locataire_representant_nom=?, locataire_representant_qualite=?, locataire_representant_email=?,
     locataire_adresse=?, locataire_date_naissance=?, locataire_lieu_naissance=?, locataire_nationalite=?,
     garant_present=?, garant_type=?, garant_nom=?, garant_prenom=?, garant_raison_sociale=?, garant_siren=?,
     garant_adresse=?, garant_date_naissance=?, garant_lieu_naissance=?, garant_email=?, garant_telephone=?,
@@ -107,6 +112,7 @@ try {
         ($candType==='societe'?$candRaison:null),
         trim((string)($cand['siren']??''))?:null, trim((string)($cand['email']??''))?:null, trim((string)($cand['telephone']??''))?:null,
         trim((string)($cand['representant_nom']??''))?:null, trim((string)($cand['representant_qualite']??''))?:null,
+        trim((string)($cand['representant_email']??''))?:null,
         $candAdresse?:null, $candNaissD, $candNaissL?:null, $candNat?:null,
         $garPresent, ($garPresent?$garType:null),
         ($garPresent&&$garType==='physique'?trim((string)($gar['nom']??'')):null), ($garPresent&&$garType==='physique'?trim((string)($gar['prenom']??'')):null),
@@ -122,6 +128,25 @@ try {
         $bailId,
     ]);
 } catch (Throwable $e) { http_response_code(500); exit(json_encode(['ok'=>false,'error'=>'Enregistrement échoué : '.$e->getMessage()], JSON_UNESCAPED_UNICODE)); }
+
+// Champs FNAIM (défensif : colonnes migration 20260724c — n'échoue pas si prod pas encore migrée).
+try {
+    if ($pdo->query("SHOW COLUMNS FROM bien_baux LIKE 'taux_penalite'")->fetch()) {
+        $pdo->prepare("UPDATE bien_baux SET taux_penalite=?, droit_entree=?, honoraires_pct_preneur=?, honoraires_pct_bailleur=? WHERE id=?")
+            ->execute([$tauxPen, $droitEnt, $hpPren, $hpBail, $bailId]);
+    }
+} catch (Throwable) {}
+
+// Représentant du bailleur (signataire) : saisi ici, il PRIME sur le dirigeant repris de la fiche
+// (ex. changement de gérant). Défensif : n'échoue pas si la colonne n'existe pas.
+try {
+    if ($pdo->query("SHOW COLUMNS FROM bien_baux LIKE 'bailleur_representant_nom'")->fetch()) {
+        $bRepNom = trim((string)($body['bailleur_representant_nom'] ?? ''));
+        $bRepQ   = trim((string)($body['bailleur_representant_qualite'] ?? ''));
+        $pdo->prepare("UPDATE bien_baux SET bailleur_representant_nom=?, bailleur_representant_qualite=? WHERE id=?")
+            ->execute([$bRepNom ?: null, $bRepQ ?: null, $bailId]);
+    }
+} catch (Throwable) {}
 
 echo json_encode(['ok'=>true,'bail_id'=>$bailId,'message'=>'Projet de bail mis à jour.',
     'redirect'=>(function_exists('app_url')?app_url('/bail_360.php?id='.$bailId):'/bail_360.php?id='.$bailId)], JSON_UNESCAPED_UNICODE);

@@ -40,6 +40,13 @@ function bail_edit_modal(): void
       <div class="bel-form">
         <p class="bel-hint">Société, agence, propriétaire, immeuble et bien sont repris de la base. Tu complètes le candidat et les conditions ; l'aperçu se met à jour à gauche.</p>
 
+        <div class="bel-sec">🏛️ Bailleur — signataire</div>
+        <div class="bel-grid">
+          <label class="bel-f"><span>Représentant du bailleur (signataire)</span><input type="text" id="bel-bailleur-rep" placeholder="Ex. Thomas Saby"></label>
+          <label class="bel-f"><span>Qualité</span><input type="text" id="bel-bailleur-repq" placeholder="Gérant, Président…"></label>
+          <div class="bel-f bel-wide"><span class="bel-up-hint">Laisse vide pour reprendre automatiquement le dirigeant de la fiche (annuaire). Renseigne ici pour <b>remplacer</b> le dirigeant repris (ex. changement de gérant).</span></div>
+        </div>
+
         <div class="bel-sec">👤 Candidat locataire</div>
         <div class="bel-upload">
           <button type="button" class="bel-up-btn" onclick="bailOpenCandDocs()">📎 Charger les documents du candidat (GED)</button>
@@ -725,6 +732,7 @@ function bail_edit_modal(): void
      'bel-garant-birthdate','bel-garant-birthplace','bel-garant-email','bel-garant-tel',
      'bel-garant-montant','bel-garant-duree','bel-tf','bel-hono-bail','bel-hono-loc','bel-cp','bel-cp-loyer',
      'bel-hono-pct-pren','bel-hono-pct-bail','bel-droit-entree',
+     'bel-bailleur-rep','bel-bailleur-repq',
      'bel-bien-desig','bel-lot','bel-tantiemes','bel-prorata-date','bel-travaux-realises','bel-travaux-prevus'].forEach(function(id){ var e=g(id); if(e) e.value=''; });
     g('bel-cand-type').value='societe'; g('bel-duree').value='108'; g('bel-indice').value='ILC';
     var tp0=g('bel-taux-penalite'); if(tp0) tp0.value='10';
@@ -739,6 +747,7 @@ function bail_edit_modal(): void
   function fillForm(val){
     val=val||{};
     var set=function(id,v){ var e=g(id); if(e && v!=null && v!=='') e.value=String(v); };
+    set('bel-bailleur-rep', val.bailleur_representant_nom); set('bel-bailleur-repq', val.bailleur_representant_qualite);
     g('bel-cand-type').value = (val.locataire_type==='physique'?'physique':'societe');
     set('bel-cand-raison', val.locataire_raison_sociale); set('bel-cand-siren', val.locataire_siren);
     set('bel-cand-nom', val.locataire_nom); set('bel-cand-prenom', val.locataire_prenom);
@@ -848,6 +857,8 @@ function bail_edit_modal(): void
     return {
       bail_id: M._editId || undefined,
       bien_id: M._bienId, origin: M._origin,
+      bailleur_representant_nom: v('bel-bailleur-rep'),
+      bailleur_representant_qualite: v('bel-bailleur-repq'),
       candidat: { type:type, raison_sociale:v('bel-cand-raison'), siren:v('bel-cand-siren'),
         nom:v('bel-cand-nom'), prenom:v('bel-cand-prenom'), email:v('bel-cand-email'),
         telephone:v('bel-cand-tel'), representant_nom:v('bel-cand-rep'),

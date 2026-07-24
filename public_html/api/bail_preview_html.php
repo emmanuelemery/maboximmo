@@ -59,6 +59,8 @@ $honoLoc  = ($body['honoraires_locataire'] ?? null) !== null && $body['honoraire
 $bail = array_merge($b, [
     'statut'                 => 'projet',
     'numero_bail'            => (string)($body['numero_bail'] ?? ''),
+    'bailleur_representant_nom'     => (string)($body['bailleur_representant_nom'] ?? ''),
+    'bailleur_representant_qualite' => (string)($body['bailleur_representant_qualite'] ?? ''),
     'id_societe'             => (int)($b['bien_soc'] ?? 0),
     'id_agence'              => (int)($b['bien_age'] ?? 0),
     'destination_activite'   => (string)($body['destination'] ?? ''),

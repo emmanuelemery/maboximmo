@@ -282,6 +282,7 @@ if ($isProjetBail) {
             'rib_nom'   => (string)($ribGBail['banque'] ?: $ribGBail['titulaire']),
         ],
         'values' => [
+            'bailleur_representant_nom'=>$bail['bailleur_representant_nom'] ?? null, 'bailleur_representant_qualite'=>$bail['bailleur_representant_qualite'] ?? null,
             'locataire_type'=>$bail['locataire_type'], 'locataire_raison_sociale'=>$bail['locataire_raison_sociale'],
             'locataire_siren'=>$bail['locataire_siren'], 'locataire_nom'=>$bail['locataire_nom'], 'locataire_prenom'=>$bail['locataire_prenom'],
             'locataire_email'=>$bail['locataire_email'], 'locataire_telephone'=>$bail['locataire_telephone'],
