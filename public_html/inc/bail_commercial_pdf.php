@@ -832,7 +832,8 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $rows .= '<tr><td>Loyer</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m']) . ' €' : '&nbsp;') . '</td></tr>';
         if ($tvaOn) $rows .= '<tr><td>TVA (' . rtrim(rtrim(number_format($tvaTaux,2,',',''),'0'),',') . ' %)</td><td style="text-align:right;">' . ($c['loyer_m'] ? bcp_eur($c['loyer_m'] * $tvaTaux/100) . ' €' : '&nbsp;') . '</td></tr>';
         $rows .= '<tr><td>Provision pour charges</td><td style="text-align:right;">' . ($c['charges_m'] !== null ? bcp_eur($c['charges_m']) . ' €' : '&nbsp;') . '</td></tr>';
-        $totT = (float)($c['loyer_m'] ?? 0) * ($tvaOn ? (1+$tvaTaux/100) : 1) + (float)($c['charges_m'] ?? 0);
+        if ((float)($c['prov_tf'] ?? 0) > 0) $rows .= '<tr><td>Provision taxe foncière</td><td style="text-align:right;">' . bcp_eur($c['prov_tf']) . ' €</td></tr>';
+        $totT = (float)($c['loyer_m'] ?? 0) * ($tvaOn ? (1+$tvaTaux/100) : 1) + (float)($c['charges_m'] ?? 0) + (float)($c['prov_tf'] ?? 0);
         $rows .= '<tr><td><b>Soit un total de</b></td><td style="text-align:right;"><b>' . ($totT>0 ? bcp_eur($totT) . ' €' : '&nbsp;') . '</b></td></tr>';
         $h .= '<p><b>Récapitulatif des sommes versées par le PRENEUR à chaque terme :</b></p>';
         $h .= '<table class="tbl"><thead><tr><th>Somme versée par le LOCATAIRE à chaque terme</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $rows . '</tbody></table>';
@@ -859,16 +860,18 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $loy1  = (float)($c['loyer_m'] ?? 0) * $perM * $prRatio;
         $loy1T = $tvaOn ? $loy1 * (1 + $tvaTaux / 100) : $loy1;
         $ch1   = (float)($c['charges_m'] ?? 0) * $perM * $prRatio;
+        $tf1   = (float)($c['prov_tf'] ?? 0) * $perM * $prRatio;
         $dg1   = (float)($c['dg_montant'] ?? 0);
         $de1   = (float)($c['droit_entree'] ?? 0);
         $ho1   = $honoPrenM ? (float)$honoPrenM * 1.20 : 0.0; // honoraires = service agence, TVA 20 %
         $fpDef = [
             ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance' . $prTxt . ')' . ($tvaOn ? ' TTC' : ' HT'), $loy1T],
             ['Provision pour charges' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $ch1],
-            ['Dépôt de garantie', $dg1],
-            ['Pas-de-porte / droit d\'entrée', $de1],
-            ['Honoraires à la charge du preneur TTC', $ho1],
         ];
+        if ($tf1 > 0) $fpDef[] = ['Provision taxe foncière' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $tf1];
+        $fpDef[] = ['Dépôt de garantie', $dg1];
+        $fpDef[] = ['Pas-de-porte / droit d\'entrée', $de1];
+        $fpDef[] = ['Honoraires à la charge du preneur TTC', $ho1];
         $fpRows = ''; $fpTot = 0.0;
         foreach ($fpDef as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . ((float)$l[1] > 0 ? bcp_eur($l[1]) . ' €' : '……………') . '</td></tr>'; $fpTot += (float)$l[1]; }
         $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . ($fpTot > 0 ? bcp_eur($fpTot) . ' €' : '……………') . '</b></td></tr>';
