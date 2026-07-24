@@ -82,8 +82,8 @@ if ($signMode) {
     require_once __DIR__ . '/inc/bail_commercial_pdf.php';
     try {
         $sigs = bsig_create_for_signataires($pdo, $ctxId, (int)current_user_id());
-        // Bloc PRENEUR : total à verser + RIB de gestion + attestation (preneur uniquement).
-        $preneurBlock = '';
+        // Montant à verser = pour TOUT LE MONDE (dans le corps). RIB + attestation = preneur uniquement.
+        $preneurBlock = ''; $montantTxt = '';
         try {
             $ctxB = bail_commercial_pdf_context($pdo, $ctxId);
             if ($ctxB) {
@@ -98,8 +98,8 @@ if ($signMode) {
                 $honoP=$hpP!==null?$loyAn*(float)$hpP/100*1.20:(float)($cc['hono_loc'] ?? 0);
                 $totSign=($echBaseT+$chM*$perM+$tfM*$perM)*$prR+$dgM+$deM+$honoP;
                 $rib = !empty($ge['rib_iban']) ? ('<p style="background:#f4f7f7;border:1px solid #dbe6e6;border-radius:8px;padding:10px 12px;"><strong>RIB de gestion de l\'agence (versement)</strong><br>'.($ge['rib_nom']?htmlspecialchars((string)$ge['rib_nom']).'<br>':'').'IBAN : <strong>'.htmlspecialchars((string)$ge['rib_iban']).'</strong>'.($ge['rib_bic']?' &middot; BIC : <strong>'.htmlspecialchars((string)$ge['rib_bic']).'</strong>':'').'</p>') : '';
-                $preneurBlock = ($totSign>0 ? '<p><strong>Montant total à verser à la signature : '.number_format($totSign,2,',',' ').' €</strong><br>Merci de régler l\'intégralité des sommes par virement sur le RIB ci-dessous.</p>' : '')
-                    . $rib
+                $montantTxt = $totSign > 0 ? 'Montant total à verser à la signature : ' . number_format($totSign, 2, ',', ' ') . ' €' : '';
+                $preneurBlock = ($rib ? '<p>Merci de régler <strong>l\'intégralité des sommes</strong> par virement sur le RIB ci-dessous.</p>' . $rib : '')
                     . '<p>Pour prendre possession des lieux, merci de nous transmettre votre <strong>attestation d\'assurance</strong> (vous pourrez la joindre au moment de la signature).</p>';
             }
         } catch (Throwable $e) {}
@@ -125,7 +125,7 @@ if ($signMode) {
         }
         $signPrefill = [
             'subject' => 'Signature de votre bail commercial — ' . $title,
-            'body'    => "Bonjour,\n\nNous sommes heureux de vous transmettre votre bail commercial, prêt à être signé.\n\nLa signature se fait très simplement depuis votre téléphone : ouvrez cet email sur votre mobile, cliquez sur le lien ci-dessous, lisez le bail puis signez avec votre doigt.\n\n{{LIEN_SIGNATURE}}\n\n{{BLOC_PRENEUR}}\n\nLe projet de bail est joint à cet email. Lien valable 48 heures ; votre signature est horodatée et tracée (adresse IP) à des fins de preuve." . $signature,
+            'body'    => "Bonjour,\n\nNous sommes heureux de vous transmettre votre bail commercial, prêt à être signé.\n\nLa signature se fait très simplement depuis votre téléphone : ouvrez cet email sur votre mobile, cliquez sur le lien ci-dessous, lisez le bail puis signez avec votre doigt.\n\n{{LIEN_SIGNATURE}}\n\n" . ($montantTxt ? $montantTxt . "\n\n" : '') . "{{BLOC_PRENEUR}}\n\nLe projet de bail est joint à cet email. Lien valable 48 heures ; votre signature est horodatée et tracée (adresse IP) à des fins de preuve." . $signature,
             'to'      => $to,
             'docs'    => $signDocs,
         ];
