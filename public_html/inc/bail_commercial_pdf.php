@@ -840,18 +840,34 @@ if (!function_exists('bail_commercial_pdf_context')) {
         // Somme à verser à la SIGNATURE (1er versement) — TOUJOURS affichée (partie essentielle du
         // bail), même si des montants restent à compléter (……) : 1er terme + DG + pas-de-porte + honoraires preneur.
         $perM  = ($c['perio'] ?? '') === 'trimestrielle' ? 3 : 1;
-        $loy1  = (float)($c['loyer_m'] ?? 0) * $perM;
+
+        // PRORATA du 1er terme (loyer + charges) selon « Loyer calculé à partir du » (prorata_date),
+        // sinon la prise d'effet. Impératif : le 1er versement est proratisé (mois ou trimestre civil).
+        $prRatio = 1.0; $prTxt = '';
+        $prRaw = ($c['prorata_date'] ?? '') ?: ($c['date_effet'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$prRaw)) {
+            $pts = strtotime((string)$prRaw); $py=(int)date('Y',$pts); $pm=(int)date('n',$pts); $pd=(int)date('j',$pts);
+            if ($perM === 3) {
+                $qs = intdiv($pm-1,3)*3+1; $qStart=mktime(0,0,0,$qs,1,$py); $qEnd=mktime(0,0,0,$qs+3,0,$py);
+                $tot=(int)round(($qEnd-$qStart)/86400)+1; $rem=(int)round(($qEnd-$pts)/86400)+1; $prRatio = $tot>0 ? $rem/$tot : 1.0;
+            } else {
+                $dim=(int)date('t',$pts); $prRatio = $dim>0 ? ($dim-$pd+1)/$dim : 1.0;
+            }
+            if ($prRatio < 0.9999) $prTxt = ', prorata au ' . date('d/m/Y',$pts);
+        }
+
+        $loy1  = (float)($c['loyer_m'] ?? 0) * $perM * $prRatio;
         $loy1T = $tvaOn ? $loy1 * (1 + $tvaTaux / 100) : $loy1;
-        $ch1   = (float)($c['charges_m'] ?? 0) * $perM;
+        $ch1   = (float)($c['charges_m'] ?? 0) * $perM * $prRatio;
         $dg1   = (float)($c['dg_montant'] ?? 0);
         $de1   = (float)($c['droit_entree'] ?? 0);
-        $ho1   = $honoPrenM ? ($tvaOn ? (float)$honoPrenM * (1 + $tvaTaux / 100) : (float)$honoPrenM) : 0.0;
+        $ho1   = $honoPrenM ? (float)$honoPrenM * 1.20 : 0.0; // honoraires = service agence, TVA 20 %
         $fpDef = [
-            ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance)' . ($tvaOn ? ' TTC' : ' HT'), $loy1T],
-            ['Provision pour charges', $ch1],
+            ['1ᵉʳ loyer (' . ($perM === 3 ? 'trimestre' : 'mois') . ' d\'avance' . $prTxt . ')' . ($tvaOn ? ' TTC' : ' HT'), $loy1T],
+            ['Provision pour charges' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $ch1],
             ['Dépôt de garantie', $dg1],
             ['Pas-de-porte / droit d\'entrée', $de1],
-            ['Honoraires à la charge du preneur' . ($tvaOn ? ' TTC' : ''), $ho1],
+            ['Honoraires à la charge du preneur TTC', $ho1],
         ];
         $fpRows = ''; $fpTot = 0.0;
         foreach ($fpDef as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . ((float)$l[1] > 0 ? bcp_eur($l[1]) . ' €' : '……………') . '</td></tr>'; $fpTot += (float)$l[1]; }
@@ -1001,12 +1017,15 @@ if (!function_exists('bail_commercial_pdf_context')) {
 
         // 31. Honoraires de location — % preneur / % bailleur (montants calculés sur le loyer annuel HT).
         $fmtPct = fn($p) => rtrim(rtrim(number_format((float)$p, 2, ',', ''), '0'), ',');
-        $honoParts = [];
-        if ($hpPren !== null) $honoParts[] = 'PRENEUR ' . $fmtPct($hpPren) . ' % (' . ($honoPrenM !== null ? bcp_eur($honoPrenM) . ' € HT' : '……') . ')';
-        if ($hpBail !== null) $honoParts[] = 'BAILLEUR ' . $fmtPct($hpBail) . ' % (' . ($honoBailM !== null ? bcp_eur($honoBailM) . ' € HT' : '……') . ')';
-        $honoLine = $honoParts ? 'répartis ainsi : ' . implode(' / ', $honoParts) . ', calculés sur le loyer annuel HT' : '……………………………';
+        // Honoraires = service de l'agence → toujours TTC à 20 %. On affiche DEUX lignes (preneur
+        // puis bailleur) en TTC, jamais le total.
+        $honoTtcF = 1.20;
+        $honoPrenTTC = $honoPrenM !== null ? (float)$honoPrenM * $honoTtcF : null;
+        $honoBailTTC = $honoBailM !== null ? (float)$honoBailM * $honoTtcF : null;
         $h .= '<h3>31. Honoraires de location</h3>';
-        $h .= '<p>Les parties reconnaissent que les présentes ont été négociées par l\'Agence, que les parties déclarent en conséquence bénéficiaire du montant de la rémunération convenue conformément au mandat écrit signé' . ($ctx['numero_bail'] ? ' portant le numéro ' . bcp_e($ctx['numero_bail']) : '') . '. Honoraires de location ' . $honoLine . '.</p>';
+        $h .= '<p>Les parties reconnaissent que les présentes ont été négociées par l\'Agence, que les parties déclarent en conséquence bénéficiaire du montant de la rémunération convenue conformément au mandat écrit signé' . ($ctx['numero_bail'] ? ' portant le numéro ' . bcp_e($ctx['numero_bail']) : '') . '. Honoraires de location, calculés sur le loyer annuel HT et répartis comme suit :</p>';
+        $h .= '<p>&mdash; À la charge du PRENEUR (locataire) : ' . ($hpPren !== null ? $fmtPct($hpPren) . ' % soit ' : '…… % soit ') . ($honoPrenTTC !== null ? '<b>' . bcp_eur($honoPrenTTC) . ' € TTC</b>' : '……………') . '<br>'
+            . '&mdash; À la charge du BAILLEUR : ' . ($hpBail !== null ? $fmtPct($hpBail) . ' % soit ' : '…… % soit ') . ($honoBailTTC !== null ? '<b>' . bcp_eur($honoBailTTC) . ' € TTC</b>' : '……………') . '</p>';
 
         // 32. Frais
         $h .= '<h3>32. Frais</h3><p>Tous les frais et droits des présentes, à l\'exception des honoraires de location dont les modalités d\'imputation sont définies ci-dessus, seront supportés par le PRENEUR qui s\'y oblige.</p>';
