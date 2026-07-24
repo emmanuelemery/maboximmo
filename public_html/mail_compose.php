@@ -271,8 +271,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
       </h3>
       <div class="tm-field"><label>Sujet</label><input type="text" id="tm-sujet" class="tm-input"></div>
       <div class="tm-field"><label>Corps du message (modifiable)</label><textarea id="tm-corps" class="tm-textarea"></textarea></div>
-      <div style="display:flex;align-items:center;gap:14px;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
         <button type="button" class="tm-send" onclick="tmSend()">📤 Envoyer le mail</button>
+        <?php if ($signMode): ?><button type="button" class="tm-send" style="background:#5f8f93;" onclick="tmPreviewSign()">👁️ Aperçu du mail (preneur)</button><?php endif; ?>
         <span id="tm-msg" style="font-size:13px;"></span>
       </div>
     </div>
@@ -339,6 +340,31 @@ include __DIR__ . '/inc/agency_layout_top.php';
   const SIGN_DATA = <?= json_encode($signData ?: (object)[], JSON_UNESCAPED_UNICODE) ?>;
   const PREFILL = <?= json_encode(($signMode && $signPrefill) ? $signPrefill : $prefill, JSON_UNESCAPED_UNICODE) ?>;
   const DEFAULT_TPL = <?= json_encode($defaultTpl, JSON_UNESCAPED_UNICODE) ?>;
+  // Aperçu du mail (mode signature) : rend le corps avec les placeholders remplacés (comme à l'envoi),
+  // pour le PRENEUR (lien + montant déjà dans le texte + bloc RIB/assurance).
+  window.tmPreviewSign = function(){
+    var body = (document.getElementById('tm-corps').value || '');
+    var sujet = (document.getElementById('tm-sujet').value || '');
+    var d = null, em;
+    for (em in SIGN_DATA){ if (SIGN_DATA[em] && SIGN_DATA[em].preneur_block){ d = SIGN_DATA[em]; break; } }
+    if (!d) { for (em in SIGN_DATA){ d = SIGN_DATA[em]; break; } }
+    var lien = (d && d.url) ? '<a href="'+String(d.url).replace(/"/g,'&quot;')+'" style="display:inline-block;padding:12px 22px;background:#84A7AB;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Consulter et signer le bail</a>' : '<i>[lien personnalisé par destinataire]</i>';
+    var bloc = d ? (d.preneur_block || '') : '';
+    var esc = body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    esc = esc.split('{{LIEN_SIGNATURE}}').join(lien).split('{{BLOC_PRENEUR}}').join(bloc);
+    var ov = document.getElementById('tm-preview-ov');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id='tm-preview-ov';
+      ov.style.cssText='position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px;';
+      ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);"><div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #eee;"><b>👁️ Aperçu du mail — rendu preneur</b><button type="button" id="tm-preview-x" style="border:none;background:transparent;font-size:20px;cursor:pointer;">✕</button></div><div style="padding:8px 20px 0;color:#64748b;font-size:12px;">Sujet : <span id="tm-preview-subj"></span></div><div id="tm-preview-body" style="padding:10px 20px 18px;font-family:Segoe UI,system-ui,sans-serif;font-size:14px;line-height:1.5;"></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function(e){ if(e.target===ov) ov.style.display='none'; });
+      ov.querySelector('#tm-preview-x').addEventListener('click', function(){ ov.style.display='none'; });
+    }
+    ov.querySelector('#tm-preview-subj').textContent = sujet;
+    ov.querySelector('#tm-preview-body').innerHTML = esc;
+    ov.style.display='flex';
+  };
   if (PREFILL) {
     document.getElementById('tm-sujet').value = PREFILL.subject || '';
     document.getElementById('tm-corps').value = PREFILL.body || '';
