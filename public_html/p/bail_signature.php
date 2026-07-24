@@ -166,6 +166,8 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
   .pad{width:100%;height:200px;border:2px dashed #94a3b8;border-radius:12px;background:#fff;touch-action:none;display:block;}
   .padrow{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
   .photo-note{font-size:11px;color:#64748b;margin-top:4px;}
+  .assur{margin:14px 0;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;background:#fff;}
+  .assur input[type=file]{font-size:13px;}
 </style>
 </head>
 <body>
@@ -183,6 +185,16 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
       <div class="row"><span class="k"><strong>Total à verser à la signature</strong></span><span class="v"><strong><?= $h($eur2($totSignature)) ?></strong></span></div>
       <?php endif; ?>
     </div>
+
+    <?php if (($sig['role_code'] ?? '') === 'preneur'): ?>
+      <div class="assur">
+        <div style="font-weight:800;color:#243B5C;margin-bottom:3px;">🛡️ Attestation d'assurance</div>
+        <p style="font-size:12.5px;color:#475569;margin:0 0 8px;">Pour prendre possession des lieux, chargez votre <strong>attestation d'assurance</strong> du local (PDF ou photo).</p>
+        <input type="file" id="assur-file" accept="application/pdf,image/*">
+        <div style="margin-top:8px;"><button type="button" class="btn-sec" id="assur-btn">📎 Charger l'attestation</button></div>
+        <div class="photo-note" id="assur-status"></div>
+      </div>
+    <?php endif; ?>
 
     <?php if ($bailHtml !== ''): ?>
       <details class="bailbox">
@@ -360,6 +372,26 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
   document.getElementById('sigform').addEventListener('submit', function(e){
     if(!hasDrawn){ e.preventDefault(); alert('Merci de signer dans le cadre avec votre doigt.'); return; }
     hidden.value = pad.toDataURL('image/png');
+  });
+})();
+</script>
+<?php endif; ?>
+<?php if (($sig['role_code'] ?? '') === 'preneur'): ?>
+<script>
+(function(){
+  var b=document.getElementById('assur-btn'); if(!b) return;
+  var f=document.getElementById('assur-file'), s=document.getElementById('assur-status');
+  b.addEventListener('click', function(){
+    var file=f.files&&f.files[0]; if(!file){ s.style.color='#c0392b'; s.textContent='Sélectionnez un fichier.'; return; }
+    if(file.size>15*1024*1024){ s.style.color='#c0392b'; s.textContent='Fichier trop volumineux (max 15 Mo).'; return; }
+    var ext=(file.name.split('.').pop()||'pdf').toLowerCase().replace(/[^a-z0-9]/g,'')||'pdf';
+    b.disabled=true; var old=b.textContent; b.textContent='⏳ Envoi…';
+    var fd=new FormData(); fd.append('t', <?= json_encode($token) ?>); fd.append('attestation', file, 'attestation.'+ext);
+    fetch(<?= json_encode(function_exists('app_url') ? app_url('/api/bail_assurance_upload.php') : '/api/bail_assurance_upload.php') ?>, {method:'POST', body:fd})
+      .then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok){ s.style.color='#15803d'; s.textContent='✅ Attestation reçue, merci.'; b.textContent='✅ Chargée'; }
+        else { b.disabled=false; b.textContent=old; s.style.color='#c0392b'; s.textContent='❌ '+((j&&j.error)||'échec'); }
+      }).catch(function(){ b.disabled=false; b.textContent=old; s.style.color='#c0392b'; s.textContent='❌ erreur réseau'; });
   });
 })();
 </script>
