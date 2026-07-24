@@ -375,17 +375,61 @@ if ($isProjetBail) {
         <?php endif; ?>
     </div>
     <?php if ($canEditProjet): ?>
+    <?php
+    // ── Cérémonie de signature : emails préremplis (best-effort) + rôles ──
+    $belCeremPre = ['preneur'=>'', 'caution'=>'', 'mandataire'=>'', 'bailleur'=>''];
+    $belCeremPre['preneur'] = trim((string)($bail['locataire_representant_email'] ?? '')) ?: trim((string)($bail['locataire_email'] ?? ''));
+    if (!empty($bail['garant_present'])) $belCeremPre['caution'] = trim((string)($bail['garant_email'] ?? ''));
+    try { if (!empty($bail['bien_soc'])) { $qE=$pdo->prepare("SELECT email FROM societes WHERE id=? LIMIT 1"); $qE->execute([(int)$bail['bien_soc']]); $belCeremPre['mandataire']=trim((string)($qE->fetchColumn() ?: '')); } } catch (\Throwable $e) {}
+    try { $qE=$pdo->prepare("SELECT tp.email FROM biens b LEFT JOIN proprietaires p ON p.id=b.id_proprietaire LEFT JOIN tiers tp ON tp.id=p.id_tiers WHERE b.id=? LIMIT 1"); $qE->execute([(int)$bail['id_bien']]); $belCeremPre['bailleur']=trim((string)($qE->fetchColumn() ?: '')); } catch (\Throwable $e) {}
+    $belCeremRoles = [['role'=>'preneur','label'=>'Preneur','nom'=>($bail['locataire_raison_sociale'] ?: trim((string)($bail['locataire_prenom'] ?? '').' '.($bail['locataire_nom'] ?? '')))]];
+    if (!empty($bail['garant_present'])) $belCeremRoles[] = ['role'=>'caution','label'=>'Garant / caution','nom'=>($bail['garant_raison_sociale'] ?: trim((string)($bail['garant_prenom'] ?? '').' '.($bail['garant_nom'] ?? '')))];
+    $belCeremRoles[] = ['role'=>'mandataire','label'=>'Agence (mandataire)','nom'=>''];
+    $belCeremRoles[] = ['role'=>'bailleur','label'=>'Bailleur','nom'=>($bail['bailleur_representant_nom'] ?? '')];
+    ?>
+    <div id="belCeremModal" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(15,18,24,.55);align-items:center;justify-content:center;padding:18px;">
+      <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">
+        <div style="background:#5f8f93;color:#fff;padding:14px 18px;font-weight:800;font-size:16px;">📨 Cérémonie de signature</div>
+        <div style="padding:18px 20px;max-height:70vh;overflow:auto;">
+          <p style="font-size:13px;color:#475569;margin:0 0 12px;">Vérifie les emails des signataires et complète ceux qui manquent (sans email, la partie ne reçoit pas le lien). Tous reçoivent leur lien ; le bail signé n'est distribué qu'une fois <b>toutes</b> les signatures recueillies.</p>
+          <div id="belCeremList"></div>
+          <p style="font-size:12px;color:#64748b;margin-top:10px;">Chaque mail contient le lien de signature, le <b>RIB pour le versement</b> et le <b>montant total à verser à la signature</b>.</p>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid #eef2f6;display:flex;justify-content:flex-end;gap:8px;">
+          <button type="button" onclick="belCeremClose()" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:9px 16px;font-weight:700;cursor:pointer;">Annuler</button>
+          <button type="button" id="belCeremSendBtn" onclick="belCeremSend()" style="border:none;background:#5f8f93;color:#fff;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer;">📨 Envoyer à tous</button>
+        </div>
+      </div>
+    </div>
     <script>
-    window.belSendBail = function(bailId, btn){
-        if(!confirm('Envoyer le projet de bail au preneur' + ' (et au garant) pour signature en ligne ?')) return;
-        btn.disabled = true; var old = btn.textContent; btn.textContent = '⏳ Envoi…';
-        fetch('<?= h(app_url('/api/bail_send.php')) ?>', {method:'POST', credentials:'same-origin',
-            headers:{'Content-Type':'application/json'}, body: JSON.stringify({bail_id: bailId})})
+    var API_BAIL_SEND = '<?= h(app_url('/api/bail_send.php')) ?>';
+    var BEL_CEREM_ROLES = <?= json_encode($belCeremRoles, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+    var BEL_CEREM_PRE = <?= json_encode($belCeremPre, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
+    function belEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+    // « Envoyer pour signature » ouvre le modal récap (au lieu d'un simple confirm).
+    window.belSendBail = function(bailId, btn){ belCeremOpen(); };
+    function belCeremOpen(){
+        var list = document.getElementById('belCeremList'); list.innerHTML='';
+        BEL_CEREM_ROLES.forEach(function(r){
+            var val = BEL_CEREM_PRE[r.role] || '';
+            var row = document.createElement('div'); row.style.cssText='margin-bottom:11px;';
+            row.innerHTML = '<label style="display:block;font-size:12px;font-weight:800;color:#334155;margin-bottom:3px;">'+belEsc(r.label)+(r.nom?' <span style="font-weight:600;color:#64748b;">— '+belEsc(r.nom)+'</span>':'')+'</label>'+
+                '<input type="email" data-role="'+r.role+'" value="'+belEsc(val)+'" placeholder="email@exemple.fr" style="width:100%;padding:9px 12px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px;box-sizing:border-box;">';
+            list.appendChild(row);
+        });
+        document.getElementById('belCeremModal').style.display='flex';
+    }
+    window.belCeremClose = function(){ document.getElementById('belCeremModal').style.display='none'; };
+    window.belCeremSend = function(){
+        var emails = {};
+        document.querySelectorAll('#belCeremList input[data-role]').forEach(function(i){ emails[i.getAttribute('data-role')] = i.value.trim(); });
+        var btn = document.getElementById('belCeremSendBtn'); btn.disabled=true; var old=btn.textContent; btn.textContent='⏳ Envoi…';
+        fetch(API_BAIL_SEND, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({bail_id: <?= (int)$bailId ?>, role_emails: emails})})
           .then(function(r){return r.json();}).then(function(j){
             if(j && j.ok){
                 var lignes = (j.envois||[]).map(function(e){ return (e.sent?'✅':'⚠️')+' '+(e.role||'')+' '+(e.email||'(sans email)'); }).join('\n');
-                alert('✅ '+j.message+'\n\n'+lignes);
-                location.reload();
+                alert('✅ '+j.message+'\n\n'+lignes); location.reload();
             } else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&j.error)||'Échec de l\'envoi')); }
           }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
     };

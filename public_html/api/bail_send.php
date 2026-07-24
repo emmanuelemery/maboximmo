@@ -22,6 +22,8 @@ $userId=(int)($_SESSION['user_id']??0); $userSoc=(int)($_SESSION['id_societe']??
 $body=json_decode(file_get_contents('php://input')?:'{}',true)?:[];
 $bailId=(int)($body['bail_id']??0);
 if ($bailId<=0) exit(json_encode(['ok'=>false,'error'=>'bail_id requis']));
+// Emails par rôle saisis dans le modal de cérémonie (preneur/caution/mandataire/bailleur).
+$roleEmails = is_array($body['role_emails'] ?? null) ? array_map(static fn($v)=>trim((string)$v), $body['role_emails']) : [];
 
 $st=$pdo->prepare("SELECT bb.id, bb.statut, bb.id_societe, bb.numero_bail, b.id_proprietaire, b.reference_bien
     FROM bien_baux bb JOIN biens b ON b.id=bb.id_bien WHERE bb.id=?");
@@ -40,7 +42,7 @@ if (!in_array($bail['statut'], ['projet','envoye'], true)) {
 }
 
 try {
-    $sigs = bsig_create_for_signataires($pdo, $bailId, $userId);
+    $sigs = bsig_create_for_signataires($pdo, $bailId, $userId, $roleEmails);
     if (!$sigs) exit(json_encode(['ok'=>false,'error'=>'Aucun signataire — renseigne l\'email du preneur.'], JSON_UNESCAPED_UNICODE));
 
     // PDF du projet (filigrané) en pièce jointe.
@@ -50,6 +52,49 @@ try {
         $clean = sys_get_temp_dir() . '/Bail_' . preg_replace('/[^A-Za-z0-9_-]/','', (string)($bail['numero_bail'] ?: $bailId)) . '.pdf';
         if (@copy($tmp, $clean)) { $pdfAttach = [$clean]; @unlink($tmp); } else { $pdfAttach = [$tmp]; }
     } catch (Throwable $e) { error_log('[bail_send pdf] '.$e->getMessage()); }
+
+    // RIB de GESTION de l'agence + total à verser à la signature (corps du mail) + DPE en PJ.
+    $ribHtml = ''; $totalHtml = '';
+    try {
+        $ctx = bail_commercial_pdf_context($pdo, $bailId);
+        if ($ctx) {
+            $ge = $ctx['gestionnaire'] ?? [];
+            if (!empty($ge['rib_iban'])) {
+                $ribHtml = '<p style="font-size:13px;background:#f4f7f7;border:1px solid #dbe6e6;border-radius:8px;padding:10px 12px;">'
+                    . '<strong>Coordonnées bancaires pour le versement (RIB de gestion de l\'agence)</strong><br>'
+                    . ($ge['rib_nom'] ? htmlspecialchars((string)$ge['rib_nom']) . '<br>' : '')
+                    . 'IBAN : <strong>' . htmlspecialchars((string)$ge['rib_iban']) . '</strong>'
+                    . ($ge['rib_bic'] ? ' &nbsp;&middot;&nbsp; BIC : <strong>' . htmlspecialchars((string)$ge['rib_bic']) . '</strong>' : '') . '</p>';
+            }
+            $c = $ctx['cond'] ?? [];
+            $tvaOn = !empty($c['tva_app']); $tvaT = (float)($c['tva_taux'] ?? 20) ?: 20.0;
+            $perM = (($c['perio'] ?? '') === 'trimestrielle') ? 3 : 1;
+            $loyM = (float)($c['loyer_m'] ?? 0); $chM = (float)($c['charges_m'] ?? 0); $tfM = (float)($c['prov_tf'] ?? 0);
+            $techM = ($c['tech_pct'] ?? null) !== null ? $loyM * (float)$c['tech_pct'] / 100 : 0.0;
+            $echBaseT = $tvaOn ? ($loyM + $techM) * $perM * (1 + $tvaT/100) : ($loyM + $techM) * $perM;
+            $prRatio = 1.0; $prRaw = ($c['prorata_date'] ?? '') ?: ($c['date_effet'] ?? '');
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$prRaw)) {
+                $pts = strtotime((string)$prRaw); $pm=(int)date('n',$pts); $pd=(int)date('j',$pts); $py=(int)date('Y',$pts);
+                if ($perM === 3) { $qs=intdiv($pm-1,3)*3+1; $qs1=mktime(0,0,0,$qs,1,$py); $qe=mktime(0,0,0,$qs+3,0,$py); $tot=(int)round(($qe-$qs1)/86400)+1; $rem=(int)round(($qe-$pts)/86400)+1; $prRatio=$tot>0?$rem/$tot:1.0; }
+                else { $dim=(int)date('t',$pts); $prRatio=$dim>0?($dim-$pd+1)/$dim:1.0; }
+            }
+            $dgM=(float)($c['dg_montant'] ?? 0); $deM=(float)($c['droit_entree'] ?? 0);
+            $loyAn=(float)($c['loyer_a'] ?? $loyM*12); $hpPren=$c['hono_pct_pren'] ?? null;
+            $honoPrenTTC = $hpPren !== null ? $loyAn * (float)$hpPren / 100 * 1.20 : (float)($c['hono_loc'] ?? 0);
+            $totSign = ($echBaseT + $chM*$perM + $tfM*$perM) * $prRatio + $dgM + $deM + $honoPrenTTC;
+            if ($totSign > 0) $totalHtml = '<p style="font-size:14px;"><strong>Montant total à verser à la signature : ' . number_format($totSign, 2, ',', ' ') . ' €</strong><br>Merci de régler <strong>l\'intégralité des sommes</strong> demandées, par virement, sur le RIB ci-dessous.</p>';
+        }
+    } catch (Throwable $e) { error_log('[bail_send rib/total] '.$e->getMessage()); }
+
+    // DPE du bien en pièce jointe (best-effort) — il est aussi mentionné en annexe du bail.
+    try {
+        $qd = $pdo->prepare("SELECT d.path_on_disk FROM ged_documents d
+                              JOIN ged_document_links l ON l.document_id=d.id AND l.entity_type='BIEN' AND l.entity_id=(SELECT id_bien FROM bien_baux WHERE id=?)
+                             WHERE d.status='active' AND (d.document_type IN ('dpe','dpe_bien') OR LOWER(d.name_display) LIKE '%dpe%')
+                             ORDER BY d.id DESC LIMIT 1");
+        $qd->execute([$bailId]); $dpePath = (string)($qd->fetchColumn() ?: '');
+        if ($dpePath && is_file($dpePath)) $pdfAttach[] = $dpePath;
+    } catch (Throwable $e) {}
 
     $refBien = $bail['reference_bien'] ?: ('#'.$bailId);
     $envois = [];
@@ -66,6 +111,7 @@ try {
                 "<p>Vous trouverez le projet de bail en pièce jointe. Merci de cliquer sur le lien sécurisé ci-dessous pour le consulter et le signer :</p>" .
                 "<p><a href=\"" . htmlspecialchars($url) . "\" style=\"display:inline-block;padding:12px 22px;background:#84A7AB;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;\">Consulter et signer le bail</a></p>" .
                 "<p style=\"font-size:12px;color:#666;\">Ou copiez ce lien : " . htmlspecialchars($url) . "</p>" .
+                $totalHtml . $ribHtml .
                 "<p style=\"font-size:12px;color:#666;\">Votre signature sera horodatée et tracée (adresse IP) à des fins de preuve.</p>";
             try {
                 $sent = send_mail($email, $subject, $mbody, $pdfAttach, true);
