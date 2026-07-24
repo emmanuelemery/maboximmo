@@ -721,7 +721,8 @@ function bail_edit_modal(): void
     if(!/\.(pdf|jpe?g|png|webp|heic|heif|tiff?)$/i.test(file.name)) return;   // formats lisibles
     var msg=g('bel-up-msg');
     if(msg){ msg.style.color='#5f8f93'; msg.textContent='🔎 Lecture de '+file.name+'…'; }
-    var fd=new FormData(); fd.append('document', file, file.name);
+    var _sn=(file.name||'document').normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/['"`’“”]/g,' ').replace(/[^A-Za-z0-9. _-]+/g,' ').replace(/\s+/g,' ').trim()||'document';
+    var fd=new FormData(); fd.append('document', file, _sn); fd.append('bail_id', String(M._editId||0));
     fetch(API_EXTRACT,{method:'POST',credentials:'same-origin',body:fd})
       .then(function(r){return r.json();})
       .then(function(j){

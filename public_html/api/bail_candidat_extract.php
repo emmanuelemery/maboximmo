@@ -137,10 +137,32 @@ $fields = json_decode((string)$content, true);
 if (!$fields && preg_match('/\{[\s\S]*\}/u', (string)$content, $m)) $fields = json_decode($m[0], true);
 if (!is_array($fields)) exit(json_encode(['ok'=>false,'error'=>'Réponse IA non parsable','sources'=>$sources], JSON_UNESCAPED_UNICODE));
 
+// ── Écriture dans la FICHE du candidat (tiers) — non-destructif ──
+// Si un bail_id est fourni, on résout son tiers candidat et on complète sa fiche : société (KBIS)
+// → infos juridiques ; personne physique (CNI) → nom/prénom/naissance/nationalité.
+$applied = null;
+$bailId = (int)($_POST['bail_id'] ?? 0);
+if ($bailId > 0 && is_array($fields)) {
+    try {
+        $pdo = $GLOBALS['pdo'];
+        require_once dirname(__DIR__) . '/inc/tiers_apply_extracted.php';
+        $qt = $pdo->prepare("SELECT candidat_tiers_id FROM bien_baux WHERE id=? LIMIT 1");
+        $qt->execute([$bailId]); $tiersId = (int)($qt->fetchColumn() ?: 0);
+        if ($tiersId > 0) {
+            $ty = (($fields['type'] ?? '') === 'physique') ? 'physique' : 'societe';
+            $hasSoc = trim((string)($fields['raison_sociale'] ?? '')) !== '' || (preg_replace('/\D+/', '', (string)($fields['siren'] ?? '')) ?? '') !== '';
+            $hasPer = trim((string)($fields['nom'] ?? '')) !== '' || trim((string)($fields['prenom'] ?? '')) !== '';
+            if ($ty === 'societe' && $hasSoc)       $applied = apply_societe_extracted_to_tiers($pdo, $tiersId, $fields);
+            elseif ($ty === 'physique' && $hasPer)  $applied = apply_personne_extracted_to_tiers($pdo, $tiersId, $fields);
+        }
+    } catch (Throwable $e) { error_log('[bail_candidat_extract apply] ' . $e->getMessage()); }
+}
+
 echo json_encode([
     'ok'      => true,
     'fields'  => $fields,
     'sources' => $sources,
     'skipped' => $skipped,
-    'note'    => count($sources) . ' document(s) lu(s)' . ($skipped ? ' · ' . count($skipped) . ' ignoré(s)' : ''),
+    'applied' => $applied,
+    'note'    => count($sources) . ' document(s) lu(s)' . ($skipped ? ' · ' . count($skipped) . ' ignoré(s)' : '') . ($applied && !empty($applied['ok']) ? ' · fiche candidat complétée' : ''),
 ], JSON_UNESCAPED_UNICODE);
