@@ -871,17 +871,13 @@ if (!function_exists('bail_commercial_pdf_context')) {
         if ($tf1 > 0) $fpDef[] = ['Provision taxe foncière' . ($prRatio < 0.9999 ? ' (prorata)' : ''), $tf1];
         $fpDef[] = ['Dépôt de garantie', $dg1];
         $fpDef[] = ['Pas-de-porte / droit d\'entrée', $de1];
-        // NB : les honoraires NE SONT PAS comptés dans le total à verser (facturés séparément par
-        // l'agence). Ils sont affichés plus bas « pour information ».
+        $fpDef[] = ['Honoraires à la charge du preneur TTC', $ho1]; // PRENEUR : compté dans le total à verser
         $fpRows = ''; $fpTot = 0.0;
         foreach ($fpDef as $l) { $fpRows .= '<tr><td>' . bcp_e($l[0]) . '</td><td style="text-align:right;">' . ((float)$l[1] > 0 ? bcp_eur($l[1]) . ' €' : '……………') . '</td></tr>'; $fpTot += (float)$l[1]; }
         $fpRows .= '<tr><td><b>Total à verser à la signature</b></td><td style="text-align:right;"><b>' . ($fpTot > 0 ? bcp_eur($fpTot) . ' €' : '……………') . '</b></td></tr>';
-        // Honoraires — POUR INFORMATION, non compris dans le total ci-dessus (2 lignes : preneur / bailleur, TTC).
-        $hoP = $honoPrenM !== null ? (float)$honoPrenM * 1.20 : null;
+        // Honoraires du BAILLEUR — POUR INFORMATION, entre parenthèses, NON compris dans le total.
         $hoB = $honoBailM !== null ? (float)$honoBailM * 1.20 : null;
-        $fpRows .= '<tr><td colspan="2" style="padding-top:6px;font-style:italic;color:#666;font-size:8.5pt;">Pour information (non compris dans le total à verser — honoraires facturés par l\'agence) :</td></tr>';
-        $fpRows .= '<tr><td>Honoraires à la charge du preneur TTC</td><td style="text-align:right;">' . ($hoP ? bcp_eur($hoP) . ' €' : '……………') . '</td></tr>';
-        $fpRows .= '<tr><td>Honoraires à la charge du bailleur TTC</td><td style="text-align:right;">' . ($hoB ? bcp_eur($hoB) . ' €' : '……………') . '</td></tr>';
+        if ($hoB) $fpRows .= '<tr><td style="font-style:italic;color:#666;">(Honoraires à la charge du bailleur TTC — pour information)</td><td style="text-align:right;font-style:italic;color:#666;">(' . bcp_eur($hoB) . ' €)</td></tr>';
         $h .= '<p><b>Somme à verser par le PRENEUR à la signature (1ᵉʳ versement) :</b></p>';
         $h .= '<table class="tbl"><thead><tr><th>Nature</th><th style="text-align:right;width:28%;">Montant</th></tr></thead><tbody>' . $fpRows . '</tbody></table>';
 

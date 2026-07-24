@@ -107,9 +107,13 @@ if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$prRaw)) {
 }
 $dgM   = (float)($cond['dg_montant'] ?? 0);
 $deM   = (float)($cond['droit_entree'] ?? 0);
-// 1er versement = 1er terme PRORATISÉ (loyer+charges+TF) + DG + pas-de-porte. Honoraires NON comptés.
+// Honoraires PRENEUR TTC (loyer annuel HT × % × 1,20) — comptés dans le total. Bailleur = non compté.
+$loyAn = (float)($cond['loyer_a'] ?? ($loyM * 12));
+$hpPren = $cond['hono_pct_pren'] ?? null;
+$honoPrenTTC = $hpPren !== null ? $loyAn * (float)$hpPren / 100 * 1.20 : (float)($cond['hono_loc'] ?? 0);
+// 1er versement = 1er terme PRORATISÉ (loyer+charges+TF) + DG + pas-de-porte + honoraires preneur TTC.
 $premierTerme = ($echLoyerT + $chM * $perM + $tfM * $perM) * $prRatio;
-$totSignature = $premierTerme + $dgM + $deM;
+$totSignature = $premierTerme + $dgM + $deM + $honoPrenTTC;
 $hasMontants = ($totEcheance > 0 || $totSignature > 0);
 ?>
 <!DOCTYPE html>
