@@ -463,7 +463,37 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
                     }
                 }
 
-                $enrich = bef_enrich_from_carte($carteId, $pdo);
+                // [ROUTER TIERS — 2026-07-24] Un KBIS/CNI classé sur un TIERS remplit sa FICHE
+            // (raison/siren/infos juridiques ou nom/naissance/nationalité). Réutilise ces données
+            // partout (bail, transaction…). Non-destructif ; ne coûte 1 appel IA QUE si la fiche
+            // est incomplète (garde tiers_identity_should_extract).
+            if ($eligibility['entity_type'] === 'TIERS' && (int)$eligibility['entity_id'] > 0) {
+                try {
+                    $tdoc = strtolower((string)($eligibility['type_doc'] ?? ''));
+                    $isSoc = (bool)preg_match('/kbis|k_bis|extrait_?k|statut|societe/', $tdoc);
+                    $isPer = (bool)preg_match('/cni|carte_?identite|piece_?identite|passeport|titre_?sejour/', $tdoc);
+                    if ($isSoc || $isPer) {
+                        require_once __DIR__ . '/tiers_identity_extract.php';
+                        require_once __DIR__ . '/tiers_apply_extracted.php';
+                        $kind = $isSoc ? 'societe' : 'physique';
+                        $tid  = (int)$eligibility['entity_id'];
+                        if (tiers_identity_should_extract($pdo, $tid, $kind)) {
+                            $srcPathT = isset($srcAbs) && $srcAbs !== '' ? $srcAbs : ged_flux_src_abspath((string)($row['fichier_chemin'] ?? ''));
+                            $fx = tiers_identity_extract_from_file((string)$srcPathT, $kind);
+                            if (is_array($fx)) {
+                                $ap = ($kind === 'societe')
+                                    ? apply_societe_extracted_to_tiers($pdo, $tid, $fx)
+                                    : apply_personne_extracted_to_tiers($pdo, $tid, $fx);
+                                if (!empty($ap['ok'])) $audit[] = "🪪 Fiche TIERS #$tid complétée depuis $kind";
+                            }
+                        } else {
+                            $audit[] = "🪪 Fiche TIERS #{$eligibility['entity_id']} déjà complète — extraction évitée";
+                        }
+                    }
+                } catch (Throwable $e) { $audit[] = "⚠️ Router TIERS échec : " . $e->getMessage(); }
+            }
+
+            $enrich = bef_enrich_from_carte($carteId, $pdo);
                 if ($enrich['bien'] && !empty($enrich['bien']['updated'])) {
                     $audit[] = "✨ Enrichissement bien : " . implode(',', $enrich['bien']['updated']);
                 }
