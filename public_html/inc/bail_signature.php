@@ -458,17 +458,32 @@ if (!function_exists('bail_commit_projet_ged')) {
         $ref    = (string)($bail['numero_bail'] ?: ('bail_' . $bailId));
         $userId = function_exists('current_user_id') ? ((int)current_user_id() ?: null) : null;
 
-        // Version = nombre de projets déjà classés + 1.
-        $ver = 1;
-        try {
-            $q = $pdo->prepare("SELECT COUNT(*) FROM ged_documents d
-                                 JOIN ged_document_links l ON l.document_id=d.id AND l.entity_type='BAIL' AND l.entity_id=?
-                                WHERE d.document_type='projet_bail' AND d.status='active'");
-            $q->execute([$bailId]); $ver = (int)$q->fetchColumn() + 1;
-        } catch (Throwable) {}
-
         require_once __DIR__ . '/ged_document_links.php';
         require_once __DIR__ . '/bail_commercial_pdf.php';
+
+        // Empreinte du CONTENU du bail (ce qui influe sur le PDF ; on exclut le volatile).
+        $hash = '';
+        try {
+            $row = bail_commercial_bail_row($pdo, $bailId);
+            if (is_array($row)) { foreach (['updated_at','created_at','sent_at','date_signature','date_envoi','statut'] as $k) unset($row[$k]); $hash = md5((string)json_encode($row)); }
+        } catch (Throwable) {}
+
+        // Dernière version active + son hash. Contenu INCHANGÉ → on RÉUTILISE (aucune nouvelle version,
+        // pas de pollution GED). Contenu modifié → nouvelle version et les anciennes passent superseded.
+        $lastId = 0; $lastHash = ''; $lastVer = 0; $activeIds = [];
+        try {
+            $q = $pdo->prepare("SELECT d.id, JSON_UNQUOTE(JSON_EXTRACT(d.metadata,'$.extra.content_hash')) AS h, JSON_EXTRACT(d.metadata,'$.extra.version') AS v
+                                  FROM ged_documents d
+                                  JOIN ged_document_links l ON l.document_id=d.id AND l.entity_type='BAIL' AND l.entity_id=?
+                                 WHERE d.document_type='projet_bail' AND d.status='active' ORDER BY d.id DESC");
+            $q->execute([$bailId]);
+            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $i => $r) { $activeIds[] = (int)$r['id']; if ($i === 0) { $lastId=(int)$r['id']; $lastHash=(string)($r['h'] ?? ''); $lastVer=(int)($r['v'] ?? 0); } }
+        } catch (Throwable) {}
+        if ($lastId > 0 && $hash !== '' && $lastHash === $hash) return $lastId; // inchangé → réutilise
+
+        $ver = $lastVer > 0 ? $lastVer + 1 : 1;
+        if ($activeIds) { try { $pdo->exec("UPDATE ged_documents SET status='superseded' WHERE id IN (" . implode(',', array_map('intval', $activeIds)) . ")"); } catch (Throwable) {} }
+
         $tmp = bail_commercial_build_pdf($pdo, $bailId, true); // projet filigrané
         $permDir = __DIR__ . '/../uploads/baux/'; if (!is_dir($permDir)) @mkdir($permDir, 0775, true);
         $permName = 'bail_' . $bailId . '_projet_v' . $ver . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.pdf';
@@ -482,7 +497,7 @@ if (!function_exists('bail_commit_projet_ged')) {
                 'document_type'=>'projet_bail', 'source_module'=>'03_GESTION_LOCATIVE', 'security_level'=>'interne',
                 'societe_id'=>$socId, 'agence_id'=>$ageId, 'tenant_id'=>$socId, 'created_by'=>$userId, 'storage_provider'=>'local',
                 'name_display'=>'Projet bail V' . $ver . ' — ' . $ref,
-                'metadata_extra'=>['statut'=>'projet','version'=>$ver,'id_bail'=>$bailId,'doc_date'=>date('Y-m-d')],
+                'metadata_extra'=>['statut'=>'projet','version'=>$ver,'id_bail'=>$bailId,'doc_date'=>date('Y-m-d'),'content_hash'=>$hash],
                 'naming_ctx'=>['societe_raison'=>$bail['soc_raison'] ?? '', 'agence_code'=>$bail['code_agence'] ?? '', 'agence_nom'=>$bail['nom_agence'] ?? '',
                     'user_id'=>$userId, 'n1_slug'=>'03_gestion_locative', 'type_doc'=>'projet_bail',
                     'entity_type'=>'BAIL', 'entity_id'=>$bailId, 'date_doc'=>date('Y-m-d'), 'source_filename'=>'Projet_bail.pdf'],
