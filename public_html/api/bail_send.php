@@ -104,6 +104,8 @@ try {
         $nom = $s['nom'] ?? ($s['nom_signataire'] ?? 'Madame, Monsieur');
         $sent = false;
         if (($s['statut'] ?? 'pending') === 'pending' && $email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            // Le versement (total + RIB) et l'attestation d'assurance ne concernent QUE le preneur.
+            $isPreneur = (($s['role_code'] ?? '') === 'preneur');
             $subject = 'Signature de votre bail commercial — ' . $refBien;
             $mbody =
                 "<p>Bonjour " . htmlspecialchars((string)$nom) . ",</p>" .
@@ -111,8 +113,8 @@ try {
                 "<p>La signature se fait <strong>très simplement depuis votre téléphone</strong> : ouvrez cet email sur votre mobile, cliquez sur le bouton ci-dessous, lisez le bail puis signez <strong>avec votre doigt</strong>.</p>" .
                 "<p><a href=\"" . htmlspecialchars($url) . "\" style=\"display:inline-block;padding:12px 22px;background:#84A7AB;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;\">Consulter et signer le bail</a></p>" .
                 "<p style=\"font-size:12px;color:#666;\">Ou copiez ce lien : " . htmlspecialchars($url) . "</p>" .
-                $totalHtml . $ribHtml .
-                "<p>Pour pouvoir <strong>prendre possession des lieux</strong>, merci de nous transmettre votre <strong>attestation d'assurance</strong> du local — vous pourrez la joindre directement au moment de la signature.</p>" .
+                ($isPreneur ? ($totalHtml . $ribHtml) : '') .
+                ($isPreneur ? "<p>Pour pouvoir <strong>prendre possession des lieux</strong>, merci de nous transmettre votre <strong>attestation d'assurance</strong> du local — vous pourrez la joindre directement au moment de la signature.</p>" : '') .
                 "<p style=\"font-size:12px;color:#666;\">Le projet de bail est joint à cet email. Lien valable <strong>48 heures</strong> ; votre signature est horodatée et tracée (adresse IP) à des fins de preuve.</p>";
             try {
                 $sent = send_mail($email, $subject, $mbody, $pdfAttach, true);
