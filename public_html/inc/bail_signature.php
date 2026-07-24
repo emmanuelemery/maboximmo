@@ -14,8 +14,26 @@
  */
 declare(strict_types=1);
 
+// Durée de validité d'un lien de signature (minutes), à compter de l'envoi (sent_at) ou,
+// à défaut, de la création (created_at). Un lien expiré n'autorise plus la signature ;
+// l'agent peut renvoyer le lien (bsig_mark_sent réarme la fenêtre).
+if (!defined('BSIG_TTL_MIN')) define('BSIG_TTL_MIN', 30);
+
 if (!function_exists('bsig_token')) {
     function bsig_token(): string { return bin2hex(random_bytes(32)); }
+}
+
+if (!function_exists('bsig_is_expired')) {
+    /** Le lien est-il hors délai ? (jamais expiré s'il est déjà signé) */
+    function bsig_is_expired(array $sig): bool {
+        if (($sig['statut'] ?? '') === 'signe') return false;
+        $base = $sig['sent_at'] ?? null;
+        if (!$base) $base = $sig['created_at'] ?? null;
+        if (!$base) return false; // pas d'horodatage fiable → on ne bloque pas
+        $ts = strtotime((string)$base);
+        if ($ts === false) return false;
+        return (time() - $ts) > (BSIG_TTL_MIN * 60);
+    }
 }
 
 if (!function_exists('bsig_build_url')) {
@@ -176,7 +194,18 @@ if (!function_exists('bsig_sign')) {
         $c = $stCnt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'signes' => 0];
         $allSigned = ((int)$c['total'] > 0 && (int)$c['total'] === (int)$c['signes']);
 
-        return ['ok' => true, 'all_signed' => $allSigned, 'signes' => (int)$c['signes'], 'total' => (int)$c['total']];
+        // AUTO-FINALISATION : dès que TOUTES les parties ont signé, on génère le PDF définitif,
+        // on le classe en GED et on l'envoie à tous les signataires (+ agent). Best-effort : une
+        // erreur ne casse jamais la signature. NB : ceci NE fait PAS la bascule métier
+        // (résiliation de l'ancien bail / promotion locataire) — celle-ci reste sous le contrôle
+        // explicite de l'agent via bail_cloturer.
+        $finalized = null;
+        if ($allSigned) {
+            try { $finalized = bail_finalize_signed($pdo, $idBail); }
+            catch (Throwable $e) { error_log('[bsig_sign auto-finalize] ' . $e->getMessage()); }
+        }
+
+        return ['ok' => true, 'all_signed' => $allSigned, 'signes' => (int)$c['signes'], 'total' => (int)$c['total'], 'finalized' => $finalized];
     }
 }
 
