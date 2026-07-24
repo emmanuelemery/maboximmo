@@ -818,6 +818,13 @@ function bail_edit_modal(): void
     resetForm();
     M._pf = pf || {}; M._editId = parseInt((pf||{}).bail_id,10) || 0; M._bienId = parseInt((pf||{}).bien_id,10) || 0; M._origin = (pf||{}).origin || 'bail_360';
     fillForm((pf||{}).values || {});
+    // Reprise du DESCRIPTIF du bien si le bail enregistré n'en a pas encore (fallback base) :
+    // pf.bien_designation / pf.bien_description sont fournis à la racine du prefill par bail_360.
+    var _pfe = pf || {};
+    if(g('bel-bien-desig') && !v('bel-bien-desig')){
+      if(_pfe.bien_designation){ g('bel-bien-desig').value = _pfe.bien_designation; }
+      else if(_pfe.bien_description){ g('bel-bien-desig').value = _pfe.bien_description; }
+    }
     g('bel-title-text') && (g('bel-title-text').textContent='Modifier le projet de bail');
     g('bel-save').textContent='💾 Enregistrer les modifications';
     g('bel-msg').textContent=''; toggleType(); render();

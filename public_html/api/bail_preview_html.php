@@ -29,7 +29,7 @@ $sql = "SELECT b.reference_bien, b.designation, b.adresse_1 AS bien_adresse, b.v
         b.bien_en_copropriete, b.lot_tantiemes AS bien_tantiemes_src, b.copro_nb_lots,
         b.id_societe AS bien_soc, b.id_agence AS bien_age, b.id AS id_bien, b.id_proprietaire,
         i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
-        p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
+        p.id AS proprio_id, p.id_tiers AS proprio_tiers_id, tp.infos_juridiques_json AS proprio_juridique_json,
         COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
         COALESCE(NULLIF(tp.nom_affichage,''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom
         FROM biens b
@@ -85,6 +85,11 @@ $bail = array_merge($b, [
     'honoraires_locataire_ttc' => $honoLoc,
     'honoraires_bailleur_ttc'  => $honoBail,
     'honoraires_charge'      => ($honoBail!==null && $honoLoc!==null) ? 'partage' : ($honoBail!==null ? 'bailleur' : 'locataire'),
+    // Champs modèle FNAIM (édition en cours)
+    'taux_penalite'          => ($body['taux_penalite'] ?? null) !== null && $body['taux_penalite'] !== '' ? (float)$body['taux_penalite'] : 10.0,
+    'droit_entree'           => ($body['droit_entree'] ?? null) !== null && $body['droit_entree'] !== '' ? (float)$body['droit_entree'] : null,
+    'honoraires_pct_preneur' => ($body['honoraires_pct_preneur'] ?? null) !== null && $body['honoraires_pct_preneur'] !== '' ? (float)$body['honoraires_pct_preneur'] : null,
+    'honoraires_pct_bailleur'=> ($body['honoraires_pct_bailleur'] ?? null) !== null && $body['honoraires_pct_bailleur'] !== '' ? (float)$body['honoraires_pct_bailleur'] : null,
     'conditions_particulieres'       => (string)($body['conditions_particulieres'] ?? ''),
     'conditions_particulieres_loyer' => (string)($body['conditions_particulieres_loyer'] ?? ''),
     'bien_designation'       => (string)($body['bien_designation'] ?? ''),
@@ -126,7 +131,7 @@ try {
     $ctx = bail_commercial_ctx_build($pdo, $bail);
     if (!$ctx) exit(json_encode(['ok'=>false,'error'=>'Contexte vide']));
     $ctx['signatures'] = []; // aperçu = pas de signatures
-    $html = bail_commercial_articles_html($ctx);
+    $html = bail_commercial_corps_fnaim($ctx);   // modèle FNAIM exact + annexe (un seul document)
     echo json_encode(['ok'=>true, 'html'=>$html], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     http_response_code(500); exit(json_encode(['ok'=>false,'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE));

@@ -37,13 +37,18 @@ if (!function_exists('bail_commercial_pdf_context')) {
             b.dpe_classe, b.ges_classe, b.dpe_valeur, b.ges_valeur, b.dpe_date_realisation,
             i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
             p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
+            tp.infos_juridiques_json AS proprio_juridique_json,
             COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
-            COALESCE(NULLIF(tp.nom_affichage,''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom
+            COALESCE(NULLIF(tp.nom_affichage,''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom,
+            tc.infos_juridiques_json AS preneur_juridique_json,
+            tc.raison_sociale AS preneur_tiers_raison,
+            COALESCE(NULLIF(tc.nom_affichage,''), tc.raison_sociale, CONCAT_WS(' ', tc.prenom, tc.nom)) AS preneur_tiers_nom
             FROM bien_baux bb
             INNER JOIN biens b        ON b.id = bb.id_bien
             LEFT JOIN immeubles i     ON i.id = b.id_immeuble
             LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
             LEFT JOIN tiers tp        ON tp.id = p.id_tiers
+            LEFT JOIN tiers tc        ON tc.id = bb.candidat_tiers_id
             WHERE bb.id = ? LIMIT 1";
         $st = $pdo->prepare($sql); $st->execute([$bailId]);
         $bail = $st->fetch(PDO::FETCH_ASSOC);
@@ -80,11 +85,47 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $proprioNom = $bail['proprio_tiers_nom'] ?: $bail['proprio_nom_legacy'] ?: '';
         $loyerM = (float)($bail['loyer_mensuel_hc'] ?? 0);
 
+        // Infos juridiques du BAILLEUR (annuaire Pappers, stockées sur le tiers du propriétaire).
+        // Servent à REMPLIR le bloc bailleur du bail (forme, capital, siège, RCS, gérant) SANS
+        // écraser une saisie manuelle (la saisie du représentant sur le bail prime — voir corps).
+        // Parse les infos juridiques Pappers (JSON) d'un tiers en bloc normalisé. Utilisé pour le
+        // BAILLEUR (fiche du propriétaire) ET le PRENEUR (fiche du candidat) : « le bail lit la fiche ».
+        $parseLegal = function ($str): array {
+            $jd = json_decode((string)$str, true);
+            if (!is_array($jd) || !$jd) return [];
+            $siege = $jd['siege'] ?? [];
+            $siegeStr = is_array($siege)
+                ? trim(implode(' ', array_filter([
+                    $siege['adresse'] ?? ($siege['ligne'] ?? ($siege['adresse_ligne'] ?? '')),
+                    $siege['code_postal'] ?? ($siege['cp'] ?? ''),
+                    $siege['ville'] ?? '',
+                  ])))
+                : trim((string)$siege);
+            // Représentant par défaut = 1er dirigeant gérant/président ; sinon le 1er listé.
+            $repDef = '';
+            foreach (($jd['dirigeants'] ?? []) as $dg) {
+                $ql = mb_strtolower((string)($dg['qualite'] ?? ''), 'UTF-8');
+                if (preg_match('/g[eé]rant|pr[eé]sident|dirigeant/u', $ql)) { $repDef = trim((string)($dg['nom'] ?? '')); break; }
+            }
+            if ($repDef === '' && !empty($jd['dirigeants'][0]['nom'])) $repDef = trim((string)$jd['dirigeants'][0]['nom']);
+            return [
+                'raison'  => (string)($jd['raison_sociale'] ?? ''),
+                'forme'   => (string)($jd['forme_juridique'] ?? ''),
+                'capital' => $jd['capital'] ?? null,
+                'siege'   => $siegeStr,
+                'siren'   => (string)($jd['siren'] ?? ''),
+                'rep'     => $repDef,
+            ];
+        };
+        $bLegal = $parseLegal($bail['proprio_juridique_json'] ?? '');
+        $pLegal = $parseLegal($bail['preneur_juridique_json'] ?? '');
+
         return [
             'statut'       => (string)$bail['statut'],
             'numero_bail'  => (string)($bail['numero_bail'] ?? ''),
             'proprio_nom'  => (string)$proprioNom,
             'bailleur_rep' => trim((string)($bail['bailleur_representant_nom'] ?? '') . (($bail['bailleur_representant_qualite'] ?? '') ? ' (' . $bail['bailleur_representant_qualite'] . ')' : '')),
+            'bailleur_legal' => $bLegal,
             'bien_ref'     => (string)($bail['reference_bien'] ?: $bail['designation'] ?: ('Bien #' . $bail['id_bien'])),
             'bien_adresse' => trim((string)($bail['bien_adresse'] ?? '') . ' ' . ($bail['bien_cp'] ?? '') . ' ' . ($bail['bien_ville'] ?? '')),
             'immeuble'     => (string)($bail['nom_immeuble'] ?: $bail['imm_adresse'] ?: ''),
@@ -105,16 +146,18 @@ if (!function_exists('bail_commercial_pdf_context')) {
             'cond_loyer'   => (string)($bail['conditions_particulieres_loyer'] ?? ''),
             'travaux_realises' => (string)($bail['travaux_realises_3ans'] ?? ''),
             'travaux_prevus'   => (string)($bail['travaux_prevus_3ans'] ?? ''),
+            // PRENEUR : les champs SAISIS sur le bail priment ; s'ils sont vides, on REPREND la fiche
+            // du candidat (tiers) — infos juridiques Pappers pour une société, nom pour un particulier.
             'preneur' => [
                 'type'      => ($bail['locataire_type'] ?? 'societe') === 'physique' ? 'physique' : 'societe',
-                'raison'    => (string)($bail['locataire_raison_sociale'] ?? ''),
-                'siren'     => (string)($bail['locataire_siren'] ?? ''),
-                'nom'       => trim((string)($bail['locataire_prenom'] ?? '') . ' ' . ($bail['locataire_nom'] ?? '')),
-                'rep'       => (string)($bail['locataire_representant_nom'] ?? ''),
+                'raison'    => (string)(($bail['locataire_raison_sociale'] ?? '') ?: ($pLegal['raison'] ?? '') ?: ($bail['preneur_tiers_raison'] ?? '')),
+                'siren'     => (string)(($bail['locataire_siren'] ?? '') ?: ($pLegal['siren'] ?? '')),
+                'nom'       => (trim((string)($bail['locataire_prenom'] ?? '') . ' ' . ($bail['locataire_nom'] ?? '')) ?: (string)($bail['preneur_tiers_nom'] ?? '')),
+                'rep'       => (string)(($bail['locataire_representant_nom'] ?? '') ?: ($pLegal['rep'] ?? '')),
                 'rep_q'     => (string)($bail['locataire_representant_qualite'] ?? ''),
                 'email'     => (string)($bail['locataire_email'] ?? ''),
                 'tel'       => (string)($bail['locataire_telephone'] ?? ''),
-                'adresse'   => (string)($bail['locataire_adresse'] ?? ''),
+                'adresse'   => (string)(($bail['locataire_adresse'] ?? '') ?: ($pLegal['siege'] ?? '')),
                 'naiss_d'   => bcp_date($bail['locataire_date_naissance'] ?? null),
                 'naiss_l'   => (string)($bail['locataire_lieu_naissance'] ?? ''),
                 'nat'       => (string)($bail['locataire_nationalite'] ?? ''),
@@ -610,12 +653,20 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $cb = fn($on) => $on ? '&#9746;' : '&#9744;'; // ☒ / ☐
 
         // ── Identités ──
-        // BAILLEUR = propriétaire (identité légale : seuls proprio_nom + représentant sont en base ;
-        // capital/siège/RCS restent vides si non renseignés — aucune invention).
-        $bailleur = 'La Société ' . $B($ctx['proprio_nom'] ?: '……………………')
-            . ', au capital social de ' . ($ge['capital'] ? bcp_e((string)bcp_eur($ge['capital'])) : '……')
-            . ', dont le siège social est situé ……………………, immatriculée au RCS sous le numéro ……………………,'
-            . ($ctx['bailleur_rep'] ? ' Représentée par ' . $B($ctx['bailleur_rep']) . ', se déclarant habilité(e) à cet effet aux termes des statuts.' : ' Représentée par …………………….');
+        // BAILLEUR = propriétaire. Les infos légales (forme, capital, siège, RCS, gérant) sont
+        // REPRISES de l'annuaire Pappers stocké sur le tiers ($ctx['bailleur_legal']) ; blanc si
+        // non renseigné (aucune invention). Le représentant SAISI sur le bail prime sur le gérant Pappers.
+        $bl     = $ctx['bailleur_legal'] ?? [];
+        $bForme = !empty($bl['forme'])   ? ', ' . bcp_e((string)$bl['forme'])                 : '';
+        $bCap   = !empty($bl['capital']) ? bcp_e((string)bcp_eur($bl['capital'])) . ' €'       : '……………………';
+        $bSiege = !empty($bl['siege'])   ? bcp_e((string)$bl['siege'])                          : '……………………';
+        $bSiren = !empty($bl['siren'])   ? bcp_e((string)$bl['siren'])                          : '……………………';
+        $bRep   = $ctx['bailleur_rep'] ?: (string)($bl['rep'] ?? '');
+        $bailleur = 'La Société ' . $B($ctx['proprio_nom'] ?: '……………………') . $bForme
+            . ' au capital social de ' . $bCap
+            . ', dont le siège social est situé ' . $bSiege
+            . ', immatriculée au RCS sous le numéro ' . $bSiren . ','
+            . ($bRep ? ' Représentée par ' . $B($bRep) . ', se déclarant habilité(e) à cet effet aux termes des statuts.' : ' Représentée par …………………….');
 
         // MANDATAIRE (Agence) = société de gestion + agence, infos réelles de la base.
         $mandataire = $B($ge['raison'] ?: '……………………')
