@@ -41,6 +41,25 @@ $st=$pdo->prepare($sql); $st->execute([$bienId]); $b=$st->fetch(PDO::FETCH_ASSOC
 if (!$b){ http_response_code(404); exit(json_encode(['ok'=>false,'error'=>'Bien introuvable'])); }
 if (!$isAdmin && !empty($b['bien_soc']) && (int)$b['bien_soc']!==$userSoc){ http_response_code(403); exit(json_encode(['ok'=>false,'error'=>'Hors périmètre'])); }
 
+// Base de GESTION (société/agence) + fiche du CANDIDAT, reprises du bail ENREGISTRÉ pour que
+// l'aperçu live corresponde au PDF final (le bien peut ne pas porter la société/agence ; elles
+// sont sur le bail — et la fiche du candidat porte les infos juridiques du preneur).
+$belBase = [];
+$bidPrev = (int)($body['bail_id'] ?? 0);
+if ($bidPrev > 0) {
+    try {
+        $qb = $pdo->prepare("SELECT bb.id_societe, bb.id_agence,
+                                    tc.infos_juridiques_json AS preneur_juridique_json,
+                                    tc.raison_sociale AS preneur_tiers_raison,
+                                    COALESCE(NULLIF(tc.nom_affichage,''), tc.raison_sociale, CONCAT_WS(' ', tc.prenom, tc.nom)) AS preneur_tiers_nom
+                               FROM bien_baux bb
+                               LEFT JOIN tiers tc ON tc.id = bb.candidat_tiers_id
+                              WHERE bb.id = ? LIMIT 1");
+        $qb->execute([$bidPrev]);
+        $belBase = $qb->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) { $belBase = []; }
+}
+
 // Helpers de mapping payload → colonnes bien_baux.
 $cand = is_array($body['candidat']??null) ? $body['candidat'] : [];
 $gar  = is_array($body['garant']??null)   ? $body['garant']   : [];
@@ -61,8 +80,11 @@ $bail = array_merge($b, [
     'numero_bail'            => (string)($body['numero_bail'] ?? ''),
     'bailleur_representant_nom'     => (string)($body['bailleur_representant_nom'] ?? ''),
     'bailleur_representant_qualite' => (string)($body['bailleur_representant_qualite'] ?? ''),
-    'id_societe'             => (int)($b['bien_soc'] ?? 0),
-    'id_agence'              => (int)($b['bien_age'] ?? 0),
+    'id_societe'             => (int)($b['bien_soc'] ?? 0) ?: (int)($belBase['id_societe'] ?? 0),
+    'id_agence'              => (int)($b['bien_age'] ?? 0) ?: (int)($belBase['id_agence'] ?? 0),
+    'preneur_juridique_json' => (string)($belBase['preneur_juridique_json'] ?? ''),
+    'preneur_tiers_raison'   => (string)($belBase['preneur_tiers_raison'] ?? ''),
+    'preneur_tiers_nom'      => (string)($belBase['preneur_tiers_nom'] ?? ''),
     'destination_activite'   => (string)($body['destination'] ?? ''),
     'date_prise_effet'       => $dateOk($body['date_prise_effet'] ?? ''),
     'prorata_date_debut'     => $dateOk($body['prorata_date_debut'] ?? ''),
