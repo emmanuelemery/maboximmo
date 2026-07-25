@@ -2436,7 +2436,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         immeuble: [
             {t:'reglement_copro', i:'📕', l:'Règlement copro'},
             {t:'pv_ag', i:'🗳️', l:"PV d'AG"},
-            {t:'convocation_ag', i:'📨', l:'Convocation AG'},
+            {t:'cv_ago', i:'📨', l:'Convocation AG (ord.)'},
             {t:'carnet_entretien', i:'📔', l:'Carnet entretien'},
             {t:'contrat', i:'📄', l:'Contrat'},
             {t:'dtg', i:'🏗️', l:'DTG'},
@@ -2501,8 +2501,9 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             // ── Cas particulier PV d'assemblée : le champ « Période » sert de DATE de l'assemblée
             //    (date exacte). Le libellé personnel se met par défaut à ORDINAIRE (éditable).
             //    Le champ « Date du document » reste la date auto d'intégration (on n'y touche pas). ──
-            // PV d'AG ET Convocation d'AG : champ « Date de l'assemblée » (position 9 du nom GED).
-            var isPV = (C.indexOf('PV_AG')!==-1 || C.indexOf('ASSEMBLEE')!==-1 || C.indexOf('CONVOCATION')!==-1 || C==='CVAG');
+            // PV d'AG ET Convocation d'AG (glossaire CV_AGO/CV_AGE) : champ « Date de l'assemblée »
+            // (position 9 du nom GED).
+            var isPV = (C.indexOf('PV_AG')!==-1 || C.indexOf('ASSEMBLEE')!==-1 || C.indexOf('CV_AG')!==-1 || C.indexOf('CONVOCATION')!==-1);
             if (isPV){
                 var libEl=document.getElementById('fbx-doc-libelle');
                 if (libEl && !libEl.value){ libEl.value='ORDINAIRE'; choice.doc_libelle='ORDINAIRE'; }
