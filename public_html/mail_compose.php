@@ -400,17 +400,34 @@ include __DIR__ . '/inc/agency_layout_top.php';
   }
 
   // ── Liste des pièces jointes DANS le corps (live, se met à jour au (dé)cochage) ──
+  function tmTypeLabel(t){
+    t=(t||'').trim(); if(!t) return 'Autres documents';
+    t=t.replace(/_/g,' ').replace(/\s+/g,' ').trim();
+    return t.charAt(0).toUpperCase()+t.slice(1);   // ex. "bail_signe" → "Bail signe"
+  }
   function tmBuildPJ(){
-    var names = Array.from(document.querySelectorAll('.tm-doc:checked')).map(function(c){ return (c.dataset.name||c.value||'').trim(); }).filter(Boolean);
-    if(!names.length) return '';
-    var s = names.length>1?'s':'';
-    return 'Pièce'+s+' jointe'+s+' :\n' + names.map(function(n){ return '- '+n; }).join('\n');
+    var checked = Array.from(document.querySelectorAll('.tm-doc:checked'));
+    if(!checked.length) return '';
+    // Regroupe par TYPE de document (ordre d'apparition conservé).
+    var groups = {}, order = [];
+    checked.forEach(function(c){
+      var lbl = tmTypeLabel(c.dataset.type||'');
+      var nm  = (c.dataset.name||c.value||'').trim(); if(!nm) return;
+      if(!groups[lbl]){ groups[lbl]=[]; order.push(lbl); }
+      groups[lbl].push(nm);
+    });
+    if(!order.length) return '';
+    var out = 'Pièces jointes :\n';
+    out += order.map(function(lbl){
+      return lbl+' :\n' + groups[lbl].map(function(n){ return '- '+n; }).join('\n');
+    }).join('\n\n');
+    return out;
   }
   function tmSyncPJ(){
     var ta=document.getElementById('tm-corps'); if(!ta) return;
     var body=ta.value;
-    // Retire un ancien bloc PJ (repéré par son intitulé) avant de le reconstruire.
-    body=body.replace(/\n*Pièces? jointes? :\n(?:- .*\n?)*/,'');
+    // Retire un ancien bloc PJ (de « Pièces jointes : » jusqu'à la signature ou la fin).
+    body=body.replace(/\n*Pièces? jointes? :\n[\s\S]*?(?=\n-- \n|\n--\n|$)/,'');
     var block=tmBuildPJ();
     if(block){
       var i=body.indexOf('\n-- \n'); if(i===-1) i=body.indexOf('\n--\n');   // insère AVANT la signature

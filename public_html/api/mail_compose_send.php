@@ -39,13 +39,19 @@ $uids = array_values(array_unique(array_map('strval', $uids)));
 // Nom d'affichage par uid (ex. nom GED) pour renommer la pièce jointe envoyée.
 $nameByUid = [];
 foreach (($C['docs'] ?? []) as $dd) { if (!empty($dd['uid'])) $nameByUid[(string)$dd['uid']] = (string)($dd['name'] ?? ''); }
-$attachments = []; $attachTmp = []; $attachNames = [];
+// Type de document par uid (pour grouper les PJ par type dans le corps).
+$typeByUid = [];
+foreach (($C['docs'] ?? []) as $dd) { if (!empty($dd['uid'])) $typeByUid[(string)$dd['uid']] = (string)($dd['type'] ?? ''); }
+$attachments = []; $attachTmp = []; $attachByType = []; $attachTypeOrder = [];
 foreach ($uids as $uid) {
     if (!isset($allowed[$uid])) continue;
     $src = $allowed[$uid];
     $wanted = trim((string)($nameByUid[$uid] ?? ''));
-    // Nom lisible pour la liste dans le corps (nom GED sinon nom de fichier).
-    $attachNames[] = $wanted !== '' ? $wanted : basename((string)$src);
+    // Nom + type lisibles pour la liste groupée dans le corps (nom GED sinon nom de fichier).
+    $nm = $wanted !== '' ? $wanted : basename((string)$src);
+    $tp = trim((string)($typeByUid[$uid] ?? '')); $tpLbl = $tp !== '' ? ucfirst(str_replace('_', ' ', $tp)) : 'Autres documents';
+    if (!isset($attachByType[$tpLbl])) { $attachByType[$tpLbl] = []; $attachTypeOrder[] = $tpLbl; }
+    $attachByType[$tpLbl][] = $nm;
     if ($wanted === '') { $attachments[] = $src; continue; }
     $wanted = preg_replace('#[\\\\/:*?"<>|]+#', '_', $wanted);            // nom de fichier sûr
     $ext = strtolower(pathinfo($src, PATHINFO_EXTENSION));
@@ -72,12 +78,16 @@ if ($signMode) { require_once __DIR__ . '/../inc/bail_signature.php'; }
 
 // Envoi
 $baseBodyEsc = nl2br(htmlspecialchars($corps, ENT_QUOTES, 'UTF-8'));
-// Liste des PIÈCES JOINTES ajoutée au corps (demande Emery) — si des documents sont joints
-// et que le corps ne mentionne pas déjà « pièce(s) jointe(s) ».
-if ($attachNames && stripos($corps, 'pièce') === false && stripos($corps, 'piece') === false) {
-    $li = '';
-    foreach ($attachNames as $an) $li .= '<li>' . htmlspecialchars((string)$an, ENT_QUOTES, 'UTF-8') . '</li>';
-    $baseBodyEsc .= '<br><br><strong>Pièce' . (count($attachNames) > 1 ? 's' : '') . ' jointe' . (count($attachNames) > 1 ? 's' : '') . ' :</strong><ul style="margin:6px 0 0;padding-left:20px;">' . $li . '</ul>';
+// Liste des PIÈCES JOINTES groupée PAR TYPE, ajoutée au corps (demande Emery) — seulement si
+// des documents sont joints ET que le corps ne la mentionne pas déjà.
+if ($attachTypeOrder && stripos($corps, 'pièce') === false && stripos($corps, 'piece') === false) {
+    $block = '<br><br><strong>Pièces jointes :</strong>';
+    foreach ($attachTypeOrder as $tpLbl) {
+        $li = '';
+        foreach ($attachByType[$tpLbl] as $an) $li .= '<li>' . htmlspecialchars((string)$an, ENT_QUOTES, 'UTF-8') . '</li>';
+        $block .= '<div style="margin-top:6px;"><em>' . htmlspecialchars($tpLbl, ENT_QUOTES, 'UTF-8') . '</em><ul style="margin:2px 0 0;padding-left:20px;">' . $li . '</ul></div>';
+    }
+    $baseBodyEsc .= $block;
 }
 $okCount = 0; $fail = [];
 foreach ($emails as $to) {
