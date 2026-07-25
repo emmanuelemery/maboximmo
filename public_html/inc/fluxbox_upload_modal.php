@@ -134,7 +134,7 @@ try {
             <div class="fbx-quicktypes" id="fbx-quicktypes"></div>
             <div class="fbx-qtype-custom" id="fbx-qtype-custom" hidden>
                 <input type="text" id="fbx-qtype-custom-input" maxlength="120" autocomplete="off"
-                       placeholder="✍️ Libellé du document (ex : « Attestation TVA », « Courrier syndic »…)">
+                       placeholder="✍️ Type de document (ex : « Convocation AG », « Attestation TVA »…)">
             </div>
             <div class="fbx-qtype-warn" id="fbx-qtype-warn" hidden>⚠️ Choisis d'abord le type de document (ou « Autre » + libellé) avant de charger.</div>
             <div class="fbx-doc-meta fbx-doc-meta-hl">
@@ -2606,6 +2606,9 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         if (dat) dat.addEventListener('change', function(){ choice.doc_date = dat.value; try { fbxRenderGedZonesContext(); } catch (e) {} });
         if (per) per.addEventListener('input', function(){ choice.doc_period = per.value; try { fbxRenderGedZonesContext(); } catch (e) {} });
         if (rhc) rhc.addEventListener('change', function(){ choice.doc_rhcat = rhc.value; try { fbxRenderGedZonesContext(); } catch (e) {} });
+        // « Autre… » = TYPE de document libre → rafraîchit l'aperçu du nom en direct.
+        var cti = document.getElementById('fbx-qtype-custom-input');
+        if (cti) cti.addEventListener('input', function(){ try { fbxRenderGedZonesContext(); } catch (e) {} });
     })();
 
     // Le gating « type obligatoire » ne s'applique QUE si des types fréquents sont proposés.
@@ -2915,13 +2918,14 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     /* ─── Récup métadonnées user (commentaire + classement + date + libellé + entité) ─── */
     function getMetadata() {
         const pf = window.FBX_PREFILL || {};
-        // Libellé : champ dédié, sinon le libellé libre saisi via « Autre » dans les types fréquents.
-        let userLabel = (labelEl?.value || '').trim();
-        if (!userLabel && choice.qtype_other) {
+        // « Autre… » = TYPE de document libre (position 8 du nom), PAS le libellé.
+        let customType = '';
+        if (choice.qtype_other) {
             const ci = document.getElementById('fbx-qtype-custom-input');
-            if (ci) userLabel = ci.value.trim();
+            if (ci) customType = ci.value.trim();
         }
-        // Repli sur le « LIBELLÉ PERSONNEL » visible (ex. « ORDINAIRE » pour un PV d'AG).
+        // Libellé : champ dédié « Libellé personnel » uniquement (ex. « ORDINAIRE »).
+        let userLabel = (labelEl?.value || '').trim();
         if (!userLabel && choice.doc_libelle) userLabel = String(choice.doc_libelle).trim();
         // Date cible : champ date explicite, sinon la PÉRIODE mois/année visible (ex. PV → « Mois de
         // l'assemblée » = 2025-01) convertie en 1er du mois → alimente le nom + metadata.classement.date.
@@ -2957,7 +2961,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             prefill_bail_id:     pf.bail_id ? parseInt(pf.bail_id, 10) : 0,
             prefill_emp_id:      pf.emp_id  ? parseInt(pf.emp_id, 10)  : 0,
             prefill_creancier_dossier_id: pf.creancier_dossier_id ? parseInt(pf.creancier_dossier_id, 10) : 0,
-            forced_type_doc:     choice.forced_type_doc || '',
+            forced_type_doc:     choice.forced_type_doc || customType || '',
             prefill_origin:      pf.origin || '',
         };
     }
@@ -3963,7 +3967,7 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
             societe_id:  (choice.societe_id || pf.soc_id || 0),
             agence_id:   (choice.agence_id  || pf.age_id || 0),
             metier:      (zones[2] && zones[2].v) ? String(zones[2].v).toLowerCase() : '',
-            type_doc:    choice.forced_type_doc || '',
+            type_doc:    choice.forced_type_doc || (choice.qtype_other ? val('fbx-qtype-custom-input') : ''),
             libelle:     val('fbx-doc-libelle'),
             ref:         val('fbx-doc-period'),
             date_doc:    val('fbx-doc-date'),
