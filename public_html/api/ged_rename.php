@@ -26,8 +26,13 @@ if ($raw && ($j = json_decode($raw, true)) && is_array($j)) {
 
 // CSRF : même schéma que api/fluxbox_action.php (session csrf_token via POST `csrf` ou en-tête).
 $csrfReceived = (string)($_POST['csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
-$csrfExpected = (string)($_SESSION['csrf_token'] ?? '');
-if ($csrfExpected !== '' && !hash_equals($csrfExpected, $csrfReceived)) {
+// Accepte le token legacy ($_SESSION['csrf_token']) OU le token applicatif standard (form 'default',
+// utilisé par le modal général de renommage). Si aucun token attendu → check ignoré.
+$csrfLegacy  = (string)($_SESSION['csrf_token'] ?? '');
+$csrfStd     = function_exists('csrf_token') ? csrf_token('default') : '';
+$csrfValid   = ($csrfLegacy !== '' && hash_equals($csrfLegacy, $csrfReceived))
+            || ($csrfStd    !== '' && hash_equals($csrfStd,    $csrfReceived));
+if (($csrfLegacy !== '' || $csrfStd !== '') && !$csrfValid) {
     gr_out(['ok' => false, 'error' => 'CSRF invalide'], 403);
 }
 

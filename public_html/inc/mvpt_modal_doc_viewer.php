@@ -19,6 +19,7 @@
         <div class="mvpt-modal-header">
             <h3 id="mvptModalTitle">📄 Document</h3>
             <div class="mvpt-modal-header-actions">
+                <button class="mvpt-modal-reclass" onclick="mvptModalRename()" title="Renommer le document (nom GED lisible)">✎ Renommer</button>
                 <button class="mvpt-modal-reclass" onclick="mvptModalReclass()" title="Re-classer ce document via FluxBox">✏️ Re-classer</button>
                 <a id="mvptModalOpen" class="mvpt-modal-open" href="#" target="_blank" rel="noopener" title="Ouvrir dans un nouvel onglet">↗ Ouvrir</a>
                 <button class="mvpt-modal-close" onclick="mvptModalClose()">✕ Fermer</button>
@@ -88,6 +89,7 @@
 <script>
 (function() {
     let mvptCurrentDocId = 0;
+    let mvptCurrentName = '';
     // URLs API préfixées par la base de l'app (sinon 404 en local sous sous-dossier).
     const MVPT_SERVE = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_serve.php') : '/api/ged_doc_serve.php') ?>;
     const MVPT_INFO  = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_info.php') : '/api/ged_doc_info.php') ?>;
@@ -185,9 +187,34 @@
         } catch (e) { alert('❌ Réseau : ' + e.message); }
     };
 
+    // Renommer le doc (nom GED lisible = name_display). Simple : une invite, un POST.
+    const MVPT_RENAME = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_rename.php') : '/api/ged_rename.php') ?>;
+    const MVPT_CSRF   = <?= json_encode(function_exists('csrf_token') ? csrf_token('default') : '') ?>;
+    window.mvptModalRename = async function() {
+        if (mvptCurrentDocId <= 0) return;
+        const cur = (mvptCurrentName || (document.getElementById('mvptModalTitle').textContent || '').replace(/^📄\s*/, '')).trim();
+        const nn = prompt('Nouveau nom du document :', cur);
+        if (nn === null) return;
+        const name = nn.trim();
+        if (name === '' || name === cur) return;
+        try {
+            const res = await fetch(MVPT_RENAME, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': MVPT_CSRF },
+                body: JSON.stringify({ ged_id: mvptCurrentDocId, name: name, csrf: MVPT_CSRF }), credentials: 'same-origin',
+            });
+            const data = await res.json();
+            if (data.ok) {
+                mvptCurrentName = data.name || name;
+                document.getElementById('mvptModalTitle').textContent = '📄 ' + mvptCurrentName;
+                window.FBX_FICHE_DIRTY = true;   // la fiche se rafraîchira à la fermeture
+            } else { alert('❌ ' + (data.error || 'Renommage refusé')); }
+        } catch (e) { alert('❌ Réseau : ' + e.message); }
+    };
+
     // 3e argument optionnel `fields` = panneau gauche (champs extraits).
     window.mvptModalView = async function(docId, name, fields) {
         mvptCurrentDocId = docId;
+        mvptCurrentName = name || '';
         const backdrop = document.getElementById('mvptModalBackdrop');
         const title    = document.getElementById('mvptModalTitle');
         const body     = document.getElementById('mvptModalBody');
