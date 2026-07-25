@@ -409,6 +409,51 @@ if (!function_exists('fiche360_mention_dans')) {
     }
 }
 
+if (!function_exists('fiche360_mail_history')) {
+    /**
+     * Carte « Communication » : historique des mails envoyés depuis le composeur pour cette entité.
+     * $historyKey = clé mail_context : strtolower(type).':'.id (ex. 'imb:848', 'bail:662', 'bien:2455').
+     * Défensif : n'échoue jamais si la table mail_history n'existe pas encore.
+     */
+    function fiche360_mail_history(PDO $pdo, string $historyKey, string $titre = 'Communication', string $cardClass = 'f360-card'): void {
+        $rows = [];
+        try {
+            $st = $pdo->prepare("SELECT h.id, h.subject, h.recipients_json, h.recipients_count, h.sent_at,
+                                        TRIM(CONCAT_WS(' ', u.prenom, u.nom)) AS envoyeur
+                                   FROM mail_history h LEFT JOIN users u ON u.id = h.sent_by
+                                  WHERE h.recipient_type = ? ORDER BY h.sent_at DESC, h.id DESC LIMIT 30");
+            $st->execute([$historyKey]);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) { $rows = []; }
+        echo '<div class="' . h($cardClass) . '">';
+        echo '<h3>✉️ ' . h($titre) . ' <span class="count">' . count($rows) . '</span></h3>';
+        if (empty($rows)) {
+            echo '<div class="f360-empty"><div class="em-ico">📭</div>Aucun mail envoyé depuis cette fiche.</div>';
+        } else {
+            foreach ($rows as $r) {
+                $dest = '';
+                $rj = json_decode((string)($r['recipients_json'] ?? ''), true);
+                if (is_array($rj)) {
+                    $ems = [];
+                    foreach ($rj as $x) { $e = is_array($x) ? ((string)($x['email'] ?? '')) : (string)$x; if ($e !== '') $ems[] = $e; }
+                    $dest = implode(', ', array_slice($ems, 0, 4)) . (count($ems) > 4 ? ' +' . (count($ems) - 4) : '');
+                }
+                $dt = $r['sent_at'] ? date('d/m/y H:i', strtotime((string)$r['sent_at'])) : '';
+                echo '<div style="padding:7px 0;border-bottom:1px solid #f0ece6;font-size:12px;">';
+                echo '<div style="font-weight:700;color:#2c2a28;word-break:break-word;">' . h((string)($r['subject'] ?? '(sans objet)')) . '</div>';
+                echo '<div style="color:#9a9690;font-size:11px;margin-top:2px;">';
+                echo '📅 ' . h($dt);
+                if (!empty($r['envoyeur'])) echo ' · 👤 ' . h((string)$r['envoyeur']);
+                echo ' · 📧 ' . (int)($r['recipients_count'] ?? 0) . ' destinataire(s)';
+                echo '</div>';
+                if ($dest !== '') echo '<div style="color:#7a766f;font-size:11px;margin-top:1px;word-break:break-all;">→ ' . h($dest) . '</div>';
+                echo '</div>';
+            }
+        }
+        echo '</div>';
+    }
+}
+
 // ─── JS commun (IA Ask) ──
 if (!function_exists('fiche360_js')) {
     function fiche360_js(): string {

@@ -962,9 +962,22 @@ if ($kpis) {
     // RIB de GESTION de l'agence (identique au PDF : cb_resolve …,'gestion'), jamais le compte société.
     require_once __DIR__ . '/inc/comptes_bancaires.php';
     $ribGBien = cb_resolve($pdo, $idSocBien, $idAgeBien ?: null, 'gestion');
+    // Conditions financières de la dernière annonce (location) → pré-remplissage du nouveau bail.
+    $belAnn = [];
+    try {
+        $stAnn = $pdo->prepare("SELECT loyer, charges, depot_garantie, honoraires_location_bail
+                                FROM annonces WHERE id_bien = ? ORDER BY id DESC LIMIT 1");
+        $stAnn->execute([$bienId]);
+        $belAnn = $stAnn->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable) {}
+
     $belPrefill = [
         'bien_id'          => (int)$bienId,
         'proprio_nom'      => (string)$proprietaireNom,
+        'annonce_loyer_annuel' => !empty($belAnn['loyer']) ? round((float)$belAnn['loyer'] * 12, 2) : null,
+        'annonce_charges_m'    => ($belAnn['charges'] ?? null) !== null && $belAnn['charges'] !== '' ? (float)$belAnn['charges'] : null,
+        'annonce_dg_montant'   => ($belAnn['depot_garantie'] ?? null) !== null && $belAnn['depot_garantie'] !== '' ? (float)$belAnn['depot_garantie'] : null,
+        'annonce_honoraires'   => ($belAnn['honoraires_location_bail'] ?? null) !== null && $belAnn['honoraires_location_bail'] !== '' ? (float)$belAnn['honoraires_location_bail'] : null,
         'immeuble_nom'     => (string)($bien['nom_immeuble'] ?: $bien['imm_adresse'] ?: ''),
         'bien_ref'         => (string)($bien['reference_bien'] ?: ('Bien #' . $bienId)),
         'bien_adresse'     => trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? '')),
@@ -1030,9 +1043,75 @@ if ($kpis) {
                         <strong>📋 Conditions particulières :</strong> <?= h(mb_substr((string)$bailActif['conditions_particulieres'], 0, 400)) ?><?= mb_strlen($bailActif['conditions_particulieres']) > 400 ? '…' : '' ?>
                     </div>
                 <?php endif; ?>
+
+                <!-- 📎 Attacher la COPIE du bail signé au bail ACTIF existant (pas de création IA) -->
+                <div style="margin-top:12px;padding:12px;border:1.5px dashed #84A7AB;border-radius:12px;background:#f2f8f8;text-align:center;">
+                    <div style="font-size:12.5px;color:#3a5a5c;font-weight:700;margin-bottom:8px;">📎 Attacher la copie du bail signé (PDF) — rattachée à ce bail, visible en GED (bien + fiche bail).</div>
+                    <input type="file" id="bailCopyFile" accept="application/pdf" style="display:none;">
+                    <button type="button" id="bailCopyBtn" style="border:none;background:#84A7AB;color:#fff;border-radius:999px;padding:8px 18px;font-size:13px;font-weight:800;cursor:pointer;">📎 Charger la copie du bail</button>
+                    <div id="bailCopyMsg" style="font-size:11.5px;color:#7a8a8c;margin-top:8px;"></div>
+                </div>
+                <script>
+                (function(){
+                    var EP=<?= json_encode(app_url('/api/bail_doc_upload.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_doc_upload') : '') ?>, BAIL=<?= (int)$bailActif['id'] ?>;
+                    var f=document.getElementById('bailCopyFile'), b=document.getElementById('bailCopyBtn'), msg=document.getElementById('bailCopyMsg');
+                    if(b){ b.addEventListener('click',function(){ f.click(); });
+                        f.addEventListener('change',function(){ var file=f.files&&f.files[0]; if(!file)return;
+                            if(file.type!=='application/pdf'){ msg.textContent='❌ PDF uniquement.'; return; }
+                            b.disabled=true; msg.textContent='⏳ Ajout de la copie au bail…';
+                            var fd=new FormData(); fd.append('id_bail',BAIL); fd.append('document[]',file); fd.append('csrf_token',CSRF);
+                            fetch(EP,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(j){
+                                if(j&&j.ok){ msg.innerHTML='✅ Copie attachée au bail — rechargement…'; setTimeout(function(){location.reload();},700); }
+                                else { msg.textContent='❌ '+((j&&j.error)||'Échec'); b.disabled=false; }
+                            }).catch(function(e){ msg.textContent='❌ Réseau : '+e; b.disabled=false; });
+                        });
+                    }
+                })();
+                </script>
             <?php else: ?>
                 <div class="f360-empty"><div class="em-ico">🔓</div>Aucun bail actif sur ce bien.</div>
             <?php endif; ?>
+
+            <?php if (!$bailActif): ?>
+            <!-- ⚡ Chargement DIRECT d'un bail → crée AUTOMATIQUEMENT le bail actif (sans passer par « projet ») -->
+            <div style="margin-top:12px;padding:12px;border:1.5px dashed #84A7AB;border-radius:12px;background:#f2f8f8;text-align:center;">
+                <div style="font-size:12.5px;color:#3a5a5c;font-weight:700;margin-bottom:8px;">📎 Bail déjà signé ? Charge-le : le bail actif se crée tout seul (extraction IA loyer/dates/locataire).</div>
+                <input type="file" id="bailQuickFile" accept="application/pdf" style="display:none;">
+                <button type="button" id="bailQuickBtn" style="border:none;background:#84A7AB;color:#fff;border-radius:999px;padding:8px 18px;font-size:13px;font-weight:800;cursor:pointer;">📥 Charger un bail (auto)</button>
+                <div id="bailQuickMsg" style="font-size:11.5px;color:#7a8a8c;margin-top:8px;"></div>
+            </div>
+            <script>
+            (function(){
+                var EP   = <?= json_encode(app_url('/api/bien_intake_upload.php')) ?>;
+                var CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token('ajouter_bien') : '') ?>;
+                var BID  = <?= (int)$bienId ?>;
+                var f = document.getElementById('bailQuickFile'), b = document.getElementById('bailQuickBtn'), msg = document.getElementById('bailQuickMsg');
+                if (b) {
+                    b.addEventListener('click', function(){ f.click(); });
+                    f.addEventListener('change', function(){
+                        var file = f.files && f.files[0]; if (!file) return;
+                        if (file.type !== 'application/pdf') { msg.textContent = '❌ PDF uniquement.'; return; }
+                        b.disabled = true; msg.textContent = '⏳ Lecture du bail (IA) — création du bail actif…';
+                        var fd = new FormData();
+                        fd.append('id_bien', BID); fd.append('fichier', file); fd.append('force_type', 'bail'); fd.append('csrf_token', CSRF);
+                        fetch(EP, { method:'POST', body: fd })
+                          .then(function(r){ return r.json().catch(function(){ return {ok:false, error:'réponse illisible'}; }); })
+                          .then(function(j){
+                              if (j && j.ok && j.bail_id) { msg.innerHTML = '✅ Bail actif créé — rechargement…'; setTimeout(function(){ location.reload(); }, 700); }
+                              else if (j && j.ok) {
+                                  var diag = 'IA sautée=' + (j.ia_skipped ? 'oui' : 'non') + ' · champs=' + (j.count != null ? j.count : '?') + ' · type détecté=' + (j.doc_type || '?');
+                                  if (j.bail_error) diag += '<br>Erreur SQL bail : ' + j.bail_error;
+                                  msg.innerHTML = '⚠️ Document chargé mais bail NON créé.<br><span style="color:#9a8">' + diag + '</span>';
+                                  b.disabled = false;
+                              }
+                              else { msg.textContent = '❌ ' + ((j && j.error) || 'Échec du chargement'); b.disabled = false; }
+                          })
+                          .catch(function(e){ msg.textContent = '❌ Réseau : ' + e; b.disabled = false; });
+                    });
+                }
+            })();
+            </script>
+            <?php endif; /* !$bailActif : bloc auto-création */ ?>
 
             <!-- ── Projet(s) de nouveau bail (workflow type mandat) ── -->
             <div style="margin-top:14px;border-top:1px dashed #d9d2e6;padding-top:12px;">
@@ -1057,9 +1136,20 @@ if ($kpis) {
                                 <?= $bp['loyer_mensuel_hc'] ? ' · ' . number_format((float)$bp['loyer_mensuel_hc']*12, 0, ',', ' ') . ' €/an' : '' ?>
                             </div>
                         </span>
+                        <?php if (!$bailActif && in_array((string)$bp['statut'], ['signe','projet','avenant'], true)): ?>
+                        <button type="button" onclick="bailActiver(<?= (int)$bp['id'] ?>)" title="Rendre ce bail actif" style="border:none;background:#16a34a;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">✅ Activer</button>
+                        <?php endif; ?>
                         <a href="<?= h(app_url('/bail_360.php?id=' . (int)$bp['id'])) ?>" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;text-decoration:none;white-space:nowrap;">📂 Reprendre le dossier</a>
                     </div>
                 <?php endforeach; endif; ?>
+                <script>
+                function bailActiver(id){ if(!confirm('Rendre ce bail ACTIF sur ce bien ?')) return;
+                    var fd=new FormData(); fd.append('id_bail',id); fd.append('csrf_token',<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_activer') : '') ?>);
+                    fetch(<?= json_encode(app_url('/api/bail_activer.php')) ?>,{method:'POST',body:fd,credentials:'same-origin'})
+                      .then(function(r){return r.json();}).then(function(j){ if(j&&j.ok) location.reload(); else alert('✗ '+((j&&j.error)||'échec')); })
+                      .catch(function(){ alert('✗ Erreur réseau'); });
+                }
+                </script>
             </div>
         </div>
 
@@ -1279,6 +1369,7 @@ if ($kpis) {
         'url'   => app_url('/api/ged_document_view.php?id=' . (int)$m['id'] . '&mode=inline'),
     ], $mentions);
     fiche360_mention_dans($mentionsForLayout);
+    if (function_exists('fiche360_mail_history')) fiche360_mail_history($pdo, 'bien:' . $bienId);
     ?>
 
       </div>

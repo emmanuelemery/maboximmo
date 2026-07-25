@@ -802,6 +802,7 @@ $headerActions[] = ['label'=>'📁 Documents','url'=>app_url('/tiers_documents_l
         if (function_exists('ged_source_folders_card')) { try {
             ged_source_folders_card($pdo, 'TIERS', $tiersId, ['id_societe'=>(int)($tiers['id_societe'] ?? 0), 'id_agence'=>(int)($tiers['id_agence'] ?? 0)]);
         } catch (Throwable $e) {} } }
+    if (function_exists('fiche360_mail_history')) fiche360_mail_history($pdo, 'tiers:' . $tiersId);
     ?>
 
     <!-- Mentionné dans (rendu manuel pour permettre la suppression d'un doc) -->

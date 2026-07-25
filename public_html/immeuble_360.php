@@ -788,6 +788,7 @@ fiche360_header(
         'url'   => null,
     ], $mentions);
     fiche360_mention_dans($mentionsForLayout);
+    if (function_exists('fiche360_mail_history')) fiche360_mail_history($pdo, 'imb:' . $immId);
     ?>
 
       </div><!-- ░░░ fin SOUS-COLONNE DROITE ░░░ -->

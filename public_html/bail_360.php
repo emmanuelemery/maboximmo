@@ -938,6 +938,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         'url'   => null,
     ], $mentions);
     fiche360_mention_dans($mentionsForLayout);
+    if (function_exists('fiche360_mail_history')) fiche360_mail_history($pdo, 'bail:' . $bailId);
     ?>
 
   </div>
