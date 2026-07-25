@@ -88,6 +88,23 @@ try {
         if (!isset($docsById[(int)$d['id']])) $docsById[(int)$d['id']] = $d;
     }
 } catch (Throwable $e) {}
+// Diagnostics du BIEN (DPE, DDT, amiante, ERP…) : ANNEXES OBLIGATOIRES du bail. Ils sont liés
+// au bien, pas au bail — on les remonte ici pour qu'ils apparaissent dans les pièces du bail.
+try {
+    $bienIdForDiag = (int)($bail['id_bien'] ?? 0);
+    if ($bienIdForDiag > 0 && function_exists('gdl_documents_for_entity')) {
+        $diagRe = '/dpe|diag|ddt|amiante|plomb|erp|termite|electric|electr|gaz|carrez|mesurage|assainissement/i';
+        foreach (gdl_documents_for_entity($pdo, 'BIEN', $bienIdForDiag, ['limit' => 40]) as $d) {
+            $t = strtolower(trim((string)($d['document_type'] ?? '')));
+            $nm = strtolower((string)($d['name_display'] ?? ''));
+            if (preg_match($diagRe, $t) || preg_match($diagRe, $nm)) {
+                $d['link_relation_type'] = 'main';       // pièce à part entière du bail
+                $d['_from_bien'] = 1;                     // provenance (annexe du bien)
+                if (!isset($docsById[(int)$d['id']])) $docsById[(int)$d['id']] = $d;
+            }
+        }
+    }
+} catch (Throwable $e) {}
 // Split par type de lien : main = documents PROPRES du bail ; reference = docs qui CITENT
 // le bail (CRG, quittances…) → alimentent la card « Mentionné dans ». Legacy (sans lien) = main.
 $docs = []; $mentions = [];
@@ -114,7 +131,7 @@ $pieces = [
     ['label'=>'Bail signé',              'sublabel'=>'Document principal',           'fbx_type'=>'BAIL',                  'types'=>['BAIL','bail_signe','bail']],
     ['label'=>"État des lieux d'entrée", 'sublabel'=>"Obligatoire à la prise d'effet",'fbx_type'=>'EDL_ENTREE',            'types'=>['EDL_ENTREE','edl_entree','etat_lieux_entree']],
     ['label'=>"Attestation d'assurance", 'sublabel'=>'Locataire — annuel',           'fbx_type'=>'ATTESTATIONS_ASSURANCE','types'=>['ATTESTATIONS_ASSURANCE','attestation_assurance','att_assurance','assurance']],
-    ['label'=>'DPE',                     'sublabel'=>'Annexé au bail',               'fbx_type'=>'DPE',                   'types'=>['DPE','dpe']],
+    ['label'=>'DPE',                     'sublabel'=>'Annexé au bail',               'fbx_type'=>'DPE',                   'types'=>['DPE','dpe','diag_dpe','DIAG_DPE','ddt','DDT']],
     ['label'=>'Acte de caution',         'sublabel'=>'Si garant',                    'fbx_type'=>'ACTES_CAUTION',         'types'=>['ACTES_CAUTION','caution_garant','caution']],
     ['label'=>"État des lieux de sortie",'sublabel'=>'Si bail terminé',              'fbx_type'=>'EDL_SORTIE',            'types'=>['EDL_SORTIE','edl_sortie','etat_lieux_sortie']],
 ];
