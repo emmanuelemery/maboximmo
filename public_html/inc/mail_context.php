@@ -282,6 +282,66 @@ if (!function_exists('mail_context')) {
                 return $ctx;
             }
 
+            case 'IMB':
+            case 'IMMEUBLE': {
+                // Immeuble : titre lisible + contacts (propriétaires + acteurs génériques
+                // ayant un email) + documents GED. Sans contacts, l'utilisateur ne trouvait
+                // aucun destinataire pré-rempli (ex. CORTES, SCI SIRES).
+                $st = $pdo->prepare("SELECT reference_immeuble, nom_immeuble, adresse_1, ville FROM immeubles WHERE id = ? LIMIT 1");
+                $st->execute([$id]);
+                $im = $st->fetch(PDO::FETCH_ASSOC);
+                // Titre = NOM de l'immeuble en priorité (demande Emery), puis adresse, puis
+                // référence en dernier recours (jamais « IMB #id » si un libellé existe).
+                $ctx['title']    = (string)(trim((string)($im['nom_immeuble'] ?? '')) ?: trim((string)($im['adresse_1'] ?? '')) ?: trim((string)($im['reference_immeuble'] ?? '')) ?: ('Immeuble #' . $id));
+                $ctx['subtitle'] = 'Immeuble' . (!empty($im['ville']) ? ' · ' . $im['ville'] : '');
+                $seen = [];
+                // Ajoute un contact : dédup par email si présent, sinon par nom. Les contacts
+                // SANS email sont conservés (flag no_email) pour être affichés « à compléter ».
+                $addC = function (string $email, string $nom, string $role, int $tiersId) use (&$ctx, &$seen) {
+                    $nom = trim($nom); if ($nom === '') return;
+                    $em = strtolower(trim($email));
+                    if ($em !== '' && filter_var($em, FILTER_VALIDATE_EMAIL)) {
+                        if (isset($seen['e:' . $em])) return; $seen['e:' . $em] = true;
+                        $ctx['contacts'][] = ['email'=>$email, 'nom'=>$nom, 'role'=>$role, 'tiers_id'=>$tiersId];
+                    } else {
+                        $k = 'n:' . strtolower($nom); if (isset($seen[$k])) return; $seen[$k] = true;
+                        $ctx['contacts'][] = ['email'=>'', 'nom'=>$nom, 'role'=>$role, 'tiers_id'=>$tiersId, 'no_email'=>true];
+                    }
+                };
+                // Propriétaires de l'immeuble (via ses biens).
+                try {
+                    // Email = tiers en priorité, sinon celui saisi sur la fiche propriétaire
+                    // (ex. SCI = tiers sans email mais le propriétaire a une adresse mail).
+                    $sp = $pdo->prepare("SELECT DISTINCT COALESCE(t.id, 0) AS tiers_id,
+                            COALESCE(NULLIF(t.nom_affichage,''),NULLIF(t.raison_sociale,''),NULLIF(TRIM(CONCAT_WS(' ',t.prenom,t.nom)),''),NULLIF(p.societe,''),TRIM(CONCAT_WS(' ',p.prenom,p.nom))) AS nom,
+                            COALESCE(NULLIF(t.email,''), p.email) AS email
+                        FROM biens b JOIN proprietaires p ON p.id = b.id_proprietaire
+                        LEFT JOIN tiers t ON t.id = p.id_tiers
+                        WHERE b.id_immeuble = ?");
+                    $sp->execute([$id]);
+                    foreach ($sp->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                        $addC((string)($r['email'] ?? ''), trim((string)$r['nom']) . ' (propriétaire)', 'proprietaire', (int)$r['tiers_id']);
+                    }
+                } catch (Throwable) {}
+                // Acteurs génériques de l'immeuble (entite_acteurs).
+                try {
+                    $sa = $pdo->prepare("SELECT t.id AS tiers_id, t.email, ea.role,
+                            COALESCE(NULLIF(t.nom_affichage,''),NULLIF(t.raison_sociale,''),NULLIF(TRIM(CONCAT_WS(' ',t.prenom,t.nom)),'')) AS nom
+                        FROM entite_acteurs ea JOIN tiers t ON t.id = ea.id_tiers
+                        WHERE ea.entity_type = 'IMB' AND ea.entity_id = ?");
+                    $sa->execute([$id]);
+                    foreach ($sa->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                        $addC((string)($r['email'] ?? ''), trim((string)$r['nom']) . ' (' . (string)($r['role'] ?: 'contact') . ')', 'acteur', (int)$r['tiers_id']);
+                    }
+                } catch (Throwable) {}
+                // Documents GED de l'immeuble.
+                foreach (gdl_documents_for_entity($pdo, $type, $id, ['limit' => 200]) as $d) {
+                    $ctx['docs'][] = mailctx_doc_from_ged($pdo, $d);
+                }
+                $ctx['ok'] = true;
+                return $ctx;
+            }
+
             default: {
                 // Générique GED : BIEN / IMMEUBLE / IMB / TIERS / BAIL …
                 $seenDocIds = [];
