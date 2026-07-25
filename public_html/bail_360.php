@@ -375,6 +375,9 @@ if ($isProjetBail) {
             <button type="button" onclick="belSendProjet(<?= (int)$bailId ?>, this)" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📄 Envoyer le projet (relecture)</button>
             <button type="button" id="bel-send-btn" onclick="belSendBail(<?= (int)$bailId ?>, this)" style="border:none;background:#5f8f93;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨 Envoyer pour signature</button>
             <button type="button" onclick="belSignOpen()" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✍️ Signer en présentiel</button>
+            <?php if (($bail['statut'] ?? '') === 'envoye'): ?>
+            <button type="button" onclick="belCancelSend(<?= (int)$bailId ?>, this)" title="Annule l'envoi, invalide les liens de signature et repasse le bail en projet pour renvoyer une nouvelle version" style="border:1.5px solid #e0a3a0;background:#fdeceb;color:#b5352e;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">↩️ Annuler l'envoi (nouvelle version)</button>
+            <?php endif; ?>
             <?php if ($belSigTotal > 0): $belAllSigned = ($belSigDone === $belSigTotal); ?>
             <button type="button" onclick="belCloturer(<?= (int)$bailId ?>, this)" <?= $belAllSigned ? '' : 'disabled' ?>
                 title="<?= $belAllSigned ? 'Clôturer : générer le bail signé, le classer en GED et l\'envoyer' : 'Toutes les parties doivent avoir signé avant de clôturer' ?>"
@@ -432,6 +435,16 @@ if ($isProjetBail) {
     var BACK360 = '<?= h(app_url('/bail_360.php?id=' . $bailId)) ?>';
     window.belSendBail = function(bailId, btn){
         window.location = MAILC + '?ctx=BAIL&id=' + bailId + '&mode=signature&back=' + encodeURIComponent(BACK360);
+    };
+    // Annule l'envoi : invalide les liens de signature + repasse le bail en projet (nouvelle version).
+    window.belCancelSend = function(bailId, btn){
+        if(!confirm('Annuler l\'envoi pour signature ?\n\nLes liens de signature déjà envoyés seront INVALIDÉS (ils ne fonctionneront plus) et le bail repassera en projet. Tu pourras le modifier puis renvoyer une nouvelle version.')) return;
+        var old=btn.textContent; btn.disabled=true; btn.textContent='⏳ Annulation…';
+        fetch('<?= h(app_url('/api/bail_send_cancel.php')) ?>',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({bail_id:bailId})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j&&j.ok){ location.reload(); }
+            else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&j.error)||'Échec de l\'annulation')); }
+          }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
     };
     function belCeremOpen(){
         var list = document.getElementById('belCeremList'); list.innerHTML='';
