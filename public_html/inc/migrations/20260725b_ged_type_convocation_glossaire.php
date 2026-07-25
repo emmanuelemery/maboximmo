@@ -26,5 +26,15 @@ WHERE NOT EXISTS (SELECT 1 FROM `ged_document_types` WHERE `code` = 'CV_AGO');
 INSERT INTO `ged_document_types` (`code`, `libelle`, `abbr`, `metier`, `actif`, `created_at`)
 SELECT 'CV_AGE', 'Convocation AG Extraordinaire', 'CV_AGE', 'syndic', 1, NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `ged_document_types` WHERE `code` = 'CV_AGE');
+
+-- RÈGLE D'OR : tout code de type utilisé dans un nom GED DOIT exister au GLOSSAIRE
+-- (ged_level_codes). Garantie idempotente (no-op si déjà présents — cas standard 04_SYNDIC).
+INSERT INTO `ged_level_codes` (`tenant_id`, `level_number`, `parent_n1`, `parent_n2`, `code`, `label`, `is_active`)
+SELECT 0, 5, '04_SYNDIC', 'IMMEUBLES', 'CV_AGO', 'Convocation AG Ordinaire', 1
+WHERE NOT EXISTS (SELECT 1 FROM `ged_level_codes` WHERE `code` = 'CV_AGO');
+
+INSERT INTO `ged_level_codes` (`tenant_id`, `level_number`, `parent_n1`, `parent_n2`, `code`, `label`, `is_active`)
+SELECT 0, 5, '04_SYNDIC', 'IMMEUBLES', 'CV_AGE', 'Convocation AG Extraordinaire', 1
+WHERE NOT EXISTS (SELECT 1 FROM `ged_level_codes` WHERE `code` = 'CV_AGE');
 SQL
 ];
