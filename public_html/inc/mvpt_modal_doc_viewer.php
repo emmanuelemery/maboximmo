@@ -25,6 +25,37 @@
                 <button class="mvpt-modal-close" onclick="mvptModalClose()">✕ Fermer</button>
             </div>
         </div>
+        <div id="mvptReclassPanel" style="display:none;padding:12px 16px;border-bottom:1px solid #eee;background:#faf9ff;">
+            <div style="font-size:12px;font-weight:800;color:#243B5C;margin-bottom:8px;">✎ Reclasser le document</div>
+            <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:#5a5650;display:block;margin-bottom:2px;">1 · Attribuer à une entité</label>
+                    <input type="text" id="mvptRcEnt" autocomplete="off" placeholder="Bien, immeuble, locataire, propriétaire, créancier…" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;">
+                    <div id="mvptRcEntChosen" style="font-size:12px;color:#15803d;margin-top:3px;"></div>
+                    <div id="mvptRcEntResults" style="margin-top:4px;"></div>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:#5a5650;display:block;margin-bottom:2px;">2 · Type de document</label>
+                    <input type="text" id="mvptRcType" list="mvptRcTypeList" autocomplete="off" placeholder="Ex. Bail signé, DPE, Convocation AG…" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;">
+                    <datalist id="mvptRcTypeList"></datalist>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <div style="flex:2;min-width:160px;">
+                        <label style="font-size:11px;font-weight:700;color:#5a5650;display:block;margin-bottom:2px;">3 · Libellé</label>
+                        <input type="text" id="mvptRcLib" placeholder="Ex. ORDINAIRE, MISE EN DEMEURE…" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div style="flex:1;min-width:130px;">
+                        <label style="font-size:11px;font-weight:700;color:#5a5650;display:block;margin-bottom:2px;">4 · Date</label>
+                        <input type="date" id="mvptRcDate" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:2px;">
+                    <button type="button" onclick="mvptReclassClose()" style="border:1px solid #cbd8da;background:#fff;color:#5b6b70;border-radius:8px;padding:7px 14px;font-weight:800;cursor:pointer;font-size:12.5px;">Annuler</button>
+                    <button type="button" id="mvptRcSave" onclick="mvptReclassSave()" style="border:none;background:#243B5C;color:#fff;border-radius:8px;padding:7px 16px;font-weight:800;cursor:pointer;font-size:12.5px;">💾 Enregistrer</button>
+                </div>
+                <div id="mvptRcMsg" style="font-size:12px;"></div>
+            </div>
+        </div>
         <div class="mvpt-modal-cols">
             <aside class="mvpt-fields" id="mvptModalFields" style="display:none;"></aside>
             <div class="mvpt-modal-body" id="mvptModalBody">
@@ -187,28 +218,83 @@
         } catch (e) { alert('❌ Réseau : ' + e.message); }
     };
 
-    // Renommer le doc (nom GED lisible = name_display). Simple : une invite, un POST.
-    const MVPT_RENAME = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_rename.php') : '/api/ged_rename.php') ?>;
-    const MVPT_CSRF   = <?= json_encode(function_exists('csrf_token') ? csrf_token('default') : '') ?>;
-    window.mvptModalRename = async function() {
-        if (mvptCurrentDocId <= 0) return;
-        const cur = (mvptCurrentName || (document.getElementById('mvptModalTitle').textContent || '').replace(/^📄\s*/, '')).trim();
-        const nn = prompt('Nouveau nom du document :', cur);
-        if (nn === null) return;
-        const name = nn.trim();
-        if (name === '' || name === cur) return;
-        try {
-            const res = await fetch(MVPT_RENAME, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': MVPT_CSRF },
-                body: JSON.stringify({ ged_id: mvptCurrentDocId, name: name, csrf: MVPT_CSRF }), credentials: 'same-origin',
+    // ── Reclassement en 3 niveaux : ENTITÉ + LIBELLÉ + DATE (le moteur régénère le nom GED) ──
+    const MVPT_CSRF      = <?= json_encode(function_exists('csrf_token') ? csrf_token('default') : '') ?>;
+    const MVPT_RECLASS   = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_reclassify.php') : '/api/ged_doc_reclassify.php') ?>;
+    const MVPT_ENTSEARCH = <?= json_encode(function_exists('app_url') ? app_url('/api/fluxbox_entity_search.php') : '/api/fluxbox_entity_search.php') ?>;
+    const MVPT_SETTYPE   = <?= json_encode(function_exists('app_url') ? app_url('/api/maboxoffice_settype.php') : '/api/maboxoffice_settype.php') ?>;
+    let mvptRcEnt = { type:'', id:0, label:'' };
+    let mvptTypeMap = null;   // { libelleLC: code }  (glossaire des types)
+    function mvptLoadTypes(){
+        if (mvptTypeMap) return;
+        mvptTypeMap = {};
+        fetch(MVPT_SETTYPE+'?list=1',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+            var dl=document.getElementById('mvptRcTypeList'); var html='';
+            ((d&&d.types)||[]).forEach(function(t){
+                mvptTypeMap[(t.libelle||'').toLowerCase()]=t.code; mvptTypeMap[(t.code||'').toLowerCase()]=t.code;
+                html+='<option value="'+esc(t.libelle||t.code)+'">'+esc(t.code)+'</option>';
             });
-            const data = await res.json();
-            if (data.ok) {
-                mvptCurrentName = data.name || name;
-                document.getElementById('mvptModalTitle').textContent = '📄 ' + mvptCurrentName;
-                window.FBX_FICHE_DIRTY = true;   // la fiche se rafraîchira à la fermeture
-            } else { alert('❌ ' + (data.error || 'Renommage refusé')); }
-        } catch (e) { alert('❌ Réseau : ' + e.message); }
+            if(dl) dl.innerHTML=html;
+        }).catch(function(){});
+    }
+    function mvptResolveType(){
+        var v=(document.getElementById('mvptRcType').value||'').trim(); if(v==='') return '';
+        return mvptTypeMap[v.toLowerCase()] || v.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+    }
+    window.mvptReclassClose = function(){ document.getElementById('mvptReclassPanel').style.display='none'; };
+    window.mvptModalRename = function(){
+        if (mvptCurrentDocId <= 0) return;
+        mvptRcEnt = { type:'', id:0, label:'' };
+        document.getElementById('mvptRcEnt').value='';
+        document.getElementById('mvptRcEntChosen').textContent='';
+        document.getElementById('mvptRcEntResults').innerHTML='';
+        document.getElementById('mvptRcMsg').textContent='';
+        mvptLoadTypes();
+        document.getElementById('mvptReclassPanel').style.display='block';
+        document.getElementById('mvptRcEnt').focus();
+    };
+    let _mvptRcTimer=null;
+    document.getElementById('mvptRcEnt').addEventListener('input', function(){
+        const q=this.value.trim(); const box=document.getElementById('mvptRcEntResults');
+        if(q.length<2){ box.innerHTML=''; return; }
+        clearTimeout(_mvptRcTimer);
+        _mvptRcTimer=setTimeout(function(){
+            fetch(MVPT_ENTSEARCH+'?q='+encodeURIComponent(q),{credentials:'same-origin'})
+              .then(function(r){return r.json();}).then(function(d){
+                const rs=(d&&d.results)||[]; if(!rs.length){ box.innerHTML='<div style="font-size:11px;color:#9a9690;">Aucun résultat</div>'; return; }
+                box.innerHTML=rs.slice(0,8).map(function(r){
+                    const rep=[r.repere1,r.repere2].filter(Boolean).join(' · ');
+                    return '<div class="mvptRcItem" data-t="'+esc(r.entity_type)+'" data-i="'+r.id+'" data-l="'+esc(r.label)+'" style="padding:6px 8px;border:1px solid #eee;border-radius:6px;margin-top:3px;cursor:pointer;font-size:12px;" onmouseover="this.style.background=\'#f0eefe\'" onmouseout="this.style.background=\'#fff\'"><b>'+esc(r.badge||'')+'</b> · '+esc(r.label)+(rep?' <span style="color:#9a9690;">('+esc(rep)+')</span>':'')+'</div>';
+                }).join('');
+                Array.from(box.querySelectorAll('.mvptRcItem')).forEach(function(el){
+                    el.addEventListener('click', function(){
+                        mvptRcEnt={ type:el.dataset.t, id:parseInt(el.dataset.i,10)||0, label:el.dataset.l };
+                        document.getElementById('mvptRcEntChosen').textContent='✅ '+el.dataset.l;
+                        box.innerHTML=''; document.getElementById('mvptRcEnt').value=el.dataset.l;
+                    });
+                });
+              }).catch(function(){});
+        },250);
+    });
+    window.mvptReclassSave = function(){
+        if (mvptCurrentDocId<=0) return;
+        const lib=document.getElementById('mvptRcLib').value.trim();
+        const dt =document.getElementById('mvptRcDate').value;
+        const msg=document.getElementById('mvptRcMsg'); const btn=document.getElementById('mvptRcSave');
+        const payload={ ged_id:mvptCurrentDocId, libelle:lib, date:dt, type_doc:mvptResolveType(), csrf:MVPT_CSRF };
+        if(mvptRcEnt.id>0){ payload.entity_type=mvptRcEnt.type; payload.entity_id=mvptRcEnt.id; }
+        btn.disabled=true; msg.style.color='#5a5650'; msg.textContent='⏳ Enregistrement…';
+        fetch(MVPT_RECLASS,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':MVPT_CSRF},body:JSON.stringify(payload),credentials:'same-origin'})
+          .then(function(r){return r.json();}).then(function(d){
+            btn.disabled=false;
+            if(d&&d.ok){
+                mvptCurrentName=d.name||mvptCurrentName;
+                document.getElementById('mvptModalTitle').textContent='📄 '+mvptCurrentName;
+                msg.style.color='#15803d'; msg.textContent='✅ Reclassé'+(d.chain?' → '+d.chain:'');
+                window.FBX_FICHE_DIRTY=true;
+                setTimeout(mvptReclassClose, 900);
+            } else { msg.style.color='#c0392b'; msg.textContent='❌ '+((d&&d.error)||'Échec'); }
+          }).catch(function(e){ btn.disabled=false; msg.style.color='#c0392b'; msg.textContent='❌ Réseau : '+e; });
     };
 
     // 3e argument optionnel `fields` = panneau gauche (champs extraits).
