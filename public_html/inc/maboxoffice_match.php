@@ -226,6 +226,9 @@ function mbo_ged_links_for_entity(PDO $pdo, ?string $type, ?int $id): array
     if (!$type || !$id) return [];
     if ($type === 'EMP') return [['entity_type'=>'EMP', 'entity_id'=>(int)$id, 'relation_type'=>'main', 'is_validated'=>1]];
     if ($type === 'TRS') return [['entity_type'=>'TIERS', 'entity_id'=>(int)$id, 'relation_type'=>'main', 'is_validated'=>1]]; // tiers direct (moderne)
+    // Dossier créancier (contentieux) : lien direct — sinon un doc classé depuis un dossier
+    // créancier ne créait AUCUN lien (entité non gérée ici) → doc orphelin de son dossier.
+    if ($type === 'CREANCIER_DOSSIER' || $type === 'CREANCIER') return [['entity_type'=>'CREANCIER_DOSSIER', 'entity_id'=>(int)$id, 'relation_type'=>'main', 'is_validated'=>1]];
     $idBail = $idBien = $idImm = $idProp = 0;
     if ($type === 'BAIL') {
         $st = $pdo->prepare("SELECT bx.id, bx.id_bien FROM bien_baux bx WHERE bx.id=?");
@@ -298,7 +301,7 @@ function mbo_glossaire_ensure(PDO $pdo, string $category, int $entityId, string 
 /** Métier → code contrôlé metier_n1. */
 function mbo_metier_n1_code(string $metier): string
 {
-    return ['gestion'=>'GELO', 'syndic'=>'SYNDIC', 'transaction'=>'TRANSA', 'rh'=>'RH', 'compta'=>'COMPTA', 'fournisseur'=>'FOURNI'][$metier] ?? '';
+    return ['gestion'=>'GELO', 'syndic'=>'SYNDIC', 'transaction'=>'TRANSA', 'rh'=>'RH', 'compta'=>'COMPTA', 'fournisseur'=>'FOURNI', 'contentieux'=>'CONTEN'][$metier] ?? '';
 }
 
 /**
@@ -552,14 +555,30 @@ function mbo_build_ged_name(PDO $pdo, array $d, bool $ensure = false, ?int $uid 
     elseif ($type === 'BIEN') { $idBien=$id; } elseif ($type === 'IMB') { $idImm=$id; } elseif ($type === 'TIERS') { /* $id = tiers.id → résolu via la table `tiers` plus bas (PAS proprietaires) */ }
     if ($idBien>0){ $st=$pdo->prepare("SELECT id_immeuble,id_proprietaire FROM biens WHERE id=?"); $st->execute([$idBien]); if($r=$st->fetch(PDO::FETCH_ASSOC)){$idImm=$idImm?:(int)$r['id_immeuble'];$idProp=$idProp?:(int)$r['id_proprietaire'];} }
     if ($idImm>0 && !$idProp){ $st=$pdo->prepare("SELECT id_proprietaire FROM immeubles WHERE id=?"); $st->execute([$idImm]); $idProp=(int)$st->fetchColumn(); }
+    // Immeuble SANS propriétaire propre (id_proprietaire vide) → on dérive celui de ses LOTS
+    // (le plus fréquent). Sinon un doc classé DEPUIS l'immeuble sort avec un PRO vide alors
+    // que ses biens ont bien un propriétaire (ex. OPERA). Fix live, sans migration de données.
+    if ($idImm>0 && !$idProp){
+        $st=$pdo->prepare("SELECT id_proprietaire FROM biens
+                           WHERE id_immeuble=? AND id_proprietaire IS NOT NULL AND id_proprietaire>0
+                           GROUP BY id_proprietaire ORDER BY COUNT(*) DESC, id_proprietaire LIMIT 1");
+        $st->execute([$idImm]); $idProp=(int)$st->fetchColumn();
+    }
 
     // Au classement : garantir un lot interne au bien (jamais de bien sans lot).
     // Jamais de bien sans lot : on garantit un lot interne dès qu'un bien est concerné
     // (idempotent) → la référence LOT apparaît aussi en aperçu, pas seulement au classement.
     if ($idBien>0) { require_once __DIR__ . '/bien_lot.php'; bien_ensure_lot_interne($pdo, $idBien); }
 
-    $lblPro=$lblImm=$lblBien=$lblBail='';
+    $lblPro=$lblImm=$lblBien=$lblBail=''; $isCreancier=false;
     if ($type === 'EMP') { $lblPro = $empName; } // le salarié occupe la position PRO
+    // Dossier CRÉANCIER (contentieux) : le dossier occupe la position PRO ; société/agence du dossier.
+    if (in_array($type, ['CREANCIER_DOSSIER','CREANCIER'], true) && $id>0) {
+        $isCreancier=true;
+        $st=$pdo->prepare("SELECT COALESCE(NULLIF(libelle,''), code) AS lbl, id_societe, id_agence FROM creancier_dossier WHERE id=?");
+        $st->execute([$id]);
+        if($r=$st->fetch(PDO::FETCH_ASSOC)){ $lblPro=(string)$r['lbl']; if(!$idAgence && !empty($r['id_agence'])) $idAgence=(int)$r['id_agence']; if(empty($d['mbo_societe_id']) && !empty($r['id_societe'])) $d['mbo_societe_id']=(int)$r['id_societe']; }
+    }
     if (in_array($type, ['TRS','TIERS'], true) && $id>0) { // tiers direct/propriétaire-tiers (fournisseur, copropriétaire, notaire, bailleur…) — id = tiers.id
         $st=$pdo->prepare("SELECT COALESCE(NULLIF(nom_affichage,''), NULLIF(raison_sociale,''), NULLIF(TRIM(CONCAT_WS(' ',prenom,nom)),'')) AS lbl, id_agence FROM tiers WHERE id=?");
         $st->execute([$id]); if($r=$st->fetch(PDO::FETCH_ASSOC)){ $lblPro=(string)$r['lbl']; if(!$idAgence && !empty($r['id_agence'])) $idAgence=(int)$r['id_agence']; }
@@ -611,6 +630,7 @@ function mbo_build_ged_name(PDO $pdo, array $d, bool $ensure = false, ?int $uid 
     $metierRaw  = (string)($d['mbo_metier'] ?? '');
     if ($metierRaw === '') {
         if ($type === 'EMP') $metierRaw = 'rh';                                             // salarié → RH
+        elseif ($isCreancier) $metierRaw = 'contentieux';                                    // dossier créancier → contentieux
         elseif ($idImm > 0)  $metierRaw = mbo_metier_from_immeuble($pdo, $idImm);           // immeuble → syndic/gestion
         elseif ($idBien > 0 || $idBail > 0 || $idProp > 0) $metierRaw = 'gestion';          // bien/bail/pro → gestion
         else $metierRaw = mbo_infer_metier((string)($d['mbo_type_propose'] ?? ''), $type);  // pas d'entité → repli type

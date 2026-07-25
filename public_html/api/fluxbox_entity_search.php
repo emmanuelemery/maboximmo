@@ -28,7 +28,7 @@ $norm = em_normalize_for_search($q);
 $like = '%' . $norm . '%';
 $prefix = $norm . '%';
 
-$typesReq = array_filter(array_map('trim', explode(',', (string)($_GET['types'] ?? 'bien,immeuble,societe,tiers,user'))));
+$typesReq = array_filter(array_map('trim', explode(',', (string)($_GET['types'] ?? 'bien,immeuble,societe,tiers,user,creancier'))));
 $want = static fn(string $t): bool => in_array($t, $typesReq, true);
 
 // ── Périmètre multi-tenant ───────────────────────────────────────────────
@@ -175,6 +175,26 @@ try {
                 'repere1'=>(string)($r['fonction'] ?? ''), 'repere2'=>'', 'score'=>0];
         }
     }
+
+    // ── DOSSIERS CRÉANCIERS (contentieux) ──────────────────────────────
+    if ($want('creancier') || $want('creancier_dossier')) {
+        try {
+        [$sc, $scArgs] = $scope('c');
+        $sql = "SELECT c.id, c.code, c.libelle, c.numero_dossier_adverse, c.statut, c.niveau_risque
+                  FROM creancier_dossier c
+                 WHERE (LOWER(c.libelle) LIKE ? OR LOWER(c.code) LIKE ? OR LOWER(c.numero_dossier_adverse) LIKE ?) {$sc}
+                 ORDER BY (c.statut='actif') DESC, c.updated_at DESC LIMIT 6";
+        $st = $pdo->prepare($sql);
+        $st->execute(array_merge([$like, $like, $like], $scArgs));
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $lbl = trim((string)($r['libelle'] ?? '')) ?: (string)($r['code'] ?? ('Dossier #'.$r['id']));
+            $results[] = ['entity_type'=>'creancier','badge'=>'Créancier','id'=>(int)$r['id'],
+                'label'=>$lbl,
+                'repere1'=>trim((string)($r['code'] ?? '')),
+                'repere2'=>trim((string)($r['numero_dossier_adverse'] ?? '')), 'score'=>0];
+        }
+        } catch (Throwable $eCr) { /* table créancier absente sur cet env → ignoré */ }
+    }
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['ok'=>false,'error'=>$e->getMessage()]); exit;
@@ -201,6 +221,7 @@ $branche = static function(string $type, string $badge): array {
     switch ($type) {
         case 'bien':     return ['03_GESTION_LOCATIVE','BIENS','BIEN'];
         case 'immeuble': return ['04_SYNDIC','IMMEUBLES','IMMEUBLE'];
+        case 'creancier':return ['07_JURIDIQUE_CONTENTIEUX','DOSSIERS','DOSSIER'];
         case 'user':     return ['02_RH','COLLABORATEURS','COLLABORATEUR'];
         case 'societe':  return ['','',''];               // société seule → métier au choix
         case 'tiers':
