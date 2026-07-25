@@ -439,8 +439,8 @@ if (!function_exists('fiche360_mail_history')) {
                     $dest = implode(', ', array_slice($ems, 0, 4)) . (count($ems) > 4 ? ' +' . (count($ems) - 4) : '');
                 }
                 $dt = $r['sent_at'] ? date('d/m/y H:i', strtotime((string)$r['sent_at'])) : '';
-                echo '<div style="padding:7px 0;border-bottom:1px solid #f0ece6;font-size:12px;">';
-                echo '<div style="font-weight:700;color:#2c2a28;word-break:break-word;">' . h((string)($r['subject'] ?? '(sans objet)')) . '</div>';
+                echo '<div onclick="mailHistView(' . (int)$r['id'] . ')" title="Ouvrir le mail" style="padding:7px 0;border-bottom:1px solid #f0ece6;font-size:12px;cursor:pointer;" onmouseover="this.style.background=\'#faf8ff\'" onmouseout="this.style.background=\'transparent\'">';
+                echo '<div style="font-weight:700;color:#243B5C;word-break:break-word;">✉️ ' . h((string)($r['subject'] ?? '(sans objet)')) . '</div>';
                 echo '<div style="color:#9a9690;font-size:11px;margin-top:2px;">';
                 echo '📅 ' . h($dt);
                 if (!empty($r['envoyeur'])) echo ' · 👤 ' . h((string)$r['envoyeur']);
@@ -451,6 +451,33 @@ if (!function_exists('fiche360_mail_history')) {
             }
         }
         echo '</div>';
+
+        // Modal de lecture (émis une seule fois par page).
+        static $modalDone = false;
+        if (!$modalDone) {
+            $modalDone = true;
+            $api = function_exists('app_url') ? app_url('/api/mail_history_view.php') : '/api/mail_history_view.php';
+            echo '<div id="mailHistModal" style="display:none;position:fixed;inset:0;background:rgba(20,25,35,.55);z-index:9999;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)mailHistClose()">'
+               . '<div style="background:#fff;border-radius:12px;max-width:760px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.3);">'
+               . '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;">'
+               . '<strong id="mhSubject" style="font-size:15px;color:#243B5C;">Mail</strong>'
+               . '<button type="button" onclick="mailHistClose()" style="border:none;background:#eceef1;border-radius:50%;width:30px;height:30px;cursor:pointer;font-weight:700;">✕</button></div>'
+               . '<div id="mhMeta" style="font-size:12px;color:#7a766f;padding:10px 18px;border-bottom:1px solid #f2f2f2;"></div>'
+               . '<div id="mhBody" style="padding:16px 18px;font-size:14px;line-height:1.55;color:#2c2a28;">Chargement…</div>'
+               . '</div></div>'
+               . '<script>(function(){window.MAILHIST_API=' . json_encode($api) . ';'
+               . 'window.mailHistClose=function(){document.getElementById("mailHistModal").style.display="none";};'
+               . 'window.mailHistView=function(id){var m=document.getElementById("mailHistModal");m.style.display="flex";'
+               . 'document.getElementById("mhSubject").textContent="Mail";document.getElementById("mhMeta").textContent="";document.getElementById("mhBody").innerHTML="Chargement…";'
+               . 'fetch(window.MAILHIST_API+"?id="+encodeURIComponent(id),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){'
+               . 'if(!d||!d.ok){document.getElementById("mhBody").textContent="⚠ "+((d&&d.error)||"Introuvable");return;}'
+               . 'document.getElementById("mhSubject").textContent=d.subject||"(sans objet)";'
+               . 'var meta="📅 "+(d.sent_at||"")+(d.envoyeur?" · 👤 "+d.envoyeur:"")+(d.recipients&&d.recipients.length?" · 📧 "+d.recipients.join(", "):"");'
+               . 'document.getElementById("mhMeta").textContent=meta;'
+               . 'document.getElementById("mhBody").innerHTML=d.body_html||"(vide)";'
+               . '}).catch(function(e){document.getElementById("mhBody").textContent="⚠ Réseau : "+e;});};'
+               . 'document.addEventListener("keydown",function(e){if(e.key==="Escape")window.mailHistClose();});})();</script>';
+        }
     }
 }
 
