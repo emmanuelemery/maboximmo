@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
+if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_login();
 
 $immId = (int)($_GET['id'] ?? 0);
@@ -81,7 +82,7 @@ try {
     }
 } catch (Throwable $e) {}
 try {
-    $stD = $pdo->prepare("SELECT id, name_display, document_type, created_at
+    $stD = $pdo->prepare("SELECT id, name_display, document_type, metadata, created_at
         FROM ged_documents
         WHERE status = 'active'
           AND (
@@ -105,11 +106,48 @@ usort($mentions, $byDate); $mentions = array_slice($mentions, 0, 10);
 $docsByType = [];
 foreach ($docs as $d) $docsByType[$d['document_type']] = ($docsByType[$d['document_type']] ?? 0) + 1;
 
+// ─── PV d'assemblée générale : regroupement par MILLÉSIME ──
+// Un immeuble accumule N PV (AG ordinaire + AG extraordinaires) : jamais d'écrasement,
+// chaque PV = une entrée datée. La « période » (mois/année, ex. « janvier 2025 ») distingue
+// deux AG d'un même millésime ; le « libellé » porte la nature (ORDINAIRE / EXTRAORDINAIRE).
+// Sources tolérantes (le type stocké varie : pv_ag / PV_ASSEMBLEE_GENERALE selon la route).
+$pvTypeCodes = ['pv_ag', 'pv_assemblee_generale', 'ag_pv'];
+$pvDocs = [];
+foreach ($docs as $d) {
+    if (!in_array(strtolower((string)($d['document_type'] ?? '')), $pvTypeCodes, true)) continue;
+    $meta = [];
+    if (!empty($d['metadata'])) { $meta = json_decode((string)$d['metadata'], true) ?: []; }
+    $cl = is_array($meta['classement'] ?? null) ? $meta['classement'] : [];
+    $ex = is_array($meta['extra'] ?? null) ? $meta['extra'] : [];
+    // Période / date de l'AG : classement.date (= target_date/mois saisi) → extra.doc_date → dépôt.
+    $pvDate = trim((string)($cl['date'] ?? $cl['period'] ?? $ex['doc_date'] ?? ''));
+    if ($pvDate === '') $pvDate = (string)($d['created_at'] ?? '');
+    $ts = strtotime($pvDate) ?: strtotime((string)($d['created_at'] ?? '')) ?: 0;
+    // Libellé (ORDINAIRE / EXTRAORDINAIRE / texte) : user_label si présent, sinon nom affiché.
+    $pvLibelle = trim((string)($cl['user_label'] ?? $cl['libelle'] ?? ''));
+    $pvDocs[] = [
+        'id'      => (int)$d['id'],
+        'name'    => (string)($d['name_display'] ?? ''),
+        'libelle' => $pvLibelle,
+        'date'    => $pvDate,
+        'ts'      => $ts,
+        'annee'   => $ts ? (int)date('Y', $ts) : 0,
+    ];
+}
+usort($pvDocs, fn($a, $b) => $b['ts'] <=> $a['ts']);
+// Années affichées : les 3 dernières d'office + toute année ayant au moins un PV.
+$pvCurY  = (int)date('Y');
+$pvYears = [$pvCurY, $pvCurY - 1, $pvCurY - 2];
+foreach ($pvDocs as $p) { if ($p['annee'] > 0 && !in_array($p['annee'], $pvYears, true)) $pvYears[] = $p['annee']; }
+rsort($pvYears);
+$pvByYear = [];
+foreach ($pvDocs as $p) { $pvByYear[$p['annee'] ?: 0][] = $p; }
+
 // ─── Checklist pièces immeuble ──
 $piecesImm = [
     ['code'=>'REGLEMENT_COPRO',  'label'=>'Règlement de copropriété', 'sublabel'=>'Si copropriété'],
     ['code'=>'CARNET_ENTRETIEN', 'label'=>"Carnet d'entretien",       'sublabel'=>'Suivi équipements'],
-    ['code'=>'AG_PV',            'label'=>'PV d\'AG',                 'sublabel'=>'Dernier exercice'],
+    // PV d'AG : géré par la section dédiée « PV d'assemblée » (multi-millésimes), plus bas.
     ['code'=>'DIAG_PARTIES_COM', 'label'=>'Diagnostics parties communes','sublabel'=>'Amiante, plomb…'],
     ['code'=>'CADASTRE',         'label'=>'Extrait cadastral',        'sublabel'=>'Référence parcelle'],
 ];
@@ -287,6 +325,7 @@ fiche360_header(
 .f360-header-actions .tr-btn-primary:hover { background:#eaf1fa; color:#243B5C; }
 </style>
 
+<?php require_once __DIR__ . '/inc/financement.php'; echo fin_related_block($pdo, 'IMMEUBLE', $immId); ?>
 <div class="i360-grid3">
 
   <!-- ═══════ ZONE GAUCHE : Barre IA + onglets ═══════ -->
@@ -330,6 +369,35 @@ fiche360_header(
           <div style="padding:8px 0"><a href="https://www.google.com/maps?q=<?= $H($imm['latitude'].','.$imm['longitude']) ?>" target="_blank" rel="noopener">🗺 Voir sur la carte</a></div>
         <?php endif; ?>
       </div>
+
+      <!-- Données publiques EXTRAITES (persistées à la création : cadastre, PLU, altitude, copro) -->
+      <?php
+        $pubFields =
+            $fld('Parcelle cadastrale',   $imm['parcelle_reference'] ?? '')
+          . $fld('Référence cadastrale',  $imm['reference_cadastrale'] ?? '')
+          . $fld('Zone PLU',              $imm['zone_plu'] ?? '')
+          . $fld('Altitude',              $imm['altitude'] ?? '', ' m')
+          . $fld('Immatriculation copro', $imm['registre_copro_immatriculation'] ?? '')
+          . $fld('Période construction',  $imm['registre_copro_periode'] ?? '')
+          . $fld('Lots copropriété',      $imm['copro_nb_lots'] ?? '')
+          . $fld('Registre copro (MAJ)',  substr((string)($imm['registre_copro_maj'] ?? ''), 0, 10));
+        $pubMaj = array_filter([
+            'Cadastre' => substr((string)($imm['enrichi_cadastre_le'] ?? ''), 0, 10),
+            'Registre' => substr((string)($imm['enrichi_registre_le'] ?? ''), 0, 10),
+            'Risques'  => substr((string)($imm['enrichi_risques_le']  ?? ''), 0, 10),
+        ]);
+      ?>
+      <?php if ($pubFields !== ''): ?>
+      <div class="f360-card">
+        <h3>🌐 Données publiques <small style="font-weight:400;color:#94a3b8;">extraites automatiquement</small></h3>
+        <?= $pubFields ?>
+        <?php if ($pubMaj): ?>
+          <div style="margin-top:8px;font-size:11px;color:#94a3b8;">
+            Enrichi : <?= $H(implode(' · ', array_map(fn($k, $v) => $k . ' ' . $v, array_keys($pubMaj), array_values($pubMaj)))) ?>
+          </div>
+        <?php endif; ?>
+      </div>
+      <?php endif; ?>
 
       <!-- Infos publiques (Registre National des Copropriétés) — repliée + chargée à la demande -->
       <details class="f360-card" id="imm-public-card">
@@ -418,6 +486,60 @@ fiche360_header(
         <?= $fld('AG 2025', $infos['ag_2025'] ?? '') ?>
         <?= $fld('AG 2026', $infos['ag_2026'] ?? '') ?>
         <?= $fld('AG 2027', $infos['ag_2027'] ?? '') ?>
+
+        <?php
+        // ── PV d'assemblée générale — un emplacement par millésime, sans écrasement ──
+        $pvN1 = $refIsSyndic ? '04_SYNDIC' : '03_GESTION_LOCATIVE';
+        $pvPrefillBase = [
+            'origin'        => 'immeuble_360',
+            'immeuble_id'   => (int)$immId,
+            'entite_id_bdd' => (int)$immId,
+            'soc_id'        => (int)($imm['id_societe'] ?? 0),
+            'age_id'        => (int)($imm['id_agence'] ?? 0),
+            'n1'            => $pvN1,
+            // Classement figé sous l'activité RÉELLE de l'immeuble (GESTION ici, pas SYNDIC) :
+            // dossier immeuble / PV d'AG. « Syndic = simple rôle » (doctrine réf immeuble).
+            'n2'            => '04_immeuble',
+            'n3'            => '02_pv_ag',
+            'entite_nom'    => (string)($imm['reference_immeuble'] ?: ($imm['nom_immeuble'] ?? '')),
+            'forced_type_doc' => 'pv_ag',
+        ];
+        $pvBtn = function(array $extra, string $label, string $style) use ($pvPrefillBase, $H) {
+            $pf = array_merge($pvPrefillBase, $extra);
+            $json = htmlspecialchars(json_encode($pf, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+            return '<button type="button" style="' . $style . '" data-pf="' . $json . '" '
+                 . 'onclick="try{window.fbxOpenUploadModal(JSON.parse(this.dataset.pf));}catch(e){console.error(e);}return false;">'
+                 . $H($label) . '</button>';
+        };
+        $pvBtnStyleMain = 'border:1px solid #cddbe0;background:#fff;color:#2d5f6b;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer';
+        $pvBtnStyleMini = 'border:1px dashed #b8c7cd;background:#f6fafb;color:#2d5f6b;border-radius:7px;padding:1px 8px;font-size:10.5px;font-weight:700;cursor:pointer';
+        ?>
+        <div style="margin-top:12px;border-top:1px solid #f0ece6;padding-top:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+            <strong style="font-size:12.5px;color:#243B5C">📑 PV d'assemblée <small style="color:#9a9690;font-weight:600"><?= count($pvDocs) ?> chargé<?= count($pvDocs) > 1 ? 's' : '' ?></small></strong>
+            <?= $pvBtn([], '+ PV (autre année)', $pvBtnStyleMain) ?>
+          </div>
+          <?php foreach ($pvYears as $yr): $list = $pvByYear[$yr] ?? []; ?>
+            <div style="margin-bottom:8px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                <span style="font-weight:700;font-size:12px;color:<?= $list ? '#2f6b3f' : '#b45309' ?>"><?= $list ? '✓' : '⚠' ?> <?= (int)$yr ?></span>
+                <?= $pvBtn(['doc_period_hint' => sprintf('%04d', $yr)], '+ charger', $pvBtnStyleMini) ?>
+              </div>
+              <?php if (!$list): ?>
+                <div style="font-size:11px;color:#9a9690;padding-left:16px">— aucun PV pour cet exercice —</div>
+              <?php else: foreach ($list as $pv): ?>
+                <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;padding:2px 0 2px 16px">
+                  <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    <?= $pv['libelle'] !== '' ? '<strong>' . $H($pv['libelle']) . '</strong> · ' : '' ?><?= $H($pv['name'] ?: 'PV') ?>
+                  </span>
+                  <span style="color:#9a9690;font-size:10px;white-space:nowrap"><?= $pv['ts'] ? $H(date('m/Y', $pv['ts'])) : '' ?></span>
+                </div>
+              <?php endforeach; endif; ?>
+            </div>
+          <?php endforeach; ?>
+          <?php // Années plus anciennes possédant des PV mais hors des 3 dernières sont déjà incluses dans $pvYears. ?>
+        </div>
+
         <div style="padding-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <a class="tr-btn" href="<?= $H(app_url('/agency_reunions.php?id_immeuble=' . $immId)) ?>">📅 Réunions</a>
           <a class="tr-btn" href="<?= $H(app_url('/agency_immeuble_fiche.php?id=' . $immId . '#ag')) ?>">📑 Retour AG</a>
@@ -637,13 +759,14 @@ fiche360_header(
         <?php else: foreach ($docs as $d): ?>
             <div style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center;">
                 <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:140px;">[<?= h($d['document_type']) ?>]</span>
-                <span style="flex:1;"><?= h($d['name_display']) ?></span>
+                <span style="flex:1;"><a href="javascript:void(0)" onclick="mvptModalView(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>)" style="color:#243B5C; text-decoration:none; font-weight:600;" title="Ouvrir le document">📄 <?= h($d['name_display']) ?></a></span>
                 <span style="color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
                 <button type="button" onclick="gedDeleteDoc(<?= (int)$d['id'] ?>,<?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>,this)" title="Supprimer" style="border:none;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;padding:0 2px;">🗑️</button>
             </div>
         <?php endforeach; endif; ?>
     </div>
     <?php require_once __DIR__ . '/inc/ged_delete_modal.php'; ?>
+    <?php if (!defined('MVPT_DOC_VIEWER_LOADED')) { define('MVPT_DOC_VIEWER_LOADED', 1); include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; } /* modale standard mvptModalView — ouvrir un doc depuis la fiche */ ?>
 
     <!-- Dossiers sources (archives OneDrive liées, non importées) — inclusion défensive -->
     <?php
@@ -679,9 +802,28 @@ fiche360_header(
     $n1Imm = $refIsSyndic
         ? '04_SYNDIC'
         : '03_GESTION_LOCATIVE';
+    // Propriétaire de l'immeuble : résolu SEULEMENT s'il est UNIQUE sur tous les lots
+    // (un immeuble multi-propriétaires reste ambigu → on ne préremplit pas). Passé au modal
+    // pour que le doc chargé depuis l'immeuble soit rattaché au bon propriétaire.
+    $immProprioId = 0; $immProprioNom = ''; $immProprioTiersId = 0;
+    try {
+        $qp = $pdo->prepare("SELECT p.id AS pid, p.id_tiers AS tid,
+                COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS pnom
+              FROM biens b JOIN proprietaires p ON p.id = b.id_proprietaire
+             WHERE b.id_immeuble = ? AND b.id_proprietaire IS NOT NULL AND b.id_proprietaire > 0
+             GROUP BY p.id LIMIT 2");
+        $qp->execute([$immId]);
+        $rowsP = $qp->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (count($rowsP) === 1) {
+            $immProprioId      = (int)($rowsP[0]['pid'] ?? 0);
+            $immProprioTiersId = (int)($rowsP[0]['tid'] ?? 0);
+            $immProprioNom     = trim((string)($rowsP[0]['pnom'] ?? ''));
+        }
+    } catch (Throwable $e) {}
     // Panneau Actions — remonté EN HAUT de la colonne pour visibilité immédiate
     fiche360_actions_panel('Actions immeuble', [
-        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'immeuble_360', immeuble_id:" . (int)$immId . ", entite_id_bdd:" . (int)$immId . ", soc_id:" . (int)($imm['id_societe'] ?? 0) . ", age_id:" . (int)($imm['id_agence'] ?? 0) . ", n1:'" . $n1Imm . "', entite_nom:'" . addslashes((string)($imm['reference_immeuble'] ?: $nomAffichage)) . "'});return false;"],
+        ['icon'=>'📤','label'=>'Charger des documents','url'=>'#','onclick'=>"window.fbxOpenUploadModal({origin:'immeuble_360', immeuble_id:" . (int)$immId . ", entite_id_bdd:" . (int)$immId . ", soc_id:" . (int)($imm['id_societe'] ?? 0) . ", age_id:" . (int)($imm['id_agence'] ?? 0) . ", n1:'" . $n1Imm . "', proprio_id:" . $immProprioId . ", proprio_tiers_id:" . $immProprioTiersId . ", proprio_nom:'" . addslashes($immProprioNom) . "', entite_nom:'" . addslashes((string)($imm['reference_immeuble'] ?: $nomAffichage)) . "'});return false;"],
+        ['icon'=>'📧','label'=>'Envoyer un document par mail','url'=>mail_compose_url('IMB', $immId, 'immeuble_360.php?id=' . $immId)],
         ['icon'=>'🏛️','label'=>'Charger les infos publiques (RNC)','url'=>'#','onclick'=>'immLoadPublicInfo();return false;'],
         ['icon'=>'➕','label'=>'Ajouter un bien à cet immeuble','url'=>app_url('/bien_detail.php?id_immeuble=' . $immId)],
         ['icon'=>'📁','label'=>'Documents de l\'immeuble',     'url'=>app_url('/immeuble_documents_list.php?id=' . $immId)],
@@ -718,7 +860,16 @@ fiche360_header(
                     : app_url('/agency_proprietaires.php?q=' . urlencode($p['nom'] ?: '')),
             ];
         }
-        fiche360_attach('CONTACTS (' . count($contactLinks) . ')', $contactLinks);
+        // DÉFENSIF : ne casse jamais la colonne même si include/table/dépendance manque.
+        $eaBtn = '';
+        try {
+            if (is_file(__DIR__ . '/inc/entite_acteurs.php')) {
+                require_once __DIR__ . '/inc/entite_acteurs.php';
+                if (function_exists('entite_acteurs_links'))         $contactLinks = array_merge($contactLinks, entite_acteurs_links($pdo, 'IMB', $immId, csrf_token('default')));
+                if (function_exists('entite_acteurs_header_button')) $eaBtn = entite_acteurs_header_button('ea_imm', 'IMB', $immId, csrf_token('default'));
+            }
+        } catch (\Throwable $e) { $eaBtn = ''; }
+        fiche360_attach('CONTACTS (' . count($contactLinks) . ')', $contactLinks, $eaBtn);
     }
 
     // Synthèse occupation
@@ -812,6 +963,33 @@ fiche360_header(
       .catch(function(e){ body.innerHTML = '<div style="color:#c62828;font-size:13px;">❌ Réseau : '+esc(e)+'</div>'; });
   };
   document.getElementById('imm-public-load')?.addEventListener('click', window.immLoadPublicInfo);
+})();
+</script>
+
+<!-- ── Cartes repliables : tout replié à l'ouverture (demande UX) ── -->
+<style>
+  .f360-card.f360-collapsed > *:not(h3):not(summary){ display:none !important; }
+  .f360-card > h3.f360-collap-h{ cursor:pointer; user-select:none; }
+  .f360-card > h3.f360-collap-h::before{ content:'▸ '; color:#b9b3a8; font-size:12px; font-weight:400; }
+  .f360-card:not(.f360-collapsed) > h3.f360-collap-h::before{ content:'▾ '; }
+</style>
+<script>
+(function(){
+  function initCollapse(){
+    document.querySelectorAll('.f360-card').forEach(function(card){
+      if (card.tagName.toLowerCase() === 'details') return;      // <details> gèrent déjà leur repli
+      var h = card.querySelector(':scope > h3');
+      if (!h || h.classList.contains('f360-collap-h')) return;
+      h.classList.add('f360-collap-h');
+      card.classList.add('f360-collapsed');                      // tout replié à l'ouverture
+      h.addEventListener('click', function(e){
+        if (e.target.closest('button, a, input, select, textarea, label')) return; // ne pas toggler sur un contrôle
+        card.classList.toggle('f360-collapsed');
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCollapse);
+  else initCollapse();
 })();
 </script>
 
