@@ -67,6 +67,7 @@ try {
     if (is_file(__DIR__ . '/inc/ged_document_links.php')) {
         require_once __DIR__ . '/inc/ged_document_links.php';
     }
+    require_once __DIR__ . '/inc/ged_doc_label.php';
     if (function_exists('gdl_documents_for_entity')) {
         foreach (gdl_documents_for_entity($pdo, 'BAIL', $bailId, ['limit' => 60]) as $d) {
             $docsById[(int)$d['id']] = $d;
@@ -74,7 +75,7 @@ try {
     }
 } catch (Throwable $e) {}
 try {
-    $stD = $pdo->prepare("SELECT id, name_display, document_type, created_at
+    $stD = $pdo->prepare("SELECT id, name_display, name_file, document_type, created_at
         FROM ged_documents
         WHERE status = 'active'
           AND (
@@ -854,7 +855,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
                  style="padding:6px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:8px; align-items:center; cursor:pointer;"
                  onmouseover="this.style.background='#faf8ff'" onmouseout="this.style.background='transparent'">
                 <span style="font-family:'DM Mono',monospace; color:#5b21b6; font-weight:700; min-width:140px;">[<?= h($d['document_type']) ?>]</span>
-                <span style="flex:1;"><?= h($d['name_display']) ?></span>
+                <span style="flex:1;" title="<?= h($d['name_display']) ?>"><?= h(ged_doc_tail_from_level($d, 'bail')) ?></span>
                 <span style="color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$d['created_at']))) ?></span>
                 <button type="button" onclick="event.stopPropagation();gedDeleteDoc(<?= (int)$d['id'] ?>,<?= htmlspecialchars(json_encode((string)$d['name_display']), ENT_QUOTES) ?>,this)" title="Supprimer" style="border:none;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;padding:0 2px;">🗑️</button>
                 <span style="color:#5b21b6; font-size:11px; font-weight:700;">Ouvrir ›</span>
