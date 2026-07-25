@@ -981,7 +981,8 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
     var v = document.getElementById('viewer'); var url = FILE+'?id='+encodeURIComponent(id);
     ext = (ext||'').toLowerCase();
     var indispo = '<div class="empty">⚠ Fichier indisponible — le fichier n\'est pas (ou plus) sur le serveur.<br><span style="font-size:12px;color:#8a97a8">Doc conservé en base ; re-synchronise la boîte mail pour le récupérer, ou supprime-le si obsolète.</span></div>';
-    if(ext==='pdf') v.innerHTML = '<iframe src="'+url+'"></iframe>';
+    // #navpanes=0 masque le volet de vignettes/pages du lecteur PDF (trop encombrant) ; view=FitH.
+    if(ext==='pdf') v.innerHTML = '<iframe src="'+url+'#toolbar=1&navpanes=0&statusbar=0&view=FitH"></iframe>';
     else if(['jpg','jpeg','png','gif','webp','bmp','tif','tiff'].indexOf(ext)!==-1){
       v.innerHTML = '<img id="mboImg" src="'+url+'">';
       var im=document.getElementById('mboImg'); if(im) im.onerror=function(){ v.innerHTML=indispo; };
@@ -1062,7 +1063,7 @@ require_once __DIR__ . '/inc/agency_layout_top.php';
     if((el.dataset.geddupid||'0')==='0') return;
     if(view==='ged'){
       dupViewOn=true; setToggleState('ged');
-      document.getElementById('viewer').innerHTML='<iframe src="'+GEDSERVE+'?id='+encodeURIComponent(el.dataset.geddupid)+'"></iframe>';
+      document.getElementById('viewer').innerHTML='<iframe src="'+GEDSERVE+'?id='+encodeURIComponent(el.dataset.geddupid)+'#toolbar=1&navpanes=0&statusbar=0&view=FitH"></iframe>';
       gedBase=el.dataset.geddupname||''; refreshGed();   // nom GED existant, segmenté + vert (dupViewOn)
     } else {
       dupViewOn=false; setToggleState('mbo');

@@ -67,6 +67,22 @@
     border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; transition: all .15s; }
 .mvpt-modal-reclass:hover { background: #d4a047; color: #fff; }
 @media (max-width: 780px){ .mvpt-modal-cols{ flex-direction: column; } .mvpt-fields{ width: auto; max-height: 30vh; border-right: 0; border-bottom: 1px solid #ece7f5; } }
+/* ── Vue mail .msg inline ── */
+.mvpt-word { max-height: 78vh; overflow-y: auto; padding: 22px 30px; background: #fff; }
+.mvpt-word-note { background: #fffbeb; border: 1px solid rgba(234,179,8,0.4); color: #92400e; font-size: 12.5px; padding: 8px 12px; border-radius: 9px; margin-bottom: 16px; }
+.mvpt-word-doc { max-width: 820px; margin: 0 auto; font-size: 14px; line-height: 1.6; color: #1e293b; }
+.mvpt-word-doc p { margin: 0 0 8px; white-space: pre-wrap; word-wrap: break-word; }
+.mvpt-msg { max-height: 78vh; overflow-y: auto; padding: 20px 26px; }
+.mvpt-msg-head { border-bottom: 1px solid #eef0f2; padding-bottom: 14px; margin-bottom: 14px; }
+.mvpt-msg-subject { font-size: 18px; font-weight: 800; color: #243B5C; margin-bottom: 10px; }
+.mvpt-msg-meta { font-size: 13px; color: #475569; margin: 3px 0; }
+.mvpt-msg-meta b { color: #64748b; font-weight: 700; margin-right: 4px; }
+.mvpt-msg-ia { background: #f4f7fb; border: 1px solid #dbe6f2; border-left: 3px solid #316887; border-radius: 8px;
+    padding: 10px 14px; margin: 14px 0; font-size: 13px; color: #1e3a52; }
+.mvpt-msg-ia b { color: #316887; }
+.mvpt-msg-warn { background: #fef9e7; border: 1px solid #f0d98a; border-radius: 8px; padding: 10px 14px;
+    margin: 12px 0; font-size: 12.5px; color: #92400e; }
+.mvpt-msg-body { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.55; color: #1f2937; }
 </style>
 
 <script>
@@ -75,6 +91,8 @@
     // URLs API préfixées par la base de l'app (sinon 404 en local sous sous-dossier).
     const MVPT_SERVE = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_serve.php') : '/api/ged_doc_serve.php') ?>;
     const MVPT_INFO  = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_info.php') : '/api/ged_doc_info.php') ?>;
+    const MVPT_FBX   = <?= json_encode(function_exists('app_url') ? app_url('/api/fluxbox_action.php') : '/api/fluxbox_action.php') ?>;
+    const MVPT_WORD  = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_word_preview.php') : '/api/ged_word_preview.php') ?>;
     const esc = function(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; };
 
     function renderFields(fields){
@@ -90,6 +108,67 @@
         panel.innerHTML = html;
         panel.style.display = 'block';
         modal.classList.add('with-fields');
+    }
+
+    // Lecture inline d'un mail .msg (expéditeur, objet, corps) via l'action read_msg.
+    async function renderWordInline(docId, body, doc) {
+        const dlUrl = MVPT_SERVE + '?id=' + docId;
+        try {
+            const r = await fetch(MVPT_WORD + '?id=' + encodeURIComponent(docId), { credentials: 'same-origin' });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'extraction impossible');
+            const approx = (j.mode === 'doc')
+                ? '<div class="mvpt-word-note">⚠️ Ancien format .doc — extraction texte approximative (mise en forme non conservée). Pour l’original, utilisez « Ouvrir ».</div>'
+                : '';
+            body.innerHTML =
+                '<div class="mvpt-word">' + approx +
+                '<div class="mvpt-word-doc">' + (j.html || '<p><em>(vide)</em></p>') + '</div>' +
+                '</div>';
+        } catch (e) {
+            body.innerHTML = '<div class="mvpt-modal-loading">📎 Aperçu Word indisponible (' + esc(e.message) + ')<br><br>' +
+                '<a href="' + dlUrl + '" target="_blank" rel="noopener" style="color:#3D7465;font-weight:700;text-decoration:underline;">↗ Ouvrir / télécharger le document</a></div>';
+        }
+    }
+    async function renderMsgInline(docId, body, doc) {
+        try {
+            const r = await fetch(MVPT_FBX + '?action=read_msg&ged_doc_id=' + encodeURIComponent(docId), { credentials: 'same-origin' });
+            const j = await r.json();
+            if (!j.ok || !j.data) throw new Error((j.errors || ['lecture impossible']).join(', '));
+            const d = j.data;
+            const bodyText   = (d.body_text || '').trim();
+            const incomplete = !d.subject && !bodyText;
+
+            let html = '<div class="mvpt-msg">';
+            html += '<div class="mvpt-msg-head">';
+            html += '<div class="mvpt-msg-subject">✉️ ' + (esc(d.subject) || '<em style="color:#94a3b8">(sans objet)</em>') + '</div>';
+            html += '<div class="mvpt-msg-meta"><b>De</b> ' + (esc(d.from) || '<em style="color:#94a3b8">non détecté</em>') +
+                    (d.from_email ? ' &lt;' + esc(d.from_email) + '&gt;' : '') + '</div>';
+            if (d.to && d.to.length >= 3)  html += '<div class="mvpt-msg-meta"><b>À</b> ' + esc(d.to) + '</div>';
+            if (d.date_sent) html += '<div class="mvpt-msg-meta"><b>Date</b> ' + esc(d.date_sent) + '</div>';
+            html += '</div>';
+
+            // Motif / immeuble : classement métier déjà résolu (parent_classement du doc)
+            const pc = d.parent_classement || {};
+            if (pc && (pc.n3 || pc.n1)) {
+                html += '<div class="mvpt-msg-ia">📌 <b>Classé</b> : ' +
+                    esc([pc.n1, pc.n2, pc.n3, pc.n4].filter(Boolean).join(' › ') || '—') + '</div>';
+            }
+
+            if (incomplete) {
+                html += '<div class="mvpt-msg-warn">⚠️ Lecture .msg partielle (format Outlook binaire). ' +
+                        'Télécharge le fichier ci-dessus (« Ouvrir ») pour l\'afficher complet dans Outlook.</div>';
+            } else if ((d.warnings || []).length) {
+                html += '<div class="mvpt-msg-warn">⚠️ ' + esc(d.warnings.join(' · ')) + '</div>';
+            }
+
+            html += '<div class="mvpt-msg-body">' + (esc(bodyText) ||
+                    '<em style="color:#94a3b8">Corps non extrait — ouvrir le .msg dans Outlook.</em>') + '</div>';
+            html += '</div>';
+            body.innerHTML = html;
+        } catch (e) {
+            body.innerHTML = '<div class="mvpt-modal-loading">📎 Mail illisible : ' + esc(e.message) +
+                '<br><br>Télécharge le .msg (« Ouvrir ») pour l\'afficher dans Outlook.</div>';
+        }
     }
 
     window.mvptModalReclass = async function() {
@@ -138,10 +217,24 @@
             const mime = (doc.mime_type || '').toLowerCase();
             const viewerUrl = MVPT_SERVE + '?id=' + docId;
 
-            if (mime.includes('pdf')) {
-                body.innerHTML = '<iframe src="' + viewerUrl + '" title="' + esc(doc.name_file || '') + '"></iframe>';
+            const nameLc  = (doc.name_file || name || '').toLowerCase();
+            const typeUc  = (doc.document_type || '').toUpperCase();
+            const isMsg   = nameLc.endsWith('.msg') || typeUc === 'EMAIL';
+            const isWord  = mime.includes('msword') || mime.includes('wordprocessing')
+                         || mime.includes('officedocument.word') || mime.includes('rtf')
+                         || nameLc.endsWith('.doc') || nameLc.endsWith('.docx') || nameLc.endsWith('.rtf');
+
+            if (isMsg) {
+                body.innerHTML = '<div class="mvpt-modal-loading">⏳ Lecture du mail…</div>';
+                renderMsgInline(docId, body, doc);
+            } else if (mime.includes('pdf')) {
+                // #navpanes=0 masque le volet de vignettes/pages du lecteur PDF (encombrant).
+                body.innerHTML = '<iframe src="' + viewerUrl + '#toolbar=1&navpanes=0&statusbar=0&view=FitH" title="' + esc(doc.name_file || '') + '"></iframe>';
             } else if (mime.startsWith('image/')) {
                 body.innerHTML = '<img src="' + viewerUrl + '" alt="' + esc(doc.name_file || '') + '">';
+            } else if (isWord) {
+                body.innerHTML = '<div class="mvpt-modal-loading">⏳ Lecture du document Word…</div>';
+                renderWordInline(docId, body, doc);
             } else {
                 body.innerHTML = '<div class="mvpt-modal-loading">📎 Aperçu non disponible pour ce type (' + esc(mime) + ')<br><br>' +
                     'Type : ' + esc(doc.document_type || '—') + '<br>Module : ' + esc(doc.source_module || '—') + '<br>' +
