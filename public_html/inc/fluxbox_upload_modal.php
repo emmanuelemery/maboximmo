@@ -4121,6 +4121,25 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
                 updateQueueItem(li, '✅', `Carte créée${d.carte_id ? ' #' + d.carte_id : ''}`, 'ok');
                 // Nom renommé suite à analyse IA (V3.1) — affiché sous le nom d'import
                 setQueueRename(li, d.naming && d.naming.proposed);
+                // [FIX 2026-07-25] Mémorise la carte pour que « Valider et classer maintenant »
+                // fonctionne (sinon createdCards reste vide → le bouton sort en silence).
+                // On vise le state GLOBAL (window.FluxBoxUploadState) pour être robuste au scope.
+                if (d.carte_id && window.FluxBoxUploadState) {
+                    const _st = window.FluxBoxUploadState;
+                    if (!Array.isArray(_st.createdCards)) _st.createdCards = [];
+                    const _pf = window.FBX_PREFILL || {};
+                    const _cid = parseInt(d.carte_id, 10);
+                    if (_cid > 0 && !_st.createdCards.some(c => c.card_id === _cid)) {
+                        _st.createdCards.push({
+                            card_id: _cid,
+                            doc_id:  d.document_id ? parseInt(d.document_id, 10) : (d.doc_id ? parseInt(d.doc_id, 10) : 0),
+                            bien_id: _pf.bien_id ? parseInt(_pf.bien_id, 10) : 0,
+                        });
+                        // Rend le bouton « Valider et classer maintenant » visible si masqué.
+                        const _vb = document.getElementById('fbx-validate-now');
+                        if (_vb) _vb.hidden = false;
+                    }
+                }
             }
         } else {
             const errs = (data.errors || ['erreur inconnue']).join(', ');
