@@ -203,7 +203,14 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <div id="tm-tiers-res" style="margin-top:6px;"></div>
         </div>
         <?php if (!$contacts): ?><div class="tm-empty">Aucun contact prérempli.</div><?php endif; ?>
-        <?php foreach ($contacts as $a): $em = trim((string)($a['email'] ?? '')); if ($em === '') continue; ?>
+        <?php foreach ($contacts as $a): $em = trim((string)($a['email'] ?? '')); ?>
+          <?php if ($em === '' && empty($a['no_email'])) continue; ?>
+          <?php if ($em === '' && !empty($a['no_email'])): // contact rattaché SANS email → grisé, à compléter ?>
+          <label class="tm-opt" style="opacity:.55;cursor:default;">
+            <input type="checkbox" disabled>
+            <span style="display:block;"><?= h($a['nom']) ?><br><small style="color:#b45309;">pas d'email — <a href="<?= h(app_url('/tiers_360.php?id=' . (int)($a['tiers_id'] ?? 0))) ?>" target="_blank" rel="noopener">✎ ajouter un email</a></small></span>
+          </label>
+          <?php continue; endif; ?>
           <?php $rle = (string)($a['role'] ?? ''); $rbadge = $rle === 'societe' ? 'Société' : ($rle === 'agence' ? 'Agence' : ''); ?>
           <label class="tm-opt">
             <input type="checkbox" class="tm-recip" value="<?= h($em) ?>" data-role="<?= h($rle) ?>"<?= !empty($a['checked']) ? ' checked' : '' ?>>
@@ -222,7 +229,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
         <?php if (!$docs): ?><div class="tm-empty">Aucun document rattaché.</div><?php endif; ?>
         <?php foreach ($docs as $d): $hasFile = !empty($d['has_file']); ?>
           <label class="tm-opt" style="<?= $hasFile ? '' : 'opacity:.55;' ?>">
-            <input type="checkbox" class="tm-doc" value="<?= h($d['uid']) ?>" data-type="<?= h($d['type'] ?? '') ?>" <?= $hasFile ? '' : 'disabled' ?>>
+            <input type="checkbox" class="tm-doc" value="<?= h($d['uid']) ?>" data-type="<?= h($d['type'] ?? '') ?>" data-name="<?= h($d['name'] ?? '') ?>" <?= $hasFile ? '' : 'disabled' ?>>
             <span><?= h($d['name']) ?>
               <?php if (!empty($d['type'])): ?><span class="tm-badge"><?= h($d['type']) ?></span><?php endif; ?>
               <?php if (!$hasFile): ?><small style="color:#ef4444;display:block;">⚠ fichier indisponible</small><?php endif; ?>
@@ -294,6 +301,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
   window.tmApplyTemplate = function(el){
     document.getElementById('tm-sujet').value = subst(el.dataset.sujet || '');
     document.getElementById('tm-corps').value = subst((el.dataset.corps || '').replace(/\\n/g,'\n'));
+    if (typeof tmSyncPJ === 'function') tmSyncPJ();
   };
 
   const freeEmails = [];
@@ -390,6 +398,29 @@ include __DIR__ . '/inc/agency_layout_top.php';
     // Destinataires agence/société pré-cochés automatiquement (supprimables en décochant).
     document.querySelectorAll('.tm-recip').forEach(c => { var r=c.dataset.role||''; if(r==='agence'||r==='societe') c.checked = true; });
   }
+
+  // ── Liste des pièces jointes DANS le corps (live, se met à jour au (dé)cochage) ──
+  function tmBuildPJ(){
+    var names = Array.from(document.querySelectorAll('.tm-doc:checked')).map(function(c){ return (c.dataset.name||c.value||'').trim(); }).filter(Boolean);
+    if(!names.length) return '';
+    var s = names.length>1?'s':'';
+    return 'Pièce'+s+' jointe'+s+' :\n' + names.map(function(n){ return '- '+n; }).join('\n');
+  }
+  function tmSyncPJ(){
+    var ta=document.getElementById('tm-corps'); if(!ta) return;
+    var body=ta.value;
+    // Retire un ancien bloc PJ (repéré par son intitulé) avant de le reconstruire.
+    body=body.replace(/\n*Pièces? jointes? :\n(?:- .*\n?)*/,'');
+    var block=tmBuildPJ();
+    if(block){
+      var i=body.indexOf('\n-- \n'); if(i===-1) i=body.indexOf('\n--\n');   // insère AVANT la signature
+      if(i>=0){ body=body.slice(0,i)+'\n\n'+block+'\n'+body.slice(i); }
+      else { body=body.replace(/\s*$/,'')+'\n\n'+block; }
+    }
+    ta.value=body;
+  }
+  document.querySelectorAll('.tm-doc').forEach(function(c){ c.addEventListener('change', tmSyncPJ); });
+  tmSyncPJ();
 
   // ── Recherche de tiers → ajout en destinataire ──────────────────────────────
   const TIERSAPI = <?= json_encode(app_url('/api/mail_tiers_search.php')) ?>;
