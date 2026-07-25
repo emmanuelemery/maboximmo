@@ -426,6 +426,15 @@ if (!function_exists('fluxbox_auto_commit_promote')) {
             $pdo->commit();
             $audit[] = "✅ COMMIT";
 
+            // [FIX 2026-07-25] Marque le doc TRAITÉ côté MaBoxOffice : classé via le modal FluxBox
+            // → il ne doit plus apparaître « à classer » dans l'inbox MBO (sinon doublon visuel).
+            try {
+                $pdo->prepare("UPDATE fluxbox_documents
+                                  SET mbo_statut='traite', mbo_classe_at=NOW(), mbo_ged_document_id=?
+                                WHERE id=? AND mbo_classe_at IS NULL")
+                    ->execute([$newGedDocId, (int)$row['doc_id']]);
+            } catch (Throwable $e) { /* colonnes mbo_* absentes → ignoré */ }
+
             // [COPIE DURABLE — 2026-07-20] Le doc GED reçoit sa PROPRE copie physique
             // (uploads/ged/…) → il ne dépend plus de la survie de la ligne/fichier FluxBox.
             // Supprimer ensuite le doc dans la pile (doublon, purge) ne l'orpheline plus.

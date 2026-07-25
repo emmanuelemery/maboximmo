@@ -931,6 +931,17 @@ if (!function_exists('fluxbox_carte_validate')) {
                 }
                 $gedDocId = fluxbox_promote_to_ged((int)$carte['document_id'], $classement, $pdo, $namingOverride);
 
+                // [FIX 2026-07-25] Marque le doc TRAITÉ côté MaBoxOffice → il disparaît de l'inbox
+                // MBO « à classer » (sinon le doc classé via le modal y reste = doublon visuel).
+                if ($gedDocId) {
+                    try {
+                        $pdo->prepare("UPDATE fluxbox_documents
+                                          SET mbo_statut='traite', mbo_classe_at=NOW(), mbo_ged_document_id=?
+                                        WHERE id=? AND mbo_classe_at IS NULL")
+                            ->execute([(int)$gedDocId, (int)$carte['document_id']]);
+                    } catch (Throwable $e) { /* colonnes mbo_* absentes → ignoré */ }
+                }
+
                 if ($namingOverride !== null) {
                     require_once __DIR__ . '/fluxbox_va_orchestrator.php';
                     fluxbox_va_mark_applied($carteId, $pdo);
