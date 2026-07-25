@@ -378,6 +378,25 @@ if (!function_exists('fluxbox_documents_ingest')) {
         $size      = @filesize($path) ?: 0;
         $userId    = current_user_id();
 
+        // GARANTIE DE PERSISTANCE : si le chemin source n'est PAS déjà sous storage_fluxbox
+        // (chemin transitoire : upload temp, dossier Téléchargements, import…), on COPIE le
+        // fichier dans un stockage STABLE avant d'enregistrer son chemin. Sans ça, le fichier
+        // pouvait disparaître après coup → fiche orpheline (« Fichier indisponible »).
+        $fbxPersist = static function (string $src) use ($tenantId, $nom): string {
+            $publicHtml  = dirname(__DIR__);
+            $storageRoot = realpath($publicHtml . '/storage_fluxbox');
+            $realSrc     = realpath($src);
+            if ($storageRoot !== false && $realSrc !== false
+                && strncmp($realSrc, $storageRoot, strlen($storageRoot)) === 0) {
+                return $src; // déjà dans storage_fluxbox → stable, rien à faire
+            }
+            $destDir = $publicHtml . '/storage_fluxbox/' . $tenantId . '/' . date('Y') . '/' . date('m');
+            if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+            $safe = preg_replace('/[^A-Za-z0-9._-]+/', '_', $nom !== '' ? $nom : 'fichier') ?: 'fichier';
+            $dest = $destDir . '/' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '_' . $safe;
+            return @copy($src, $dest) ? $dest : $src;
+        };
+
         // Anti-doublon niveau 1 : UK (tenant_id, hash_sha256)
         $st = $pdo->prepare("
             SELECT * FROM `fluxbox_documents`
@@ -405,6 +424,7 @@ if (!function_exists('fluxbox_documents_ingest')) {
                 $existingMeta['reactivated_at'] = date('Y-m-d H:i:s');
 
                 // Met à jour le doc avec le nouveau chemin physique (l'ancien fichier a été unlink à la suppression)
+                $path = $fbxPersist($path); // garantit un fichier stable sous storage_fluxbox
                 $pdo->prepare("
                     UPDATE `fluxbox_documents`
                     SET `fichier_chemin` = ?, `fichier_nom` = ?, `source_meta` = ?,
@@ -451,7 +471,8 @@ if (!function_exists('fluxbox_documents_ingest')) {
             ];
         }
 
-        // Nouvel ingest
+        // Nouvel ingest — on garantit d'abord un fichier stable sous storage_fluxbox.
+        $path = $fbxPersist($path);
         $st = $pdo->prepare("
             INSERT INTO `fluxbox_documents`
               (`tenant_id`, `hash_sha256`, `source_type`, `source_meta`,
@@ -1489,6 +1510,18 @@ if (!function_exists('fluxbox_mbo_ged_name')) {
         $d['mbo_entity_type']  = strtoupper($entityType);
         $d['mbo_entity_id']    = $entityId;
         $d['mbo_type_propose'] = strtolower($mboType);
+        // [FIX 2026-07-25] Reprend la DATE MÉTIER (position 9) + le LIBELLÉ (position 10) saisis à
+        // l'ingest depuis la carte, sinon le nom committé les perd (aperçu ≠ nom réel). La date
+        // (date d'assemblée pour un PV/CVAG) passe par mbo_ref_salaire, comme l'aperçu.
+        try {
+            $stC = $pdo->prepare("SELECT proposition_json FROM fluxbox_cartes WHERE document_id = ? ORDER BY id DESC LIMIT 1");
+            $stC->execute([$fluxDocId]);
+            $prop = json_decode((string)$stC->fetchColumn(), true) ?: [];
+            $bizDate = trim((string)($prop['classement']['date'] ?? $prop['target_date'] ?? ''));
+            $libelle = trim((string)($prop['user_label'] ?? ''));
+            if ($bizDate !== '' && empty($d['mbo_ref_salaire'])) $d['mbo_ref_salaire'] = $bizDate;
+            if ($libelle !== '' && empty($d['mbo_libelle']))     $d['mbo_libelle']     = $libelle;
+        } catch (Throwable) {}
         try { return mbo_build_ged_name($pdo, $d, $ensure); }
         catch (Throwable $e) { error_log('[fluxbox_mbo_ged_name] '.$e->getMessage()); return ''; }
     }
