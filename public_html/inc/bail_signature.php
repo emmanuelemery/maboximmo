@@ -67,7 +67,9 @@ if (!function_exists('bsig_get_by_token')) {
 if (!function_exists('bsig_list_for_bail')) {
     function bsig_list_for_bail(PDO $pdo, int $idBail): array {
         if ($idBail <= 0) return [];
-        $st = $pdo->prepare("SELECT * FROM bail_signatures WHERE id_bail = ? ORDER BY id ASC");
+        // Exclut les signatures ANNULÉES (statut 'refuse') : elles ne doivent plus compter ni
+        // s'afficher (sinon une annulation d'envoi laisse des « demandes en attente » fantômes).
+        $st = $pdo->prepare("SELECT * FROM bail_signatures WHERE id_bail = ? AND statut <> 'refuse' ORDER BY id ASC");
         $st->execute([$idBail]);
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }

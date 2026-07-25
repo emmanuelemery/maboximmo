@@ -52,13 +52,12 @@ if ((string)$r['statut'] !== 'envoye') {
 
 try {
     $pdo->beginTransaction();
-    // 1. Invalide TOUS les liens de signature en cours (tokens 48 h) → anciens liens morts.
-    $inv = $pdo->prepare("UPDATE bail_signatures
-                             SET statut='refuse', signature_data=NULL, signed_at=NULL, ip=NULL, lu_approuve=0
-                           WHERE id_bail=? AND statut IN ('pending','signe')");
+    // 1. SUPPRIME les liens de signature en cours (tokens 48 h) → anciens liens morts + base propre.
+    //    On DELETE (plutôt que passer en 'refuse') pour ne pas accumuler de lignes fantômes : au
+    //    prochain envoi, bsig recrée exactement le bon jeu de signataires (1 par rôle).
+    $inv = $pdo->prepare("DELETE FROM bail_signatures WHERE id_bail=?");
     $inv->execute([$bailId]);
     $invalidated = $inv->rowCount();
-    try { $pdo->prepare("UPDATE bail_signatures SET photo_preuve=NULL, mention_manuscrite=NULL WHERE id_bail=?")->execute([$bailId]); } catch (Throwable) {}
     // 2. Retour au statut projet → modifiable + renvoyable.
     $pdo->prepare("UPDATE bien_baux SET statut='projet' WHERE id=?")->execute([$bailId]);
     $pdo->commit();
