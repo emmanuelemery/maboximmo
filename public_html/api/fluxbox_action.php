@@ -1342,6 +1342,14 @@ try {
             if ($targetDate !== '') {
                 $cascade['classement']['date'] = $targetDate;
             }
+            // [2026-07-25] TYPE CHOISI MANUELLEMENT = signal humain fort. Sans ce boost, un type
+            // forcé mais accompagné d'une confiance IA < 90 % laissait la carte PENDING (jamais
+            // auto-committée en GED) → le doc « disparaissait » de la fiche alors qu'il avait été
+            // classé. On élève la confiance à ≥ 90 % pour que l'auto-commit passe (l'humain a tranché).
+            if ($forcedTypeDoc) {
+                $cascade['confiance'] = max(90, (int)($cascade['confiance'] ?? 0));
+                if (empty($cascade['raison'])) $cascade['raison'] = 'Type choisi manuellement';
+            }
 
             // Détection instance entité depuis relative_path (panneau Dossier)
             // Ex : "Dupont-Pierre/contrat.pdf" + N3=COLLABORATEUR placeholder → entity_instance="Dupont-Pierre"
