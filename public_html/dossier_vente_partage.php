@@ -229,10 +229,32 @@ foreach ($immIds as $i => $immId) {
     } catch (Throwable) {}
     if (!$idoc && !$iphotos) continue;   // rien à montrer pour cet immeuble
     $im = [];
-    try { $qi = $pdo->prepare("SELECT nom_immeuble, adresse_1, code_postal, ville FROM immeubles WHERE id=? LIMIT 1"); $qi->execute([$immId]); $im = $qi->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable) {}
+    try { $qi = $pdo->prepare("SELECT nom_immeuble, adresse_1, code_postal, ville, type_immeuble, annee_construction,
+                                      nb_niveaux, nb_lots, nb_batiments, nb_logements, nb_commerces, nb_stationnements,
+                                      registre_copro_immatriculation, registre_copro_periode, copro_nb_lots
+                               FROM immeubles WHERE id=? LIMIT 1"); $qi->execute([$immId]); $im = $qi->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable) {}
     $iadr = trim((string)($im['adresse_1'] ?? '')); $ivil = trim((string)($im['ville'] ?? '')); $icp = trim((string)($im['code_postal'] ?? ''));
+    // Infos publiques (registre copro / caractéristiques) — la seule info d'un immeuble.
+    $infos = [];
+    $add = function($lbl, $val) use (&$infos) { $val = trim((string)$val); if ($val !== '' && $val !== '0') $infos[] = ['k'=>$lbl, 'v'=>$val]; };
+    $add('Type', $im['type_immeuble'] ?? '');
+    $add('Année de construction', $im['annee_construction'] ?? '');
+    $add('Période (registre)', $im['registre_copro_periode'] ?? '');
+    $add('Immatriculation copro', $im['registre_copro_immatriculation'] ?? '');
+    $add('Lots de copropriété', ($im['copro_nb_lots'] ?? '') ?: ($im['nb_lots'] ?? ''));
+    $add('Niveaux', $im['nb_niveaux'] ?? '');
+    $add('Bâtiments', $im['nb_batiments'] ?? '');
+    $add('Logements', $im['nb_logements'] ?? '');
+    $add('Commerces', $im['nb_commerces'] ?? '');
+    $add('Stationnements', $im['nb_stationnements'] ?? '');
+    // Résumé court pour la card (3-4 infos clés).
+    $rp = [];
+    if (!empty($im['nb_lots']) || !empty($im['copro_nb_lots'])) $rp[] = '🏘 ' . (($im['copro_nb_lots'] ?? '') ?: $im['nb_lots']) . ' lots';
+    if (!empty($im['nb_niveaux']))         $rp[] = '🏗 ' . $im['nb_niveaux'] . ' niveaux';
+    if (!empty($im['annee_construction'])) $rp[] = '📅 ' . $im['annee_construction'];
+    $resume = implode(' · ', $rp);
     $c = $carteImmeuble(((string)($im['nom_immeuble'] ?? '') ?: ($iadr ?: 'Immeuble')), trim($ivil . ($icp ? ' · ' . $icp : '')), 'IMMEUBLE', 'Immeuble · parties communes', $iadr, $idoc, $iphotos);
-    $c['idb'] = -$immId; $c['cp'] = $icp;
+    $c['idb'] = -$immId; $c['cp'] = $icp; $c['infos'] = $infos; $c['resume'] = $resume;
     $immCards[] = $c;
 }
 // Docs non rattachés (ni bien ni immeuble du dossier) → card « Documents du dossier ».

@@ -465,7 +465,8 @@ BIENS.forEach((b,i)=>{
          ${(b.photos&&b.photos.length)?`<span class="nb">📷 ${b.photos.length}</span>`:''}</div>
        <div class="body">
          <div class="adr">${b.adr}</div><div class="loc">${b.loc}</div>
-         <div class="meta"><span>📂 ${(b.docs&&b.docs.length)||0} document(s) commun(s)</span>${(b.photos&&b.photos.length)?`<span>📷 ${b.photos.length} photo(s)</span>`:''}</div>
+         ${b.resume?`<div style="font-size:13px;color:#2f5c50;font-weight:600;margin-top:8px">${b.resume}</div>`:''}
+         <div class="meta"><span>📂 ${(b.docs&&b.docs.length)||0} document(s) commun(s)</span>${(b.photos&&b.photos.length)?`<span>📷 ${b.photos.length} photo(s)</span>`:''}${(b.infos&&b.infos.length)?`<span>🏛️ ${b.infos.length} infos publiques</span>`:''}</div>
          <div class="fin" style="margin-top:12px"><div class="px"><small>Parties communes de l'immeuble</small></div><div class="open">Ouvrir l'immeuble →</div></div>
        </div></div>`);
     return;
@@ -508,6 +509,21 @@ function swapPhoto(k){const b=window._curB;if(!b||!b.photos||!b.photos[k])return
 function openBien(i){
   const b=BIENS[i];
   if(b&&b.idb)pfTrackBien(b.idb);
+  // ── IMMEUBLE : détail = photos + TOUTES les infos publiques + documents communs (pas de finance/bail). ──
+  if(b.is_immeuble){
+    const dMap={dpe:['⚡','DPE'],diag:['🔬','Diagnostics'],bail:['📄','Bail'],tf:['💶','Taxe foncière'],carrez:['📐','Surface Carrez'],reglement:['🏛️','Règlement copro']};
+    const docsI=(b.docs&&b.docs.length)?`<div class="docs">${b.docs.map(d=>{const m=dMap[d.kind]||['📄','Document'];return `<a class="doc ${d.kind}" href="${d.url}" target="_blank" rel="noopener"><div class="di">${m[0]}</div><div><b>${d.title||m[1]}</b><br><span>${(d.label||'').replace(/\.[a-z0-9]+$/i,'')} · PDF</span></div><span class="dl">Consulter →</span></a>`;}).join('')}</div><div class="lock">🔒 Documents sécurisés — liens personnels à durée limitée.</div>`:`<div style="color:#8a97a8;font-size:14px;padding:8px 2px">Aucun document communiqué.</div>`;
+    const infosI=(b.infos&&b.infos.length)?`<div class="kv">${b.infos.map(x=>`<div class="row"><span>${(''+x.k).replace(/</g,'&lt;')}</span><b>${(''+x.v).replace(/</g,'&lt;')}</b></div>`).join('')}</div>`:`<div style="color:#8a97a8;font-size:14px">Aucune information publique renseignée pour cet immeuble.</div>`;
+    document.getElementById('sheet').innerHTML=`
+      <div class="gallery"><button class="close" onclick="closeBien()">✕</button>${photoSet(b)}</div>
+      <div class="in">
+        <div class="titlerow"><div><h3>🏛️ ${b.adr}</h3><div class="loc2">${b.loc||''}${(b.ref&&b.ref!=='IMMEUBLE')?' · '+b.ref:''}</div></div></div>
+        <div class="block"><div class="bt">🏛️ Infos publiques de l'immeuble</div>${infosI}</div>
+        <div class="block"><div class="bt">📎 Documents communs</div>${docsI}</div>
+      </div>`;
+    document.getElementById('modal').classList.add('on');document.getElementById('modal').scrollTop=0;document.body.style.overflow='hidden';
+    return;
+  }
   const numFr=s=>parseFloat(String(s).replace(/[^\d.,]/g,'').replace(',','.'))||0;
   const loyN=numFr(b.loyer),maxN=b.loyerMax==='—'?0:numFr(b.loyerMax),netN=parseEur(b.nv);
   const rdtAct=netN?loyN*12/netN*100:0,rdtPer=(netN&&maxN)?maxN*12/netN*100:0;
