@@ -103,6 +103,16 @@ section{padding:48px 0}
 .card .adr{font-size:18px;font-weight:800}.card .loc{font-size:13.5px;color:var(--soft);margin-top:2px}
 .card .meta{display:flex;gap:8px;flex-wrap:wrap;margin:13px 0 0}
 .card .meta span{font-size:12.5px;font-weight:700;color:var(--soft);background:var(--bg);border:1px solid var(--line);padding:5px 11px;border-radius:9px}
+/* Card IMMEUBLE : pleine largeur, compacte, couleur immeuble (#3D7465). */
+.card.card-imm{grid-column:1 / -1;display:flex;align-items:stretch;border-color:#cfe0da;background:linear-gradient(180deg,#f4faf8,#fff)}
+.card.card-imm .ph{height:auto;min-height:132px;width:300px;flex:none;border-right:1px solid var(--line)}
+.card.card-imm .ph .glyph{color:#3D7465;opacity:.55}
+.card.card-imm .ph .tag{color:#fff;background:#3D7465;box-shadow:none}
+.card.card-imm .body{flex:1;padding:16px 24px;display:flex;flex-direction:column;justify-content:center}
+.card.card-imm .adr{color:#2f5c50}
+.card.card-imm .meta span{color:#2f5c50;background:#eaf4f0;border-color:#cfe0da}
+.card.card-imm .open{color:#3D7465}
+@media(max-width:640px){.card.card-imm{flex-direction:column}.card.card-imm .ph{width:100%;height:150px;border-right:none;border-bottom:1px solid var(--line)}}
 .rent{display:flex;gap:10px;margin:14px 0 4px}
 .rent .r{flex:1;border:1px solid var(--line);border-radius:12px;padding:9px 12px}
 .rent .r.bail{background:#eaf6f2;border-color:#bfe6da}.rent .r.enc{background:#f4eef7;border-color:#e3cfe9}
@@ -433,6 +443,19 @@ BIENS.forEach((b,i)=>{
         <div class="body"><div class="adr" style="color:#9aa4b4">${b.adr||'Bien'}</div><div class="loc">${b.loc||''}</div>
           <div class="gone-badge">⚠️ Ce bien n'est plus disponible à la vente</div>
         </div></div>`);
+    return;
+  }
+  if(b.is_immeuble){
+    grid.insertAdjacentHTML('beforeend',`
+     <div class="card card-imm" onclick="openBien(${i})">
+       <div class="ph" style="${bg(b,0)}">${(b.photos&&b.photos.length)?'':'<span class="glyph">🏛️</span>'}
+         <span class="tag">🏛️ ${b.ref||'IMMEUBLE'}</span>
+         ${(b.photos&&b.photos.length)?`<span class="nb">📷 ${b.photos.length}</span>`:''}</div>
+       <div class="body">
+         <div class="adr">${b.adr}</div><div class="loc">${b.loc}</div>
+         <div class="meta"><span>📂 ${(b.docs&&b.docs.length)||0} document(s) commun(s)</span>${(b.photos&&b.photos.length)?`<span>📷 ${b.photos.length} photo(s)</span>`:''}</div>
+         <div class="fin" style="margin-top:12px"><div class="px"><small>Parties communes de l'immeuble</small></div><div class="open">Ouvrir l'immeuble →</div></div>
+       </div></div>`);
     return;
   }
   const enc=b.loyerMax==='—'?`<div class="r enc"><div class="rk">Encadrement</div><div class="rv" style="font-size:13px">Non concerné</div></div>`

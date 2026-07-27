@@ -145,12 +145,19 @@ foreach ($lots as $l) {
         $sb->execute([$bid]);
         $b = $sb->fetch(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable) {}
-    // Photos.
+    // Photos DU BIEN + HÉRITAGE des photos de son IMMEUBLE (le bien hérite de l'immeuble,
+    // jamais l'inverse → l'immeuble n'affiche que ses propres photos, pas de doublon).
     $photos = [];
     try {
         $ph = $pdo->prepare("SELECT COALESCE(NULLIF(url_lbc,''), url_photo) AS u FROM biens_photos WHERE ((entity_type='BIEN' AND entity_id = ?) OR id_bien = ?) ORDER BY ordre ASC, id ASC");
         $ph->execute([$bid, $bid]);
         foreach ($ph->fetchAll(PDO::FETCH_COLUMN) as $u) { $u = trim((string)$u); if ($u !== '') $photos[] = app_url('/' . ltrim($u, '/')); }
+        $bImm = (int)($immOfBien[$bid] ?? ($b['id_immeuble'] ?? 0));
+        if ($bImm > 0) {
+            $pi = $pdo->prepare("SELECT COALESCE(NULLIF(url_lbc,''), url_photo) AS u FROM biens_photos WHERE entity_type='IMB' AND entity_id=? ORDER BY ordre ASC, id ASC");
+            $pi->execute([$bImm]);
+            foreach ($pi->fetchAll(PDO::FETCH_COLUMN) as $u) { $u = trim((string)$u); if ($u !== '') $photos[] = app_url('/' . ltrim($u, '/')); }
+        }
     } catch (Throwable) {}
 
     $ref    = (string)($b['reference_bien'] ?? '');
@@ -197,32 +204,43 @@ foreach ($lots as $l) {
     ];
 }
 
-// ── Card(s) IMMEUBLE : documents communs (règlement copro, ERP…) → une seule fois, pas de doublon. ──
-$carteImmeuble = function(string $adr, string $loc, string $ref, string $type, string $descr, array $docs) {
+// ── Card(s) IMMEUBLE : pleine largeur, en TÊTE, couleur immeuble. Documents communs
+//    (règlement copro, ERP…) une seule fois + photos immeuble (biens_photos entity_type='IMB'). ──
+$carteImmeuble = function(string $adr, string $loc, string $ref, string $type, string $descr, array $docs, array $photos = []) {
     return [
-        'dispo'=>true, 'idb'=>0, 'adr'=>$adr, 'loc'=>$loc, 'ref'=>$ref, 'surf'=>'—', 'pm'=>'—',
+        'dispo'=>true, 'idb'=>0, 'is_immeuble'=>true, 'adr'=>$adr, 'loc'=>$loc, 'ref'=>$ref, 'surf'=>'—', 'pm'=>'—',
         'type'=>$type, 'meuble'=>false, 'pro'=>false, 'annee'=>'—', 'chauf'=>'—', 'dpe'=>'—',
-        'descr'=>$descr, 'annonce'=>'', 'photos'=>[], 'docs'=>$docs,
+        'descr'=>$descr, 'annonce'=>'', 'photos'=>$photos, 'docs'=>$docs,
         'loyer'=>'—', 'bail'=>null, 'loyerMax'=>'—', 'encStatut'=>'', 'cp'=>'', 'lat'=>'', 'lng'=>'',
         'pv'=>'—', 'ho'=>'—', 'nv'=>'—', 'rdt'=>'—', 'simRate'=>'3,40', 'simUsage'=>'habitation',
     ];
 };
+$immCards = [];
 $communAssigned = false;
 foreach ($immIds as $i => $immId) {
     $idoc = $docsByImm[$immId] ?? [];
     if (!$communAssigned && $docsCommun) { $idoc = array_merge($idoc, $docsCommun); $communAssigned = true; }
-    if (!$idoc) continue;
+    // Photos de l'immeuble (galerie dédiée biens_photos entity_type='IMB').
+    $iphotos = [];
+    try {
+        $qp = $pdo->prepare("SELECT COALESCE(NULLIF(url_lbc,''), url_photo) AS u FROM biens_photos WHERE entity_type='IMB' AND entity_id=? ORDER BY ordre ASC, id ASC");
+        $qp->execute([$immId]);
+        foreach ($qp->fetchAll(PDO::FETCH_COLUMN) as $u) { $u = trim((string)$u); if ($u !== '') $iphotos[] = app_url('/' . ltrim($u, '/')); }
+    } catch (Throwable) {}
+    if (!$idoc && !$iphotos) continue;   // rien à montrer pour cet immeuble
     $im = [];
     try { $qi = $pdo->prepare("SELECT nom_immeuble, adresse_1, code_postal, ville FROM immeubles WHERE id=? LIMIT 1"); $qi->execute([$immId]); $im = $qi->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable) {}
     $iadr = trim((string)($im['adresse_1'] ?? '')); $ivil = trim((string)($im['ville'] ?? '')); $icp = trim((string)($im['code_postal'] ?? ''));
-    $c = $carteImmeuble(((string)($im['nom_immeuble'] ?? '') ?: ($iadr ?: 'Immeuble')), trim($ivil . ($icp ? ' · ' . $icp : '')), 'IMMEUBLE', 'Immeuble · parties communes', $iadr, $idoc);
+    $c = $carteImmeuble(((string)($im['nom_immeuble'] ?? '') ?: ($iadr ?: 'Immeuble')), trim($ivil . ($icp ? ' · ' . $icp : '')), 'IMMEUBLE', 'Immeuble · parties communes', $iadr, $idoc, $iphotos);
     $c['idb'] = -$immId; $c['cp'] = $icp;
-    $biensJs[] = $c;
+    $immCards[] = $c;
 }
 // Docs non rattachés (ni bien ni immeuble du dossier) → card « Documents du dossier ».
 if (!$communAssigned && $docsCommun) {
-    $biensJs[] = $carteImmeuble('Documents du dossier', '', 'DOSSIER', 'Pièces communes', '', $docsCommun);
+    $immCards[] = $carteImmeuble('Documents du dossier', '', 'DOSSIER', 'Pièces communes', '', $docsCommun);
 }
+// Immeuble(s) EN TÊTE, puis les biens.
+$biensJs = array_merge($immCards, $biensJs);
 
 // ── Variables d'en-tête attendues par le template ──
 $destNom     = trim((string)($share['libelle'] ?? '')) ?: $roleLbl;
