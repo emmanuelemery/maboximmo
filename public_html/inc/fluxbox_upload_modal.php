@@ -1687,6 +1687,9 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
     }
     const FLUXBOX_URL   = <?= json_encode($_fbxFluxboxUrl, JSON_UNESCAPED_SLASHES) ?>;
     const CSRF          = <?= json_encode((string)($_SESSION['csrf_token'] ?? ''), JSON_UNESCAPED_SLASHES) ?>;
+    // Token standard (form 'default') pour les endpoints GED qui l'exigent (ged_rename) :
+    // le token legacy ci-dessus est souvent vide → « CSRF invalide » au renommage.
+    const CSRF_STD      = <?= json_encode(function_exists('csrf_token') ? csrf_token('default') : '', JSON_UNESCAPED_SLASHES) ?>;
     const IS_ADMIN      = <?= $_fbxIsAdmin ? 'true' : 'false' ?>;
 
     const modal      = document.getElementById('fbx-upload-modal');
@@ -1850,8 +1853,8 @@ $_fbxIsAdmin = (int)($_SESSION['id_role'] ?? 0) === 1;
         btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳…';
         try {
             const r = await fetch(RENAME_API, { method:'POST',
-                headers:{ 'Content-Type':'application/json', 'X-CSRF-Token':CSRF },
-                body: JSON.stringify({ ged_id: gedId, name: newName, csrf: CSRF }) });
+                headers:{ 'Content-Type':'application/json', 'X-CSRF-Token':(CSRF_STD||CSRF) },
+                body: JSON.stringify({ ged_id: gedId, name: newName, csrf: (CSRF_STD||CSRF) }) });
             const j = await r.json();
             if (j && j.ok) {
                 btn.textContent = '✅ Renommé'; btn.style.background = '#15803d';
