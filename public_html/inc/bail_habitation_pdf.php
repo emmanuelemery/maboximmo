@@ -76,26 +76,46 @@ if (!function_exists('bail_habitation_prefill_from_bien')) {
                 if (trim((string)($b['dpe_classe'] ?? '')) !== '')                           $out['dpe_classe'] = strtoupper(trim((string)$b['dpe_classe']));
             }
         } catch (Throwable) {}
-        // Annonce de LOCATION la plus récente : conditions financières.
+        // Annonce de LOCATION la plus récente : on reprend TOUT ce qui est exploitable.
         try {
             $q = $pdo->prepare("SELECT loyer, loyer_de_base, loyer_cc, complement_loyer, charges, charges_annuelles,
-                                       loyer_reference, loyer_reference_majore, zone_encadrement_loyer,
-                                       ancien_loyer_montant, ancien_loyer_date_revision
+                                       loyer_reference, loyer_reference_majore, zone_encadrement_loyer, loyer_mode,
+                                       modalite_recuperation_charges_locatives, depot_garantie,
+                                       honoraires_etat_des_lieux, honoraires_location_bail,
+                                       ancien_loyer_montant, ancien_loyer_date_revision,
+                                       dpe_classe AS a_dpe, meuble
                                   FROM annonces
-                                 WHERE id_bien=? AND (type_transaction='location' OR loyer>0 OR loyer_de_base>0)
+                                 WHERE id_bien=? AND (type_transaction='location' OR loyer>0 OR loyer_de_base>0 OR depot_garantie>0)
                                  ORDER BY id DESC LIMIT 1");
             $q->execute([$bienId]);
             if ($a = $q->fetch(PDO::FETCH_ASSOC)) {
+                // Loyer & charges
                 $loy = (float)($a['loyer_de_base'] ?: $a['loyer'] ?: 0);
                 if ($loy > 0) $out['loyer_mensuel_hc'] = $loy;
                 if ((float)($a['complement_loyer'] ?? 0) > 0) $out['complement_loyer'] = (float)$a['complement_loyer'];
                 $ch = (float)($a['charges'] ?: 0); if ($ch <= 0 && (float)($a['charges_annuelles'] ?? 0) > 0) $ch = round((float)$a['charges_annuelles'] / 12, 2);
                 if ($ch > 0) $out['charges_mensuelles'] = $ch;
+                // Modalité charges → provisions / forfait
+                $mrc = (string)($a['modalite_recuperation_charges_locatives'] ?? '');
+                if (stripos($mrc, 'forfait') !== false) $out['charges_type'] = 'forfait';
+                elseif (stripos($mrc, 'provision') !== false) $out['charges_type'] = 'provisions';
+                // Zone tendue / références
                 if ((float)($a['loyer_reference'] ?? 0) > 0)        $out['loyer_reference'] = (float)$a['loyer_reference'];
                 if ((float)($a['loyer_reference_majore'] ?? 0) > 0) $out['loyer_reference_majore'] = (float)$a['loyer_reference_majore'];
-                if (!empty($a['zone_encadrement_loyer']))           $out['zone_tendue'] = 1;
+                if (!empty($a['zone_encadrement_loyer']) || in_array((string)($a['loyer_mode'] ?? ''), ['majore', 'reference'], true)) $out['zone_tendue'] = 1;
+                // Ancien loyer
                 if ((float)($a['ancien_loyer_montant'] ?? 0) > 0)   $out['dernier_loyer_montant'] = (float)$a['ancien_loyer_montant'];
                 if (!empty($a['ancien_loyer_date_revision']))       $out['dernier_loyer_date_revision'] = (string)$a['ancien_loyer_date_revision'];
+                // Dépôt de garantie (sinon = 1 mois de loyer pour un nu, ajustable)
+                if ((float)($a['depot_garantie'] ?? 0) > 0) $out['depot_garantie'] = (float)$a['depot_garantie'];
+                elseif ($loy > 0 && empty($a['meuble'])) $out['depot_garantie'] = $loy;
+                // Honoraires (montant imputé au LOCATAIRE ; le BAILLEUR paie au moins autant → même base)
+                $hEdl = (float)($a['honoraires_etat_des_lieux'] ?? 0);
+                $hBail = (float)($a['honoraires_location_bail'] ?? 0);
+                if ($hBail > 0) { $out['hono_locataire_visite'] = $hBail; $out['hono_bailleur_visite'] = $hBail; }
+                if ($hEdl > 0)  { $out['hono_locataire_edl'] = $hEdl;     $out['hono_bailleur_edl'] = $hEdl; }
+                // DPE de l'annonce si le bien n'en a pas
+                if (empty($out['dpe_classe']) && trim((string)($a['a_dpe'] ?? '')) !== '') $out['dpe_classe'] = strtoupper(trim((string)$a['a_dpe']));
             }
         } catch (Throwable) {}
         return $out;
