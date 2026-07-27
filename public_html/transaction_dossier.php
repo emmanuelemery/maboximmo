@@ -845,6 +845,36 @@ include __DIR__ . '/inc/agency_layout_top.php';
             foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
             foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'bien'; $allDocs[] = $d; }
             foreach ($docsLies as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'lié'; $allDocs[] = $d; }
+
+            // Nom d'affichage COURT : on est déjà dans le dossier/bien → on retire le préfixe
+            // machine du nom GED V3.1 (société_agence_user_date_upload = 4 premiers segments,
+            // toujours des métadonnées). Les noms non-GED sont laissés tels quels.
+            if (!function_exists('dv_ged_shortname')) {
+                function dv_ged_shortname(string $name): string {
+                    $ext = '';
+                    if (preg_match('/(\.[A-Za-z0-9]{2,5})$/', $name, $m)) { $ext = $m[1]; $name = substr($name, 0, -strlen($ext)); }
+                    $parts = explode('_', $name);
+                    // GED V3.1 : 1er segment = code société (3-5 majuscules) + ≥ 6 segments.
+                    if (count($parts) >= 6 && preg_match('/^[A-Z]{3,5}$/', $parts[0])) {
+                        $parts = array_slice($parts, 4); // retire société, agence, user, date upload
+                        $parts = array_values(array_filter($parts, fn($p) => $p !== '' && $p !== '-'));
+                        return implode(' · ', $parts) . $ext;
+                    }
+                    return $name . $ext;
+                }
+            }
+            $dvLabel = function(array $d): string {
+                $raw = (string)($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id']));
+                return dv_ged_shortname($raw);
+            };
+            // Tri : par type (vides en dernier) puis alphabétique sur le nom court.
+            usort($allDocs, function($a, $b) use ($dvLabel) {
+                $ta = trim((string)($a['document_type'] ?? '')); $tb = trim((string)($b['document_type'] ?? ''));
+                if ($ta === '' xor $tb === '') return $ta === '' ? 1 : -1;
+                $c = strcasecmp($ta, $tb);
+                if ($c !== 0) return $c;
+                return strcasecmp($dvLabel($a), $dvLabel($b));
+            });
           ?>
           <?php if (!$allDocs): ?>
             <div class="dv-empty">Aucun document rattaché.</div>
@@ -854,9 +884,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
             $dispo = ged_internal_path((int)$d['id'], 'preview') !== null; ?>
             <div class="dv-doc" style="<?= $dispo ? '' : 'opacity:.55;' ?>">
               <?php if ($dispo): ?>
-                <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?></a>
+                <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank" title="<?= h($d['name_display'] ?: $d['name_file'] ?: '') ?>"><?= h($dvLabel($d)) ?></a>
               <?php else: ?>
-                <span title="Fichier physique absent sur cet environnement"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $d['id'])) ?> <small style="color:#ef4444;">⚠ indisponible</small></span>
+                <span title="<?= h($d['name_display'] ?: $d['name_file'] ?: '') ?>"><?= h($dvLabel($d)) ?> <small style="color:#ef4444;">⚠ indisponible</small></span>
               <?php endif; ?>
               <span>
                 <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
@@ -904,7 +934,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
             <tbody>
             <?php foreach ($allDocs as $d): $did = (int)$d['id']; ?>
               <tr style="border-bottom:1px solid #f2eee7;">
-                <td style="padding:5px 0;"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $did)) ?><?php if (!empty($d['document_type'])): ?> <span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></td>
+                <td style="padding:5px 0;" title="<?= h($d['name_display'] ?: $d['name_file'] ?: '') ?>"><?= h($dvLabel($d)) ?><?php if (!empty($d['document_type'])): ?> <span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></td>
                 <td style="text-align:center;"><input type="checkbox" class="dvp-acq" value="<?= $did ?>"<?= isset($selAcq[$did]) ? ' checked' : '' ?>></td>
                 <td style="text-align:center;"><input type="checkbox" class="dvp-not" value="<?= $did ?>"<?= isset($selNot[$did]) ? ' checked' : '' ?>></td>
                 <td style="text-align:center;"><input type="checkbox" class="dvp-com" value="<?= $did ?>"<?= isset($selCom[$did]) ? ' checked' : '' ?>></td>

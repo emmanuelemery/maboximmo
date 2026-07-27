@@ -12,6 +12,19 @@ $pdo = $GLOBALS['pdo'];
 header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
 header('Referrer-Policy: no-referrer');
 if (!function_exists('h')) { function h(?string $v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); } }
+if (!function_exists('dv_ged_shortname')) {
+    function dv_ged_shortname(string $name): string {
+        $ext = '';
+        if (preg_match('/(\.[A-Za-z0-9]{2,5})$/', $name, $m)) { $ext = $m[1]; $name = substr($name, 0, -strlen($ext)); }
+        $parts = explode('_', $name);
+        if (count($parts) >= 6 && preg_match('/^[A-Z]{3,5}$/', $parts[0])) {
+            $parts = array_slice($parts, 4);
+            $parts = array_values(array_filter($parts, fn($p) => $p !== '' && $p !== '-'));
+            return implode(' · ', $parts) . $ext;
+        }
+        return $name . $ext;
+    }
+}
 $eur = fn($v) => number_format((float)$v, 0, ',', ' ') . ' €';
 
 function dvp_stop(string $titre, string $msg): void {
@@ -113,7 +126,7 @@ $base = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/';
     <h2>📂 Documents (<?= count($docs) ?>)</h2>
     <?php if (!$docs): ?><div class="empty">Aucun document partagé pour le moment.</div><?php endif; ?>
     <?php foreach ($docs as $d):
-      $name = $d['name_display'] ?: ($d['name_file'] ?: ('Document #' . $d['id']));
+      $name = dv_ged_shortname((string)($d['name_display'] ?: ($d['name_file'] ?: ('Document #' . $d['id']))));
       $view = $base . 'api/dossier_vente_doc.php?t=' . h($token) . '&doc=' . (int)$d['id'] . '&mode=inline';
       $dl   = $base . 'api/dossier_vente_doc.php?t=' . h($token) . '&doc=' . (int)$d['id'] . '&mode=download';
     ?>
