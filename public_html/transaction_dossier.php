@@ -174,15 +174,28 @@ $prixCourant = $prixCourant !== false && $prixCourant !== null
 // ── Acteurs + documents (pivot) ──
 $acteurs   = dv_acteurs($pdo, $idDossier);
 $docsDoss  = dv_documents($pdo, $idDossier);
-$docsBien  = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['limit' => 100]);
-// Docs rattachés au(x) bail(s) et à l'immeuble du bien (un bail/diag déposé via FluxBox
+// Docs de TOUS les lots du dossier (pas seulement le bien principal) — sinon un doc chargé
+// sur un lot secondaire (ex. LOT-L002) n'apparaît jamais dans la sélection de partage.
+$lotBienIds = [$idBien => true];
+foreach ((array)($lots ?? []) as $l) { $lb = (int)($l['id_bien'] ?? 0); if ($lb > 0) $lotBienIds[$lb] = true; }
+$docsBien = [];
+$seenBienDoc = [];
+foreach (array_keys($lotBienIds) as $lb) {
+    foreach (gdl_documents_for_entity($pdo, 'BIEN', $lb, ['limit' => 100]) as $d) {
+        if (isset($seenBienDoc[$d['id']])) continue; $seenBienDoc[$d['id']] = 1; $docsBien[] = $d;
+    }
+}
+// Docs rattachés au(x) bail(s) et à l'immeuble des lots (un bail/diag déposé via FluxBox
 // peut être lié à ces entités plutôt qu'au BIEN) → on les remonte aussi dans le dossier.
 $docsLies = [];
 try {
-    $stBx = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien = ?");
-    $stBx->execute([$idBien]);
-    foreach ($stBx->fetchAll(PDO::FETCH_COLUMN) as $bailId) {
-        foreach (gdl_documents_for_entity($pdo, 'BAIL', (int)$bailId, ['limit' => 50]) as $d) { $d['_scope'] = 'bail'; $docsLies[] = $d; }
+    if ($lotBienIds) {
+        $in = implode(',', array_fill(0, count($lotBienIds), '?'));
+        $stBx = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien IN ($in)");
+        $stBx->execute(array_keys($lotBienIds));
+        foreach ($stBx->fetchAll(PDO::FETCH_COLUMN) as $bailId) {
+            foreach (gdl_documents_for_entity($pdo, 'BAIL', (int)$bailId, ['limit' => 50]) as $d) { $d['_scope'] = 'bail'; $docsLies[] = $d; }
+        }
     }
     $immId = (int)($bien['id_immeuble'] ?? $bien['immeuble_id'] ?? 0);
     if ($immId > 0) {
