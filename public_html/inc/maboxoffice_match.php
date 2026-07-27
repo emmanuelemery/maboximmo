@@ -251,11 +251,19 @@ function mbo_ged_links_for_entity(PDO $pdo, ?string $type, ?int $id): array
         $st->execute([$idProp]); $idTiers = (int)$st->fetchColumn();
     }
 
+    // L'ENTITÉ DEMANDÉE ($type) est le lien PRINCIPAL ('main') ; les entités de contexte
+    // (dérivées : propriétaire, immeuble, bien parent…) sont des 'reference'. Sinon un doc
+    // classé sur un bien se retrouvait « appartenir » au propriétaire (TIERS 'main') et
+    // disparaissait des vues strictes par entité (bien/immeuble).
+    $rel = static fn(string $t): string => ($t === $type ? 'main' : 'reference');
     $links = [];
-    if ($idTiers > 0) $links[] = ['entity_type'=>'TIERS', 'entity_id'=>$idTiers, 'relation_type'=>'main', 'is_validated'=>1];
-    if ($idImm  > 0)  $links[] = ['entity_type'=>'IMB',  'entity_id'=>$idImm,  'relation_type'=>'reference'];
-    if ($idBien > 0)  $links[] = ['entity_type'=>'BIEN', 'entity_id'=>$idBien, 'relation_type'=>'reference'];
-    if ($idBail > 0)  $links[] = ['entity_type'=>'BAIL', 'entity_id'=>$idBail, 'relation_type'=>'reference'];
+    if ($idTiers > 0) $links[] = ['entity_type'=>'TIERS', 'entity_id'=>$idTiers, 'relation_type'=>$rel('TIERS'), 'is_validated'=>1];
+    if ($idImm  > 0)  $links[] = ['entity_type'=>'IMB',  'entity_id'=>$idImm,  'relation_type'=>$rel('IMB')];
+    if ($idBien > 0)  $links[] = ['entity_type'=>'BIEN', 'entity_id'=>$idBien, 'relation_type'=>$rel('BIEN')];
+    if ($idBail > 0)  $links[] = ['entity_type'=>'BAIL', 'entity_id'=>$idBail, 'relation_type'=>$rel('BAIL')];
+    // Filet : garantir un lien 'main' même si $type ne correspond à aucune entité résolue.
+    $hasMain = false; foreach ($links as $l) { if (($l['relation_type'] ?? '') === 'main') { $hasMain = true; break; } }
+    if (!$hasMain && $links) $links[0]['relation_type'] = 'main';
     return $links;
 }
 
