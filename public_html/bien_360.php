@@ -1429,6 +1429,7 @@ if ($kpis) {
             $annonceItem,
             $chargerItem,
             $photosItem,
+            ['icon'=>'🖼️','label'=>'Organiser les photos (groupes)','url'=>app_url('/bien_photos_groupes.php?id=' . $bienId)],
             ['icon'=>'📧','label'=>'Envoyer un document par mail','url'=>mail_compose_url('BIEN', $bienId, 'bien_360.php?id=' . $bienId)],
             ['icon'=>'📝','label'=>'Descriptif du bien','url'=>app_url('/bien_detail.php?edit=' . $bienId)],
             ['icon'=>'🗂️','label'=>($hasDossierVente ? 'Voir le dossier de vente' : 'Créer le dossier de vente'),'url'=>app_url('/transaction_dossier.php?id_bien=' . $bienId)],
