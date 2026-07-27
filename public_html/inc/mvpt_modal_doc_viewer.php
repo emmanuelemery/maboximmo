@@ -271,7 +271,8 @@
         for (var i=0;i<links.length;i++){ if((links[i].relation_type||'')==='main'){ main=links[i]; break; } }
         if(!main && links.length) main = links[0];
         if(main){
-            mvptRcEnt = { type:(main.entity_type||''), id:parseInt(main.entity_id,10)||0, label:(main.entity_type||'')+' #'+main.entity_id };
+            var _nm = (main.entity_label||'').trim();
+            mvptRcEnt = { type:(main.entity_type||''), id:parseInt(main.entity_id,10)||0, label:(_nm || ((main.entity_type||'')+' #'+main.entity_id)) };
             document.getElementById('mvptRcEntChosen').textContent = '✓ '+mvptRcEnt.label+' (actuel)';
         } else {
             mvptRcEnt = { type:'', id:0, label:'' };

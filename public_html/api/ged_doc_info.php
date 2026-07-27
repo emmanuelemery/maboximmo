@@ -61,6 +61,20 @@ try {
         $st->execute([$id]);
         $out['links'] = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+        // Libellé humain de chaque entité liée (nom immeuble / adresse bien / nom tiers…) — pas le code.
+        $gdiLabel = function(string $et, int $eid) use ($pdo): string {
+            $et = strtoupper($et); if ($eid <= 0) return '';
+            try {
+                if ($et === 'BIEN') { $q=$pdo->prepare("SELECT COALESCE(NULLIF(designation,''),NULLIF(adresse_1,''),reference_bien) FROM biens WHERE id=?"); $q->execute([$eid]); return (string)($q->fetchColumn() ?: ''); }
+                if ($et === 'IMB' || $et === 'IMMEUBLE') { $q=$pdo->prepare("SELECT COALESCE(NULLIF(nom_immeuble,''),NULLIF(adresse_1,'')) FROM immeubles WHERE id=?"); $q->execute([$eid]); return (string)($q->fetchColumn() ?: ''); }
+                if ($et === 'TIERS') { $q=$pdo->prepare("SELECT COALESCE(NULLIF(nom_affichage,''),NULLIF(societe,''),NULLIF(TRIM(CONCAT_WS(' ',prenom,nom)),'')) FROM tiers WHERE id=?"); $q->execute([$eid]); return (string)($q->fetchColumn() ?: ''); }
+                if ($et === 'BAIL') { $q=$pdo->prepare("SELECT COALESCE(NULLIF(locataire_raison_sociale,''),NULLIF(TRIM(CONCAT_WS(' ',locataire_prenom,locataire_nom)),'')) FROM bien_baux WHERE id=?"); $q->execute([$eid]); return (string)($q->fetchColumn() ?: ''); }
+            } catch (Throwable) {}
+            return '';
+        };
+        foreach ($out['links'] as &$_lk) { $_lk['entity_label'] = $gdiLabel((string)$_lk['entity_type'], (int)$_lk['entity_id']); }
+        unset($_lk);
+
         // Audit MVP-T (via fluxbox_source_id → carte → audit)
         if (!empty($out['ged_document']['fluxbox_source_id'])) {
             $st = $pdo->prepare("SELECT a.id, a.carte_id, a.tenant_id, a.action_label, a.statut,

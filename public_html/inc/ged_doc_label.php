@@ -47,6 +47,19 @@ if (!function_exists('ged_doc_tail_from_level')) {
         $tail = array_values(array_filter($tail, static fn($s) => $s !== '' && $s !== '—' && $s !== '-'));
         $out  = implode(' · ', $tail);
 
+        // Enrichissement : libellé + date métier depuis metadata.extra (posés lors d'un reclassement),
+        // pour les docs dont le nom ne porte pas ces infos (ex. PV-AG, TF non horodatés).
+        $extra = [];
+        $meta = $d['metadata'] ?? null;
+        if (is_string($meta) && $meta !== '') { $mm = json_decode($meta, true); if (is_array($mm)) $extra = $mm['extra'] ?? []; }
+        elseif (is_array($meta)) { $extra = $meta['extra'] ?? []; }
+        $lib = trim((string)($extra['libelle'] ?? ''));
+        $dat = trim((string)($extra['date_doc'] ?? ''));
+        $extras = [];
+        if ($dat !== '' && stripos($out, $dat) === false) $extras[] = $dat;
+        if ($lib !== '' && stripos($out, $lib) === false) $extras[] = $lib;
+        if ($extras) $out = trim($out . ($out !== '' ? ' · ' : '') . implode(' · ', $extras));
+
         return $out !== '' ? $out : ($disp !== '' ? $disp : (string)$base);
     }
 }
