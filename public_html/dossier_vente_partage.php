@@ -57,26 +57,46 @@ $idDossier = (int)$share['id_dossier'];
 $dossier   = dv_get($pdo, $idDossier);
 if (!$dossier) dvp_stop('Dossier indisponible', 'Le dossier de vente est introuvable.');
 
-// ── Documents partagés (docs_json) → {kind,label,url} (liens jeton) attachés à chaque bien ──
-$sharedDocs = [];
+// ── Documents partagés (docs_json) → {kind,title,label,url} (liens jeton) attachés à chaque bien ──
+//   kind  = seau visuel (icône) ; title = VRAI libellé du type (référentiel ged_document_types).
+$docMeta  = [];   // id → {kind,title,label,url}
+$docLinks = [];   // id → [ [entity_type, entity_id], ... ]  (pour router bien vs immeuble)
 $ids = array_values(array_filter(array_map('intval', json_decode((string)($share['docs_json'] ?? '[]'), true) ?: [])));
 if ($ids) {
+    // Référentiel des types (code → libellé lisible).
+    $typeLbl = [];
+    try { foreach ($pdo->query("SELECT LOWER(code) c, libelle l FROM ged_document_types")->fetchAll(PDO::FETCH_ASSOC) as $r) { $typeLbl[$r['c']] = (string)$r['l']; } } catch (Throwable) {}
+    $prettyType = function(string $code) use ($typeLbl): string {
+        $c = strtolower(trim($code)); if ($c === '') return '';
+        if (isset($typeLbl[$c]) && $typeLbl[$c] !== '') return $typeLbl[$c];
+        return ucfirst(str_replace(['_', '-'], ' ', $c));
+    };
     $in = implode(',', array_fill(0, count($ids), '?'));
     try {
         $sd = $pdo->prepare("SELECT id, name_display, name_file, document_type FROM ged_documents WHERE id IN ($in) AND status='active' ORDER BY document_type, id");
         $sd->execute($ids);
         foreach ($sd->fetchAll(PDO::FETCH_ASSOC) as $d) {
-            $t = strtoupper((string)$d['document_type']);
-            $kind = str_contains($t, 'DPE') ? 'dpe'
-                  : (str_contains($t, 'BAIL') ? 'bail'
-                  : ((str_contains($t, 'TAXE') || $t === 'TF') ? 'tf'
-                  : ((str_contains($t, 'CARREZ') || str_contains($t, 'BOUTIN') || str_contains($t, 'SURFACE')) ? 'carrez'
-                  : (str_contains($t, 'REGLEMENT') ? 'reglement' : 'diag'))));
-            $sharedDocs[] = [
+            $code = (string)$d['document_type'];
+            // Seau visuel (icône) : sur le CODE de type en priorité (fiable). Nom en repli SEULEMENT
+            // si le code est vide (sinon la réf de bail dans le nom fausse tout : un Carrez → « bail »).
+            $src  = strtoupper($code !== '' ? $code : ((string)$d['name_display'] . ' ' . (string)$d['name_file']));
+            $kind = str_contains($src, 'DPE') ? 'dpe'
+                  : ((str_contains($src, 'CARREZ') || str_contains($src, 'BOUTIN') || str_contains($src, 'SURFACE')) ? 'carrez'
+                  : (str_contains($src, 'REGLEMENT') ? 'reglement'
+                  : (str_contains($src, 'BAIL') ? 'bail'
+                  : ((str_contains($src, 'TAXE') || str_contains($src, 'FONCIERE') || preg_match('/\bTF\b/', $src)) ? 'tf' : 'diag'))));
+            $docMeta[(int)$d['id']] = [
                 'kind'  => $kind,
-                'label' => dv_ged_shortname((string)($d['name_display'] ?: ($d['name_file'] ?: $t))),
+                'title' => $prettyType($code),   // VRAI libellé (ex. « Bail signé », « DPE », « État des risques »)
+                'label' => dv_ged_shortname((string)($d['name_display'] ?: ($d['name_file'] ?: $code))),
                 'url'   => app_url('/api/dossier_vente_doc.php?t=' . $token . '&doc=' . (int)$d['id'] . '&mode=inline'),
             ];
+        }
+        // Liens d'entité (pour router chaque doc vers SON bien, ou vers l'immeuble).
+        $ql = $pdo->prepare("SELECT document_id, entity_type, entity_id FROM ged_document_links WHERE document_id IN ($in)");
+        $ql->execute($ids);
+        foreach ($ql->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $docLinks[(int)$r['document_id']][] = [strtoupper((string)$r['entity_type']), (int)$r['entity_id']];
         }
     } catch (Throwable) {}
 }
@@ -85,6 +105,28 @@ if ($ids) {
 $pickKey = function(array $a, array $keys) { foreach ($keys as $k) { if (isset($a[$k]) && $a[$k] !== '' && $a[$k] !== null) return $a[$k]; } return null; };
 $lots = function_exists('dv_lots') ? dv_lots($pdo, $idDossier) : [];
 if (!$lots && (int)($dossier['id_bien'] ?? 0) > 0) $lots = [['id_bien' => (int)$dossier['id_bien']]];
+
+// ── Routage des documents : chaque doc sur SON bien (bail/DPE propres) ; les docs de
+//    l'immeuble sur une card IMMEUBLE dédiée (évite les doublons entre biens d'un même immeuble). ──
+$bienIds = [];
+$immOfBien = [];   // id_bien → id_immeuble
+foreach ($lots as $l) { $bid = (int)($l['id_bien'] ?? 0); if ($bid > 0) { $bienIds[$bid] = true; $immOfBien[$bid] = (int)($l['id_immeuble'] ?? 0); } }
+$immIds = array_values(array_unique(array_filter($immOfBien)));
+
+$docsByBien = [];   // id_bien → [docMeta...]
+$docsByImm  = [];   // id_immeuble → [docMeta...]
+$docsCommun = [];   // ni bien ni immeuble du dossier → carte « Documents du dossier »
+foreach ($docMeta as $docId => $meta) {
+    $links = $docLinks[$docId] ?? [];
+    $toBien = 0; $toImm = 0;
+    foreach ($links as [$et, $eid]) {
+        if (($et === 'BIEN') && isset($bienIds[$eid])) { $toBien = $eid; break; }
+        if (($et === 'IMB' || $et === 'IMMEUBLE') && in_array($eid, $immIds, true)) { $toImm = $eid; }
+    }
+    if ($toBien > 0)      $docsByBien[$toBien][] = $meta;
+    elseif ($toImm > 0)   $docsByImm[$toImm][]   = $meta;
+    else                  $docsCommun[]          = $meta;
+}
 
 $biensJs = [];
 $adresse = '';
@@ -138,7 +180,7 @@ foreach ($lots as $l) {
         'descr'    => $descr,
         'annonce'  => (string)($pickKey($b, ['bien_annonce_affiche', 'annonce_texte_lbc', 'reprise_descriptif']) ?: ''),
         'photos'   => $photos,
-        'docs'     => $sharedDocs,   // mêmes documents partagés pour chaque bien du dossier
+        'docs'     => $docsByBien[$bid] ?? [],   // UNIQUEMENT les docs propres à ce bien
         'loyer'    => $loyerA ? number_format($loyerA / 12, 0, ',', ' ') . ' €' : '—',
         'bail'     => null,
         'loyerMax' => '—',
@@ -153,6 +195,33 @@ foreach ($lots as $l) {
         'simRate'  => '3,40',
         'simUsage' => 'habitation',
     ];
+}
+
+// ── Card(s) IMMEUBLE : documents communs (règlement copro, ERP…) → une seule fois, pas de doublon. ──
+$carteImmeuble = function(string $adr, string $loc, string $ref, string $type, string $descr, array $docs) {
+    return [
+        'dispo'=>true, 'idb'=>0, 'adr'=>$adr, 'loc'=>$loc, 'ref'=>$ref, 'surf'=>'—', 'pm'=>'—',
+        'type'=>$type, 'meuble'=>false, 'pro'=>false, 'annee'=>'—', 'chauf'=>'—', 'dpe'=>'—',
+        'descr'=>$descr, 'annonce'=>'', 'photos'=>[], 'docs'=>$docs,
+        'loyer'=>'—', 'bail'=>null, 'loyerMax'=>'—', 'encStatut'=>'', 'cp'=>'', 'lat'=>'', 'lng'=>'',
+        'pv'=>'—', 'ho'=>'—', 'nv'=>'—', 'rdt'=>'—', 'simRate'=>'3,40', 'simUsage'=>'habitation',
+    ];
+};
+$communAssigned = false;
+foreach ($immIds as $i => $immId) {
+    $idoc = $docsByImm[$immId] ?? [];
+    if (!$communAssigned && $docsCommun) { $idoc = array_merge($idoc, $docsCommun); $communAssigned = true; }
+    if (!$idoc) continue;
+    $im = [];
+    try { $qi = $pdo->prepare("SELECT nom_immeuble, adresse_1, code_postal, ville FROM immeubles WHERE id=? LIMIT 1"); $qi->execute([$immId]); $im = $qi->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable) {}
+    $iadr = trim((string)($im['adresse_1'] ?? '')); $ivil = trim((string)($im['ville'] ?? '')); $icp = trim((string)($im['code_postal'] ?? ''));
+    $c = $carteImmeuble(((string)($im['nom_immeuble'] ?? '') ?: ($iadr ?: 'Immeuble')), trim($ivil . ($icp ? ' · ' . $icp : '')), 'IMMEUBLE', 'Immeuble · parties communes', $iadr, $idoc);
+    $c['idb'] = -$immId; $c['cp'] = $icp;
+    $biensJs[] = $c;
+}
+// Docs non rattachés (ni bien ni immeuble du dossier) → card « Documents du dossier ».
+if (!$communAssigned && $docsCommun) {
+    $biensJs[] = $carteImmeuble('Documents du dossier', '', 'DOSSIER', 'Pièces communes', '', $docsCommun);
 }
 
 // ── Variables d'en-tête attendues par le template ──

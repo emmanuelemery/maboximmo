@@ -95,6 +95,10 @@ section{padding:48px 0}
 .card .ph .tag{position:absolute;left:14px;top:14px;background:rgba(255,255,255,.92);font-size:11.5px;font-weight:800;color:var(--bleu-d);padding:6px 12px;border-radius:99px;box-shadow:var(--sh-s)}
 .card .ph .rdt{position:absolute;right:14px;top:14px;background:var(--vert);color:#fff;font-size:12.5px;font-weight:800;padding:6px 12px;border-radius:99px}
 .card .ph .nb{position:absolute;right:14px;bottom:14px;background:rgba(16,37,77,.75);color:#fff;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:99px}
+.gv-btn{position:absolute;left:14px;bottom:14px;background:linear-gradient(135deg,#243B5C,#1a2c45);color:#fff;border:none;font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:99px;cursor:pointer;box-shadow:0 4px 12px rgba(36,59,92,.35);display:inline-flex;align-items:center;gap:5px;transition:transform .12s}
+.gv-btn:hover{transform:translateY(-1px)}
+.gv-main-btn{position:absolute;right:14px;top:14px;z-index:3;background:linear-gradient(135deg,#243B5C,#1a2c45);color:#fff;border:none;font-size:12.5px;font-weight:800;padding:9px 16px;border-radius:12px;cursor:pointer;box-shadow:0 6px 18px rgba(36,59,92,.4);display:inline-flex;align-items:center;gap:7px;transition:transform .12s}
+.gv-main-btn:hover{transform:translateY(-2px)}
 .card .body{padding:18px 20px 20px}
 .card .adr{font-size:18px;font-weight:800}.card .loc{font-size:13.5px;color:var(--soft);margin-top:2px}
 .card .meta{display:flex;gap:8px;flex-wrap:wrap;margin:13px 0 0}
@@ -417,6 +421,8 @@ const parseEur=s=>parseFloat(String(s).replace(/[^\d]/g,''))||0;
 const fmtEur=n=>Math.round(n).toLocaleString('fr-FR')+' €';
 const pct=x=>(Math.round(x*10)/10).toString().replace('.',',')+' %';
 const bg=(b,i)=>b.photos&&b.photos[i]?`background-image:url('${b.photos[i]}')`:`background:${PALS[i%PALS.length]}`;
+function gv(i){ var b=BIENS[i]; if(b&&b.lat&&b.lng&&window.openGeoViews) openGeoViews(b.lat,b.lng,(b.adr||'')+(b.loc?(' · '+b.loc):'')); }
+function gvCur(){ var b=window._curB; if(b&&b.lat&&b.lng&&window.openGeoViews) openGeoViews(b.lat,b.lng,(b.adr||'')+(b.loc?(' · '+b.loc):'')); }
 
 const grid=document.getElementById('grid');
 BIENS.forEach((b,i)=>{
@@ -435,6 +441,7 @@ BIENS.forEach((b,i)=>{
    <div class="card" onclick="openBien(${i})">
      <div class="ph" style="${bg(b,0)}">${(b.photos&&b.photos.length)?'':'<span class="glyph">🏠</span>'}
        <span class="tag">${b.ref||''}</span>${b.rdt!=='—'?`<span class="rdt">${b.rdt} brut</span>`:''}
+       ${(b.lat&&b.lng)?`<button type="button" class="gv-btn" onclick="event.stopPropagation();gv(${i})" title="Plan 2D · Street View · Vue 3D">🛰️ 3 vues</button>`:''}
        ${(b.photos&&b.photos.length)?`<span class="nb">📷 ${b.photos.length}</span>`:''}</div>
      <div class="body"><div class="adr">${b.adr}</div><div class="loc">${b.loc}</div>
        <div class="meta"><span>🏠 ${b.surf}</span>${b.type?`<span>🛏 ${b.type}</span>`:''}<span>${b.meuble?'🛋 Meublé':'📦 Vide'}</span><span>🔑 ${b.loyer!=='—'?'Loué':'Libre'}</span></div>
@@ -446,7 +453,8 @@ BIENS.forEach((b,i)=>{
 function photoSet(b){
   const n=b.photos&&b.photos.length?b.photos.length:0;
   const mainStyle=n?`background-image:url('${b.photos[0]}')`:`background:${PALS[0]}`;
-  let main=`<div class="main"><div class="pimg" id="m-main" style="${mainStyle}">${n?'':'🏠'}</div><div class="cap" id="m-cap">Photo 1${n?'/'+n:''}</div></div>`;
+  const gvOverlay=(b.lat&&b.lng)?`<button type="button" class="gv-main-btn" onclick="event.stopPropagation();gvCur()" title="Plan 2D · Street View · Vue 3D">🛰️ Voir en 3 vues</button>`:'';
+  let main=`<div class="main"><div class="pimg" id="m-main" style="${mainStyle}">${n?'':'🏠'}</div>${gvOverlay}<div class="cap" id="m-cap">Photo 1${n?'/'+n:''}</div></div>`;
   let th='';
   const max=n?Math.min(n,5):4;
   for(let k=1;k<max;k++){
@@ -510,8 +518,9 @@ function openBien(i){
       :`<div class="chatnote">Loyer non renseigné : mensualité et durée non calculées. Montant total et apport restent indicatifs.</div>`}
     ${sLoy>0?`<div style="margin-top:12px"><button type="button" class="linkbtn" onclick="openSim()">🎚️ Personnaliser ma simulation</button> <span class="chatnote" style="margin-left:8px">Ajustez apport, durée et taux et voyez l'effet en direct.</span></div>`:''}
   </div>`;
-  const docMap={dpe:['⚡','DPE','Performance énergétique'],diag:['🔬','Diagnostics','Dossier technique'],bail:['📄','Bail','Bail en cours']};
-  const docsHtml=(b.docs&&b.docs.length)?`<div class="block"><div class="bt">📎 Documents disponibles</div><div class="docs">${b.docs.map(d=>{const m=docMap[d.kind]||['📄','Document','Document'];return `<a class="doc ${d.kind}" href="${d.url}" target="_blank" rel="noopener"><div class="di">${m[0]}</div><div><b>${m[1]}</b><br><span>${m[2]} · PDF</span></div><span class="dl">Consulter →</span></a>`;}).join('')}</div><div class="lock">🔒 Documents sécurisés — liens personnels à durée limitée. Seuls DPE, diagnostics et baux sont communiqués.</div></div>`:'';
+  const docMap={dpe:['⚡','DPE','Performance énergétique'],diag:['🔬','Diagnostics','Dossier technique'],bail:['📄','Bail','Bail en cours'],tf:['💶','Taxe foncière','Avis d\'imposition'],carrez:['📐','Surface Carrez','Attestation de surface'],reglement:['🏛️','Règlement copro','Règlement de copropriété']};
+  const docsInner=(b.docs&&b.docs.length)?`<div class="docs">${b.docs.map(d=>{const m=docMap[d.kind]||['📄','Document','Document'];return `<a class="doc ${d.kind}" href="${d.url}" target="_blank" rel="noopener"><div class="di">${m[0]}</div><div><b>${d.title||m[1]}</b><br><span>${(d.label||m[2]).replace(/\.[a-z0-9]+$/i,'')} · PDF</span></div><span class="dl">Consulter →</span></a>`;}).join('')}</div><div class="lock">🔒 Documents sécurisés — liens personnels à durée limitée. Seuls DPE, diagnostics et baux sont communiqués.</div>`:`<div style="color:#8a97a8;font-size:14px;padding:8px 2px;">Aucun document communiqué pour ce bien pour le moment.</div>`;
+  const docsHtml=`<div class="block"><div class="bt">📎 Documents disponibles</div>${docsInner}</div>`;
   const encVerify=b.loyerMax!=='—'?`<div class="encrow">${encBadge}<a class="linkbtn" href="https://demarches.toodego.com/logement/encadrement-des-loyers-v2/" target="_blank" rel="noopener">🔎 Vérifier sur le simulateur officiel ↗</a></div>${encCompare}<div class="chatnote" style="margin-top:10px">À saisir dans le simulateur : <b>${b.adr}, ${b.loc}</b> · surface <b>${b.surf}</b>${b.type?` · <b>${b.type}</b>`:''} · <b>${b.meuble?'meublé':'vide'}</b>${b.annee!=='—'?` · construction <b>${b.annee}</b>`:''}.</div>`:encBadge;
 
   document.getElementById('sheet').innerHTML=`
@@ -604,4 +613,5 @@ function recalcSim(){const s=window._simB;if(!s)return;
 ['sim-apport','sim-duree','sim-taux'].forEach(id=>document.getElementById(id).addEventListener('input',recalcSim));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(document.getElementById('simmodal').classList.contains('on'))closeSim();else closeBien();}});
 </script>
+<?php require_once __DIR__ . '/geo_views_modal.php'; /* modal 3 vues (Plan · Street View · 3D) — window.openGeoViews */ ?>
 </body></html>
