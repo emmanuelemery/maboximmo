@@ -1255,8 +1255,10 @@ if ($kpis) {
                             style="border:1px solid #cbd5e1; background:#fff; color:#5b21b6; border-radius:7px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer;">Détails ↗</button>
                 </summary>
                 <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:6px; padding:6px 0 12px;">
-                    <?php foreach ($g['photos'] as $p): $thumb = app_url('/' . ltrim((string)($p['url_lbc'] ?: $p['url_photo']), '/')); ?>
-                        <a href="<?= h($photosUrl) ?>" onclick="event.preventDefault();openPhotosFrame(this.getAttribute('href'));" title="<?= h($p['nom_original'] ?: '') ?>" style="display:block; aspect-ratio:1; border-radius:8px; overflow:hidden; border:1px solid #f0ece6; cursor:zoom-in;">
+                    <?php foreach ($g['photos'] as $p):
+                        $thumb = app_url('/' . ltrim((string)($p['url_lbc'] ?: $p['url_photo']), '/'));
+                        $full  = app_url('/' . ltrim((string)($p['url_photo'] ?: $p['url_lbc']), '/')); ?>
+                        <a href="<?= h($full) ?>" onclick="event.preventDefault();mvptImageView(this.getAttribute('href'), <?= htmlspecialchars(json_encode((string)($p['nom_original'] ?: 'Photo')), ENT_QUOTES) ?>);" title="<?= h($p['nom_original'] ?: '') ?>" style="display:block; aspect-ratio:1; border-radius:8px; overflow:hidden; border:1px solid #f0ece6; cursor:zoom-in;">
                             <img src="<?= h($thumb) ?>" alt="<?= h($p['nom_original'] ?: '') ?>" loading="lazy" style="width:100%; height:100%; object-fit:cover; display:block;">
                         </a>
                     <?php endforeach; ?>

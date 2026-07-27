@@ -307,7 +307,23 @@
     };
 
     // 3e argument optionnel `fields` = panneau gauche (champs extraits).
+    // Mode IMAGE (photos bien/immeuble) : même coquille, sans les actions GED (reclasser/supprimer).
+    window.mvptImageView = function(url, name) {
+        mvptCurrentDocId = 0; mvptCurrentName = name || '';
+        document.querySelectorAll('.mvpt-modal-reclass').forEach(function(b){ b.style.display = 'none'; });
+        var del = document.querySelector('.mvpt-foot-del'); if (del) del.style.display = 'none';
+        var fld = document.getElementById('mvptModalFields'); if (fld) fld.style.display = 'none';
+        document.getElementById('mvptModalTitle').textContent = '🖼️ ' + (name || 'Photo');
+        document.getElementById('mvptModalBody').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;background:#0b1220;min-height:60vh;"><img src="' + url + '" alt="" style="max-width:100%;max-height:82vh;object-fit:contain;"></div>';
+        document.getElementById('mvptFootMeta').textContent = name || '';
+        var op = document.getElementById('mvptModalOpen'); if (op) op.href = url;
+        document.getElementById('mvptModalBackdrop').classList.add('open');
+    };
+
     window.mvptModalView = async function(docId, name, fields) {
+        // Restaure les actions GED (au cas où on vient d'un affichage photo).
+        document.querySelectorAll('.mvpt-modal-reclass').forEach(function(b){ b.style.display = ''; });
+        var _del = document.querySelector('.mvpt-foot-del'); if (_del) _del.style.display = '';
         mvptCurrentDocId = docId;
         mvptCurrentName = name || '';
         const backdrop = document.getElementById('mvptModalBackdrop');
