@@ -513,12 +513,16 @@ function openBien(i){
   if(b.is_immeuble){
     const dMap={dpe:['⚡','DPE'],diag:['🔬','Diagnostics'],bail:['📄','Bail'],tf:['💶','Taxe foncière'],carrez:['📐','Surface Carrez'],reglement:['🏛️','Règlement copro']};
     const docsI=(b.docs&&b.docs.length)?`<div class="docs">${b.docs.map(d=>{const m=dMap[d.kind]||['📄','Document'];return `<a class="doc ${d.kind}" href="${d.url}" target="_blank" rel="noopener"><div class="di">${m[0]}</div><div><b>${d.title||m[1]}</b><br><span>${(d.label||'').replace(/\.[a-z0-9]+$/i,'')} · PDF</span></div><span class="dl">Consulter →</span></a>`;}).join('')}</div><div class="lock">🔒 Documents sécurisés — liens personnels à durée limitée.</div>`:`<div style="color:#8a97a8;font-size:14px;padding:8px 2px">Aucun document communiqué.</div>`;
-    const infosI=(b.infos&&b.infos.length)?`<div class="kv">${b.infos.map(x=>`<div class="row"><span>${(''+x.k).replace(/</g,'&lt;')}</span><b>${(''+x.v).replace(/</g,'&lt;')}</b></div>`).join('')}</div>`:`<div style="color:#8a97a8;font-size:14px">Aucune information publique renseignée pour cet immeuble.</div>`;
+    const esc0=s=>(''+s).replace(/</g,'&lt;');
+    const infosI=(b.infos&&b.infos.length)?`<div class="kv">${b.infos.map(x=>`<div class="row"><span>${esc0(x.k)}</span><b>${esc0(x.v)}</b></div>`).join('')}</div>`:`<div style="color:#8a97a8;font-size:14px">Aucune information publique renseignée pour cet immeuble.</div>`;
+    // Détail complet par source (Cadastre & PLU, Altitude, Risques ERP, Copropriété registre national…).
+    const sourcesI=(b.sources&&b.sources.length)?b.sources.map(s=>`<div class="block"><div class="bt">${esc0(s.icon||'🔎')} ${esc0(s.title||'Source')}</div><div class="kv">${(s.items||[]).map(it=>`<div class="row"><span>${esc0(it.k)}</span><b>${esc0(it.v)}</b></div>`).join('')}</div></div>`).join(''):'';
     document.getElementById('sheet').innerHTML=`
       <div class="gallery"><button class="close" onclick="closeBien()">✕</button>${photoSet(b)}</div>
       <div class="in">
         <div class="titlerow"><div><h3>🏛️ ${b.adr}</h3><div class="loc2">${b.loc||''}${(b.ref&&b.ref!=='IMMEUBLE')?' · '+b.ref:''}</div></div></div>
-        <div class="block"><div class="bt">🏛️ Infos publiques de l'immeuble</div>${infosI}</div>
+        <div class="block"><div class="bt">🏛️ Données publiques de l'immeuble</div>${infosI}</div>
+        ${sourcesI}
         <div class="block"><div class="bt">📎 Documents communs</div>${docsI}</div>
       </div>`;
     document.getElementById('modal').classList.add('on');document.getElementById('modal').scrollTop=0;document.body.style.overflow='hidden';

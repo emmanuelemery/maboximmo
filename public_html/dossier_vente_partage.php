@@ -231,22 +231,57 @@ foreach ($immIds as $i => $immId) {
     $im = [];
     try { $qi = $pdo->prepare("SELECT nom_immeuble, adresse_1, code_postal, ville, type_immeuble, annee_construction,
                                       nb_niveaux, nb_lots, nb_batiments, nb_logements, nb_commerces, nb_stationnements,
-                                      registre_copro_immatriculation, registre_copro_periode, copro_nb_lots
+                                      registre_copro_immatriculation, registre_copro_periode, registre_copro_maj, copro_nb_lots,
+                                      reference_cadastrale, parcelle_reference, zone_plu, altitude, latitude, longitude,
+                                      date_mise_en_copro, syndic_actuel, copro_procedure,
+                                      alur_copropriete_plan_sauvegarde, alur_copropriete_etat_carence,
+                                      copro_budget_previsionnel_annuel, copro_tantiemes_total, enrichissement_public_json
                                FROM immeubles WHERE id=? LIMIT 1"); $qi->execute([$immId]); $im = $qi->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable) {}
     $iadr = trim((string)($im['adresse_1'] ?? '')); $ivil = trim((string)($im['ville'] ?? '')); $icp = trim((string)($im['code_postal'] ?? ''));
-    // Infos publiques (registre copro / caractéristiques) — la seule info d'un immeuble.
+    // Infos publiques COMPLÈTES (registre copro RNC + cadastre + PLU + syndic…) — la seule info d'un immeuble.
     $infos = [];
-    $add = function($lbl, $val) use (&$infos) { $val = trim((string)$val); if ($val !== '' && $val !== '0') $infos[] = ['k'=>$lbl, 'v'=>$val]; };
+    $add = function($lbl, $val) use (&$infos) { $val = trim((string)$val); if ($val !== '' && $val !== '0' && strtolower($val) !== 'null') $infos[] = ['k'=>$lbl, 'v'=>$val]; };
+    $eur0 = fn($v) => is_numeric($v) ? number_format((float)$v, 0, ',', ' ') . ' €' : (string)$v;
+    // Caractéristiques
     $add('Type', $im['type_immeuble'] ?? '');
     $add('Année de construction', $im['annee_construction'] ?? '');
-    $add('Période (registre)', $im['registre_copro_periode'] ?? '');
-    $add('Immatriculation copro', $im['registre_copro_immatriculation'] ?? '');
-    $add('Lots de copropriété', ($im['copro_nb_lots'] ?? '') ?: ($im['nb_lots'] ?? ''));
     $add('Niveaux', $im['nb_niveaux'] ?? '');
     $add('Bâtiments', $im['nb_batiments'] ?? '');
     $add('Logements', $im['nb_logements'] ?? '');
     $add('Commerces', $im['nb_commerces'] ?? '');
     $add('Stationnements', $im['nb_stationnements'] ?? '');
+    // Copropriété (RNC)
+    $add('Immatriculation copro (RNC)', $im['registre_copro_immatriculation'] ?? '');
+    $add('Période de construction (RNC)', $im['registre_copro_periode'] ?? '');
+    $add('Lots de copropriété', ($im['copro_nb_lots'] ?? '') ?: ($im['nb_lots'] ?? ''));
+    $add('Total tantièmes', $im['copro_tantiemes_total'] ?? '');
+    $add('Budget prévisionnel annuel', !empty($im['copro_budget_previsionnel_annuel']) ? $eur0($im['copro_budget_previsionnel_annuel']) : '');
+    $add('Mise en copropriété', !empty($im['date_mise_en_copro']) ? substr((string)$im['date_mise_en_copro'], 0, 10) : '');
+    $add('Syndic actuel', $im['syndic_actuel'] ?? '');
+    $add('Procédure copro', $im['copro_procedure'] ?? '');
+    if (!empty($im['alur_copropriete_plan_sauvegarde'])) $add('Plan de sauvegarde', 'Oui');
+    if (!empty($im['alur_copropriete_etat_carence']))    $add('État de carence', 'Oui');
+    $add('Mise à jour registre', !empty($im['registre_copro_maj']) ? substr((string)$im['registre_copro_maj'], 0, 10) : '');
+    // Cadastre / urbanisme
+    $add('Référence cadastrale', ($im['reference_cadastrale'] ?? '') ?: ($im['parcelle_reference'] ?? ''));
+    $add('Zone PLU', $im['zone_plu'] ?? '');
+    $add('Altitude', !empty($im['altitude']) ? ((string)$im['altitude'] . ' m') : '');
+    // DÉTAIL COMPLET par source (snapshot enrichissement_public_json) — exactement comme immeuble_360 :
+    // Cadastre & PLU, Altitude, Risques ERP, Copropriété (registre national)… avec tous leurs items.
+    $sources = [];
+    try {
+        $snap = json_decode((string)($im['enrichissement_public_json'] ?? ''), true);
+        if (is_array($snap) && !empty($snap['details']) && is_array($snap['details'])) {
+            foreach ($snap['details'] as $d) {
+                $items = [];
+                foreach ((array)($d['items'] ?? []) as $it) {
+                    $lbl = trim((string)($it['label'] ?? '')); $val = trim((string)($it['value'] ?? ''));
+                    if ($lbl !== '' && $val !== '') $items[] = ['k'=>$lbl, 'v'=>$val];
+                }
+                if ($items) $sources[] = ['icon'=>(string)($d['icon'] ?? '🔎'), 'title'=>(string)($d['title'] ?? 'Source'), 'items'=>$items];
+            }
+        }
+    } catch (Throwable) {}
     // Résumé court pour la card (3-4 infos clés).
     $rp = [];
     if (!empty($im['nb_lots']) || !empty($im['copro_nb_lots'])) $rp[] = '🏘 ' . (($im['copro_nb_lots'] ?? '') ?: $im['nb_lots']) . ' lots';
@@ -254,7 +289,7 @@ foreach ($immIds as $i => $immId) {
     if (!empty($im['annee_construction'])) $rp[] = '📅 ' . $im['annee_construction'];
     $resume = implode(' · ', $rp);
     $c = $carteImmeuble(((string)($im['nom_immeuble'] ?? '') ?: ($iadr ?: 'Immeuble')), trim($ivil . ($icp ? ' · ' . $icp : '')), 'IMMEUBLE', 'Immeuble · parties communes', $iadr, $idoc, $iphotos);
-    $c['idb'] = -$immId; $c['cp'] = $icp; $c['infos'] = $infos; $c['resume'] = $resume;
+    $c['idb'] = -$immId; $c['cp'] = $icp; $c['infos'] = $infos; $c['sources'] = $sources; $c['resume'] = $resume;
     $immCards[] = $c;
 }
 // Docs non rattachés (ni bien ni immeuble du dossier) → card « Documents du dossier ».
