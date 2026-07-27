@@ -334,9 +334,18 @@ if ($isProjetBail) {
         ],
     ];
     echo '<script>window.BEL_PREFILL_EDIT = ' . json_encode($belEditPrefill, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';</script>';
-    $belEditOnClick = 'bailOpenEditModal(window.BEL_PREFILL_EDIT);return false;';
-    require_once __DIR__ . '/inc/bail_edit_modal.php';
-    bail_edit_modal();
+    if (($bail['bail_nature'] ?? '') === 'habitation') {
+        // Bail HABITATION (loi 89-462) → modal + moteur FNAIM dédiés ; « Modifier » ouvre ce modal.
+        require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
+        bail_habitation_modal();
+        echo '<script>window.BAILHAB_VALUES = ' . json_encode($bail, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';'
+           . 'window.bailHabOnClose=function(){location.reload();};</script>';
+        $belEditOnClick = 'bailHabOpenModal({bien_id:' . (int)$bail['bien_id'] . ', bail_id:' . (int)$bailId . ', values:window.BAILHAB_VALUES});return false;';
+    } else {
+        $belEditOnClick = 'bailOpenEditModal(window.BEL_PREFILL_EDIT);return false;';
+        require_once __DIR__ . '/inc/bail_edit_modal.php';
+        bail_edit_modal();
+    }
     // Signataires enregistrés (pour la cérémonie + la clôture explicite).
     require_once __DIR__ . '/inc/bail_signature.php';
     $belSignataires = function_exists('bsig_list_for_bail') ? bsig_list_for_bail($pdo, $bailId) : [];
