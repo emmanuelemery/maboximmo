@@ -89,7 +89,19 @@ try {
     } catch (Throwable) {}
     // 3. Liens : remplace le lien principal si l'entité a changé.
     $tenant = (int)($doc['tenant_id'] ?? 0) ?: 1;
+    $norm = static function (string $t): string { $t = strtoupper(trim($t)); return $t === 'IMMEUBLE' ? 'IMB' : (($t === 'LOCATION' || $t === 'LOC') ? 'BAIL' : ($t === 'TRS' ? 'TIERS' : $t)); };
+    $entType = $norm($entType);
     $links = mbo_ged_links_for_entity($pdo, $entType, $entId);
+    // ⚠️ L'ENTITÉ CHOISIE doit rester le lien 'main'. Sinon mbo_ged_links_for_entity peut la
+    //    rétrograder en 'reference' (ex. IMB devient 'reference' au profit du TIERS proprio) et
+    //    le doc DISPARAÎT de la liste de son entité (bascule dans « mentions »).
+    $foundChosen = false;
+    foreach ($links as &$lk) {
+        if ($norm((string)$lk['entity_type']) === $entType && (int)$lk['entity_id'] === $entId) { $lk['relation_type'] = 'main'; $foundChosen = true; }
+        elseif (($lk['relation_type'] ?? '') === 'main') { $lk['relation_type'] = 'reference'; }
+    }
+    unset($lk);
+    if (!$foundChosen) array_unshift($links, ['entity_type' => $entType, 'entity_id' => $entId, 'relation_type' => 'main', 'is_validated' => 1]);
     if ($links) {
         $pdo->prepare("DELETE FROM ged_document_links WHERE document_id = ? AND relation_type = 'main'")->execute([$gedId]);
         $ins = $pdo->prepare("INSERT INTO ged_document_links (tenant_id, document_id, entity_type, entity_id, relation_type, is_validated, validated_at, created_at)
