@@ -125,6 +125,7 @@
 (function() {
     let mvptCurrentDocId = 0;
     let mvptCurrentName = '';
+    let mvptDocData = null;   // dernières métadonnées chargées (ged_document + links) pour pré-remplir le reclassement
     // URLs API préfixées par la base de l'app (sinon 404 en local sous sous-dossier).
     const MVPT_SERVE = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_serve.php') : '/api/ged_doc_serve.php') ?>;
     const MVPT_INFO  = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_info.php') : '/api/ged_doc_info.php') ?>;
@@ -253,14 +254,36 @@
     window.mvptReclassClose = function(){ document.getElementById('mvptReclassPanel').style.display='none'; };
     window.mvptModalRename = function(){
         if (mvptCurrentDocId <= 0) return;
-        mvptRcEnt = { type:'', id:0, label:'' };
-        document.getElementById('mvptRcEnt').value='';
-        document.getElementById('mvptRcEntChosen').textContent='';
-        document.getElementById('mvptRcEntResults').innerHTML='';
-        document.getElementById('mvptRcMsg').textContent='';
         mvptLoadTypes();
+        // ── PRÉ-REMPLISSAGE avec les infos EXISTANTES du doc (on ne modifie que ce qu'on veut). ──
+        var doc = (mvptDocData && mvptDocData.ged_document) || {};
+        var links = (mvptDocData && mvptDocData.links) || [];
+        // 1) Entité : lien principal ('main') sinon 1er lien.
+        var main = null;
+        for (var i=0;i<links.length;i++){ if((links[i].relation_type||'')==='main'){ main=links[i]; break; } }
+        if(!main && links.length) main = links[0];
+        if(main){
+            mvptRcEnt = { type:(main.entity_type||''), id:parseInt(main.entity_id,10)||0, label:(main.entity_type||'')+' #'+main.entity_id };
+            document.getElementById('mvptRcEntChosen').textContent = '✓ '+mvptRcEnt.label+' (actuel)';
+        } else {
+            mvptRcEnt = { type:'', id:0, label:'' };
+            document.getElementById('mvptRcEntChosen').textContent = '';
+        }
+        document.getElementById('mvptRcEnt').value='';
+        document.getElementById('mvptRcEntResults').innerHTML='';
+        // 2) Type de document (code existant).
+        document.getElementById('mvptRcType').value = (doc.document_type||'');
+        // 3) Libellé + 4) Date : depuis metadata.extra (posés lors d'un précédent reclassement).
+        var lib='', dd='';
+        try { var meta = typeof doc.metadata==='string' ? JSON.parse(doc.metadata||'{}') : (doc.metadata||{});
+              var ex = (meta && meta.extra) || {}; lib = ex.libelle||''; dd = ex.date_doc||''; } catch(e){}
+        document.getElementById('mvptRcLib').value = lib;
+        // date_doc stockée en JJ-MM-AAAA → input date (AAAA-MM-JJ).
+        var iso=''; var m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(dd||''); if(m) iso = m[3]+'-'+m[2]+'-'+m[1]; else if(/^\d{4}-\d{2}-\d{2}$/.test(dd||'')) iso = dd;
+        document.getElementById('mvptRcDate').value = iso;
+        document.getElementById('mvptRcMsg').textContent='';
         document.getElementById('mvptReclassPanel').style.display='block';
-        document.getElementById('mvptRcEnt').focus();
+        document.getElementById('mvptRcLib').focus();
     };
     let _mvptRcTimer=null;
     document.getElementById('mvptRcEnt').addEventListener('input', function(){
@@ -299,9 +322,9 @@
             if(d&&d.ok){
                 mvptCurrentName=d.name||mvptCurrentName;
                 document.getElementById('mvptModalTitle').textContent='📄 '+mvptCurrentName;
-                msg.style.color='#15803d'; msg.textContent='✅ Reclassé'+(d.chain?' → '+d.chain:'');
+                msg.style.color='#15803d'; msg.textContent='✅ Enregistré'+(d.chain?' → '+d.chain:'')+' — actualisation…';
                 window.FBX_FICHE_DIRTY=true;
-                setTimeout(mvptReclassClose, 900);
+                setTimeout(function(){ location.reload(); }, 700);
             } else { msg.style.color='#c0392b'; msg.textContent='❌ '+((d&&d.error)||'Échec'); }
           }).catch(function(e){ btn.disabled=false; msg.style.color='#c0392b'; msg.textContent='❌ Réseau : '+e; });
     };
@@ -309,7 +332,7 @@
     // 3e argument optionnel `fields` = panneau gauche (champs extraits).
     // Mode IMAGE (photos bien/immeuble) : même coquille, sans les actions GED (reclasser/supprimer).
     window.mvptImageView = function(url, name) {
-        mvptCurrentDocId = 0; mvptCurrentName = name || '';
+        mvptCurrentDocId = 0; mvptCurrentName = name || ''; mvptDocData = null;
         document.querySelectorAll('.mvpt-modal-reclass').forEach(function(b){ b.style.display = 'none'; });
         var del = document.querySelector('.mvpt-foot-del'); if (del) del.style.display = 'none';
         var fld = document.getElementById('mvptModalFields'); if (fld) fld.style.display = 'none';
@@ -352,6 +375,7 @@
             if (!j.ged_document) throw new Error('Document introuvable');
 
             const doc = j.ged_document;
+            mvptDocData = j;   // mémorise pour pré-remplir « Renommer / reclasser »
             const mime = (doc.mime_type || '').toLowerCase();
             const viewerUrl = MVPT_SERVE + '?id=' + docId;
 

@@ -38,7 +38,7 @@ try {
     $st = $pdo->prepare("SELECT id, uuid, tenant_id, folder_id, societe_id, agence_id,
                                 name_display, name_canonical, name_file,
                                 document_type, source_module, storage_provider,
-                                mime_type, size_bytes, hash_sha256,
+                                mime_type, size_bytes, hash_sha256, metadata,
                                 status, version, created_by, created_at, updated_at, fluxbox_source_id
                          FROM ged_documents WHERE id = ?");
     $st->execute([$id]);
