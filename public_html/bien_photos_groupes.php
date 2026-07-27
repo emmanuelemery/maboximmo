@@ -146,9 +146,18 @@ const $=s=>document.querySelector(s), $$=s=>Array.prototype.slice.call(document.
 function post(url, data, token){ const t=token||CSRF; const fd=new FormData(); fd.append('csrf_token',t); Object.keys(data).forEach(k=>fd.append(k,data[k]));
   return fetch(url,{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':t},body:fd}).then(r=>r.json()); }
 
-/* ── Renommer un groupe ── */
+/* ── Renommer un groupe (sauvegarde directe + retour visuel) ── */
 function pgRename(el){ const gno=el.dataset.gno; const label=el.textContent.trim();
-  post(U.rename,{id_bien:BIEN,groupe_no:gno,groupe_label:label}).then(()=>{}); }
+  el.style.background='#fff9e6';
+  post(U.rename,{id_bien:BIEN,groupe_no:gno,groupe_label:label}).then(j=>{
+    if(j&&j.ok){ el.style.background='#e7f6ec'; flash(el,'✓ enregistré'); }
+    else { el.style.background='#fdecea'; flash(el,'✗ '+((j&&j.error)||'échec')); }
+    setTimeout(()=>{el.style.background='';},1200);
+    refreshTargets();
+  }).catch(()=>{ el.style.background='#fdecea'; setTimeout(()=>{el.style.background='';},1200); });
+}
+function flash(el,txt){ const t=document.createElement('span'); t.textContent=' '+txt; t.style.cssText='font-size:11px;color:#15803d;font-weight:700;margin-left:6px;';
+  el.parentNode.insertBefore(t, el.nextSibling); setTimeout(()=>t.remove(),1400); }
 
 /* ── Nouveau groupe (client, se matérialise à la 1ère photo déposée) ── */
 function pgNewGroup(){ MAXGNO++; const gno=MAXGNO;
