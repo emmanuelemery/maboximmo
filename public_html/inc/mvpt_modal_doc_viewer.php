@@ -61,7 +61,10 @@
                 <div class="mvpt-modal-loading">⏳ Chargement…</div>
             </div>
         </div>
-        <div class="mvpt-modal-footer" id="mvptModalFooter">—</div>
+        <div class="mvpt-modal-footer" id="mvptModalFooter">
+            <span id="mvptFootMeta">—</span>
+            <button type="button" class="mvpt-foot-del" onclick="mvptModalDelete()" title="Archiver ou supprimer ce document">🗑️ Supprimer</button>
+        </div>
     </div>
 </div>
 <style>
@@ -88,7 +91,9 @@
 .mvpt-modal-body { flex: 1; overflow: auto; min-height: 260px; background: #f8fafc; }
 .mvpt-modal-body iframe { width: 100%; height: 78vh; border: 0; display: block; }
 .mvpt-modal-body img { max-width: 100%; display: block; margin: 0 auto; }
-.mvpt-modal-footer { padding: 10px 18px; border-top: 1px solid #eef0f2; font-size: 12px; color: #6b7280; }
+.mvpt-modal-footer { padding: 10px 18px; border-top: 1px solid #eef0f2; font-size: 12px; color: #6b7280; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mvpt-foot-del { flex: none; border: 1px solid #e4b9b2; background: #fdecea; color: #c0392b; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.mvpt-foot-del:hover { background: #c0392b; color: #fff; border-color: #c0392b; }
 .mvpt-modal-loading { padding: 34px; text-align: center; color: #6b7280; font-size: 14px; }
 .mvpt-modal-close, .mvpt-modal-open { padding: 6px 12px; background: #eceef1; border: 1px solid #d6dade; color: #374151;
     border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; text-decoration: none; }
@@ -207,6 +212,21 @@
     // Plus de renvoi vers fluxbox_pile.php (jugé inutile). Alias conservé pour compat des appels existants.
     window.mvptModalReclass = function() { return window.mvptModalRename(); };
 
+    // Supprimer/archiver → réutilise le modal générique ged_delete_modal (confirmation archiver/supprimer).
+    window.mvptModalDelete = function() {
+        if (mvptCurrentDocId <= 0) return;
+        if (typeof window.gedDeleteDoc === 'function') window.gedDeleteDoc(mvptCurrentDocId, mvptCurrentName);
+        else if (confirm('Supprimer ce document ?')) { /* repli : rien si le modal n'est pas chargé */ }
+    };
+    // Après suppression/archivage : fermer le viewer + rafraîchir la fiche.
+    document.addEventListener('ged-doc-deleted', function(ev) {
+        if (ev.detail && +ev.detail.id === +mvptCurrentDocId) {
+            window.FBX_FICHE_DIRTY = true;
+            if (typeof window.mvptModalClose === 'function') window.mvptModalClose();
+            setTimeout(function(){ location.reload(); }, 300);
+        }
+    });
+
     // ── Reclassement en 3 niveaux : ENTITÉ + LIBELLÉ + DATE (le moteur régénère le nom GED) ──
     const MVPT_CSRF      = <?= json_encode(function_exists('csrf_token') ? csrf_token('default') : '') ?>;
     const MVPT_RECLASS   = <?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_reclassify.php') : '/api/ged_doc_reclassify.php') ?>;
@@ -293,7 +313,7 @@
         const backdrop = document.getElementById('mvptModalBackdrop');
         const title    = document.getElementById('mvptModalTitle');
         const body     = document.getElementById('mvptModalBody');
-        const footer   = document.getElementById('mvptModalFooter');
+        const footer   = document.getElementById('mvptFootMeta');
         const openLink = document.getElementById('mvptModalOpen');
 
         title.textContent = '📄 ' + (name || 'Document #' + docId);
@@ -361,3 +381,4 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') mvptModalClose(); });
 })();
 </script>
+<?php /* Modal générique « archiver / supprimer » (idempotent via GED_DELETE_MODAL_INCLUDED). */ require_once __DIR__ . '/ged_delete_modal.php'; ?>

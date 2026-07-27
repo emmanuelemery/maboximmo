@@ -58,7 +58,8 @@ $__gddView = function_exists('app_url') ? app_url('/api/ged_document_view.php') 
     fetch(URLDEL,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id_doc:curId, action:action, motif:motif})})
       .then(function(r){return r.json();}).then(function(j){
-        if(j&&j.ok){ if(curEl){ var row=curEl.closest('div'); if(row) row.remove(); } gddClose(); }
+        if(j&&j.ok){ if(curEl){ var row=curEl.closest('div'); if(row) row.remove(); } gddClose();
+          try { document.dispatchEvent(new CustomEvent('ged-doc-deleted', {detail:{id:curId, action:action}})); } catch(e){} }
         else {
           if(j && /bancaire/i.test(j.error||'')){ document.getElementById('gdd-motif-wrap').style.display=''; }
           msg.style.color='#c0392b'; msg.textContent='❌ '+((j&&j.error)||'Échec');
