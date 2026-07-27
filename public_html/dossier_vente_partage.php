@@ -2,8 +2,12 @@
 declare(strict_types=1);
 /**
  * dossier_vente_partage.php — Page PUBLIQUE (jeton, lecture seule) d'un dossier de vente,
- * partagée à un ACQUÉREUR ou un NOTAIRE : infos du bien + documents SÉLECTIONNÉS
- * (consultation + téléchargement via api/dossier_vente_doc.php). Sans login. Photos : en attente.
+ * partagée à un ACQUÉREUR / NOTAIRE / COMMERCIALISATEUR.
+ *
+ * Rendu = MÊME page que p.php (deal-room Régie EMERY) via inc/p_portefeuille_view.php :
+ * hero + cards biens (photos + caractéristiques + finances) + modale par bien.
+ * Les DOCUMENTS PARTAGÉS (docs_json) sont attachés à chaque bien (liens jeton
+ * api/dossier_vente_doc.php → confidentiel/coffre structurellement refusés).
  */
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/dossier_vente.php';
@@ -11,7 +15,8 @@ $pdo = $GLOBALS['pdo'];
 
 header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
 header('Referrer-Policy: no-referrer');
-if (!function_exists('h')) { function h(?string $v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); } }
+
+$e = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 if (!function_exists('dv_ged_shortname')) {
     function dv_ged_shortname(string $name): string {
         $ext = '';
@@ -25,7 +30,6 @@ if (!function_exists('dv_ged_shortname')) {
         return $name . $ext;
     }
 }
-$eur = fn($v) => number_format((float)$v, 0, ',', ' ') . ' €';
 
 function dvp_stop(string $titre, string $msg): void {
     http_response_code(403);
@@ -47,29 +51,51 @@ if (!empty($share['expires_at']) && strtotime((string)$share['expires_at']) < ti
 
 try { $pdo->prepare("UPDATE dossier_vente_partage SET nb_vues = nb_vues + 1, last_view_at = NOW() WHERE id = ?")->execute([(int)$share['id']]); } catch (Throwable) {}
 
-$role = (string)($share['role_destinataire'] ?? 'acquereur');
-$roleLbl = ['acquereur'=>'Acquéreur','notaire'=>'Notaire','commercialisateur'=>'Commercialisateur'][$role] ?? 'Acquéreur';
+$role      = (string)($share['role_destinataire'] ?? 'acquereur');
+$roleLbl   = ['acquereur'=>'Acquéreur', 'notaire'=>'Notaire', 'commercialisateur'=>'Commercialisateur'][$role] ?? 'Acquéreur';
 $idDossier = (int)$share['id_dossier'];
-$dossier = dv_get($pdo, $idDossier);
+$dossier   = dv_get($pdo, $idDossier);
 if (!$dossier) dvp_stop('Dossier indisponible', 'Le dossier de vente est introuvable.');
 
-// Lots du dossier (façon deal-room p.php) : 1 card par bien, photos + caractéristiques + prix.
-$lots = function_exists('dv_lots') ? dv_lots($pdo, $idDossier) : [];
-if (!$lots && (int)($dossier['id_bien'] ?? 0) > 0) { $lots = [['id_bien' => (int)$dossier['id_bien'], 'rang' => 1]]; }
-$totaux = function_exists('dv_totaux') ? dv_totaux($pdo, $idDossier) : ['prix_total'=>0,'rendement_brut'=>null];
-$prix = (float)($totaux['prix_total'] ?? 0);
+// ── Documents partagés (docs_json) → {kind,label,url} (liens jeton) attachés à chaque bien ──
+$sharedDocs = [];
+$ids = array_values(array_filter(array_map('intval', json_decode((string)($share['docs_json'] ?? '[]'), true) ?: [])));
+if ($ids) {
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    try {
+        $sd = $pdo->prepare("SELECT id, name_display, name_file, document_type FROM ged_documents WHERE id IN ($in) AND status='active' ORDER BY document_type, id");
+        $sd->execute($ids);
+        foreach ($sd->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $t = strtoupper((string)$d['document_type']);
+            $kind = str_contains($t, 'DPE') ? 'dpe'
+                  : (str_contains($t, 'BAIL') ? 'bail'
+                  : ((str_contains($t, 'TAXE') || $t === 'TF') ? 'tf'
+                  : ((str_contains($t, 'CARREZ') || str_contains($t, 'BOUTIN') || str_contains($t, 'SURFACE')) ? 'carrez'
+                  : (str_contains($t, 'REGLEMENT') ? 'reglement' : 'diag'))));
+            $sharedDocs[] = [
+                'kind'  => $kind,
+                'label' => dv_ged_shortname((string)($d['name_display'] ?: ($d['name_file'] ?: $t))),
+                'url'   => app_url('/api/dossier_vente_doc.php?t=' . $token . '&doc=' . (int)$d['id'] . '&mode=inline'),
+            ];
+        }
+    } catch (Throwable) {}
+}
 
-// Enrichissement par lot : caractéristiques biens + photos (biens_photos).
-$biensView = [];
+// ── Lots du dossier → $biensJs (forme attendue par inc/p_portefeuille_view.php) ──
+$pickKey = function(array $a, array $keys) { foreach ($keys as $k) { if (isset($a[$k]) && $a[$k] !== '' && $a[$k] !== null) return $a[$k]; } return null; };
+$lots = function_exists('dv_lots') ? dv_lots($pdo, $idDossier) : [];
+if (!$lots && (int)($dossier['id_bien'] ?? 0) > 0) $lots = [['id_bien' => (int)$dossier['id_bien']]];
+
+$biensJs = [];
+$adresse = '';
 foreach ($lots as $l) {
     $bid = (int)($l['id_bien'] ?? 0); if ($bid <= 0) continue;
     $b = [];
     try {
-        $sb = $pdo->prepare("SELECT b.reference_bien, b.surface_habitable, b.nb_pieces, b.etage, b.designation, b.description,
-                                    bt.libelle AS type_libelle,
-                                    COALESCE(NULLIF(b.adresse_1,''), i.adresse_1) AS adr,
-                                    COALESCE(NULLIF(b.ville,''), i.ville) AS ville,
-                                    COALESCE(NULLIF(b.code_postal,''), i.code_postal) AS cp
+        $sb = $pdo->prepare("SELECT b.*, bt.libelle AS type_libelle,
+                                    COALESCE(NULLIF(b.adresse_1,''), i.adresse_1) AS _adr,
+                                    COALESCE(NULLIF(b.ville,''), i.ville) AS _ville,
+                                    COALESCE(NULLIF(b.code_postal,''), i.code_postal) AS _cp
                              FROM biens b
                              LEFT JOIN immeubles i ON i.id = b.id_immeuble
                              LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
@@ -77,125 +103,127 @@ foreach ($lots as $l) {
         $sb->execute([$bid]);
         $b = $sb->fetch(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable) {}
+    // Photos.
     $photos = [];
     try {
-        $ph = $pdo->prepare("SELECT url_photo FROM biens_photos WHERE ((entity_type='BIEN' AND entity_id = ?) OR id_bien = ?) ORDER BY ordre ASC, id ASC");
+        $ph = $pdo->prepare("SELECT COALESCE(NULLIF(url_lbc,''), url_photo) AS u FROM biens_photos WHERE ((entity_type='BIEN' AND entity_id = ?) OR id_bien = ?) ORDER BY ordre ASC, id ASC");
         $ph->execute([$bid, $bid]);
-        foreach ($ph->fetchAll(PDO::FETCH_COLUMN) as $u) { $u = trim((string)$u); if ($u !== '') $photos[] = (function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/') . ltrim($u, '/'); }
+        foreach ($ph->fetchAll(PDO::FETCH_COLUMN) as $u) { $u = trim((string)$u); if ($u !== '') $photos[] = app_url('/' . ltrim($u, '/')); }
     } catch (Throwable) {}
-    $prixLot = (float)(($l['prix_vente'] ?? null) ?? ($l['_prix_vente_bien'] ?? 0));
-    $biensView[] = ['b' => $b, 'photos' => $photos, 'prix' => $prixLot, 'lot' => $l];
+
+    $ref    = (string)($b['reference_bien'] ?? '');
+    $adr    = trim((string)($b['_adr'] ?? ''));
+    $ville  = trim((string)($b['_ville'] ?? ''));
+    $cp     = trim((string)($b['_cp'] ?? ''));
+    $surf   = (float)($pickKey($b, ['surface_habitable', 'surface']) ?: 0);
+    $prixL  = (float)(($l['prix_vente'] ?? null) ?? ($l['_prix_vente_bien'] ?? 0));
+    $loyerA = (float)(($l['loyer_reel'] ?? null) ?? ($l['_loyer_reel_bien'] ?? 0));   // annuel
+    $descr  = (string)($pickKey($b, ['description', 'descriptif', 'designation']) ?: '');
+    if ($adresse === '') $adresse = trim($adr . ' ' . $cp . ' ' . $ville);
+
+    $biensJs[] = [
+        'dispo'    => true,
+        'idb'      => $bid,
+        'adr'      => $adr ?: ('Bien ' . $ref),
+        'loc'      => trim($ville . ($cp ? ' · ' . $cp : '')),
+        'ref'      => $ref,
+        'surf'     => $surf ? rtrim(rtrim(number_format($surf, 0, ',', ' '), '0'), ',') . ' m²' : '—',
+        'pm'       => ($prixL > 0 && $surf > 0) ? number_format($prixL / $surf, 0, ',', ' ') . ' €' : '—',
+        'type'     => (string)($b['type_libelle'] ?? ''),
+        'meuble'   => false,
+        'pro'      => false,
+        'annee'    => (string)($pickKey($b, ['annee_construction']) ?: '—'),
+        'chauf'    => (string)($pickKey($b, ['chauffage', 'type_chauffage', 'mode_chauffage']) ?: '—'),
+        'dpe'      => (string)($pickKey($b, ['dpe_classe', 'classe_dpe', 'dpe']) ?: '—'),
+        'descr'    => $descr,
+        'annonce'  => (string)($pickKey($b, ['bien_annonce_affiche', 'annonce_texte_lbc', 'reprise_descriptif']) ?: ''),
+        'photos'   => $photos,
+        'docs'     => $sharedDocs,   // mêmes documents partagés pour chaque bien du dossier
+        'loyer'    => $loyerA ? number_format($loyerA / 12, 0, ',', ' ') . ' €' : '—',
+        'bail'     => null,
+        'loyerMax' => '—',
+        'encStatut'=> '',
+        'cp'       => $cp,
+        'lat'      => (string)($pickKey($b, ['latitude']) ?: ''),
+        'lng'      => (string)($pickKey($b, ['longitude']) ?: ''),
+        'pv'       => $prixL ? number_format($prixL, 0, ',', ' ') . ' €' : '—',
+        'ho'       => '—',
+        'nv'       => '—',
+        'rdt'      => ($prixL > 0 && $loyerA > 0) ? rtrim(rtrim(number_format($loyerA / $prixL * 100, 1, ',', ' '), '0'), ',') . ' %' : '—',
+        'simRate'  => '3,40',
+        'simUsage' => 'habitation',
+    ];
 }
-$adresse = '';
-if ($biensView) { $b0 = $biensView[0]['b']; $adresse = trim(trim((string)($b0['adr'] ?? '')) . ' ' . trim((string)($b0['cp'] ?? '') . ' ' . (string)($b0['ville'] ?? ''))); }
 
-// Documents autorisés (docs_json) — actifs.
-$docs = [];
-$ids = array_values(array_filter(array_map('intval', json_decode((string)($share['docs_json'] ?? '[]'), true) ?: [])));
-if ($ids) {
-    $in = implode(',', array_fill(0, count($ids), '?'));
-    try {
-        $sd = $pdo->prepare("SELECT id, name_display, name_file, document_type, created_at
-                             FROM ged_documents WHERE id IN ($in) AND status='active' ORDER BY document_type, id");
-        $sd->execute($ids);
-        $docs = $sd->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable) {}
-}
-$base = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/';
-?><!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dossier de vente — <?= h($adresse ?: ($dossier['reference'] ?? 'Bien')) ?></title>
-<style>
-:root{--navy:#243B5C;--or:#D4A047;--line:#e6e1d8;--ink:#3a3830;}
-*{box-sizing:border-box;} body{font-family:-apple-system,Segoe UI,sans-serif;background:#f4f1ea;color:var(--ink);margin:0;}
-.top{background:var(--navy);color:#fff;padding:18px 20px;}
-.top .role{display:inline-block;background:var(--or);color:#1c2c46;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:3px 10px;border-radius:999px;margin-bottom:8px;}
-.top h1{margin:0;font-size:20px;font-weight:800;}
-.top .sub{color:#aebfd8;font-size:13px;margin-top:3px;}
-.wrap{max-width:820px;margin:0 auto;padding:18px;}
-.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px;}
-.card h2{font-size:14px;color:var(--navy);margin:0 0 12px;font-weight:800;}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;}
-.kpi .k{font-size:10px;color:#9a9690;text-transform:uppercase;} .kpi .v{font-size:18px;font-weight:800;color:var(--navy);}
-.doc{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f2eee7;font-size:13px;}
-.doc:last-child{border-bottom:none;}
-.doc .t{font-family:'DM Mono',monospace;font-size:10px;color:#5b21b6;background:#f3effa;border-radius:6px;padding:2px 7px;margin-right:6px;}
-.btn{border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;text-decoration:none;cursor:pointer;}
-.bv{background:#eef1f6;color:var(--navy);} .bd{background:var(--navy);color:#fff;}
-.empty{color:#a29c90;font-style:italic;font-size:13px;}
-.foot{color:#a29c90;font-size:11px;text-align:center;padding:14px;}
-.lot{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px;background:#fff;}
-.lot + .lot{margin-top:0;}
-.lot-head{padding:14px 16px 4px;}
-.lot-head .ref{font-size:11px;color:#9a9690;font-family:'DM Mono',monospace;}
-.lot-head h2{font-size:16px;color:var(--navy);margin:2px 0 0;font-weight:800;}
-.lot-head .type{display:inline-block;background:#eef1f6;color:var(--navy);font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;margin-top:4px;}
-.gallery{display:flex;gap:6px;overflow-x:auto;padding:12px 16px;scroll-snap-type:x mandatory;}
-.gallery img{height:190px;border-radius:8px;object-fit:cover;scroll-snap-align:start;flex:none;background:#f0ece6;}
-.gallery.one img{width:100%;height:auto;max-height:340px;object-fit:cover;}
-.lot-body{padding:6px 16px 16px;}
-.lot-desc{margin-top:10px;font-size:13px;line-height:1.5;white-space:pre-line;}
-</style></head><body>
-<div class="top">
-  <div class="role"><?= h($roleLbl) ?></div>
-  <h1><?= h($adresse ?: 'Bien à la vente') ?></h1>
-  <div class="sub"><?= count($biensView) > 1 ? h((string)count($biensView)) . ' biens' : 'Dossier de vente' ?> — accès en lecture seule</div>
-</div>
-<div class="wrap">
-  <?php if (count($biensView) > 1 || $prix > 0): ?>
-  <div class="card">
-    <h2>💼 Synthèse</h2>
-    <div class="kpis">
-      <?php if (count($biensView) > 1): ?><div class="kpi"><div class="k">Biens</div><div class="v"><?= count($biensView) ?></div></div><?php endif; ?>
-      <?php if ($prix > 0): ?><div class="kpi"><div class="k">Prix total</div><div class="v"><?= $eur($prix) ?></div></div><?php endif; ?>
-      <?php if (!empty($totaux['rendement_brut'])): ?><div class="kpi"><div class="k">Rendement brut</div><div class="v"><?= number_format((float)$totaux['rendement_brut'], 2, ',', ' ') ?> %</div></div><?php endif; ?>
-    </div>
-  </div>
-  <?php endif; ?>
+// ── Variables d'en-tête attendues par le template ──
+$destNom     = trim((string)($share['libelle'] ?? '')) ?: $roleLbl;
+$destPrenom  = '';
+$destNomSeul = $destNom;
+$destEmail   = '';
+$destTel     = '';
+$destInit    = mb_strtoupper(mb_substr($destNom, 0, 1)) ?: '👤';
+$typeDest    = $role === 'commercialisateur' ? 'commercialisateur' : '';
+$pxMin = $pxMax = $sfMin = $sfMax = null;
+$nbBiens = count($biensJs);
+$needConsent = false;
+$joursRestants = !empty($share['expires_at']) ? max(0, (int)ceil((strtotime((string)$share['expires_at']) - time()) / 86400)) : null;
+$fmtK = fn($v) => $v === null || $v === '' ? null : (number_format((float)$v / 1000, 0, ',', ' ') . ' k€');
+$header = [];
+$portefeuilles = [];   // pas de sélecteur multi-portefeuilles pour un partage transaction
+$isPreview = false;
+$envoi = [
+    'sujet'           => 'Dossier de vente — ' . ($adresse ?: (string)($dossier['reference'] ?? '')),
+    'id_user'         => (int)($share['created_by'] ?? 0),
+    'date_envoi'      => $share['created_at'] ?? null,
+    'date_expiration' => $share['expires_at'] ?? null,
+];
 
-  <?php foreach ($biensView as $bv): $b = $bv['b']; $photos = $bv['photos']; $plot = (float)$bv['prix']; ?>
-  <div class="lot">
-    <div class="lot-head">
-      <?php if (!empty($b['reference_bien'])): ?><div class="ref"><?= h((string)$b['reference_bien']) ?></div><?php endif; ?>
-      <h2><?= h(trim((string)($b['adr'] ?? '') . ' ' . (string)($b['cp'] ?? '') . ' ' . (string)($b['ville'] ?? '')) ?: 'Bien') ?></h2>
-      <?php if (!empty($b['type_libelle'])): ?><span class="type"><?= h((string)$b['type_libelle']) ?></span><?php endif; ?>
-    </div>
-    <?php if ($photos): ?>
-      <div class="gallery<?= count($photos) === 1 ? ' one' : '' ?>">
-        <?php foreach ($photos as $pu): ?><img src="<?= h($pu) ?>" alt="" loading="lazy">
-        <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
-    <div class="lot-body">
-      <div class="kpis">
-        <?php if (!empty($b['surface_habitable'])): ?><div class="kpi"><div class="k">Surface</div><div class="v"><?= (float)$b['surface_habitable'] ?> m²</div></div><?php endif; ?>
-        <?php if (!empty($b['nb_pieces'])): ?><div class="kpi"><div class="k">Pièces</div><div class="v"><?= (int)$b['nb_pieces'] ?></div></div><?php endif; ?>
-        <?php if ($b['etage'] !== null && $b['etage'] !== ''): ?><div class="kpi"><div class="k">Étage</div><div class="v"><?= h((string)$b['etage']) ?></div></div><?php endif; ?>
-        <?php if ($plot > 0): ?><div class="kpi"><div class="k">Prix</div><div class="v"><?= $eur($plot) ?></div></div><?php endif; ?>
-      </div>
-      <?php $desc = trim((string)($b['designation'] ?? '') ?: (string)($b['description'] ?? '')); if ($desc !== ''): ?>
-        <div class="lot-desc"><?= h(mb_substr($desc, 0, 1500)) ?></div>
-      <?php endif; ?>
-    </div>
-  </div>
-  <?php endforeach; ?>
+// ── Branding (société/agence du dossier) + conseiller (créateur du partage) ──
+$brand = [
+    'nom'     => 'Régie EMERY',
+    'logo'    => app_url('/images/logos/regie-emery.jpg'),
+    'tagline' => 'Location – Gestion – Syndic – Transaction',
+    'email'   => 'contact@regie-emery.com',
+    'ville'   => 'Lyon',
+];
+try {
+    if (!empty($dossier['id_societe'])) {
+        $bs = $pdo->prepare("SELECT nom, logo_url FROM societes WHERE id = ? LIMIT 1");
+        $bs->execute([(int)$dossier['id_societe']]);
+        if ($s = $bs->fetch(PDO::FETCH_ASSOC)) {
+            if (!empty($s['nom']))      $brand['nom']  = (string)$s['nom'];
+            if (!empty($s['logo_url'])) $brand['logo'] = app_url('/' . ltrim((string)$s['logo_url'], '/'));
+        }
+    }
+    if (!empty($dossier['id_agence'])) {
+        $ba = $pdo->prepare("SELECT ville, email FROM agences WHERE id = ? LIMIT 1");
+        $ba->execute([(int)$dossier['id_agence']]);
+        if ($a = $ba->fetch(PDO::FETCH_ASSOC)) {
+            if (!empty($a['ville'])) $brand['ville'] = ucwords(mb_strtolower((string)$a['ville']));
+            if (!empty($a['email'])) $brand['email'] = (string)$a['email'];
+        }
+    }
+} catch (Throwable) {}
 
-  <div class="card">
-    <h2>📂 Documents (<?= count($docs) ?>)</h2>
-    <?php if (!$docs): ?><div class="empty">Aucun document partagé pour le moment.</div><?php endif; ?>
-    <?php foreach ($docs as $d):
-      $name = dv_ged_shortname((string)($d['name_display'] ?: ($d['name_file'] ?: ('Document #' . $d['id']))));
-      $view = $base . 'api/dossier_vente_doc.php?t=' . h($token) . '&doc=' . (int)$d['id'] . '&mode=inline';
-      $dl   = $base . 'api/dossier_vente_doc.php?t=' . h($token) . '&doc=' . (int)$d['id'] . '&mode=download';
-    ?>
-      <div class="doc">
-        <span><?php if (!empty($d['document_type'])): ?><span class="t"><?= h($d['document_type']) ?></span><?php endif; ?><?= h($name) ?></span>
-        <span style="display:flex;gap:6px;flex:none;">
-          <a class="btn bv" href="<?= h($view) ?>" target="_blank" rel="noopener">👁 Voir</a>
-          <a class="btn bd" href="<?= h($dl) ?>">⬇ Télécharger</a>
-        </span>
-      </div>
-    <?php endforeach; ?>
-  </div>
-</div>
-<div class="foot">Lien sécurisé — les documents confidentiels ne sont jamais accessibles par ce partage.</div>
-</body></html>
+$conseiller = null;
+try {
+    $uid = (int)($share['created_by'] ?? 0);
+    if ($uid > 0) {
+        $cs = $pdo->prepare("SELECT nom, prenom, fonction, email, telephone, telephone_pro, photo_url, avatar_url FROM users WHERE id = ? LIMIT 1");
+        $cs->execute([$uid]);
+        if ($u = $cs->fetch(PDO::FETCH_ASSOC)) {
+            $cPhoto = trim((string)($u['photo_url'] ?? '')) ?: trim((string)($u['avatar_url'] ?? ''));
+            if ($cPhoto !== '' && !preg_match('~^https?://~i', $cPhoto)) $cPhoto = app_url('/' . ltrim($cPhoto, '/'));
+            $conseiller = [
+                'nom'      => trim((string)($u['prenom'] ?? '') . ' ' . (string)($u['nom'] ?? '')),
+                'init'     => mb_strtoupper(mb_substr((string)($u['prenom'] ?? ''), 0, 1) . mb_substr((string)($u['nom'] ?? ''), 0, 1)),
+                'fonction' => trim((string)($u['fonction'] ?? '')),
+                'email'    => trim((string)($u['email'] ?? '')),
+                'tel'      => trim((string)($u['telephone_pro'] ?? '')) ?: trim((string)($u['telephone'] ?? '')),
+                'photo'    => $cPhoto,
+            ];
+        }
+    }
+} catch (Throwable) {}
+
+require __DIR__ . '/inc/p_portefeuille_view.php';
