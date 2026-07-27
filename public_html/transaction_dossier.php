@@ -880,7 +880,10 @@ include __DIR__ . '/inc/agency_layout_top.php';
             $selAcq = $dvpShares['acquereur'] ? array_flip(array_map('intval', json_decode((string)$dvpShares['acquereur']['docs_json'], true) ?: [])) : [];
             $selNot = $dvpShares['notaire']   ? array_flip(array_map('intval', json_decode((string)$dvpShares['notaire']['docs_json'], true) ?: [])) : [];
             $selCom = $dvpShares['commercialisateur'] ? array_flip(array_map('intval', json_decode((string)$dvpShares['commercialisateur']['docs_json'], true) ?: [])) : [];
-            $dvpBase = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/';
+            // URL ABSOLUE (domaine + dossier de la page courante) — robuste local/prod, copiable telle quelle.
+            $dvpOrigin = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['SERVER_PORT'] ?? '') === '443' ? 'https' : 'http') . '://' . (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
+            $dvpDir    = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/'))), '/');
+            $dvpBase   = $dvpOrigin . $dvpDir . '/';
         ?>
         <div class="dv-card">
           <h3>🔗 Partager avec acquéreur / notaire</h3>
@@ -889,7 +892,15 @@ include __DIR__ . '/inc/agency_layout_top.php';
             <div class="dv-empty">Aucun document à partager — ajoute d'abord des documents au dossier.</div>
           <?php else: ?>
           <table style="width:100%;font-size:12.5px;border-collapse:collapse;">
-            <thead><tr><th style="text-align:left;padding:4px 0;">Document</th><th style="width:78px;">Acquéreur</th><th style="width:70px;">Notaire</th><th style="width:96px;">Commercial.</th></tr></thead>
+            <thead>
+              <tr><th style="text-align:left;padding:4px 0;">Document</th><th style="width:78px;">Acquéreur</th><th style="width:70px;">Notaire</th><th style="width:96px;">Commercial.</th></tr>
+              <tr style="border-bottom:1px solid #e6e1d8;">
+                <th></th>
+                <th style="text-align:center;"><label style="font-size:10px;color:#0e7490;cursor:pointer;font-weight:600;"><input type="checkbox" class="dvp-all" data-col="acq"> tous</label></th>
+                <th style="text-align:center;"><label style="font-size:10px;color:#0e7490;cursor:pointer;font-weight:600;"><input type="checkbox" class="dvp-all" data-col="not"> tous</label></th>
+                <th style="text-align:center;"><label style="font-size:10px;color:#0e7490;cursor:pointer;font-weight:600;"><input type="checkbox" class="dvp-all" data-col="com"> tous</label></th>
+              </tr>
+            </thead>
             <tbody>
             <?php foreach ($allDocs as $d): $did = (int)$d['id']; ?>
               <tr style="border-bottom:1px solid #f2eee7;">
@@ -926,6 +937,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
             var API=<?= json_encode(app_url('/api/dossier_vente_partage_action.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token')?csrf_token('dossier_vente_partage'):'') ?>, DOSS=<?= (int)$idDossier ?>, BASE=<?= json_encode($dvpBase) ?>;
             var RLBL={acquereur:'Acquéreur',notaire:'Notaire',commercialisateur:'Commercialisateur'};
             function post(p){ p.csrf_token=CSRF; p.id_dossier=DOSS; return fetch(API,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:Object.keys(p).map(k=>k+'='+encodeURIComponent(p[k])).join('&'),credentials:'same-origin'}).then(r=>r.json()); }
+            document.querySelectorAll('.dvp-all').forEach(function(a){ a.addEventListener('change',function(){ document.querySelectorAll('.dvp-'+a.dataset.col).forEach(function(c){ c.checked=a.checked; }); }); });
             var save=document.getElementById('dvp-save');
             if(save) save.addEventListener('click',function(){
               var acq=Array.from(document.querySelectorAll('.dvp-acq:checked')).map(c=>parseInt(c.value,10));
@@ -940,8 +952,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
                   ['acquereur','notaire','commercialisateur'].forEach(function(rk){ var L=j.liens[rk]; if(!L)return;
                     var row=document.createElement('div'); row.className='dvp-linkrow'; row.dataset.role=rk;
                     row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:6px;';
+                    var fullUrl=BASE+'dossier_vente_partage.php?t='+L.token;
                     row.innerHTML='<strong style="min-width:82px;">'+RLBL[rk]+' <small style="color:#94a3b8;">('+L.count+' doc)</small></strong>'
-                      +'<input type="text" readonly value="'+L.url+'" onclick="this.select()" style="flex:1;font-size:11px;padding:4px 8px;border:1px solid #e2ddd3;border-radius:6px;">'
+                      +'<input type="text" readonly value="'+fullUrl+'" onclick="this.select()" style="flex:1;font-size:11px;padding:4px 8px;border:1px solid #e2ddd3;border-radius:6px;">'
                       +'<button type="button" class="tr-btn" onclick="dvpCopy(this)">📋</button>'
                       +'<button type="button" class="tr-btn" style="color:#b91c1c;" onclick="dvpRevoke('+L.id+')">✕</button>';
                     box.appendChild(row);

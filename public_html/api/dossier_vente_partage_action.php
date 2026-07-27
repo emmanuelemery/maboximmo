@@ -76,7 +76,7 @@ try {
                     ->execute([$idDossier, $role, $token, $docsJson, $expires, $userId ?: null]);
                 $pid = (int)$pdo->lastInsertId();
             }
-            $res[$role] = ['id'=>$pid, 'url'=>$base.'dossier_vente_partage.php?t='.$token, 'count'=>count($ids)];
+            $res[$role] = ['id'=>$pid, 'token'=>$token, 'url'=>$base.'dossier_vente_partage.php?t='.$token, 'count'=>count($ids)];
         }
         echo json_encode(['ok'=>true, 'liens'=>$res]);
         exit;
