@@ -252,12 +252,20 @@
         return mvptTypeMap[v.toLowerCase()] || v.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
     }
     window.mvptReclassClose = function(){ document.getElementById('mvptReclassPanel').style.display='none'; };
-    window.mvptModalRename = function(){
+    window.mvptModalRename = async function(){
         if (mvptCurrentDocId <= 0) return;
         mvptLoadTypes();
-        // ── PRÉ-REMPLISSAGE avec les infos EXISTANTES du doc (on ne modifie que ce qu'on veut). ──
-        var doc = (mvptDocData && mvptDocData.ged_document) || {};
-        var links = (mvptDocData && mvptDocData.links) || [];
+        var reqId = mvptCurrentDocId;
+        // ── PRÉ-REMPLISSAGE : on RECHARGE les infos FRAÎCHES du doc courant (jamais de cache périmé). ──
+        document.getElementById('mvptReclassPanel').style.display='block';
+        document.getElementById('mvptRcMsg').textContent='⏳ Chargement des infos…';
+        var doc = {}, links = [];
+        try {
+            var _r = await fetch(MVPT_INFO + '?id=' + reqId, {credentials:'same-origin'});
+            var _j = await _r.json();
+            if (reqId !== mvptCurrentDocId) return;   // l'utilisateur a changé de doc entre-temps
+            doc = _j.ged_document || {}; links = _j.links || [];
+        } catch(e){}
         // 1) Entité : lien principal ('main') sinon 1er lien.
         var main = null;
         for (var i=0;i<links.length;i++){ if((links[i].relation_type||'')==='main'){ main=links[i]; break; } }
