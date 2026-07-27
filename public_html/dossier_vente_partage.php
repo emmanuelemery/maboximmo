@@ -242,16 +242,35 @@ if (!$communAssigned && $docsCommun) {
 // Immeuble(s) EN TÊTE, puis les biens.
 $biensJs = array_merge($immCards, $biensJs);
 
+// ── Destinataire résolu depuis l'acteur du dossier (nom + coordonnées) selon le rôle du partage. ──
+$destActeur = null;
+try {
+    foreach (dv_acteurs($pdo, $idDossier) as $a) {
+        $rc = strtolower((string)($a['role_code'] ?? ''));
+        if ($rc === $role || ($role !== '' && str_contains($rc, $role))) { $destActeur = $a; break; }
+    }
+    // Repli : id_tiers_destinataire du partage.
+    if (!$destActeur && !empty($share['id_tiers_destinataire'])) {
+        $qt = $pdo->prepare("SELECT nom_affichage, nom, prenom, raison_sociale, email, telephone FROM tiers WHERE id=? LIMIT 1");
+        $qt->execute([(int)$share['id_tiers_destinataire']]); $destActeur = $qt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+} catch (Throwable) {}
+$destName = '';
+if ($destActeur) {
+    $destName = trim((string)($destActeur['nom_affichage'] ?? '') ?: ($destActeur['raison_sociale'] ?? '') ?: trim((string)($destActeur['prenom'] ?? '') . ' ' . (string)($destActeur['nom'] ?? '')));
+}
 // ── Variables d'en-tête attendues par le template ──
-$destNom     = trim((string)($share['libelle'] ?? '')) ?: $roleLbl;
-$destPrenom  = '';
-$destNomSeul = $destNom;
-$destEmail   = '';
-$destTel     = '';
-$destInit    = mb_strtoupper(mb_substr($destNom, 0, 1)) ?: '👤';
+$destNom     = trim((string)($share['libelle'] ?? '')) ?: ($destName ?: $roleLbl);
+$destPrenom  = $destActeur ? trim((string)($destActeur['prenom'] ?? '')) : '';
+$destNomSeul = $destName ?: $destNom;
+$destEmail   = $destActeur ? trim((string)($destActeur['email'] ?? '')) : '';
+$destTel     = $destActeur ? trim((string)($destActeur['telephone'] ?? '')) : '';
+$destInit    = mb_strtoupper(mb_substr($destName ?: $destNom, 0, 1)) ?: '👤';
 $typeDest    = $role === 'commercialisateur' ? 'commercialisateur' : '';
 $pxMin = $pxMax = $sfMin = $sfMax = null;
-$nbBiens = count($biensJs);
+// Compteurs séparés : biens réels vs immeubles.
+$nbImmeubles = 0; foreach ($biensJs as $_b) { if (!empty($_b['is_immeuble'])) $nbImmeubles++; }
+$nbBiens = max(0, count($biensJs) - $nbImmeubles);
 $needConsent = false;
 $joursRestants = !empty($share['expires_at']) ? max(0, (int)ceil((strtotime((string)$share['expires_at']) - time()) / 86400)) : null;
 $fmtK = fn($v) => $v === null || $v === '' ? null : (number_format((float)$v / 1000, 0, ',', ' ') . ' k€');

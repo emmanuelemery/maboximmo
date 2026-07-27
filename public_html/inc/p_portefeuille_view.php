@@ -318,7 +318,19 @@ footer .meta{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;color:#7e90b0}
     <p class="lead">Des opportunités immobilières choisies selon vos critères, avec leurs conditions financières, diagnostics et documents — réunies sur une page privée.</p>
     <?php if ($destNom): ?><div class="who"><div class="av"><?= $e($destInit) ?></div><div><b>Préparé pour <?= $e($destNom) ?></b><span>par <?= $e($brandNom) ?> · Transaction</span></div></div><?php endif; ?>
   </div>
-  <div class="countcard"><div class="k">Biens</div><div class="v"><?= (int)$nbBiens ?></div><div class="s">sélectionnés pour vous</div></div>
+  <?php $nbImmeubles = (int)($nbImmeubles ?? 0); ?>
+  <div class="countcard">
+    <?php if ($nbImmeubles > 0): ?>
+      <div style="display:flex;gap:18px;align-items:flex-end;justify-content:center;">
+        <div><div class="k">Immeuble<?= $nbImmeubles > 1 ? 's' : '' ?></div><div class="v"><?= $nbImmeubles ?></div></div>
+        <div style="opacity:.4;font-size:26px;font-weight:300;">·</div>
+        <div><div class="k">Bien<?= $nbBiens > 1 ? 's' : '' ?></div><div class="v"><?= (int)$nbBiens ?></div></div>
+      </div>
+      <div class="s">partagés pour vous</div>
+    <?php else: ?>
+      <div class="k">Biens</div><div class="v"><?= (int)$nbBiens ?></div><div class="s">sélectionnés pour vous</div>
+    <?php endif; ?>
+  </div>
 </div></div></div>
 
 <?php if (!$isPreview): ?>
