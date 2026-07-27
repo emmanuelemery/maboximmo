@@ -486,9 +486,9 @@ try {
     $hasDossierVente = (bool)$stDV->fetchColumn();
 } catch (Throwable $e) {}
 $dossierVenteBtn = [
-    'label' => $hasDossierVente ? '🗂️ Voir le dossier de vente' : '🗂️ Créer le dossier de vente',
+    'label' => $hasDossierVente ? '🏷️ En vente · voir le dossier' : '🗂️ Créer le dossier de vente',
     'url'   => app_url('/transaction_dossier.php?id_bien=' . $bienId),
-    'class' => $hasDossierVente ? 'tr-btn' : 'tr-btn tr-btn-primary',
+    'class' => $hasDossierVente ? 'tr-btn tr-btn-primary' : 'tr-btn',
 ];
 
 // Annonce active : la dernière annonce du bien est diffusée (en ligne sur les portails).

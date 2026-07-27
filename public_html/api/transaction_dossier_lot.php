@@ -45,18 +45,36 @@ try {
                 $params[':s'] = $idSoc;
             }
             if (mb_strlen($q) >= 2) {
-                $where[] = '(b.reference_bien LIKE :q OR b.designation LIKE :q OR b.ville LIKE :q OR b.adresse_1 LIKE :q)';
-                $params[':q'] = '%' . $q . '%';
+                // Recherche élargie : réf/désignation/ville/adresse + NOM IMMEUBLE + TYPE de bien
+                // (moderne + legacy) + LOCATAIRE (bail). ⚠️ Placeholders nommés DISTINCTS (jamais
+                // réutiliser :q — plante en prod, émulation off).
+                $where[] = '(b.reference_bien LIKE :q1 OR b.designation LIKE :q2 OR b.ville LIKE :q3 OR b.adresse_1 LIKE :q4
+                             OR i.nom_immeuble LIKE :q5
+                             OR bt.libelle LIKE :q6 OR tl.libelle LIKE :q7
+                             OR EXISTS(SELECT 1 FROM bien_baux bb LEFT JOIN tiers t2 ON t2.id = bb.id_tiers_locataire
+                                       WHERE bb.id_bien = b.id AND (
+                                             bb.locataire_raison_sociale LIKE :q8
+                                          OR CONCAT_WS(" ", bb.locataire_prenom, bb.locataire_nom) LIKE :q9
+                                          OR t2.nom_affichage LIKE :q10)))';
+                $like = '%' . $q . '%';
+                for ($qi = 1; $qi <= 10; $qi++) { $params[':q' . $qi] = $like; }
             } elseif ($immId <= 0) {
                 echo json_encode(['ok'=>true,'items'=>[]]); exit; // pas d'immeuble + pas de requête
             }
             $sql = 'SELECT b.id, b.reference_bien, b.designation, b.etage, b.numero_lot,
                            b.loyer_hc, b.id_immeuble, b.surface_habitable, b.adresse_1,
                            COALESCE(NULLIF(b.ville,""), i.ville) AS ville,
-                           tl.libelle AS type_lib,
+                           COALESCE(NULLIF(bt.libelle,""), tl.libelle) AS type_lib,
+                           i.nom_immeuble AS immeuble_nom,
+                           (SELECT COALESCE(NULLIF(bb.locataire_raison_sociale,""),
+                                            NULLIF(TRIM(CONCAT_WS(" ", bb.locataire_prenom, bb.locataire_nom)),""),
+                                            (SELECT t3.nom_affichage FROM tiers t3 WHERE t3.id = bb.id_tiers_locataire))
+                              FROM bien_baux bb WHERE bb.id_bien = b.id
+                              ORDER BY (bb.statut = "actif") DESC, bb.date_prise_effet DESC LIMIT 1) AS locataire_nom,
                            (b.id_immeuble = :imm) AS meme_immeuble
                     FROM biens b
                     LEFT JOIN immeubles i ON i.id = b.id_immeuble
+                    LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
                     LEFT JOIN types_bien_legacy tl ON tl.id = b.id_type_bien
                     WHERE ' . implode(' AND ', $where) . '
                     ORDER BY meme_immeuble DESC, b.date_modification DESC LIMIT 40';

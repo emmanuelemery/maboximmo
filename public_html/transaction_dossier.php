@@ -1813,11 +1813,15 @@ require_once __DIR__ . '/inc/adresse_modal.php';
     const lib  = b.reference_bien || b.designation || ('Bien #'+b.id);
     const sub  = [b.type_lib||'', b.surface_habitable?(parseFloat(b.surface_habitable)+' m²'):'', b.etage?('Ét. '+b.etage):'', b.numero_lot?('Lot '+b.numero_lot):''].filter(Boolean).join(' · ');
     const adr  = [b.adresse_1||'', b.ville||''].filter(Boolean).join(', ');
+    const esc = s => (''+s).replace(/</g,'&lt;');
+    const imm  = b.immeuble_nom ? `🏛️ ${esc(b.immeuble_nom)}` : '';
+    const loc  = b.locataire_nom ? `👤 ${esc(b.locataire_nom)}` : '';
     const tag  = (+b.meme_immeuble) ? '<span style="background:#e7f6ec;color:#176a3a;font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;white-space:nowrap;">🏛️ même immeuble</span>' : '';
     return `<div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:5px;background:#fff;">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><strong style="font-size:13px;color:#143A41;">${lib}</strong>${tag}</div>
       <div style="font-size:11.5px;color:#64748b;">${sub||'—'}</div>
       <div style="font-size:11px;color:#94a3b8;">${adr}</div>
+      ${(imm||loc)?`<div style="font-size:11px;color:#3D7465;font-weight:600;">${[imm,loc].filter(Boolean).join(' · ')}</div>`:''}
       <button type="button" onclick="dvLotAdd(${b.id})" style="margin-top:4px;background:#0e7490;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;">➕ Ajouter au dossier</button>
     </div>`;
   }
