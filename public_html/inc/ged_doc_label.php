@@ -24,28 +24,29 @@ if (!function_exists('ged_doc_tail_from_level')) {
     {
         $disp     = trim((string)($d['name_display'] ?? ''));
         $nameFile = trim((string)($d['name_file'] ?? ''));
-        if ($nameFile === '') return $disp;
-
         $base = preg_replace('/\.[A-Za-z0-9]+$/', '', $nameFile);
-        $segs = explode('_', (string)$base);
-        // Format inattendu (< 11 positions) → repli sur le libellé humain.
-        if (count($segs) < 11) return $disp !== '' ? $disp : (string)$base;
 
-        // Index (0-based) du 1er segment à AFFICHER = celui qui suit le niveau courant.
-        // proprio → immeuble(4) ; immeuble → bien(5) ; bien → bail(6) ; bail → type(7).
-        $startMap = [
-            'societe' => 3, 'agence' => 3, 'metier' => 3,
-            'proprio' => 4, 'pro' => 4, 'tiers' => 4, 'trs' => 4,
-            'immeuble' => 5, 'imb' => 5,
-            'bien' => 6,
-            'bail' => 7,
-        ];
-        $start = $startMap[strtolower($level)] ?? 7;
-
-        // On garde du niveau jusqu'au LIBELLE (index 9 inclus) ; on retire l'horodatage (index 10).
-        $tail = array_slice($segs, $start, max(0, 10 - $start));
-        $tail = array_values(array_filter($tail, static fn($s) => $s !== '' && $s !== '—' && $s !== '-'));
-        $out  = implode(' · ', $tail);
+        // Tail depuis le nom (uniquement si le nom a bien les 11 positions V3.1).
+        $out = '';
+        if ($nameFile !== '') {
+            $segs = explode('_', (string)$base);
+            if (count($segs) >= 11) {
+                // Index (0-based) du 1er segment à AFFICHER = celui qui suit le niveau courant.
+                // proprio → immeuble(4) ; immeuble → bien(5) ; bien → bail(6) ; bail → type(7).
+                $startMap = [
+                    'societe' => 3, 'agence' => 3, 'metier' => 3,
+                    'proprio' => 4, 'pro' => 4, 'tiers' => 4, 'trs' => 4,
+                    'immeuble' => 5, 'imb' => 5,
+                    'bien' => 6,
+                    'bail' => 7,
+                ];
+                $start = $startMap[strtolower($level)] ?? 7;
+                // Du niveau jusqu'au LIBELLE (index 9 inclus) ; on retire l'horodatage (index 10).
+                $tail = array_slice($segs, $start, max(0, 10 - $start));
+                $tail = array_values(array_filter($tail, static fn($s) => $s !== '' && $s !== '—' && $s !== '-'));
+                $out  = implode(' · ', $tail);
+            }
+        }
 
         // Enrichissement : libellé + date métier depuis metadata.extra (posés lors d'un reclassement),
         // pour les docs dont le nom ne porte pas ces infos (ex. PV-AG, TF non horodatés).
@@ -55,10 +56,21 @@ if (!function_exists('ged_doc_tail_from_level')) {
         elseif (is_array($meta)) { $extra = $meta['extra'] ?? []; }
         $lib = trim((string)($extra['libelle'] ?? ''));
         $dat = trim((string)($extra['date_doc'] ?? ''));
+        // Base de repli si le nom n'a pas donné de tail (nom non V3.1) : le libellé humain.
+        if ($out === '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $disp)) $out = $disp;
         $extras = [];
-        if ($dat !== '' && stripos($out, $dat) === false) $extras[] = $dat;
+        $hasDate = (bool)preg_match('~\d{2,4}[-/]\d{1,2}[-/]\d{2,4}~', $out);   // une date est déjà présente ?
+        if ($dat !== '' && !$hasDate) $extras[] = $dat;
         if ($lib !== '' && stripos($out, $lib) === false) $extras[] = $lib;
         if ($extras) $out = trim($out . ($out !== '' ? ' · ' : '') . implode(' · ', $extras));
+
+        // Cohérence : si l'étiquette ne porte AUCUNE lettre (nom mal segmenté → il ne reste
+        // qu'une date), on préfixe le TYPE du document (ex. CV-AGO · 16-07-2026), comme pour PV-AG.
+        $typ = trim((string)($d['document_type'] ?? ''));
+        if ($typ !== '' && ($out === '' || !preg_match('/[A-Za-z]/', $out))) {
+            $typLbl = strtoupper(str_replace('_', '-', $typ));
+            $out = $out !== '' ? ($typLbl . ' · ' . $out) : $typLbl;
+        }
 
         return $out !== '' ? $out : ($disp !== '' ? $disp : (string)$base);
     }
