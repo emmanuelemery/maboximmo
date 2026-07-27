@@ -132,6 +132,10 @@ $avcV     = fn($k, $d='') => $avc[$k] ?? $d; // accès court aux champs
 // Documents mandat / acte du dossier (GED sur le bien principal)
 $docsMandat = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'MANDAT_VENTE']);
 $docsActe   = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'ACTE_AUTHENTIQUE']);
+// Avant-contrats (compromis / promesse) classés en GED sur le bien — pour que la carte
+// « Compromis / Promesse » de l'onglet Actes affiche AUSSI un doc chargé via la modale
+// FluxBox (type COMPROMIS/PROMESSE_VENTE), et pas seulement l'entité structurée `avant_contrat`.
+$docsAvc    = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => ['COMPROMIS','PROMESSE_VENTE']]);
 $docsOffre  = gdl_documents_for_entity($pdo, 'BIEN', $idBien, ['document_type' => 'OFFRE_ACHAT']);
 // Documents types (modèles transaction) pour la card « Documents types »
 $modeles = [];
@@ -863,6 +867,96 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <div class="dv-note">GED unique — un même document peut être rattaché au bien et au dossier sans duplication physique.</div>
         </div>
 
+        <!-- Card : Partage acquéreur / notaire (jeton, docs sélectionnés) -->
+        <?php
+          $dvpIsMgr = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,3,7], true)) || (function_exists('is_super_admin') && is_super_admin());
+          if ($dvpIsMgr):
+            $dvpShares = ['acquereur'=>null, 'notaire'=>null, 'commercialisateur'=>null];
+            try {
+                $sh = $pdo->prepare("SELECT * FROM dossier_vente_partage WHERE id_dossier=? AND revoked_at IS NULL ORDER BY id DESC");
+                $sh->execute([$idDossier]);
+                foreach ($sh->fetchAll(PDO::FETCH_ASSOC) as $r) { $rr = (string)$r['role_destinataire']; if (isset($dvpShares[$rr]) && !$dvpShares[$rr]) $dvpShares[$rr] = $r; }
+            } catch (Throwable) {}
+            $selAcq = $dvpShares['acquereur'] ? array_flip(array_map('intval', json_decode((string)$dvpShares['acquereur']['docs_json'], true) ?: [])) : [];
+            $selNot = $dvpShares['notaire']   ? array_flip(array_map('intval', json_decode((string)$dvpShares['notaire']['docs_json'], true) ?: [])) : [];
+            $selCom = $dvpShares['commercialisateur'] ? array_flip(array_map('intval', json_decode((string)$dvpShares['commercialisateur']['docs_json'], true) ?: [])) : [];
+            $dvpBase = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '/';
+        ?>
+        <div class="dv-card">
+          <h3>🔗 Partager avec acquéreur / notaire</h3>
+          <div style="font-size:12px;color:#64748b;margin-bottom:10px;">Coche les documents à donner à l'<b>acquéreur</b> et/ou au <b>notaire</b>, puis enregistre. Deux liens (consultation + téléchargement). Les documents confidentiels ne sont jamais exposés.</div>
+          <?php if (!$allDocs): ?>
+            <div class="dv-empty">Aucun document à partager — ajoute d'abord des documents au dossier.</div>
+          <?php else: ?>
+          <table style="width:100%;font-size:12.5px;border-collapse:collapse;">
+            <thead><tr><th style="text-align:left;padding:4px 0;">Document</th><th style="width:78px;">Acquéreur</th><th style="width:70px;">Notaire</th><th style="width:96px;">Commercial.</th></tr></thead>
+            <tbody>
+            <?php foreach ($allDocs as $d): $did = (int)$d['id']; ?>
+              <tr style="border-bottom:1px solid #f2eee7;">
+                <td style="padding:5px 0;"><?= h($d['name_display'] ?: $d['name_file'] ?: ('Doc #' . $did)) ?><?php if (!empty($d['document_type'])): ?> <span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></td>
+                <td style="text-align:center;"><input type="checkbox" class="dvp-acq" value="<?= $did ?>"<?= isset($selAcq[$did]) ? ' checked' : '' ?>></td>
+                <td style="text-align:center;"><input type="checkbox" class="dvp-not" value="<?= $did ?>"<?= isset($selNot[$did]) ? ' checked' : '' ?>></td>
+                <td style="text-align:center;"><input type="checkbox" class="dvp-com" value="<?= $did ?>"<?= isset($selCom[$did]) ? ' checked' : '' ?>></td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+            <select id="dvp-exp" style="padding:6px 9px;border:1px solid #d8d2c8;border-radius:7px;font-size:12.5px;">
+              <option value="30" selected>Expire dans 30 j</option>
+              <option value="90">90 j</option>
+              <option value="365">1 an</option>
+              <option value="0">Sans expiration</option>
+            </select>
+            <button type="button" id="dvp-save" class="tr-btn tr-btn-primary">💾 Enregistrer & générer les liens</button>
+            <span id="dvp-msg" style="font-size:12px;"></span>
+          </div>
+          <div id="dvp-links" style="margin-top:12px;">
+            <?php foreach (['acquereur'=>'Acquéreur','notaire'=>'Notaire','commercialisateur'=>'Commercialisateur'] as $rk=>$rl): $s=$dvpShares[$rk]; if(!$s)continue; $url=$dvpBase.'dossier_vente_partage.php?t='.$s['token']; ?>
+              <div class="dvp-linkrow" data-role="<?= $rk ?>" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                <strong style="min-width:82px;"><?= $rl ?></strong>
+                <input type="text" readonly value="<?= h($url) ?>" onclick="this.select()" style="flex:1;font-size:11px;padding:4px 8px;border:1px solid #e2ddd3;border-radius:6px;">
+                <button type="button" class="tr-btn" onclick="dvpCopy(this)">📋</button>
+                <button type="button" class="tr-btn" style="color:#b91c1c;" onclick="dvpRevoke(<?= (int)$s['id'] ?>)">✕</button>
+              </div>
+            <?php endforeach; ?>
+          </div>
+          <script>
+          (function(){
+            var API=<?= json_encode(app_url('/api/dossier_vente_partage_action.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token')?csrf_token('dossier_vente_partage'):'') ?>, DOSS=<?= (int)$idDossier ?>, BASE=<?= json_encode($dvpBase) ?>;
+            var RLBL={acquereur:'Acquéreur',notaire:'Notaire',commercialisateur:'Commercialisateur'};
+            function post(p){ p.csrf_token=CSRF; p.id_dossier=DOSS; return fetch(API,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:Object.keys(p).map(k=>k+'='+encodeURIComponent(p[k])).join('&'),credentials:'same-origin'}).then(r=>r.json()); }
+            var save=document.getElementById('dvp-save');
+            if(save) save.addEventListener('click',function(){
+              var acq=Array.from(document.querySelectorAll('.dvp-acq:checked')).map(c=>parseInt(c.value,10));
+              var not=Array.from(document.querySelectorAll('.dvp-not:checked')).map(c=>parseInt(c.value,10));
+              var com=Array.from(document.querySelectorAll('.dvp-com:checked')).map(c=>parseInt(c.value,10));
+              var m=document.getElementById('dvp-msg'); m.style.color='#64748b'; m.textContent='Enregistrement…'; save.disabled=true;
+              post({action:'save',docs_acquereur:JSON.stringify(acq),docs_notaire:JSON.stringify(not),docs_commercialisateur:JSON.stringify(com),expires_days:document.getElementById('dvp-exp').value})
+                .then(function(j){ save.disabled=false;
+                  if(!j||!j.ok){ m.style.color='#dc2626'; m.textContent='✗ '+((j&&j.error)||'échec'); return; }
+                  m.style.color='#16a34a'; m.textContent='✓ Liens à jour.';
+                  var box=document.getElementById('dvp-links'); box.innerHTML='';
+                  ['acquereur','notaire','commercialisateur'].forEach(function(rk){ var L=j.liens[rk]; if(!L)return;
+                    var row=document.createElement('div'); row.className='dvp-linkrow'; row.dataset.role=rk;
+                    row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:6px;';
+                    row.innerHTML='<strong style="min-width:82px;">'+RLBL[rk]+' <small style="color:#94a3b8;">('+L.count+' doc)</small></strong>'
+                      +'<input type="text" readonly value="'+L.url+'" onclick="this.select()" style="flex:1;font-size:11px;padding:4px 8px;border:1px solid #e2ddd3;border-radius:6px;">'
+                      +'<button type="button" class="tr-btn" onclick="dvpCopy(this)">📋</button>'
+                      +'<button type="button" class="tr-btn" style="color:#b91c1c;" onclick="dvpRevoke('+L.id+')">✕</button>';
+                    box.appendChild(row);
+                  });
+                }).catch(function(){ save.disabled=false; m.style.color='#dc2626'; m.textContent='✗ réseau'; });
+            });
+            window.dvpCopy=function(btn){ var i=btn.parentElement.querySelector('input'); i.select(); try{document.execCommand('copy');btn.textContent='✓';}catch(e){} setTimeout(()=>btn.textContent='📋',1200); };
+            window.dvpRevoke=function(pid){ if(!confirm('Révoquer ce lien ? Il ne sera plus accessible.'))return;
+              post({action:'revoke',partage_id:pid}).then(function(j){ if(j&&j.ok){ var r=document.querySelector('.dvp-linkrow[data-role]'); document.querySelectorAll('.dvp-linkrow').forEach(function(el){ if(el.querySelector('button[onclick*="'+pid+'"]')) el.remove(); }); } else alert('✗ '+((j&&j.error)||'échec')); }); };
+          })();
+          </script>
+          <?php endif; ?>
+        </div>
+        <?php endif; /* dvpIsMgr */ ?>
+
         <!-- Card : Documents À RÉCUPÉRER (checklist mise en vente, upload auto-classé) — repliée -->
         <details class="dv-card">
           <summary style="cursor:pointer;list-style:none;outline:none;"><h3 style="display:inline-block;margin:0;">📥 Documents à récupérer <span style="font-weight:400;color:#94a3b8;font-size:12px;">(dossier de vente)</span> <span style="font-size:11px;color:#0e7490;font-weight:700;">— déplier ▾</span></h3></summary>
@@ -967,6 +1061,14 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <h3>🤝 Compromis / Promesse</h3>
           <?php $avcResume = $avc ? ((($avc['type'] ?? '')==='promesse_unilaterale'?'Promesse':'Compromis').' · '.h($avc['statut'] ?? 'brouillon')) : null; ?>
           <?php if ($avcResume): ?><div class="dv-note" style="margin-bottom:8px;">Fiche notaire : <strong><?= $avcResume ?></strong></div><?php endif; ?>
+          <?php if (!empty($docsAvc)): foreach ($docsAvc as $d): ?>
+            <div class="dv-doc" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
+              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 <?= h($d['name_display'] ?: $d['name_file'] ?: ('Avant-contrat #' . $d['id'])) ?>
+                <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?></span>
+              <a class="dvm-btn cancel" style="padding:5px 12px;text-decoration:none;flex-shrink:0;" target="_blank"
+                 href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>">👁️ Voir</a>
+            </div>
+          <?php endforeach; endif; ?>
           <button type="button" class="dvm-btn ok" style="width:100%;padding:10px 14px;margin-bottom:8px;" onclick="dvActeModalOpen()">📨 Préparation / envoi notaire</button>
           <button type="button" class="dvm-btn cancel" style="width:100%;padding:10px 14px;" onclick="odClasserOpen()">📥 Charger un avant-contrat</button>
         </div>
