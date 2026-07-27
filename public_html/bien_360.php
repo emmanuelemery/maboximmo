@@ -1409,7 +1409,8 @@ if ($kpis) {
             ['icon'=>'📧','label'=>'Envoyer un document par mail','url'=>mail_compose_url('BIEN', $bienId, 'bien_360.php?id=' . $bienId)],
             ['icon'=>'📝','label'=>'Descriptif du bien','url'=>app_url('/bien_detail.php?edit=' . $bienId)],
             ['icon'=>'🗂️','label'=>($hasDossierVente ? 'Voir le dossier de vente' : 'Créer le dossier de vente'),'url'=>app_url('/transaction_dossier.php?id_bien=' . $bienId)],
-            ['icon'=>'🔑','label'=>'Créer un projet de bail','url'=>'#','onclick'=>$belOnClick],
+            ['icon'=>'🔑','label'=>'Créer un bail commercial','url'=>'#','onclick'=>$belOnClick],
+            ['icon'=>'🏠','label'=>'Créer un bail habitation','url'=>'#','onclick'=>'bailHabOpenModal({bien_id:' . (int)$bienId . '});return false;'],
             ['icon'=>'📨','label'=>'Demander un document','url'=>app_url('/document_request_new.php?ctx=BIEN&id=' . $bienId . '&back=' . urlencode('bien_360.php?id=' . $bienId))],
             ['icon'=>'📥','label'=>'Importer docs OneDrive (bien + locataires)','url'=>'javascript:odClasserOpen()'],
             ['icon'=>'📂','label'=>'Ouvrir le dossier OneDrive','url'=>'javascript:odOpenFolder()'],
@@ -1419,6 +1420,11 @@ if ($kpis) {
         // Modal « Créer un projet de bail commercial » (émis une seule fois).
         require_once __DIR__ . '/inc/bail_edit_modal.php';
         bail_edit_modal();
+        // Modal « Bail habitation » (loi 89-462) — création depuis le bien ; à la sauvegarde,
+        // on ouvre la fiche du bail créé.
+        require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
+        bail_habitation_modal();
+        echo '<script>window.bailHabOnClose=function(id){ if(id) window.location="' . app_url('/bail_360.php?id=') . '"+id; };</script>';
     }
 
     // (La checklist « Documents de base » est désormais en CARD 1 de la colonne 2.)
