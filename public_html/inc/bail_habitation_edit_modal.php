@@ -25,8 +25,8 @@ if (!function_exists('bail_habitation_modal')) {
       </div>
     </div>
     <div class="bh-cols">
+      <div class="bh-preview"><div id="bh-pv"><p class="bh-mut" style="padding:20px;">Renseigne les champs à droite — l'aperçu s'affiche ici.</p></div></div>
       <div class="bh-form" id="bh-form"></div>
-      <div class="bh-preview"><div id="bh-pv"><p class="bh-mut" style="padding:20px;">Renseigne les champs — l'aperçu s'affiche ici.</p></div></div>
     </div>
   </div>
 </div>
@@ -37,8 +37,8 @@ if (!function_exists('bail_habitation_modal')) {
 .bh-top{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eef0f2;}
 .bh-mut{font-size:11px;color:#8a8680;font-style:italic;}
 .bh-cols{flex:1;display:flex;min-height:0;}
-.bh-form{width:430px;flex:none;overflow:auto;padding:12px 14px;background:#faf9fb;border-right:1px solid #ece7f5;}
-.bh-preview{flex:1;overflow:auto;background:#f4f6f9;padding:14px;}
+.bh-preview{flex:1;overflow:auto;background:#f4f6f9;padding:14px;order:1;}
+.bh-form{width:440px;flex:none;overflow:auto;padding:12px 14px;background:#faf9fb;border-left:1px solid #ece7f5;order:2;}
 .bh-grp{background:#fff;border:1px solid #ece7f5;border-radius:9px;margin-bottom:9px;overflow:hidden;}
 .bh-grp>h4{margin:0;font-size:12px;font-weight:800;color:#243B5C;padding:9px 12px;cursor:pointer;background:#f3f0fa;user-select:none;}
 .bh-grp>h4::before{content:'▾ ';color:#a99fc4;}
