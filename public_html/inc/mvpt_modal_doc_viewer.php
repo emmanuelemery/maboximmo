@@ -19,8 +19,7 @@
         <div class="mvpt-modal-header">
             <h3 id="mvptModalTitle">📄 Document</h3>
             <div class="mvpt-modal-header-actions">
-                <button class="mvpt-modal-reclass" onclick="mvptModalRename()" title="Renommer le document (nom GED lisible)">✎ Renommer</button>
-                <button class="mvpt-modal-reclass" onclick="mvptModalReclass()" title="Re-classer ce document via FluxBox">✏️ Re-classer</button>
+                <button class="mvpt-modal-reclass" onclick="mvptModalRename()" title="Renommer / reclasser : entité · type · libellé · date (le nom GED est régénéré)">✎ Renommer / reclasser</button>
                 <a id="mvptModalOpen" class="mvpt-modal-open" href="#" target="_blank" rel="noopener" title="Ouvrir dans un nouvel onglet">↗ Ouvrir</a>
                 <button class="mvpt-modal-close" onclick="mvptModalClose()">✕ Fermer</button>
             </div>
@@ -204,19 +203,9 @@
         }
     }
 
-    window.mvptModalReclass = async function() {
-        if (mvptCurrentDocId <= 0) return;
-        if (!confirm('Re-classer ce document via la pile FluxBox ?')) return;
-        try {
-            const res = await fetch(<?= json_encode(function_exists('app_url') ? app_url('/api/ged_doc_send_to_reclass.php') : '/api/ged_doc_send_to_reclass.php') ?>, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ doc_id: mvptCurrentDocId }), credentials: 'same-origin',
-            });
-            const data = await res.json();
-            if (data.ok && data.redirect_url) { window.location.href = data.redirect_url; }
-            else { alert('❌ ' + (data.error || 'Erreur')); }
-        } catch (e) { alert('❌ Réseau : ' + e.message); }
-    };
+    // Reclassement = panneau inline DIRECT (entité · type · libellé · date → api/ged_doc_reclassify.php).
+    // Plus de renvoi vers fluxbox_pile.php (jugé inutile). Alias conservé pour compat des appels existants.
+    window.mvptModalReclass = function() { return window.mvptModalRename(); };
 
     // ── Reclassement en 3 niveaux : ENTITÉ + LIBELLÉ + DATE (le moteur régénère le nom GED) ──
     const MVPT_CSRF      = <?= json_encode(function_exists('csrf_token') ? csrf_token('default') : '') ?>;
