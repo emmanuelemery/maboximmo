@@ -56,6 +56,52 @@ if (!function_exists('bail_habitation_context')) {
     }
 }
 
+if (!function_exists('bail_habitation_prefill_from_bien')) {
+    /**
+     * Valeurs de PRÉ-REMPLISSAGE d'un nouveau bail habitation, reprises automatiquement du BIEN
+     * et de son ANNONCE de location active (surface, DPE, pièces, loyer, charges, loyer de
+     * référence, zone tendue, ancien loyer…). Retour = map colonne bien_baux → valeur.
+     */
+    function bail_habitation_prefill_from_bien(PDO $pdo, int $bienId): array
+    {
+        if ($bienId <= 0) return [];
+        $out = [];
+        // Bien : surface, pièces, DPE.
+        try {
+            $q = $pdo->prepare("SELECT surface_habitable, nb_pieces, dpe_classe FROM biens WHERE id=? LIMIT 1");
+            $q->execute([$bienId]);
+            if ($b = $q->fetch(PDO::FETCH_ASSOC)) {
+                if ($b['surface_habitable'] !== null && (float)$b['surface_habitable'] > 0) $out['surface_habitable'] = (float)$b['surface_habitable'];
+                if ($b['nb_pieces'] !== null && (int)$b['nb_pieces'] > 0)                   $out['nb_pieces'] = (int)$b['nb_pieces'];
+                if (trim((string)($b['dpe_classe'] ?? '')) !== '')                           $out['dpe_classe'] = strtoupper(trim((string)$b['dpe_classe']));
+            }
+        } catch (Throwable) {}
+        // Annonce de LOCATION la plus récente : conditions financières.
+        try {
+            $q = $pdo->prepare("SELECT loyer, loyer_de_base, loyer_cc, complement_loyer, charges, charges_annuelles,
+                                       loyer_reference, loyer_reference_majore, zone_encadrement_loyer,
+                                       ancien_loyer_montant, ancien_loyer_date_revision
+                                  FROM annonces
+                                 WHERE id_bien=? AND (type_transaction='location' OR loyer>0 OR loyer_de_base>0)
+                                 ORDER BY id DESC LIMIT 1");
+            $q->execute([$bienId]);
+            if ($a = $q->fetch(PDO::FETCH_ASSOC)) {
+                $loy = (float)($a['loyer_de_base'] ?: $a['loyer'] ?: 0);
+                if ($loy > 0) $out['loyer_mensuel_hc'] = $loy;
+                if ((float)($a['complement_loyer'] ?? 0) > 0) $out['complement_loyer'] = (float)$a['complement_loyer'];
+                $ch = (float)($a['charges'] ?: 0); if ($ch <= 0 && (float)($a['charges_annuelles'] ?? 0) > 0) $ch = round((float)$a['charges_annuelles'] / 12, 2);
+                if ($ch > 0) $out['charges_mensuelles'] = $ch;
+                if ((float)($a['loyer_reference'] ?? 0) > 0)        $out['loyer_reference'] = (float)$a['loyer_reference'];
+                if ((float)($a['loyer_reference_majore'] ?? 0) > 0) $out['loyer_reference_majore'] = (float)$a['loyer_reference_majore'];
+                if (!empty($a['zone_encadrement_loyer']))           $out['zone_tendue'] = 1;
+                if ((float)($a['ancien_loyer_montant'] ?? 0) > 0)   $out['dernier_loyer_montant'] = (float)$a['ancien_loyer_montant'];
+                if (!empty($a['ancien_loyer_date_revision']))       $out['dernier_loyer_date_revision'] = (string)$a['ancien_loyer_date_revision'];
+            }
+        } catch (Throwable) {}
+        return $out;
+    }
+}
+
 if (!function_exists('bail_habitation_corps')) {
     function bail_habitation_corps(array $ctx): string
     {
