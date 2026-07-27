@@ -304,7 +304,7 @@ if (!function_exists('bail_finalize_signed')) {
 
         if ($docId <= 0) {
             // 1) PDF définitif (forceProjet = false → sans filigrane, tracés incrustés).
-            $tmpPdf = bail_commercial_build_pdf($pdo, $bailId, false);
+            $tmpPdf = bail_build_pdf_dispatch($pdo, $bailId, false);
             // Persistant (la GED référence le fichier sur disque).
             $permDir = __DIR__ . '/../uploads/baux/';
             if (!is_dir($permDir)) @mkdir($permDir, 0775, true);
@@ -344,7 +344,7 @@ if (!function_exists('bail_finalize_signed')) {
                 // Le PDF définitif en pièce jointe (régénéré proprement pour le mail).
                 $attach = [];
                 try {
-                    $p = bail_commercial_build_pdf($pdo, $bailId, false);
+                    $p = bail_build_pdf_dispatch($pdo, $bailId, false);
                     $clean = sys_get_temp_dir() . '/Bail_signe_' . preg_replace('/[^A-Za-z0-9_-]/','', $refBail) . '.pdf';
                     $attach = (@copy($p, $clean)) ? [$clean] : [$p];
                 } catch (Throwable) {}
@@ -494,7 +494,7 @@ if (!function_exists('bail_commit_projet_ged')) {
         $ver = $lastVer > 0 ? $lastVer + 1 : 1;
         if ($activeIds) { try { $pdo->exec("UPDATE ged_documents SET status='superseded' WHERE id IN (" . implode(',', array_map('intval', $activeIds)) . ")"); } catch (Throwable) {} }
 
-        $tmp = bail_commercial_build_pdf($pdo, $bailId, true); // projet filigrané
+        $tmp = bail_build_pdf_dispatch($pdo, $bailId, true); // projet filigrané
         $permDir = __DIR__ . '/../uploads/baux/'; if (!is_dir($permDir)) @mkdir($permDir, 0775, true);
         $permName = 'bail_' . $bailId . '_projet_v' . $ver . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.pdf';
         $permPath = $permDir . $permName;

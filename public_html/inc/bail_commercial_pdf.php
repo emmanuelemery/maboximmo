@@ -1186,3 +1186,23 @@ if (!function_exists('bail_commercial_pdf_context')) {
         return $tmp;
     }
 }
+
+if (!function_exists('bail_build_pdf_dispatch')) {
+    /**
+     * Génère le PDF du bail avec LE BON moteur selon bail_nature :
+     *   habitation / meublé touristique → bail_habitation_build_pdf (FNAIM 89-462)
+     *   sinon → bail_commercial_build_pdf.
+     * À utiliser partout où l'on générait le PDF en dur (cérémonie, GED projet, envoi).
+     */
+    function bail_build_pdf_dispatch(PDO $pdo, int $bailId, ?bool $forceProjet = null): string
+    {
+        $nat = '';
+        try { $st = $pdo->prepare("SELECT bail_nature FROM bien_baux WHERE id=? LIMIT 1"); $st->execute([$bailId]); $nat = (string)$st->fetchColumn(); }
+        catch (Throwable) {}
+        if (in_array($nat, ['habitation', 'meuble_touristique'], true) && is_file(__DIR__ . '/bail_habitation_pdf.php')) {
+            require_once __DIR__ . '/bail_habitation_pdf.php';
+            return bail_habitation_build_pdf($pdo, $bailId, $forceProjet);
+        }
+        return bail_commercial_build_pdf($pdo, $bailId, $forceProjet);
+    }
+}

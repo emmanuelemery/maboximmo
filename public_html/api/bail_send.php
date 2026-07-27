@@ -48,7 +48,7 @@ try {
     // PDF du projet (filigrané) en pièce jointe.
     $pdfAttach = [];
     try {
-        $tmp = bail_commercial_build_pdf($pdo, $bailId, true);
+        $tmp = bail_build_pdf_dispatch($pdo, $bailId, true);
         $clean = sys_get_temp_dir() . '/Bail_' . preg_replace('/[^A-Za-z0-9_-]/','', (string)($bail['numero_bail'] ?: $bailId)) . '.pdf';
         if (@copy($tmp, $clean)) { $pdfAttach = [$clean]; @unlink($tmp); } else { $pdfAttach = [$tmp]; }
     } catch (Throwable $e) { error_log('[bail_send pdf] '.$e->getMessage()); }
