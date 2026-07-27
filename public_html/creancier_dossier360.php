@@ -477,7 +477,11 @@ include __DIR__ . '/inc/agency_layout_top.php';
           <div class="c3-row">
             <span style="font-size:12px;">
               <span style="font-family:'DM Mono',monospace;color:#5b21b6;font-weight:700;">[<?= h($d['document_type'] ?? '') ?>]</span>
-              <a href="<?= h($href) ?>" target="_blank" rel="noopener" style="color:var(--navy);text-decoration:none;">📄 <?= h($name) ?></a>
+              <?php if ($isRef && $refPage): ?>
+                <a href="<?= h($href) ?>" target="_blank" rel="noopener" style="color:var(--navy);text-decoration:none;">📄 <?= h($name) ?></a>
+              <?php else: ?>
+                <a href="javascript:void(0)" onclick="mvptModalView(<?= $docId ?>, <?= htmlspecialchars(json_encode((string)$name), ENT_QUOTES) ?>)" style="color:var(--navy);text-decoration:none;" title="<?= h($name) ?>">📄 <?= h($name) ?></a>
+              <?php endif; ?>
               <?php if ($isRef && $refPage): ?><span class="c3-tag" style="background:#fef3e2;color:#b45309;">↳ p.<?= (int)$refPage ?></span><?php endif; ?>
             </span>
             <span style="color:#9a9690;font-size:10px;"><?= isset($d['created_at'])?h(date('d/m/y',strtotime((string)$d['created_at']))):'' ?></span>
@@ -811,4 +815,5 @@ endif; ?>
 })();
 </script>
 <?php if ($canManage) { tiers_selector_assets(); require __DIR__ . '/inc/fluxbox_upload_modal.php'; } ?>
+<?php if (!defined('MVPT_DOC_VIEWER_LOADED')) { define('MVPT_DOC_VIEWER_LOADED', 1); include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; } /* modale standard mvptModalView — ouvrir/renommer/reclasser un doc */ ?>
 <?php include __DIR__ . '/inc/agency_layout_bottom.php'; ?>

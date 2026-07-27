@@ -884,7 +884,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
             $dispo = ged_internal_path((int)$d['id'], 'preview') !== null; ?>
             <div class="dv-doc" style="<?= $dispo ? '' : 'opacity:.55;' ?>">
               <?php if ($dispo): ?>
-                <a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$d['id'])) ?>" target="_blank" title="<?= h($d['name_display'] ?: $d['name_file'] ?: '') ?>"><?= h($dvLabel($d)) ?></a>
+                <a href="javascript:void(0)" onclick="mvptModalView(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode($dvLabel($d)), ENT_QUOTES) ?>)" title="<?= h($d['name_display'] ?: $d['name_file'] ?: '') ?>"><?= h($dvLabel($d)) ?></a>
               <?php else: ?>
                 <span title="<?= h($d['name_display'] ?: $d['name_file'] ?: '') ?>"><?= h($dvLabel($d)) ?> <small style="color:#ef4444;">⚠ indisponible</small></span>
               <?php endif; ?>

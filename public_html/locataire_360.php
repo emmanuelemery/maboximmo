@@ -137,7 +137,8 @@ fiche360_header('🔑', $locNom !== '' ? $locNom : ($bien['reference_bien'] ?? '
         <thead><tr style="color:#9a9690;text-align:left"><th style="padding:5px 8px">Document</th><th style="padding:5px 8px">Type</th><th style="padding:5px 8px">Date</th></tr></thead>
         <tbody>
         <?php foreach ($docs as $d): ?>
-          <tr style="border-top:1px solid #f0ece6"><td style="padding:5px 8px"><?=vv($d['name_display'] ?? $d['name_file'] ?? '—')?></td>
+          <?php $lnm = (string)($d['name_display'] ?? $d['name_file'] ?? '—'); ?>
+          <tr style="border-top:1px solid #f0ece6"><td style="padding:5px 8px"><a href="javascript:void(0)" onclick="mvptModalView(<?= (int)($d['id'] ?? 0) ?>, <?= htmlspecialchars(json_encode($lnm), ENT_QUOTES) ?>)" style="color:#243B5C;text-decoration:none;font-weight:600;" title="<?= h($lnm) ?>">📄 <?= vv($lnm) ?></a></td>
           <td style="padding:5px 8px"><span style="background:#eef4fb;color:#4878a6;border-radius:4px;padding:1px 6px;font-size:11px"><?=vv($d['document_type'] ?? '')?></span></td>
           <td style="padding:5px 8px"><?=dfr($d['created_at'] ?? null)?></td></tr>
         <?php endforeach; ?>
@@ -228,4 +229,5 @@ fiche360_header('🔑', $locNom !== '' ? $locNom : ($bien['reference_bien'] ?? '
   </div>
 </div>
 <?php
+if (!defined('MVPT_DOC_VIEWER_LOADED')) { define('MVPT_DOC_VIEWER_LOADED', 1); include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; }
 require_once __DIR__ . '/inc/agency_layout_bottom.php';

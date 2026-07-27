@@ -154,7 +154,7 @@ textarea.f3-syn{width:100%;box-sizing:border-box;min-height:70px;padding:9px 11p
         <?php if (!$docs): ?><div class="f3-ph" style="padding:18px">Aucun document rattaché. Reliez un document existant ci-dessous.</div><?php endif; ?>
         <?php foreach ($docs as $doc): ?>
           <div class="f3-item"><span>📄</span>
-            <div class="g"><a href="<?= h(app_url('/api/ged_doc_serve.php?id=' . (int)$doc['id'])) ?>" target="_blank"><?= h($doc['name_display'] ?? ('Document #' . $doc['id'])) ?></a>
+            <div class="g"><a href="javascript:void(0)" onclick="mvptModalView(<?= (int)$doc['id'] ?>, <?= htmlspecialchars(json_encode((string)($doc['name_display'] ?? ('Document #' . $doc['id']))), ENT_QUOTES) ?>)" title="<?= h($doc['name_display'] ?? '') ?>"><?= h($doc['name_display'] ?? ('Document #' . $doc['id'])) ?></a>
               <div style="font-size:.74rem;color:#98917f"><?= h($catL[$doc['categorie']] ?? $doc['categorie'] ?? '') ?></div></div>
             <button class="f3-x" onclick="detachDoc(<?= (int)$doc['id'] ?>)">Retirer</button></div>
         <?php endforeach; ?>
@@ -320,4 +320,5 @@ function addPart(){ if(!partId){alert('Choisir une personne');return;}
   P(U_ACC,{op:'add',id_dossier:FID,identite_type:document.getElementById('partIdType').value,identite_id:partId,role_intervenant:document.getElementById('partRole').value,niveau:document.getElementById('partNiv').value}).then(j=>{if(j.ok)location.reload();else alert(j.error||'Erreur');}); }
 function rmPart(aid){ if(!confirm('Retirer ce participant ?'))return; P(U_ACC,{op:'remove',id_dossier:FID,acces_id:aid}).then(j=>{if(j.ok)location.reload();else alert(j.error||'Erreur');}); }
 </script>
+<?php if (!defined('MVPT_DOC_VIEWER_LOADED')) { define('MVPT_DOC_VIEWER_LOADED', 1); include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; } ?>
 <?php include __DIR__ . '/inc/footer.php'; ?>
