@@ -119,6 +119,22 @@ try {
     }
     ksort($photoGroups);
 } catch (Throwable $e) {}
+// Groupe HÉRITÉ « Immeuble » (auto, lecture seule) : le bien hérite des photos de son
+// immeuble (biens_photos entity_type='IMB') ; l'immeuble n'hérite jamais des biens.
+try {
+    $immForBien = (int)($bien['id_immeuble'] ?? 0);
+    if ($immForBien > 0) {
+        $stI = $pdo->prepare("SELECT id, COALESCE(groupe_no,0) gno, 'Immeuble' glabel, url_photo, url_lbc, nom_original, ordre
+                              FROM biens_photos WHERE entity_type='IMB' AND entity_id=? ORDER BY ordre ASC, id ASC");
+        $stI->execute([$immForBien]);
+        $immPhotos = $stI->fetchAll(PDO::FETCH_ASSOC);
+        if ($immPhotos) {
+            $photoGroups[-1] = ['no'=>-1, 'label'=>'🏛️ Immeuble', 'inherited'=>true, 'photos'=>$immPhotos];
+            $photosTotal += count($immPhotos);
+            ksort($photoGroups);   // -1 → le groupe Immeuble s'affiche en tête
+        }
+    }
+} catch (Throwable $e) {}
 
 // ─── Checklist pièces obligatoires ──
 // Référentiel « Documents de base » du BIEN/LOT (impératif → important).
@@ -1241,16 +1257,21 @@ if ($kpis) {
             <div class="f360-empty"><div class="em-ico">📷</div>Aucune photo. Déverse-les depuis MaBoxOffice (bouton « 📸 Enregistrer en photos »).</div>
         <?php else: foreach ($photoGroups as $g): ?>
             <details class="ph-grp">
-                <summary style="cursor:pointer; padding:8px 0; font-size:13px; font-weight:700; color:#243B5C; list-style:none; display:flex; align-items:center; gap:8px;">
-                    <span style="font-family:'DM Mono',monospace; color:#84a98c;"><?= str_pad((string)$g['no'], 2, '0', STR_PAD_LEFT) ?></span>
+                <?php $gInher = !empty($g['inherited']); ?>
+                <summary style="cursor:pointer; padding:8px 0; font-size:13px; font-weight:700; color:<?= $gInher ? '#3D7465' : '#243B5C' ?>; list-style:none; display:flex; align-items:center; gap:8px;">
+                    <span style="font-family:'DM Mono',monospace; color:<?= $gInher ? '#3D7465' : '#84a98c' ?>;"><?= $gInher ? '🏛️' : str_pad((string)$g['no'], 2, '0', STR_PAD_LEFT) ?></span>
                     📁 <?= h($g['label']) ?>
                     <span style="font-size:11px; color:#9a9690; font-weight:600;"><?= count($g['photos']) ?> photo<?= count($g['photos'])>1?'s':'' ?></span>
-                    <button type="button" title="Ajouter des photos à ce groupe"
-                            onclick="event.preventDefault();event.stopPropagation();bienAddPhotos(<?= json_encode((string)$g['label'] === 'Sans groupe' ? '' : (string)$g['label']) ?>);"
-                            style="margin-left:auto; border:1px solid #9fd3b0; background:#eef7f0; color:#15803d; border-radius:7px; padding:3px 9px; font-size:12px; font-weight:800; cursor:pointer;">＋ Photos</button>
-                    <button type="button" title="Renommer le groupe"
-                            onclick="event.preventDefault();event.stopPropagation();renameBienPhotoGroup(<?= (int)$bienId ?>, <?= (int)$g['no'] ?>, <?= json_encode((string)$g['label']) ?>);"
-                            style="border:1px solid #cbd5e1; background:#fff; color:#64748b; border-radius:7px; padding:3px 8px; font-size:11px; font-weight:700; cursor:pointer;">✏️</button>
+                    <?php if ($gInher): ?>
+                        <span style="margin-left:auto; font-size:10.5px; color:#3D7465; background:#eaf4f0; border:1px solid #cfe0da; border-radius:6px; padding:2px 8px; font-weight:700;">hérité de l'immeuble</span>
+                    <?php else: ?>
+                        <button type="button" title="Ajouter des photos à ce groupe"
+                                onclick="event.preventDefault();event.stopPropagation();bienAddPhotos(<?= json_encode((string)$g['label'] === 'Sans groupe' ? '' : (string)$g['label']) ?>);"
+                                style="margin-left:auto; border:1px solid #9fd3b0; background:#eef7f0; color:#15803d; border-radius:7px; padding:3px 9px; font-size:12px; font-weight:800; cursor:pointer;">＋ Photos</button>
+                        <button type="button" title="Renommer le groupe"
+                                onclick="event.preventDefault();event.stopPropagation();renameBienPhotoGroup(<?= (int)$bienId ?>, <?= (int)$g['no'] ?>, <?= json_encode((string)$g['label']) ?>);"
+                                style="border:1px solid #cbd5e1; background:#fff; color:#64748b; border-radius:7px; padding:3px 8px; font-size:11px; font-weight:700; cursor:pointer;">✏️</button>
+                    <?php endif; ?>
                     <button type="button" onclick="event.preventDefault();openPhotosFrame('<?= h($photosUrl) ?>');"
                             style="border:1px solid #cbd5e1; background:#fff; color:#5b21b6; border-radius:7px; padding:3px 10px; font-size:11px; font-weight:700; cursor:pointer;">Détails ↗</button>
                 </summary>
