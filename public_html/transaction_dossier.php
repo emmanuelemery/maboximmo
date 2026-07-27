@@ -182,12 +182,12 @@ try {
     $stBx = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien = ?");
     $stBx->execute([$idBien]);
     foreach ($stBx->fetchAll(PDO::FETCH_COLUMN) as $bailId) {
-        foreach (gdl_documents_for_entity($pdo, 'BAIL', (int)$bailId, ['limit' => 50]) as $d) $docsLies[] = $d;
+        foreach (gdl_documents_for_entity($pdo, 'BAIL', (int)$bailId, ['limit' => 50]) as $d) { $d['_scope'] = 'bail'; $docsLies[] = $d; }
     }
     $immId = (int)($bien['id_immeuble'] ?? $bien['immeuble_id'] ?? 0);
     if ($immId > 0) {
         foreach (['IMB','IMMEUBLE'] as $et) {
-            foreach (gdl_documents_for_entity($pdo, $et, $immId, ['limit' => 80]) as $d) $docsLies[] = $d;
+            foreach (gdl_documents_for_entity($pdo, $et, $immId, ['limit' => 80]) as $d) { $d['_scope'] = 'immeuble'; $docsLies[] = $d; }
         }
     }
 } catch (Throwable $e) { error_log('[transaction_dossier docsLies] ' . $e->getMessage()); }
@@ -844,7 +844,7 @@ include __DIR__ . '/inc/agency_layout_top.php';
             $allDocs = [];
             foreach ($docsDoss as $d) { $seen[$d['id']] = 1; $d['_scope'] = 'dossier'; $allDocs[] = $d; }
             foreach ($docsBien as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'bien'; $allDocs[] = $d; }
-            foreach ($docsLies as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; $d['_scope'] = 'lié'; $allDocs[] = $d; }
+            foreach ($docsLies as $d) { if (isset($seen[$d['id']])) continue; $seen[$d['id']] = 1; if (empty($d['_scope'])) $d['_scope'] = 'lié'; $allDocs[] = $d; }
 
             // Nom d'affichage COURT : on est déjà dans le dossier/bien → on retire le préfixe
             // machine du nom GED V3.1 (société_agence_user_date_upload = 4 premiers segments,
@@ -890,7 +890,8 @@ include __DIR__ . '/inc/agency_layout_top.php';
               <?php endif; ?>
               <span>
                 <?php if (!empty($d['document_type'])): ?><span class="dv-badge"><?= h($d['document_type']) ?></span><?php endif; ?>
-                <span class="dv-badge"><?= $d['_scope'] === 'dossier' ? 'dossier' : 'bien' ?></span>
+                <?php $scLbl = ['dossier'=>'dossier','bien'=>'bien','immeuble'=>'immeuble','bail'=>'bail','lié'=>'lié'][$d['_scope'] ?? 'bien'] ?? 'bien'; ?>
+                <span class="dv-badge"<?= $d['_scope']==='immeuble' ? ' style="background:#e0f2f1;color:#3D7465;"' : '' ?>><?= h($scLbl) ?></span>
               </span>
             </div>
           <?php endforeach; endif; ?>
