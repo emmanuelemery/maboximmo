@@ -1252,7 +1252,8 @@ if ($kpis) {
     <!-- Photos du bien (sous-dossiers par groupe) -->
     <?php $photosUrl = app_url('/bien_detail.php?edit=' . $bienId . '&section=documents&focus=photos'); ?>
     <div class="f360-card" style="--acc:var(--c-bien);">
-        <h3>📸 Photos <span class="count"><?= (int)$photosTotal ?></span></h3>
+        <h3>📸 Photos <span class="count"><?= (int)$photosTotal ?></span>
+            <a href="<?= h(app_url('/bien_photos_groupes.php?id=' . $bienId)) ?>" style="float:right;border:1px solid #cde0d3;background:#eef6f0;color:#3f7457;border-radius:7px;padding:3px 10px;font-size:11px;font-weight:800;text-decoration:none;">🖼️ Organiser les groupes</a></h3>
         <?php if (empty($photoGroups)): ?>
             <div class="f360-empty"><div class="em-ico">📷</div>Aucune photo. Déverse-les depuis MaBoxOffice (bouton « 📸 Enregistrer en photos »).</div>
         <?php else: foreach ($photoGroups as $g): ?>
