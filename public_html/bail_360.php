@@ -397,10 +397,24 @@ if ($isProjetBail) {
         <?php endif; ?>
         <?php if ($belSigTotal > 0): ?>
         <div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
-            <?php foreach ($belSignataires as $s): $sg = ($s['statut'] ?? '') === 'signe'; ?>
-            <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;background:<?= $sg ? '#e7f6ec' : '#fbf3e6' ?>;color:<?= $sg ? '#15803d' : '#a26a1c' ?>;border:1px solid <?= $sg ? '#bfe6cc' : '#f0dcbf' ?>;">
-                <?= $sg ? '✓' : '⏳' ?> <?= h($belRoleLbl[$s['role_code']] ?? ucfirst((string)$s['role_code'])) ?><?= !empty($s['nom_signataire']) ? ' — ' . h($s['nom_signataire']) : '' ?>
-                <?php if ($sg): ?><button type="button" onclick="belSignAnnuler(<?= (int)$s['id'] ?>, this)" title="Annuler / effacer cette signature" style="border:none;background:transparent;color:#c0392b;font-weight:900;cursor:pointer;padding:0 0 0 4px;line-height:1;font-size:13px;">✕</button><?php endif; ?>
+            <?php foreach ($belSignataires as $s):
+                $sg  = ($s['statut'] ?? '') === 'signe';
+                $sgAt  = !empty($s['signed_at']) ? date('d/m/Y à H\hi', strtotime((string)$s['signed_at'])) : '';
+                $sntAt = !empty($s['sent_at'])   ? date('d/m/Y à H\hi', strtotime((string)$s['sent_at']))   : '';
+                $roleLbl = h($belRoleLbl[$s['role_code']] ?? ucfirst((string)$s['role_code']));
+                $nomLbl  = !empty($s['nom_signataire']) ? ' — ' . h($s['nom_signataire']) : '';
+            ?>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:20px;background:<?= $sg ? '#e7f6ec' : '#fbf3e6' ?>;color:<?= $sg ? '#15803d' : '#a26a1c' ?>;border:1px solid <?= $sg ? '#bfe6cc' : '#f0dcbf' ?>;">
+                <?= $sg ? '✓' : '⏳' ?> <?= $roleLbl . $nomLbl ?>
+                <?php if ($sg): ?>
+                    <?php if ($sgAt): ?><span style="font-weight:600;opacity:.85;">· signé le <?= $sgAt ?></span><?php endif; ?>
+                    <button type="button" onclick="belSignAnnuler(<?= (int)$s['id'] ?>, this)" title="Annuler / effacer cette signature" style="border:none;background:transparent;color:#c0392b;font-weight:900;cursor:pointer;padding:0 0 0 4px;line-height:1;font-size:13px;">✕</button>
+                <?php else: ?>
+                    <?php if ($sntAt): ?><span style="font-weight:600;opacity:.85;">· demandé le <?= $sntAt ?></span><?php endif; ?>
+                    <?php if ($canEditProjet && ($bail['statut'] ?? '') === 'envoye'): ?>
+                    <button type="button" onclick="belRelance(<?= (int)$bailId ?>, <?= (int)$s['id'] ?>, this)" title="Renvoyer l'email de demande de signature à ce signataire" style="border:1px solid #e6c98a;background:#fff8ec;color:#a26a1c;border-radius:14px;font-weight:800;cursor:pointer;padding:2px 9px 3px;line-height:1.2;font-size:11.5px;margin-left:2px;">📨 Relancer</button>
+                    <?php endif; ?>
+                <?php endif; ?>
             </span>
             <?php endforeach; ?>
         </div>
@@ -453,6 +467,19 @@ if ($isProjetBail) {
           .then(function(r){return r.json();}).then(function(j){
             if(j&&j.ok){ location.reload(); }
             else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&j.error)||'Échec de l\'annulation')); }
+          }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
+    };
+    // Relance ciblée : renvoie l'email de demande de signature à UN signataire non signé.
+    window.belRelance = function(bailId, sigId, btn){
+        if(!confirm('Renvoyer l\'email de demande de signature à ce signataire ?')) return;
+        var old=btn.textContent; btn.disabled=true; btn.textContent='⏳ Envoi…';
+        fetch(API_BAIL_SEND,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({bail_id:bailId, sig_id:sigId})})
+          .then(function(r){return r.json();}).then(function(j){
+            if(j && j.ok){
+                var e=(j.envois&&j.envois[0])||{};
+                if(e.sent){ alert('✅ Relance envoyée'+(e.email?' à '+e.email:'')+'.'); location.reload(); }
+                else { btn.disabled=false; btn.textContent=old; alert('⚠️ Email non envoyé'+(e.email?' ('+e.email+')':' — email manquant ?')+'.'); }
+            } else { btn.disabled=false; btn.textContent=old; alert('❌ '+((j&&j.error)||'Échec de la relance')); }
           }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
     };
     function belCeremOpen(){

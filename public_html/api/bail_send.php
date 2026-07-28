@@ -45,6 +45,13 @@ try {
     $sigs = bsig_create_for_signataires($pdo, $bailId, $userId, $roleEmails);
     if (!$sigs) exit(json_encode(['ok'=>false,'error'=>'Aucun signataire — renseigne l\'email du preneur.'], JSON_UNESCAPED_UNICODE));
 
+    // Relance ciblée : ne (re)traiter QU'UN seul signataire (celui qui n'a pas signé).
+    $onlySig = (int)($body['sig_id'] ?? 0);
+    if ($onlySig > 0) {
+        $sigs = array_values(array_filter($sigs, static fn($s) => (int)$s['id'] === $onlySig));
+        if (!$sigs) exit(json_encode(['ok'=>false,'error'=>'Signataire introuvable pour ce bail.'], JSON_UNESCAPED_UNICODE));
+    }
+
     // PDF du projet (filigrané) en pièce jointe.
     $pdfAttach = [];
     try {
