@@ -33,7 +33,7 @@ try {
             b.code_postal,
             b.ville,
             b.adresse_1,
-            tb.libelle AS type_bien,
+            COALESCE(btm.libelle, tb.libelle) AS type_bien,
             a.id AS id_annonce,
             a.titre AS annonce_titre,
             a.type_transaction,
@@ -47,7 +47,8 @@ try {
             u.nom AS user_nom
         FROM annonces a
         JOIN biens b ON b.id = a.id_bien
-        LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+        LEFT JOIN bien_types btm ON btm.id = b.id_bien_type
+        LEFT JOIN types_bien tb  ON tb.id  = b.id_type_bien
         LEFT JOIN users u ON u.id = a.id_user
         WHERE a.id_agence = ?
           AND a.visible_portails = 1
