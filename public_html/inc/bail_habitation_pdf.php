@@ -409,7 +409,12 @@ if (!function_exists('bail_habitation_build_pdf')) {
         $mpdf = new \Mpdf\Mpdf(['mode' => 'utf-8', 'format' => 'A4', 'margin_top' => 16, 'margin_bottom' => 18, 'margin_left' => 16, 'margin_right' => 16, 'tempDir' => $tmpDir, 'default_font' => 'dejavusans']);
         $mpdf->SetTitle('Bail habitation' . ($ctx['numero_bail'] ? ' ' . $ctx['numero_bail'] : ''));
         $mpdf->SetAuthor($ctx['mandataire']['raison'] ?? 'MaBoxImmo');
-        $mpdf->SetHTMLFooter('<div style="text-align:center;font-size:7.5pt;color:#999;border-top:0.4pt solid #ddd;padding-top:3px;">Bail habitation (loi 89-462)' . ($ctx['numero_bail'] ? ' &mdash; ' . bcp_e($ctx['numero_bail']) : '') . ' &mdash; page {PAGENO}/{nbpg}</div>');
+        // Version PROJET : horodater l'émission de CE PDF (chaque instantané est daté →
+        // le destinataire distingue la dernière version d'un ancien PDF reçu par email).
+        $projetStamp = $withProjet
+            ? '<br><span style="color:#b5352e;font-weight:bold;">Version PROJET &mdash; &eacute;mise le ' . date('d/m/Y') . ' &agrave; ' . date('H\hi') . ' &mdash; seule la version pr&eacute;sent&eacute;e au moment de la signature fait foi.</span>'
+            : '';
+        $mpdf->SetHTMLFooter('<div style="text-align:center;font-size:7.5pt;color:#999;border-top:0.4pt solid #ddd;padding-top:3px;">Bail habitation (loi 89-462)' . ($ctx['numero_bail'] ? ' &mdash; ' . bcp_e($ctx['numero_bail']) : '') . ' &mdash; page {PAGENO}/{nbpg}' . $projetStamp . '</div>');
         if ($withProjet) { $mpdf->SetWatermarkText('PROJET'); $mpdf->showWatermarkText = true; $mpdf->watermarkTextAlpha = 0.08; $mpdf->watermark_font = 'DejaVuSans'; }
         $mpdf->WriteHTML($css . $body . $annexes);
 

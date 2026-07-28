@@ -1168,9 +1168,14 @@ if (!function_exists('bail_commercial_pdf_context')) {
         ]);
         $mpdf->SetTitle('Bail commercial' . ($ctx['numero_bail'] ? ' ' . $ctx['numero_bail'] : ''));
         $mpdf->SetAuthor($ctx['gestionnaire']['raison'] ?: 'MaBoxImmo');
+        // Version PROJET : horodater l'émission de CE PDF (chaque instantané est daté →
+        // le destinataire distingue la dernière version d'un ancien PDF reçu par email).
+        $projetStamp = $withProjet
+            ? '<br><span style="color:#b5352e;font-weight:bold;">Version PROJET &mdash; &eacute;mise le ' . date('d/m/Y') . ' &agrave; ' . date('H\hi') . ' &mdash; seule la version pr&eacute;sent&eacute;e au moment de la signature fait foi.</span>'
+            : '';
         $mpdf->SetHTMLFooter('<div style="text-align:center;font-size:7.5pt;color:#999;border-top:0.4pt solid #ddd;padding-top:3px;">'
             . 'Bail commercial' . ($ctx['numero_bail'] ? ' &mdash; ' . bcp_e($ctx['numero_bail']) : '')
-            . ' &mdash; page {PAGENO}/{nbpg} &mdash; paraphe : ' . bcp_e($paraphe) . '</div>');
+            . ' &mdash; page {PAGENO}/{nbpg} &mdash; paraphe : ' . bcp_e($paraphe) . $projetStamp . '</div>');
 
         if ($withProjet) {
             $mpdf->SetWatermarkText('PROJET');
