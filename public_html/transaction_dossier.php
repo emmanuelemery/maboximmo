@@ -916,14 +916,19 @@ include __DIR__ . '/inc/agency_layout_top.php';
           $dvpIsMgr = (function_exists('current_role_id') && in_array((int)current_role_id(), [1,2,3,7], true)) || (function_exists('is_super_admin') && is_super_admin());
           if ($dvpIsMgr):
             $dvpShares = ['acquereur'=>null, 'notaire'=>null, 'commercialisateur'=>null];
+            $selAcq = $selNot = $selCom = [];   // union des docs déjà partagés (robuste aux doublons de partages)
+            $dvpSel = ['acquereur'=>&$selAcq, 'notaire'=>&$selNot, 'commercialisateur'=>&$selCom];
             try {
                 $sh = $pdo->prepare("SELECT * FROM dossier_vente_partage WHERE id_dossier=? AND revoked_at IS NULL ORDER BY id DESC");
                 $sh->execute([$idDossier]);
-                foreach ($sh->fetchAll(PDO::FETCH_ASSOC) as $r) { $rr = (string)$r['role_destinataire']; if (isset($dvpShares[$rr]) && !$dvpShares[$rr]) $dvpShares[$rr] = $r; }
+                foreach ($sh->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $rr = (string)$r['role_destinataire'];
+                    if (!isset($dvpSel[$rr])) continue;
+                    if (!$dvpShares[$rr]) $dvpShares[$rr] = $r;   // lien affiché = le plus récent
+                    foreach (array_map('intval', json_decode((string)$r['docs_json'], true) ?: []) as $did) { $dvpSel[$rr][$did] = true; }  // pré-cochage = UNION
+                }
             } catch (Throwable) {}
-            $selAcq = $dvpShares['acquereur'] ? array_flip(array_map('intval', json_decode((string)$dvpShares['acquereur']['docs_json'], true) ?: [])) : [];
-            $selNot = $dvpShares['notaire']   ? array_flip(array_map('intval', json_decode((string)$dvpShares['notaire']['docs_json'], true) ?: [])) : [];
-            $selCom = $dvpShares['commercialisateur'] ? array_flip(array_map('intval', json_decode((string)$dvpShares['commercialisateur']['docs_json'], true) ?: [])) : [];
+            unset($dvpSel);
             // URL ABSOLUE (domaine + dossier de la page courante) — robuste local/prod, copiable telle quelle.
             $dvpOrigin = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['SERVER_PORT'] ?? '') === '443' ? 'https' : 'http') . '://' . (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
             $dvpDir    = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/'))), '/');

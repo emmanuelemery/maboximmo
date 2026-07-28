@@ -62,8 +62,9 @@ try {
         $res = [];
         foreach ($sel as $role => $ids) {
             $docsJson = json_encode($ids);
-            // Lien stable : un actif par (dossier, rôle). Update si existe, sinon create.
-            $st = $pdo->prepare("SELECT id, token FROM dossier_vente_partage WHERE id_dossier=? AND role_destinataire=? AND revoked_at IS NULL ORDER BY id DESC LIMIT 1");
+            // Lien STABLE : on met à jour le partage le PLUS ANCIEN du rôle (= le lien déjà envoyé),
+            // on garde son token, et on RÉVOQUE les doublons actifs → un seul lien qui perdure.
+            $st = $pdo->prepare("SELECT id, token FROM dossier_vente_partage WHERE id_dossier=? AND role_destinataire=? AND revoked_at IS NULL ORDER BY id ASC LIMIT 1");
             $st->execute([$idDossier, $role]);
             $row = $st->fetch(PDO::FETCH_ASSOC);
             if ($row) {
@@ -76,6 +77,9 @@ try {
                     ->execute([$idDossier, $role, $token, $docsJson, $expires, $userId ?: null]);
                 $pid = (int)$pdo->lastInsertId();
             }
+            // Consolidation : révoque tout autre partage actif du même rôle (fini les doublons de liens).
+            $pdo->prepare("UPDATE dossier_vente_partage SET revoked_at=NOW() WHERE id_dossier=? AND role_destinataire=? AND revoked_at IS NULL AND id<>?")
+                ->execute([$idDossier, $role, $pid]);
             $res[$role] = ['id'=>$pid, 'token'=>$token, 'url'=>$base.'dossier_vente_partage.php?t='.$token, 'count'=>count($ids)];
         }
         echo json_encode(['ok'=>true, 'liens'=>$res]);

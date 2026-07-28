@@ -227,7 +227,7 @@ foreach ($immIds as $i => $immId) {
         $qp->execute([$immId]);
         foreach ($qp->fetchAll(PDO::FETCH_COLUMN) as $u) { $u = trim((string)$u); if ($u !== '') $iphotos[] = app_url('/' . ltrim($u, '/')); }
     } catch (Throwable) {}
-    if (!$idoc && !$iphotos) continue;   // rien à montrer pour cet immeuble
+    // Immeuble affiché SYSTÉMATIQUEMENT (ses infos publiques sont l'info clé) — même sans doc ni photo.
     $im = [];
     try { $qi = $pdo->prepare("SELECT nom_immeuble, adresse_1, code_postal, ville, type_immeuble, annee_construction,
                                       nb_niveaux, nb_lots, nb_batiments, nb_logements, nb_commerces, nb_stationnements,
