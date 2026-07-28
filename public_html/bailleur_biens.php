@@ -9,6 +9,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/auth.php';
 require_once __DIR__ . '/inc/roles_services.php';
+require_once __DIR__ . '/inc/entity_card.php';
 require_login();
 
 $pdo    = $GLOBALS['pdo'];
@@ -41,12 +42,12 @@ if (!empty($propIds)) {
     $rows = $pdo->query("
         SELECT b.id, b.reference_bien, b.surface_habitable, b.loyer_hc,
                b.occupation_bien,
-               COALESCE(NULLIF(bt.libelle,''), NULLIF(btb.label,'')) AS type_lbl,
+               COALESCE(NULLIF(bt.libelle,''), NULLIF(btb.libelle,'')) AS type_lbl,
                i.nom_immeuble, i.adresse_1, i.ville,
                COALESCE(NULLIF(TRIM(p.societe),''), CONCAT(p.prenom,' ',p.nom)) AS prop_nom
         FROM biens b
         LEFT JOIN bien_types      bt  ON bt.id  = b.id_bien_type
-        LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
+        LEFT JOIN types_bien btb ON btb.id = b.id_type_bien
         LEFT JOIN immeubles       i   ON i.id   = b.id_immeuble
         LEFT JOIN proprietaires   p   ON p.id   = b.id_proprietaire
         WHERE b.id_proprietaire IN ({$in})
@@ -58,54 +59,86 @@ $layout_title   = 'Mes biens';
 $layout_module  = 'Ma Box Bailleur';
 $layout_sidebar = 'sidebar_bailleur_module';
 
+$base = function_exists('app_url') ? rtrim(app_url('/'), '/') . '/' : '';
+$nbLoues = 0; $nbLibres = 0;
+foreach ($rows as $r) {
+    $o = strtolower((string)($r['occupation_bien'] ?? ''));
+    if (str_contains($o, 'lou') || str_contains($o, 'occup')) $nbLoues++;
+    elseif ($o !== '') $nbLibres++;
+}
+
 ob_start();
 ?>
 <style>
-.bb-head { display:flex; align-items:baseline; gap:12px; margin-bottom:16px; }
+.bb-head { display:flex; align-items:center; gap:12px; margin-bottom:6px; flex-wrap:wrap; }
+.bb-head h1 { font-size:20px; font-weight:800; color:#243B5C; margin:0; }
 .bb-count { background:#0e7490; color:#fff; border-radius:99px; padding:2px 12px; font-size:13px; font-weight:800; }
-.bb-table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
-.bb-table th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#64748b; padding:10px 12px; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
-.bb-table td { padding:10px 12px; border-bottom:1px solid #f1f5f9; font-size:13px; color:#0f172a; }
-.bb-table tr:last-child td { border-bottom:none; }
-.bb-occ { display:inline-block; padding:2px 9px; border-radius:99px; font-size:11px; font-weight:700; }
-.bb-occ.loue { background:#ecfdf5; color:#047857; }
-.bb-occ.libre { background:#fef2f2; color:#b91c1c; }
-.bb-empty { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:40px; text-align:center; color:#64748b; }
-.bb-link { color:#0e7490; text-decoration:none; font-weight:700; }
-.bb-link:hover { text-decoration:underline; }
+.bb-kpi { font-size:12px; color:#5a5650; } .bb-kpi b{ color:#243B5C; }
+.bb-search { width:100%; max-width:420px; padding:9px 14px; border:1px solid #d8d3cb; border-radius:10px;
+  font-size:14px; background:#fff; margin:12px 0 16px; box-shadow: inset 2px 2px 5px #ece7e0; }
+.bb-search:focus { outline:2px solid #0e7490; border-color:#0e7490; }
+.bb-empty { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:50px; text-align:center; color:#64748b; }
+.bb-empty .icon{ font-size:44px; display:block; margin-bottom:10px; }
+.bi-occ { display:inline-block; padding:2px 9px; border-radius:99px; font-size:10.5px; font-weight:700; }
+.bi-occ.loue { background:#e1f0e3; color:#2c6a3e; } .bi-occ.libre { background:#fdecec; color:#b3413b; }
+.bi-line { font-size:12px; color:#5a5650; margin-top:4px; } .bi-line b{ color:#243B5C; }
 </style>
 
 <div class="bb-head">
-  <h1 style="font-size:20px;font-weight:800;">🏠 Mes biens</h1>
+  <h1>🏠 Mes biens</h1>
   <span class="bb-count"><?= count($rows) ?></span>
+  <span class="bb-kpi">🟢 <b><?= $nbLoues ?></b> loué(s) · 🔴 <b><?= $nbLibres ?></b> libre(s)</span>
 </div>
 
 <?php if (empty($rows)): ?>
-  <div class="bb-empty">Aucun bien rattaché aux propriétaires accessibles.</div>
+  <div class="bb-empty"><span class="icon">🏠</span>Aucun bien rattaché aux propriétaires accessibles.</div>
 <?php else: ?>
-  <table class="bb-table">
-    <thead>
-      <tr><th>Référence</th><th>Type</th><th>Immeuble / Adresse</th><th>Propriétaire</th><th>Surface</th><th>Loyer HC</th><th>Occupation</th><th></th></tr>
-    </thead>
-    <tbody>
-      <?php foreach ($rows as $r):
-        $occ = strtolower((string)($r['occupation_bien'] ?? ''));
-        $loue = str_contains($occ, 'lou') || str_contains($occ, 'occup');
-      ?>
-        <tr>
-          <td><strong><?= e($r['reference_bien'] ?: ('#' . $r['id'])) ?></strong></td>
-          <td><?= e($r['type_lbl'] ?: '—') ?></td>
-          <td><?= e($r['nom_immeuble'] ?: $r['adresse_1'] ?: '—') ?><?= $r['ville'] ? ' · ' . e($r['ville']) : '' ?></td>
-          <td><?= e($r['prop_nom']) ?></td>
-          <td><?= $r['surface_habitable'] ? e(rtrim(rtrim(number_format((float)$r['surface_habitable'], 2, ',', ' '), '0'), ',')) . ' m²' : '—' ?></td>
-          <td><?= $r['loyer_hc'] ? number_format((float)$r['loyer_hc'], 0, ',', ' ') . ' €' : '—' ?></td>
-          <td><?php if ($occ !== ''): ?><span class="bb-occ <?= $loue ? 'loue' : 'libre' ?>"><?= $loue ? 'Loué' : 'Libre' ?></span><?php else: ?>—<?php endif; ?></td>
-          <td><a class="bb-link" href="bien_detail.php?edit=<?= (int)$r['id'] ?>&section=descriptif">Ouvrir →</a></td>
-        </tr>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
+  <input type="text" id="bbSearch" class="bb-search" placeholder="🔎 Rechercher un bien, immeuble, ville, propriétaire…" autocomplete="off" oninput="bbFilter()">
+  <?php entity_card_assets(); ?>
+  <div class="ec-grid" id="bbGrid">
+    <?php foreach ($rows as $r):
+      $bid   = (int)$r['id'];
+      $occ   = strtolower((string)($r['occupation_bien'] ?? ''));
+      $loue  = str_contains($occ, 'lou') || str_contains($occ, 'occup');
+      $accent = $occ === '' ? '#84a98c' : ($loue ? '#2d5f6b' : '#b45309');
+      $title = trim((string)($r['nom_immeuble'] ?: $r['adresse_1'])) ?: ('Bien ' . $bid);
+      $ville = trim((string)$r['ville']);
+      $sub   = $ville !== '' ? '📍 ' . e($ville) : '';
+      $chips = [];
+      if ((float)$r['loyer_hc'] > 0) $chips[] = '💶 <strong>' . number_format((float)$r['loyer_hc'], 0, ',', ' ') . '</strong>&nbsp;€';
+      if ((float)$r['surface_habitable'] > 0) $chips[] = '📐 ' . rtrim(rtrim(number_format((float)$r['surface_habitable'], 1, ',', ' '), '0'), ',') . '&nbsp;m²';
+      $badge = '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">'
+             . ($r['type_lbl'] ? '<span style="background:#eef2f7;color:#475569;border-radius:6px;padding:2px 8px;font-size:10.5px;font-weight:700;">' . e($r['type_lbl']) . '</span>' : '')
+             . ($occ !== '' ? '<span class="bi-occ ' . ($loue ? 'loue' : 'libre') . '">' . ($loue ? 'Loué' : 'Libre') . '</span>' : '')
+             . '</div>';
+      $extra = '';
+      if (trim((string)$r['prop_nom']) !== '') $extra .= '<div class="bi-line">👤 <b>' . e($r['prop_nom']) . '</b></div>';
+      $extra .= '<div class="bi-line" style="margin-top:8px;"><a href="' . e($base) . 'bien_detail.php?edit=' . $bid . '&section=descriptif" target="_top" onclick="event.stopPropagation()" style="color:#2d4a72;background:#f3f6fb;border:1px solid #e3ebf5;border-radius:9px;padding:5px 10px;font-weight:700;text-decoration:none;font-size:11.5px;">📝 Fiche du bien</a></div>';
+      $searchTxt = mb_strtolower(trim(($r['reference_bien'] ?? '') . ' ' . $title . ' ' . $ville . ' ' . ($r['type_lbl'] ?? '') . ' ' . ($r['prop_nom'] ?? '')), 'UTF-8');
+      entity_card([
+        'accent' => $accent,
+        'url'    => $base . 'bien_360.php?id=' . $bid,
+        'ref'    => (string)($r['reference_bien'] ?: ''),
+        'title'  => $title,
+        'sub'    => $sub,
+        'badge'  => $badge,
+        'chips'  => $chips,
+        'extra'  => $extra,
+        'data'   => ['name' => $searchTxt],
+      ]);
+    endforeach; ?>
+  </div>
+  <div class="bb-empty" id="bbNoResult" style="display:none;margin-top:14px;">🔎 Aucun bien ne correspond à votre recherche.</div>
 <?php endif; ?>
+
+<script>
+function bbFilter(){
+  var q=(document.getElementById('bbSearch').value||'').trim().toLowerCase();
+  var cards=document.querySelectorAll('#bbGrid .ec-card'), vis=0;
+  cards.forEach(function(c){ var ok=(c.getAttribute('data-name')||'').indexOf(q)!==-1; c.style.display=ok?'':'none'; if(ok)vis++; });
+  var nr=document.getElementById('bbNoResult'); if(nr) nr.style.display=(vis===0&&cards.length>0)?'block':'none';
+}
+</script>
 <?php
 $layout_content = ob_get_clean();
 require_once __DIR__ . '/inc/layout_maboximmo.php';

@@ -590,7 +590,7 @@ if ($section === 'descriptif') {
     }
     if (empty($typeBienLabel) && !empty($bienLoaded['id_type_bien'])) {
         try {
-            $st = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
+            $st = $pdo->prepare("SELECT libelle AS label FROM types_bien WHERE id = ? LIMIT 1");
             $st->execute([(int)$bienLoaded['id_type_bien']]);
             $typeBienLabel = (string)($st->fetchColumn() ?: '');
         } catch (Throwable $e) {}
@@ -3205,6 +3205,8 @@ if (!$embed) {
               $etatA       = strtolower((string)($annonce['etat_publication'] ?? ''));
               $isSuspended = $etatA === 'suspendu';
               $isArchived  = in_array($etatA, ['archive','archivee'], true);
+              $suspensionOwnerId = (int)($annonce['suspension_user_id'] ?? 0);
+              $canResumeSuspension = $isSuspended && $suspensionOwnerId > 0 && $suspensionOwnerId === current_user_id();
               $stLabel = $isSuspended ? '⏸ Suspendu' : ($isArchived ? '📦 Archivé' : '🟢 En ligne');
               $stCol   = $isSuspended ? '#c2410c'    : ($isArchived ? '#b91c1c'   : '#15803d');
               $stBg    = $isSuspended ? '#fff7ed'    : ($isArchived ? '#fef2f2'   : '#ecfdf3');
@@ -3214,14 +3216,21 @@ if (!$embed) {
               <div title="Statut de l'annonce (automatique, non modifiable)"
                    style="flex:1; min-width:150px; display:flex; align-items:center; justify-content:center; padding:12px; border-radius:10px; font-weight:800; font-size:14px; background:<?= $stBg ?>; color:<?= $stCol ?>; border:1px solid <?= $stBd ?>;"><?= $stLabel ?></div>
               <?php if ($isSuspended): ?>
-                <button type="button" onclick="annonceDiffAction('reprendre','reprendre la diffusion')"
-                        style="flex:1; min-width:190px; padding:12px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-weight:800; font-size:14px; cursor:pointer;">▶ Reprendre la diffusion</button>
+                <?php if ($canResumeSuspension): ?>
+                  <button type="button" onclick="annonceDiffAction('reprendre','reprendre la diffusion')"
+                          style="flex:1; min-width:190px; padding:12px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-weight:800; font-size:14px; cursor:pointer;">▶ Reprendre la diffusion</button>
+                <?php else: ?>
+                  <div style="flex:1; min-width:190px; padding:12px; border:1px solid #fed7aa; border-radius:10px; background:#fff7ed; color:#9a3412; font-weight:700; font-size:13px; text-align:center;">🔒 Seul l’utilisateur ayant suspendu l’annonce peut la reprendre</div>
+                <?php endif; ?>
               <?php else: ?>
                 <button type="button" onclick="annonceDiffAction('suspend','suspendre la diffusion')" <?= $isArchived ? 'disabled style="opacity:.4;cursor:not-allowed;"' : '' ?>
                         style="flex:1; min-width:190px; padding:12px; border:1px solid #ea580c; border-radius:10px; background:#fff7ed; color:#c2410c; font-weight:800; font-size:14px; cursor:pointer;">⏸ Suspendre la diffusion</button>
               <?php endif; ?>
-              <?php if ($isArchived): ?>
-                <button type="button" onclick="annonceDiffAction('reprendre','désarchiver l\'annonce')"
+              <?php if ($isSuspended): ?>
+                <!-- Une suspension est une pause temporaire : aucune autre transition
+                     n'est proposée avant sa reprise par son auteur. -->
+              <?php elseif ($isArchived): ?>
+                <button type="button" onclick="annonceDiffAction('desarchiver','désarchiver l\'annonce')"
                         style="flex:1; min-width:170px; padding:12px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-weight:800; font-size:14px; cursor:pointer;">♻ Désarchiver</button>
               <?php else: ?>
                 <button type="button" onclick="annonceDiffAction('archive','archiver l\'annonce')"
@@ -3235,6 +3244,8 @@ if (!$embed) {
                 ? 'Suspendre la diffusion ? Les sites seront décochés (l\'annonce reste, vente/location en pause).'
                 : (action==='reprendre')
                   ? 'Reprendre ? L\'annonce repasse en brouillon — re-sélectionne les canaux puis re-diffuse.'
+                  : (action==='desarchiver')
+                    ? 'Désarchiver l\'annonce ? Elle repassera en brouillon.'
                   : 'Archiver l\'annonce ? Les diffusions sont retirées et l\'annonce est clôturée.';
               if(!confirm(msg)) return;
               var m=document.getElementById('v2-diffaction-msg'); m.style.color='#64748b'; m.textContent='⏳ …';
@@ -3281,7 +3292,7 @@ if (!$embed) {
                   }
                   if ($typeBienLibelle === '' && !empty($b['id_type_bien'])) {
                       try {
-                          $stTb = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
+                          $stTb = $pdo->prepare("SELECT libelle AS label FROM types_bien WHERE id = ? LIMIT 1");
                           $stTb->execute([(int)$b['id_type_bien']]);
                           $typeBienLibelle = (string)$stTb->fetchColumn();
                       } catch (Throwable) {}

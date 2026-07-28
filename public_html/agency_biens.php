@@ -54,6 +54,9 @@ if ($vueArchives) {
     // N'affiche jamais les biens supprimés / archivés (sinon les doublons soft-deleted réapparaissent).
     $conds[] = "(b.statut_bien IS NULL OR b.statut_bien NOT IN ('supprime','archive','vendu','perdu_gestion'))";
 }
+// Biens « placeholders » de valorisation (porteurs des scénarios DUSART/BOULEZ, réf SCN-*) :
+// jamais dans la liste de travail quotidienne (ils ne sont pas de vrais biens gérés).
+$conds[] = "(b.reference_bien IS NULL OR b.reference_bien NOT LIKE 'SCN-%')";
 if ($scopeSoc > 0) { $conds[] = 'b.id_societe = ?'; $params[] = $scopeSoc; }
 if ($scopeAg  > 0) { $conds[] = 'b.id_agence = ?';  $params[] = $scopeAg;  }
 $where = $conds ? ' WHERE ' . implode(' AND ', $conds) : '';
@@ -64,7 +67,7 @@ try {
                    b.statut_bien,
                    b.id_societe, b.id_agence, b.id_immeuble, b.dpe_classe, b.dpe_reference_certificat,
                    i.nom_immeuble, i.adresse_1, i.ville,
-                   COALESCE(bt.libelle, bt2.label) AS type_libelle,
+                   COALESCE(bt.libelle, bt2.libelle) AS type_libelle,
                    COALESCE(NULLIF(p.societe,''), TRIM(CONCAT_WS(' ', p.prenom, p.nom))) AS proprio_nom,
                    p.id AS proprio_id, p.id_tiers AS proprio_tiers,
                    (SELECT bp.url_photo FROM biens_photos bp WHERE bp.id_bien = b.id ORDER BY bp.ordre ASC, bp.id ASC LIMIT 1) AS photo,
@@ -108,7 +111,7 @@ try {
             FROM biens b
             LEFT JOIN immeubles i  ON i.id  = b.id_immeuble
             LEFT JOIN bien_types      bt  ON bt.id  = b.id_bien_type
-            LEFT JOIN base_types_bien bt2 ON bt2.id = b.id_type_bien
+            LEFT JOIN types_bien bt2 ON bt2.id = b.id_type_bien
             LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
             $where";
     $st = $pdo->prepare($sql); $st->execute($params);

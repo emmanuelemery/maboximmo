@@ -24,7 +24,7 @@ try {
                COALESCE(NULLIF(b.adresse_1,''), i.adresse_1) AS adresse_1,
                COALESCE(NULLIF(b.code_postal,''), i.code_postal) AS code_postal,
                COALESCE(NULLIF(b.ville,''), i.ville) AS ville,
-               bt.label AS type_label,
+               bt.libelle AS type_label,
                dv.id AS id_dossier,
                (SELECT COUNT(*) FROM bien_baux bb WHERE bb.id_bien = b.id AND bb.statut = 'actif') AS nb_baux_actifs,
                (SELECT COALESCE(
@@ -41,7 +41,7 @@ try {
           FROM biens b
           INNER JOIN proprietaires p   ON p.id = b.id_proprietaire
           LEFT JOIN immeubles i        ON i.id = b.id_immeuble
-          LEFT JOIN base_types_bien bt ON bt.id = b.id_type_bien
+          LEFT JOIN types_bien bt ON bt.id = b.id_type_bien
           LEFT JOIN dossier_vente dv   ON dv.id_bien = b.id
          WHERE $where
            AND COALESCE(b.statut_bien,'') NOT IN ('supprime','archive','vendu')

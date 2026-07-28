@@ -31,7 +31,7 @@ if ($adresse1 === '' && $ville === '') { echo json_encode(['ok'=>false,'error'=>
 
 try {
     // Vérifie le type de bien.
-    $stTy = $pdo->prepare("SELECT label FROM base_types_bien WHERE id = ? LIMIT 1");
+    $stTy = $pdo->prepare("SELECT libelle AS label FROM types_bien WHERE id = ? LIMIT 1");
     $stTy->execute([$idTypeBien]);
     $typeLabel = (string)($stTy->fetchColumn() ?: '');
     if ($typeLabel === '') { echo json_encode(['ok'=>false,'error'=>'type de bien invalide']); exit; }

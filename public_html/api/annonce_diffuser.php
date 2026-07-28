@@ -71,7 +71,7 @@ try {
                COALESCE(NULLIF(i.nb_lots, 0), i.copro_nb_lots) AS _imm_nb_lots
         FROM biens b
         LEFT JOIN bien_types      bt  ON bt.id  = b.id_bien_type
-        LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
+        LEFT JOIN types_bien btb ON btb.id = b.id_type_bien
         LEFT JOIN immeubles  i  ON i.id  = b.id_immeuble
         WHERE b.id = ?
         LIMIT 1
@@ -112,14 +112,28 @@ try {
     // date_mise_en_ligne (colonne réelle en BDD, cf. schéma annonces) — set 1ère fois uniquement
     // statut = 'publiee' : requis par le filtre Ubiflow (config/ubiflow_mapping.php)
     // qui filtre sur statut IN ('publiee','active','en_ligne')
+    // AGENCE DE DIFFUSION = celle CHOISIE sur l'annonce (sélecteur → annonces.id_agence),
+    // sinon repli sur l'agence du bien. Le builder Ubiflow filtre sur annonces.id_agence :
+    // sans valeur, l'annonce est EXCLUE du flux malgré une diffusion réussie.
+    // BLOQUANT : pas d'agence résolue → on refuse la diffusion (l'utilisateur doit choisir).
+    $diffAgence = (int)($annonce['id_agence'] ?? 0) ?: (int)($annonce['b_agence'] ?? 0);
+    if ($diffAgence <= 0) {
+        exit(json_encode([
+            'ok'    => false,
+            'error' => "Agence de diffusion non renseignée — sélectionne l'« Agence de diffusion » avant de diffuser.",
+            'field' => 'annonce_agence_id',
+        ]));
+    }
+    // On persiste l'agence effective (no-op si déjà posée à un choix délibéré ; renseigne si NULL).
     $pdo->prepare("
         UPDATE annonces
         SET etat_publication = 'diffusee',
             statut = 'publiee',
+            id_agence = ?,
             date_mise_en_ligne = COALESCE(date_mise_en_ligne, NOW()),
             date_modification = NOW()
         WHERE id = ?
-    ")->execute([$annonceId]);
+    ")->execute([$diffAgence, $annonceId]);
 
     /* ── 6. Trigger Ubiflow si canal portails activé ──────────── */
     $portailsResult = null;
@@ -138,8 +152,8 @@ try {
             require_once __DIR__ . '/../config/ubiflow_mapping.php';
             require_once __DIR__ . '/../api/flux/ubiflow_ftp.php';
 
-            // Trouve le slug de l'agence du bien
-            $idAgence = (int)$annonce['b_agence'];
+            // Trouve le slug de l'AGENCE DE DIFFUSION choisie (annonces.id_agence), pas celle du bien.
+            $idAgence = $diffAgence;
             $slug = null;
             foreach (ubiflow_agences_all() as $s => $cfg) {
                 if ((int)($cfg['id_agence'] ?? 0) === $idAgence && !empty($cfg['actif'])) {
