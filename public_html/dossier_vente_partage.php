@@ -296,8 +296,31 @@ foreach ($immIds as $i => $immId) {
 if (!$communAssigned && $docsCommun) {
     $immCards[] = $carteImmeuble('Documents du dossier', '', 'DOSSIER', 'Pièces communes', '', $docsCommun);
 }
-// Immeuble(s) EN TÊTE, puis les biens.
-$biensJs = array_merge($immCards, $biensJs);
+// ── ORDRE : chaque IMMEUBLE suivi de SES biens ; puis les biens sans immeuble ; puis la card « dossier ». ──
+$immCardByImm = [];   // immId => card immeuble
+$dossierCard  = null; // card « Documents du dossier » (idb = 0)
+foreach ($immCards as $c) {
+    $iid = (int)$c['idb'];
+    if ($iid < 0) $immCardByImm[-$iid] = $c; else $dossierCard = $c;
+}
+$biensByImm = []; $biensSansImm = [];
+foreach ($biensJs as $bv) {
+    $iid = (int)($immOfBien[(int)($bv['idb'] ?? 0)] ?? 0);
+    if ($iid > 0) $biensByImm[$iid][] = $bv; else $biensSansImm[] = $bv;
+}
+$ordered = [];
+$immSeen = [];
+foreach ($immIds as $immId) {
+    if (isset($immCardByImm[$immId])) $ordered[] = $immCardByImm[$immId];  // l'immeuble d'abord
+    foreach ($biensByImm[$immId] ?? [] as $bv) $ordered[] = $bv;           // puis SES biens
+    $immSeen[$immId] = true;
+}
+foreach ($immCardByImm as $immId => $c) {   // immeubles éventuels hors $immIds (sécurité)
+    if (empty($immSeen[$immId])) { $ordered[] = $c; foreach ($biensByImm[$immId] ?? [] as $bv) $ordered[] = $bv; }
+}
+$ordered = array_merge($ordered, $biensSansImm);   // biens sans immeuble
+if ($dossierCard) $ordered[] = $dossierCard;       // « Documents du dossier » en fin
+$biensJs = $ordered;
 
 // ── Destinataire résolu depuis l'acteur du dossier (nom + coordonnées) selon le rôle du partage. ──
 $destActeur = null;
