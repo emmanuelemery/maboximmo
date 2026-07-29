@@ -328,10 +328,24 @@ if (!function_exists('crg_split_adresse')) {
     function crg_split_adresse(string $adr): array {
         $adr = trim(preg_replace('/\s+/', ' ', $adr));
         if ($adr === '') return ['', '', ''];
-        if (preg_match('/^(.*?)[,\s]+(\d{5})\s+(.+)$/u', $adr, $m)) {
-            return [trim($m[1], " ,"), $m[2], trim($m[3], " ,")];
+        // Voie OPTIONNELLE (certains CRG n'ont que « CP VILLE »).
+        if (preg_match('/^(.*?)\s*\b(\d{5})\b\s+(.+)$/u', $adr, $m)) {
+            return [trim($m[1], " ,"), $m[2], crg_clean_ville($m[3])];
         }
         return [$adr, '', ''];
+    }
+}
+
+if (!function_exists('crg_clean_ville')) {
+    /**
+     * Nettoie le libellé de ville : coupe la pollution du tableau CRG collée derrière
+     * (« LYON RECAPITULATIF DES OPERATIONS Débits Crédits Dont T.V.A. … » → « LYON »).
+     * Conserve les suffixes légitimes (« CEDEX 2 », « LA PAPE »).
+     */
+    function crg_clean_ville(string $v): string {
+        $v = trim(preg_replace('/\s+/', ' ', $v), " ,-");
+        $v = preg_replace('/\s+(R[ÉE]CAPITULATIF|OP[ÉE]RATIONS?|D[ÉE]BITS?|CR[ÉE]DITS?|D[ÉE]PENSES?|D[ÉE]DUCTIBLE|LOCATIF|SYNDIC|DONT|T\.?V\.?A)\b.*$/iu', '', (string)$v);
+        return trim((string)$v, " ,-");
     }
 }
 
