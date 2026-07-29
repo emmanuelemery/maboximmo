@@ -483,6 +483,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
             <span class="line-r" style="background:linear-gradient(90deg,#4a8074,#5fa090,transparent)"></span>
         </div>
         <div class="cards-grid">
+            <a href="admin/admin_crg_batch.php" class="adm-card" style="border-left-color:#4a8074">
+                <div class="adm-card-ico" style="background:rgba(74,128,116,0.1)">
+                    <svg viewBox="0 0 24 24" stroke="#4a8074"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+                <div class="adm-card-label">Import CRG en masse</div>
+                <div class="adm-card-desc">Charger tout un dossier de comptes-rendus de gestion (PDF) : propriétaires, immeubles, baux, soldes locataires mis à jour automatiquement.</div>
+                <div class="adm-card-arrow" style="color:#4a8074">Importer →</div>
+            </a>
             <a href="bailleur_admin_comptes.php" class="adm-card" style="border-left-color:#4a8074">
                 <div class="adm-card-ico" style="background:rgba(74,128,116,0.1)">
                     <svg viewBox="0 0 24 24" stroke="#4a8074"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
@@ -595,6 +603,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
                 <div class="adm-card-label">Reset OPcache</div>
                 <div class="adm-card-desc">Force PHP à recharger les fichiers (utile après upload prod via FTP).</div>
                 <div class="adm-card-arrow arr-mauve">Reset →</div>
+            </a>
+            <a href="admin/admin_ged_uploads_history.php" class="adm-card mauve">
+                <div class="adm-card-ico ico-mauve">
+                    <svg viewBox="0 0 24 24" stroke="#7a6898"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/><path d="M14 3h6v6"/></svg>
+                </div>
+                <div class="adm-card-label">Historique chargements</div>
+                <div class="adm-card-desc">Tous les documents chargés en GED : propriétaire / immeuble / bien / locataire, type, utilisateur, date. Ouverture du doc.</div>
+                <div class="adm-card-arrow arr-mauve">Consulter →</div>
             </a>
         </div>
 
