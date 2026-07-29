@@ -337,6 +337,13 @@ async function run(){
       + (d.error ? ' — '+d.error : '');
     const div = document.createElement('div'); div.textContent=line;
     if(cls==='b-err') div.style.color='#991b1b';
+    const docId = (s && s.ged_document_id) ? parseInt(s.ged_document_id,10) : 0;
+    if(docId>0 && window.mvptModalView){
+      const a=document.createElement('a'); a.href='#'; a.textContent='📄 ouvrir';
+      a.style.cssText='margin-left:10px;color:#1d4ed8;font-weight:700;text-decoration:none;cursor:pointer';
+      a.onclick=(e)=>{ e.preventDefault(); window.mvptModalView(docId, it.file); };
+      div.appendChild(a);
+    }
     log.appendChild(div); log.scrollTop=log.scrollHeight;
 
     done++; bar.style.width=(done/total*100)+'%';
@@ -351,4 +358,5 @@ async function run(){
 }
 </script>
 
+<?php if (!defined('MVPT_DOC_VIEWER_LOADED')) { define('MVPT_DOC_VIEWER_LOADED', 1); include __DIR__ . '/../inc/mvpt_modal_doc_viewer.php'; } /* modale mvptModalView : ouvrir le CRG archivé */ ?>
 <?php require_once __DIR__ . '/../inc/agency_layout_bottom.php'; ?>

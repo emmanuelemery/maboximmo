@@ -817,6 +817,7 @@ if (!function_exists('crg_apply_parsed')) {
         // ── Archivage GED du PDF → propriétaire (TIERS) + cascade immeuble/bail ──
         $gedStatut = 'skip';
         $gedError  = null;
+        $gedDocId  = 0;
         if ($pdfAbs && is_file($pdfAbs)) {
             try {
                 // NB : proprietaires n'a PAS de colonne id_societe → la société est
@@ -870,9 +871,10 @@ if (!function_exists('crg_apply_parsed')) {
                         error_log('[crg_apply GED] crg#' . $crgId . ' : ' . $gedError);
                     } elseif (!empty($gedRes['doc_id'])) {
                         // Traçabilité + idempotence : on mémorise le doc GED sur le trimestre.
+                        $gedDocId = (int)$gedRes['doc_id'];
                         try {
                             $pdo->prepare('UPDATE crg_trimestres SET ged_document_id=? WHERE id=?')
-                                ->execute([(int)$gedRes['doc_id'], $crgId]);
+                                ->execute([$gedDocId, $crgId]);
                         } catch (Throwable) {}
                     }
                 } else {
@@ -888,7 +890,7 @@ if (!function_exists('crg_apply_parsed')) {
         return [
             'ok'     => true,
             'crg_id' => $crgId,
-            'stats'  => ['immeubles'=>$nbImmeubles, 'lots'=>$nbLots, 'ecritures'=>$nbEcritures, 'bascules'=>$nbBascules, 'mandats'=>$nbMandats, 'ged'=>$gedStatut, 'ged_error'=>$gedError, 'annee'=>$annee, 'trimestre'=>$trimestre],
+            'stats'  => ['immeubles'=>$nbImmeubles, 'lots'=>$nbLots, 'ecritures'=>$nbEcritures, 'bascules'=>$nbBascules, 'mandats'=>$nbMandats, 'ged'=>$gedStatut, 'ged_error'=>$gedError, 'ged_document_id'=>$gedDocId, 'annee'=>$annee, 'trimestre'=>$trimestre],
             'error'  => null,
         ];
     }
