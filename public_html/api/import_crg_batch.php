@@ -243,7 +243,17 @@ if ($action === 'process_one') {
         //    puis dossier (ex. EMERY IMMO sans nom dans le fichier), puis contenu PDF.
         $proprioEffectif = crg_proprio_from_filename($origName);
         if ($proprioEffectif === '') $proprioEffectif = $proprioName;
-        if ($proprioEffectif === '') $proprioEffectif = trim((string)($parsed['proprietaire']['nom'] ?? ''));
+        // ── FILET : si le nom déduit (fichier/dossier) est VIDE, ou ressemble à une
+        //    régie/gestionnaire (ex. dossier « CRG 30-06-2026 LYON »), ou est invalide,
+        //    on prend le VRAI propriétaire lu dans l'EN-TÊTE du PDF (GPT-4o / parser).
+        //    Sans ce filet, des fichiers sans année dans le nom + un dossier nommé
+        //    « CRG … LYON » faisaient échouer TOUT le lot sur le garde-fou anti-régie.
+        if ($proprioEffectif === ''
+            || crg_is_gestionnaire_name($proprioEffectif)
+            || crg_is_invalid_proprio_name($proprioEffectif)) {
+            $pdfNom = trim((string)($parsed['proprietaire']['nom'] ?? ''));
+            if ($pdfNom !== '') $proprioEffectif = $pdfNom;
+        }
         if ($proprioEffectif === '') {
             echo json_encode(['ok' => false, 'status' => 'erreur', 'file' => $origName, 'error' => 'Propriétaire indéterminé (ni fichier, ni dossier, ni PDF)']);
             exit;
