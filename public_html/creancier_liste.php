@@ -11,6 +11,7 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/entity_card.php';
 require_once __DIR__ . '/inc/csrf.php';
 require_once __DIR__ . '/inc/creancier_urgence_data.php';
+require_once __DIR__ . '/inc/creancier_couleur.php';
 require_login();
 
 if (!function_exists('e')) { function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); } }
@@ -32,14 +33,16 @@ $idSociete = (int)($stU->fetchColumn() ?: 0);
 $filterTiers = (int)($_GET['tiers'] ?? 0);
 $tiersNom = '';
 if ($filterTiers > 0) {
-    $sql = "SELECT d.* FROM creancier_dossier d
+    // Dettes PERSONNELLES du tiers (il en est débiteur) — on EXCLUT les dossiers où il est
+    // seulement garant (affichés à part dans « Garanties données »).
+    $sql = "SELECT d.*, GROUP_CONCAT(DISTINCT l.role_dossier ORDER BY l.role_dossier SEPARATOR ',') AS _tiers_roles
+            FROM creancier_dossier d
             JOIN creancier_dossier_lien l ON l.id_dossier = d.id
-               AND l.entity_type = 'TIERS' AND l.entity_id = :tid";
+               AND l.entity_type = 'TIERS' AND l.entity_id = :tid AND l.role_dossier <> 'garant'";
     $params = [':tid' => $filterTiers];
     if (!$isSuper) {
-        $sql .= " JOIN creancier_dossier_acces a ON a.id_dossier = d.id AND a.id_user = :uid
-                  WHERE (d.id_societe IS NULL OR d.id_societe = :soc)";
-        $params[':uid'] = $userId; $params[':soc'] = $idSociete;
+        $sql .= " WHERE " . creancier_visibility_where('d');
+        $params += creancier_visibility_params($userId);
     }
     $sql .= " GROUP BY d.id ORDER BY FIELD(d.niveau_risque,'rouge','orange','vert'), d.libelle";
     $st = $pdo->prepare($sql);
@@ -50,14 +53,23 @@ if ($filterTiers > 0) {
         $stN->execute([$filterTiers]);
         $tiersNom = (string)($stN->fetchColumn() ?: '');
     } catch (Throwable $e) {}
+    // Garanties DONNÉES par ce tiers (il est caution sur les dettes d'AUTRES débiteurs).
+    $garanties = [];
+    try {
+        $stG = $pdo->prepare("SELECT d.id, d.libelle, d.code, l.montant_garanti
+                              FROM creancier_dossier_lien l JOIN creancier_dossier d ON d.id = l.id_dossier
+                              WHERE l.entity_type='TIERS' AND l.entity_id = ? AND l.role_dossier='garant'
+                              ORDER BY l.montant_garanti DESC, d.libelle");
+        $stG->execute([$filterTiers]);
+        $garanties = $stG->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) { $garanties = []; }
 } elseif ($isSuper) {
     $dossiers = $pdo->query("SELECT * FROM creancier_dossier ORDER BY FIELD(niveau_risque,'rouge','orange','vert'), libelle")->fetchAll(PDO::FETCH_ASSOC);
 } else {
     $st = $pdo->prepare("SELECT d.* FROM creancier_dossier d
-        JOIN creancier_dossier_acces a ON a.id_dossier = d.id AND a.id_user = :uid
-        WHERE (d.id_societe IS NULL OR d.id_societe = :soc)
+        WHERE " . creancier_visibility_where('d') . "
         ORDER BY FIELD(d.niveau_risque,'rouge','orange','vert'), d.libelle");
-    $st->execute([':uid' => $userId, ':soc' => $idSociete]);
+    $st->execute(creancier_visibility_params($userId));
     $dossiers = $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -139,14 +151,43 @@ include __DIR__ . '/inc/sidebar_agency.php';
         🚨 Dossiers créanciers / saisies de <b><?= e($tiersNom ?: ('tiers #' . $filterTiers)) ?></b>
         <a href="<?= e($base) ?>creancier_liste.php" style="margin-left:auto;color:#1d4ed8;font-weight:700;text-decoration:none;">↩ Voir tous les dossiers</a>
       </div>
+      <?php if (!empty($garanties)): ?>
+      <div style="margin:0 2px 14px;padding:12px 16px;background:#fdf6ee;border:1px solid #e7cfa8;border-left:4px solid #8a5a2b;border-radius:10px;">
+        <div style="font-size:13px;color:#8a5a2b;font-weight:800;margin-bottom:6px;">🤝 Garanties données par <?= e($tiersNom) ?> <span style="font-weight:600;color:#9a8a6a;">(caution sur des dettes d'autres débiteurs)</span></div>
+        <?php foreach ($garanties as $ga): ?>
+          <a href="<?= e($base) ?>creancier_dossier360.php?id_dossier=<?= (int)$ga['id'] ?>" style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0e6d6;font-size:12.5px;color:#5a4a33;text-decoration:none;">
+            <span><?= e($ga['code']) ?> · <b><?= e($ga['libelle']) ?></b></span>
+            <span style="font-weight:800;color:#8a5a2b;"><?= $ga['montant_garanti']!==null ? $eur($ga['montant_garanti']) : '— €' ?></span>
+          </a>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
       <?php endif; ?>
       <div class="pk-bar">
         <div class="pk-bar-search"><span class="search-icon">🔍</span><input type="text" id="creSearch" placeholder="Rechercher un dossier…" oninput="creFilter()" autocomplete="off"></div>
       </div>
+      <?= creancier_couleur_css() ?>
       <div class="ec-grid" id="creGrid">
-        <?php foreach ($rows as $r): $d = $r['d']; $u = $r['u']; $rc = $riskColor[$d['niveau_risque']] ?? '#ea580c';
+        <?php foreach ($rows as $r): $d = $r['d']; $u = $r['u'];
+          // Couleur/clignotement d'URGENCE (dette + audience ≤10j + débiteur énervé) — pas le simple statut.
+          $col = creancier_couleur_dossier((float)($u['montant_du'] ?? 0), [
+              'enerve' => (int)($d['debiteur_enerve'] ?? 0) === 1,
+              'jours_audience' => creancier_jours_prochaine_audience($pdo, (int)$d['id']),
+          ]);
+          $rc = $col['bd'];
+          $blinkCls = $col['blink'] ? 'cre-blink-' . $col['blink'] : '';
           $chips = [];
-          $chips[] = '💰 Dû <b style="color:#dc2626;margin-left:3px;">' . $eur($u['montant_du']) . '</b>';
+          // Filtre par tiers : rappeler le NOM + son RÔLE dans ce dossier (le titre = le débiteur
+          // principal, ex. « Groupe SIR c/… », ne montre pas qu'Yves SABY y figure comme caution).
+          if ($filterTiers > 0 && $tiersNom !== '') {
+              $roleLblMap = ['debiteur'=>'débiteur','debiteur_solidaire'=>'débiteur solidaire','codebiteur'=>'co-débiteur','caution'=>'caution','garant'=>'garant','representant'=>'représentant','mandataire'=>'mandataire'];
+              $roles = array_filter(array_map('trim', explode(',', (string)($d['_tiers_roles'] ?? ''))));
+              $roleTxt = implode(', ', array_map(fn($r) => $roleLblMap[$r] ?? $r, $roles));
+              $chips[] = '👤 <b style="margin-left:3px;">' . e($tiersNom) . '</b>' . ($roleTxt !== '' ? ' <span style="color:#8a5a2b;font-weight:700;">— ' . e($roleTxt) . '</span>' : '');
+          }
+          $chips[] = '💰 Dû <b style="color:' . $col['fg'] . ';margin-left:3px;">' . $eur($u['montant_du']) . '</b>';
+          if ($col['blink'] === 'yellow') $chips[] = '<span style="color:#a16207;font-weight:800;">⚖️ Audience proche</span>';
+          elseif ($col['blink'] === 'orange') $chips[] = '<span style="color:#c2410c;font-weight:800;">😤 Débiteur énervé</span>';
           if ($u['total_net_bloque'] > 0) $chips[] = '🔒 ' . $eur($u['total_net_bloque']);
           if ($u['butoirs_en_retard']) $chips[] = '<span style="color:#dc2626;font-weight:700;">⏰ ' . count($u['butoirs_en_retard']) . ' retard(s)</span>';
           elseif ($u['prochaine_butoir']) $chips[] = '📅 ' . $dfr($u['prochaine_butoir']);
@@ -154,9 +195,10 @@ include __DIR__ . '/inc/sidebar_agency.php';
         <?php entity_card([
           'url'    => $base . 'creancier_dossier360.php?id_dossier=' . (int)$d['id'],
           'accent' => $rc,
+          'class'  => $blinkCls,
           'ref'    => (string)$d['code'],
           'title'  => (string)$d['libelle'],
-          'badge'  => '<span class="ap-badge" style="background:' . $rc . '22;color:' . $rc . ';">' . e($statutLbl[$d['statut']] ?? $d['statut']) . '</span>',
+          'badge'  => '<span class="ap-badge" style="background:' . $col['bg'] . ';color:' . $col['fg'] . ';">' . e($col['label']) . '</span>',
           'chips'  => $chips,
           'data'   => ['name' => mb_strtolower((string)$d['libelle'] . ' ' . $d['code'])],
         ]); ?>
