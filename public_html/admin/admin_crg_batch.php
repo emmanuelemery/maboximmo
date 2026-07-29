@@ -20,6 +20,11 @@ require_admin_or_super_admin();
 
 $csrf = csrf_token('default');
 
+// Agences (pour rattacher le lot CRG à son agence gestionnaire — LYON par défaut).
+$agences = $pdo->query("SELECT id, nom_agence FROM agences WHERE actif=1 ORDER BY nom_agence")->fetchAll(PDO::FETCH_ASSOC);
+$agenceDefaut = 0;
+foreach ($agences as $a) { if (stripos($a['nom_agence'], 'LYON') !== false) { $agenceDefaut = (int)$a['id']; break; } }
+
 $pageTitle    = '📦 CRG en masse';
 $pageSubtitle = 'Ma Box Agency · Import CRG par dossier';
 $extraCss = <<<'CSS'
@@ -87,6 +92,22 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
   <div class="card" id="scanCard" style="display:none">
     <div class="toolbar">
       <span id="summary" class="muted" style="flex:1"></span>
+      <label class="lbl" title="Détectée automatiquement dans l'entête du CRG (code postal). Ce choix ne sert que si la détection échoue.">Agence (secours)&nbsp;:
+        <select id="agenceSel" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13.5px">
+          <?php foreach ($agences as $a): ?>
+            <option value="<?= (int)$a['id'] ?>" <?= ((int)$a['id'] === $agenceDefaut ? 'selected' : '') ?>><?= htmlspecialchars($a['nom_agence']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <label class="lbl" title="Force la période de TOUT le lot (utile quand des PDF portent une date d'édition en juillet alors que le CRG est arrêté au 30/06 = T2). Laisse « auto » pour lire la date de chaque PDF.">Forcer&nbsp;:
+        <select id="forcePeriode" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13.5px">
+          <option value="" selected>auto (date PDF)</option>
+          <option value="2026-1">2026 · T1</option>
+          <option value="2026-2">2026 · T2 (30/06)</option>
+          <option value="2026-3">2026 · T3</option>
+          <option value="2026-4">2026 · T4</option>
+        </select>
+      </label>
       <label class="lbl"><input type="checkbox" id="allChk" checked onchange="toggleAll(this.checked)"> tout cocher</label>
       <button class="btn gold" id="btnRun" onclick="run()" disabled>▶️ Importer la sélection</button>
       <button class="btn" id="btnPause" onclick="togglePause()" style="display:none;background:#6b7a90">⏸ Pause</button>
@@ -107,6 +128,9 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
 
 <script>
 const CSRF = <?= json_encode($csrf) ?>;
+// URL ABSOLUE de l'API : la balise <base href> du layout casse les URLs relatives
+// (« ../api/… » se résout vers /MaBoxImmo2026/api sans public_html → 404 → HTML).
+const API_URL = <?= json_encode(app_url('/api/import_crg_batch.php')) ?>;
 let ITEMS = [];
 let MODE = 'prod';
 let PAUSED=false, STOP=false;
@@ -130,7 +154,7 @@ function trimFromName(name){
 
 function proprioFromName(name, folder){
   const base = name.replace(/\.[^.]+$/,'');
-  const m = base.match(/^(.*?)[_\-\s]+(20\d\d)\b/);
+  const m = base.match(/^(.*?)[_\-\s]+(20\d\d)(?=[_\-\s.]|$)/);
   if(m){
     let n = m[1].replace(/[_\-]+/g,' ').trim();
     n = n.replace(/^(monsieur et madame|mr et mme|m\.? et mme|madame|monsieur|mademoiselle|melle|mme|mlle|mr|m\.)\s+/i,'').trim();
@@ -139,11 +163,15 @@ function proprioFromName(name, folder){
   return folder||'';
 }
 
+function AGENCE_ID(){ const s=document.getElementById('agenceSel'); return s ? s.value : ''; }
+// Période forcée pour tout le lot (select « Forcer »). Renvoie {annee,trim} ou null (=auto).
+function FORCE_PER(){ const s=document.getElementById('forcePeriode'); if(!s||!s.value) return null; const m=/^(\d{4})-(\d)$/.exec(s.value); return m ? {annee:parseInt(m[1],10), trim:parseInt(m[2],10)} : null; }
+
 function post(action, params){
   const fd = new FormData();
   fd.append('action', action);
   for(const k in params) fd.append(k, params[k]);
-  return fetch('../api/import_crg_batch.php', {method:'POST', headers:{'X-CSRF-Token':CSRF}, body:fd}).then(r=>r.json());
+  return fetch(API_URL, {method:'POST', headers:{'X-CSRF-Token':CSRF}, body:fd, credentials:'same-origin'}).then(r=>r.json());
 }
 
 function renderTable(){
@@ -223,16 +251,21 @@ async function run(){
     document.getElementById('stt'+i).innerHTML='<span class="badge b-new">…</span>';
     let d;
     try {
+      const fp = FORCE_PER();   // {annee,trim} ou null
       if(MODE==='prod'){
         const fd = new FormData();
         fd.append('action','process_one');
         fd.append('proprio', it.proprio);
         fd.append('filename', it.file);
         fd.append('force', '1');
+        fd.append('id_agence', AGENCE_ID());
+        if(fp){ fd.append('force_annee', fp.annee); fd.append('force_trimestre', fp.trim); }
         fd.append('fichier', it.fileObj, it.file);
-        d = await fetch('../api/import_crg_batch.php',{method:'POST',headers:{'X-CSRF-Token':CSRF},body:fd}).then(r=>r.json());
+        d = await fetch(API_URL,{method:'POST',headers:{'X-CSRF-Token':CSRF},body:fd,credentials:'same-origin'}).then(r=>r.json());
       } else {
-        d = await post('process_one', {path: it.path, proprio: it.proprio, filename: it.file, force:'1'});
+        const p = {path: it.path, proprio: it.proprio, filename: it.file, force:'1', id_agence: AGENCE_ID()};
+        if(fp){ p.force_annee = fp.annee; p.force_trimestre = fp.trim; }
+        d = await post('process_one', p);
       }
     } catch(e){ d = {ok:false, status:'erreur', error:String(e)}; }
 
