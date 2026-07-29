@@ -97,15 +97,70 @@ def parse_meta(pages_text):
     if m:
         meta['date_arrete'] = m.group(1)
 
-    # Proprietaire: look for SARL/SCI/SAS line, or first prominent name
-    m = re.search(r'((?:SARL|SCI|SAS|EURL|SA)\s+[A-Z][A-Z\s\-]+)', recap)
-    if m:
-        meta['proprietaire'] = m.group(1).strip()
-    else:
-        # Try name after COMPTE PERSONNEL line
-        m = re.search(r'COMPTE PERSONNEL\s+\w+\s*\n\s*(.+)', recap)
-        if m:
-            meta['proprietaire'] = m.group(1).strip()
+    # Proprietaire (DESTINATAIRE) — format ICS / Régie EMERY / Lyon.
+    # Bloc situé APRÈS « <Ville>, le JJ/MM/AAAA » et AVANT « COMPTE PERSONNEL ».
+    # NE JAMAIS prendre l'en-tête régie (LOCA IMMO / REGIE EMERY) ni l'adresse d'un BIEN.
+    meta['proprietaire'] = None
+    meta['proprietaire_adresse'] = None
+    name_re = re.compile(
+        r'^(monsieur et madame|m\.?\s*et\s*mme|mr\s*et\s*mme|madame|monsieur|mme|mlle|mr|m\.|'
+        r'sci|sarl|sas|sa|snc|eurl|sc|scp|indivision|gpe|sasu)\b', re.I)
+    gest_re = re.compile(r'(regie\s+emery|loca\s*immo|emery\s+immo|powered\s+by\s+ics)', re.I)
+    # Le filigrane vertical « Powered by ICS » est lu à l'envers par pdfplumber
+    # (« ICS » → « SCI », « Powered by » → « yb derewoP ») et pollue le bloc.
+    junk_re = re.compile(r'(derewoP|powered\s*by|^\W*scilanosrep|^sci$|^ics$|^\W+$)', re.I)
+    def _clean(lst):
+        out = []
+        for x in lst:
+            x = x.strip()
+            if not x or junk_re.search(x) or gest_re.search(x):
+                continue
+            out.append(x)
+        return out
+
+    # Le bloc DESTINATAIRE (nom + adresse) se trouve JUSTE AVANT le corps du
+    # courrier (« Nous vous prions … »), précédé d'une salutation courte
+    # (« Monsieur, » / « Madame, » / « Messieurs, »). On ancre là-dessus.
+    all_lines = recap.splitlines()
+    salut_re = re.compile(r'^(monsieur|madame|messieurs|mesdames|mademoiselle|ma[iî]tre|cher|chère)\s*,?\s*$', re.I)
+    body_idx = next((i for i, l in enumerate(all_lines) if re.match(r'\s*Nous vous prions', l, re.I)), None)
+    if body_idx is not None:
+        # Remonter en collectant les lignes utiles (hors filigrane/gestionnaire).
+        block = []
+        j = body_idx - 1
+        while j >= 0 and len(block) < 7:
+            s = all_lines[j].strip()
+            if s and not junk_re.search(s) and not gest_re.search(s):
+                block.insert(0, s)
+            j -= 1
+        # Retirer la salutation finale (« Monsieur, » seul).
+        if block and salut_re.match(block[-1]):
+            block.pop()
+        # Adresse ancrée sur le code postal.
+        cp_idx = next((i for i, l in enumerate(block) if re.match(r'^\d{5}\b\s+\S', l)), None)
+        if cp_idx is not None:
+            postal = block[cp_idx]
+            street = block[cp_idx-1] if cp_idx >= 1 and re.search(r'\d', block[cp_idx-1]) else ''
+            meta['proprietaire_adresse'] = (street + ', ' + postal).strip(', ')
+            name = ''
+            if street and cp_idx >= 2: name = block[cp_idx-2]
+            elif not street and cp_idx >= 1: name = block[cp_idx-1]
+            if name and name_re.match(name):
+                meta['proprietaire'] = name
+            else:
+                # Nom plus haut : une ligne intermédiaire (« Maître … » notaire, « c/o … »)
+                # peut s'intercaler entre le propriétaire et son adresse. On remonte
+                # jusqu'à la 1re ligne « forme/civilité » (SCI, M. et Mme, Indivision…).
+                for l in block[:cp_idx]:
+                    if name_re.match(l) and len(l.split()) >= 2:
+                        meta['proprietaire'] = l
+                        break
+        elif block:
+            # Pas de CP trouvé : nom = 1re ligne « civilité/forme ».
+            for l in block:
+                if name_re.match(l) and len(l.split()) >= 2:
+                    meta['proprietaire'] = l
+                    break
 
     m = re.search(r'Report au\s+\d{2}\.\d{2}\.\d{4}\s+([\d.]+)', recap)
     if m:
@@ -334,25 +389,33 @@ def parse_lots(text):
         if recap_pos:
             part = part[:recap_pos.start()]
 
-        # Tenant name: lines between type_bien line and first "Du " or "Solde Ant" or "Totaux"
+        # Nom du LOCATAIRE : sa position varie (parfois AVANT la 1re ligne \u00AB Du \u00BB,
+        # parfois APR\u00C8S \u2014 pdfplumber entrem\u00EAle les colonnes). On scanne donc TOUT le
+        # bloc du lot et on retient la 1re (jusqu'\u00E0 2) vraie ligne de nom : commence
+        # par une majuscule, contient des lettres, SANS chiffres, et n'est pas une
+        # ligne technique (Du/Solde/Totaux/Taxe/Remise/Rappel/en-t\u00EAte).
         lines = part.split('\n')
+        skip_re = re.compile(
+            r'^(Du\s+\d|Solde\s+Ant|Totaux|TOTAUX|Locataires\s+P|Taxe\s+fonci|Remise\s+de|'
+            r'Rappel\s+de|\(DONT|RECAPITUL|Report\b|P[e\u00E9]riode\b|Frais\s+d)', re.I)
         tenant_lines = []
-        for i in range(1, len(lines)):
-            line = lines[i].strip()
+        started = False
+        for line in lines[1:]:
+            line = line.strip()
             if not line:
                 continue
-            if re.match(r'Du\s+\d', line):
-                break
-            if re.match(r'Solde\s+Ant', line, re.I):
-                break
-            if re.match(r'Totaux\b', line):
-                break
-            if re.match(r'Locataires\s+P', line, re.I):
+            if skip_re.match(line):
+                if started:
+                    break
                 continue
-            # Tenant name lines are typically uppercase
-            if re.match(r'[A-Z\u00C0-\u00FF]', line):
+            letters = re.sub(r'[^A-Za-z\u00C0-\u00FF]', '', line)
+            is_name = re.match(r'[A-Z\u00C0-\u00DF]', line) and len(letters) >= 3 and not re.search(r'\d', line)
+            if is_name:
                 tenant_lines.append(line)
-            if len(tenant_lines) >= 2:
+                started = True
+                if len(tenant_lines) >= 2:
+                    break
+            elif started:
                 break
 
         locataire = clean_name(' '.join(tenant_lines))
@@ -373,6 +436,26 @@ def parse_lots(text):
             loyer_total += pa(loy)
             taxes_total += pa(tax)
             provisions_total += pa(prov)
+
+        # Loyer MENSUEL : on prend la valeur d'UNE ligne de période, normalisée au mois
+        # selon le nombre de mois couverts (« Du 01.01 Au 31.01 » = 1 mois → direct ;
+        # « Du 01.01 Au 31.03 » = 3 mois → /3). PAS de division du total trimestriel.
+        # On retient la plus GRANDE valeur mensuelle (le loyer domine taxes/provisions).
+        du_dated = re.findall(
+            r'Du\s+\d{2}\.(\d{2})\.\d{2,4}\s+Au\s+\d{2}\.(\d{2})\.\d{2,4}\s+([\d.]+)',
+            part
+        )
+        loyer_mensuel = 0.0
+        for dm, am, loy in du_dated:
+            l = pa(loy)
+            if l <= 0:
+                continue
+            span = (int(am) - int(dm)) % 12 + 1
+            if span < 1 or span > 12:
+                span = 1
+            val = round(l / span, 2)
+            if val > loyer_mensuel:
+                loyer_mensuel = val
 
         # Solde Anterieur (handle encoding issues)
         sa_m = re.search(r'Solde\s+Ant[eé\?]rieur\s+([\d.]+)', part, re.I)
@@ -425,6 +508,7 @@ def parse_lots(text):
             'categorie': detect_categorie(type_bien),
             'locataire_nom': locataire,
             'loyer_appele': t_loyers,
+            'loyer_mensuel': loyer_mensuel,
             'solde_anterieur': t_solde_ant,
             'total_taxes': t_taxes,
             'total_provisions': t_provisions,

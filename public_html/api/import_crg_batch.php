@@ -402,6 +402,9 @@ if ($action === 'apply_json') {
             $parsed['periode']['date_arrete'] = sprintf('%04d-%02d-%02d', $forceAnnee, $endMonth, $lastDay);
         }
 
+        $codeCompte  = trim((string)($parsed['proprietaire']['code_compte'] ?? ''));
+        $adresseProp = trim((string)($parsed['proprietaire']['adresse'] ?? '')) ?: null;
+
         // Propriétaire : nom de fichier, sinon en-tête du PDF (déjà dans le JSON parsé).
         $proprioEffectif = crg_proprio_from_filename($origName);
         if ($proprioEffectif === ''
@@ -410,23 +413,46 @@ if ($action === 'apply_json') {
             $pdfNom = trim((string)($parsed['proprietaire']['nom'] ?? ''));
             if ($pdfNom !== '') $proprioEffectif = $pdfNom;
         }
-        if ($proprioEffectif === '' || crg_is_gestionnaire_name($proprioEffectif) || crg_is_invalid_proprio_name($proprioEffectif)) {
-            echo json_encode(['ok' => false, 'status' => 'erreur', 'file' => $origName, 'error' => 'Propriétaire indéterminé/régie (« ' . $proprioEffectif . ' »).']);
-            exit;
-        }
-
-        $codeCompte  = trim((string)($parsed['proprietaire']['code_compte'] ?? ''));
-        $adresseProp = trim((string)($parsed['proprietaire']['adresse'] ?? '')) ?: null;
+        $nameOk = $proprioEffectif !== '' && !crg_is_gestionnaire_name($proprioEffectif) && !crg_is_invalid_proprio_name($proprioEffectif);
 
         // Règle GROUPE SIR OYONNAX (identique à process_one) → propriétaire distinct.
-        if (stripos($origName, 'OYONNAX') !== false && stripos($proprioEffectif, 'SIR') !== false) {
-            $proprioEffectif = 'GROUPE SIR OYONNAX';
-            $codeCompte      = '01040247';
-            $parsed['proprietaire']['nom']         = 'GROUPE SIR OYONNAX';
-            $parsed['proprietaire']['code_compte'] = '01040247';
+        if (stripos($origName, 'OYONNAX') !== false
+            && (stripos($proprioEffectif, 'SIR') !== false || stripos((string)($parsed['proprietaire']['nom'] ?? ''), 'SIR') !== false)) {
+            $proprioEffectif = 'GROUPE SIR OYONNAX'; $codeCompte = '01040247'; $nameOk = true;
+            $parsed['proprietaire']['nom'] = 'GROUPE SIR OYONNAX'; $parsed['proprietaire']['code_compte'] = '01040247';
         }
 
-        $proprietaireId = crg_resolve_or_create_proprio($pdo, $proprioEffectif, $codeCompte, $adresseProp, $agenceId);
+        if ($nameOk) {
+            $proprietaireId = crg_resolve_or_create_proprio($pdo, $proprioEffectif, $codeCompte, $adresseProp, $agenceId);
+        } else {
+            // NOM ABSENT (parser Python) → on résout par les RÉFÉRENCES du CRG :
+            // (a) n° de compte ; (b) codes immeubles → propriétaire de l'immeuble existant.
+            $proprietaireId = 0;
+            if ($codeCompte !== '') {
+                $q = $pdo->prepare("SELECT id FROM proprietaires WHERE code_compte = ? LIMIT 1");
+                $q->execute([$codeCompte]); $proprietaireId = (int)$q->fetchColumn();
+            }
+            if ($proprietaireId <= 0) {
+                $codes = [];
+                foreach ($parsed['immeubles'] as $im) { $c = trim((string)($im['code'] ?? '')); if ($c !== '') $codes[] = $c; }
+                if ($codes) {
+                    $ph = implode(',', array_fill(0, count($codes), '?'));
+                    $q = $pdo->prepare("SELECT id_proprietaire FROM immeubles WHERE code_crg IN ($ph) AND id_proprietaire > 0 LIMIT 1");
+                    $q->execute($codes); $proprietaireId = (int)$q->fetchColumn();
+                }
+            }
+            if ($proprietaireId <= 0) {
+                echo json_encode(['ok' => false, 'status' => 'erreur', 'file' => $origName,
+                    'error' => 'Propriétaire introuvable (nom absent + compte « ' . $codeCompte . ' » et immeubles inconnus). Importe ce fichier via l\'onglet Prod (GPT-4o lit le nom).']);
+                exit;
+            }
+            // Nom existant pour l'affichage + on complète le compte si manquant.
+            $qn = $pdo->prepare("SELECT COALESCE(NULLIF(societe,''), TRIM(CONCAT_WS(' ', prenom, nom))) FROM proprietaires WHERE id = ?");
+            $qn->execute([$proprietaireId]); $proprioEffectif = (string)$qn->fetchColumn() ?: ('Propriétaire #' . $proprietaireId);
+            if ($codeCompte !== '') {
+                $pdo->prepare("UPDATE proprietaires SET code_compte = COALESCE(NULLIF(code_compte,''), ?) WHERE id = ?")->execute([$codeCompte, $proprietaireId]);
+            }
+        }
 
         $annee     = (int)($parsed['periode']['annee'] ?? $hint['annee']);
         $trimestre = (int)($parsed['periode']['trimestre'] ?? $hint['trimestre']);
