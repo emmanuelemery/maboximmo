@@ -70,6 +70,7 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     <div class="tabs">
       <button id="tabProd" class="active" onclick="setMode('prod')">🌐 Prod — choisir un dossier</button>
       <button id="tabLocal" onclick="setMode('local')">💻 Local — chemin serveur (Python)</button>
+      <button id="tabJson" onclick="setMode('json')">📄 JSON pré-parsé (sans IA)</button>
     </div>
 
     <div id="modeProd">
@@ -85,6 +86,14 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
       <div class="toolbar">
         <input type="text" id="basePath" placeholder="C:\xampp\htdocs\...\CRG 2026">
         <button class="btn" id="btnScan" onclick="scan()">🔍 Scanner</button>
+      </div>
+    </div>
+
+    <div id="modeJson" style="display:none">
+      <p class="muted"><b>Import sans IA (aucun coût, aucun timeout).</b> Charge le fichier <code>.jsonl</code> des CRG <b>déjà parsés en local</b> (1 ligne JSON par CRG). Le serveur ne fait que l'<b>écriture</b> (propriétaires/immeubles résolus par n° de compte). Pense à choisir « Forcer » la période si besoin. Le PDF n'est pas transmis → pas d'archivage GED (à classer à part).</p>
+      <div class="toolbar">
+        <input type="file" id="jsonPick" accept=".jsonl,.json,application/json">
+        <button class="btn" id="btnJson" onclick="pickJson()">📥 Charger le JSON</button>
       </div>
     </div>
   </div>
@@ -140,8 +149,10 @@ function setMode(m){
   MODE = m;
   document.getElementById('tabProd').classList.toggle('active', m==='prod');
   document.getElementById('tabLocal').classList.toggle('active', m==='local');
+  document.getElementById('tabJson').classList.toggle('active', m==='json');
   document.getElementById('modeProd').style.display  = m==='prod'  ? '' : 'none';
   document.getElementById('modeLocal').style.display = m==='local' ? '' : 'none';
+  document.getElementById('modeJson').style.display  = m==='json'  ? '' : 'none';
 }
 
 function trimFromName(name){
@@ -212,6 +223,25 @@ function pickScan(){
   renderTable();
 }
 
+async function pickJson(){
+  const f = (document.getElementById('jsonPick').files || [])[0];
+  if(!f){ alert('Sélectionne un fichier .jsonl (CRG parsés en local).'); return; }
+  const txt = await f.text();
+  const lines = txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  ITEMS = [];
+  lines.forEach(line=>{
+    let o; try { o = JSON.parse(line); } catch(e){ return; }
+    if(!o || !o.meta) return;                            // ignore lignes invalides
+    const file = o._file || (o.meta.proprietaire||'CRG')+'.pdf';
+    const m = o.meta||{}; const da = m.date_arrete||'';
+    const mo = /(\d{2})[\/\-]20(\d\d)/.exec(da);
+    const period = mo ? {annee: 2000+parseInt(mo[2],10), trim: Math.ceil(parseInt(mo[1],10)/3)} : {annee:0,trim:0};
+    ITEMS.push({ proprio: (m.proprietaire||'').trim(), file, period, doublon:false, parsed: line });
+  });
+  if(!ITEMS.length){ alert('Aucun CRG valide dans le fichier.'); return; }
+  renderTable();
+}
+
 async function scan(){
   const bp = document.getElementById('basePath').value.trim();
   if(!bp){ alert('Indiquez le chemin du dossier.'); return; }
@@ -262,6 +292,10 @@ async function run(){
         if(fp){ fd.append('force_annee', fp.annee); fd.append('force_trimestre', fp.trim); }
         fd.append('fichier', it.fileObj, it.file);
         d = await fetch(API_URL,{method:'POST',headers:{'X-CSRF-Token':CSRF},body:fd,credentials:'same-origin'}).then(r=>r.json());
+      } else if(MODE==='json'){
+        const p = {filename: it.file, parsed: it.parsed, id_agence: AGENCE_ID()};
+        if(fp){ p.force_annee = fp.annee; p.force_trimestre = fp.trim; }
+        d = await post('apply_json', p);
       } else {
         const p = {path: it.path, proprio: it.proprio, filename: it.file, force:'1', id_agence: AGENCE_ID()};
         if(fp){ p.force_annee = fp.annee; p.force_trimestre = fp.trim; }

@@ -342,4 +342,86 @@ if ($action === 'process_one') {
     }
 }
 
+// ── APPLY_JSON : applique un CRG DÉJÀ PARSÉ (JSON local gratuit) sans GPT-4o ──────────
+// Objectif : éviter tout appel IA en prod (coût + timeouts sur les gros fichiers).
+// Le parse se fait en local (parser Python gratuit, JSONL), on n'envoie ici QUE le JSON
+// déjà extrait → l'apply résout propriétaires/immeubles PAR COMPTE dans la base cible.
+// Pas de PDF transmis → pas d'archivage GED (les soldes/baux/écritures sont écrits ;
+// le PDF pourra être classé à part). Agence = sélecteur (pas de détection par en-tête).
+if ($action === 'apply_json') {
+    $origName = trim((string)($_POST['filename'] ?? ''));
+    $raw = json_decode((string)($_POST['parsed'] ?? ''), true);
+    if (!is_array($raw) || empty($raw['meta'])) {
+        echo json_encode(['ok' => false, 'status' => 'erreur', 'file' => $origName, 'error' => 'JSON pré-parsé invalide (meta manquante).']);
+        exit;
+    }
+    if (!isset($raw['immeubles']) || !is_array($raw['immeubles'])) $raw['immeubles'] = []; // CRG sans lot = en-tête/solde seul
+    try {
+        $hint   = crg_trimestre_from_filename($origName);
+        $parsed = crg_adapt_python_output($raw, $hint);
+
+        // Période forcée (même règle que process_one).
+        $forceAnnee = (int)($_POST['force_annee'] ?? 0);
+        $forceTrim  = (int)($_POST['force_trimestre'] ?? 0);
+        if ($forceAnnee >= 2000 && $forceTrim >= 1 && $forceTrim <= 4) {
+            $endMonth = $forceTrim * 3;
+            $lastDay  = in_array($endMonth, [6, 9], true) ? 30 : 31;
+            $parsed['periode']['annee']       = $forceAnnee;
+            $parsed['periode']['trimestre']   = $forceTrim;
+            $parsed['periode']['date_arrete'] = sprintf('%04d-%02d-%02d', $forceAnnee, $endMonth, $lastDay);
+        }
+
+        // Propriétaire : nom de fichier, sinon en-tête du PDF (déjà dans le JSON parsé).
+        $proprioEffectif = crg_proprio_from_filename($origName);
+        if ($proprioEffectif === ''
+            || crg_is_gestionnaire_name($proprioEffectif)
+            || crg_is_invalid_proprio_name($proprioEffectif)) {
+            $pdfNom = trim((string)($parsed['proprietaire']['nom'] ?? ''));
+            if ($pdfNom !== '') $proprioEffectif = $pdfNom;
+        }
+        if ($proprioEffectif === '' || crg_is_gestionnaire_name($proprioEffectif) || crg_is_invalid_proprio_name($proprioEffectif)) {
+            echo json_encode(['ok' => false, 'status' => 'erreur', 'file' => $origName, 'error' => 'Propriétaire indéterminé/régie (« ' . $proprioEffectif . ' »).']);
+            exit;
+        }
+
+        $codeCompte  = trim((string)($parsed['proprietaire']['code_compte'] ?? ''));
+        $adresseProp = trim((string)($parsed['proprietaire']['adresse'] ?? '')) ?: null;
+
+        // Règle GROUPE SIR OYONNAX (identique à process_one) → propriétaire distinct.
+        if (stripos($origName, 'OYONNAX') !== false && stripos($proprioEffectif, 'SIR') !== false) {
+            $proprioEffectif = 'GROUPE SIR OYONNAX';
+            $codeCompte      = '01040247';
+            $parsed['proprietaire']['nom']         = 'GROUPE SIR OYONNAX';
+            $parsed['proprietaire']['code_compte'] = '01040247';
+        }
+
+        $proprietaireId = crg_resolve_or_create_proprio($pdo, $proprioEffectif, $codeCompte, $adresseProp, $agenceId);
+
+        $annee     = (int)($parsed['periode']['annee'] ?? $hint['annee']);
+        $trimestre = (int)($parsed['periode']['trimestre'] ?? $hint['trimestre']);
+
+        $res = crg_apply_parsed($pdo, $parsed, $proprietaireId, [
+            'societeId' => $societeId ?: null,
+            'agenceId'  => $agenceId ?: null,
+            'userId'    => $userId ?: null,
+            // pas de PDF → pas de GED (données écrites, PDF classé à part).
+        ]);
+
+        echo json_encode([
+            'ok'      => !empty($res['ok']),
+            'status'  => !empty($res['ok']) ? 'ok' : 'erreur',
+            'file'    => $origName,
+            'proprio' => $proprioEffectif,
+            'moteur'  => 'json',
+            'stats'   => $res['stats'] ?? [],
+            'error'   => $res['error'] ?? null,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (Throwable $e) {
+        error_log('[import_crg_batch apply_json] ' . $e->getMessage() . ' @ ' . $e->getLine());
+        echo json_encode(['ok' => false, 'status' => 'erreur', 'file' => $origName, 'error' => $e->getMessage()]);
+        exit;
+    }
+}
+
 echo json_encode(['ok' => false, 'error' => 'Action inconnue']);
