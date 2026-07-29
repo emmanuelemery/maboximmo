@@ -400,11 +400,26 @@ if ($action === 'apply_json') {
         $annee     = (int)($parsed['periode']['annee'] ?? $hint['annee']);
         $trimestre = (int)($parsed['periode']['trimestre'] ?? $hint['trimestre']);
 
+        // PDF OPTIONNEL : si le navigateur a joint le PDF d'origine, on l'archive en GED
+        // (l'apply s'en charge). Aucun appel IA : le PDF ne sert QU'À l'archivage, pas au parse.
+        $pdfAbs = null; $pdfUrl = null;
+        if (!empty($_FILES['fichier']['tmp_name']) && $_FILES['fichier']['error'] === UPLOAD_ERR_OK
+            && $annee > 0 && $trimestre > 0
+            && mime_content_type($_FILES['fichier']['tmp_name']) === 'application/pdf') {
+            $destDir = __DIR__ . '/../uploads/crg/' . $proprietaireId;
+            if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+            $pdfAbs = $destDir . '/' . $annee . '_T' . $trimestre . '.pdf';
+            if (move_uploaded_file($_FILES['fichier']['tmp_name'], $pdfAbs)) {
+                $pdfUrl = '/uploads/crg/' . $proprietaireId . '/' . $annee . '_T' . $trimestre . '.pdf';
+            } else { $pdfAbs = null; }
+        }
+
         $res = crg_apply_parsed($pdo, $parsed, $proprietaireId, [
-            'societeId' => $societeId ?: null,
-            'agenceId'  => $agenceId ?: null,
-            'userId'    => $userId ?: null,
-            // pas de PDF → pas de GED (données écrites, PDF classé à part).
+            'societeId'    => $societeId ?: null,
+            'agenceId'     => $agenceId ?: null,
+            'userId'       => $userId ?: null,
+            'pdfAbsPath'   => $pdfAbs,   // null = pas de GED (données seules)
+            'pdfPublicUrl' => $pdfUrl,
         ]);
 
         echo json_encode([

@@ -95,6 +95,11 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
         <input type="file" id="jsonPick" accept=".jsonl,.json,application/json">
         <button class="btn" id="btnJson" onclick="pickJson()">📥 Charger le JSON</button>
       </div>
+      <div class="toolbar" style="margin-top:6px">
+        <label class="lbl" title="Facultatif : sélectionne le dossier des PDF (ou plusieurs PDF). Ils seront archivés en GED, appariés par nom de fichier. Sans ça, seules les données sont écrites.">PDF (option, pour GED)&nbsp;:</label>
+        <input type="file" id="jsonPdfPick" webkitdirectory directory multiple onchange="loadJsonPdfs()">
+        <span id="jsonPdfInfo" class="muted"></span>
+      </div>
     </div>
   </div>
 
@@ -223,6 +228,15 @@ function pickScan(){
   renderTable();
 }
 
+let JSON_PDFS = {};   // nom de fichier -> File (pour archivage GED optionnel)
+function loadJsonPdfs(){
+  JSON_PDFS = {};
+  const files = Array.from(document.getElementById('jsonPdfPick').files || []);
+  files.forEach(f => { if(f.name.toLowerCase().endsWith('.pdf')) JSON_PDFS[f.name] = f; });
+  const n = Object.keys(JSON_PDFS).length;
+  document.getElementById('jsonPdfInfo').textContent = n ? (n + ' PDF chargés (archivage GED activé)') : '';
+}
+
 async function pickJson(){
   const f = (document.getElementById('jsonPick').files || [])[0];
   if(!f){ alert('Sélectionne un fichier .jsonl (CRG parsés en local).'); return; }
@@ -293,9 +307,15 @@ async function run(){
         fd.append('fichier', it.fileObj, it.file);
         d = await fetch(API_URL,{method:'POST',headers:{'X-CSRF-Token':CSRF},body:fd,credentials:'same-origin'}).then(r=>r.json());
       } else if(MODE==='json'){
-        const p = {filename: it.file, parsed: it.parsed, id_agence: AGENCE_ID()};
-        if(fp){ p.force_annee = fp.annee; p.force_trimestre = fp.trim; }
-        d = await post('apply_json', p);
+        const fd = new FormData();
+        fd.append('action','apply_json');
+        fd.append('filename', it.file);
+        fd.append('parsed', it.parsed);
+        fd.append('id_agence', AGENCE_ID());
+        if(fp){ fd.append('force_annee', fp.annee); fd.append('force_trimestre', fp.trim); }
+        const pdf = JSON_PDFS[it.file];               // PDF apparié par nom → archivage GED
+        if(pdf) fd.append('fichier', pdf, it.file);
+        d = await fetch(API_URL,{method:'POST',headers:{'X-CSRF-Token':CSRF},body:fd,credentials:'same-origin'}).then(r=>r.json());
       } else {
         const p = {path: it.path, proprio: it.proprio, filename: it.file, force:'1', id_agence: AGENCE_ID()};
         if(fp){ p.force_annee = fp.annee; p.force_trimestre = fp.trim; }
