@@ -318,6 +318,23 @@ if (!function_exists('crg_ensure_tiers_for_proprio')) {
     }
 }
 
+if (!function_exists('crg_split_adresse')) {
+    /**
+     * Découpe une adresse française « <voie> <CP5> <VILLE> » en [voie, code_postal, ville].
+     * Ex. « 9 BOULEVARD DES BROTTEAUX 69006 LYON » → ['9 BOULEVARD DES BROTTEAUX','69006','LYON'].
+     * Nécessaire pour le registre copropriété (RNC) qui cherche par CP + voie séparés.
+     * Retourne [voie_complète, '', ''] si aucun CP à 5 chiffres n'est trouvé.
+     */
+    function crg_split_adresse(string $adr): array {
+        $adr = trim(preg_replace('/\s+/', ' ', $adr));
+        if ($adr === '') return ['', '', ''];
+        if (preg_match('/^(.*?)[,\s]+(\d{5})\s+(.+)$/u', $adr, $m)) {
+            return [trim($m[1], " ,"), $m[2], trim($m[3], " ,")];
+        }
+        return [$adr, '', ''];
+    }
+}
+
 if (!function_exists('crg_proprio_id_by_compte_text')) {
     /**
      * PHASE 1 (archivage PDF sans IA) : retrouve l'id du propriétaire à partir du
@@ -617,8 +634,10 @@ if (!function_exists('crg_apply_parsed')) {
                         foreach ($cand->fetchAll(PDO::FETCH_ASSOC) as $imx) {
                             if (crg_norm_addr(($imx['adresse_1'] ?? '') . ' ' . ($imx['code_postal'] ?? '') . ' ' . ($imx['ville'] ?? '')) === $keyC) {
                                 $idImmeuble = (int)$imx['id'];
-                                $pdo->prepare("UPDATE immeubles SET code_crg=COALESCE(NULLIF(code_crg,''),?), id_proprietaire=COALESCE(id_proprietaire,?), mode_gestion=COALESCE(NULLIF(mode_gestion,''),'gestion') WHERE id=?")
-                                    ->execute([$codeCrg, $proprietaireId, $idImmeuble]);
+                                // Complète aussi CP/ville (registre copro RNC) s'ils manquent.
+                                [$vImm, $cpImm, $viImm] = crg_split_adresse((string)$adrImm);
+                                $pdo->prepare("UPDATE immeubles SET code_crg=COALESCE(NULLIF(code_crg,''),?), id_proprietaire=COALESCE(id_proprietaire,?), mode_gestion=COALESCE(NULLIF(mode_gestion,''),'gestion'), code_postal=COALESCE(NULLIF(code_postal,''),?), ville=COALESCE(NULLIF(ville,''),?) WHERE id=?")
+                                    ->execute([$codeCrg, $proprietaireId, $cpImm ?: null, $viImm ?: null, $idImmeuble]);
                                 error_log("[crg dedup] immeuble réutilisé #$idImmeuble pour « $adrImm »");
                                 break;
                             }
@@ -626,8 +645,10 @@ if (!function_exists('crg_apply_parsed')) {
                     } catch (Throwable $e) {}
                 }
                 if ($idImmeuble === 0) {
-                    $pdo->prepare('INSERT INTO immeubles (id_proprietaire, id_societe, id_agence, code_crg, nom_immeuble, adresse_1, type_immeuble, mode_gestion) VALUES (?,?,?,?,?,?,?,?)')
-                        ->execute([$proprietaireId, $societeId ?: null, $agenceId ?: null, $codeCrg, $nomImm, $adrImm, 'immeuble', 'gestion']);
+                    // Découpe l'adresse « voie CP ville » (registre copro RNC = recherche CP+voie).
+                    [$vImm, $cpImm, $viImm] = crg_split_adresse((string)$adrImm);
+                    $pdo->prepare('INSERT INTO immeubles (id_proprietaire, id_societe, id_agence, code_crg, nom_immeuble, adresse_1, code_postal, ville, type_immeuble, mode_gestion) VALUES (?,?,?,?,?,?,?,?,?,?)')
+                        ->execute([$proprietaireId, $societeId ?: null, $agenceId ?: null, $codeCrg, $nomImm, ($vImm ?: $adrImm), $cpImm ?: null, $viImm ?: null, 'immeuble', 'gestion']);
                     $idImmeuble = (int)$pdo->lastInsertId();
                 }
             }
