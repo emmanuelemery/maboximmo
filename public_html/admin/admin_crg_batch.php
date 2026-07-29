@@ -330,7 +330,8 @@ async function run(){
     document.getElementById('stt'+i).innerHTML=`<span class="badge ${cls}">${label}</span>`;
 
     const s = d.stats||{};
-    const line = `[${k+1}/${total}] ${it.proprio} / ${it.file} → ${label}`
+    const pdfTag = d.pdf ? ` · PDF:${d.pdf}` : '';   // phase 1 (archivage) — visible même si analyse KO
+    const line = `[${k+1}/${total}] ${it.proprio} / ${it.file} → ${label}${pdfTag}`
       + (d.status==='ok' ? ` (${s.immeubles||0} imm, ${s.lots||0} lots, GED:${s.ged||'-'}, ${d.moteur||''})` : '')
       + (s.ged==='err' && s.ged_error ? ` ⚠️ GED: ${s.ged_error}` : '')
       + (d.error ? ' — '+d.error : '');

@@ -192,7 +192,37 @@ if ($action === 'process_one') {
     if ($origName === '') $origName = basename($path);
 
     try {
-        // 1) Parse : Python d'abord (local), fallback GPT-4o (prod).
+        // ── PHASE 1 (A + repli B) : ARCHIVER LE PDF D'ABORD, avant le parse IA ──────────
+        // But : ne jamais perdre le document même si l'analyse GPT-4o échoue/timeoute.
+        // (A) on retrouve le propriétaire par son n° de COMPTE lu dans le texte (gratuit,
+        //     sans IA) → archivage GED lié au propriétaire. Nécessite une période forcée
+        //     (nommage/rangement du CRG). (B) repli : si compte introuvable ou période non
+        //     forcée, on copie le PDF dans « uploads/crg/_a_classer/ » (jamais perdu).
+        $pdfPhase = ['ged'=>'skip', 'proprio_id'=>0];
+        try {
+            $fA = (int)($_POST['force_annee'] ?? 0); $fT = (int)($_POST['force_trimestre'] ?? 0);
+            $pdfText = function_exists('extractPdfText') ? (string)extractPdfText($path) : '';
+            $pid1 = function_exists('crg_proprio_id_by_compte_text') ? crg_proprio_id_by_compte_text($pdo, $pdfText) : 0;
+            if ($pid1 > 0 && $fA >= 2000 && $fT >= 1 && $fT <= 4) {
+                $destDir = __DIR__ . '/../uploads/crg/' . $pid1;
+                if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+                $pAbs = $destDir . '/' . $fA . '_T' . $fT . '.pdf';
+                if (@copy($path, $pAbs)) {
+                    $pUrl = '/uploads/crg/' . $pid1 . '/' . $fA . '_T' . $fT . '.pdf';
+                    $pdfPhase = crg_archive_pdf_only($pdo, $pAbs, $pUrl, $pid1, $fA, $fT,
+                        ['societeId'=>$societeId ?: null, 'agenceId'=>$agenceId ?: null, 'userId'=>$userId ?: null]);
+                    $pdfPhase['proprio_id'] = $pid1;
+                }
+            } else {
+                // Repli B : PDF conservé sur disque, à classer manuellement/ultérieurement.
+                $bDir = __DIR__ . '/../uploads/crg/_a_classer';
+                if (!is_dir($bDir)) @mkdir($bDir, 0755, true);
+                @copy($path, $bDir . '/' . preg_replace('/[^A-Za-z0-9._-]+/', '_', $origName));
+                $pdfPhase = ['ged'=>'a_classer', 'proprio_id'=>$pid1];
+            }
+        } catch (Throwable $eP) { error_log('[crg phase1 pdf] ' . $eP->getMessage()); $pdfPhase = ['ged'=>'err', 'error'=>$eP->getMessage(), 'proprio_id'=>0]; }
+
+        // 2) Parse : Python d'abord (local), fallback GPT-4o (prod).
         $hint = crg_trimestre_from_filename($origName);
         $py = crg_run_python($python, $parser, $path);
         if ($py) {
@@ -331,6 +361,7 @@ if ($action === 'process_one') {
             'agence'  => $agenceId ?: null,
             'agence_source' => $agenceSource,
             'stats'   => $res['stats'] ?? [],
+            'pdf'     => $pdfPhase['ged'] ?? 'skip',   // phase 1 : archivage PDF (indépendant de l'analyse)
             'error'   => $res['error'] ?? null,
         ], JSON_UNESCAPED_UNICODE);
         exit;

@@ -50,14 +50,14 @@ Analyse ce Compte-Rendu de Gestion (CRG) et extrais toutes les données structur
 
 Réponds UNIQUEMENT en JSON valide avec cette structure :
 {
-  "proprietaire": { "nom": "string (nom complet du propriétaire bailleur)", "adresse": "string ou null", "email": "string ou null", "telephone": "string ou null" },
-  "gestionnaire": { "nom": "string", "reference_mandat": "string ou null" },
+  "proprietaire": { "nom": "string (nom complet du propriétaire bailleur destinataire)", "adresse": "string ou null (adresse POSTALE du propriétaire)", "code_compte": "string ou null (n° COMPTE PERSONNEL)", "email": "string ou null", "telephone": "string ou null" },
+  "gestionnaire": { "nom": "string (la régie/gestionnaire émettrice, en-tête du document)", "reference_mandat": "string ou null" },
   "periode": { "annee": "number", "trimestre": "number (1-4)", "date_arrete": "string (YYYY-MM-DD)" },
   "solde_report": "number", "total_debits": "number", "total_credits": "number", "solde_final": "number",
   "immeubles": [
     { "code": "string", "nom": "string", "adresse": "string",
       "lots": [
-        { "numero_lot": "string (UN SEUL objet par numéro de lot)", "type_bien": "appartement|maison|commerce|parking|cave|bureau|local|autre", "etage": "string ou null", "surface": "number ou null",
+        { "numero_lot": "string (UN SEUL objet par numéro de lot)", "type_bien": "appartement|maison|commerce|parking|cave|bureau|local|autre", "etage": "string ou null", "surface": "number ou null", "loyer_mensuel": "number (loyer MENSUEL hors charges du lot, PAR MOIS — jamais le cumul du trimestre)",
           "locataires": [
             { "nom": "string", "actif": "boolean (true = loyer sur la période courante)", "loyer_appele": "number", "charges_provisions": "number", "solde_anterieur": "number", "total_loyers": "number", "total_charges": "number", "total_regle": "number", "total_impaye": "number", "date_bail": "string ou null (YYYY-MM-DD)" }
           ] }
@@ -67,10 +67,25 @@ Réponds UNIQUEMENT en JSON valide avec cette structure :
   ]
 }
 
+═══ REPÉRAGE DU PROPRIÉTAIRE (format ICS / Régie EMERY / Lyon) — RÈGLE ABSOLUE ═══
+Le PROPRIÉTAIRE est le DESTINATAIRE du courrier, situé DANS UN BLOC PRÉCIS :
+  • Il se trouve APRÈS la ligne « <Ville>, le JJ/MM/AAAA » (ex. « Lyon, le 31/03/2026 »)
+    et AVANT la ligne « COMPTE PERSONNEL <numéro> ».
+  • Ce bloc contient : 1) le NOM (« Monsieur X », « Madame Y », « M. et Mme Z », « SCI … », « Indivision … »),
+    puis 2) son ADRESSE POSTALE (1 à 3 lignes : voie + code postal + ville).
+  • Exemple : nom = « Monsieur JURINE CHARLES », adresse = « 42 BIS AVENUE DU 8 MAI 1945, 69160 TASSIN LA DEMI LUNE ».
+  • Le « COMPTE PERSONNEL <numéro> » juste après = proprietaire.code_compte.
+
+NE JAMAIS confondre le propriétaire avec :
+  ✗ l'EN-TÊTE du document (la RÉGIE émettrice : « LOCA IMMO », « REGIE EMERY », « 19 BOULEVARD YVES FARGE 69007 LYON », « Powered by ICS », mentions Siret/APE/Carte pro/GALIAN) → c'est le GESTIONNAIRE, pas le propriétaire.
+  ✗ une adresse d'IMMEUBLE / de BIEN (lignes « Immeuble : <code> », « <n°> RUE … » dans les tableaux « SITUATION DES LOCATAIRES ») → c'est l'adresse du bien loué, PAS celle du propriétaire.
+Si tu hésites, l'adresse du propriétaire est celle du BLOC DESTINATAIRE en haut à droite/gauche, jamais celle répétée dans les tableaux de lots.
+
 Règles CRUCIALES :
 - Un même NUMÉRO DE LOT peut apparaître plusieurs fois avec des locataires différents : regroupe en UN SEUL "lot" avec plusieurs "locataires". PAS un lot par locataire.
 - actif:true UNIQUEMENT si loyer sur la période courante. Un locataire avec seulement un "Solde Antérieur" = ancien parti (actif:false).
 - Extrais TOUS les immeubles, lots et locataires (actifs ET anciens). Montants en euros sans symbole. Champ absent = null ou 0.
+- loyer_mensuel : le montant du LOYER MENSUEL hors charges du lot (colonne « Loyer » d'une ligne de bail, tel qu'affiché PAR MOIS). Un CRG couvre 3 mois : NE multiplie PAS par 3, NE cumule PAS les lignes. Si seul un cumul trimestriel figure, divise-le par le nombre de mois de la période. En cas de doute, laisse 0.
 
 TEXTE DU CRG :
 {$textTrunc}
@@ -167,6 +182,212 @@ if (!function_exists('crg_create_proprietaire')) {
     }
 }
 
+if (!function_exists('crg_norm_addr')) {
+    /**
+     * Clé d'adresse pour l'anti-doublon : « 11 RUE PAUL GAUGUIN 69500 BRON »
+     * → « 11 PAUL GAUGUIN » (numéro + nom de voie, sans type de voie / CP / ville).
+     * Permet de rapprocher un immeuble CRG d'un immeuble/bien d'annonce existant.
+     */
+    function crg_norm_addr(string $s): string {
+        $n = mb_strtoupper(trim($s), 'UTF-8');
+        $n = strtr($n, ['À'=>'A','Â'=>'A','Ä'=>'A','Ç'=>'C','É'=>'E','È'=>'E','Ê'=>'E','Ë'=>'E','Î'=>'I','Ï'=>'I','Ô'=>'O','Ö'=>'O','Ù'=>'U','Û'=>'U','Ü'=>'U']);
+        $n = preg_replace('/\b\d{5}\b.*$/', '', $n);      // retire code postal + ville
+        $n = preg_replace('/[^A-Z0-9]+/', ' ', $n);
+        $n = trim(preg_replace('/\s+/', ' ', $n));
+        $stop = ['RUE','AVENUE','AV','BD','BLD','BOULEVARD','PLACE','PL','IMPASSE','IMP','CHEMIN','CHEM',
+                 'COURS','CRS','ROUTE','RTE','QUAI','ALLEE','ALLEES','ALL','MONTEE','MTEE','PASSAGE','PASS',
+                 'SQUARE','SQ','VILLA','CLOS','GRANDE','GRAND','DU','DE','DES','LA','LE','LES','D','L','ET','A'];
+        $bisTer = ['BIS','TER','QUATER'];
+        $out = [];
+        foreach (explode(' ', $n) as $w) {
+            if ($w === '' || in_array($w, $stop, true) || in_array($w, $bisTer, true)) continue;
+            $out[] = $w;
+        }
+        return implode(' ', $out);
+    }
+}
+
+if (!function_exists('crg_detect_type_personne')) {
+    /** Personne morale si le nom porte une forme sociale, sinon physique. */
+    function crg_detect_type_personne(string $nom): string {
+        return preg_match('/\b(SCI|SARL|SASU|SAS|SNC|EURL|SCP|SCM|SA|GPE|GROUPE|SC|GFA|GIE|INDIVISION)\b/i', $nom)
+            ? 'morale' : 'physique';
+    }
+}
+
+if (!function_exists('crg_resolve_or_create_proprio')) {
+    /**
+     * Résout le propriétaire par CLÉ code_compte (unique/robuste), sinon par nom,
+     * sinon le crée. Pose/complète code_compte, nom, adresse, type_personne.
+     * → idempotence trimestre après trimestre, zéro doublon de propriétaire.
+     */
+    function crg_resolve_or_create_proprio(PDO $pdo, string $nom, string $codeCompte, ?string $adresse, ?int $agenceId): int {
+        $nom = trim($nom); $codeCompte = trim($codeCompte);
+        $type = crg_detect_type_personne($nom);
+        // 1) Par code_compte (clé de référence ICS).
+        if ($codeCompte !== '') {
+            $st = $pdo->prepare("SELECT id FROM proprietaires WHERE code_compte = ? LIMIT 1");
+            $st->execute([$codeCompte]);
+            $id = (int)$st->fetchColumn();
+            if ($id > 0) {
+                // L'agence du CRG prime : on la pose si absente (gestionnaire = agence du CRG).
+                $pdo->prepare("UPDATE proprietaires
+                    SET nom=COALESCE(NULLIF(nom,''),?), societe=COALESCE(NULLIF(societe,''),?),
+                        adresse_1=COALESCE(NULLIF(adresse_1,''),?),
+                        id_agence=COALESCE(id_agence,?) WHERE id=?")
+                    ->execute([$nom, $nom, $adresse ?: null, $agenceId ?: null, $id]);
+                return $id;
+            }
+        }
+        // 2) Fallback par nom (et on pose le code_compte si trouvé sans).
+        $r = crg_resolve_proprietaire($pdo, ['proprietaire' => ['nom' => $nom]], $agenceId);
+        if (($r['id'] ?? 0) > 0) {
+            $pdo->prepare("UPDATE proprietaires
+                    SET code_compte=COALESCE(NULLIF(code_compte,''),?), id_agence=COALESCE(id_agence,?)
+                    WHERE id=?")
+                ->execute([$codeCompte ?: null, $agenceId ?: null, (int)$r['id']]);
+            return (int)$r['id'];
+        }
+        // 3) Création.
+        $st = $pdo->prepare("INSERT INTO proprietaires (nom, societe, adresse_1, code_compte, actif, type_personne, id_agence)
+                             VALUES (?,?,?,?,1,?,?)");
+        $st->execute([$nom, ($type === 'morale' ? $nom : null), $adresse ?: null, $codeCompte ?: null, $type, $agenceId ?: null]);
+        return (int)$pdo->lastInsertId();
+    }
+}
+
+if (!function_exists('crg_detect_agence')) {
+    /**
+     * Détecte l'agence GESTIONNAIRE directement dans l'entête du CRG (indépendant du
+     * parser Python/IA). Discriminant UNIQUE = le 1er code postal du document, qui est
+     * toujours l'adresse de l'agence (ex. « 69007 LYON » → LYON, « 63200 RIOM » → RIOM ;
+     * le CP du propriétaire vient plus bas). Fallback : nom de ville dans l'entête.
+     * Permet d'importer « tout azimut » des dossiers mixtes (LYON, RIOM, …).
+     * @return int|null id de l'agence, ou null si indéterminée.
+     */
+    function crg_detect_agence(PDO $pdo, string $text): ?int {
+        if (trim($text) === '') return null;
+        $head = mb_substr($text, 0, 800); // borne l'entête → évite de capter le CP du propriétaire
+        // 1) Code postal de l'agence = 1er code postal à 5 chiffres du document.
+        if (preg_match('/\b(\d{5})\b/', $head, $m)) {
+            $st = $pdo->prepare("SELECT id FROM agences WHERE code_postal = ? AND actif = 1 ORDER BY id LIMIT 1");
+            $st->execute([$m[1]]);
+            $id = (int)$st->fetchColumn();
+            if ($id > 0) return $id;
+        }
+        // 2) Fallback : nom de ville d'agence présent dans l'entête (« LYON 07 » → « LYON »).
+        $rows = $pdo->query("SELECT id, ville FROM agences WHERE actif = 1 AND ville IS NOT NULL AND ville <> ''")->fetchAll(PDO::FETCH_ASSOC);
+        $H = mb_strtoupper($head);
+        foreach ($rows as $r) {
+            $ville = mb_strtoupper(trim(preg_replace('/\s*\d+\s*$/', '', (string)$r['ville'])));
+            if ($ville !== '' && mb_strlen($ville) >= 4 && mb_strpos($H, $ville) !== false) return (int)$r['id'];
+        }
+        return null;
+    }
+}
+
+if (!function_exists('crg_ensure_tiers_for_proprio')) {
+    /**
+     * Crée (si absent) le TIERS + rôle « proprietaire » pour une fiche propriétaire,
+     * et pose proprietaires.id_tiers. Sans ça, un nouveau propriétaire est « sans tiers »
+     * (pas de vue 360). Reprend la logique du script de migration prod (run_prod.php).
+     * @return int id du tiers (0 si échec).
+     */
+    function crg_ensure_tiers_for_proprio(PDO $pdo, int $propId, ?int $societeId = null): int {
+        if ($propId <= 0) return 0;
+        $st = $pdo->prepare("SELECT id_agence, id_tiers, type_personne, nom, prenom, societe, email, telephone, adresse_1, code_postal, ville FROM proprietaires WHERE id=?");
+        $st->execute([$propId]);
+        $p = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$p) return 0;
+        if (!empty($p['id_tiers'])) return (int)$p['id_tiers'];
+        $morale = ($p['type_personne'] ?? '') === 'morale';
+        $tt  = $morale ? 'personne_morale' : 'personne_physique';
+        $rs  = $morale ? ($p['societe'] ?: $p['nom']) : null;
+        $aff = $morale ? (string)$rs : trim(((string)($p['prenom'] ?? '')) . ' ' . ((string)($p['nom'] ?? '')));
+        if ($aff === '') $aff = (string)($p['nom'] ?: $rs ?: ('Propriétaire #' . $propId));
+        try {
+            $pdo->prepare("INSERT INTO tiers (id_societe,id_agence,type_tiers,nom,prenom,raison_sociale,nom_affichage,email,telephone,adresse_ligne1,code_postal,ville,source_creation,actif,date_creation)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'import_crg',1,NOW())")
+                ->execute([$societeId ?: null, $p['id_agence'] ?: null, $tt, $p['nom'], $p['prenom'] ?? null, $rs, $aff,
+                           $p['email'] ?? null, $p['telephone'] ?? null, $p['adresse_1'] ?? null, $p['code_postal'] ?? null, $p['ville'] ?? null]);
+            $idt = (int)$pdo->lastInsertId();
+            $pdo->prepare("INSERT INTO tiers_roles (id_tiers,role_code,actif,date_creation) VALUES (?,'proprietaire',1,NOW())")->execute([$idt]);
+            $pdo->prepare("UPDATE proprietaires SET id_tiers=? WHERE id=?")->execute([$idt, $propId]);
+            return $idt;
+        } catch (Throwable $e) { error_log('[crg_ensure_tiers] ' . $e->getMessage()); return 0; }
+    }
+}
+
+if (!function_exists('crg_proprio_id_by_compte_text')) {
+    /**
+     * PHASE 1 (archivage PDF sans IA) : retrouve l'id du propriétaire à partir du
+     * TEXTE du PDF (extraction gratuite), via son n° de COMPTE (8 chiffres). On teste
+     * tous les nombres de 8 chiffres du document et on retient le 1er qui correspond à
+     * un `proprietaires.code_compte` existant. Retourne 0 si aucun (→ repli « à classer »).
+     */
+    function crg_proprio_id_by_compte_text(PDO $pdo, string $pdfText): int {
+        if (trim($pdfText) === '') return 0;
+        if (!preg_match_all('/\b(\d{8})\b/', $pdfText, $m)) return 0;
+        $seen = [];
+        foreach ($m[1] as $cpt) {
+            if (isset($seen[$cpt])) continue; $seen[$cpt] = true;
+            $st = $pdo->prepare("SELECT id FROM proprietaires WHERE code_compte = ? LIMIT 1");
+            $st->execute([$cpt]);
+            $id = (int)$st->fetchColumn();
+            if ($id > 0) return $id;
+        }
+        return 0;
+    }
+}
+
+if (!function_exists('crg_archive_pdf_only')) {
+    /**
+     * PHASE 1 : archive le PDF du CRG en GED, lié AU SEUL PROPRIÉTAIRE (TIERS 'main'),
+     * SANS analyse IA ni écriture des soldes. Idempotent (dédup par hash côté GED). Le
+     * parse+apply ultérieur (phase 2) ré-archive avec les liens complets (immeuble/bail),
+     * dédupliqué. But : ne JAMAIS perdre le document même si l'IA échoue/timeoute.
+     * @return array{ok:bool, ged:string, doc_id?:int, error?:?string}
+     */
+    function crg_archive_pdf_only(PDO $pdo, string $pdfAbs, ?string $pdfUrl, int $proprietaireId, int $annee, int $trimestre, array $ctx = []): array {
+        if (!is_file($pdfAbs) || $proprietaireId <= 0) return ['ok'=>false, 'ged'=>'skip'];
+        $societeId = $ctx['societeId'] ?? null; $agenceId = $ctx['agenceId'] ?? null; $userId = $ctx['userId'] ?? null;
+        try {
+            $tiersId = crg_ensure_tiers_for_proprio($pdo, $proprietaireId, $societeId);
+            if ($tiersId <= 0) return ['ok'=>false, 'ged'=>'err', 'error'=>'tiers introuvable'];
+            $stP = $pdo->prepare("SELECT id_agence FROM proprietaires WHERE id=? LIMIT 1");
+            $stP->execute([$proprietaireId]); $propAge = (int)($stP->fetchColumn() ?: 0) ?: ($agenceId ?: null);
+
+            $qn = $pdo->prepare("SELECT CASE WHEN COALESCE(societe,'')<>'' THEN societe ELSE TRIM(CONCAT_WS(' ', nom, NULLIF(prenom,''))) END FROM proprietaires WHERE id=?");
+            $qn->execute([$proprietaireId]); $propNomGed = (string)$qn->fetchColumn();
+            $slugSrc  = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $propNomGed) ?: $propNomGed;
+            $propSlug = strtoupper(trim((string)preg_replace('/[^A-Za-z0-9]+/', '_', $slugSrc), '_'));
+            $srcName  = 'CRG_' . ($propSlug !== '' ? $propSlug . '_' : '') . $annee . '_T' . $trimestre . '.pdf';
+            $dateDoc  = ($annee > 0 && $trimestre > 0) ? sprintf('%04d-%02d-%02d', $annee, $trimestre*3, in_array($trimestre*3,[6,9],true)?30:31) : null;
+
+            $gedRes = gus_commit_document(
+                $pdo,
+                ['path_on_disk'=>$pdfAbs, 'name_original'=>$srcName, 'mime_type'=>'application/pdf', 'size_bytes'=>(int)@filesize($pdfAbs), 'public_url'=>$pdfUrl],
+                [
+                    'document_type'=>'crg', 'source_module'=>'05_GESTION_LOCATIVE', 'security_level'=>'interne',
+                    'societe_id'=>$societeId ?: null, 'agence_id'=>$propAge, 'tenant_id'=>$societeId ?: null, 'created_by'=>$userId ?: null,
+                    'metadata_extra'=>['annee'=>$annee, 'trimestre'=>$trimestre, 'phase'=>'pdf_only'],
+                    'naming_ctx'=>[
+                        'n1_slug'=>'05_gestion_locative', 'n2_slug'=>'02_crg', 'n3_slug'=>'01_crg_trimestriel',
+                        'type_doc'=>'crg', 'entity_type'=>'TIERS', 'entity_id'=>$tiersId,
+                        'source_filename'=>$srcName, 'ext'=>'pdf', 'date_doc'=>$dateDoc,
+                    ],
+                ],
+                [['entity_type'=>'TIERS', 'entity_id'=>$tiersId, 'relation_type'=>'main', 'is_validated'=>1, 'validated_by'=>$userId ?: null]]
+            );
+            $ged = !empty($gedRes['ok']) ? (!empty($gedRes['deduplicated']) ? 'dedup' : 'ok') : 'err';
+            return ['ok'=>($ged!=='err'), 'ged'=>$ged, 'doc_id'=>(int)($gedRes['doc_id'] ?? 0), 'error'=>($ged==='err' ? implode(' / ', $gedRes['errors'] ?? ['echec']) : null)];
+        } catch (Throwable $e) {
+            error_log('[crg_archive_pdf_only] ' . $e->getMessage());
+            return ['ok'=>false, 'ged'=>'err', 'error'=>$e->getMessage()];
+        }
+    }
+}
+
 if (!function_exists('crg_trimestre_from_filename')) {
     /** Déduit année/trimestre du nom de fichier (format YYYYMMDD…). @return array{annee:int,trimestre:int} */
     function crg_trimestre_from_filename(string $filename): array {
@@ -189,7 +410,7 @@ if (!function_exists('crg_proprio_from_filename')) {
      */
     function crg_proprio_from_filename(string $filename): string {
         $base = pathinfo($filename, PATHINFO_FILENAME);
-        if (preg_match('/^(.*?)[_\-\s]+(20\d\d)\b/u', $base, $m)) {
+        if (preg_match('/^(.*?)[_\-\s]+(20\d\d)(?=[_\-\s.]|$)/u', $base, $m)) {
             $name = trim(str_replace(['_', '-'], ' ', $m[1]));
             // Retirer les civilités en tête (améliore le rapprochement de fiche).
             $name = preg_replace('/^(monsieur et madame|mr et mme|m\.? et mme|madame|monsieur|mademoiselle|melle|mme|mlle|mr|m\.)\s+/iu', '', $name) ?? $name;
@@ -197,6 +418,57 @@ if (!function_exists('crg_proprio_from_filename')) {
             if (mb_strlen($name) >= 3 && !ctype_digit($name)) return $name;
         }
         return '';
+    }
+}
+
+if (!function_exists('crg_is_gestionnaire_name')) {
+    /**
+     * Garde anti-régie : un propriétaire ne peut PAS être le gestionnaire/la régie
+     * émettrice du CRG. Empêche le fallback « nom de dossier » (ex. « CRG REGIE EMERY
+     * LYON ») ou l'en-tête du PDF de créer un faux propriétaire unique.
+     * NB : ciblé sur la RÉGIE (« regie emery », « emery immo », « crg … lyon »),
+     * PAS sur le simple mot « emery » — un vrai propriétaire « M. et Mme EMERY » reste valide.
+     */
+    function crg_is_gestionnaire_name(string $name): bool {
+        // crg_core_norm renvoie en MAJUSCULES sans séparateurs (« REGIE EMERY » → « REGIEEMERY »).
+        // On normalise DONC les motifs de la même façon pour comparer.
+        $n = crg_core_norm($name);
+        if ($n === '') return false;
+        $patterns = [
+            'regie emery', 'emery immo', 'emery immobilier', 'loca immo',
+            'crg regie', 'agence emery', 'regie',
+        ];
+        foreach ($patterns as $p) {
+            $pn = crg_core_norm($p);
+            if ($pn !== '' && ($n === $pn || str_contains($n, $pn))) return true;
+        }
+        // Nom de dossier d'export « CRG … » n'est jamais un propriétaire.
+        if (str_starts_with($n, 'CRG')) return true;
+        return false;
+    }
+}
+
+if (!function_exists('crg_is_invalid_proprio_name')) {
+    /**
+     * Rejette un nom de propriétaire « poubelle » venant d'un mauvais parse PDF :
+     * libellé de trimestre (« - 1er Trimestre 2026 - »), en-tête de récap, date,
+     * référence TTAxxxx, ou chaîne sans vraie lettre. Empêche l'import de créer un
+     * faux propriétaire quand ni le nom de fichier ni le dossier ne donnent le vrai.
+     */
+    function crg_is_invalid_proprio_name(string $name): bool {
+        $t = mb_strtolower(trim($name), 'UTF-8');
+        if ($t === '' || mb_strlen(preg_replace('/[^a-zà-ÿ]/u', '', $t)) < 3) return true; // < 3 lettres réelles
+        $bad = [
+            'trimestre', 'compte personnel', 'recapitulatif', 'récapitulatif',
+            'totaux generaux', 'totaux généraux', 'solde', 'arrete des comptes',
+            'periode', 'période', 'du au', 'immeuble :', 'lot ',
+        ];
+        foreach ($bad as $b) { if (str_contains($t, $b)) return true; }
+        // « TTA1234 » (référence de fichier), « 1er/2eme/… », dates JJ/MM/AAAA seules.
+        if (preg_match('/^tta[0-9a-f]{3,}$/i', trim($name))) return true;
+        if (preg_match('/\b(1er|2e|2eme|3e|3eme|4e|4eme|[1-4])\s*(er|eme|ème)?\s*trimestre\b/iu', $t)) return true;
+        if (preg_match('/^\W*\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}\W*$/', $t)) return true;
+        return false;
     }
 }
 
@@ -242,6 +514,12 @@ if (!function_exists('crg_adapt_python_output')) {
                 // Champs à plat (retro-compat crg_apply_parsed) + alias manquants.
                 $lot['total_charges'] = $lot['total_charges'] ?? ($lot['total_provisions'] ?? 0);
                 $lot['total_loyers']  = $lot['total_loyers']  ?? ($lot['loyer_appele'] ?? 0);
+                // Loyer MENSUEL : fourni par le parseur (valeur d'une ligne de période
+                // normalisée au mois). Fallback ÷3 seulement s'il manque.
+                if (!isset($lot['loyer_mensuel']) || (float)$lot['loyer_mensuel'] <= 0) {
+                    $lm = (float)($lot['loyer_appele'] ?? 0);
+                    $lot['loyer_mensuel'] = $lm > 0 ? round($lm / 3, 2) : 0.0;
+                }
                 $lots[] = $lot;
             }
             $immeubles[] = [
@@ -254,7 +532,11 @@ if (!function_exists('crg_adapt_python_output')) {
         }
 
         return [
-            'proprietaire' => ['nom' => (string)($meta['proprietaire'] ?? '')],
+            'proprietaire' => [
+                'nom'         => (string)($meta['proprietaire'] ?? ''),
+                'adresse'     => $meta['proprietaire_adresse'] ?? null,
+                'code_compte' => $meta['compte'] ?? null,
+            ],
             'periode'      => ['annee'=>$annee, 'trimestre'=>$trimestre, 'date_arrete'=>($dateArrete ?: null)],
             'solde_report' => $meta['solde_report'] ?? 0,
             'total_debits' => $meta['total_debits'] ?? 0,
@@ -282,6 +564,11 @@ if (!function_exists('crg_apply_parsed')) {
         $pdfAbs    = $ctx['pdfAbsPath'] ?? null;
         $pdfUrl    = $ctx['pdfPublicUrl'] ?? null;
 
+        // TIERS : garantir que le propriétaire a bien un tiers (+ rôle) — sinon « sans tiers ».
+        if (function_exists('crg_ensure_tiers_for_proprio')) {
+            crg_ensure_tiers_for_proprio($pdo, $proprietaireId, $societeId);
+        }
+
         $periode   = $parsed['periode'] ?? [];
         $annee     = (int)($periode['annee'] ?? date('Y'));
         $trimestre = (int)($periode['trimestre'] ?? 1);
@@ -305,7 +592,7 @@ if (!function_exists('crg_apply_parsed')) {
         }
 
         $nbImmeubles = 0; $nbLots = 0; $nbEcritures = 0; $nbBascules = 0;
-        $immeubleIds = []; $bailIdsTouched = [];
+        $immeubleIds = []; $bailIdsTouched = []; $bienIdsTouched = []; $adoptedBiens = [];
 
         foreach ($parsed['immeubles'] ?? [] as $imm) {
             $nbImmeubles++;
@@ -314,12 +601,35 @@ if (!function_exists('crg_apply_parsed')) {
             $st = $pdo->prepare('SELECT id FROM immeubles WHERE code_crg=? AND id_proprietaire=?');
             $st->execute([$codeCrg, $proprietaireId]);
             $immRow = $st->fetch(PDO::FETCH_ASSOC);
+            $idImmeuble = 0;
             if ($immRow) {
                 $idImmeuble = (int)$immRow['id'];
             } else {
-                $pdo->prepare('INSERT INTO immeubles (id_proprietaire, id_societe, id_agence, code_crg, nom_immeuble, adresse_1, type_immeuble, mode_gestion) VALUES (?,?,?,?,?,?,?,?)')
-                    ->execute([$proprietaireId, $societeId ?: null, $agenceId ?: null, $codeCrg, $nomImm, $adrImm, 'immeuble', 'gestion']);
-                $idImmeuble = (int)$pdo->lastInsertId();
+                // ANTI-DOUBLON : chercher un immeuble EXISTANT à la même adresse (ex. déjà
+                // créé pour une annonce) avant d'en créer un nouveau.
+                $keyC = crg_norm_addr($adrImm);
+                if ($keyC !== '') {
+                    $lastWord = trim((string)strrchr($keyC, ' ')) ?: $keyC; // ex. « GAUGUIN »
+                    try {
+                        $cand = $pdo->prepare("SELECT id, adresse_1, code_postal, ville FROM immeubles
+                                               WHERE adresse_1 LIKE ? LIMIT 50");
+                        $cand->execute(['%' . $lastWord . '%']);
+                        foreach ($cand->fetchAll(PDO::FETCH_ASSOC) as $imx) {
+                            if (crg_norm_addr(($imx['adresse_1'] ?? '') . ' ' . ($imx['code_postal'] ?? '') . ' ' . ($imx['ville'] ?? '')) === $keyC) {
+                                $idImmeuble = (int)$imx['id'];
+                                $pdo->prepare("UPDATE immeubles SET code_crg=COALESCE(NULLIF(code_crg,''),?), id_proprietaire=COALESCE(id_proprietaire,?), mode_gestion=COALESCE(NULLIF(mode_gestion,''),'gestion') WHERE id=?")
+                                    ->execute([$codeCrg, $proprietaireId, $idImmeuble]);
+                                error_log("[crg dedup] immeuble réutilisé #$idImmeuble pour « $adrImm »");
+                                break;
+                            }
+                        }
+                    } catch (Throwable $e) {}
+                }
+                if ($idImmeuble === 0) {
+                    $pdo->prepare('INSERT INTO immeubles (id_proprietaire, id_societe, id_agence, code_crg, nom_immeuble, adresse_1, type_immeuble, mode_gestion) VALUES (?,?,?,?,?,?,?,?)')
+                        ->execute([$proprietaireId, $societeId ?: null, $agenceId ?: null, $codeCrg, $nomImm, $adrImm, 'immeuble', 'gestion']);
+                    $idImmeuble = (int)$pdo->lastInsertId();
+                }
             }
             $immeubleIds[$idImmeuble] = true;
 
@@ -346,6 +656,7 @@ if (!function_exists('crg_apply_parsed')) {
                 foreach ($locataires as $loc) { if (!empty($loc['actif'])) { $hasActif = true; break; } }
                 $statutOcc = $hasActif ? 'occupé' : 'vacant';
 
+                $idBien = 0;
                 $st = $pdo->prepare('SELECT id FROM biens WHERE id_immeuble=? AND numero_lot=?');
                 $st->execute([$idImmeuble, $numLot]);
                 $bienRow = $st->fetch(PDO::FETCH_ASSOC);
@@ -353,11 +664,29 @@ if (!function_exists('crg_apply_parsed')) {
                     $idBien = (int)$bienRow['id'];
                     if ($hasActif) $pdo->prepare('UPDATE biens SET statut_occupation=? WHERE id=?')->execute(['occupé', $idBien]);
                 } else {
-                    $typeMap = ['appartement'=>2,'maison'=>1,'commerce'=>5,'parking'=>10,'cave'=>11,'bureau'=>6,'local'=>5,'autre'=>2];
-                    $idTypeBien = $typeMap[strtolower($typeBien)] ?? 2;
-                    $pdo->prepare('INSERT INTO biens (id_immeuble, id_proprietaire, id_societe, id_type_bien, numero_lot, statut_occupation, surface_habitable, statut_bien) VALUES (?,?,?,?,?,?,?,?)')
-                        ->execute([$idImmeuble, $proprietaireId, $societeId ?: null, $idTypeBien, $numLot, $statutOcc, $lot['surface'] ?? null, 'actif']);
-                    $idBien = (int)$pdo->lastInsertId();
+                    // ANTI-DOUBLON : adopter un bien d'ANNONCE de cet immeuble (sans code_crg
+                    // ni numéro de lot) au lieu de créer un doublon. 1 bien = 1 lot.
+                    $exclude = $adoptedBiens ? implode(',', array_map('intval', $adoptedBiens)) : '0';
+                    $stA = $pdo->prepare("SELECT id FROM biens
+                        WHERE id_immeuble=? AND (code_crg IS NULL OR code_crg='')
+                          AND (numero_lot IS NULL OR numero_lot='')
+                          AND id NOT IN ($exclude)
+                          AND (statut_bien IS NULL OR statut_bien NOT IN ('supprime','archive'))
+                        ORDER BY id LIMIT 1");
+                    $stA->execute([$idImmeuble]);
+                    $adopt = (int)$stA->fetchColumn();
+                    if ($adopt > 0) {
+                        $pdo->prepare("UPDATE biens SET id_proprietaire=?, numero_lot=?, code_crg=?, statut_occupation=? WHERE id=?")
+                            ->execute([$proprietaireId, $numLot, $codeCrg . '_' . $numLot, $statutOcc, $adopt]);
+                        $idBien = $adopt; $adoptedBiens[] = $adopt;
+                        error_log("[crg dedup] bien annonce adopté #$idBien (lot $numLot, imm $idImmeuble)");
+                    } else {
+                        $typeMap = ['appartement'=>2,'maison'=>1,'commerce'=>5,'parking'=>10,'cave'=>11,'bureau'=>6,'local'=>5,'autre'=>2];
+                        $idTypeBien = $typeMap[strtolower($typeBien)] ?? 2;
+                        $pdo->prepare('INSERT INTO biens (id_immeuble, id_proprietaire, id_societe, id_type_bien, numero_lot, code_crg, statut_occupation, surface_habitable, statut_bien) VALUES (?,?,?,?,?,?,?,?,?)')
+                            ->execute([$idImmeuble, $proprietaireId, $societeId ?: null, $idTypeBien, $numLot, $codeCrg . '_' . $numLot, $statutOcc, $lot['surface'] ?? null, 'actif']);
+                        $idBien = (int)$pdo->lastInsertId();
+                    }
                 }
 
                 // ── BAIL dans bien_baux (table canonique unique) ──
@@ -367,6 +696,9 @@ if (!function_exists('crg_apply_parsed')) {
                         $activeName = trim((string)$loc['nom']); $activeDate = $loc['date_bail'] ?? null; break;
                     }
                 }
+                // Loyer MENSUEL HC du lot (déjà ramené au mois par le parser, jamais ÷3 ici).
+                // Alimente bien_baux.loyer_mensuel_hc = « Loyer de base » de la fiche.
+                $loyerMensuel = round((float)($lot['loyer_mensuel'] ?? 0), 2);
 
                 $activeBailId = null;
                 try {
@@ -379,6 +711,11 @@ if (!function_exists('crg_apply_parsed')) {
 
                     if ($same) {
                         $activeBailId = (int)$cur['id'];
+                        // Backfill loyer si le bail existant est à 0/NULL (re-import des baux créés avant ce correctif).
+                        if ($loyerMensuel > 0) {
+                            $pdo->prepare("UPDATE bien_baux SET loyer_mensuel_hc=? WHERE id=? AND (loyer_mensuel_hc IS NULL OR loyer_mensuel_hc=0)")
+                                ->execute([$loyerMensuel, $activeBailId]);
+                        }
                     } else {
                         if ($cur) {
                             $pdo->prepare("UPDATE bien_baux SET statut='archive', date_fin=COALESCE(date_fin, ?) WHERE id=?")
@@ -391,11 +728,12 @@ if (!function_exists('crg_apply_parsed')) {
                             $ex = $stEx->fetch(PDO::FETCH_ASSOC);
                             if ($ex) {
                                 $activeBailId = (int)$ex['id'];
-                                $pdo->prepare("UPDATE bien_baux SET statut='actif', date_prise_effet=COALESCE(date_prise_effet, ?) WHERE id=?")
-                                    ->execute([$activeDate ?: null, $activeBailId]);
+                                $pdo->prepare("UPDATE bien_baux SET statut='actif', date_prise_effet=COALESCE(date_prise_effet, ?),
+                                                loyer_mensuel_hc = CASE WHEN ? > 0 THEN ? ELSE loyer_mensuel_hc END WHERE id=?")
+                                    ->execute([$activeDate ?: null, $loyerMensuel, $loyerMensuel, $activeBailId]);
                             } else {
-                                $pdo->prepare("INSERT INTO bien_baux (id_bien, id_proprietaire, locataire_nom, statut, date_prise_effet) VALUES (?,?,?,'actif',?)")
-                                    ->execute([$idBien, $proprietaireId, $activeName, $activeDate ?: null]);
+                                $pdo->prepare("INSERT INTO bien_baux (id_bien, id_proprietaire, locataire_nom, loyer_mensuel_hc, statut, date_prise_effet) VALUES (?,?,?,?,'actif',?)")
+                                    ->execute([$idBien, $proprietaireId, $activeName, $loyerMensuel ?: null, $activeDate ?: null]);
                                 $activeBailId = (int)$pdo->lastInsertId();
                             }
                             $nbBascules++;
@@ -405,6 +743,7 @@ if (!function_exists('crg_apply_parsed')) {
                     error_log('[crg_apply bail] bien#' . $idBien . ' : ' . $exBail->getMessage());
                 }
                 if ($activeBailId) { $bailIdsTouched[$activeBailId] = true; }
+                if ($idBien > 0) { $bienIdsTouched[$idBien] = true; }
 
                 foreach ($locataires as $loc) {
                     $nom = trim((string)($loc['nom'] ?? ''));
@@ -437,6 +776,44 @@ if (!function_exists('crg_apply_parsed')) {
             }
         }
 
+        // ── LOT INTERNE garanti sur chaque bien du CRG (jamais de bien sans lot) ──
+        if (is_file(__DIR__ . '/bien_lot.php')) {
+            require_once __DIR__ . '/bien_lot.php';
+            foreach (array_keys($bienIdsTouched) as $biId) { try { bien_ensure_lot_interne($pdo, (int)$biId); } catch (Throwable) {} }
+        }
+
+        // ── MANDAT DE GESTION automatique sur chaque bien du CRG ──
+        // Un bien géré via CRG est, par définition, en GESTION (même s'il appartient à
+        // un immeuble en syndic) → il doit porter un mandat de gestion ACTIF. Seuls les
+        // biens en annonce de VENTE dès l'origine en sont exclus, or un bien présent dans
+        // un CRG n'entre jamais dans ce cas. Numéro déterministe AUTO-G-CRG-<id> (cohérent
+        // avec la migration 20260611). Idempotent : actif → rien ; archivé → réactivé ;
+        // sinon création (évite la collision sur uk_mandats_numero au ré-import).
+        $nbMandats = 0;
+        $stMActive = $pdo->prepare("SELECT id FROM mandats WHERE id_bien=? AND statut='actif' AND type_mandat IN ('gestion','gerance') LIMIT 1");
+        $stMAny    = $pdo->prepare("SELECT id FROM mandats WHERE id_bien=? AND type_mandat='gestion' ORDER BY id DESC LIMIT 1");
+        $stMRevive = $pdo->prepare("UPDATE mandats SET statut='actif', date_fin=NULL,
+                                        id_proprietaire=COALESCE(id_proprietaire,?), id_agence=COALESCE(id_agence,?),
+                                        date_debut=COALESCE(date_debut, CURDATE()), date_modification=NOW()
+                                    WHERE id=?");
+        $stMIns    = $pdo->prepare("INSERT INTO mandats
+                (id_bien, id_proprietaire, id_agence, id_user, numero_mandat, type_mandat, nature_mandat, exclusif, date_debut, statut, date_creation)
+             SELECT b.id, b.id_proprietaire, b.id_agence, ?, CONCAT('AUTO-G-CRG-', b.id), 'gestion', NULL, 0, CURDATE(), 'actif', NOW()
+               FROM biens b WHERE b.id=? AND (b.statut_bien IS NULL OR b.statut_bien <> 'supprime')");
+        foreach (array_keys($bienIdsTouched) as $biId) {
+            try {
+                $stMActive->execute([$biId]);
+                if ($stMActive->fetchColumn()) continue;                 // déjà un mandat gestion actif
+                $stMAny->execute([$biId]);
+                $reviveId = (int)($stMAny->fetchColumn() ?: 0);
+                if ($reviveId > 0) { $stMRevive->execute([$proprietaireId ?: null, $agenceId ?: null, $reviveId]); }
+                else               { $stMIns->execute([$userId ?: null, $biId]); }
+                $nbMandats++;
+            } catch (Throwable $exM) {
+                error_log('[crg_apply mandat] bien#' . $biId . ' : ' . $exM->getMessage());
+            }
+        }
+
         // ── Archivage GED du PDF → propriétaire (TIERS) + cascade immeuble/bail ──
         $gedStatut = 'skip';
         $gedError  = null;
@@ -454,10 +831,23 @@ if (!function_exists('crg_apply_parsed')) {
                 $links = [];
                 if ($tiersId > 0) $links[] = ['entity_type'=>'TIERS', 'entity_id'=>$tiersId, 'relation_type'=>'main', 'is_validated'=>1, 'validated_by'=>$userId ?: null];
                 foreach (array_keys($immeubleIds) as $imId)  $links[] = ['entity_type'=>'IMB',  'entity_id'=>(int)$imId, 'relation_type'=>'reference'];
+                foreach (array_keys($bienIdsTouched) as $biId) $links[] = ['entity_type'=>'BIEN', 'entity_id'=>(int)$biId, 'relation_type'=>'reference'];
                 foreach (array_keys($bailIdsTouched) as $bId) $links[] = ['entity_type'=>'BAIL', 'entity_id'=>(int)$bId,  'relation_type'=>'reference'];
 
                 if ($links) {
-                    $srcName = 'CRG_' . $annee . '_T' . $trimestre . '.pdf';
+                    // Nom du PDF GED avec le PROPRIÉTAIRE (ex. CRG_SCI_FAVRE_2026_T1.pdf).
+                    $propNomGed = '';
+                    try {
+                        // Société pour une morale, sinon NOM + prénom (jamais le prénom seul).
+                        $qn = $pdo->prepare("SELECT CASE WHEN COALESCE(societe,'')<>'' THEN societe
+                                                          ELSE TRIM(CONCAT_WS(' ', nom, NULLIF(prenom,''))) END
+                                             FROM proprietaires WHERE id=?");
+                        $qn->execute([$proprietaireId]); $propNomGed = (string)$qn->fetchColumn();
+                    } catch (Throwable) {}
+                    // Slug sans accents, MAJUSCULES (ex. CRG_RENAUD_FREDERIC_2026_T1.pdf).
+                    $slugSrc  = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $propNomGed) ?: $propNomGed;
+                    $propSlug = strtoupper(trim((string)preg_replace('/[^A-Za-z0-9]+/', '_', $slugSrc), '_'));
+                    $srcName = 'CRG_' . ($propSlug !== '' ? $propSlug . '_' : '') . $annee . '_T' . $trimestre . '.pdf';
                     $gedRes = gus_commit_document(
                         $pdo,
                         ['path_on_disk'=>$pdfAbs, 'name_original'=>$srcName, 'mime_type'=>'application/pdf', 'size_bytes'=>(int)@filesize($pdfAbs), 'public_url'=>$pdfUrl],
@@ -498,7 +888,7 @@ if (!function_exists('crg_apply_parsed')) {
         return [
             'ok'     => true,
             'crg_id' => $crgId,
-            'stats'  => ['immeubles'=>$nbImmeubles, 'lots'=>$nbLots, 'ecritures'=>$nbEcritures, 'bascules'=>$nbBascules, 'ged'=>$gedStatut, 'ged_error'=>$gedError, 'annee'=>$annee, 'trimestre'=>$trimestre],
+            'stats'  => ['immeubles'=>$nbImmeubles, 'lots'=>$nbLots, 'ecritures'=>$nbEcritures, 'bascules'=>$nbBascules, 'mandats'=>$nbMandats, 'ged'=>$gedStatut, 'ged_error'=>$gedError, 'annee'=>$annee, 'trimestre'=>$trimestre],
             'error'  => null,
         ];
     }
