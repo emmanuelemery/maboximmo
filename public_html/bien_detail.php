@@ -3063,62 +3063,17 @@ if (!$embed) {
               <small class="v2-char-count" data-target="description" data-min="100">0 / 100+ car.</small>
             </div>
 
-            <!-- Descriptif du bien (pour bail) : UNIQUEMENT les données structurées du bien,
-                 dans l'ordre logique, « aucun » quand la valeur est absente. Aucun ajout. -->
-            <?php
-              $bd = $bienLoaded ?? [];
-              $dscAucun    = static fn($v): string => (trim((string)$v) !== '' ? h(trim((string)$v)) : 'aucun');
-              $dscSousType = static function ($s): string {
-                  $s = trim((string)$s);
-                  if ($s === '') return 'aucun';
-                  return preg_match('/^t\d+$/i', $s) ? strtoupper($s) : ucfirst(str_replace('_', ' ', $s));
-              };
-              $dscSurface = static function ($v): string {
-                  $v = (float)$v;
-                  return $v > 0 ? number_format($v, 2, ',', ' ') . ' m²' : 'aucun';
-              };
-              $dscNb = static fn($v): string => ((int)$v > 0 ? (string)(int)$v : 'aucun');
-              $dscEtage = static function ($e): string {
-                  if ($e === null || $e === '') return 'aucun';
-                  $e = (int)$e;
-                  if ($e <= 0) return 'Rez-de-chaussée';
-                  return $e === 1 ? '1er étage' : $e . 'e étage';
-              };
-              // Extérieur / dépendances : liste des éléments présents (booléens), « aucun(e) » sinon.
-              $dscExt = [];
-              foreach (['balcon'=>'Balcon','terrasse'=>'Terrasse','jardin'=>'Jardin','cour'=>'Cour','piscine'=>'Piscine'] as $k=>$lbl) {
-                  if (!empty($bd[$k])) $dscExt[] = $lbl;
-              }
-              $dscDep = [];
-              foreach (['cave'=>'Cave','grenier'=>'Grenier','garage'=>'Garage','box'=>'Box'] as $k=>$lbl) {
-                  if (!empty($bd[$k])) $dscDep[] = $lbl;
-              }
-              if ((int)($bd['parking_nb'] ?? 0) > 0) $dscDep[] = 'Parking' . ((int)$bd['parking_nb'] > 1 ? ' (' . (int)$bd['parking_nb'] . ')' : '');
-              // Détail des pièces (compteurs uniquement — pas de modèle pièce-par-pièce).
-              $dscPieces = [
-                  'Chambres'        => $dscNb($bd['nb_chambres']   ?? null),
-                  'Salles de bain'  => $dscNb($bd['nb_salles_bain'] ?? null),
-                  'Salles d\'eau'   => $dscNb($bd['nb_salles_eau']  ?? null),
-                  'WC'              => $dscNb($bd['nb_wc']          ?? null),
-                  'Niveaux'         => $dscNb($bd['nb_niveaux']     ?? null),
-              ];
-            ?>
+            <!-- Descriptif du bien (pour bail) : source UNIQUE = inc/bien_descriptif.php
+                 (données structurées du bien, ordre logique, « aucun » si vide). Aucun ajout. -->
+            <?php require_once __DIR__ . '/inc/bien_descriptif.php'; $dscRows = bien_descriptif_rows($bienLoaded ?? []); ?>
             <div class="v2-desc-group-title" style="margin-top:14px;">🏠 Descriptif du bien (pour bail)</div>
             <div class="v2-field">
               <div style="display:grid;grid-template-columns:180px 1fr;gap:4px 14px;font-size:13.5px;color:#2c2a28;background:#f7f9f7;border:1px solid #e3ece3;border-radius:10px;padding:12px 16px;">
-                <div style="font-weight:700;color:#5b6b60;">Type</div>            <div><?= $dscAucun($bd['_type_bien_libelle'] ?? '') ?></div>
-                <div style="font-weight:700;color:#5b6b60;">Sous-type</div>       <div><?= $dscSousType($bd['sous_type_bien'] ?? '') ?></div>
-                <div style="font-weight:700;color:#5b6b60;">Usage</div>           <div><?= $dscAucun($bd['usage_bien'] ?? '') ?></div>
-                <div style="font-weight:700;color:#5b6b60;">Surface habitable</div><div><?= $dscSurface($bd['surface_habitable'] ?? 0) ?></div>
-                <div style="font-weight:700;color:#5b6b60;">Nombre de pièces</div> <div><?= $dscNb($bd['nb_pieces'] ?? null) ?></div>
-                <?php foreach ($dscPieces as $lbl => $v): ?>
-                <div style="font-weight:600;color:#8a8680;padding-left:14px;">— <?= $lbl ?></div><div><?= $v ?></div>
+                <?php foreach ($dscRows as $lbl => $v): $sub = strncmp($lbl, '—', 1) === 0; ?>
+                <div style="<?= $sub ? 'font-weight:600;color:#8a8680;padding-left:14px;' : 'font-weight:700;color:#5b6b60;' ?>"><?= h($lbl) ?></div><div><?= h($v) ?></div>
                 <?php endforeach; ?>
-                <div style="font-weight:700;color:#5b6b60;">Étage</div>           <div><?= $dscEtage($bd['etage'] ?? null) ?></div>
-                <div style="font-weight:700;color:#5b6b60;">Extérieur</div>       <div><?= $dscExt ? h(implode(', ', $dscExt)) : 'aucun' ?></div>
-                <div style="font-weight:700;color:#5b6b60;">Dépendances</div>     <div><?= $dscDep ? h(implode(', ', $dscDep)) : 'aucune' ?></div>
               </div>
-              <small style="color:#9a9690;font-size:11.5px;">Généré à partir des données de l'onglet « Descriptif » — non modifiable ici.</small>
+              <small style="color:#9a9690;font-size:11.5px;">Repris automatiquement dans le projet de bail habitation — modifiable via l'onglet « Descriptif ».</small>
             </div>
 
             <!-- Détails -->

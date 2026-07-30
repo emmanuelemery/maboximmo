@@ -13,6 +13,7 @@ if (!function_exists('bail_habitation_modal')) {
     {
         $prev = function_exists('app_url') ? app_url('/api/bail_habitation_preview.php') : '/api/bail_habitation_preview.php';
         $save = function_exists('app_url') ? app_url('/api/bail_habitation_save.php')   : '/api/bail_habitation_save.php';
+        $bienUrl = function_exists('app_url') ? app_url('/bien_detail.php?edit=') : '/bien_detail.php?edit=';
         ?>
 <div id="bhModal" class="bh-modal" hidden>
   <div class="bh-dialog">
@@ -62,8 +63,10 @@ if (!function_exists('bail_habitation_modal')) {
 <script>
 (function(){
   var PREV=<?= json_encode($prev, JSON_UNESCAPED_SLASHES) ?>, SAVE=<?= json_encode($save, JSON_UNESCAPED_SLASHES) ?>;
+  var BIEN_URL=<?= json_encode($bienUrl, JSON_UNESCAPED_SLASHES) ?>;
   var M={bienId:0,bailId:0}, _pvTimer=null, _pvSeq=0;
   var g=function(id){return document.getElementById(id);};
+  var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
 
   // Définition des groupes/champs (label, id colonne, type).
   var GROUPS=[
@@ -135,6 +138,22 @@ if (!function_exists('bail_habitation_modal')) {
 
   function buildForm(){
     var f=g('bh-form'); f.innerHTML='';
+    // Descriptif du bien (reprise LECTURE SEULE) — source unique = fiche bien.
+    var dsc = window.BAILHAB_DESCRIPTIF || null;
+    if(dsc){
+      var dbox=document.createElement('div'); dbox.className='bh-grp';
+      var dh=document.createElement('h4'); dh.textContent='🏠 Désignation du bien (reprise)'; dh.onclick=function(){dbox.classList.toggle('closed');};
+      var db=document.createElement('div'); db.className='bh-grp-b';
+      var rows=''; Object.keys(dsc).forEach(function(k){
+        var sub=(k.charAt(0)==='—');
+        rows+='<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0;'+(sub?'padding-left:12px;color:#8a8680;':'font-weight:600;color:#5b6b60;')+'"><span>'+esc(k)+'</span><span style="color:#2c2a28;">'+esc(dsc[k])+'</span></div>';
+      });
+      var bienId=window.BAILHAB_BIENID||0;
+      db.innerHTML='<div style="font-size:12.5px;background:#f7f9f7;border:1px solid #e3ece3;border-radius:8px;padding:10px 12px;">'+rows+'</div>'
+        +'<a href="'+esc(BIEN_URL)+bienId+'&section=descriptif" target="_blank" style="display:inline-block;margin-top:8px;color:#1d4ed8;font-weight:700;text-decoration:none;font-size:12.5px;">✏️ Modifier dans la fiche bien</a>'
+        +'<div class="bh-mut" style="font-size:11px;margin-top:3px;">Repris automatiquement de la fiche bien — non modifiable ici.</div>';
+      dbox.appendChild(dh); dbox.appendChild(db); f.appendChild(dbox);
+    }
     GROUPS.forEach(function(grp,gi){
       var box=document.createElement('div'); box.className='bh-grp'+(gi>0?' closed':'');
       var h=document.createElement('h4'); h.textContent=grp[0]; h.onclick=function(){box.classList.toggle('closed');};

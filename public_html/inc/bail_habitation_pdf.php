@@ -171,12 +171,29 @@ if (!function_exists('bail_habitation_corps')) {
         $h .= '<h3>II. Objet du contrat</h3>';
         $h .= '<p class="clabel">Désignation des locaux</p>';
         $h .= '<p>Rappel : un logement décent doit respecter les critères minimaux de performance suivants : a) En France métropolitaine : i) à compter du 1<sup>er</sup> janvier 2025, le niveau de performance minimal du logement correspond à la classe F du DPE ; ii) à compter du 1<sup>er</sup> janvier 2028, à la classe E du DPE ; iii) à compter du 1<sup>er</sup> janvier 2034, à la classe D du DPE. b) En Guadeloupe, en Martinique, en Guyane, à La Réunion et à Mayotte : i) à compter du 1<sup>er</sup> janvier 2028, à la classe F du DPE ; ii) à compter du 1<sup>er</sup> janvier 2031, à la classe E du DPE. La consommation d\'énergie finale et le niveau de performance du logement sont déterminés selon la méthode du diagnostic de performance énergétique mentionné à l\'article L. 126-26 du code de la construction et de l\'habitation.</p>';
+        // Descriptif structuré du bien — SOURCE UNIQUE (inc/bien_descriptif.php), repris du bien.
+        require_once __DIR__ . '/bien_descriptif.php';
+        $descBail = '';
+        try {
+            $qb = $GLOBALS['pdo']->prepare("SELECT b.*, COALESCE(bt.libelle, tb.libelle) AS _type_bien_libelle
+                FROM biens b LEFT JOIN bien_types bt ON bt.id=b.id_bien_type LEFT JOIN types_bien tb ON tb.id=b.id_type_bien
+                WHERE b.id=? LIMIT 1");
+            $qb->execute([(int)($r['id_bien'] ?? 0)]);
+            if ($bienStruct = $qb->fetch(PDO::FETCH_ASSOC)) $descBail = bien_descriptif_texte($bienStruct);
+        } catch (Throwable) {}
+
         $desig = ($ctx['bien_adresse'] ? bcp_e($ctx['bien_adresse']) : '……………')
             . ($ctx['immeuble'] ? ', dépendant de l\'immeuble ' . bcp_e($ctx['immeuble']) : '')
             . (!empty($r['en_copropriete']) && $r['lot_copropriete'] ? ', lot de copropriété n° ' . bcp_e((string)$r['lot_copropriete']) . ($r['lot_tantiemes'] ? ' (' . bcp_e((string)$r['lot_tantiemes']) . ')' : '') : '')
-            . ($rowNum('surface_habitable') !== null ? ', d\'une surface habitable de ' . bcp_e((string)$r['surface_habitable']) . ' m²' : ', d\'une surface habitable de …… m²')
-            . ($rowNum('nb_pieces') !== null ? ', comprenant ' . (int)$r['nb_pieces'] . ' pièce(s) principale(s)' : '') . '.';
+            . '.';
         $h .= '<p>' . $desig . '</p>';
+        // Reprise du descriptif du bien (type, surface, pièces, étage, extérieur, dépendances).
+        if ($descBail !== '') {
+            $h .= '<p>' . bcp_e($descBail) . '</p>';
+        } else {
+            $h .= '<p>' . ($rowNum('surface_habitable') !== null ? 'D\'une surface habitable de ' . bcp_e((string)$r['surface_habitable']) . ' m²' : 'D\'une surface habitable de …… m²')
+                . ($rowNum('nb_pieces') !== null ? ', comprenant ' . (int)$r['nb_pieces'] . ' pièce(s) principale(s)' : '') . '.</p>';
+        }
         $h .= '<p><b>Niveau de performance du logement (DPE) :</b> ' . $F($r['dpe_classe'] ?? '', 4) . '</p>';
         $h .= '<p class="clabel">Destination des locaux</p><p>Les locaux sont loués pour un <b>usage exclusif d\'habitation principale.</b></p>';
         $h .= '<p class="clabel">Équipement d\'accès aux technologies de l\'information et de la communication</p><p>' . $F($r['equipement_tic'] ?? '', 20) . '</p>';

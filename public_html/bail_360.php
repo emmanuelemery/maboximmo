@@ -338,7 +338,19 @@ if ($isProjetBail) {
         // Bail HABITATION (loi 89-462) → modal + moteur FNAIM dédiés ; « Modifier » ouvre ce modal.
         require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
         bail_habitation_modal();
+        // Descriptif structuré du bien (source unique) → repris en LECTURE SEULE dans le modal.
+        require_once __DIR__ . '/inc/bien_descriptif.php';
+        $bhRows = [];
+        try {
+            $qbh = $pdo->prepare("SELECT b.*, COALESCE(bt.libelle, tb.libelle) AS _type_bien_libelle
+                FROM biens b LEFT JOIN bien_types bt ON bt.id=b.id_bien_type LEFT JOIN types_bien tb ON tb.id=b.id_type_bien
+                WHERE b.id=? LIMIT 1");
+            $qbh->execute([(int)$bail['bien_id']]);
+            if ($bhStruct = $qbh->fetch(PDO::FETCH_ASSOC)) $bhRows = bien_descriptif_rows($bhStruct);
+        } catch (Throwable) {}
         echo '<script>window.BAILHAB_VALUES = ' . json_encode($bail, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';'
+           . 'window.BAILHAB_DESCRIPTIF = ' . json_encode($bhRows, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';'
+           . 'window.BAILHAB_BIENID = ' . (int)$bail['bien_id'] . ';'
            . 'window.bailHabOnClose=function(){location.reload();};</script>';
         $belEditOnClick = 'bailHabOpenModal({bien_id:' . (int)$bail['bien_id'] . ', bail_id:' . (int)$bailId . ', values:window.BAILHAB_VALUES});return false;';
     } else {
