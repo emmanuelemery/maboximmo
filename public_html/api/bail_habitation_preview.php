@@ -64,6 +64,9 @@ try {
         if (in_array($k, ['bail_id', 'bien_id'], true)) continue;
         $row[$k] = $v;
     }
+    // Le descriptif (Désignation des locaux) est composé depuis le bien via $row['id_bien'] :
+    // sur un bail NON encore enregistré, la ligne est vide → on injecte l'id du bien édité.
+    if (empty($row['id_bien']) && (int)($in['bien_id'] ?? 0) > 0) $row['id_bien'] = (int)$in['bien_id'];
     $ctx['row'] = $row;
     $ctx['signatures'] = [];   // aperçu = pas de signatures
 

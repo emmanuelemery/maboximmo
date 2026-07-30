@@ -122,6 +122,56 @@ if (!function_exists('bail_habitation_prefill_from_bien')) {
     }
 }
 
+if (!function_exists('bail_habitation_decompte')) {
+    /**
+     * Décompte financier du bail HABITATION (source unique, réutilisable PDF + mail) :
+     *  - « signature » : sommes à verser à l'entrée (loyer+charges+TF au prorata, honoraires
+     *    locataire visite+EDL, dépôt de garantie). Pas de TVA, pas de droit d'entrée.
+     *  - « echeance »  : montant d'une échéance de loyer (loyer + complément + charges
+     *    + provision TF + assurance colocataires). Mensuel (pas de trimestriel).
+     * @return array{signature:array<array{0:string,1:float}>, signature_total:float,
+     *               echeance:array<array{0:string,1:float}>, echeance_total:float, prorata:array}
+     */
+    function bail_habitation_decompte(array $r): array {
+        $n = static fn($k) => (isset($r[$k]) && $r[$k] !== '' && $r[$k] !== null) ? (float)$r[$k] : 0.0;
+        $loyer = $n('loyer_mensuel_hc'); $comp = $n('complement_loyer'); $charges = $n('charges_mensuelles');
+        $tf = $n('provision_tf_mensuelle'); $assur = $n('assurance_colocataires_mensuel');
+        $dg = $n('depot_garantie'); $honoLoc = $n('hono_locataire_visite') + $n('hono_locataire_edl');
+        $loyerBase = $loyer + $comp;
+
+        // Prorata de la 1re période, depuis prorata_date_debut sinon date_prise_effet.
+        $ratio = 1.0; $prBase = ($r['prorata_date_debut'] ?? '') ?: ($r['date_prise_effet'] ?? ''); $prFin = '';
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$prBase)) {
+            $ts = strtotime((string)$prBase); $dim = (int)date('t', $ts); $jj = (int)date('j', $ts);
+            $ratio = $dim > 0 ? ($dim - $jj + 1) / $dim : 1.0; $prFin = date('Y-m-t', $ts);
+        }
+        // Franchise : prorata débutant APRÈS la date d'effet → pas de loyer à la signature.
+        $franchise = false; $de = (string)($r['date_prise_effet'] ?? ''); $pd = (string)($r['prorata_date_debut'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $pd) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $de)) $franchise = strtotime($pd) > strtotime($de);
+
+        $sig = [];
+        if (!$franchise) {
+            if ($loyerBase > 0) $sig[] = ['1er loyer (prorata temporis)', $loyerBase * $ratio];
+            if ($charges > 0)   $sig[] = ['Provision de charges (prorata)', $charges * $ratio];
+            if ($tf > 0)        $sig[] = ['Provision de taxe foncière (prorata)', $tf * $ratio];
+        }
+        if ($honoLoc > 0) $sig[] = ['Honoraires à la charge du locataire (visite/dossier/rédaction + état des lieux)', $honoLoc];
+        if ($dg > 0)      $sig[] = ['Dépôt de garantie', $dg];
+
+        $ech = [['Loyer mensuel (hors complément)', $loyer]];
+        if ($comp > 0)    $ech[] = ['Complément de loyer', $comp];
+        if ($charges > 0) $ech[] = ['Provisions/forfait de charges', $charges];
+        if ($tf > 0)      $ech[] = ['Provision de taxe foncière', $tf];
+        if ($assur > 0)   $ech[] = ['Assurance pour compte des colocataires', $assur];
+
+        return [
+            'signature'       => $sig, 'signature_total' => array_sum(array_map(static fn($x) => $x[1], $sig)),
+            'echeance'        => $ech, 'echeance_total'  => array_sum(array_map(static fn($x) => $x[1], $ech)),
+            'prorata'         => ['ratio' => $ratio, 'debut' => $prBase, 'fin' => $prFin, 'franchise' => $franchise],
+        ];
+    }
+}
+
 if (!function_exists('bail_habitation_corps')) {
     function bail_habitation_corps(array $ctx): string
     {
@@ -220,24 +270,23 @@ if (!function_exists('bail_habitation_corps')) {
         $h .= '<p class="clabel">D. Souscription par le BAILLEUR d\'une assurance pour le compte des colocataires</p><p>Le montant récupérable par douzième au titre de l\'assurance pour compte des colocataires est de ' . $E($rowNum('assurance_colocataires_mensuel')) . '.</p>';
         $h .= '<p class="clabel">E. Modalités de paiement</p><p>Le loyer est payable à échoir au plus tard le ' . $F($r['paiement_jour'] ?? '', 4) . ' de chaque mois entre les mains ' . $F($r['paiement_beneficiaire'] ?? ($ge['raison'] ?? ''), 16) . '.</p>';
 
-        // Tableau montant total 1ère échéance
-        $loy = $rowNum('loyer_mensuel_hc') ?? 0; $comp = $rowNum('complement_loyer') ?? 0; $ch = $rowNum('charges_mensuelles') ?? 0;
-        $tot = $loy + $comp + $ch;
-        $h .= '<table class="tbl"><tr><th colspan="2">Montant total dû à la première échéance de paiement pour une période complète de location</th></tr>'
-            . '<tr><td>Loyer mensuel hors complément de loyer éventuel</td><td class="who">' . $E($loy) . '</td></tr>'
-            . '<tr><td>Complément de loyer éventuel</td><td class="who">' . $E($comp) . '</td></tr>'
-            . '<tr><td>Provisions/forfait de charges</td><td class="who">' . $E($ch) . '</td></tr>'
-            . '<tr><td>Contribution pour le partage des économies de charges</td><td class="who">' . $E(0) . '</td></tr>'
-            . '<tr><td><b>TOTAL</b></td><td class="who"><b>' . $E($tot) . '</b></td></tr></table>';
-        // Prorata 1ère période
-        $prR = 1.0; $prBase = ($r['prorata_date_debut'] ?? '') ?: ($r['date_prise_effet'] ?? '');
-        $proTxt = '';
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$prBase)) {
-            $ts = strtotime((string)$prBase); $dim = (int)date('t', $ts); $jj = (int)date('j', $ts);
-            $prR = $dim > 0 ? ($dim - $jj + 1) / $dim : 1.0;
-            $proTxt = ' Le montant total dû <i>prorata temporis</i> pour la première période de location allant du ' . bcp_date($prBase) . ' au ' . bcp_date(date('Y-m-t', $ts)) . ' est de ' . $E($tot * $prR) . '.';
+        // ── Récapitulatifs financiers (helper centralisé, réutilisable PDF + mail) ──
+        $dcp = bail_habitation_decompte($r);
+        // Table B — montant d'une échéance de loyer (période complète)
+        $h .= '<table class="tbl"><tr><th colspan="2">Montant total dû à chaque échéance de loyer (période complète de location)</th></tr>';
+        foreach ($dcp['echeance'] as $ld) $h .= '<tr><td>' . bcp_e($ld[0]) . '</td><td class="who">' . $E($ld[1]) . '</td></tr>';
+        $h .= '<tr><td><b>TOTAL par échéance</b></td><td class="who"><b>' . $E($dcp['echeance_total']) . '</b></td></tr></table>';
+        // Table A — montant total à verser à l'entrée dans les lieux (à la signature)
+        $h .= '<table class="tbl" style="margin-top:6px;"><tr><th colspan="2">Montant total à verser à l\'entrée dans les lieux (à la signature du bail)</th></tr>';
+        if ($dcp['signature']) {
+            foreach ($dcp['signature'] as $ld) $h .= '<tr><td>' . bcp_e($ld[0]) . '</td><td class="who">' . $E($ld[1]) . '</td></tr>';
+        } else {
+            $h .= '<tr><td colspan="2"><i>Aucune somme à verser à la signature (à compléter).</i></td></tr>';
         }
-        if ($proTxt) $h .= '<p>' . $proTxt . '</p>';
+        $h .= '<tr><td><b>TOTAL à verser à la signature</b></td><td class="who"><b>' . $E($dcp['signature_total']) . '</b></td></tr></table>';
+        if (!empty($dcp['prorata']['fin']) && $dcp['prorata']['ratio'] < 1) {
+            $h .= '<p style="font-size:8.5pt;color:#444;">Le 1<sup>er</sup> loyer est calculé <i>prorata temporis</i> pour la période allant du ' . bcp_date($dcp['prorata']['debut']) . ' au ' . bcp_date($dcp['prorata']['fin']) . '.</p>';
+        }
         $h .= '<p class="clabel">G. Dépenses énergétiques (pour information)</p><p>Montant estimé des dépenses annuelles d\'énergie pour un usage standard : entre ' . $E($rowNum('depenses_energie_min')) . ' et ' . $E($rowNum('depenses_energie_max')) . ' par an (estimation réalisée à partir des prix énergétiques de référence de l\'année ' . $F($r['depenses_energie_annee'] ?? '', 4) . ').</p>';
 
         // ── V. Travaux ──

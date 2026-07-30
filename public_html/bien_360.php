@@ -1025,10 +1025,23 @@ if ($kpis) {
         'origin'           => 'bien_360',
     ];
     echo '<script>window.BEL_PREFILL_CREATE = ' . json_encode($belPrefill, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';</script>';
-    $belOnClick = 'bailOpenCreateModal(window.BEL_PREFILL_CREATE);return false;';
-    // Émission du modal (idempotente) — garantit sa présence même si le panneau Actions ne s'exécute pas.
+    // ROUTAGE selon l'usage du bien : habitation → modal HABITATION ; sinon commercial.
+    $isHab = strtolower(trim((string)($bien['usage_bien'] ?? ''))) === 'habitation';
+    $belOnClick = $isHab
+        ? 'bailHabOpenModal({bien_id:' . (int)$bienId . ', values:window.BAILHAB_PREFILL||{}});return false;'
+        : 'bailOpenCreateModal(window.BEL_PREFILL_CREATE);return false;';
+    // Émission des DEUX modals (idempotente) — garantit leur présence quel que soit le contexte.
     require_once __DIR__ . '/inc/bail_edit_modal.php';
     bail_edit_modal();
+    if (!defined('BIEN360_HAB_MODAL_EMITTED')) {
+        define('BIEN360_HAB_MODAL_EMITTED', 1);
+        require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
+        require_once __DIR__ . '/inc/bail_habitation_pdf.php';
+        bail_habitation_modal();
+        $habPrefill = bail_habitation_prefill_from_bien($pdo, $bienId);
+        echo '<script>window.BAILHAB_PREFILL = ' . json_encode($habPrefill, JSON_UNESCAPED_UNICODE) . ';'
+           . 'window.bailHabOnClose=function(id){ if(id) window.location="' . app_url('/bail_360.php?id=') . '"+id; };</script>';
+    }
 
     $bailProjets = [];
     try { $qp=$pdo->prepare("SELECT id,numero_bail,statut,locataire_raison_sociale,locataire_nom,locataire_prenom,loyer_mensuel_hc,date_prise_effet FROM bien_baux WHERE id_bien=? AND statut IN ('projet','envoye','signe','avenant') ORDER BY id DESC"); $qp->execute([$bienId]); $bailProjets=$qp->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable) {}
@@ -1136,7 +1149,7 @@ if ($kpis) {
                     <button type="button" onclick="<?= h($belOnClick) ?>" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">＋ Nouveau projet</button>
                 </div>
                 <?php if (empty($bailProjets)): ?>
-                    <div style="font-size:12px;color:#8a97a0;">Aucun projet en cours. « Nouveau projet » ouvre le générateur de bail commercial (candidat + conditions).</div>
+                    <div style="font-size:12px;color:#8a97a0;">Aucun projet en cours. « Nouveau projet » ouvre le générateur de bail <?= $isHab ? 'habitation (loi 89-462)' : 'commercial' ?> selon l'usage du bien.</div>
                 <?php else: foreach ($bailProjets as $bp):
                     $bpCand = $bp['locataire_raison_sociale'] ?: trim((string)$bp['locataire_prenom'] . ' ' . $bp['locataire_nom']) ?: 'Candidat à définir';
                     $bpSt = $belStatutLbl[$bp['statut']] ?? ['•', $bp['statut']];
@@ -1446,15 +1459,16 @@ if ($kpis) {
         require_once __DIR__ . '/inc/bail_edit_modal.php';
         bail_edit_modal();
         // Modal « Bail habitation » (loi 89-462) — création depuis le bien ; à la sauvegarde,
-        // on ouvre la fiche du bail créé.
-        require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
-        require_once __DIR__ . '/inc/bail_habitation_pdf.php';
-        bail_habitation_modal();
-        // Reprise AUTO des infos du bien + annonce location (surface, DPE, pièces, loyer, charges,
-        // loyer de référence, zone tendue, ancien loyer) → pré-remplit le nouveau bail habitation.
-        $habPrefill = bail_habitation_prefill_from_bien($pdo, $bienId);
-        echo '<script>window.BAILHAB_PREFILL = ' . json_encode($habPrefill, JSON_UNESCAPED_UNICODE) . ';'
-           . 'window.bailHabOnClose=function(id){ if(id) window.location="' . app_url('/bail_360.php?id=') . '"+id; };</script>';
+        // on ouvre la fiche du bail créé. (Idempotent : déjà émis en amont selon le contexte.)
+        if (!defined('BIEN360_HAB_MODAL_EMITTED')) {
+            define('BIEN360_HAB_MODAL_EMITTED', 1);
+            require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
+            require_once __DIR__ . '/inc/bail_habitation_pdf.php';
+            bail_habitation_modal();
+            $habPrefill = bail_habitation_prefill_from_bien($pdo, $bienId);
+            echo '<script>window.BAILHAB_PREFILL = ' . json_encode($habPrefill, JSON_UNESCAPED_UNICODE) . ';'
+               . 'window.bailHabOnClose=function(id){ if(id) window.location="' . app_url('/bail_360.php?id=') . '"+id; };</script>';
+        }
     }
 
     // (La checklist « Documents de base » est désormais en CARD 1 de la colonne 2.)
