@@ -35,7 +35,7 @@ $sql = "
     SELECT
         b.id, b.reference_bien, b.designation, b.adresse_1, b.ville, b.code_postal,
         b.surface_habitable, b.numero_lot, b.statut_occupation, b.prix_vente_estime, b.loyer_hc,
-        tb.libelle AS type_libelle,
+        COALESCE(bt.libelle, tb2.libelle) AS type_libelle,
         (SELECT ba.locataire_nom FROM baux ba WHERE ba.id_bien = b.id AND ba.statut = 'actif' ORDER BY ba.id DESC LIMIT 1) AS locataire_nom,
         a.decision, a.posture, a.statut_locatif,
         a.vacance_debut, a.vacance_mois,
@@ -45,7 +45,8 @@ $sql = "
         a.prix_estime, a.prix_vente_realiste, a.frais_agence, a.frais_notaire, a.cout_acte_en_main,
         a.delai_vente_mois, a.liquidite_niveau, a.risque_niveau
     FROM biens b
-    LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+    LEFT JOIN bien_types bt  ON bt.id  = b.id_bien_type
+    LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
     LEFT JOIN arbitrage_biens a ON a.id_bien = b.id AND a.id_societe = ?
     WHERE $where
     ORDER BY b.ville ASC, b.designation ASC, b.id DESC

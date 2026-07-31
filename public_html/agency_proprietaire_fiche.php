@@ -170,11 +170,12 @@ $tab = $_GET['tab'] ?? 'infos';
 $stmtBiens = $pdo->prepare("
     SELECT b.id, b.reference_bien, b.designation, b.adresse_1, b.ville, b.code_postal,
            b.surface_habitable, b.statut_bien,
-           tb.libelle AS type_bien_label,
+           COALESCE(bt.libelle, tb2.libelle) AS type_bien_label,
            (SELECT a.type_transaction FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS type_transaction,
            (SELECT a.prix FROM annonces a WHERE a.id_bien = b.id ORDER BY a.id DESC LIMIT 1) AS prix
     FROM biens b
-    LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+    LEFT JOIN bien_types bt  ON bt.id  = b.id_bien_type
+    LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
     WHERE b.id_proprietaire = ?
     ORDER BY b.reference_bien ASC
 ");

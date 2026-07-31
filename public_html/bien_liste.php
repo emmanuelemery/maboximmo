@@ -169,6 +169,7 @@ try {
         SELECT COUNT(*)
         FROM biens b
         LEFT JOIN immeubles i ON i.id = b.id_immeuble
+        LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
         LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
         $whereClause
     ";
@@ -197,7 +198,7 @@ try {
             b.dpe_classe,
             b.date_creation,
             tb.code    AS type_code,
-            tb.libelle AS type_libelle,
+            COALESCE(bt.libelle, tb.libelle) AS type_libelle,
             COALESCE(i.adresse_1,   b.adresse_1)   AS adresse_1,
             COALESCE(i.code_postal, b.code_postal) AS code_postal,
             COALESCE(i.ville,       b.ville)       AS ville,
@@ -218,6 +219,7 @@ try {
             (SELECT bp.url_photo FROM biens_photos bp WHERE bp.id_bien = b.id ORDER BY bp.ordre ASC, bp.id ASC LIMIT 1) AS photo_principale
         FROM biens b
         LEFT JOIN immeubles i  ON i.id  = b.id_immeuble
+        LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
         LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
         $whereClause
         ORDER BY b.date_creation DESC

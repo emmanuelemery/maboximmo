@@ -165,14 +165,15 @@ if ($bienId > 0) {
         // 1. Bien + type + immeuble
         $stmtB = $pdo->prepare("
             SELECT b.*,
-                   tb.code    AS _type_code,
-                   tb.libelle AS _type_libelle,
+                   COALESCE(bt.code,    tb2.code)    AS _type_code,
+                   COALESCE(bt.libelle, tb2.libelle) AS _type_libelle,
                    i.adresse_1 AS _imm_adresse_1,
                    i.code_postal AS _imm_code_postal,
                    i.ville     AS _imm_ville
             FROM biens b
-            LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
-            LEFT JOIN immeubles  i  ON i.id  = b.id_immeuble
+            LEFT JOIN bien_types bt  ON bt.id  = b.id_bien_type
+            LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
+            LEFT JOIN immeubles  i   ON i.id   = b.id_immeuble
             WHERE b.id = ?
             LIMIT 1
         ");

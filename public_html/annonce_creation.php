@@ -67,9 +67,10 @@ if ($annonceId <= 0) {
     // Liste des biens du scope
     try {
         $sql = "SELECT b.id, b.reference_bien, b.adresse_1, b.code_postal, b.ville, b.statut_bien,
-                       tb.code AS type_code
+                       COALESCE(bt.code, tb2.code) AS type_code
                 FROM biens b
-                LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+                LEFT JOIN bien_types bt  ON bt.id  = b.id_bien_type
+                LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
                 WHERE " . ($societeId > 0 ? "b.id_societe = :soc" : "1=1") . "
                 ORDER BY b.date_modification DESC
                 LIMIT 200";

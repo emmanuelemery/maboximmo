@@ -54,7 +54,7 @@ $sql = "
     SELECT
         b.id, b.reference_bien, b.designation, b.ville, b.adresse_1, b.surface_habitable,
         b.statut_occupation, b.prix_vente_estime, b.loyer_hc,
-        tb.libelle AS type_libelle,
+        COALESCE(bt.libelle, tb2.libelle) AS type_libelle,
         a.decision, a.posture, a.statut_locatif,
         a.vacance_debut, a.vacance_mois,
         a.loyer_actuel_mensuel, a.loyer_potentiel_mensuel,
@@ -63,7 +63,8 @@ $sql = "
         a.prix_estime, a.prix_vente_realiste, a.frais_agence, a.frais_notaire, a.cout_acte_en_main,
         a.delai_vente_mois, a.liquidite_niveau, a.risque_niveau
     FROM biens b
-    LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+    LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
+    LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
     LEFT JOIN arbitrage_biens a ON a.id_bien = b.id AND a.id_societe = ?
     WHERE ($where) AND b.id IN ($ph)
 ";

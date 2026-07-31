@@ -24,13 +24,14 @@ if ($bienId <= 0) {
 $stmtBien = $pdo->prepare("
     SELECT
         b.*,
-        tb.code AS type_code, tb.libelle AS type_libelle,
+        COALESCE(bt.code, tb2.code) AS type_code, COALESCE(bt.libelle, tb2.libelle) AS type_libelle,
         p.societe AS proprietaire_societe, p.nom AS proprietaire_nom, p.prenom AS proprietaire_prenom,
         (SELECT ba.locataire_nom FROM baux ba WHERE ba.id_bien = b.id AND ba.statut = 'actif' ORDER BY ba.id DESC LIMIT 1) AS locataire_nom,
         (SELECT ba.date_debut    FROM baux ba WHERE ba.id_bien = b.id AND ba.statut = 'actif' ORDER BY ba.id DESC LIMIT 1) AS bail_debut,
         (SELECT ba.date_fin      FROM baux ba WHERE ba.id_bien = b.id AND ba.statut = 'actif' ORDER BY ba.id DESC LIMIT 1) AS bail_fin
     FROM biens b
-    LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+    LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
+    LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
     LEFT JOIN proprietaires p ON p.id = b.id_proprietaire
     WHERE b.id = ?
     LIMIT 1

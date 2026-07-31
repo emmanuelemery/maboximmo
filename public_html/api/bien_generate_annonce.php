@@ -59,9 +59,11 @@ try {
 
     // ─── Chargement du bien + scope vérif ──
     $stmtB = $pdo->prepare("
-        SELECT b.*, tb.code AS type_bien_code, tb.libelle AS type_bien_libelle
+        SELECT b.*, tb2.code AS type_bien_code,
+               COALESCE(bt.libelle, tb2.libelle) AS type_bien_libelle
         FROM biens b
-        LEFT JOIN types_bien tb ON tb.id = b.id_type_bien
+        LEFT JOIN bien_types bt  ON bt.id  = b.id_bien_type
+        LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
         WHERE b.id = ?
     ");
     $stmtB->execute([$idBien]);
