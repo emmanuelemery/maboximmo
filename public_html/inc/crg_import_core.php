@@ -716,10 +716,14 @@ if (!function_exists('crg_apply_parsed')) {
                         $idBien = $adopt; $adoptedBiens[] = $adopt;
                         error_log("[crg dedup] bien annonce adopté #$idBien (lot $numLot, imm $idImmeuble)");
                     } else {
-                        $typeMap = ['appartement'=>2,'maison'=>1,'commerce'=>5,'parking'=>10,'cave'=>11,'bureau'=>6,'local'=>5,'autre'=>2];
-                        $idTypeBien = $typeMap[strtolower($typeBien)] ?? 2;
-                        $pdo->prepare('INSERT INTO biens (id_immeuble, id_proprietaire, id_societe, id_type_bien, numero_lot, code_crg, statut_occupation, surface_habitable, statut_bien) VALUES (?,?,?,?,?,?,?,?,?)')
-                            ->execute([$idImmeuble, $proprietaireId, $societeId ?: null, $idTypeBien, $numLot, $codeCrg . '_' . $numLot, $statutOcc, $lot['surface'] ?? null, 'actif']);
+                        // Type sur les DEUX colonnes (moderne id_bien_type + legacy id_type_bien)
+                        // via le résolveur officiel. Le libellé CRG est normalisé en code canonique.
+                        require_once __DIR__ . '/bien_type_helper.php';
+                        $crgTypeCanon = ['appartement'=>'appartement','maison'=>'maison','commerce'=>'local_commercial','local'=>'local_commercial','parking'=>'parking','cave'=>'cave','bureau'=>'bureau','garage'=>'garage','box'=>'box','autre'=>'appartement'];
+                        $tt = bien_type_resolve($pdo, $crgTypeCanon[strtolower(trim((string)$typeBien))] ?? 'appartement');
+                        $idTypeBien = $tt['id_type_bien']; $idBienType = $tt['id_bien_type'];
+                        $pdo->prepare('INSERT INTO biens (id_immeuble, id_proprietaire, id_societe, id_type_bien, id_bien_type, numero_lot, code_crg, statut_occupation, surface_habitable, statut_bien) VALUES (?,?,?,?,?,?,?,?,?,?)')
+                            ->execute([$idImmeuble, $proprietaireId, $societeId ?: null, $idTypeBien, $idBienType, $numLot, $codeCrg . '_' . $numLot, $statutOcc, $lot['surface'] ?? null, 'actif']);
                         $idBien = (int)$pdo->lastInsertId();
                     }
                 }

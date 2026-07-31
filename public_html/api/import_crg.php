@@ -9,6 +9,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_once __DIR__ . '/../inc/auth.php';
 require_once __DIR__ . '/../inc/ia_analyse.php';
+require_once __DIR__ . '/../inc/ged_document_links.php';
 require_login();
 verify_csrf_any();
 
@@ -263,6 +264,8 @@ if ($action === 'confirm') {
 
     // Sauvegarder le PDF définitivement
     $pdfRelPath = null;
+    $gedPdfAbsPath = null;      // chemin absolu du PDF (pour archivage GED en fin d'import)
+    $gedPdfPublicUrl = null;
     if ($tmpPath && is_file($tmpPath)) {
         $destDir = __DIR__ . '/../uploads/crg/' . $proprietaireId;
         if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
@@ -270,6 +273,8 @@ if ($action === 'confirm') {
         $destPath = $destDir . '/' . $filename;
         rename($tmpPath, $destPath);
         $pdfRelPath = $proprietaireId . '/' . $filename;
+        $gedPdfAbsPath = $destPath;
+        $gedPdfPublicUrl = '/uploads/crg/' . $pdfRelPath;
     }
 
     // CRG trimestre
@@ -293,6 +298,8 @@ if ($action === 'confirm') {
     $nbLots = 0;
     $nbEcritures = 0;
     $nbBascules  = 0;   // changements de locataire détectés
+    $immeubleIds    = [];  // immeubles touchés (pour cascade GED)
+    $bailIdsTouched = [];  // baux bien_baux actifs touchés (pour cascade GED)
 
     // Date d'arrêté du CRG (sert de date de fin du bail sortant).
     $dateArrete = $periode['date_arrete'] ?? date('Y-m-d');
@@ -321,6 +328,7 @@ if ($action === 'confirm') {
             $stmt->execute([$proprietaireId, $societeId ?: null, $agenceId ?: null, $codeCrg, $nomImm, $adrImm, 'immeuble', 'gestion']);
             $idImmeuble = (int)$pdo->lastInsertId();
         }
+        $immeubleIds[$idImmeuble] = true;
 
         // Lots (dédupliqués par numero_lot ; chaque lot porte N locataires actifs/anciens)
         foreach ($imm['lots'] ?? [] as $lot) {
@@ -365,32 +373,83 @@ if ($action === 'confirm') {
                     $pdo->prepare('UPDATE biens SET statut_occupation=? WHERE id=?')->execute(['occupé', $idBien]);
                 }
             } else {
-                // Mapper type_bien vers id_type_bien
-                $typeMap = ['appartement'=>2,'maison'=>1,'commerce'=>5,'parking'=>10,'cave'=>11,'bureau'=>6,'local'=>5,'autre'=>2];
-                $idTypeBien = $typeMap[strtolower($typeBien)] ?? 2;
-                $pdo->prepare('INSERT INTO biens (id_immeuble, id_proprietaire, id_societe, id_type_bien, numero_lot, statut_occupation, surface_habitable, statut_bien) VALUES (?,?,?,?,?,?,?,?)')
-                    ->execute([$idImmeuble, $proprietaireId, $societeId ?: null, $idTypeBien, $numLot, $statutOcc, $lot['surface'] ?? null, 'actif']);
+                // Type sur les DEUX colonnes (moderne id_bien_type + legacy id_type_bien) via le résolveur.
+                require_once __DIR__ . '/../inc/bien_type_helper.php';
+                $crgTypeCanon = ['appartement'=>'appartement','maison'=>'maison','commerce'=>'local_commercial','local'=>'local_commercial','parking'=>'parking','cave'=>'cave','bureau'=>'bureau','garage'=>'garage','box'=>'box','autre'=>'appartement'];
+                $tt = bien_type_resolve($pdo, $crgTypeCanon[strtolower(trim((string)$typeBien))] ?? 'appartement');
+                $idTypeBien = $tt['id_type_bien']; $idBienType = $tt['id_bien_type'];
+                $pdo->prepare('INSERT INTO biens (id_immeuble, id_proprietaire, id_societe, id_type_bien, id_bien_type, numero_lot, statut_occupation, surface_habitable, statut_bien) VALUES (?,?,?,?,?,?,?,?,?)')
+                    ->execute([$idImmeuble, $proprietaireId, $societeId ?: null, $idTypeBien, $idBienType, $numLot, $statutOcc, $lot['surface'] ?? null, 'actif']);
                 $idBien = (int)$pdo->lastInsertId();
             }
 
-            // Un bail actif est créé UNE fois, pour le(s) locataire(s) actif(s).
+            // ── BAIL dans bien_baux (TABLE CANONIQUE UNIQUE — plus d'écriture dans `baux`) ──
+            // Le locataire actif du lot → un bail bien_baux 'actif'. Changement de locataire
+            // = on archive le sortant et on (ré)active l'entrant (idempotent : ré-import = no-op).
+            // Les situations CRG (finances) sont rattachées à l'id du bien_baux résolu.
+            $activeName = null; $activeDate = null;
+            foreach ($locataires as $loc) {
+                if (!empty($loc['actif']) && trim((string)($loc['nom'] ?? '')) !== '') {
+                    $activeName = trim((string)$loc['nom']); $activeDate = $loc['date_bail'] ?? null; break;
+                }
+            }
+
+            // Résolution / bascule du bail actif → $activeBailId (id bien_baux).
+            $activeBailId = null;
+            try {
+                $stCur = $pdo->prepare("SELECT id, COALESCE(NULLIF(locataire_raison_sociale,''), locataire_nom) AS nom
+                                        FROM bien_baux WHERE id_bien=? AND statut='actif' ORDER BY id DESC LIMIT 1");
+                $stCur->execute([$idBien]);
+                $cur = $stCur->fetch(PDO::FETCH_ASSOC);
+                $curName = $cur ? trim((string)$cur['nom']) : null;
+                $same = $activeName !== null && $curName !== null && $crgNorm($curName) === $crgNorm($activeName);
+
+                if ($same) {
+                    $activeBailId = (int)$cur['id'];
+                } else {
+                    // Sortant (changement de locataire OU lot devenu vacant) → archivé.
+                    if ($cur) {
+                        $pdo->prepare("UPDATE bien_baux SET statut='archive', date_fin=COALESCE(date_fin, ?) WHERE id=?")
+                            ->execute([$dateArrete, (int)$cur['id']]);
+                        $nbBascules++;
+                    }
+                    // Entrant → réactiver un bail archivé du même locataire, sinon en créer un.
+                    if ($activeName !== null) {
+                        $stEx = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien=? AND LOWER(TRIM(locataire_nom))=LOWER(TRIM(?)) ORDER BY id DESC LIMIT 1");
+                        $stEx->execute([$idBien, $activeName]);
+                        $ex = $stEx->fetch(PDO::FETCH_ASSOC);
+                        if ($ex) {
+                            $activeBailId = (int)$ex['id'];
+                            $pdo->prepare("UPDATE bien_baux SET statut='actif', date_prise_effet=COALESCE(date_prise_effet, ?) WHERE id=?")
+                                ->execute([$activeDate ?: null, $activeBailId]);
+                        } else {
+                            $pdo->prepare("INSERT INTO bien_baux (id_bien, id_proprietaire, locataire_nom, statut, date_prise_effet)
+                                           VALUES (?,?,?,'actif',?)")
+                                ->execute([$idBien, $proprietaireId, $activeName, $activeDate ?: null]);
+                            $activeBailId = (int)$pdo->lastInsertId();
+                        }
+                        $nbBascules++;
+                    }
+                }
+            } catch (Throwable $exBail) {
+                error_log('[import_crg bail] bien#' . $idBien . ' : ' . $exBail->getMessage());
+            }
+            if ($activeBailId) { $bailIdsTouched[$activeBailId] = true; }
+
+            // Situations CRG (finances) par locataire, rattachées au bien_baux.
             foreach ($locataires as $loc) {
                 $nom = trim((string)($loc['nom'] ?? ''));
                 if ($nom === '') continue;
                 $estActif = !empty($loc['actif']);
 
-                $idBail = null;
-                if ($estActif) {
-                    $stmt = $pdo->prepare("SELECT id FROM baux WHERE id_bien=? AND statut='actif' LIMIT 1");
-                    $stmt->execute([$idBien]);
-                    $bailRow = $stmt->fetch(PDO::FETCH_ASSOC);
-                    if ($bailRow) {
-                        $idBail = (int)$bailRow['id'];
-                    } else {
-                        $pdo->prepare("INSERT INTO baux (id_bien, locataire_nom, statut, date_debut) VALUES (?,?,'actif',?)")
-                            ->execute([$idBien, $nom, $loc['date_bail'] ?? null]);
-                        $idBail = (int)$pdo->lastInsertId();
-                    }
+                // id_bail = bien_baux du locataire (actif → activeBailId ; sinon on résout).
+                if ($estActif && $activeName !== null && $crgNorm($nom) === $crgNorm($activeName)) {
+                    $idBail = $activeBailId;
+                } else {
+                    $stB = $pdo->prepare("SELECT id FROM bien_baux WHERE id_bien=? AND LOWER(TRIM(locataire_nom))=LOWER(TRIM(?)) ORDER BY (statut='actif') DESC, id DESC LIMIT 1");
+                    $stB->execute([$idBien, $nom]);
+                    $b = $stB->fetch(PDO::FETCH_ASSOC);
+                    $idBail = $b ? (int)$b['id'] : null;
                 }
 
                 // Statut trimestre : ENUM('occupé','parti-débiteur','vacant')
@@ -410,42 +469,6 @@ if ($action === 'confirm') {
                     $statutTrim,
                 ]);
             }
-
-            // ── BASCULE LOCATAIRE dans bien_baux (table lue par les listes / 360 / agency_biens) ──
-            // À chaque CRG, le locataire actif d'un lot peut changer. On archive le bail
-            // sortant et on active l'entrant. Idempotent : si le locataire actif du CRG
-            // correspond au bail actif courant, on ne touche à rien (ré-import = no-op).
-            try {
-                $activeName = null; $activeDate = null;
-                foreach ($locataires as $loc) {
-                    if (!empty($loc['actif']) && trim((string)($loc['nom'] ?? '')) !== '') {
-                        $activeName = trim((string)$loc['nom']); $activeDate = $loc['date_bail'] ?? null; break;
-                    }
-                }
-                $stCur = $pdo->prepare("SELECT id, COALESCE(NULLIF(locataire_raison_sociale,''), locataire_nom) AS nom
-                                        FROM bien_baux WHERE id_bien=? AND statut='actif' ORDER BY id DESC LIMIT 1");
-                $stCur->execute([$idBien]);
-                $cur = $stCur->fetch(PDO::FETCH_ASSOC);
-                $curName = $cur ? trim((string)$cur['nom']) : null;
-                $same = $activeName !== null && $curName !== null && $crgNorm($curName) === $crgNorm($activeName);
-
-                if (!$same) {
-                    // Sortant (changement de locataire OU lot devenu vacant) → archivé.
-                    if ($cur) {
-                        $pdo->prepare("UPDATE bien_baux SET statut='archive', date_fin=COALESCE(date_fin, ?) WHERE id=?")
-                            ->execute([$dateArrete, (int)$cur['id']]);
-                    }
-                    // Entrant → bail actif (champs minimaux ; complétables ensuite dans la fiche bail).
-                    if ($activeName !== null) {
-                        $pdo->prepare("INSERT INTO bien_baux (id_bien, id_proprietaire, locataire_nom, statut, date_prise_effet)
-                                       VALUES (?,?,?,'actif',?)")
-                            ->execute([$idBien, $proprietaireId, $activeName, $activeDate ?: null]);
-                    }
-                    if ($cur || $activeName !== null) $nbBascules++;
-                }
-            } catch (Throwable $exBail) {
-                error_log('[import_crg bascule] bien#' . $idBien . ' : ' . $exBail->getMessage());
-            }
         }
 
         // Écritures
@@ -453,6 +476,71 @@ if ($action === 'confirm') {
             $nbEcritures++;
             $pdo->prepare('INSERT INTO crg_ecritures (id_crg, libelle, categorie, debit, credit, tva) VALUES (?,?,?,?,?,?)')
                 ->execute([$crgId, $ecr['libelle'] ?? '', $ecr['categorie'] ?? 'autre', $ecr['debit'] ?? 0, $ecr['credit'] ?? 0, $ecr['tva'] ?? 0]);
+        }
+    }
+
+    // ── ÉTAPE 2 : archivage GED du PDF CRG → propriétaire (TIERS) + cascade immeuble/bail ──
+    $gedStatut = 'skip';
+    if ($gedPdfAbsPath && is_file($gedPdfAbsPath)) {
+        try {
+            $stP = $pdo->prepare("SELECT id_tiers, id_societe, id_agence FROM proprietaires WHERE id = ? LIMIT 1");
+            $stP->execute([$proprietaireId]);
+            $prop = $stP->fetch(PDO::FETCH_ASSOC) ?: [];
+            $tiersId = (int)($prop['id_tiers'] ?? 0);
+            $propSoc = isset($prop['id_societe']) && $prop['id_societe'] !== null ? (int)$prop['id_societe'] : ($societeId ?: null);
+            $propAge = isset($prop['id_agence'])  && $prop['id_agence']  !== null ? (int)$prop['id_agence']  : ($agenceId ?: null);
+
+            // Liens polymorphes : propriétaire = principal, immeubles + baux = cascade.
+            $links = [];
+            if ($tiersId > 0) {
+                $links[] = ['entity_type'=>'TIERS', 'entity_id'=>$tiersId, 'relation_type'=>'main', 'is_validated'=>1, 'validated_by'=>$userId ?: null];
+            }
+            foreach (array_keys($immeubleIds) as $imId) {
+                $links[] = ['entity_type'=>'IMB', 'entity_id'=>(int)$imId, 'relation_type'=>'reference'];
+            }
+            foreach (array_keys($bailIdsTouched) as $bId) {
+                $links[] = ['entity_type'=>'BAIL', 'entity_id'=>(int)$bId, 'relation_type'=>'reference'];
+            }
+
+            if ($links) {
+                $srcName = 'CRG_' . $annee . '_T' . $trimestre . '.pdf';
+                $gedRes = gus_commit_document(
+                    $pdo,
+                    [
+                        'path_on_disk' => $gedPdfAbsPath,
+                        'name_original'=> $srcName,
+                        'mime_type'    => 'application/pdf',
+                        'size_bytes'   => (int)@filesize($gedPdfAbsPath),
+                        'public_url'   => $gedPdfPublicUrl,
+                    ],
+                    [
+                        'document_type'  => 'crg',
+                        'source_module'  => '05_GESTION_LOCATIVE',
+                        'security_level' => 'interne',
+                        'societe_id'     => $propSoc,
+                        'agence_id'      => $propAge,
+                        'tenant_id'      => $propSoc,
+                        'created_by'     => $userId ?: null,
+                        'metadata_extra' => ['crg_id'=>$crgId, 'annee'=>$annee, 'trimestre'=>$trimestre],
+                        'naming_ctx'     => [
+                            'n1_slug'=>'05_gestion_locative', 'n2_slug'=>'02_crg', 'n3_slug'=>'01_crg_trimestriel',
+                            'type_doc'=>'crg',
+                            'entity_type'=>($tiersId>0?'TIERS':'IMB'),
+                            'entity_id'  =>($tiersId>0?$tiersId:(int)array_key_first($immeubleIds)),
+                            'source_filename'=>$srcName, 'ext'=>'pdf',
+                            'date_doc'=>($periode['date_arrete'] ?? null),
+                        ],
+                    ],
+                    $links
+                );
+                $gedStatut = !empty($gedRes['ok']) ? (!empty($gedRes['deduplicated']) ? 'dedup' : 'ok') : 'err';
+                if ($gedStatut === 'err') {
+                    error_log('[import_crg GED] crg#' . $crgId . ' : ' . implode(' / ', $gedRes['errors'] ?? ['echec']));
+                }
+            }
+        } catch (Throwable $exGed) {
+            $gedStatut = 'err';
+            error_log('[import_crg GED] crg#' . $crgId . ' : ' . $exGed->getMessage());
         }
     }
 
@@ -465,7 +553,7 @@ if ($action === 'confirm') {
                    . ($nbBascules > 0 ? ", $nbBascules changement(s) de locataire" : '') . ".",
         'proprietaire_id' => $proprietaireId,
         'crg_id' => $crgId,
-        'stats' => ['immeubles' => $nbImmeubles, 'lots' => $nbLots, 'ecritures' => $nbEcritures, 'bascules' => $nbBascules],
+        'stats' => ['immeubles' => $nbImmeubles, 'lots' => $nbLots, 'ecritures' => $nbEcritures, 'bascules' => $nbBascules, 'ged' => $gedStatut],
     ]);
     exit;
     } catch (Throwable $e) {
