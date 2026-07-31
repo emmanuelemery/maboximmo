@@ -95,20 +95,15 @@ if (!function_exists('patrimoine_base_sql')) {
     WHERE 1=1
       {$bienFilterWhere}
       -- Deux portes d'entrée hors-CRG :
-      --  1) Bien VALORISÉ COURANT : actif, non retiré, prix courant > 0 (comportement historique).
-      --     Lecture verrouillée sur scenario_code='courant' → aucun prix de scénario ne fuit ici.
-      --  2) LOT PORTEUR DE SCÉNARIO : dès qu'un bien porte une valeur dans le scénario chargé,
-      --     il entre dans la population MÊME s'il est vendu/archivé/sans prix courant → il
-      --     n'apparaît alors QUE sous ce scénario (invisible en Courant et partout ailleurs).
+      --  1) TOUT bien ACTIF du propriétaire entre dans le patrimoine, MÊME sans valorisation
+      --     (valo 0 = affichée 0, mais le bien reste listé) — demande métier 2026-07-31.
+      --     Filtres conservés : non supprimé/archivé/vendu, non retiré, pas de prix de vente final.
+      --  2) LOT PORTEUR DE SCÉNARIO : un bien vendu/archivé qui porte une valeur dans le scénario
+      --     chargé entre AUSSI (et n'apparaît alors QUE sous ce scénario).
       AND (
         (
           (b.statut_bien IS NULL OR b.statut_bien NOT IN ('supprime','archive','vendu'))
           AND b.date_retrait_commercialisation IS NULL AND b.prix_final_vente IS NULL
-          AND COALESCE(
-                (SELECT bp.montant FROM bien_prix bp
-                   WHERE bp.id_bien = b.id AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code='courant'
-                   ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1),
-                b.prix_demande_initial, 0) > 0
         ){$scenarioInclude}
       )
       AND NOT EXISTS (

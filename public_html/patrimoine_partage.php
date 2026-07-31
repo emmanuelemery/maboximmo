@@ -338,16 +338,27 @@ if ($ifiEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? ''
 $creStats = [];
 if ($showCrea && $propIds) {
     $inP = implode(',', $propIds);
+    // Résout les dossiers liés au propriétaire PAR LE PROPRIÉTAIRE **ou par son TIERS**
+    // (créancier/débiteur/garant) — même logique que la liste patrimoine_creancier.php,
+    // sinon un dossier rattaché via TIERS n'était pas compté (KPI ⚖️ = 0 à tort).
+    // La sous-requête DISTINCT (proprio, dossier) évite le double-comptage.
     $stC = $pdo->query("
-        SELECT dl.entity_id AS pid,
+        SELECT x.pid,
                SUM(d.statut IN ('actif','surveillance')) AS actifs,
                SUM(d.statut = 'clos')                    AS clos,
                MAX(d.niveau_risque = 'rouge')            AS urgent,
                MAX(d.debiteur_enerve = 1)                AS enerve
-        FROM creancier_dossier_lien dl
-        JOIN creancier_dossier d ON d.id = dl.id_dossier
-        WHERE dl.entity_type = 'PROPRIETAIRE' AND dl.entity_id IN ($inP)
-        GROUP BY dl.entity_id
+        FROM (
+            SELECT DISTINCT p.id AS pid, dl.id_dossier
+            FROM proprietaires p
+            JOIN creancier_dossier_lien dl
+              ON (dl.entity_type = 'PROPRIETAIRE' AND dl.entity_id = p.id)
+              OR (dl.entity_type = 'TIERS' AND dl.entity_id = p.id_tiers
+                  AND dl.role_dossier IN ('debiteur','creancier_principal'))
+            WHERE p.id IN ($inP)
+        ) x
+        JOIN creancier_dossier d ON d.id = x.id_dossier
+        GROUP BY x.pid
     ");
     foreach ($stC as $r) { $creStats[(int)$r['pid']] = $r; }
 }
@@ -431,6 +442,16 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   table.biens th.col-loyer,table.biens td.col-loyer,
   table.biens th.col-prix,table.biens td.col-prix{width:150px;}
   table.biens th:last-child,table.biens td:last-child{padding-right:18px;}
+  /* Badges à largeur homogène pour aligner les en-têtes de colonnes. */
+  .prop-meta .cre-kpi,.prop-meta .fin-kpi{min-width:132px;justify-content:center;}
+  .prop-meta .pm-nb{min-width:66px;text-align:right;}
+  /* Rangée d'en-têtes de colonnes (au-dessus de la liste des propriétaires). */
+  .prop-head-labels{display:flex;align-items:center;gap:12px;padding:0 18px 6px;font-size:.72em;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#8592ad;}
+  .prop-head-labels .phl-col{white-space:nowrap;text-align:center;}
+  .prop-head-labels .phl-cre,.prop-head-labels .phl-fin{min-width:132px;}
+  .prop-head-labels .phl-nb{min-width:66px;text-align:right;}
+  .prop-head-labels .tot-loyer,.prop-head-labels .tot-prix{text-align:right;}
+  .prop-head-labels .phl-exp{width:74px;}
   .cre-kpi{display:inline-flex;align-items:center;gap:6px;background:#fff4e5;color:#a15c00;border:1px solid #f3d6a8;border-radius:20px;padding:3px 11px;font-size:.86em;}
   .cre-kpi.urg{background:#fdecec;color:#b52a2a;border-color:#f3b8b8;}
   .cre-kpi.zero{background:#f2f4f8;color:#8592ad;border-color:#e2e7f0;}
@@ -524,6 +545,24 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
   <div class="ifi-note">
     🏛️ <b>Scénario IFI</b> — l'IFI est un impôt personnel : seuls les propriétaires détenus personnellement sont affichés (SCI FOCH, SMH, SABY).
     <?php if ($ifiEdit): ?> Vous pouvez <b>saisir et valider</b> la valeur IFI de chaque bien (bouton ✓) — chaque validation est <b>historisée</b> et enregistrée sur le bien.<?php endif; ?>
+  </div>
+  <?php endif; ?>
+
+  <?php if (!empty($props)): ?>
+  <div class="prop-head-labels">
+    <span class="prop-caret" style="visibility:hidden;">▶</span>
+    <span>Propriétaire</span>
+    <span class="prop-meta">
+      <?php if ($showCrea): ?><span class="phl-col phl-cre">Créanciers</span><?php endif; ?>
+      <?php if ($showFin): ?><span class="phl-col phl-fin">Financement</span><?php endif; ?>
+      <span class="phl-col phl-nb">Biens</span>
+      <span class="tot-wrap">
+        <?php if ($showLoc): ?><span class="tot-loc"></span><?php endif; ?>
+        <?php if ($showLoyer): ?><span class="tot-loyer">Loyer/mois</span><?php endif; ?>
+        <?php if ($showPrix): ?><span class="tot-prix"><?= $isIfi ? 'Valeur IFI' : 'Valorisation' ?></span><?php endif; ?>
+      </span>
+      <span class="phl-exp"></span>
+    </span>
   </div>
   <?php endif; ?>
 
