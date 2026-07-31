@@ -39,6 +39,10 @@ if (!function_exists('pp_batiment')) {
 }
 if (!function_exists('pp_loyer_mois')) {
     function pp_loyer_mois(array $d): float {
+        // Priorité au loyer du bail actif (bien_baux, source canonique), puis baux legacy,
+        // puis loyer appelé CRG ramené au mois.
+        $bb = (float)($d['bail_loyer_bb'] ?? 0);
+        if ($bb > 0) return $bb;
         $bl = (float)($d['bail_loyer'] ?? 0);
         return $bl > 0 ? $bl : ((float)($d['loyer_appele'] ?? 0) / 3);
     }
@@ -66,19 +70,26 @@ if (!function_exists('pp_load_details')) {
                    b.reference_bien, b.prix_demande_initial,
                    COALESCE(NULLIF(b.surface_habitable,0), NULLIF(b.surface_carrez,0), NULLIF(b.surface_totale,0),
                             NULLIF(b.surface_commerciale,0), NULLIF(b.surface_depot,0), NULLIF(b.surface_bureau,0)) AS surface,
-                   COALESCE(bt.categorie, btb.categorie_usage) AS bat_cat,
-                   COALESCE(bt.libelle, btb.label)             AS bat_label,
+                   COALESCE(bt.categorie, tb2.categorie) AS bat_cat,
+                   COALESCE(bt.libelle, tb2.libelle)     AS bat_label,
                    b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
                    i.id AS id_immeuble, i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
                    (SELECT bx.loyer FROM baux bx WHERE bx.id_bien=sub.id_bien AND bx.id_proprietaire=sub.id_proprietaire
                       ORDER BY (bx.statut='actif') DESC, bx.id DESC LIMIT 1) AS bail_loyer,
+                   -- Locataire du BAIL ACTIF (bien_baux) — même source de vérité qu'agency_biens :
+                   -- un bien hors-CRG mais avec bail actif n'est PAS vacant.
+                   (SELECT COALESCE(NULLIF(bb.locataire_raison_sociale,''), TRIM(CONCAT_WS(' ', bb.locataire_prenom, bb.locataire_nom)))
+                      FROM bien_baux bb WHERE bb.id_bien=sub.id_bien AND bb.statut='actif'
+                      ORDER BY bb.id DESC LIMIT 1) AS bail_locataire,
+                   (SELECT bb.loyer_mensuel_hc FROM bien_baux bb WHERE bb.id_bien=sub.id_bien AND bb.statut='actif'
+                      ORDER BY bb.id DESC LIMIT 1) AS bail_loyer_bb,
                    (SELECT bp.montant FROM bien_prix bp
                       WHERE bp.id_bien=sub.id_bien AND bp.type_valeur='prix_vente' AND bp.is_courant=1 AND bp.scenario_code={$scenQuoted}
                       ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS prix_scenario
             FROM ({$base}) sub
             LEFT JOIN biens b ON b.id = sub.id_bien
             LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
-            LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
+            LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
             LEFT JOIN immeubles i ON i.id = b.id_immeuble
             WHERE sub.imm_vendu = 0 AND sub.loc_archive = 0
               AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))
@@ -106,8 +117,8 @@ if (!function_exists('pp_load_all_biens')) {
             SELECT b.id_proprietaire, b.id AS id_bien, b.reference_bien, b.prix_demande_initial,
                    COALESCE(NULLIF(b.surface_habitable,0), NULLIF(b.surface_carrez,0), NULLIF(b.surface_totale,0),
                             NULLIF(b.surface_commerciale,0), NULLIF(b.surface_depot,0), NULLIF(b.surface_bureau,0)) AS surface,
-                   COALESCE(bt.categorie, btb.categorie_usage) AS bat_cat,
-                   COALESCE(bt.libelle, btb.label)             AS bat_label,
+                   COALESCE(bt.categorie, tb2.categorie) AS bat_cat,
+                   COALESCE(bt.libelle, tb2.libelle)     AS bat_label,
                    b.adresse_1 AS bien_adresse, b.ville AS bien_ville,
                    i.id AS id_immeuble, i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
                    0 AS imm_vendu, 0 AS loc_archive, 0 AS loyer_appele,
@@ -122,7 +133,7 @@ if (!function_exists('pp_load_all_biens')) {
                       ORDER BY bp.date_validation DESC, bp.id DESC LIMIT 1) AS prix_scenario
             FROM biens b
             LEFT JOIN bien_types bt ON bt.id = b.id_bien_type
-            LEFT JOIN base_types_bien btb ON btb.id = b.id_type_bien
+            LEFT JOIN types_bien tb2 ON tb2.id = b.id_type_bien
             LEFT JOIN immeubles i ON i.id = b.id_immeuble
             WHERE b.id_proprietaire IN ($ids)
               AND (b.statut_bien IS NULL OR b.statut_bien NOT IN ('vendu','archive','supprime'))

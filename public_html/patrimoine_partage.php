@@ -659,8 +659,18 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
         </tr></thead>
         <tbody>
         <?php foreach ($biens as $d):
-            $vacant = !empty($d['hors_crg']) || $d['presence'] !== 'present';
-            $loc = trim((string)$d['locataire_nom']);
+            // Occupation : CRG présent en priorité, sinon BAIL ACTIF (bien_baux) — même vérité
+            // qu'agency_biens. Un bien hors-CRG mais loué n'est donc plus affiché « Vacant ».
+            $crgPresent = ($d['presence'] === 'present' && empty($d['hors_crg']));
+            $crgLoc  = trim((string)$d['locataire_nom']);
+            $bailLoc = trim((string)($d['bail_locataire'] ?? ''));
+            if ($crgPresent && $crgLoc !== '' && strcasecmp($crgLoc, 'LOGEMENT VACANT') !== 0) {
+                $loc = $crgLoc; $vacant = false;
+            } elseif ($bailLoc !== '') {
+                $loc = $bailLoc; $vacant = false;
+            } else {
+                $loc = ''; $vacant = true;
+            }
             [$batIcon, $batCat, $batLabel] = pp_batiment($d);
         ?>
         <tr data-search="<?= $e(mb_strtolower($pr['nom'].' '.($d['reference_bien']??'').' '.pp_bien_desc($d).' '.$batCat.' '.$batLabel.' '.$loc)) ?>">
