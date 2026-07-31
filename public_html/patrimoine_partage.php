@@ -279,14 +279,15 @@ $marqueAdr   = trim(($ag['adresse_1'] ?? $soc['adresse_1'] ?? '') . ' ' . ($ag['
 // ════════════════════════════════════════════════════════════════════
 // 3) DONNÉES PATRIMOINE
 // ════════════════════════════════════════════════════════════════════
-$base_sql = patrimoine_base_sql($propFilterWhere, $scenSel);
+// SOURCE UNIQUE = pp_partage_base_sql (même vérité qu'agency_biens : biens directs, loyer bail).
+$base_sql = pp_partage_base_sql($propFilterWhere);
 
 // Propriétaires (repliés par défaut) + agrégats
 $props = $pdo->query("
     SELECT p.id, COALESCE(NULLIF(p.societe,''), TRIM(CONCAT_WS(' ',p.prenom,p.nom))) AS nom,
            COALESCE(p.ifi_personnel,0) AS ifi_personnel,
            COUNT(DISTINCT CASE WHEN sub.imm_vendu=0 THEN sub.id_bien END) AS nb_biens,
-           ROUND(SUM(CASE WHEN sub.imm_vendu=0 AND sub.loc_archive=0 THEN sub.loyer_appele ELSE 0 END)/3,0) AS loyer_total
+           ROUND(SUM(CASE WHEN sub.imm_vendu=0 THEN sub.loyer_mois ELSE 0 END),0) AS loyer_total
     FROM proprietaires p
     JOIN ({$base_sql}) sub ON sub.id_proprietaire = p.id
     GROUP BY p.id
@@ -673,9 +674,9 @@ $colspan = 3 + $showLoc + $showLoyer + $showPrix; // Bien + Type + Surface + col
             }
             [$batIcon, $batCat, $batLabel] = pp_batiment($d);
         ?>
-        <tr data-search="<?= $e(mb_strtolower($pr['nom'].' '.($d['reference_bien']??'').' '.pp_bien_desc($d).' '.$batCat.' '.$batLabel.' '.$loc)) ?>">
+        <tr data-search="<?= $e(mb_strtolower($pr['nom'].' '.($d['ref_affiche']??$d['reference_bien']??'').' '.pp_bien_desc($d).' '.$batCat.' '.$batLabel.' '.$loc)) ?>">
           <td>
-            <span class="ref"><?= $e($d['reference_bien'] ?: '—') ?></span>
+            <span class="ref"><?= $e(($d['ref_affiche'] ?? $d['reference_bien']) ?: '—') ?></span>
             <?php if ($showDesc): ?><div class="desc"><?= $e(pp_bien_desc($d)) ?></div><?php endif; ?>
           </td>
           <td class="col-type">
