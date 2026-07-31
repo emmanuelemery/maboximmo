@@ -687,16 +687,41 @@ if (!function_exists('crg_apply_parsed')) {
                     }
                 }
 
+                // Occupé = loyer appelé > 0 (doctrine CRG), en repli le flag `actif` du parser.
+                // « LOGEMENT VACANT » ne compte jamais comme occupé.
                 $hasActif = false;
-                foreach ($locataires as $loc) { if (!empty($loc['actif'])) { $hasActif = true; break; } }
+                foreach ($locataires as $loc) {
+                    $nomL = strtoupper(trim((string)($loc['nom'] ?? '')));
+                    if ($nomL === 'LOGEMENT VACANT') continue;
+                    if (!empty($loc['actif']) || (float)($loc['loyer_appele'] ?? 0) > 0) { $hasActif = true; break; }
+                }
                 $statutOcc = $hasActif ? 'occupé' : 'vacant';
 
                 $idBien = 0;
-                $st = $pdo->prepare('SELECT id FROM biens WHERE id_immeuble=? AND numero_lot=?');
-                $st->execute([$idImmeuble, $numLot]);
+                // [ANTI-DOUBLON] On retrouve le bien EXISTANT par code_crg (déjà importé, format
+                // CODE_LOT) ou par reference_bien du bien ENRICHI (format CODE-LOT) AVANT le simple
+                // (immeuble+lot) — sinon un format/OCR différent crée un squelette à côté du vrai
+                // bien (cause n°1 des doublons SMH/SIR/SABY). On garde le plus riche (enrichi > squelette).
+                $refDash = ($codeCrg !== '' && $numLot !== '') ? ($codeCrg . '-' . $numLot) : '';
+                $codeUnd = ($codeCrg !== '' && $numLot !== '') ? ($codeCrg . '_' . $numLot) : '';
+                $st = $pdo->prepare("SELECT id FROM biens
+                    WHERE (statut_bien IS NULL OR statut_bien NOT IN ('supprime','archive'))
+                      AND ( (? <> '' AND code_crg = ?)
+                         OR (? <> '' AND UPPER(REPLACE(reference_bien,' ','')) = UPPER(?))
+                         OR (id_immeuble = ? AND numero_lot = ? AND numero_lot <> '') )
+                    ORDER BY ((CASE WHEN reference_bien IS NOT NULL AND reference_bien<>'' THEN 8 ELSE 0 END)
+                             +(CASE WHEN COALESCE(NULLIF(surface_habitable,0),NULLIF(surface_carrez,0),0)>0 THEN 4 ELSE 0 END)) DESC, id DESC
+                    LIMIT 1");
+                $st->execute([$codeUnd, $codeUnd, $refDash, $refDash, $idImmeuble, $numLot]);
                 $bienRow = $st->fetch(PDO::FETCH_ASSOC);
                 if ($bienRow) {
                     $idBien = (int)$bienRow['id'];
+                    // On COMPLÈTE le bien enrichi (code_crg/lot/immeuble/proprio manquants) — sans
+                    // écraser ce qui existe — au lieu de créer un doublon.
+                    $pdo->prepare("UPDATE biens SET code_crg=COALESCE(NULLIF(code_crg,''),?),
+                          numero_lot=COALESCE(NULLIF(numero_lot,''),?), id_immeuble=COALESCE(id_immeuble,?),
+                          id_proprietaire=COALESCE(id_proprietaire,?) WHERE id=?")
+                        ->execute([$codeUnd ?: null, $numLot ?: null, $idImmeuble, $proprietaireId, $idBien]);
                     if ($hasActif) $pdo->prepare('UPDATE biens SET statut_occupation=? WHERE id=?')->execute(['occupé', $idBien]);
                 } else {
                     // ANTI-DOUBLON : adopter un bien d'ANNONCE de cet immeuble (sans code_crg
@@ -729,10 +754,16 @@ if (!function_exists('crg_apply_parsed')) {
                 }
 
                 // ── BAIL dans bien_baux (table canonique unique) ──
-                $activeName = null; $activeDate = null;
+                // Locataire du bail = le PRÉSENT (loyer appelé > 0), en repli le flag `actif`.
+                // On prend celui au plus fort loyer appelé. On exclut occupant propriétaire /
+                // logement vacant (pas de bail locataire pour ceux-là).
+                $activeName = null; $activeDate = null; $activeLoyerAppele = -1.0;
                 foreach ($locataires as $loc) {
-                    if (!empty($loc['actif']) && trim((string)($loc['nom'] ?? '')) !== '') {
-                        $activeName = trim((string)$loc['nom']); $activeDate = $loc['date_bail'] ?? null; break;
+                    $nomL = trim((string)($loc['nom'] ?? ''));
+                    if ($nomL === '' || strcasecmp($nomL, 'LOGEMENT VACANT') === 0 || strcasecmp($nomL, 'OCCUPÉ PAR PROPRIÉTAIRE') === 0) continue;
+                    $ly = (float)($loc['loyer_appele'] ?? 0);
+                    if (($ly > 0 || !empty($loc['actif'])) && $ly > $activeLoyerAppele) {
+                        $activeName = $nomL; $activeDate = $loc['date_bail'] ?? null; $activeLoyerAppele = $ly;
                     }
                 }
                 // Loyer MENSUEL HC du lot (déjà ramené au mois par le parser, jamais ÷3 ici).
