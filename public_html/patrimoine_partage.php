@@ -16,6 +16,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/patrimoine_base.php';
+require_once __DIR__ . '/inc/patrimoine_partage_data.php'; // pp_partage_base_sql()/pp_* utilisées dès la section « données » (ligne ~283) — DOIT être chargé avant.
 
 /** @var PDO $pdo */
 $pdo = $GLOBALS['pdo'];

@@ -5,7 +5,9 @@
 // nombre d'« Actifs » affiché dans l'onglet et le KPI « Patrimoine actif » du dashboard.
 //
 // presence='present'  ⇔  loyer appelé > 0 (ou OCCUPÉ PAR PROPRIÉTAIRE), sur le DERNIER
-// trimestre CRG du propriétaire. On ne garde que ce dernier trimestre par propriétaire.
+// trimestre CRG DE CHAQUE BIEN. On ne garde que le dernier trimestre connu par bien : un CRG
+// partiel/tardif (un seul lot importé, ou trimestre « fantôme ») ne masque plus les biens dont
+// le dernier CRG est un trimestre antérieur. Chaque bien conserve son dernier état connu.
 declare(strict_types=1);
 
 if (!function_exists('patrimoine_base_sql')) {
@@ -61,10 +63,16 @@ if (!function_exists('patrimoine_base_sql')) {
     LEFT JOIN biens b ON b.id = crg.id_bien
     LEFT JOIN immeubles i ON i.id = b.id_immeuble
     WHERE (ct.parse_statut IS NULL OR ct.parse_statut <> 'erreur') {$propFilterWhere}
+      -- Dernier trimestre CRG PAR BIEN (et non par propriétaire) : un CRG partiel ou tardif
+      -- (un seul lot importé en T+1, ou un trimestre « fantôme » né d'une date d'édition)
+      -- ne doit PAS masquer les autres biens dont le dernier CRG est un trimestre antérieur.
+      -- Chaque bien conserve ainsi SON dernier état connu (présents/partis, impayé, solde).
       AND (ct.annee, ct.trimestre) = (
         SELECT ct2.annee, ct2.trimestre
         FROM crg_trimestres ct2
+        JOIN crg_situations_locataires c2 ON c2.id_crg = ct2.id
         WHERE ct2.id_proprietaire = ct.id_proprietaire
+          AND c2.id_bien = crg.id_bien
           AND (ct2.parse_statut IS NULL OR ct2.parse_statut <> 'erreur')
         ORDER BY ct2.annee DESC, ct2.trimestre DESC
         LIMIT 1
