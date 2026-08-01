@@ -239,14 +239,21 @@ if (!function_exists('crg_resolve_or_create_proprio')) {
                 return $id;
             }
         }
-        // 2) Fallback par nom (et on pose le code_compte si trouvé sans).
+        // 2) Fallback par nom — MAIS jamais vers un HOMONYME. Si le proprio trouvé porte déjà
+        //    un AUTRE code_compte, c'est un compte DIFFÉRENT → on crée (étape 3). Évite qu'un CRG
+        //    « GERMAIN Nathalie » (01600000) s'attache à « GERMAIN Jean-Jacques » (09960000).
+        //    On ne rattache par nom que si : pas de code CRG, OU proprio sans code, OU même code.
         $r = crg_resolve_proprietaire($pdo, ['proprietaire' => ['nom' => $nom]], $agenceId);
         if (($r['id'] ?? 0) > 0) {
-            $pdo->prepare("UPDATE proprietaires
-                    SET code_compte=COALESCE(NULLIF(code_compte,''),?), id_agence=COALESCE(id_agence,?)
-                    WHERE id=?")
-                ->execute([$codeCompte ?: null, $agenceId ?: null, (int)$r['id']]);
-            return (int)$r['id'];
+            $existingCompte = trim((string)$pdo->query("SELECT code_compte FROM proprietaires WHERE id=" . (int)$r['id'])->fetchColumn());
+            if ($codeCompte === '' || $existingCompte === '' || $existingCompte === $codeCompte) {
+                $pdo->prepare("UPDATE proprietaires
+                        SET code_compte=COALESCE(NULLIF(code_compte,''),?), id_agence=COALESCE(id_agence,?)
+                        WHERE id=?")
+                    ->execute([$codeCompte ?: null, $agenceId ?: null, (int)$r['id']]);
+                return (int)$r['id'];
+            }
+            // même nom mais AUTRE code_compte = homonyme → création ci-dessous.
         }
         // 3) Création.
         $st = $pdo->prepare("INSERT INTO proprietaires (nom, societe, adresse_1, code_compte, actif, type_personne, id_agence)
