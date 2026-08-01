@@ -814,6 +814,13 @@ if (!function_exists('crg_apply_parsed')) {
                 }
                 if ($activeBailId) { $bailIdsTouched[$activeBailId] = true; }
                 if ($idBien > 0) { $bienIdsTouched[$idBien] = true; }
+                // TRAÇABILITÉ : marquer le CRG source (trimestre) sur le bien et le bail touchés.
+                // Réécrit à CHAQUE import → reflète toujours le dernier CRG intégré (T2 2026, puis
+                // T3, …). Défensif : sans effet si la migration source_crg_id n'est pas encore passée.
+                try {
+                    if ($idBien > 0)   $pdo->prepare("UPDATE biens SET source_crg_id=? WHERE id=?")->execute([$crgId, $idBien]);
+                    if ($activeBailId) $pdo->prepare("UPDATE bien_baux SET source_crg_id=? WHERE id=?")->execute([$crgId, $activeBailId]);
+                } catch (Throwable $eSrc) { /* colonne absente : sans gravité */ }
 
                 foreach ($locataires as $loc) {
                     $nom = trim((string)($loc['nom'] ?? ''));
