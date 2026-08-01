@@ -744,16 +744,24 @@ if (!function_exists('crg_apply_parsed')) {
                 // bien (cause n°1 des doublons SMH/SIR/SABY). On garde le plus riche (enrichi > squelette).
                 $refDash = ($codeCrg !== '' && $numLot !== '') ? ($codeCrg . '-' . $numLot) : '';
                 $codeUnd = ($codeCrg !== '' && $numLot !== '') ? ($codeCrg . '_' . $numLot) : '';
-                $st = $pdo->prepare("SELECT id FROM biens
-                    WHERE (statut_bien IS NULL OR statut_bien NOT IN ('supprime','archive'))
-                      AND ( (? <> '' AND code_crg = ?)
-                         OR (? <> '' AND UPPER(REPLACE(reference_bien,' ','')) = UPPER(?))
-                         OR (id_immeuble = ? AND numero_lot = ? AND numero_lot <> '') )
-                    ORDER BY ((CASE WHEN reference_bien IS NOT NULL AND reference_bien<>'' THEN 8 ELSE 0 END)
-                             +(CASE WHEN COALESCE(NULLIF(surface_habitable,0),NULLIF(surface_carrez,0),0)>0 THEN 4 ELSE 0 END)) DESC, id DESC
-                    LIMIT 1");
-                $st->execute([$codeUnd, $codeUnd, $refDash, $refDash, $idImmeuble, $numLot]);
-                $bienRow = $st->fetch(PDO::FETCH_ASSOC);
+                // Conditions construites en PHP (pas de « ? <> '' » qui mélange les collations sur
+                // prod → SQLSTATE 1267). Comparaisons uniquement colonne=?/UPPER(...)=UPPER(?) et
+                // CHAR_LENGTH()>0 : collation-agnostiques.
+                $mConds = []; $mParams = [];
+                if ($codeUnd !== '') { $mConds[] = "code_crg = ?"; $mParams[] = $codeUnd; }
+                if ($refDash !== '') { $mConds[] = "UPPER(REPLACE(reference_bien,' ','')) = UPPER(?)"; $mParams[] = $refDash; }
+                if ((string)$numLot !== '') { $mConds[] = "(id_immeuble = ? AND numero_lot = ?)"; $mParams[] = $idImmeuble; $mParams[] = $numLot; }
+                $bienRow = false;
+                if ($mConds) {
+                    $st = $pdo->prepare("SELECT id FROM biens
+                        WHERE (statut_bien IS NULL OR statut_bien NOT IN ('supprime','archive'))
+                          AND (" . implode(' OR ', $mConds) . ")
+                        ORDER BY ((CASE WHEN CHAR_LENGTH(reference_bien) > 0 THEN 8 ELSE 0 END)
+                                 +(CASE WHEN COALESCE(NULLIF(surface_habitable,0),NULLIF(surface_carrez,0),0)>0 THEN 4 ELSE 0 END)) DESC, id DESC
+                        LIMIT 1");
+                    $st->execute($mParams);
+                    $bienRow = $st->fetch(PDO::FETCH_ASSOC);
+                }
                 if ($bienRow) {
                     $idBien = (int)$bienRow['id'];
                     // On COMPLÈTE le bien enrichi (code_crg/lot/immeuble/proprio manquants) — sans
