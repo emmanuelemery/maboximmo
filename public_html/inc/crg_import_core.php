@@ -606,6 +606,39 @@ if (!function_exists('crg_apply_parsed')) {
         $dateArrete = $periode['date_arrete'] ?? date('Y-m-d');
         $pdfRelPath = ($pdfAbs && $proprietaireId) ? ($proprietaireId . '/' . $annee . '_T' . $trimestre . '.pdf') : null;
 
+        // ── INDEXATION DES PAGES DU PDF ────────────────────────────────────────
+        // Texte MAJUSCULE de chaque page (une SEULE extraction), pour stocker la page où figure
+        // chaque lot/locataire → un clic sur le locataire ouvre le CRG DIRECTEMENT à sa page.
+        // Le parser peut déjà fournir la page ($lot['page']/$loc['page']) ; sinon on la déduit ici.
+        $pdfPagesUpper = $ctx['pdfPagesText'] ?? [];
+        if (!$pdfPagesUpper && $pdfAbs && is_file((string)$pdfAbs)
+            && function_exists('shell_exec')
+            && !in_array('shell_exec', array_map('trim', explode(',', (string)ini_get('disable_functions'))), true)) {
+            $out = @shell_exec('pdftotext -layout -enc UTF-8 ' . escapeshellarg((string)$pdfAbs) . ' - 2>' . (PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null'));
+            if ($out) $pdfPagesUpper = array_map('mb_strtoupper', explode(chr(12), (string)$out));
+        }
+        if (!$pdfPagesUpper && $pdfAbs && is_file((string)$pdfAbs)) { // repli Smalot\PdfParser
+            foreach ([__DIR__.'/../vendor/autoload.php', __DIR__.'/../../vendor/autoload.php', '/home/u630423897/vendor/autoload.php'] as $al) {
+                if (is_file($al)) { require_once $al;
+                    try { foreach ((new \Smalot\PdfParser\Parser())->parseFile((string)$pdfAbs)->getPages() as $pg) $pdfPagesUpper[] = mb_strtoupper($pg->getText()); }
+                    catch (\Throwable $e) { error_log('[crg pages] ' . $e->getMessage()); }
+                    break;
+                }
+            }
+        }
+        // Page 1-indexée d'un lot/locataire (0 si introuvable). Priorité au repère de LOT (stable),
+        // puis nom complet, puis nom de famille (>=3 car.).
+        $findPage = function (string $numLot, string $nom) use ($pdfPagesUpper): int {
+            if (!$pdfPagesUpper) return 0;
+            $lotKey = trim($numLot) !== '' ? 'LOT ' . mb_strtoupper(trim($numLot)) : '';
+            $nomKey = mb_strtoupper(trim($nom)); $nomLast = '';
+            foreach (preg_split('/[\s,]+/', $nomKey) as $part) { if (mb_strlen($part) >= 3) { $nomLast = $part; break; } }
+            if ($lotKey !== '') foreach ($pdfPagesUpper as $i => $t) { if (mb_strpos($t, $lotKey) !== false) return $i + 1; }
+            if ($nomKey !== '') foreach ($pdfPagesUpper as $i => $t) { if (mb_strpos($t, $nomKey) !== false) return $i + 1; }
+            if ($nomLast !== '') foreach ($pdfPagesUpper as $i => $t) { if (mb_strpos($t, $nomLast) !== false) return $i + 1; }
+            return 0;
+        };
+
         // ── CRG trimestre (upsert : on rejoue proprement) ──
         $st = $pdo->prepare('SELECT id FROM crg_trimestres WHERE id_proprietaire=? AND annee=? AND trimestre=?');
         $st->execute([$proprietaireId, $annee, $trimestre]);
@@ -835,13 +868,17 @@ if (!function_exists('crg_apply_parsed')) {
                         $idBail = $b ? (int)$b['id'] : null;
                     }
                     $statutTrim = $estActif ? 'occupé' : 'parti-débiteur';
+                    // Page du PDF où figure ce lot/locataire → clic direct sur sa page du CRG.
+                    $pagePdf = (int)($loc['page'] ?? $lot['page'] ?? 0);
+                    if ($pagePdf <= 0) $pagePdf = $findPage((string)$numLot, $nom);
                     $pdo->prepare('INSERT INTO crg_situations_locataires
                         (id_crg, id_bien, id_bail, locataire_nom, numero_lot, type_bien,
-                         loyer_appele, solde_anterieur, total_loyers, total_charges, total_regle, total_impaye, statut_trimestre)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
+                         loyer_appele, solde_anterieur, total_loyers, total_charges, total_regle, total_impaye, statut_trimestre, page_pdf)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
                         $crgId, $idBien, $idBail, $nom, $numLot, $typeBien,
                         $loc['loyer_appele'] ?? 0, $loc['solde_anterieur'] ?? 0, $loc['total_loyers'] ?? 0,
                         $loc['total_charges'] ?? 0, $loc['total_regle'] ?? 0, $loc['total_impaye'] ?? 0, $statutTrim,
+                        $pagePdf ?: null,
                     ]);
                 }
             }
