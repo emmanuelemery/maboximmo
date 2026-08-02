@@ -18,6 +18,7 @@ require_once __DIR__ . '/../inc/auth.php';
 require_once __DIR__ . '/../inc/csrf.php';
 require_once __DIR__ . '/../inc/ged_access.php';          // ged_internal_path()
 require_once __DIR__ . '/../inc/bail_analyse_service.php';// bail_analyse_pdf() + apply
+require_once __DIR__ . '/../inc/bail_cautions.php';       // bail_analyse_apply_cautions()
 require_login();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -87,6 +88,12 @@ if ($data === null) {
 
 $filled = bail_analyse_apply_to_bien_baux($pdo, $bailId, $data, $overwrite);
 
+// Cautions → tiers reliés au bail (rôle 'caution', scopé bail). Non destructif, idempotent.
+$cautionsAjoutees = [];
+try {
+    $cautionsAjoutees = bail_analyse_apply_cautions($pdo, $bailId, $data);
+} catch (Throwable $e) { error_log('[bail_reextract] cautions: '.$e->getMessage()); }
+
 // Descriptif du bien : rempli UNIQUEMENT si vide (jamais d'écrasement), comme à l'upload.
 try {
     $bienId = (int)($pdo->query("SELECT id_bien FROM bien_baux WHERE id=".(int)$bailId)->fetchColumn() ?: 0);
@@ -112,6 +119,11 @@ $labels = [
 $filledLabels = array_values(array_unique(array_map(fn($c) => $labels[$c] ?? $c, $filled)));
 
 $srcTag = $source === 'cache' ? '💾 cache (gratuit) · ' : '🧠 IA · ';
+$nbCautions = count($cautionsAjoutees);
+$cautionMsg = $nbCautions ? ' · 🛡️ ' . $nbCautions . ' caution(s) : ' . implode(', ', $cautionsAjoutees) : '';
+$baseMsg = count($filledLabels)
+    ? ($srcTag . ($overwrite ? 'Ré-extrait — ' : 'Extrait — ') . count($filledLabels) . ' champ(s) : ' . implode(', ', $filledLabels))
+    : ($srcTag . 'Rien à compléter (bail déjà renseigné).');
 echo json_encode([
     'ok'            => true,
     'id_bail'       => $bailId,
@@ -121,8 +133,7 @@ echo json_encode([
     'n'             => count($filledLabels),
     'champs'        => $filled,
     'champs_labels' => $filledLabels,
-    'message'       => count($filledLabels)
-        ? ($srcTag . ($overwrite ? 'Ré-extrait — ' : 'Extrait — ') . count($filledLabels) . ' champ(s) : ' . implode(', ', $filledLabels))
-        : ($srcTag . 'Rien à compléter (bail déjà renseigné).'),
-    'reload'        => count($filledLabels) > 0,
+    'cautions'      => $cautionsAjoutees,
+    'message'       => $baseMsg . $cautionMsg,
+    'reload'        => (count($filledLabels) > 0 || $nbCautions > 0),
 ], JSON_UNESCAPED_UNICODE);

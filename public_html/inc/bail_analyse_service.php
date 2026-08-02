@@ -71,7 +71,25 @@ Réponds UNIQUEMENT en JSON valide avec cette structure :
     "clause_revision_texte": "string — texte exact de la clause de révision si trouvé"
   },
   "clauses_particulieres": ["string — liste des clauses particulières notables"],
-  "diagnostics_mentionnes": ["string — DPE, amiante, plomb, etc. mentionnés"]
+  "diagnostics_mentionnes": ["string — DPE, amiante, plomb, etc. mentionnés"],
+  "cautions": [
+    {
+      "type_personne": "physique|morale",
+      "civilite": "M.|Mme ou null",
+      "nom": "string (nom de famille de la caution, ou nom de la société)",
+      "prenom": "string ou null",
+      "raison_sociale": "string ou null (si personne morale / organisme)",
+      "adresse": "string ou null",
+      "date_naissance": "string YYYY-MM-DD ou null",
+      "lieu_naissance": "string ou null",
+      "email": "string ou null",
+      "telephone": "string ou null",
+      "type_engagement": "solidaire|simple",
+      "montant_max": "number ou null (montant maximal garanti en euros)",
+      "duree_ans": "number ou null (durée de l'engagement en années)",
+      "engagement_texte": "string ou null (mention/clause d'engagement de caution)"
+    }
+  ]
 }
 
 Règles :
@@ -80,6 +98,11 @@ Règles :
 - Le type_bail se déduit du contexte (loi 89 = habitation, code de commerce = commercial)
 - Pour la révision, cherche la mention de l'IRL, ICC ou ILAT et le trimestre/année de référence
 - La date d'entrée est la date de prise d'effet, pas la date de signature
+- CAUTIONS : extrais toute personne se portant caution du locataire (acte/engagement de cautionnement,
+  mention manuscrite « je me porte caution solidaire… »). Une caution est une PERSONNE distincte du
+  locataire. Précise pour chacune le type d'engagement (solidaire = le plus fréquent, sinon simple),
+  le montant maximal garanti et la durée si indiqués. Si aucune caution : liste vide []. Ne confonds
+  PAS la caution (garant) avec le dépôt de garantie (somme d'argent).
 
 TEXTE DU BAIL :
 {$text_truncated}

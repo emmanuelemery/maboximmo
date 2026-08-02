@@ -7,6 +7,7 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_once __DIR__ . '/inc/csrf.php';
+require_once __DIR__ . '/inc/bail_cautions.php';   // cautions = tiers (rôle 'caution' scopé bail)
 require_login();
 
 $bailId = (int)($_GET['id'] ?? 0);
@@ -864,13 +865,16 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
   <div>
 
     <?php
-    // Bail signé déjà en GED ? → proposer l'EXTRACTION de ses données (cache-first, gratuit si déjà analysé).
-    $bailHasSignedDoc = false;
+    // Bail signé déjà en GED ? → proposer l'EXTRACTION de ses données (cache-first, gratuit si déjà analysé)
+    // + bouton « Voir le bail » (id du doc). Cautions du bail (= tiers rôle 'caution' scopé bail).
+    $bailSignedDocId = 0;
     try {
-        $stBsd = $pdo->prepare("SELECT COUNT(*) FROM ged_documents WHERE id_bail=? AND COALESCE(status,'active')='active' AND UPPER(document_type) IN ('BAIL_SIGNE','BAIL')");
+        $stBsd = $pdo->prepare("SELECT id FROM ged_documents WHERE id_bail=? AND COALESCE(status,'active')='active' AND UPPER(document_type) IN ('BAIL_SIGNE','BAIL') ORDER BY id DESC LIMIT 1");
         $stBsd->execute([(int)$bailId]);
-        $bailHasSignedDoc = (int)$stBsd->fetchColumn() > 0;
+        $bailSignedDocId = (int)($stBsd->fetchColumn() ?: 0);
     } catch (Throwable $e) {}
+    $bailHasSignedDoc = $bailSignedDocId > 0;
+    $bailCautions = bail_cautions_list($pdo, (int)$bailId);
     ?>
     <?php if ($bailHasSignedDoc): ?>
     <!-- 📄 Bail signé attaché → extraction de ses données vers cette fiche (cache-first) -->
@@ -878,6 +882,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">
             <div style="font-size:12.5px;color:#3a5a5c;font-weight:700;">📄 Bail signé attaché — extraire ses données (loyer, DG, dates, indice, clauses) vers cette fiche.</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" onclick="mvptModalView(<?= (int)$bailSignedDocId ?>, <?= htmlspecialchars(json_encode('Bail — ' . $locataireNom), ENT_QUOTES) ?>, window.BAIL_FIELDS)" style="border:none;background:#5b21b6;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">👁 Voir le bail signé</button>
                 <button type="button" id="bailExtractBtn" style="border:none;background:#84A7AB;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">📄 Extraire les données</button>
                 <button type="button" id="bailReextractBtn" title="Ré-analyse le PDF (appel IA payant) et écrase les valeurs actuelles" style="border:1px solid #84A7AB;background:#fff;color:#3a5a5c;border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">🔄 Ré-analyser &amp; écraser</button>
             </div>
@@ -915,6 +920,86 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
             <div><div style="font-size:10px; color:#9a9690;">INDICE</div><strong><?= h($bail['indice_type'] ?? '—') ?> <?= h($bail['indice_trimestre'] ?? '') ?></strong></div>
             <div><div style="font-size:10px; color:#9a9690;">PÉRIODICITÉ</div><strong><?= h($bail['periodicite_paiement'] ?? 'mensuelle') ?></strong></div>
         </div>
+    </div>
+
+    <!-- 🛡️ Cautions (= tiers rôle 'caution' scopé au bail) -->
+    <div class="f360-card" style="--acc:#c0392b;">
+        <h3>🛡️ Cautions <span class="count"><?= count($bailCautions) ?></span></h3>
+        <?php if (empty($bailCautions)): ?>
+            <div class="f360-empty" style="padding-bottom:6px;"><div class="em-ico">🛡️</div>Aucune caution enregistrée pour ce bail.</div>
+        <?php else: foreach ($bailCautions as $c):
+            $cNom = $c['nom_affichage'] ?: ($c['raison_sociale'] ?: trim((string)$c['prenom'] . ' ' . $c['nom']));
+            $cType = $c['caution_type'] ?? '';
+            $cTypeLbl = $cType === 'solidaire' ? 'Caution solidaire' : ($cType === 'simple' ? 'Caution simple' : 'Caution');
+            $cTypeCol = $cType === 'solidaire' ? '#b91c1c' : '#8a4c12';
+            $cContact = array_filter([$c['email'] ?? '', $c['telephone'] ?: ($c['mobile'] ?? '')]);
+        ?>
+            <div style="display:flex; gap:10px; align-items:center; padding:9px 10px; border:1px solid #f0d9d5; border-radius:9px; background:#fdf6f5; margin-bottom:6px;">
+                <span style="font-size:16px;">🛡️</span>
+                <span style="flex:1; min-width:0;">
+                    <a href="<?= h(app_url('/tiers_360.php?id=' . (int)$c['id_tiers'])) ?>" style="color:#243B5C;font-weight:800;font-size:13px;text-decoration:none;border-bottom:1px dotted #c9b8d6;" title="Ouvrir la fiche tiers (contact, contentieux, signature)"><?= h($cNom) ?> ↗</a>
+                    <span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:800;color:#fff;background:<?= $cTypeCol ?>;border-radius:20px;padding:1px 8px;"><?= h($cTypeLbl) ?></span>
+                    <?php if (!empty($c['montant_max'])): ?><span style="font-size:11px;color:#6b7280;margin-left:6px;">plafond <?= number_format((float)$c['montant_max'], 0, ',', ' ') ?> €</span><?php endif; ?>
+                    <?php if (!empty($c['duree_ans'])): ?><span style="font-size:11px;color:#6b7280;margin-left:4px;">· <?= (int)$c['duree_ans'] ?> an(s)</span><?php endif; ?>
+                    <div style="font-size:11px;color:#8a8694;margin-top:1px;">
+                        <?= $cContact ? h(implode(' · ', $cContact)) : '<em>Pas de contact renseigné</em>' ?>
+                        <?php if (($c['source'] ?? '') === 'extraction_bail'): ?> · <span style="color:#84A7AB;">🧠 extrait du bail</span><?php endif; ?>
+                    </div>
+                </span>
+                <button type="button" onclick="bailCautionDetach(<?= (int)$c['id_tiers'] ?>, <?= htmlspecialchars(json_encode($cNom), ENT_QUOTES) ?>)" title="Retirer cette caution du bail (le tiers est conservé)" style="border:1px solid #e4b9b2;background:#fff;color:#c0392b;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">✕ Retirer</button>
+            </div>
+        <?php endforeach; endif; ?>
+
+        <!-- ➕ Ajouter une caution manuellement (tiers + rôle caution scopé au bail) -->
+        <details style="margin-top:10px;border:1px dashed #d9c4c0;border-radius:10px;padding:8px 12px;background:#fdf9f8;">
+            <summary style="cursor:pointer;font-size:12px;font-weight:800;color:#a8443a;">➕ Ajouter une caution</summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px;">
+                <input type="text" id="bcNom"    placeholder="Nom *"        style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                <input type="text" id="bcPrenom" placeholder="Prénom"       style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                <input type="email" id="bcEmail"  placeholder="Email"        style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                <input type="text" id="bcTel"    placeholder="Téléphone"    style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                <select id="bcType" style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;background:#fff;">
+                    <option value="solidaire">Caution solidaire</option>
+                    <option value="simple">Caution simple</option>
+                </select>
+                <input type="number" id="bcMontant" placeholder="Plafond garanti (€)" style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                <button type="button" id="bcAddBtn" style="border:none;background:#c0392b;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">🛡️ Ajouter la caution</button>
+                <span id="bcMsg" style="font-size:11.5px;color:#8a8694;"></span>
+            </div>
+        </details>
+        <script>
+        (function(){
+            var EP=<?= json_encode(app_url('/api/bail_caution_action.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_caution') : '') ?>, BAIL=<?= (int)$bailId ?>;
+            function post(fd, okMsg, msgEl){ msgEl.style.color='#8a8694'; msgEl.textContent='⏳…';
+                fd.append('csrf_token',CSRF); fd.append('id_bail',BAIL);
+                fetch(EP,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+                    if(j&&j.ok){ msgEl.style.color='#2d8a4e'; msgEl.textContent='✅ '+(okMsg||j.message||'OK'); setTimeout(function(){location.reload();},700); }
+                    else { msgEl.style.color='#c62828'; msgEl.textContent='❌ '+((j&&j.error)||'Échec'); }
+                }).catch(function(e){ msgEl.style.color='#c62828'; msgEl.textContent='❌ Réseau : '+e; });
+            }
+            var b=document.getElementById('bcAddBtn');
+            if(b) b.addEventListener('click',function(){
+                var nom=(document.getElementById('bcNom').value||'').trim();
+                if(!nom){ document.getElementById('bcMsg').style.color='#c62828'; document.getElementById('bcMsg').textContent='❌ Le nom est requis.'; return; }
+                var fd=new FormData(); fd.append('action','add');
+                fd.append('nom',nom);
+                fd.append('prenom',(document.getElementById('bcPrenom').value||'').trim());
+                fd.append('email',(document.getElementById('bcEmail').value||'').trim());
+                fd.append('telephone',(document.getElementById('bcTel').value||'').trim());
+                fd.append('caution_type',document.getElementById('bcType').value);
+                fd.append('montant_max',(document.getElementById('bcMontant').value||'').trim());
+                post(fd,'Caution ajoutée',document.getElementById('bcMsg'));
+            });
+            window.bailCautionDetach=function(idTiers,nom){
+                if(!confirm('Retirer la caution « '+nom+' » de ce bail ?\n(Le tiers est conservé et reste réutilisable.)')) return;
+                var fd=new FormData(); fd.append('action','detach'); fd.append('id_tiers',idTiers);
+                var tmp=document.createElement('span'); document.body.appendChild(tmp);
+                post(fd,'Caution retirée',tmp);
+            };
+        })();
+        </script>
     </div>
 
     <!-- Clauses & assurance -->
@@ -1007,6 +1092,16 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         ['label' => 'Conditions particulières', 'value' => $bail['conditions_particulieres'] ?? null],
         ['label' => 'Diagnostics mentionnés', 'value' => !empty($ia['diagnostics_mentionnes']) ? implode(', ', (array)$ia['diagnostics_mentionnes']) : null],
     ], fn($f) => isset($f['section']) || ($f['value'] !== null && trim((string)$f['value']) !== '')));
+    // Cautions du bail → section dédiée du panneau (mêmes données que l'onglet Cautions).
+    if (!empty($bailCautions)) {
+        $bailFields[] = ['section' => 'Cautions (' . count($bailCautions) . ')'];
+        foreach ($bailCautions as $c) {
+            $cn  = $c['nom_affichage'] ?: ($c['raison_sociale'] ?: trim((string)$c['prenom'] . ' ' . $c['nom']));
+            $ctl = ($c['caution_type'] ?? '') === 'solidaire' ? 'solidaire' : (($c['caution_type'] ?? '') === 'simple' ? 'simple' : '');
+            $extra = array_filter([$ctl, !empty($c['montant_max']) ? ('plafond ' . number_format((float)$c['montant_max'], 0, ',', ' ') . ' €') : '', $c['email'] ?? '']);
+            $bailFields[] = ['label' => $cn, 'value' => $extra ? implode(' · ', $extra) : 'caution'];
+        }
+    }
     // Retire les sections devenues orphelines (sans champ derrière).
     $clean = []; $n = count($bailFields);
     foreach ($bailFields as $idx => $f) {

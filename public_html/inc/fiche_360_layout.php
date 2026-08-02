@@ -284,6 +284,8 @@ if (!function_exists('fiche360_checklist')) {
             $itemHasPrefill = ($itemPrefill !== null && $itemPrefill !== []);
             // Libellé cliquable : pièce manquante + prefill + type → tout l'item ouvre le modal pré-rempli.
             $rowClickable = (!$ok && $itemHasPrefill && !empty($it['fbx_type']));
+            // Pièce PRÉSENTE + doc rattaché → clic ouvre le modal de visualisation (mvptModalView).
+            $okClickable  = ($ok && !empty($it['doc_id']));
             $rowAttr = '';
             if ($rowClickable) {
                 $pfRow = $itemPrefill; $pfRow['forced_type_doc'] = (string)$it['fbx_type'];
@@ -291,6 +293,11 @@ if (!function_exists('fiche360_checklist')) {
                 $rowAttr = ' style="cursor:pointer" title="Charger : ' . h($it['label']) . ' — type pré-sélectionné"'
                     . ' data-pf="' . $pfRowJson . '"'
                     . ' onclick="if(event.target.closest(\'button,a\'))return; try{window.fbxOpenUploadModal(JSON.parse(this.dataset.pf));}catch(e){console.error(e);}"';
+            } elseif ($okClickable) {
+                $rowAttr = ' style="cursor:pointer" title="Voir : ' . h($it['label']) . '"'
+                    . ' data-docid="' . (int)$it['doc_id'] . '"'
+                    . ' data-docname="' . h((string)($it['doc_name'] ?? $it['label'])) . '"'
+                    . ' onclick="if(event.target.closest(\'button,a\'))return; if(typeof window.mvptModalView===\'function\'){window.mvptModalView(parseInt(this.dataset.docid,10), this.dataset.docname);}"';
             }
             echo '<div class="f360-checkitem ' . ($ok ? 'ok' : 'missing') . '"' . $rowAttr . '>';
             echo '<span class="ico">' . ($ok ? '✓' : '⚠') . '</span>';

@@ -9,6 +9,7 @@ if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.
 require_once __DIR__ . '/inc/ged_document_links.php';   // GED CENTRALE UNIQUE (2026-05-25)
 require_once __DIR__ . '/inc/fluxbox_functions.php';    // résolveur société/agence d'entité (contexte modale)
 require_once __DIR__ . '/inc/ged_name_pills.php';       // affichage contextuel du nom GED (pills)
+require_once __DIR__ . '/inc/bail_cautions.php';        // cautions = tiers (rôle 'caution' scopé bail)
 require_login();
 
 $bienId = (int)($_GET['id'] ?? 0);
@@ -102,7 +103,12 @@ try {
     ]);
 } catch (Throwable $e) {}
 $docsByType = [];
-foreach ($docs as $d) $docsByType[$d['document_type']] = ($docsByType[$d['document_type']] ?? 0) + 1;
+$docByType  = [];   // type NORMALISÉ (maj, _/-) → doc le plus récent ($docs déjà ordonné DESC)
+foreach ($docs as $d) {
+    $docsByType[$d['document_type']] = ($docsByType[$d['document_type']] ?? 0) + 1;
+    $ntKey = strtoupper(str_replace('-', '_', trim((string)$d['document_type'])));
+    if ($ntKey !== '' && !isset($docByType[$ntKey])) $docByType[$ntKey] = $d;  // 1er rencontré = plus récent
+}
 
 // ─── Photos du bien (biens_photos), regroupées en sous-dossiers (groupe_no / groupe_label) ──
 $photoGroups = []; $photosTotal = 0;
@@ -176,8 +182,15 @@ foreach ($pieces as $p) {
     $normType = static fn($s) => strtoupper(str_replace('-', '_', trim((string)$s)));
     $okCodes  = array_merge([$p['code']], $p['alt_codes'] ?? [], $ft ? [$ft] : []);
     $haveTypes = array_map($normType, array_keys($docsByType));
-    $ok = false;
-    foreach ($okCodes as $c) { if (in_array($normType($c), $haveTypes, true)) { $ok = true; break; } }
+    $ok = false; $matchedDoc = null;
+    foreach ($okCodes as $c) {
+        $nc = $normType($c);
+        if (in_array($nc, $haveTypes, true)) {
+            $ok = true;
+            if ($matchedDoc === null && isset($docByType[$nc])) $matchedDoc = $docByType[$nc]; // doc à ouvrir au clic
+            break;
+        }
+    }
     if ($ft) $baseTypes[$ft] = true;
     foreach ($p['alt_codes'] ?? [] as $ac) $baseTypes[$ac] = true;
     $piecesItems[] = [
@@ -188,6 +201,9 @@ foreach ($pieces as $p) {
         // Recherche assistée OneDrive — v1 limitée au DPE (cf. décision 2026-06-06)
         'search_code' => ($p['code'] === 'DIAG_DPE') ? $p['code'] : null,
         'fbx_type'    => $fbxTypeByCode[$p['code']] ?? null,
+        // Pièce PRÉSENTE → clic ouvre le modal de visualisation (mvptModalView).
+        'doc_id'   => $matchedDoc ? (int)$matchedDoc['id'] : null,
+        'doc_name' => $matchedDoc ? (string)($matchedDoc['name_display'] ?: ($matchedDoc['name_canonical'] ?: $matchedDoc['name_file'])) : null,
     ];
 }
 $nbPieces   = count($piecesItems);
@@ -623,10 +639,20 @@ if ($annonce) {
 }
 
 // ── Barre de KPI du bien (format agency_biens) ──
+// Repli typologie : si nb_pieces est vide, on la déduit du titre d'annonce / de la désignation
+// (« T3 », « F4 », « 3 pièces ») → l'info du titre est REPRISE. Non écrite en base : suffixe « ? »
+// + tooltip « à confirmer » (doctrine vert=fait / jaune=à confirmer, saisie dans la fiche bien).
+$piecesAff = $bien['nb_pieces'] ?? null; $piecesDeduit = false;
+if (empty($piecesAff)) {
+    $txtTypo = trim((string)($bien['designation'] ?? '') . ' ' . ($anTitre ?? ''));
+    if ($txtTypo !== '' && preg_match('/\b[TF]\s?([1-9])\b|\b([1-9])\s*pi[èe]ces?\b/ui', $txtTypo, $mT)) {
+        $piecesAff = (int)(($mT[1] ?? '') !== '' ? $mT[1] : $mT[2]); $piecesDeduit = true;
+    }
+}
 $kpis = [];
 if (!empty($bien['type_label']))        $kpis[] = [$bien['type_label'], 'Type'];
 if (!empty($bien['surface_habitable'])) $kpis[] = [number_format((float)$bien['surface_habitable'], 0, ',', ' '), 'm²'];
-if (!empty($bien['nb_pieces']))         $kpis[] = [$bien['nb_pieces'], 'Pièces'];
+if (!empty($piecesAff))                 $kpis[] = [$piecesAff . ($piecesDeduit ? ' ?' : ''), 'Pièces', $piecesDeduit ? 'Déduit du titre — cliquez pour confirmer (enregistre)' : '', $piecesDeduit ? (int)$piecesAff : null];
 if (!empty($bien['nb_chambres']))       $kpis[] = [$bien['nb_chambres'], 'Chambres'];
 if ($bien['etage'] !== null && $bien['etage'] !== '') $kpis[] = [(($bien['etage']==='0'||(int)$bien['etage']===0)?'RDC':$bien['etage']), 'Étage'];
 if (!empty($bien['dpe_classe'])) {
@@ -639,7 +665,14 @@ if (!empty($bien['etat_bien']))         $kpis[] = [$bien['etat_bien'], 'État'];
 if ($kpis) {
     echo '<div class="b360-kpibar">';
     foreach ($kpis as $k) {
-        echo '<div class="b360-kpi"><div class="b360-kpi-v">' . h((string)$k[0]) . '</div><div class="b360-kpi-l">' . h((string)$k[1]) . '</div></div>';
+        $confVal = $k[3] ?? null;   // KPI « Pièces » déduite → cliquable pour confirmer/enregistrer
+        if ($confVal !== null) {
+            echo '<div class="b360-kpi b360-kpi-confirm" id="kpi-pieces-confirm" data-bien="' . (int)$bienId . '" data-val="' . (int)$confVal . '" title="' . h((string)($k[2] ?? '')) . '">'
+               . '<div class="b360-kpi-v">' . h((string)$k[0]) . '</div><div class="b360-kpi-l">' . h((string)$k[1]) . '</div></div>';
+        } else {
+            $kTtl = (isset($k[2]) && $k[2] !== '') ? ' title="' . h((string)$k[2]) . '" style="cursor:help"' : '';
+            echo '<div class="b360-kpi"' . $kTtl . '><div class="b360-kpi-v">' . h((string)$k[0]) . '</div><div class="b360-kpi-l">' . h((string)$k[1]) . '</div></div>';
+        }
     }
     echo '</div>';
 }
@@ -649,7 +682,48 @@ if ($kpis) {
   .b360-kpi{flex:1 1 auto;min-width:0;background:#fff;border:1px solid #e8e4da;border-radius:12px;padding:10px 10px;text-align:center}
   .b360-kpi-v{font-size:18px;font-weight:800;color:#1B4A52;line-height:1.12;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .b360-kpi-l{font-size:10.5px;color:#8A8472;text-transform:uppercase;letter-spacing:.03em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b360-kpi-confirm{cursor:pointer;border-color:#e0b34d;background:#fffaf0;transition:background .15s ease}
+  .b360-kpi-confirm:hover{background:#fff4d8}
+  .b360-kpi-confirm .b360-kpi-v{color:#a9791f}
 </style>
+<?php if (!empty($piecesDeduit)): ?>
+<script>
+/* KPI « Pièces » déduite du titre → clic = petit champ pré-rempli, Entrée enregistre (nb_pieces)
+   via api/bien_autosave.php, sans passer par la fiche bien. Puis passe au vert (confirmé). */
+(function(){
+  var el = document.getElementById('kpi-pieces-confirm'); if(!el) return;
+  var CSRF = <?= json_encode(csrf_token('ajouter_bien')) ?>;
+  var URL  = <?= json_encode(app_url('/api/bien_autosave.php')) ?>;
+  var vEl  = el.querySelector('.b360-kpi-v');
+  function save(val){
+    var fd = new FormData();
+    fd.append('_edit_id', el.getAttribute('data-bien'));
+    fd.append('nb_pieces', String(val));
+    fd.append('csrf_token', CSRF);
+    el.style.opacity = .55;
+    fetch(URL, {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+      el.style.opacity = 1; el.dataset.editing='';
+      if (d && (d.ok || d.success)) {
+        el.classList.remove('b360-kpi-confirm'); el.removeAttribute('title'); el.removeAttribute('id');
+        vEl.textContent = val; vEl.style.color = '#1B4A52';
+        el.style.borderColor = '#84a763'; el.style.background = '#f2f8ec';
+        setTimeout(function(){ el.style.background='#fff'; el.style.borderColor='#e8e4da'; }, 1500);
+      } else { alert('Échec de l\'enregistrement : ' + ((d && (d.error||d.message)) || 'inconnu')); vEl.textContent = el.getAttribute('data-val')+' ?'; }
+    }).catch(function(){ el.style.opacity = 1; el.dataset.editing=''; alert('Erreur réseau'); vEl.textContent = el.getAttribute('data-val')+' ?'; });
+  }
+  el.addEventListener('click', function(){
+    if (el.dataset.editing) return; el.dataset.editing = '1';
+    var cur = el.getAttribute('data-val'), done = false;
+    vEl.innerHTML = '<input type="number" min="1" max="50" value="'+cur+'" style="width:48px;font-size:16px;font-weight:800;text-align:center;border:1px solid #e0b34d;border-radius:6px;padding:1px 2px">';
+    var inp = vEl.querySelector('input'); inp.focus(); inp.select();
+    function commit(){ if(done)return; done=true; var v=parseInt(inp.value,10); if(v>=1&&v<=50){ save(v); } else { vEl.textContent=cur+' ?'; el.dataset.editing=''; } }
+    function cancel(){ if(done)return; done=true; vEl.textContent=cur+' ?'; el.dataset.editing=''; }
+    inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();commit();} else if(e.key==='Escape'){cancel();} });
+    inp.addEventListener('blur', commit);
+  });
+})();
+</script>
+<?php endif; ?>
 <?php
 
 ?>
@@ -686,7 +760,7 @@ if ($kpis) {
 .f360-header-actions .tr-btn-primary:hover { background:#eaf1fa; color:#243B5C; }
 </style>
 
-<?php require_once __DIR__ . '/inc/financement.php'; echo fin_related_block($pdo, 'BIEN', $bienId); ?>
+<?php require_once __DIR__ . '/inc/financement.php'; ?>
 <div class="b360-grid3">
 
   <!-- ═══════ ZONE GAUCHE (2 colonnes) : Barre IA + Core + Documents ═══════ -->
@@ -769,6 +843,9 @@ if ($kpis) {
       install();
     })();
     </script>
+
+    <?php // ─────────────── DOSSIERS FINANCIERS (card pliée, plus de bandeau pleine largeur) ───────────────
+    echo fin_related_block($pdo, 'BIEN', $bienId, null, 'card'); ?>
 
     <?php
     // ─────────────── COMMENTAIRE INTERNE DU BIEN (persisté biens.commentaire) ───────────────
@@ -1046,17 +1123,63 @@ if ($kpis) {
     $bailProjets = [];
     try { $qp=$pdo->prepare("SELECT id,numero_bail,statut,locataire_raison_sociale,locataire_nom,locataire_prenom,loyer_mensuel_hc,date_prise_effet FROM bien_baux WHERE id_bien=? AND statut IN ('projet','envoye','signe','avenant') ORDER BY id DESC"); $qp->execute([$bienId]); $bailProjets=$qp->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable) {}
     $belStatutLbl = ['projet'=>['🟡','Projet'],'envoye'=>['📨','Envoyé à signer'],'signe'=>['✅','Signé'],'avenant'=>['📝','Avenant']];
+    // Cautions (= tiers rôle 'caution' scopé au bail ACTIF). Onglet « Cautions » de la card bail.
+    $bailCautions = ($bailActif && !empty($bailActif['id'])) ? bail_cautions_list($pdo, (int)$bailActif['id']) : [];
+
+    // PDF du bail signé (pour le modal « Voir le bail ») + panneau d'infos réutilisant mvptModalView.
+    $bailSignedDocId = 0;
+    if ($bailActif && !empty($bailActif['id'])) {
+        try {
+            $stBd = $pdo->prepare("SELECT id FROM ged_documents WHERE id_bail=? AND COALESCE(status,'active')='active' AND UPPER(document_type) IN ('BAIL_SIGNE','BAIL') ORDER BY id DESC LIMIT 1");
+            $stBd->execute([(int)$bailActif['id']]);
+            $bailSignedDocId = (int)($stBd->fetchColumn() ?: 0);
+        } catch (Throwable $e) {}
+    }
+    // Champs affichés à GAUCHE du modal (mêmes infos que le projet de bail) — sections + lignes.
+    $bailFields = [];
+    if ($bailActif) {
+        $euro = fn($v) => number_format((float)$v, 0, ',', ' ') . ' €';
+        $bailFields[] = ['section' => 'Bail'];
+        $bailFields[] = ['label' => 'Locataire',    'value' => $locataireNom];
+        $bailFields[] = ['label' => 'Nature',       'value' => $bailActif['bail_nature'] ?? ''];
+        $bailFields[] = ['label' => "Prise d'effet",'value' => $bailActif['date_prise_effet'] ?? ''];
+        $bailFields[] = ['label' => 'Fin',          'value' => $bailActif['date_fin'] ?? ''];
+        $bailFields[] = ['section' => 'Finances'];
+        $bailFields[] = ['label' => 'Loyer HC',     'value' => $euro($bailActif['loyer_mensuel_hc'] ?? 0) . '/mois'];
+        $bailFields[] = ['label' => 'Charges',      'value' => $euro($bailActif['charges_mensuelles'] ?? 0) . '/mois'];
+        $bailFields[] = ['label' => 'Dépôt de garantie', 'value' => $euro($bailActif['depot_garantie'] ?? 0)];
+        $bailFields[] = ['label' => 'Indice',       'value' => trim(((string)($bailActif['indice_type'] ?? '')) . ' ' . ((string)($bailActif['indice_trimestre'] ?? '')))];
+        if ($bailCautions) {
+            $bailFields[] = ['section' => 'Cautions (' . count($bailCautions) . ')'];
+            foreach ($bailCautions as $c) {
+                $cn = $c['nom_affichage'] ?: ($c['raison_sociale'] ?: trim((string)$c['prenom'] . ' ' . $c['nom']));
+                $ctl = ($c['caution_type'] ?? '') === 'solidaire' ? 'solidaire' : (($c['caution_type'] ?? '') === 'simple' ? 'simple' : '');
+                $extra = array_filter([$ctl, !empty($c['montant_max']) ? ('plafond ' . number_format((float)$c['montant_max'], 0, ',', ' ') . ' €') : '', $c['email'] ?? '']);
+                $bailFields[] = ['label' => $cn, 'value' => $extra ? implode(' · ', $extra) : 'caution'];
+            }
+        }
+    }
     ?>
     <!-- Bail actif / Archives -->
     <div class="f360-card" style="--acc:var(--c-bail);">
         <div class="f360-tabs">
             <button type="button" class="f360-tab active" onclick="f360tab(this, 'tab-bail')">📋 Bail actif <span class="count"><?= $bailActif ? 1 : 0 ?></span></button>
             <button type="button" class="f360-tab"        onclick="f360tab(this, 'tab-arch')">🗂 Archives <span class="count"><?= count($archivesBaux) ?></span></button>
-            <button type="button" class="f360-tab"        onclick="f360tab(this, 'tab-offres')">💰 Offres <span class="count"><?= count($offres) ?></span></button>
+            <button type="button" class="f360-tab"        onclick="f360tab(this, 'tab-cautions')">🛡️ Cautions <span class="count"><?= count($bailCautions) ?></span></button>
         </div>
 
         <div id="tab-bail">
             <?php if ($bailActif): ?>
+                <?php if ($bailSignedDocId > 0): ?>
+                <!-- 👁 Voir le bail : même modal 2 colonnes que le projet de bail (infos à gauche + PDF signé à droite) -->
+                <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+                    <button type="button"
+                        onclick="mvptModalView(<?= (int)$bailSignedDocId ?>, <?= htmlspecialchars(json_encode('Bail — ' . $locataireNom), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode($bailFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)"
+                        style="border:none;background:#5b21b6;color:#fff;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(91,33,182,.25);">
+                        👁 Voir le bail signé
+                    </button>
+                </div>
+                <?php endif; ?>
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
                     <div><div style="font-size:10px; color:#9a9690;">LOCATAIRE</div><strong><a href="<?= h(app_url('/bail_360.php?id=' . (int)$bailActif['id'])) ?>" style="color:#5b21b6;text-decoration:none;border-bottom:1px dotted #b39ddb;" title="Ouvrir la fiche bail 360° (infos + documents)"><?= h($locataireNom) ?> ↗</a></strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">NATURE</div><strong><?= h($bailActif['bail_nature']) ?></strong></div>
@@ -1074,14 +1197,9 @@ if ($kpis) {
                 <?php endif; ?>
 
                 <?php
-                // Un bail signé est-il DÉJÀ en GED pour ce bail ? → on propose l'EXTRACTION de ses
-                // données (cache-first, gratuit si déjà analysé) plutôt que de redemander l'upload.
-                $bailHasSignedDoc = false;
-                try {
-                    $stBd = $pdo->prepare("SELECT COUNT(*) FROM ged_documents WHERE id_bail=? AND COALESCE(status,'active')='active' AND UPPER(document_type) IN ('BAIL_SIGNE','BAIL')");
-                    $stBd->execute([(int)$bailActif['id']]);
-                    $bailHasSignedDoc = (int)$stBd->fetchColumn() > 0;
-                } catch (Throwable $e) {}
+                // Un bail signé est-il DÉJÀ en GED ? (id calculé plus haut → $bailSignedDocId). Si oui,
+                // on propose l'EXTRACTION (cache-first, gratuit si déjà analysé) plutôt que l'upload.
+                $bailHasSignedDoc = $bailSignedDocId > 0;
                 ?>
                 <?php if ($bailHasSignedDoc): ?>
                 <!-- ✅ Bail signé déjà attaché → EXTRACTION des données vers la fiche bail -->
@@ -1238,19 +1356,86 @@ if ($kpis) {
             <?php endforeach; endif; ?>
         </div>
 
-        <div id="tab-offres" style="display:none;">
-            <?php if (empty($offres)): ?>
-                <div class="f360-empty"><div class="em-ico">💰</div>Aucune offre reçue.</div>
-            <?php else: foreach ($offres as $o):
-                $sCol = match($o['statut_offre']){'acceptee'=>'#2d6a35','refusee'=>'#a8323b','expiree'=>'#7a766f',default=>'#8a4c12'};
-            ?>
-                <div style="padding:8px 0; border-bottom:1px solid #f0ece6; font-size:12px; display:flex; gap:10px; align-items:center;">
-                    <strong style="color:<?= $sCol ?>; font-size:14px;"><?= number_format((float)$o['prix_propose'], 0, ',', ' ') ?> €</strong>
-                    <span><?= h(trim((string)$o['prenom'] . ' ' . $o['nom'])) ?></span>
-                    <span style="color:#9a9690; font-size:10px;"><?= h($o['financement_type'] ?? '') ?> · <?= h($o['statut_offre'] ?? '?') ?></span>
-                    <span style="margin-left:auto; color:#9a9690; font-size:10px;"><?= h(date('d/m/y', strtotime((string)$o['date_creation']))) ?></span>
-                </div>
-            <?php endforeach; endif; ?>
+        <div id="tab-cautions" style="display:none;">
+            <?php if (!$bailActif): ?>
+                <div class="f360-empty"><div class="em-ico">🛡️</div>Les cautions se rattachent à un bail actif. Active d'abord un bail.</div>
+            <?php else: ?>
+                <?php if (empty($bailCautions)): ?>
+                    <div class="f360-empty" style="padding-bottom:6px;"><div class="em-ico">🛡️</div>Aucune caution enregistrée pour ce bail.</div>
+                <?php else: foreach ($bailCautions as $c):
+                    $cNom = $c['nom_affichage'] ?: ($c['raison_sociale'] ?: trim((string)$c['prenom'] . ' ' . $c['nom']));
+                    $cType = $c['caution_type'] ?? '';
+                    $cTypeLbl = $cType === 'solidaire' ? 'Caution solidaire' : ($cType === 'simple' ? 'Caution simple' : 'Caution');
+                    $cTypeCol = $cType === 'solidaire' ? '#b91c1c' : '#8a4c12';
+                    $cContact = array_filter([$c['email'] ?? '', $c['telephone'] ?: ($c['mobile'] ?? '')]);
+                ?>
+                    <div style="display:flex; gap:10px; align-items:center; padding:9px 10px; border:1px solid #f0d9d5; border-radius:9px; background:#fdf6f5; margin-bottom:6px;">
+                        <span style="font-size:16px;">🛡️</span>
+                        <span style="flex:1; min-width:0;">
+                            <a href="<?= h(app_url('/tiers_360.php?id=' . (int)$c['id_tiers'])) ?>" style="color:#243B5C;font-weight:800;font-size:13px;text-decoration:none;border-bottom:1px dotted #c9b8d6;" title="Ouvrir la fiche tiers (contact, contentieux, signature)"><?= h($cNom) ?> ↗</a>
+                            <span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:800;color:#fff;background:<?= $cTypeCol ?>;border-radius:20px;padding:1px 8px;"><?= h($cTypeLbl) ?></span>
+                            <?php if (!empty($c['montant_max'])): ?><span style="font-size:11px;color:#6b7280;margin-left:6px;">plafond <?= number_format((float)$c['montant_max'], 0, ',', ' ') ?> €</span><?php endif; ?>
+                            <?php if (!empty($c['duree_ans'])): ?><span style="font-size:11px;color:#6b7280;margin-left:4px;">· <?= (int)$c['duree_ans'] ?> an(s)</span><?php endif; ?>
+                            <div style="font-size:11px;color:#8a8694;margin-top:1px;">
+                                <?= $cContact ? h(implode(' · ', $cContact)) : '<em>Pas de contact renseigné</em>' ?>
+                                <?php if (($c['source'] ?? '') === 'extraction_bail'): ?> · <span style="color:#84A7AB;">🧠 extrait du bail</span><?php endif; ?>
+                            </div>
+                        </span>
+                        <button type="button" onclick="bailCautionDetach(<?= (int)$c['id_tiers'] ?>, <?= htmlspecialchars(json_encode($cNom), ENT_QUOTES) ?>)" title="Retirer cette caution du bail (le tiers est conservé)" style="border:1px solid #e4b9b2;background:#fff;color:#c0392b;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">✕ Retirer</button>
+                    </div>
+                <?php endforeach; endif; ?>
+
+                <!-- ➕ Ajouter une caution manuellement (tiers + rôle caution scopé au bail) -->
+                <details style="margin-top:10px;border:1px dashed #d9c4c0;border-radius:10px;padding:8px 12px;background:#fdf9f8;">
+                    <summary style="cursor:pointer;font-size:12px;font-weight:800;color:#a8443a;">➕ Ajouter une caution</summary>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px;">
+                        <input type="text" id="bcNom"    placeholder="Nom *"        style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                        <input type="text" id="bcPrenom" placeholder="Prénom"       style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                        <input type="email" id="bcEmail"  placeholder="Email"        style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                        <input type="text" id="bcTel"    placeholder="Téléphone"    style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                        <select id="bcType" style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;background:#fff;">
+                            <option value="solidaire">Caution solidaire</option>
+                            <option value="simple">Caution simple</option>
+                        </select>
+                        <input type="number" id="bcMontant" placeholder="Plafond garanti (€)" style="padding:7px 9px;border:1px solid #d8c6c2;border-radius:7px;font-size:12.5px;">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                        <button type="button" id="bcAddBtn" style="border:none;background:#c0392b;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">🛡️ Ajouter la caution</button>
+                        <span id="bcMsg" style="font-size:11.5px;color:#8a8694;"></span>
+                    </div>
+                </details>
+                <script>
+                (function(){
+                    var EP=<?= json_encode(app_url('/api/bail_caution_action.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_caution') : '') ?>, BAIL=<?= (int)$bailActif['id'] ?>;
+                    function post(fd, okMsg, msgEl){ msgEl.style.color='#8a8694'; msgEl.textContent='⏳…';
+                        fd.append('csrf_token',CSRF); fd.append('id_bail',BAIL);
+                        fetch(EP,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+                            if(j&&j.ok){ msgEl.style.color='#2d8a4e'; msgEl.textContent='✅ '+(okMsg||j.message||'OK'); setTimeout(function(){location.reload();},700); }
+                            else { msgEl.style.color='#c62828'; msgEl.textContent='❌ '+((j&&j.error)||'Échec'); }
+                        }).catch(function(e){ msgEl.style.color='#c62828'; msgEl.textContent='❌ Réseau : '+e; });
+                    }
+                    var b=document.getElementById('bcAddBtn');
+                    if(b) b.addEventListener('click',function(){
+                        var nom=(document.getElementById('bcNom').value||'').trim();
+                        if(!nom){ document.getElementById('bcMsg').style.color='#c62828'; document.getElementById('bcMsg').textContent='❌ Le nom est requis.'; return; }
+                        var fd=new FormData(); fd.append('action','add');
+                        fd.append('nom',nom);
+                        fd.append('prenom',(document.getElementById('bcPrenom').value||'').trim());
+                        fd.append('email',(document.getElementById('bcEmail').value||'').trim());
+                        fd.append('telephone',(document.getElementById('bcTel').value||'').trim());
+                        fd.append('caution_type',document.getElementById('bcType').value);
+                        fd.append('montant_max',(document.getElementById('bcMontant').value||'').trim());
+                        post(fd,'Caution ajoutée',document.getElementById('bcMsg'));
+                    });
+                    window.bailCautionDetach=function(idTiers,nom){
+                        if(!confirm('Retirer la caution « '+nom+' » de ce bail ?\n(Le tiers est conservé et reste réutilisable.)')) return;
+                        var fd=new FormData(); fd.append('action','detach'); fd.append('id_tiers',idTiers);
+                        var tmp=document.createElement('span'); document.body.appendChild(tmp);
+                        post(fd,'Caution retirée',tmp);
+                    };
+                })();
+                </script>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -1623,7 +1808,7 @@ function f360tab(btn, targetId) {
     btn.parentElement.querySelectorAll('.f360-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const container = btn.closest('.f360-card');
-    ['tab-bail','tab-arch','tab-offres'].forEach(id => {
+    ['tab-bail','tab-arch','tab-cautions'].forEach(id => {
         const el = container.querySelector('#' + id);
         if (el) el.style.display = (id === targetId) ? 'block' : 'none';
     });
