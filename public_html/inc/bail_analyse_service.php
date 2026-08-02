@@ -164,14 +164,19 @@ if (!function_exists('bail_analyse_apply_to_bien_baux')) {
         $row = $cur->fetch(PDO::FETCH_ASSOC);
         if (!$row) return [];
 
+        // AUTORITÉ CRG : le loyer et le locataire sont (ré)écrits à CHAQUE trimestre par l'import
+        // CRG et font foi. L'extraction du bail donne le loyer À LA SIGNATURE (potentiellement
+        // périmé) → on ne les REMPLIT que s'ils sont vides, JAMAIS d'écrasement (même overwrite=1).
+        $crgAuthoritative = ['loyer_mensuel_hc', 'locataire_nom'];
+
         $sets = []; $args = []; $filled = [];
         foreach ($cands as $col => $val) {
             if ($val === null || !array_key_exists($col, $row)) continue;
             $existing = $row[$col];
             $isEmpty = ($existing === null || $existing === '' || (is_numeric($existing) && (float)$existing == 0.0));
-            // Mode écraser : on pose la valeur extraite même si la colonne est déjà remplie,
-            // mais seulement si elle DIFFÈRE (évite les UPDATE inutiles et le bruit).
-            if ($isEmpty || ($overwrite && (string)$existing !== (string)$val)) {
+            $protected = in_array($col, $crgAuthoritative, true);
+            // Écrasement autorisé seulement hors colonnes « autorité CRG » et si la valeur diffère.
+            if ($isEmpty || ($overwrite && !$protected && (string)$existing !== (string)$val)) {
                 $sets[] = "`$col` = ?";
                 $args[] = $val;
                 $filled[] = $col;

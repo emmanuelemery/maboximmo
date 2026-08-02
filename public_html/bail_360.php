@@ -899,7 +899,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         }
         var b1=document.getElementById('bailExtractBtn'), b2=document.getElementById('bailReextractBtn');
         if(b1) b1.addEventListener('click',function(){ run(false,false,b1); });
-        if(b2) b2.addEventListener('click',function(){ if(!confirm('Ré-analyser le PDF (appel IA payant) et ÉCRASER les valeurs actuelles ?'))return; run(true,true,b2); });
+        if(b2) b2.addEventListener('click',function(){ if(!confirm('Ré-analyser le PDF (appel IA payant) et ÉCRASER les valeurs — SAUF le loyer et le locataire (autorité CRG, jamais écrasés) ?'))return; run(true,true,b2); });
     })();
     </script>
     <?php endif; ?>
