@@ -124,12 +124,12 @@ $_bInit = strtoupper(
     </a>
     <?php endif; ?>
     <?php if ($showFinancement): ?>
-    <a href="<?= $_sbBase ?>financement_liste.php" class="sb-bail-link <?= sb_bail_active('financement_liste.php') ?: sb_bail_active('financement_360.php') ?>">
+    <a href="<?= $_sbBase ?>bailleur_financement.php" class="sb-bail-link <?= sb_bail_active('bailleur_financement.php') ?: (sb_bail_active('financement_liste.php') ?: sb_bail_active('financement_360.php')) ?>">
       <span class="sb-bail-icon">💶</span> Financement
     </a>
     <?php endif; ?>
     <?php if ($showTransaction): ?>
-    <a href="<?= $_sbBase ?><?= $isSA ? 'transaction_index.php' : 'bailleur_transactions.php' ?>" class="sb-bail-link <?= sb_bail_active('transaction_index.php') ?: (sb_bail_active('transaction_chargement.php') ?: sb_bail_active('bailleur_transactions.php')) ?>">
+    <a href="<?= $_sbBase ?>bailleur_transaction.php" class="sb-bail-link <?= sb_bail_active('bailleur_transaction.php') ?: (sb_bail_active('transaction_index.php') ?: (sb_bail_active('transaction_chargement.php') ?: sb_bail_active('bailleur_transactions.php'))) ?>">
       <span class="sb-bail-icon">🎯</span> Transaction
     </a>
     <?php endif; ?>
