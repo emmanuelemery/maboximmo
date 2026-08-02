@@ -863,6 +863,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 
   <!-- ═══════════════════ COLONNE PRINCIPALE ═══════════════════ -->
   <div>
+    <div class="bail360-cards"><!-- cards en 2 colonnes, repliées par défaut -->
 
     <?php
     // Bail signé déjà en GED ? → proposer l'EXTRACTION de ses données (cache-first, gratuit si déjà analysé)
@@ -1080,6 +1081,31 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
             </div>
         <?php endforeach; endif; ?>
     </div>
+    </div><!-- /.bail360-cards -->
+    <style>
+    /* bail_360 : cards de la colonne principale en 2 colonnes, repliées par défaut (comme bien_360). */
+    .bail360-cards{ display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+    .bail360-cards > .f360-card{ margin-bottom:0; }
+    .bail360-cards > .f360-card.b360-span{ grid-column:1 / -1; }                 /* card sans titre (extract) = pleine largeur */
+    .bail360-cards > .f360-card.b360-fold > h3{ cursor:pointer; user-select:none; }
+    .bail360-cards > .f360-card.b360-fold > h3::after{ margin-left:auto; font-size:11px; font-weight:700; color:#94a3b8; }
+    .bail360-cards > .f360-card.b360-fold.b360-collapsed > h3::after{ content:'déplier ▾'; }
+    .bail360-cards > .f360-card.b360-fold:not(.b360-collapsed) > h3::after{ content:'replier ▴'; }
+    .bail360-cards > .f360-card.b360-collapsed > *:not(h3){ display:none !important; }
+    @media (max-width:900px){ .bail360-cards{ grid-template-columns:1fr; } }
+    </style>
+    <script>
+    (function(){
+      var grid=document.querySelector('.bail360-cards'); if(!grid) return;
+      Array.prototype.forEach.call(grid.children, function(card){
+        if(!card.classList || !card.classList.contains('f360-card')) return;
+        var h3=null; for(var i=0;i<card.children.length;i++){ if(card.children[i].tagName==='H3'){ h3=card.children[i]; break; } }
+        if(!h3){ card.classList.add('b360-span'); return; }              // pas de titre → pleine largeur, non repliable
+        card.classList.add('b360-fold','b360-collapsed');                // repliée par défaut (toujours repliées)
+        h3.addEventListener('click', function(e){ if(e.target.closest('button,a')) return; card.classList.toggle('b360-collapsed'); });
+      });
+    })();
+    </script>
     <?php include __DIR__ . '/inc/mvpt_modal_doc_viewer.php'; ?>
     <?php require_once __DIR__ . '/inc/ged_delete_modal.php'; ?>
 
