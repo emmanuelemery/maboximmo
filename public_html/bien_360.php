@@ -1073,8 +1073,50 @@ if ($kpis) {
                     </div>
                 <?php endif; ?>
 
+                <?php
+                // Un bail signé est-il DÉJÀ en GED pour ce bail ? → on propose l'EXTRACTION de ses
+                // données (cache-first, gratuit si déjà analysé) plutôt que de redemander l'upload.
+                $bailHasSignedDoc = false;
+                try {
+                    $stBd = $pdo->prepare("SELECT COUNT(*) FROM ged_documents WHERE id_bail=? AND COALESCE(status,'active')='active' AND UPPER(document_type) IN ('BAIL_SIGNE','BAIL')");
+                    $stBd->execute([(int)$bailActif['id']]);
+                    $bailHasSignedDoc = (int)$stBd->fetchColumn() > 0;
+                } catch (Throwable $e) {}
+                ?>
+                <?php if ($bailHasSignedDoc): ?>
+                <!-- ✅ Bail signé déjà attaché → EXTRACTION des données vers la fiche bail -->
+                <div style="margin-top:12px;padding:12px;border:1.5px solid #84A7AB;border-radius:12px;background:#f2f8f8;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">
+                        <div style="font-size:12.5px;color:#3a5a5c;font-weight:700;">✅ Bail signé attaché — extraire ses données (loyer, DG, dates, indice, clauses).</div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button type="button" id="bailExtractBtn" style="border:none;background:#84A7AB;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">📄 Extraire les données</button>
+                            <button type="button" id="bailReextractBtn" title="Ré-analyse le PDF (appel IA payant) et écrase les valeurs actuelles" style="border:1px solid #84A7AB;background:#fff;color:#3a5a5c;border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">🔄 Ré-analyser &amp; écraser</button>
+                        </div>
+                    </div>
+                    <div id="bailExtractMsg" style="font-size:11.5px;color:#7a8a8c;margin-top:8px;"></div>
+                </div>
+                <script>
+                (function(){
+                    var EP=<?= json_encode(app_url('/api/bail_reextract.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_reextract') : '') ?>, BAIL=<?= (int)$bailActif['id'] ?>;
+                    var msg=document.getElementById('bailExtractMsg');
+                    function run(fresh,overwrite,btn){
+                        btn.disabled=true; msg.style.color='#7a8a8c';
+                        msg.textContent = fresh ? '⏳ Ré-analyse du PDF (IA)…' : '⏳ Extraction…';
+                        var fd=new FormData(); fd.append('id_bail',BAIL); fd.append('csrf_token',CSRF); fd.append('fresh',fresh?'1':'0'); fd.append('overwrite',overwrite?'1':'0');
+                        fetch(EP,{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(j){
+                            if(j&&j.ok){ msg.style.color='#2d8a4e'; msg.textContent='✅ '+j.message; if(j.reload){ setTimeout(function(){location.reload();},900);} else { btn.disabled=false; } }
+                            else { msg.style.color='#c62828'; msg.textContent='❌ '+((j&&j.error)||'Échec'); btn.disabled=false; }
+                        }).catch(function(e){ msg.style.color='#c62828'; msg.textContent='❌ Réseau : '+e; btn.disabled=false; });
+                    }
+                    var b1=document.getElementById('bailExtractBtn'), b2=document.getElementById('bailReextractBtn');
+                    if(b1) b1.addEventListener('click',function(){ run(false,false,b1); });
+                    if(b2) b2.addEventListener('click',function(){ if(!confirm('Ré-analyser le PDF (appel IA payant) et ÉCRASER les valeurs actuelles ?'))return; run(true,true,b2); });
+                })();
+                </script>
+                <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:11.5px;color:#9a9690;">➕ Attacher un autre PDF de bail</summary>
+                <?php endif; ?>
                 <!-- 📎 Attacher la COPIE du bail signé au bail ACTIF existant (pas de création IA) -->
-                <div style="margin-top:12px;padding:12px;border:1.5px dashed #84A7AB;border-radius:12px;background:#f2f8f8;text-align:center;">
+                <div style="margin-top:<?= $bailHasSignedDoc ? '8' : '12' ?>px;padding:12px;border:1.5px dashed #84A7AB;border-radius:12px;background:#f2f8f8;text-align:center;">
                     <div style="font-size:12.5px;color:#3a5a5c;font-weight:700;margin-bottom:8px;">📎 Attacher la copie du bail signé (PDF) — rattachée à ce bail, visible en GED (bien + fiche bail).</div>
                     <input type="file" id="bailCopyFile" accept="application/pdf" style="display:none;">
                     <button type="button" id="bailCopyBtn" style="border:none;background:#84A7AB;color:#fff;border-radius:999px;padding:8px 18px;font-size:13px;font-weight:800;cursor:pointer;">📎 Charger la copie du bail</button>
@@ -1097,6 +1139,7 @@ if ($kpis) {
                     }
                 })();
                 </script>
+                <?php if ($bailHasSignedDoc): ?></details><?php endif; ?>
             <?php else: ?>
                 <div class="f360-empty"><div class="em-ico">🔓</div>Aucun bail actif sur ce bien.</div>
             <?php endif; ?>

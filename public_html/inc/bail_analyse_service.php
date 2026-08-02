@@ -122,11 +122,12 @@ PROMPT;
 
 if (!function_exists('bail_analyse_apply_to_bien_baux')) {
     /**
-     * Reporte les données extraites dans bien_baux — UNIQUEMENT sur les colonnes vides
-     * (NULL / 0 / ''), pour ne JAMAIS écraser une saisie manuelle. Renvoie la liste des
-     * champs effectivement remplis.
+     * Reporte les données extraites dans bien_baux. Par défaut ($overwrite=false), remplit
+     * UNIQUEMENT les colonnes vides (NULL / 0 / '') pour ne jamais écraser une saisie manuelle.
+     * Avec $overwrite=true, écrase depuis le PDF (toute valeur extraite non nulle). Renvoie la
+     * liste des champs effectivement remplis/mis à jour.
      */
-    function bail_analyse_apply_to_bien_baux(PDO $pdo, int $bailId, array $data): array
+    function bail_analyse_apply_to_bien_baux(PDO $pdo, int $bailId, array $data, bool $overwrite = false): array
     {
         if ($bailId <= 0 || empty($data)) return [];
         $cond = $data['conditions'] ?? [];
@@ -168,7 +169,9 @@ if (!function_exists('bail_analyse_apply_to_bien_baux')) {
             if ($val === null || !array_key_exists($col, $row)) continue;
             $existing = $row[$col];
             $isEmpty = ($existing === null || $existing === '' || (is_numeric($existing) && (float)$existing == 0.0));
-            if ($isEmpty) {
+            // Mode écraser : on pose la valeur extraite même si la colonne est déjà remplie,
+            // mais seulement si elle DIFFÈRE (évite les UPDATE inutiles et le bruit).
+            if ($isEmpty || ($overwrite && (string)$existing !== (string)$val)) {
                 $sets[] = "`$col` = ?";
                 $args[] = $val;
                 $filled[] = $col;
