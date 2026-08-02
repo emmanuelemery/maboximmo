@@ -55,6 +55,9 @@ $TABS = [
     ['k'=>'avendre',     'lbl'=>'Biens à proposer','ic'=>'🏷️','url'=>app_url('/bailleur_patrimoine_actif.php?embed=1&mode=proposer' . $bSuffix)],
     ['k'=>'propositions','lbl'=>'Propositions',    'ic'=>'📚','url'=>app_url('/transaction_portefeuilles_liste.php?embed=1' . $bSuffix)],
 ];
+// Partages patrimoine (liens à jeton : banquier/avocat/comptable/notaire/gestionnaire) — admin bailleur / SA.
+$canPartages = (function_exists('is_super_admin') && is_super_admin()) || (function_exists('can_admin_bailleur') && can_admin_bailleur());
+if ($canPartages) $TABS[] = ['k'=>'partages','lbl'=>'Partages','ic'=>'🔗','url'=>app_url('/bailleur_partages.php?embed=1' . $bSuffix)];
 
 $pageTitle     = 'Patrimoine';
 $pageSubtitle  = 'Ma Box Bailleur';
@@ -140,6 +143,9 @@ include __DIR__ . '/inc/agency_layout_top.php';
                 <button class="hb-card" onclick="hbGo('arbitrage')"><div class="cic">⚖️</div><div class="ct">Arbitrage</div><div class="cd">Sélectionner les biens d'un périmètre et fixer un prix proposé (décider quoi vendre).</div></button>
                 <button class="hb-card" onclick="hbGo('avendre')"><div class="cic">🏷️</div><div class="ct">Biens à proposer</div><div class="cd">Choisir les biens à proposer à la vente, ajuster les prix, filtrer par prix / surface.</div></button>
                 <button class="hb-card" onclick="hbGo('propositions')"><div class="cic">📚</div><div class="ct">Propositions</div><div class="cd">Reprendre une sélection enregistrée ou en créer une nouvelle (portefeuilles).</div></button>
+                <?php if ($canPartages): ?>
+                <button class="hb-card" onclick="hbGo('partages')"><div class="cic">🔗</div><div class="ct">Partages</div><div class="cd">Partager le patrimoine par lien à jeton (banquier, avocat, comptable, notaire, gestionnaire) — lecture seule, révocable.</div></button>
+                <?php endif; ?>
             </div>
         </div>
     </div>
