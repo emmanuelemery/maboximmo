@@ -55,6 +55,12 @@ function require_login(): void
     }
     $_SESSION['last_activity'] = $now;
 
+    // ── CAGE MODULE BAILLEUR (default-deny) ──────────────────────────
+    // Confine les comptes bailleurs externes (rôles 9/10) au seul module
+    // Bailleur. N'a AUCUN effet sur le personnel interne ni le super admin :
+    // enforce_scope() sort immédiatement pour eux → zéro régression possible.
+    enforce_scope();
+
     // Forcer le changement de mot de passe si nécessaire
     // Compat : la colonne force_password_change peut ne pas exister sur les
     // BDDs sans la migration (Hostinger dev/prod tant que le SQL n'est pas joué).
@@ -374,4 +380,198 @@ function check_bien_agence(int $id_bien, int $id_agence): bool
     ");
     $s->execute([$id_bien, $id_agence]);
     return (int)$s->fetchColumn() > 0;
+}
+
+/**
+ * Peut administrer le module Bailleur (comptes + droits) :
+ * super admin, Admin (1), Manager (2), Admin Régie (8).
+ * Les comptes bailleurs externes (9/10) NE peuvent pas — ils sont cagés.
+ */
+function can_admin_bailleur(): bool
+{
+    if (is_super_admin()) return true;
+    return in_array(current_role_id(), [1, 2, 8], true);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAGE MODULE BAILLEUR — confinement des comptes bailleurs externes
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Vrai UNIQUEMENT pour un compte bailleur externe (rôle 9 = Propriétaire
+ * standard, rôle 10 = Investisseur/Bailleur VIP), jamais super admin.
+ *
+ * Le choix de baser la cage sur le RÔLE (et non sur getAvailableServices,
+ * qui peut être enrichi par les modules de la société) garantit qu'AUCUN
+ * collaborateur interne (rôles 1,2,3,7,8) n'est jamais concerné → aucune
+ * régression possible sur l'existant.
+ */
+function is_caged_bailleur(): bool
+{
+    if (is_super_admin()) return false;
+    return in_array(current_role_id(), [9, 10], true);
+}
+
+/**
+ * Peut créer un bien (bouton « créer/ajouter un bien » + points d'entrée de création).
+ * Réservé au personnel interne : exclut les comptes bailleurs/propriétaires externes
+ * (rôles 9/10, cagés au module Bailleur) et les comptes en lecture seule.
+ * Super admin toujours autorisé. Helper d'accès unique — même règle côté affichage et serveur.
+ */
+function can_create_bien(): bool
+{
+    if (is_super_admin()) return true;
+    return !is_caged_bailleur() && !is_readonly_user();
+}
+
+/**
+ * Liste blanche : la page demandée fait-elle partie de la surface autorisée
+ * pour un compte bailleur ? (dashboard + tiroirs : révision, créanciers,
+ * portefeuille, investisseur, contentieux + dépendances partagées).
+ */
+/**
+ * Modules autorisés d'un compte bailleur (table user_bailleur_modules).
+ * Défaut si rien de configuré : ['patrimoine','ged'] — IDENTIQUE à la sidebar bailleur
+ * (inc/sidebar_bailleur_module.php) → la cage page = ce que le bailleur VOIT.
+ */
+function bailleur_user_modules(int $userId): array
+{
+    static $cache = [];
+    if (array_key_exists($userId, $cache)) return $cache[$userId];
+    $mods = [];
+    $pdo = $GLOBALS['pdo'] ?? null;
+    if ($pdo && $userId > 0) {
+        try {
+            $st = $pdo->prepare("SELECT module_code FROM user_bailleur_modules WHERE id_user = ?");
+            $st->execute([$userId]);
+            $mods = $st->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+        } catch (Throwable $e) { $mods = []; }
+    }
+    if (empty($mods)) $mods = ['patrimoine', 'ged'];
+    return $cache[$userId] = $mods;
+}
+
+function bailleur_page_allowed(string $script, string $fullPath): bool
+{
+    // 0. REFUS ABSOLU (prioritaire) : actions réservées à l'AGENCE — un bailleur ne
+    //    diffuse JAMAIS sur les portails (leboncoin/Ubiflow), c'est notre activité
+    //    réglementée. Bloqué même si le préfixe annonce_ est autorisé pour l'édition.
+    static $bailleurDeny = [
+        'annonce_diffuser.php', 'annonce_diffusion_action.php', 'annonce_remonter.php',
+        'agence_biens_diffuses.php', 'ubiflow.php',
+    ];
+    if (in_array($script, $bailleurDeny, true)) return false;
+
+    // 0bis. CAGE MODULE : les pages d'un module ne passent QUE si le bailleur a le droit-module
+    //       (user_bailleur_modules). Sinon → refus (403 + redirection dashboard) : le bailleur ne
+    //       peut PAS atteindre un module non attribué, même en tapant l'URL. Cohérent avec la
+    //       sidebar (mêmes modules visibles = accessibles). Cœur (patrimoine/ged/financement/
+    //       bailleur_ + biens/baux/tiers partagés) : jamais gaté.
+    $reqMod = null;
+    if (strpos($fullPath, '/investisseur/') !== false)                              $reqMod = 'investisseur';
+    elseif ($script === 'bailleur_transaction.php')                                 $reqMod = 'transaction'; // dashboard module Transaction
+    elseif (strncmp($script, 'creancier_', 10) === 0)                               $reqMod = 'creancier';
+    elseif (strncmp($script, 'transaction_portefeuilles', 25) === 0
+            || strncmp($script, 'portefeuille_', 13) === 0)                          $reqMod = 'portefeuille';
+    elseif (strncmp($script, 'transaction_', 12) === 0)                             $reqMod = 'transaction';
+    if ($reqMod !== null && !in_array($reqMod, bailleur_user_modules((int)($_SESSION['user_id'] ?? 0)), true)) {
+        return false;
+    }
+
+    // 1. Répertoire investisseur (tiroir « Analyse investisseur »)
+    if (strpos($fullPath, '/investisseur/') !== false) return true;
+
+    // 2. Fichiers du module par préfixe (pages + API)
+    static $prefixes = ['bailleur_', 'creancier_', 'portefeuille_', 'financement_'];
+    foreach ($prefixes as $p) {
+        if (strncmp($script, $p, strlen($p)) === 0) return true;
+    }
+
+    // 3. Pages/API partagées explicitement autorisées dans le parcours bailleur
+    static $shared = [
+        // Chrome / compte
+        'logout.php', 'change_password.php', 'landing.php',
+        // GED bailleur
+        'ged_dashboard.php',
+        // Baux / bail 360°
+        'bail_360.php', 'bien_baux_liste.php',
+        // Consultation des entités du patrimoine (biens / immeubles / tiers) —
+        // pages liées depuis les vues bailleur (cards, fiches, annonces).
+        'bien_360.php', 'bien_detail.php', 'bien_liste.php', 'bien_recherche.php',
+        'bien_documents_list.php', 'bien_doc_360.php',
+        'immeuble_360.php', 'immeuble_details.php',
+        'tiers_360.php',
+        // Dossier de vente (transaction) rattaché à un bien du bailleur
+        'transaction_dossier.php',
+        // Tiroir Portefeuille (module Transaction/Portefeuilles côté bailleur)
+        'transaction_portefeuilles_hub.php',
+        'transaction_portefeuilles.php',
+        'transaction_portefeuilles_selection.php',
+        'transaction_portefeuilles_liste.php',
+        'transaction_portefeuilles_envois.php',
+        // Recherche d'entités (autocomplete réutilisé par les modales)
+        'fluxbox_entity_search.php',
+        // Recherche générale (topbar + patrimoine) — quick_search scope déjà les résultats
+        // au périmètre du compte (ses propriétaires via user_proprietaires) pour un non-staff.
+        'quick_search.php',
+        // Patrimoine « plein accès » (vue admin) — la page se scope elle-même au patrimoine
+        // du bailleur connecté (ses user_proprietaires) ; pour un bailleur = SON patrimoine.
+        'patrimoine_partage.php',
+        // Vues créanciers ET financement de la liste partagée (même auth/scoping que
+        // patrimoine_partage : inc/patrimoine_partage_auth.php restreint au patrimoine du
+        // bailleur connecté). Sans elles, cliquer créancier/financement renvoyait au dashboard.
+        'patrimoine_creancier.php', 'patrimoine_creancier_dossier.php',
+        'patrimoine_financement.php', 'patrimoine_financement_dossier.php',
+    ];
+    if (in_array($script, $shared, true)) return true;
+
+    // APIs de DONNÉES réutilisées par les pages du parcours bailleur (biens, immeubles,
+    // annonces, diagnostics, tiers, GED, géo, encadrement…). Reste bloqué : RH, admin,
+    // compta, fluxbox (sauf fluxbox_entity_search whitelisté ci-dessus).
+    if (strpos($fullPath, '/api/') !== false) {
+        static $apiPrefixes = [
+            'bien_', 'biens_', 'immeuble_', 'annonce_', 'dpe_', 'geo_', 'erp_',
+            'tiers_', 'ged_', 'encadrement_', 'bail_', 'dvf_', 'document_', 'mail_',
+            'pappers_', 'registre_',
+        ];
+        foreach ($apiPrefixes as $p) {
+            if (strncmp($script, $p, strlen($p)) === 0) return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * CAGE default-deny. Appelée dans require_login().
+ * - Personnel interne / super admin  → return immédiat (no-op total).
+ * - Compte bailleur (rôle 9/10)       → seules les pages de la liste blanche
+ *   passent ; toute autre page → 403 + redirection vers le dashboard bailleur.
+ */
+function enforce_scope(): void
+{
+    if (!is_caged_bailleur()) return; // ← garantie zéro régression
+
+    $fullPath = $_SERVER['SCRIPT_NAME'] ?? '';
+    $script   = basename($fullPath);
+
+    if (bailleur_page_allowed($script, $fullPath)) return;
+
+    // Refus : hors module Bailleur.
+    http_response_code(403);
+
+    // Appel API bloqué (fetch/AJAX) : répondre en JSON, pas en HTML — sinon le JS
+    // reçoit « <!DOCTYPE… » et casse (« Unexpected token '<' »).
+    if (strpos($fullPath, '/api/') !== false) {
+        header('Content-Type: application/json; charset=utf-8');
+        exit(json_encode(['ok' => false, 'error' => 'Accès réservé au module Bailleur.']));
+    }
+
+    // Si la page bloquée était chargée en iframe (embed=1), on préserve embed
+    // pour que la page de repli ne rende PAS de sidebar/topbar (évite le double-layout).
+    $isEmbed = (($_GET['embed'] ?? '') === '1');
+    $target  = 'bailleur_dashboard.php' . ($isEmbed ? '?embed=1' : '');
+    $dest    = function_exists('app_url') ? app_url('/' . $target) : '/' . $target;
+    header('Location: ' . $dest);
+    exit('Accès réservé au module Bailleur.');
 }

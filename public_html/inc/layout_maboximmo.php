@@ -24,6 +24,14 @@ declare(strict_types=1);
 $layout_title        = $layout_title        ?? 'MaBoxImmo';
 $layout_module       = $layout_module       ?? '';
 $layout_sidebar      = $layout_sidebar      ?? 'sidebar_agency';
+// ÉTANCHÉITÉ CAGE BAILLEUR : un compte bailleur cagé (rôles 9/10) ne doit JAMAIS voir la sidebar
+// agency, même sur une page qui l'a demandée (ex. bailleur_transactions, transaction_portefeuilles…).
+// On force la sidebar module Bailleur — comme agency_layout_top. Aucun effet pour staff / super
+// admin (is_caged_bailleur=false) → zéro régression.
+if (function_exists('is_caged_bailleur') && is_caged_bailleur()
+    && !in_array($layout_sidebar, ['sidebar_bailleur_module', 'sidebar_bailleur'], true)) {
+    $layout_sidebar = 'sidebar_bailleur_module';
+}
 $layout_topbar_right = $layout_topbar_right ?? '';
 $layout_topbar_sub   = $layout_topbar_sub   ?? '';
 $layout_head_kpis    = $layout_head_kpis    ?? '';
@@ -44,6 +52,9 @@ $_lInitials   = strtoupper(
     mb_substr($_SESSION['nom'] ?? '', 0, 1)
 );
 $_sidebarFile = __DIR__ . '/' . basename($layout_sidebar) . '.php';
+// Mode embarqué (iframe du hub) : ni sidebar ni topbar, pas de marge gauche.
+$layout_embed = (($_GET['embed'] ?? '') === '1');
+if ($layout_embed) { $_sidebarFile = ''; }
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -106,6 +117,17 @@ body {
 }
 .mbi-topbar .tb-btn:active { box-shadow: inset 3px 3px 7px var(--shadow-dark, #d4d7de), inset -3px -3px 8px var(--shadow-light, #fff); }
 .mbi-topbar .tb-btn svg { width: 15px; height: 15px; stroke: #9aaa84; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mbi-topbar .tb-ideebox {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    height: 34px; padding: 0 12px; margin-right: 6px; border-radius: 10px;
+    background: linear-gradient(135deg, #F59E0B 0%, #DD4735 100%);
+    color: #fff; text-decoration: none; font-size: 12.5px; font-weight: 700;
+    box-shadow: 3px 3px 9px rgba(221,71,53,0.35), -2px -2px 6px rgba(255,255,255,0.5);
+    letter-spacing: .2px; white-space: nowrap;
+}
+.mbi-topbar .tb-ideebox:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.mbi-topbar .tb-ideebox:active { box-shadow: inset 2px 2px 6px rgba(0,0,0,0.2); }
+.mbi-topbar .tb-ideebox svg { stroke: #fff; }
 .mbi-topbar .tb-gap { width: 50px; flex-shrink: 0; }
 .mbi-topbar .tb-breadcrumb {
     display: flex; align-items: center; gap: 8px;
@@ -412,10 +434,13 @@ body {
     .mbi-page-head { height: auto; flex-wrap: wrap; padding: 12px 16px; }
     .mbi-page-head .ph-kpi-strip { grid-template-columns: repeat(3, 1fr); }
 }
+/* Mode embarqué (iframe hub) : plein cadre, sans sidebar ni topbar. */
+body.mbi-embed .mbi-layout-main { left:0 !important; margin-left:0 !important; }
+body.mbi-embed .mbi-topbar { display:none !important; }
 </style>
 <?= $layout_extra_css ?>
 </head>
-<body>
+<body<?= $layout_embed ? ' class="mbi-embed"' : '' ?>>
 
 <?php if (file_exists($_sidebarFile)): ?>
     <?php include $_sidebarFile; ?>
@@ -425,6 +450,7 @@ body {
 
     <!-- ── Topbar ── -->
     <div class="mbi-topbar">
+        <?php include __DIR__ . '/todobox_button.php'; ?>
         <button class="tb-btn" onclick="history.back()" title="Retour">
             <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
