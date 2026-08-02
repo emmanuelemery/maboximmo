@@ -44,9 +44,13 @@ $dash .= '<div class="hb-kpis">'
        . bailleur_hub_kpi('amber', '⚖️','Créanciers reliés', (string)$nbCrea, '')
        . bailleur_hub_kpi('purple','👥','Participants', (string)$nbPart, 'collaborateurs / tiers')
        . '</div>';
+// Partage avec le comptable : géré côté admin bailleur / SA (bailleur_partages : case « 💶
+// Financements (comptable) » → vue jeton patrimoine_financement, lecture + contribution).
+$canPartages = (function_exists('is_super_admin') && is_super_admin()) || (function_exists('can_admin_bailleur') && can_admin_bailleur());
 $dash .= '<div class="hb-cards">'
        . bailleur_hub_card_link(app_url('/financement_liste.php'), '💶','Dossiers de financement','Voir et gérer les dossiers de financement (rattachements biens/créanciers, documents, participants).')
        . bailleur_hub_card_link(app_url('/financement_liste.php'), '➕','Nouveau dossier','Créer un dossier de financement (le propriétaire emprunteur, ses biens et ses créanciers reliés).')
+       . ($canPartages ? bailleur_hub_card_link(app_url('/bailleur_partages.php'), '🤝','Partager avec le comptable','Donner un accès (lien à jeton) à l\'expert-comptable : il consulte et renseigne les financements — cochez « 💶 Financements (comptable) ».') : '')
        . '</div>';
 $dash .= '<div class="hb-note" style="margin-top:18px;max-width:640px;font-size:12.5px;color:#7a766f;background:#faf8f5;border:1px solid #ece7df;border-left:3px solid #a8741d;border-radius:10px;padding:11px 13px;">'
        . '🚧 Les montants chiffrés (capital, taux, échéancier, amortissement) arriveront dans une prochaine tranche.</div>';
