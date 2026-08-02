@@ -135,8 +135,7 @@ $_bInit = strtoupper(
     <?php endif; ?>
   </div>
 
-  <!-- 🚧 En développement (SUPER ADMIN uniquement) : pas encore ouverts aux bailleurs -->
-  <?php if ($isSA): ?>
+  <?php if ($isSA): /* 🚧 En développement — SUPER ADMIN uniquement (pas encore ouvert aux bailleurs) */ ?>
   <div class="sb-bail-section">
     <div class="sb-bail-section-title">🚧 En développement</div>
     <a href="<?= $_sbBase ?>bail_360.php" class="sb-bail-link <?= sb_bail_active('bail_360.php') ?>">
