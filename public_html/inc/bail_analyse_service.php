@@ -143,6 +143,98 @@ PROMPT;
     }
 }
 
+if (!function_exists('caution_analyse_pdf')) {
+    /**
+     * Extraction IA FOCALISÉE sur un acte de cautionnement (≠ bail complet). L'acte nomme la/les
+     * caution(s), leur engagement (solidaire/simple), le montant maximal garanti, la durée et le
+     * locataire garanti. Retourne un tableau compatible bail_analyse_apply_cautions() :
+     *   ['ok'=>bool, 'data'=>['cautions'=>[...], 'locataire_garanti'=>?string], 'error'=>?string]
+     * Prompt court (sortie réduite) → moins cher qu'une analyse de bail.
+     */
+    function caution_analyse_pdf(string $pdfPath): array
+    {
+        if (!is_file($pdfPath)) return ['ok'=>false, 'data'=>null, 'error'=>'Fichier introuvable'];
+        if (!function_exists('extractPdfText')) return ['ok'=>false, 'data'=>null, 'error'=>'Extraction PDF indisponible'];
+
+        $text = extractPdfText($pdfPath);
+        if (strlen(trim((string)$text)) < 80) {
+            return ['ok'=>false, 'data'=>null, 'error'=>'Texte non extractible (scan sans OCR ?)'];
+        }
+        $api_key = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : ($GLOBALS['OPENAI_API_KEY'] ?? '');
+        if (!$api_key) return ['ok'=>false, 'data'=>null, 'error'=>'Clé OpenAI absente'];
+
+        $text_truncated = mb_substr($text, 0, 24000);
+        $system_prompt = "Tu es un juriste expert en cautionnement locatif (art. 22-1 loi 1989, art. 2288+ code civil). Tu analyses des actes/engagements de caution et extrais les données structurées. Tu réponds UNIQUEMENT en JSON valide.";
+        $user_prompt = <<<PROMPT
+Analyse cet ACTE DE CAUTIONNEMENT (engagement de caution pour un bail). Extrais la ou les personnes qui SE PORTENT CAUTION (le garant), PAS le locataire garanti.
+
+Réponds UNIQUEMENT en JSON valide :
+{
+  "cautions": [
+    {
+      "type_personne": "physique|morale",
+      "civilite": "M.|Mme ou null",
+      "nom": "string (nom de la caution, ou nom de l'organisme)",
+      "prenom": "string ou null",
+      "raison_sociale": "string ou null (si organisme/société, ex. Action Logement/VISALE)",
+      "adresse": "string ou null (adresse complète de la caution)",
+      "date_naissance": "YYYY-MM-DD ou null",
+      "lieu_naissance": "string ou null",
+      "email": "string ou null",
+      "telephone": "string ou null",
+      "type_engagement": "solidaire|simple",
+      "montant_max": "number ou null (montant maximal garanti en euros)",
+      "duree_ans": "number ou null (durée de l'engagement en années)",
+      "engagement_texte": "string ou null (mention manuscrite/clause d'engagement, ex. 'je me porte caution solidaire…')"
+    }
+  ],
+  "locataire_garanti": "string ou null (nom du locataire dont on se porte caution)"
+}
+
+Règles :
+- La CAUTION est la personne qui garantit ; ne la confonds pas avec le locataire garanti ni le bailleur.
+- type_engagement : « solidaire » si l'acte mentionne caution solidaire (le plus fréquent), sinon « simple ».
+- Montants en euros sans symbole. Information absente → null.
+- Plusieurs cautions possibles (ex. les deux parents) → une entrée par personne.
+
+TEXTE DE L'ACTE :
+{$text_truncated}
+PROMPT;
+
+        $payload = [
+            'model'    => 'gpt-4o-mini',
+            'messages' => [
+                ['role' => 'system', 'content' => $system_prompt],
+                ['role' => 'user',   'content' => $user_prompt],
+            ],
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens'      => 1500,
+            'temperature'     => 0.1,
+        ];
+        $ch = curl_init('https://api.openai.com/v1/chat/completions');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key],
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_TIMEOUT        => 60,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($httpCode !== 200) return ['ok'=>false, 'data'=>null, 'error'=>'API IA HTTP ' . $httpCode];
+
+        $result  = json_decode((string)$response, true);
+        $content = $result['choices'][0]['message']['content'] ?? '';
+        $parsed  = json_decode((string)$content, true);
+        if (!$parsed && preg_match('/\{[\s\S]*\}/u', (string)$content, $m)) $parsed = json_decode($m[0], true);
+        if (!$parsed) return ['ok'=>false, 'data'=>null, 'error'=>'Réponse IA non parsable'];
+        if (empty($parsed['cautions']) || !is_array($parsed['cautions'])) $parsed['cautions'] = [];
+
+        return ['ok'=>true, 'data'=>$parsed, 'error'=>null];
+    }
+}
+
 if (!function_exists('bail_analyse_apply_to_bien_baux')) {
     /**
      * Reporte les données extraites dans bien_baux. Par défaut ($overwrite=false), remplit

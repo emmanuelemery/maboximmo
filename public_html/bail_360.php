@@ -946,6 +946,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
                         <?php if (($c['source'] ?? '') === 'extraction_bail'): ?> · <span style="color:#84A7AB;">🧠 extrait du bail</span><?php endif; ?>
                     </div>
                 </span>
+                <button type="button" onclick="bailActeUpload(<?= (int)$c['id_tiers'] ?>)" title="Joindre l'acte de cautionnement signé de cette caution (classé en doc officiel du bail)" style="border:1px solid #c0b0d6;background:#fff;color:#5b21b6;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">📎 Acte</button>
                 <button type="button" onclick="bailCautionDetach(<?= (int)$c['id_tiers'] ?>, <?= htmlspecialchars(json_encode($cNom), ENT_QUOTES) ?>)" title="Retirer cette caution du bail (le tiers est conservé)" style="border:1px solid #e4b9b2;background:#fff;color:#c0392b;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">✕ Retirer</button>
             </div>
         <?php endforeach; endif; ?>
@@ -969,9 +970,18 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
                 <span id="bcMsg" style="font-size:11.5px;color:#8a8694;"></span>
             </div>
         </details>
+
+        <!-- 📎 Acte de cautionnement : upload → doc OFFICIEL du bail (GED) + extraction IA du garant -->
+        <div style="margin-top:8px;padding:10px 12px;border:1.5px dashed #c0b0d6;border-radius:10px;background:#faf7ff;">
+            <div style="font-size:12px;color:#5b21b6;font-weight:700;margin-bottom:6px;">📎 Charger un acte de cautionnement — classé en document officiel du bail, le garant est extrait automatiquement.</div>
+            <input type="file" id="acteFile" accept="application/pdf" style="display:none;">
+            <button type="button" id="acteBtn" style="border:none;background:#5b21b6;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">📎 Charger l'acte + extraire le garant</button>
+            <span id="acteMsg" style="font-size:11.5px;color:#8a8694;margin-left:8px;"></span>
+        </div>
         <script>
         (function(){
             var EP=<?= json_encode(app_url('/api/bail_caution_action.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_caution') : '') ?>, BAIL=<?= (int)$bailId ?>;
+            var EPDOC=<?= json_encode(app_url('/api/bail_caution_doc_upload.php')) ?>;
             function post(fd, okMsg, msgEl){ msgEl.style.color='#8a8694'; msgEl.textContent='⏳…';
                 fd.append('csrf_token',CSRF); fd.append('id_bail',BAIL);
                 fetch(EP,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
@@ -998,6 +1008,27 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
                 var tmp=document.createElement('span'); document.body.appendChild(tmp);
                 post(fd,'Caution retirée',tmp);
             };
+            // 📎 Acte de cautionnement : upload → doc officiel du bail (+ extraction garant si upload général).
+            var af=document.getElementById('acteFile'), ab=document.getElementById('acteBtn'), am=document.getElementById('acteMsg');
+            function acteMsgEl(){ return am || (function(){ var s=document.createElement('span'); document.body.appendChild(s); return s; })(); }
+            if(af){
+                af.addEventListener('change',function(){
+                    var file=af.files&&af.files[0]; if(!file){ return; }
+                    if(file.type!=='application/pdf'){ acteMsgEl().textContent='❌ PDF uniquement.'; af.value=''; return; }
+                    var tiers=af.dataset.tiers||''; var m=acteMsgEl();
+                    var fd=new FormData(); fd.append('id_bail',BAIL); fd.append('csrf_token',CSRF); fd.append('document',file);
+                    if(tiers){ fd.append('id_tiers',tiers); fd.append('extract','0'); } else { fd.append('extract','1'); }
+                    m.style.color='#8a8694'; m.textContent = tiers ? '⏳ Rattachement de l\'acte…' : '⏳ Analyse de l\'acte (IA) & classement…';
+                    if(ab) ab.disabled=true;
+                    fetch(EPDOC,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+                        if(j&&j.ok){ m.style.color='#2d8a4e'; m.textContent='✅ '+(j.message||'Acte classé'); setTimeout(function(){location.reload();},1100); }
+                        else { m.style.color='#c62828'; m.textContent='❌ '+((j&&j.error)||'Échec'); if(ab) ab.disabled=false; }
+                    }).catch(function(e){ m.style.color='#c62828'; m.textContent='❌ Réseau : '+e; if(ab) ab.disabled=false; });
+                    af.value='';
+                });
+            }
+            if(ab) ab.addEventListener('click',function(){ if(af){ af.dataset.tiers=''; af.click(); } });
+            window.bailActeUpload=function(idTiers){ if(!af){ return; } af.dataset.tiers=String(idTiers||''); af.click(); };
         })();
         </script>
     </div>
