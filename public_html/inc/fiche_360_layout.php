@@ -328,6 +328,8 @@ if (!function_exists('fiche360_checklist')) {
             } elseif (!$ok && !empty($it['add_url'])) {
                 echo '<a class="add" href="' . h($it['add_url']) . '">+</a>';
             }
+            // Action optionnelle par item (HTML brut) — ex. bouton « 🔄 Ré-analyser le DPE ».
+            if (!empty($it['action_html'])) echo $it['action_html'];
             echo '</div>';
         }
         echo '</div>';

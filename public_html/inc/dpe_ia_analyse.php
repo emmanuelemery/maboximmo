@@ -125,6 +125,7 @@ Réponds UNIQUEMENT avec du JSON valide selon cette structure exacte (null si ab
     "erp_inondation": "true|false (true si zone inondable)",
     "erp_sismicite_zone": "1|2|3|4|5 ou null"
   },
+  "diagnostics_inclus": ["Liste des diagnostics RÉELLEMENT présents dans ce dossier, valeurs parmi: dpe, erp, plomb, amiante, gaz, electricite, termites, carrez, boutin, anc. N'inclus QUE ceux effectivement réalisés/présents dans le PDF (une section/rapport dédié existe). Si le dossier ne contient qu'un DPE seul → [\"dpe\"]."],
   "_diagnostiqueur": {
     "operateur_nom": "Nom de la personne physique qui a SIGNÉ le diagnostic (ex: 'CATEL Mickaël'). ⚠️ JAMAIS le propriétaire ni le locataire — uniquement le technicien certifié. Cherche sous 'OPÉRATEUR DE DIAGNOSTIC', 'Diagnostiqueur', 'Signataire'.",
     "operateur_societe": "Nom du CABINET d'expertise (ex: 'LYON ETUDES EXPERTISES', 'ALLODIAGNOSTIC'). ⚠️ JAMAIS une régie/agence immobilière. C'est l'entité dont l'adresse figure en EN-TÊTE du PDF.",

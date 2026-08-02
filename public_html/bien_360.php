@@ -7,6 +7,7 @@ require_once __DIR__ . '/inc/bootstrap.php';
 require_once __DIR__ . '/inc/fiche_360_layout.php';
 if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_once __DIR__ . '/inc/ged_document_links.php';   // GED CENTRALE UNIQUE (2026-05-25)
+require_once __DIR__ . '/inc/bail_indice.php';          // bail_indice_label() « IRL 3T2025 · 135.2 »
 require_once __DIR__ . '/inc/fluxbox_functions.php';    // résolveur société/agence d'entité (contexte modale)
 require_once __DIR__ . '/inc/ged_name_pills.php';       // affichage contextuel du nom GED (pills)
 require_once __DIR__ . '/inc/bail_cautions.php';        // cautions = tiers (rôle 'caution' scopé bail)
@@ -34,7 +35,7 @@ $sql = "SELECT b.*,
     p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
     COALESCE(NULLIF(p.societe, ''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
     COALESCE(NULLIF(tp.nom_affichage, ''), tp.raison_sociale, CONCAT_WS(' ', tp.prenom, tp.nom)) AS proprio_tiers_nom,
-    bt.libelle AS type_label
+    bt.libelle AS type_label, bt.categorie AS type_categorie
 FROM biens b
 LEFT JOIN immeubles i      ON i.id = b.id_immeuble
 LEFT JOIN proprietaires p  ON p.id = b.id_proprietaire
@@ -52,7 +53,7 @@ $proprietaireNom = $bien['proprio_tiers_nom'] ?: $bien['proprio_nom_legacy'] ?: 
 $adresseComplete = trim((string)($bien['bien_adresse'] ?? '') . ' ' . ($bien['bien_cp'] ?? '') . ' ' . ($bien['bien_ville'] ?? ''));
 
 // ─── Bail actif + locataire ──────────────────────────────────────────
-$bailActif = null; $locataireNom = null; $locataireTiersId = null;
+$bailActif = null; $locataireNom = null; $locataireTiersId = null; $bailCautions = [];
 try {
     $stB = $pdo->prepare("SELECT bb.*, t.nom_affichage AS loc_tiers_nom, t.raison_sociale AS loc_raison
         FROM bien_baux bb
@@ -65,6 +66,8 @@ try {
         $locataireNom = $bailActif['loc_tiers_nom'] ?: $bailActif['loc_raison']
             ?: ($bailActif['locataire_raison_sociale'] ?: trim((string)$bailActif['locataire_prenom'] . ' ' . $bailActif['locataire_nom']));
         $locataireTiersId = (int)($bailActif['id_tiers_locataire'] ?? 0);
+        // Cautions du bail actif (chargées TÔT : servent à la checklist « Documents de base » ET à l'onglet).
+        $bailCautions = bail_cautions_list($pdo, (int)$bailActif['id']);
     }
 } catch (Throwable $e) {}
 
@@ -161,6 +164,10 @@ $pieces = [
 if ($bailActif) {
     $pieces[] = ['code'=>'BAIL',       'label'=>'Bail signé',           'sublabel'=>'Contrat de location', 'alt_codes'=>['bail_signe','BAIL_SIGNE','BAIL_LOCATION']];
     $pieces[] = ['code'=>'ETAT_LIEUX', 'label'=>'État des lieux d\'entrée', 'sublabel'=>'Si bail actif',   'alt_codes'=>['edl_entree','EDL_ENTREE']];
+    // Acte de cautionnement : pièce officielle attendue dès qu'une caution existe sur le bail.
+    if (!empty($bailCautions)) {
+        $pieces[] = ['code'=>'CAUTIONNEMENT', 'label'=>'Acte de cautionnement', 'sublabel'=>'Engagement de la caution', 'alt_codes'=>['caution_garant','ACTE_CAUTION','CAUTION']];
+    }
 }
 // Mapping code pièce → type FluxBox (forced_type_doc) = code GLOSSAIRE canonique
 // (ged_level_codes) pour que le modal pré-sélectionne la bonne pastille.
@@ -174,6 +181,12 @@ $fbxTypeByCode = [
 $piecesItems = [];
 // Types FluxBox « de base » présents → pour filtrer la card « Documents divers » (mode A).
 $baseTypes = [];
+// ── Couverture diagnostics : un dossier DPE groupé (DDT) contient plusieurs diags (ERP/plomb/
+// amiante/gaz/élec/termites/Carrez). La checklist coche alors ces diags DEPUIS le dossier, sans
+// découpage ni re-upload (cf. inc/bien_diag_coverage.php). Le clic ouvre le dossier DPE.
+require_once __DIR__ . '/inc/bien_diag_coverage.php';
+$diagCov = bien_diag_coverage($pdo, $bienId);
+$dpeDoc  = $docByType['DPE'] ?? null;   // doc dossier DPE = cible du clic pour un diag couvert
 foreach ($pieces as $p) {
     $ft = $fbxTypeByCode[$p['code']] ?? null;
     // Détection : par code legacy, alt_codes, ET par le type FluxBox réel (ex. document_type='dpe').
@@ -193,9 +206,23 @@ foreach ($pieces as $p) {
     }
     if ($ft) $baseTypes[$ft] = true;
     foreach ($p['alt_codes'] ?? [] as $ac) $baseTypes[$ac] = true;
+    // Repli : diag non trouvé en GED mais COUVERT par le dossier DPE → vert + clic ouvre le dossier.
+    $coveredByDossier = false;
+    if (!$ok && $dpeDoc && !empty($diagCov['covered'][$p['code']])) {
+        $ok = true; $matchedDoc = $dpeDoc; $coveredByDossier = true;
+    }
+    $subLabel = $coveredByDossier ? '📗 Inclus dans le dossier DPE' : $p['sublabel'];
+    // Bouton « Ré-analyser » sur la ligne DPE : peuple la couverture des diags du dossier
+    // (gratuit si extraction en cache ; IA payante 1× seulement sur confirmation).
+    $actionHtml = '';
+    if ($p['code'] === 'DIAG_DPE' && $dpeDoc) {
+        $actionHtml = '<button type="button" class="b360-dpe-reanalyze" data-doc="' . (int)$dpeDoc['id'] . '" '
+            . 'title="Détecter les diagnostics inclus dans le dossier (gratuit si déjà analysé)" '
+            . 'style="border:1px solid #cbb0e0;background:#faf7ff;color:#5b21b6;border-radius:7px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">🔄 Diags</button>';
+    }
     $piecesItems[] = [
         'label'    => $p['label'],
-        'sublabel' => $p['sublabel'],
+        'sublabel' => $subLabel,
         'ok'       => $ok,
         'add_url'  => app_url('/transaction_chargement.php'),
         // Recherche assistée OneDrive — v1 limitée au DPE (cf. décision 2026-06-06)
@@ -204,6 +231,7 @@ foreach ($pieces as $p) {
         // Pièce PRÉSENTE → clic ouvre le modal de visualisation (mvptModalView).
         'doc_id'   => $matchedDoc ? (int)$matchedDoc['id'] : null,
         'doc_name' => $matchedDoc ? (string)($matchedDoc['name_display'] ?: ($matchedDoc['name_canonical'] ?: $matchedDoc['name_file'])) : null,
+        'action_html' => $actionHtml,
     ];
 }
 $nbPieces   = count($piecesItems);
@@ -479,6 +507,25 @@ $totP  = count($piecesItems);
 ob_start();
 fiche360_checklist('Documents de base', $piecesItems, $fbxPrefillBien);
 $piecesHtml = ob_get_clean();
+// Bouton « 🔄 Diags » de la ligne DPE : (ré)analyse cache-first (gratuit) → couverture des diags ;
+// IA payante 1× uniquement sur confirmation (need_ia). Le clic ne déclenche pas le modal (bouton exclu).
+$dpeReanalyzeJs = '<script>(function(){'
+  . 'var EP=' . json_encode(app_url('/api/dpe_reanalyze_diags.php'))
+  . ',CSRF=' . json_encode(function_exists('csrf_token') ? csrf_token('ajouter_bien') : '')
+  . ',BID=' . (int)$bienId . ';'
+  . 'document.addEventListener("DOMContentLoaded",function(){'
+  . 'Array.prototype.forEach.call(document.querySelectorAll(".b360-dpe-reanalyze"),function(btn){'
+  . 'btn.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();'
+  . 'var doc=btn.getAttribute("data-doc");if(!doc)return;var old=btn.textContent;'
+  . 'function run(force){btn.disabled=true;btn.textContent="⏳";'
+  . 'var fd=new FormData();fd.append("id_bien",BID);fd.append("ged_document_id",doc);fd.append("csrf_token",CSRF);fd.append("force",force?"1":"0");'
+  . 'fetch(EP,{method:"POST",body:fd,credentials:"same-origin"}).then(function(r){return r.json();}).then(function(j){'
+  . 'if(j&&j.ok){btn.textContent="✅";setTimeout(function(){location.reload();},700);}'
+  . 'else if(j&&j.need_ia){btn.disabled=false;btn.textContent=old;if(confirm(j.message||"Lancer l\'analyse IA (payante, 1 fois) ?"))run(true);}'
+  . 'else{btn.disabled=false;btn.textContent=old;alert("❌ "+((j&&j.error)||"Échec"));}'
+  . '}).catch(function(err){btn.disabled=false;btn.textContent=old;alert("❌ Réseau : "+err);});}'
+  . 'run(false);});});});})();</script>';
+$piecesHtml .= $dpeReanalyzeJs;   // émis avec la checklist (le preg_replace <h3> ne touche pas le script)
 // « Documents divers » = docs du bien dont le type n'est PAS une pièce de base (mode A).
 $docsDivers = array_values(array_filter($docs, fn($d) => empty($baseTypes[$d['document_type']])));
 
@@ -638,10 +685,14 @@ if ($annonce) {
     }
 }
 
-// ── Barre de KPI du bien (format agency_biens) ──
-// Repli typologie : si nb_pieces est vide, on la déduit du titre d'annonce / de la désignation
-// (« T3 », « F4 », « 3 pièces ») → l'info du titre est REPRISE. Non écrite en base : suffixe « ? »
-// + tooltip « à confirmer » (doctrine vert=fait / jaune=à confirmer, saisie dans la fiche bien).
+// ── Barre de KPI du bien — KPIs ÉDITABLES EN LIGNE ──
+// surface / pièces / chambres / étage se remplissent d'UN CLIC (petit champ → Entrée =
+// enregistre via api/bien_autosave.php, 1 champ à la fois). Vide = « + » cliquable.
+// Pièces : si vide, la typologie est DÉDUITE du titre (T3/F4/« 3 pièces ») → « N ? » à confirmer.
+$isHab      = strtolower((string)($bien['type_categorie'] ?? '')) === 'habitation';
+$canEditKpi = !(function_exists('is_readonly_user') && is_readonly_user());
+$surfSet    = !empty($bien['surface_habitable']);
+$etageSet   = ($bien['etage'] ?? null) !== null && (string)($bien['etage'] ?? '') !== '';
 $piecesAff = $bien['nb_pieces'] ?? null; $piecesDeduit = false;
 if (empty($piecesAff)) {
     $txtTypo = trim((string)($bien['designation'] ?? '') . ' ' . ($anTitre ?? ''));
@@ -649,78 +700,122 @@ if (empty($piecesAff)) {
         $piecesAff = (int)(($mT[1] ?? '') !== '' ? $mT[1] : $mT[2]); $piecesDeduit = true;
     }
 }
-$kpis = [];
-if (!empty($bien['type_label']))        $kpis[] = [$bien['type_label'], 'Type'];
-if (!empty($bien['surface_habitable'])) $kpis[] = [number_format((float)$bien['surface_habitable'], 0, ',', ' '), 'm²'];
-if (!empty($piecesAff))                 $kpis[] = [$piecesAff . ($piecesDeduit ? ' ?' : ''), 'Pièces', $piecesDeduit ? 'Déduit du titre — cliquez pour confirmer (enregistre)' : '', $piecesDeduit ? (int)$piecesAff : null];
-if (!empty($bien['nb_chambres']))       $kpis[] = [$bien['nb_chambres'], 'Chambres'];
-if ($bien['etage'] !== null && $bien['etage'] !== '') $kpis[] = [(($bien['etage']==='0'||(int)$bien['etage']===0)?'RDC':$bien['etage']), 'Étage'];
+// Descripteurs. 'field' => KPI éditable en ligne. 'state' : ok | empty | deduit.
+$kpiDefs = [];
+$addEd = function(string $label, string $field, bool $set, $raw, string $disp, string $state = '') use (&$kpiDefs, $canEditKpi) {
+    if (!$set && $state !== 'deduit' && !$canEditKpi) return; // vide + lecture seule → masqué
+    $kpiDefs[] = ['l'=>$label, 'field'=>$canEditKpi ? $field : null,
+                  'raw'=>($set || $state === 'deduit') ? $raw : '',
+                  'disp'=>($set || $state === 'deduit') ? $disp : '+',
+                  'state'=>$state ?: ($set ? 'ok' : 'empty')];
+};
+if (!empty($bien['type_label'])) $kpiDefs[] = ['l'=>'Type', 'disp'=>$bien['type_label']];
+$addEd('m²', 'surface_habitable', $surfSet, $surfSet ? (0 + $bien['surface_habitable']) : '',
+       $surfSet ? number_format((float)$bien['surface_habitable'], 0, ',', ' ') : '');
+if ($isHab) {
+    if (!empty($bien['nb_pieces']))  $addEd('Pièces', 'nb_pieces', true,  (int)$bien['nb_pieces'], (string)(int)$bien['nb_pieces']);
+    elseif ($piecesDeduit)           $addEd('Pièces', 'nb_pieces', false, (int)$piecesAff, ((int)$piecesAff) . ' ?', 'deduit');
+    else                             $addEd('Pièces', 'nb_pieces', false, '', '');
+    $chSet = !empty($bien['nb_chambres']);
+    $addEd('Chambres', 'nb_chambres', $chSet, $chSet ? (int)$bien['nb_chambres'] : '', $chSet ? (string)(int)$bien['nb_chambres'] : '');
+    $addEd('Étage', 'etage', $etageSet, $etageSet ? (string)$bien['etage'] : '',
+           $etageSet ? (((string)$bien['etage'] === '0' || (int)$bien['etage'] === 0) ? 'RDC' : (string)$bien['etage']) : '');
+}
 if (!empty($bien['dpe_classe'])) {
     $dpeVal = strtoupper((string)$bien['dpe_classe']);
-    if (!empty($bien['ges_classe'])) { $kpis[] = [$dpeVal . ' / ' . strtoupper((string)$bien['ges_classe']), 'DPE / GES']; }
-    else { $kpis[] = [$dpeVal, 'DPE']; }
+    $kpiDefs[] = !empty($bien['ges_classe'])
+        ? ['l'=>'DPE / GES', 'disp'=>$dpeVal . ' / ' . strtoupper((string)$bien['ges_classe'])]
+        : ['l'=>'DPE', 'disp'=>$dpeVal];
 }
-if (!empty($bien['numero_lot']))        $kpis[] = [$bien['numero_lot'], 'Lot'];
-if (!empty($bien['etat_bien']))         $kpis[] = [$bien['etat_bien'], 'État'];  // tout à droite
-if ($kpis) {
-    echo '<div class="b360-kpibar">';
-    foreach ($kpis as $k) {
-        $confVal = $k[3] ?? null;   // KPI « Pièces » déduite → cliquable pour confirmer/enregistrer
-        if ($confVal !== null) {
-            echo '<div class="b360-kpi b360-kpi-confirm" id="kpi-pieces-confirm" data-bien="' . (int)$bienId . '" data-val="' . (int)$confVal . '" title="' . h((string)($k[2] ?? '')) . '">'
-               . '<div class="b360-kpi-v">' . h((string)$k[0]) . '</div><div class="b360-kpi-l">' . h((string)$k[1]) . '</div></div>';
-        } else {
-            $kTtl = (isset($k[2]) && $k[2] !== '') ? ' title="' . h((string)$k[2]) . '" style="cursor:help"' : '';
-            echo '<div class="b360-kpi"' . $kTtl . '><div class="b360-kpi-v">' . h((string)$k[0]) . '</div><div class="b360-kpi-l">' . h((string)$k[1]) . '</div></div>';
-        }
+if (!empty($bien['numero_lot'])) $kpiDefs[] = ['l'=>'Lot', 'disp'=>$bien['numero_lot']];
+if (!empty($bien['etat_bien']))  $kpiDefs[] = ['l'=>'État', 'disp'=>$bien['etat_bien']];
+echo '<div class="b360-kpibar">';
+foreach ($kpiDefs as $k) {
+    if (empty($k['field'])) {   // KPI lecture seule (Type / DPE / Lot / État)
+        echo '<div class="b360-kpi"><div class="b360-kpi-v">' . h((string)$k['disp']) . '</div><div class="b360-kpi-l">' . h((string)$k['l']) . '</div></div>';
+        continue;
     }
-    echo '</div>';
+    $state = $k['state'] ?? 'ok';
+    $cls = 'b360-kpi b360-kpi-edit' . ($state === 'empty' ? ' b360-kpi-empty' : ($state === 'deduit' ? ' b360-kpi-confirm' : ''));
+    $ttl = $state === 'deduit' ? 'Déduit du titre — cliquez pour confirmer'
+         : ($state === 'empty' ? 'Cliquez pour renseigner' : 'Cliquez pour modifier');
+    echo '<div class="' . $cls . '" data-field="' . h((string)$k['field']) . '" data-bien="' . (int)$bienId
+       . '" data-val="' . h((string)$k['raw']) . '" data-disp0="' . h((string)$k['disp']) . '" title="' . h($ttl) . '">'
+       . '<div class="b360-kpi-v">' . h((string)$k['disp']) . '</div><div class="b360-kpi-l">' . h((string)$k['l']) . '</div></div>';
 }
+echo '</div>';
 ?>
 <style>
   .b360-kpibar{display:flex;flex-wrap:nowrap;gap:8px;margin:12px 0;width:100%}
   .b360-kpi{flex:1 1 auto;min-width:0;background:#fff;border:1px solid #e8e4da;border-radius:12px;padding:10px 10px;text-align:center}
   .b360-kpi-v{font-size:18px;font-weight:800;color:#1B4A52;line-height:1.12;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .b360-kpi-l{font-size:10.5px;color:#8A8472;text-transform:uppercase;letter-spacing:.03em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .b360-kpi-confirm{cursor:pointer;border-color:#e0b34d;background:#fffaf0;transition:background .15s ease}
+  .b360-kpi-edit{cursor:pointer;transition:background .15s ease,border-color .15s ease}
+  .b360-kpi-edit:hover{border-color:#c9c2b0;background:#fcfbf8}
+  .b360-kpi-empty{border-style:dashed;border-color:#d8d2c4}
+  .b360-kpi-empty .b360-kpi-v{color:#c0baaa}
+  .b360-kpi-confirm{border-color:#e0b34d;background:#fffaf0}
   .b360-kpi-confirm:hover{background:#fff4d8}
   .b360-kpi-confirm .b360-kpi-v{color:#a9791f}
 </style>
-<?php if (!empty($piecesDeduit)): ?>
+<?php if ($canEditKpi): ?>
 <script>
-/* KPI « Pièces » déduite du titre → clic = petit champ pré-rempli, Entrée enregistre (nb_pieces)
-   via api/bien_autosave.php, sans passer par la fiche bien. Puis passe au vert (confirmé). */
+/* KPIs éditables en ligne (surface / pièces / chambres / étage) : clic → petit champ pré-rempli
+   → Entrée enregistre CE champ via api/bien_autosave.php (1 champ, ne touche rien d'autre). */
 (function(){
-  var el = document.getElementById('kpi-pieces-confirm'); if(!el) return;
   var CSRF = <?= json_encode(csrf_token('ajouter_bien')) ?>;
   var URL  = <?= json_encode(app_url('/api/bien_autosave.php')) ?>;
-  var vEl  = el.querySelector('.b360-kpi-v');
-  function save(val){
+  function fmt(field, val){
+    if (val === '' || val === null || typeof val === 'undefined') return '+';
+    if (field === 'etage') return (String(val) === '0') ? 'RDC' : String(val);
+    if (field === 'surface_habitable') return new Intl.NumberFormat('fr-FR', {maximumFractionDigits:0}).format(parseFloat(val));
+    return String(parseInt(val, 10));
+  }
+  function save(el, val){
+    var field = el.getAttribute('data-field'), vEl = el.querySelector('.b360-kpi-v');
     var fd = new FormData();
     fd.append('_edit_id', el.getAttribute('data-bien'));
-    fd.append('nb_pieces', String(val));
+    fd.append(field, String(val));
     fd.append('csrf_token', CSRF);
     el.style.opacity = .55;
-    fetch(URL, {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
-      el.style.opacity = 1; el.dataset.editing='';
+    fetch(URL, {method:'POST', body:fd}).then(function(r){ return r.json(); }).then(function(d){
+      el.style.opacity = 1; el.dataset.editing = '';
       if (d && (d.ok || d.success)) {
-        el.classList.remove('b360-kpi-confirm'); el.removeAttribute('title'); el.removeAttribute('id');
-        vEl.textContent = val; vEl.style.color = '#1B4A52';
+        var disp = fmt(field, val);
+        el.setAttribute('data-val', val); el.setAttribute('data-disp0', disp);
+        el.classList.remove('b360-kpi-empty', 'b360-kpi-confirm');
+        el.setAttribute('title', 'Cliquez pour modifier');
+        vEl.textContent = disp; vEl.style.color = '#1B4A52';
         el.style.borderColor = '#84a763'; el.style.background = '#f2f8ec';
-        setTimeout(function(){ el.style.background='#fff'; el.style.borderColor='#e8e4da'; }, 1500);
-      } else { alert('Échec de l\'enregistrement : ' + ((d && (d.error||d.message)) || 'inconnu')); vEl.textContent = el.getAttribute('data-val')+' ?'; }
-    }).catch(function(){ el.style.opacity = 1; el.dataset.editing=''; alert('Erreur réseau'); vEl.textContent = el.getAttribute('data-val')+' ?'; });
+        setTimeout(function(){ el.style.background = ''; el.style.borderColor = ''; }, 1500);
+      } else {
+        vEl.textContent = el.getAttribute('data-disp0');
+        alert('Échec de l\'enregistrement : ' + ((d && (d.error || d.message)) || 'inconnu'));
+      }
+    }).catch(function(){ el.style.opacity = 1; el.dataset.editing = ''; vEl.textContent = el.getAttribute('data-disp0'); alert('Erreur réseau'); });
   }
-  el.addEventListener('click', function(){
+  function edit(el){
     if (el.dataset.editing) return; el.dataset.editing = '1';
-    var cur = el.getAttribute('data-val'), done = false;
-    vEl.innerHTML = '<input type="number" min="1" max="50" value="'+cur+'" style="width:48px;font-size:16px;font-weight:800;text-align:center;border:1px solid #e0b34d;border-radius:6px;padding:1px 2px">';
+    var field = el.getAttribute('data-field'), cur = el.getAttribute('data-val') || '', vEl = el.querySelector('.b360-kpi-v');
+    var step = (field === 'surface_habitable') ? '0.01' : '1';
+    var min  = (field === 'etage') ? '-5' : (field === 'nb_pieces' ? '1' : '0');
+    vEl.innerHTML = '<input type="number" step="' + step + '" min="' + min + '" value="' + cur + '" style="width:54px;font-size:16px;font-weight:800;text-align:center;border:1px solid #e0b34d;border-radius:6px;padding:1px 2px">';
     var inp = vEl.querySelector('input'); inp.focus(); inp.select();
-    function commit(){ if(done)return; done=true; var v=parseInt(inp.value,10); if(v>=1&&v<=50){ save(v); } else { vEl.textContent=cur+' ?'; el.dataset.editing=''; } }
-    function cancel(){ if(done)return; done=true; vEl.textContent=cur+' ?'; el.dataset.editing=''; }
-    inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();commit();} else if(e.key==='Escape'){cancel();} });
+    var done = false;
+    function restore(){ vEl.textContent = el.getAttribute('data-disp0'); el.dataset.editing = ''; }
+    function commit(){
+      if (done) return; done = true;
+      var raw = inp.value.trim();
+      if (raw === '') { restore(); return; }
+      var num = (field === 'surface_habitable') ? parseFloat(raw) : parseInt(raw, 10);
+      if (isNaN(num)) { restore(); return; }
+      save(el, num);
+    }
+    function cancel(){ if (done) return; done = true; restore(); }
+    inp.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); commit(); } else if (e.key === 'Escape'){ cancel(); } });
     inp.addEventListener('blur', commit);
-  });
+  }
+  document.querySelectorAll('.b360-kpi-edit').forEach(function(el){ el.addEventListener('click', function(){ edit(el); }); });
 })();
 </script>
 <?php endif; ?>
@@ -735,6 +830,10 @@ if ($kpis) {
 .b360-inner { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:14px; align-items:start; }
 @media (max-width:1100px){ .b360-inner { grid-template-columns:1fr; } }
 .b360-inner > div { min-width:0; }
+/* Financier + Commentaire côte à côte (2 colonnes, empilées sur petit écran) */
+.b360-2col { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; margin:0 0 14px; }
+@media (max-width:1100px){ .b360-2col { grid-template-columns:1fr; } }
+.b360-2col > * { min-width:0; margin:0 !important; }
 
 /* Card Actions — fond bleu pétrole (charte) */
 .b360-grid3 .f360-actions { background:linear-gradient(155deg,#34586b,#243f4d); }
@@ -844,53 +943,18 @@ if ($kpis) {
     })();
     </script>
 
-    <?php // ─────────────── DOSSIERS FINANCIERS (card pliée, plus de bandeau pleine largeur) ───────────────
-    echo fin_related_block($pdo, 'BIEN', $bienId, null, 'card'); ?>
-
     <?php
-    // ─────────────── COMMENTAIRE INTERNE DU BIEN (persisté biens.commentaire) ───────────────
-    $roleCmt  = function_exists('current_role_id') ? (int)current_role_id() : 0;
-    $canEditCmt = in_array($roleCmt, [1,2,7], true) || (function_exists('is_super_admin') && is_super_admin());
-    $cmtValue = (string)($bien['commentaire'] ?? '');
-    ?>
-    <div class="f360-card">
-      <h3>📝 Commentaire interne</h3>
-      <?php if ($canEditCmt): ?>
-        <textarea id="bien-cmt" rows="4" placeholder="Note interne sur ce bien (visible par l'équipe, jamais publiée)…"
-                  style="width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;font-size:13.5px;box-sizing:border-box;font-family:inherit;resize:vertical;"><?= h($cmtValue) ?></textarea>
-        <div id="bien-cmt-status" style="font-size:12px;color:#64748b;margin-top:6px;min-height:16px;"></div>
-        <script>
-        (function(){
-          var SAVE = <?= json_encode(app_url('/api/bien_commentaire_save.php')) ?>;
-          var BID  = <?= (int)$bienId ?>, CSRF = <?= json_encode(csrf_token('bien_commentaire')) ?>;
-          var ta = document.getElementById('bien-cmt'), st = document.getElementById('bien-cmt-status');
-          var t = null, last = ta.value;
-          function save(){
-            if (ta.value === last) return;
-            last = ta.value;
-            st.textContent = '⏳ Enregistrement…';
-            fetch(SAVE, { method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ bien_id:BID, csrf:CSRF, commentaire:ta.value }) })
-              .then(function(r){ return r.json(); })
-              .then(function(d){ st.textContent = d && d.ok ? '✓ Enregistré' : ('⚠️ ' + ((d&&d.error)||'Erreur')); })
-              .catch(function(){ st.textContent = '⚠️ Erreur réseau'; });
-          }
-          ta.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(save, 900); });
-          ta.addEventListener('blur', function(){ clearTimeout(t); save(); });
-        })();
-        </script>
-      <?php elseif (trim($cmtValue) !== ''): ?>
-        <div style="white-space:pre-wrap;font-size:13.5px;color:#334155;"><?= h($cmtValue) ?></div>
-      <?php else: ?>
-        <div style="font-size:13px;color:#94a3b8;font-style:italic;">Aucun commentaire.</div>
-      <?php endif; ?>
-    </div>
-
-    <?php // ─────────────── NOTES INTERNES : VISITES & CLÉS (persisté biens.notes_internes) ───────────────
+    // Droits d'édition + valeurs — calculés AVANT le rendu car « Notes internes » est
+    // désormais placé EN HAUT (sous l'IA), au-dessus de Financier/Commentaire.
+    $roleCmt      = function_exists('current_role_id') ? (int)current_role_id() : 0;
+    $canEditCmt   = in_array($roleCmt, [1,2,7], true) || (function_exists('is_super_admin') && is_super_admin());
     $canViewNotes = !(function_exists('is_caged_bailleur') && is_caged_bailleur());
-    if ($canViewNotes):
-      $notesValue = (string)($bien['notes_internes'] ?? '');
+    $cmtValue     = (string)($bien['commentaire'] ?? '');
+    $notesValue   = (string)($bien['notes_internes'] ?? '');
     ?>
+
+    <?php // ─────────────── NOTES INTERNES : VISITES & CLÉS (en HAUT, sous l'IA) ───────────────
+    if ($canViewNotes): ?>
     <div class="f360-card">
       <h3>🔑 Notes internes — visites &amp; clés</h3>
       <?php if ($canEditCmt): ?>
@@ -924,6 +988,43 @@ if ($kpis) {
       <?php endif; ?>
     </div>
     <?php endif; ?>
+
+    <?php // ── DOSSIERS FINANCIERS + COMMENTAIRE INTERNE — sur la MÊME LIGNE (2 colonnes) ── ?>
+    <div class="b360-2col">
+      <?php echo fin_related_block($pdo, 'BIEN', $bienId, null, 'card'); ?>
+      <div class="f360-card">
+        <h3>📝 Commentaire interne</h3>
+        <?php if ($canEditCmt): ?>
+          <textarea id="bien-cmt" rows="4" placeholder="Note interne sur ce bien (visible par l'équipe, jamais publiée)…"
+                    style="width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;font-size:13.5px;box-sizing:border-box;font-family:inherit;resize:vertical;"><?= h($cmtValue) ?></textarea>
+          <div id="bien-cmt-status" style="font-size:12px;color:#64748b;margin-top:6px;min-height:16px;"></div>
+          <script>
+          (function(){
+            var SAVE = <?= json_encode(app_url('/api/bien_commentaire_save.php')) ?>;
+            var BID  = <?= (int)$bienId ?>, CSRF = <?= json_encode(csrf_token('bien_commentaire')) ?>;
+            var ta = document.getElementById('bien-cmt'), st = document.getElementById('bien-cmt-status');
+            var t = null, last = ta.value;
+            function save(){
+              if (ta.value === last) return;
+              last = ta.value;
+              st.textContent = '⏳ Enregistrement…';
+              fetch(SAVE, { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ bien_id:BID, csrf:CSRF, commentaire:ta.value }) })
+                .then(function(r){ return r.json(); })
+                .then(function(d){ st.textContent = d && d.ok ? '✓ Enregistré' : ('⚠️ ' + ((d&&d.error)||'Erreur')); })
+                .catch(function(){ st.textContent = '⚠️ Erreur réseau'; });
+            }
+            ta.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(save, 900); });
+            ta.addEventListener('blur', function(){ clearTimeout(t); save(); });
+          })();
+          </script>
+        <?php elseif (trim($cmtValue) !== ''): ?>
+          <div style="white-space:pre-wrap;font-size:13.5px;color:#334155;"><?= h($cmtValue) ?></div>
+        <?php else: ?>
+          <div style="font-size:13px;color:#94a3b8;font-style:italic;">Aucun commentaire.</div>
+        <?php endif; ?>
+      </div>
+    </div>
 
     <div class="b360-inner">
 
@@ -1123,8 +1224,7 @@ if ($kpis) {
     $bailProjets = [];
     try { $qp=$pdo->prepare("SELECT id,numero_bail,statut,locataire_raison_sociale,locataire_nom,locataire_prenom,loyer_mensuel_hc,date_prise_effet FROM bien_baux WHERE id_bien=? AND statut IN ('projet','envoye','signe','avenant') ORDER BY id DESC"); $qp->execute([$bienId]); $bailProjets=$qp->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable) {}
     $belStatutLbl = ['projet'=>['🟡','Projet'],'envoye'=>['📨','Envoyé à signer'],'signe'=>['✅','Signé'],'avenant'=>['📝','Avenant']];
-    // Cautions (= tiers rôle 'caution' scopé au bail ACTIF). Onglet « Cautions » de la card bail.
-    $bailCautions = ($bailActif && !empty($bailActif['id'])) ? bail_cautions_list($pdo, (int)$bailActif['id']) : [];
+    // ($bailCautions déjà chargé tôt — cf. bloc bail actif — pour la checklist ET cet onglet.)
 
     // PDF du bail signé (pour le modal « Voir le bail ») + panneau d'infos réutilisant mvptModalView.
     $bailSignedDocId = 0;
@@ -1148,7 +1248,7 @@ if ($kpis) {
         $bailFields[] = ['label' => 'Loyer HC',     'value' => $euro($bailActif['loyer_mensuel_hc'] ?? 0) . '/mois'];
         $bailFields[] = ['label' => 'Charges',      'value' => $euro($bailActif['charges_mensuelles'] ?? 0) . '/mois'];
         $bailFields[] = ['label' => 'Dépôt de garantie', 'value' => $euro($bailActif['depot_garantie'] ?? 0)];
-        $bailFields[] = ['label' => 'Indice',       'value' => trim(((string)($bailActif['indice_type'] ?? '')) . ' ' . ((string)($bailActif['indice_trimestre'] ?? '')))];
+        $bailFields[] = ['label' => 'Indice',       'value' => bail_indice_label($bailActif)];
         if ($bailCautions) {
             $bailFields[] = ['section' => 'Cautions (' . count($bailCautions) . ')'];
             foreach ($bailCautions as $c) {
@@ -1170,16 +1270,7 @@ if ($kpis) {
 
         <div id="tab-bail">
             <?php if ($bailActif): ?>
-                <?php if ($bailSignedDocId > 0): ?>
-                <!-- 👁 Voir le bail : même modal 2 colonnes que le projet de bail (infos à gauche + PDF signé à droite) -->
-                <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
-                    <button type="button"
-                        onclick="mvptModalView(<?= (int)$bailSignedDocId ?>, <?= htmlspecialchars(json_encode('Bail — ' . $locataireNom), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode($bailFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)"
-                        style="border:none;background:#5b21b6;color:#fff;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(91,33,182,.25);">
-                        👁 Voir le bail signé
-                    </button>
-                </div>
-                <?php endif; ?>
+                <?php // Bouton « 👁 Voir le bail signé » retiré (redondant : le PDF signé est déjà accessible depuis la card Documents / GED). ?>
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
                     <div><div style="font-size:10px; color:#9a9690;">LOCATAIRE</div><strong><a href="<?= h(app_url('/bail_360.php?id=' . (int)$bailActif['id'])) ?>" style="color:#5b21b6;text-decoration:none;border-bottom:1px dotted #b39ddb;" title="Ouvrir la fiche bail 360° (infos + documents)"><?= h($locataireNom) ?> ↗</a></strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">NATURE</div><strong><?= h($bailActif['bail_nature']) ?></strong></div>
@@ -1188,7 +1279,7 @@ if ($kpis) {
                     <div><div style="font-size:10px; color:#9a9690;">LOYER DE BASE</div><strong><?= number_format((float)$bailActif['loyer_mensuel_hc'], 0, ',', ' ') ?> €/mois</strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">CHARGES</div><strong><?= number_format((float)$bailActif['charges_mensuelles'], 0, ',', ' ') ?> €/mois</strong></div>
                     <div><div style="font-size:10px; color:#9a9690;">DG</div><strong><?= number_format((float)$bailActif['depot_garantie'], 0, ',', ' ') ?> €</strong></div>
-                    <div><div style="font-size:10px; color:#9a9690;">INDICE</div><strong><?= h($bailActif['indice_type']) ?> <?= h($bailActif['indice_trimestre']) ?></strong></div>
+                    <div><div style="font-size:10px; color:#9a9690;">INDICE</div><strong><?= h(bail_indice_label($bailActif)) ?></strong></div>
                 </div>
                 <?php if ($bailActif['conditions_particulieres'] ?? ''): ?>
                     <div style="margin-top:12px; padding:10px 12px; background:#f9f7ff; border-left:3px solid #7c3aed; border-radius:6px; font-size:12px;">
@@ -1263,6 +1354,53 @@ if ($kpis) {
             <?php endif; ?>
 
             <?php if (!$bailActif): ?>
+
+            <?php
+            // ── Bail signé DÉJÀ dans les documents du bien → proposer de l'EXTRAIRE pour créer le bail
+            // actif (au lieu de re-uploader). BAIL_SIGNE = explicitement signé ; BAIL = on confirme « signé ? ».
+            $signedBailDoc    = $docByType['BAIL_SIGNE'] ?? $docByType['BAIL'] ?? $docByType['BAIL_LOCATION'] ?? null;
+            $signedIsExplicit = isset($docByType['BAIL_SIGNE']);
+            if ($signedBailDoc):
+                $sbdName = (string)($signedBailDoc['name_display'] ?? $signedBailDoc['document_type'] ?? 'bail');
+            ?>
+            <div style="margin-top:12px;padding:12px 14px;border:1.5px solid #1B4A52;border-radius:12px;background:#eef7f7;">
+                <div style="font-size:12.5px;color:#2f5a5c;font-weight:700;margin-bottom:8px;">
+                    📄 Un bail<?= $signedIsExplicit ? ' <b>signé</b>' : ' (type « bail »)' ?> est déjà dans les documents de ce bien —
+                    <?= h(mb_strimwidth($sbdName, 0, 46, '…')) ?>.
+                    <?= $signedIsExplicit ? 'Extrais-le pour créer le bail actif + le locataire.' : 'S’il est signé, extrais-le pour créer le bail actif.' ?>
+                </div>
+                <button type="button" id="bailFromDocBtn" data-doc="<?= (int)$signedBailDoc['id'] ?>" data-signed="<?= $signedIsExplicit ? 1 : 0 ?>"
+                        style="border:none;background:#1B4A52;color:#fff;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:800;cursor:pointer;">
+                    📄 Extraire ce bail → créer le bail actif + locataire
+                </button>
+                <div id="bailFromDocMsg" style="font-size:11.5px;color:#7a8a8c;margin-top:8px;"></div>
+            </div>
+            <script>
+            (function(){
+                var b = document.getElementById('bailFromDocBtn'); if (!b) return;
+                var EP   = <?= json_encode(app_url('/api/bail_create_from_bien_doc.php')) ?>;
+                var CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token('bail_create_from_doc') : '') ?>;
+                var BID  = <?= (int)$bienId ?>;
+                var msg  = document.getElementById('bailFromDocMsg');
+                b.addEventListener('click', function(){
+                    if (b.getAttribute('data-signed') !== '1') {
+                        if (!confirm('Ce bail est-il bien SIGNÉ ?\nOn va créer le bail actif et le locataire à partir de ce document.')) return;
+                    }
+                    b.disabled = true; msg.textContent = '⏳ Lecture du bail (IA) — création du bail actif + locataire…';
+                    var fd = new FormData();
+                    fd.append('id_bien', BID); fd.append('id_doc', b.getAttribute('data-doc')); fd.append('csrf_token', CSRF);
+                    fetch(EP, { method:'POST', body: fd })
+                      .then(function(r){ return r.json().catch(function(){ return {ok:false, error:'réponse illisible'}; }); })
+                      .then(function(j){
+                          if (j && j.ok && j.bail_id) { msg.innerHTML = '✅ ' + ((j.message) || 'Bail actif créé') + ' — rechargement…'; setTimeout(function(){ location.reload(); }, 900); }
+                          else { msg.textContent = '❌ ' + ((j && j.error) || 'Échec'); b.disabled = false; }
+                      })
+                      .catch(function(e){ msg.textContent = '❌ Réseau : ' + e; b.disabled = false; });
+                });
+            })();
+            </script>
+            <?php endif; ?>
+
             <!-- ⚡ Chargement DIRECT d'un bail → crée AUTOMATIQUEMENT le bail actif (sans passer par « projet ») -->
             <div style="margin-top:12px;padding:12px;border:1.5px dashed #84A7AB;border-radius:12px;background:#f2f8f8;text-align:center;">
                 <div style="font-size:12.5px;color:#3a5a5c;font-weight:700;margin-bottom:8px;">📎 Bail déjà signé ? Charge-le : le bail actif se crée tout seul (extraction IA loyer/dates/locataire).</div>
@@ -1381,6 +1519,7 @@ if ($kpis) {
                                 <?php if (($c['source'] ?? '') === 'extraction_bail'): ?> · <span style="color:#84A7AB;">🧠 extrait du bail</span><?php endif; ?>
                             </div>
                         </span>
+                        <button type="button" onclick="bailActeUpload(<?= (int)$c['id_tiers'] ?>)" title="Joindre l'acte de cautionnement signé de cette caution (classé en doc officiel du bail)" style="border:1px solid #c0b0d6;background:#fff;color:#5b21b6;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">📎 Acte</button>
                         <button type="button" onclick="bailCautionDetach(<?= (int)$c['id_tiers'] ?>, <?= htmlspecialchars(json_encode($cNom), ENT_QUOTES) ?>)" title="Retirer cette caution du bail (le tiers est conservé)" style="border:1px solid #e4b9b2;background:#fff;color:#c0392b;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">✕ Retirer</button>
                     </div>
                 <?php endforeach; endif; ?>
@@ -1404,9 +1543,18 @@ if ($kpis) {
                         <span id="bcMsg" style="font-size:11.5px;color:#8a8694;"></span>
                     </div>
                 </details>
+
+                <!-- 📎 Acte de cautionnement : upload → doc OFFICIEL du bail (GED) + extraction IA du garant -->
+                <div style="margin-top:8px;padding:10px 12px;border:1.5px dashed #c0b0d6;border-radius:10px;background:#faf7ff;">
+                    <div style="font-size:12px;color:#5b21b6;font-weight:700;margin-bottom:6px;">📎 Charger un acte de cautionnement — classé en document officiel du bail, le garant est extrait automatiquement.</div>
+                    <input type="file" id="acteFile" accept="application/pdf" style="display:none;">
+                    <button type="button" id="acteBtn" style="border:none;background:#5b21b6;color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;cursor:pointer;">📎 Charger l'acte + extraire le garant</button>
+                    <span id="acteMsg" style="font-size:11.5px;color:#8a8694;margin-left:8px;"></span>
+                </div>
                 <script>
                 (function(){
                     var EP=<?= json_encode(app_url('/api/bail_caution_action.php')) ?>, CSRF=<?= json_encode(function_exists('csrf_token') ? csrf_token('bail_caution') : '') ?>, BAIL=<?= (int)$bailActif['id'] ?>;
+                    var EPDOC=<?= json_encode(app_url('/api/bail_caution_doc_upload.php')) ?>;
                     function post(fd, okMsg, msgEl){ msgEl.style.color='#8a8694'; msgEl.textContent='⏳…';
                         fd.append('csrf_token',CSRF); fd.append('id_bail',BAIL);
                         fetch(EP,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
@@ -1433,6 +1581,28 @@ if ($kpis) {
                         var tmp=document.createElement('span'); document.body.appendChild(tmp);
                         post(fd,'Caution retirée',tmp);
                     };
+                    // 📎 Acte de cautionnement : upload → doc officiel du bail (+ extraction garant si upload général).
+                    var af=document.getElementById('acteFile'), ab=document.getElementById('acteBtn'), am=document.getElementById('acteMsg');
+                    function acteMsgEl(){ return am || (function(){ var s=document.createElement('span'); document.body.appendChild(s); return s; })(); }
+                    if(af){
+                        af.addEventListener('change',function(){
+                            var file=af.files&&af.files[0]; if(!file){ return; }
+                            if(file.type!=='application/pdf'){ acteMsgEl().textContent='❌ PDF uniquement.'; af.value=''; return; }
+                            var tiers=af.dataset.tiers||''; var m=acteMsgEl();
+                            var fd=new FormData(); fd.append('id_bail',BAIL); fd.append('csrf_token',CSRF); fd.append('document',file);
+                            if(tiers){ fd.append('id_tiers',tiers); fd.append('extract','0'); } else { fd.append('extract','1'); }
+                            m.style.color='#8a8694'; m.textContent = tiers ? '⏳ Rattachement de l\'acte…' : '⏳ Analyse de l\'acte (IA) & classement…';
+                            if(ab) ab.disabled=true;
+                            fetch(EPDOC,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){
+                                if(j&&j.ok){ m.style.color='#2d8a4e'; m.textContent='✅ '+(j.message||'Acte classé'); setTimeout(function(){location.reload();},1100); }
+                                else { m.style.color='#c62828'; m.textContent='❌ '+((j&&j.error)||'Échec'); if(ab) ab.disabled=false; }
+                            }).catch(function(e){ m.style.color='#c62828'; m.textContent='❌ Réseau : '+e; if(ab) ab.disabled=false; });
+                            af.value='';
+                        });
+                    }
+                    if(ab) ab.addEventListener('click',function(){ if(af){ af.dataset.tiers=''; af.click(); } });
+                    // Rattacher un acte à une caution EXISTANTE (bouton « 📎 Acte » d'une ligne).
+                    window.bailActeUpload=function(idTiers){ if(!af){ alert('Charge un bail actif d\'abord.'); return; } af.dataset.tiers=String(idTiers||''); af.click(); };
                 })();
                 </script>
             <?php endif; ?>
@@ -1711,10 +1881,18 @@ if ($kpis) {
         $contactLinks[] = ['icon'=>'🏠','name'=>$proprietaireNom . ' — Propriétaire','ref'=>'#' . $bien['proprio_id'] . (!empty($bien['proprio_tiers_id']) ? ' · tiers ' . $bien['proprio_tiers_id'] : ''),'url'=>$proprioUrl];
     }
     if ($bailActif) {
-        $locUrl = $locataireTiersId
-            ? app_url('/tiers_360.php?id=' . (int)$locataireTiersId)
-            : app_url('/bail_360.php?id=' . (int)$bailActif['id']);
-        $contactLinks[] = ['icon'=>'🔑','name'=>$locataireNom . ' — Locataire','ref'=>'Bail #' . $bailActif['id'] . ' · jusqu\'au ' . $bailActif['date_fin'],'url'=>$locUrl];
+        // Locataire(s) + caution(s) du bail actif, issus des TIERS (source unique) — co-titulaires inclus.
+        require_once __DIR__ . '/inc/entite_acteurs.php';
+        $bailBiz = function_exists('bail_acteurs_links') ? bail_acteurs_links($pdo, (int)$bailActif['id']) : [];
+        if ($bailBiz) {
+            $contactLinks = array_merge($contactLinks, $bailBiz);
+        } else {
+            // Repli : aucun tiers locataire créé (bail CRG non encore extrait) → nom à plat.
+            $locUrl = $locataireTiersId
+                ? app_url('/tiers_360.php?id=' . (int)$locataireTiersId)
+                : app_url('/bail_360.php?id=' . (int)$bailActif['id']);
+            $contactLinks[] = ['icon'=>'🔑','name'=>$locataireNom . ' — Locataire','ref'=>'Bail #' . $bailActif['id'] . ' · jusqu\'au ' . $bailActif['date_fin'],'url'=>$locUrl];
+        }
     }
     foreach ($representants as $r) {
         $rNom = trim((string)$r['prenom'] . ' ' . $r['nom']);
