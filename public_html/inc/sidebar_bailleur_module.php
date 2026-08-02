@@ -92,50 +92,56 @@ $_bInit = strtoupper(
   </div>
   <?php endif; ?>
 
-  <!-- Vue d'ensemble (toujours visible) -->
+  <!-- Droits modules (calculés une fois, réutilisés partout) -->
+  <?php
+    $showPatrimoine   = $isSA || in_array('patrimoine', $allowedModules, true);
+    $showPortefeuille = $isSA || in_array('portefeuille', $allowedModules, true);
+    $showCreancier    = $isSA || in_array('creancier', $allowedModules, true);
+    $showFinancement  = true; // scopé au patrimoine du bailleur
+    $showTransaction  = $isSA || in_array('transaction', $allowedModules, true);
+    $showInvest       = $isSA || in_array('investisseur', $allowedModules, true);
+  ?>
+
+  <!-- Vue d'ensemble = LES MODULES regroupés -->
   <div class="sb-bail-section">
     <div class="sb-bail-section-title">Vue d'ensemble</div>
     <a href="<?= $_sbBase ?>bailleur_dashboard.php" class="sb-bail-link <?= sb_bail_active('bailleur_dashboard.php') ?>">
       <span class="sb-bail-icon">📊</span> Tableau de bord
     </a>
-    <?php if ($isSA || in_array('patrimoine', $allowedModules)): ?>
-    <a href="<?= $_sbBase ?>bailleur_patrimoine_actif.php" class="sb-bail-link <?= sb_bail_active('bailleur_patrimoine_actif.php') ?>">
-      <span class="sb-bail-icon">🏛️</span> Patrimoine actif
-    </a>
-    <a href="<?= $_sbBase ?>patrimoine_partage.php?admin=1" target="_blank" class="sb-bail-link">
-      <span class="sb-bail-icon">🔓</span> Patrimoine (plein accès)
-    </a>
-    <?php if (!$canAdminBailleur): /* les admins l'ont déjà dans la section Administration */ ?>
-    <a href="<?= $_sbBase ?>bailleur_partages.php" class="sb-bail-link <?= sb_bail_active('bailleur_partages.php') ?>">
-      <span class="sb-bail-icon">🔗</span> Partages patrimoine
+    <?php if ($showPatrimoine): ?>
+    <a href="<?= $_sbBase ?>bailleur_patrimoine.php" class="sb-bail-link <?= sb_bail_active('bailleur_patrimoine.php') ?: sb_bail_active('bailleur_patrimoine_actif.php') ?: sb_bail_active('bailleur_immeubles.php') ?: sb_bail_active('bailleur_biens.php') ?>">
+      <span class="sb-bail-icon">🏛️</span> Patrimoine
     </a>
     <?php endif; ?>
-    <a href="<?= $_sbBase ?>bailleur_immeubles.php" class="sb-bail-link <?= sb_bail_active('bailleur_immeubles.php') ?>">
-      <span class="sb-bail-icon">🏢</span> Immeubles
+    <?php if ($showPortefeuille): ?>
+    <a href="<?= $_sbBase ?>transaction_portefeuilles_hub.php" class="sb-bail-link <?= sb_bail_active('transaction_portefeuilles_hub.php') ?: sb_bail_active('transaction_portefeuilles_liste.php') ?: sb_bail_active('transaction_portefeuilles.php') ?: sb_bail_active('transaction_portefeuilles_selection.php') ?>">
+      <span class="sb-bail-icon">📂</span> Portefeuilles
     </a>
-    <a href="<?= $_sbBase ?>bailleur_biens.php" class="sb-bail-link <?= sb_bail_active('bailleur_biens.php') ?>">
-      <span class="sb-bail-icon">🏠</span> Mes biens
+    <?php endif; ?>
+    <?php if ($showCreancier): ?>
+    <a href="<?= $_sbBase ?>creancier_dashboard.php" class="sb-bail-link <?= sb_bail_active('creancier_dashboard.php') ?: (sb_bail_active('creancier_liste.php') ?: sb_bail_active('creancier_dossier360.php')) ?>">
+      <span class="sb-bail-icon">⚖️</span> Créanciers
+    </a>
+    <?php endif; ?>
+    <?php if ($showFinancement): ?>
+    <a href="<?= $_sbBase ?>financement_liste.php" class="sb-bail-link <?= sb_bail_active('financement_liste.php') ?: sb_bail_active('financement_360.php') ?>">
+      <span class="sb-bail-icon">💶</span> Financement
+    </a>
+    <?php endif; ?>
+    <?php if ($showTransaction): ?>
+    <a href="<?= $_sbBase ?><?= $isSA ? 'transaction_index.php' : 'bailleur_transactions.php' ?>" class="sb-bail-link <?= sb_bail_active('transaction_index.php') ?: (sb_bail_active('transaction_chargement.php') ?: sb_bail_active('bailleur_transactions.php')) ?>">
+      <span class="sb-bail-icon">🎯</span> Transaction
     </a>
     <?php endif; ?>
   </div>
 
-  <!-- Gestion (selon modules autorisés) -->
-  <?php $hasGestion = $isSA || in_array('bail', $allowedModules, true); ?>
-  <?php if ($hasGestion): ?>
-  <div class="sb-bail-section">
-    <div class="sb-bail-section-title">Gestion</div>
-    <?php if ($isSA || in_array('bail', $allowedModules)): ?>
-    <a href="<?= $_sbBase ?>bail_360.php" class="sb-bail-link <?= sb_bail_active('bail_360.php') ?>">
-      <span class="sb-bail-icon">📋</span> Bail 360°
-    </a>
-    <?php endif; ?>
-  </div>
-  <?php endif; ?>
-
-  <!-- 🚧 En développement (SUPER ADMIN uniquement) : liens pas encore ouverts aux bailleurs -->
+  <!-- 🚧 En développement (SUPER ADMIN uniquement) : pas encore ouverts aux bailleurs -->
   <?php if ($isSA): ?>
   <div class="sb-bail-section">
     <div class="sb-bail-section-title">🚧 En développement</div>
+    <a href="<?= $_sbBase ?>bail_360.php" class="sb-bail-link <?= sb_bail_active('bail_360.php') ?>">
+      <span class="sb-bail-icon">📋</span> Bail 360°
+    </a>
     <a href="<?= $_sbBase ?>bailleur_sci_organigramme.php" class="sb-bail-link <?= sb_bail_active('bailleur_sci_organigramme.php') ?>">
       <span class="sb-bail-icon">🗂️</span> Organigramme SCI
     </a>
@@ -151,51 +157,14 @@ $_bInit = strtoupper(
     <a href="<?= $_sbBase ?>bailleur_contentieux.php" class="sb-bail-link <?= sb_bail_active('bailleur_contentieux.php') ?>">
       <span class="sb-bail-icon">⚖️</span> Contentieux
     </a>
-  </div>
-  <?php endif; ?>
-
-  <!-- Tiroirs : Dossiers & analyses (selon droits, ou tout pour super admin) -->
-  <?php
-    $showCreancier    = $isSA || in_array('creancier', $allowedModules, true);
-    $showPortefeuille = $isSA || in_array('portefeuille', $allowedModules, true);
-    $showInvest       = $isSA || in_array('investisseur', $allowedModules, true);
-    $showTransaction  = $isSA || in_array('transaction', $allowedModules, true);
-    $showFinancement  = true; // dossiers de financement : la page est scopée au patrimoine du bailleur
-    $hasTiroirs = $showCreancier || $showPortefeuille || $showInvest || $showTransaction || $showFinancement;
-  ?>
-  <?php if ($hasTiroirs): ?>
-  <div class="sb-bail-section">
-    <div class="sb-bail-section-title">Dossiers &amp; analyses</div>
-    <?php if ($showTransaction): ?>
-    <a href="<?= $_sbBase ?><?= $isSA ? 'transaction_index.php' : 'bailleur_transactions.php' ?>" class="sb-bail-link <?= sb_bail_active('transaction_index.php') ?: (sb_bail_active('transaction_chargement.php') ?: sb_bail_active('bailleur_transactions.php')) ?>">
-      <span class="sb-bail-icon">🎯</span> <?= $isSA ? 'Transactions' : 'Mes ventes' ?>
-    </a>
-    <?php endif; ?>
-    <?php if ($showCreancier): ?>
-    <a href="<?= $_sbBase ?>creancier_dashboard.php" class="sb-bail-link <?= sb_bail_active('creancier_dashboard.php') ?: (sb_bail_active('creancier_liste.php') ?: sb_bail_active('creancier_dossier360.php')) ?>">
-      <span class="sb-bail-icon">⚖️</span> Créanciers
-    </a>
-    <?php endif; ?>
-    <?php if ($showFinancement): ?>
-    <a href="<?= $_sbBase ?>financement_liste.php" class="sb-bail-link <?= sb_bail_active('financement_liste.php') ?: sb_bail_active('financement_360.php') ?>">
-      <span class="sb-bail-icon">💶</span> Financement
-    </a>
-    <?php endif; ?>
-    <?php if ($showPortefeuille): ?>
-    <a href="<?= $_sbBase ?>transaction_portefeuilles_hub.php" class="sb-bail-link <?= sb_bail_active('transaction_portefeuilles_hub.php') ?>">
-      <span class="sb-bail-icon">📂</span> Portefeuille
-    </a>
-    <?php endif; ?>
     <?php if ($showInvest): ?>
     <a href="<?= $_sbBase ?>investisseur/index.php" class="sb-bail-link <?= sb_bail_active('index.php') ?>">
       <span class="sb-bail-icon">📊</span> Investisseur / Analyses
     </a>
     <?php endif; ?>
-    <?php if ($isSA): ?>
     <a href="<?= $_sbBase ?>gestion/dashboard_sir.php" class="sb-bail-link <?= sb_bail_active('dashboard_sir.php') ?>">
       <span class="sb-bail-icon">🏛️</span> Groupe SIR
     </a>
-    <?php endif; ?>
   </div>
   <?php endif; ?>
 
