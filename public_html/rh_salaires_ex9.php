@@ -1070,15 +1070,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_corr
     $anneePost = (int)($_POST['annee'] ?? date('Y'));
     $files     = $_FILES['bulletins_corriges'] ?? null;
 
-    /* UN SEUL BOUTON, DEUX GESTES, ET C'EST VOULU.
-       « Classer au coffre » traite le PDF que tu viens de choisir ET reprend les
-       bulletins corrigés déjà présents dans l'historique des échanges qui ne sont
-       pas encore au coffre. Un document visible dans l'historique et absent du
-       coffre est une incohérence : c'est elle qui a coûté la soirée du 11/08.
-       Sans fichier sélectionné, le clic ne fait que la reprise — inutile de
-       retrouver la pièce sur le disque, elle est déjà stockée. */
-    if ($moisPost < 1 || $moisPost > 12 || $anneePost < 2000) {
-        $_SESSION['message_err'] = 'Mois ou année invalide.';
+    if ($moisPost < 1 || $moisPost > 12 || $anneePost < 2000 || empty($files) || empty($files['name'][0])) {
+        $_SESSION['message_err'] = 'Sélectionnez au moins un bulletin PDF.';
         header("Location: rh_salaires.php" . ($currentQS ? '?' . $currentQS : ''));
         exit;
     }
@@ -1095,18 +1088,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_corr
     $salLarge = null;
 
     $nbClasses = 0; $nbInchanges = 0; $refusCorr = []; $inconnusCorr = []; $traceCorr = [];
-    $nbRepris  = 0; $reprisNoms = [];
 
-    /* Classement d'UN PDF, quelle que soit sa provenance — partagé par les deux
-       gestes du bouton. $srcDate porte la date de la PIÈCE (« maintenant » pour un
-       fichier que tu viens de déposer, la date du dépôt d'origine pour un document
-       repris de l'historique) : c'est elle qui arbitre laquelle gagne, et c'est ce
-       qui rend la reprise rejouable sans rien empiler. */
-    $classerPdf = function (string $abs, string $nomOrig, string $srcDate, bool $estNouveau)
-        use ($pdo, $moisPost, $anneePost, $salSociete, $peutElargir, &$salLarge,
-             &$nbClasses, &$nbInchanges, &$refusCorr, &$inconnusCorr, &$traceCorr,
-             &$nbRepris, &$reprisNoms): void
-    {
+    foreach ((array)$files['name'] as $i => $nomOrig) {
+        $nomOrig = (string)$nomOrig;
+        if ((int)$files['error'][$i] !== UPLOAD_ERR_OK) { $refusCorr[] = $nomOrig . ' : dépôt en échec'; continue; }
+        if (strtolower(pathinfo($nomOrig, PATHINFO_EXTENSION)) !== 'pdf') { $refusCorr[] = $nomOrig . ' : le fichier doit être un PDF'; continue; }
+
+        $abs = $destDir . '/corrige_' . $societeId . '_' . sprintf('%04d%02d', $anneePost, $moisPost)
+             . '_' . time() . '_' . (int)$i . '.pdf';
+        if (!@move_uploaded_file($files['tmp_name'][$i], $abs)) { $refusCorr[] = $nomOrig . ' : enregistrement impossible'; continue; }
+
         $liste = $salSociete;
         $an = $liste ? rhb_pages_par_salarie($abs, $liste) : ['ok' => false, 'par_salarie' => [], 'detail' => []];
         if ((empty($an['ok']) || empty($an['par_salarie'])) && $peutElargir) {
@@ -1114,7 +1105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_corr
             $liste = $salLarge;
             $an = rhb_pages_par_salarie($abs, $liste);
         }
-        if (empty($an['ok']) || empty($an['par_salarie'])) { $inconnusCorr[] = $nomOrig; return; }
+        if (empty($an['ok']) || empty($an['par_salarie'])) { $inconnusCorr[] = $nomOrig; continue; }
 
         foreach ($an['par_salarie'] as $ligneSal) {
             $uid = (int)$ligneSal['id_user'];
@@ -1137,7 +1128,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_corr
             $depotUnitaire = [
                 'id' => 0,                       // pas un dépôt d'agence : aucune référence à écraser
                 'chemin' => $abs, 'mois' => $moisPost, 'annee' => $anneePost,
-                'source_date'=> $srcDate,
                 'id_societe' => (int)($ctxSal['id_societe'] ?? 0),
                 'id_agence'  => (int)($ctxSal['id_agence'] ?? 0),
                 'societe_nom'=> (string)($ctxSal['soc'] ?? ''),
@@ -1145,129 +1135,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_bulletins_corr
             ];
             $rc = rhbc_classer($pdo, $depotUnitaire, $sal, $pagesSal, $liste, $viaSal, (int)current_user_id());
 
-            /* Reprise : le document VIENT de l'historique, on n'y réécrit donc rien.
-               « anterieur » n'est pas un échec — le coffre détient déjà plus récent. */
-            if (!$estNouveau) {
-                if ($rc['statut'] === 'cree') {
-                    $nbRepris++;
-                    $reprisNoms[] = $ligneSal['nom'] . ' (v' . $rc['version'] . ')';
-                } elseif (!in_array($rc['statut'], ['inchange', 'anterieur'], true)) {
-                    $refusCorr[] = $ligneSal['nom'] . ' : ' . $rc['motif'];
-                }
-                continue;
-            }
-
-            if ($rc['statut'] === 'cree')           $nbClasses++;
-            elseif ($rc['statut'] === 'inchange')   $nbInchanges++;
-            elseif ($rc['statut'] !== 'anterieur')  $refusCorr[] = $ligneSal['nom'] . ' : ' . $rc['motif'];
+            if ($rc['statut'] === 'cree')          $nbClasses++;
+            elseif ($rc['statut'] === 'inchange')  $nbInchanges++;
+            else $refusCorr[] = $ligneSal['nom'] . ' : ' . $rc['motif'];
 
             /* Trace par AGENCE concernée : l'historique des échanges est la seule
                vue qui dit où en est le mois. Un classement invisible ici revient à
                ne pas l'avoir fait. Regroupé par agence pour n'écrire qu'une ligne
-               même si le PDF contient plusieurs bulletins de la même agence.
-
-               ⚠️ « créé » et « inchangé » sont séparés, et c'est tout sauf cosmétique :
-               la trace écrivait « Classé au coffre : X (v1) » dans les deux cas. Le
-               11/08, trois redépôts du même bulletin corrigé ont donc produit trois
-               lignes « classé » pour ZÉRO version créée — de quoi croire le travail
-               fait alors que rien n'avait bougé. */
+               même si le PDF contient plusieurs bulletins de la même agence. */
             if (in_array($rc['statut'], ['cree', 'inchange'], true)) {
                 $agSal = (int)($ctxSal['id_agence'] ?? 0);
                 if ($agSal > 0) {
                     if (!isset($traceCorr[$agSal])) {
                         $traceCorr[$agSal] = ['societe' => (int)($ctxSal['id_societe'] ?? 0),
-                                              'fichier' => $abs, 'nom_origine' => $nomOrig,
-                                              'classes' => [], 'inchanges' => []];
+                                              'fichier' => $abs, 'nom_origine' => $nomOrig, 'salaries' => []];
                     }
-                    $cle = $rc['statut'] === 'cree' ? 'classes' : 'inchanges';
-                    $traceCorr[$agSal][$cle][] = $ligneSal['nom'] . ' (v' . $rc['version'] . ')';
+                    $traceCorr[$agSal]['salaries'][] = $ligneSal['nom'] . ' (v' . $rc['version'] . ')';
                 }
             }
-        }
-    };
-
-    /* ── 1. REPRISE DE L'HISTORIQUE, d'abord ──
-       Chronologique (ORDER BY id) : chaque pièce prend son rang, la plus récente
-       finit courante. Traitée AVANT le fichier du jour, qui doit rester le dernier
-       mot. Rejouer ce bouton ne crée rien de plus : une pièce plus ancienne que la
-       version en place est écartée par le garde-fou d'antériorité. */
-    $moisRefCorr = sprintf('%04d-%02d-01', $anneePost, $moisPost);
-    try {
-        $sqlHist = "SELECT id, fichier_path, fichier_nom_original, date_action
-                      FROM rh_salaire_workflow_log
-                     WHERE mois_reference = ? AND type_action = ?
-                       AND fichier_path IS NOT NULL AND fichier_path <> ''";
-        $argsHist = [$moisRefCorr, RH_WF_TYPE_CORRIGE];
-        if ($societeId > 0) { $sqlHist .= " AND id_societe = ?"; $argsHist[] = $societeId; }
-        $qHist = $pdo->prepare($sqlHist . " ORDER BY id");
-        $qHist->execute($argsHist);
-        foreach ($qHist->fetchAll(PDO::FETCH_ASSOC) as $h) {
-            $absH = __DIR__ . '/' . ltrim((string)$h['fichier_path'], '/');
-            if (!is_file($absH)) continue;
-            $classerPdf($absH, (string)($h['fichier_nom_original'] ?: basename($absH)),
-                        (string)$h['date_action'], false);
-        }
-    } catch (Throwable $e) {
-        // Une reprise en échec ne doit pas empêcher le classement du fichier du jour.
-        error_log('[card4 reprise historique] ' . $e->getMessage());
-    }
-
-    // ── 2. LE FICHIER QUE TU VIENS DE DÉPOSER : le dernier mot lui revient ──
-    if (!empty($files) && !empty($files['name'][0])) {
-        foreach ((array)$files['name'] as $i => $nomOrig) {
-            $nomOrig = (string)$nomOrig;
-            if ((int)$files['error'][$i] !== UPLOAD_ERR_OK) { $refusCorr[] = $nomOrig . ' : dépôt en échec'; continue; }
-            if (strtolower(pathinfo($nomOrig, PATHINFO_EXTENSION)) !== 'pdf') { $refusCorr[] = $nomOrig . ' : le fichier doit être un PDF'; continue; }
-
-            $abs = $destDir . '/corrige_' . $societeId . '_' . sprintf('%04d%02d', $anneePost, $moisPost)
-                 . '_' . time() . '_' . (int)$i . '.pdf';
-            if (!@move_uploaded_file($files['tmp_name'][$i], $abs)) { $refusCorr[] = $nomOrig . ' : enregistrement impossible'; continue; }
-
-            $classerPdf($abs, $nomOrig, date('Y-m-d H:i:s'), true);
         }
     }
 
     /* Écriture de la trace : une ligne d'historique par agence concernée, avec le
-       PDF rattaché — donc consultable et retéléchargeable comme les autres étapes.
-       Uniquement pour les fichiers DÉPOSÉS : les pièces reprises viennent déjà de
-       l'historique, les réécrire le ferait grossir à chaque clic. */
+       PDF rattaché — donc consultable et retéléchargeable comme les autres étapes. */
+    $moisRefCorr = sprintf('%04d-%02d-01', $anneePost, $moisPost);
     foreach ($traceCorr as $agSal => $t) {
-        /* Le PDF n'est archivé QUE s'il a produit une version. Un dépôt sans effet
-           qui laisse quand même un fichier dans l'historique fait croire à une pièce
-           reçue et traitée : trois exemplaires de 26 Ko le 11/08 pour un seul
-           classement réel. */
-        $contenu = !empty($t['classes']) ? @file_get_contents($t['fichier']) : false;
+        $contenu = @file_get_contents($t['fichier']);
         $relPath = ($contenu !== false)
             ? rh_wf_save_file((int)$t['societe'], (int)$agSal, $moisRefCorr, RH_WF_TYPE_CORRIGE,
                   rh_wf_next_iteration($pdo, (int)$agSal, $moisRefCorr, RH_WF_TYPE_CORRIGE),
                   $contenu, (string)$t['nom_origine'])
             : null;
-
-        $bouts = [];
-        if (!empty($t['classes']))   $bouts[] = 'Classé au coffre : ' . implode(', ', $t['classes']);
-        if (!empty($t['inchanges'])) $bouts[] = 'Déjà au coffre, inchangé : ' . implode(', ', $t['inchanges']);
-
         rh_wf_log_action(
             $pdo, (int)$t['societe'], (int)$agSal, $moisRefCorr, RH_WF_TYPE_CORRIGE,
             $relPath, (string)$t['nom_origine'], $contenu !== false ? strlen($contenu) : null,
             null, (int)current_user_id(), 'ok', null,
-            implode(' · ', $bouts)
+            'Classé au coffre : ' . implode(', ', $t['salaries'])
         );
     }
 
     $resume = $nbClasses . ' bulletin(s) classé(s) au coffre'
-            . ($nbRepris ? ' · ' . $nbRepris . ' repris de l\'historique : ' . implode(', ', $reprisNoms) : '')
             . ($nbInchanges ? ' · ' . $nbInchanges . ' déjà à jour' : '');
     if ($inconnusCorr) $resume .= ' · non reconnu(s) : ' . implode(', ', $inconnusCorr);
     if ($refusCorr)    $resume .= ' · refusé(s) : ' . implode(' ; ', $refusCorr);
 
-    /* Ni un redépôt identique ni une reprise sans effet ne sont des échecs : le
-       coffre détient déjà au moins aussi récent. Seule l'absence totale de
-       résultat mérite une alerte rouge. */
-    if ($nbClasses > 0 || $nbRepris > 0) {
+    /* Redéposer un bulletin identique n'est PAS un échec : le coffre porte déjà
+       cette version. Seule l'absence totale de résultat mérite une alerte rouge. */
+    if ($nbClasses > 0) {
         $_SESSION['message_ok'] = '📥 ' . $resume;
-    } elseif (!$refusCorr && !$inconnusCorr) {
-        $_SESSION['message_ok'] = '✅ Coffre déjà à jour — chaque salarié détient la version la plus récente.';
+    } elseif ($nbInchanges > 0 && !$refusCorr && !$inconnusCorr) {
+        $_SESSION['message_ok'] = '✅ Déjà au coffre — ' . $nbInchanges
+                                . ' bulletin(s) identique(s) à la version en place, rien à changer.';
     } else {
         $_SESSION['message_err'] = 'Aucun bulletin classé — ' . $resume;
     }
@@ -3302,10 +3220,6 @@ $dlbMoisCourt = ['','janv','févr','mars','avr','mai','juin','juil','août','sep
         /* Le DÉTAIL des refus, pas seulement leur nombre : un bulletin refusé est un
            salarié sans bulletin, et « 2 refusé(s) » ne dit ni qui ni pourquoi. */
         let msg = d.message;
-        /* Ceux qu'on n'a PAS touchés parce qu'ils ont mieux : sans cette ligne, le
-           salarié dont on vient de préserver le bulletin corrigé passe simplement
-           pour un oubli du classement. */
-        if ((d.preserves||[]).length) msg += '\n\nVersion plus récente conservée (dépôt plus ancien, non appliqué) :\n- ' + d.preserves.join('\n- ');
         if ((d.refuses||[]).length) msg += '\n\nRefusés par le contrôle d\'identité :\n- ' + d.refuses.join('\n- ');
         if ((d.erreurs||[]).length) msg += '\n\nAnomalies :\n- ' + d.erreurs.join('\n- ');
         alert(msg);
@@ -3759,13 +3673,7 @@ $canSeeWorkflow = ($rhAdmin) || ($agenceScope > 0);
                     <?php endif; ?>
                     <div style="margin-top:auto;align-self:stretch;">
                         <input type="file" name="bulletins_corriges[]" accept="application/pdf" multiple>
-                        <button type="submit" name="upload_bulletins_corriges" value="1" class="workflow-step-btn" style="margin-top:0;"
-                                title="Classe le PDF choisi ET rapatrie au coffre les bulletins corrigés déjà présents dans l'historique. Sans fichier choisi, fait la reprise seule.">📥 Classer au coffre</button>
-                        <div style="font-size:10.5px;color:#64748b;margin-top:4px;line-height:1.35;">
-                            Le bouton fait tout : il classe le fichier choisi <b>et</b> reprend au coffre
-                            les bulletins corrigés déjà déposés dans l'historique. Le <b>dernier chargé</b>
-                            est celui qui part au collaborateur. Sans fichier, il ne fait que la reprise.
-                        </div>
+                        <button type="submit" name="upload_bulletins_corriges" value="1" class="workflow-step-btn" style="margin-top:0;">📥 Classer au coffre</button>
                     </div>
                 </form>
             </div>
