@@ -23,17 +23,12 @@ const RH_WF_TYPE_ENVOI      = 'envoi_comptable';
 const RH_WF_TYPE_PROJET     = 'import_projet';
 const RH_WF_TYPE_BULLETINS  = 'import_bulletins';
 const RH_WF_TYPE_VALIDATION = 'validation_projet';
-/* Bulletin corrigé reçu après coup : il ne remplace pas le jeu de l'agence (il
-   n'entre ni dans le net ni dans la comparaison), mais il DOIT laisser une trace
-   ici — l'historique est le seul endroit qui dit où en est le mois. */
-const RH_WF_TYPE_CORRIGE    = 'bulletin_corrige';
 
 const RH_WF_TYPES_LABELS = [
     RH_WF_TYPE_ENVOI      => '📤 Envoi au comptable',
     RH_WF_TYPE_PROJET     => '📥 Projet reçu',
     RH_WF_TYPE_BULLETINS  => '📋 Bulletins finaux',
     RH_WF_TYPE_VALIDATION => '✅ Validation au comptable',
-    RH_WF_TYPE_CORRIGE    => '🩹 Bulletin corrigé',
 ];
 
 /**
@@ -280,28 +275,7 @@ function rh_wf_integrate_comparaison(PDO $pdo, int $idSociete, int $idAgence, st
         foreach ($group['employees'] as $e) { if (isset($e['net']) && $e['net'] !== null) $totalNet += (float)$e['net']; }
         $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_net,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'bulletins',?,?,?,?,?,?,?)");
         $ins->execute([$idSociete, $idAgence, $moisPost, $anneePost, $fileName, $filePathRel, $totalNet, $compare['ok'] ? 1 : 0, json_encode($compare, JSON_UNESCAPED_UNICODE), json_encode(['employees' => $group['employees']], JSON_UNESCAPED_UNICODE), $createdBy]);
-        $depotId = (int)$pdo->lastInsertId();
-
-        /* ── CLASSEMENT AUTOMATIQUE AU COFFRE RH ──
-           Le dépôt du comptable est découpé et rangé dans la foulée : un bulletin par
-           salarié reconnu, en coffre salaires (accès nominatif), versionné. Le comptable
-           renvoie plus tard le bulletin corrigé d'un seul collaborateur ? Le même chemin
-           en fait la version suivante, sans toucher aux autres.
-           Best-effort assumé : un classement en échec ne doit pas faire échouer le dépôt
-           — le PDF d'agence reste intact et l'écran montre ce qui reste à traiter. */
-        $classement = null;
-        try {
-            require_once __DIR__ . '/rh_bulletins_coffre.php';
-            $classement = rhbc_classer_depot($pdo, $depotId, $createdBy);
-            if (empty($classement['ok'])) {
-                error_log('[rh_wf_integrate] classement coffre KO dépôt#' . $depotId . ' : ' . ($classement['error'] ?? '?'));
-            }
-        } catch (Throwable $e) {
-            error_log('[rh_wf_integrate] classement coffre exception dépôt#' . $depotId . ' : ' . $e->getMessage());
-        }
-
-        return ['ok' => true, 'created' => true, 'error' => null, 'total_net' => $totalNet,
-                'depot_id' => $depotId, 'classement' => $classement];
+        return ['ok' => true, 'created' => true, 'error' => null, 'total_net' => $totalNet];
     }
 
     $ins = $pdo->prepare("INSERT INTO rh_salaires_comparaisons (id_societe,id_agence,mois,annee,type,file_name,file_path,total_pdf_brut,total_expected_brut,compare_ok,compare_json,parsed_json,created_by) VALUES (?,?,?,?,'projet',?,?,?,?,?,?,?,?)");
