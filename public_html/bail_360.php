@@ -497,18 +497,25 @@ if ($isProjetBail) {
         <?php if ($canEditProjet): ?>
             <button type="button" onclick="<?= h($belEditOnClick) ?>" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✏️ Modifier le projet</button>
             <button type="button" onclick="belSendProjet(<?= (int)$bailId ?>, this)" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📄 Envoyer le projet (relecture)</button>
-            <button type="button" id="bel-send-btn" onclick="belSendBail(<?= (int)$bailId ?>, this)" style="border:none;background:#5f8f93;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨 Envoyer pour signature</button>
-            <?php /* ── LE PRÉ-VOL, AVANT L'ENVOI ────────────────────────────────────────
+            <?php /* ── LE PRÉ-VOL, AVANT TOUT ENVOI ─────────────────────────────────────
                      Demandé le 22/08/2026 : « ce que je veux, c'est être CERTAIN que ça
                      fonctionne ». Les trois pannes de la semaine — table `sms_envois`
                      absente, `sender` vide, verrou mobile — étaient toutes visibles en
                      base pendant qu'on cherchait ailleurs, et l'écran affichait la même
                      chose que lorsque tout allait bien. Ce bouton demande au serveur ce
                      qui va se passer AVANT que ça parte : rien n'est envoyé, aucune vague
-                     n'est ouverte, aucun jeton n'est consommé. On peut le cliquer dix fois. */ ?>
+                     n'est ouverte, aucun jeton n'est consommé. On peut le cliquer dix fois.
+
+                     ⚠️ IL PASSE EN PREMIER, ET IL EST PLEIN. Placé au milieu de la rangée,
+                     en clair, entre deux « Envoyer », il était invisible — Emmanuel ne l'a
+                     pas trouvé le jour même de sa mise en prod : on lisait « envoyer,
+                     envoyer, vérifier, envoyer, envoyer ». L'ordre des boutons doit être
+                     l'ordre du geste : on vérifie, PUIS on envoie. Et sa couleur le sort
+                     de la famille « envoi » : ce n'en est pas un. */ ?>
             <button type="button" onclick="belPrevol(<?= (int)$bailId ?>, this)"
                     title="Contrôle tout ce qui doit être vrai pour que la cérémonie parte : configuration SMS, journaux, adresse du lien, coordonnées de chaque signataire, génération de l'acte, lisibilité des annexes. N'envoie RIEN."
-                    style="border:1.5px solid #6b7f9e;background:#eef2f7;color:#3b4a63;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">🧪 Vérifier sans envoyer</button>
+                    style="border:none;background:#3b4a63;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;box-shadow:0 1px 3px rgba(59,74,99,.35);">🧪 Vérifier sans envoyer</button>
+            <button type="button" id="bel-send-btn" onclick="belSendBail(<?= (int)$bailId ?>, this)" style="border:none;background:#5f8f93;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨 Envoyer pour signature</button>
             <?php /* Voie DIRECTE : la cérémonie s'ouvre pour elle-même (api/bail_ceremonie_lancer.php),
                      sans dépendre d'un mail composé qui réussit. C'est ce couplage qui a fait échouer
                      le bail #660 en silence — écran d'envoi refusé, donc pas un seul SMS. Mail ET SMS
