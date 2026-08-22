@@ -73,9 +73,21 @@ if (!function_exists('bsb_cellule')) {
      */
     function bsb_cellule(?array $sig, string $titre, string $mention = 'Lu et approuvé', string $sousTitre = ''): string
     {
+        /* ⚠️🔥 LA MENTION RÉELLEMENT APPOSÉE PRIME SUR LA FORMULE PRÉ-IMPRIMÉE.
+           Ce bloc affichait toujours le libellé du groupe — pour une caution,
+           « Bon pour caution solidaire, lu et approuvé », c'est-à-dire la formule
+           d'AVANT la réforme du 15/09/2021. Une caution qui a régulièrement apposé
+           la mention de l'art. 2297 (montant en lettres et en chiffres, renonciation
+           aux bénéfices de discussion et de division) se serait donc vue attribuer,
+           dans l'acte, une formule qu'elle n'a pas écrite — et qui est nulle.
+           Dès qu'une mention est enregistrée, c'est ELLE qui s'imprime, telle
+           qu'elle a été tapée. Corrigé le 22/08/2026. */
+        $mentionReelle = trim((string)($sig['mention_manuscrite'] ?? ''));
+        $aff = ($mentionReelle !== '' && ($sig['statut'] ?? '') === 'signe') ? $mentionReelle : $mention;
+
         $h = '<b>' . bsb_e($titre) . '</b>'
            . ($sousTitre !== '' ? '<br><span class="mut">' . bsb_e($sousTitre) . '</span>' : '')
-           . '<br><span class="mut">« ' . bsb_e($mention) . ' »</span><br>';
+           . '<br><span class="mut">« ' . bsb_e($aff) . ' »</span><br>';
 
         $signe = $sig && (($sig['statut'] ?? '') === 'signe');
         $data  = (string)($sig['signature_data'] ?? '');

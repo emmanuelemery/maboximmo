@@ -18,6 +18,7 @@
  *   bail_caution_detach($pdo,$bailId,$idTiers)  → bool (désactive le lien, garde le tiers)
  */
 declare(strict_types=1);
+require_once __DIR__ . '/tiers_dedup.php';   // tiers_person_match() (anti-doublon tiers ordre-agnostique)
 
 if (!function_exists('bail_cautions_soc_agence')) {
     /** Résout [id_societe, id_agence] depuis le bail (pour scoper le tiers). */
@@ -75,6 +76,12 @@ if (!function_exists('bail_caution_find_tiers')) {
      * On RÉUTILISE le tiers existant (jamais de double saisie), on ne l'écrase pas.
      */
     function bail_caution_find_tiers(PDO $pdo, array $d, ?int $societeId): int {
+        // Anti-doublon ROBUSTE d'abord : SIRET/email/tél/nom en tokens ordre-agnostique (capte le nom
+        // mono-champ « NOM PRENOM »). Repli sur les matchs exacts ci-dessous si rien.
+        if (function_exists('tiers_person_match')) {
+            $m = tiers_person_match($pdo, $d, $societeId);
+            if ($m > 0) return $m;
+        }
         $email = trim((string)($d['email'] ?? ''));
         $nom   = trim((string)($d['nom'] ?? ''));
         $prenom= trim((string)($d['prenom'] ?? ''));
@@ -266,5 +273,126 @@ if (!function_exists('bail_caution_detach')) {
             $st->execute([$idTiers, $bailId]);
             return $st->rowCount() > 0;
         } catch (Throwable $e) { error_log('[bail_caution_detach] '.$e->getMessage()); return false; }
+    }
+}
+
+if (!function_exists('bail_caution_mention_ctx')) {
+    /**
+     * LA MENTION DE L'ART. 2297, PRÊTE À ÊTRE APPOSÉE — ou le refus motivé.
+     *
+     * ⚠️🔥 Pourquoi ce helper existe plutôt qu'un bloc dans la page de signature :
+     * un cautionnement mal formé est **NUL** (art. 2297 C. civ.), et une nullité ne se
+     * découvre qu'au contentieux, des années plus tard, quand le bailleur en a besoin.
+     * Le calcul devait donc être vérifiable en ligne de commande, hors navigateur.
+     *
+     * ── CE QUI REND UN CAUTIONNEMENT VALABLE ────────────────────────────────────────
+     * Depuis l'ordonnance 2021-1192 (en vigueur au 01/01/2022), la caution personne
+     * physique appose elle-même une mention comportant **le montant en toutes lettres ET
+     * en chiffres**, et — pour être solidaire — la **renonciation aux bénéfices de
+     * discussion et de division**. Sans plafond chiffré, il n'y a pas de mention possible :
+     * on REFUSE de présenter l'écran plutôt que d'écrire « …… » dans un acte.
+     *
+     * ⚠️ Le plafond saisi par l'agent (`tiers_roles.metadata.montant_max`) l'emporte
+     * TOUJOURS sur le calcul : celui-ci est un défaut raisonnable, pas une décision prise
+     * à sa place. Règle de calcul : cf. `cautionnement_plafond()`.
+     *
+     * ⚠️ Le débiteur est NOMMÉ. En colocation, l'art. 8-1 VI impose de désigner le
+     * colocataire garanti à peine de nullité ; hors colocation, nommer reste ce que fait
+     * MODELO. Si le bail porte plusieurs preneurs et que la caution ne précise pas lequel
+     * elle garantit (`metadata.garantit_id_tiers`), on refuse : deviner reviendrait à
+     * choisir le débiteur à sa place.
+     *
+     * @return array{ok:bool, raison:string, mention:?array, plafond:float, source_plafond:string}
+     */
+    function bail_caution_mention_ctx(PDO $pdo, int $bailId, int $idTiersCaution): array
+    {
+        $ko = static fn(string $r): array => ['ok'=>false,'raison'=>$r,'mention'=>null,'plafond'=>0.0,'source_plafond'=>''];
+
+        require_once __DIR__ . '/bail_cautionnement_acte.php';
+        require_once __DIR__ . '/bail_locataires.php';
+
+        // 1. La caution et ses conditions propres (elles qualifient le LIEN, pas la personne).
+        $cau = null;
+        foreach (bail_cautions_list($pdo, $bailId) as $c) {
+            if ((int)$c['id_tiers'] === $idTiersCaution) { $cau = $c; break; }
+        }
+        if (!$cau) return $ko('cette caution n\'est plus rattachée au bail');
+
+        // Une personne MORALE ne recopie pas la mention : elle n'est pas visée par l'art. 2297.
+        $typeCaution = ((string)($cau['type_tiers'] ?? '') === 'personne_morale') ? 'morale' : 'physique';
+        if (!cautionnement_mention_requise($typeCaution)) {
+            return $ko('caution personne morale : la mention de l\'art. 2297 ne lui est pas applicable');
+        }
+
+        // 2. Le bail : nature, loyer tout compris, durée, TVA.
+        try {
+            $st = $pdo->prepare("SELECT bail_nature, loyer_mensuel_hc, charges_mensuelles, duree_mois,
+                                        tva_applicable, provision_tf_mensuelle
+                                   FROM bien_baux WHERE id = ? LIMIT 1");
+            $st->execute([$bailId]);
+            $b = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            // Colonnes optionnelles absentes : on retente au minimum vital plutôt que d'échouer.
+            try {
+                $st = $pdo->prepare("SELECT bail_nature, loyer_mensuel_hc, charges_mensuelles, duree_mois FROM bien_baux WHERE id = ? LIMIT 1");
+                $st->execute([$bailId]); $b = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable $e2) { return $ko('bail illisible : ' . $e2->getMessage()); }
+        }
+        if (!$b) return $ko('bail introuvable');
+
+        $nature   = (string)($b['bail_nature'] ?? '');
+        $estComm  = !in_array($nature, ['habitation','meuble','mobilite','civil','meuble_touristique'], true);
+        $natureM  = $estComm ? 'commercial' : 'habitation';
+        $ttc      = $estComm && !empty($b['tva_applicable']);
+
+        /* Assiette = ce que le locataire doit RÉELLEMENT chaque mois : loyer + charges
+           (+ provision de taxe foncière quand elle est appelée à part, cas commercial).
+           Garantir le seul loyer nu laisserait les charges hors du plafond. */
+        $loyerCC = (float)($b['loyer_mensuel_hc'] ?? 0)
+                 + (float)($b['charges_mensuelles'] ?? 0)
+                 + (float)($b['provision_tf_mensuelle'] ?? 0);
+        if ($loyerCC <= 0) return $ko('le loyer du bail n\'est pas renseigné : le plafond ne peut pas être calculé');
+
+        // Durée de l'ENGAGEMENT : celle saisie sur la caution prime sur celle du bail.
+        $dureeAns = (int)($cau['duree_ans'] ?? 0);
+        if ($dureeAns <= 0) $dureeAns = (int)ceil(((int)($b['duree_mois'] ?? 0)) / 12);
+        if ($dureeAns <= 0) return $ko('la durée de l\'engagement n\'est pas renseignée');
+
+        // 3. Le plafond : saisi > calculé.
+        $saisi   = $cau['montant_max'] !== null && $cau['montant_max'] !== '' ? (float)$cau['montant_max'] : 0.0;
+        $plafond = $saisi > 0 ? (float)(int)round($saisi) : cautionnement_plafond($loyerCC, $dureeAns);
+        if ($plafond <= 0) return $ko('aucun plafond d\'engagement déterminable');
+
+        // 4. LE DÉBITEUR GARANTI, nommé.
+        $locs = bail_locataires_list($pdo, $bailId);
+        $nom  = static function (array $t): string {
+            $n = trim((string)($t['nom_affichage'] ?? '')) ?: trim((string)($t['raison_sociale'] ?? ''))
+               ?: trim(($t['prenom'] ?? '') . ' ' . ($t['nom'] ?? ''));
+            return trim(preg_replace('/\s+/', ' ', $n) ?? $n);
+        };
+        $cible = (int)($cau['garantit_id_tiers'] ?? 0);
+        $debiteur = '';
+        if ($cible > 0) {
+            foreach ($locs as $l) { if ((int)$l['id_tiers'] === $cible) { $debiteur = $nom($l); break; } }
+            if ($debiteur === '') return $ko('le colocataire garanti n\'est plus au bail');
+        } elseif (count($locs) === 1) {
+            $debiteur = $nom($locs[0]);
+        } elseif (count($locs) > 1) {
+            /* ⚠️ art. 8-1 VI : en colocation, le colocataire garanti doit être NOMMÉ à peine
+               de nullité. Choisir pour l'agent serait engager la caution envers quelqu'un
+               qu'elle n'a peut-être pas voulu garantir. */
+            return $ko('bail à plusieurs preneurs : préciser lequel cette caution garantit (art. 8-1 VI)');
+        } else {
+            return $ko('aucun preneur identifié sur ce bail');
+        }
+        if ($debiteur === '') return $ko('le nom du preneur garanti est vide');
+
+        return [
+            'ok'             => true,
+            'raison'         => '',
+            'mention'        => cautionnement_mention_2297($natureM, $plafond, $ttc, $debiteur, cautionnement_duree_label($dureeAns)),
+            'plafond'        => $plafond,
+            'source_plafond' => $saisi > 0 ? 'saisi' : 'calculé (' . number_format($loyerCC, 0, ',', ' ') . ' €/mois × ' . $dureeAns . ' ans + 15 %)',
+        ];
     }
 }

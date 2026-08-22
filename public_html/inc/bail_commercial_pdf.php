@@ -16,6 +16,75 @@ declare(strict_types=1);
 if (!function_exists('bail_commercial_pdf_context')) {
 
     function bcp_e(?string $v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
+
+    /**
+     * RÉGIME du bail, déduit de la durée et de la période ferme.
+     *
+     * Quatre régimes, trois corps de texte différents à l'article « Durée » — ce
+     * ne sont pas des nuances de rédaction mais des régimes juridiques distincts,
+     * et un bail qui décrit le mauvais est inopposable sur le point le plus
+     * disputé : la sortie.
+     *
+     *   · dérogatoire  — L. 145-5, HORS statut : ni renouvellement, ni indemnité
+     *                    d'éviction. Maison : 23 mois (la loi autorise 3 ans depuis
+     *                    Pinel ; 23 mois laisse la marge d'un second bail et écarte
+     *                    tout risque de dépassement).
+     *   · 3/6/9        — le régime de droit commun, résiliation triennale ouverte.
+     *   · 6 ans fermes — 9 ans, renonciation à la PREMIÈRE triennale.
+     *   · 10 ans ferme — durée > 9 ans : la triennale peut être écartée
+     *                    (L. 145-4 al. 2) ET le loyer de renouvellement échappe au
+     *                    plafonnement (L. 145-34). C'est là tout son intérêt.
+     */
+    function bcp_regime(array $c): string
+    {
+        /* Accepte indifféremment le sous-tableau `cond` (usage interne au
+           générateur) ou le contexte complet, où la durée vit sous `cond`.
+           Sans cette tolérance, un appel depuis un écran renvoyait « statutaire »
+           pour TOUS les baux — y compris un dérogatoire. */
+        if (!isset($c['duree_mois']) && isset($c['cond']) && is_array($c['cond'])) $c = $c['cond'];
+        $mois  = (int)($c['duree_mois'] ?? 108) ?: 108;
+        $ferme = (int)($c['ferme_ans'] ?? $c['duree_ferme_ans'] ?? 0);
+        if ($mois <= 36)  return 'derogatoire';
+        if ($mois > 108)  return 'long_ferme';
+        if ($ferme >= 6)  return 'ferme6';
+        return 'statutaire';
+    }
+
+    /** Libellé du régime, pour les écrans et les listes. */
+    function bcp_regime_label(string $regime, int $mois = 0): string
+    {
+        return [
+            'derogatoire' => 'Bail dérogatoire ' . ($mois ?: 23) . ' mois (hors statut)',
+            'statutaire'  => 'Bail commercial 3/6/9',
+            'ferme6'      => 'Bail 3/6/9 — 6 ans fermes',
+            'long_ferme'  => 'Bail ' . (int)round(($mois ?: 120) / 12) . ' ans sans résiliation triennale',
+        ][$regime] ?? 'Bail commercial';
+    }
+
+    /**
+     * Adresse des lieux loués : celle du LOT si elle existe, sinon celle de son
+     * IMMEUBLE.
+     *
+     * Un lot de copropriété ne porte presque jamais d'adresse propre — elle vit
+     * sur l'immeuble. 571 biens du portefeuille sont dans ce cas, et le bail
+     * imprimait « Adresse du bien : …………… » alors que l'adresse figurait deux
+     * lignes plus bas, dans la désignation reprise de l'immeuble.
+     *
+     * On ne compose JAMAIS une adresse à moitié : si la voie manque, le code
+     * postal et la ville seuls induisent en erreur plus qu'ils n'informent.
+     */
+    function bcp_adresse_bien(array $bail): string
+    {
+        $join = static function (?string $voie, ?string $cp, ?string $ville): string {
+            $voie = trim((string)$voie);
+            if ($voie === '') return '';
+            $lieu = trim(trim((string)$cp) . ' ' . trim((string)$ville));
+            return $lieu !== '' ? $voie . ' ' . $lieu : $voie;
+        };
+        $adr = $join($bail['bien_adresse'] ?? null, $bail['bien_cp'] ?? null, $bail['bien_ville'] ?? null);
+        if ($adr !== '') return $adr;
+        return $join($bail['imm_adresse'] ?? null, $bail['imm_cp'] ?? null, $bail['imm_ville'] ?? null);
+    }
     function bcp_eur($v): ?string {
         if ($v === null || $v === '' || !is_numeric($v)) return null;
         return number_format((float)$v, (float)$v == floor((float)$v) ? 0 : 2, ',', ' ') . ' €';
@@ -41,7 +110,7 @@ if (!function_exists('bail_commercial_pdf_context')) {
             b.bien_en_copropriete, b.lot_tantiemes AS bien_tantiemes_src, b.copro_nb_lots,
             b.id_societe AS bien_soc, b.id_agence AS bien_age,
             b.dpe_classe, b.ges_classe, b.dpe_valeur, b.ges_valeur, b.dpe_date_realisation,
-            i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville,
+            i.nom_immeuble, i.adresse_1 AS imm_adresse, i.ville AS imm_ville, i.code_postal AS imm_cp,
             p.id AS proprio_id, p.id_tiers AS proprio_tiers_id,
             tp.infos_juridiques_json AS proprio_juridique_json,
             COALESCE(NULLIF(p.societe,''), CONCAT_WS(' ', p.prenom, p.nom)) AS proprio_nom_legacy,
@@ -131,14 +200,21 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $bLegal = $parseLegal($bail['proprio_juridique_json'] ?? '');
         $pLegal = $parseLegal($bail['preneur_juridique_json'] ?? '');
 
-        return [
+        $ctxOut = [
             'statut'       => (string)$bail['statut'],
             'numero_bail'  => (string)($bail['numero_bail'] ?? ''),
             'proprio_nom'  => (string)$proprioNom,
             'bailleur_rep' => trim((string)($bail['bailleur_representant_nom'] ?? '') . (($bail['bailleur_representant_qualite'] ?? '') ? ' (' . $bail['bailleur_representant_qualite'] . ')' : '')),
             'bailleur_legal' => $bLegal,
             'bien_ref'     => (string)($bail['reference_bien'] ?: $bail['designation'] ?: ('Bien #' . $bail['id_bien'])),
-            'bien_adresse' => trim((string)($bail['bien_adresse'] ?? '') . ' ' . ($bail['bien_cp'] ?? '') . ' ' . ($bail['bien_ville'] ?? '')),
+            /* L'adresse d'un LOT est portée par son IMMEUBLE, pas par le lot :
+               c'est le cas de 571 biens du portefeuille. Sans ce repli, le bail
+               affichait « Adresse du bien : …………… » alors que l'adresse était
+               connue et imprimée deux lignes plus bas dans la désignation.
+               Un bail qui ne situe pas les lieux loués est attaquable — l'article
+               1719 du Code civil impose la délivrance de la chose louée, encore
+               faut-il qu'elle soit identifiée. */
+            'bien_adresse' => bcp_adresse_bien($bail),
             'immeuble'     => (string)($bail['nom_immeuble'] ?: $bail['imm_adresse'] ?: ''),
             // Lot / tantièmes : priorité aux valeurs CAPTÉES SUR LE BAIL (instantané), sinon celles du bien.
             'numero_lot'   => (string)(($bail['lot_copropriete'] ?? '') ?: ($bail['bien_numero_lot_src'] ?? '')),
@@ -173,6 +249,13 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 'naiss_l'   => (string)($bail['locataire_lieu_naissance'] ?? ''),
                 'nat'       => (string)($bail['locataire_nationalite'] ?? ''),
             ],
+            /* ⚠️🔥 LES CO-PRENEURS, LUS DEPUIS LA SOURCE UNIQUE.
+               Depuis le 15/08 les parties viennent de `tiers_roles` ; les colonnes
+               `locataire_*` du bail ne sont plus alimentées. Sur un bail créé après
+               cette bascule et sans `candidat_tiers_id`, la DÉSIGNATION DES PARTIES
+               sortait donc vide — un bail commercial qui ne nomme pas son preneur.
+               Rempli plus bas par bcp_preneurs_roles(). */
+            'preneurs_roles' => [],
             'garant' => [
                 'present'   => !empty($bail['garant_present']),
                 'type'      => ($bail['garant_type'] ?? 'physique') === 'societe' ? 'societe' : 'physique',
@@ -248,6 +331,63 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 'date'   => bcp_date($bail['dpe_date_realisation'] ?? null),
             ],
         ];
+
+        /* ── LES PARTIES VIENNENT DE `tiers_roles` ────────────────────────────
+           ⚠️🔥 Depuis le 15/08 les parties sont portées par `tiers_roles` et les
+           colonnes `locataire_*` du bail ne sont plus alimentées. Sur un bail créé
+           après cette bascule et sans `candidat_tiers_id`, la DÉSIGNATION DES
+           PARTIES sortait donc VIDE : un bail commercial qui ne nomme pas son
+           preneur, à l'endroit même qui dit qui s'engage.
+
+           On complète APRÈS coup : ce qui a été saisi sur le bail garde la
+           priorité — un agent a pu corriger une raison sociale à la main — et on
+           ne descend sur la source unique que pour ce qui manque. */
+        try {
+            require_once __DIR__ . '/bail_locataires.php';
+            $ctxOut['preneurs_roles'] = bail_locataires_list($pdo, (int)($bail['id'] ?? 0));
+        } catch (Throwable $e) { error_log('[bail_commercial preneurs] ' . $e->getMessage()); }
+
+        if (!empty($ctxOut['preneurs_roles'])) {
+            $p1  = $ctxOut['preneurs_roles'][0];
+            $rs  = trim((string)($p1['raison_sociale'] ?? ''));
+            $nm  = trim((string)($p1['nom_affichage'] ?: trim(((string)($p1['prenom'] ?? '')) . ' ' . ((string)($p1['nom'] ?? '')))));
+            $adr = trim(implode(' ', array_filter([
+                (string)($p1['adresse_ligne1'] ?? ''), (string)($p1['code_postal'] ?? ''), (string)($p1['ville'] ?? ''),
+            ])));
+            $vide = static fn($v) => trim((string)$v) === '';
+
+            /* ⚠️ LE TYPE SE LIT DANS LA FICHE, IL NE SE DEVINE PAS.
+               `tiers.type_tiers` ('personne_morale' / 'personne_physique') est la
+               qualité DÉCLARÉE du tiers : c'est elle qui fait autorité. Une
+               raison sociale renseignée sert de second indice, pour les fiches
+               anciennes où le type n'a jamais été saisi.
+               Sans ce test, une société preneuse sortait sous la forme
+               « né(e) le …… à …… », qui n'a aucun sens pour une personne morale.
+               ⚠️ À l'inverse, une société mal typée en base sortira en personne
+               physique : le générateur suit la fiche, il ne la corrige pas. */
+            $estMorale = ((string)($p1['type_tiers'] ?? '') === 'personne_morale') || $rs !== '';
+            if ($vide($ctxOut['preneur']['raison']) && $vide($ctxOut['preneur']['nom'])) {
+                $ctxOut['preneur']['type'] = $estMorale ? 'societe' : 'physique';
+            }
+            /* Une personne morale dont la `raison_sociale` est vide : son nom est
+               dans `nom`. Sans ce repli, la désignation aurait dit « La Société »
+               suivie de pointillés, alors que le nom est juste à côté. */
+            if ($estMorale && $rs === '' && $nm !== '' && $vide($ctxOut['preneur']['raison'])) {
+                $ctxOut['preneur']['raison'] = $nm;
+            }
+            if ($vide($ctxOut['preneur']['siren']) && !empty($p1['siren'])) {
+                $ctxOut['preneur']['siren'] = (string)$p1['siren'];
+            }
+            if ($vide($ctxOut['preneur']['raison'])  && $rs  !== '') $ctxOut['preneur']['raison']  = $rs;
+            if ($vide($ctxOut['preneur']['nom'])     && $nm  !== '') $ctxOut['preneur']['nom']     = $nm;
+            if ($vide($ctxOut['preneur']['adresse']) && $adr !== '') $ctxOut['preneur']['adresse'] = $adr;
+            if ($vide($ctxOut['preneur']['email']))   $ctxOut['preneur']['email']   = (string)($p1['email'] ?? '');
+            if ($vide($ctxOut['preneur']['tel']))     $ctxOut['preneur']['tel']     = (string)($p1['telephone'] ?? '');
+            if ($vide($ctxOut['preneur']['naiss_d']) && !empty($p1['date_naissance'])) $ctxOut['preneur']['naiss_d'] = bcp_date($p1['date_naissance']);
+            if ($vide($ctxOut['preneur']['naiss_l'])) $ctxOut['preneur']['naiss_l'] = (string)($p1['lieu_naissance'] ?? '');
+            if ($vide($ctxOut['preneur']['nat']))     $ctxOut['preneur']['nat']     = (string)($p1['nationalite'] ?? '');
+        }
+        return $ctxOut;
     }
 
     /** Corps HTML complet (articles détaillés + annexes + signatures) pour mPDF. */
@@ -269,6 +409,25 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 . (($pr['naiss_d'] || $pr['naiss_l']) ? ', né(e) le ' . bcp_e($pr['naiss_d'] ?: '……') . ($pr['naiss_l'] ? ' à ' . bcp_e($pr['naiss_l']) : '') : '')
                 . ($pr['nat'] ? ', de nationalité ' . bcp_e($pr['nat']) : '')
                 . ($pr['adresse'] ? ', demeurant ' . bcp_e($pr['adresse']) : '');
+        }
+
+        /* ── LES CO-PRENEURS ───────────────────────────────────────────────
+           Un bail commercial peut être consenti à plusieurs preneurs (deux
+           associés, deux sociétés d'un même groupe). N'en nommer qu'un rendrait
+           l'acte inopposable aux autres : ils seraient tenus solidairement par
+           une clause qui ne les désigne nulle part. */
+        foreach (array_slice($ctx['preneurs_roles'] ?? [], 1) as $pSup) {
+            $rsS  = trim((string)($pSup['raison_sociale'] ?? ''));
+            $nmS  = trim((string)($pSup['nom_affichage'] ?: trim(((string)($pSup['prenom'] ?? '')) . ' ' . ((string)($pSup['nom'] ?? '')))));
+            $adrS = trim(implode(' ', array_filter([
+                (string)($pSup['adresse_ligne1'] ?? ''), (string)($pSup['code_postal'] ?? ''), (string)($pSup['ville'] ?? ''),
+            ])));
+            $moraleS = ((string)($pSup['type_tiers'] ?? '') === 'personne_morale') || $rsS !== '';
+            $lib = $rsS !== '' ? $rsS : $nmS;
+            if ($lib === '') continue;
+            $preneur .= '<br>et ' . ($moraleS ? 'la Société ' : '') . '<b>' . bcp_e($lib) . '</b>'
+                      . (!empty($pSup['siren']) ? ', immatriculée sous le numéro ' . bcp_e((string)$pSup['siren']) : '')
+                      . ($adrS !== '' ? ($moraleS ? ', dont le siège social est situé ' : ', demeurant ') . bcp_e($adrS) : '');
         }
         $coord = [];
         if ($pr['email']) $coord[] = bcp_e($pr['email']);
@@ -621,12 +780,23 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $dateFait = $anySigned ? (bcp_date(($sigPreneur['signed_at'] ?? null) ?: ($sigCaution['signed_at'] ?? null) ?: ($sigBailleur['signed_at'] ?? null)) ?: '……………………') : '……………………';
         $h .= '<div class="sign">';
         $h .= '<p>Fait à ' . bcp_e($lieu) . ', le ' . bcp_e($dateFait) . ', en deux exemplaires originaux, dont un remis à chaque partie.</p>';
-        $h .= '<table class="sigtbl"><tr>'
-            . '<td><b>LE BAILLEUR</b><br><span class="mut">(ou son mandataire)</span><br><br>' . $sigCell($sigBailleur) . '</td>'
-            . '<td><b>LE PRENEUR</b><br><span class="mut">&nbsp;</span><br><br>' . $sigCell($sigPreneur) . '</td>'
-            . '</tr>'
-            . (!empty($gar['present']) ? '<tr><td colspan="2" style="padding-top:14px;"><b>LA CAUTION</b> <span class="mut">(bon pour caution solidaire)</span><br><br>' . $sigCell($sigCaution, 'Bon pour caution solidaire, lu et approuvé') . '</td></tr>' : '')
-            . '</table>';
+        /* Même bloc unique que le corps FNAIM : une case PAR signataire réel,
+           colocataires et cautions multiples compris. */
+        require_once __DIR__ . '/bail_signature_bloc.php';
+        $h .= bsb_bloc_signatures($sigs, [
+            ['titre' => 'LE BAILLEUR', 'sous' => '(ou son mandataire)', 'roles' => ['bailleur', 'mandataire']],
+            ['titre' => 'LE PRENEUR', 'roles' => ['preneur', 'colocataire']],
+            ['titre' => 'LA CAUTION', 'roles' => ['caution'],
+             /* ⚠️🔥 NE PAS PRÉ-IMPRIMER « Bon pour caution solidaire, lu et approuvé » :
+                c'est la formule d'AVANT la réforme du 15/09/2021, sans plafond chiffré ni
+                renonciation aux bénéfices de discussion et de division — un cautionnement
+                recueilli sur cette formule est NUL (art. 2297 C. civ.). L'imprimer sous la
+                ligne de signature invitait à la recueillir sur papier.
+                Une fois la caution signée, `bsb_cellule()` remplace ce libellé par la
+                mention qu'elle a RÉELLEMENT apposée. */
+             'mention' => 'Mention de l\'article 2297 du Code civil, apposée par la caution',
+             'masquer_si_absent' => empty($gar['present'])],
+        ]);
         if ($anySigned) {
             $preuve = [];
             foreach ($sigs as $s) {
@@ -699,6 +869,25 @@ if (!function_exists('bail_commercial_pdf_context')) {
                 . ($pr['nat'] ? ', de nationalité ' . bcp_e($pr['nat']) : '')
                 . ($pr['adresse'] ? ', demeurant ' . bcp_e($pr['adresse']) : '');
         }
+
+        /* ── LES CO-PRENEURS ───────────────────────────────────────────────
+           Un bail commercial peut être consenti à plusieurs preneurs (deux
+           associés, deux sociétés d'un même groupe). N'en nommer qu'un rendrait
+           l'acte inopposable aux autres : ils seraient tenus solidairement par
+           une clause qui ne les désigne nulle part. */
+        foreach (array_slice($ctx['preneurs_roles'] ?? [], 1) as $pSup) {
+            $rsS  = trim((string)($pSup['raison_sociale'] ?? ''));
+            $nmS  = trim((string)($pSup['nom_affichage'] ?: trim(((string)($pSup['prenom'] ?? '')) . ' ' . ((string)($pSup['nom'] ?? '')))));
+            $adrS = trim(implode(' ', array_filter([
+                (string)($pSup['adresse_ligne1'] ?? ''), (string)($pSup['code_postal'] ?? ''), (string)($pSup['ville'] ?? ''),
+            ])));
+            $moraleS = ((string)($pSup['type_tiers'] ?? '') === 'personne_morale') || $rsS !== '';
+            $lib = $rsS !== '' ? $rsS : $nmS;
+            if ($lib === '') continue;
+            $preneur .= '<br>et ' . ($moraleS ? 'la Société ' : '') . '<b>' . bcp_e($lib) . '</b>'
+                      . (!empty($pSup['siren']) ? ', immatriculée sous le numéro ' . bcp_e((string)$pSup['siren']) : '')
+                      . ($adrS !== '' ? ($moraleS ? ', dont le siège social est situé ' : ', demeurant ') . bcp_e($adrS) : '');
+        }
         $coord = [];
         if ($pr['email']) $coord[] = bcp_e($pr['email']);
         if ($pr['tel'])   $coord[] = bcp_e($pr['tel']);
@@ -760,13 +949,44 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $h .= '<p>Tel que lesdits locaux existent, s\'étendent, se poursuivent et comportent avec toutes leurs aisances et dépendances, sans aucune exception ni réserve, et sans qu\'il soit nécessaire d\'en faire plus ample désignation, le PRENEUR déclarant parfaitement les connaître, pour les avoir vus et visités préalablement aux présentes.</p>';
         $h .= '<p>Il est expressément convenu que les biens loués forment un tout matériellement et juridiquement indivisible.</p>';
 
-        // 2. Durée du bail
+        /* 2. Durée du bail — LE TEXTE SUIT LE RÉGIME.
+           Trois rédactions distinctes : le dérogatoire sort du statut, le 10 ans
+           écarte la triennale et déplafonne, le 6 ans fermes ne renonce qu'à la
+           première. Servir le texte du 3/6/9 à un bail dérogatoire reviendrait à
+           accorder par écrit la propriété commerciale qu'on entendait exclure. */
+        $regime  = bcp_regime($c);
+        $moisDur = (int)($c['duree_mois'] ?? 108) ?: 108;
         $h .= '<h3>2. Durée du bail</h3>';
-        $h .= '<p>Le présent bail est conclu et accepté pour une durée de <b>9</b> années entières et consécutives, qui commenceront à courir le ' . $dEffet . ' pour se terminer le ' . $dFin . '. Toutefois, conformément aux dispositions de l\'article L. 145-4 du code de commerce :</p>';
-        $h .= '<p>- le PRENEUR aura la faculté de donner congé à l\'expiration de chaque période triennale au moins six mois à l\'avance, par lettre recommandée avec demande d\'avis de réception ou par acte extrajudiciaire ;<br>'
-            . '- le bailleur aura la même faculté, dans les formes et délais de l\'article L. 145-9 du code de commerce (à-savoir par acte extrajudiciare), s\'il entend invoquer les dispositions des articles L. 145-18, L.145-21 et L. 145-24 du code de commerce.</p>';
+
+        if ($regime === 'derogatoire') {
+            $h .= '<p>Le présent bail est expressément conclu <b>par dérogation au statut des baux commerciaux</b>, en application de l\'article L. 145-5 du code de commerce, pour une durée de <b>' . $moisDur . ' mois</b>, qui commencera à courir le ' . $dEffet . ' pour se terminer le ' . $dFin . '.</p>';
+            $h .= '<p>Les parties reconnaissent expressément que le présent bail <b>n\'est pas soumis au statut des baux commerciaux</b> : le PRENEUR ne bénéficie ni du droit au renouvellement, ni d\'une indemnité d\'éviction.</p>';
+            $h .= '<p>Le PRENEUR devra libérer les lieux au terme convenu, sans qu\'il soit besoin d\'aucun congé ni d\'aucune formalité.</p>';
+            $h .= '<p><b>Conformément à l\'article L. 145-5 alinéa 2 du code de commerce, si à l\'expiration de cette durée le PRENEUR est laissé en possession au-delà d\'un mois, il s\'opérera un nouveau bail soumis au statut des baux commerciaux.</b></p>';
+            $h .= '<p>Il est rappelé que la durée totale du ou des baux dérogatoires successifs conclus entre les mêmes parties et portant sur les mêmes locaux ne peut excéder trois ans.</p>';
+        } elseif ($regime === 'long_ferme') {
+            $ans = (int)round($moisDur / 12);
+            $h .= '<p>Le présent bail est conclu et accepté pour une durée de <b>' . $ans . '</b> années entières et consécutives, qui commenceront à courir le ' . $dEffet . ' pour se terminer le ' . $dFin . '.</p>';
+            $h .= '<p><b>Le présent bail étant conclu pour une durée supérieure à neuf années, les parties conviennent expressément, en application de l\'article L. 145-4 alinéa 2 du code de commerce, que le PRENEUR ne pourra pas donner congé à l\'expiration de chaque période triennale.</b> Le PRENEUR s\'engage donc fermement pour la durée entière du bail.</p>';
+            $h .= '<p>Le BAILLEUR conserve la faculté de donner congé dans les formes et délais de l\'article L. 145-9 du code de commerce (par acte extrajudiciaire), s\'il entend invoquer les dispositions des articles L. 145-18, L. 145-21 et L. 145-24 du même code.</p>';
+            $h .= '<p>Les parties sont expressément informées que, la durée du présent bail excédant neuf années, <b>le loyer du bail renouvelé ne sera pas soumis au plafonnement</b> prévu à l\'article L. 145-34 du code de commerce et sera fixé à la valeur locative.</p>';
+        } else {
+            $h .= '<p>Le présent bail est conclu et accepté pour une durée de <b>9</b> années entières et consécutives, qui commenceront à courir le ' . $dEffet . ' pour se terminer le ' . $dFin . '. Toutefois, conformément aux dispositions de l\'article L. 145-4 du code de commerce :</p>';
+            if ($regime === 'ferme6') {
+                $h .= '<p><b>Le PRENEUR renonce expressément à la faculté de donner congé à l\'expiration de la première période triennale.</b> Il ne pourra en conséquence donner congé qu\'à l\'expiration de la deuxième période triennale, soit après <b>six années fermes</b>, puis à l\'expiration de chaque période triennale suivante, au moins six mois à l\'avance, par lettre recommandée avec demande d\'avis de réception ou par acte extrajudiciaire.</p>';
+            } else {
+                $h .= '<p>- le PRENEUR aura la faculté de donner congé à l\'expiration de chaque période triennale au moins six mois à l\'avance, par lettre recommandée avec demande d\'avis de réception ou par acte extrajudiciaire ;<br>'
+                    . '- le bailleur aura la même faculté, dans les formes et délais de l\'article L. 145-9 du code de commerce (à savoir par acte extrajudiciaire), s\'il entend invoquer les dispositions des articles L. 145-18, L. 145-21 et L. 145-24 du code de commerce.</p>';
+            }
+            if ($regime === 'ferme6') {
+                $h .= '<p>Le BAILLEUR aura la faculté de donner congé dans les formes et délais de l\'article L. 145-9 du code de commerce (par acte extrajudiciaire), s\'il entend invoquer les dispositions des articles L. 145-18, L. 145-21 et L. 145-24 du même code.</p>';
+            }
+        }
+
         $h .= '<p>Si par cas fortuit ou force majeure, les biens loués venaient à être détruits en totalité, le présent bail sera résilié de plein droit, sans indemnité de la part du BAILLEUR et sans préjudice du recours que ce dernier aurait à l\'encontre du PRENEUR si la destruction lui était imputable.</p>';
-        $h .= '<p>A l\'issue du présent bail, le PRENEUR ne pourra donner congé que par acte extrajudiciaire.</p>';
+        if ($regime !== 'derogatoire') {
+            $h .= '<p>A l\'issue du présent bail, le PRENEUR ne pourra donner congé que par acte extrajudiciaire.</p>';
+        }
 
         // 3. Destination des lieux loués
         $h .= '<h3>3. Destination des lieux loués</h3>';
@@ -778,13 +998,24 @@ if (!function_exists('bail_commercial_pdf_context')) {
 
         // 4. Loyer
         $h .= '<h3>4. Loyer</h3>';
-        $h .= '<p><b>Le présent bail est consenti et accepté moyennant un loyer annuel hors taxes en principal de (' . $loyerA . ' €) que le PRENEUR s\'oblige à payer au BAILLEUR ou à son mandataire :</b></p>';
+        // bcp_eur() renvoie déjà « 10 002 € » : le « € » ajouté ici donnait « 10 002 € € ».
+        $h .= '<p><b>Le présent bail est consenti et accepté moyennant un loyer annuel hors taxes en principal de (' . $loyerA . ') que le PRENEUR s\'oblige à payer au BAILLEUR ou à son mandataire :</b></p>';
         $h .= '<p>' . $cb($c['perio'] !== 'trimestrielle') . ' par mois<br>' . $cb($c['perio'] === 'trimestrielle') . ' selon une autre modalité :<br>' . $cb(true) . ' à terme d\'avance<br>' . $cb(false) . ' à terme échu</p>';
         $h .= '<p>auquel s\'ajoute la TVA au taux en vigueur à la date d\'exigibilité du loyer, que le PRENEUR s\'engage à régler expressément à la même période que le loyer :</p>';
         $h .= '<p>' . $cb(!$tvaOn) . ' de plein droit.<br>' . $cb($tvaOn) . ' sur option du BAILLEUR, et ce même en cours de bail, option que le PRENEUR accepte expressément par avance.</p>';
         $h .= '<p>Tous les paiements auront lieu au domicile du BAILLEUR ou de son mandataire, ou en tout autre lieu indiqué par lui.</p>';
         $h .= '<p>Le PRENEUR pourra, à tout moment en cours de bail, demander au Bailleur, par lettre recommandée avec demande d\'avis de réception, la mensualisation du paiement du loyer.</p>';
         $h .= '<p>À compter de la réception de cette demande, le règlement s\'effectuera mensuellement et d\'avance, à l\'échéance suivante, sans frais ni pénalité pour le PRENEUR, dans le respect des dispositions légales en vigueur de l\'article 145-32-1 du Code de commerce.</p>';
+
+        /* Les conditions particulières de loyer closent l'article — franchise,
+           paliers, échelonnement du dépôt. Elles étaient saisies, enregistrées, et
+           imprimées dans l'article « Loyer » de l'autre trame, mais absentes de
+           celle-ci : le bail sorti ne portait pas ce que les parties avaient
+           convenu. C'est la stipulation la plus négociée d'un bail commercial. */
+        if (($ctx['cond_loyer'] ?? '') !== '') {
+            $h .= '<p><b>Conditions particulières relatives au loyer :</b><br>'
+                . nl2br(bcp_e($ctx['cond_loyer'])) . '</p>';
+        }
 
         // 5. Pas de porte / Droit d'entrée
         $h .= '<h3>5. Pas de porte / Droit d\'entrée</h3>';
@@ -809,7 +1040,8 @@ if (!function_exists('bail_commercial_pdf_context')) {
 
         // 8. Dépôt de garantie
         $h .= '<h3>8. Dépôt de garantie</h3>';
-        $h .= '<p>Pour garantir l\'exécution des obligations lui incombant, le PRENEUR verse au BAILLEUR ou à son mandataire qui le reconnaît, la somme de (' . $dgM . ' €) à titre de garantie correspondant à ' . $dgMois . ' mois de loyer.</p>';
+        // bcp_eur() porte déjà le « € » — même défaut qu'au §4 Loyer.
+        $h .= '<p>Pour garantir l\'exécution des obligations lui incombant, le PRENEUR verse au BAILLEUR ou à son mandataire qui le reconnaît, la somme de (' . $dgM . ') à titre de garantie correspondant à ' . $dgMois . ' mois de loyer.</p>';
         $h .= '<p>A l\'expiration des relations contractuelles, cette somme sera restituée au PRENEUR, dans les trois mois suivant la remise des clefs, en main propre ou par lettre recommandée avec demande d\'avis de réception, déduction faite de toute somme dont il pourrait être débiteur à quelque titre que ce soit et notamment au titre de loyers, charges, taxes, réparations ou indemnités quelconques.</p>';
         $h .= '<p>Il est expressément convenu qu\'au cas où le loyer viendrait à augmenter, la somme versée à titre de garantie sera augmentée automatiquement dans la même proportion.</p>';
         $h .= '<p>En cas de mutation à titre gratuit ou à titre onéreux des locaux pris à bail, l\'obligation de restitution au PRENEUR des sommes payées à titre de garantie est transmise au nouveau PRENEUR.</p>';
@@ -1074,12 +1306,26 @@ if (!function_exists('bail_commercial_pdf_context')) {
         $dateFait = $anySigned ? (bcp_date(($sigPreneur['signed_at'] ?? null) ?: ($sigBailleur['signed_at'] ?? null)) ?: '……………………') : '……………………';
         $h .= '<h3>Date et signatures</h3>';
         $h .= '<div class="sign"><p>Fait à ' . bcp_e($lieu) . ' et signé électroniquement par l\'ensemble des Parties, chacune d\'elles en conservant un exemplaire original sur un support durable garantissant l\'intégrité de l\'acte' . ($anySigned ? ' — le ' . bcp_e($dateFait) : '') . '.</p>';
-        $h .= '<table class="sigtbl"><tr>'
-            . '<td><b>LE BAILLEUR</b><br><span class="mut">(ou son mandataire dûment habilité)</span><br><br>' . $sigCell($sigBailleur) . '</td>'
-            . '<td><b>LE PRENEUR</b><br><span class="mut">&nbsp;</span><br><br>' . $sigCell($sigPreneur) . '</td>'
-            . '</tr>'
-            . (!empty($gar['present']) ? '<tr><td colspan="2" style="padding-top:14px;"><b>LA CAUTION</b> <span class="mut">(bon pour caution solidaire)</span><br><br>' . $sigCell($sigCaution, 'Bon pour caution solidaire, lu et approuvé') . '</td></tr>' : '')
-            . '</table></div>';
+        /* ⚠️🔥 Bloc unique (inc/bail_signature_bloc.php). L'ancien code n'affichait
+           qu'UN preneur et qu'UNE caution : sur un bail à deux colocataires ou à
+           deux parents cautions, le second signait réellement — signature en base,
+           horodatée, opposable — sans jamais apparaître dans l'acte. */
+        require_once __DIR__ . '/bail_signature_bloc.php';
+        $h .= bsb_bloc_signatures($sigs, [
+            ['titre' => 'LE BAILLEUR', 'sous' => '(ou son mandataire dûment habilité)',
+             'roles' => ['bailleur', 'mandataire']],
+            ['titre' => 'LE PRENEUR', 'roles' => ['preneur', 'colocataire']],
+            ['titre' => 'LA CAUTION', 'roles' => ['caution'],
+             /* ⚠️🔥 NE PAS PRÉ-IMPRIMER « Bon pour caution solidaire, lu et approuvé » :
+                c'est la formule d'AVANT la réforme du 15/09/2021, sans plafond chiffré ni
+                renonciation aux bénéfices de discussion et de division — un cautionnement
+                recueilli sur cette formule est NUL (art. 2297 C. civ.). L'imprimer sous la
+                ligne de signature invitait à la recueillir sur papier.
+                Une fois la caution signée, `bsb_cellule()` remplace ce libellé par la
+                mention qu'elle a RÉELLEMENT apposée. */
+             'mention' => 'Mention de l\'article 2297 du Code civil, apposée par la caution',
+             'masquer_si_absent' => empty($gar['present'])],
+        ]) . '</div>';
 
         $h .= '</div>';
         return $h;
@@ -1096,11 +1342,11 @@ if (!function_exists('bail_commercial_pdf_context')) {
         try {
             // photo_preuve peut ne pas exister (migration 20260707c non passée) → repli sans la colonne.
             try {
-                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, photo_preuve, statut, ip, signed_at
+                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, signature_mode, photo_preuve, statut, ip, signed_at
                                        FROM bail_signatures WHERE id_bail = ? ORDER BY id ASC");
                 $qs->execute([$bailId]);
             } catch (Throwable) {
-                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, statut, ip, signed_at
+                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, signature_mode, statut, ip, signed_at
                                        FROM bail_signatures WHERE id_bail = ? ORDER BY id ASC");
                 $qs->execute([$bailId]);
             }
@@ -1204,10 +1450,53 @@ if (!function_exists('bail_build_pdf_dispatch')) {
         $nat = '';
         try { $st = $pdo->prepare("SELECT bail_nature FROM bien_baux WHERE id=? LIMIT 1"); $st->execute([$bailId]); $nat = (string)$st->fetchColumn(); }
         catch (Throwable) {}
-        if (in_array($nat, ['habitation', 'meuble_touristique'], true) && is_file(__DIR__ . '/bail_habitation_pdf.php')) {
+        if (in_array($nat, ['habitation', 'meuble', 'mobilite', 'civil', 'meuble_touristique'], true) && is_file(__DIR__ . '/bail_habitation_pdf.php')) {
             require_once __DIR__ . '/bail_habitation_pdf.php';
             return bail_habitation_build_pdf($pdo, $bailId, $forceProjet);
         }
         return bail_commercial_build_pdf($pdo, $bailId, $forceProjet);
+    }
+}
+
+if (!function_exists('bail_build_corps_dispatch')) {
+    /**
+     * Le corps du bail en HTML, aiguillé sur la nature — pendant exact de
+     * bail_build_pdf_dispatch(), qui ne rend que du PDF.
+     *
+     * ⚠️🔥 Ce dispatch manquait : `p/bail_signature.php` appelait en dur
+     * bail_commercial_pdf_context() + bail_commercial_corps_fnaim(). Un locataire
+     * d'habitation lisait donc, au moment de signer, un bail COMMERCIAL — clauses
+     * de destination, révision ILC, propriété commerciale — sous un titre « Bail
+     * commercial ». Mesuré le 15/08/2026 : 469 baux d'habitation contre 70
+     * commerciaux, soit 81 % des signatures servies avec le mauvais document.
+     *
+     * @param array $signatures Tracés déjà recueillis, incrustés dans le bloc de
+     *                          signature. Les deux moteurs lisent $ctx['signatures']
+     *                          de la même façon.
+     */
+    function bail_build_corps_dispatch(PDO $pdo, int $bailId, array $signatures = []): string
+    {
+        $nat = '';
+        try { $st = $pdo->prepare("SELECT bail_nature FROM bien_baux WHERE id=? LIMIT 1"); $st->execute([$bailId]); $nat = (string)$st->fetchColumn(); }
+        catch (Throwable) {}
+
+        if (in_array($nat, ['habitation', 'meuble', 'mobilite', 'civil', 'meuble_touristique'], true) && is_file(__DIR__ . '/bail_habitation_pdf.php')) {
+            require_once __DIR__ . '/bail_habitation_pdf.php';
+            $ctx = bail_habitation_context($pdo, $bailId);
+            if (!$ctx) return '';
+            $ctx['signatures'] = $signatures;
+            /* Le civil personne morale a son propre corps — même famille de générateur,
+               structure entièrement différente. */
+            if ($nat === 'civil' && is_file(__DIR__ . '/bail_civil_pdf.php')) {
+                require_once __DIR__ . '/bail_civil_pdf.php';
+                return bail_civil_corps($ctx);
+            }
+            return bail_habitation_corps($ctx);
+        }
+
+        $ctx = bail_commercial_pdf_context($pdo, $bailId);
+        if (!$ctx) return '';
+        $ctx['signatures'] = $signatures;
+        return bail_commercial_corps_fnaim($ctx);
     }
 }

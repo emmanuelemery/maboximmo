@@ -93,15 +93,55 @@ try {
         }
     } catch (Throwable $e) { error_log('[bail_send rib/total] '.$e->getMessage()); }
 
-    // DPE du bien en pièce jointe (best-effort) — il est aussi mentionné en annexe du bail.
+    /* ── DPE DU BIEN EN PIÈCE JOINTE ─────────────────────────────────────────
+       ⚠️🔥 CE BLOC N'A JAMAIS JOINT UN SEUL DPE. Il lisait `d.path_on_disk` —
+       une colonne qui **n'existe pas** dans `ged_documents` : le chemin d'un
+       document ne s'y trouve pas, il se demande à la cage d'accès. La requête
+       levait donc une PDOException à CHAQUE envoi, avalée par un `catch` vide.
+       Aucune trace dans le journal, aucun DPE en pièce jointe, et un mail qui
+       avait l'air complet. Repéré le 18/08/2026, corrigé le 22/08.
+
+       Deuxième défaut du même bloc : le filtre ne connaissait que 'dpe' et
+       'dpe_bien' alors que la GED utilise AUSSI **'DIAG_DPE'** (les deux codes
+       coexistent dans `ged_document_types`). Une partie du parc serait passée à
+       travers même une fois le chemin réparé. Comparaison en UPPER : le type est
+       saisi tantôt en minuscules, tantôt en majuscules.
+
+       Le chemin passe par `ged_internal_path()`, qui applique la cage : ici on a
+       une session agent (`require_login()` en tête de fichier), c'est le bon
+       appel — contrairement à la page publique de signature, où il faut un
+       jeton (cf. `bail_annexes_chemins()`). */
+    $dpeEtat = ['joint' => false, 'raison' => ''];
     try {
-        $qd = $pdo->prepare("SELECT d.path_on_disk FROM ged_documents d
-                              JOIN ged_document_links l ON l.document_id=d.id AND l.entity_type='BIEN' AND l.entity_id=(SELECT id_bien FROM bien_baux WHERE id=?)
-                             WHERE d.status='active' AND (d.document_type IN ('dpe','dpe_bien') OR LOWER(d.name_display) LIKE '%dpe%')
+        $qd = $pdo->prepare("SELECT d.id FROM ged_documents d
+                              JOIN ged_document_links l ON l.document_id = d.id
+                                   AND l.entity_type = 'BIEN'
+                                   AND l.entity_id = (SELECT id_bien FROM bien_baux WHERE id = ?)
+                             WHERE d.status = 'active'
+                               AND (UPPER(d.document_type) IN ('DPE','DIAG_DPE','DPE_BIEN')
+                                    OR LOWER(d.name_display) LIKE '%dpe%')
                              ORDER BY d.id DESC LIMIT 1");
-        $qd->execute([$bailId]); $dpePath = (string)($qd->fetchColumn() ?: '');
-        if ($dpePath && is_file($dpePath)) $pdfAttach[] = $dpePath;
-    } catch (Throwable $e) {}
+        $qd->execute([$bailId]);
+        $dpeId = (int)($qd->fetchColumn() ?: 0);
+        if ($dpeId <= 0) {
+            $dpeEtat['raison'] = 'aucun DPE rattaché à ce bien dans la GED';
+        } else {
+            require_once dirname(__DIR__) . '/inc/ged_access.php';
+            $dpePath = function_exists('ged_internal_path') ? ged_internal_path($dpeId, 'mail') : null;
+            if ($dpePath && is_file($dpePath)) {
+                $pdfAttach[] = $dpePath;
+                $dpeEtat['joint'] = true;
+            } else {
+                $dpeEtat['raison'] = 'document #' . $dpeId . ' introuvable sur le disque ou refusé par la cage GED';
+            }
+        }
+    } catch (Throwable $e) {
+        /* ⚠️ ON NE SE TAIT PLUS. C'est exactement ce `catch` muet qui a caché le
+           défaut pendant des mois : une pièce obligatoire manquait à chaque
+           envoi et rien, nulle part, ne le disait. */
+        $dpeEtat['raison'] = $e->getMessage();
+    }
+    if (!$dpeEtat['joint']) error_log('[bail_send dpe] non joint (bail ' . $bailId . ') : ' . $dpeEtat['raison']);
 
     $refBien = $bail['reference_bien'] ?: ('#'.$bailId);
     $envois = [];
@@ -136,7 +176,15 @@ try {
         $pdo->prepare("UPDATE bien_baux SET statut='envoye', sent_at=NOW(), updated_at=NOW() WHERE id=?")->execute([$bailId]);
     }
 
-    echo json_encode(['ok'=>true, 'envois'=>$envois, 'message'=>'Projet de bail envoyé pour signature.'], JSON_UNESCAPED_UNICODE);
+    /* Le DPE est une pièce que le preneur DOIT recevoir : son absence se dit à
+       l'agent au moment de l'envoi, pas trois mois plus tard. */
+    echo json_encode([
+        'ok'      => true,
+        'envois'  => $envois,
+        'dpe'     => $dpeEtat,
+        'message' => 'Projet de bail envoyé pour signature.'
+                   . ($dpeEtat['joint'] ? ' DPE joint.' : ' ⚠️ DPE NON joint : ' . $dpeEtat['raison'] . '.'),
+    ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[bail_send] '.$e->getMessage());
     http_response_code(500);

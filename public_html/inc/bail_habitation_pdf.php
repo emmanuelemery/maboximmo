@@ -196,9 +196,25 @@ if (!function_exists('bail_habitation_corps')) {
               . ($ge['rcp'] ? ', titulaire d\'une assurance en responsabilité civile professionnelle ' . bcp_e($ge['rcp']) : '')
               . ', adhérent de la Fédération Nationale de l\'Immobilier (FNAIM), dont l\'activité est régie par la loi n° 70-9 du 2 janvier 1970 (dite « loi Hoguet ») et son décret d\'application n° 72-678 du 20 juillet 1972.';
 
+        /* ── LE TYPE COMMANDE LE DOCUMENT ────────────────────────────────────────────
+           Ce générateur produit QUATRE baux de la loi 89 : nu (titre Ier), meublé
+           (titre Ier bis), meublé étudiant (art. 25-7) et mobilité (titre Ier ter).
+           Ils partagent le même squelette I → XV ; seuls quelques paragraphes divergent,
+           et c'est exactement pourquoi ils vivent dans UN générateur : trois fichiers
+           auraient garanti qu'à la prochaine évolution légale — un seuil de DPE, un
+           plafond d'honoraires — on en corrige deux sur trois.
+           Textes de référence : inc/modeles_texte/bail_*.txt (copie stricte MODELO). */
+        require_once __DIR__ . '/bail_types_registry.php';
+        $slug = bt_slug_depuis_bail($r) ?: 'hab_nu';
+        $T    = bt_type($slug) ?: bt_type('hab_nu');
+        $estMeuble   = in_array($slug, ['hab_meuble', 'hab_etudiant'], true);
+        $estEtudiant = ($slug === 'hab_etudiant');
+        $estMobilite = ($slug === 'hab_mobilite');
+        $meubleOuMob = $estMeuble || $estMobilite;
+
         $h  = '<div class="doc">';
-        $h .= '<h1>BAIL DE LOCATION OU DE COLOCATION DE LOGEMENT NU</h1>';
-        $h .= '<p class="sub">Soumis au titre I<sup>er</sup> de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et portant modification de la loi n° 86-1290 du 23 décembre 1986</p>';
+        $h .= '<h1>' . bcp_e($T['titre_doc']) . '</h1>';
+        $h .= '<p class="sub">' . bcp_e($T['loi']) . '</p>';
         if ($ctx['numero_bail']) $h .= '<p class="ref">Référence : ' . bcp_e($ctx['numero_bail']) . '</p>';
 
         // ── I. DÉSIGNATION DES PARTIES ──
@@ -207,9 +223,42 @@ if (!function_exists('bail_habitation_corps')) {
         $h .= '<p class="clabel">Pour le bailleur</p>';
         $h .= '<p>' . $F($ctx['bailleur']['nom'] ?? '', 20) . ($ctx['bailleur']['adresse'] ? ', demeurant ' . bcp_e($ctx['bailleur']['adresse']) : ', demeurant ……………') . ',<br><span class="qual">Ci-après « le BAILLEUR », d\'une part,</span></p>';
         $h .= '<p class="clabel">Représenté(e)(s) par :</p><p>' . $mand . '</p>';
-        $h .= '<p class="clabel">Le Locataire</p>';
+        /* ⚠️🔥 LE LOCATAIRE N ETAIT PAS NOMME DANS L ACTE.
+           Ces colonnes `locataire_*` ne sont plus alimentees depuis que les parties
+           viennent de `tiers_roles` (15/08). Le bail sortait donc avec
+           « …………………… né(e) le …… à …… » à la place de l identite du preneur — dans
+           la DESIGNATION DES PARTIES, c est-a-dire a l endroit meme qui dit qui
+           s engage. Un contrat qui ne nomme pas l une de ses parties se signait
+           ainsi, alors que la page de signature affichait le bon nom deux ecrans
+           plus loin. On lit la source unique ; repli sur les colonnes pour les baux
+           anterieurs a la bascule. */
+        require_once __DIR__ . '/bail_locataires.php';
+        $locsAct = [];
+        try { $locsAct = bail_locataires_list($GLOBALS['pdo'], (int)($r['id'] ?? 0)); }
+        catch (Throwable $e) { error_log('[bail_habitation locataires] ' . $e->getMessage()); }
+
+        $h .= '<p class="clabel">Le' . (count($locsAct) > 1 ? 's Locataires' : ' Locataire') . '</p>';
+        foreach ($locsAct as $lp) {
+            /* Chaque colocataire est designe SEPAREMENT avec son etat civil : les
+               fondre en une ligne empecherait de savoir qui est ne ou, et l article
+               8-1 traite chacun comme un titulaire a part entiere. */
+            $nomL = trim((string)($lp['nom_affichage'] ?: ($lp['raison_sociale']
+                    ?: trim(((string)($lp['prenom'] ?? '')) . ' ' . ((string)($lp['nom'] ?? ''))))));
+            $adrL = trim(implode(' ', array_filter([
+                (string)($lp['adresse_ligne1'] ?? ''), (string)($lp['code_postal'] ?? ''), (string)($lp['ville'] ?? ''),
+            ])));
+            $h .= '<p>' . $F($nomL, 20)
+                . (!empty($lp['date_naissance']) ? ' né(e) le ' . $D($lp['date_naissance']) : ' né(e) le ……………')
+                . (!empty($lp['lieu_naissance']) ? ' à ' . bcp_e((string)$lp['lieu_naissance']) : ' à ……………')
+                . (!empty($lp['nationalite']) ? ', de nationalité ' . bcp_e((string)$lp['nationalite']) : ', de nationalité ……………')
+                . ($adrL !== '' ? ', demeurant ' . bcp_e($adrL) : ', demeurant ……………') . ',</p>';
+        }
+        // La qualité se pose UNE fois, après la liste : « Ci-après le LOCATAIRE »
+        // désigne l'ensemble des colocataires, qui sont tenus solidairement.
+        if ($locsAct) $h .= '<p><span class="qual">Ci-après « le LOCATAIRE », d\'autre part,</span></p>';
+
         $locNom = trim((string)($r['locataire_raison_sociale'] ?? '') ?: trim((string)($r['locataire_prenom'] ?? '') . ' ' . (string)($r['locataire_nom'] ?? '')));
-        $h .= '<p>' . $F($locNom, 20)
+        if (!$locsAct) $h .= '<p>' . $F($locNom, 20)
             . ($r['locataire_date_naissance'] ? ' né(e) le ' . $D($r['locataire_date_naissance']) : ' né(e) le ……………')
             . ($r['locataire_lieu_naissance'] ? ' à ' . bcp_e((string)$r['locataire_lieu_naissance']) : ' à ……………')
             . ($r['locataire_nationalite'] ? ', de nationalité ' . bcp_e((string)$r['locataire_nationalite']) : ', de nationalité ……………')
@@ -245,14 +294,77 @@ if (!function_exists('bail_habitation_corps')) {
                 . ($rowNum('nb_pieces') !== null ? ', comprenant ' . (int)$r['nb_pieces'] . ' pièce(s) principale(s)' : '') . '.</p>';
         }
         $h .= '<p><b>Niveau de performance du logement (DPE) :</b> ' . $F($r['dpe_classe'] ?? '', 4) . '</p>';
+
+        /* ⚠️ IDENTIFIANT FISCAL — exigé par les modèles MEUBLÉ et MOBILITÉ, absent du
+           modèle NU. Asymétrie de MODELO conservée telle quelle : on ne l'ajoute pas au
+           nu « par cohérence ». 12 caractères, les 2 premiers = département. */
+        if ($meubleOuMob) {
+            $h .= '<p><b>Identifiant fiscal du logement :</b> ' . $F($r['identifiant_fiscal'] ?? '', 12)
+                . ' <span class="mut">(numéro invariant — rubrique « Gérer mes biens immobiliers » sur impots.gouv.fr)</span></p>';
+        }
         $h .= '<p class="clabel">Destination des locaux</p><p>Les locaux sont loués pour un <b>usage exclusif d\'habitation principale.</b></p>';
         $h .= '<p class="clabel">Équipement d\'accès aux technologies de l\'information et de la communication</p><p>' . $F($r['equipement_tic'] ?? '', 20) . '</p>';
+        /* ⚠️🔥 MOBILIER — le décret 2015-981 est REPRODUIT dans le contrat, ce n'est pas
+           une annexe facultative : c'est lui qui fait qu'un logement mérite la
+           qualification de « meublé », et donc le régime qui va avec (durée d'un an,
+           dépôt à DEUX mois). L'inventaire lui-même est annexé à la remise des clés. */
+        if ($meubleOuMob) {
+            $h .= '<p class="clabel">Mobilier et équipements</p>';
+            $h .= '<p>L\'inventaire et l\'état détaillé du mobilier fourni, établis lors de la remise des clefs du logement au LOCATAIRE, seront annexés à chacun des exemplaires du présent contrat de location.</p>';
+            $h .= '<p class="sub2">Pour la bonne information des Parties, sont reproduites ci-après les dispositions des deux premiers articles du décret n° 2015-981 du 31 juillet 2015 fixant la liste des éléments de mobilier qu\'un logement meublé doit impérativement comporter.<br>'
+                . '<b>Article 1 :</b> Chaque pièce d\'un logement meublé est équipée d\'éléments de mobilier conformes à sa destination.<br>'
+                . '<b>Article 2 :</b> Le mobilier d\'un logement meublé, mentionné à l\'article 25-4 de la loi du 6 juillet 1989 susvisée, comporte au minimum les éléments suivants :</p>';
+            $h .= '<ul>'
+                . '<li>1° Literie comprenant couette ou couverture ;</li>'
+                . '<li>2° Dispositif d\'occultation des fenêtres dans les pièces destinées à être utilisées comme chambre à coucher ;</li>'
+                . '<li>3° Plaques de cuisson ;</li>'
+                . '<li>4° Four ou four à micro-ondes ;</li>'
+                . '<li>5° Réfrigérateur et congélateur ou, au minimum, un réfrigérateur doté d\'un compartiment permettant de disposer d\'une température inférieure ou égale à &minus;&nbsp;6&nbsp;°C ;</li>'
+                . '<li>6° Vaisselle nécessaire à la prise des repas ;</li>'
+                . '<li>7° Ustensiles de cuisine ;</li>'
+                . '<li>8° Table et sièges ;</li>'
+                . '<li>9° Étagères de rangement ;</li>'
+                . '<li>10° Luminaires ;</li>'
+                . '<li>11° Matériel d\'entretien ménager adapté aux caractéristiques du logement.</li></ul>';
+        }
+
+        /* ⚠️🔥 MOTIF DE MOBILITÉ — CONDITION D'ACCÈS AU RÉGIME (art. 25-12), pas un
+           renseignement d'agrément. Sans motif justifié à la date de prise d'effet, ce
+           n'est pas un bail mobilité : c'est un meublé ordinaire, avec sa durée d'un an,
+           sa reconduction tacite et son dépôt de garantie. */
+        if ($estMobilite) {
+            $h .= '<h3>II bis. Motif justifiant le bénéfice du bail mobilité</h3>';
+            $h .= '<p>À la date de prise d\'effet du présent contrat, le LOCATAIRE justifie être : <b>' . $F($r['mobilite_motif'] ?? '', 24) . '</b>.</p>';
+            $h .= '<p class="sub2">Le bail mobilité est réservé au locataire qui, à la date de prise d\'effet du bail, justifie être en formation professionnelle, en études supérieures, en contrat d\'apprentissage, en stage, en engagement volontaire dans le cadre d\'un service civique, en mutation professionnelle ou en mission temporaire dans le cadre de son activité professionnelle.</p>';
+        }
+
 
         // ── III. Date de prise d'effet et durée ──
         $h .= '<h3>III. Date de prise d\'effet et durée du contrat</h3>';
         $h .= '<p class="clabel">A. Date de prise d\'effet du contrat</p><p>Le présent bail prendra effet le ' . $D($r['date_prise_effet']) . '.</p>';
         $h .= '<p class="clabel">B. Durée du contrat</p>';
-        $h .= '<p>En l\'absence de proposition de renouvellement du contrat, celui-ci est, à son terme, reconduit tacitement pour une durée de 3 ou 6 ans et dans les mêmes conditions. Le LOCATAIRE peut mettre fin au bail à tout moment, après avoir donné congé. Le BAILLEUR, quant à lui, peut mettre fin au bail à son échéance et après avoir donné congé, soit pour reprendre le logement en vue de l\'occuper lui-même ou une personne de sa famille, soit pour le vendre, soit pour un motif sérieux et légitime.</p>';
+        /* ⚠️🔥 LA DURÉE ET LA RECONDUCTION SONT LE CŒUR DU RÉGIME.
+           Nu : 3 ans (6 si bailleur personne morale), reconduction tacite.
+           Meublé : 1 an, reconduction tacite d'un an.
+           Étudiant : 9 mois, JAMAIS reconduit tacitement (art. 25-7 al. 4).
+           Mobilité : 1 à 10 mois, NI renouvelable NI reconductible (titre Ier ter),
+                      un seul avenant possible sans dépasser dix mois au total.
+           Imprimer la reconduction sur un étudiant ou une mobilité fabriquerait un
+           document qui contredit la loi dont il se réclame. */
+        if ($estMobilite) {
+            $dm = (int)($r['duree_mois'] ?? 0);
+            $h .= '<p>Le présent bail est conclu pour une durée de <b>' . ($dm > 0 ? $dm . ' mois' : '…… mois') . '</b>, comprise entre un et dix mois.</p>';
+            $h .= '<p><b>La durée du contrat est non renouvelable et non reconductible.</b> Toutefois, elle peut être modifiée une fois par avenant sans que la durée totale du contrat ne dépasse dix mois.</p>';
+            $h .= '<p>Il est précisé que si, au terme du contrat, les parties concluent un nouveau bail portant sur le même logement meublé, ce nouveau bail est soumis aux dispositions du titre I<sup>er</sup> bis de la loi n° 89-462 du 6 juillet 1989.</p>';
+            $h .= '<p>Le LOCATAIRE peut résilier le contrat à tout moment, sous réserve de respecter un délai de préavis d\'un mois. Le congé doit être notifié par lettre recommandée avec demande d\'avis de réception, signifié par acte de commissaire de justice, ou remis en main propre contre récépissé ou émargement. Le délai de préavis court à compter du jour de la réception de la lettre recommandée, de la signification de l\'acte, ou de la remise en main propre.</p>';
+        } elseif ($estEtudiant) {
+            $h .= '<p>Le présent bail est consenti à un locataire étudiant. Il est conclu pour une durée de <b>NEUF mois</b>, conformément aux dispositions du quatrième alinéa de l\'article 25-7 de la loi n° 89-462 du 6 juillet 1989.</p>';
+            $h .= '<p><b>Les contrats de locations meublées consenties à un étudiant pour une durée de neuf mois ne sont pas reconduits tacitement à leur terme</b> et le locataire peut mettre fin au bail à tout moment, après avoir donné congé. Le bailleur peut, quant à lui, mettre fin au bail à son échéance et après avoir donné congé.</p>';
+        } elseif ($estMeuble) {
+            $h .= '<p>Le présent bail est conclu pour une durée d\'un an. <b>Il sera reconduit tacitement à son terme pour une durée d\'un an et dans les mêmes conditions.</b> Le LOCATAIRE peut mettre fin au bail à tout moment, après avoir donné congé. Le bailleur peut, quant à lui, mettre fin au bail à son échéance et après avoir donné congé, soit pour reprendre le logement en vue de l\'occuper lui-même ou une personne de sa famille, soit pour le vendre, soit pour un motif sérieux et légitime.</p>';
+        } else {
+            $h .= '<p>En l\'absence de proposition de renouvellement du contrat, celui-ci est, à son terme, reconduit tacitement pour une durée de 3 ou 6 ans et dans les mêmes conditions. Le LOCATAIRE peut mettre fin au bail à tout moment, après avoir donné congé. Le BAILLEUR, quant à lui, peut mettre fin au bail à son échéance et après avoir donné congé, soit pour reprendre le logement en vue de l\'occuper lui-même ou une personne de sa famille, soit pour le vendre, soit pour un motif sérieux et légitime.</p>';
+        }
 
         // ── IV. Conditions financières ──
         $h .= '<h3>IV. Conditions financières</h3>';
@@ -266,7 +378,12 @@ if (!function_exists('bail_habitation_corps')) {
         $h .= '<p><b>b) Date ou trimestre de référence de l\'IRL :</b> L\'indice de référence est l\'indice du trimestre ' . $F($r['indice_trimestre'] ?? '', 8) . ' dont la valeur s\'établit à ' . $F($r['indice_valeur'] ?? '', 8) . '.</p>';
         $h .= '<p class="clabel">B. Charges récupérables</p>';
         $h .= '<p>Le montant de la provision initiale pour charges est fixé à la somme de ' . $E($rowNum('charges_mensuelles')) . '. Cette provision comprend les charges suivantes : ' . $F($r['conditions_particulieres'] ?? '', 16) . '. S\'agissant de la <b>Taxe d\'enlèvement des ordures ménagères</b>, il est expressément prévu entre les Parties que cette taxe fera l\'objet d\'un remboursement ponctuel chaque année sur présentation de l\'avis de taxe foncière. Pour l\'année ' . $F($r['teom_annee'] ?? '', 4) . ', le montant de cette taxe s\'établissait à ' . $E($rowNum('teom_montant')) . ' hors frais de rôle. La provision pour charges pourra être réajustée à l\'occasion de la régularisation annuelle, en fonction des dépenses réelles.</p>';
-        $h .= '<p class="clabel">C. Contribution pour le partage des économies de charges</p><p>Sans objet.</p>';
+        /* ⚠️ § IV.C réservé à la location NUE : l'art. 23-1 ne prévoit la contribution au
+           partage des économies de charges que pour le nu. Le modèle MEUBLÉ ne la porte
+           pas — l'imprimer là serait ajouter une clause au modèle qu'on oppose. */
+        if (!$meubleOuMob) {
+            $h .= '<p class="clabel">C. Contribution pour le partage des économies de charges</p><p>Sans objet.</p>';
+        }
         $h .= '<p class="clabel">D. Souscription par le BAILLEUR d\'une assurance pour le compte des colocataires</p><p>Le montant récupérable par douzième au titre de l\'assurance pour compte des colocataires est de ' . $E($rowNum('assurance_colocataires_mensuel')) . '.</p>';
         $h .= '<p class="clabel">E. Modalités de paiement</p><p>Le loyer est payable à échoir au plus tard le ' . $F($r['paiement_jour'] ?? '', 4) . ' de chaque mois entre les mains ' . $F($r['paiement_beneficiaire'] ?? ($ge['raison'] ?? ''), 16) . '.</p>';
 
@@ -287,6 +404,20 @@ if (!function_exists('bail_habitation_corps')) {
         if (!empty($dcp['prorata']['fin']) && $dcp['prorata']['ratio'] < 1) {
             $h .= '<p style="font-size:8.5pt;color:#444;">Le 1<sup>er</sup> loyer est calculé <i>prorata temporis</i> pour la période allant du ' . bcp_date($dcp['prorata']['debut']) . ' au ' . bcp_date($dcp['prorata']['fin']) . '.</p>';
         }
+        /* ⚠️🔥 PARAGRAPHE QUI MANQUAIT PUREMENT ET SIMPLEMENT. Le générateur passait de E
+           à G : le § « réévaluation d'un loyer manifestement sous-évalué » n'existait nulle
+           part, et la numérotation sautait sans que rien ne le signale. Détecté le 15/08 en
+           comparant le rendu au texte de référence MODELO — impossible à voir autrement.
+           469 baux d'habitation concernés.
+           Sur un bail étudiant ou mobilité il n'y a pas de renouvellement : MODELO imprime
+           malgré tout la section avec « Sans objet. », on fait de même plutôt que de la
+           masquer — une section absente laisse croire à un oubli. */
+        $h .= '<p class="clabel">F. Exclusivement lors d\'un renouvellement de contrat, modalités de réévaluation d\'un loyer manifestement sous-évalué</p>';
+        if ($estEtudiant || $estMobilite) {
+            $h .= '<p>Sans objet.</p>';
+        } else {
+            $h .= '<p>' . $F($r['conditions_particulieres_loyer'] ?? '', 20) . '</p>';
+        }
         $h .= '<p class="clabel">G. Dépenses énergétiques (pour information)</p><p>Montant estimé des dépenses annuelles d\'énergie pour un usage standard : entre ' . $E($rowNum('depenses_energie_min')) . ' et ' . $E($rowNum('depenses_energie_max')) . ' par an (estimation réalisée à partir des prix énergétiques de référence de l\'année ' . $F($r['depenses_energie_annee'] ?? '', 4) . ').</p>';
 
         // ── V. Travaux ──
@@ -296,11 +427,36 @@ if (!function_exists('bail_habitation_corps')) {
 
         // ── VI. Garantie ──
         $h .= '<h3>VI. Garantie</h3>';
-        $h .= '<p>En vue de garantir l\'exécution de ses obligations, le LOCATAIRE verse ce jour la somme de ' . $E($rowNum('depot_garantie')) . ' entre les mains ' . $F($ge['raison'] ?? '', 12) . ' qui lui en donnera quittance. En cas de colocation ou de cotitularité du présent bail, le dépôt de garantie ne sera restitué qu\'en fin de bail et après restitution totale des lieux loués conformément aux dispositions de l\'article 22 de la loi du 6 juillet 1989.</p>';
+        /* ⚠️🔥 DÉPÔT DE GARANTIE — trois régimes, dont une INTERDICTION.
+           Nu : un mois de loyer hors charges (art. 22).
+           Meublé et étudiant : DEUX mois (art. 25-6) — ce n'est pas une tolérance
+             commerciale, c'est le plafond légal propre au meublé.
+           Mobilité : INTERDIT. Le titre Ier ter fait « interdiction au bailleur d'exiger
+             le versement d'un dépôt de garantie ». Le champ n'est pas seulement laissé
+             vide : la clause elle-même change, et le montant ne doit pas s'imprimer. */
+        if ($estMobilite) {
+            $h .= '<p>Le présent bail étant soumis aux dispositions du titre I<sup>er</sup> ter de la loi n° 89-462 du 6 juillet 1989, <b>il est fait interdiction au bailleur d\'exiger le versement d\'un dépôt de garantie.</b></p>';
+        } else {
+            $plafond = $estMeuble ? 'deux mois' : 'un mois';
+            $art     = $estMeuble ? 'article 25-6' : 'article 22';
+            $h .= '<p>En vue de garantir l\'exécution de ses obligations, le LOCATAIRE verse ce jour la somme de ' . $E($rowNum('depot_garantie')) . ' entre les mains ' . $F($ge['raison'] ?? '', 12) . ' qui lui en donnera quittance. Ce dépôt de garantie ne peut excéder ' . $plafond . ' de loyer hors charges (' . $art . ' de la loi du 6 juillet 1989). En cas de colocation ou de cotitularité du présent bail, le dépôt de garantie ne sera restitué qu\'en fin de bail et après restitution totale des lieux loués.</p>';
+        }
 
         // ── VII. Solidarité (verbatim) ──
         $h .= '<h3>VII. Solidarité - Indivisibilité</h3>';
+        /* ⚠️🔥 LE MODÈLE MEUBLÉ NOMME L'EXTINCTION DE LA CAUTION, LE MODÈLE NU NON.
+           « la solidarité d'un des colocataires ET CELLE DE LA PERSONNE QUI S'EST PORTÉE
+           CAUTION POUR LUI prennent fin… ». L'article 8-1 VI s'applique pourtant aux deux
+           régimes, et la notice légale le confirme sans distinguer : c'est une lacune de
+           rédaction du modèle nu, pas une règle différente.
+           Copie stricte oblige, on n'ajoute pas la phrase au nu — mais la règle métier
+           d'extinction de la caution au congé s'applique aux DEUX. */
+        if ($meubleOuMob) {
+            $h .= '<p>Il est expressément stipulé que les copreneurs et toutes personnes pouvant se prévaloir des dispositions de l\'article 14 de la loi du 6 juillet 1989 seront tenus solidairement et indivisiblement de l\'exécution des obligations du présent contrat. Les cotitulaires soussignés, désignés sous le vocable « Le LOCATAIRE », reconnaissent expressément qu\'ils se sont engagés solidairement et que le BAILLEUR n\'a accepté de consentir le présent bail qu\'en considération de cette cotitularité solidaire et n\'aurait pas consenti la présente location à l\'un seulement d\'entre eux. Si un cotitulaire délivrait congé et quittait les lieux, il resterait en tout état de cause tenu du paiement des loyers et accessoires et, plus généralement, de toutes les obligations du bail en cours au moment de la délivrance du congé, et de ses suites et notamment des indemnités d\'occupation et de toutes sommes dues au titre des travaux de remise en état. La présente clause est une condition substantielle du contrat.</p>';
+            $h .= '<p><b>En cas de colocation, la solidarité d\'un des colocataires et celle de la personne qui s\'est portée caution pour lui prennent fin à la date d\'effet du congé régulièrement délivré et lorsqu\'un nouveau colocataire figure au bail. À défaut, la solidarité du colocataire sortant s\'éteint au plus tard à l\'expiration d\'un délai de six mois après la date d\'effet du congé.</b></p>';
+        } else {
         $h .= '<p>Il est expressément stipulé que les copreneurs et toutes personnes pouvant se prévaloir des dispositions de l\'article 14 de la loi du 6 juillet 1989 seront tenus solidairement et indivisiblement de l\'exécution des obligations du présent contrat. En cas de colocation, les colocataires soussignés, désignés sous le vocable « Le LOCATAIRE », reconnaissent expressément qu\'ils se sont engagés solidairement. Si un colocataire délivrait congé et quittait les lieux, il resterait tenu du paiement des loyers et accessoires et, plus généralement, de toutes les obligations du bail en cours au moment de la délivrance du congé, et de ses suites, au même titre que le(s) colocataire(s) demeuré(s) dans les lieux pendant une durée de six mois à compter de la date d\'effet du congé. Toutefois, cette solidarité prendra fin, avant l\'expiration de ce délai, si un nouveau colocataire, accepté par le BAILLEUR, figure au présent contrat. Le BAILLEUR n\'a accepté de consentir le présent bail qu\'en considération de cette cotitularité solidaire ; la présente clause est une condition substantielle. En cas de départ d\'un ou plusieurs colocataires, le dépôt de garantie ne sera restitué qu\'après libération totale des lieux et dans un délai maximum de deux mois à compter de la remise des clés.</p>';
+        }
 
         // ── VIII. Clause résolutoire (verbatim) ──
         $h .= '<h3>VIII. Clause résolutoire</h3>';
@@ -403,25 +559,26 @@ if (!function_exists('bail_habitation_clauses_x')) {
 if (!function_exists('bail_habitation_bloc_signatures')) {
     function bail_habitation_bloc_signatures(array $ctx): string
     {
+        /* ⚠️🔥 Ce bloc ne montrait QU'UN locataire et QU'UN bailleur, et ignorait
+           purement et simplement les colocataires et les cautions — qui signent
+           pourtant depuis le 15/08/2026. Un couple de colocataires voyait son
+           deuxième signataire disparaître de l'acte. Bloc unique désormais. */
+        require_once __DIR__ . '/bail_signature_bloc.php';
         $sigs = $ctx['signatures'] ?? [];
-        $find = function (array $roles) use ($sigs) {
-            foreach ($sigs as $s) if (in_array(($s['role_code'] ?? ''), $roles, true) && ($s['statut'] ?? '') === 'signe') return $s;
-            return null;
-        };
-        $cell = function (?array $sig, string $label) {
-            $out = '<b>' . bcp_e($label) . '</b><br><span class="mut">« Lu et approuvé »</span><br>';
-            if ($sig && !empty($sig['signature_data']) && strncmp((string)$sig['signature_data'], 'data:image', 10) === 0) {
-                $out .= '<img src="' . $sig['signature_data'] . '" style="max-height:64px;max-width:190px;"><br>';
-                $out .= '<span class="mut">' . bcp_e((string)($sig['nom_signataire'] ?? '')) . (bcp_date($sig['signed_at'] ?? null) ? ' — signé le ' . bcp_date($sig['signed_at']) : '') . '</span>';
-            } else {
-                $out .= '<br><br>………………………………';
-            }
-            return $out;
-        };
-        return '<table class="sigtbl"><tr>'
-            . '<td>' . $cell($find(['bailleur', 'mandataire']), 'Le BAILLEUR (ou son mandataire)') . '</td>'
-            . '<td>' . $cell($find(['preneur']), 'Le LOCATAIRE') . '</td>'
-            . '</tr></table>';
+        $gar  = $ctx['garant'] ?? $ctx['caution'] ?? [];
+        return bsb_bloc_signatures($sigs, [
+            ['titre' => 'Le BAILLEUR', 'sous' => '(ou son mandataire dûment habilité)',
+             'roles' => ['bailleur', 'mandataire']],
+            ['titre' => 'Le LOCATAIRE', 'roles' => ['preneur', 'colocataire', 'locataire']],
+            /* La caution n'apparaît que s'il y en a une : une case « LA CAUTION »
+               vide sur un bail sans garant laisserait croire qu'il en manque une. */
+            ['titre' => 'La CAUTION', 'roles' => ['caution'], 'masquer_si_absent' => true,
+             /* ⚠️🔥 Formule d'AVANT la réforme du 15/09/2021 : sans plafond chiffré ni
+                renonciation aux bénéfices de discussion et de division, un cautionnement
+                recueilli ainsi est NUL (art. 2297 C. civ.). Une fois la caution signée,
+                `bsb_cellule()` imprime la mention qu'elle a réellement apposée. */
+             'mention' => 'Mention de l\'article 2297 du Code civil, apposée par la caution'],
+        ]);
     }
 }
 
@@ -432,13 +589,29 @@ if (!function_exists('bail_habitation_build_pdf')) {
         if ($ctx === null) throw new RuntimeException('Bail #' . $bailId . ' introuvable.');
         // Signatures (tracés) pour le bloc signatures.
         try {
-            try { $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, statut, signed_at FROM bail_signatures WHERE id_bail=? ORDER BY id ASC"); $qs->execute([$bailId]); }
-            catch (Throwable) { $qs = null; }
+            /* ⚠️ Deux requêtes : `signature_mode` peut manquer si la migration
+               20260818a n a pas encore été jouée sur cet environnement. Le repli
+               garde le bail imprimable — sans la mention du mode, rien de plus. */
+            try { $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, signature_mode, statut, signed_at FROM bail_signatures WHERE id_bail=? ORDER BY id ASC"); $qs->execute([$bailId]); }
+            catch (Throwable) {
+                // Repli sans signature_mode ; s'il échoue aussi, le try extérieur prend le relais.
+                $qs = $pdo->prepare("SELECT role_code, nom_signataire, signature_data, statut, signed_at FROM bail_signatures WHERE id_bail=? ORDER BY id ASC");
+                $qs->execute([$bailId]);
+            }
             $ctx['signatures'] = $qs ? ($qs->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
         } catch (Throwable) { $ctx['signatures'] = []; }
 
         $withProjet = $forceProjet !== null ? $forceProjet : in_array($ctx['statut'], ['projet', 'envoye', 'brouillon'], true);
-        $body = bail_habitation_corps($ctx);
+        /* ⚠️ L'ENVELOPPE PDF EST COMMUNE, LE CORPS NE L'EST PAS. Le bail civil personne
+           morale a sa propre structure (1.1→1.14 / 2.1→2.9) et son propre générateur ;
+           il partage en revanche la feuille de style et la mise en page. Aiguiller ICI
+           évite de dupliquer trente lignes de CSS et le bloc de signatures. */
+        if ((string)($ctx['row']['bail_nature'] ?? '') === 'civil' && is_file(__DIR__ . '/bail_civil_pdf.php')) {
+            require_once __DIR__ . '/bail_civil_pdf.php';
+            $body = bail_civil_corps($ctx);
+        } else {
+            $body = bail_habitation_corps($ctx);
+        }
         // Annexes (décrets + notice) — figées, chargées si dispo.
         $annexes = '';
         if (is_file(__DIR__ . '/bail_habitation_annexes.php')) {

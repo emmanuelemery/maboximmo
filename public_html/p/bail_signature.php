@@ -50,6 +50,18 @@ function bsig_norm(string $s): string {
    caution, ce que l'article 2297 sanctionne par la nullité. */
 $isCaution = str_starts_with((string)($sig['role_code'] ?? ''), 'caution');
 
+/* Normalisation propre à la mention « à trous ». Elle va plus loin que `bsig_norm()` :
+   elle supprime AUSSI les séparateurs, au lieu de les ramener à une espace.
+   ⚠️🔥 Mesuré le 22/08 : « 249923 » était refusé face à « 249 923 » — le même nombre.
+   Sur un mobile, l'espace des milliers ne se tape pas naturellement, et le montant est
+   précisément le champ qu'il ne faut pas bloquer : c'est lui qui fait la validité de
+   l'engagement. Même chose pour « deux-cent-quarante-neuf » écrit sans traits d'union.
+   Ce qu'on continue d'exiger, ce sont les MOTS et les CHIFFRES exacts : la caution ne
+   peut toujours pas porter un montant autre que celui de son engagement. */
+function bsig_norm_mention(string $s): string {
+    return preg_replace('/[^a-z0-9]+/', '', bsig_norm($s)) ?? '';
+}
+
 /* ⚠️🔥 MENTION PROVISOIRE — « Bon pour caution solidaire, lu et approuvé » est la
    formule d'AVANT la réforme du 15/09/2021 : ni plafond en toutes lettres, ni
    renonciation au bénéfice de discussion. Un cautionnement recueilli ainsi est
@@ -59,6 +71,39 @@ $isCaution = str_starts_with((string)($sig['role_code'] ?? ''), 'caution');
    Audit du 15/08/2026 : 0 cautionnement signé en base — aucun acte à rattraper,
    mais AUCUN ne doit être recueilli avec cette formule. */
 $mentionAttendue = $isCaution ? 'Bon pour caution solidaire, lu et approuvé' : 'Lu et approuvé, bon pour acceptation';
+
+/* ── LA MENTION DE L'ART. 2297, POUR UNE CAUTION ─────────────────────────────
+   ⚠️🔥 Ce qui précède — « Bon pour caution solidaire, lu et approuvé » — est la
+   formule d'AVANT la réforme du 15/09/2021 : ni plafond chiffré, ni renonciation
+   aux bénéfices de discussion et de division. Un cautionnement recueilli ainsi
+   est NUL (art. 2297 C. civ.). Elle reste ci-dessus comme repli pour les rôles
+   non-caution uniquement.
+
+   Audit du 22/08/2026 avant branchement : **zéro ligne `caution*` dans
+   `bail_signatures`** — aucun cautionnement n'a jamais été recueilli par cette
+   page. Il n'y avait donc rien à rattraper, seulement à brancher.
+
+   La mention est « à trous » (décision du 15/08) : le texte fixe est affiché, la
+   caution ne saisit que le débiteur, le montant en lettres, en chiffres et la
+   durée. On l'assiste — la valeur exacte est montrée AU-DESSUS du champ — mais
+   on ne pré-remplit JAMAIS le champ : c'est la seule chose qui distingue une
+   mention apposée d'une mention pré-imprimée.
+
+   Si le plafond n'est pas déterminable, on REFUSE la page plutôt que de faire
+   signer un engagement sans montant — qui serait nul. */
+$cauMention = null; $cauRefus = '';
+if ($isCaution) {
+    try {
+        require_once dirname(__DIR__) . '/inc/bail_cautions.php';
+        $cx = bail_caution_mention_ctx($pdo, (int)$sig['id_bail'], (int)($sig['id_tiers'] ?? 0));
+        if (!empty($cx['ok'])) { $cauMention = $cx['mention']; }
+        else { $cauRefus = (string)$cx['raison']; }
+    } catch (Throwable $e) {
+        $cauRefus = $e->getMessage();
+        error_log('[bail_signature caution 2297] ' . $e->getMessage());
+    }
+    if ($cauRefus !== '') error_log('[bail_signature caution 2297] refus signature #' . (int)$sig['id'] . ' : ' . $cauRefus);
+}
 
 $expired = bsig_is_expired($sig);
 $dejaSigne = ($sig['statut'] === 'signe');
@@ -131,6 +176,13 @@ if ($dejaSigne) {
 } elseif ($vagueFermee) {
     $porteFermee = 'Ce n\'est pas encore votre tour : vous signez en dernier, une fois '
                  . 'toutes les autres parties engagées.';
+} elseif ($isCaution && $cauMention === null) {
+    /* ⚠️🔥 MIEUX VAUT NE PAS RECUEILLIR QU'UN ENGAGEMENT NUL. Sans plafond chiffré,
+       sans durée ou sans débiteur nommé, la mention de l'art. 2297 ne peut pas être
+       formée : l'acte serait inopposable, et cela ne se découvrirait qu'au
+       contentieux, des années plus tard, quand le bailleur en aurait besoin. */
+    $porteFermee = 'Votre engagement de caution ne peut pas encore être recueilli : '
+                 . $cauRefus . '. Votre agence doit compléter le dossier — rien ne vous est demandé pour l\'instant.';
 }
 
 $action = (string)($_POST['action'] ?? '');
@@ -220,6 +272,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === '' && $otpOk && $porteF
     $approuve  = !empty($_POST['lu_approuve']);
     $mention   = trim((string)($_POST['mention_manuscrite'] ?? ''));
     $dateMain  = trim((string)($_POST['date_manuscrite'] ?? ''));
+
+    /* ── LA MENTION « À TROUS » D'UNE CAUTION ───────────────────────────────
+       On reconstruit le texte À PARTIR DE CE QU'ELLE A TAPÉ, jamais à partir des
+       valeurs attendues : ce qui est conservé doit être sa mention, pas la nôtre.
+       Chaque trou est comparé à `attendu` avec la normalisation souple commune
+       (casse, accents, espaces, traits d'union) — elle ne peut donc pas porter un
+       montant autre que celui de l'engagement, mais un accent oublié ne la bloque
+       pas. Le premier trou fautif est NOMMÉ : « recopiez exactement » sans dire
+       lequel, sur mobile, c'est une impasse. */
+    $cauFaute = '';
+    if ($isCaution && is_array($cauMention)) {
+        $saisies = is_array($_POST['men'] ?? null) ? $_POST['men'] : [];
+        $texte = '';
+        foreach ($cauMention['segments'] as $seg) {
+            if (($seg['type'] ?? '') === 'fixe') { $texte .= $seg['texte']; continue; }
+            if (($seg['type'] ?? '') === 'rappel') { $texte .= trim((string)($saisies[$seg['cle']] ?? '')); continue; }
+            $val = trim((string)($saisies[$seg['cle']] ?? ''));
+            if ($val === '') { if ($cauFaute === '') $cauFaute = 'Merci de compléter : ' . $seg['label'] . '.'; }
+            elseif (bsig_norm_mention($val) !== bsig_norm_mention((string)$seg['attendu'])) {
+                if ($cauFaute === '') {
+                    $cauFaute = $seg['label'] . ' ne correspond pas. Recopiez exactement : « ' . $seg['attendu'] . ' ».';
+                }
+            }
+            $texte .= $val;
+        }
+        // La mention conservée est celle qu'elle a formée, pas la formule d'avant 2022.
+        $mention = $texte;
+    }
     $sigData   = (string)($_POST['signature_data'] ?? '');
     /* ── TRACÉ AU DOIGT **OU** NOM AU CLAVIER ──────────────────────────────
        Les deux se valent. Le tracé au doigt n a AUCUNE supériorité légale sur un
@@ -236,7 +316,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === '' && $otpOk && $porteF
 
     if ($nom === '')                                   { $flash = 'Merci d\'indiquer votre nom et prénom.'; }
     elseif (!$approuve)                                { $flash = 'Merci de cocher l\'acceptation des clauses du bail.'; }
-    elseif (bsig_norm($mention) !== bsig_norm($mentionAttendue)) { $flash = 'Merci de recopier exactement la mention : « ' . $mentionAttendue . ' ».'; }
+    elseif ($isCaution && is_array($cauMention) && $cauFaute !== '') { $flash = $cauFaute; }
+    elseif ((!$isCaution || !is_array($cauMention))
+            && bsig_norm($mention) !== bsig_norm($mentionAttendue)) { $flash = 'Merci de recopier exactement la mention : « ' . $mentionAttendue . ' ».'; }
     elseif ($dateMain === '')                          { $flash = 'Merci d\'inscrire la date à la main.'; }
     elseif ($modeSig === 'trace' && strncmp($sigData, 'data:image', 10) !== 0) {
         $flash = "Merci de signer dans le cadre avec votre doigt — ou choisissez « Saisir mon nom ».";
@@ -962,6 +1044,31 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
           <span>J'ai lu l'intégralité du <?= $h($bailNom) ?><?= $sigAnnexes ? ' et des ' . count($sigAnnexes) . ' pièces annexées' : '' ?> et j'en accepte les termes. Ma signature électronique a valeur d'engagement.</span>
         </label>
 
+        <?php if ($isCaution && is_array($cauMention)): ?>
+        <?php /* ── LA MENTION DE L'ART. 2297, À TROUS ────────────────────────────
+                 Le texte fixe est affiché, la caution saisit le débiteur, le montant
+                 en lettres, en chiffres et la durée. Les champs ne sont JAMAIS
+                 pré-remplis — la valeur exacte est montrée au-dessus, jamais dedans :
+                 c'est la seule chose qui distingue une mention apposée d'une mention
+                 pré-imprimée, et l'art. 2297 exige qu'elle « appose elle-même ».
+                 Les segments 'rappel' reprennent en direct ce qu'elle vient de taper
+                 (MODELO répète le nom du débiteur quatre fois ; le faire retaper
+                 quatre fois serait punitif sans rien ajouter). */ ?>
+        <label class="fld">Votre engagement de caution — complétez les champs en gras</label>
+        <div class="mention2297" style="font-size:13.5px;line-height:2.2;text-align:justify;">
+          <?php foreach ($cauMention['segments'] as $seg): ?>
+            <?php if ($seg['type'] === 'fixe'): ?><?= $h($seg['texte']) ?><?php
+                  elseif ($seg['type'] === 'rappel'): ?><b class="men-rappel" data-cle="<?= $h($seg['cle']) ?>">……………</b><?php
+                  else: ?><input type="text" class="manuscrit men-trou" name="men[<?= $h($seg['cle']) ?>]"
+                         data-cle="<?= $h($seg['cle']) ?>" data-req="1" required autocomplete="off"
+                         aria-label="<?= $h($seg['label']) ?>"
+                         title="<?= $h($seg['aide']) ?>"
+                         value="<?= $h((string)($_POST['men'][$seg['cle']] ?? '')) ?>"
+                         style="display:inline-block;width:auto;min-width:<?= max(9, min(34, (int)round(mb_strlen((string)$seg['attendu']) * 0.62))) ?>ch;padding:2px 8px;margin:0 2px;"><span
+                         class="men-aide" style="display:block;font-size:11px;color:#8a6d1b;font-style:italic;margin:-2px 0 4px;"><?= $h($seg['aide']) ?></span><?php endif; ?>
+          <?php endforeach; ?>
+        </div>
+        <?php else: ?>
         <label class="fld">Recopiez la mention : « <?= $h($mentionAttendue) ?> »</label>
         <?php /* Fonte manuscrite : ce que le signataire RECOPIE de sa main doit se
                  distinguer du texte imprimé qu'il ne fait que lire. C'est la même
@@ -970,6 +1077,7 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
         <input type="text" name="mention_manuscrite" class="manuscrit" data-req="1"
                value="<?= $h($_POST['mention_manuscrite'] ?? '') ?>"
                placeholder="Recopiez ici la mention ci-dessus…" required>
+        <?php endif; ?>
 
         <label class="fld">Date</label>
         <?php /* ⚠️ Saisie GUIDÉE : les barres obliques s'écrivent toutes seules et
@@ -1285,6 +1393,26 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
     });
     champDate.addEventListener('blur', function(){ this.value = masqueDate(this.value); });
   }
+  /* ── LES 'RAPPEL' SUIVENT CE QU'ELLE TAPE ────────────────────────────────────
+     MODELO répète le nom du débiteur quatre fois dans la mention. Le faire retaper
+     quatre fois serait punitif sans rien ajouter à la prise de conscience : les
+     répétitions recopient en direct le premier champ. C'est bien SA saisie qui est
+     reprise, y compris ses fautes de frappe — le serveur reconstruit le texte à
+     partir des mêmes valeurs, la page et la preuve ne peuvent pas diverger. */
+  (function(){
+    var trous = document.querySelectorAll('.men-trou');
+    if (!trous.length) return;
+    function miroir(){
+      document.querySelectorAll('.men-rappel').forEach(function(r){
+        var src = document.querySelector('.men-trou[data-cle="' + r.getAttribute('data-cle') + '"]');
+        var v = src ? src.value.trim() : '';
+        r.textContent = v !== '' ? v : '……………';
+      });
+    }
+    trous.forEach(function(t){ t.addEventListener('input', miroir); });
+    miroir();
+  })();
+
   var btnAuj = document.getElementById('date-auj');
   if (btnAuj && champDate) {
     btnAuj.addEventListener('click', function(){
@@ -1313,6 +1441,12 @@ $hasMontants = ($totEcheance > 0 || $totSignature > 0);
     if (caseLu)    l.push({el: caseLu,    ok: caseLu.checked,                quoi: 'cocher la lecture du document'});
     var champMention = document.querySelector('input[name="mention_manuscrite"]');
     if (champMention) l.push({el: champMention, ok: champMention.value.trim() !== '', quoi: 'recopier la mention'});
+    /* Mention à trous d'une caution : chaque trou compte pour lui-même dans la barre
+       « Suivant », sinon elle annoncerait le formulaire complet alors qu'il manque un
+       montant — et c'est précisément ce montant qui fait la validité de l'engagement. */
+    document.querySelectorAll('.men-trou').forEach(function(t){
+        l.push({el: t, ok: t.value.trim() !== '', quoi: (t.getAttribute('aria-label') || 'mention') .toLowerCase()});
+    });
     if (champDate) l.push({el: champDate, ok: champDate.value.trim().length >= 8, quoi: 'la date'});
     // La signature elle-même : tracé dessiné, ou nom retapé selon le mode.
     var modeClav = champMode && champMode.value === 'clavier';
