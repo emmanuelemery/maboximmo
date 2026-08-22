@@ -306,7 +306,8 @@ if (!function_exists('bail_caution_mention_ctx')) {
      */
     function bail_caution_mention_ctx(PDO $pdo, int $bailId, int $idTiersCaution): array
     {
-        $ko = static fn(string $r): array => ['ok'=>false,'raison'=>$r,'mention'=>null,'plafond'=>0.0,'source_plafond'=>''];
+        $ko = static fn(string $r): array => ['ok'=>false,'raison'=>$r,'mention'=>null,'plafond'=>0.0,
+                                              'source_plafond'=>'','alerte'=>'','duree_ans'=>0,'duree_source'=>''];
 
         require_once __DIR__ . '/bail_cautionnement_acte.php';
         require_once __DIR__ . '/bail_locataires.php';
@@ -353,15 +354,35 @@ if (!function_exists('bail_caution_mention_ctx')) {
                  + (float)($b['provision_tf_mensuelle'] ?? 0);
         if ($loyerCC <= 0) return $ko('le loyer du bail n\'est pas renseigné : le plafond ne peut pas être calculé');
 
-        // Durée de l'ENGAGEMENT : celle saisie sur la caution prime sur celle du bail.
-        $dureeAns = (int)($cau['duree_ans'] ?? 0);
-        if ($dureeAns <= 0) $dureeAns = (int)ceil(((int)($b['duree_mois'] ?? 0)) / 12);
-        if ($dureeAns <= 0) return $ko('la durée de l\'engagement n\'est pas renseignée');
-        /* ⚠️ Garde-fou : au-delà de 9 ans on écrirait dans l'acte une couverture qui
-           n'existe pas — en commercial le renouvellement crée un bail nouveau et éteint
-           le cautionnement sans clause d'extension expresse. Écrête aussi une saisie
-           aberrante (99 ans) avant qu'elle n'atteigne la mention. */
-        $dureeAns = min($dureeAns, CAUTION_DUREE_MAX_ANS);
+        /* ── DURÉE DE L'ENGAGEMENT : LA SAISIE DE L'AGENT FAIT LOI ──────────────────
+           ⚠️🔥 Ces règles sont des DÉFAUTS, jamais des plafonds imposés. Une première
+           version écrêtait toute durée à 9 ans, y compris celle que l'agent venait de
+           saisir délibérément en rédigeant le projet — un choix métier annulé en
+           silence, exactement ce qu'on s'interdit. Corrigé le 22/08 à sa demande.
+           On n'écrête donc QUE le repli automatique (celui déduit du bail) ; une durée
+           explicitement saisie sur la fiche caution passe telle quelle, et l'écran la
+           signale plutôt que de la corriger. */
+        $dureeSaisie = (int)($cau['duree_ans'] ?? 0);
+        $alerte = '';
+        if ($dureeSaisie > 0) {
+            $dureeAns = $dureeSaisie;
+            if ($dureeAns > CAUTION_DUREE_MAX_ANS) {
+                /* En commercial, le renouvellement crée un bail NOUVEAU qui éteint le
+                   cautionnement sans clause d'extension expresse : au-delà de 9 ans on
+                   écrit une couverture qui n'existera pas. On le DIT, on ne le corrige pas. */
+                $alerte = 'durée de ' . $dureeAns . ' ans saisie : au-delà de ' . CAUTION_DUREE_MAX_ANS
+                        . ' ans, le renouvellement éteint le cautionnement sans clause d\'extension expresse';
+            }
+        } else {
+            $dureeAns = min((int)ceil(((int)($b['duree_mois'] ?? 0)) / 12), CAUTION_DUREE_MAX_ANS);
+        }
+        /* Le message NOMME les deux endroits où corriger. « Durée non renseignée » tout
+           court laisse chercher : la durée peut venir de la fiche caution OU du bail, et
+           quand les deux sont vides (bail 1192 : `duree_mois` NULL) rien ne l'indiquait. */
+        if ($dureeAns <= 0) {
+            return $ko('durée de l\'engagement absente — renseigner « an(s) » sur la caution, '
+                     . 'ou la durée du bail dans « Modifier le projet »');
+        }
 
         // 3. Le plafond : saisi > calculé. Le calcul est un défaut, jamais une décision.
         $saisi   = $cau['montant_max'] !== null && $cau['montant_max'] !== '' ? (float)$cau['montant_max'] : 0.0;
@@ -395,6 +416,9 @@ if (!function_exists('bail_caution_mention_ctx')) {
         return [
             'ok'             => true,
             'raison'         => '',
+            'alerte'         => $alerte,   // non bloquant : à afficher à l'agent, jamais au signataire
+            'duree_ans'      => $dureeAns,
+            'duree_source'   => $dureeSaisie > 0 ? 'saisie' : 'déduite du bail',
             'mention'        => cautionnement_mention_2297($natureM, $plafond, $ttc, $debiteur, cautionnement_duree_label($dureeAns)),
             'plafond'        => $plafond,
             'source_plafond' => $saisi > 0

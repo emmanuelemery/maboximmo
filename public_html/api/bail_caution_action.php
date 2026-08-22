@@ -67,6 +67,76 @@ if ($action === 'add') {
     exit;
 }
 
+/* ── MODIFIER LES CONDITIONS D'UN ENGAGEMENT DÉJÀ RATTACHÉ ────────────────────────
+   ⚠️ Il fallait jusqu'ici DÉTACHER puis ré-ajouter la caution pour corriger un plafond
+   ou une durée — donc perdre le lien, et avec lui tout ce qui s'y accroche. Or ces deux
+   valeurs sont précisément ce que l'agent ajuste en rédigeant le projet de bail : le
+   calcul automatique (36 mois / durée du bail) n'est qu'un DÉFAUT, sa saisie fait loi.
+
+   On n'écrit QUE dans `tiers_roles.metadata` : ces conditions qualifient le LIEN entre
+   cette caution et ce bail, pas la personne. La fiche tiers n'est pas touchée.
+
+   Champ vide = on efface la valeur et on revient au calcul automatique. C'est voulu :
+   sans ça, une saisie erronée serait irrattrapable autrement qu'en détachant. */
+if ($action === 'update') {
+    $idTiers = isset($_POST['id_tiers']) && ctype_digit((string)$_POST['id_tiers']) ? (int)$_POST['id_tiers'] : 0;
+    if ($idTiers <= 0) { echo json_encode(['ok'=>false,'error'=>'id_tiers requis']); exit; }
+
+    try {
+        $st = $pdo->prepare("SELECT id, metadata FROM tiers_roles
+                              WHERE id_tiers = ? AND role_code = 'caution' AND objet_type = 'bail'
+                                AND id_objet = ? AND actif = 1 LIMIT 1");
+        $st->execute([$idTiers, $bailId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { echo json_encode(['ok'=>false,'error'=>'Cette caution n\'est pas rattachée à ce bail']); exit; }
+
+        $meta = json_decode((string)($row['metadata'] ?? ''), true) ?: [];
+
+        // Plafond : vide ⇒ retour au calcul ; sinon un entier positif, en euros.
+        if (array_key_exists('montant_max', $_POST)) {
+            $v = trim((string)$_POST['montant_max']);
+            $v = str_replace([' ', "\u{202F}", ','], ['', '', '.'], $v);
+            if ($v === '')            { $meta['montant_max'] = null; }
+            elseif (!is_numeric($v))  { echo json_encode(['ok'=>false,'error'=>'Plafond : montant non numérique']); exit; }
+            elseif ((float)$v < 0)    { echo json_encode(['ok'=>false,'error'=>'Plafond : montant négatif']); exit; }
+            else                      { $meta['montant_max'] = (float)round((float)$v); }
+        }
+        // Durée : vide ⇒ retour à la durée du bail. Bornée à 99 — au-delà c'est une faute de frappe.
+        if (array_key_exists('duree_ans', $_POST)) {
+            $v = trim((string)$_POST['duree_ans']);
+            if ($v === '')                                  { $meta['duree_ans'] = null; }
+            elseif (!ctype_digit($v) || (int)$v < 1 || (int)$v > 99) {
+                echo json_encode(['ok'=>false,'error'=>'Durée : indiquer un nombre d\'années entre 1 et 99']); exit;
+            } else                                          { $meta['duree_ans'] = (int)$v; }
+        }
+        if (array_key_exists('caution_type', $_POST)) {
+            $v = (string)$_POST['caution_type'];
+            $meta['caution_type'] = in_array($v, ['solidaire','simple'], true) ? $v : null;
+        }
+
+        $up = $pdo->prepare("UPDATE tiers_roles SET metadata = ? WHERE id = ?");
+        $up->execute([json_encode($meta, JSON_UNESCAPED_UNICODE), (int)$row['id']]);
+    } catch (Throwable $e) {
+        error_log('[bail_caution_action update] ' . $e->getMessage());
+        echo json_encode(['ok'=>false,'error'=>'Enregistrement impossible : ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    /* On renvoie CE QUE ÇA DONNE — plafond retenu, durée retenue, et l'alerte éventuelle.
+       L'agent doit voir l'effet de sa saisie sur l'engagement réel, pas seulement « OK ». */
+    require_once dirname(__DIR__) . '/inc/bail_cautions.php';
+    $cx  = bail_caution_mention_ctx($pdo, $bailId, $idTiers);
+    echo json_encode([
+        'ok'      => true,
+        'message' => 'Conditions de l\'engagement enregistrées.',
+        'apercu'  => $cx['ok']
+            ? ['plafond' => $cx['plafond'], 'source' => $cx['source_plafond'],
+               'duree_ans' => $cx['duree_ans'], 'duree_source' => $cx['duree_source'], 'alerte' => $cx['alerte']]
+            : ['erreur' => $cx['raison']],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($action === 'detach') {
     $idTiers = isset($_POST['id_tiers']) && ctype_digit((string)$_POST['id_tiers']) ? (int)$_POST['id_tiers'] : 0;
     if ($idTiers <= 0) { echo json_encode(['ok'=>false,'error'=>'id_tiers requis']); exit; }

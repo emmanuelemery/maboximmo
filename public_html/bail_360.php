@@ -1573,11 +1573,32 @@ if ($bech['ok']): $bechStatut=['tacite_prolongation'=>'en tacite prolongation','
                 <span style="flex:1; min-width:0;">
                     <a href="<?= h(app_url('/tiers_360.php?id=' . (int)$c['id_tiers'])) ?>" style="color:#243B5C;font-weight:800;font-size:13px;text-decoration:none;border-bottom:1px dotted #c9b8d6;" title="Ouvrir la fiche tiers (contact, contentieux, signature)"><?= h($cNom) ?> ↗</a>
                     <span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:800;color:#fff;background:<?= $cTypeCol ?>;border-radius:20px;padding:1px 8px;"><?= h($cTypeLbl) ?></span>
-                    <?php if (!empty($c['montant_max'])): ?><span style="font-size:11px;color:#6b7280;margin-left:6px;">plafond <?= number_format((float)$c['montant_max'], 0, ',', ' ') ?> €</span><?php endif; ?>
-                    <?php if (!empty($c['duree_ans'])): ?><span style="font-size:11px;color:#6b7280;margin-left:4px;">· <?= (int)$c['duree_ans'] ?> an(s)</span><?php endif; ?>
                     <div style="font-size:11px;color:#8a8694;margin-top:1px;">
                         <?= $cContact ? h(implode(' · ', $cContact)) : '<em>Pas de contact renseigné</em>' ?>
                         <?php if (($c['source'] ?? '') === 'extraction_bail'): ?> · <span style="color:#84A7AB;">🧠 extrait du bail</span><?php endif; ?>
+                    </div>
+                    <?php /* ── LES CONDITIONS DE L'ENGAGEMENT, MODIFIABLES ICI ────────────────
+                             Plafond et durée n'étaient qu'AFFICHÉS : pour les corriger il
+                             fallait détacher la caution et la recréer — donc perdre le lien.
+                             Or ce sont exactement les deux valeurs que l'agent ajuste en
+                             rédigeant le projet. Le calcul automatique (36 mois de loyer CC,
+                             durée du bail) n'est qu'un DÉFAUT ; ce qui est saisi ici fait loi,
+                             et vider un champ revient au calcul. */ ?>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:5px;">
+                        <span style="font-size:10.5px;color:#8a8694;font-weight:700;">Engagement :</span>
+                        <input type="text" class="bcCond" data-t="<?= (int)$c['id_tiers'] ?>" data-k="montant_max"
+                               value="<?= !empty($c['montant_max']) ? number_format((float)$c['montant_max'], 0, ',', ' ') : '' ?>"
+                               placeholder="plafond auto" title="Plafond en euros. Vide = calculé (36 mois de loyer charges comprises)."
+                               style="width:110px;padding:3px 7px;border:1px solid #d8c6c2;border-radius:6px;font-size:11.5px;">
+                        <span style="font-size:11px;color:#8a8694;">€ ·</span>
+                        <input type="text" class="bcCond" data-t="<?= (int)$c['id_tiers'] ?>" data-k="duree_ans"
+                               value="<?= !empty($c['duree_ans']) ? (int)$c['duree_ans'] : '' ?>"
+                               placeholder="durée" title="Durée de l'engagement en années. Vide = celle du bail."
+                               style="width:56px;padding:3px 7px;border:1px solid #d8c6c2;border-radius:6px;font-size:11.5px;">
+                        <span style="font-size:11px;color:#8a8694;">an(s)</span>
+                        <button type="button" onclick="bailCautionCond(<?= (int)$c['id_tiers'] ?>, this)"
+                                style="border:1px solid #c9a9a2;background:#fff;color:#a8443a;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer;">💾</button>
+                        <span class="bcCondEtat" data-t="<?= (int)$c['id_tiers'] ?>" style="font-size:10.5px;color:#6b7280;"></span>
                     </div>
                 </span>
                 <button type="button" onclick="bailActeUpload(<?= (int)$c['id_tiers'] ?>)" title="Joindre l'acte de cautionnement signé de cette caution (classé en doc officiel du bail)" style="border:1px solid #c0b0d6;background:#fff;color:#5b21b6;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">📎 Acte</button>
@@ -1636,6 +1657,32 @@ if ($bech['ok']): $bechStatut=['tacite_prolongation'=>'en tacite prolongation','
                 fd.append('montant_max',(document.getElementById('bcMontant').value||'').trim());
                 post(fd,'Caution ajoutée',document.getElementById('bcMsg'));
             });
+            /* Plafond et durée d'un engagement déjà rattaché. Le serveur renvoie l'EFFET
+               de la saisie — plafond retenu, durée retenue, alerte éventuelle — et on
+               l'affiche : « enregistré » tout court ne dirait pas à l'agent ce qu'il
+               vient réellement d'engager. Un champ vidé revient au calcul automatique. */
+            window.bailCautionCond=function(idTiers,btn){
+                var etat=document.querySelector('.bcCondEtat[data-t="'+idTiers+'"]');
+                var fd=new FormData();
+                fd.append('action','update'); fd.append('id_bail','<?= (int)$bailId ?>'); fd.append('id_tiers',idTiers);
+                document.querySelectorAll('.bcCond[data-t="'+idTiers+'"]').forEach(function(i){
+                    fd.append(i.getAttribute('data-k'), i.value.trim());
+                });
+                var old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+                fetch('<?= h(app_url('/api/bail_caution_action.php')) ?>',{method:'POST',credentials:'same-origin',body:fd})
+                  .then(function(r){return r.text();})
+                  .then(function(brut){
+                    btn.disabled=false; btn.textContent=old;
+                    var j=null; try{ j=JSON.parse(brut); }catch(e){}
+                    if(!j){ if(etat){etat.style.color='#b5352e'; etat.textContent='réponse inattendue du serveur';} return; }
+                    if(!j.ok){ if(etat){etat.style.color='#b5352e'; etat.textContent=j.error||'échec';} return; }
+                    var a=j.apercu||{};
+                    if(a.erreur){ if(etat){etat.style.color='#b5352e'; etat.textContent='⚠️ '+a.erreur;} return; }
+                    var txt='→ '+Number(a.plafond||0).toLocaleString('fr-FR')+' € sur '+(a.duree_ans||'?')+' an(s) ('+(a.source||'')+')';
+                    if(etat){ etat.style.color=a.alerte?'#8a6d1b':'#166534'; etat.textContent=txt+(a.alerte?' — ⚠️ '+a.alerte:''); }
+                  })
+                  .catch(function(e){ btn.disabled=false; btn.textContent=old; if(etat){etat.style.color='#b5352e'; etat.textContent='réseau : '+e;} });
+            };
             window.bailCautionDetach=function(idTiers,nom){
                 if(!confirm('Retirer la caution « '+nom+' » de ce bail ?\n(Le tiers est conservé et reste réutilisable.)')) return;
                 var fd=new FormData(); fd.append('action','detach'); fd.append('id_tiers',idTiers);
