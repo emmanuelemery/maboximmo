@@ -8,6 +8,8 @@ require_once __DIR__ . '/inc/fiche_360_layout.php';
 if (!function_exists('mail_compose_url') && is_file(__DIR__ . '/inc/mail_button.php')) require_once __DIR__ . '/inc/mail_button.php';
 require_once __DIR__ . '/inc/csrf.php';
 require_once __DIR__ . '/inc/bail_cautions.php';   // cautions = tiers (rôle 'caution' scopé bail)
+require_once __DIR__ . '/inc/bail_indice.php';
+require_once __DIR__ . '/inc/bail_types_registry.php'; // bt_libelle() : le nom du bail, jamais en dur     // bail_indice_label() « IRL 3T2025 · 135.2 »
 require_login();
 
 $bailId = (int)($_GET['id'] ?? 0);
@@ -268,7 +270,48 @@ if ($isProjetBail) {
     $candLabel = $bail['locataire_raison_sociale'] ?: trim((string)$bail['locataire_prenom'] . ' ' . $bail['locataire_nom']) ?: 'Candidat à définir';
     $stMap = ['projet'=>['🟡','Projet','#8a6d1b','#fef7e6'],'envoye'=>['📨','Envoyé à signer','#1d4ed8','#eef3ff'],'signe'=>['✅','Signé','#2d8a4e','#eef7f0'],'avenant'=>['📝','Avenant','#7c3aed','#f5f0ff']];
     $stB = $stMap[$bail['statut']] ?? ['•','—','#5b6b70','#f2f4f5'];
-    $canEditProjet = in_array($bail['statut'], ['projet','envoye'], true);
+    /* Un bail SIGNÉ n'est plus un projet — qu'il ait été signé chez nous ou qu'il
+       nous arrive scanné. Dans les deux cas, l'original fait foi et il ne se
+       régénère pas : proposer « Modifier le projet » invite à fabriquer un second
+       document qui ne correspondrait plus à celui que les parties ont signé.
+       `ged_document_id` marque le bail scanné : il porte son PDF d'origine, repris
+       du papier ou de OneDrive, et c'est LUI le bail. */
+    /* ⚠️🔥 DEUX NOTIONS DISTINCTES — les avoir confondues a figé un bail en projet.
+       Le 15/08 j'ai ajouté un repli qui prenait N'IMPORTE QUEL document actif lié au bail,
+       pour faire apparaître le bouton « Voir le bail signé ». Conséquence non vue :
+       `$bailEstScanne` en héritait, et un bail devenait « figé, modif par avenant » dès
+       qu'un document lui était rattaché — le PDF de projet que MBI génère lui-même en
+       ouvrant l'écran d'envoi, mais aussi une CNI, un KBIS, un DPE ou un état des lieux.
+       Mesuré en base : sur les documents liés à des baux il y a 23 CRG, 3 CNI, 1 KBIS,
+       1 DPE, 2 EDL. Joindre une pièce d'identité aurait suffi à verrouiller le bail.
+
+       Désormais :
+         · $bailDocGedId  = le bail EN TANT QUE DOCUMENT (scan importé ou exemplaire
+           signé) → commande le bouton « Voir le bail » ;
+         · $bailScanGedId = UNIQUEMENT le scan importé (`document_type = 'bail'`) →
+           seul lui interdit de modifier le projet, parce que là le document fait foi
+           et qu'il n'y a pas de projet derrière.
+       `projet_bail` est EXPRESSÉMENT exclu du gel : c'est notre propre brouillon. */
+    $bailGedId = (int)($bail['ged_document_id'] ?? 0);
+    $bailDocGedId = $bailGedId;
+    $bailScanGedId = 0;
+    try {
+        $stG = $pdo->prepare("SELECT gl.document_id, d.document_type
+                                FROM ged_document_links gl
+                                JOIN ged_documents d ON d.id = gl.document_id
+                               WHERE gl.entity_type = 'BAIL' AND gl.entity_id = ?
+                                 AND d.status = 'active'
+                                 AND d.document_type IN ('bail','bail_signe')
+                            ORDER BY FIELD(d.document_type,'bail_signe','bail'), gl.document_id DESC");
+        $stG->execute([$bailId]);
+        foreach ($stG->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($bailDocGedId <= 0) { $bailDocGedId = (int)$row['document_id']; }
+            if ($row['document_type'] === 'bail' && $bailScanGedId <= 0) { $bailScanGedId = (int)$row['document_id']; }
+        }
+    } catch (Throwable $e) { /* colonne ou table absente → on ne fige rien */ }
+    $bailGedId     = $bailDocGedId;      // conservé : le reste de la page l'utilise pour « Voir »
+    $bailEstScanne = $bailScanGedId > 0; // le GEL ne dépend QUE du scan importé
+    $canEditProjet = in_array($bail['statut'], ['projet','envoye'], true) && !$bailEstScanne;
 
     $belEditPrefill = [
         'bail_id'      => (int)$bailId,
@@ -302,6 +345,14 @@ if ($isProjetBail) {
         ],
         'values' => [
             'bailleur_representant_nom'=>$bail['bailleur_representant_nom'] ?? null, 'bailleur_representant_qualite'=>$bail['bailleur_representant_qualite'] ?? null,
+            /* ⚠️🔥 CETTE LIGNE MANQUAIT — la case « le mandataire signe pour le bailleur »
+               était enregistrée en base puis JAMAIS relue : le modal la retrouvait
+               `undefined`, la décochait, et le premier enregistrement suivant réécrivait
+               0 par-dessus le 1. La case « ne restait pas cochée », et surtout le
+               bailleur revenait en signataire de la cérémonie sans que personne ne le
+               demande — un propriétaire SCI, donc sans mobile, y bloquait tout l'envoi.
+               Le modal habitation ne connaissait pas ce défaut : il reçoit `$bail` entier. */
+            'mandataire_signe_pour_bailleur'=>$bail['mandataire_signe_pour_bailleur'] ?? 0,
             'locataire_type'=>$bail['locataire_type'], 'locataire_raison_sociale'=>$bail['locataire_raison_sociale'],
             'locataire_siren'=>$bail['locataire_siren'], 'locataire_nom'=>$bail['locataire_nom'], 'locataire_prenom'=>$bail['locataire_prenom'],
             'locataire_email'=>$bail['locataire_email'], 'locataire_telephone'=>$bail['locataire_telephone'],
@@ -335,6 +386,8 @@ if ($isProjetBail) {
         ],
     ];
     echo '<script>window.BEL_PREFILL_EDIT = ' . json_encode($belEditPrefill, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP) . ';</script>';
+    require_once __DIR__ . '/inc/bail_types_registry.php';
+    $GLOBALS['BT_FAMILLE_BIEN'] = bt_famille_du_bien($pdo, (int)($bail['bien_id'] ?? 0));
     if (($bail['bail_nature'] ?? '') === 'habitation') {
         // Bail HABITATION (loi 89-462) → modal + moteur FNAIM dédiés ; « Modifier » ouvre ce modal.
         require_once __DIR__ . '/inc/bail_habitation_edit_modal.php';
@@ -359,12 +412,51 @@ if ($isProjetBail) {
         require_once __DIR__ . '/inc/bail_edit_modal.php';
         bail_edit_modal();
     }
+    /* Bail scanné → le modal de lecture côte à côte. Rendu seulement quand un
+       document existe : sans scan il n'aurait rien à montrer. */
+    if ($bailEstScanne) {
+        try {
+            require_once __DIR__ . '/inc/bail_scan_modal.php';
+            bail_scan_modal_render($pdo, $bailId, $bailGedId);
+        } catch (Throwable $e) { error_log('[bail_360 scan modal] ' . $e->getMessage()); }
+    }
+
     // Signataires enregistrés (pour la cérémonie + la clôture explicite).
     require_once __DIR__ . '/inc/bail_signature.php';
     $belSignataires = function_exists('bsig_list_for_bail') ? bsig_list_for_bail($pdo, $bailId) : [];
     $belSigTotal = count($belSignataires);
     $belSigDone  = count(array_filter($belSignataires, fn($s) => ($s['statut'] ?? '') === 'signe'));
     $belRoleLbl  = ['preneur'=>'Preneur','caution'=>'Garant','bailleur'=>'Bailleur','mandataire'=>'Mandataire'];
+    /* Depuis que la cérémonie appelle TOUS les co-preneurs et TOUTES les cautions,
+       les rôles valent « preneur_1 », « caution_2 »… La table ci-dessus ne les
+       connaît pas, et la bannière affichait « Preneur_1 » — un code interne montré
+       à l'agent. Même découpage que `api/bail_signataires.php` : le suffixe est un
+       RANG, pas un nom. `_1` est le deuxième, d'où le +1. */
+    $belRoleNom = static function (string $rc) use ($belRoleLbl): string {
+        $base = preg_replace('/_\d+$/', '', $rc) ?: $rc;
+        $rang = preg_match('/_(\d+)$/', $rc, $m) ? ' n°' . ((int)$m[1] + 1) : '';
+        return ($belRoleLbl[$base] ?? ucfirst($base)) . $rang;
+    };
+
+    /* ── LE SUIVI, DANS LA BANNIÈRE ──────────────────────────────────────────
+       Il vivait d'abord dans l'atelier « Signataires » — trois clics plus loin,
+       derrière « Modifier le projet ». Emmanuel l'a cherché ici, le 22/08, et il
+       avait raison : c'est la bannière qu'on regarde pour savoir où en est une
+       cérémonie. Un diagnostic qu'il faut aller chercher n'est pas un diagnostic.
+       Servi côté serveur : la page l'a déjà, aucun aller-retour à faire. */
+    $belSuivi = [];
+    try {
+        require_once __DIR__ . '/inc/bail_ceremonie.php';
+        if (function_exists('bcer_suivi')) $belSuivi = bcer_suivi($pdo, $bailId);
+    } catch (Throwable $e) { error_log('[bail_360 suivi] ' . $e->getMessage()); }
+    /* Le panneau s'OUVRE tout seul s'il y a quelque chose à voir — un lien mort,
+       un canal en échec. Sinon il reste replié : un écran qui crie tout le temps
+       ne se lit plus. */
+    $belSuiviAlerte = false;
+    foreach ($belSuivi as $_sv) {
+        if (($_sv['lien']['arme'] ?? null) === false) { $belSuiviAlerte = true; break; }
+        foreach ($_sv['etapes'] as $_e) { if ($_e['etat'] === 'ko') { $belSuiviAlerte = true; break 2; } }
+    }
     // État par rôle (léger, sans les images) pour le modal : savoir si déjà signé + l'id.
     $belSignState = [];
     foreach ($belSignataires as $s) {
@@ -378,7 +470,7 @@ if ($isProjetBail) {
     ?>
     <div style="background:<?= $stB[3] ?>;border:1px solid <?= $stB[2] ?>33;border-left:4px solid <?= $stB[2] ?>;border-radius:12px;padding:14px 18px;margin:8px 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;">
         <div style="flex:1;min-width:220px;">
-            <div style="font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:<?= $stB[2] ?>;"><?= $stB[0] ?> Projet de bail commercial — <?= h($stB[1]) ?></div>
+            <div style="font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:<?= $stB[2] ?>;"><?= $stB[0] ?> <?= h(mb_strtoupper(bt_libelle($bail, 'projet'), 'UTF-8')) ?> — <?= h($stB[1]) ?></div>
             <div style="font-size:14px;font-weight:700;color:#2c2a28;margin-top:3px;">Candidat : <?= h($candLabel) ?> · <?= h($bail['numero_bail'] ?: ('#' . $bailId)) ?></div>
             <div style="font-size:12px;color:#7a766f;margin-top:2px;">
                 <?= $bail['loyer_mensuel_hc'] ? number_format((float)$bail['loyer_mensuel_hc']*12, 0, ',', ' ') . ' €/an HT · ' : '' ?>
@@ -392,12 +484,56 @@ if ($isProjetBail) {
                 <input type="checkbox" id="bel-pdf-final" onchange="var l=document.getElementById('bel-pdf-link'); l.href='<?= h(app_url('/api/bail_pdf.php?id=' . $bailId)) ?>'+(this.checked?'&final=1':'');"> Version définitive (sans filigrane)
             </label>
         </span>
+        <?php if (!$canEditProjet && $bailEstScanne): ?>
+            <?php /* Le bail existe déjà, en original : on l'OUVRE, on ne le refait pas.
+                     Le modal met le scan à gauche et ce qu'on en a lu à droite —
+                     l'extraction tournait jusqu'ici à l'aveugle, sans que personne
+                     ne puisse confronter le champ rempli au document. */ ?>
+            <?php /* Même libellé et même geste que sur la fiche du bien : un seul
+                     bouton, qui ouvre le document et ce qu'on en a lu. */ ?>
+            <button type="button" onclick="bscOpen()"
+                    style="border:none;background:#84A7AB;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📄 Voir et vérifier le bail</button>
+        <?php endif; ?>
         <?php if ($canEditProjet): ?>
             <button type="button" onclick="<?= h($belEditOnClick) ?>" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✏️ Modifier le projet</button>
             <button type="button" onclick="belSendProjet(<?= (int)$bailId ?>, this)" style="border:1.5px solid #84A7AB;background:#eef5f5;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📄 Envoyer le projet (relecture)</button>
             <button type="button" id="bel-send-btn" onclick="belSendBail(<?= (int)$bailId ?>, this)" style="border:none;background:#5f8f93;color:#fff;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨 Envoyer pour signature</button>
+            <?php /* ── LE PRÉ-VOL, AVANT L'ENVOI ────────────────────────────────────────
+                     Demandé le 22/08/2026 : « ce que je veux, c'est être CERTAIN que ça
+                     fonctionne ». Les trois pannes de la semaine — table `sms_envois`
+                     absente, `sender` vide, verrou mobile — étaient toutes visibles en
+                     base pendant qu'on cherchait ailleurs, et l'écran affichait la même
+                     chose que lorsque tout allait bien. Ce bouton demande au serveur ce
+                     qui va se passer AVANT que ça parte : rien n'est envoyé, aucune vague
+                     n'est ouverte, aucun jeton n'est consommé. On peut le cliquer dix fois. */ ?>
+            <button type="button" onclick="belPrevol(<?= (int)$bailId ?>, this)"
+                    title="Contrôle tout ce qui doit être vrai pour que la cérémonie parte : configuration SMS, journaux, adresse du lien, coordonnées de chaque signataire, génération de l'acte, lisibilité des annexes. N'envoie RIEN."
+                    style="border:1.5px solid #6b7f9e;background:#eef2f7;color:#3b4a63;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">🧪 Vérifier sans envoyer</button>
+            <?php /* Voie DIRECTE : la cérémonie s'ouvre pour elle-même (api/bail_ceremonie_lancer.php),
+                     sans dépendre d'un mail composé qui réussit. C'est ce couplage qui a fait échouer
+                     le bail #660 en silence — écran d'envoi refusé, donc pas un seul SMS. Mail ET SMS
+                     partent avec le MÊME jeton : le premier des deux ouvre la même cérémonie. */ ?>
+            <button type="button" onclick="belLancerCeremonie(<?= (int)$bailId ?>, this, 'tous')"
+                    title="Envoie le lien de signature par mail ET par SMS, sans passer par le composeur. Ce qui manque à l'un ne prive pas les autres."
+                    style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📨📱 Envoyer maintenant (mail + SMS)</button>
+            <?php /* SMS SEUL — demandé le 20/08/2026, une fois le canal SMS enfin
+                     fonctionnel en production. Utile quand le mail n'est pas le bon canal
+                     (adresse douteuse, boîte pleine, signataire qui ne lit que son
+                     téléphone) : le SMS porte le MÊME jeton, la cérémonie est identique.
+                     ⚠️ Ce qu'on perd : le mail portait le récapitulatif écrit. En SMS seul,
+                     le signataire découvre tout dans la page de signature. */ ?>
+            <button type="button" onclick="belLancerCeremonie(<?= (int)$bailId ?>, this, 'sms')"
+                    title="N'envoie QUE le SMS. Même lien, même cérémonie — mais aucune trace écrite dans la boîte mail du signataire."
+                    style="border:1.5px solid #8a6d1b;background:#fdf8ec;color:#8a6d1b;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">📱 SMS uniquement</button>
             <button type="button" onclick="belSignOpen()" style="border:1.5px solid #5f8f93;background:#fff;color:#3a5a5c;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✍️ Signer en présentiel</button>
-            <?php if (($bail['statut'] ?? '') === 'envoye'): ?>
+            <?php
+            /* ⚠️ Le bouton ne testait QUE `statut === 'envoye'`. Or ouvrir l'écran d'envoi
+               crée déjà les lignes de signature alors que le bail reste en 'projet' : on se
+               retrouvait avec des signataires en attente et AUCUN moyen de revenir en
+               arrière depuis l'écran. Constaté en recette le 15/08 sur le bail 1243.
+               Dès qu'une signature est en attente, l'annulation doit être offerte. */
+            $belPeutAnnuler = (($bail['statut'] ?? '') === 'envoye') || ($belSigTotal > 0 && $belSigDone < $belSigTotal);
+            if ($belPeutAnnuler): ?>
             <button type="button" onclick="belCancelSend(<?= (int)$bailId ?>, this)" title="Annule l'envoi, invalide les liens de signature et repasse le bail en projet pour renvoyer une nouvelle version" style="border:1.5px solid #e0a3a0;background:#fdeceb;color:#b5352e;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">↩️ Annuler l'envoi (nouvelle version)</button>
             <?php endif; ?>
             <?php if ($belSigTotal > 0): $belAllSigned = ($belSigDone === $belSigTotal); ?>
@@ -414,7 +550,7 @@ if ($isProjetBail) {
                 $sg  = ($s['statut'] ?? '') === 'signe';
                 $sgAt  = !empty($s['signed_at']) ? date('d/m/Y à H\hi', strtotime((string)$s['signed_at'])) : '';
                 $sntAt = !empty($s['sent_at'])   ? date('d/m/Y à H\hi', strtotime((string)$s['sent_at']))   : '';
-                $roleLbl = h($belRoleLbl[$s['role_code']] ?? ucfirst((string)$s['role_code']));
+                $roleLbl = h($belRoleNom((string)$s['role_code']));
                 $nomLbl  = !empty($s['nom_signataire']) ? ' — ' . h($s['nom_signataire']) : '';
             ?>
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:20px;background:<?= $sg ? '#e7f6ec' : '#fbf3e6' ?>;color:<?= $sg ? '#15803d' : '#a26a1c' ?>;border:1px solid <?= $sg ? '#bfe6cc' : '#f0dcbf' ?>;">
@@ -425,12 +561,79 @@ if ($isProjetBail) {
                 <?php else: ?>
                     <?php if ($sntAt): ?><span style="font-weight:600;opacity:.85;">· demandé le <?= $sntAt ?></span><?php endif; ?>
                     <?php if ($canEditProjet && ($bail['statut'] ?? '') === 'envoye'): ?>
-                    <button type="button" onclick="belRelance(<?= (int)$bailId ?>, <?= (int)$s['id'] ?>, this)" title="Renvoyer l'email de demande de signature à ce signataire" style="border:1px solid #e6c98a;background:#fff8ec;color:#a26a1c;border-radius:14px;font-weight:800;cursor:pointer;padding:2px 9px 3px;line-height:1.2;font-size:11.5px;margin-left:2px;">📨 Relancer</button>
+                    <?php /* DEUX relances, un canal chacune — demandé le 20/08/2026.
+                             Un seul bouton « Relancer » ne disait pas PAR QUOI il relançait :
+                             il renvoyait toujours le mail, y compris à quelqu'un dont on
+                             venait de constater qu'il ne le lisait pas. Le canal se choisit
+                             maintenant, et l'écran nomme le résultat.
+                             ⚠️ Le jeton n'est PAS régénéré : c'est le même lien qu'à l'envoi
+                             initial, une relance ne périme pas celui déjà reçu. */ ?>
+                    <button type="button" onclick="belRelanceCanal(<?= (int)$s['id'] ?>, 'mail', this)" title="Renvoyer le lien de signature PAR MAIL à ce signataire" style="border:1px solid #e6c98a;background:#fff8ec;color:#a26a1c;border-radius:14px;font-weight:800;cursor:pointer;padding:2px 9px 3px;line-height:1.2;font-size:11.5px;margin-left:2px;">📧 Mail</button>
+                    <button type="button" onclick="belRelanceCanal(<?= (int)$s['id'] ?>, 'sms', this)" title="Renvoyer le lien de signature PAR SMS à ce signataire" style="border:1px solid #e6c98a;background:#fff8ec;color:#a26a1c;border-radius:14px;font-weight:800;cursor:pointer;padding:2px 9px 3px;line-height:1.2;font-size:11.5px;">📱 SMS</button>
                     <?php endif; ?>
                 <?php endif; ?>
             </span>
             <?php endforeach; ?>
         </div>
+        <?php endif; ?>
+
+        <?php /* ── OÙ EN EST CHACUN — LES 8 ÉTAPES, DANS LA BANNIÈRE ──────────────
+                 Tout ceci était DÉJÀ en base et n'était affiché nulle part : la
+                 pastille ci-dessus se contentait de « demandé le … ». Quand ça
+                 marchait et quand ça échouait, elle disait la même chose — c'est ce
+                 silence qui a coûté trois jours sur ce bail #660, puis trois de plus
+                 sur le lien expiré du 22/08.
+                 Chaque ligne ne dit QUE ce que la base prouve : « remis au serveur
+                 d'envoi » n'est pas « mail lu ». Un suivi qui embellit serait le
+                 nouvel écran qui ment, et on aurait déplacé le problème, pas réglé. */ ?>
+        <?php if ($belSuivi):
+            $svIco = ['ok'=>'✅','ko'=>'⛔','warn'=>'⚠️','attente'=>'⏳','na'=>'—','simule'=>'🧪','inconnu'=>'❔'];
+            $svCol = ['ok'=>'#166534','ko'=>'#b5352e','warn'=>'#8a6d1b','attente'=>'#94a3b8','na'=>'#94a3b8','simule'=>'#6b7f9e','inconnu'=>'#64748b'];
+            $nbMorts = 0; $nbKo = 0;
+            foreach ($belSuivi as $sv) {
+                if (($sv['lien']['arme'] ?? null) === false) $nbMorts++;
+                foreach ($sv['etapes'] as $e) { if ($e['etat'] === 'ko') $nbKo++; }
+            }
+            $verdict = $belSuiviAlerte
+                ? trim(($nbMorts ? $nbMorts . ' lien' . ($nbMorts > 1 ? 's' : '') . ' expiré' . ($nbMorts > 1 ? 's' : '') : '')
+                     . ($nbMorts && $nbKo ? ' · ' : '')
+                     . ($nbKo ? $nbKo . ' point' . ($nbKo > 1 ? 's' : '') . ' en échec' : ''))
+                : 'rien à signaler';
+        ?>
+        <details <?= $belSuiviAlerte ? 'open' : '' ?> style="flex-basis:100%;margin-top:7px;border:1px solid <?= $belSuiviAlerte ? '#e0a3a0' : '#e2e8f0' ?>;border-radius:11px;background:#fff;">
+          <summary style="cursor:pointer;padding:8px 12px;font-size:12px;font-weight:800;color:#3b4a63;">
+            🔎 Où en est chacun
+            <span style="font-weight:700;color:<?= $belSuiviAlerte ? '#b5352e' : '#166534' ?>;">— <?= h($verdict) ?></span>
+          </summary>
+          <div style="padding:0 12px 11px;">
+          <?php foreach ($belSignataires as $s):
+                $sv = $belSuivi[(int)$s['id']] ?? null; if (!$sv) continue;
+                $rl = h($belRoleNom((string)$s['role_code']));
+          ?>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px dashed #eef2f7;">
+              <div style="font-size:12px;font-weight:800;color:#0f172a;margin-bottom:3px;">
+                <?= $rl ?><?= !empty($s['nom_signataire']) ? ' — <span style="font-weight:600;color:#64748b;">' . h($s['nom_signataire']) . '</span>' : '' ?>
+              </div>
+              <?php foreach ($sv['etapes'] as $e): ?>
+              <div style="display:flex;gap:7px;align-items:baseline;font-size:11.5px;line-height:1.55;">
+                <span style="width:16px;flex:none;"><?= $svIco[$e['etat']] ?? '·' ?></span>
+                <span style="min-width:138px;flex:none;font-weight:700;color:<?= $svCol[$e['etat']] ?? '#64748b' ?>;"><?= h($e['lbl']) ?></span>
+                <span style="color:#475569;"><?php if ($e['quand']): ?><b><?= h(date('d/m \à H\hi', strtotime((string)$e['quand']))) ?></b> — <?php endif; ?><?= h($e['detail']) ?></span>
+              </div>
+              <?php endforeach; ?>
+              <?php if (($sv['lien']['arme'] ?? null) === false): ?>
+              <div style="margin-top:6px;padding:6px 10px;border-radius:8px;background:#fdeceb;color:#b5352e;font-size:11.5px;font-weight:700;">
+                ⛔ Son lien est EXPIRÉ : l'ouvrir ne mène nulle part. Le bouton 📧 Mail ou 📱 SMS ci-dessus le réarme pour 48 h — le lien déjà reçu redevient valable.
+              </div>
+              <?php elseif (($sv['lien']['arme'] ?? null) === true && $sv['lien']['reste_h'] !== null && $sv['lien']['reste_h'] <= 8): ?>
+              <div style="margin-top:6px;padding:6px 10px;border-radius:8px;background:#fdf8ec;color:#8a6d1b;font-size:11.5px;font-weight:700;">
+                ⚠️ Son lien expire dans <?= (int)$sv['lien']['reste_h'] ?> h.
+              </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+          </div>
+        </details>
         <?php endif; ?>
     </div>
     <?php if ($canEditProjet): ?>
@@ -472,6 +675,388 @@ if ($isProjetBail) {
     window.belSendBail = function(bailId, btn){
         window.location = MAILC + '?ctx=BAIL&id=' + bailId + '&mode=signature&back=' + encodeURIComponent(BACK360);
     };
+    /* ── Lancement DIRECT de la cérémonie — mail + SMS, sans composeur ─────────
+       ⚠️ RIEN NE BLOQUE, MAIS RIEN NE SE TAIT (demande d'Emmanuel, 19/08/2026).
+       Le défaut du #660 n'était pas qu'un envoi échoue : c'est qu'il échouait
+       SANS RIEN DIRE, sur un écran qui affichait trois signataires « en attente ».
+       Cette alerte nomme donc, ligne par ligne, ce qui est parti à qui — et met
+       en tête ceux qui n'ont RIEN reçu, seul cas qui exige une action. */
+    /* ── LE PRÉ-VOL ──────────────────────────────────────────────────────────
+       Interroge api/bail_ceremonie_lancer.php avec `verifier: true` : le serveur
+       s'arrête avant toute ouverture de vague et rend l'état de chaque point.
+       On affiche les BLOQUANTS d'abord — c'est la seule liste sur laquelle il y
+       a quelque chose à faire — puis les alertes, puis ce qui est vérifié. */
+    window.belPrevol = function(bailId, btn){
+        var old = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Vérification…';
+        fetch('<?= h(app_url('/api/bail_ceremonie_lancer.php')) ?>', {method:'POST', credentials:'same-origin',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({bail_id: bailId, verifier: true})})
+          .then(function(r){ return r.text(); })
+          .then(function(brut){
+            var j = null; try { j = JSON.parse(brut); } catch(e){}
+            btn.disabled = false; btn.textContent = old;
+            if (j === null) { alert('❌ Réponse inattendue du serveur pendant la vérification.'); return; }
+            if (!j.ok)      { alert('❌ ' + (j.error || 'Vérification impossible.')); return; }
+
+            var ko = [], warn = [], ok = [];
+            (j.points || []).forEach(function(p){
+                var l = '   • ' + p.lbl + ' — ' + p.detail;
+                if (p.etat === 'ko') ko.push(l); else if (p.etat === 'warn') warn.push(l); else ok.push(l);
+            });
+            var txt = j.message + '\n';
+            /* Aucun envoi n'a eu lieu : le dire, sinon l'agent se demande s'il vient
+               de déclencher la cérémonie en cliquant « Vérifier ». */
+            txt += '(aucun envoi, aucune vague ouverte — rien n\'est parti)\n';
+            if (ko.length)   txt += '\n⛔ BLOQUANT — la cérémonie ne partira pas correctement :\n' + ko.join('\n') + '\n';
+            if (warn.length) txt += '\n⚠️ À SAVOIR — ça partira, mais dégradé :\n' + warn.join('\n') + '\n';
+            if (ok.length)   txt += '\n✅ Vérifié :\n' + ok.join('\n') + '\n';
+            alert(txt);
+          })
+          .catch(function(e){
+            btn.disabled = false; btn.textContent = old;
+            alert('❌ Vérification impossible : ' + e);
+          });
+    };
+
+    window.belLancerCeremonie = function(bailId, btn, canaux, relancer){
+        canaux = canaux || 'tous';
+        // Relance : on ne repose pas la question, l'agent vient de la confirmer.
+        if (relancer) return belLancerCeremonieGo(bailId, btn, canaux, true);
+        /* La confirmation NOMME le canal. « Envoyer » sans préciser, c'est ce qui fait
+           cliquer sans savoir — et pour le SMS seul, on nomme aussi ce qu'on perd. */
+        var q = (canaux === 'sms')
+              ? 'Envoyer le lien de signature UNIQUEMENT PAR SMS ?\n\n'
+                + 'Aucun mail ne partira : le signataire n\'aura aucune trace écrite du projet '
+                + 'avant de signer, il découvrira tout dans la page. Le lien est le même.'
+              : 'Envoyer le lien de signature à toutes les parties, par mail ET par SMS ?\n\n'
+                + 'Chacun reçoit son lien nominatif. Le premier des deux canaux qui arrive ouvre la même cérémonie.';
+        if(!confirm(q)) return;
+        belLancerCeremonieGo(bailId, btn, canaux, false);
+    };
+    function belLancerCeremonieGo(bailId, btn, canaux, relancer){
+        var old = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Envoi…';
+        fetch('<?= h(app_url('/api/bail_ceremonie_lancer.php')) ?>', {method:'POST', credentials:'same-origin',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({bail_id: bailId, canaux: canaux, relancer: !!relancer})})
+          .then(function(r){ return r.text(); })
+          .then(function(brut){
+            /* `r.json()` lève sur une erreur PHP rendue en HTML, et le catch annonçait
+               « réseau » alors que le réseau allait très bien. Sur un envoi, l'ambiguïté
+               est pire qu'ailleurs : on ne sait plus si quelque chose est parti. */
+            var j = null; try { j = JSON.parse(brut); } catch(e){}
+            btn.disabled = false; btn.textContent = old;
+            if (j === null) { alert('❌ Réponse inattendue du serveur.\n\nVérifie l\'état du bail avant de réessayer : un envoi a peut-être eu lieu.'); return; }
+            /* ── VAGUE DÉJÀ OUVERTE : proposer la relance, pas un cul-de-sac ──────
+               L'idempotence de `bsig_vague_a_ouvrir()` protège d'un double envoi
+               automatique (deux signatures simultanées ne doivent pas convoquer le
+               mandataire deux fois). Mais quand c'est l'AGENT qui redemande, ce
+               n'est pas un doublon accidentel : c'est une intention. On la lui fait
+               confirmer, et on ne renvoie qu'aux signataires ENCORE EN ATTENTE. */
+            if (!j.ok && j.deja_ouverte) {
+                if (confirm('Les liens ont déjà été émis pour ce bail.\n\n'
+                          + 'Renvoyer ' + (canaux === 'sms' ? 'le SMS' : 'le lien')
+                          + ' aux signataires qui n\'ont pas encore signé ?')) {
+                    belLancerCeremonie(bailId, btn, canaux, true);
+                }
+                return;
+            }
+            if (!j.ok) { alert('❌ ' + (j.error || j.message || 'Échec de l\'envoi') ); return; }
+
+            var txt = '';
+            if (j.bloques && j.bloques.length) {
+                txt += '⚠️ N\'A RIEN REÇU — à corriger :\n';
+                j.bloques.forEach(function(b){
+                    txt += '   • ' + (b.nom || b.role) + ' — ' + b.raison + '\n';
+                });
+                txt += '\n';
+            }
+            txt += '✅ ' + j.message + '\n\n';
+            (j.envois || []).forEach(function(e){
+                var canaux = [];
+                if (e.mail) canaux.push('📧 mail' + (e.email ? ' (' + e.email + ')' : ''));
+                if (e.sms)  canaux.push('📱 SMS' + (e.tel ? ' (' + e.tel + ')' : ''));
+                txt += '   • ' + (e.nom || e.role) + ' : ' + (canaux.length ? canaux.join(' + ') : 'rien') + '\n';
+                /* Un SMS non parti doit dire POURQUOI. Sans ça, il a fallu trois
+                   requêtes SQL pour apprendre ce que le serveur savait déjà. */
+                if (!e.sms && e.tel && e.sms_error) txt += '        ↳ SMS non parti : ' + e.sms_error + '\n';
+            });
+            if (j.vague2 && j.vague2.length) {
+                txt += '\n⏳ Signe en dernier, convoqué automatiquement : ' + j.vague2.join(', ') + '.';
+            }
+            alert(txt);
+            location.reload();
+          })
+          .catch(function(e){
+            btn.disabled = false; btn.textContent = old;
+            alert('❌ Requête impossible : ' + (e && e.message ? e.message : 'serveur injoignable')
+                + '.\n\nRien n\'est probablement parti.');
+          });
+    };
+    /* ── ATELIER SIGNATAIRES ──────────────────────────────────────────────────
+       Ouvrir ce modal PRÉPARE la cérémonie : les lignes de signature sont créées
+       si elles n'existent pas. C'est légitime parce qu'on répond à un CLIC, pas au
+       rendu passif d'une page — la règle « un aperçu ne fait jamais de
+       get_or_create » vise les écrans qui se contentent de s'afficher. */
+    var BELSIG_API = '<?= h(app_url('/api/bail_signataires.php')) ?>';
+    var belSigData = null, belSigDirty = false, belSigBailId = 0;
+    function belSigMobileOk(v){ return /^(0[67]\d{8}|(00)?33[67]\d{8})$/.test(String(v||'').replace(/\D/g,'')); }
+
+    /* ── Les cartes ───────────────────────────────────────────────────────────
+       Même grammaire que le sélecteur « Type de bail » : on VOIT l'état, on ne le
+       lit pas. Et la carte porte le manque — un mobile absent doit sauter aux yeux
+       ICI, avant l'envoi, et non dans le rapport d'envoi quand il est trop tard. */
+    function belSigCarte(s){
+        var cls = 'belsig-c';
+        if (s.hors_ceremonie) cls += ' off';
+        else if (s.statut === 'signe') cls += ' signe';
+        else if (s.envoye) cls += ' envoye';
+        var etat = s.hors_ceremonie ? '<span style="color:#64748b;">🚫 ne signe pas</span>'
+                 : s.statut === 'signe' ? '<span style="color:#15803d;">✅ a signé</span>'
+                 : s.envoye ? '<span style="color:#1d4ed8;">📨 lien envoyé</span>'
+                 : '<span style="color:#94a3b8;">⏳ en attente</span>';
+        var manques = [];
+        if (!s.hors_ceremonie) {
+            if (!s.email) manques.push('email');
+            if (!belSigMobileOk(s.tel)) manques.push(s.tel ? 'mobile invalide' : 'mobile');
+        }
+        var bas = manques.length
+            ? '<div class="w">⚠️ manque : ' + manques.join(' · ') + '</div>'
+            : (s.hors_ceremonie ? ''
+               : '<div class="s" style="color:#64748b;font-weight:600;">'
+                 + belEsc(s.email || '') + (s.tel ? ' · ' + belEsc(s.tel) : '') + '</div>');
+        return '<button type="button" class="' + cls + '" data-sig="' + s.id + '">'
+             + '<div class="i">' + s.icone + '</div>'
+             + '<div class="t">' + belEsc(s.label)
+             + (s.vague === 2 ? ' <span style="font-weight:600;color:#7a766f;">· en dernier</span>' : '')
+             + '</div>'
+             + '<div class="n">' + belEsc(s.nom || '—') + '</div>'
+             + '<div class="s">' + etat + '</div>' + bas + '</button>';
+    }
+
+    function belSigRender(j){
+        belSigData = j;
+        var g = document.getElementById('belSigGrid');
+        document.getElementById('belSigInline').innerHTML = '';
+        var html = (j.signataires || []).map(belSigCarte).join('');
+        // La carte-DÉCISION : ce n'est pas un signataire, d'où le fond différent.
+        if (!j.fige) {
+            var on = !!Number(j.mandataire_signe_pour_bailleur || 0);
+            html += '<button type="button" class="belsig-c mpb' + (on ? ' on' : '') + '" id="belSigMpbCard">'
+                  + '<span class="chk">' + (on ? '✅' : '☐') + '</span>'
+                  + '<div class="i">🖊️</div>'
+                  + '<div class="t">Le mandataire signe pour le bailleur</div>'
+                  + '<div class="n">Mandat de gestion — le propriétaire ne reçoit aucun lien.</div>'
+                  + '<div class="s" style="color:#8a6d1b;">'
+                  + (on ? 'Activé — le bailleur est écarté' : 'Cliquer pour activer') + '</div>'
+                  + '</button>';
+        }
+        g.innerHTML = html || '<div style="font-size:13px;color:#b45309;">Aucun signataire déterminé. '
+                            + 'Vérifie le preneur et le bailleur dans « Modifier le projet ».</div>';
+
+        var mpb = document.getElementById('belSigMpbCard');
+        if (mpb) mpb.addEventListener('click', function(){
+            belSigSauver({mandataire_signe_pour_bailleur: Number(j.mandataire_signe_pour_bailleur || 0) ? 0 : 1});
+        });
+        g.querySelectorAll('.belsig-c[data-sig]').forEach(function(c){
+            c.addEventListener('click', function(){
+                var sid = parseInt(c.getAttribute('data-sig'), 10);
+                var s = (belSigData.signataires || []).filter(function(x){ return x.id === sid; })[0];
+                if (!s) return;
+                belSigPanneau(s);
+            });
+        });
+    }
+
+    /* ── LE PANNEAU D'UN SIGNATAIRE ───────────────────────────────────────────
+       Ce que le BAIL a besoin de savoir d'une partie, pas ce qu'un annuaire en dit.
+
+       ⚠️🔥 UNE SOCIÉTÉ NE SIGNE PAS : c'est son représentant qui signe pour elle.
+       L'email d'une SARL est celui de l'entreprise — envoyer le lien de signature à
+       l'accueil d'une société, c'est perdre la preuve de QUI a signé. Pour une
+       personne morale, on saisit donc le représentant, et ce sont SES coordonnées
+       qui reçoivent le lien et le code.
+
+       Le nom et la qualité, eux, sont du TEXTE D'ACTE : ils s'impriment dans le bail
+       (« Représentée par Thomas SABY, Gérant »). D'où deux destinations distinctes,
+       gérées par l'API : `bien_baux` pour l'acte, `bail_signatures` pour l'envoi.
+
+       L'adresse, le SIREN, le reste de la fiche : bouton « Fiche complète », qui
+       ouvre le composant tiers commun — on ne recopie pas un annuaire ici. */
+    function belSigPanneau(s){
+        var box = document.getElementById('belSigInline');
+        var lock = s.fige;
+        var dis = lock ? ' disabled' : '';
+        var champ = function(id, val, ph, flex){
+            return '<input id="' + id + '" value="' + belEsc(val || '') + '" placeholder="' + ph + '"' + dis
+                 + ' style="flex:' + flex + ';min-width:150px;padding:7px 10px;border:1px solid #cbd5e1;'
+                 + 'border-radius:8px;font-size:13px;">';
+        };
+        var h = '<div style="margin-top:12px;padding:13px;border:1.5px solid #8a6d1b;border-radius:11px;background:#fffdf7;">'
+              + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+              + '<div style="font-size:13px;font-weight:800;color:#0f172a;">' + s.icone + ' ' + belEsc(s.label)
+              + ' <span style="font-weight:600;color:#64748b;">— ' + belEsc(s.nom || '') + '</span></div>';
+        if (s.id_tiers && s.fiche) {
+            h += '<button type="button" id="belSigFiche" style="border:1px solid #cbd5e1;background:#fff;color:#334155;'
+               + 'border-radius:8px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;">✏️ Fiche complète</button>';
+        }
+        h += '</div>';
+
+        if (s.morale && s.rep_cle) {
+            h += '<div style="font-size:11.5px;color:#8a6d1b;font-weight:700;margin:9px 0 6px;">'
+               + '🏛️ Personne morale — le <b>représentant</b> signe pour elle. Le lien et le code partent sur SES coordonnées.</div>'
+               + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:7px;">'
+               + champ('belRepNom', (s.rep||{}).nom, 'Nom du représentant', '2')
+               + champ('belRepQual', (s.rep||{}).qualite, 'Qualité (Gérant, Président…)', '1')
+               + '</div><div style="display:flex;gap:8px;flex-wrap:wrap;">'
+               + champ('belSigInEmail', (s.rep||{}).email || s.email, 'email du représentant', '2')
+               + champ('belSigInTel', (s.rep||{}).tel || s.tel, '06 12 34 56 78', '1')
+               + '</div>';
+        } else {
+            h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;">'
+               + champ('belSigInEmail', s.email, 'email@exemple.fr', '2')
+               + champ('belSigInTel', s.tel, '06 12 34 56 78', '1')
+               + '</div>';
+        }
+        h += lock
+           ? '<div style="font-size:11px;color:#94a3b8;margin-top:7px;">Le lien est déjà parti à ces coordonnées : '
+             + 'elles ne se réécrivent plus — c\'est la trace de ce qui a été adressé. La fiche, elle, reste corrigeable.</div>'
+           : '<div style="margin-top:9px;"><button type="button" id="belSigInSave" style="border:none;background:#8a6d1b;'
+             + 'color:#fff;border-radius:8px;padding:7px 16px;font-weight:800;cursor:pointer;">💾 Enregistrer ce signataire</button></div>';
+        /* ── RELANCER CETTE PERSONNE, SUR LE CANAL QU'ON CHOISIT ──────────────
+           Relancer une vague entière renvoie à tout le monde ; ici on s'adresse à
+           CELUI qui n'a pas répondu, par le canal qui a une chance de l'atteindre.
+           ⚠️ Le jeton n'est pas régénéré : c'est le même lien qu'à l'envoi initial,
+           donc une relance ne périme pas celui qu'il a peut-être déjà sous les yeux. */
+        if (s.statut !== 'signe') {
+            h += '<div style="margin-top:10px;padding-top:9px;border-top:1px dashed #e2e8f0;display:flex;gap:7px;flex-wrap:wrap;align-items:center;">'
+               + '<span style="font-size:11.5px;color:#64748b;font-weight:700;">Relancer :</span>'
+               + '<button type="button" class="belSigRel" data-canal="mail" style="border:1px solid #cbd5e1;background:#fff;'
+               + 'color:#334155;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;">📧 par mail</button>'
+               + '<button type="button" class="belSigRel" data-canal="sms" style="border:1px solid #cbd5e1;background:#fff;'
+               + 'color:#334155;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;">📱 par SMS</button>'
+               + '</div>';
+        }
+
+        /* ── LE SUIVI N'EST PAS ICI ───────────────────────────────────────────
+           Il a d'abord été posé dans ce panneau, et c'était le mauvais endroit :
+           il fallait ouvrir « Modifier le projet », puis cliquer une carte. Trois
+           clics pour un diagnostic, c'est un diagnostic qu'on ne consulte pas.
+           Arbitrage d'Emmanuel, 22/08 : « je ne veux plus rentrer dans le projet
+           de bail, la frise doit être en haut avec les boutons. »
+           Elle est donc rendue UNE SEULE FOIS, côté serveur, dans la bannière du
+           Bail 360° — même source (`bcer_suivi()`), un seul rendu à maintenir.
+           Ne pas la rajouter ici : deux rendus de la même chose finiraient par
+           dire deux choses différentes. */
+
+        h += '</div>';
+        box.innerHTML = h;
+
+        box.querySelectorAll('.belSigRel').forEach(function(b){
+            b.addEventListener('click', function(){
+                var canal = b.getAttribute('data-canal');
+                if (!confirm('Renvoyer le lien de signature à ' + (s.nom || s.label)
+                           + (canal === 'sms' ? ' par SMS ?' : ' par mail ?'))) return;
+                var lbl = b.textContent; b.disabled = true; b.textContent = '⏳…';
+                fetch(BELSIG_API, {method:'POST', credentials:'same-origin',
+                      headers:{'Content-Type':'application/json'},
+                      body: JSON.stringify({bail_id: belSigBailId, action:'relancer', id: s.id, canal: canal})})
+                  .then(function(r){ return r.text(); })
+                  .then(function(brut){
+                    b.disabled = false; b.textContent = lbl;
+                    var j = null; try { j = JSON.parse(brut); } catch(e){}
+                    if (!j)    { alert('❌ Réponse inattendue du serveur.'); return; }
+                    /* Succès comme échec sont NOMMÉS : une relance muette, on ne sait
+                       pas si elle est partie, et on reclique. */
+                    alert(j.ok ? '✅ ' + j.message : '❌ ' + (j.error || 'Échec de la relance'));
+                    if (j.ok) belSignatairesRecharger();
+                  })
+                  .catch(function(e){ b.disabled = false; b.textContent = lbl; alert('❌ Réseau : ' + e); });
+            });
+        });
+
+        var bf = document.getElementById('belSigFiche');
+        if (bf) bf.addEventListener('click', function(){
+            /* La fiche vient de l'API : la modale tiers est rendue VIDE, elle ne
+               connaît pas ces tiers-là tant qu'on ne les lui dépose pas. */
+            window.tiersEditSetFiche(s.id_tiers, s.fiche);
+            window.tiersEditOpen(s.id_tiers);
+        });
+        var bs = document.getElementById('belSigInSave');
+        if (bs) bs.addEventListener('click', function(){
+            var em = document.getElementById('belSigInEmail').value.trim();
+            var tl = document.getElementById('belSigInTel').value.trim();
+            var extra = {signataires: [{id: s.id, email: em, tel: tl}]};
+            if (s.morale && s.rep_cle) {
+                var r = {};
+                r[s.rep_cle] = {nom: document.getElementById('belRepNom').value.trim(),
+                                qualite: document.getElementById('belRepQual').value.trim(),
+                                email: em, tel: tl};
+                extra.representants = r;
+            }
+            belSigSauver(extra);
+        });
+    }
+
+    function belSigSauver(extra){
+        var m = document.getElementById('belSigMsg');
+        m.style.color = '#64748b'; m.textContent = '⏳ Enregistrement…';
+        var payload = {bail_id: belSigBailId, action: 'save',
+                       mandataire_signe_pour_bailleur: Number((belSigData||{}).mandataire_signe_pour_bailleur || 0),
+                       signataires: []};
+        Object.keys(extra || {}).forEach(function(k){ payload[k] = extra[k]; });
+        fetch(BELSIG_API, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify(payload)})
+          .then(function(r){ return r.text(); })
+          .then(function(brut){
+            var j = null; try { j = JSON.parse(brut); } catch(e){}
+            if (!j)     { m.textContent=''; alert('❌ Réponse inattendue du serveur.'); return; }
+            if (!j.ok)  { m.textContent=''; alert('❌ ' + (j.error || 'Échec')); return; }
+            belSigDirty = true; belSigRender(j);
+            // La page hôte est périmée (bannière, pastilles) : la fermeture rechargera.
+            if (typeof window.bailModalMarkSaved === 'function') window.bailModalMarkSaved();
+            m.style.color = '#15803d'; m.textContent = '✓ ' + (j.message || 'Enregistré.');
+          })
+          .catch(function(e){ m.textContent=''; alert('❌ Réseau : ' + e); });
+    }
+
+    // Rappelée par la modale tiers après enregistrement (opt. on_saved).
+    window.belSignatairesRecharger = function(){
+        fetch(BELSIG_API, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({bail_id: belSigBailId, action:'list'})})
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if (j && j.ok) { belSigDirty = true; belSigRender(j); } })
+          .catch(function(){});
+    };
+
+    /* Ouvrir cet atelier PRÉPARE la cérémonie : les lignes de signature sont créées
+       si elles n'existent pas. Légitime — on répond à un CLIC, pas au rendu passif
+       d'une page (la règle « un aperçu ne fait jamais de get_or_create » vise les
+       écrans qui se contentent de s'afficher). */
+    /* Peupler la grille des signataires DANS le modal de préparation du projet.
+       Appelée par `bailOpenEditModal()` — c'est un CLIC de l'utilisateur, donc créer
+       les lignes de signature manquantes ici est légitime (la règle « un aperçu ne
+       fait jamais de get_or_create » vise les pages qui se contentent de s'afficher). */
+    window.belSignatairesCharger = function(bailId){
+        var g = document.getElementById('belSigGrid');
+        if (!g) return;
+        belSigBailId = parseInt(bailId, 10) || 0;
+        if (belSigBailId <= 0) {
+            g.innerHTML = '<div style="font-size:12.5px;color:#64748b;">Les signataires apparaîtront ici dès que le projet aura été enregistré une première fois.</div>';
+            return;
+        }
+        g.innerHTML = '<div style="font-size:12.5px;color:#64748b;">⏳ Préparation des signataires…</div>';
+        document.getElementById('belSigMsg').textContent = '';
+        fetch(BELSIG_API, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({bail_id: belSigBailId, action:'list'})})
+          .then(function(r){ return r.text(); })
+          .then(function(brut){
+            var j = null; try { j = JSON.parse(brut); } catch(e){}
+            if (!j)    { g.innerHTML=''; alert('❌ Réponse inattendue du serveur (signataires).'); return; }
+            if (!j.ok) { g.innerHTML=''; alert('❌ ' + (j.error || 'Échec')); return; }
+            belSigRender(j);
+          })
+          .catch(function(e){ g.innerHTML=''; alert('❌ Réseau : ' + e); });
+    };
     // Annule l'envoi : invalide les liens de signature + repasse le bail en projet (nouvelle version).
     window.belCancelSend = function(bailId, btn){
         if(!confirm('Annuler l\'envoi pour signature ?\n\nLes liens de signature déjà envoyés seront INVALIDÉS (ils ne fonctionneront plus) et le bail repassera en projet. Tu pourras le modifier puis renvoyer une nouvelle version.')) return;
@@ -483,6 +1068,29 @@ if ($isProjetBail) {
           }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert('❌ Réseau : '+e); });
     };
     // Relance ciblée : renvoie l'email de demande de signature à UN signataire non signé.
+    /* ── RELANCE D'UN SIGNATAIRE, SUR LE CANAL CHOISI ─────────────────────────
+       S'adresse à UNE personne, par le canal qui a une chance de l'atteindre, sans
+       rien renvoyer aux autres. Passe par api/bail_signataires.php (action
+       'relancer'), qui refuse une signature déjà donnée et renvoie vers la carte du
+       signataire quand le canal demandé n'a pas de coordonnée. */
+    window.belRelanceCanal = function(sigId, canal, btn){
+        if(!confirm('Renvoyer le lien de signature ' + (canal === 'sms' ? 'par SMS' : 'par mail') + ' ?')) return;
+        var old = btn.textContent; btn.disabled = true; btn.textContent = '⏳…';
+        fetch('<?= h(app_url('/api/bail_signataires.php')) ?>', {method:'POST', credentials:'same-origin',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({bail_id: <?= (int)$bailId ?>, action:'relancer', id: sigId, canal: canal})})
+          .then(function(r){ return r.text(); })
+          .then(function(brut){
+            btn.disabled = false; btn.textContent = old;
+            var j = null; try { j = JSON.parse(brut); } catch(e){}
+            if (!j) { alert('❌ Réponse inattendue du serveur.'); return; }
+            // Succès comme échec sont NOMMÉS : une relance muette, on la reclique.
+            alert(j.ok ? '✅ ' + j.message : '❌ ' + (j.error || 'Échec de la relance'));
+            if (j.ok) location.reload();
+          })
+          .catch(function(e){ btn.disabled = false; btn.textContent = old; alert('❌ Réseau : ' + e); });
+    };
+    /* Conservée : d'autres écrans peuvent encore l'appeler (relance mail seule). */
     window.belRelance = function(bailId, sigId, btn){
         if(!confirm('Renvoyer l\'email de demande de signature à ce signataire ?')) return;
         var old=btn.textContent; btn.disabled=true; btn.textContent='⏳ Envoi…';
@@ -795,7 +1403,7 @@ if ($isProjetBail) {
         <canvas id="bel-sign-pad" style="width:100%;height:180px;border:2px dashed #b7cdcf;border-radius:10px;background:#fbfdfd;touch-action:none;cursor:crosshair;"></canvas>
         <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#3a5a5c;margin:12px 0;">
           <input type="checkbox" id="bel-sign-appr" style="margin-top:3px;transform:scale(1.2);">
-          <span>J'ai lu et j'approuve les termes de ce bail commercial. Ma signature vaut engagement.</span>
+          <span>J'ai lu et j'approuve les termes de ce <?= h(bt_libelle($bail)) ?>. Ma signature vaut engagement.</span>
         </label>
         <!-- Photo-preuve (optionnelle) : webcam PC ou caméra du téléphone -->
         <div style="border:1px dashed #cbd8da;border-radius:10px;padding:10px 12px;margin-bottom:12px;background:#fafcfc;">
@@ -831,7 +1439,7 @@ if ($isProjetBail) {
           <?php foreach ($belSignataires as $s): $sg = ($s['statut'] ?? '') === 'signe'; ?>
           <div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 10px;border-radius:8px;background:<?= $sg ? '#e7f6ec' : '#fbf3e6' ?>;">
             <span style="font-weight:800;color:<?= $sg ? '#15803d' : '#a26a1c' ?>;"><?= $sg ? '✓ signé' : '⏳ en attente' ?></span>
-            <span style="font-weight:700;color:#334155;"><?= h($belRoleLbl[$s['role_code']] ?? ucfirst((string)$s['role_code'])) ?></span>
+            <span style="font-weight:700;color:#334155;"><?= h($belRoleNom((string)$s['role_code'])) ?></span>
             <span style="color:#64748b;"><?= !empty($s['nom_signataire']) ? h($s['nom_signataire']) : '' ?></span>
           </div>
           <?php endforeach; ?>
@@ -858,6 +1466,24 @@ if ($resumeIa !== '') {
 fiche360_ia_bar('bail', $bailId, "Demander à l'IA sur ce bail (loyer, échéances, conformité, indexation…)");
 fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
 ?>
+<?php
+// Échéance légale du bail + date limite de congé (cf. inc/bail_echeance.php).
+require_once __DIR__ . '/inc/bail_echeance.php';
+$bechDuree = null;
+if (!empty($bail['date_fin']) && !empty($bail['date_prise_effet'])) {
+    try { $di=new DateTime((string)$bail['date_prise_effet']); $df=new DateTime((string)$bail['date_fin']); $iv=$di->diff($df); $yy=$iv->y+($iv->m>=6?1:0); if($yy>0)$bechDuree=$yy; } catch (Throwable $e) {}
+}
+$bech   = bail_echeance_legale((string)($bail['bail_nature'] ?? ''), (string)($bail['date_prise_effet'] ?? ''), $bechDuree);
+$bechFr = fn($d) => $d ? date('d/m/Y', strtotime((string)$d)) : '—';
+if ($bech['ok']): $bechStatut=['tacite_prolongation'=>'en tacite prolongation','tacite_reconduction'=>'en tacite reconduction','periode_initiale'=>'période initiale'][$bech['statut']]??'';
+?>
+<div style="margin:0 0 14px;padding:12px 16px;background:#fff7ed;border:1px solid #f0d9a8;border-left:4px solid #d4a047;border-radius:10px;font-size:13px;display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+  <span style="color:#7a5a1a;">📄 <strong><?= h(ucfirst($bech['regime'])) ?></strong> · terme <?= h($bechFr($bech['terme'])) ?><?php if($bech['depasse']): ?> · <span style="color:#b45309;font-weight:700;"><?= h($bechStatut) ?></span><?php endif; ?></span>
+  <span>🗓 <strong>Prochaine échéance : <?= h($bechFr($bech['echeance'])) ?></strong></span>
+  <span style="color:#b91c1c;">✉️ <strong>Congé au plus tard : <?= h($bechFr($bech['conge_avant'])) ?></strong></span>
+  <span style="color:#9a9690;font-size:11.5px;">préavis <?= (int)$bech['preavis_mois'] ?> mois</span>
+</div>
+<?php endif; ?>
 
 <div class="f360-grid">
 
@@ -918,7 +1544,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
             <div><div style="font-size:10px; color:#9a9690;">CHARGES</div><strong><?= number_format((float)$bail['charges_mensuelles'], 0, ',', ' ') ?> €/mois</strong></div>
             <div><div style="font-size:10px; color:#9a9690;">LOYER CC</div><strong><?= number_format((float)$bail['loyer_mensuel_hc'] + (float)$bail['charges_mensuelles'], 0, ',', ' ') ?> €/mois</strong></div>
             <div><div style="font-size:10px; color:#9a9690;">DÉPÔT DE GARANTIE</div><strong><?= number_format((float)$bail['depot_garantie'], 0, ',', ' ') ?> €</strong></div>
-            <div><div style="font-size:10px; color:#9a9690;">INDICE</div><strong><?= h($bail['indice_type'] ?? '—') ?> <?= h($bail['indice_trimestre'] ?? '') ?></strong></div>
+            <div><div style="font-size:10px; color:#9a9690;">INDICE</div><strong><?= h(bail_indice_label($bail) ?: '—') ?></strong></div>
             <div><div style="font-size:10px; color:#9a9690;">PÉRIODICITÉ</div><strong><?= h($bail['periodicite_paiement'] ?? 'mensuelle') ?></strong></div>
         </div>
     </div>
@@ -1130,8 +1756,7 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
         ['label' => 'Charges',            'value' => $eur($bail['charges_mensuelles'] ?? null)],
         ['label' => 'Loyer CC',           'value' => $eur($loyerCC ?: null)],
         ['label' => 'Dépôt de garantie',  'value' => $eur($bail['depot_garantie'] ?? null)],
-        ['label' => 'Indice',             'value' => trim((string)($bail['indice_type'] ?? '') . ' ' . (string)($bail['indice_trimestre'] ?? '')) ?: null],
-        ['label' => 'Valeur indice',      'value' => $bail['indice_valeur'] ?? null],
+        ['label' => 'Indice',             'value' => bail_indice_label($bail) ?: null],
         ['label' => 'Périodicité',        'value' => $bail['periodicite_paiement'] ?? null],
         ['section' => 'Bail'],
         ['label' => 'Nature',             'value' => $bail['bail_nature'] ?? null],
@@ -1247,12 +1872,20 @@ fiche360_status_banner($statusMsg, $statusColor, $statusIcon, $statusAlertes);
     // Locataire : sur un PROJET, le tiers promu (loc_tiers_id) n'existe pas encore → on pointe la
     // fiche du CANDIDAT (candidat_tiers_id). Corrige le lien qui renvoyait à l'accueil.
     $locTiersLink = (int)($bail['loc_tiers_id'] ?? 0) ?: (int)($bail['candidat_tiers_id'] ?? 0);
-    $contactsBail[] = [
-        'icon' => '🔑',
-        'name' => $locataireNom,
-        'ref'  => 'Locataire' . ($locTiersLink ? ' · tiers #' . $locTiersLink : ''),
-        'url'  => $locTiersLink ? app_url('/tiers_360.php?id=' . $locTiersLink) : '#',
-    ];
+    // Locataire(s) + caution(s) issus des TIERS (source unique) — co-titulaires inclus.
+    require_once __DIR__ . '/inc/entite_acteurs.php';
+    $bailBiz = function_exists('bail_acteurs_links') ? bail_acteurs_links($pdo, (int)$bailId) : [];
+    if ($bailBiz) {
+        $contactsBail = array_merge($contactsBail, $bailBiz);
+    } else {
+        // Repli : aucun tiers locataire encore créé → nom à plat.
+        $contactsBail[] = [
+            'icon' => '🔑',
+            'name' => $locataireNom,
+            'ref'  => 'Locataire' . ($locTiersLink ? ' · tiers #' . $locTiersLink : ''),
+            'url'  => $locTiersLink ? app_url('/tiers_360.php?id=' . $locTiersLink) : '#',
+        ];
+    }
     if (!empty($bail['locataire_representant_nom'])) {
         $contactsBail[] = [
             'icon' => '👥',
