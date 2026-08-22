@@ -504,6 +504,69 @@ if (!function_exists('bcer_prevol')) {
             $add('annexes', 'Annexes', 'warn', 'Contrôle impossible : ' . $e->getMessage());
         }
 
+        /* ── 7. LE CAUTIONNEMENT ────────────────────────────────────────────────
+           Deux contrôles que rien d'autre ne fait, et dont l'échec est silencieux
+           puis irréversible : un cautionnement mal formé est NUL (art. 2297) et on
+           ne s'en aperçoit qu'au contentieux, des années plus tard. */
+        try {
+            require_once __DIR__ . '/bail_cautions.php';
+            $cautions = function_exists('bail_cautions_list') ? bail_cautions_list($pdo, $idBail) : [];
+
+            if ($cautions) {
+                /* a) La colonne peut-elle SEULEMENT contenir la mention ?
+                   ⚠️🔥 `mention_manuscrite` est née en VARCHAR(255) (migration 20260724d),
+                   à l'époque où l'on y stockait « Bon pour caution solidaire ». La mention
+                   de l'art. 2297 mesure ~1 040 caractères : sur une colonne restée courte,
+                   MySQL la TRONQUE sans erreur (pas de mode STRICT) — l'acte serait amputé
+                   du montant, donc nul, et rien ne le dirait. La migration 20260815f la
+                   passe en TEXT ; on vérifie qu'elle a réellement PRIS, parce qu'un lot de
+                   migrations « du même jour » n'est pas joué en bloc (cf. `sms_envois`). */
+                $typ = null;
+                try {
+                    $st = $pdo->prepare("SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+                                           FROM information_schema.COLUMNS
+                                          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bail_signatures'
+                                            AND COLUMN_NAME = 'mention_manuscrite' LIMIT 1");
+                    $st->execute();
+                    $typ = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+                } catch (Throwable $e) { error_log('[bcer_prevol mention col] ' . $e->getMessage()); }
+
+                $cap = $typ ? (int)($typ['CHARACTER_MAXIMUM_LENGTH'] ?? 0) : 0;
+                if (!$typ) {
+                    $add('mention_col', 'Colonne de la mention', 'warn', 'Type non vérifiable.');
+                } elseif ($cap > 0 && $cap < 2000) {
+                    $add('mention_col', 'Colonne de la mention', 'ko',
+                        'mention_manuscrite = ' . strtoupper((string)$typ['DATA_TYPE']) . '(' . $cap . ') : la mention de '
+                        . 'l\'art. 2297 fait ~1 040 caractères et serait TRONQUÉE SANS ERREUR — le cautionnement serait nul. '
+                        . 'Rejouer la migration 20260815f_mention_2297_longueur.');
+                } else {
+                    $add('mention_col', 'Colonne de la mention', 'ok',
+                        strtoupper((string)$typ['DATA_TYPE']) . ' — la mention complète tient sans troncature.');
+                }
+
+                // b) La mention peut-elle être FORMÉE pour chacune ? (plafond, durée, débiteur nommé)
+                $bloq = []; $prets = 0; $avert = [];
+                foreach ($cautions as $c) {
+                    $nomC = trim((string)($c['nom_affichage'] ?? '')) ?: trim(((string)($c['prenom'] ?? '')) . ' ' . ((string)($c['nom'] ?? '')));
+                    $cx = bail_caution_mention_ctx($pdo, $idBail, (int)$c['id_tiers']);
+                    if (empty($cx['ok'])) { $bloq[] = ($nomC ?: 'caution #' . (int)$c['id_tiers']) . ' — ' . $cx['raison']; continue; }
+                    $prets++;
+                    if (!empty($cx['alerte'])) $avert[] = ($nomC ?: 'caution') . ' : ' . $cx['alerte'];
+                }
+                if ($bloq) {
+                    $add('caution', 'Engagement de caution', 'ko',
+                        'Mention de l\'art. 2297 impossible à former — ' . implode(' ; ', $bloq)
+                        . '. Sans montant chiffré l\'engagement serait nul : la page de signature refusera.');
+                } else {
+                    $add('caution', 'Engagement de caution', 'ok',
+                        $prets . ' caution(s), mention de l\'art. 2297 prête à être apposée.');
+                }
+                foreach ($avert as $a) $add('caution_alerte', 'Durée de l\'engagement', 'warn', $a);
+            }
+        } catch (Throwable $e) {
+            $add('caution', 'Engagement de caution', 'warn', 'Contrôle impossible : ' . $e->getMessage());
+        }
+
         $bloquants = 0; $alertes = 0;
         foreach ($points as $p) { if ($p['etat'] === 'ko') $bloquants++; elseif ($p['etat'] === 'warn') $alertes++; }
         return ['ok' => $bloquants === 0, 'bloquants' => $bloquants, 'alertes' => $alertes, 'points' => $points];
