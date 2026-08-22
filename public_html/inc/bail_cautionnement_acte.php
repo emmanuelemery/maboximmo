@@ -395,6 +395,19 @@ if (!function_exists('cautionnement_mention_requise')) {
     }
 }
 
+/* ── LES DEUX BORNES DU CAUTIONNEMENT (Emmanuel, 22/08/2026) ────────────────────────
+   Nommées ici plutôt que semées dans le code : ce sont des décisions, pas des détails
+   d'implémentation, et elles se relisent en une ligne.
+
+   · PLAFOND : 36 mois de loyer charges comprises, quelle que soit la nature du bail.
+   · DURÉE AFFICHÉE dans la mention : 9 ans maximum.
+     ⚠️🔥 Pourquoi 9 et non 18 en commercial, alors que 3/6/9 + renouvellement fait 18 :
+     le renouvellement d'un bail commercial donne naissance à un BAIL NOUVEAU, qui ÉTEINT
+     le cautionnement en l'absence de clause d'extension expresse (cf. article 6 de l'acte
+     commercial). Écrire 18 ans promettrait une couverture qui s'arrête juridiquement à 9. */
+if (!defined('CAUTION_PLAFOND_MOIS')) define('CAUTION_PLAFOND_MOIS', 36);
+if (!defined('CAUTION_DUREE_MAX_ANS')) define('CAUTION_DUREE_MAX_ANS', 9);
+
 if (!function_exists('cautionnement_plafond')) {
     /**
      * LE PLAFOND DE L'ENGAGEMENT — le chiffre sans lequel la mention 2297 ne peut pas exister.
@@ -403,12 +416,28 @@ if (!function_exists('cautionnement_plafond')) {
      * et en chiffres » : un cautionnement sans plafond chiffré est nul. Ce n'est donc pas un
      * confort d'affichage, c'est la condition de validité de l'acte.
      *
-     * ── LA RÈGLE (tranchée par Emmanuel le 15/08/2026) ──────────────────────────────
+     * ── LA RÈGLE (Emmanuel, 22/08/2026 — elle REMPLACE celle du 15/08) ──────────────
      * Assiette = le loyer **charges comprises** (habitation) ou **TTC** (commercial) : la
      * caution garantit ce que le locataire doit réellement, pas le seul loyer nu.
-     * Multiplié par la durée de l'engagement, majoré d'une marge d'indexation — un bail de
-     * 9 ans voit son loyer révisé chaque année, et un plafond calculé sur le loyer d'entrée
-     * serait dépassé avant la fin sans que le bailleur puisse s'en prévaloir.
+     * Plafonné à **36 mois**, et jamais plus que ce que l'engagement couvre réellement.
+     *
+     * ⚠️🔥 POURQUOI PAS « TOUTE LA DURÉE DU BAIL ». C'était la règle du 15/08, et mesurée
+     * sur le parc le 22/08 elle produisait des engagements de **1 720 170 €** en commercial
+     * et 248 400 € en habitation — soit 124 à 138 mois de loyer. Faire signer ça à une
+     * personne physique ne protège pas le bailleur, ça l'affaiblit :
+     *   · art. 2300 C. civ. — un cautionnement manifestement disproportionné aux revenus et
+     *     au patrimoine de la caution est RÉDUIT à ce qu'elle pouvait engager. Depuis la
+     *     réforme de 2021 ce n'est plus la nullité mais la réduction : le chiffre gonflé ne
+     *     rapporte rien, il se fait raboter, et il attire le contentieux ;
+     *   · art. 2299 — devoir de mise en garde du créancier professionnel, à défaut duquel
+     *     il est déchu de son droit contre la caution à hauteur du préjudice.
+     * 36 mois couvrent largement une procédure d'expulsion et ses délais, charges,
+     * réparations et indemnité d'occupation comprises. C'est un chiffre qu'une caution peut
+     * réellement être tenue d'honorer — donc qui tient devant un juge.
+     *
+     * ⚠️ Pas de marge d'indexation ajoutée par-dessus : 36 mois est déjà une borne haute de
+     * l'exposition réelle, la révision annuelle est absorbée dedans. Ajouter 15 % porterait
+     * le plafond à 41 mois, c'est-à-dire au-delà du nombre décidé.
      *
      * ⚠️ ARRONDI À L'ENTIER SUPÉRIEUR, en euros entiers. `cautionnement_mention_2297()`
      * dérive les deux écritures (lettres et chiffres) du même entier : c'est ce qui garantit
@@ -420,14 +449,17 @@ if (!function_exists('cautionnement_plafond')) {
      *
      * @param float $loyerToutCompris Loyer mensuel CC (habitation) ou TTC (commercial).
      * @param int   $dureeAns         Durée de l'engagement, en années.
-     * @param float $margePct         Marge d'indexation, en % (défaut 15 — calibré sur 9 ans).
+     * @param int   $maxMois          Borne haute, en mois (défaut CAUTION_PLAFOND_MOIS = 36).
      * @return float 0.0 si l'assiette ou la durée manquent : l'appelant DOIT alors refuser
      *               de présenter la mention plutôt que d'écrire « …… » dans un acte.
      */
-    function cautionnement_plafond(float $loyerToutCompris, int $dureeAns, float $margePct = 15.0): float
+    function cautionnement_plafond(float $loyerToutCompris, int $dureeAns, int $maxMois = CAUTION_PLAFOND_MOIS): float
     {
         if ($loyerToutCompris <= 0 || $dureeAns <= 0) return 0.0;
-        return (float)(int)ceil($loyerToutCompris * 12 * $dureeAns * (1 + $margePct / 100));
+        /* Jamais plus que ce que l'engagement couvre : sur un meublé d'un an garanti un an,
+           plafonner à 36 mois ferait garantir deux années qui n'existent pas. */
+        $mois = min(max(1, $maxMois), $dureeAns * 12);
+        return (float)(int)ceil($loyerToutCompris * $mois);
     }
 }
 

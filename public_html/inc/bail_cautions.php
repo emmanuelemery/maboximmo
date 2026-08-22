@@ -357,8 +357,13 @@ if (!function_exists('bail_caution_mention_ctx')) {
         $dureeAns = (int)($cau['duree_ans'] ?? 0);
         if ($dureeAns <= 0) $dureeAns = (int)ceil(((int)($b['duree_mois'] ?? 0)) / 12);
         if ($dureeAns <= 0) return $ko('la durée de l\'engagement n\'est pas renseignée');
+        /* ⚠️ Garde-fou : au-delà de 9 ans on écrirait dans l'acte une couverture qui
+           n'existe pas — en commercial le renouvellement crée un bail nouveau et éteint
+           le cautionnement sans clause d'extension expresse. Écrête aussi une saisie
+           aberrante (99 ans) avant qu'elle n'atteigne la mention. */
+        $dureeAns = min($dureeAns, CAUTION_DUREE_MAX_ANS);
 
-        // 3. Le plafond : saisi > calculé.
+        // 3. Le plafond : saisi > calculé. Le calcul est un défaut, jamais une décision.
         $saisi   = $cau['montant_max'] !== null && $cau['montant_max'] !== '' ? (float)$cau['montant_max'] : 0.0;
         $plafond = $saisi > 0 ? (float)(int)round($saisi) : cautionnement_plafond($loyerCC, $dureeAns);
         if ($plafond <= 0) return $ko('aucun plafond d\'engagement déterminable');
@@ -392,7 +397,10 @@ if (!function_exists('bail_caution_mention_ctx')) {
             'raison'         => '',
             'mention'        => cautionnement_mention_2297($natureM, $plafond, $ttc, $debiteur, cautionnement_duree_label($dureeAns)),
             'plafond'        => $plafond,
-            'source_plafond' => $saisi > 0 ? 'saisi' : 'calculé (' . number_format($loyerCC, 0, ',', ' ') . ' €/mois × ' . $dureeAns . ' ans + 15 %)',
+            'source_plafond' => $saisi > 0
+                ? 'saisi sur la fiche caution'
+                : 'calculé : ' . number_format($loyerCC, 0, ',', ' ') . ' €/mois CC × '
+                  . min(CAUTION_PLAFOND_MOIS, $dureeAns * 12) . ' mois',
         ];
     }
 }
