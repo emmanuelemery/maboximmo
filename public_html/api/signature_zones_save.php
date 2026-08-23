@@ -109,6 +109,16 @@ try {
     exit(json_encode(['ok'=>false,'error'=>'Enregistrement impossible : ' . $e->getMessage()], JSON_UNESCAPED_UNICODE));
 }
 
+/* ── UN DOCUMENT PRÉPARÉ SE VOIT ──────────────────────────────────────────────────
+   Poser des zones, c'est préparer un document pour la signature. Sans mention, il
+   redevient un fichier ordinaire dans la liste — et un document préparé puis oublié est
+   exactement le genre de chose qui dort des semaines sans que personne s'en aperçoive.
+   ⚠️ On ne redescend PAS l'état d'un document déjà signé : retirer toutes les zones d'un
+   acte signé ne le rend pas « à préparer ». */
+require_once dirname(__DIR__) . '/inc/signature_etat.php';
+$dejaSigne = (string)(sig_etat_lire($pdo, $docId)['etat'] ?? '') === 'signe';
+if (!$dejaSigne) sig_etat_marquer($pdo, $docId, ['etat' => $prop ? 'a_signer' : '']);
+
 /* On renvoie ce qui est RÉELLEMENT en base — bornage compris. Si une zone a été
    ramenée dans la page, l'écran doit le voir plutôt que d'afficher ce qu'il croyait. */
 $st = $pdo->prepare("SELECT id, page, x, y, w, h, type, role_code, libelle, obligatoire, ordre

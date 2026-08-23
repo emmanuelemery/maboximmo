@@ -48,8 +48,19 @@ if ($docId <= 0) {
     }
 }
 
+/* ── L'ÉTAT DE SIGNATURE, ET LA PIÈCE JUMELLE ────────────────────────────────────
+   Vierge et signé cohabitent en GED, avec presque le même nom. On dit donc lequel on a
+   sous les yeux, et on offre le passage vers l'autre — sinon il faut retourner le
+   chercher dans la liste, et c'est là qu'on envoie le mauvais. */
+require_once __DIR__ . '/inc/signature_etat.php';
+$etatSig = $docId > 0 ? sig_etat_lire($pdo, $docId) : ['etat' => ''];
+$badge   = sig_etat_badge($etatSig);
+$jumeau  = (int)($etatSig['doc_signe'] ?? 0) ?: (int)($etatSig['source'] ?? 0);
+$jumeauLbl = !empty($etatSig['doc_signe']) ? '✅ Voir la version signée' : '📄 Voir le document d\'origine';
+
 $urlDoc   = app_url('/api/ged_doc_serve.php?id=' . $docId);
 $urlZones = app_url('/signature_zones.php?doc=' . $docId . '&embed=1');
+$urlJumeau= $jumeau > 0 ? app_url('/ged_doc_view.php?id=' . $jumeau) : '';
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -85,6 +96,10 @@ $urlZones = app_url('/signature_zones.php?doc=' . $docId . '&embed=1');
   var URL_ZONES = <?= json_encode($urlZones) ?>;
   var EST_PDF   = <?= $estPdf ? 'true' : 'false' ?>;
   var NOM       = <?= json_encode($nom, JSON_UNESCAPED_UNICODE) ?>;
+  var BADGE     = <?= json_encode($badge, JSON_UNESCAPED_UNICODE) ?>;
+  var URL_JUM   = <?= json_encode($urlJumeau) ?>;
+  var JUM_LBL   = <?= json_encode($jumeauLbl, JSON_UNESCAPED_UNICODE) ?>;
+  var EST_SIGNE = <?= (($etatSig['etat'] ?? '') === 'signe') ? 'true' : 'false' ?>;
 
   /* ── LE MODULE SECONDAIRE ────────────────────────────────────────────────────
      Monté dans la page PARENTE quand elle est accessible : le modal occupe déjà
@@ -131,7 +146,17 @@ $urlZones = app_url('/signature_zones.php?doc=' . $docId . '&embed=1');
     }
     if (window.parent !== window && typeof window.parent.docModalSetActions === 'function') {
       var actions = [];
-      if (EST_PDF) {
+      /* Passer d'une pièce à l'autre : le bouton n'apparaît que si la jumelle existe. */
+      if (URL_JUM) actions.push({label: JUM_LBL, titre:'Ouvrir la pièce correspondante',
+                                 onclick: function(){ window.parent.location = URL_JUM; }});
+      /* ⚠️ On ne re-signe pas un acte déjà signé : ce serait apposer une signature sur
+         une pièce dont l'empreinte est déjà consignée dans ses propres justificatifs.
+         Il faut repartir de l'original. */
+      if (EST_PDF && EST_SIGNE) {
+        actions.push({label:'🔒 Déjà signé', titre:'Ce document est signé. Pour un nouvel acte, repartir du document d\'origine.',
+                      onclick: function(){ alert('Ce document est déjà signé — son empreinte est consignée dans ses justificatifs.\n\nPour produire un nouvel acte, repartez du document d\'origine.'); }});
+      }
+      if (EST_PDF && !EST_SIGNE) {
         /* ⚠️ Réservé aux PDF : on ne peut ni afficher ni annoter un .docx, et laisser
            poser des zones sur un document qu'on ne saura pas signer produirait un acte
            vide. Mieux vaut ne pas proposer le bouton que de le proposer en vain. */
@@ -156,8 +181,18 @@ $urlZones = app_url('/signature_zones.php?doc=' . $docId . '&embed=1');
                     + 'padding:10px 16px;font-family:Sora,system-ui,sans-serif;';
   var t = document.createElement('b');
   t.textContent = NOM;
-  t.style.cssText = 'font-size:15px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  t.style.cssText = 'font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52vw;';
   bar.appendChild(t);
+  // La mention « Signé / En cours / Préparé » se lit à côté du nom, pas dans un sous-menu.
+  if (BADGE) { var bg = document.createElement('span'); bg.innerHTML = BADGE; bar.appendChild(bg); }
+  var sp = document.createElement('span'); sp.style.flex = '1'; bar.appendChild(sp);
+  if (URL_JUM) {
+    var a = document.createElement('a');
+    a.href = URL_JUM; a.textContent = JUM_LBL;
+    a.style.cssText = 'color:#fff;background:#ffffff22;border-radius:8px;padding:7px 14px;font-size:13px;'
+                    + 'font-weight:800;text-decoration:none;white-space:nowrap;';
+    bar.appendChild(a);
+  }
 
   function bouton(txt, titre, fn){
     var b = document.createElement('button');

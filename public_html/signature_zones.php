@@ -133,6 +133,7 @@ $csrf   = csrf_token('signature_zones');
     width:9px;height:9px;border-radius:50%;background:#243B5C;border:2px solid #fff;}
   .sz-act{border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;}
   .sz-save{background:#15803d;color:#fff;}
+  .sz-signer{background:#d4a047;color:#3a2c07;}
   .sz-etat{font-size:12px;font-weight:700;}
   .sz-err{margin:40px auto;max-width:640px;background:#fff;border:1px solid #e0a3a0;border-left:5px solid #b5352e;
           border-radius:10px;padding:18px 22px;color:#8c2a24;font-size:14px;line-height:1.6;}
@@ -151,6 +152,10 @@ $csrf   = csrf_token('signature_zones');
   <span class="sp"></span>
   <span class="sz-etat" id="szEtat"></span>
   <button type="button" class="sz-act sz-save" id="szSave">💾 Enregistrer les zones</button>
+  <?php /* Signer vient APRÈS enregistrer, et enregistre d'abord : signer des zones qu'on
+           vient de déplacer sans les avoir sauvées produirait un acte qui ne correspond
+           pas à ce qu'on a sous les yeux. */ ?>
+  <button type="button" class="sz-act sz-signer" id="szSigner">✍️ Signer maintenant</button>
 </div>
 <?php endif; ?>
 
@@ -375,6 +380,54 @@ pdfjsLib.getDocument(<?= json_encode($pdfUrl) ?>).promise.then(function(pdf){
   document.getElementById('szPages').innerHTML =
     '<div class="sz-err">⛔ Le document n\'a pas pu être affiché : ' + String(e) + '</div>';
 });
+
+/* ── SIGNER : on enregistre D'ABORD, toujours ────────────────────────────────────
+   Signer des zones déplacées mais non sauvées produirait un acte qui ne ressemble pas
+   à ce qu'on a sous les yeux — et un acte, ça ne se rattrape pas. L'enchaînement est
+   donc imposé, pas laissé à la vigilance de l'utilisateur. */
+var URL_SIGNER = <?= json_encode(app_url('/api/signature_signer.php')) ?>;
+var btnSigner = document.getElementById('szSigner');
+if (btnSigner) btnSigner.addEventListener('click', function(){
+  if (!zones.length) { etat('Aucune zone posée.', '#ffb4ae'); return; }
+  if (!confirm('Signer ce document ?\n\nVotre signature enregistrée sera apposée dans les zones qui vous reviennent, '
+             + 'et une page de justificatifs sera jointe.\n\nLe document d\'origine n\'est pas modifié : le signé est classé en GED comme une pièce nouvelle.')) return;
+  var b = this, old = b.textContent; b.disabled = true; b.textContent = '⏳ Signature…';
+  enregistrer().then(function(ok){
+    if (!ok) { b.disabled = false; b.textContent = old; return; }
+    return fetch(URL_SIGNER, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
+      body: JSON.stringify({doc_id: DOC_ID})
+    }).then(function(r){ return r.text(); }).then(function(brut){
+      b.disabled = false; b.textContent = old;
+      var j = null; try { j = JSON.parse(brut); } catch(e){}
+      if (!j)    { etat('réponse inattendue du serveur', '#ffb4ae'); return; }
+      if (!j.ok) { etat(j.error || 'échec', '#ffb4ae'); alert('⛔ ' + (j.error || 'Signature impossible.')); return; }
+      etat('✅ signé', '#8ee7a8');
+      /* On OUVRE le résultat : l'agent doit voir ce qu'il vient de produire, pas
+         seulement lire qu'il l'a produit. */
+      if (confirm(j.message + '\n\nOuvrir le document signé ?')) window.open(j.url, '_blank');
+    });
+  }).catch(function(e){ b.disabled = false; b.textContent = old; etat('réseau : ' + e, '#ffb4ae'); });
+});
+
+/* Enregistrement des zones — extrait pour être réutilisable par « Signer ». */
+function enregistrer(){
+  return fetch(URL_SAVE, {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},   // ⚠️ en-tête : $_POST est vide sur un corps JSON
+    body: JSON.stringify({doc_id: DOC_ID, zones: zones.map(function(z){
+      return {page:z.page, x:z.x, y:z.y, w:z.w, h:z.h, type:z.type,
+              role_code:z.role_code, libelle:z.libelle, obligatoire:z.obligatoire};
+    })})
+  }).then(function(r){ return r.text(); }).then(function(brut){
+    var j = null; try { j = JSON.parse(brut); } catch(e){}
+    if (!j)    { etat('réponse inattendue du serveur', '#ffb4ae'); return false; }
+    if (!j.ok) { etat(j.error || 'échec', '#ffb4ae'); return false; }
+    etat('✅ ' + j.message, '#8ee7a8');
+    return true;
+  });
+}
 
 document.getElementById('szSave').addEventListener('click', function(){
   var btn = this, old = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Enregistrement…';
