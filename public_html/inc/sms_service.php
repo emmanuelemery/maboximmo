@@ -27,6 +27,59 @@ if (!defined('SMS_TYPES')) {
                          'DOCUMENT','SINISTRE','IMPAYE','AG','INTERVENTION','OTP']);
 }
 
+if (!function_exists('sms_numero_suspect')) {
+    /**
+     * CE NUMÉRO A-T-IL L'AIR INVENTÉ ? — retourne la raison, ou '' si rien à signaler.
+     *
+     * ⚠️🔥 Pourquoi. `sms_normaliser_numero()` ne vérifie que la FORME : 06/07 + 8 chiffres.
+     * « 0600000000 », « 0612345678 » et « 0611223344 » la passent tous les trois. Constaté
+     * le 23/08/2026 dans le journal des communications : un SMS de signature parti sur
+     * 0600000000 — accepté par l'opérateur, facturé, affiché « envoyé »… et reçu par
+     * personne. Le signataire n'a rien, et l'écran dit que tout va bien.
+     *
+     * ⚠️ SIGNALEMENT, JAMAIS BLOCAGE (décision d'Emmanuel, 23/08). Un vrai numéro peut
+     * théoriquement ressembler à ça, et la règle de la maison est « rien ne bloque, mais
+     * rien ne se tait ». On nomme le doute, l'agent tranche.
+     *
+     * ⚠️ On ne corrige rien non plus : ces numéros viennent des FICHES TIERS, et une
+     * réécriture automatique sur la table source serait pire que le mal.
+     *
+     * Fonction PURE : pas d'accès base, testable seule. Elle attend le numéro NATIONAL
+     * (0XXXXXXXXX) tel que rendu par `sms_normaliser_numero()`.
+     */
+    function sms_numero_suspect(?string $national): string
+    {
+        $n = preg_replace('/\D+/', '', (string)$national) ?? '';
+        if (strlen($n) !== 10) return '';
+        $d = substr($n, 2);                       // les 8 chiffres qui suivent 06 / 07
+
+        if (preg_match('/^(\d)\1{7}$/', $d)) return 'les 8 chiffres sont identiques';
+
+        // Suite strictement croissante ou décroissante : 12345678 / 87654321.
+        $croit = true; $decroit = true;
+        for ($i = 1; $i < 8; $i++) {
+            if ((int)$d[$i] !== (int)$d[$i - 1] + 1) $croit = false;
+            if ((int)$d[$i] !== (int)$d[$i - 1] - 1) $decroit = false;
+        }
+        if ($croit || $decroit) return 'les chiffres se suivent';
+
+        // Bloc de deux chiffres répété quatre fois : 12121212.
+        if (substr($d, 0, 2) === substr($d, 2, 2)
+            && substr($d, 0, 2) === substr($d, 4, 2)
+            && substr($d, 0, 2) === substr($d, 6, 2)) return 'le même bloc est répété';
+
+        /* Paires doublées ET qui se suivent : 11223344. Les deux conditions ensemble —
+           « 11224455 » resterait plausible, « 11223344 » ne l'est pas. */
+        if ($d[0] === $d[1] && $d[2] === $d[3] && $d[4] === $d[5] && $d[6] === $d[7]) {
+            $p = [(int)$d[0], (int)$d[2], (int)$d[4], (int)$d[6]];
+            $suite = true;
+            for ($i = 1; $i < 4; $i++) { if ($p[$i] !== $p[$i - 1] + 1) $suite = false; }
+            if ($suite) return 'les chiffres vont par paires qui se suivent';
+        }
+        return '';
+    }
+}
+
 if (!function_exists('sms_normaliser_numero')) {
     /**
      * Normalise un numéro français vers le format international attendu par OVH

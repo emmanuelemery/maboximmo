@@ -416,7 +416,7 @@ if (!function_exists('bcer_prevol')) {
             $add('signataires', 'Signataires', 'ko',
                 'Aucun signataire déterminé : vérifie le preneur et le bailleur dans « Modifier le projet ».');
         } else {
-            $muets = []; $sansMobile = []; $segTrop = [];
+            $muets = []; $sansMobile = []; $segTrop = []; $telFictif = [];
             foreach ($sigs as $s) {
                 $nom   = trim((string)($s['nom_signataire'] ?? '')) ?: ('rôle ' . (string)$s['role_code']);
                 $mail  = trim((string)($s['destinataire_email'] ?? ''));
@@ -426,6 +426,15 @@ if (!function_exists('bcer_prevol')) {
                 if ($tel !== '' && function_exists('sms_normaliser_numero')) {
                     $n = sms_normaliser_numero($tel);
                     $telOk = !empty($n['ok']);
+                    /* ⚠️ Un numéro peut être PARFAITEMENT valide de forme et n'exister
+                       chez personne : 0600000000 passe la normalisation, part chez OVH,
+                       est facturé, et s'affiche « envoyé ». Le signataire n'a rien reçu
+                       et rien ne le dit. On le signale — on ne bloque pas, on ne corrige
+                       pas la fiche tiers d'où il vient. */
+                    if ($telOk && function_exists('sms_numero_suspect')) {
+                        $sus = sms_numero_suspect((string)($n['national'] ?? ''));
+                        if ($sus !== '') $telFictif[] = $nom . ' (' . $tel . ' — ' . $sus . ')';
+                    }
                 }
                 /* Le seul VRAI blocage : ni mail ni mobile. Depuis le 19/08 le
                    mobile manquant ne bloque plus — mail et SMS portent le même
@@ -449,6 +458,11 @@ if (!function_exists('bcer_prevol')) {
                 $add('mobiles', 'Mobiles', 'warn',
                     'Sans mobile, donc mail seul : ' . implode(', ', $sansMobile)
                     . '. La preuve reposera sur le lien nominatif, l\'horodatage et l\'IP — pas sur la détention du téléphone.');
+            }
+            if ($telFictif) {
+                $add('tel_fictif', 'Mobile invraisemblable', 'warn',
+                    implode(' ; ', $telFictif) . '. Le SMS partira, sera facturé et s\'affichera « envoyé » — '
+                    . 'sans que personne ne le reçoive. À corriger sur la fiche du signataire avant d\'envoyer.');
             }
             if ($segTrop) {
                 $add('sms_budget', 'Budget SMS', 'warn', 'Message à plus d\'un segment (facturé double) : ' . implode(', ', $segTrop) . '.');
@@ -701,10 +715,19 @@ if (!function_exists('bcer_suivi')) {
             } elseif (isset($smsParSig[$id]['SIGNATURE'])) {
                 $r  = $smsParSig[$id]['SIGNATURE'];
                 $st2 = (string)($r['statut'] ?? '');
-                $etapes[] = $etape('sms', 'Invitation par SMS', $st2 === 'envoye' ? 'ok' : ($st2 === 'simule' ? 'simule' : 'ko'),
+                /* ⚠️ « Accepté par l'opérateur » n'est pas « reçu », et sur un numéro
+                   invraisemblable ça ne veut carrément rien dire : le SMS est facturé et
+                   personne ne l'a. On le dit ICI, à l'endroit où l'agent croirait que
+                   l'invitation est partie. */
+                $susTel = function_exists('sms_numero_suspect') ? sms_numero_suspect($tel) : '';
+                $etapes[] = $etape('sms', 'Invitation par SMS',
+                    $st2 === 'envoye' ? ($susTel !== '' ? 'warn' : 'ok') : ($st2 === 'simule' ? 'simule' : 'ko'),
                     (string)($r['sent_at'] ?: $r['created_at']),
-                    $st2 === 'envoye' ? 'Accepté par l\'opérateur (id ' . (string)$r['provider_message_id'] . ', '
-                                        . (int)$r['nb_segments'] . ' segment' . ((int)$r['nb_segments'] > 1 ? 's' : '') . ').'
+                    $st2 === 'envoye' ? ($susTel !== ''
+                        ? 'Accepté par l\'opérateur, mais ' . $tel . ' est invraisemblable (' . $susTel
+                          . ') : facturé, et probablement reçu par personne.'
+                        : 'Accepté par l\'opérateur (id ' . (string)$r['provider_message_id'] . ', '
+                          . (int)$r['nb_segments'] . ' segment' . ((int)$r['nb_segments'] > 1 ? 's' : '') . ').')
                         : ($st2 === 'simule' ? 'Vérification à blanc : rien n\'a été envoyé.'
                         : 'Refusé : ' . ((string)($r['error_message'] ?? '') ?: (string)$r['error_code'] ?: 'raison inconnue')));
             } else {
