@@ -97,7 +97,8 @@ foreach ($demandes as $d) {
         $bloques[] = ['role'=>$role, 'nom'=>$nom, 'raison'=>'création impossible']; continue;
     }
 
-    $url = bsig_build_url($token);
+    // ⚠️ La page des DOCUMENTS, pas celle du bail : cf. bsig_build_url().
+    $url = bsig_build_url($token, '/p/doc_signature.php');
     $okMail = false; $okSms = false; $errSms = null;
 
     if ($mailOk) {

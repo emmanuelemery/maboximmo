@@ -104,10 +104,17 @@ if (!function_exists('bsig_is_expired')) {
 }
 
 if (!function_exists('bsig_build_url')) {
-    function bsig_build_url(string $token): string {
+    /**
+     * @param string $page Page de signature visée. Le défaut reste celle du BAIL : les
+     *   dizaines d'appels existants ne changent pas de comportement.
+     *   ⚠️🔥 Un document de la GED doit passer '/p/doc_signature.php' — sans quoi le lien
+     *   mène à la page du bail, qui tenterait de reconstruire un acte inexistant et
+     *   afficherait un écran vide au signataire. Défaut trouvé avant le premier envoi.
+     */
+    function bsig_build_url(string $token, string $page = '/p/bail_signature.php'): string {
         $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
         $host   = $_SERVER['HTTP_HOST'] ?? 'maboximmo.fr';
-        $base   = function_exists('app_url') ? app_url('/p/bail_signature.php') : '/p/bail_signature.php';
+        $base   = function_exists('app_url') ? app_url($page) : $page;
         if (strpos($base, 'http') === 0) return $base . '?t=' . $token;
         return $scheme . '://' . $host . $base . '?t=' . $token;
     }
