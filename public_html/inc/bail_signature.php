@@ -116,6 +116,15 @@ if (!function_exists('bsig_build_url')) {
 if (!function_exists('bsig_get_by_token')) {
     function bsig_get_by_token(PDO $pdo, string $token): ?array {
         if (!preg_match('/^[a-f0-9]{32,128}$/i', $token)) return null;
+        /* ⚠️🔥 LEFT JOIN, ET NON JOIN. Deux raisons, l'une ancienne, l'autre nouvelle.
+           · Ancienne : un bail dont le BIEN a été supprimé rendait le jeton introuvable —
+             la page répondait « ce lien n'existe pas » à un signataire dont le lien était
+             parfaitement valable, et rien n'indiquait que le bien était la cause.
+           · Nouvelle : depuis 20260823c, une signature peut porter sur un DOCUMENT de la
+             GED et n'avoir aucun bail. Un INNER JOIN aurait rendu tous ces jetons morts
+             à la seconde où on les émet.
+           Les colonnes du bail sont alors NULL, et les appelants les traitent déjà comme
+           facultatives. */
         $st = $pdo->prepare("
             SELECT s.*, bb.numero_bail, bb.statut AS bail_statut, bb.id_bien,
                    bb.locataire_raison_sociale, bb.locataire_nom, bb.locataire_prenom,
@@ -123,8 +132,8 @@ if (!function_exists('bsig_get_by_token')) {
                    b.reference_bien, b.designation, b.adresse_1 AS bien_adresse,
                    b.code_postal AS bien_cp, b.ville AS bien_ville
               FROM bail_signatures s
-              JOIN bien_baux bb ON bb.id = s.id_bail
-              JOIN biens     b  ON b.id  = bb.id_bien
+              LEFT JOIN bien_baux bb ON bb.id = s.id_bail
+              LEFT JOIN biens     b  ON b.id  = bb.id_bien
              WHERE s.token = ? LIMIT 1");
         $st->execute([$token]);
         return $st->fetch(PDO::FETCH_ASSOC) ?: null;
