@@ -87,6 +87,15 @@ if (!function_exists('otp_emettre')) {
             'objet_type' => $objetType,
             'objet_id'   => $objetId,
             'dry_run'    => !empty($opts['dry_run']),
+            /* Ce qui ne sert qu'au journal métier, transmis par l'appelant : sous quel
+               dossier classer l'échange, qui a été joint, et à la demande de qui.
+               ⚠️ Le code part de la page PUBLIQUE de signature : aucun utilisateur en
+               session, donc l'écran affichait « — automate ». Ce n'était pas un robot,
+               c'était le signataire qui venait de demander son code. */
+            'journal_objet_type' => (string)($opts['journal_objet_type'] ?? ''),
+            'journal_objet_id'   => (int)($opts['journal_objet_id'] ?? 0),
+            'destinataire_nom'   => (string)($opts['destinataire_nom'] ?? ''),
+            'journal_expediteur' => (string)($opts['journal_expediteur'] ?? ''),
         ]);
         if (empty($sms['ok'])) {
             return ['ok'=>false, 'error'=>$sms['error'] ?? "L'envoi du SMS a échoué."];

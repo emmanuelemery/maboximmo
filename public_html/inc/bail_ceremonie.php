@@ -169,10 +169,17 @@ if (!function_exists('bcer_sms_invitation')) {
         $res = sms_envoyer($pdo, $tel, $msg, [
             'type'       => 'SIGNATURE',
             'id_societe' => (int)($ctx['id_societe'] ?? 0),
+            // Trace TECHNIQUE : la ligne de signature — c'est par là que bcer_suivi() la retrouve.
             'objet_type' => 'BAIL_SIGNATURE',
             'objet_id'   => (int)$sig['id'],
             'id_tiers'   => (int)($sig['id_tiers'] ?? 0) ?: null,
             'dry_run'    => $dryRun,
+            /* Journal MÉTIER : le dossier que l'utilisateur a en tête, c'est le BAIL.
+               Sans ça, les SMS se classaient sous « BAIL_SIGNATURE #18 » et les mails
+               sous « BAIL #660 » — la conversation d'un bail était coupée en deux. */
+            'journal_objet_type' => 'BAIL',
+            'journal_objet_id'   => (int)($sig['id_bail'] ?? 0),
+            'destinataire_nom'   => trim((string)($sig['nom_signataire'] ?? '')),
         ]);
         if (!empty($res['ok'])) {
             try {

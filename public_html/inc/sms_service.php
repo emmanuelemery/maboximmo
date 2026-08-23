@@ -170,8 +170,21 @@ if (!function_exists('comm_log_sms')) {
     function comm_log_sms(string $numero, string $messageJournal, string $type,
                           string $statut, ?string $erreur, ?string $objetType,
                           ?int $objetId, int $idSociete, ?int $idTiers,
-                          string $refTechnique, string $sender): void
+                          string $refTechnique, string $sender, array $journal = []): void
     {
+        /* ── LE JOURNAL NE CLASSE PAS COMME LA TECHNIQUE ─────────────────────────
+           ⚠️🔥 `sms_envois` doit pointer l'objet TECHNIQUE — la ligne de signature —
+           parce que c'est par là que `bcer_suivi()` retrouve le SMS d'un signataire.
+           Mais le JOURNAL métier, lui, doit classer sous le dossier que l'utilisateur
+           a en tête : le BAIL. Sans cette distinction, les SMS d'une cérémonie
+           tombaient sous « BAIL_SIGNATURE #18 » et les mails sous « BAIL #660 » :
+           filtrer sur le bail ne montrait que la moitié de la conversation, ce que
+           le journal unifié est précisément censé éviter. Constaté le 23/08/2026.
+           `journal[objet_*]` l'emporte donc ici, et seulement ici. */
+        if (!empty($journal['objet_type'])) {
+            $objetType = (string)$journal['objet_type'];
+            $objetId   = (int)($journal['objet_id'] ?? 0) ?: null;
+        }
         try {
             $f = __DIR__ . '/communications.php';
             if (!is_file($f)) return;
@@ -189,7 +202,14 @@ if (!function_exists('comm_log_sms')) {
                 'id_societe'    => $idSociete,
                 'id_tiers'      => $idTiers,
                 'ref_technique' => 'sms_envois#' . $refTechnique,
-                'expediteur'    => $sender,
+                /* ⚠️ « — automate » n'est pas la vérité. L'écran affiche ce libellé dès
+                   qu'il n'y a pas d'utilisateur en session — or le code SMS part de la
+                   PAGE PUBLIQUE de signature : personne n'est connecté, mais ce n'est pas
+                   un robot pour autant, c'est le signataire qui vient de le demander.
+                   L'appelant peut donc nommer l'origine ; à défaut, le sender OVH. */
+                'expediteur'    => trim((string)($journal['expediteur'] ?? '')) ?: $sender,
+                // Un numéro seul n'apprend rien : on journalise QUI on a joint.
+                'destinataire_nom' => (string)($journal['destinataire_nom'] ?? ''),
             ]);
         } catch (Throwable $e) { error_log('[comm_log_sms] ' . $e->getMessage()); }
     }
@@ -214,6 +234,15 @@ if (!function_exists('sms_envoyer')) {
         $idTiers    = isset($opts['id_tiers']) ? (int)$opts['id_tiers'] : null;
         $objetType  = trim((string)($opts['objet_type'] ?? '')) ?: null;
         $objetId    = isset($opts['objet_id']) ? (int)$opts['objet_id'] : null;
+        /* Ce qui ne concerne QUE le journal métier : le dossier sous lequel classer
+           l'échange (souvent le BAIL, alors que la trace technique pointe la ligne de
+           signature), le nom du destinataire, et l'origine de l'envoi. */
+        $journalMeta = [
+            'objet_type'       => trim((string)($opts['journal_objet_type'] ?? '')) ?: null,
+            'objet_id'         => isset($opts['journal_objet_id']) ? (int)$opts['journal_objet_id'] : null,
+            'destinataire_nom' => trim((string)($opts['destinataire_nom'] ?? '')),
+            'expediteur'       => trim((string)($opts['journal_expediteur'] ?? '')),
+        ];
         $dryRun     = !empty($opts['dry_run']);
 
         $message = trim($message);
@@ -332,7 +361,7 @@ if (!function_exists('sms_envoyer')) {
                               SET statut='envoye', provider_message_id=?, credit_restant=?, sent_at=NOW()
                             WHERE id=?")
                 ->execute([$rep['provider_message_id'], $rep['credit_restant'], $idEnvoi]);
-            comm_log_sms($num['numero'], $messageJournal, $type, 'envoye', null, $objetType, $objetId, $idSociete, $idTiers, (string)$idEnvoi, (string)$conf['sender']);
+            comm_log_sms($num['numero'], $messageJournal, $type, 'envoye', null, $objetType, $objetId, $idSociete, $idTiers, (string)$idEnvoi, (string)$conf['sender'], $journalMeta);
             return ['ok'=>true,'id'=>$idEnvoi,'statut'=>'envoye','telephone'=>$num['numero'],
                     'provider_message_id'=>$rep['provider_message_id'],'segments'=>$m['segments'],'error'=>null];
         }
@@ -341,7 +370,7 @@ if (!function_exists('sms_envoyer')) {
             ->execute([$rep['error_code'], mb_substr((string)$rep['error_message'], 0, 255), $idEnvoi]);
         comm_log_sms($num['numero'], $messageJournal, $type, 'echec',
                      (string)($rep['error_message'] ?? ''), $objetType, $objetId,
-                     $idSociete, $idTiers, (string)$idEnvoi, (string)$conf['sender']);
+                     $idSociete, $idTiers, (string)$idEnvoi, (string)$conf['sender'], $journalMeta);
         return ['ok'=>false,'id'=>$idEnvoi,'statut'=>'echec','telephone'=>$num['numero'],
                 'provider_message_id'=>null,'segments'=>$m['segments'],
                 'error'=>(string)($rep['error_message'] ?? 'Échec de l\'envoi.')];

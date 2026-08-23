@@ -204,6 +204,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'otp_send' && $otpRequi
         'telephone'  => $telSig,
         'id_societe' => (int)($ctxOtp['id_societe'] ?? 0),
         'libelle'    => (string)($ctxOtp['nom_bail'] ?? 'votre bail'),
+        /* Le journal doit rattacher ce code au BAIL — pas à la ligne de signature —
+           et dire QUI l'a demandé. Sans session ici (page publique), l'écran des
+           communications affichait « — automate » : faux, c'est la personne qui
+           vient d'ouvrir son lien. */
+        'journal_objet_type' => 'BAIL',
+        'journal_objet_id'   => (int)$sig['id_bail'],
+        'destinataire_nom'   => trim((string)($sig['nom_signataire'] ?? '')),
+        'journal_expediteur' => 'demandé par le signataire',
     ]);
     if (!empty($env['ok'])) {
         $otpFlash = ['ok' => true, 'msg' => 'Code envoyé au ' . ($env['telephone_masque'] ?? otp_masquer_numero($telSig)) . '.'];
