@@ -1,0 +1,121 @@
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+   INTÉGRATION CRG — feuille de style du module.
+
+   ⚠️ TOUT EST PRÉFIXÉ `.crgi-`. La page vit dans le layout MBI : une règle non préfixée
+      déborderait sur la sidebar et la topbar, et le défaut ne se verrait que sur une autre
+      page, des semaines plus tard.
+
+   ⚠️ LA COULEUR NE PORTE JAMAIS SEULE UNE INFORMATION. Chaque pastille est doublée d'un mot :
+      un écran de contrôle doit rester lisible en noir et blanc, et pour qui distingue mal
+      le rouge du vert.
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+
+.crgi { --crgi-navy:#243B5C; --crgi-or:#D4A047; --crgi-trait:#e3e8ef; --crgi-doux:#f6f8fb;
+        --crgi-vert:#2f7d5d; --crgi-ambre:#b7791f; --crgi-rouge:#b3261e; --crgi-gris:#5b6b82;
+        font-size:14px; color:var(--crgi-navy); }
+
+.crgi .crgi-carte { background:#fff; border:1px solid var(--crgi-trait); border-radius:10px;
+                    padding:18px 20px; margin-bottom:18px; }
+.crgi h2 { font-size:15px; margin:0 0 4px; letter-spacing:.2px; }
+.crgi .crgi-sous { color:var(--crgi-gris); font-size:13px; margin:0 0 14px; line-height:1.55; }
+.crgi .crgi-muet { color:var(--crgi-gris); }
+
+/* ── Le parcours des six phases ──────────────────────────────────────────────────────── */
+.crgi-frise { display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 18px; }
+.crgi-etape { flex:1 1 150px; border:1px solid var(--crgi-trait); border-radius:8px;
+              padding:10px 12px; background:var(--crgi-doux); }
+.crgi-etape.on { border-color:var(--crgi-or); background:#fffdf6; }
+.crgi-etape .n { font-size:11px; font-weight:700; color:var(--crgi-gris); letter-spacing:.6px; }
+.crgi-etape .t { font-size:12.5px; font-weight:600; margin:2px 0 6px; line-height:1.3; }
+
+/* ── Pastilles d'état : couleur + mot, jamais la couleur seule ───────────────────────── */
+.crgi-p { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11.5px;
+          font-weight:700; letter-spacing:.3px; white-space:nowrap; }
+.crgi-p.attente { background:#eef1f5; color:var(--crgi-gris); }
+.crgi-p.analyse { background:#e8f0fb; color:#1e4f8f; }
+.crgi-p.avalider { background:#fdf3e0; color:var(--crgi-ambre); }
+.crgi-p.validee  { background:#e7f4ee; color:var(--crgi-vert); }
+.crgi-p.bloquee  { background:#fdeceb; color:var(--crgi-rouge); }
+.crgi-p.annule   { background:#eef1f5; color:var(--crgi-gris); text-decoration:line-through; }
+
+.crgi-cert.CERTAIN        { color:var(--crgi-vert); font-weight:700; }
+.crgi-cert.PROBABLE       { color:var(--crgi-ambre); font-weight:700; }
+.crgi-cert.INDETERMINABLE { color:var(--crgi-rouge); font-weight:700; }
+
+/* ── Tableaux : des chiffres qui s'alignent ──────────────────────────────────────────── */
+.crgi table { width:100%; border-collapse:collapse; font-size:13px; }
+.crgi th { text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.5px;
+           color:var(--crgi-gris); border-bottom:1px solid var(--crgi-trait); padding:7px 8px; }
+.crgi td { padding:7px 8px; border-bottom:1px solid #f0f3f7; vertical-align:top; }
+.crgi tr:hover td { background:var(--crgi-doux); }
+.crgi .num { text-align:right; font-variant-numeric:tabular-nums; }
+.crgi .crgi-defile { overflow-x:auto; }
+
+/* ── Le bilan de contrôle : ce qui doit retomber juste ───────────────────────────────── */
+.crgi-bilan { display:flex; gap:10px; flex-wrap:wrap; margin:2px 0 14px; }
+.crgi-bilan div { flex:1 1 140px; border:1px solid var(--crgi-trait); border-radius:8px;
+                  padding:10px 12px; background:#fff; }
+.crgi-bilan .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+.crgi-bilan .l { font-size:11.5px; color:var(--crgi-gris); line-height:1.35; }
+.crgi-bilan .ok   .v { color:var(--crgi-vert); }
+.crgi-bilan .mal  .v { color:var(--crgi-rouge); }
+.crgi-bilan .mal { border-color:#f3c9c6; background:#fffafa; }
+
+/* ── Boutons ─────────────────────────────────────────────────────────────────────────── */
+.crgi-b { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--crgi-navy);
+          background:var(--crgi-navy); color:#fff; border-radius:7px; padding:8px 14px;
+          font-size:13px; font-weight:600; cursor:pointer; }
+.crgi-b:hover { filter:brightness(1.12); }
+.crgi-b.or { background:var(--crgi-or); border-color:var(--crgi-or); color:#3a2c07; }
+.crgi-b.creux { background:#fff; color:var(--crgi-navy); }
+.crgi-b.danger { background:#fff; color:var(--crgi-rouge); border-color:#e6b6b2; }
+.crgi-b[disabled] { opacity:.45; cursor:not-allowed; filter:none; }
+
+.crgi input[type=text], .crgi input[type=file] { border:1px solid var(--crgi-trait);
+          border-radius:7px; padding:8px 10px; font-size:13px; width:100%; max-width:520px; }
+.crgi .crgi-ligne { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+
+/* ── Barre de progression du dépôt ───────────────────────────────────────────────────── */
+.crgi-jauge { height:10px; background:#e6ebf1; border-radius:6px; overflow:hidden;
+              max-width:520px; margin:8px 0; }
+.crgi-jauge > i { display:block; height:100%; width:0; background:var(--crgi-or);
+                  transition:width .2s; }
+.crgi-journal { font-family:ui-monospace,'Cascadia Code',monospace; font-size:12px;
+                line-height:1.6; max-height:220px; overflow:auto; background:var(--crgi-doux);
+                border:1px solid var(--crgi-trait); border-radius:8px; padding:10px 12px; }
+
+/* ── Encart d'avertissement ──────────────────────────────────────────────────────────── */
+.crgi-note { border-left:3px solid var(--crgi-or); background:#fffdf6; padding:10px 14px;
+             border-radius:0 8px 8px 0; font-size:12.5px; line-height:1.6; margin:12px 0; }
+.crgi-note.rouge { border-left-color:var(--crgi-rouge); background:#fffafa; }
+
+/* ── Champs de formulaire : un label, un champ, une phrase d'aide ────────────────────────
+   ⚠️ LE PREMIER JET ALIGNAIT TOUT SUR UNE LIGNE. Sur un écran réel, le libellé se réduisait
+      à un champ de 250 px sans étiquette, et le bouton se collait au sélecteur de fichier :
+      lisible pour qui a écrit la page, illisible pour qui l'utilise. */
+.crgi-champ { margin:0 0 18px; max-width:720px; }
+.crgi-champ label { display:block; font-size:12px; font-weight:700; letter-spacing:.5px;
+                    text-transform:uppercase; color:var(--crgi-gris); margin:0 0 6px; }
+.crgi-champ input[type=text] { width:100%; max-width:720px; }
+.crgi-champ input[type=file] { width:100%; max-width:720px; background:var(--crgi-doux);
+                    padding:14px; border-style:dashed; cursor:pointer; }
+.crgi-champ input[type=file]:hover { border-color:var(--crgi-or); background:#fffdf6; }
+.crgi-aide { display:block; font-size:12.5px; color:var(--crgi-gris); line-height:1.55;
+             margin-top:6px; max-width:720px; }
+.crgi-aide code { background:var(--crgi-doux); border:1px solid var(--crgi-trait);
+                  border-radius:4px; padding:1px 5px; font-size:11.5px; }
+
+.crgi-actions { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+                margin:16px 0 0; padding-top:16px; border-top:1px solid var(--crgi-trait); }
+
+.crgi-repli { margin-top:20px; border-top:1px solid var(--crgi-trait); padding-top:14px; }
+.crgi-repli > summary { cursor:pointer; font-size:12.5px; font-weight:600;
+                        color:var(--crgi-gris); list-style:none; }
+.crgi-repli > summary::before { content:'▸ '; }
+.crgi-repli[open] > summary::before { content:'▾ '; }
+.crgi-repli > summary:hover { color:var(--crgi-navy); }
+
+/* ── Le titre de la page ─────────────────────────────────────────────────────────────────
+   ⚠️ PAS DE TITRE DOUBLÉ : la topbar MBI affiche déjà « Intégration CRG ». Le premier
+      élément de la page est donc une carte, jamais un <h1> qui répéterait la topbar. */
+.crgi > .crgi-carte:first-child { margin-top:4px; }

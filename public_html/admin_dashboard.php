@@ -483,6 +483,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
             <span class="line-r" style="background:linear-gradient(90deg,#4a8074,#5fa090,transparent)"></span>
         </div>
         <div class="cards-grid">
+            <a href="admin/admin_crg_integration.php" class="adm-card" style="border-left-color:#D4A047">
+                <div class="adm-card-ico" style="background:rgba(212,160,71,0.12)">
+                    <svg viewBox="0 0 24 24" stroke="#D4A047"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="18" x2="13" y2="18"/></svg>
+                </div>
+                <div class="adm-card-label">Intégration CRG — dépôt et validation</div>
+                <div class="adm-card-desc">Déposer un CRG, un dossier, ou un seul PDF de plusieurs centaines de pages mêlant plusieurs agences et plusieurs mois. Le moteur reconstruit les CRG logiques, et rien n'est écrit dans MBI avant validation phase par phase. Import annulable à tout moment.</div>
+                <div class="adm-card-arrow" style="color:#D4A047">Déposer →</div>
+            </a>
             <a href="admin/admin_crg_batch.php" class="adm-card" style="border-left-color:#4a8074">
                 <div class="adm-card-ico" style="background:rgba(74,128,116,0.1)">
                     <svg viewBox="0 0 24 24" stroke="#4a8074"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -490,6 +498,14 @@ try { $lastUsers  = $pdo->query("SELECT prenom, nom, date_creation FROM users OR
                 <div class="adm-card-label">Import CRG en masse</div>
                 <div class="adm-card-desc">Charger tout un dossier de comptes-rendus de gestion (PDF) : propriétaires, immeubles, baux, soldes locataires mis à jour automatiquement.</div>
                 <div class="adm-card-arrow" style="color:#4a8074">Importer →</div>
+            </a>
+            <a href="admin/admin_crg_validation.php" class="adm-card" style="border-left-color:#4a8074">
+                <div class="adm-card-ico" style="background:rgba(74,128,116,0.1)">
+                    <svg viewBox="0 0 24 24" stroke="#4a8074"><path d="M12 3v18"/><path d="M3 7h18"/><path d="M6 7l-3 7a3 3 0 006 0z"/><path d="M18 7l-3 7a3 3 0 006 0z"/></svg>
+                </div>
+                <div class="adm-card-label">Validation des rapprochements CRG</div>
+                <div class="adm-card-desc">Arbitrer ce que MBI a conclu de ce que le CRG affirme : confirmer les rapprochements probables, trancher les ambigus, écarter ceux dont la cible a disparu.</div>
+                <div class="adm-card-arrow" style="color:#4a8074">Arbitrer →</div>
             </a>
             <a href="bailleur_admin_comptes.php" class="adm-card" style="border-left-color:#4a8074">
                 <div class="adm-card-ico" style="background:rgba(74,128,116,0.1)">

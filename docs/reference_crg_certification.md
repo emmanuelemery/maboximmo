@@ -27,6 +27,7 @@ après la phrase « Emmanuel valide la Phase X ». Tant qu'elle n'est pas pronon
 | **P8A — FLUX PROPRIÉTAIRE** | ce qui circule entre la régie et le propriétaire | 🟢 **CERTIFIÉE / FIGÉE** — 31/08/2026 |
 | **P8B — COMPTABILITÉ / SOLDE** | la situation du compte mandant, telle que le CRG la démontre | 🟢 **CERTIFIÉE / FIGÉE** — 01/09/2026 |
 | **P9 — RENTABILITÉ / ANALYTIQUE** | ce que les données certifiées permettent de mesurer sur la performance, et à quelle maille | 🟢 **CERTIFIÉE / FIGÉE** — 01/09/2026 |
+| **MODULE D'INTÉGRATION** | lire un dépôt réel et le confronter à MBI, sans rien y écrire | 🟠 **EN CONSTRUCTION** — phases 0 à 2 livrées le 01/09/2026 |
 | **P10** | à ouvrir | ⬜ non commencée |
 
 Chaque règle porte son origine (`P1-GED-…`, `P2-PROP-…`) : on doit toujours savoir **quand et
@@ -1302,6 +1303,61 @@ plusieurs comptes** — consolidés sous une identité démontrée, jamais fusio
 
 ## Preuve reproductible
 
+---
+
+# MODULE D'INTÉGRATION CRG — RÈGLES ÉPROUVÉES SUR CORPUS RÉEL 🟠 EN CONSTRUCTION
+
+**Ouvert le 01/09/2026.** Ces règles ne viennent pas du banc de certification : elles ont été
+**arrachées à un document réel** — 906 pages, VIENNE, avril à juillet 2026, déposé par Emmanuel
+depuis la page d'administration. Chacune corrige un défaut qui s'est produit.
+
+⚠️ **CE BLOC NE CERTIFIE AUCUN MONTANT.** Il régit la LECTURE d'un dépôt et sa CONFRONTATION à
+MBI. Les phases P1→P9 restent la seule autorité sur ce que les CRG démontrent.
+
+## Les règles
+
+| Réf. | Règle | Statut |
+|---|---|---|
+| **INTEG-LIRE-01** | **UN DOCUMENT SANS COUCHE TEXTE N'EST PAS UN DOCUMENT SANS CRG.** Le dépôt réel était un « Microsoft: Print To PDF » : 906 pages d'images, **zéro caractère**. Le moteur a rendu « 0 CRG détecté » — un résultat rassurant pour une panne totale de lecture, exactement ce que `FAIL CLOSED` interdit depuis P7. Une lecture impossible se **déclare** : pièce `ILLISIBLE`, phase `BLOQUÉE`, cause écrite. | ÉPROUVÉE |
+| **INTEG-LIRE-02** | **L'OUTIL DE LECTURE DÉCIDE SI LA PAGE EST EXPLOITABLE EN LIGNE.** Mesuré sur 914 pages : pdfplumber **360 s**, pypdf **177 s**, `pdftotext -layout` **13 s**. Et pour un PDF image, l'OCR d'une **bande d'en-tête** suffit à la phase 0 : **0,65 s/page**, soit ~10 min pour 906 pages au lieu de plusieurs heures. | ÉPROUVÉE |
+| **INTEG-LIRE-03** | **L'OCR SOUDE LES MOTS ET APLATIT LES COLONNES.** Le bandeau de suite s'imprime « Page 2 » et s'océrise « **Page2** » : exiger l'espace a laissé **222 pages de suite orphelines**. Et « Agence : A3 - REGIE EMERY - VIENNE » se retrouve collé au nom du propriétaire ou à son code postal, d'où **53 libellés d'agence** pour une seule agence. On coupe sur la casse **et** sur le code postal. | ÉPROUVÉE |
+| **INTEG-DECOUPE-01** | **C'EST LA RUPTURE QUI OUVRE UN CRG, PAS L'EN-TÊTE.** L'en-tête se répète : chez `septeo_spi` sur **chaque page** du même compte rendu (pages 443, 445, 447 pour un seul CRG), chez `lyon` sur toutes ses pages de garde. Le prendre pour un début a fabriqué **550 CRG là où il y en a 325**. Un en-tête qui répète le même compte ET la même période est une suite. | ÉPROUVÉE |
+| **INTEG-DECOUPE-02** | **« CARTE PROFESSIONNELLE » N'IDENTIFIE AUCUNE AGENCE.** Toute agence immobilière française l'imprime en pied de page : s'en servir comme signal d'en-tête a fabriqué **222 faux débuts** à partir des pieds de page VIENNE. Le marqueur de la famille `lyon` est « **COMPTE PERSONNEL** nnnnnnnn ». | ÉPROUVÉE |
+| **INTEG-DECOUPE-03** | **UN TRIMESTRE N'EN EST UN QUE S'IL LE COUVRE EN ENTIER.** Le document imprime « Période du 01/04/2026 au 31/05/2026 » **246 fois** — deux mois. La règle qui regardait la seule appartenance au trimestre donnait `2026-T2` à avril-mai **comme** au trimestre complet, fusionnant deux situations de gestion. Un mois commence le 1er et finit le dernier jour ; un trimestre aussi. | ÉPROUVÉE |
+| **INTEG-DECOUPE-04** | **UN CRG N'ARRIVE PAS SEUL.** Quand la régie est aussi syndic, l'envoi contient des **APPELS DE FONDS** de copropriété — 33 documents, 112 pages sur ce dépôt. Ce ne sont ni des CRG ni des pages perdues : ils sont **nommés et rangés hors périmètre**. Trois sorts pour une page, jamais deux : rattachée à un CRG, hors périmètre identifié, ou réellement non identifiée. | ÉPROUVÉE |
+| **INTEG-DECOUPE-05** | **UNE PAGE BLANCHE EST LE VERSO DE LA PRÉCÉDENTE.** L'impression en PDF en produit **221**. Les laisser non affectées afficherait « 221 pages sans CRG » sur un découpage juste. | ÉPROUVÉE |
+| **INTEG-IDENT-01** | **LA PHASE 0 RÉPOND ENTIÈREMENT, OU ELLE NE SE VALIDE PAS.** « Quel CRG → quelle agence → quelle période → quel compte → quelles pages ». Renvoyer l'agence à la phase suivante reviendrait à valider un découpage documentaire sans avoir terminé l'identification documentaire. Une agence ou une période indéterminable **bloque la validation**. | ÉPROUVÉE |
+| **INTEG-IDENT-02** | **TROIS PROVENANCES, JAMAIS CONFONDUES.** `LUE` — le PDF l'imprime. `RAPPROCHÉE` — MBI la désigne **sans ambiguïté** depuis le compte mandant. `INDÉTERMINABLE`. Afficher une déduction comme une lecture ferait passer une conclusion pour un fait du document. | ÉPROUVÉE |
+| **INTEG-DOUBLON-01** | **UNE CLÉ SIGNALE, ELLE NE QUALIFIE PAS.** `compte × période × arrêté` a levé 18 collisions ; la comparaison des **montants** a montré que **5 étaient des réénonciations** et **13 des situations complémentaires** — mêmes compte, immeuble et période, mais **des lots différents**. Les fondre aurait détruit treize comptes rendus. `DOCUMENT ≠ SITUATION MÉTIER ≠ ÉVÉNEMENT MÉTIER`. | ÉPROUVÉE |
+| **INTEG-DOUBLON-02** | **LA TAILLE DU TEXTE NE QUALIFIE RIEN.** Deux OCR d'un même document ne rendent jamais le même nombre de caractères. Seules les **sommes imprimées** font la situation — et une empreinte calculée sur moins de 200 caractères ne démontre rien. | ÉPROUVÉE |
+| **INTEG-CONFRONT-01** | **AUCUN RAPPROCHEMENT APPROXIMATIF NE CRÉE UNE IDENTITÉ.** Une correspondance n'est retenue que si elle est **exacte après normalisation** ; une ressemblance donne `À ARBITRER` avec les candidats **nommés**. `TIERS ≠ PROPRIÉTAIRE ≠ COMPTE MANDANT` : un nouveau compte ne fait pas un nouveau propriétaire, et un libellé qui change n'est pas une identité qui change. | ÉPROUVÉE |
+| **INTEG-CONFRONT-02** | **UN MÊME OBJET INDEXÉ DEUX FOIS N'EST PAS UNE AMBIGUÏTÉ.** Indexer chaque immeuble sous sa référence **et** son code CRG, puis sous son nom **et** son adresse, l'a fait apparaître en double : **61 immeubles** sont partis à l'arbitrage pour ce seul défaut. Les candidats se dédoublonnent par identifiant avant d'être comptés. | ÉPROUVÉE |
+| **INTEG-CONFRONT-03** | **`ABSENT DU NOUVEAU CORPUS ≠ À SUPPRIMER DE MBI.`** Les **69** situations que MBI connaît et que le dépôt ne rapporte pas sont listées **à titre d'information**, sans qu'aucune action ne soit proposée. Un CRG non redéposé ne dit rien du mandat. | ÉPROUVÉE |
+| **INTEG-PERF-01** | **UNE PIÈCE, UNE LECTURE.** Le moteur de patrimoine relisait le PDF **à chaque CRG** : 266 lectures d'un document de 587 Mo, et l'analyse ne finissait jamais. Envoyer toutes les plages d'un coup la ramène à **26 secondes**. | ÉPROUVÉE |
+| **INTEG-ECRAN-01** | **CE QUI N'EST PAS SUR LA PAGE N'EXISTE PAS.** Une étape menée au terminal puis racontée n'est pas livrée. La qualification des collisions et l'inventaire ont dû être rebranchés sur l'écran. Et un bilan placé sous un tableau de 325 lignes est **invisible** : le détail se replie, le parcours reste en tête. | ÉPROUVÉE |
+| **INTEG-ECRAN-02** | **UNE VALIDATION APPARTIENT À EMMANUEL.** Elle ne se pose ni au terminal ni « pour gagner du temps ». Une phase validée porte sa date, son auteur et **l'empreinte du résultat examiné** : si l'analyse est rejouée et que le résultat change, la validation est marquée périmée. | ÉPROUVÉE |
+
+## Ce que le premier dépôt réel a produit
+
+| | |
+|---|---:|
+| pages analysées · rattachées · hors périmètre · non identifiées | **906 · 794 · 112 · 0** |
+| CRG documentaires → situations → réénonciations | **325 → 266 → 59** |
+| agence et période **lues** sur | **325 / 325** |
+| déjà connues de MBI · nouvelles · comptes inconnus · à vérifier | **60 · 177 · 29 · 0** |
+| immeubles : objets · identiques · modifiés · nouveaux · à arbitrer | **80 · 38 · 2 · 7 · 33** |
+| lots : objets (pour 391 occurrences) · identiques · nouveaux | **97 · 33 · 64** |
+| écritures dans les données métier de MBI | **0** |
+
+⚠️ **CHAPONOST N'EST PAS DANS CE DÉPÔT.** Les 620 occurrences du nom sont la ligne de pied de
+page « SARL REGIE EMERY siège social 10 place Maréchal Foch 69630 CHAPONOST » — le **siège
+social**, pas une agence gestionnaire. L'en-tête `Agence:` porte `A3 - REGIE EMERY - VIENNE` sur
+les 325 CRG.
+
+## Preuve reproductible
+
+La page d'administration elle-même :
+`admin/admin_crg_integration.php` → déposer → analyser → valider phase par phase.
 ```
 python public_html/scripts/tests_crg/p9_certification.py
 python public_html/scripts/tests_crg/p9_rentabilite.py

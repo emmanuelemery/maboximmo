@@ -1,0 +1,505 @@
+# -*- coding: utf-8 -*-
+"""
+PHASE 0 — RECONSTRUIRE LES CRG LOGIQUES D'UN PDF, AVANT TOUTE LECTURE MÉTIER.
+
+⚠️ `FICHIER PHYSIQUE ≠ CRG MÉTIER`. Un PDF déposé peut contenir zéro, un, ou deux cents comptes
+   rendus, de plusieurs agences et de plusieurs mois. Rien ici ne suppose qu'un fichier vaut un
+   CRG, une agence ou une période : tout est DÉTECTÉ page par page, et ce qui ne se détecte pas
+   se déclare.
+
+⚠️ CHAQUE PAGE EST AFFECTÉE, OU DÉCLARÉE NON AFFECTÉE. Jamais rattachée « par défaut » au CRG
+   précédent. Une page orpheline visible se corrige ; une page absorbée en silence contamine un
+   compte rendu entier sans que personne ne le sache. C'est pourquoi la sortie porte
+   `pages_affectees` ET `pages_non_affectees` : leur somme doit retomber sur le nombre de pages.
+
+⚠️ FAIL CLOSED. On n'attrape jamais `Exception`. Les seules erreurs tolérées sont celles qu'un
+   DOCUMENT peut provoquer — fichier absent, PDF corrompu. Une `TypeError` vient de notre code :
+   elle doit remonter et faire rougir l'appelant, pas se déguiser en « 0 CRG détecté ».
+
+⚠️ CE MOTEUR NE LIT AUCUN MONTANT. Il découpe et il identifie : agence, période, arrêté,
+   propriétaire, compte. La lecture métier reste le travail des lecteurs certifiés P1→P9, et
+   elle n'a lieu qu'après validation humaine de cette phase.
+
+Sortie : un seul objet JSON sur la sortie standard.
+Usage : python crg_integration_phase0.py <chemin.pdf>
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+# ── Les seules erreurs qu'un DOCUMENT peut provoquer ──────────────────────────────────────
+try:
+    from pdfminer.pdfparser import PDFSyntaxError
+    from pdfminer.psparser import PSException
+    ERREURS_PDF = (OSError, PDFSyntaxError, PSException)
+except ImportError:                       # pdfminer absent : on garde au moins les erreurs OS
+    ERREURS_PDF = (OSError,)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#  LES SIGNAUX IMPRIMÉS — relevés sur des CRG réels, jamais devinés
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#
+#  septeo_spi (VIENNE, CHAPONOST…), page 1, lecture `-layout` :
+#      COMPTE RENDU DE GESTION                    SCI GEORGE BLS
+#      Agence : A3 - REGIE EMERY - VIENNE             65 Rue VICTOR HUGO
+#      Période du 01/04/2026 au 30/04/2026            38200 VIENNE
+#      Identifiant extratnet : 1105406704
+#  et sur ses pages suivantes, un bandeau de rappel :
+#      Compte rendu de gestion ROSIER … du 01/04/2026 au 30/04/2026 Page 2
+#
+#  lyon / emery_immo, page 1 : l'en-tête de la régie (raison sociale, carte professionnelle,
+#  garantie financière), puis, sur une même ligne :
+#      COMPTE PERSONNEL 01040000        COMPTE RENDU DE GESTION
+#      - 2e Trimestre 2026 -
+#      - Compte de Gestion 2e Trimestre ex 2026 -   Lyon, le 29/06/2026
+
+RE_TITRE = re.compile(r'COMPTE\s+RENDU\s+DE\s+GESTION', re.I)
+RE_AGENCE = re.compile(r'Agence\s*:\s*(.+)')
+RE_EXTRANET = re.compile(r'Identifiant\s+extra?n?tnet\s*:\s*(\d+)')
+RE_PERIODE = re.compile(r'P[ée]riode\s+du\s+(\d{2}/\d{2}/\d{4})\s+au\s+(\d{2}/\d{2}/\d{4})')
+# ⚠️ L'OCR SOUDE LES MOTS. Le bandeau de suite s'imprime « … au 31/05/2026 Page 2 » sur le PDF
+#    natif, mais « Page2 » après passage à l'OCR. Exiger une espace a laissé 222 pages de suite
+#    orphelines sur le document réel — un défaut d'une seule espace, invisible à la lecture.
+RE_BANDEAU = re.compile(r'Compte\s+rendu\s+de\s+gestion\s+.*\bPage\s*\d+', re.I)
+RE_CARTE = re.compile(r'Carte\s+professionnelle|Garantie\s+Financi[èe]re', re.I)
+RE_VILLE_DATE = re.compile(r'([A-Za-zÉÈÀÂÎÔÛéèàâîôû\'\- ]{3,30}),\s*le\s+(\d{2}/\d{2}/\d{4})')
+# ⚠️ RELEVÉ SUR LE DOCUMENT, PAS DEVINÉ. `-layout` fait apparaître, sur la ligne du titre,
+#    « COMPTE PERSONNEL 01040000 » : c'est le compte mandant de la famille lyon.
+RE_COMPTE_LYON = re.compile(r'COMPTE\s+PERSONNEL\s+(\d{6,10})', re.I)
+RE_TRIMESTRE = re.compile(r'-\s*(\d)\s*(?:er|ère|e|ème)?\s+Trimestre\s+(\d{4})\s*-', re.I)
+# ⚠️ LE MÊME DOCUMENT ÉCRIT AUSSI « 1T2025 » SUR SA PROPRE LIGNE. Ne chercher que la forme
+#    longue laissait huit CRG sans période — donc non validables — pour un défaut de lecture,
+#    pas une lacune du document.
+RE_TRIM_COMPACT = re.compile(r'^\s*(\d)T(\d{4})\s*$', re.M)
+# ⚠️ ET UNE TROISIÈME GRAPHIE : « 2ème TRIM 2025 ». Le même logiciel écrit son trimestre de
+#    trois façons différentes selon les millésimes. Chacune est relevée sur le document ;
+#    aucune n'est supposée.
+RE_TRIM_ABREGE = re.compile(r'^\s*(\d)\s*(?:er|ère|e|ème)?\s+TRIM\.?\s+(\d{4})\s*$', re.I | re.M)
+RE_PROPRIO_SEPTEO = re.compile(r'COMPTE\s+RENDU\s+DE\s+GESTION\s{2,}(\S.*?)\s*$', re.I | re.M)
+# ⚠️ UN CRG N'ARRIVE PAS SEUL. Quand la régie est aussi syndic, l'envoi contient des APPELS DE
+#    FONDS de copropriété — 33 dans le document réel, sur une centaine de pages. Ce ne sont pas
+#    des CRG, et ce ne sont pas non plus des pages perdues : les laisser « non affectées »
+#    ferait ressembler un découpage juste à un défaut. On les NOMME et on les met de côté.
+#    ⚠️ Le titre est exigé EN CAPITALES : le corps des lettres écrit « appel de fonds concernant
+#       la résidence citée en référence », qui n'ouvre aucun document.
+RE_APPEL_TITRE = re.compile(r'\bAPPEL\s+DE\s+FONDS\b')
+RE_APPEL_SUITE = re.compile(r'-\s*Appel\s+de\s+fonds\s*-', re.I)
+
+
+def jour(fr):
+    """« 01/04/2026 » → « 2026-04-01 ». Rien d'autre n'est accepté."""
+    if not fr:
+        return None
+    m = re.match(r'^(\d{2})/(\d{2})/(\d{4})$', fr.strip())
+    return '%s-%s-%s' % (m.group(3), m.group(2), m.group(1)) if m else None
+
+
+def periode_cle(debut, fin):
+    """La clé de période, telle que le référentiel la nomme.
+
+    ⚠️ ON N'INVENTE PAS UN TRIMESTRE. VIENNE est MENSUEL : un CRG du 01/04 au 30/04 est
+       « 2026-04 », pas « 2026-T2 ». Écrire un trimestre là où le document dit un mois
+       fusionnerait trois situations de gestion en une seule.
+    """
+    if not (debut and fin):
+        return None
+    ad, md, jd = debut.split('-')
+    af, mf, jf = fin.split('-')
+    # ⚠️ UN MOIS N'EST UN MOIS QUE S'IL COMMENCE LE 1er ET FINIT LE DERNIER JOUR.
+    if ad == af and md == mf:
+        return '%s-%s' % (ad, md)
+    # ⚠️ ET UN TRIMESTRE N'EST UN TRIMESTRE QUE S'IL LE COUVRE EN ENTIER. Le document réel
+    #    imprime « Période du 01/04/2026 au 31/05/2026 » 246 fois — deux mois, pas un
+    #    trimestre. La règle précédente ne regardait que l'appartenance au même trimestre :
+    #    elle donnait « 2026-T2 » à avril-mai COMME au trimestre complet, fusionnant deux
+    #    situations de gestion distinctes sous une seule clé. C'est exactement ce que
+    #    `reference_crg_periode_deux_cles` interdit.
+    if ad == af and int(md) in (1, 4, 7, 10) and int(mf) == int(md) + 2 and jd == '01':
+        dernier = {3: '31', 6: '30', 9: '30', 12: '31'}[int(mf)]
+        if jf == dernier:
+            return '%s-T%d' % (ad, (int(md) - 1) // 3 + 1)
+    return '%s_%s' % (debut, fin)
+
+
+def lire_pages(chemin):
+    """Le texte de chaque page, dans l'ordre, et le nom de l'outil qui l'a produit.
+
+    ⚠️ LE CHOIX DE L'OUTIL DÉCIDE SI LA PAGE EST EXPLOITABLE EN LIGNE. Mesuré sur un document
+       réel de 914 pages : pdfplumber **360 s**, pypdf **177 s**, `pdftotext` **13 s**. Une
+       analyse de dix minutes n'est pas une page d'administration, c'est un traitement de
+       nuit. On prend donc `pdftotext -layout`, qui sépare les pages par un saut de page
+       (\\x0c) et respecte les colonnes — indispensable pour lire « COMPTE PERSONNEL 01040000 »
+       à gauche et « COMPTE RENDU DE GESTION » à droite sur la même ligne.
+
+    ⚠️ ET S'IL EST ABSENT, ON LE DIT. Le repli pdfplumber existe — l'hébergement mutualisé n'a
+       pas toujours le binaire — mais il est vingt-huit fois plus lent : le taire ferait passer
+       une installation incomplète pour une lenteur inexplicable.
+    """
+    exe = shutil.which('pdftotext')
+    if exe:
+        r = subprocess.run([exe, '-layout', '-enc', 'UTF-8', chemin, '-'],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if r.returncode != 0:
+            raise ValueError('pdftotext a échoué (code %d) : %s'
+                             % (r.returncode, r.stderr.decode('utf-8', 'replace')[:200]))
+        pages = r.stdout.decode('utf-8', 'replace').split('\x0c')
+        if pages and not pages[-1].strip():
+            pages.pop()
+        return pages, 'pdftotext'
+    import pdfplumber
+    with pdfplumber.open(chemin) as pdf:
+        return [p.extract_text() or '' for p in pdf.pages], 'pdfplumber (repli lent)'
+
+
+def qualifier(texte):
+    """Ce que la page montre : début d'un CRG, suite, autre document, ou rien de reconnaissable."""
+    if RE_APPEL_TITRE.search(texte):
+        return 'HORS_CRG', 'appel_de_fonds', 'APPEL DE FONDS — document de syndic, hors CRG'
+    if RE_APPEL_SUITE.search(texte):
+        return 'HORS_CRG_SUITE', 'appel_de_fonds', 'suite d’un appel de fonds'
+    if RE_EXTRANET.search(texte) and RE_AGENCE.search(texte) and RE_TITRE.search(texte):
+        return 'DEBUT', 'septeo_spi', 'en-tête complet : titre, agence, identifiant extranet'
+    if RE_TITRE.search(texte) and RE_COMPTE_LYON.search(texte):
+        # ⚠️ CANDIDAT, PAS DÉBUT. Chez `lyon` l'en-tête de régie se RÉPÈTE sur toutes les pages
+        #    de garde d'un même CRG : les pages 16 à 19 du document d'essai le portent quatre
+        #    fois. Le prendre pour un début a fabriqué 22 CRG là où il n'y en avait qu'un.
+        #    C'est la RUPTURE qui fait le début — voir `analyser()`.
+        #
+        # ⚠️ ET LE MARQUEUR EST « COMPTE PERSONNEL », PAS « CARTE PROFESSIONNELLE ». La
+        #    première version se contentait de la carte professionnelle : or TOUTE agence
+        #    immobilière française l'imprime en pied de page. Sur le document VIENNE, cela a
+        #    fabriqué 222 faux débuts `lyon` à partir de pieds de page. Le numéro de compte
+        #    personnel, lui, n'appartient qu'à cette famille de CRG.
+        return 'ENTETE_REGIE', 'lyon', 'en-tête lyon : titre et compte personnel'
+    if RE_BANDEAU.search(texte):
+        return 'SUITE', None, 'bandeau « Compte rendu de gestion … Page N »'
+    if RE_TITRE.search(texte):
+        # ⚠️ LE TITRE SEUL NE SUFFIT PAS. Il apparaît aussi dans un courrier d'accompagnement
+        #    ou sur une page de garde. On le signale sans ouvrir un CRG sur cette seule base.
+        return 'INDETERMINABLE', None, 'titre présent, mais ni agence ni identifiant'
+    return 'INCONNU', None, 'aucun signal de CRG'
+
+
+def identifier(texte, format_detecte):
+    """Agence, période, arrêté, propriétaire, compte — lus, jamais déduits."""
+    d = {'agence': None, 'periode_debut': None, 'periode_fin': None, 'date_arrete': None,
+         'proprietaire': None, 'compte': None, 'format': format_detecte, 'immeuble': None}
+
+    m = RE_AGENCE.search(texte)
+    if m:
+        d['agence'], reste = _couper_agence(m.group(1))
+        # ⚠️ SUR UN DOCUMENT OCRISÉ, LE PROPRIÉTAIRE ARRIVE ICI. L'OCR aplatit les deux
+        #    colonnes sur une seule ligne : « Agence : A3 - REGIE EMERY - VIENNE Monsieur
+        #    XERRI Florent ». Ce qui suit l'agence est donc le début du bloc adresse.
+        if reste:
+            d['proprietaire'] = reste
+    m = RE_PERIODE.search(texte)
+    if m:
+        d['periode_debut'] = jour(m.group(1))
+        d['periode_fin'] = jour(m.group(2))
+        # ⚠️ LA DATE D'ARRÊTÉ EST LA FIN DE PÉRIODE TANT QUE LE DOCUMENT N'EN IMPRIME PAS
+        #    D'AUTRE. C'est une lecture, pas un calcul : on ne la déplace jamais.
+        d['date_arrete'] = d['periode_fin']
+
+    m = RE_EXTRANET.search(texte) or RE_COMPTE_LYON.search(texte)
+    if m:
+        d['compte'] = m.group(1)
+
+    if format_detecte == 'septeo_spi':
+        m = RE_PROPRIO_SEPTEO.search(texte)
+        if m:
+            d['proprietaire'] = ' '.join(m.group(1).split())
+    else:
+        m = (RE_TRIMESTRE.search(texte) or RE_TRIM_COMPACT.search(texte)
+             or RE_TRIM_ABREGE.search(texte))
+        if m:
+            # ⚠️ ON NOTE LE TRIMESTRE IMPRIMÉ, ON N'EN DÉDUIT AUCUNE DATE D'ARRÊTÉ. « Lyon, le
+            #    29/06/2026 » est une date d'ÉDITION : la confondre avec l'arrêté daterait la
+            #    situation de gestion sur l'humeur de l'imprimante.
+            d['periode_cle_imprimee'] = '%s-T%s' % (m.group(2), m.group(1))
+        m = RE_VILLE_DATE.search(texte)
+        if m:
+            d['date_edition'] = jour(m.group(2))
+            d['proprietaire'] = _proprietaire_lyon(texte)
+    return d
+
+
+def _proprietaire_lyon(texte):
+    """Le propriétaire d'un CRG `lyon` : le bloc adresse, à droite de « Ville, le … ».
+
+    ⚠️ LA LIGNE SUIVANTE N'EST PAS TOUJOURS LE PROPRIÉTAIRE. Un CRG de décembre intercale
+       « ******** BONNES FETES DE FIN D'ANNEE ********* », un autre laisse remonter
+       « COMPTE PERSONNEL 04680000 ». Prendre la première ligne venue a produit ces deux
+       noms-là, qui n'en sont pas.
+
+    ⚠️ ON SE SERT DE LA COLONNE, PARCE QUE `-layout` LA PRÉSERVE. Le bloc adresse est aligné
+       sous « Ville, le … » : on ne retient qu'une ligne commençant à la même abscisse, à
+       quelques espaces près. C'est une propriété de la mise en page, pas une devinette.
+    """
+    lignes = texte.split('\n')
+    for i, ligne in enumerate(lignes):
+        m = RE_VILLE_DATE.search(ligne)
+        if not m:
+            continue
+        colonne = m.start()
+        for suivante in lignes[i + 1:i + 6]:
+            if not suivante.strip():
+                continue
+            indent = len(suivante) - len(suivante.lstrip())
+            if abs(indent - colonne) > 6:
+                continue
+            candidat = suivante.strip()
+            if candidat.startswith('*') or RE_COMPTE_LYON.search(candidat):
+                continue
+            return ' '.join(candidat.split())
+        return None
+    return None
+
+
+def _couper_agence(brut):
+    """Sépare « A3 - REGIE EMERY - VIENNE » de ce qui la suit sur la même ligne.
+
+    ⚠️ DEUX MISES EN PAGE, UNE SEULE RÈGLE. Sur un PDF natif, `-layout` sépare les colonnes
+       par plusieurs espaces et il suffit de couper là. Sur un PDF OCRisé, les colonnes sont
+       APLATIES : « Agence : A3 - REGIE EMERY - VIENNE Monsieur XERRI Florent » tient sur une
+       ligne, et l'agence héritait du nom du propriétaire — deux champs faux d'un coup.
+
+    ⚠️ ON COUPE SUR LA CASSE, PAS SUR UN DICTIONNAIRE DE CIVILITÉS. Le nom d'agence est en
+       capitales, le bloc adresse commence par un mot capitalisé (« Monsieur », « Madame »,
+       un prénom). Une liste de civilités raterait le premier cas non prévu ; la casse, elle,
+       est une propriété de l'impression. Une agence au nom en casse mixte serait tronquée —
+       aucune des huit agences MBI n'est dans ce cas, et la coupure resterait visible.
+    """
+    brut = ' '.join(str(brut or '').split())
+    par_colonnes = re.split(r'\s{2,}', brut)
+    if len(par_colonnes) > 1:
+        return par_colonnes[0].strip(), ' '.join(par_colonnes[1:]).strip() or None
+    mots = brut.split(' ')
+    for i, mot in enumerate(mots):
+        # ⚠️ LA CASSE NE SUFFIT PAS : LE BLOC ADRESSE COMMENCE SOUVENT PAR UN CODE POSTAL.
+        #    « Agence: A3 - REGIE EMERY - VIENNE 38200 VIENNE » est tout en capitales et
+        #    chiffres : rien ne coupait, et le libellé d'agence héritait de l'adresse du
+        #    propriétaire — 53 variantes d'une seule agence sur le document réel.
+        if i and (re.match(r'^[A-ZÉÈÀÂÎÔÛ][a-zéèàâîôûç]', mot)
+                  or re.match(r'^\d{5}$', mot)):
+            return ' '.join(mots[:i]).strip(), ' '.join(mots[i:]).strip() or None
+    return brut, None
+
+
+def certifier(info, signal_motif):
+    """Le niveau de certitude, et POURQUOI.
+
+    ⚠️ UN CRG MAL DÉCOUPÉ QUI SE PRÉSENTE COMME CERTAIN EST PIRE QU'UN CRG SIGNALÉ
+       INDÉTERMINABLE : le second se corrige, le premier se propage.
+    """
+    a_periode = bool(info.get('periode_debut') or info.get('periode_cle_imprimee'))
+    manque = []
+    if not info.get('agence') and info.get('format') == 'septeo_spi':
+        manque.append('agence')
+    if not info.get('compte'):
+        manque.append('compte')
+    if not a_periode:
+        manque.append('période')
+    if not manque:
+        return 'CERTAIN', signal_motif + ' ; compte et période lus'
+    if info.get('compte') or a_periode:
+        return 'PROBABLE', signal_motif + ' ; manque : ' + ', '.join(manque)
+    return 'INDETERMINABLE', signal_motif + ' ; manque : ' + ', '.join(manque)
+
+
+def analyser(chemin):
+    """Découpe le PDF en CRG logiques. Rend un objet sérialisable, jamais un texte."""
+    if not os.path.isfile(chemin):
+        raise ValueError('PDF INTROUVABLE / ANALYSE IMPOSSIBLE : %s' % chemin)
+
+    textes, outil = lire_pages(chemin)
+
+    # UN DOCUMENT SANS COUCHE TEXTE N'EST PAS UN DOCUMENT SANS CRG. Le vrai document de
+    # 906 pages est un « Microsoft: Print To PDF » : chaque page est une image, et
+    # `pdftotext` en tire ZERO caractere. Sans ce controle, le moteur rendait « 0 CRG
+    # detecte » — un resultat rassurant pour une panne totale de lecture. C'est
+    # exactement ce que la doctrine FAIL CLOSED interdit depuis P7.
+    caracteres = sum(len(x.strip()) for x in textes)
+    if textes and caracteres == 0:
+        raise ValueError(
+            'AUCUNE COUCHE TEXTE / LECTURE IMPOSSIBLE — les %d pages de ce PDF sont des '
+            'images (document scanne ou imprime en PDF). Aucun signal ne peut y etre lu sans '
+            'OCR. Ce n est pas un document sans CRG : c est un document illisible en l etat.'
+            % len(textes))
+
+    pages, crgs, courant = [], [], None
+    precedent_entete = False
+    # ⚠️ CE QUI N'EST PAS UN CRG N'EST PAS POUR AUTANT UNE PAGE PERDUE. `hors_crg` porte le
+    #    document de syndic en cours : ses pages sont nommées, comptées à part, et ne
+    #    rejoignent JAMAIS un compte rendu de gestion. Sans lui, un appel de fonds inséré au
+    #    milieu d'un CRG serait avalé par ce CRG — le pire des deux mondes.
+    hors_crg = None
+    for no, texte in enumerate(textes, 1):
+        etat, fmt, motif = qualifier(texte)
+        if etat in ('DEBUT', 'ENTETE_REGIE'):
+            hors_crg = None
+        if etat == 'HORS_CRG':
+            # Un autre document commence : le CRG en cours est terminé, il ne s'étend pas
+            # au-delà.
+            courant, hors_crg = None, 'appel_de_fonds'
+            pages.append({'page_no': no, 'crg_index': None, 'signal': motif})
+            precedent_entete = False
+            continue
+        if etat == 'HORS_CRG_SUITE' or (hors_crg and not texte.strip()):
+            hors_crg = hors_crg or 'appel_de_fonds'
+            pages.append({'page_no': no, 'crg_index': None,
+                          'signal': motif if etat == 'HORS_CRG_SUITE'
+                          else 'page blanche (verso d’un appel de fonds)'})
+            precedent_entete = False
+            continue
+        if etat == 'DEBUT':
+            info = identifier(texte, fmt)
+            cle = info.get('periode_cle_imprimee') or periode_cle(info['periode_debut'],
+                                                                  info['periode_fin'])
+            # ⚠️ L'EN-TÊTE SEPTEO SE RÉPÈTE SUR CHAQUE PAGE DU MÊME CRG. Sur le document réel,
+            #    365 pages le portent pour ~220 comptes rendus : le compte 1105406704 le
+            #    répète aux pages 443, 445 et 447. Traiter chaque en-tête comme un début
+            #    fabriquait un CRG par page. Un en-tête qui répète LE MÊME compte ET LA MÊME
+            #    période que le CRG en cours en est la suite, pas un nouveau.
+            if (courant is not None
+                    and courant.get('format') == 'septeo_spi'
+                    and info.get('compte')
+                    and info['compte'] == courant.get('compte')
+                    and cle == courant.get('periode_cle')):
+                courant['page_fin'] = no
+                courant.setdefault('_textes', []).append(texte)
+                pages.append({'page_no': no, 'crg_index': len(crgs) - 1,
+                              'signal': 'en-tête répété — même compte, même période'})
+                precedent_entete = False
+                continue
+            certitude, raison = certifier(info, motif)
+            courant = {k: v for k, v in info.items() if k != 'periode_cle_imprimee'}
+            courant.update(page_debut=no, page_fin=no, periode_cle=cle,
+                           certitude=certitude, motif=raison)
+            courant['_textes'] = [texte]
+            crgs.append(courant)
+            pages.append({'page_no': no, 'crg_index': len(crgs) - 1, 'signal': motif})
+        elif etat == 'ENTETE_REGIE':
+            # Début SEULEMENT si la page précédente ne portait pas déjà l'en-tête : c'est la
+            # rupture avec le corps du CRG précédent qui ouvre le suivant.
+            if precedent_entete and courant is not None:
+                courant['page_fin'] = no
+                courant.setdefault('_textes', []).append(texte)
+                pages.append({'page_no': no, 'crg_index': len(crgs) - 1,
+                              'signal': 'page de garde répétée du même CRG'})
+            else:
+                info = identifier(texte, fmt)
+                certitude, raison = certifier(info, motif)
+                cle = info.get('periode_cle_imprimee')
+                courant = {k: v for k, v in info.items() if k != 'periode_cle_imprimee'}
+                courant.update(page_debut=no, page_fin=no, periode_cle=cle,
+                               certitude=certitude, motif=raison)
+                crgs.append(courant)
+                pages.append({'page_no': no, 'crg_index': len(crgs) - 1, 'signal': motif})
+        elif etat == 'SUITE' and courant is not None:
+            courant['page_fin'] = no
+            courant.setdefault('_textes', []).append(texte)
+            pages.append({'page_no': no, 'crg_index': len(crgs) - 1, 'signal': motif})
+        elif not texte.strip() and courant is not None:
+            # ⚠️ UNE PAGE BLANCHE EST LE VERSO DE LA PRÉCÉDENTE, PAS UNE PAGE PERDUE. Le
+            #    document imprimé en PDF en compte 221 : les laisser non affectées ferait
+            #    afficher « 221 pages sans CRG » sur un document parfaitement découpé. Elle
+            #    rejoint le CRG en cours, et son signal dit qu'elle est vide.
+            courant['page_fin'] = no
+            courant.setdefault('_textes', []).append(texte)
+            pages.append({'page_no': no, 'crg_index': len(crgs) - 1,
+                          'signal': 'page blanche (verso)'})
+        elif courant is not None and courant.get('format') == 'lyon':
+            # ⚠️ ICI LE DOCUMENT N'IMPRIME AUCUN MARQUEUR DE SUITE, ET ON LE DIT. Chez `lyon`,
+            #    le corps du rapport ne porte ni bandeau ni numéro de page : la page appartient
+            #    au CRG ouvert parce qu'un rapport imprimé est CONTIGU, pas parce qu'un signal
+            #    l'a prouvé. Le signal l'écrit, pour que personne ne lise « démontré » là où il
+            #    faut lire « déduit de la contiguïté ».
+            courant['page_fin'] = no
+            courant.setdefault('_textes', []).append(texte)
+            pages.append({'page_no': no, 'crg_index': len(crgs) - 1,
+                          'signal': 'page contiguë — aucun marqueur de suite imprimé'})
+        else:
+            # ⚠️ NI RATTACHÉE, NI OUBLIÉE. Une page sans signal reconnaissable reste visible
+            #    dans le bilan, avec son numéro : c'est la seule façon d'affirmer « 0 page
+            #    perdue » sans mentir.
+            pages.append({'page_no': no, 'crg_index': None,
+                          'signal': motif + (' (avant le premier en-tête)' if courant is None
+                                             else ' (hors CRG)')})
+        precedent_entete = (etat == 'ENTETE_REGIE')
+
+    # UNE CLE NE PROUVE PAS UNE REEDITION — Emmanuel, 01/09/2026. `compte x periode x arrete`
+    # est un excellent CONTROLE, jamais une identite metier universelle. Avant qu'une
+    # occurrence puisse etre dite reenoncee, il faut que son CONTENU concorde : sinon une cle
+    # identique ecraserait un CRG complementaire, ce qui est precisement le piege que la
+    # rectification FOCH/SABY a mis au jour. On calcule donc une empreinte du texte lu.
+    for c in crgs:
+        lu = ' '.join(' '.join((c.pop('_textes', None) or [])).split())
+        c['empreinte'] = hashlib.sha256(lu.encode('utf-8')).hexdigest() if lu else None
+        c['caracteres_lus'] = len(lu)
+
+    affectees = sum(1 for p in pages if p['crg_index'] is not None)
+    # ⚠️ TROIS SORTS POSSIBLES POUR UNE PAGE, ET ILS SE COMPTENT SÉPARÉMENT : rattachée à un
+    #    CRG, appartenant à un document identifié qui n'est pas un CRG, ou vraiment sans
+    #    identification. Fondre les deux derniers ferait passer 100 appels de fonds
+    #    parfaitement reconnus pour 100 pages en échec de lecture.
+    hors = sum(1 for p in pages
+               if p['crg_index'] is None and 'appel de fonds' in p['signal'].lower())
+    return {
+        'chemin': chemin,
+        'outil': outil,
+        'nb_pages': len(pages),
+        'pages': pages,
+        'crgs': crgs,
+        'stats': {
+            'pages_analysees': len(pages),
+            'pages_affectees': affectees,
+            'pages_hors_crg': hors,
+            'pages_non_affectees': len(pages) - affectees - hors,
+            'crg_detectes': len(crgs),
+            'crg_certains': sum(1 for c in crgs if c['certitude'] == 'CERTAIN'),
+            'crg_probables': sum(1 for c in crgs if c['certitude'] == 'PROBABLE'),
+            'crg_indeterminables': sum(1 for c in crgs if c['certitude'] == 'INDETERMINABLE'),
+            'chevauchements': _chevauchements(crgs),
+        },
+    }
+
+
+def _chevauchements(crgs):
+    """Deux CRG ne peuvent pas revendiquer la même page. On le vérifie au lieu de l'affirmer."""
+    vues, doubles = set(), 0
+    for c in crgs:
+        for p in range(c['page_debut'], c['page_fin'] + 1):
+            if p in vues:
+                doubles += 1
+            vues.add(p)
+    return doubles
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write('usage : crg_integration_phase0.py <chemin.pdf>\n')
+        return 2
+    try:
+        resultat = analyser(sys.argv[1])
+    except ValueError as e:
+        # Une lecture impossible se declare ; elle ne se deguise pas en resultat vide.
+        sys.stdout.write(json.dumps({'erreur': str(e)}, ensure_ascii=False))
+        return 1
+    except ERREURS_PDF as e:
+        sys.stdout.write(json.dumps({'erreur': 'PDF ILLISIBLE / ANALYSE IMPOSSIBLE : %s' % e},
+                                    ensure_ascii=False))
+        return 1
+    sys.stdout.write(json.dumps(resultat, ensure_ascii=False))
+    return 0
+
+
+if __name__ == '__main__':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    sys.exit(main())
