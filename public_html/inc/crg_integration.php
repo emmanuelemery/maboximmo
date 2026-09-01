@@ -323,6 +323,7 @@ function crgi_phase_validee(PDO $pdo, int $importId, int $phase): array
         0 => crgi_empreinte_phase0($pdo, $importId),
         1 => crgi_empreinte_phase1($pdo, $importId),
         2 => crgi_empreinte_phase2($pdo, $importId),
+        3 => crgi_empreinte_phase3($pdo, $importId),
         default => (string)$ligne['resultat_sha'],
     };
     return [
@@ -378,6 +379,7 @@ function crgi_valider_phase(PDO $pdo, int $importId, int $phase, int $userId): v
         0 => crgi_empreinte_phase0($pdo, $importId),
         1 => crgi_empreinte_phase1($pdo, $importId),
         2 => crgi_empreinte_phase2($pdo, $importId),
+        3 => crgi_empreinte_phase3($pdo, $importId),
         default => '',
     };
     $pdo->prepare(
@@ -1210,6 +1212,345 @@ function crgi_bilan_phase2(PDO $pdo, int $importId): array
         'inventaire' => $inv,
         'comptes_distincts' => (int)$proprios,
     ];
+}
+
+/**
+ * PHASE 3 — LOCATAIRES / OCCUPATION : la suite des occupants d'un lot, et ce qu'elle démontre.
+ *
+ * ⚠️ LA CHRONOLOGIE SE LIT SUR TOUTES LES PÉRIODES DU DÉPÔT, PAS SUR LA DERNIÈRE. Comparer MBI
+ *    à la seule observation la plus récente dirait « qui est là aujourd'hui » ; la suite
+ *    `AVRIL : DUPONT · MAI : DUPONT · JUIN : MARTIN · JUILLET : MARTIN` démontre QUAND le
+ *    titulaire a changé. C'est la succession documentaire qui fait la preuve, pas l'état final.
+ *
+ * ⚠️ UN ANCIEN LOCATAIRE N'EST JAMAIS SUPPRIMÉ, et sa dette lui reste attachée
+ *    (`P6A-CREANCE-07`, certifiée : la créance d'un ancien locataire ne passe jamais au
+ *    suivant).
+ *
+ * ⚠️ `ABSENCE DANS UN NOUVEAU CRG ≠ DÉPART.` Un départ n'est `DÉMONTRÉ` que si le lot est
+ *    RÉÉNONCÉ à une période ultérieure sans cet occupant. Si le lot cesse simplement
+ *    d'apparaître, c'est `À ARBITRER` : le CRG peut ne pas avoir été déposé.
+ *
+ * ⚠️ `STOCK ≠ FLUX.` Les encours de chaque période sont des PHOTOGRAPHIES : on les affiche
+ *    côte à côte, on n'en additionne jamais deux. La « variation » est une différence entre
+ *    deux photographies nommées, jamais un cumul.
+ *
+ * ⚠️ AUCUNE ÉCRITURE MÉTIER.
+ */
+function crgi_phase3(PDO $pdo, int $importId): array
+{
+    $etat2 = crgi_phase_validee($pdo, $importId, 2);
+    if (!$etat2['validee'] || $etat2['perimee']) {
+        throw new RuntimeException(
+            'PHASE 2 NON VALIDÉE — la phase 3 ne s’ouvre pas. Lire l’occupation sur un '
+            . 'patrimoine non scellé ferait reposer une chronologie sur un état mouvant.'
+        );
+    }
+    crgi_marquer_phase($pdo, $importId, 3, 'EN ANALYSE', null);
+    $pdo->prepare('DELETE FROM crgi_occupation WHERE import_id = ?')->execute([$importId]);
+    crgi_lire_occupation($pdo, $importId);
+    crgi_qualifier_occupation($pdo, $importId);
+    crgi_marquer_phase($pdo, $importId, 3, 'A VALIDER', null);
+    return crgi_bilan_phase3($pdo, $importId)['statuts'];
+}
+
+/** Relève une observation par lot et par CRG — une seule lecture du PDF par pièce. */
+function crgi_lire_occupation(PDO $pdo, int $importId): void
+{
+    $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $script = realpath(__DIR__ . '/../scripts/crg_integration_phase3.py');
+    if (!$script) {
+        throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_phase3.py');
+    }
+    $st = $pdo->prepare(
+        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, p.chemin
+           FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
+          WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
+    );
+    $st->execute([$importId]);
+    $meta = $parPiece = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) {
+        $meta[(int)$c['id']] = $c;
+        $parPiece[(string)$c['chemin']][] = ['id' => (int)$c['id'],
+                                             'debut' => (int)$c['page_debut'],
+                                             'fin' => (int)$c['page_fin']];
+    }
+    $ins = $pdo->prepare(
+        'INSERT INTO crgi_occupation
+            (import_id, crg_id, lot_reference, code_immeuble, periode_cle, date_arrete,
+             locataire, bail_du, solde, solde_source, page)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    );
+    foreach ($parPiece as $chemin => $plages) {
+        $fichier = tempnam(sys_get_temp_dir(), 'crgi3_');
+        file_put_contents($fichier, json_encode($plages));
+        $sortie = trim((string)@shell_exec(
+            escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
+            . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier) . ' 2>&1'));
+        @unlink($fichier);
+        $r = json_decode($sortie, true);
+        if (!is_array($r)) {
+            throw new RuntimeException('MOTEUR OCCUPATION MUET OU ILLISIBLE : '
+                                     . mb_substr($sortie, 0, 300));
+        }
+        foreach ($r as $bloc) {
+            $c = $meta[(int)$bloc['id']] ?? null;
+            if (!$c) {
+                continue;
+            }
+            foreach ($bloc['observations'] ?? [] as $o) {
+                $parts = explode('-', (string)$o['lot']);
+                $codeImm = count($parts) === 3 ? $parts[1]
+                         : (count($parts) === 2 ? $parts[0] : null);
+                $ins->execute([$importId, (int)$c['id'], $o['lot'], $codeImm,
+                               $c['periode_cle'], $c['date_arrete'], $o['locataire'],
+                               $o['bail_du'], $o['solde'], $o['solde_source'],
+                               (int)$o['page']]);
+            }
+        }
+    }
+}
+
+/**
+ * Le verdict de chaque observation, lu sur la SUITE des périodes d'un même lot.
+ *
+ * ⚠️ ON TRIE SUR LA DATE D'ARRÊTÉ, PAS SUR L'ÉTIQUETTE DE PÉRIODE. `P8B-SOLDE-03` l'a
+ *    certifié : trier sur la clé plaçait `2026-05-13_2026-06-30` avant `2026-T1` et fabriquait
+ *    de fausses ruptures. Ici, une fausse rupture inventerait un déménagement.
+ */
+function crgi_qualifier_occupation(PDO $pdo, int $importId): void
+{
+    // ⚠️ UNE RÉFÉRENCE LOCALE N'EST JAMAIS UNE IDENTITÉ GLOBALE. Le document imprime
+    //    « - Lot 01 - Mandat N/A - » : ce numéro appartient à SON immeuble, et le CRG ne
+    //    prétend nulle part qu'il soit unique. Grouper sur la seule référence a fusionné
+    //    l'appartement 01 de RAYNAL (occupant SANCHEZ) et l'appartement 01 de MARTINEZ
+    //    (occupant CHAYNARD) : deux chronologies parfaitement stables, entrelacées par date,
+    //    d'où UN DÉPART ET DEUX CHANGEMENTS ENTIÈREMENT FABRIQUÉS. L'identité du lot porte
+    //    donc son périmètre de portée — LE COMPTE.
+    $st = $pdo->prepare(
+        'SELECT o.id, o.lot_reference, o.date_arrete, o.periode_cle, o.locataire, o.bail_du,
+                o.solde, o.solde_source, c.compte
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE o.import_id = ?
+          ORDER BY c.compte, o.lot_reference, o.date_arrete, o.id'
+    );
+    $st->execute([$importId]);
+    $parLot = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $o) {
+        $parLot[crgi_cle_lot((string)$o['compte'], (string)$o['lot_reference'])][] = $o;
+    }
+    $maj = $pdo->prepare(
+        'UPDATE crgi_occupation SET statut = ?, statut_motif = ?, precedent = ? WHERE id = ?'
+    );
+    // ⚠️ LE SEUIL EST CELUI DU COMPTE, PAS DU DÉPÔT. Trois arrêtés isolés — 2026-06-03,
+    //    2026-07-01, 2026-08-01, un seul lot chacun — portaient le maximum global au
+    //    01/08/2026 : tout lot suivi jusqu'au 31/07 se retrouvait « absent ensuite », donc à
+    //    arbitrer. Un lot n'est réputé cesser d'apparaître que si SON PROPRE compte continue
+    //    d'être rendu après lui.
+    $st2 = $pdo->prepare(
+        'SELECT c.compte, MAX(o.date_arrete) AS fin
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE o.import_id = ? GROUP BY c.compte'
+    );
+    $st2->execute([$importId]);
+    $finDuCompte = $st2->fetchAll(PDO::FETCH_KEY_PAIR);
+    // ⚠️ LE COMPTE DU LOT NE SE RETROUVE PLUS PAR UNE SECONDE REQUÊTE. Elle indexait
+    //    `lot_reference => compte` : quand deux comptes portaient le même numéro de lot, la
+    //    clé se collisionnait et un seul compte survivait — le lot héritait alors de la date
+    //    de fin d'un compte qui n'était pas le sien. Le compte est désormais DANS la clé.
+    foreach ($parLot as $cle => $suite) {
+        $n = count($suite);
+        $derniere = (string)($finDuCompte[(string)$suite[0]['compte']] ?? '');
+        foreach ($suite as $i => $o) {
+            $loc = $o['locataire'];
+            $prec = $i > 0 ? $suite[$i - 1]['locataire'] : null;
+            $suiv = $i + 1 < $n ? $suite[$i + 1] : null;
+            $statut = null;
+            $motif = '';
+
+            if ($loc === null) {
+                // ⚠️ UN LOT SANS LIGNE LOCATAIRE N'EST PAS UN LOT VACANT : c'est un lot dont
+                //    le document ne dit rien. Le vide ne se lit pas comme un départ.
+                $statut = 'A ARBITRER';
+                $motif = 'Aucune ligne « Locataire: » imprimée sur cette période : le document '
+                       . 'ne dit rien de l’occupation. Ce n’est pas une vacance démontrée.';
+            } elseif ($suiv && $suiv['locataire'] !== null
+                      && crgi_plat((string)$suiv['locataire']) !== crgi_plat((string)$loc)) {
+                // Le lot est RÉÉNONCÉ plus tard avec un autre occupant : le départ est démontré
+                // par le document lui-même, pas par une absence.
+                $dette = $o['solde_source'] === 'LUE' && (float)$o['solde'] > 0.005;
+                $statut = $dette ? 'ANCIEN LOCATAIRE AVEC DETTE' : 'PARTI DEMONTRE';
+                $motif = 'Le lot est réénoncé au ' . $suiv['date_arrete'] . ' avec « '
+                       . $suiv['locataire'] . ' » : le départ est DÉMONTRÉ par le document.'
+                       . ($dette
+                          ? ' Encours de ' . number_format((float)$o['solde'], 2, ',', ' ')
+                            . ' € à sa dernière période : la dette reste attachée à CE '
+                            . 'locataire, elle ne passe pas au suivant (P6A-CREANCE-07).'
+                          : ' Aucune dette lue à sa dernière période.')
+                       . ' L’observation est CONSERVÉE.';
+            } elseif ($prec === null) {
+                if ($i === 0 && $n === 1) {
+                    $statut = 'A ARBITRER';
+                    $motif = 'Le lot n’apparaît qu’à une seule période du dépôt : la suite ne '
+                           . 'démontre ni maintien, ni entrée, ni départ.';
+                } elseif ($i === 0) {
+                    $statut = 'IDENTIQUE';
+                    $motif = 'Première période où ce lot apparaît : l’occupant y est déjà en '
+                           . 'place, rien ne démontre une entrée.';
+                } else {
+                    $statut = 'NOUVEL ENTRANT';
+                    $motif = 'Aucun titulaire lisible sur ce lot avant cette période'
+                           . ($o['bail_du'] ? ', bail du ' . $o['bail_du'] . '.' : '.');
+                }
+            } elseif (crgi_plat((string)$loc) === crgi_plat((string)$prec)) {
+                $statut = 'IDENTIQUE';
+                $motif = 'Même titulaire qu’à la période précédente (' . $prec . ').';
+            } else {
+                $statut = 'CHANGEMENT DE LOCATAIRE';
+                $motif = 'Le titulaire des appels change sur le même lot entre deux périodes '
+                       . 'consécutives : SUCCESSION LOCATIVE DÉMONTRÉE. « ' . $prec . ' » → « '
+                       . $loc . ' »'
+                       . ($o['bail_du'] ? ', bail du ' . $o['bail_du'] . '.' : '.');
+            }
+
+            // ⚠️ LE DÉPART NE SE DÉDUIT JAMAIS D'UNE ABSENCE. Si le lot cesse d'apparaître
+            //    alors que le dépôt continue, on ne conclut pas : le CRG peut manquer.
+            if ($statut !== 'A ARBITRER' && $loc !== null && $suiv === null
+                && (string)$o['date_arrete'] < $derniere) {
+                $statut = 'A ARBITRER';
+                $motif = 'Dernière période où ce lot apparaît (' . $o['date_arrete'] . '), '
+                       . 'alors que le dépôt va jusqu’au ' . $derniere . ' : le lot n’est pas '
+                       . 'réénoncé ensuite. ABSENCE ≠ DÉPART DÉMONTRÉ.';
+            }
+            $maj->execute([$statut, mb_substr($motif, 0, 400), $prec, (int)$o['id']]);
+        }
+    }
+}
+
+/**
+ * La chronologie d'un lot : qui l'occupait, période par période, et quel encours il portait.
+ *
+ * ⚠️ ON N'ADDITIONNE JAMAIS DEUX ENCOURS. Chaque période porte une PHOTOGRAPHIE du stock ; la
+ *    variation est une différence entre deux photographies NOMMÉES, jamais un cumul.
+ *    `STOCK ≠ FLUX`, certifié depuis P6.
+ */
+/**
+ * L'IDENTITÉ D'UN LOT DANS CE MODULE : son compte ET sa référence.
+ *
+ * ⚠️ UNE RÉFÉRENCE LOCALE N'EST JAMAIS UNE IDENTITÉ GLOBALE. Le numéro de lot imprimé par le
+ *    CRG vaut à l'intérieur de son immeuble ; deux comptes peuvent porter « Lot 01 » sans que
+ *    ce soit le même appartement. Toute lecture qui regroupe des observations de lot passe
+ *    par cette clé — jamais par la seule référence.
+ */
+function crgi_cle_lot(string $compte, string $lot): string
+{
+    return $compte . '§' . $lot;
+}
+
+function crgi_chronologie_lot(PDO $pdo, int $importId, string $compte, string $lot): array
+{
+    $st = $pdo->prepare(
+        'SELECT o.periode_cle, o.date_arrete, o.locataire, o.bail_du, o.solde, o.solde_source,
+                o.statut, o.page
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE o.import_id = ? AND c.compte = ? AND o.lot_reference = ?
+          ORDER BY o.date_arrete, o.id'
+    );
+    $st->execute([$importId, $compte, $lot]);
+    $suite = $st->fetchAll(PDO::FETCH_ASSOC);
+    $avec = array_values(array_filter($suite, fn($o) => $o['solde_source'] === 'LUE'));
+    $variation = null;
+    if (count($avec) >= 2) {
+        $variation = round((float)end($avec)['solde'] - (float)$avec[0]['solde'], 2);
+    }
+    return [
+        'suite'       => $suite,
+        'premier'     => $avec[0] ?? null,
+        'dernier'     => $avec ? end($avec) : null,
+        'variation'   => $variation,
+        'periodes'    => count($suite),
+        'sans_solde'  => count($suite) - count($avec),
+    ];
+}
+
+/** Le bilan de la phase 3. */
+function crgi_bilan_phase3(PDO $pdo, int $importId): array
+{
+    $q = function (string $sql) use ($pdo, $importId) {
+        $st = $pdo->prepare($sql);
+        $st->execute([$importId]);
+        return $st;
+    };
+    $statuts = $q('SELECT statut, COUNT(*) n FROM crgi_occupation WHERE import_id = ?
+                    GROUP BY statut')->fetchAll(PDO::FETCH_KEY_PAIR);
+    // Les lots dont la chronologie porte un changement : ce sont eux qu'Emmanuel veut voir.
+    $lotsChanges = $q(
+        'SELECT DISTINCT c.compte, o.lot_reference
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE o.import_id = ? AND o.statut IN ("CHANGEMENT DE LOCATAIRE",
+                "ANCIEN LOCATAIRE AVEC DETTE", "PARTI DEMONTRE", "NOUVEL ENTRANT")
+          ORDER BY c.compte, o.lot_reference')->fetchAll(PDO::FETCH_ASSOC);
+    // ⚠️ UNE LISTE, PLUS UNE TABLE INDEXÉE PAR LA RÉFÉRENCE. Indexer sur `lot_reference`
+    //    écrasait la chronologie d'un compte par celle d'un autre portant le même numéro.
+    $chronos = [];
+    foreach (array_slice($lotsChanges, 0, 60) as $l) {
+        $chronos[] = ['compte' => (string)$l['compte'], 'lot' => (string)$l['lot_reference']]
+            + crgi_chronologie_lot($pdo, $importId, (string)$l['compte'],
+                                   (string)$l['lot_reference']);
+    }
+    return [
+        'statuts'      => $statuts,
+        'observations' => (int)$q('SELECT COUNT(*) FROM crgi_occupation WHERE import_id = ?')
+            ->fetchColumn(),
+        // Un lot se compte sur son IDENTITÉ — compte × référence — pas sur son numéro.
+        'lots'         => (int)$q('SELECT COUNT(DISTINCT c.compte, o.lot_reference)
+                                     FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                                    WHERE o.import_id = ?')->fetchColumn(),
+        'locataires'   => (int)$q('SELECT COUNT(DISTINCT locataire) FROM crgi_occupation
+                                    WHERE import_id = ? AND locataire IS NOT NULL')
+            ->fetchColumn(),
+        'periodes'     => (int)$q('SELECT COUNT(DISTINCT date_arrete) FROM crgi_occupation
+                                    WHERE import_id = ?')->fetchColumn(),
+        'solde'        => $q('SELECT solde_source, COUNT(*) n FROM crgi_occupation
+                               WHERE import_id = ? GROUP BY solde_source')
+            ->fetchAll(PDO::FETCH_KEY_PAIR),
+        'lots_changes' => count($lotsChanges),
+        'chronos'      => $chronos,
+    ];
+}
+
+/**
+ * L'empreinte du résultat de la phase 3.
+ *
+ * ⚠️ ELLE COUVRE AUSSI LA QUALIFICATION D'ARBITRAGE. Sans le motif, un « À ARBITRER » pouvait
+ *    changer de raison — passer de « aucun locataire lu » à « absence non concluante » — sans
+ *    que la validation s'en aperçoive. Or c'est précisément sur ces quinze lignes que la
+ *    limite de la phase est reconnue : elles doivent être scellées comme le reste.
+ *
+ * ⚠️ ET L'ENCOURS EN FAIT PARTIE, AVEC SA PROVENANCE. Un solde qui passerait de
+ *    `NON DEMONTRABLE` à une valeur lue changerait la lecture financière du lot : le sceau
+ *    doit le voir.
+ *
+ * ⚠️ ELLE COUVRE LE COMPTE, PARCE QUE LE COMPTE FAIT PARTIE DE L'IDENTITÉ DU LOT. Sceller
+ *    « lot 01 » sans son compte, c'est sceller une identité qui n'existe pas : la même
+ *    référence rattachée à un autre mandant ne changerait pas l'empreinte, alors qu'elle
+ *    désignerait un autre appartement.
+ */
+function crgi_empreinte_phase3(PDO $pdo, int $importId): string
+{
+    $st = $pdo->prepare(
+        'SELECT o.id, c.compte, o.lot_reference, COALESCE(o.periode_cle,""),
+                COALESCE(o.date_arrete,""), COALESCE(o.locataire,""), COALESCE(o.bail_du,""),
+                COALESCE(o.statut,""), COALESCE(o.solde,""), o.solde_source,
+                COALESCE(o.statut_motif,""), COALESCE(o.precedent,"")
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE o.import_id = ? ORDER BY o.id'
+    );
+    $st->execute([$importId]);
+    $l = [];
+    foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
+        $l[] = implode('|', $r);
+    }
+    return hash('sha256', implode("\n", $l));
 }
 
 /** Le bilan de la phase 0, tel que l'écran doit le montrer. */

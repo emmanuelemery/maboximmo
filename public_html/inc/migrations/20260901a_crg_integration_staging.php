@@ -36,6 +36,17 @@
  *    toucher au reste.
  *
  * ⚠️ Statements additifs (`IF NOT EXISTS`) : rejouables sans casse.
+ *
+ * ── ⚠️ RANG PARTAGÉ, VÉRIFIÉ SANS CONSÉQUENCE ─────────────────────────────────
+ * `20260901a_avenant_texte_avant.php` porte le MÊME RANG que cette migration.
+ * Contrôlé le 02/09/2026 : le moteur trie sur le NOM COMPLET (`sort($files)`),
+ * l'ordre `a → f` de ce lot est donc préservé, `_migrations_applied.id` porte
+ * lui aussi le nom complet — aucune collision de clé — et les deux migrations
+ * touchent des tables sans rapport (`avenant` contre `crgi_*`). Rien à corriger.
+ *
+ * ⚠️ MAIS ON NE RENOUVELLE PAS. Le prochain lot doit repartir d'un rang LIBRE et
+ *    non réutilisé : un rang partagé ne coûte rien tant que les migrations sont
+ *    indépendantes, et coûte tout le jour où l'une dépend de l'autre.
  */
 
 return [

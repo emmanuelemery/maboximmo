@@ -75,6 +75,9 @@ $etat1 = $courant ? crgi_phase_validee($pdo, $importId, 1) : ['validee' => false
 $bilan1 = ($courant && in_array((string)($phases[1]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
     ? crgi_bilan_phase1($pdo, $importId) : null;
 $etat2 = $courant ? crgi_phase_validee($pdo, $importId, 2) : ['validee' => false, 'perimee' => false];
+$etat3 = $courant ? crgi_phase_validee($pdo, $importId, 3) : ['validee' => false, 'perimee' => false];
+$bilan3 = ($courant && in_array((string)($phases[3]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
+    ? crgi_bilan_phase3($pdo, $importId) : null;
 $bilan2 = ($courant && in_array((string)($phases[2]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
     ? crgi_bilan_phase2($pdo, $importId) : null;
 $modifies = $aArbitrer = [];
@@ -623,6 +626,128 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     <?php endif; ?>
   <?php endif; ?>
 
+  <?php if ($etat2['validee'] && !$etat2['perimee']): ?>
+    <div class="crgi-carte">
+      <h2>Phase 3 — Locataires / occupation</h2>
+      <p class="crgi-sous">
+        Pour chaque lot, la suite de ses occupants sur <b>toutes les périodes du dépôt</b> —
+        pas seulement la dernière. C'est la succession documentaire qui démontre <i>quand</i>
+        le titulaire change. <b>Un ancien locataire n'est jamais supprimé</b>, sa dette lui
+        reste attachée, et <b>une absence n'est pas un départ</b>.
+      </p>
+      <div class="crgi-actions" style="border:0;padding-top:0;margin-top:0">
+        <button class="crgi-b or" id="btnPhase3">
+          <?= $bilan3 ? 'Relancer la lecture d’occupation' : 'Lancer la lecture (phase 3)' ?></button>
+        <span class="crgi-aide" id="etatPhase3"></span>
+      </div>
+    </div>
+
+    <?php if ($bilan3): $s3 = $bilan3['statuts']; ?>
+      <div class="crgi-carte">
+        <h2>Bilan de la phase 3</h2>
+        <p class="crgi-sous">
+          <?= (int)$bilan3['observations'] ?> observations sur
+          <b><?= (int)$bilan3['lots'] ?> lots</b>,
+          <?= (int)$bilan3['locataires'] ?> locataires et
+          <b><?= (int)$bilan3['periodes'] ?> périodes</b>.
+          Les encours sont des <b>photographies</b> : jamais additionnées entre deux périodes.
+          <code>STOCK ≠ FLUX</code>.
+        </p>
+        <?php
+        $ok3 = fn(bool $c) => $c ? 'ok' : 'mal';
+        $cases3 = [
+            ['v' => (int)($s3['IDENTIQUE'] ?? 0), 'l' => 'identiques', 'c' => 'ok'],
+            ['v' => (int)($s3['NOUVEL ENTRANT'] ?? 0), 'l' => 'nouveaux entrants', 'c' => 'ok'],
+            ['v' => (int)($s3['CHANGEMENT DE LOCATAIRE'] ?? 0),
+             'l' => 'changements de locataire', 'c' => 'ok'],
+            ['v' => (int)($s3['PARTI DEMONTRE'] ?? 0), 'l' => 'partis DÉMONTRÉS', 'c' => 'ok'],
+            ['v' => (int)($s3['ANCIEN LOCATAIRE AVEC DETTE'] ?? 0),
+             'l' => 'anciens locataires AVEC DETTE', 'c' => 'ok'],
+            ['v' => (int)($s3['A ARBITRER'] ?? 0), 'l' => 'à arbitrer',
+             'c' => $ok3((int)($s3['A ARBITRER'] ?? 0) === 0)],
+            ['v' => (int)($bilan3['solde']['NON DEMONTRABLE'] ?? 0),
+             'l' => 'soldes NON DÉMONTRABLES', 'c' => 'ok'],
+        ]; ?>
+        <div class="crgi-bilan">
+          <?php foreach ($cases3 as $c): ?>
+            <div class="<?= $c['c'] ?>">
+              <div class="v"><?= number_format((int)$c['v'], 0, ',', ' ') ?></div>
+              <div class="l"><?= h($c['l']) ?></div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <div class="crgi-note">
+          <b>ABSENCE DANS UN NOUVEAU CRG ≠ DÉPART.</b> Un départ n'est <code>DÉMONTRÉ</code>
+          que si le lot est réénoncé plus tard sans cet occupant. Un lot qui cesse simplement
+          d'apparaître reste <code>À ARBITRER</code> — le CRG peut ne pas avoir été déposé.
+          Et la dette d'un ancien locataire <b>lui reste attachée</b> : elle ne passe jamais au
+          suivant (<code>P6A-CREANCE-07</code>).
+        </div>
+
+        <h2 style="margin-top:18px">Les <?= (int)$bilan3['lots_changes'] ?> lots dont la chronologie bouge</h2>
+        <p class="crgi-sous">
+          Locataire avant → locataire actuel, période par période, avec l'encours photographié
+          à chaque arrêté. La variation compare la <b>première</b> et la <b>dernière</b>
+          photographie lisibles — elle ne cumule rien.
+        </p>
+        <div class="crgi-defile"><table>
+          <tr><th>Lot</th><th>Chronologie</th><th class="num">Encours</th>
+              <th class="num">Variation</th></tr>
+          <?php foreach ($bilan3['chronos'] as $ch): ?>
+            <tr>
+              <td><b><?= h((string)$ch['lot']) ?></b>
+                <div class="crgi-muet" style="font-size:11.5px">compte <?= h((string)$ch['compte']) ?></div>
+                <div class="crgi-muet" style="font-size:11.5px"><?= (int)$ch['periodes'] ?> périodes</div></td>
+              <td style="font-size:12.5px">
+                <?php foreach ($ch['suite'] as $o): ?>
+                  <div>
+                    <span class="crgi-muet"><?= h((string)$o['periode_cle']) ?></span> :
+                    <b><?= h((string)($o['locataire'] ?? '— aucun locataire imprimé —')) ?></b>
+                    <span class="crgi-cert <?= in_array((string)$o['statut'], ['A ARBITRER'], true) ? 'INDETERMINABLE' : (((string)$o['statut'] === 'IDENTIQUE') ? 'CERTAIN' : 'PROBABLE') ?>"
+                          style="font-size:11px"><?= h((string)$o['statut']) ?></span>
+                  </div>
+                <?php endforeach; ?>
+              </td>
+              <td class="num" style="font-size:12.5px">
+                <?php foreach ($ch['suite'] as $o): ?>
+                  <div><?= $o['solde_source'] === 'LUE'
+                        ? number_format((float)$o['solde'], 2, ',', ' ') . ' €'
+                        : '<span class="crgi-muet">non démontrable</span>' ?></div>
+                <?php endforeach; ?>
+              </td>
+              <td class="num">
+                <?php if ($ch['variation'] === null): ?>
+                  <span class="crgi-muet">non calculable</span>
+                <?php else: ?>
+                  <b style="color:<?= $ch['variation'] > 0 ? '#b3261e' : '#2f7d5d' ?>">
+                    <?= ($ch['variation'] > 0 ? '+' : '') . number_format($ch['variation'], 2, ',', ' ') ?> €</b>
+                  <div class="crgi-muet" style="font-size:11px">
+                    <?= h((string)($ch['premier']['periode_cle'] ?? '')) ?> →
+                    <?= h((string)($ch['dernier']['periode_cle'] ?? '')) ?></div>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </table></div>
+      </div>
+
+      <div class="crgi-carte">
+        <h2>Validation de la phase 3</h2>
+        <?php if ($etat3['validee'] && !$etat3['perimee']): ?>
+          <p class="crgi-sous"><?= crgi_pastille('VALIDEE') ?>
+            le <?= h((string)($etat3['ligne']['valide_le'] ?? '')) ?>.
+            La phase 4 — Finances — n'est pas encore livrée.</p>
+        <?php else: ?>
+          <p class="crgi-sous">
+            La phase 3 est une <b>lecture</b> : rien n'a été créé, modifié, archivé ni
+            supprimé dans MBI, et aucun ancien locataire n'a été effacé.
+          </p>
+          <button class="crgi-b or" id="btnValider3">Valider la phase 3</button>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
+  <?php endif; ?>
+
     <div class="crgi-carte">
       <h2>Validation de la phase 0</h2>
       <?php if ($etat0['validee'] && !$etat0['perimee']): ?>
@@ -845,6 +970,34 @@ document.getElementById('btnPhase2')?.addEventListener('click', async (e) => {
     alert(err.message);
     e.target.disabled = false;
   }
+});
+
+document.getElementById('btnPhase3')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  document.getElementById('etatPhase3').textContent = 'lecture en cours…';
+  try {
+    const d = new FormData();
+    d.append('action', 'phase3');
+    d.append('import_id', CRGI.importId);
+    await envoyer(d);
+    location.reload();
+  } catch (err) {
+    document.getElementById('etatPhase3').textContent = '';
+    alert(err.message);
+    e.target.disabled = false;
+  }
+});
+
+document.getElementById('btnValider3')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    const d = new FormData();
+    d.append('action', 'valider');
+    d.append('import_id', CRGI.importId);
+    d.append('phase', '3');
+    await envoyer(d);
+    location.reload();
+  } catch (err) { alert(err.message); e.target.disabled = false; }
 });
 
 document.getElementById('btnValider2')?.addEventListener('click', async (e) => {
