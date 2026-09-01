@@ -1,0 +1,61 @@
+{
+  "_doctrine": "Arbitrages rendus par Emmanuel le 30/08/2026. Chaque entree porte la decision, l'objet MBI vise et le motif. Un arbitrage n'est jamais deduit : il est ecrit ici, et le rapprochement s'y conforme sans le recalculer.",
+  "LYON hors SIR|M ET MME SABY YVES ET CHRISTELLE": {
+    "decision": "REUTILISER_TIERS_ET_PROPRIETAIRE",
+    "tiers": 5, "proprietaire": 11,
+    "motif": "Emmanuel : « Mr et Mme sont differents que Yves SABY ». Le couple est une identite distincte du tiers #4 ; MBI porte deja sa fiche #11 sur le meme compte 01460000, rattachee au tiers #5."
+  },
+  "LYON hors SIR|SCI CB FINANCES": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "proprietaire": 1326, "raison_sociale": "CB FINANCES", "forme_juridique": "SCI",
+    "motif": "Emmanuel : « enleve la civilite pour la mettre au bon endroit et ne conserve en nom CB FIN... ». La forme juridique n'appartient pas au nom."
+  },
+  "LYON hors SIR|SCI FILJAE": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "proprietaire": 244, "raison_sociale": "FILJAE", "forme_juridique": "SCI",
+    "motif": "Emmanuel : « filjae = sci = civilite ». Meme regle que CB FINANCES."
+  },
+  "LYON hors SIR|M SALIM BARKATI": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "proprietaire": 1395, "raison_sociale": "SCI M.A.N.S. IMMOBILIERE",
+    "representant": "M. Salim BARKATI", "role_representant": "gerant",
+    "motif": "Emmanuel : « Salim est le gerant de SCI M.A.N.S ». Le proprietaire du compte 02290000 est la SCI ; la personne physique imprimee est son representant."
+  },
+  "LYON hors SIR|MADAME HERR SOPHIE": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "proprietaire": 1331, "compte_a_rattacher": "02210000",
+    "motif": "Emmanuel : A — la fiche MBI existante EST cette personne. On lui rattache son compte et on lui cree un tiers ; on ne cree pas une seconde fiche."
+  },
+  "LYON hors SIR|MADAME TAVIER LILIANE": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "proprietaire": 1330, "compte_a_rattacher": "02110000",
+    "motif": "Emmanuel : A — idem HERR SOPHIE."
+  },
+  "EMERY IMMO|SCI DUMAZ 100 ECLAIRS": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "proprietaire": 1156, "raison_sociale": "SCI 100 ECLAIRS", "forme_juridique": "SCI",
+    "representant": "DUMAZ", "role_representant": "gerant",
+    "motif": "Emmanuel : « c'est le gerant de la sci eclair ». Le libelle imprime agglutine la forme, le gerant et la raison sociale : SCI + DUMAZ (gerant) + 100 ECLAIRS."
+  },
+  "GROUPE SIR|GPE IMMO DR": {
+    "decision": "REUTILISER_TIERS_ET_PROPRIETAIRE",
+    "tiers": 3, "proprietaire": 9,
+    "grouper_proprietaires": [9, 21, 292, 293],
+    "motif": "Emmanuel : « groupe SIR et les autres sont le meme proprietaire avec des articulations differentes du nom... tous les grouper »."
+  },
+  "_vienne": {
+    "decision": "REUTILISER_PROPRIETAIRE_RATTACHER_TIERS",
+    "s_applique_a": "les 8 fiches VIENNE dont le libelle MBI vient de l'ancien lecteur SEPTEO",
+    "correspondances": {
+      "11054011976": {"proprietaire": 1400, "nom_crg": "M. CHAMOUSSET Michel"},
+      "1105402277": {"proprietaire": 1403, "nom_crg": "SCI PHILOD DELGRANDE Philippe"},
+      "1105403623": {"proprietaire": 1412, "nom_crg": "Mr & Mme CUZIN Patric"},
+      "1105403694": {"proprietaire": 1414, "nom_crg": "Monsieur DIAS Guillaume"},
+      "1105404765": {"proprietaire": 1430, "nom_crg": "Ind. MARTINEZ Olga, Hélène, Jocelyne, Henry, Jean-Luc, Consolacion"},
+      "1105406121": {"proprietaire": 1436, "nom_crg": "M. HOCHE Mohamed"},
+      "1105406244": {"proprietaire": 1437, "nom_crg": "Mme PERRIN Mélanie"},
+      "1105408184": {"proprietaire": 1450, "nom_crg": "Mme MARSELLA Robert"}
+    },
+    "motif": "Emmanuel : « vienne OK sur tout ». Le nom du CRG fait foi ; la fiche existante est conservee et renommee, jamais doublee."
+  }
+}
