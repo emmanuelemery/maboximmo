@@ -275,18 +275,30 @@ def _couper_agence(brut):
        est une propriété de l'impression. Une agence au nom en casse mixte serait tronquée —
        aucune des huit agences MBI n'est dans ce cas, et la coupure resterait visible.
     """
-    brut = ' '.join(str(brut or '').split())
-    par_colonnes = re.split(r'\s{2,}', brut)
+    # ⚠️ ON COUPE LES COLONNES AVANT DE NORMALISER, PAS APRÈS. La normalisation écrasait les
+    #    espaces multiples — c'est-à-dire le séparateur de colonnes lui-même — et la coupure
+    #    par colonnes ne pouvait plus jamais s'appliquer. Elle était du code mort, et tout
+    #    retombait sur l'heuristique de casse : « … - VIENNE BASIE » pour agence, « Mona »
+    #    pour propriétaire.
+    original = str(brut or '').replace('	', '    ')
+    par_colonnes = [p for p in re.split(r'\s{2,}', original.strip()) if p.strip()]
     if len(par_colonnes) > 1:
-        return par_colonnes[0].strip(), ' '.join(par_colonnes[1:]).strip() or None
+        return (' '.join(par_colonnes[0].split()).strip(),
+                ' '.join(' '.join(par_colonnes[1:]).split()).strip() or None)
+    brut = ' '.join(original.split())
     mots = brut.split(' ')
     for i, mot in enumerate(mots):
         # ⚠️ LA CASSE NE SUFFIT PAS : LE BLOC ADRESSE COMMENCE SOUVENT PAR UN CODE POSTAL.
         #    « Agence: A3 - REGIE EMERY - VIENNE 38200 VIENNE » est tout en capitales et
         #    chiffres : rien ne coupait, et le libellé d'agence héritait de l'adresse du
         #    propriétaire — 53 variantes d'une seule agence sur le document réel.
+        # ⚠️ ET LE CODE POSTAL COLLE PARFOIS À SA VILLE. « 42130AILLEUX » n'est pas cinq
+        #    chiffres exactement : exiger `^\d{5}$` laissait passer l'adresse entière dans le
+        #    nom d'agence. De même, un mot en minuscules — « chez » — n'appartient jamais à un
+        #    nom d'agence, qui s'imprime en capitales.
         if i and (re.match(r'^[A-ZÉÈÀÂÎÔÛ][a-zéèàâîôûç]', mot)
-                  or re.match(r'^\d{5}$', mot)):
+                  or re.match(r'^\d{5}', mot)
+                  or re.match(r'^[a-zéèàâîôûç]', mot)):
             return ' '.join(mots[:i]).strip(), ' '.join(mots[i:]).strip() or None
     return brut, None
 

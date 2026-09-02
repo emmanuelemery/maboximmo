@@ -244,6 +244,12 @@ function crgi_phase0(PDO $pdo, int $importId): array
     //    découpage documentaire sans avoir terminé l'identification documentaire.
     crgi_rapprocher_agences($pdo, $importId);
     crgi_qualifier_doublons($pdo, $importId);
+    // ⚠️ CETTE QUALIFICATION N'AVAIT AUCUN APPELANT. Elle n'avait jamais tourné qu'à la main :
+    //    le premier replay de la phase 0 l'a donc silencieusement perdue, et 18 CRG sont
+    //    restés bloqués sur « MÊME CLÉ, CONTENU DIFFÉRENT » — ni uniques, ni réénonciations,
+    //    donc invisibles pour toutes les phases suivantes. Une étape qui ne tourne qu'à la
+    //    main n'existe pas : elle appartient au moteur.
+    crgi_qualifier_collisions($pdo, $importId);
     crgi_marquer_phase($pdo, $importId, 0, 'A VALIDER', null);
     $pdo->prepare("UPDATE crgi_import SET statut = 'A VALIDER' WHERE id = ? AND statut = 'ANALYSE EN COURS'")
         ->execute([$importId]);
