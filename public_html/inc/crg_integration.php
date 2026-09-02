@@ -442,6 +442,19 @@ function crgi_valider_phase(PDO $pdo, int $importId, int $phase, int $userId): v
 }
 
 /**
+ * LE SYSTÈME MBI QUE DÉSIGNE LA FAMILLE LUE SUR LE DOCUMENT.
+ *
+ * ⚠️ DEUX ÉDITEURS, QUATRE AGENCES. **ICS** imprime les CRG de LOCA IMMO LYON et d'EMERY IMMO ;
+ *    **SPI** ceux de VIENNE, et de CHAPONOST le jour où ses CRG existeront. `proprietaire_comptes_crg.systeme`
+ *    nomme l'agence, pas l'éditeur : la correspondance est donc explicite, et non devinée.
+ */
+const CRGI_SYSTEME_DU_FORMAT = [
+    'lyon'       => 'loca_immo_lyon',
+    'emery_immo' => 'emery_immo',
+    'septeo_spi' => 'septeo_spi',
+];
+
+/**
  * LES TABLES DE STAGING QUI PORTENT UN IMPORT — DÉDUITES DU SCHÉMA, JAMAIS ÉNUMÉRÉES.
  *
  * ⚠️ UNE LISTE ÉCRITE À LA MAIN NE SURVIT PAS À LA MIGRATION SUIVANTE. `crgi_annuler` en
@@ -825,7 +838,7 @@ function crgi_phase1(PDO $pdo, int $importId): array
     crgi_marquer_phase($pdo, $importId, 1, 'EN ANALYSE', null);
 
     $st = $pdo->prepare(
-        'SELECT id, compte, periode_debut, periode_fin, date_arrete, periode_cle
+        'SELECT id, compte, format, periode_debut, periode_fin, date_arrete, periode_cle
            FROM crgi_crg
           WHERE import_id = ? AND doublon_statut = "UNIQUE"
           ORDER BY page_debut'
@@ -853,6 +866,34 @@ function crgi_phase1(PDO $pdo, int $importId): array
     $bilan = ['DEJA CONNUE' => 0, 'NOUVELLE' => 0, 'COMPTE INCONNU' => 0, 'A VERIFIER' => 0];
     foreach ($situations as $s) {
         $cands = $comptes[(string)$s['compte']] ?? [];
+
+        // ⚠️ UN CODE DE COMPTE N'EST JAMAIS GLOBAL — IL N'EXISTE QUE DANS SON SYSTÈME.
+        //    `01600000` est SCI JOURNET chez `loca_immo_lyon` ; le CRG EMERY IMMO qui porte
+        //    ce même code appartient à Madame GERMAIN. Chercher par le code seul rattachait
+        //    silencieusement un CRG de RIOM au mandant lyonnais — un rapprochement faux se
+        //    propage ensuite à tout ce que les phases suivantes construisent dessus.
+        //    L'identité est le couple `(code, système)`, jamais le code (`P3A-COMPTE-03`).
+        $systeme = CRGI_SYSTEME_DU_FORMAT[(string)$s['format']] ?? null;
+        if ($systeme !== null && $cands) {
+            $memeSysteme = array_values(array_filter(
+                $cands, fn($c) => (string)$c['systeme'] === $systeme
+            ));
+            if (!$memeSysteme) {
+                // ⚠️ ET UN HOMONYME N'EST PAS UNE ABSENCE ANODINE : on le NOMME. Sans cela,
+                //    « compte inconnu » laisserait croire à un simple manque, alors qu'un
+                //    code identique vit à côté, dans un autre système, prêt à être confondu.
+                $ailleurs = implode(', ', array_map(fn($c) => $c['systeme'], $cands));
+                $maj->execute(['COMPTE INCONNU',
+                    'Le compte ' . $s['compte'] . ' n’existe pas dans le système ' . $systeme
+                    . '. ATTENTION : ce code existe dans ' . $ailleurs . ' — c’est un '
+                    . 'HOMONYME, pas le même mandant. `UN CODE DE COMPTE N’EST JAMAIS '
+                    . 'GLOBAL`.', null, (int)$s['id']]);
+                $bilan['COMPTE INCONNU']++;
+                continue;
+            }
+            $cands = $memeSysteme;
+        }
+
         if (!$cands) {
             $maj->execute(['COMPTE INCONNU',
                 'Le compte ' . $s['compte'] . ' n’existe dans aucun système de MBI : la '

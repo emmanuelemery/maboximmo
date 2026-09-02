@@ -162,6 +162,41 @@ controle(
     }
 );
 
+controle(
+    'REFUS — un code de compte ne se rapproche jamais hors de son système',
+    '`01600000` est SCI JOURNET chez `loca_immo_lyon` ; le CRG EMERY IMMO qui porte ce même '
+    . 'code appartient à Madame GERMAIN. Chercher par le code seul rattachait silencieusement '
+    . 'un CRG de RIOM au mandant lyonnais, et le faux rapprochement se serait propagé à tout '
+    . 'ce que les phases suivantes construisent dessus. L’identité est le couple '
+    . '`(code, système)` — `P3A-COMPTE-03`.',
+    function () use ($pdo, $importId) {
+        // La correspondance doit couvrir TOUTE famille que le référentiel sait reconnaître :
+        // une famille absente rendrait le contrôle muet au lieu de rouge.
+        foreach (['lyon', 'emery_immo', 'septeo_spi'] as $f) {
+            exiger(isset(CRGI_SYSTEME_DU_FORMAT[$f]),
+                   "la famille {$f} n’a pas de système MBI déclaré");
+        }
+        // Et aucun CRG de l’import ne doit être rattaché à un compte d’un AUTRE système.
+        $st = $pdo->prepare(
+            'SELECT g.compte, g.format, c.systeme, COUNT(*) n
+               FROM crgi_crg g
+               JOIN crg_trimestres tr ON tr.id = g.mbi_trimestre_id
+               JOIN proprietaire_comptes_crg c ON c.id = tr.id_compte_mandant
+              WHERE g.import_id = ?
+              GROUP BY g.compte, g.format, c.systeme'
+        );
+        $st->execute([$importId]);
+        $fautes = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $attendu = CRGI_SYSTEME_DU_FORMAT[(string)$r['format']] ?? null;
+            if ($attendu !== null && (string)$r['systeme'] !== $attendu) {
+                $fautes[] = $r['compte'] . ' (' . $r['format'] . ' → ' . $r['systeme'] . ')';
+            }
+        }
+        exiger(!$fautes, 'rapprochements hors système : ' . implode(', ', $fautes));
+    }
+);
+
 // ── AUCUNE ÉCRITURE MÉTIER ────────────────────────────────────────────────────────────────
 controle(
     'aucune écriture dans les données métier de MBI',

@@ -73,7 +73,21 @@ chaque information extraite sache de quel PDF et de quelle page elle vient.
 
 ## C. Règles techniques certifiées
 
-**Lecteurs** — `parse_crg_geo.py` (LYON) · `parse_crg_emery.py` (EMERY) · `parse_crg_septeo.py` (VIENNE) · `crg_periode.py` (contrat de période, **partagé** : recopié trois fois, il aurait dérivé trois fois).
+**Lecteurs — ÉDITEUR → MOTEUR → VARIANTE.** *Taxonomie rectifiée le 02/09/2026 : une agence n'est pas un format. Le parc n'utilise que **deux logiciels**, et les agences se répartissent dessus. Aucune règle de lecture n'a changé — seule leur organisation.*
+
+| Éditeur | Moteur | Variante | Agence | `parser_version` |
+|---|---|---|---|---|
+| **ICS** | `crg_ics_core.py` | `lyon` | LOCA IMMO LYON | `geometric-1.0` |
+| **ICS** | `crg_ics_core.py` | `emery_immo` | EMERY IMMO succ. SERVAJEAN (RIOM · CHAMALIÈRES) | `emery-1.0` |
+| **SPI** | `parse_crg_septeo.py` | — | VIENNE · CHAPONOST *(aucun CRG fourni à ce jour)* | — |
+
+**Traçabilité des certifications historiques** : `parse_crg_geo.py` et `parse_crg_emery.py` **existent toujours**, avec le même nom, la même fonction `parse(chemin)` et la même ligne de commande — ce sont désormais les **adresses** des deux variantes ICS. Toute certification LYON ou EMERY antérieure au 02/09/2026 reste donc traçable jusqu'à son lecteur, et les `parser_version` inscrites dans les 517 extractions ne bougent pas.
+
+**Pourquoi la factorisation** : les deux lecteurs ICS portaient **exactement les mêmes douze fonctions**, aucune propre à l'un seul, et **96 lignes sur 2 054** les séparaient — 95 % de code forké. Une correction du fonctionnement commun devait être faite deux fois. Les quatre divergences réelles ont été inventoriées une par une : trois sont des **variantes documentaires démontrées** (déclarées dans `crg_ics_core.VARIANTES`, chacune avec l'incident qui l'a fait naître), la quatrième s'est révélée **sans effet** sur LYON et est donc devenue commune.
+
+**Reconnaissance** — `crg_format.famille_du_texte` est l'**autorité unique**, partagée par `crg_depot_lire.py` (routeur) et `crg_integration_phase0.py` (intégrateur). Elle interroge **l'enseigne avant la structure** : LYON et EMERY impriment tous deux « COMPTE RENDU DE GESTION » et « COMPTE PERSONNEL », et tester la structure d'abord rangeait 224 CRG EMERY certifiés dans la famille LYON.
+
+**Partagé** — `crg_periode.py` (contrat de période : recopié trois fois, il aurait dérivé trois fois).
 
 | Réf. | Règle technique | Statut |
 |---|---|---|
