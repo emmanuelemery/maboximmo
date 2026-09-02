@@ -360,6 +360,89 @@ controle(
     }
 );
 
+
+controle(
+    'le plan boucle FAMILLE PAR FAMILLE, pas seulement en total',
+    'Un compteur global masque une population : deux grands totaux peuvent se refermer alors '
+    . 'qu’une famille en perd la moitié. Les 5 successions étaient comptées DEUX FOIS — en '
+    . 'CRÉER pour l’entrant et en ARCHIVER pour le sortant — soit 483 verdicts pour 478 '
+    . 'observations, invisibles dans le total général.',
+    function () use ($pdo, $importId) {
+        // La population source de chaque famille, mesurée SUR SA PROPRE MAILLE : une
+        // occupation observée sur sept périodes n’est pas sept objets à écrire.
+        $sources = [
+            'PROPRIETAIRES' => 'SELECT COUNT(DISTINCT proprietaire) FROM crgi_crg
+                                 WHERE import_id = ? AND proprietaire IS NOT NULL
+                                   AND proprietaire <> ""',
+            'COMPTES MANDANTS' => 'SELECT COUNT(DISTINCT compte) FROM crgi_crg WHERE import_id = ?',
+            'IMMEUBLES' => 'SELECT COUNT(*) FROM (SELECT COALESCE(code, CONCAT(nom,"|",code_postal)) k
+                              FROM crgi_immeuble WHERE import_id = ? GROUP BY k) t',
+            'LOTS' => 'SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.reference
+                         FROM crgi_lot o JOIN crgi_crg c ON c.id = o.crg_id
+                        WHERE o.import_id = ?) t',
+            'LOCATAIRES' => 'SELECT COUNT(DISTINCT locataire) FROM crgi_occupation
+                              WHERE import_id = ? AND locataire IS NOT NULL',
+            'OCCUPATIONS' => 'SELECT COUNT(*) FROM crgi_occupation WHERE import_id = ?',
+            'APPELS' => 'SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ? AND categorie IN
+                          ("LOYER APPELE","CHARGE APPELEE AU LOCATAIRE",
+                           "AUTRE APPELE AU LOCATAIRE","INDETERMINABLE")',
+            'ENCAISSEMENTS' => 'SELECT COUNT(*) FROM crgi_mouvement
+                                 WHERE import_id = ? AND categorie = "ENCAISSEMENT"',
+            'ENCOURS' => 'SELECT COUNT(*) FROM crgi_mouvement
+                           WHERE import_id = ? AND categorie = "ENCOURS"',
+            'CHARGES' => 'SELECT COUNT(*) FROM crgi_mouvement
+                           WHERE import_id = ? AND categorie = "CHARGE"',
+            'FRAIS ET ASSURANCES' => 'SELECT COUNT(*) FROM crgi_mouvement
+                                       WHERE import_id = ? AND categorie = "FRAIS ET ASSURANCES"',
+            'FLUX PROPRIETAIRE' => 'SELECT COUNT(*) FROM crgi_mouvement
+                                     WHERE import_id = ? AND categorie = "VERSEMENT PROPRIETAIRE"',
+            'SOLDES' => 'SELECT COUNT(*) FROM crgi_mouvement
+                          WHERE import_id = ? AND categorie = "SOLDE"',
+            'AGREGATS ET DETAILS' => 'SELECT COUNT(*) FROM crgi_mouvement
+                                       WHERE import_id = ? AND categorie IN
+                                        ("AGREGAT (NON ADDITIONNABLE)","DETAIL (NON ADDITIONNABLE)")',
+        ];
+        $st = $pdo->prepare('SELECT famille, SUM(nombre) n FROM crgi_plan
+                              WHERE import_id = ? GROUP BY famille');
+        $st->execute([$importId]);
+        $verdicts = $st->fetchAll(PDO::FETCH_KEY_PAIR);
+        foreach ($sources as $famille => $sql) {
+            $q = $pdo->prepare($sql);
+            $q->execute([$importId]);
+            $source = (int)$q->fetchColumn();
+            $total = (int)($verdicts[$famille] ?? 0);
+            exiger($source === $total, sprintf(
+                '%s : %d objets en source, %d verdicts (écart %+d)',
+                $famille, $source, $total, $source - $total
+            ));
+        }
+    }
+);
+
+controle(
+    'les trois phases comptent le même nombre de lots',
+    'La phase 2 en voyait 98 là où le document en imprime 124 : 26 lots absents du patrimoine, '
+    . 'et le bilan d’intégration construit sur le chiffre amputé.',
+    function () use ($pdo, $importId) {
+        $n = function (string $sql) use ($pdo, $importId) {
+            $st = $pdo->prepare($sql);
+            $st->execute([$importId]);
+            return (int)$st->fetchColumn();
+        };
+        $p2 = $n('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.reference FROM crgi_lot o
+                    JOIN crgi_crg c ON c.id = o.crg_id WHERE o.import_id = ?) t');
+        $p3 = $n('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference
+                    FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                   WHERE o.import_id = ?) t');
+        $p4 = $n('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, m.lot_reference
+                    FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+                   WHERE m.import_id = ? AND m.lot_reference IS NOT NULL
+                     AND m.lot_reference <> "") t');
+        exiger($p2 === $p3 && $p3 === $p4,
+               "P2 = {$p2}, P3 = {$p3}, P4 = {$p4} — les trois doivent être égaux");
+    }
+);
+
 echo "\nCOHÉRENCE : " . $ok . '/' . ($ok + count($ko)) . "\n";
 foreach ($ko as [$titre, $incident, $msg]) {
     echo "\n  ÉCHEC — {$titre}\n    incident défendu : {$incident}\n    {$msg}\n";

@@ -2196,18 +2196,24 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
         . 'AUCUNE ÉCRITURE N’EST PROPOSÉE. Cela ne dit pas que MBI porte déjà cette observation '
         . '— c’est une autre question, et aucune phase scellée ne la tranche.',
         'phase 3 · chronologie');
+    // ⚠️ UNE OBSERVATION, UN VERDICT — ET UN SEUL. La succession était comptée DEUX FOIS : en
+    //    CRÉER pour l'occupation entrante et en ARCHIVER pour la sortante, alors que ces deux
+    //    actions portent sur des OBSERVATIONS DIFFÉRENTES. Le plan annonçait 483 verdicts pour
+    //    478 observations : cinq de trop, invisibles dans le total général.
     $poser('OCCUPATIONS', 'CREER', ($o['CHANGEMENT DE LOCATAIRE'] ?? 0)
         + ($o['NOUVEL ENTRANT'] ?? 0), 'occupation',
-        'Succession locative DÉMONTRÉE : le lot est réénoncé avec un autre occupant. Une '
-        . 'nouvelle occupation serait ouverte.', 'phase 3 · chronologie');
-    $poser('OCCUPATIONS', 'ARCHIVER', ($o['CHANGEMENT DE LOCATAIRE'] ?? 0)
-        + ($o['PARTI DEMONTRE'] ?? 0), 'occupation',
-        'L’occupation précédente serait CLÔTURÉE à la date démontrée — jamais supprimée, et '
-        . 'sa dette reste attachée à son titulaire.', 'phase 3 · chronologie');
-    $poser('OCCUPATIONS', 'INCHANGE', ($o['ANCIEN LOCATAIRE AVEC DETTE'] ?? 0),
-        'ancien locataire',
-        'Ancien occupant portant une dette à sa dernière période : conservé tel quel, la '
-        . 'créance ne passe jamais au suivant (`P6A-CREANCE-07`).', 'phase 3 · chronologie');
+        'Succession locative DÉMONTRÉE : le lot est réénoncé avec un autre occupant. Cette '
+        . 'observation est celle de l’ENTRANT — une occupation serait ouverte.',
+        'phase 3 · chronologie');
+    // ⚠️ ET UN ANCIEN LOCATAIRE AVEC DETTE EST UNE OCCUPATION À CLÔTURER, PAS À LAISSER. Le
+    //    marquer « inchangé » laissait croire qu’il n’y avait rien à écrire. Ce qui ne bouge
+    //    pas, c’est sa DETTE : elle reste attachée à lui (`P6A-CREANCE-07`). La clôture, elle,
+    //    est bien une écriture.
+    $poser('OCCUPATIONS', 'ARCHIVER', ($o['PARTI DEMONTRE'] ?? 0)
+        + ($o['ANCIEN LOCATAIRE AVEC DETTE'] ?? 0), 'occupation',
+        'Observation du SORTANT : son occupation serait CLÔTURÉE à la date démontrée — jamais '
+        . 'supprimée. Sa dette éventuelle reste attachée à lui et ne passe jamais au suivant '
+        . '(`P6A-CREANCE-07`).', 'phase 3 · chronologie');
     $arb = (int)($o['A ARBITRER'] ?? 0);
     $lotsArb = $un('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference
                       FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
