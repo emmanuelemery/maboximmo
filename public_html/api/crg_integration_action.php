@@ -139,6 +139,18 @@ try {
             @set_time_limit(0);
             repondre(['ok' => true, 'bilan' => crgi_phase4($pdo, $importId)]);
 
+        case 'compatibilite':
+            // ⚠️ AVANT L'ANALYSE, PAS APRÈS. Le test ne modifie rien : il dit si le moteur SAIT
+            //    lire ce document, ou quelle structure il ne sait pas traiter.
+            @set_time_limit(0);
+            $st = $pdo->prepare('SELECT chemin FROM crgi_piece WHERE import_id = ? ORDER BY id');
+            $st->execute([$importId]);
+            $rapports = [];
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $chemin) {
+                $rapports[] = crgi_compatibilite((string)$chemin);
+            }
+            repondre(['ok' => true, 'rapports' => $rapports]);
+
         case 'phase5':
             @set_time_limit(0);
             repondre(['ok' => true, 'bilan' => crgi_phase5($pdo, $importId)]);

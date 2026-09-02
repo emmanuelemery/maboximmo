@@ -2741,3 +2741,37 @@ function crgi_frontieres(PDO $pdo, int $importId): array
     );
     return $sorties;
 }
+
+/**
+ * LE TEST DE COMPATIBILITÉ D'UN DÉPÔT — à passer AVANT toute analyse.
+ *
+ * ⚠️ `CE QUI N'EST PAS SUR LA PAGE N'EXISTE PAS` (INTEG-ECRAN-01). Un lanceur qui ne vit qu'au
+ *    terminal ne sera pas passé le jour où un nouveau CRG arrivera — et c'est précisément ce
+ *    jour-là qu'il sert.
+ *
+ * ⚠️ IL N'ÉCRIT RIEN, NI EN BASE NI EN STAGING. Il lit le document et rend un verdict :
+ *    COMPATIBLE, COMPATIBLE AVEC EXCEPTIONS ISOLÉES, ou NOUVELLE STRUCTURE — ANALYSE
+ *    NÉCESSAIRE. Une structure inconnue est ISOLÉE et nommée, jamais interprétée.
+ */
+function crgi_compatibilite(string $chemin): array
+{
+    if (!is_file($chemin)) {
+        throw new RuntimeException('FICHIER INTROUVABLE : ' . $chemin);
+    }
+    $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $script = realpath(__DIR__ . '/../scripts/crg_compatibilite.py');
+    if (!$script) {
+        throw new RuntimeException('MOTEUR ABSENT : scripts/crg_compatibilite.py');
+    }
+    $sortie = trim((string)@shell_exec(
+        escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
+        . escapeshellarg($chemin) . ' --json 2>&1'
+    ));
+    $r = json_decode($sortie, true);
+    if (!is_array($r) || !isset($r['verdict'])) {
+        // ⚠️ FAIL CLOSED : un lanceur muet n'est pas un document compatible.
+        throw new RuntimeException('TEST DE COMPATIBILITÉ MUET OU ILLISIBLE : '
+                                 . mb_substr($sortie, 0, 300));
+    }
+    return $r;
+}

@@ -284,6 +284,14 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     <?php endif; ?>
 
     <div class="crgi-ligne">
+      <button class="crgi-b" id="btnCompat">Tester la compatibilité (avant analyse)</button>
+      <span class="crgi-muet" id="etatCompat">
+        Le moteur sait-il lire ce document ? Il ne modifie rien et nomme les structures qu'il
+        ne saurait pas traiter, au lieu de les interpréter.</span>
+    </div>
+    <div class="crgi-journal" id="rapportCompat" hidden></div>
+
+    <div class="crgi-ligne">
       <button class="crgi-b or" id="btnAnalyser">Analyser les pages (phase 0)</button>
       <span class="crgi-muet" id="etatAnalyse"></span>
     </div>
@@ -1409,6 +1417,50 @@ document.getElementById('btnPhase3')?.addEventListener('click', async (e) => {
     alert(err.message);
     e.target.disabled = false;
   }
+});
+
+document.getElementById('btnCompat')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  const zone = document.getElementById('rapportCompat');
+  document.getElementById('etatCompat').textContent = 'lecture du document…';
+  zone.hidden = false;
+  zone.textContent = '';
+  try {
+    const d = new FormData();
+    d.append('action', 'compatibilite');
+    d.append('import_id', CRGI.importId);
+    const r = await envoyer(d);
+    document.getElementById('etatCompat').textContent = '';
+    for (const rap of (r.rapports || [])) {
+      const lignes = [];
+      lignes.push('VERDICT : ' + rap.verdict);
+      lignes.push(rap.fichier + '  ·  ' + rap.pages + ' pages  ·  ' + rap.mode_lecture);
+      lignes.push('');
+      lignes.push('COUVERTURE');
+      for (const [k, v] of Object.entries(rap.couverture || {})) {
+        lignes.push('   ' + k.padEnd(46, ' ') + v);
+      }
+      const nouvelles = Object.keys(rap.sections_nouvelles || {});
+      lignes.push('');
+      lignes.push('STRUCTURE : ' + Object.values(rap.sections_connues || {})
+                  .reduce((a, b) => a + b, 0) + ' sections reconnues, '
+                  + nouvelles.length + ' inconnues');
+      for (const t of nouvelles) { lignes.push('   NOUVELLE : ' + t); }
+      if ((rap.exceptions || []).length) {
+        lignes.push('');
+        lignes.push('EXCEPTIONS');
+        for (const x of rap.exceptions) { lignes.push('   · ' + x); }
+      }
+      zone.textContent += lignes.join('
+') + '
+
+';
+    }
+  } catch (err) {
+    document.getElementById('etatCompat').textContent = '';
+    zone.textContent = err.message;
+  }
+  e.target.disabled = false;
 });
 
 document.getElementById('btnPhase4')?.addEventListener('click', async (e) => {

@@ -1354,10 +1354,14 @@ MBI. Les phases P1→P9 restent la seule autorité sur ce que les CRG démontren
 |---|---:|
 | pages analysées · rattachées · hors périmètre · non identifiées | **906 · 794 · 112 · 0** |
 | CRG documentaires → situations → réénonciations | **325 → 266 → 59** |
-| agence et période **lues** sur | **325 / 325** |
-| déjà connues de MBI · nouvelles · comptes inconnus · à vérifier | **60 · 177 · 29 · 0** |
+| agence lue — une seule, après correction de la découpe | **A3 - REGIE EMERY - VIENNE**, 325 / 325 |
+| comptes · propriétaires lus · déjà dans MBI · absents | **72 · 72 · 45 · 27** |
 | immeubles : objets · identiques · modifiés · nouveaux · à arbitrer | **80 · 38 · 2 · 7 · 33** |
-| lots : objets (pour 391 occurrences) · identiques · nouveaux | **97 · 33 · 64** |
+| lots : **identités `compte × référence`** · identiques · nouveaux | **124 · 35 · 89** |
+| — dont deux références portées chacune par deux comptes distincts | **122 références, 124 identités** |
+| occupations · locataires · dont plusieurs occupants dans un bloc | **478 · 122 · 8 blocs** |
+| mouvements financiers · indéterminable · réimpressions | **7099 · 1 · 118** |
+| rapprochement MBI : déjà présents · nouveaux · à arbitrer · contradictions | **416 · 873 · 23 · 17** |
 | écritures dans les données métier de MBI | **0** |
 
 ⚠️ **CHAPONOST N'EST PAS DANS CE DÉPÔT.** Les 620 occurrences du nom sont la ligne de pied de
