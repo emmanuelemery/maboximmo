@@ -33,6 +33,11 @@ import sys
 
 import pdfplumber
 
+sys.path.insert(0, __file__.rsplit(chr(92), 1)[0] if chr(92) in __file__ else '.')
+# ⚠️ MÊME SEGMENTATION QUE LES PHASES 2 ET 3. Une population commune se lit à un seul endroit :
+#    c'est parce que chaque phase avait son propre motif que le patrimoine a perdu 26 lots.
+from crg_integration_lots import RE_LOT, RE_SUITE   # noqa: E402
+
 # ── la grille des colonnes, et ce que chacune veut dire ───────────────────────────────────
 COLONNES = (('loyers', 258), ('charges', 309), ('autres', 360),
             ('reste_du', 411), ('debit', 487), ('credit', 564))
@@ -45,15 +50,7 @@ RE_MILLIERS = re.compile(r'^-?\d{1,3}$')
 RE_CENTAINES = re.compile(r'^\d{3},\d{2}$')
 RE_TRONC = re.compile('^-?' + ESP + '+,$')
 RE_DATE = re.compile(r'^(\d{2}/\d{2}/\d{4})$')
-# Reprise de la phase 3 : la référence de lot porte des espaces d'OCR en son milieu.
-# ⚠️ ET UNE RÉFÉRENCE D'UN SEUL CARACTÈRE EST UNE RÉFÉRENCE. Le motif de la phase 3 exigeait
-#    trois caractères ; « - Lot 1 - Mandat N/A - » ne l'atteint pas. Quatre en-têtes du dépôt
-#    en sont là, tous sur le compte 1105404745 : le bloc du lot ne s'ouvrait jamais, et ses
-#    28 montants — dont 738,86 € de loyer appelé — tombaient en INDETERMINABLE. Un seuil de
-#    longueur n'est pas un critère métier.
-RE_LOT = re.compile(r'-\s*Lot\s+([0-9A-Za-z][0-9A-Za-z \-]{0,28}?)-?\s*[–-]\s*Mandat')
 RE_LOC = re.compile(r'Locataire\s*:\s*(.+?)\s*,\s*Bail', re.I)
-RE_SUITE = re.compile(r'\.{0,3}\s*Suite\s*$', re.I)
 RE_SECTION = re.compile(r'^-\s*(.{3,50}?)\s*-$')
 RE_VIREMENT = re.compile('^Virement\\s*:?\\s*(-?' + ESP + r'+,\d{2})\s*€?', re.I)
 # ⚠️ L'OCR SOUDE « dont TVA » EN « dontTVA », et lit parfois le T comme un l — « dontlVA » (INTEG-LIRE-03). Exiger l'espace laissait
@@ -163,6 +160,12 @@ class Lecteur(object):
         self.lot = None
         self.locataire = None
         self.immeuble = None
+        # ⚠️ COMBIEN D'OCCUPANTS CE BLOC ANNONCE-T-IL ? Un bloc peut en porter deux successifs.
+        #    Cette phase gardait le DERNIER et attribuait donc l'argent du bloc à l'occupant
+        #    entrant, pendant que la phase 3 gardait le premier : deux phases, deux locataires,
+        #    sur la même page et le même lot. Au-delà d'un occupant, le document ne dit pas à
+        #    QUI revient chaque montant — on ne désigne donc personne.
+        self.n_locataires = 0
 
     def titre(self, texte):
         """Le document annonce-t-il ici une nouvelle section ? Renvoie True s'il le fait."""
@@ -194,6 +197,7 @@ class Lecteur(object):
                 self.section = 'BLOC_LOT'
                 self.lot = m.group(1).replace(' ', '').rstrip('-')
                 self.locataire = None
+                self.n_locataires = 0
             return True
         if texte.startswith('Immeuble '):
             self.immeuble = texte[9:120].split('...')[0].strip()
@@ -253,7 +257,15 @@ def lire(page, numero, lecteur):
             continue
         m = RE_LOC.search(texte)
         if m and lecteur.section == 'BLOC_LOT':
-            lecteur.locataire = ' '.join(m.group(1).split())
+            lecteur.n_locataires += 1
+            lecteur.locataire = (' '.join(m.group(1).split())
+                                 if lecteur.n_locataires == 1 else None)
+        if m and lecteur.section == 'BLOC_LOT' and lecteur.n_locataires == 2:
+            # Le second occupant apparaît APRÈS des lignes déjà lues : on retire l'occupant
+            # des mouvements de ce bloc, sinon la moitié d'entre eux resterait attribuée.
+            for deja in mouvements:
+                if deja['lot'] == lecteur.lot and deja['page'] == numero:
+                    deja['locataire'] = None
         if lecteur.titre(texte):
             # ⚠️ UNE LIGNE DE TITRE PEUT PORTER SON PROPRE MONTANT, ET LES IGNORER EST UNE
             #    PERTE SILENCIEUSE. Dans le « Récapitulatif des immeubles », chaque ligne

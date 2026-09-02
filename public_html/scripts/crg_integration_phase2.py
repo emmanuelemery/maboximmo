@@ -6,79 +6,53 @@ PHASE 2 — EXTRAIRE LE PATRIMOINE D'UN CRG : immeubles et lots.
    quels immeubles, quels lots, quels locataires. La confrontation avec MBI est un travail de
    PHP, sur des données lues — pas une déduction faite au passage.
 
-⚠️ LE CODE D'IMMEUBLE SE LIT DANS LA RÉFÉRENCE DE LOT, ET IL FAUT SAVOIR OÙ. Quatre graphies
-   coexistent sur le même corpus :
-       `3062-0187`            → immeuble 3062, lot 0187
-       `276-04`               → immeuble 276,  lot 04
-       `01G01-5213-000367`    → immeuble 5213, lot 000367
-       `01S01-0075-000009`    → immeuble 0075, lot 000009
-   Prendre systématiquement le premier segment donnerait « 01G01 » pour deux cent vingt et un
-   lots — un immeuble qui n'existe pas.
+⚠️ IL NE DÉCIDE PLUS SEUL OÙ COMMENCE UN LOT. Il partageait autrefois son propre motif, plus
+   ancien que celui des phases 3 et 4 : il ignorait les blocs « Suite », les références d'un
+   seul caractère et les espaces d'OCR au milieu d'une référence. Résultat : **98 lots là où
+   les phases 3 et 4 en démontraient 124** — vingt-six lots imprimés par le document et absents
+   du patrimoine, sans le moindre signal. `EXACTITUDE ≠ EXHAUSTIVITÉ` : il était juste sur ce
+   qu'il traitait, et faux sur la population. La segmentation vit désormais dans
+   `crg_integration_lots.py`, et les trois phases y lisent la même chose.
 
-⚠️ ET UN LOT SANS IMMEUBLE RESTE UN LOT SANS IMMEUBLE. On ne le rattache pas au dernier
-   immeuble rencontré « parce qu'il est juste au-dessus » : c'est ainsi qu'on déplace un bien
-   d'un immeuble à un autre sans que personne ne s'en aperçoive.
+⚠️ IL LIT EN MODE TABLEAU, COMME LES PHASES 3 ET 4. Le mode `-layout` fait dériver les lignes
+   et sépare l'en-tête de lot de son occupant. Chaque phase lit dans le mode qui démontre SA
+   donnée ; celui de la phase 0 reste scellé et n'est pas touché.
 
-Usage : python crg_integration_phase2.py <chemin.pdf> <p_debut> <p_fin>
-Sortie : un objet JSON — immeubles, lots.
+Usage : python crg_integration_phase2.py <chemin.pdf> <plages.json>
+Sortie : un tableau JSON — une entrée par plage, avec ses immeubles et ses lots.
 """
 import json
-import re
 import sys
 
 sys.path.insert(0, __file__.rsplit('\\', 1)[0] if '\\' in __file__ else '.')
-from crg_integration_phase0 import lire_pages   # noqa: E402
-
-# « Immeuble 45, rue Druge - 38200 VIENNE »  ·  « Immeuble LE PERPIGNAN - 38200 VIENNE »
-RE_IMMEUBLE = re.compile(r'^\s*Immeuble\s+(.+?)\s*[-–]\s*(\d{5})\s+([A-ZÉÈÀÂÎÔÛa-zéèàâîôû\'\- ]+?)'
-                         r'(?:\s{2,}.*)?$', re.M)
-# « Appartement 3 Pièces - Lot 3062-0187 – Mandat N/A »
-RE_LOT = re.compile(r'^\s*(.*?)\s*-\s*Lot\s+([0-9A-Za-z][0-9A-Za-z-]{2,23}?)-?\s*[–-]\s*Mandat',
-                    re.M)
-RE_LOT_SIMPLE = re.compile(r'\bLot\s+([0-9A-Za-z][0-9A-Za-z-]{2,23}?)-?\b')
-RE_LOCATAIRE = re.compile(r'Locataire\s*:\s*(.+?)\s*,\s*Bail', re.I)
+from crg_integration_lots import (code_immeuble, immeubles_de,   # noqa: E402
+                                  segments_de_lot)
+from crg_integration_phase3 import lire_pages                    # noqa: E402
 
 
-def code_immeuble(ref_lot):
-    """L'immeuble que porte une référence de lot — ou rien, si elle ne le porte pas.
-
-    ⚠️ ON NE DEVINE PAS. Une référence qui ne suit aucune des quatre graphies observées rend
-       `None` : un immeuble inventé contaminerait tout le rapprochement qui suit.
-    """
-    if not ref_lot:
-        return None, None
-    parts = ref_lot.split('-')
-    if len(parts) == 3:
-        # `01G01-5213-000367` : le premier segment est un code de portefeuille, pas l'immeuble.
-        return parts[1], parts[2]
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    return None, ref_lot
-
-
-def extraire(textes):
+def extraire(textes, page_base=1):
     """Les immeubles et les lots imprimés, avec la page où ils apparaissent."""
     immeubles, lots = {}, []
-    for i, texte in enumerate(textes, 1):
-        for m in RE_IMMEUBLE.finditer(texte):
-            nom = ' '.join(m.group(1).split())
-            cp, ville = m.group(2), ' '.join(m.group(3).split())
-            cle = (nom.upper(), cp)
+    for i, texte in enumerate(textes):
+        page = page_base + i
+        for imm in immeubles_de(texte, page):
+            cle = (imm['nom'].upper(), imm['code_postal'])
             if cle not in immeubles:
-                immeubles[cle] = {'nom': nom, 'code_postal': cp, 'ville': ville,
-                                  'page': i, 'code': None}
-        locataire = None
-        for m in RE_LOCATAIRE.finditer(texte):
-            locataire = ' '.join(m.group(1).split())
-        for m in RE_LOT.finditer(texte):
-            libelle = ' '.join(m.group(1).split())
-            ref = m.group(2).rstrip('-')
-            code_imm, num = code_immeuble(ref)
-            lots.append({'reference': ref, 'code_immeuble': code_imm, 'numero': num,
-                         'libelle': libelle[:120], 'locataire': locataire, 'page': i})
+                immeubles[cle] = imm
+        for seg in segments_de_lot(texte, page):
+            # ⚠️ UN EN-TÊTE « SUITE » NE ROUVRE PAS UN LOT : il continue le précédent. Le
+            #    compter ajouterait une occurrence sans occupant, et le patrimoine ferait
+            #    croire à un lot vacant qui n'existe pas.
+            if seg['suite']:
+                continue
+            code_imm, num = code_immeuble(seg['reference'])
+            lots.append({'reference': seg['reference'], 'code_immeuble': code_imm,
+                         'numero': num, 'libelle': seg['libelle'],
+                         'locataire': seg['locataire'], 'page': page})
     # ⚠️ LE CODE D'IMMEUBLE VIENT DES LOTS, pas d'une ligne « Immeuble ». Le document n'imprime
     #    pas le code à côté du nom : on le rattache par l'ordre d'apparition sur la page, et on
-    #    laisse `None` là où la page ne permet pas de conclure.
+    #    laisse `None` là où la page ne permet pas de conclure. `UN LOT SANS IMMEUBLE RESTE UN
+    #    LOT SANS IMMEUBLE` — on ne le rattache jamais au dernier immeuble rencontré.
     for imm in immeubles.values():
         candidats = {lo['code_immeuble'] for lo in lots
                      if lo['page'] == imm['page'] and lo['code_immeuble']}
@@ -87,13 +61,7 @@ def extraire(textes):
 
 
 def main():
-    """Une pièce, UNE lecture, tous ses CRG.
-
-    ⚠️ LE DÉFAUT QUE CELA CORRIGE ÉTAIT MAJEUR. La première version prenait un seul
-       intervalle de pages et relisait le PDF à chaque appel : sur un document de 587 Mo et
-       266 CRG, cela faisait deux cent soixante-six lectures complètes pour un travail qui en
-       demande UNE. L'analyse ne finissait pas.
-    """
+    """Une pièce, UNE lecture, tous ses CRG (`INTEG-PERF-01`)."""
     if len(sys.argv) < 3:
         sys.stderr.write('usage : crg_integration_phase2.py <pdf> <plages.json>\n'
                          '        plages.json = [{"id":1,"debut":1,"fin":2}, …]\n')
@@ -103,7 +71,8 @@ def main():
         plages = json.load(fh)
     sortie = []
     for p in plages:
-        immeubles, lots = extraire(textes[int(p['debut']) - 1:int(p['fin'])])
+        debut, fin = int(p['debut']), int(p['fin'])
+        immeubles, lots = extraire(textes[debut - 1:fin], debut)
         sortie.append({'id': p['id'], 'immeubles': immeubles, 'lots': lots})
     sys.stdout.write(json.dumps(sortie, ensure_ascii=False))
     return 0

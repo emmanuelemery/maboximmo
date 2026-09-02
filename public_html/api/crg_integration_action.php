@@ -139,6 +139,10 @@ try {
             @set_time_limit(0);
             repondre(['ok' => true, 'bilan' => crgi_phase4($pdo, $importId)]);
 
+        case 'phase5':
+            @set_time_limit(0);
+            repondre(['ok' => true, 'bilan' => crgi_phase5($pdo, $importId)]);
+
         case 'valider':
             $phase = (int)($_POST['phase'] ?? -1);
             if (!array_key_exists($phase, CRGI_PHASES)) {

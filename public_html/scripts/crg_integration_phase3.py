@@ -53,27 +53,17 @@ def lire_pages(chemin):
             return pages, 'pdftotext -table'
     return _lire_layout(chemin)
 
-# ⚠️ L'OCR COUPE LES RÉFÉRENCES EN DEUX. « Lot 01 G01-5052-000115 » porte une espace au
-#    milieu de sa référence. Une classe sans espace s'arrêtait sur « 01 » : quatre-vingt-dix-
-#    neuf références se retrouvaient tronquées à deux caractères, et deux lots différents
-#    devenaient le MÊME lot. La chronologie y voyait alors une succession de locataires là où
-#    il n'y avait que deux appartements voisins.
-# ⚠️ ET UNE RÉFÉRENCE D'UN SEUL CARACTÈRE EST UNE RÉFÉRENCE. Exiger trois caractères a fait
-#    disparaître « - Lot 1 - Mandat N/A - » : quatre en-têtes du dépôt, tous sur le compte
-#    1105404745, dont le bloc ne s'ouvrait donc JAMAIS. La phase prétendait inventorier les
-#    lots ; elle en ignorait quatre. Un seuil de longueur n'est pas un critère métier.
-RE_LOT = re.compile(r'-\s*Lot\s+([0-9A-Za-z][0-9A-Za-z \-]{0,28}?)-?\s*[–-]\s*Mandat')
-RE_LOC = re.compile(r'Locataire\s*:\s*(.+?)\s*,\s*Bail\s+du\s+(\d{2}/\d{2}/\d{4})', re.I)
-RE_LOC_SANS_DATE = re.compile(r'Locataire\s*:\s*(.+?)\s*,\s*Bail', re.I)
+# ⚠️ LA SEGMENTATION DES LOTS N'APPARTIENT PLUS À CETTE PHASE. Elle vit dans
+#    `crg_integration_lots.py`, partagée par les phases 2, 3 et 4 : c'est parce que chacune
+#    avait son propre motif que la phase 2 ne voyait que 98 lots là où celle-ci en démontrait
+#    124. Une population commune se lit à un seul endroit.
+from crg_integration_lots import segments_de_lot   # noqa: E402
+
 # ⚠️ UN EN-TÊTE DE LOT MARQUÉ « Suite » N'OUVRE PAS UNE OBSERVATION. Quand le bloc d'un lot
 #    déborde sur la page suivante, le document réimprime son en-tête et le termine par
 #    « Suite » — sans réimprimer la ligne « Locataire: », qui figure sur la première page du
 #    bloc. Les compter comme des observations créait 34 lots « sans occupant », qu'il fallait
 #    ensuite arbitrer un par un. Ce n'était pas l'OCR : le document le DIT, en toutes lettres.
-RE_SUITE = re.compile(r'\.{0,3}\s*Suite\s*$', re.I)
-# ⚠️ RETENU SEULEMENT QUAND LE DOCUMENT LES IMPRIME SUR LA MÊME LIGNE. Sur ce corpus, cela
-#    n'arrive jamais — la constante existe pour que le moteur sache lire un document qui le
-#    ferait, sans jamais suppléer celui qui ne le fait pas.
 RE_SOLDE_COLLE = re.compile(r'Solde\s+(-?[\d  ]+,\d{2})\s*€')
 
 
@@ -83,52 +73,55 @@ def jour(fr):
 
 
 def observer(textes, page_base):
-    """Une observation par lot : son occupant, sa date de bail, sa page.
+    """Les observations d'occupation d'une plage de pages.
 
-    ⚠️ LE LOCATAIRE EST CELUI QUI SUIT LE LOT, PAS LE DERNIER RENCONTRÉ SUR LA PAGE. On
-       découpe le texte au niveau de chaque « - Lot … - Mandat » et on ne lit que le segment
-       qui lui appartient : sans cela, un lot sans ligne locataire hériterait de l'occupant du
-       lot précédent — et le document ferait dire à un bail ce qu'il ne dit pas.
+    ⚠️ UNE OBSERVATION PAR OCCUPANT, PAS PAR LOT. Un bloc peut en porter plusieurs :
+       « Locataire: DE SOUSA Jordan, Bail du 01/06/2025 au 04/06/2026 » puis
+       « Locataire: GONIN Marine, Bail du 22/06/2026 ». Ne garder que le premier faisait
+       disparaître huit successions que le document DÉMONTRE, et la phase 4, qui gardait le
+       dernier, attribuait l'argent à l'autre occupant : deux phases, deux locataires, sur la
+       même page et le même lot.
+
+    ⚠️ LE LOCATAIRE EST CELUI QUI SUIT SON LOT, PAS LE DERNIER RENCONTRÉ SUR LA PAGE. La
+       segmentation vient de `crg_integration_lots`, partagée avec les phases 2 et 4.
     """
     obs = []
     for i, texte in enumerate(textes):
         page = page_base + i
-        # les espaces internes sont un artefact d'OCR : la référence n'en porte jamais
-        bornes = [(m.start(), m.group(1).replace(' ', '').rstrip('-'))
-                  for m in RE_LOT.finditer(texte)]
-        for k, (debut, ref) in enumerate(bornes):
-            fin = bornes[k + 1][0] if k + 1 < len(bornes) else len(texte)
-            segment = texte[debut:fin]
-            entete = segment.splitlines()[0] if segment.splitlines() else ''
-            if RE_SUITE.search(entete.strip()):
-                # Continuation du même lot : on complète l'observation ouverte plus haut,
-                # on n'en crée pas une seconde qui paraîtrait inoccupée.
+        for seg in segments_de_lot(texte, page):
+            ref = seg['reference']
+            if seg['suite']:
+                # Continuation du même lot : on complète l'observation ouverte plus haut, on
+                # n'en crée pas une seconde qui paraîtrait inoccupée.
                 for precedente in reversed(obs):
                     if precedente['lot'] == ref:
-                        ms = RE_SOLDE_COLLE.search(segment)
+                        ms = RE_SOLDE_COLLE.search(seg['texte'])
                         if ms and precedente['solde'] is None:
                             precedente['solde'] = (ms.group(1).replace(' ', '')
                                                    .replace(' ', '').replace(',', '.'))
                             precedente['solde_source'] = 'LUE'
                         break
                 continue
-            m = RE_LOC.search(segment)
-            if m:
-                locataire, bail = ' '.join(m.group(1).split()), jour(m.group(2))
-            else:
-                m2 = RE_LOC_SANS_DATE.search(segment)
-                locataire = ' '.join(m2.group(1).split()) if m2 else None
-                bail = None
-            ms = RE_SOLDE_COLLE.search(segment)
-            obs.append({
-                'lot': ref,
-                'locataire': locataire,
-                'bail_du': bail,
-                'solde': ms.group(1).replace(' ', '').replace(' ', '').replace(',', '.')
-                         if ms else None,
-                'solde_source': 'LUE' if ms else 'NON DEMONTRABLE',
-                'page': page,
-            })
+            ms = RE_SOLDE_COLLE.search(seg['texte'])
+            solde = (ms.group(1).replace(' ', '').replace(' ', '').replace(',', '.')
+                     if ms else None)
+            occupants = seg['occupants'] or [{'locataire': None, 'bail_du': None,
+                                              'bail_au': None}]
+            for rang, o in enumerate(occupants):
+                obs.append({
+                    'lot': ref,
+                    'locataire': o['locataire'],
+                    'bail_du': jour(o['bail_du']),
+                    # ⚠️ « AU … » EST UNE FIN DE BAIL IMPRIMÉE : le départ est dit par le
+                    #    document, on ne le déduit plus d'une absence.
+                    'bail_au': jour(o['bail_au']),
+                    'rang': rang,
+                    # Le solde du bloc appartient au bloc, pas à un occupant en particulier :
+                    # on ne le donne qu'au premier, sans quoi on le compterait deux fois.
+                    'solde': solde if rang == 0 else None,
+                    'solde_source': 'LUE' if (ms and rang == 0) else 'NON DEMONTRABLE',
+                    'page': page,
+                })
     return obs
 
 

@@ -81,6 +81,9 @@ $bilan3 = ($courant && in_array((string)($phases[3]['statut'] ?? ''), ['A VALIDE
 $etat4 = $courant ? crgi_phase_validee($pdo, $importId, 4) : ['validee' => false, 'perimee' => false];
 $bilan4 = ($courant && in_array((string)($phases[4]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
     ? crgi_bilan_phase4($pdo, $importId) : null;
+$etat5 = $courant ? crgi_phase_validee($pdo, $importId, 5) : ['validee' => false, 'perimee' => false];
+$bilan5 = ($courant && in_array((string)($phases[5]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
+    ? crgi_bilan_phase5($pdo, $importId) : null;
 // ⚠️ UN MONTANT DOIT TOUJOURS POUVOIR S'OUVRIR JUSQU'À SES LIGNES ET LEURS PAGES. Sans ce
 //    détail, l'écran affirmerait des totaux qu'on ne pourrait pas contredire.
 $detailMvt = [];
@@ -1039,6 +1042,135 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     <?php endif; ?>
   <?php endif; ?>
 
+
+  <?php if ($etat4['validee'] && !$etat4['perimee']): ?>
+    <div class="crgi-carte">
+      <h2>Phase 5 — Bilan avant intégration</h2>
+      <p class="crgi-sous">
+        Une seule question : <b>si je valide l'intégration, qu'est-ce qui sera créé, mis à jour,
+        archivé, laissé inchangé, arbitré ou refusé ?</b> Cette phase ne lit plus aucun PDF —
+        tout ce qu'elle affirme est <b>dérivé des phases 0 à 4, scellées</b>.
+      </p>
+      <div class="crgi-actions" style="border:0;padding-top:0;margin-top:0">
+        <button class="crgi-b or" id="btnPhase5">
+          <?= $bilan5 ? 'Recalculer le bilan' : 'Établir le bilan (phase 5)' ?></button>
+        <span class="crgi-aide" id="etatPhase5"></span>
+      </div>
+    </div>
+
+    <?php if ($bilan5):
+      $couleur = [
+        'CREER' => '#2f7d5d', 'METTRE A JOUR' => '#8a6d1f', 'ARCHIVER' => '#7a5aa8',
+        'INCHANGE' => '#6b7280', 'A ARBITRER' => '#b3261e', 'NON INTEGRABLE' => '#6b7280',
+      ];
+      $libelle = [
+        'CREER' => 'CRÉER', 'METTRE A JOUR' => 'METTRE À JOUR', 'ARCHIVER' => 'ARCHIVER',
+        'INCHANGE' => 'INCHANGÉ', 'A ARBITRER' => 'À ARBITRER',
+        'NON INTEGRABLE' => 'NON INTÉGRABLE',
+      ]; ?>
+      <div class="crgi-carte">
+        <h2>Ce qui serait écrit dans MBI</h2>
+        <p class="crgi-sous">
+          <b>Rien n'est écrit à ce stade</b>, et aucun bouton de cet écran n'écrit dans MBI.
+          Le plan rend compte des <b><?= number_format((int)$bilan5['mouvements'], 0, ',', ' ') ?>
+          mouvements</b> de la phase 4
+          <?= $bilan5['boucle']
+              ? '<b style="color:#2f7d5d">sans en laisser un seul de côté</b>'
+              : '<b style="color:#b3261e">— MAIS ' . (int)($bilan5['mouvements'] - $bilan5['couverts'])
+                . ' RESTENT HORS DU BILAN</b>' ?>.
+        </p>
+        <div class="crgi-bilan">
+          <?php foreach (['CREER', 'METTRE A JOUR', 'ARCHIVER', 'INCHANGE', 'A ARBITRER',
+                          'NON INTEGRABLE'] as $a): ?>
+            <div class="<?= $a === 'A ARBITRER' && (int)($bilan5['par_action'][$a] ?? 0) > 0
+                            ? 'mal' : 'ok' ?>">
+              <div class="v"><?= number_format((int)($bilan5['par_action'][$a] ?? 0), 0, ',', ' ') ?></div>
+              <div class="l"><?= h($libelle[$a]) ?></div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <div class="crgi-note">
+          <b>« SUPPRIMER » N'EXISTE PAS DANS CE VOCABULAIRE.</b> Le maximum est
+          <code>ARCHIVER</code>, et il se démontre.
+          <b>ABSENT DU NOUVEAU CORPUS ≠ SUPPRIMER</b> — les propriétaires, comptes, immeubles et
+          lots que ce dépôt ne mentionne pas restent intacts.
+          <b>ANCIEN LOCATAIRE ≠ SUPPRIMER</b> — une succession CLÔTURE l'occupation précédente
+          et laisse la dette à son titulaire (<code>P6A-CREANCE-07</code>).
+          <b>ARBITRAGE OUVERT ≠ ÉCRITURE AUTORISÉE</b> — chaque arbitrage dit ci-dessous ce
+          qu'il bloque, et ce qu'il ne bloque pas.
+        </div>
+
+        <?php foreach ($bilan5['par_famille'] as $famille => $lignes): ?>
+          <h2 style="margin-top:18px"><?= h($famille) ?></h2>
+          <div class="crgi-defile"><table>
+            <tr><th style="width:150px">Action</th><th class="num">Nombre</th><th>Maille</th>
+                <th>Ce qui le justifie</th><th>Source</th></tr>
+            <?php foreach ($lignes as $l): $a = (string)$l['action']; ?>
+              <tr<?= (int)$l['nombre'] === 0 ? ' style="opacity:.55"' : '' ?>>
+                <td><b style="color:<?= $couleur[$a] ?? '#6b7280' ?>"><?= h($libelle[$a] ?? $a) ?></b></td>
+                <td class="num"><b><?= number_format((int)$l['nombre'], 0, ',', ' ') ?></b></td>
+                <td style="font-size:12px"><?= h((string)$l['maille']) ?></td>
+                <td style="font-size:12px">
+                  <?= h((string)$l['motif']) ?>
+                  <?php if ($l['bloque']): ?>
+                    <div style="margin-top:4px;color:#b3261e;font-size:11.5px">
+                      <b>Impact réel :</b> <?= h((string)$l['bloque']) ?></div>
+                  <?php endif; ?>
+                </td>
+                <td style="font-size:11.5px"><span class="crgi-muet"><?= h((string)$l['source']) ?></span></td>
+              </tr>
+            <?php endforeach; ?>
+          </table></div>
+        <?php endforeach; ?>
+      </div>
+
+      <div class="crgi-carte">
+        <h2><?= count($bilan5['arbitrages']) ?> lots en arbitrage ouvert
+          — <?= (int)($bilan5['par_action']['A ARBITRER'] ?? 0) ?> décisions en attente</h2>
+        <p class="crgi-sous">
+          Un arbitrage n'est pas un défaut du système : il matérialise ce que le document
+          <b>ne permet pas encore de démontrer sans décision humaine</b>. Chacun dit exactement
+          ce qu'il empêche.
+        </p>
+        <div class="crgi-defile"><table>
+          <tr><th>Compte</th><th>Lot</th><th class="num">Obs.</th><th class="num">Page</th>
+              <th>Ce que le document ne démontre pas</th><th>Impact</th></tr>
+          <?php foreach ($bilan5['arbitrages'] as $a): ?>
+            <tr>
+              <td><code><?= h((string)$a['compte']) ?></code></td>
+              <td><b><?= h((string)$a['lot_reference']) ?></b></td>
+              <td class="num"><?= (int)$a['n'] ?></td>
+              <td class="num"><?= (int)$a['page'] ?></td>
+              <td style="font-size:12px"><?= h(mb_substr((string)$a['motif'], 0, 150)) ?></td>
+              <td style="font-size:11.5px">
+                <span class="crgi-cert INDETERMINABLE" style="font-size:11px">occupation bloquée</span>
+                <div class="crgi-muet" style="margin-top:3px">
+                  n'empêche ni la création du lot, ni ses mouvements financiers</div>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </table></div>
+      </div>
+
+      <div class="crgi-carte">
+        <h2>Validation du bilan avant intégration</h2>
+        <?php if ($etat5['validee'] && !$etat5['perimee']): ?>
+          <p class="crgi-sous"><?= crgi_pastille('VALIDEE') ?>
+            le <?= h((string)($etat5['ligne']['valide_le'] ?? '')) ?>.
+            <b>Aucune écriture n'a été faite dans MBI</b> — valider ce bilan, c'est valider
+            le <i>plan</i>, pas l'exécuter. L'intégration elle-même n'est pas livrée.</p>
+        <?php else: ?>
+          <p class="crgi-sous">
+            Valider ce bilan signifie : <b>« je reconnais que c'est bien cela qui serait
+            écrit »</b>. <b>Cela n'écrit rien.</b> Aucun bouton de cette page ne touche aux
+            données métier de MBI, et l'import reste annulable dans son intégralité.
+          </p>
+          <button class="crgi-b or" id="btnValider5">Valider le bilan avant intégration</button>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
+  <?php endif; ?>
+
     <div class="crgi-carte">
       <h2>Validation de la phase 0</h2>
       <?php if ($etat0['validee'] && !$etat0['perimee']): ?>
@@ -1294,6 +1426,34 @@ document.getElementById('btnPhase4')?.addEventListener('click', async (e) => {
     alert(err.message);
     e.target.disabled = false;
   }
+});
+
+document.getElementById('btnPhase5')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  document.getElementById('etatPhase5').textContent = 'consolidation des phases scellées…';
+  try {
+    const d = new FormData();
+    d.append('action', 'phase5');
+    d.append('import_id', CRGI.importId);
+    await envoyer(d);
+    location.reload();
+  } catch (err) {
+    document.getElementById('etatPhase5').textContent = '';
+    alert(err.message);
+    e.target.disabled = false;
+  }
+});
+
+document.getElementById('btnValider5')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    const d = new FormData();
+    d.append('action', 'valider');
+    d.append('import_id', CRGI.importId);
+    d.append('phase', '5');
+    await envoyer(d);
+    location.reload();
+  } catch (err) { alert(err.message); e.target.disabled = false; }
 });
 
 document.getElementById('btnValider4')?.addEventListener('click', async (e) => {

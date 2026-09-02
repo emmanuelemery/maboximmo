@@ -325,6 +325,7 @@ function crgi_phase_validee(PDO $pdo, int $importId, int $phase): array
         2 => crgi_empreinte_phase2($pdo, $importId),
         3 => crgi_empreinte_phase3($pdo, $importId),
         4 => crgi_empreinte_phase4($pdo, $importId),
+        5 => crgi_empreinte_phase5($pdo, $importId),
         default => (string)$ligne['resultat_sha'],
     };
     return [
@@ -382,6 +383,7 @@ function crgi_valider_phase(PDO $pdo, int $importId, int $phase, int $userId): v
         2 => crgi_empreinte_phase2($pdo, $importId),
         3 => crgi_empreinte_phase3($pdo, $importId),
         4 => crgi_empreinte_phase4($pdo, $importId),
+        5 => crgi_empreinte_phase5($pdo, $importId),
         default => '',
     };
     $pdo->prepare(
@@ -1310,8 +1312,8 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
     $ins = $pdo->prepare(
         'INSERT INTO crgi_occupation
             (import_id, crg_id, lot_reference, code_immeuble, periode_cle, date_arrete,
-             locataire, bail_du, solde, solde_source, page)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+             locataire, bail_du, bail_au, rang, solde, solde_source, page)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     foreach ($parPiece as $chemin => $plages) {
         $fichier = tempnam(sys_get_temp_dir(), 'crgi3_');
@@ -1336,8 +1338,8 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
                          : (count($parts) === 2 ? $parts[0] : null);
                 $ins->execute([$importId, (int)$c['id'], $o['lot'], $codeImm,
                                $c['periode_cle'], $c['date_arrete'], $o['locataire'],
-                               $o['bail_du'], $o['solde'], $o['solde_source'],
-                               (int)$o['page']]);
+                               $o['bail_du'], $o['bail_au'] ?? null, (int)($o['rang'] ?? 0),
+                               $o['solde'], $o['solde_source'], (int)$o['page']]);
             }
         }
     }
@@ -1361,10 +1363,10 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
     //    donc son périmètre de portée — LE COMPTE.
     $st = $pdo->prepare(
         'SELECT o.id, o.lot_reference, o.date_arrete, o.periode_cle, o.locataire, o.bail_du,
-                o.solde, o.solde_source, c.compte
+                o.bail_au, o.rang, o.solde, o.solde_source, c.compte
            FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
           WHERE o.import_id = ?
-          ORDER BY c.compte, o.lot_reference, o.date_arrete, o.id'
+          ORDER BY c.compte, o.lot_reference, o.date_arrete, o.rang, o.id'
     );
     $st->execute([$importId]);
     $parLot = [];
@@ -1400,6 +1402,35 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
             $statut = null;
             $motif = '';
 
+            // ⚠️ UNE FIN DE BAIL IMPRIMÉE EST UNE PREUVE, PAS UNE ABSENCE. Quand le document
+            //    écrit « Bail du … AU … », le départ n'est plus déduit : il est DIT. C'est la
+            //    seule façon de qualifier un départ sans attendre la période suivante, et elle
+            //    ne contredit pas `ABSENCE ≠ DÉPART` — elle s'y ajoute.
+            // ⚠️ UNE FIN DE BAIL POSTÉRIEURE À L'ARRÊTÉ NE DÉMONTRE AUCUN DÉPART. Treize
+            //    observations de ce dépôt portent un congé daté APRÈS la date d'arrêté — un
+            //    bail qui s'achève le 31/08 alors que le rapport est arrêté au 31/07 décrit un
+            //    occupant TOUJOURS EN PLACE. Les compter comme partis fabriquait quarante-deux
+            //    anciens locataires qui n'avaient pas bougé.
+            $congeAtteint = $loc !== null && !empty($o['bail_au'])
+                         && (string)$o['bail_au'] <= (string)$o['date_arrete'];
+            if ($congeAtteint) {
+                $dette = $o['solde_source'] === 'LUE' && (float)$o['solde'] > 0.005;
+                $statut = $dette ? 'ANCIEN LOCATAIRE AVEC DETTE' : 'PARTI DEMONTRE';
+                $motif = 'Le document imprime la FIN DU BAIL au ' . $o['bail_au']
+                       . ', atteinte à la date d’arrêté du ' . $o['date_arrete'] . ' : le '
+                       . 'départ est écrit, pas déduit.'
+                       . ($suiv && $suiv['locataire'] !== null
+                          && crgi_plat((string)$suiv['locataire']) !== crgi_plat((string)$loc)
+                          ? ' Le lot est réénoncé avec « ' . $suiv['locataire'] . ' ».' : '')
+                       . ($dette
+                          ? ' Encours de ' . number_format((float)$o['solde'], 2, ',', ' ')
+                            . ' € : la dette reste attachée à CE locataire '
+                            . '(P6A-CREANCE-07).'
+                          : ' Aucune dette lue.')
+                       . ' L’observation est CONSERVÉE.';
+                $maj->execute([$statut, mb_substr($motif, 0, 400), $prec, (int)$o['id']]);
+                continue;
+            }
             if ($loc === null) {
                 // ⚠️ UN LOT SANS LIGNE LOCATAIRE N'EST PAS UN LOT VACANT : c'est un lot dont
                 //    le document ne dit rien. Le vide ne se lit pas comme un départ.
@@ -1436,7 +1467,10 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
                 }
             } elseif (crgi_plat((string)$loc) === crgi_plat((string)$prec)) {
                 $statut = 'IDENTIQUE';
-                $motif = 'Même titulaire qu’à la période précédente (' . $prec . ').';
+                $motif = 'Même titulaire qu’à la période précédente (' . $prec . ').'
+                       . (!empty($o['bail_au'])
+                          ? ' Un congé est imprimé au ' . $o['bail_au'] . ', POSTÉRIEUR à '
+                            . 'l’arrêté : l’occupant est encore en place à cette date.' : '');
             } else {
                 $statut = 'CHANGEMENT DE LOCATAIRE';
                 $motif = 'Le titulaire des appels change sur le même lot entre deux périodes '
@@ -1897,4 +1931,807 @@ function crgi_empreinte_phase4(PDO $pdo, int $importId): string
     // L'ordre de lecture ne doit pas peser : on scelle le CONTENU, trié.
     sort($l, SORT_STRING);
     return hash('sha256', implode("\n", $l));
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+ *  PHASE 5 — BILAN AVANT INTÉGRATION
+ *  ═══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ LA PHASE 5 NE LIT PLUS RIEN. Pas un PDF, pas une page, pas un libellé. Tout ce qu'elle
+ *    affirme est DÉRIVÉ des phases 0 à 4, scellées. Si une question de lecture réapparaît
+ *    ici, elle appartient à la phase qui l'a produite : on la lui renvoie, on ne l'absorbe
+ *    pas — sinon la règle finirait enterrée dans un écran de synthèse.
+ *
+ * ⚠️ ELLE RÉPOND À UNE SEULE QUESTION : si l'intégration était validée, qu'est-ce qui serait
+ *    créé, mis à jour, archivé, laissé inchangé, arbitré ou refusé ?
+ *
+ * ⚠️ `SUPPRIMER` N'EXISTE PAS DANS SON VOCABULAIRE. `ABSENT DU NOUVEAU CORPUS ≠ SUPPRIMER`,
+ *    et `ANCIEN LOCATAIRE ≠ SUPPRIMER`. Le maximum est `ARCHIVER`, et il se démontre.
+ *
+ * ⚠️ AUCUNE ÉCRITURE MÉTIER. La phase 5 décrit ; elle n'exécute rien.
+ */
+function crgi_phase5(PDO $pdo, int $importId): array
+{
+    $etat4 = crgi_phase_validee($pdo, $importId, 4);
+    if (!$etat4['validee'] || $etat4['perimee']) {
+        throw new RuntimeException(
+            'PHASE 4 NON VALIDÉE — la phase 5 ne s’ouvre pas. Un bilan d’intégration bâti sur '
+            . 'des montants non scellés annoncerait des écritures qui peuvent encore changer.'
+        );
+    }
+    crgi_marquer_phase($pdo, $importId, 5, 'EN ANALYSE', null);
+    $pdo->prepare('DELETE FROM crgi_plan WHERE import_id = ?')->execute([$importId]);
+    // ⚠️ LE RAPPROCHEMENT D'ABORD, LE PLAN ENSUITE. Sans lui, la phase 5 renvoyait 1 330
+    //    mouvements « à arbitrer » qui n'étaient pas 1 330 décisions humaines, mais 1 330
+    //    confrontations que le moteur n'avait pas faites. On ne délègue pas à un humain le
+    //    travail que le logiciel peut démontrer.
+    crgi_rapprocher_finances($pdo, $importId);
+    crgi_batir_plan($pdo, $importId);
+    crgi_marquer_phase($pdo, $importId, 5, 'A VALIDER', null);
+    return crgi_bilan_phase5($pdo, $importId)['par_famille'];
+}
+
+/** Bâtit le plan, famille par famille, à partir du seul staging scellé. */
+function crgi_batir_plan(PDO $pdo, int $importId): void
+{
+    $rang = 0;
+    $ins = $pdo->prepare(
+        'INSERT INTO crgi_plan (import_id, famille, action, nombre, maille, motif, source,
+                                bloque, rang)
+         VALUES (?,?,?,?,?,?,?,?,?)'
+    );
+    $poser = function (string $famille, string $action, int $n, string $maille, string $motif,
+                       string $source, ?string $bloque = null) use ($ins, $importId, &$rang) {
+        // Une action à zéro se pose quand même : « rien à créer » est une réponse, et son
+        // absence se lirait comme un oubli.
+        $ins->execute([$importId, $famille, $action, $n, $maille, mb_substr($motif, 0, 500),
+                       $source, $bloque !== null ? mb_substr($bloque, 0, 300) : null, ++$rang]);
+    };
+    $un = function (string $sql) use ($pdo, $importId) {
+        $st = $pdo->prepare($sql);
+        $st->execute([$importId]);
+        return (int)$st->fetchColumn();
+    };
+
+    // ── PROPRIÉTAIRES ─────────────────────────────────────────────────────────────────────
+    // ⚠️ UN COMPTE N'EST PAS UN PROPRIÉTAIRE (`TIERS ≠ PROPRIÉTAIRE ≠ COMPTE MANDANT`). Ce que
+    //    la phase 2 a qualifié, c'est le rattachement d'un compte inconnu à un propriétaire
+    //    que MBI connaît déjà — jamais la création d'une identité.
+    $q = [];
+    foreach ($pdo->query('SELECT COALESCE(compte_qualification, "-") q,
+                                 COUNT(DISTINCT compte) n
+                            FROM crgi_crg WHERE import_id = ' . (int)$importId
+                       . ' GROUP BY q') as $r) {
+        $q[(string)$r['q']] = (int)$r['n'];
+    }
+    // ⚠️ LA PHASE 2 N'A CONFRONTÉ QUE LES COMPTES INCONNUS. Elle qualifie A/B/C/D les seuls
+    //    CRG dont l'inventaire dit « COMPTE INCONNU » — 15 sur 72. Reprendre son compteur
+    //    revenait à annoncer « 15 propriétaires à créer » sans avoir jamais regardé les 57
+    //    autres, et sans jamais dire combien MBI en porte déjà. La phase 5 confronte donc les
+    //    72 noms lus, avec la même clé insensible aux espaces que pour les locataires.
+    $cleNom = fn($v) => preg_replace('~[^A-Z0-9]~', '', crgi_plat((string)$v));
+    $propMbi = [];
+    foreach ($pdo->query('SELECT id, nom FROM proprietaires') as $pr) {
+        $propMbi[$cleNom($pr['nom'])][(int)$pr['id']] = 1;
+    }
+    $st = $pdo->prepare('SELECT DISTINCT proprietaire FROM crgi_crg
+                          WHERE import_id = ? AND proprietaire IS NOT NULL AND proprietaire <> ""');
+    $st->execute([$importId]);
+    $pDeja = $pCreer = $pAmbigu = 0;
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $nom) {
+        $k = $cleNom($nom);
+        if (!isset($propMbi[$k])) {
+            $pCreer++;
+        } elseif (count($propMbi[$k]) === 1) {
+            $pDeja++;
+        } else {
+            $pAmbigu++;
+        }
+    }
+    $poser('PROPRIETAIRES', 'INCHANGE', $pDeja, 'propriétaire',
+        'Propriétaire que MBI porte déjà, retrouvé sur le nom LU au CRG (comparaison '
+        . 'insensible aux espaces). Aucune écriture proposée.',
+        'phase 0 · noms lus × proprietaires');
+    $poser('PROPRIETAIRES', 'CREER', $pCreer, 'propriétaire',
+        'Nom lu sur les CRG qu’aucun propriétaire de MBI ne porte : une identité serait créée. '
+        . '`OBSERVÉ DANS LE CORPUS ≠ NOUVEAU DANS MBI` — seuls ceux-ci sont réellement absents.',
+        'phase 0 · noms lus × proprietaires');
+    $poser('PROPRIETAIRES', 'A ARBITRER', $pAmbigu + ($q['C'] ?? 0) + ($q['D'] ?? 0),
+        'propriétaire',
+        'Plusieurs propriétaires de MBI portent ce nom, ou le compte y existe sous une autre '
+        . 'écriture. `AUCUN RAPPROCHEMENT APPROXIMATIF NE CRÉE UNE IDENTITÉ`.',
+        'phase 0 × proprietaires · phase 2 qualification C/D',
+        'Bloque la création ou le rattachement de CE propriétaire. N’empêche aucune autre '
+        . 'famille.');
+    $poser('PROPRIETAIRES', 'ARCHIVER', 0, 'propriétaire',
+        'AUCUN. `ABSENT DU NOUVEAU CORPUS ≠ SUPPRIMER` : un propriétaire que ce dépôt ne '
+        . 'mentionne pas n’est pas un propriétaire perdu.', 'doctrine · INTEG-CONFRONT-03');
+
+    // ── COMPTES MANDANTS ──────────────────────────────────────────────────────────────────
+    $comptes = $un('SELECT COUNT(DISTINCT compte) FROM crgi_crg WHERE import_id = ?');
+    $connus = $un('SELECT COUNT(DISTINCT compte) FROM crgi_crg
+                    WHERE import_id = ? AND mbi_trimestre_id IS NOT NULL');
+    $poser('COMPTES MANDANTS', 'INCHANGE', $connus, 'compte',
+        'Comptes que MBI rapproche déjà d’une situation connue.', 'phase 1 · inventaire');
+    $poser('COMPTES MANDANTS', 'CREER', $comptes - $connus, 'compte',
+        'Comptes lus sur les CRG et qu’aucune situation de MBI ne porte encore.',
+        'phase 1 · inventaire');
+    $poser('COMPTES MANDANTS', 'ARCHIVER', 0, 'compte',
+        'AUCUN. Les situations que MBI connaît et que ce dépôt ne rapporte pas restent '
+        . 'intactes : elles ne sont pas supprimées, elles ne sont pas dans ce dépôt.',
+        'doctrine · INTEG-CONFRONT-03');
+
+    // ── IMMEUBLES ─────────────────────────────────────────────────────────────────────────
+    // ⚠️ PAR OBJET, PAS PAR OCCURRENCE. Le même immeuble est réénoncé à chaque période.
+    $i = [];
+    foreach ($pdo->query('SELECT statut, COUNT(*) n FROM (
+                            SELECT COALESCE(code, CONCAT(nom, "|", code_postal)) k,
+                                   MIN(statut) statut
+                              FROM crgi_immeuble WHERE import_id = ' . (int)$importId . '
+                             GROUP BY k) t GROUP BY statut') as $r) {
+        $i[(string)$r['statut']] = (int)$r['n'];
+    }
+    $poser('IMMEUBLES', 'INCHANGE', $i['IDENTIQUE'] ?? 0, 'immeuble',
+        'Immeuble retrouvé dans MBI, identique après normalisation. Rien à écrire.',
+        'phase 2 · confrontation');
+    $poser('IMMEUBLES', 'CREER', $i['NOUVEAU'] ?? 0, 'immeuble',
+        'Immeuble absent de MBI : il serait créé avec les données LUES sur le CRG.',
+        'phase 2 · confrontation');
+    $poser('IMMEUBLES', 'METTRE A JOUR', $i['MODIFIE'] ?? 0, 'immeuble',
+        'Immeuble retrouvé, dont le CRG porte une donnée différente. La mise à jour serait '
+        . 'proposée champ par champ, jamais appliquée en bloc.', 'phase 2 · confrontation');
+    $poser('IMMEUBLES', 'A ARBITRER', $i['A ARBITRER'] ?? 0, 'immeuble',
+        'Plusieurs candidats MBI, ou aucun rapprochement exact. `AUCUN RAPPROCHEMENT '
+        . 'APPROXIMATIF NE CRÉE UNE IDENTITÉ`.', 'phase 2 · confrontation',
+        'Bloque la création ou la mise à jour de CET immeuble, et le rattachement de ses lots '
+        . 'à un immeuble MBI. N’empêche ni les occupations ni l’argent, démontrés au lot.');
+
+    // ── LOTS ──────────────────────────────────────────────────────────────────────────────
+    // ⚠️ IDENTITÉ = `compte × référence` (INTEG-IDENT-03).
+    $lo = [];
+    foreach ($pdo->query('SELECT statut, COUNT(*) n FROM (
+                            SELECT CONCAT(c.compte, "§", o.reference) k, MIN(o.statut) statut
+                              FROM crgi_lot o JOIN crgi_crg c ON c.id = o.crg_id
+                             WHERE o.import_id = ' . (int)$importId . '
+                             GROUP BY k) t GROUP BY statut') as $r) {
+        $lo[(string)$r['statut']] = (int)$r['n'];
+    }
+    // ⚠️ LA PHASE 2 NE VOIT QUE 98 LOTS, LES PHASES 3 ET 4 EN DÉMONTRENT 124. Son extracteur
+    //    est antérieur aux corrections de la phase 3 : il ne recolle pas les blocs « Suite » et
+    //    ignorait les références courtes. Reprendre son compteur revenait à annoncer un
+    //    patrimoine amputé de 26 lots que le document imprime pourtant. On bâtit donc la
+    //    famille sur les 124 identités démontrées, et on dit explicitement lesquelles la
+    //    phase 2 n'a jamais confrontées à MBI plutôt que de les passer sous silence.
+    $st = $pdo->prepare(
+        'SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference
+                                 FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                                WHERE o.import_id = ?) t'
+    );
+    $st->execute([$importId]);
+    $lotsDemontres = (int)$st->fetchColumn();
+    $lotsPhase2 = (int)(($lo['IDENTIQUE'] ?? 0) + ($lo['NOUVEAU'] ?? 0));
+    $poser('LOTS', 'INCHANGE', $lo['IDENTIQUE'] ?? 0, 'lot',
+        'Lot retrouvé dans MBI sous la même identité `compte × référence`.',
+        'phase 2 · confrontation');
+    $poser('LOTS', 'CREER', $lo['NOUVEAU'] ?? 0, 'lot',
+        'Lot que MBI ne porte pas encore. `UNE RÉFÉRENCE LOCALE N’EST JAMAIS UNE IDENTITÉ '
+        . 'GLOBALE` : il serait créé sous `compte × référence`.',
+        'phase 2 · confrontation · INTEG-IDENT-03');
+    $poser('LOTS', 'A ARBITRER', max(0, $lotsDemontres - $lotsPhase2), 'lot',
+        'Lots que les phases 3 et 4 DÉMONTRENT (' . $lotsDemontres . ' identités) et que la '
+        . 'confrontation de la phase 2 n’a jamais vus (' . $lotsPhase2 . ') : son extracteur '
+        . 'est antérieur aux corrections « Suite » et aux références courtes. Ils ne sont ni '
+        . 'inchangés ni nouveaux — ils ne sont PAS CONFRONTÉS.',
+        'phase 3/4 × phase 2',
+        'Bloque la décision sur ces lots. Exige de rejouer la phase 2, donc de la revalider.');
+    $poser('LOTS', 'ARCHIVER', 0, 'lot',
+        'AUCUN. Un lot que ce dépôt ne mentionne pas n’est pas un lot vendu.',
+        'doctrine · INTEG-CONFRONT-03');
+
+    // ── LOCATAIRES ────────────────────────────────────────────────────────────────────────
+    // ⚠️ `OBSERVÉ DANS LE CORPUS ≠ NOUVEAU DANS MBI.` Les 119 occupants de la phase 3 étaient
+    //    tous annoncés « à créer » : c'était le nombre d'observés, pas le nombre d'absents.
+    //    Écrire cela aurait fabriqué des doublons de locataires que MBI porte déjà.
+    //
+    // ⚠️ ET LA COMPARAISON DES NOMS DOIT IGNORER LES ESPACES. MBI enregistre les occupants de
+    //    ce périmètre SOUDÉS — « ALOUILotfi », « BERRUYERThierry » : l'OCR de l'import
+    //    historique a collé les mots (`INTEG-LIRE-03`, cette fois du côté de MBI). Comparer
+    //    « ALOUI LOTFI » à « ALOUILOTFI » ne rapprochait plus qu'UN locataire sur 119.
+    $cleNom = fn($v) => preg_replace('~[^A-Z0-9]~', '', crgi_plat((string)$v));
+    $connusMbi = [];
+    foreach ($pdo->query('SELECT DISTINCT locataire_nom FROM crg_situations_locataires
+                           WHERE locataire_nom IS NOT NULL AND locataire_nom <> ""') as $r) {
+        $connusMbi[$cleNom($r['locataire_nom'])][crgi_plat((string)$r['locataire_nom'])] = 1;
+    }
+    $st = $pdo->prepare('SELECT DISTINCT locataire FROM crgi_occupation
+                          WHERE import_id = ? AND locataire IS NOT NULL');
+    $st->execute([$importId]);
+    $dejaLa = $aCreer = $ambigus = 0;
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $nom) {
+        $k = $cleNom($nom);
+        if (!isset($connusMbi[$k])) {
+            $aCreer++;
+        } elseif (count($connusMbi[$k]) === 1) {
+            $dejaLa++;
+        } else {
+            $ambigus++;
+        }
+    }
+    $poser('LOCATAIRES', 'INCHANGE', $dejaLa, 'locataire',
+        'Occupant que MBI porte déjà, retrouvé par comparaison de nom INSENSIBLE AUX ESPACES — '
+        . 'MBI enregistre ces noms soudés. Aucune écriture proposée.',
+        'phase 3 × crg_situations_locataires');
+    $poser('LOCATAIRES', 'CREER', $aCreer, 'locataire',
+        'Occupant qu’aucun nom de MBI ne porte, même en ignorant les espaces : il serait créé. '
+        . '`OBSERVÉ DANS LE CORPUS ≠ NOUVEAU DANS MBI` — seuls ceux-ci sont réellement absents.',
+        'phase 3 × crg_situations_locataires');
+    $poser('LOCATAIRES', 'A ARBITRER', $ambigus, 'locataire',
+        'Le nom du CRG correspond à PLUSIEURS orthographes distinctes dans MBI : un '
+        . 'rapprochement approximatif ne crée jamais une identité.',
+        'phase 3 × crg_situations_locataires',
+        'Bloque le rattachement de CE locataire. N’empêche aucune autre écriture.');
+    $poser('LOCATAIRES', 'ARCHIVER', 0, 'locataire',
+        'AUCUN. `ANCIEN LOCATAIRE ≠ SUPPRIMER` : un ancien occupant reste, avec sa période et '
+        . 'sa dette (`P6A-CREANCE-07`).', 'doctrine · phase 3');
+
+    // ── OCCUPATIONS ───────────────────────────────────────────────────────────────────────
+    $o = [];
+    foreach ($pdo->query('SELECT statut, COUNT(*) n FROM crgi_occupation
+                           WHERE import_id = ' . (int)$importId . ' GROUP BY statut') as $r) {
+        $o[(string)$r['statut']] = (int)$r['n'];
+    }
+    // ⚠️ DANS UN PLAN DE MUTATION, `INCHANGÉ` VEUT DIRE « AUCUNE ÉCRITURE PROPOSÉE », et rien
+    //    d'autre. Il ne prétend pas que MBI porte déjà l'objet : ici, il dit que le corpus ne
+    //    démontre AUCUN mouvement à écrire. La nuance compte — c'est elle qui distingue les
+    //    452 occupations sans mouvement des locataires, où `CRÉER` affirmait une écriture et
+    //    devait donc être confronté à MBI.
+    $poser('OCCUPATIONS', 'INCHANGE', ($o['IDENTIQUE'] ?? 0), 'observation',
+        'Même titulaire qu’à la période précédente : la suite ne démontre aucun mouvement, donc '
+        . 'AUCUNE ÉCRITURE N’EST PROPOSÉE. Cela ne dit pas que MBI porte déjà cette observation '
+        . '— c’est une autre question, et aucune phase scellée ne la tranche.',
+        'phase 3 · chronologie');
+    $poser('OCCUPATIONS', 'CREER', ($o['CHANGEMENT DE LOCATAIRE'] ?? 0)
+        + ($o['NOUVEL ENTRANT'] ?? 0), 'occupation',
+        'Succession locative DÉMONTRÉE : le lot est réénoncé avec un autre occupant. Une '
+        . 'nouvelle occupation serait ouverte.', 'phase 3 · chronologie');
+    $poser('OCCUPATIONS', 'ARCHIVER', ($o['CHANGEMENT DE LOCATAIRE'] ?? 0)
+        + ($o['PARTI DEMONTRE'] ?? 0), 'occupation',
+        'L’occupation précédente serait CLÔTURÉE à la date démontrée — jamais supprimée, et '
+        . 'sa dette reste attachée à son titulaire.', 'phase 3 · chronologie');
+    $poser('OCCUPATIONS', 'INCHANGE', ($o['ANCIEN LOCATAIRE AVEC DETTE'] ?? 0),
+        'ancien locataire',
+        'Ancien occupant portant une dette à sa dernière période : conservé tel quel, la '
+        . 'créance ne passe jamais au suivant (`P6A-CREANCE-07`).', 'phase 3 · chronologie');
+    $arb = (int)($o['A ARBITRER'] ?? 0);
+    $lotsArb = $un('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference
+                      FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                     WHERE o.import_id = ? AND o.statut = "A ARBITRER") t');
+    $poser('OCCUPATIONS', 'A ARBITRER', $arb, 'observation',
+        'Le document ne démontre ni maintien, ni entrée, ni départ : lot vu à une seule '
+        . 'période, ou aucune ligne « Locataire » imprimée, ou lot cessant d’apparaître alors '
+        . 'que son compte continue. `ABSENCE ≠ DÉPART DÉMONTRÉ`.', 'phase 3 · chronologie',
+        'Bloque l’écriture d’occupation de ' . $lotsArb . ' lots. N’empêche NI la création de '
+        . 'ces lots, NI leurs mouvements financiers, qui sont démontrés au lot sans dépendre '
+        . 'de l’occupant.');
+
+    // ── LES FAMILLES FINANCIÈRES ──────────────────────────────────────────────────────────
+    // ⚠️ CHAQUE FAMILLE GARDE SA NATURE. `APPEL ≠ ENCAISSEMENT ≠ AFFECTATION ≠ SOLDE`, et
+    //    `DÉPENSE ≠ APPEL LOCATAIRE` : la provision appelée au locataire n'est pas une charge
+    //    du propriétaire, elle a sa propre ligne.
+    $familles = [
+        ['APPELS', ['LOYER APPELE', 'CHARGE APPELEE AU LOCATAIRE', 'AUTRE APPELE AU LOCATAIRE'],
+         'Appels au locataire, lus dans les colonnes « Loyers », « Charges » et « Autres » du '
+         . 'tableau du lot. `DÉPENSE ≠ APPEL LOCATAIRE`.'],
+        ['ENCAISSEMENTS', ['ENCAISSEMENT'],
+         'Colonne « Crédit ». `APPEL ≠ ENCAISSEMENT` : un encaissement peut solder une période '
+         . 'ANTÉRIEURE, et aucun écart `appelé − encaissé` n’est calculé.'],
+        ['ENCOURS', ['ENCOURS'],
+         'Photographies de « Reste dû » et des soldes de lot. `STOCK ≠ FLUX` : jamais '
+         . 'additionnées entre deux périodes.'],
+        ['CHARGES', ['CHARGE'],
+         'Sections « Factures dues », « Charges de syndic », « Charges Propriétaire ».'],
+        ['FRAIS ET ASSURANCES', ['FRAIS ET ASSURANCES'],
+         'Sections « Honoraires de Gestion », « GLI » et « GU Assurance ».'],
+        ['FLUX PROPRIETAIRE', ['VERSEMENT PROPRIETAIRE'],
+         'Lignes « Virement : … € », écrites en clair hors de toute colonne.'],
+        ['SOLDES', ['SOLDE'],
+         'Soldes de compte, d’immeuble et d’indivision. `STOCK ≠ FLUX`.'],
+    ];
+    foreach ($familles as [$nom, $cats, $quoi]) {
+        $in = implode(',', array_map(fn($c) => $pdo->quote($c), $cats));
+        // ⚠️ `CONTRIBUTIF ≠ NOUVEAU.` Une ligne contributive contribue à la situation
+        //    financière démontrée ; elle ne prouve pas que MBI ne la porte pas déjà. Or
+        //    **60 situations de ce dépôt sont rapprochées à un trimestre que MBI porte AVEC
+        //    ses écritures** (26 711 lignes dans `crg_ecritures`). Les mouvements qui les
+        //    concernent ne peuvent pas être annoncés en création : leur confrontation ligne à
+        //    ligne n'est démontrée par AUCUNE phase scellée, et la phase 5 n'a pas le droit de
+        //    l'inventer. Ils sont donc À ARBITRER, pas CRÉER.
+        // ⚠️ LE VERDICT VIENT DU RAPPROCHEMENT, PLUS D'UNE PRÉSOMPTION. `HORS PERIMETRE` =
+        //    MBI n'a pas cette situation ; `NOUVEAU` = MBI l'a mais ne porte pas cette ligne.
+        //    Les deux sont des créations démontrées. Seuls les cas réellement indécidables
+        //    remontent à un humain.
+        $f = fn(string $v) => $un("SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                                    AND categorie IN ({$in}) AND additionnable = 1
+                                    AND rapprochement = " . $pdo->quote($v));
+        $ok = $f('HORS PERIMETRE') + $f('NOUVEAU');
+        $deja = $f('DEJA PRESENT');
+        $dejaMbi = $f('CANDIDAT NON DEMONTRABLE') + $f('CONTRADICTION');
+        $ko = $un("SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                    AND categorie IN ({$in}) AND additionnable = 0");
+        $sansLot = $un("SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                         AND categorie IN ({$in}) AND additionnable = 1 AND maille <> 'LOT'");
+        $poser($nom, 'CREER', $ok, 'mouvement',
+            $quoi . ' Chaque ligne porte sa page, sa colonne et sa maille : '
+            . ($ok - $sansLot) . ' démontrées au LOT, ' . $sansLot . ' au compte ou à '
+            . 'l’immeuble. `LA MAILLE D’AFFICHAGE NE PEUT JAMAIS ÊTRE PLUS FINE QUE LA MAILLE '
+            . 'DE LA PREUVE` : aucun prorata, aucun rattachement forcé.',
+            'phase 4 · rapprochement');
+        if ($deja > 0) {
+            $poser($nom, 'INCHANGE', $deja, 'mouvement',
+                'Écriture que MBI porte DÉJÀ : même situation, même libellé, même lot et même '
+                . 'montant au même sens. Aucune écriture ne serait créée — les annoncer en '
+                . 'création aurait doublé des écritures existantes.',
+                'rapprochement × crg_ecritures');
+        }
+        if ($dejaMbi > 0) {
+            $poser($nom, 'A ARBITRER', $dejaMbi, 'mouvement',
+                'Reliquat réellement indécidable après rapprochement : soit plusieurs écritures '
+                . 'MBI portent le même libellé et le même montant (`MÊME MONTANT ≠ MÊME '
+                . 'ÉCRITURE`), soit MBI porte la même ligne avec un AUTRE montant. Aucun '
+                . 'rapprochement n’a été forcé.', 'rapprochement × crg_ecritures',
+                'Bloque l’écriture de ces seuls mouvements. N’empêche ni les objets, ni les '
+                . 'mouvements démontrés nouveaux.');
+        }
+        if ($ko > 0) {
+            $poser($nom, 'NON INTEGRABLE', $ko, 'mouvement',
+                'Lignes conservées et traçables mais jamais sommées : réimpressions d’une page '
+                . 'à l’identique (`RÉIMPRESSION ≠ NOUVEL ÉVÉNEMENT`), agrégats du '
+                . '« Récapitulatif » (`AGRÉGAT ≠ MOUVEMENT ÉLÉMENTAIRE`) et détails de calcul.',
+                'phase 4 · mouvements');
+        }
+    }
+    // ⚠️ LE PLAN DOIT SE REFERMER SUR LES 7 099 MOUVEMENTS. Les agrégats du « Récapitulatif »
+    //    et les détails de calcul n'appartiennent à aucune famille d'écriture — mais les
+    //    passer sous silence laisserait 628 lignes hors du bilan, et un bilan qui ne totalise
+    //    pas son propre matériau ne prouve rien.
+    $horsFamille = $un('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                         AND categorie IN ("AGREGAT (NON ADDITIONNABLE)",
+                                           "DETAIL (NON ADDITIONNABLE)")');
+    $poser('AGREGATS ET DETAILS', 'NON INTEGRABLE', $horsFamille, 'mouvement',
+        'Lignes du « Récapitulatif des immeubles », qui rejoue par immeuble ce que les blocs '
+        . 'ont déjà dit (`AGRÉGAT ≠ MOUVEMENT ÉLÉMENTAIRE`), et détails de calcul — « dont TVA », '
+        . 'assiette « base: » d’un honoraire. Lues et conservées pour servir de CONTRÔLE, '
+        . 'jamais écrites, jamais additionnées.', 'phase 4 · mouvements');
+    $ind = $un('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                 AND categorie = "INDETERMINABLE"');
+    $poser('APPELS', 'A ARBITRER', $ind, 'mouvement',
+        'Montant que le document n’attribue à aucune colonne ni section connue. Il n’est pas '
+        . 'rangé dans la colonne d’à côté : il attend votre décision.', 'phase 4 · anomalies',
+        'Bloque l’écriture de CE seul montant. N’empêche aucune autre écriture.');
+    $poser('APPELS', 'ARCHIVER', 0, 'mouvement',
+        'AUCUN. Un mouvement lu n’efface jamais un mouvement déjà enregistré dans MBI.',
+        'doctrine');
+}
+
+/** Le bilan de la phase 5, tel que l'écran doit le montrer. */
+function crgi_bilan_phase5(PDO $pdo, int $importId): array
+{
+    $st = $pdo->prepare('SELECT * FROM crgi_plan WHERE import_id = ? ORDER BY rang');
+    $st->execute([$importId]);
+    $lignes = $st->fetchAll(PDO::FETCH_ASSOC);
+    $parFamille = $parAction = [];
+    foreach ($lignes as $l) {
+        $parFamille[(string)$l['famille']][] = $l;
+        $parAction[(string)$l['action']] = ($parAction[(string)$l['action']] ?? 0)
+                                         + (int)$l['nombre'];
+    }
+    $st = $pdo->prepare(
+        'SELECT c.compte, o.lot_reference, COUNT(*) n, MIN(o.page) page,
+                LEFT(MIN(o.statut_motif), 200) motif
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE o.import_id = ? AND o.statut = "A ARBITRER"
+          GROUP BY c.compte, o.lot_reference ORDER BY c.compte, o.lot_reference'
+    );
+    $st->execute([$importId]);
+    // Le plan doit rendre compte de CHAQUE mouvement de la phase 4, sans exception.
+    $mv = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?');
+    $mv->execute([$importId]);
+    $total = (int)$mv->fetchColumn();
+    $couvert = 0;
+    foreach ($lignes as $l) {
+        if ($l['maille'] === 'mouvement') {
+            $couvert += (int)$l['nombre'];
+        }
+    }
+    return [
+        'lignes'      => $lignes,
+        'par_famille' => $parFamille,
+        'par_action'  => $parAction,
+        'arbitrages'  => $st->fetchAll(PDO::FETCH_ASSOC),
+        'mouvements'  => $total,
+        'couverts'    => $couvert,
+        'boucle'      => $couvert === $total,
+    ];
+}
+
+/**
+ * L'empreinte du résultat de la phase 5.
+ *
+ * ⚠️ SANS `id`, ET TRIÉE (`INTEG-SCEAU-01`). Elle couvre chaque décision : la famille,
+ *    l'action, le dénombrement, le motif et ce que l'action bloque. Un plan qui passerait
+ *    « À ARBITRER » à « CRÉER » sans changer aucun total doit périmer le sceau.
+ */
+function crgi_empreinte_phase5(PDO $pdo, int $importId): string
+{
+    $st = $pdo->prepare(
+        'SELECT famille, action, nombre, maille, motif, source, COALESCE(bloque, "")
+           FROM crgi_plan WHERE import_id = ?'
+    );
+    $st->execute([$importId]);
+    $l = [];
+    foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
+        $l[] = implode('|', $r);
+    }
+    sort($l, SORT_STRING);
+    return hash('sha256', implode("\n", $l));
+}
+
+/**
+ * RAPPROCHEMENT FINANCIER — staging scellé ↔ `crg_ecritures` de MBI.
+ *
+ * ⚠️ CE N'EST PAS UNE PHASE DE LECTURE. Aucun PDF n'est rouvert, aucune phase certifiée n'est
+ *    modifiée. Elle répond à une seule question, mouvement par mouvement : MBI porte-t-il DÉJÀ
+ *    cette écriture ?
+ *
+ * ⚠️ `MÊME MONTANT ≠ MÊME ÉCRITURE`, et `MÊME COMPTE + MÊME MONTANT ≠ MÊME ÉCRITURE`. Le
+ *    montant n'intervient qu'en DERNIER, pour départager des candidats déjà retenus sur leur
+ *    identité. Il ne désigne jamais un candidat à lui seul.
+ *
+ * ⚠️ LES DEUX CHAÎNES N'ÉCRIVENT PAS PAREIL, ET C'EST LA DIFFICULTÉ RÉELLE :
+ *    — MBI recopie la ligne ENTIÈRE dans `libelle`, montant compris (« EDF 5 PL FUTERIE
+ *      8458251472 244,93 »), là où le staging en extrait le montant. Le libellé du staging est
+ *      donc comparé comme PRÉFIXE, jamais par égalité.
+ *    — MBI écrit le lot COURT (« 01 ») là où le document imprime « 276-01 ». Le lot MBI est
+ *      donc accepté comme SUFFIXE du lot du staging — jamais une inclusion quelconque, qui
+ *      confondrait « 01 » et « 101 ».
+ *
+ * ⚠️ ET MBI NE PEUT PAS PORTER LES APPELS. `crg_ecritures` n'a que `debit` et `credit` : les
+ *    colonnes `Loyers`, `Charges`, `Autres` et `Reste dû` n'y ont AUCUN équivalent. Les
+ *    montants qui en viennent sont nouveaux par construction du modèle, pas par échec de
+ *    rapprochement — et le motif le dit, pour qu'on ne le relise pas comme une lacune.
+ */
+function crgi_rapprocher_finances(PDO $pdo, int $importId): array
+{
+    $cle = fn($v) => preg_replace('~[^A-Z0-9]~', '', crgi_plat((string)$v));
+
+    // Les écritures de MBI, groupées par situation. On ne les modifie jamais.
+    $st = $pdo->prepare(
+        'SELECT e.id, e.id_crg, e.numero_lot, e.libelle, e.debit, e.credit
+           FROM crg_ecritures e
+          WHERE e.id_crg IN (SELECT mbi_trimestre_id FROM crgi_crg
+                              WHERE import_id = ? AND mbi_trimestre_id IS NOT NULL)'
+    );
+    $st->execute([$importId]);
+    $parSituation = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $e) {
+        $e['_lot'] = $cle($e['numero_lot']);
+        $e['_lib'] = $cle($e['libelle']);
+        $parSituation[(int)$e['id_crg']][] = $e;
+    }
+
+    // Hors périmètre : les situations que MBI ne possède pas ne se rapprochent à rien.
+    $pdo->prepare(
+        'UPDATE crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+            SET m.rapprochement = "HORS PERIMETRE", m.mbi_ecriture_id = NULL,
+                m.rappro_motif = "Situation absente de MBI : il n’y a rien à confronter. Le "
+                               "mouvement est proposé en création par la phase 5."
+          WHERE m.import_id = ?
+            AND NOT EXISTS (SELECT 1 FROM crg_ecritures e WHERE e.id_crg = c.mbi_trimestre_id)'
+    )->execute([$importId]);
+
+    $st = $pdo->prepare(
+        'SELECT m.id, c.mbi_trimestre_id t, m.lot_reference, m.libelle, m.colonne, m.montant
+           FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND m.additionnable = 1
+            AND EXISTS (SELECT 1 FROM crg_ecritures e WHERE e.id_crg = c.mbi_trimestre_id)'
+    );
+    $st->execute([$importId]);
+    $maj = $pdo->prepare(
+        'UPDATE crgi_mouvement SET rapprochement = ?, mbi_ecriture_id = ?, rappro_motif = ?
+          WHERE id = ?'
+    );
+    // ⚠️ AUCUN MOUVEMENT NE RESTE SANS VERDICT. Les lignes non additionnables des situations
+    //    connues de MBI ne se confrontent pas — mais le taire laisserait 104 mouvements muets.
+    $pdo->prepare(
+        'UPDATE crgi_mouvement SET rapprochement = "HORS PERIMETRE",
+                rappro_motif = "Ligne non additionnable (agrégat, détail, réimpression ou "
+                             "indéterminable) : elle n’entre dans aucun total et ne se "
+                             "confronte donc à aucune écriture."
+          WHERE import_id = ? AND additionnable = 0 AND rapprochement IS NULL'
+    )->execute([$importId]);
+    $bilan = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
+        $lib = $cle($m['libelle']);
+        $lot = $cle($m['lot_reference']);
+        // 1. le libellé : le staging doit être le libellé MBI ou son préfixe.
+        $cands = [];
+        foreach ($parSituation[(int)$m['t']] ?? [] as $e) {
+            if ($lib !== '' && ($e['_lib'] === $lib || str_starts_with($e['_lib'], $lib))) {
+                $cands[] = $e;
+            }
+        }
+        // 2. le lot, quand MBI le renseigne : lot MBI = lot staging, ou son suffixe.
+        if ($lot !== '' && $cands) {
+            $etroits = array_values(array_filter($cands, fn($e) => $e['_lot'] !== ''
+                && ($e['_lot'] === $lot || str_ends_with($lot, $e['_lot']))));
+            if ($etroits) {
+                $cands = $etroits;
+            }
+        }
+        [$verdict, $ecriture, $motif] = crgi_verdict_rapprochement($m, $cands);
+        $maj->execute([$verdict, $ecriture, mb_substr($motif, 0, 400), (int)$m['id']]);
+        $bilan[$verdict] = ($bilan[$verdict] ?? 0) + 1;
+    }
+    return $bilan;
+}
+
+/** Le verdict d'un mouvement face à ses candidats MBI. Aucun rapprochement forcé. */
+function crgi_verdict_rapprochement(array $m, array $cands): array
+{
+    // ⚠️ UN LIBELLÉ GÉNÉRIQUE N'EST PAS UNE IDENTITÉ. « Solde » fait cinq caractères et
+    //    s'imprime à chaque bloc : s'en servir comme clé faisait pointer six mouvements
+    //    différents vers LA MÊME écriture MBI, et produisait de fausses contradictions. En
+    //    deçà de huit caractères significatifs, le libellé ne démontre plus rien tout seul.
+    $lib = preg_replace('~[^A-Z0-9]~', '', crgi_plat((string)$m['libelle']));
+    $appel = !in_array($m['colonne'], ['debit', 'credit'], true);
+    if (!$appel && $cands && mb_strlen($lib) < 8) {
+        return ['CANDIDAT NON DEMONTRABLE', null,
+            'Le libellé « ' . $m['libelle'] . ' » est trop générique pour désigner une '
+            . 'écriture : ' . count($cands) . ' candidates dans cette situation. Le '
+            . 'rapprochement demande une décision.'];
+    }
+    if ($appel) {
+        // ⚠️ CE N'EST PAS UN ÉCHEC DE RAPPROCHEMENT, C'EST UNE LIMITE DU MODÈLE DE MBI.
+        return ['NOUVEAU', null,
+            'Montant lu dans la colonne « ' . $m['colonne'] .' » : `crg_ecritures` n’a que '
+            . '`debit` et `credit` et ne peut porter aucun APPEL. Nouveau par construction du '
+            . 'modèle, pas par échec de confrontation.'];
+    }
+    if (!$cands) {
+        return ['NOUVEAU', null,
+            'Aucune écriture de cette situation ne porte ce libellé. MBI ne possède pas cette '
+            . 'ligne : elle serait créée.'];
+    }
+    $exacts = array_values(array_filter($cands,
+        fn($e) => abs((float)$e[$m['colonne']] - (float)$m['montant']) < 0.005));
+    if (count($exacts) === 1) {
+        return ['DEJA PRESENT', (int)$exacts[0]['id'],
+            'Écriture MBI n°' . $exacts[0]['id'] . ' : même situation, même libellé, même lot '
+            . 'et même montant au sens « ' . $m['colonne'] . ' ». Aucune écriture à créer.'];
+    }
+    if (count($exacts) > 1) {
+        // ⚠️ PLUSIEURS ÉCRITURES IDENTIQUES : les départager au montant serait exactement le
+        //    rapprochement forcé qu'on s'interdit.
+        return ['CANDIDAT NON DEMONTRABLE', null,
+            count($exacts) . ' écritures de MBI portent le même libellé et le même montant '
+            . 'dans cette situation. Rien ne dit LAQUELLE correspond : `MÊME MONTANT ≠ MÊME '
+            . 'ÉCRITURE`.'];
+    }
+    if (count($cands) === 1 && (float)$cands[0][$m['colonne']] == 0.0) {
+        return ['CANDIDAT NON DEMONTRABLE', (int)$cands[0]['id'],
+            'MBI porte la ligne (écriture n°' . $cands[0]['id'] . ') mais avec un montant nul '
+            . 'au sens « ' . $m['colonne'] . ' », là où le document imprime '
+            . number_format((float)$m['montant'], 2, ',', ' ') . ' €. La ligne existe, le '
+            . 'montant n’y est pas : ce n’est ni un doublon, ni une contradiction.'];
+    }
+    if (count($cands) === 1) {
+        return ['CONTRADICTION', (int)$cands[0]['id'],
+            'MBI porte la même ligne (écriture n°' . $cands[0]['id'] . ') avec '
+            . number_format((float)$cands[0][$m['colonne']], 2, ',', ' ') . ' € là où le '
+            . 'document imprime ' . number_format((float)$m['montant'], 2, ',', ' ')
+            . ' €. Les deux ne peuvent pas être vrais.'];
+    }
+    return ['CANDIDAT NON DEMONTRABLE', null,
+        count($cands) . ' écritures de MBI portent ce libellé dans cette situation, aucune au '
+        . 'montant du document. Le rapprochement demande une décision.'];
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+ *  COUVERTURE ET FRONTIÈRES — le contrôle qui manquait
+ *  ═══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ `EXACTITUDE ≠ EXHAUSTIVITÉ.` La phase 2 était JUSTE sur les 98 lots qu'elle traitait, et
+ *    FAUSSE sur la population : le document en imprime 124. Elle a été scellée, validée, et le
+ *    bilan d'intégration s'est construit sur son chiffre amputé. Rien, nulle part, ne l'a
+ *    signalé — il a fallu qu'Emmanuel compte ses lots à la main.
+ *
+ * ⚠️ UNE PHASE AVAL NE DOIT JAMAIS DÉCOUVRIR SILENCIEUSEMENT PLUS D'OBJETS QU'UNE PHASE AMONT
+ *    CENSÉE COUVRIR LA MÊME POPULATION. Quand la phase 3 a trouvé 124 lots là où la phase 2 en
+ *    voyait 98, le système devait crier. Il attendait la phase 5, et il ne criait même pas.
+ *
+ * Deux mesures, et une seule règle : `ATTENDUE = EXAMINÉE + EXCLUE`, `INEXPLIQUÉE = 0`.
+ */
+
+/**
+ * La couverture d'une phase : ce qu'elle devait regarder, ce qu'elle a regardé, ce qu'elle a
+ * écarté en le disant, et ce qui reste inexpliqué.
+ *
+ * ⚠️ UNE POPULATION INEXPLIQUÉE, MÊME D'UN SEUL OBJET, INTERDIT LA VALIDATION. C'est le seul
+ *    moyen d'empêcher qu'une phase soit exacte et incomplète à la fois.
+ */
+function crgi_couverture(PDO $pdo, int $importId): array
+{
+    $q = function (string $sql) use ($pdo, $importId) {
+        $st = $pdo->prepare($sql);
+        $st->execute([$importId]);
+        return (int)$st->fetchColumn();
+    };
+    $c = [];
+
+    // ── PHASE 0 : les pages du dépôt ──────────────────────────────────────────────────────
+    $pages = $q('SELECT COUNT(*) FROM crgi_page WHERE import_id = ?');
+    $rattachees = $q('SELECT COUNT(*) FROM crgi_page WHERE import_id = ? AND crg_id IS NOT NULL');
+    $hors = $q('SELECT COUNT(*) FROM crgi_page WHERE import_id = ? AND crg_id IS NULL
+                 AND signal_page IS NOT NULL AND signal_page <> ""');
+    $c[] = ['phase' => 0, 'population' => 'pages du dépôt', 'attendue' => $pages,
+            'examinee' => $rattachees, 'exclue' => $hors,
+            'motif_exclusion' => 'pages hors périmètre CRG (appels de fonds) et versos, '
+                               . 'chacune portant son signal'];
+
+    // ── PHASE 1 : les CRG documentaires ───────────────────────────────────────────────────
+    $crg = $q('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?');
+    $inv = $q('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?
+                AND inventaire_statut IS NOT NULL AND inventaire_statut <> ""');
+    $reen = $q('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?
+                 AND doublon_statut = "REENONCIATION"');
+    $c[] = ['phase' => 1, 'population' => 'CRG documentaires', 'attendue' => $crg,
+            'examinee' => $inv, 'exclue' => $reen,
+            'motif_exclusion' => 'réénonciations démontrées : le même événement, énoncé deux '
+                               . 'fois'];
+
+    // ── PHASE 2 : les lots du patrimoine ──────────────────────────────────────────────────
+    // ⚠️ L'ATTENDU N'EST PAS CE QUE LA PHASE 2 A LU. C'est ce que le document imprime, mesuré
+    //    par les phases qui lisent la même population. Se comparer à soi-même ne prouve rien.
+    $lotsP2 = $q('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.reference
+                    FROM crgi_lot o JOIN crgi_crg c ON c.id = o.crg_id
+                   WHERE o.import_id = ?) t');
+    $lotsP3 = $q('SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference
+                    FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                   WHERE o.import_id = ?) t');
+    $c[] = ['phase' => 2, 'population' => 'lots (identité compte × référence)',
+            'attendue' => max($lotsP2, $lotsP3), 'examinee' => $lotsP2, 'exclue' => 0,
+            'motif_exclusion' => 'aucune : tout lot imprimé doit être confronté'];
+
+    // ── PHASE 3 : les observations d'occupation ───────────────────────────────────────────
+    $obs = $q('SELECT COUNT(*) FROM crgi_occupation WHERE import_id = ?');
+    $qual = $q('SELECT COUNT(*) FROM crgi_occupation WHERE import_id = ?
+                 AND statut IS NOT NULL AND statut <> ""');
+    $c[] = ['phase' => 3, 'population' => 'observations d’occupation', 'attendue' => $obs,
+            'examinee' => $qual, 'exclue' => 0,
+            'motif_exclusion' => 'aucune : toute observation reçoit un verdict'];
+
+    // ── PHASE 4 : les mouvements financiers ───────────────────────────────────────────────
+    $mvt = $q('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?');
+    $verdict = $q('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                    AND categorie IS NOT NULL AND categorie <> ""');
+    $c[] = ['phase' => 4, 'population' => 'mouvements financiers', 'attendue' => $mvt,
+            'examinee' => $verdict, 'exclue' => 0,
+            'motif_exclusion' => 'aucune : tout montant imprimé reçoit une nature'];
+
+    // ── RAPPROCHEMENT : les mouvements confrontés à MBI ───────────────────────────────────
+    $rap = $q('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
+                AND rapprochement IS NOT NULL AND rapprochement <> ""');
+    $c[] = ['phase' => 4, 'population' => 'mouvements confrontés à MBI', 'attendue' => $mvt,
+            'examinee' => $rap, 'exclue' => 0,
+            'motif_exclusion' => 'aucune : aucun mouvement ne reste muet'];
+
+    foreach ($c as &$l) {
+        $l['inexpliquee'] = (int)$l['attendue'] - (int)$l['examinee'] - (int)$l['exclue'];
+        $l['ok'] = $l['inexpliquee'] === 0;
+    }
+    return $c;
+}
+
+/**
+ * Les frontières entre phases : deux phases qui parlent du MÊME objet doivent en compter
+ * autant.
+ *
+ * ⚠️ C'EST LE CONTRÔLE QUI AURAIT DÛ EXISTER DEPUIS LE DÉBUT. Il ne compare pas des totaux
+ *    globaux mais les IDENTITÉS elles-mêmes, et il nomme celles qui manquent : un écart de
+ *    nombre se discute, une liste d'identités absentes ne se discute pas.
+ */
+/**
+ * La clé d'un nom de personne ou de société, pour CONFRONTER — jamais pour fusionner.
+ *
+ * ⚠️ NORMALISATION N'EST PAS RAPPROCHEMENT APPROXIMATIF. On retire les accents, la casse et
+ *    les séparateurs, parce que les deux chaînes d'extraction ne les écrivent pas pareil :
+ *    MBI enregistre « ALOUILotfi » soudé, pdfplumber coupe « LYANT » en « LY ANT ». On ne
+ *    tolère AUCUNE autre différence : deux noms qui diffèrent d'une lettre restent deux noms.
+ */
+function crgi_cle_nom(?string $nom): string
+{
+    return preg_replace('~[^A-Z0-9]~', '', crgi_plat((string)$nom));
+}
+
+function crgi_frontieres(PDO $pdo, int $importId): array
+{
+    $sorties = [];
+    // ⚠️ TOUTE FRONTIÈRE N'EST PAS UNE ÉGALITÉ. Certaines le sont — un lot connu de la phase 3
+    //    DOIT l'être de la phase 2. D'autres sont des INCLUSIONS démontrées : la phase 4
+    //    refuse de nommer un occupant quand le bloc en porte deux, elle en nomme donc moins
+    //    que la phase 3. Ce qui reste interdit dans les deux cas, c'est qu'une phase AVAL
+    //    connaisse un objet que l'amont ignore — c'est exactement ainsi que 26 lots avaient
+    //    disparu.
+    $comparer = function (string $objet, string $amont, string $sqlA, string $aval,
+                          string $sqlB, string $sens = 'egalite',
+                          string $pourquoi = '') use ($pdo, $importId, &$sorties) {
+        $ex = function (string $sql) use ($pdo, $importId) {
+            $st = $pdo->prepare($sql);
+            $st->execute([$importId]);
+            return $st->fetchAll(PDO::FETCH_COLUMN);
+        };
+        $a = $ex($sqlA);
+        $b = $ex($sqlB);
+        $manquants = array_values(array_diff($b, $a));
+        $enTrop = array_values(array_diff($a, $b));
+        $sorties[] = [
+            'objet' => $objet, 'amont' => $amont, 'aval' => $aval, 'sens' => $sens,
+            'n_amont' => count($a), 'n_aval' => count($b),
+            'manquants_amont' => $manquants, 'manquants_aval' => $enTrop,
+            'pourquoi' => $pourquoi,
+            'ok' => !$manquants && ($sens === 'inclusion' || !$enTrop),
+        ];
+    };
+    $comparer(
+        'lots (compte × référence)', 'phase 2',
+        'SELECT DISTINCT CONCAT(c.compte, "§", o.reference) FROM crgi_lot o
+           JOIN crgi_crg c ON c.id = o.crg_id WHERE o.import_id = ?',
+        'phase 3',
+        'SELECT DISTINCT CONCAT(c.compte, "§", o.lot_reference) FROM crgi_occupation o
+           JOIN crgi_crg c ON c.id = o.crg_id WHERE o.import_id = ?'
+    );
+    $comparer(
+        'lots (compte × référence)', 'phase 3',
+        'SELECT DISTINCT CONCAT(c.compte, "§", o.lot_reference) FROM crgi_occupation o
+           JOIN crgi_crg c ON c.id = o.crg_id WHERE o.import_id = ?',
+        'phase 4',
+        'SELECT DISTINCT CONCAT(c.compte, "§", m.lot_reference) FROM crgi_mouvement m
+           JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND m.lot_reference IS NOT NULL AND m.lot_reference <> ""'
+    );
+    $comparer(
+        'comptes', 'phase 0',
+        'SELECT DISTINCT compte FROM crgi_crg WHERE import_id = ? AND compte IS NOT NULL',
+        'phase 4',
+        'SELECT DISTINCT c.compte FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND c.compte IS NOT NULL'
+    );
+    // ⚠️ SEULES LES SITUATIONS QUI PORTENT UN LOT PEUVENT PORTER UNE OCCUPATION. Dix CRG de
+    //    ce dépôt n'impriment aucun bloc de lot — que des honoraires, des factures ou un
+    //    récapitulatif. Les compter dans l'attendu produisait un faux échec de couverture :
+    //    la frontière doit comparer des populations RÉELLEMENT comparables, sinon elle crie
+    //    au loup et on finit par ne plus l'écouter.
+    $comparer(
+        'situations portant au moins un lot', 'phase 2',
+        'SELECT DISTINCT l.crg_id FROM crgi_lot l WHERE l.import_id = ?',
+        'phase 3',
+        'SELECT DISTINCT crg_id FROM crgi_occupation WHERE import_id = ?'
+    );
+    // ⚠️ LES DEUX PHASES NE LISENT PAS AVEC LE MÊME OUTIL, DONC PAS AVEC LES MÊMES ESPACES.
+    //    `pdftotext -table` rend « LYANT Leo », pdfplumber « LY ANT Leo » : c'est le MÊME
+    //    locataire. La frontière compare donc les clés de nom. Elle n'excuse aucun écart de
+    //    lettres — seulement d'espacement, et seulement parce qu'il est démontré.
+    $comparer(
+        'locataires (clé de nom)', 'phase 3',
+        'SELECT DISTINCT UPPER(REGEXP_REPLACE(locataire, "[^A-Za-z0-9]", ""))
+           FROM crgi_occupation WHERE import_id = ? AND locataire IS NOT NULL',
+        'phase 4',
+        'SELECT DISTINCT UPPER(REGEXP_REPLACE(locataire, "[^A-Za-z0-9]", ""))
+           FROM crgi_mouvement WHERE import_id = ? AND locataire IS NOT NULL',
+        'inclusion',
+        'La phase 4 REFUSE de nommer un occupant quand le bloc en porte plusieurs : le '
+        . 'document ne dit pas à qui revient chaque montant. Elle en nomme donc moins que la '
+        . 'phase 3 — mais jamais un que la phase 3 ignore.'
+    );
+    return $sorties;
 }
