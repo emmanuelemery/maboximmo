@@ -58,7 +58,11 @@ def lire_pages(chemin):
 #    neuf références se retrouvaient tronquées à deux caractères, et deux lots différents
 #    devenaient le MÊME lot. La chronologie y voyait alors une succession de locataires là où
 #    il n'y avait que deux appartements voisins.
-RE_LOT = re.compile(r'-\s*Lot\s+([0-9A-Za-z][0-9A-Za-z \-]{2,28}?)-?\s*[–-]\s*Mandat')
+# ⚠️ ET UNE RÉFÉRENCE D'UN SEUL CARACTÈRE EST UNE RÉFÉRENCE. Exiger trois caractères a fait
+#    disparaître « - Lot 1 - Mandat N/A - » : quatre en-têtes du dépôt, tous sur le compte
+#    1105404745, dont le bloc ne s'ouvrait donc JAMAIS. La phase prétendait inventorier les
+#    lots ; elle en ignorait quatre. Un seuil de longueur n'est pas un critère métier.
+RE_LOT = re.compile(r'-\s*Lot\s+([0-9A-Za-z][0-9A-Za-z \-]{0,28}?)-?\s*[–-]\s*Mandat')
 RE_LOC = re.compile(r'Locataire\s*:\s*(.+?)\s*,\s*Bail\s+du\s+(\d{2}/\d{2}/\d{4})', re.I)
 RE_LOC_SANS_DATE = re.compile(r'Locataire\s*:\s*(.+?)\s*,\s*Bail', re.I)
 # ⚠️ UN EN-TÊTE DE LOT MARQUÉ « Suite » N'OUVRE PAS UNE OBSERVATION. Quand le bloc d'un lot

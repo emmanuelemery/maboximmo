@@ -78,6 +78,29 @@ $etat2 = $courant ? crgi_phase_validee($pdo, $importId, 2) : ['validee' => false
 $etat3 = $courant ? crgi_phase_validee($pdo, $importId, 3) : ['validee' => false, 'perimee' => false];
 $bilan3 = ($courant && in_array((string)($phases[3]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
     ? crgi_bilan_phase3($pdo, $importId) : null;
+$etat4 = $courant ? crgi_phase_validee($pdo, $importId, 4) : ['validee' => false, 'perimee' => false];
+$bilan4 = ($courant && in_array((string)($phases[4]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
+    ? crgi_bilan_phase4($pdo, $importId) : null;
+// ⚠️ UN MONTANT DOIT TOUJOURS POUVOIR S'OUVRIR JUSQU'À SES LIGNES ET LEURS PAGES. Sans ce
+//    détail, l'écran affirmerait des totaux qu'on ne pourrait pas contredire.
+$detailMvt = [];
+if ($bilan4 && isset($_GET['mvt'])) {
+    $ou = ['import_id = ?', 'categorie = ?'];
+    $args = [$importId, (string)$_GET['mvt']];
+    if (isset($_GET['compte'])) {
+        $ou[] = 'crg_id IN (SELECT id FROM crgi_crg WHERE import_id = ? AND compte = ?)';
+        $args[] = $importId;
+        $args[] = (string)$_GET['compte'];
+    }
+    if (isset($_GET['arrete'])) {
+        $ou[] = 'date_arrete = ?';
+        $args[] = (string)$_GET['arrete'];
+    }
+    $st = $pdo->prepare('SELECT * FROM crgi_mouvement WHERE ' . implode(' AND ', $ou)
+                       . ' AND additionnable = 1 ORDER BY page, id LIMIT 400');
+    $st->execute($args);
+    $detailMvt = $st->fetchAll(PDO::FETCH_ASSOC);
+}
 $bilan2 = ($courant && in_array((string)($phases[2]['statut'] ?? ''), ['A VALIDER', 'VALIDEE'], true))
     ? crgi_bilan_phase2($pdo, $importId) : null;
 $modifies = $aArbitrer = [];
@@ -748,6 +771,274 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     <?php endif; ?>
   <?php endif; ?>
 
+
+  <?php if ($etat3['validee'] && !$etat3['perimee']): ?>
+    <div class="crgi-carte">
+      <h2>Phase 4 — Finances</h2>
+      <p class="crgi-sous">
+        Chaque euro avec sa <b>nature</b>, sa <b>maille</b> et sa <b>page</b>. Dans ce document
+        la <b>colonne EST la nature</b> : le même « 474,49 » est un loyer appelé sous
+        <code>Loyers</code>, un encaissement sous <code>Crédit</code>, un impayé sous
+        <code>Reste dû</code>. La lecture est donc géométrique — jamais au blanc, jamais au
+        libellé seul.
+      </p>
+      <div class="crgi-actions" style="border:0;padding-top:0;margin-top:0">
+        <button class="crgi-b or" id="btnPhase4">
+          <?= $bilan4 ? 'Relancer la lecture financière' : 'Lancer la lecture (phase 4)' ?></button>
+        <span class="crgi-aide" id="etatPhase4"></span>
+      </div>
+    </div>
+
+    <?php if ($bilan4):
+      $f4 = [];
+      foreach ($bilan4['categories'] as $c) { $f4[(string)$c['categorie']] = $c; }
+      $ns4 = [];
+      foreach ($bilan4['non_sommes'] as $c) { $ns4[(string)$c['categorie']] = $c; }
+      $eur = fn($v) => number_format((float)$v, 2, ',', ' ') . ' €';
+      $mailles = [];
+      foreach ($bilan4['par_maille'] as $r) {
+          $mailles[(string)$r['categorie']][(string)$r['maille']] = (int)$r['n'];
+      }
+      ?>
+      <div class="crgi-carte">
+        <h2>Bilan de la phase 4</h2>
+        <p class="crgi-sous">
+          <?= number_format((int)$bilan4['mouvements'], 0, ',', ' ') ?> mouvements élémentaires
+          sur <b><?= (int)$bilan4['crg'] ?> CRG</b> et
+          <?= (int)$bilan4['pages'] ?> pages. Aucun total n'est stocké : tout se recalcule
+          depuis ces lignes, et chacune renvoie à sa page.
+        </p>
+
+        <div class="crgi-note">
+          <b>ON NE SOMME PAS CE DÉPÔT EN UN SEUL CHIFFRE.</b> <b>60 comptes sur 72</b> y ont des
+          CRG dont les périodes <b>se chevauchent</b> — le loyer d'avril est énoncé dans le
+          relevé d'avril <i>et</i> dans celui d'avril-mai. Un « total du dépôt » compterait donc
+          avril deux fois. Les montants sont présentés <b>par date d'arrêté</b>, jamais cumulés.
+        </div>
+
+        <h2 style="margin-top:18px">Les flux, par date d'arrêté</h2>
+        <div class="crgi-defile"><table>
+          <tr><th>Arrêté</th>
+            <th class="num">Loyers appelés</th><th class="num">Charges appelées</th>
+            <th class="num">Autres appelés</th><th class="num">Encaissements</th>
+            <th class="num">Charges</th><th class="num">Frais / assurances</th>
+            <th class="num">Versements propriétaire</th></tr>
+          <?php foreach ($bilan4['par_arrete'] as $arrete => $v):
+            $c = fn(string $k) => isset($v[$k])
+                ? '<a href="' . h(app_url('/admin/admin_crg_integration.php?import=' . $importId
+                    . '&mvt=' . urlencode($k) . '&arrete=' . urlencode((string)$arrete)))
+                  . '">' . number_format((float)$v[$k]['t'], 2, ',', ' ') . ' €'
+                  . '<div class="crgi-muet" style="font-size:11px">' . (int)$v[$k]['n']
+                  . ' lignes</div></a>'
+                : '<span class="crgi-muet">—</span>'; ?>
+            <tr>
+              <td><b><?= h((string)$arrete) ?></b></td>
+              <td class="num"><?= $c('LOYER APPELE') ?></td>
+              <td class="num"><?= $c('CHARGE APPELEE AU LOCATAIRE') ?></td>
+              <td class="num"><?= $c('AUTRE APPELE AU LOCATAIRE') ?></td>
+              <td class="num"><?= $c('ENCAISSEMENT') ?></td>
+              <td class="num"><?= $c('CHARGE') ?></td>
+              <td class="num"><?= $c('FRAIS ET ASSURANCES') ?></td>
+              <td class="num"><?= $c('VERSEMENT PROPRIETAIRE') ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </table></div>
+        <div class="crgi-note">
+          <b>APPEL ≠ ENCAISSEMENT.</b> Un encaissement peut solder une période <b>antérieure</b> :
+          sur le premier CRG lu, 104,00 € et 474,49 € portent sur décembre et janvier, hors de la
+          période du relevé. L'écart <code>appelé − encaissé</code> n'est donc jamais
+          « l'impayé de la période », et la phase 4 ne le calcule nulle part.
+        </div>
+
+        <h2 style="margin-top:18px">Ce que le dépôt démontre, et à quelle maille</h2>
+        <p class="crgi-sous">
+          <b>Cette table ne porte volontairement aucun montant.</b> Un cumul sur tout le dépôt
+          compterait deux fois les périodes qui se chevauchent : les montants ne se lisent que
+          dans le tableau <b>par date d’arrêté</b> ci-dessus.
+        </p>
+        <div class="crgi-defile"><table>
+          <tr><th>Catégorie</th><th class="num">Lignes</th>
+              <th>Maille de la preuve</th><th>Ce que c'est</th></tr>
+          <?php
+          $lignes4 = [
+            ['LOYER APPELE', 'Colonne <code>Loyers</code> du tableau d’appels du lot.'],
+            ['CHARGE APPELEE AU LOCATAIRE',
+             'Colonne <code>Charges</code> — provision appelée <b>au locataire</b>. '
+             . '<b>DÉPENSE ≠ APPEL LOCATAIRE</b> : ce n’est pas une dépense du propriétaire.'],
+            ['AUTRE APPELE AU LOCATAIRE', 'Colonne <code>Autres</code> du tableau d’appels.'],
+            ['ENCAISSEMENT',
+             'Colonne <code>Crédit</code> — somme reçue, qui peut solder de l’antérieur.'],
+            ['CHARGE',
+             'Sections <i>Factures dues</i>, <i>Charges de syndic</i>, '
+             . '<i>Charges Propriétaire</i>.'],
+            ['FRAIS ET ASSURANCES',
+             'Sections <i>Honoraires de Gestion</i>, <i>GLI</i>, <i>GU Assurance</i>.'],
+            ['VERSEMENT PROPRIETAIRE',
+             'Ligne <code>Virement : … €</code>, écrite en clair hors de toute colonne.'],
+          ];
+          foreach ($lignes4 as [$cat, $quoi]):
+            $c = $f4[$cat] ?? null; ?>
+            <tr>
+              <td><b><?= h($cat) ?></b></td>
+              <td class="num"><?= $c ? number_format((int)$c['n'], 0, ',', ' ') : '0' ?></td>
+              <td><?php foreach ($mailles[$cat] ?? [] as $m => $n): ?>
+                    <span class="crgi-cert CERTAIN" style="font-size:11px"><?= h($m) ?></span>
+                  <?php endforeach; ?></td>
+              <td style="font-size:12px"><?= $quoi ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <tr>
+            <td><b>ACOMPTE OU APPORT PROPRIÉTAIRE</b></td>
+            <td class="num">0</td>
+            <td><span class="crgi-cert INDETERMINABLE" style="font-size:11px">ABSENT</span></td>
+            <td style="font-size:12px">
+              <b>Cette catégorie n’existe pas dans ce dépôt, et c’est démontré</b> — pas supposé.
+              Sur les 646 pages lues, aucune section d’acompte ni d’apport. Les seuls voisins
+              sont 8 <i>« Reversement dépôt de garantie »</i> et 8 <i>« Avance de Trésorerie —
+              Appel N° »</i>, qui sont des <b>appels de copropriété</b>, donc des charges.
+            </td>
+          </tr>
+        </table></div>
+
+        <h2 style="margin-top:18px">Les stocks, et ce qu'on ne somme jamais</h2>
+        <div class="crgi-bilan">
+          <div class="ok">
+            <div class="v"><?= $eur($bilan4['encours']) ?></div>
+            <div class="l">encours — <b>dernière situation connue</b> de chaque compte</div>
+          </div>
+          <div class="ok">
+            <div class="v"><?= number_format((int)($ns4['ENCOURS']['n'] ?? 0), 0, ',', ' ') ?></div>
+            <div class="l">photographies d'encours lues</div>
+          </div>
+          <div class="ok">
+            <div class="v"><?= number_format((int)($ns4['SOLDE']['n'] ?? 0), 0, ',', ' ') ?></div>
+            <div class="l">soldes (stocks)</div>
+          </div>
+          <div class="ok">
+            <div class="v"><?= number_format((int)($ns4['AGREGAT (NON ADDITIONNABLE)']['n'] ?? 0), 0, ',', ' ') ?></div>
+            <div class="l">agrégats du <i>Récapitulatif</i></div>
+          </div>
+          <div class="ok">
+            <div class="v"><?= number_format((int)$bilan4['reimpressions'], 0, ',', ' ') ?></div>
+            <div class="l">lignes de pages réimprimées</div>
+          </div>
+          <div class="<?= (int)$bilan4['indetermines'] === 0 ? 'ok' : 'mal' ?>">
+            <div class="v"><?= (int)$bilan4['indetermines'] ?></div>
+            <div class="l">INDÉTERMINABLES</div>
+          </div>
+        </div>
+        <div class="crgi-note">
+          <b>STOCK ≠ FLUX.</b> L'encours affiché est la <b>dernière photographie</b> de chaque
+          compte, jamais la somme des photographies successives.
+          <b>AGRÉGAT ≠ MOUVEMENT ÉLÉMENTAIRE</b> : le <i>Récapitulatif des immeubles</i> rejoue
+          par immeuble ce que les blocs ont déjà dit — il est lu et conservé pour servir de
+          contrôle, jamais additionné. Les <b>118 lignes réimprimées</b> viennent de 3 CRG du
+          compte <code>1105403390</code> qui contiennent leurs propres pages <b>deux fois,
+          caractère pour caractère</b> : conservées, tracées, jamais comptées. Cette
+          démonstration porte sur le <b>texte de la page</b>, jamais sur les montants.
+        </div>
+
+        <h2 style="margin-top:18px">Agence → période → compte</h2>
+        <p class="crgi-sous">
+          Chaque montant renvoie à ses lignes sources et à leurs pages PDF.
+        </p>
+        <?php
+        $arbre = [];
+        foreach ($bilan4['arbre'] as $r) {
+            $arbre[(string)$r['agence']][(string)$r['periode_cle']][(string)$r['compte']][] = $r;
+        }
+        foreach ($arbre as $agence => $periodes): ?>
+          <details class="crgi-repli" open>
+            <summary><b><?= h($agence) ?></b> — <?= count($periodes) ?> périodes</summary>
+            <?php foreach ($periodes as $periode => $comptes): ?>
+              <details class="crgi-repli" style="margin-left:14px">
+                <summary><?= h($periode) ?> — <?= count($comptes) ?> comptes</summary>
+                <div class="crgi-defile"><table>
+                  <tr><th>Compte</th><th>Propriétaire</th>
+                    <th class="num">Appelé</th><th class="num">Encaissé</th>
+                    <th class="num">Charges</th><th class="num">Frais</th>
+                    <th class="num">Versé</th></tr>
+                  <?php foreach ($comptes as $compte => $lignes):
+                    $t = [];
+                    foreach ($lignes as $l) { $t[(string)$l['categorie']] = $l; }
+                    $prop = (string)($lignes[0]['proprietaire'] ?? '');
+                    $cell = function (string $k) use ($t, $importId, $compte) {
+                        if (!isset($t[$k])) { return '<span class="crgi-muet">—</span>'; }
+                        return '<a href="' . h(app_url('/admin/admin_crg_integration.php?import='
+                            . $importId . '&mvt=' . urlencode($k) . '&compte='
+                            . urlencode((string)$compte))) . '">'
+                          . number_format((float)$t[$k]['total'], 2, ',', ' ') . ' €'
+                          . '<div class="crgi-muet" style="font-size:11px">'
+                          . (int)$t[$k]['n'] . ' lignes · p.' . (int)$t[$k]['page']
+                          . '</div></a>';
+                    }; ?>
+                    <tr>
+                      <td><code><?= h((string)$compte) ?></code></td>
+                      <td style="font-size:12px"><?= h(mb_substr($prop, 0, 34)) ?></td>
+                      <td class="num"><?= $cell('LOYER APPELE') ?></td>
+                      <td class="num"><?= $cell('ENCAISSEMENT') ?></td>
+                      <td class="num"><?= $cell('CHARGE') ?></td>
+                      <td class="num"><?= $cell('FRAIS ET ASSURANCES') ?></td>
+                      <td class="num"><?= $cell('VERSEMENT PROPRIETAIRE') ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                </table></div>
+              </details>
+            <?php endforeach; ?>
+          </details>
+        <?php endforeach; ?>
+      </div>
+
+      <?php if ($detailMvt): ?>
+        <div class="crgi-carte">
+          <h2>Les lignes derrière ce montant</h2>
+          <p class="crgi-sous">
+            <?= h((string)($_GET['mvt'] ?? '')) ?>
+            <?= isset($_GET['compte']) ? ' · compte ' . h((string)$_GET['compte']) : '' ?>
+            <?= isset($_GET['arrete']) ? ' · arrêté ' . h((string)$_GET['arrete']) : '' ?>
+            — <?= count($detailMvt) ?> lignes, chacune avec sa page et la colonne qui la démontre.
+          </p>
+          <div class="crgi-defile"><table>
+            <tr><th>Page</th><th>Date</th><th>Libellé</th><th>Lot</th><th>Locataire</th>
+                <th>Colonne</th><th class="num">Montant</th></tr>
+            <?php foreach ($detailMvt as $m): ?>
+              <tr>
+                <td><b><?= (int)$m['page'] ?></b></td>
+                <td style="font-size:12px"><?= h((string)($m['date_piece'] ?? '—')) ?></td>
+                <td style="font-size:12px"><?= h(mb_substr((string)$m['libelle'], 0, 62)) ?></td>
+                <td style="font-size:12px"><?= h((string)($m['lot_reference'] ?? '—')) ?></td>
+                <td style="font-size:12px"><?= h(mb_substr((string)($m['locataire'] ?? '—'), 0, 24)) ?></td>
+                <td><span class="crgi-cert CERTAIN" style="font-size:11px"><?= h((string)$m['colonne']) ?></span></td>
+                <td class="num"><b><?= number_format((float)$m['montant'], 2, ',', ' ') ?> €</b></td>
+              </tr>
+            <?php endforeach; ?>
+          </table></div>
+          <p class="crgi-sous" style="margin-top:10px">
+            <a href="<?= h(app_url('/admin/admin_crg_integration.php?import=' . $importId)) ?>">
+              ← revenir au bilan</a>
+          </p>
+        </div>
+      <?php endif; ?>
+
+      <div class="crgi-carte">
+        <h2>Validation de la phase 4</h2>
+        <?php if ($etat4['validee'] && !$etat4['perimee']): ?>
+          <p class="crgi-sous"><?= crgi_pastille('VALIDEE') ?>
+            le <?= h((string)($etat4['ligne']['valide_le'] ?? '')) ?>.
+            La phase 5 n'est pas encore livrée.</p>
+        <?php else: ?>
+          <p class="crgi-sous">
+            La phase 4 est une <b>lecture</b> : rien n'a été créé, modifié ni supprimé dans MBI.
+            Les <?= number_format((int)$bilan4['mouvements'], 0, ',', ' ') ?> mouvements
+            correspondent <b>exactement</b> aux montants imprimés sur les pages lues — ni perte,
+            ni doublon.
+          </p>
+          <button class="crgi-b or" id="btnValider4">Valider la phase 4</button>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
+  <?php endif; ?>
+
     <div class="crgi-carte">
       <h2>Validation de la phase 0</h2>
       <?php if ($etat0['validee'] && !$etat0['perimee']): ?>
@@ -986,6 +1277,35 @@ document.getElementById('btnPhase3')?.addEventListener('click', async (e) => {
     alert(err.message);
     e.target.disabled = false;
   }
+});
+
+document.getElementById('btnPhase4')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  document.getElementById('etatPhase4').textContent =
+    'lecture géométrique des pages — environ une minute…';
+  try {
+    const d = new FormData();
+    d.append('action', 'phase4');
+    d.append('import_id', CRGI.importId);
+    await envoyer(d);
+    location.reload();
+  } catch (err) {
+    document.getElementById('etatPhase4').textContent = '';
+    alert(err.message);
+    e.target.disabled = false;
+  }
+});
+
+document.getElementById('btnValider4')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    const d = new FormData();
+    d.append('action', 'valider');
+    d.append('import_id', CRGI.importId);
+    d.append('phase', '4');
+    await envoyer(d);
+    location.reload();
+  } catch (err) { alert(err.message); e.target.disabled = false; }
 });
 
 document.getElementById('btnValider3')?.addEventListener('click', async (e) => {

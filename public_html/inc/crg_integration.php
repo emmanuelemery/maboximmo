@@ -324,6 +324,7 @@ function crgi_phase_validee(PDO $pdo, int $importId, int $phase): array
         1 => crgi_empreinte_phase1($pdo, $importId),
         2 => crgi_empreinte_phase2($pdo, $importId),
         3 => crgi_empreinte_phase3($pdo, $importId),
+        4 => crgi_empreinte_phase4($pdo, $importId),
         default => (string)$ligne['resultat_sha'],
     };
     return [
@@ -380,6 +381,7 @@ function crgi_valider_phase(PDO $pdo, int $importId, int $phase, int $userId): v
         1 => crgi_empreinte_phase1($pdo, $importId),
         2 => crgi_empreinte_phase2($pdo, $importId),
         3 => crgi_empreinte_phase3($pdo, $importId),
+        4 => crgi_empreinte_phase4($pdo, $importId),
         default => '',
     };
     $pdo->prepare(
@@ -1142,24 +1144,55 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
  *    même titre que les rapprochements : l'omettre laisserait un A/B/C/D changer sans que la
  *    validation ne s'en aperçoive.
  */
+/**
+ * L'empreinte du résultat de la phase 2.
+ *
+ * ⚠️ UNE EMPREINTE DE CERTIFICATION SCELLE LE CONTENU MÉTIER, JAMAIS L'IDENTITÉ TECHNIQUE DE
+ *    SES LIGNES DE STAGING. Elle portait l'`id` d'`AUTO_INCREMENT` ; or la phase 2 supprime et
+ *    réinsère `crgi_immeuble` et `crgi_lot` à chaque analyse. Une relecture STRICTEMENT
+ *    IDENTIQUE décalait donc les identifiants et faisait varier l'empreinte : la phase se
+ *    serait déclarée périmée sans que le moindre fait métier ait changé. Un sceau qui crie au
+ *    loup ne vaut pas mieux qu'un sceau muet.
+ *
+ * ⚠️ ON SCELLE DONC CE QUE LE DOCUMENT ET LA CONFRONTATION DISENT — la référence de l'objet,
+ *    son verdict, l'objet MBI auquel il est rattaché — et on trie les lignes, pour que l'ordre
+ *    de lecture n'ait lui non plus aucune influence.
+ */
 function crgi_empreinte_phase2(PDO $pdo, int $importId): string
 {
     $l = [];
-    foreach (['crgi_immeuble' => 'mbi_immeuble_id', 'crgi_lot' => 'mbi_bien_id'] as $table => $col) {
-        $st = $pdo->prepare("SELECT id, statut, COALESCE(`{$col}`, 0)
-                               FROM `{$table}` WHERE import_id = ? ORDER BY id");
-        $st->execute([$importId]);
-        foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
-            $l[] = $table . '|' . implode('|', $r);
-        }
+    $st = $pdo->prepare(
+        'SELECT COALESCE(i.code, ""), COALESCE(i.nom, ""), COALESCE(i.code_postal, ""),
+                COALESCE(i.ville, ""), i.page, i.statut, COALESCE(i.mbi_immeuble_id, 0),
+                COALESCE(i.avant_apres, ""), c.compte
+           FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id WHERE i.import_id = ?'
+    );
+    $st->execute([$importId]);
+    foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
+        $l[] = 'immeuble|' . implode('|', $r);
     }
-    $st = $pdo->prepare('SELECT id, COALESCE(compte_qualification, ""),
-                                COALESCE(mbi_proprietaire_id, 0)
-                           FROM crgi_crg WHERE import_id = ? ORDER BY id');
+    $st = $pdo->prepare(
+        'SELECT o.reference, COALESCE(o.code_immeuble, ""), COALESCE(o.numero, ""),
+                COALESCE(o.libelle, ""), COALESCE(o.locataire, ""), o.page, o.statut,
+                COALESCE(o.mbi_bien_id, 0), COALESCE(o.avant_apres, ""), c.compte
+           FROM crgi_lot o JOIN crgi_crg c ON c.id = o.crg_id WHERE o.import_id = ?'
+    );
+    $st->execute([$importId]);
+    foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
+        $l[] = 'lot|' . implode('|', $r);
+    }
+    // Le compte est ici son propre identifiant métier : il ne doit rien à l'AUTO_INCREMENT.
+    $st = $pdo->prepare(
+        'SELECT compte, COALESCE(periode_cle, ""), COALESCE(date_arrete, ""),
+                COALESCE(compte_qualification, ""), COALESCE(compte_qualif_motif, ""),
+                COALESCE(mbi_proprietaire_id, 0), page_debut
+           FROM crgi_crg WHERE import_id = ?'
+    );
     $st->execute([$importId]);
     foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
         $l[] = 'compte|' . implode('|', $r);
     }
+    sort($l, SORT_STRING);
     return hash('sha256', implode("\n", $l));
 }
 
@@ -1537,19 +1570,26 @@ function crgi_bilan_phase3(PDO $pdo, int $importId): array
  */
 function crgi_empreinte_phase3(PDO $pdo, int $importId): string
 {
+    // ⚠️ L'EMPREINTE NE DOIT RIEN DEVOIR À L'`AUTO_INCREMENT`. Elle portait `o.id`, or la
+    //    phase supprime et réinsère ses observations : une relecture SANS AUCUN CHANGEMENT
+    //    décalait les identifiants et faisait varier l'empreinte — la phase se serait déclarée
+    //    périmée alors que son contenu était rigoureusement identique. Un sceau qui crie au
+    //    loup ne vaut pas mieux qu'un sceau muet. On scelle le CONTENU, et on le trie.
     $st = $pdo->prepare(
-        'SELECT o.id, c.compte, o.lot_reference, COALESCE(o.periode_cle,""),
+        'SELECT c.compte, o.lot_reference, COALESCE(o.periode_cle,""),
                 COALESCE(o.date_arrete,""), COALESCE(o.locataire,""), COALESCE(o.bail_du,""),
                 COALESCE(o.statut,""), COALESCE(o.solde,""), o.solde_source,
-                COALESCE(o.statut_motif,""), COALESCE(o.precedent,"")
+                COALESCE(o.statut_motif,""), COALESCE(o.precedent,""), o.page
            FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
-          WHERE o.import_id = ? ORDER BY o.id'
+          WHERE o.import_id = ?'
     );
     $st->execute([$importId]);
     $l = [];
     foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
         $l[] = implode('|', $r);
     }
+    // L'ordre de lecture ne doit pas peser : on scelle le CONTENU, trié.
+    sort($l, SORT_STRING);
     return hash('sha256', implode("\n", $l));
 }
 
@@ -1620,4 +1660,241 @@ function crgi_bilan_phase0(PDO $pdo, int $importId): array
         'bloquants'        => (int)($agenceSrc['INDETERMINABLE'] ?? 0)
                             + (int)($periodeSrc['INDETERMINABLE'] ?? 0),
     ];
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+ *  PHASE 4 — FINANCES
+ *  ═══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ CHAQUE EURO PORTE SA NATURE, SA MAILLE ET SA PROVENANCE. La phase 4 ne produit aucun
+ *    total qu'on ne puisse rouvrir jusqu'à sa page : `crgi_mouvement` ne stocke que des
+ *    mouvements élémentaires, et tout agrégat se recalcule à partir d'eux.
+ *
+ * ⚠️ `APPEL ≠ ENCAISSEMENT ≠ AFFECTATION ≠ SOLDE.` Un encaissement peut solder une période
+ *    ANTÉRIEURE — sur le premier CRG lu, 104,00 € et 474,49 € encaissés portent sur décembre
+ *    et janvier, hors de la période du rapport. L'écart `appelé − encaissé` n'est donc JAMAIS
+ *    « l'impayé de la période », et la phase 4 ne le calcule nulle part.
+ *
+ * ⚠️ `STOCK ≠ FLUX.` Encours et soldes sont des photographies : `flux = 0`, jamais cumulées.
+ *
+ * ⚠️ `AGRÉGAT ≠ MOUVEMENT ÉLÉMENTAIRE.` Le « Récapitulatif des immeubles » rejoue ce que les
+ *    blocs ont déjà dit. Conservé parce qu'il sert de contrôle, `additionnable = 0`.
+ *
+ * ⚠️ AUCUNE ÉCRITURE MÉTIER.
+ */
+function crgi_phase4(PDO $pdo, int $importId): array
+{
+    $etat3 = crgi_phase_validee($pdo, $importId, 3);
+    if (!$etat3['validee'] || $etat3['perimee']) {
+        throw new RuntimeException(
+            'PHASE 3 NON VALIDÉE — la phase 4 ne s’ouvre pas. Rattacher de l’argent à des '
+            . 'lots et à des locataires non scellés ferait reposer les montants sur une '
+            . 'occupation mouvante.'
+        );
+    }
+    crgi_marquer_phase($pdo, $importId, 4, 'EN ANALYSE', null);
+    $pdo->prepare('DELETE FROM crgi_mouvement WHERE import_id = ?')->execute([$importId]);
+    crgi_lire_finances($pdo, $importId);
+    crgi_marquer_phase($pdo, $importId, 4, 'A VALIDER', null);
+    return crgi_bilan_phase4($pdo, $importId)['categories'];
+}
+
+/**
+ * Lit l'argent de chaque CRG — une seule lecture du PDF par pièce (`INTEG-PERF-01`).
+ *
+ * ⚠️ LA LECTURE EST GÉOMÉTRIQUE, PARCE QUE LA COLONNE EST LA NATURE. `-layout` fait dériver
+ *    les montants d'une ligne à l'autre et `-table` ne dit plus de quelle colonne ils
+ *    viennent. La phase 4 lit donc les coordonnées — 0,07 s la page — et affecte chaque
+ *    montant par son BORD DROIT. Chaque phase lit dans le mode qui démontre SA donnée.
+ */
+function crgi_lire_finances(PDO $pdo, int $importId): void
+{
+    $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $script = realpath(__DIR__ . '/../scripts/crg_integration_phase4.py');
+    if (!$script) {
+        throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_phase4.py');
+    }
+    $st = $pdo->prepare(
+        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, p.chemin
+           FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
+          WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
+    );
+    $st->execute([$importId]);
+    $meta = $parPiece = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) {
+        $meta[(int)$c['id']] = $c;
+        $parPiece[(string)$c['chemin']][] = ['id' => (int)$c['id'],
+                                             'debut' => (int)$c['page_debut'],
+                                             'fin' => (int)$c['page_fin']];
+    }
+    $ins = $pdo->prepare(
+        'INSERT INTO crgi_mouvement
+            (import_id, crg_id, page, section, immeuble, lot_reference, locataire, date_piece,
+             periode_cle, date_arrete, libelle, colonne, montant, categorie, maille, flux,
+             additionnable, reimpression, provenance, motif, x1)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    );
+    // Les catégories qui sont des PHOTOGRAPHIES, et celles qu'on ne somme jamais.
+    $stocks = ['ENCOURS' => 1, 'SOLDE' => 1];
+    $jamaisSommees = ['AGREGAT (NON ADDITIONNABLE)' => 1, 'DETAIL (NON ADDITIONNABLE)' => 1,
+                      'INDETERMINABLE' => 1];
+    foreach ($parPiece as $chemin => $plages) {
+        $fichier = tempnam(sys_get_temp_dir(), 'crgi4_');
+        file_put_contents($fichier, json_encode($plages));
+        $sortie = trim((string)@shell_exec(
+            escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
+            . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier) . ' 2>&1'
+        ));
+        @unlink($fichier);
+        $r = json_decode($sortie, true);
+        if (!is_array($r)) {
+            // ⚠️ FAIL CLOSED : un moteur muet n'est pas un dépôt sans argent.
+            throw new RuntimeException('MOTEUR FINANCES MUET OU ILLISIBLE : '
+                                     . mb_substr($sortie, 0, 300));
+        }
+        foreach ($r as $bloc) {
+            $c = $meta[(int)$bloc['id']] ?? null;
+            if (!$c) {
+                continue;
+            }
+            foreach ($bloc['mouvements'] ?? [] as $m) {
+                $cat = (string)$m['categorie'];
+                $rei = !empty($m['reimpression']);
+                $ins->execute([
+                    $importId, (int)$c['id'], (int)$m['page'], $m['section'], $m['immeuble'],
+                    $m['lot'], $m['locataire'],
+                    $m['date_piece'] ? crgi_jour((string)$m['date_piece']) : null,
+                    $c['periode_cle'], $c['date_arrete'],
+                    (string)$m['libelle'], (string)$m['colonne'], (float)$m['montant'], $cat,
+                    (string)$m['maille'],
+                    isset($stocks[$cat]) ? 0 : 1,
+                    ($rei || isset($jamaisSommees[$cat])) ? 0 : 1,
+                    $rei ? 1 : 0,
+                    // ⚠️ LA PROVENANCE DIT AUSSI CE QUI NE COMPTE PAS. Une ligne réimprimée
+                    //    reste LUE sur le document ; c'est son statut qui la met hors des
+                    //    sommes. L'écrire explicitement évite qu'on la reprenne un jour pour
+                    //    une ligne ordinaire.
+                    $rei ? 'REIMPRESSION' : 'LUE',
+                    mb_substr((string)$m['motif'], 0, 400), (float)$m['x1'],
+                ]);
+            }
+        }
+    }
+}
+
+/** « 31/05/2026 » -> « 2026-05-31 ». */
+function crgi_jour(string $fr): ?string
+{
+    return preg_match('~^(\d{2})/(\d{2})/(\d{4})$~', trim($fr), $m)
+        ? $m[3] . '-' . $m[2] . '-' . $m[1] : null;
+}
+
+/**
+ * Le bilan de la phase 4 : agence → période → compte, avec les catégories financières.
+ *
+ * ⚠️ LES STOCKS NE SONT JAMAIS SOMMÉS AVEC LES FLUX, NI ENTRE EUX. Pour l'encours, on ne rend
+ *    que la DERNIÈRE SITUATION CONNUE de chaque compte — la photographie la plus récente —
+ *    jamais l'addition des photographies successives.
+ */
+function crgi_bilan_phase4(PDO $pdo, int $importId): array
+{
+    $q = function (string $sql, array $a = []) use ($pdo, $importId) {
+        $st = $pdo->prepare($sql);
+        $st->execute(array_merge([$importId], $a));
+        return $st;
+    };
+    // Les FLUX : additionnables, et seulement eux.
+    $categories = $q(
+        'SELECT categorie, COUNT(*) n, SUM(montant) total
+           FROM crgi_mouvement WHERE import_id = ? AND additionnable = 1 AND flux = 1
+          GROUP BY categorie ORDER BY categorie'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    // Les STOCKS : la dernière photographie de chaque compte, jamais leur somme.
+    $encours = $q(
+        'SELECT COALESCE(SUM(m.montant),0) FROM crgi_mouvement m
+           JOIN crgi_crg c ON c.id = m.crg_id
+           JOIN (SELECT c2.compte cpt, MAX(c2.date_arrete) fin FROM crgi_crg c2
+                  WHERE c2.import_id = ? GROUP BY c2.compte) d
+             ON d.cpt = c.compte AND d.fin = c.date_arrete
+          WHERE m.import_id = ? AND m.categorie = "ENCOURS" AND m.reimpression = 0
+            AND m.colonne = "reste_du"',
+        [$importId]
+    )->fetchColumn();
+    $nonSommes = $q(
+        'SELECT categorie, COUNT(*) n, SUM(montant) total FROM crgi_mouvement
+          WHERE import_id = ? AND (additionnable = 0 OR flux = 0)
+          GROUP BY categorie ORDER BY categorie'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $parMaille = $q(
+        'SELECT categorie, maille, COUNT(*) n FROM crgi_mouvement
+          WHERE import_id = ? AND additionnable = 1 GROUP BY categorie, maille'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    // ⚠️ PAR DATE D'ARRÊTÉ, ET JAMAIS EN UN SEUL TOTAL. Sur ce dépôt, 60 comptes sur 72
+    //    portent des CRG dont les périodes SE CHEVAUCHENT — le loyer d'avril est énoncé dans le
+    //    relevé d'avril ET dans celui d'avril-mai. Un « total du dépôt » compterait avril deux
+    //    fois : le bilan ne le produit nulle part.
+    $parArrete = [];
+    foreach ($q('SELECT date_arrete, categorie, COUNT(*) n, SUM(montant) t
+                   FROM crgi_mouvement WHERE import_id = ? AND additionnable = 1 AND flux = 1
+                  GROUP BY date_arrete, categorie ORDER BY date_arrete')->fetchAll(PDO::FETCH_ASSOC)
+             as $r) {
+        $parArrete[(string)$r['date_arrete']][(string)$r['categorie']] = $r;
+    }
+    $arbre = $q(
+        'SELECT c.agence, c.periode_cle, c.compte, c.proprietaire, m.categorie,
+                COUNT(*) n, SUM(m.montant) total, MIN(m.page) page
+           FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND m.additionnable = 1
+          GROUP BY c.agence, c.periode_cle, c.compte, c.proprietaire, m.categorie
+          ORDER BY c.agence, c.periode_cle, c.compte, m.categorie'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    return [
+        'categories'    => $categories,
+        'encours'       => (float)$encours,
+        'non_sommes'    => $nonSommes,
+        'par_maille'    => $parMaille,
+        'arbre'         => $arbre,
+        'par_arrete'    => $parArrete,
+        'mouvements'    => (int)$q('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?')
+            ->fetchColumn(),
+        'crg'           => (int)$q('SELECT COUNT(DISTINCT crg_id) FROM crgi_mouvement
+                                     WHERE import_id = ?')->fetchColumn(),
+        'pages'         => (int)$q('SELECT COUNT(DISTINCT page) FROM crgi_mouvement
+                                     WHERE import_id = ?')->fetchColumn(),
+        'indetermines'  => (int)$q('SELECT COUNT(*) FROM crgi_mouvement
+                                     WHERE import_id = ? AND categorie = "INDETERMINABLE"')
+            ->fetchColumn(),
+        'reimpressions' => (int)$q('SELECT COUNT(*) FROM crgi_mouvement
+                                     WHERE import_id = ? AND reimpression = 1')->fetchColumn(),
+    ];
+}
+
+/**
+ * L'empreinte du résultat de la phase 4.
+ *
+ * ⚠️ ELLE COUVRE LE MONTANT, SA NATURE, SA MAILLE ET SA PAGE. Un euro qui changerait de
+ *    catégorie — un encaissement requalifié en appel — ne changerait aucun total global mais
+ *    changerait tout le sens du résultat : le sceau doit le voir.
+ */
+function crgi_empreinte_phase4(PDO $pdo, int $importId): string
+{
+    // ⚠️ SANS `id`, POUR LA MÊME RAISON QU'EN PHASE 3 : la phase 4 réinsère ses mouvements à
+    //    chaque lecture, et une empreinte qui dépend de l'`AUTO_INCREMENT` périmerait la phase
+    //    sur une relecture pourtant identique.
+    $st = $pdo->prepare(
+        'SELECT c.compte, COALESCE(m.lot_reference,""), COALESCE(m.locataire,""),
+                COALESCE(m.periode_cle,""), COALESCE(m.date_arrete,""), m.page,
+                COALESCE(m.section,""), m.libelle, m.colonne, m.montant, m.categorie,
+                m.maille, m.flux, m.additionnable, m.reimpression, m.provenance
+           FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ?'
+    );
+    $st->execute([$importId]);
+    $l = [];
+    foreach ($st->fetchAll(PDO::FETCH_NUM) as $r) {
+        $l[] = implode('|', $r);
+    }
+    // L'ordre de lecture ne doit pas peser : on scelle le CONTENU, trié.
+    sort($l, SORT_STRING);
+    return hash('sha256', implode("\n", $l));
 }
