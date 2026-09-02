@@ -10,6 +10,7 @@ Cinq suites, et aucune ne remplace les autres :
     REPLAY / IDEMPOTENCE   relecture identique = même résultat, même empreinte.
     COUVERTURE / COHÉRENCE ATTENDUE = EXAMINÉE + EXCLUE, et les frontières entre phases.
     RAPPROCHEMENT MBI      les règles d'appariement, et surtout ce qu'elles refusent.
+    ÉCRAN ET ARBITRAGE     la page se rend, son JS se charge, et on peut répondre.
     MULTI-CORPUS           une règle d'un éditeur ne mord pas sur un autre.
 
 ⚠️ LE VERT NE SE NÉGOCIE PAS EN ABAISSANT LES EXIGENCES. Si une suite passe au rouge, c'est le
@@ -42,6 +43,9 @@ SUITES = [
     ('COUVERTURE / COHÉRENCE',
      [PHP, '-d', 'max_execution_time=0', os.path.join(RACINE, 'tests_crg', 'crgi_coherence.php')],
      r'COHÉRENCE\s*:\s*(\d+)/(\d+)'),
+    ('ÉCRAN ET ARBITRAGE',
+     [PHP, '-d', 'max_execution_time=0', os.path.join(RACINE, 'tests_crg', 'crgi_ecran.php')],
+     r'ÉCRAN\s*:\s*(\d+)/(\d+)'),
     ('RAPPROCHEMENT MBI',
      [PHP, '-d', 'max_execution_time=0',
       os.path.join(RACINE, 'tests_crg', 'crgi_rapprochement.php')],

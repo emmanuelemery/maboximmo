@@ -155,6 +155,20 @@ try {
             @set_time_limit(0);
             repondre(['ok' => true, 'bilan' => crgi_phase5($pdo, $importId)]);
 
+        case 'arbitrer':
+            // ⚠️ DÉCIDER N'EST PAS INTÉGRER. On enregistre le choix d'Emmanuel dans le
+            //    staging, daté et signé. Aucune donnée métier n'est touchée, et le plan reste
+            //    ce que le DOCUMENT démontre.
+            crgi_arbitrer(
+                $pdo, $importId,
+                (string)($_POST['cible_type'] ?? ''),
+                (int)($_POST['cible_id'] ?? 0),
+                trim((string)($_POST['choix'] ?? '')),
+                trim((string)($_POST['precision'] ?? '')),
+                (int)$user
+            );
+            repondre(['ok' => true]);
+
         case 'valider':
             $phase = (int)($_POST['phase'] ?? -1);
             if (!array_key_exists($phase, CRGI_PHASES)) {

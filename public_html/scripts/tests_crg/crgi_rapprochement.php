@@ -212,6 +212,96 @@ essai(
     }
 );
 
+
+// ── L'ARBITRAGE : ON DOIT POUVOIR RÉPONDRE, ET SEULEMENT CE QUI EST PROPOSÉ ───────────────
+essai(
+    'une décision d’arbitrage s’enregistre, se relit et se retire',
+    'Un arbitrage qu’on ne peut pas enregistrer n’est pas un arbitrage. Et une décision doit '
+    . 'pouvoir se changer : on ne veut pas empiler des avis contradictoires sur le même objet.',
+    function () {
+        global $pdo;
+        $g = crgi_arbitrages($pdo, 5);
+        exiger(!empty($g), 'aucun groupe d’arbitrage — le test ne prouverait rien');
+        $groupe = $g[0];
+        $cible = (int)$groupe['lignes'][0]['cible_id'];
+        $choix = array_key_first($groupe['choix']);
+        crgi_arbitrer($pdo, 5, $groupe['cible'], $cible, $choix, 'précision d’essai', 8);
+        $relu = crgi_arbitrages($pdo, 5)[0];
+        $trouve = null;
+        foreach ($relu['lignes'] as $l) {
+            if ((int)$l['cible_id'] === $cible) {
+                $trouve = $l['decision'];
+            }
+        }
+        exiger($trouve !== null, 'la décision n’est pas relue par l’écran');
+        exiger($trouve['choix'] === $choix, 'le choix relu ne correspond pas');
+        exiger($trouve['precision_h'] === 'précision d’essai', 'la précision n’est pas conservée');
+        exiger((int)$relu['tranches'] >= 1, 'le compteur de décisions ne bouge pas');
+        // retirer sa décision EST une décision
+        crgi_arbitrer($pdo, 5, $groupe['cible'], $cible, '', null, 8);
+        $apres = crgi_arbitrages($pdo, 5)[0];
+        exiger((int)$apres['tranches'] === 0, 'la décision retirée subsiste');
+    }
+);
+
+essai(
+    'REFUS — on n’arbitre pas un objet qui n’est pas en arbitrage',
+    'Une décision ne se pose que sur une question réellement ouverte : sinon elle porterait '
+    . 'sur un objet que le document démontre déjà.',
+    function () {
+        global $pdo;
+        $leve = false;
+        try {
+            crgi_arbitrer($pdo, 5, 'MOUVEMENT', 1, 'Créer le mouvement', null, 8);
+        } catch (Throwable $e) {
+            $leve = str_contains($e->getMessage(), 'PAS EN ARBITRAGE');
+        }
+        exiger($leve, 'aucun refus sur un objet hors arbitrage');
+    }
+);
+
+essai(
+    'REFUS — un choix hors de ceux que la règle propose',
+    'Accepter n’importe quel texte laisserait entrer une décision que l’intégration ne saurait '
+    . 'pas exécuter. La précision libre est là pour ce que les choix fermés ne disent pas.',
+    function () {
+        global $pdo;
+        $g = crgi_arbitrages($pdo, 5)[0];
+        $leve = false;
+        try {
+            crgi_arbitrer($pdo, 5, $g['cible'], (int)$g['lignes'][0]['cible_id'],
+                          'Faire ce que je veux', null, 8);
+        } catch (Throwable $e) {
+            $leve = str_contains($e->getMessage(), 'CHOIX INCONNU');
+        }
+        exiger($leve, 'aucun refus sur un choix inconnu');
+    }
+);
+
+essai(
+    'REFUS — décider n’écrit rien dans les données métier',
+    'Décider n’est pas intégrer : la décision vit en staging, datée et signée, et c’est la '
+    . 'phase d’intégration — non livrée — qui l’exécutera.',
+    function () {
+        global $pdo;
+        $temoins = ['biens' => 1379, 'immeubles' => 1009, 'proprietaires' => 393,
+                    'crg_ecritures' => 26711];
+        $avant = [];
+        foreach ($temoins as $t => $_a) {
+            $avant[$t] = (int)$pdo->query("SELECT COUNT(*) FROM `{$t}`")->fetchColumn();
+        }
+        $g = crgi_arbitrages($pdo, 5)[0];
+        $cible = (int)$g['lignes'][0]['cible_id'];
+        crgi_arbitrer($pdo, 5, $g['cible'], $cible, array_key_first($g['choix']), null, 8);
+        foreach ($temoins as $t => $attendu) {
+            $n = (int)$pdo->query("SELECT COUNT(*) FROM `{$t}`")->fetchColumn();
+            exiger($n === $avant[$t] && $n === $attendu,
+                   "{$t} a bougé après un arbitrage : {$n} au lieu de {$avant[$t]}");
+        }
+        crgi_arbitrer($pdo, 5, $g['cible'], $cible, '', null, 8);
+    }
+);
+
 echo "\nRAPPROCHEMENT : " . $ok . '/' . ($ok + count($ko)) . "\n";
 foreach ($ko as [$titre, $incident, $msg]) {
     echo "\n  ÉCHEC — {$titre}\n    incident défendu : {$incident}\n    {$msg}\n";

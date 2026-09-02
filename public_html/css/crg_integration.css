@@ -119,3 +119,22 @@
    ⚠️ PAS DE TITRE DOUBLÉ : la topbar MBI affiche déjà « Intégration CRG ». Le premier
       élément de la page est donc une carte, jamais un <h1> qui répéterait la topbar. */
 .crgi > .crgi-carte:first-child { margin-top:4px; }
+
+/* ── Les arbitrages : où Emmanuel répond ─────────────────────────────────────────────────
+   ⚠️ ON DEMANDAIT D'ARBITRER SANS DONNER OÙ RÉPONDRE. Le champ doit être visible sur la
+      ligne même, pas dans une modale : c'est en lisant ce que le document imprime qu'on
+      décide, pas après l'avoir quitté des yeux. */
+.crgi-arb select,
+.crgi-arb input {
+  width: 100%;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid #cbd2dc;
+  border-radius: 5px;
+  background: #fff;
+  font-family: inherit;
+}
+.crgi-arb select { margin-bottom: 4px; }
+.crgi-arb select:focus,
+.crgi-arb input:focus { outline: 2px solid #D4A047; outline-offset: -1px; }
+.crgi-arb-etat { font-size: 11px; margin-top: 3px; min-height: 13px; }

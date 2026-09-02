@@ -111,6 +111,10 @@ $mutations = [
      'SELECT id, categorie v FROM crgi_mouvement WHERE import_id = :i
        AND categorie = "LOYER APPELE" ORDER BY id LIMIT 1',
      'UPDATE crgi_mouvement SET categorie = :v WHERE id = :id'],
+    [5, 'crgi_empreinte_phase5', 'un dénombrement du plan',
+     'UPDATE crgi_plan SET nombre = nombre + 1 WHERE id = :id',
+     'SELECT id, nombre v FROM crgi_plan WHERE import_id = :i ORDER BY id LIMIT 1',
+     'UPDATE crgi_plan SET nombre = :v WHERE id = :id'],
     [5, 'crgi_empreinte_phase5', 'une action du plan',
      'UPDATE crgi_plan SET action = "CREER" WHERE id = :id',
      'SELECT id, action v FROM crgi_plan WHERE import_id = :i AND action = "A ARBITRER"

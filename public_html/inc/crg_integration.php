@@ -2808,14 +2808,17 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
 
     // ── PATRIMOINE : plusieurs immeubles MBI portent le même nom ──────────────────────────
     $imm = $q(
-        'SELECT COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal)) cle, i.nom, i.code_postal,
-                i.ville, MIN(i.page) page, LEFT(MIN(i.motif), 220) motif, c.compte
+        'SELECT MIN(i.id) cible_id, COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal)) cle,
+                i.nom, i.code_postal, i.ville, MIN(i.page) page, LEFT(MIN(i.motif), 220) motif,
+                c.compte
            FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
           WHERE i.import_id = ? AND i.statut = "A ARBITRER"
           GROUP BY cle, i.nom, i.code_postal, i.ville, c.compte'
     );
     if ($imm) {
         $groupes[] = [
+            'groupe'   => 'IMMEUBLE-HOMONYME',
+            'cible'    => 'IMMEUBLE',
             'famille'  => 'IMMEUBLES',
             'question' => 'Plusieurs immeubles de MBI portent le même nom et le même code '
                         . 'postal. Lequel le CRG désigne-t-il ?',
@@ -2859,8 +2862,9 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
     ];
     foreach ($familles as [$motifCle, $question, $regle, $choix]) {
         $lignes = $q(
-            'SELECT c.agence, c.compte, o.lot_reference, o.periode_cle, o.date_arrete, o.page,
-                    COALESCE(o.locataire, "— aucun —") locataire, o.solde, o.solde_source
+            'SELECT o.id cible_id, c.agence, c.compte, o.lot_reference, o.periode_cle,
+                    o.date_arrete, o.page, COALESCE(o.locataire, "— aucun —") locataire,
+                    o.solde, o.solde_source
                FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
               WHERE o.import_id = ? AND o.statut = "A ARBITRER"
                 AND o.statut_motif LIKE ' . $pdo->quote('%' . $motifCle . '%') . '
@@ -2868,6 +2872,9 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
         );
         if ($lignes) {
             $groupes[] = [
+                'groupe'   => 'OCCUPATION-' . strtoupper(preg_replace('~[^A-Za-z]~', '',
+                                                                     $motifCle)),
+                'cible'    => 'OCCUPATION',
                 'famille'  => 'OCCUPATIONS',
                 'question' => $question,
                 'regle'    => $regle,
@@ -2900,15 +2907,17 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
     ];
     foreach ($fin as [$verdict, $question, $regle, $choix]) {
         $lignes = $q(
-            'SELECT c.agence, c.compte, m.lot_reference, m.periode_cle, m.date_arrete, m.page,
-                    m.libelle, m.colonne, m.montant, m.categorie, m.mbi_ecriture_id,
-                    LEFT(m.rappro_motif, 220) motif
+            'SELECT m.id cible_id, c.agence, c.compte, m.lot_reference, m.periode_cle,
+                    m.date_arrete, m.page, m.libelle, m.colonne, m.montant, m.categorie,
+                    m.mbi_ecriture_id, LEFT(m.rappro_motif, 220) motif
                FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
               WHERE m.import_id = ? AND m.rapprochement = ' . $pdo->quote($verdict) . '
               ORDER BY c.compte, m.page'
         );
         if ($lignes) {
             $groupes[] = [
+                'groupe'   => 'MOUVEMENT-' . str_replace(' ', '-', $verdict),
+                'cible'    => 'MOUVEMENT',
                 'famille'  => 'MOUVEMENTS FINANCIERS',
                 'question' => $question,
                 'regle'    => $regle,
@@ -2922,12 +2931,15 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
 
     // ── CE QUE LE DOCUMENT N'ATTRIBUE À RIEN ─────────────────────────────────────────────
     $ind = $q(
-        'SELECT c.agence, c.compte, m.page, m.libelle, m.montant, m.x1, m.section
+        'SELECT m.id cible_id, c.agence, c.compte, m.page, m.libelle, m.montant, m.x1,
+                m.section
            FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
           WHERE m.import_id = ? AND m.categorie = "INDETERMINABLE" ORDER BY m.page'
     );
     if ($ind) {
         $groupes[] = [
+            'groupe'   => 'MOUVEMENT-INDETERMINABLE',
+            'cible'    => 'MOUVEMENT',
             'famille'  => 'MOUVEMENTS FINANCIERS',
             'question' => 'Le document imprime un montant qu’il n’attribue à aucune colonne ni '
                         . 'section connue. Quelle est sa nature ?',
@@ -2940,5 +2952,90 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
             'lignes'   => $ind,
         ];
     }
+    // ⚠️ ON RATTACHE LES DÉCISIONS DÉJÀ PRISES. Un écran qui repose la même question à
+    //    quelqu'un qui y a déjà répondu lui fait croire que sa réponse s'est perdue.
+    $st = $pdo->prepare('SELECT cible_type, cible_id, choix, precision_h, decide_le
+                           FROM crgi_arbitrage WHERE import_id = ?');
+    $st->execute([$importId]);
+    $prises = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $d) {
+        $prises[$d['cible_type'] . '#' . $d['cible_id']] = $d;
+    }
+    foreach ($groupes as &$g) {
+        $g['tranches'] = 0;
+        foreach ($g['lignes'] as &$l) {
+            $cle = $g['cible'] . '#' . (int)($l['cible_id'] ?? 0);
+            $l['decision'] = $prises[$cle] ?? null;
+            if ($l['decision']) {
+                $g['tranches']++;
+            }
+        }
+        unset($l);
+    }
+    unset($g);
     return $groupes;
 }
+
+/**
+ * Enregistre UNE décision d'arbitrage.
+ *
+ * ⚠️ ON DEMANDAIT D'ARBITRER SANS DONNER OÙ RÉPONDRE. L'écran posait sept décisions, listait
+ *    leurs choix et leurs conséquences — et n'offrait aucun champ. Un arbitrage qu'on ne peut
+ *    pas enregistrer n'est pas un arbitrage : c'est un constat qu'on relit indéfiniment.
+ *
+ * ⚠️ DÉCIDER N'EST PAS INTÉGRER. Cette fonction n'écrit que dans le staging : elle date et
+ *    signe un choix, elle n'exécute rien. Aucune donnée métier de MBI n'est touchée.
+ *
+ * ⚠️ ET UN CHOIX DOIT ÊTRE L'UN DE CEUX QUE LA RÈGLE PROPOSE. Accepter n'importe quel texte
+ *    laisserait entrer une décision que l'intégration ne saurait pas exécuter. La précision
+ *    libre, elle, est là précisément pour ce que les choix fermés ne disent pas.
+ */
+function crgi_arbitrer(PDO $pdo, int $importId, string $cibleType, int $cibleId,
+                       string $choix, ?string $precision, int $userId): void
+{
+    $connus = [];
+    $groupe = '';
+    foreach (crgi_arbitrages($pdo, $importId) as $g) {
+        if ($g['cible'] !== $cibleType) {
+            continue;
+        }
+        foreach ($g['lignes'] as $l) {
+            if ((int)($l['cible_id'] ?? 0) === $cibleId) {
+                $connus = array_keys($g['choix']);
+                $groupe = (string)$g['groupe'];
+                break 2;
+            }
+        }
+    }
+    if (!$connus) {
+        throw new RuntimeException(
+            'CET OBJET N’EST PAS EN ARBITRAGE : ' . $cibleType . ' n°' . $cibleId
+            . '. Une décision ne se pose que sur une question réellement ouverte.'
+        );
+    }
+    if ($choix !== '' && !in_array($choix, $connus, true)) {
+        throw new RuntimeException(
+            'CHOIX INCONNU POUR CETTE RÈGLE : « ' . $choix . ' ». Les choix possibles sont : '
+            . implode(' · ', $connus)
+        );
+    }
+    if ($choix === '') {
+        // Retirer sa décision EST une décision : on efface, on ne garde pas un choix vide.
+        $pdo->prepare('DELETE FROM crgi_arbitrage
+                        WHERE import_id = ? AND cible_type = ? AND cible_id = ?')
+            ->execute([$importId, $cibleType, $cibleId]);
+        return;
+    }
+    $pdo->prepare(
+        'INSERT INTO crgi_arbitrage (import_id, groupe, cible_type, cible_id, choix,
+                                     precision_h, decide_par)
+         VALUES (?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE groupe = VALUES(groupe), choix = VALUES(choix),
+                                 precision_h = VALUES(precision_h),
+                                 decide_par = VALUES(decide_par)'
+    )->execute([$importId, $groupe, $cibleType, $cibleId, $choix,
+                ($precision !== null && $precision !== '')
+                    ? mb_substr($precision, 0, 1000) : null,
+                $userId ?: null]);
+}
+

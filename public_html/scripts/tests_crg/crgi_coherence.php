@@ -443,6 +443,32 @@ controle(
     }
 );
 
+
+controle(
+    'P5 est scellée, et son sceau voit ce qu’il prétend couvrir',
+    'Le plan est la dernière chose qu’Emmanuel lit avant de décider. Un plan qui changerait '
+    . 'd’action ou de dénombrement après validation — « À ARBITRER » devenu « CRÉER » — sans '
+    . 'que le sceau s’en aperçoive ferait signer autre chose que ce qui a été lu.',
+    function () use ($pdo, $importId) {
+        $e = crgi_phase_validee($pdo, $importId, 5);
+        exiger($e['validee'], 'la phase 5 n’est pas validée');
+        exiger(!$e['perimee'], 'la phase 5 est PÉRIMÉE');
+        $st = $pdo->prepare('SELECT id, action, nombre FROM crgi_plan
+                              WHERE import_id = ? ORDER BY id LIMIT 1');
+        $st->execute([$importId]);
+        $l = $st->fetch(PDO::FETCH_ASSOC);
+        exiger((bool)$l, 'le plan est vide — le sceau ne prouverait rien');
+        $ref = crgi_empreinte_phase5($pdo, $importId);
+        $pdo->prepare('UPDATE crgi_plan SET action = "CREER" WHERE id = ?')->execute([$l['id']]);
+        $mute = crgi_empreinte_phase5($pdo, $importId);
+        $pdo->prepare('UPDATE crgi_plan SET action = ? WHERE id = ?')
+            ->execute([$l['action'], $l['id']]);
+        $restaure = crgi_empreinte_phase5($pdo, $importId);
+        exiger($mute !== $ref, 'changer une action ne change pas l’empreinte');
+        exiger($restaure === $ref, 'l’empreinte ne revient pas après restauration');
+    }
+);
+
 echo "\nCOHÉRENCE : " . $ok . '/' . ($ok + count($ko)) . "\n";
 foreach ($ko as [$titre, $incident, $msg]) {
     echo "\n  ÉCHEC — {$titre}\n    incident défendu : {$incident}\n    {$msg}\n";

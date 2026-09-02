@@ -1152,7 +1152,9 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
           <details class="crgi-repli" style="margin-top:12px">
             <summary>
               <b><?= h($g['famille']) ?></b> · <?= count($g['lignes']) ?> lignes —
-              <?= h(mb_substr($g['question'], 0, 92)) ?><?= mb_strlen($g['question']) > 92 ? '…' : '' ?>
+              <b style="color:<?= (int)$g['tranches'] === count($g['lignes']) ? '#2f7d5d' : '#b3261e' ?>">
+                <?= (int)$g['tranches'] ?>/<?= count($g['lignes']) ?> tranchées</b> —
+              <?= h(mb_substr($g['question'], 0, 76)) ?><?= mb_strlen($g['question']) > 76 ? '…' : '' ?>
             </summary>
             <p class="crgi-sous" style="margin-top:10px"><?= h($g['question']) ?></p>
             <div class="crgi-note"><b>La règle :</b> <?= h($g['regle']) ?><br>
@@ -1165,11 +1167,12 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
               <?php endforeach; ?>
             </table>
             <div class="crgi-defile"><table>
-              <tr><th>Agence</th><th>Compte</th><th>Objet</th><th>Période</th>
-                  <th class="num">Page</th><th>Ce que le document imprime</th></tr>
+              <tr><th>Compte</th><th>Objet</th><th>Période</th>
+                  <th class="num">Page</th><th>Ce que le document imprime</th>
+                  <th style="width:300px">Votre décision</th></tr>
               <?php foreach (array_slice($g['lignes'], 0, 60) as $l): ?>
-                <tr>
-                  <td style="font-size:11.5px"><?= h(mb_substr((string)($l['agence'] ?? '—'), 0, 26)) ?></td>
+                <?php $cid = (int)($l['cible_id'] ?? 0); $d = $l['decision'] ?? null; ?>
+                <tr<?= $d ? ' style="background:rgba(47,125,93,.06)"' : '' ?>>
                   <td><code><?= h((string)($l['compte'] ?? '—')) ?></code></td>
                   <td style="font-size:12px">
                     <?= h((string)($l['lot_reference'] ?? $l['nom'] ?? '—')) ?>
@@ -1191,6 +1194,20 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
                     <?php else: ?>
                       <?= h(mb_substr((string)($l['motif'] ?? $l['ville'] ?? ''), 0, 60)) ?>
                     <?php endif; ?>
+                  </td>
+                  <td class="crgi-arb" data-cible="<?= h($g['cible']) ?>" data-id="<?= $cid ?>">
+                    <select class="crgi-arb-choix">
+                      <option value="">— à décider —</option>
+                      <?php foreach (array_keys($g['choix']) as $choix): ?>
+                        <option value="<?= h($choix) ?>"
+                          <?= $d && $d['choix'] === $choix ? 'selected' : '' ?>><?= h($choix) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <input type="text" class="crgi-arb-precision" placeholder="votre précision…"
+                           value="<?= h((string)($d['precision_h'] ?? '')) ?>">
+                    <div class="crgi-arb-etat crgi-muet">
+                      <?= $d ? 'décidé le ' . h(substr((string)$d['decide_le'], 0, 16)) : '' ?>
+                    </div>
                   </td>
                 </tr>
               <?php endforeach; ?>
@@ -1462,6 +1479,41 @@ document.getElementById('btnPhase3')?.addEventListener('click', async (e) => {
   }
 });
 
+// ── Les arbitrages : on enregistre ce qu'Emmanuel décide ────────────────────────────────
+// ⚠️ ON DEMANDAIT D'ARBITRER SANS DONNER OÙ RÉPONDRE. L'écran posait les questions, listait
+//    les choix et leurs conséquences — et n'offrait aucun champ.
+// ⚠️ L'ENREGISTREMENT EST IMMÉDIAT, PAS DIFFÉRÉ. Un bouton « enregistrer » en bas d'une page
+//    de 90 lignes perd la moitié des réponses au premier rechargement.
+async function arbitrer(cellule) {
+  const choix = cellule.querySelector('.crgi-arb-choix').value;
+  const precision = cellule.querySelector('.crgi-arb-precision').value;
+  const etat = cellule.querySelector('.crgi-arb-etat');
+  etat.textContent = 'enregistrement…';
+  try {
+    const d = new FormData();
+    d.append('action', 'arbitrer');
+    d.append('import_id', CRGI.importId);
+    d.append('cible_type', cellule.dataset.cible);
+    d.append('cible_id', cellule.dataset.id);
+    d.append('choix', choix);
+    d.append('precision', precision);
+    await envoyer(d);
+    etat.textContent = choix ? 'décidé à l\u2019instant' : 'décision retirée';
+    cellule.closest('tr').style.background = choix ? 'rgba(47,125,93,.06)' : '';
+  } catch (err) {
+    etat.textContent = '';
+    alert(err.message);
+  }
+}
+
+document.querySelectorAll('.crgi-arb').forEach((cellule) => {
+  cellule.querySelector('.crgi-arb-choix')
+         ?.addEventListener('change', () => arbitrer(cellule));
+  // La précision s'enregistre quand on quitte le champ : on ne sauvegarde pas à chaque frappe.
+  cellule.querySelector('.crgi-arb-precision')
+         ?.addEventListener('blur', () => arbitrer(cellule));
+});
+
 document.getElementById('btnCompat')?.addEventListener('click', async (e) => {
   e.target.disabled = true;
   const zone = document.getElementById('rapportCompat');
@@ -1494,10 +1546,10 @@ document.getElementById('btnCompat')?.addEventListener('click', async (e) => {
         lignes.push('EXCEPTIONS');
         for (const x of rap.exceptions) { lignes.push('   · ' + x); }
       }
-      zone.textContent += lignes.join('
-') + '
-
-';
+      // Les sauts de ligne sont ECHAPPES : une chaine JS ouverte sur plusieurs lignes
+      // casse tout le script — et donc TOUS les boutons de la page, pas seulement
+      // celui-ci. Le rapport s'affiche dans un <pre>, la mise en forme y survit.
+      zone.textContent += lignes.join('\n') + '\n\n';
     }
   } catch (err) {
     document.getElementById('etatCompat').textContent = '';

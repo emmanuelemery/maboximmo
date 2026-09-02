@@ -1305,7 +1305,36 @@ plusieurs comptes** — consolidés sous une identité démontrée, jamais fusio
 
 ---
 
-# MODULE D'INTÉGRATION CRG — RÈGLES ÉPROUVÉES SUR CORPUS RÉEL 🟠 EN CONSTRUCTION
+# MODULE D'INTÉGRATION CRG — RÈGLES ÉPROUVÉES SUR CORPUS RÉEL 🟢 FIGÉ
+
+## P0 → P5 — VALIDÉES PAR EMMANUEL
+
+| phase | objet | statut | empreinte |
+|---|---|---|---|
+| **P0** | découpage documentaire | ✅ VALIDÉE | `1514aa9b7d7e` |
+| **P1** | inventaire face à MBI | ✅ VALIDÉE | `bbf225db7a96` |
+| **P2** | patrimoine confronté | ✅ VALIDÉE | `e2c57a111bfb` |
+| **P3** | locataires et occupation | ✅ VALIDÉE | `00f169433913` |
+| **P4** | finances | ✅ VALIDÉE | `664796213421` |
+| **P5 — BILAN AVANT INTÉGRATION** | ce qui SERAIT écrit dans MBI | **✅ VALIDÉ PAR EMMANUEL — 02/09/2026** | `093d43874a06` |
+
+⚠️ **LE RÉFÉRENTIEL EST FIGÉ.** On ne le rouvre pas pour une anomalie d'un futur import.
+La marche à suivre pour les prochains CRG est fixée : **test de compatibilité → lecture par
+le référentiel → contrôles de couverture → confrontation MBI → isolation des exceptions →
+intégration des éléments validés.**
+
+| ce qui arrive | ce qu'on fait | ce qu'on NE fait PAS |
+|---|---|---|
+| une structure documentaire inconnue | fixture + règle **locale** si elle est démontrable + test | aucune recertification générale |
+| une anomalie technique | correction + test + harnais | aucune recertification métier |
+| une donnée non démontrable | **arbitrage**, et le reste continue | on ne bloque pas le corpus |
+| une contradiction RÉELLE d'une doctrine certifiée | **STOP RÉGRESSION** | seule situation qui rouvre la certification concernée |
+
+⚠️ **CE QUE CES QUATRE JOURS ONT PRODUIT N'EST PAS UN LECTEUR QUI FONCTIONNE SUR UN FICHIER.**
+C'est un système qui contrôle aussi **qu'il n'a rien oublié** : `EXACTITUDE ≠ EXHAUSTIVITÉ`.
+Un moteur exact sur ce qu'il traite et aveugle sur le reste avait produit 98 lots au lieu de
+124, 53 agences au lieu d'une, et un bilan d'intégration bâti sur ces chiffres — sans qu'un
+seul test ne bronche.
 
 **Ouvert le 01/09/2026.** Ces règles ne viennent pas du banc de certification : elles ont été
 **arrachées à un document réel** — 906 pages, VIENNE, avril à juillet 2026, déposé par Emmanuel
@@ -1343,6 +1372,8 @@ MBI. Les phases P1→P9 restent la seule autorité sur ce que les CRG démontren
 | **INTEG-OCCUP-05** | **UNE FIN DE BAIL IMPRIMÉE EST UNE PREUVE — BORNÉE À L’ARRÊTÉ.** « Bail du … **au** … » figure 45 fois : le départ est ÉCRIT, plus déduit d’une absence. Mais 13 congés sont datés APRÈS la date d’arrêté et décrivent un occupant **toujours en place** ; sans cette borne, 42 faux anciens locataires. `ABSENCE ≠ DÉPART` reste vrai — la mention imprimée s’y ajoute, elle ne s’y substitue pas. | ÉPROUVÉE |
 | **INTEG-RAPPRO-01** | **`CONTRIBUTIF ≠ NOUVEAU`, ET `OBSERVÉ ≠ À CRÉER`.** 1 330 mouvements portaient sur des situations que MBI possède déjà : ce n’étaient pas 1 330 décisions humaines, mais 1 330 confrontations que le moteur n’avait pas faites. La règle de preuve est en couches, le montant en DERNIER : situation, puis libellé (le staging est le **préfixe** du libellé MBI, qui recopie la ligne entière montant compris), puis lot (le lot MBI est le **suffixe** du lot document — « 01 » pour « 276-01 », jamais une inclusion libre qui confondrait « 01 » et « 101 »), puis le sens et le montant. Un libellé générique comme « Solde » ne désigne rien. `MÊME MONTANT ≠ MÊME ÉCRITURE` : aucune fusion automatique. | ÉPROUVÉE |
 | **INTEG-RAPPRO-02** | **NORMALISATION N’EST PAS RAPPROCHEMENT APPROXIMATIF.** MBI enregistre les occupants soudés — « ALOUILotfi », « BERRUYERThierry » : comparer « ALOUI LOTFI » à « ALOUILOTFI » ne rapprochait qu’UN locataire sur 119, et déclarer les 118 autres « à créer » aurait fabriqué **88 doublons**. On ignore accents, casse et séparateurs, parce que la différence est démontrée — **aucune autre**. Deux noms qui diffèrent d’une lettre restent deux noms. | ÉPROUVÉE |
+| **INTEG-ECRAN-03** | **UN ARBITRAGE QU’ON NE PEUT PAS ENREGISTRER N’EST PAS UN ARBITRAGE.** L’écran posait sept décisions, listait leurs choix fermés et leurs conséquences — et n’offrait **aucun champ pour répondre**. C’est un constat qu’on relit indéfiniment, pas une décision. Chaque ligne porte désormais son choix et sa précision libre, enregistrés **immédiatement** — un bouton « enregistrer » en bas d’une page de 90 lignes perd la moitié des réponses au premier rechargement. Un choix hors de ceux que la règle propose est REFUSÉ, et retirer sa décision EST une décision. **DÉCIDER N’EST PAS INTÉGRER** : la réponse vit en staging, datée et signée ; le plan continue de décrire ce que le DOCUMENT démontre. | ÉPROUVÉE |
+| **INTEG-ECRAN-04** | **UNE CHAÎNE JAVASCRIPT NON FERMÉE TUE TOUS LES BOUTONS, EN SILENCE.** Un `join('` ouvert sur deux lignes a suffi : le navigateur abandonne le bloc `<script>` ENTIER, plus aucun écouteur ne s’attache, la page reste parfaitement belle — et « Valider le bilan » ne répond plus. Aucune erreur PHP, aucune ligne de log, aucun test au rouge : le module était mort côté client. Le harnais vérifie donc que le JS de la page **se compile** et que **chaque bouton porte son écouteur**. `CE QUI N’EST PAS SUR LA PAGE N’EXISTE PAS` — et un bouton qui ne répond pas n’est pas sur la page. | ÉPROUVÉE |
 | **INTEG-COUV-05** | **UN COMPTEUR GLOBAL MASQUE UNE POPULATION : LE PLAN BOUCLE FAMILLE PAR FAMILLE.** Deux grands totaux peuvent se refermer alors qu’une famille en perd la moitié. Les 5 successions locatives étaient comptées **deux fois** — `CRÉER` pour l’occupation entrante, `ARCHIVER` pour la sortante — alors que ces deux actions portent sur des OBSERVATIONS DIFFÉRENTES : 483 verdicts pour 478 observations, invisibles dans le total général. Chaque famille compare désormais sa population source **sur sa propre maille** — objets pour les objets, observations pour les observations, mouvements pour les mouvements — et exige `ÉCART = 0`. Une occupation observée sur sept périodes n’est pas sept objets à écrire. | ÉPROUVÉE |
 | **INTEG-TEST-02** | **LE MULTI-CORPUS REPOSE SUR DES FIXTURES, PAS SUR LE REJEU DE TOUS LES PDF HISTORIQUES — ET ON LE DIT.** Les suites éprouvent les règles `septeo_spi` et `lyon` sur des fixtures minimales représentatives ; les PDF du corpus certifié ne sont pas tous présents sur le poste. C’est donc une **excellente non-régression sur les cas connus**, et non une preuve qu’un format futur sera reconnu. C’est exactement pour cela que `crg_compatibilite.py` existe : le prochain fichier doit dire **très tôt** « compatible » ou « nouvelle structure », au lieu de faire découvrir le problème après trois jours. | LIMITE ASSUMÉE |
 | **INTEG-TEST-01** | **UN TEST QUI N’A JAMAIS ÉTÉ VU ROUGE NE PROUVE PAS QU’IL SAIT DÉTECTER L’ERREUR.** Un harnais entièrement vert peut n’être qu’un harnais qui ne regarde rien — l’empreinte de la phase 2 existait et n’était jamais appelée. Chaque incident possède sa fixture et son test ; et l’**ÉPREUVE DES TESTS** réintroduit le bug en mémoire, exige que le test échoue, puis restaure. Un test resté vert sur son propre bug est signalé MUET. | ÉPROUVÉE |
