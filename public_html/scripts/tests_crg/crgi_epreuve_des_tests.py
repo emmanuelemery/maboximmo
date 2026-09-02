@@ -22,6 +22,7 @@ RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RACINE)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import crg_format as FMT                  # noqa: E402
 import crg_integration_doublons as DBL    # noqa: E402
 import crg_integration_lots as LOTS       # noqa: E402
 import crg_integration_phase0 as P0       # noqa: E402
@@ -52,7 +53,7 @@ def vire_au_rouge(fragment):
 #    qui a importé `y` directement : la mutation restait sans effet et l'épreuve concluait à
 #    tort que le test était MUET. On remplace donc le symbole PARTOUT où il est lié.
 def poser_partout(nom, valeur, remettre):
-    for module in (DBL, LOTS, P0, P4, R):
+    for module in (DBL, FMT, LOTS, P0, P4, R):
         if hasattr(module, nom):
             ancien = getattr(module, nom)
             remettre((lambda m, n, a: lambda: setattr(m, n, a))(module, nom, ancien))
@@ -105,6 +106,33 @@ def _(remettre):
 @epreuve('n’est jamais un nom', 'ne plus reconnaître les champs de l’en-tête')
 def _(remettre):
     poser_partout('RE_ENTETE_CHAMPS', re.compile(r'^\bJAMAIS\b$'), remettre)
+
+
+@epreuve('reconnu par le RÉFÉRENTIEL', 'l’intégrateur redevient aveugle à EMERY IMMO')
+def _(remettre):
+    def deux_familles_seulement(texte):
+        """La reconnaissance d'avant le 02/09/2026 : la structure d'abord, EMERY nulle part."""
+        u = (texte or '').upper()
+        if 'AGENCE:' in u.replace(' ', '') and 'EXTRA' in u:
+            return 'septeo_spi'
+        if 'COMPTE RENDU DE GESTION' in u and 'COMPTE PERSONNEL' in u:
+            return 'lyon'
+        return 'inconnu'
+
+    poser_partout('famille_du_texte', deux_familles_seulement, remettre)
+
+
+@epreuve('ne l’emporte jamais sur l’enseigne', 'remettre la structure avant l’enseigne')
+def _(remettre):
+    def structure_dabord(texte):
+        u = (texte or '').upper()
+        if 'COMPTE RENDU DE GESTION' in u and 'COMPTE PERSONNEL' in u:
+            return 'lyon'
+        if 'EMERY IMMOBILIER' in u:
+            return 'emery_immo'
+        return 'inconnu'
+
+    poser_partout('famille_du_texte', structure_dabord, remettre)
 
 
 @epreuve('par LOT', 'apparier les verdicts du lot dans le désordre')

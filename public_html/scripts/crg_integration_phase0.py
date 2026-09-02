@@ -31,6 +31,9 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from crg_format import famille_du_texte   # noqa: E402  — l'autorité unique de reconnaissance
+
 # ── Les seules erreurs qu'un DOCUMENT peut provoquer ──────────────────────────────────────
 try:
     from pdfminer.pdfparser import PDFSyntaxError
@@ -229,9 +232,23 @@ def qualifier(texte):
         return 'HORS_CRG', 'appel_de_fonds', 'APPEL DE FONDS — document de syndic, hors CRG'
     if RE_APPEL_SUITE.search(texte):
         return 'HORS_CRG_SUITE', 'appel_de_fonds', 'suite d’un appel de fonds'
-    if RE_EXTRANET.search(texte) and RE_AGENCE.search(texte) and RE_TITRE.search(texte):
+    # ⚠️ LA FAMILLE NE SE DÉCIDE PLUS ICI. Ce fichier avait sa propre reconnaissance, qui ne
+    #    connaissait que `lyon` et `septeo_spi` — alors que le référentiel certifie TROIS
+    #    familles depuis le 30/08 et possède un lecteur pour chacune. Résultat : un CRG
+    #    EMERY IMMO lu avec le lecteur LYON, annoncé `CERTAIN`, et zéro montant reconnu.
+    #    `crg_format.famille_du_texte` est désormais la seule autorité, partagée avec
+    #    `crg_depot_lire`. Ce qui reste ici est l'ÉTAT de la page dans le dépôt — début,
+    #    suite, hors CRG — que nul lecteur certifié ne détermine, parce qu'aucun ne lit
+    #    autre chose qu'un document déjà isolé.
+    famille = famille_du_texte(texte)
+    if famille == 'septeo_spi' and RE_EXTRANET.search(texte) and RE_TITRE.search(texte):
         return 'DEBUT', 'septeo_spi', 'en-tête complet : titre, agence, identifiant extranet'
-    if RE_TITRE.search(texte) and RE_COMPTE_LYON.search(texte):
+    if famille == 'emery_immo' and RE_TITRE.search(texte) and RE_COMPTE_LYON.search(texte):
+        # ⚠️ EMERY IMPRIME « COMPTE PERSONNEL » COMME LYON. C'est l'enseigne qui les sépare,
+        #    jamais la structure : c'est en testant la structure d'abord qu'on a rangé
+        #    224 CRG EMERY certifiés dans la famille LYON.
+        return 'ENTETE_REGIE', 'emery_immo', 'en-tête EMERY IMMO : titre et compte personnel'
+    if famille == 'lyon' and RE_TITRE.search(texte) and RE_COMPTE_LYON.search(texte):
         # ⚠️ CANDIDAT, PAS DÉBUT. Chez `lyon` l'en-tête de régie se RÉPÈTE sur toutes les pages
         #    de garde d'un même CRG : les pages 16 à 19 du document d'essai le portent quatre
         #    fois. Le prendre pour un début a fabriqué 22 CRG là où il n'y en avait qu'un.
@@ -544,7 +561,7 @@ def analyser(chemin):
             courant.setdefault('_textes', []).append(texte)
             pages.append({'page_no': no, 'crg_index': len(crgs) - 1,
                           'signal': 'page blanche (verso)'})
-        elif courant is not None and courant.get('format') == 'lyon':
+        elif courant is not None and courant.get('format') in ('lyon', 'emery_immo'):
             # ⚠️ ICI LE DOCUMENT N'IMPRIME AUCUN MARQUEUR DE SUITE, ET ON LE DIT. Chez `lyon`,
             #    le corps du rapport ne porte ni bandeau ni numéro de page : la page appartient
             #    au CRG ouvert parce qu'un rapport imprimé est CONTIGU, pas parce qu'un signal

@@ -313,6 +313,57 @@ def _agence_stable():
         assert ag == 'A3 - REGIE EMERY - VIENNE', '%s : %r' % (nom, ag)
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════
+#  UNE SEULE AUTORITÉ DE RECONNAISSANCE — RÉFÉRENTIEL ET INTÉGRATEUR NE PEUVENT PAS DIVERGER
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+# Les en-têtes réels des trois familles certifiées, réduits à ce qui les distingue.
+ENTETES = {
+    'septeo_spi': 'FNAIM\nRégie EMERY\nCOMPTE RENDU DE GESTION\n'
+                  'Agence: A3 -REGIE EMERY -VIENNE\nMonsieur XERRI Florent\n'
+                  'Identifiant extratnet : 1105402916\nMot de passe: 1101\n',
+    'emery_immo': 'EMERY IMMOBILIER\nSucc. SERVAJEAN\n12 PLACE SAINT-JEAN\n63200 RIOM\n'
+                  'COMPTE RENDU DE GESTION\nRIOM, le 29/06/2026\n'
+                  '- 2e Trimestre 2026 -\nCOMPTE PERSONNEL 00180000\n',
+    'lyon': 'LOCA IMMO LYON\nCOMPTE RENDU DE GESTION\nLyon, le 29/06/2026\n'
+            '- 2e Trimestre 2026 -\nCOMPTE PERSONNEL 04680000\n',
+}
+
+
+@cas('tout format reconnu par le RÉFÉRENTIEL l’est aussi par l’INTÉGRATEUR',
+     'Le 02/09/2026, sur les deux mêmes documents : le routeur certifié disait `emery_immo` '
+     'là où l’intégrateur disait `lyon`, et `inconnu` là où l’intégrateur disait '
+     '`septeo_spi`. Aucun des deux n’englobait l’autre. Le module a donc lu 224 CRG EMERY '
+     'CERTIFIÉS avec le lecteur LYON, en répondant `CERTAIN`.')
+def _une_seule_autorite():
+    import crg_format
+    import crg_depot_lire as DEPOT
+    # Une seule implémentation, pas deux qui se ressemblent.
+    assert DEPOT.famille_du_texte is crg_format.famille_du_texte if hasattr(
+        DEPOT, 'famille_du_texte') else True
+    for attendu, entete in ENTETES.items():
+        vu = crg_format.famille_du_texte(entete)
+        assert vu == attendu, 'référentiel : %s lu comme %s' % (attendu, vu)
+        _etat, famille, _motif = P0.qualifier(entete)
+        assert famille == attendu, \
+            'INTÉGRATEUR EN DÉSACCORD : référentiel=%s, intégrateur=%s' % (attendu, famille)
+
+
+@cas('REFUS — la structure ne l’emporte jamais sur l’enseigne',
+     'EMERY et LYON impriment tous deux « COMPTE RENDU DE GESTION » et « COMPTE PERSONNEL ». '
+     'Tester la structure avant l’enseigne rangeait tout EMERY dans LYON — c’est la cause '
+     'exacte de l’incident du 02/09/2026.')
+def _enseigne_avant_structure():
+    import crg_format
+    # L'en-tête EMERY porte la structure LYON : l'enseigne doit trancher.
+    assert crg_format.famille_du_texte(ENTETES['emery_immo']) == 'emery_immo'
+    # Et sans aucune enseigne, la structure reste le dernier recours — jamais le premier.
+    nu = 'COMPTE RENDU DE GESTION\nCOMPTE PERSONNEL 04680000\n'
+    assert crg_format.famille_du_texte(nu) == 'lyon', 'le dernier recours ne répond plus'
+    assert crg_format.famille_du_texte('page quelconque sans signal') == 'inconnu', \
+        'un document sans signe est déclaré d’une famille : `AUCUN LECTEUR DE SECOURS`'
+
+
 @cas('qualifier les collisions par LOT rend exactement ce que la paire à paire rendait',
      'Regrouper les 18 qualifications en un seul appel a fait tomber la phase 0 de 118 s à '
      '~21 s. Le danger n’est pas la règle — elle n’a pas bougé — mais l’APPARIEMENT : un '
