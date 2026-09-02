@@ -80,7 +80,17 @@ RE_TRIM_COMPACT = re.compile(r'^\s*(\d)T(\d{4})\s*$', re.M)
 #    trois façons différentes selon les millésimes. Chacune est relevée sur le document ;
 #    aucune n'est supposée.
 RE_TRIM_ABREGE = re.compile(r'^\s*(\d)\s*(?:er|ère|e|ème)?\s+TRIM\.?\s+(\d{4})\s*$', re.I | re.M)
-RE_PROPRIO_SEPTEO = re.compile(r'COMPTE\s+RENDU\s+DE\s+GESTION\s{2,}(\S.*?)\s*$', re.I | re.M)
+# ⚠️ L'ÉCART EST FAIT D'ESPACES, PAS DE « BLANC ». `\s{2,}` inclut le saut de ligne : quand
+#    l'extracteur ne préserve pas les colonnes, « COMPTE RENDU DE GESTION » se retrouve seul
+#    sur sa ligne et le motif saute à la SUIVANTE — il a lu « Agence: A3 - REGIE EMERY -
+#    VIENNE » comme nom de propriétaire sur 288 des 325 CRG du dépôt du 02/09/2026, sans
+#    qu'aucun contrôle ne bronche : le découpage, lui, était parfaitement juste.
+#    `[ \t]{2,}` dit ce qu'on veut dire — la gouttière entre deux colonnes de LA MÊME LIGNE.
+RE_PROPRIO_SEPTEO = re.compile(r'COMPTE\s+RENDU\s+DE\s+GESTION[ \t]{2,}(\S.*?)\s*$',
+                               re.I | re.M)
+# Les champs que l'en-tête imprime lui-même : là où on les voit, on ne lit pas un nom.
+RE_ENTETE_CHAMPS = re.compile(r'P[ée]riode\s+du\b|Identifiant\s+extra?n?tnet|Mot\s+de\s+passe',
+                              re.I)
 # ⚠️ UN CRG N'ARRIVE PAS SEUL. Quand la régie est aussi syndic, l'envoi contient des APPELS DE
 #    FONDS de copropriété — 33 dans le document réel, sur une centaine de pages. Ce ne sont pas
 #    des CRG, et ce ne sont pas non plus des pages perdues : les laisser « non affectées »
@@ -126,6 +136,60 @@ def periode_cle(debut, fin):
     return '%s_%s' % (debut, fin)
 
 
+_PDFTOTEXT = []          # [(chemin, étiquette, sait_table)] — résolu une fois par processus.
+
+
+def pdftotext_exe():
+    """Le binaire `pdftotext` à employer, choisi sur sa CAPACITÉ et non sur l'ordre du PATH.
+
+    ⚠️ DEUX PROGRAMMES DIFFÉRENTS RÉPONDENT À CE NOM, ET ILS NE LISENT PAS LA MÊME PAGE.
+       Sur le poste du 02/09/2026 : `poppler 25.07` dans le PATH d'Apache, `Xpdf 4.00` (Glyph
+       & Cog) en tête du PATH du shell. Ils ne placent pas l'en-tête aux mêmes colonnes, et
+       Xpdf ne connaît pas `-table` — l'option dont la phase 3 tire 1 022 rattachements au
+       lieu de 307. Résultat : la MÊME analyse, lancée depuis la page ou depuis le harnais,
+       produisait deux empreintes différentes, et le sceau accusait le moteur.
+
+    ⚠️ ON NE CHOISIT DONC PAS LE PREMIER VENU. On retient le premier candidat du PATH qui
+       sait faire `-table` ; à défaut, le premier tout court, en le DISANT. `CRG_PDFTOTEXT`
+       impose un chemin quand l'exploitant veut trancher lui-même.
+    """
+    if _PDFTOTEXT:
+        return _PDFTOTEXT[0]
+
+    impose = os.environ.get('CRG_PDFTOTEXT')
+    candidats = []
+    if impose and os.path.isfile(impose):
+        candidats.append(impose)
+    else:
+        vus = set()
+        for dossier in os.environ.get('PATH', '').split(os.pathsep):
+            for nom in ('pdftotext.exe', 'pdftotext'):
+                p = os.path.join(dossier, nom)
+                if os.path.isfile(p) and p.lower() not in vus:
+                    vus.add(p.lower())
+                    candidats.append(p)
+
+    replis = []
+    for exe in candidats:
+        try:
+            v = subprocess.run([exe, '-v'], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT).stdout.decode('utf-8', 'replace')
+        except OSError:
+            continue
+        etiquette = ' '.join(v.split('\n')[0].replace('pdftotext version', '').split())
+        etiquette = ('poppler ' if 'poppler' in v.lower() else
+                     'xpdf ' if 'glyph' in v.lower() else '') + etiquette
+        # `-table` n'existe que chez poppler ≥ 22 : on le vérifie, on ne le suppose pas.
+        sait = '-table' in v or 'poppler' in v.lower()
+        if sait:
+            _PDFTOTEXT.append((exe, etiquette.strip(), True))
+            return _PDFTOTEXT[0]
+        replis.append((exe, etiquette.strip(), False))
+
+    _PDFTOTEXT.append(replis[0] if replis else (None, None, False))
+    return _PDFTOTEXT[0]
+
+
 def lire_pages(chemin):
     """Le texte de chaque page, dans l'ordre, et le nom de l'outil qui l'a produit.
 
@@ -140,7 +204,7 @@ def lire_pages(chemin):
        pas toujours le binaire — mais il est vingt-huit fois plus lent : le taire ferait passer
        une installation incomplète pour une lenteur inexplicable.
     """
-    exe = shutil.which('pdftotext')
+    exe, etiquette, _table = pdftotext_exe()
     if exe:
         r = subprocess.run([exe, '-layout', '-enc', 'UTF-8', chemin, '-'],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -150,7 +214,10 @@ def lire_pages(chemin):
         pages = r.stdout.decode('utf-8', 'replace').split('\x0c')
         if pages and not pages[-1].strip():
             pages.pop()
-        return pages, 'pdftotext'
+        # ⚠️ L'ÉTIQUETTE PORTE LE PRODUIT ET SA VERSION, PAS « pdftotext ». Deux lectures d'un
+        #    même document par deux binaires homonymes ne sont pas la même lecture, et c'est
+        #    la seule ligne qui permette de s'en apercevoir.
+        return pages, 'pdftotext (%s)' % (etiquette or 'version inconnue')
     import pdfplumber
     with pdfplumber.open(chemin) as pdf:
         return [p.extract_text() or '' for p in pdf.pages], 'pdfplumber (repli lent)'
@@ -196,7 +263,14 @@ def identifier(texte, format_detecte):
         # ⚠️ SUR UN DOCUMENT OCRISÉ, LE PROPRIÉTAIRE ARRIVE ICI. L'OCR aplatit les deux
         #    colonnes sur une seule ligne : « Agence : A3 - REGIE EMERY - VIENNE Monsieur
         #    XERRI Florent ». Ce qui suit l'agence est donc le début du bloc adresse.
-        if reste:
+        #
+        # ⚠️ MAIS CE QUI SUIT L'AGENCE N'EST PAS TOUJOURS UN NOM. Quand l'extracteur replie
+        #    tout l'en-tête sur une ligne, on lit « … - VIENNE Période du 01/07/2026 au
+        #    31/07/2026 Identifiant extratnet : 1105402916 Mot de passe: 1101 » — et ce
+        #    galimatias partait en base comme nom de propriétaire. Un champ du document ne
+        #    peut pas être le nom de quelqu'un : quand on les reconnaît, ON NE LIT RIEN.
+        #    `ABSENCE DE LECTURE ≠ LECTURE APPROXIMATIVE`.
+        if reste and not RE_ENTETE_CHAMPS.search(reste):
             d['proprietaire'] = reste
     m = RE_PERIODE.search(texte)
     if m:
@@ -211,9 +285,7 @@ def identifier(texte, format_detecte):
         d['compte'] = m.group(1)
 
     if format_detecte == 'septeo_spi':
-        m = RE_PROPRIO_SEPTEO.search(texte)
-        if m:
-            d['proprietaire'] = ' '.join(m.group(1).split())
+        d['proprietaire'] = _proprietaire_septeo(texte) or d['proprietaire']
     else:
         m = (RE_TRIMESTRE.search(texte) or RE_TRIM_COMPACT.search(texte)
              or RE_TRIM_ABREGE.search(texte))
@@ -227,6 +299,52 @@ def identifier(texte, format_detecte):
             d['date_edition'] = jour(m.group(2))
             d['proprietaire'] = _proprietaire_lyon(texte)
     return d
+
+
+def _proprietaire_septeo(texte):
+    """Le propriétaire d'un CRG `septeo_spi` : la première ligne du bloc adresse, à droite.
+
+    ⚠️ DEUX OUTILS PORTENT LE NOM `pdftotext`, ET ILS NE RENDENT PAS LA MÊME PAGE. Xpdf 4.00
+       met « COMPTE RENDU DE GESTION » et « Monsieur XERRI Florent » SUR LA MÊME LIGNE ;
+       poppler 25.07 met le titre seul et descend le nom de deux lignes. Le moteur lisait la
+       fin de la ligne du titre : juste avec l'un, faux avec l'autre — et c'est celui d'Apache
+       qui était faux. Résultat le 02/09/2026 : 288 CRG sur 325 ont pris « Agence: A3 - REGIE
+       EMERY - VIENNE » pour un nom de propriétaire, sans qu'aucun contrôle ne bronche.
+
+    ⚠️ ON LIT LA COLONNE, PAS LA LIGNE. Le bloc adresse est dans la colonne de DROITE de
+       l'en-tête ; c'est vrai des deux rendus, et c'est une propriété de l'impression, pas une
+       supposition. La marge de gauche se mesure sur le document (« Agence: … »), elle n'est
+       pas écrite en dur : on retient le premier fragment situé nettement à sa droite.
+
+    ⚠️ ET UN CHAMP DE L'EN-TÊTE N'EST JAMAIS UN NOM. « Période du … », « Identifiant
+       extratnet : … », « Mot de passe: … » sont écartés explicitement. S'il ne reste rien,
+       on ne rend RIEN : `ABSENCE DE LECTURE ≠ LECTURE APPROXIMATIVE`.
+    """
+    lignes = texte.split('\n')
+    depart = next((i for i, l in enumerate(lignes) if RE_TITRE.search(l)), None)
+    if depart is None:
+        return None
+
+    # La marge de gauche du bloc d'en-tête, relevée sur le document lui-même.
+    marge = None
+    for ligne in lignes[depart:depart + 14]:
+        m = RE_AGENCE.search(ligne)
+        if m:
+            marge = m.start()
+            break
+    if marge is None:
+        marge = len(lignes[depart]) - len(lignes[depart].lstrip())
+
+    for ligne in lignes[depart:depart + 14]:
+        colonne = 0
+        for fragment in re.split(r'([ \t]{2,})', ligne.rstrip()):
+            if fragment.strip() == '' :
+                colonne += len(fragment)
+                continue
+            if colonne >= marge + 30 and not RE_ENTETE_CHAMPS.search(fragment):
+                return ' '.join(fragment.split())
+            colonne += len(fragment)
+    return None
 
 
 def _proprietaire_lyon(texte):

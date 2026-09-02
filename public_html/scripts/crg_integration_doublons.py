@@ -77,8 +77,33 @@ def qualifier_paire(textes_a, textes_b):
 
 
 def main():
+    """Deux appels possibles, UN SEUL calcul.
+
+    ⚠️ UNE PAIRE PAR PROCESSUS RELISAIT TOUT LE DOCUMENT. `lire_pages()` extrait les 906 pages
+       du PDF pour n'en découper que deux extraits de quelques pages — et la phase 0 lançait
+       ce processus DIX-HUIT fois : 103 s des 118 s de la phase, pour 6 s de lecture utile.
+       Le mode par lot ouvre le document UNE fois et qualifie toutes les paires. Le verdict
+       ne change pas d'un caractère : `qualifier_paire` n'est pas touchée.
+
+    Usage : crg_integration_doublons.py <pdf> <paires.json>          (lot)
+            crg_integration_doublons.py <pdf> <p1d> <p1f> <p2d> <p2f> (une paire, historique)
+    """
+    if len(sys.argv) == 3:
+        with open(sys.argv[2], encoding='utf-8') as fh:
+            paires = json.load(fh)
+        textes, _ = lire_pages(sys.argv[1])
+        sortie = []
+        for p in paires:
+            r = qualifier_paire(textes[int(p['ad']) - 1:int(p['af'])],
+                                textes[int(p['bd']) - 1:int(p['bf'])])
+            r['id'] = p['id']
+            sortie.append(r)
+        sys.stdout.write(json.dumps(sortie, ensure_ascii=False))
+        return 0
+
     if len(sys.argv) < 6:
-        sys.stderr.write('usage : crg_integration_doublons.py <pdf> <p1d> <p1f> <p2d> <p2f>\n')
+        sys.stderr.write('usage : crg_integration_doublons.py <pdf> <paires.json>\n'
+                         '        crg_integration_doublons.py <pdf> <p1d> <p1f> <p2d> <p2f>\n')
         return 2
     chemin = sys.argv[1]
     p1d, p1f, p2d, p2f = (int(x) for x in sys.argv[2:6])

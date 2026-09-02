@@ -22,7 +22,9 @@ RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RACINE)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import crg_integration_doublons as DBL    # noqa: E402
 import crg_integration_lots as LOTS       # noqa: E402
+import crg_integration_phase0 as P0       # noqa: E402
 import crg_integration_phase4 as P4       # noqa: E402
 import crgi_robustesse as R               # noqa: E402
 
@@ -50,7 +52,7 @@ def vire_au_rouge(fragment):
 #    qui a importé `y` directement : la mutation restait sans effet et l'épreuve concluait à
 #    tort que le test était MUET. On remplace donc le symbole PARTOUT où il est lié.
 def poser_partout(nom, valeur, remettre):
-    for module in (LOTS, P4, R):
+    for module in (DBL, LOTS, P0, P4, R):
         if hasattr(module, nom):
             ancien = getattr(module, nom)
             remettre((lambda m, n, a: lambda: setattr(m, n, a))(module, nom, ancien))
@@ -86,6 +88,47 @@ def _(remettre):
 def _(remettre):
     premier = LOTS.locataires_de
     poser_partout('locataires_de', lambda seg: premier(seg)[:1], remettre)
+
+
+@epreuve('les deux « pdftotext »', 'relire le nom sur la LIGNE du titre au lieu de la COLONNE')
+def _(remettre):
+    # L'implémentation d'avant le 02/09/2026 : juste sous Xpdf, fausse sous poppler.
+    ancien = re.compile(r'COMPTE\s+RENDU\s+DE\s+GESTION\s{2,}(\S.*?)\s*$', re.I | re.M)
+
+    def ligne_du_titre(texte):
+        m = ancien.search(texte)
+        return ' '.join(m.group(1).split()) if m else None
+
+    poser_partout('_proprietaire_septeo', ligne_du_titre, remettre)
+
+
+@epreuve('n’est jamais un nom', 'ne plus reconnaître les champs de l’en-tête')
+def _(remettre):
+    poser_partout('RE_ENTETE_CHAMPS', re.compile(r'^\bJAMAIS\b$'), remettre)
+
+
+@epreuve('par LOT', 'apparier les verdicts du lot dans le désordre')
+def _(remettre):
+    import json as _json
+    import sys as _sys
+
+    def lot_decale():
+        """Le mode par lot, mais les identifiants décalés d'un cran : chaque CRG hérite du
+        verdict de son voisin. La règle est intacte, l'appariement est faux."""
+        with open(_sys.argv[2], encoding='utf-8') as fh:
+            paires = _json.load(fh)
+        textes, _ = DBL.lire_pages(_sys.argv[1])
+        rendus = [DBL.qualifier_paire(textes[int(p['ad']) - 1:int(p['af'])],
+                                      textes[int(p['bd']) - 1:int(p['bf'])]) for p in paires]
+        sortie = []
+        for i, p in enumerate(paires):
+            r = dict(rendus[(i + 1) % len(rendus)])
+            r['id'] = p['id']
+            sortie.append(r)
+        _sys.stdout.write(_json.dumps(sortie, ensure_ascii=False))
+        return 0
+
+    poser_partout('main', lot_decale, remettre)
 
 
 @epreuve('espace des milliers', 'le recollage des milliers retiré')

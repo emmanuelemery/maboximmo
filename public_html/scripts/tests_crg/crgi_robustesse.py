@@ -23,6 +23,7 @@ sys.path.insert(0, RACINE)
 
 from crg_integration_lots import (RE_SUITE, code_immeuble,        # noqa: E402
                                   locataires_de, normaliser_reference, segments_de_lot)
+import crg_integration_phase0 as P0                               # noqa: E402
 import crg_integration_phase4 as P4                               # noqa: E402
 
 CAS = []
@@ -243,6 +244,151 @@ def _():
     lect.lot = '01'
     assert P4.categoriser(lect, 'reste_du', 'Loyer Mai 2026')[0] == P4.ENCOURS
     assert P4.categoriser(lect, 'debit', 'Solde du dernier Rapport au 28/2/2026')[0] == P4.ENCOURS
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════
+#  L'EN-TÊTE SEPTEO — LE NOM DU PROPRIÉTAIRE, QUEL QUE SOIT L'OUTIL QUI REND LA PAGE
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+# Le même en-tête, tel que le rendent les DEUX binaires nommés `pdftotext` trouvés sur le
+# poste : Xpdf 4.00 pose le nom sur la ligne du titre, poppler 25.07 le descend de deux lignes.
+ENTETE_XPDF = (
+    '             COMPTE RENDU DE GESTION                                 Monsieur XERRI Florent\n'
+    '                                                                     37 Chemin DE MORAND\n'
+    '      Agence: A3 - REGIE EMERY - VIENNE                              38670 CHASSE-SUR-RHONE\n'
+    '      Période du 01/07/2026 au 31/07/2026                              FRANCE\n'
+    '      Identifiant extratnet : 1105402916\n'
+    '      Mot de passe: 1101\n'
+)
+ENTETE_POPPLER = (
+    '             COMPTE RENDU DE GESTION\n'
+    '\n'
+    '\n'
+    '       Agence: A3 - REGIE EMERY - VIENNE\n'
+    '                                                                                           Monsieur XERRI Florent\n'
+    '       Période du 01/07/2026 au 31/07/2026                                                 37 Chemin DE MORAND\n'
+    '                                                                                           38670 CHASSE-SUR-RHONE\n'
+    '       Identifiant extratnet : 1105402916                                                  FRANCE\n'
+    '       Mot de passe: 1101\n'
+)
+# Colonnes APLATIES : aucun outil ne rend cela aujourd'hui, mais un OCR le fera.
+ENTETE_APLATI = (
+    'COMPTE RENDU DE GESTION\n'
+    'Agence: A3 - REGIE EMERY - VIENNE Période du 01/07/2026 au 31/07/2026 '
+    'Identifiant extratnet : 1105402916 Mot de passe: 1101\n'
+    'Monsieur XERRI Florent 37 Chemin DE MORAND 38670 CHASSE-SUR-RHONE FRANCE\n'
+)
+
+
+@cas('le nom du propriétaire est le même sous les deux « pdftotext »',
+     'Xpdf 4.00 et poppler 25.07 portent le MÊME nom de commande et ne rendent pas la même '
+     'page. Le moteur lisait la fin de la ligne du titre : juste avec Xpdf, faux avec poppler '
+     '— et c’est poppler qu’Apache utilise. 288 CRG sur 325 ont pris « Agence: A3 - REGIE '
+     'EMERY - VIENNE » pour un nom de propriétaire, le 02/09/2026, sans un seul signal.')
+def _proprietaire_deux_rendus():
+    a = P0.identifier(ENTETE_XPDF, 'septeo_spi')['proprietaire']
+    b = P0.identifier(ENTETE_POPPLER, 'septeo_spi')['proprietaire']
+    assert a == 'Monsieur XERRI Florent', 'rendu Xpdf : %r' % a
+    assert b == 'Monsieur XERRI Florent', 'rendu poppler : %r' % b
+
+
+@cas('REFUS — un champ de l’en-tête n’est jamais un nom de propriétaire',
+     'Sur des colonnes aplaties, ce qui suit le nom de l’agence est le reste de l’en-tête. Le '
+     'moteur l’enregistrait tel quel : « Agence: … Période du … Mot de passe: 1101 » partait '
+     'en base comme identité de propriétaire. `ABSENCE DE LECTURE ≠ LECTURE APPROXIMATIVE`.')
+def _proprietaire_jamais_un_champ():
+    lu = P0.identifier(ENTETE_APLATI, 'septeo_spi')['proprietaire']
+    assert lu is None or not any(
+        marqueur in lu for marqueur in ('Agence:', 'Période du', 'Mot de passe',
+                                        'Identifiant')), 'lu : %r' % lu
+
+
+@cas('REFUS — l’agence reste l’agence sous les deux rendus',
+     'Le nom du propriétaire et celui de l’agence se lisent dans le même en-tête : corriger '
+     'l’un en abîmant l’autre ferait deux champs faux au lieu d’un.')
+def _agence_stable():
+    for nom, entete in (('xpdf', ENTETE_XPDF), ('poppler', ENTETE_POPPLER),
+                        ('aplati', ENTETE_APLATI)):
+        ag = P0.identifier(entete, 'septeo_spi')['agence']
+        assert ag == 'A3 - REGIE EMERY - VIENNE', '%s : %r' % (nom, ag)
+
+
+@cas('qualifier les collisions par LOT rend exactement ce que la paire à paire rendait',
+     'Regrouper les 18 qualifications en un seul appel a fait tomber la phase 0 de 118 s à '
+     '~21 s. Le danger n’est pas la règle — elle n’a pas bougé — mais l’APPARIEMENT : un '
+     'verdict rendu dans le désordre collerait la qualification d’un CRG sur un autre, et '
+     'rien à l’écran ne le dirait.')
+def _collisions_par_lot():
+    import json
+    import tempfile
+    import crg_integration_doublons as D
+
+    # Quatre « pages » synthétiques : deux situations identiques, deux différentes.
+    pages = [
+        'Loyer 1 000,00 Charges 100,00 Total 1 100,00 Solde 250,00 Report 12,00',
+        'Loyer 1 000,00 Charges 100,00 Total 1 100,00 Solde 250,00 Report 12,00',
+        'Loyer 2 000,00 Charges 300,00 Total 2 300,00 Solde 999,00 Report 44,00',
+        'Loyer 7 777,00 Charges 888,00 Total 8 665,00 Solde 111,00 Report 55,00',
+    ]
+    ancien = D.lire_pages
+    D.lire_pages = lambda chemin: (pages, 'fixture')
+    try:
+        paires = [{'id': 101, 'ad': 1, 'af': 1, 'bd': 2, 'bf': 2},
+                  {'id': 202, 'ad': 3, 'af': 3, 'bd': 4, 'bf': 4}]
+        chemin = tempfile.mktemp(suffix='.json')
+        with io.open(chemin, 'w', encoding='utf-8') as fh:
+            json.dump(paires, fh)
+
+        sortie = []
+        vrai_write = sys.stdout.write
+        sys.stdout.write = sortie.append
+        try:
+            D.main.__globals__['sys'].argv = ['x', 'faux.pdf', chemin]
+            D.main()
+        finally:
+            sys.stdout.write = vrai_write
+        lot = {v['id']: v for v in json.loads(''.join(sortie))}
+
+        # L'oracle : la règle appelée directement, paire par paire.
+        for p in paires:
+            attendu = D.qualifier_paire(pages[p['ad'] - 1:p['af']], pages[p['bd'] - 1:p['bf']])
+            rendu = lot[p['id']]
+            assert rendu['verdict'] == attendu['verdict'], \
+                'paire %s : lot=%s, paire à paire=%s' % (p['id'], rendu['verdict'],
+                                                         attendu['verdict'])
+            assert rendu['motif'] == attendu['motif'], 'paire %s : motif divergent' % p['id']
+        # et l'appariement lui-même : les deux verdicts ne sont pas les mêmes, donc un
+        # échange passerait inaperçu si on ne l'exigeait pas explicitement.
+        assert lot[101]['verdict'] == 'A' and lot[202]['verdict'] == 'B', \
+            'verdicts appariés à l’envers : %s' % {k: v['verdict'] for k, v in lot.items()}
+    finally:
+        D.lire_pages = ancien
+
+
+@cas('les phases 0 et 3 lisent avec LE MÊME binaire',
+     'Chacune appelait `shutil.which(\'pdftotext\')`, qui rend le premier du PATH. Selon '
+     'qu’on partait de la page ou du harnais, ce n’était pas le même programme : la phase 2 '
+     'rendait deux empreintes différentes pour un document identique, et le sceau accusait '
+     'le moteur d’une divergence qui venait du PATH.')
+def _un_seul_lecteur():
+    import crg_integration_phase3 as P3
+    assert P3.pdftotext_exe is P0.pdftotext_exe, 'deux résolutions de binaire coexistent'
+    exe, etiquette, _t = P0.pdftotext_exe()
+    if exe is None:
+        return                      # aucun binaire : c'est un autre défaut, pas celui-ci
+    assert etiquette and etiquette != 'pdftotext', \
+        'le lecteur ne dit pas quel produit il est : %r' % etiquette
+
+
+@cas('REFUS — le mode `-table` n’est jamais supposé',
+     'Xpdf 4.00 ne connaît pas `-table`. La phase 3 le lançait quand même et retombait en '
+     'silence sur `-layout` — 307 rattachements au lieu de 1 022, sans un mot à l’écran.')
+def _table_verifie():
+    exe, etiquette, sait_table = P0.pdftotext_exe()
+    if exe is None:
+        return
+    assert sait_table == ('poppler' in (etiquette or '').lower()), \
+        'la capacité `-table` est annoncée sans rapport avec le produit : %r' % etiquette
 
 
 def principal():

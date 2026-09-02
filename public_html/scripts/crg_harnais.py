@@ -12,6 +12,7 @@ Cinq suites, et aucune ne remplace les autres :
     RAPPROCHEMENT MBI      les règles d'appariement, et surtout ce qu'elles refusent.
     ÉCRAN ET ARBITRAGE     la page se rend, son JS se charge, et on peut répondre.
     MULTI-CORPUS           une règle d'un éditeur ne mord pas sur un autre.
+    ANNULATION             un import annulé ne laisse RIEN — le PDF redevient inconnu.
 
 ⚠️ LE VERT NE SE NÉGOCIE PAS EN ABAISSANT LES EXIGENCES. Si une suite passe au rouge, c'est le
    défaut qu'on corrige, pas le test. Et un harnais entièrement vert ne prouve rien tant que
@@ -52,6 +53,10 @@ SUITES = [
      r'RAPPROCHEMENT\s*:\s*(\d+)/(\d+)'),
     ('MULTI-CORPUS', [PYTHON, os.path.join(RACINE, 'tests_crg', 'crgi_multicorpus.py')],
      r'MULTI-CORPUS\s*:\s*(\d+)/(\d+)'),
+    ('ANNULATION / RÉVERSIBILITÉ',
+     [PHP, '-d', 'max_execution_time=0',
+      os.path.join(RACINE, 'tests_crg', 'crgi_annulation.php')],
+     r'ANNULATION\s*:\s*(\d+)/(\d+)'),
     ('REPLAY / IDEMPOTENCE',
      [PHP, '-d', 'max_execution_time=0', os.path.join(RACINE, 'tests_crg', 'crgi_replay.php')],
      r'REPLAY\s*:\s*(\d+)/(\d+)'),

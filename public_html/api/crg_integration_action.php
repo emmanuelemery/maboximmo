@@ -31,7 +31,20 @@ const CRGI_RACINES = ['C:/tmp', 'D:/', '/tmp', '/var/crg'];
 function repondre(array $data, int $code = 200): never
 {
     http_response_code($code);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+    // ⚠️ `json_encode` REND `false` SUR DE L'UTF-8 MALFORMÉ, ET `echo false` N'ÉCRIT RIEN. Un
+    //    client qui poste un accent dans un autre encodage recevait donc un 500 AU CORPS VIDE :
+    //    la page affichait « Réponse illisible du serveur », et il n'y avait rien à lire nulle
+    //    part — pas même dans un log. Exactement le silence que cet endpoint promet d'éviter.
+    if ($json === false) {
+        $json = json_encode(
+            $data,
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        ) ?: json_encode(['ok' => false, 'erreur' =>
+            'DONNÉES ILLISIBLES — la requête contient des caractères qui ne sont pas de '
+            . 'l’UTF-8. Le serveur n’a rien écrit. Vérifier l’encodage de l’appelant.']);
+    }
+    echo $json;
     exit;
 }
 

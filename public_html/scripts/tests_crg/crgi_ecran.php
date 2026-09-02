@@ -19,7 +19,11 @@
  */
 declare(strict_types=1);
 
-$importId = (int)($argv[1] ?? 5);
+// ⚠️ PAS D'IMPORT ÉCRIT EN DUR — voir `crgi_coherence.php` : un import annulé rendait la
+//    suite muette et verte à la fois. Il faut donc la base AVANT de rendre la page, puisque
+//    c'est `$_GET['import']` qui décide de ce qu'elle affiche.
+require_once __DIR__ . '/../../inc/crg_integration.php';
+$importId = (int)($argv[1] ?? crgi_import_courant($GLOBALS['pdo']));
 $ok = 0;
 $ko = [];
 
@@ -44,7 +48,11 @@ function exiger(bool $c, string $m): void
 }
 
 // ── on rend la page une fois, sous une session forgée ─────────────────────────────────────
-session_start();
+// ⚠️ LE BOOTSTRAP A DÉJÀ OUVERT LA SESSION. Rappeler `session_start()` n'échoue pas, mais
+//    émet un avis dans la sortie du harnais — et un harnais bruyant finit par ne plus se lire.
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 $_SESSION['user_id'] = $_SESSION['id_user'] = 8;
 $_SESSION['role'] = $_SESSION['id_role'] = 1;
 $_SESSION['id_societe'] = 1;

@@ -21,6 +21,12 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../../inc/crg_integration.php';
 
+// ⚠️ PAS D'IMPORT ÉCRIT EN DUR. Le `5` était recopié onze fois dans ce fichier ; le jour où
+//    l'import 5 a été annulé, trois contrôles ont échoué sur « aucun groupe d'arbitrage » —
+//    ils cherchaient les décisions d'un import qui n'existait plus.
+$pdo = $GLOBALS['pdo'];
+$IMPORT = (int)($argv[1] ?? crgi_import_courant($pdo));
+
 $ok = 0;
 $ko = [];
 
@@ -219,14 +225,14 @@ essai(
     'Un arbitrage qu’on ne peut pas enregistrer n’est pas un arbitrage. Et une décision doit '
     . 'pouvoir se changer : on ne veut pas empiler des avis contradictoires sur le même objet.',
     function () {
-        global $pdo;
-        $g = crgi_arbitrages($pdo, 5);
+        global $pdo, $IMPORT;
+        $g = crgi_arbitrages($pdo, $IMPORT);
         exiger(!empty($g), 'aucun groupe d’arbitrage — le test ne prouverait rien');
         $groupe = $g[0];
         $cible = (int)$groupe['lignes'][0]['cible_id'];
         $choix = array_key_first($groupe['choix']);
-        crgi_arbitrer($pdo, 5, $groupe['cible'], $cible, $choix, 'précision d’essai', 8);
-        $relu = crgi_arbitrages($pdo, 5)[0];
+        crgi_arbitrer($pdo, $IMPORT, $groupe['cible'], $cible, $choix, 'précision d’essai', 8);
+        $relu = crgi_arbitrages($pdo, $IMPORT)[0];
         $trouve = null;
         foreach ($relu['lignes'] as $l) {
             if ((int)$l['cible_id'] === $cible) {
@@ -238,8 +244,8 @@ essai(
         exiger($trouve['precision_h'] === 'précision d’essai', 'la précision n’est pas conservée');
         exiger((int)$relu['tranches'] >= 1, 'le compteur de décisions ne bouge pas');
         // retirer sa décision EST une décision
-        crgi_arbitrer($pdo, 5, $groupe['cible'], $cible, '', null, 8);
-        $apres = crgi_arbitrages($pdo, 5)[0];
+        crgi_arbitrer($pdo, $IMPORT, $groupe['cible'], $cible, '', null, 8);
+        $apres = crgi_arbitrages($pdo, $IMPORT)[0];
         exiger((int)$apres['tranches'] === 0, 'la décision retirée subsiste');
     }
 );
@@ -249,10 +255,10 @@ essai(
     'Une décision ne se pose que sur une question réellement ouverte : sinon elle porterait '
     . 'sur un objet que le document démontre déjà.',
     function () {
-        global $pdo;
+        global $pdo, $IMPORT;
         $leve = false;
         try {
-            crgi_arbitrer($pdo, 5, 'MOUVEMENT', 1, 'Créer le mouvement', null, 8);
+            crgi_arbitrer($pdo, $IMPORT, 'MOUVEMENT', 1, 'Créer le mouvement', null, 8);
         } catch (Throwable $e) {
             $leve = str_contains($e->getMessage(), 'PAS EN ARBITRAGE');
         }
@@ -265,11 +271,11 @@ essai(
     'Accepter n’importe quel texte laisserait entrer une décision que l’intégration ne saurait '
     . 'pas exécuter. La précision libre est là pour ce que les choix fermés ne disent pas.',
     function () {
-        global $pdo;
-        $g = crgi_arbitrages($pdo, 5)[0];
+        global $pdo, $IMPORT;
+        $g = crgi_arbitrages($pdo, $IMPORT)[0];
         $leve = false;
         try {
-            crgi_arbitrer($pdo, 5, $g['cible'], (int)$g['lignes'][0]['cible_id'],
+            crgi_arbitrer($pdo, $IMPORT, $g['cible'], (int)$g['lignes'][0]['cible_id'],
                           'Faire ce que je veux', null, 8);
         } catch (Throwable $e) {
             $leve = str_contains($e->getMessage(), 'CHOIX INCONNU');
@@ -283,22 +289,22 @@ essai(
     'Décider n’est pas intégrer : la décision vit en staging, datée et signée, et c’est la '
     . 'phase d’intégration — non livrée — qui l’exécutera.',
     function () {
-        global $pdo;
+        global $pdo, $IMPORT;
         $temoins = ['biens' => 1379, 'immeubles' => 1009, 'proprietaires' => 393,
                     'crg_ecritures' => 26711];
         $avant = [];
         foreach ($temoins as $t => $_a) {
             $avant[$t] = (int)$pdo->query("SELECT COUNT(*) FROM `{$t}`")->fetchColumn();
         }
-        $g = crgi_arbitrages($pdo, 5)[0];
+        $g = crgi_arbitrages($pdo, $IMPORT)[0];
         $cible = (int)$g['lignes'][0]['cible_id'];
-        crgi_arbitrer($pdo, 5, $g['cible'], $cible, array_key_first($g['choix']), null, 8);
+        crgi_arbitrer($pdo, $IMPORT, $g['cible'], $cible, array_key_first($g['choix']), null, 8);
         foreach ($temoins as $t => $attendu) {
             $n = (int)$pdo->query("SELECT COUNT(*) FROM `{$t}`")->fetchColumn();
             exiger($n === $avant[$t] && $n === $attendu,
                    "{$t} a bougé après un arbitrage : {$n} au lieu de {$avant[$t]}");
         }
-        crgi_arbitrer($pdo, 5, $g['cible'], $cible, '', null, 8);
+        crgi_arbitrer($pdo, $IMPORT, $g['cible'], $cible, '', null, 8);
     }
 );
 

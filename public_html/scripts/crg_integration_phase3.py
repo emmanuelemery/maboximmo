@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, __file__.rsplit('\\', 1)[0] if '\\' in __file__ else '.')
 from crg_integration_phase0 import lire_pages as _lire_layout   # noqa: E402
+from crg_integration_phase0 import pdftotext_exe                # noqa: E402
 
 
 def lire_pages(chemin):
@@ -42,8 +43,12 @@ def lire_pages(chemin):
     ⚠️ ET ON NE CHANGE PAS LE MODE DE LA PHASE 0. Son découpage est scellé ; le relire
        autrement en périmerait la validation. La phase 3 lit pour son propre besoin.
     """
-    exe = shutil.which('pdftotext')
-    if exe:
+    # ⚠️ LE MÊME BINAIRE QUE LA PHASE 0, CHOISI SUR SA CAPACITÉ. `shutil.which` rendait le
+    #    premier `pdftotext` du PATH : sous le harnais c'était Xpdf 4.00, qui ne connaît pas
+    #    `-table` — le repli `-layout` se déclenchait EN SILENCE et la phase 2 rendait une
+    #    autre empreinte que depuis la page. Le sceau le voyait ; personne ne savait pourquoi.
+    exe, _etiquette, sait_table = pdftotext_exe()
+    if exe and sait_table:
         r = subprocess.run([exe, '-table', '-enc', 'UTF-8', chemin, '-'],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if r.returncode == 0:

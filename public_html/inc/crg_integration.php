@@ -179,7 +179,14 @@ function crgi_phase0(PDO $pdo, int $importId): array
          VALUES (?,?,?,?,?,NOW())'
     );
 
-    $bilan = ['pieces' => 0, 'pages' => 0, 'affectees' => 0, 'crgs' => 0, 'illisibles' => []];
+    // ⚠️ L'OUTIL DE LECTURE FAIT PARTIE DU RÉSULTAT. Le moteur le rend depuis toujours ; on le
+    //    jetait. Le 02/09/2026, Apache n'avait pas `pdftotext` sur son PATH : la lecture est
+    //    tombée sur le repli pdfplumber, qui APLATIT LES COLONNES. Le découpage est resté
+    //    parfait — 325 CRG, 0 écart — mais 288 propriétaires sur 325 ont pris l'en-tête de
+    //    l'agence pour un nom, et l'écran affichait « ANALYSÉE · à valider » sans un mot.
+    //    Une lecture dégradée qui ne se voit pas est pire qu'une lecture impossible.
+    $bilan = ['pieces' => 0, 'pages' => 0, 'affectees' => 0, 'crgs' => 0, 'illisibles' => [],
+              'lecteurs' => [], 'lecture_degradee' => null];
     foreach ($pieces as $p) {
         $res = crgi_lancer_phase0((string)$p['chemin']);
         if (isset($res['erreur'])) {
@@ -231,8 +238,33 @@ function crgi_phase0(PDO $pdo, int $importId): array
         $bilan['pages'] += (int)$res['stats']['pages_analysees'];
         $bilan['affectees'] += (int)$res['stats']['pages_affectees'];
         $bilan['crgs'] += (int)$res['stats']['crg_detectes'];
+        $bilan['lecteurs'][(string)($res['outil'] ?? 'inconnu')] = true;
     }
     crgi_recompter($pdo, $importId);
+
+    // ⚠️ SEUL `pdftotext -layout` PRÉSERVE LES COLONNES, et le nom du propriétaire est
+    //    précisément dans la colonne de droite. Tout autre lecteur donne un document
+    //    LISIBLE MAIS APLATI : les phases suivantes tourneront, les chiffres seront justes,
+    //    et les identités seront muettes. On le dit ici, en toutes lettres, plutôt que de
+    //    laisser Emmanuel le découvrir au rapprochement.
+    // ⚠️ « pdftotext » NE DÉSIGNE PAS UN PROGRAMME, MAIS AU MOINS DEUX. Poppler et Xpdf
+    //    portent ce nom, ne rendent pas les colonnes de la même façon, et seul poppler
+    //    connaît `-table` — dont la phase 3 tire ses rattachements. Tant que l'étiquette
+    //    n'était pas remontée, la même analyse lancée depuis la page et depuis le harnais
+    //    donnait deux empreintes, et personne ne pouvait dire pourquoi.
+    $degrades = array_filter(
+        array_keys($bilan['lecteurs']),
+        static fn($l) => stripos($l, 'poppler') === false
+    );
+    if ($degrades) {
+        $bilan['lecture_degradee'] =
+            'LECTURE DÉGRADÉE — ' . implode(', ', $degrades) . '. Ce serveur n’expose pas '
+            . '`pdftotext` de poppler : le lecteur employé ne restitue pas les colonnes de la '
+            . 'même façon et ignore le mode `-table`. Le découpage, les périodes et les '
+            . 'comptes restent justes ; l’IDENTIFICATION (nom du propriétaire) et les '
+            . 'RATTACHEMENTS de la phase 3 sont dégradés. Installer poppler, ou désigner le '
+            . 'binaire par la variable `CRG_PDFTOTEXT`, puis relancer la phase 0.';
+    }
 
     if ($bilan['pieces'] === 0) {
         crgi_marquer_phase($pdo, $importId, 0, 'BLOQUEE',
@@ -250,7 +282,9 @@ function crgi_phase0(PDO $pdo, int $importId): array
     //    donc invisibles pour toutes les phases suivantes. Une étape qui ne tourne qu'à la
     //    main n'existe pas : elle appartient au moteur.
     crgi_qualifier_collisions($pdo, $importId);
-    crgi_marquer_phase($pdo, $importId, 0, 'A VALIDER', null);
+    // Le message de la phase porte l'alerte de lecture dégradée quand il y en a une : c'est
+    // lui que l'écran affiche sous le bilan de la phase 0.
+    crgi_marquer_phase($pdo, $importId, 0, 'A VALIDER', $bilan['lecture_degradee']);
     $pdo->prepare("UPDATE crgi_import SET statut = 'A VALIDER' WHERE id = ? AND statut = 'ANALYSE EN COURS'")
         ->execute([$importId]);
     return $bilan;
@@ -303,9 +337,15 @@ function crgi_marquer_phase(PDO $pdo, int $importId, int $phase, string $statut,
  */
 function crgi_empreinte_phase0(PDO $pdo, int $importId): string
 {
+    // ⚠️ LE NOM DU PROPRIÉTAIRE FAIT PARTIE DE L'IDENTIFICATION, DONC DU SCEAU. Il n'y était
+    //    pas : le 02/09/2026, 288 noms faux sont devenus 288 noms justes sans que l'empreinte
+    //    de la phase 0 bouge d'un caractère. Une phase validée sur une identification fausse
+    //    serait restée « VALIDÉE » après correction, et l'inverse tout autant. La phase 0
+    //    répond « quel CRG, quelle agence, quelle période, quel compte, QUI » : son sceau
+    //    doit couvrir les cinq réponses, pas quatre.
     $st = $pdo->prepare(
         'SELECT piece_id, page_debut, page_fin, COALESCE(agence,""), COALESCE(compte,""),
-                COALESCE(periode_cle,""), certitude
+                COALESCE(periode_cle,""), certitude, COALESCE(proprietaire,"")
            FROM crgi_crg WHERE import_id = ? ORDER BY piece_id, page_debut'
     );
     $st->execute([$importId]);
@@ -402,6 +442,48 @@ function crgi_valider_phase(PDO $pdo, int $importId, int $phase, int $userId): v
 }
 
 /**
+ * LES TABLES DE STAGING QUI PORTENT UN IMPORT — DÉDUITES DU SCHÉMA, JAMAIS ÉNUMÉRÉES.
+ *
+ * ⚠️ UNE LISTE ÉCRITE À LA MAIN NE SURVIT PAS À LA MIGRATION SUIVANTE. `crgi_annuler` en
+ *    tenait une, arrêtée aux quatre tables du premier jour ; six migrations ont ajouté
+ *    `crgi_immeuble`, `crgi_lot`, `crgi_occupation`, `crgi_mouvement`, `crgi_plan` et
+ *    `crgi_arbitrage` sans que personne ne pense à l'allonger. Un import « annulé » laissait
+ *    donc derrière lui des milliers de lignes d'analyse — et l'écran affichait ANNULÉ.
+ *
+ * ⚠️ IL N'Y A AUCUNE CLÉ ÉTRANGÈRE ENTRE LES TABLES `crgi_*` : rien ne cascade, rien ne
+ *    rattrape un oubli. La seule règle sûre est « toute table `crgi_` qui porte `import_id`
+ *    appartient à un import et part avec lui ». `crgi_import` n'en porte pas : elle survit,
+ *    c'est elle qui garde la trace de l'annulation.
+ */
+function crgi_tables_de_staging(PDO $pdo): array
+{
+    $tables = $pdo->query(
+        "SELECT TABLE_NAME
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND COLUMN_NAME  = 'import_id'
+            AND TABLE_NAME LIKE 'crgi\\_%'
+          ORDER BY TABLE_NAME"
+    )->fetchAll(PDO::FETCH_COLUMN);
+
+    return array_values(array_filter($tables, static fn($t) => $t !== 'crgi_import'));
+}
+
+/**
+ * L'IMPORT SUR LEQUEL LES TESTS TRAVAILLENT, QUAND ON NE LEUR EN DÉSIGNE AUCUN.
+ *
+ * ⚠️ LES SUITES ÉCRIVAIENT `?? 5` EN DUR. Le jour où l'import 5 a été annulé, elles ont
+ *    continué à s'exécuter — sur un import vide, donc sans rien contrôler du tout. Un
+ *    harnais qui verdit sur du néant est pire qu'un harnais rouge.
+ */
+function crgi_import_courant(PDO $pdo): int
+{
+    return (int)$pdo->query(
+        "SELECT id FROM crgi_import WHERE statut <> 'ANNULE' ORDER BY id DESC LIMIT 1"
+    )->fetchColumn();
+}
+
+/**
  * ANNULER L'IMPORT — la promesse de réversibilité, tenue.
  *
  * ⚠️ ON NE SUPPRIME PAS LA LIGNE D'IMPORT. Elle passe à `ANNULE` avec sa date, son auteur et
@@ -410,6 +492,10 @@ function crgi_valider_phase(PDO $pdo, int $importId, int $phase, int $userId): v
  *
  * ⚠️ ET UN IMPORT DÉJÀ INTÉGRÉ NE S'ANNULE PAS ICI. À ce stade des écritures métier existent :
  *    les défaire est une autre opération, qui ne se déclenche pas d'un bouton de la même page.
+ *
+ * ⚠️ ANNULER DOIT RENDRE LE PDF INCONNU. Si une seule table d'analyse survit, le dépôt suivant
+ *    du même document ne repart pas de zéro : il repart d'un demi-souvenir. C'est pour cela
+ *    que le balayage est exhaustif et déduit du schéma, et non recopié dans cette fonction.
  */
 function crgi_annuler(PDO $pdo, int $importId, int $userId, string $motif): void
 {
@@ -419,10 +505,8 @@ function crgi_annuler(PDO $pdo, int $importId, int $userId, string $motif): void
     if ($statut === 'INTEGRE') {
         throw new RuntimeException("IMPORT DÉJÀ INTÉGRÉ — l'annulation ne se fait pas ici.");
     }
-    $pdo->prepare('DELETE FROM crgi_page WHERE import_id = ?')->execute([$importId]);
-    $pdo->prepare('DELETE FROM crgi_crg  WHERE import_id = ?')->execute([$importId]);
-    $pdo->prepare('DELETE FROM crgi_phase WHERE import_id = ?')->execute([$importId]);
 
+    // ⚠️ LES FICHIERS SE LISENT AVANT D'EFFACER `crgi_piece` : c'est elle qui dit où ils sont.
     $pieces = $pdo->prepare('SELECT chemin FROM crgi_piece WHERE import_id = ?');
     $pieces->execute([$importId]);
     foreach ($pieces->fetchAll(PDO::FETCH_COLUMN) as $chemin) {
@@ -435,7 +519,11 @@ function crgi_annuler(PDO $pdo, int $importId, int $userId, string $motif): void
             @unlink($reel);
         }
     }
-    $pdo->prepare('DELETE FROM crgi_piece WHERE import_id = ?')->execute([$importId]);
+
+    // Toute trace de l'analyse part, table par table, sans en oublier une seule.
+    foreach (crgi_tables_de_staging($pdo) as $table) {
+        $pdo->prepare("DELETE FROM `$table` WHERE import_id = ?")->execute([$importId]);
+    }
     @rmdir(crgi_dossier($importId));
 
     $pdo->prepare(
@@ -648,14 +736,45 @@ function crgi_qualifier_collisions(PDO $pdo, int $importId): array
         'UPDATE crgi_crg SET doublon_qualification = ?, doublon_qualif_motif = ?,
                 doublon_statut = ?, doublon_de = ? WHERE id = ?'
     );
+    // ⚠️ UNE SEULE LECTURE DU DOCUMENT PAR PIÈCE (`INTEG-PERF-01`, comme la phase 4). Un
+    //    processus Python par paire relisait les 906 pages du PDF de 616 Mo pour n'en
+    //    découper que deux extraits : 18 paires × 5,7 s = 103 s des 118 s de la phase 0,
+    //    pour 6 s de lecture utile. La règle de qualification, elle, n'a pas changé — c'est
+    //    le même `qualifier_paire`, sur les mêmes pages, dans le même ordre.
     $bilan = ['A' => 0, 'B' => 0, 'C' => 0];
+    $verdicts = [];
+    $parPiece = [];
     foreach ($paires as $p) {
-        $cmd = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
-             . escapeshellarg((string)$p['chemin']) . ' '
-             . (int)$p['page_debut'] . ' ' . (int)$p['page_fin'] . ' '
-             . (int)$p['rd'] . ' ' . (int)$p['rf'];
-        $sortie = @shell_exec($cmd . ' 2>&1');
-        $r = json_decode(trim((string)$sortie), true);
+        $parPiece[(string)$p['chemin']][] = [
+            'id' => (int)$p['id'],
+            'ad' => (int)$p['page_debut'], 'af' => (int)$p['page_fin'],
+            'bd' => (int)$p['rd'], 'bf' => (int)$p['rf'],
+        ];
+    }
+    foreach ($parPiece as $chemin => $lot) {
+        $fichier = tempnam(sys_get_temp_dir(), 'crgid_');
+        file_put_contents($fichier, json_encode($lot));
+        $sortie = @shell_exec(
+            escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
+            . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier) . ' 2>&1'
+        );
+        @unlink($fichier);
+        foreach ((array)json_decode(trim((string)$sortie), true) as $v) {
+            if (is_array($v) && isset($v['id'], $v['verdict'])) {
+                $verdicts[(int)$v['id']] = $v;
+            }
+        }
+        // ⚠️ ON GARDE LA SORTIE BRUTE POUR LES PAIRES SANS VERDICT. Un moteur muet doit dire
+        //    pourquoi il l'est, sinon le cas C devient un cul-de-sac de diagnostic.
+        foreach ($lot as $l) {
+            if (!isset($verdicts[$l['id']])) {
+                $verdicts[$l['id']] = ['muet' => mb_substr(trim((string)$sortie), 0, 200)];
+            }
+        }
+    }
+    foreach ($paires as $p) {
+        $r = $verdicts[(int)$p['id']] ?? null;
+        $sortie = $r['muet'] ?? '';
         if (!is_array($r) || !isset($r['verdict'])) {
             // ⚠️ UN MOTEUR MUET NE VAUT PAS UN VERDICT. On laisse la ligne à examiner plutôt
             //    que de la classer par défaut — un classement par défaut serait une décision.
@@ -2123,13 +2242,26 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
         'Lot que MBI ne porte pas encore. `UNE RÉFÉRENCE LOCALE N’EST JAMAIS UNE IDENTITÉ '
         . 'GLOBALE` : il serait créé sous `compte × référence`.',
         'phase 2 · confrontation · INTEG-IDENT-03');
-    $poser('LOTS', 'A ARBITRER', max(0, $lotsDemontres - $lotsPhase2), 'lot',
-        'Lots que les phases 3 et 4 DÉMONTRENT (' . $lotsDemontres . ' identités) et que la '
-        . 'confrontation de la phase 2 n’a jamais vus (' . $lotsPhase2 . ') : son extracteur '
-        . 'est antérieur aux corrections « Suite » et aux références courtes. Ils ne sont ni '
-        . 'inchangés ni nouveaux — ils ne sont PAS CONFRONTÉS.',
+    // ⚠️ LE MOTIF DOIT DIRE CE QUE LE NOMBRE DIT. Il annonçait « DÉMONTRENT (124) … n'a jamais
+    //    vus (124) » alors que le second nombre était ce que la phase 2 AVAIT vu : sur un
+    //    écart nul, l'écran affichait « 0 lot » sous une phrase qui en accusait 124. Une page
+    //    qui se contredit elle-même ne se relit pas, elle se croit sur parole.
+    $nonConfrontes = max(0, $lotsDemontres - $lotsPhase2);
+    $poser('LOTS', 'A ARBITRER', $nonConfrontes, 'lot',
+        $nonConfrontes === 0
+            ? 'AUCUN. Les phases 3 et 4 démontrent ' . $lotsDemontres . ' identités de lot, et '
+              . 'la confrontation de la phase 2 les a toutes vues (' . $lotsPhase2 . ') : rien '
+              . 'n’échappe au rapprochement.'
+            : 'Lots que les phases 3 et 4 DÉMONTRENT (' . $lotsDemontres . ' identités) et que '
+              . 'la confrontation de la phase 2 n’a pas vus — elle n’en a confronté que '
+              . $lotsPhase2 . ' : son extracteur est antérieur aux corrections « Suite » et aux '
+              . 'références courtes. Ils ne sont ni inchangés ni nouveaux — ils ne sont PAS '
+              . 'CONFRONTÉS.',
         'phase 3/4 × phase 2',
-        'Bloque la décision sur ces lots. Exige de rejouer la phase 2, donc de la revalider.');
+        $nonConfrontes === 0
+            ? null
+            : 'Bloque la décision sur ces lots. Exige de rejouer la phase 2, donc de la '
+              . 'revalider.');
     $poser('LOTS', 'ARCHIVER', 0, 'lot',
         'AUCUN. Un lot que ce dépôt ne mentionne pas n’est pas un lot vendu.',
         'doctrine · INTEG-CONFRONT-03');

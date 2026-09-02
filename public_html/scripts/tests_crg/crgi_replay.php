@@ -23,7 +23,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../inc/crg_integration.php';
 
 $pdo = $GLOBALS['pdo'];
-$importId = (int)($argv[1] ?? 5);
+// ⚠️ PAS D'IMPORT ÉCRIT EN DUR — voir `crgi_coherence.php`.
+$importId = (int)($argv[1] ?? crgi_import_courant($pdo));
 $ok = 0;
 $ko = [];
 
@@ -89,6 +90,15 @@ foreach ($empreintes as $p => $emp) {
 
 // ── LE SCEAU DOIT VOIR CE QU'IL PRÉTEND COUVRIR ───────────────────────────────────────────
 $mutations = [
+    // ⚠️ LE NOM DU PROPRIÉTAIRE ÉTAIT HORS DU SCEAU DE LA PHASE 0. Le 02/09/2026, 288 CRG sur
+    //    325 portaient « Agence: A3 - REGIE EMERY - VIENNE » comme nom ; la correction en a
+    //    fait 72 noms justes — et l'empreinte de la phase 0 n'a pas bougé d'un caractère.
+    //    Une identification fausse pouvait donc rester scellée « VALIDÉE ».
+    [0, 'crgi_empreinte_phase0', 'le nom du propriétaire lu',
+     'UPDATE crgi_crg SET proprietaire = "AGENCE PRISE POUR UN NOM" WHERE id = :id',
+     'SELECT id, COALESCE(proprietaire, "") v FROM crgi_crg WHERE import_id = :i
+       ORDER BY id LIMIT 1',
+     'UPDATE crgi_crg SET proprietaire = :v WHERE id = :id'],
     [3, 'crgi_empreinte_phase3', 'le statut d’une occupation',
      'UPDATE crgi_occupation SET statut = "PARTI DEMONTRE" WHERE id = :id',
      'SELECT id, statut v FROM crgi_occupation WHERE import_id = :i ORDER BY id LIMIT 1',
