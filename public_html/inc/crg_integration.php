@@ -2775,3 +2775,164 @@ function crgi_compatibilite(string $chemin): array
     }
     return $r;
 }
+
+/**
+ * LES ARBITRAGES, REGROUPÉS PAR LA RÈGLE QUI LES PRODUIT.
+ *
+ * ⚠️ `DOUTE = ARBITRAGE TRAÇABLE + ON CONTINUE.` Une incertitude locale ne doit jamais arrêter
+ *    tout le corpus. Mais un arbitrage n'est utile que s'il se DÉCIDE : posé ligne par ligne,
+ *    il devient une liste de 86 questions dispersées que personne ne tranchera.
+ *
+ * ⚠️ ON REGROUPE PAR RÈGLE, PAS PAR OBJET. Trente-trois immeubles à arbitrer, c'est en réalité
+ *    UNE question — « quand plusieurs immeubles de MBI portent le même nom et le même code
+ *    postal, lequel ? » — posée trente-trois fois. Chaque groupe porte donc ses choix FERMÉS
+ *    et l'impact exact de chacun sur l'intégration.
+ *
+ * ⚠️ ET AUCUN CHOIX NE S'APPLIQUE TOUT SEUL. Cette fonction DÉCRIT ce qu'il y a à décider ;
+ *    elle n'écrit rien et ne présélectionne rien.
+ */
+function crgi_arbitrages(PDO $pdo, int $importId): array
+{
+    $groupes = [];
+    $q = function (string $sql) use ($pdo, $importId) {
+        $st = $pdo->prepare($sql);
+        $st->execute([$importId]);
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    };
+
+    // ── PATRIMOINE : plusieurs immeubles MBI portent le même nom ──────────────────────────
+    $imm = $q(
+        'SELECT COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal)) cle, i.nom, i.code_postal,
+                i.ville, MIN(i.page) page, LEFT(MIN(i.motif), 220) motif, c.compte
+           FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
+          WHERE i.import_id = ? AND i.statut = "A ARBITRER"
+          GROUP BY cle, i.nom, i.code_postal, i.ville, c.compte'
+    );
+    if ($imm) {
+        $groupes[] = [
+            'famille'  => 'IMMEUBLES',
+            'question' => 'Plusieurs immeubles de MBI portent le même nom et le même code '
+                        . 'postal. Lequel le CRG désigne-t-il ?',
+            'regle'    => '`AUCUN RAPPROCHEMENT APPROXIMATIF NE CRÉE UNE IDENTITÉ` — le moteur '
+                        . 'ne tranche pas entre deux homonymes.',
+            'choix'    => [
+                'Désigner l’immeuble MBI existant' => 'le CRG s’y rattache ; aucun immeuble créé.',
+                'Créer un immeuble distinct'       => 'MBI porte alors un homonyme de plus, '
+                                                    . 'assumé.',
+                'Laisser en attente'               => 'ses lots restent non rattachés ; leurs '
+                                                    . 'occupations et leurs montants, eux, '
+                                                    . 'restent intégrables.',
+            ],
+            'impact'   => 'Bloque la création ou la mise à jour de CET immeuble et le '
+                        . 'rattachement de ses lots. N’empêche ni les occupations ni l’argent.',
+            'lignes'   => $imm,
+        ];
+    }
+
+    // ── OCCUPATION : ce que la suite des périodes ne démontre pas ─────────────────────────
+    $familles = [
+        ['une seule période',
+         'Le lot n’apparaît qu’à UNE période du dépôt : la suite ne démontre ni maintien, ni '
+         . 'entrée, ni départ.',
+         '`ABSENCE ≠ DÉPART DÉMONTRÉ` — une seule photographie ne fait pas une chronologie.',
+         ['Considérer l’occupant en place'  => 'l’occupation est écrite telle que lue.',
+          'Attendre un dépôt complémentaire' => 'rien n’est écrit pour ce lot.']],
+        ['Aucune ligne',
+         'Aucune ligne « Locataire: » n’est imprimée sur cette période : le document ne dit '
+         . 'rien de l’occupation.',
+         '`UN LOT SANS LIGNE LOCATAIRE N’EST PAS UN LOT VACANT` — le vide ne se lit pas comme '
+         . 'un départ.',
+         ['Déclarer le lot vacant'   => 'une vacance est écrite, que le document ne démontre pas.',
+          'Laisser l’occupation en attente' => 'le lot et son argent restent intégrables, sans '
+                                             . 'occupant.']],
+        ['Dernière période',
+         'Le lot cesse d’apparaître alors que son compte continue d’être rendu.',
+         '`ABSENCE ≠ DÉPART DÉMONTRÉ` — le CRG suivant peut simplement ne pas avoir été déposé.',
+         ['Clôturer l’occupation' => 'un départ est écrit sans que le document l’ait dit.',
+          'Conserver l’occupation' => 'l’occupant reste en place jusqu’à preuve contraire.']],
+    ];
+    foreach ($familles as [$motifCle, $question, $regle, $choix]) {
+        $lignes = $q(
+            'SELECT c.agence, c.compte, o.lot_reference, o.periode_cle, o.date_arrete, o.page,
+                    COALESCE(o.locataire, "— aucun —") locataire, o.solde, o.solde_source
+               FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+              WHERE o.import_id = ? AND o.statut = "A ARBITRER"
+                AND o.statut_motif LIKE ' . $pdo->quote('%' . $motifCle . '%') . '
+              ORDER BY c.compte, o.lot_reference'
+        );
+        if ($lignes) {
+            $groupes[] = [
+                'famille'  => 'OCCUPATIONS',
+                'question' => $question,
+                'regle'    => $regle,
+                'choix'    => $choix,
+                'impact'   => 'Bloque l’écriture d’occupation de ces lots. N’empêche NI leur '
+                            . 'création, NI leurs mouvements financiers, démontrés au lot sans '
+                            . 'dépendre de l’occupant.',
+                'lignes'   => $lignes,
+            ];
+        }
+    }
+
+    // ── FINANCES : ce que le rapprochement n'a pas pu trancher ───────────────────────────
+    $fin = [
+        ['CONTRADICTION',
+         'MBI porte la MÊME ligne avec un AUTRE montant. Les deux ne peuvent pas être vrais.',
+         '`MÊME MONTANT ≠ MÊME ÉCRITURE` — et deux montants différents sur la même ligne sont '
+         . 'une contradiction, pas un doublon.',
+         ['Retenir le montant du CRG'  => 'l’écriture MBI serait corrigée à la valeur lue.',
+          'Retenir le montant de MBI'  => 'le montant du CRG est écarté, et tracé.',
+          'Laisser en attente'         => 'ce seul mouvement n’est pas écrit.']],
+        ['CANDIDAT NON DEMONTRABLE',
+         'Plusieurs écritures de MBI portent le même libellé et le même montant, ou MBI porte '
+         . 'la ligne sans son montant : rien ne dit LAQUELLE correspond.',
+         '`MÊME MONTANT ≠ MÊME ÉCRITURE` — les départager au montant serait le rapprochement '
+         . 'forcé qu’on s’interdit.',
+         ['Désigner l’écriture MBI'    => 'le mouvement est réputé déjà présent.',
+          'Créer le mouvement'         => 'MBI porte alors deux lignes très proches, assumées.',
+          'Laisser en attente'         => 'ce seul mouvement n’est pas écrit.']],
+    ];
+    foreach ($fin as [$verdict, $question, $regle, $choix]) {
+        $lignes = $q(
+            'SELECT c.agence, c.compte, m.lot_reference, m.periode_cle, m.date_arrete, m.page,
+                    m.libelle, m.colonne, m.montant, m.categorie, m.mbi_ecriture_id,
+                    LEFT(m.rappro_motif, 220) motif
+               FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+              WHERE m.import_id = ? AND m.rapprochement = ' . $pdo->quote($verdict) . '
+              ORDER BY c.compte, m.page'
+        );
+        if ($lignes) {
+            $groupes[] = [
+                'famille'  => 'MOUVEMENTS FINANCIERS',
+                'question' => $question,
+                'regle'    => $regle,
+                'choix'    => $choix,
+                'impact'   => 'Bloque l’écriture de ces seuls mouvements. N’empêche ni les '
+                            . 'objets, ni les mouvements démontrés nouveaux.',
+                'lignes'   => $lignes,
+            ];
+        }
+    }
+
+    // ── CE QUE LE DOCUMENT N'ATTRIBUE À RIEN ─────────────────────────────────────────────
+    $ind = $q(
+        'SELECT c.agence, c.compte, m.page, m.libelle, m.montant, m.x1, m.section
+           FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND m.categorie = "INDETERMINABLE" ORDER BY m.page'
+    );
+    if ($ind) {
+        $groupes[] = [
+            'famille'  => 'MOUVEMENTS FINANCIERS',
+            'question' => 'Le document imprime un montant qu’il n’attribue à aucune colonne ni '
+                        . 'section connue. Quelle est sa nature ?',
+            'regle'    => 'Aucune affectation « au plus proche » sans borne : un montant qu’on '
+                        . 'ne sait pas placer n’est jamais rangé dans la colonne d’à côté.',
+            'choix'    => ['Lui donner une nature' => 'le mouvement devient intégrable.',
+                           'Laisser indéterminable' => 'il reste lu, conservé et non écrit.'],
+            'impact'   => 'Bloque l’écriture de CE seul montant. N’empêche aucune autre '
+                        . 'écriture.',
+            'lignes'   => $ind,
+        ];
+    }
+    return $groupes;
+}

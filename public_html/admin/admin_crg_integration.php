@@ -1132,32 +1132,75 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
         <?php endforeach; ?>
       </div>
 
+      <?php $groupes = crgi_arbitrages($pdo, $importId);
+      $nArb = array_sum(array_map(fn($g) => count($g['lignes']), $groupes)); ?>
       <div class="crgi-carte">
-        <h2><?= count($bilan5['arbitrages']) ?> lots en arbitrage ouvert
-          — <?= (int)($bilan5['par_action']['A ARBITRER'] ?? 0) ?> décisions en attente</h2>
+        <h2><?= count($groupes) ?> décisions à prendre — <?= $nArb ?> lignes concernées</h2>
         <p class="crgi-sous">
           Un arbitrage n'est pas un défaut du système : il matérialise ce que le document
-          <b>ne permet pas encore de démontrer sans décision humaine</b>. Chacun dit exactement
-          ce qu'il empêche.
+          <b>ne permet pas de démontrer sans vous</b>. Ils sont regroupés <b>par la règle qui
+          les produit</b> — 33 immeubles à arbitrer, c'est UNE question posée 33 fois — et
+          chacun dit ses choix et leur conséquence exacte.
         </p>
-        <div class="crgi-defile"><table>
-          <tr><th>Compte</th><th>Lot</th><th class="num">Obs.</th><th class="num">Page</th>
-              <th>Ce que le document ne démontre pas</th><th>Impact</th></tr>
-          <?php foreach ($bilan5['arbitrages'] as $a): ?>
-            <tr>
-              <td><code><?= h((string)$a['compte']) ?></code></td>
-              <td><b><?= h((string)$a['lot_reference']) ?></b></td>
-              <td class="num"><?= (int)$a['n'] ?></td>
-              <td class="num"><?= (int)$a['page'] ?></td>
-              <td style="font-size:12px"><?= h(mb_substr((string)$a['motif'], 0, 150)) ?></td>
-              <td style="font-size:11.5px">
-                <span class="crgi-cert INDETERMINABLE" style="font-size:11px">occupation bloquée</span>
-                <div class="crgi-muet" style="margin-top:3px">
-                  n'empêche ni la création du lot, ni ses mouvements financiers</div>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        </table></div>
+        <div class="crgi-note">
+          <b>DOUTE = ARBITRAGE TRAÇABLE + ON CONTINUE.</b> Une incertitude locale n'arrête
+          jamais le corpus : chaque groupe précise ce qu'il bloque, et surtout ce qu'il ne
+          bloque pas. Rien ici n'est présélectionné, et aucun choix ne s'applique tout seul.
+        </div>
+
+        <?php foreach ($groupes as $g): ?>
+          <details class="crgi-repli" style="margin-top:12px">
+            <summary>
+              <b><?= h($g['famille']) ?></b> · <?= count($g['lignes']) ?> lignes —
+              <?= h(mb_substr($g['question'], 0, 92)) ?><?= mb_strlen($g['question']) > 92 ? '…' : '' ?>
+            </summary>
+            <p class="crgi-sous" style="margin-top:10px"><?= h($g['question']) ?></p>
+            <div class="crgi-note"><b>La règle :</b> <?= h($g['regle']) ?><br>
+              <b>Impact réel :</b> <?= h($g['impact']) ?></div>
+            <table style="margin:10px 0">
+              <tr><th style="width:270px">Choix possible</th><th>Ce qu'il produirait</th></tr>
+              <?php foreach ($g['choix'] as $choix => $consequence): ?>
+                <tr><td><b><?= h($choix) ?></b></td>
+                    <td style="font-size:12.5px"><?= h($consequence) ?></td></tr>
+              <?php endforeach; ?>
+            </table>
+            <div class="crgi-defile"><table>
+              <tr><th>Agence</th><th>Compte</th><th>Objet</th><th>Période</th>
+                  <th class="num">Page</th><th>Ce que le document imprime</th></tr>
+              <?php foreach (array_slice($g['lignes'], 0, 60) as $l): ?>
+                <tr>
+                  <td style="font-size:11.5px"><?= h(mb_substr((string)($l['agence'] ?? '—'), 0, 26)) ?></td>
+                  <td><code><?= h((string)($l['compte'] ?? '—')) ?></code></td>
+                  <td style="font-size:12px">
+                    <?= h((string)($l['lot_reference'] ?? $l['nom'] ?? '—')) ?>
+                    <?php if (!empty($l['locataire'])): ?>
+                      <div class="crgi-muet"><?= h(mb_substr((string)$l['locataire'], 0, 24)) ?></div>
+                    <?php endif; ?>
+                  </td>
+                  <td style="font-size:11.5px"><?= h((string)($l['periode_cle'] ?? '—')) ?></td>
+                  <td class="num"><?= (int)($l['page'] ?? 0) ?></td>
+                  <td style="font-size:12px">
+                    <?php if (isset($l['montant'])): ?>
+                      <b><?= number_format((float)$l['montant'], 2, ',', ' ') ?> €</b>
+                      <?= h((string)($l['colonne'] ?? '')) ?> ·
+                      <?= h(mb_substr((string)($l['libelle'] ?? ''), 0, 46)) ?>
+                    <?php elseif (isset($l['solde'])): ?>
+                      <?= ($l['solde_source'] ?? '') === 'LUE'
+                          ? 'encours ' . number_format((float)$l['solde'], 2, ',', ' ') . ' €'
+                          : '<span class="crgi-muet">encours non démontrable</span>' ?>
+                    <?php else: ?>
+                      <?= h(mb_substr((string)($l['motif'] ?? $l['ville'] ?? ''), 0, 60)) ?>
+                    <?php endif; ?>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </table></div>
+            <?php if (count($g['lignes']) > 60): ?>
+              <p class="crgi-sous"><?= count($g['lignes']) - 60 ?> autres lignes relèvent de la
+                même décision — elles ne sont pas listées ici, mais elles sont toutes en base.</p>
+            <?php endif; ?>
+          </details>
+        <?php endforeach; ?>
       </div>
 
       <div class="crgi-carte">
