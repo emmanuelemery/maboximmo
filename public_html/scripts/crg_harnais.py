@@ -9,6 +9,7 @@ Cinq suites, et aucune ne remplace les autres :
     ÉPREUVE DES TESTS      on réintroduit les bugs et on exige que les tests virent au rouge.
     REPLAY / IDEMPOTENCE   relecture identique = même résultat, même empreinte.
     COUVERTURE / COHÉRENCE ATTENDUE = EXAMINÉE + EXCLUE, et les frontières entre phases.
+    RAPPROCHEMENT MBI      les règles d'appariement, et surtout ce qu'elles refusent.
     MULTI-CORPUS           une règle d'un éditeur ne mord pas sur un autre.
 
 ⚠️ LE VERT NE SE NÉGOCIE PAS EN ABAISSANT LES EXIGENCES. Si une suite passe au rouge, c'est le
@@ -41,6 +42,10 @@ SUITES = [
     ('COUVERTURE / COHÉRENCE',
      [PHP, '-d', 'max_execution_time=0', os.path.join(RACINE, 'tests_crg', 'crgi_coherence.php')],
      r'COHÉRENCE\s*:\s*(\d+)/(\d+)'),
+    ('RAPPROCHEMENT MBI',
+     [PHP, '-d', 'max_execution_time=0',
+      os.path.join(RACINE, 'tests_crg', 'crgi_rapprochement.php')],
+     r'RAPPROCHEMENT\s*:\s*(\d+)/(\d+)'),
     ('MULTI-CORPUS', [PYTHON, os.path.join(RACINE, 'tests_crg', 'crgi_multicorpus.py')],
      r'MULTI-CORPUS\s*:\s*(\d+)/(\d+)'),
     ('REPLAY / IDEMPOTENCE',

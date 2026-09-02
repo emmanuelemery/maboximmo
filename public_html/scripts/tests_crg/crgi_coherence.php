@@ -193,6 +193,173 @@ controle(
     }
 );
 
+
+// ── LES INCIDENTS QUI NE SE VOIENT QUE SUR LES DONNÉES ────────────────────────────────────
+controle(
+    'une page blanche est le verso de la précédente, pas une page perdue',
+    'L’impression en PDF produit 221 pages blanches. Les laisser non affectées afficherait '
+    . '« 221 pages non identifiées » sur un dépôt parfaitement lisible.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_page
+                              WHERE import_id = ? AND (signal_page IS NULL OR signal_page = "")
+                                AND crg_id IS NULL');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0, 'des pages restent sans signal ET sans CRG');
+    }
+);
+
+controle(
+    'REFUS — deux lots « 01 » de deux comptes ne sont pas le même lot',
+    'Grouper sur la seule référence a fusionné l’appartement 01 de RAYNAL (occupant SANCHEZ) '
+    . 'et celui de MARTINEZ (occupant CHAYNARD) : deux chronologies stables entrelacées, d’où '
+    . 'un départ et deux changements ENTIÈREMENT FABRIQUÉS.',
+    function () use ($pdo, $importId) {
+        // aucune identité `compte × lot` ne doit porter deux occupants au même arrêté
+        $st = $pdo->prepare(
+            'SELECT COUNT(*) FROM (
+                SELECT c.compte, o.lot_reference, o.date_arrete
+                  FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                 WHERE o.import_id = ? AND o.locataire IS NOT NULL
+                 GROUP BY c.compte, o.lot_reference, o.date_arrete, o.rang
+                HAVING COUNT(DISTINCT o.locataire) > 1) t'
+        );
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'une identité compte × lot porte deux occupants au même arrêté et au même rang');
+    }
+);
+
+controle(
+    'REFUS — une réimpression n’est pas un nouvel événement',
+    'Trois CRG du compte 1105403390 contiennent leurs propres pages DEUX FOIS, caractère pour '
+    . 'caractère. Les compter doublait l’argent de ce compte.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND reimpression = 1 AND additionnable = 1');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'des lignes réimprimées entrent dans les totaux');
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND reimpression = 1');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() > 0,
+               'aucune réimpression détectée — la règle ne serait plus éprouvée');
+    }
+);
+
+controle(
+    'REFUS — un CRG complémentaire n’est pas une réénonciation',
+    'Deux CRG du même compte, de la même période et du même arrêté ne partageaient qu’UNE '
+    . 'page de contenu sur trois : deux documents complémentaires. Dédoublonner sur la clé '
+    . 'aurait détruit le second.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_crg
+                              WHERE import_id = ? AND doublon_qualification = "B"
+                                AND doublon_statut <> "UNIQUE"');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'un CRG qualifié « montants réellement différents » a été écarté');
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_crg
+                              WHERE import_id = ? AND doublon_statut = "MEME CLE CONTENU DIFFERENT"');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'des collisions restent non qualifiées : elles seraient invisibles pour la suite');
+    }
+);
+
+controle(
+    'REFUS — aucun cumul sur des périodes qui se chevauchent',
+    '60 comptes sur 72 portent des CRG dont les périodes se recouvrent : le loyer d’avril est '
+    . 'énoncé dans le relevé d’avril ET dans celui d’avril-mai. Un « total du dépôt » '
+    . 'compterait avril deux fois.',
+    function () use ($pdo, $importId) {
+        $b = crgi_bilan_phase4($pdo, $importId);
+        exiger(!empty($b['par_arrete']), 'le bilan ne présente pas les montants par arrêté');
+        $page = file_get_contents(__DIR__ . '/../../admin/admin_crg_integration.php');
+        exiger(str_contains($page, 'par_arrete'),
+               'l’écran ne lit pas les montants par arrêté');
+        exiger(str_contains($page, 'aucun montant'),
+               'l’écran ne dit pas pourquoi la table des natures ne porte pas de montant');
+    }
+);
+
+controle(
+    'REFUS — l’absence d’un locataire n’est pas un départ',
+    'Un lot qui cesse d’apparaître ne prouve rien : le CRG peut ne pas avoir été déposé. Le '
+    . 'départ n’est retenu que si le document le DÉMONTRE — réénonciation avec un autre '
+    . 'occupant, ou fin de bail imprimée et atteinte à l’arrêté.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare(
+            'SELECT COUNT(*) FROM crgi_occupation
+              WHERE import_id = ? AND statut IN ("PARTI DEMONTRE", "ANCIEN LOCATAIRE AVEC DETTE")
+                AND (bail_au IS NULL OR bail_au > date_arrete)
+                AND statut_motif NOT LIKE "%réénoncé%"'
+        );
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'un départ est retenu sans réénonciation ni fin de bail atteinte');
+    }
+);
+
+controle(
+    'REFUS — un congé postérieur à l’arrêté ne fait pas partir l’occupant',
+    '13 congés du dépôt sont datés APRÈS la date d’arrêté : ils décrivent un occupant TOUJOURS '
+    . 'EN PLACE. Sans cette borne, 42 faux anciens locataires.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_occupation
+                              WHERE import_id = ? AND bail_au > date_arrete
+                                AND statut IN ("PARTI DEMONTRE", "ANCIEN LOCATAIRE AVEC DETTE")');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'un occupant est déclaré parti alors que son congé est postérieur à l’arrêté');
+    }
+);
+
+controle(
+    'REFUS — la maille d’affichage n’est jamais plus fine que la maille de la preuve',
+    'Une charge démontrée au compte RESTE au compte. Aucun prorata, aucun rattachement forcé '
+    . 'à un lot ou à un locataire.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND maille = "COMPTE"
+                                AND (lot_reference IS NOT NULL OR locataire IS NOT NULL)');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'un mouvement démontré au compte porte un lot ou un locataire');
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND maille = "LOT"
+                                AND (lot_reference IS NULL OR lot_reference = "")');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0, 'un mouvement à la maille LOT n’a pas de lot');
+    }
+);
+
+controle(
+    'REFUS — un montant qu’on ne sait pas placer reste INDETERMINABLE',
+    'Aucune affectation « au plus proche » sans borne. Un indéterminable est conservé, compté '
+    . 'et remonté à l’écran — jamais rangé dans la colonne d’à côté.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND categorie = "INDETERMINABLE"
+                                AND additionnable = 1');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0, 'un indéterminable entre dans les totaux');
+    }
+);
+
+controle(
+    'REFUS — un stock n’entre jamais dans un total de flux',
+    '`STOCK ≠ FLUX` : encours et soldes sont des photographies, jamais additionnées entre '
+    . 'deux périodes ni mêlées aux mouvements.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND categorie IN ("ENCOURS", "SOLDE")
+                                AND flux = 1');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0, 'un encours ou un solde est marqué comme flux');
+    }
+);
+
 echo "\nCOHÉRENCE : " . $ok . '/' . ($ok + count($ko)) . "\n";
 foreach ($ko as [$titre, $incident, $msg]) {
     echo "\n  ÉCHEC — {$titre}\n    incident défendu : {$incident}\n    {$msg}\n";
