@@ -330,6 +330,105 @@ ENTETES = {
 }
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════
+#  ARBITRAGE CHAPONOST DU 03/09/2026 — QUATRE RÈGLES, CHACUNE DÉMONTRÉE SUR LE DOCUMENT
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+def _lecteur(section, lot=None):
+    l = P4.Lecteur()
+    l.section = section
+    l.lot = lot
+    return l
+
+
+@cas('un « Total de l’immeuble » est un AGRÉGAT, dans quelque section qu’il tombe',
+     'Cette ligne n’a pas de titre à elle : elle hérite de la section restée ouverte '
+     'au-dessus. Sur CHAPONOST, 819 lignes — dont 464 comptées en CHARGE et 47 en FRAIS, '
+     'c’est-à-dire ADDITIONNÉES aux mouvements élémentaires qu’elles récapitulent.')
+def _total_immeuble_agrege():
+    for section in ('PROPRIETAIRE', 'HONORAIRES', 'FACTURES', 'SYNDIC', 'CHARGES_LOCATIVES'):
+        for colonne in ('debit', 'credit', 'charges', 'autres', 'loyers', 'reste_du'):
+            nat, _m = P4.categoriser(_lecteur(section), colonne, "Total de l'immeuble")
+            assert nat == P4.AGREGAT, \
+                'section %s / colonne %s : %s' % (section, colonne, nat)
+    # Les variantes numérotées du document en sont aussi.
+    for libelle in ("Total de l'immeuble 2", "Total de l’immeuble 5"):
+        nat, _m = P4.categoriser(_lecteur('PROPRIETAIRE'), 'debit', libelle)
+        assert nat == P4.AGREGAT, '%r : %s' % (libelle, nat)
+
+
+@cas('REFUS — un total d’immeuble n’alimente jamais P5, P7 ni P8',
+     'Un agrégat additionné est un document compté deux fois. La garantie ne tient pas au '
+     'libellé mais au drapeau : `additionnable` doit valoir 0, comme pour le Récapitulatif.',
+     )
+def _total_immeuble_jamais_somme():
+    nat, _m = P4.categoriser(_lecteur('PROPRIETAIRE'), 'credit', "Total de l'immeuble")
+    assert nat in P4.SECTIONS.get('RECAP', P4.AGREGAT), 'la nature a changé : %s' % nat
+    assert nat == P4.AGREGAT
+    # AGREGAT fait partie des natures que la phase 4 ne somme jamais.
+    assert 'NON ADDITIONNABLE' in nat, \
+        'la nature ne se déclare plus non additionnable : %r' % nat
+
+
+@cas('« Charges locatives » est une DÉPENSE, jamais un appel au locataire',
+     'CHAPONOST page 11 : les 192,00 € de « LADY NETTOYAGE » figurent TROIS fois — appel au '
+     'locataire en colonne Autres à la maille LOT, encaissement en crédit à la maille LOT, '
+     'et cette dépense en débit du compte. Les classer en appel doublerait 19 635,60 €.')
+def _charges_locatives_depense():
+    nat, _m = P4.categoriser(_lecteur('CHARGES_LOCATIVES'), 'debit',
+                             'ORCEL 9 Verdun Nettoyage app.- LADY NETTOYAGE')
+    assert nat == P4.CHARGE, 'attendu CHARGE, obtenu %s' % nat
+    assert nat != P4.AUTRE_APPELE and nat != P4.CHARGE_APPELEE, \
+        'la dépense est devenue un appel — double comptage'
+    # Et les DEUX autres jambes, au lot, restent ce qu’elles étaient.
+    lot = _lecteur('BLOC_LOT', lot='1043-0011')
+    assert P4.categoriser(lot, 'autres', 'ORCEL 9 Verdun Nettoyage')[0] == P4.AUTRE_APPELE
+    assert P4.categoriser(lot, 'credit', 'ORCEL 9 Verdun Nettoyage')[0] == P4.ENCAISSEMENT
+
+
+@cas('« PNO Assurance » : le débit est une prime, le crédit attend un arbitrage',
+     'Les 4 débits sont la prime propriétaire non occupant — même forme que GLI et GU, déjà '
+     'certifiées. Les 2 crédits (129,98 €) RESSEMBLENT à un remboursement — « payée par '
+     'vous » — mais ressembler n’est pas démontrer.')
+def _pno_debit_seulement():
+    nat, _m = P4.categoriser(_lecteur('PNO'), 'debit', 'MAAF contrat PNO ex2025 29 av DOUMER')
+    assert nat == P4.FRAIS, 'débit PNO : attendu FRAIS, obtenu %s' % nat
+    nat, motif = P4.categoriser(_lecteur('PNO'), 'credit', 'MACIF Assurance PNO payée par vous')
+    assert nat == P4.INDETERMINABLE, 'crédit PNO forcé en %s au lieu d’un arbitrage' % nat
+    assert 'démontrée' in motif or 'arbitrage' in motif, 'le refus ne dit pas pourquoi'
+
+
+@cas('REFUS — « Autres Recettes » ne reçoit AUCUNE règle de section',
+     'Un remboursement de sinistre (crédit) et des mouvements de garantie loyers impayés '
+     'dans les deux sens cohabitent sous ce seul titre. Une section qui mêle plusieurs '
+     'natures métier ne peut pas en porter une seule.')
+def _autres_recettes_sans_regle():
+    for colonne in ('debit', 'credit'):
+        nat, _m = P4.categoriser(_lecteur('INCONNUE:Autres Recettes'), colonne,
+                                 'Vrt GLI ARILIM Loc DEBOUS au 31.03.2026')
+        assert nat == P4.INDETERMINABLE, \
+            'une règle de section est apparue sur Autres Recettes : %s' % nat
+
+
+@cas('la table des libellés de section s’AJOUTE, elle ne se remplace pas',
+     'Chaque comptable nomme ses sections comme il l’entend. Une agence qui change de mot ne '
+     'doit jamais faire disparaître le mot d’une autre : les entrées certifiées restent en '
+     'tête de table, les nouvelles s’ajoutent en fin, où elles ne peuvent rien recouvrir.')
+def _table_additive():
+    connus = {'- Honoraires de Gestion -': 'HONORAIRES', '- GLI -': 'GLI',
+              '- GU Assurance -': 'GU', '- Charges de syndic -': 'SYNDIC',
+              '- Charges Propriétaire -': 'PROPRIETAIRE',
+              '- Charges locatives -': 'CHARGES_LOCATIVES', '- PNO Assurance -': 'PNO'}
+    for titre, attendu in connus.items():
+        lect = P4.Lecteur()
+        assert lect.titre(titre), 'titre non reconnu : %r' % titre
+        assert lect.section == attendu, '%r → %s au lieu de %s' % (titre, lect.section, attendu)
+    # Un libellé inconnu reste inconnu — il ne se rabat sur aucune section voisine.
+    lect = P4.Lecteur()
+    lect.titre('- Autres Recettes -')
+    assert lect.section.startswith('INCONNUE:'), lect.section
+
+
 @cas('tout format reconnu par le RÉFÉRENTIEL l’est aussi par l’INTÉGRATEUR',
      'Le 02/09/2026, sur les deux mêmes documents : le routeur certifié disait `emery_immo` '
      'là où l’intégrateur disait `lyon`, et `inconnu` là où l’intégrateur disait '

@@ -138,3 +138,51 @@
 .crgi-arb select:focus,
 .crgi-arb input:focus { outline: 2px solid #D4A047; outline-offset: -1px; }
 .crgi-arb-etat { font-size: 11px; margin-top: 3px; min-height: 13px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+   DIAGNOSTIC D'UN IMPORT — admin_crgi_diag.php
+   ⚠️ Ajouté ici et non dans la page : la feuille du module est centralisée, et une page
+      qui porte son propre <style> échappe au thème le jour où le thème change.
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+.crgi-diag-barre{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.crgi-diag-barre label{font-weight:600;font-size:13px}
+.crgi-diag-barre select{padding:6px 10px;border:1px solid #d7dde5;border-radius:4px;
+  font-size:13px;max-width:520px;background:#fff}
+.crgi-diag-lien{margin-left:auto;font-size:13px;color:#5b6b7d;text-decoration:none}
+.crgi-diag-lien:hover{text-decoration:underline}
+
+.crgi-diag-chiffres{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:1px;background:#e3e8ee;border:1px solid #e3e8ee;border-radius:4px;overflow:hidden;
+  margin:10px 0 14px}
+.crgi-diag-chiffres > div{background:#fff;padding:11px 14px}
+.crgi-diag-chiffres span{display:block;font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;color:#8a97a6;margin-bottom:5px}
+.crgi-diag-chiffres b{font-size:22px;font-variant-numeric:tabular-nums}
+.crgi-diag-chiffres i{font-style:normal;font-size:14px;color:#8a97a6}
+.crgi-diag-chiffres .crgi-diag-alerte b{color:#b3261e}
+
+.crgi-diag-groupe{border:1px solid #e3e8ee;border-radius:4px;margin:12px 0;overflow:hidden}
+.crgi-diag-tete{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  padding:9px 12px;background:#f5f7fa;border-bottom:1px solid #e3e8ee;font-size:13px}
+.crgi-diag-tete b{font-size:14px}
+.crgi-diag-tag{font-size:11px;padding:1px 7px;border-radius:3px;background:#b3261e;color:#fff}
+.crgi-diag-col{color:#5b6b7d;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.crgi-diag-vol{margin-left:auto;color:#5b6b7d;font-variant-numeric:tabular-nums}
+
+.crgi-diag-table{width:100%;border-collapse:collapse;font-size:13px}
+.crgi-diag-table th{text-align:left;font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;color:#8a97a6;padding:8px 12px;border-bottom:1px solid #e3e8ee}
+.crgi-diag-table td{padding:7px 12px;border-bottom:1px solid #eef1f5;vertical-align:top}
+.crgi-diag-table tr:last-child td{border-bottom:none}
+.crgi-diag-large{border:1px solid #e3e8ee;border-radius:4px;margin-top:10px}
+.crgi-diag-p{white-space:nowrap;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.crgi-diag-p a{color:#243b5c;text-decoration:none;border-bottom:1px dotted #9aa8b8}
+.crgi-diag-lib{width:100%}
+.crgi-diag-m{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,Consolas,monospace}
+.crgi-diag-n{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+.crgi-diag-ctx{color:#6b7a8a;font-size:12px}
+.crgi-diag-rouge td{background:#fdf3f2}
+.crgi-diag-rouge .crgi-diag-n b{color:#b3261e}
+.crgi-diag-ok{color:#2f7d5d}
+.crgi-diag-h3{font-size:14px;margin:18px 0 0}

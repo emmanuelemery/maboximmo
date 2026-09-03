@@ -96,7 +96,54 @@ SECTIONS = {
     'PROPRIETAIRE': CHARGE,
     'RECAP': AGREGAT,
     'INDIVISION': AGREGAT,
+    # ⚠️ `Charges locatives` EST UNE DÉPENSE, PAS UN APPEL — démontré sur CHAPONOST, page 11 :
+    #    les 192,00 € de « LADY NETTOYAGE » y figurent TROIS fois, et le moteur les sépare
+    #    déjà correctement — `AUTRE APPELE AU LOCATAIRE` en colonne « Autres » à la maille LOT,
+    #    puis `ENCAISSEMENT` en crédit à la maille LOT. Cette section est la TROISIÈME jambe :
+    #    la dépense au fournisseur, en débit du compte mandant. La classer en appel doublerait
+    #    19 635,60 € sur ce seul dépôt.
+    'CHARGES_LOCATIVES': CHARGE,
+    # Prime d'assurance propriétaire non occupant, débitée au compte — même forme que GLI et
+    # GU Assurance, déjà certifiées.
+    'PNO': FRAIS,
 }
+
+# ⚠️ UNE SECTION PEUT N'AVOIR QU'UNE SEULE COLONNE DÉMONTRÉE. Chez `PNO`, les 4 débits sont
+#    la prime ; les 2 crédits (129,98 €) ressemblent à un remboursement au propriétaire qui
+#    l'a réglée lui-même — « payée par vous » — mais RESSEMBLER N'EST PAS DÉMONTRER. Ils
+#    restent en arbitrage plutôt que d'être forcés dans la règle du débit.
+COLONNES_DEMONTREES = {'PNO': ('debit',)}
+
+# ⚠️ UNE LIGNE DE TOTAL N'EST JAMAIS UN MOUVEMENT, ET ELLE N'A PAS DE SECTION À ELLE.
+#    « Total de l'immeuble » se lit à la fin de chaque immeuble et hérite de la section restée
+#    OUVERTE au-dessus : sur CHAPONOST, 819 lignes réparties sur six colonnes, dont 464
+#    comptées en CHARGE et 47 en FRAIS — c'est-à-dire additionnées aux mouvements élémentaires
+#    qu'elles ne font que récapituler. Le rapport de compatibilité ne pouvait pas les voir :
+#    elles ne portent aucun titre de section.
+RE_TOTAL_IMMEUBLE = re.compile(r"^Total\s+de\s+l['’’]?\s*immeuble\b", re.I)
+
+# ⚠️ TABLE ADDITIVE — ON AJOUTE UNE LIGNE, ON N'EN RÉÉCRIT JAMAIS UNE.
+#    Chaque comptable nomme ses sections comme il l'entend : « Charges locatives » ici,
+#    « Charges Propriétaire » ailleurs, « Autres Honoraires » chez un troisième. Ces libellés
+#    ne se remplacent pas, ils s'accumulent — une agence qui change de mot ne doit jamais
+#    faire disparaître le mot d'une autre.
+#
+# ⚠️ L'ORDRE EST LA RÈGLE : le PREMIER motif qui accepte gagne. Les entrées existantes sont
+#    donc intouchables, et toute nouveauté s'AJOUTE EN FIN DE TABLE, où elle ne peut pas
+#    changer ce qu'une agence déjà certifiée lit aujourd'hui.
+#
+#    `motif` reçoit le titre en minuscules ; il rend True s'il le reconnaît.
+LIBELLES_SECTION = [
+    # ── certifiées avant le 03/09/2026 — ne pas modifier ─────────────────────────────
+    (lambda t: 'honoraires' in t,        'HONORAIRES'),
+    (lambda t: t.startswith('gli'),      'GLI'),
+    (lambda t: t.startswith('gu'),       'GU'),
+    (lambda t: 'syndic' in t,            'SYNDIC'),
+    (lambda t: 'propri' in t,            'PROPRIETAIRE'),
+    # ── ajouté le 03/09/2026, arbitrage CHAPONOST (éditeur SPI, agence A1) ───────────
+    (lambda t: 'charges locatives' in t, 'CHARGES_LOCATIVES'),
+    (lambda t: t.startswith('pno') or 'pno assurance' in t, 'PNO'),
+]
 
 
 def nombre(txt):
@@ -172,11 +219,7 @@ class Lecteur(object):
         m = RE_SECTION.match(texte)
         if m:
             t = m.group(1).lower()
-            self.section = ('HONORAIRES' if 'honoraires' in t else
-                            'GLI' if t.startswith('gli') else
-                            'GU' if t.startswith('gu') else
-                            'SYNDIC' if 'syndic' in t else
-                            'PROPRIETAIRE' if 'propri' in t else None)
+            self.section = next((nom for motif, nom in LIBELLES_SECTION if motif(t)), None)
             # ⚠️ UNE SECTION INCONNUE N'EST PAS UNE SECTION VIDE. On la retient sous son nom
             #    imprimé : ses lignes seront INDETERMINABLE et remonteront à l'écran.
             if self.section is None:
@@ -214,6 +257,15 @@ def categoriser(lecteur, colonne, libelle):
     """
     if RE_TVA.match(libelle):
         return DETAIL, 'Détail du montant qui précède, pas un mouvement distinct.'
+    # ⚠️ UN TOTAL D'IMMEUBLE EST UN AGRÉGAT, QUELLE QUE SOIT LA SECTION OÙ IL TOMBE. Il n'a
+    #    pas de titre à lui : il hérite de la section restée ouverte au-dessus. Sur CHAPONOST,
+    #    819 lignes, dont 464 comptées en CHARGE et 47 en FRAIS — additionnées aux mouvements
+    #    élémentaires qu'elles ne font que récapituler. On les conserve, avec leur page et leur
+    #    section de contexte ; on ne les somme jamais.
+    if RE_TOTAL_IMMEUBLE.match(libelle):
+        return AGREGAT, ('Ligne de TOTAL d’immeuble : elle récapitule ce qui précède et hérite '
+                         'de la section ouverte au-dessus. Lue et conservée pour contrôle, '
+                         'JAMAIS additionnée aux mouvements élémentaires.')
     if lecteur.section == 'BLOC_LOT':
         if libelle.lower().startswith('solde'):
             return ENCOURS, 'Solde du bloc du lot : une PHOTOGRAPHIE, jamais un flux.'
@@ -242,6 +294,14 @@ def categoriser(lecteur, colonne, libelle):
                          if lecteur.section == 'RECAP'
                          else 'Bloc d’indivision : quote-part et répartition, pas un mouvement '
                               'élémentaire de gestion.')
+    # ⚠️ CE QUI N'EST DÉMONTRÉ QUE DANS UN SENS NE VAUT QUE DANS CE SENS. Une section dont
+    #    une seule colonne est établie n'autorise pas l'autre : le reste attend un arbitrage.
+    demontrees = COLONNES_DEMONTREES.get(lecteur.section or '')
+    if demontrees is not None and colonne not in demontrees:
+        return INDETERMINABLE, (
+            'Section « %s » : seule la colonne « %s » y est démontrée. Ce montant est en '
+            '« %s » — sa nature demande un arbitrage, elle ne se déduit pas de la section.'
+            % (lecteur.section, ', '.join(demontrees), colonne))
     if colonne in ('debit', 'credit', 'charges', 'autres'):
         return nature, 'Section « %s », colonne « %s ».' % (lecteur.section, colonne)
     return INDETERMINABLE, 'Montant hors des colonnes attendues de cette section.'
