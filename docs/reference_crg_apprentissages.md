@@ -298,9 +298,43 @@ commit          le hash
 
 ---
 
+## APP-0017 · Une enveloppe contient plusieurs documents, et chacun a des pages de suite
+
+| | |
+|---|---|
+| **phénomène** | Un dépôt réel ne porte pas que des comptes rendus : l'enveloppe contient aussi l'appel de fonds de la copropriété et les factures des prestataires. Ces documents s'intercalent — parfois **au milieu** d'un compte rendu, qui reprend ensuite. |
+| **preuve** | 03/09/2026, première passe d'apprentissage sur un corpus ICS : 27 pages ressortaient « aucun signal de CRG », dont quatre étiquetées « avant le premier en-tête » alors qu'elles venaient **après**. Un dépôt parfaitement lu ressemblait à un découpage raté. |
+| **abstraction** | Trois règles, et elles se tiennent : ❶ un document joint se reconnaît à son **titre en tête de page**, dans une table déclarée et additive — jamais à sa casse, car « Appel de Fonds » et « APPEL DE FONDS » sont le même titre ; ❷ un document joint **suspend** le compte rendu, il ne le clôt pas : le CRG reprend sur un de ses propres bandeaux ; ❸ un document joint **a lui aussi des pages de suite** — et le signal doit dire quand elles lui sont rattachées par contiguïté plutôt que par une preuve imprimée. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `DOCUMENTS_JOINTS` + `SECTIONS_CRG` (tables additives), `_titre_de_document()`, et l'état `hors_crg` qui suspend au lieu de fermer. Une page quasi vide appartient au document ouvert. |
+| **composant** | `crg_integration_phase0.py` |
+| **tests** | à écrire sur fixture synthétique — voir « limites » |
+| **corpus** | un corpus ICS complet : 721 pages, 681 rattachées, **40 nommées, 0 sans nom** |
+| **limites** | ⚠️ Cet apprentissage n'est **pas encore porté par un test** : il est vérifié sur corpus, pas sur fixture. Tant que ce test n'existe pas, l'entrée est incomplète au regard de la règle du registre. |
+| **commit** | `—` |
+
+---
+
+## APP-0018 · Un contrôle ne se cale pas sur « le dernier dépôt »
+
+| | |
+|---|---|
+| **phénomène** | Huit contrôles prenaient pour référence l'import le plus RÉCENT. Tant qu'un seul dépôt vivait à la fois, cela revenait au même que « le dépôt analysé ». |
+| **preuve** | 03/09/2026 — la première passe d'apprentissage a ouvert un nouvel import, analysé jusqu'à la phase 0 et pas au-delà. Huit contrôles ont viré au rouge en cherchant des mouvements, des arbitrages et des sceaux dans un dépôt qui n'en avait pas encore. Le moteur n'avait rien fait ; l'instrument regardait ailleurs. |
+| **abstraction** | Un instrument de mesure a ses propres hypothèses, et elles vieillissent comme les autres. « Le dernier » est une hypothèse sur l'usage, pas une propriété du sujet : ce qu'un contrôle veut, c'est le dépôt le plus **avancé**, et cela se mesure — nombre de phases validées. Corollaire éprouvé le même jour : une fixture ne force jamais un identifiant dans un espace `AUTO_INCREMENT` partagé. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `crgi_import_reference()` classe par nombre de phases validées puis par récence ; les six suites qui suivaient l'import courant l'emploient. |
+| **composant** | `crg_integration.php`, suites `tests_crg/*.php` |
+| **tests** | le harnais lui-même : il reste vert alors qu'un dépôt à peine analysé existe en base |
+| **corpus** | tous |
+| **limites** | À égalité de phases validées, on retombe sur la récence — ce qui reste une convention. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Seize apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Dix-huit apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

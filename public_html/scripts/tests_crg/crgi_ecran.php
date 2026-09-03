@@ -23,7 +23,7 @@ declare(strict_types=1);
 //    suite muette et verte à la fois. Il faut donc la base AVANT de rendre la page, puisque
 //    c'est `$_GET['import']` qui décide de ce qu'elle affiche.
 require_once __DIR__ . '/../../inc/crg_integration.php';
-$importId = (int)($argv[1] ?? crgi_import_courant($GLOBALS['pdo']));
+$importId = (int)($argv[1] ?? crgi_import_reference($GLOBALS['pdo']));
 $ok = 0;
 $ko = [];
 

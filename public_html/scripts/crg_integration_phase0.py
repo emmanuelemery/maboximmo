@@ -113,6 +113,60 @@ RE_ENTETE_CHAMPS = re.compile(r'P[ée]riode\s+du\b|Identifiant\s+extra?n?tnet|Mo
 RE_APPEL_TITRE = re.compile(r'\bAPPEL\s+DE\s+FONDS\b')
 RE_APPEL_SUITE = re.compile(r'-\s*Appel\s+de\s+fonds\s*-', re.I)
 
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#  LES AUTRES DOCUMENTS DU DÉPÔT — nommés, jamais « aucun signal »
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ UN DÉPÔT NE CONTIENT PAS QUE DES CRG, ET CE N'EST PAS UN DÉFAUT. Une enveloppe réelle
+#    porte le compte rendu, l'appel de fonds de la copropriété, et les FACTURES des
+#    prestataires. Tant que ces pages ressortent « aucun signal de CRG », un dépôt
+#    parfaitement lu ressemble à un découpage raté — et personne ne peut distinguer la page
+#    qu'on a su écarter de celle qu'on a manquée.
+#
+# ⚠️ TABLE ADDITIVE. Un type de document s'AJOUTE ici. On ne retire jamais : une reconnaissance
+#    acquise qui disparaît fait retomber des pages dans le silence.
+#
+# ⚠️ ET LE TITRE SE RECONNAÎT PAR SA POSITION, PAS PAR SA CASSE. `APPEL DE FONDS` n'était
+#    accepté qu'en capitales, pour éviter la phrase « appel de fonds concernant la résidence »
+#    du corps d'une lettre. Le garde-fou était le mauvais : le corpus EMERY imprime son titre
+#    « Appel de Fonds », en casse mixte — et sept pages sont restées sans nom. Ce qui distingue
+#    un titre d'une phrase, c'est qu'il est EN TÊTE DE PAGE, pas qu'il crie.
+LIGNES_DE_TITRE = 12          # un titre de document vit dans les premières lignes de sa page
+# Une page qui porte moins que cela ne dit rien : c'est un verso, un séparateur, un artefact.
+CARACTERES_PAGE_VIDE = 40
+
+# ⚠️ LES BANDEAUX DE SECTION D'UN CRG — TABLE ADDITIVE. Le corps d'un CRG ICS n'imprime ni
+#    bandeau de suite ni numéro de page : ses pages n'étaient rattachées que par CONTIGUÏTÉ.
+#    Tant qu'aucun autre document ne s'intercale, cela suffit ; dès qu'un appel de fonds se
+#    glisse au milieu, la contiguïté est rompue et il faut un signal pour reprendre. Ces
+#    bandeaux en sont un, et ils sont imprimés : « SITUATION DES LOCATAIRES - 1er Trimestre ».
+SECTIONS_CRG = [
+    re.compile(r'SITUATION\s+DES\s+LOCATAIRES', re.I),
+    re.compile(r'COMPTE\s+DE\s+GESTION', re.I),
+]
+
+# (clé, motif de titre, message du bilan, libellé avec son article — pour les signaux de suite)
+DOCUMENTS_JOINTS = [
+    ('appel_de_fonds', re.compile(r'\bAppel\s+de\s+fonds\b', re.I),
+     'APPEL DE FONDS — document de syndic, hors CRG', 'un appel de fonds'),
+    ('facture', re.compile(r'\bFacture\s*(?:N°|n°|no\b|N\b)', re.I),
+     'FACTURE — pièce d’un prestataire jointe au dépôt, hors CRG', 'une facture'),
+]
+LIBELLE_JOINT = {cle: libelle for cle, _m, _msg, libelle in DOCUMENTS_JOINTS}
+
+
+def _titre_de_document(texte):
+    """Le type de document annoncé EN TÊTE de cette page, s'il y en a un.
+
+    ⚠️ ON NE LIT QUE LE HAUT DE LA PAGE. Chercher dans le texte entier ferait d'une facture
+       citée au milieu d'un relevé de charges un document à part — et couperait le CRG en deux.
+    """
+    tete = '\n'.join(texte.split('\n')[:LIGNES_DE_TITRE])
+    for cle, motif, message, _libelle in DOCUMENTS_JOINTS:
+        if motif.search(tete):
+            return cle, message
+    return None, None
+
 
 def jour(fr):
     """« 01/04/2026 » → « 2026-04-01 ». Rien d'autre n'est accepté."""
@@ -330,8 +384,9 @@ def lire_pages(chemin):
 
 def qualifier(texte):
     """Ce que la page montre : début d'un CRG, suite, autre document, ou rien de reconnaissable."""
-    if RE_APPEL_TITRE.search(texte):
-        return 'HORS_CRG', 'appel_de_fonds', 'APPEL DE FONDS — document de syndic, hors CRG'
+    cle, message = _titre_de_document(texte)
+    if cle:
+        return 'HORS_CRG', cle, message
     if RE_APPEL_SUITE.search(texte):
         return 'HORS_CRG_SUITE', 'appel_de_fonds', 'suite d’un appel de fonds'
     # ⚠️ LA FAMILLE NE SE DÉCIDE PLUS ICI. Ce fichier avait sa propre reconnaissance, qui ne
@@ -364,6 +419,12 @@ def qualifier(texte):
         return 'ENTETE_REGIE', 'lyon', 'en-tête lyon : titre et compte personnel'
     if RE_BANDEAU.search(texte):
         return 'SUITE', None, 'bandeau « Compte rendu de gestion … Page N »'
+    # ⚠️ EN TÊTE DE PAGE, comme un titre de document : un bandeau de section cité au milieu
+    #    d'un tableau de charges ne rouvre pas une suite de CRG.
+    tete = '\n'.join(texte.split('\n')[:LIGNES_DE_TITRE])
+    for motif in SECTIONS_CRG:
+        if motif.search(tete):
+            return 'SUITE', None, 'bandeau de section du compte rendu'
     if RE_TITRE.search(texte):
         # ⚠️ LE TITRE SEUL NE SUFFIT PAS. Il apparaît aussi dans un courrier d'accompagnement
         #    ou sur une page de garde. On le signale sans ouvrir un CRG sur cette seule base.
@@ -661,9 +722,14 @@ def analyser(chemin):
         if etat in ('DEBUT', 'ENTETE_REGIE'):
             hors_crg = None
         if etat == 'HORS_CRG':
-            # Un autre document commence : le CRG en cours est terminé, il ne s'étend pas
-            # au-delà.
-            courant, hors_crg = None, 'appel_de_fonds'
+            # ⚠️ UN DOCUMENT INSÉRÉ SUSPEND LE CRG, IL NE LE CLÔT PAS. On écrivait ici
+            #    « le CRG en cours est terminé » — et une enveloppe réelle a montré le
+            #    contraire : compte rendu, appel de fonds glissé au milieu, PUIS la suite du
+            #    même compte rendu. Refermer le CRG a laissé quatre pages de situation
+            #    locative orphelines, étiquetées « avant le premier en-tête » alors qu'elles
+            #    venaient après. Le CRG est mis en attente ; il ne reprend que sur un signal
+            #    de CRG démontré, jamais sur la simple contiguïté.
+            hors_crg = fmt or 'document joint'
             pages.append({'page_no': no, 'crg_index': None, 'signal': motif})
             precedent_entete = False
             continue
@@ -671,7 +737,26 @@ def analyser(chemin):
             hors_crg = hors_crg or 'appel_de_fonds'
             pages.append({'page_no': no, 'crg_index': None,
                           'signal': motif if etat == 'HORS_CRG_SUITE'
-                          else 'page blanche (verso d’un appel de fonds)'})
+                          else 'page blanche (verso de '
+                               + LIBELLE_JOINT.get(hors_crg, 'un document joint') + ')'})
+            precedent_entete = False
+            continue
+        if hors_crg and etat == 'INCONNU':
+            # ⚠️ UN DOCUMENT JOINT A LUI AUSSI DES PAGES DE SUITE. On ne continuait que les
+            #    pages BLANCHES : une facture de deux pages laissait sa seconde sans nom, un
+            #    appel de fonds son récapitulatif. Le document est ouvert, la page ne porte
+            #    aucun signal de compte rendu : elle lui appartient — et le signal DIT que
+            #    c'est de la contiguïté, pas une preuve imprimée. Le CRG, lui, reprend dès
+            #    qu'un de ses propres bandeaux réapparaît.
+            #
+            # ⚠️ ET UNE PAGE QUASI VIDE N'OUVRE RIEN. Le corpus en porte qui ne contiennent
+            #    qu'un sigle de trois lettres — un artefact de numérisation.
+            libelle = LIBELLE_JOINT.get(hors_crg, 'un document joint')
+            vide = len(normaliser(texte)) < CARACTERES_PAGE_VIDE
+            pages.append({'page_no': no, 'crg_index': None,
+                          'signal': ('page quasi vide, dans ' + libelle) if vide else
+                                    ('page contiguë d’' + libelle
+                                     + ' — aucun marqueur de suite imprimé')})
             precedent_entete = False
             continue
         if etat == 'DEBUT':
@@ -719,6 +804,8 @@ def analyser(chemin):
                 crgs.append(courant)
                 pages.append({'page_no': no, 'crg_index': len(crgs) - 1, 'signal': motif})
         elif etat == 'SUITE' and courant is not None:
+            # Un signal de CRG démontré referme le document inséré : le compte rendu reprend.
+            hors_crg = None
             courant['page_fin'] = no
             courant.setdefault('_textes', []).append(texte)
             pages.append({'page_no': no, 'crg_index': len(crgs) - 1, 'signal': motif})
@@ -731,7 +818,8 @@ def analyser(chemin):
             courant.setdefault('_textes', []).append(texte)
             pages.append({'page_no': no, 'crg_index': len(crgs) - 1,
                           'signal': 'page blanche (verso)'})
-        elif courant is not None and courant.get('format') in ('lyon', 'emery_immo'):
+        elif (courant is not None and hors_crg is None
+                and courant.get('format') in ('lyon', 'emery_immo')):
             # ⚠️ ICI LE DOCUMENT N'IMPRIME AUCUN MARQUEUR DE SUITE, ET ON LE DIT. Chez `lyon`,
             #    le corps du rapport ne porte ni bandeau ni numéro de page : la page appartient
             #    au CRG ouvert parce qu'un rapport imprimé est CONTIGU, pas parce qu'un signal
@@ -746,7 +834,13 @@ def analyser(chemin):
             #    dans le bilan, avec son numéro : c'est la seule façon d'affirmer « 0 page
             #    perdue » sans mentir.
             pages.append({'page_no': no, 'crg_index': None,
-                          'signal': motif + (' (avant le premier en-tête)' if courant is None
+                          # ⚠️ « AVANT LE PREMIER EN-TÊTE » ÉTAIT FAUX DÈS QU'UN DOCUMENT
+                          #    S'INTERCALAIT : la page venait APRÈS, et le bilan accusait un
+                          #    découpage qui n'avait rien fait de mal. Un signal doit décrire
+                          #    ce qui est, pas ce qu'on suppose.
+                          'signal': motif + (' (avant le premier en-tête)'
+                                             if courant is None and not crgs
+                                             else ' (après un document joint)' if hors_crg
                                              else ' (hors CRG)')})
         precedent_entete = (etat == 'ENTETE_REGIE')
 

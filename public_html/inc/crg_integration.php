@@ -122,6 +122,37 @@ function crgi_compter_pages(string $chemin): int
 }
 
 /** Retrouve un binaire poppler, sur Windows comme sur Linux. */
+/**
+ * LE CONTRAT DE LECTURE, LU À LA SOURCE — jamais recopié.
+ *
+ * ⚠️ DEUX EXEMPLAIRES D'UNE MÊME RÈGLE DIVERGENT TOUJOURS, ET C'EST L'EXEMPLAIRE OUBLIÉ QUI
+ *    PARLE À L'ÉCRAN. PHP portait sa propre idée du bon lecteur — « poppler » — et a continué
+ *    à l'afficher pendant que le moteur Python travaillait sous un autre contrat. On demande
+ *    donc au moteur ce qu'il exige, on ne le redéclare pas ici.
+ */
+function crgi_lecteur_contrat(): array
+{
+    static $contrat = null;
+    if ($contrat !== null) {
+        return $contrat;
+    }
+    $py = getenv('CRG_PYTHON') ?: (crgi_binaire('python') ?: 'python');
+    // ⚠️ PAS UN SEUL GUILLEMET DOUBLE DANS CE CODE. Sous Windows, `escapeshellarg` SUPPRIME
+    //    les guillemets doubles au lieu de les échapper : le `r"…"` du chemin partait, Python
+    //    recevait une syntaxe cassée, et le contrat revenait « illisible » — l'écran affichant
+    //    alors un avertissement encore plus faux que celui qu'on venait de corriger.
+    $code = "import sys,json;sys.path.insert(0,'" . str_replace('\\', '/', dirname(__DIR__))
+          . "/scripts');import crg_integration_phase0 as P;"
+          . 'sys.stdout.write(json.dumps(P.CRG_LECTEUR_CONTRAT))';
+    $out = @shell_exec(escapeshellarg($py) . ' -c ' . escapeshellarg($code) . ' 2>&1');
+    $lu = json_decode(trim((string)$out), true);
+    // Un contrat illisible ne doit pas rendre l'écran muet : on le dit, et on n'invente rien.
+    $contrat = is_array($lu) && isset($lu['produit'])
+        ? $lu
+        : ['produit' => '(contrat illisible)', 'mode' => '(inconnu)', 'version' => ''];
+    return $contrat;
+}
+
 function crgi_binaire(string $nom): ?string
 {
     $cmd = PHP_OS_FAMILY === 'Windows' ? 'where' : 'which';
@@ -252,18 +283,25 @@ function crgi_phase0(PDO $pdo, int $importId): array
     //    connaît `-table` — dont la phase 3 tire ses rattachements. Tant que l'étiquette
     //    n'était pas remontée, la même analyse lancée depuis la page et depuis le harnais
     //    donnait deux empreintes, et personne ne pouvait dire pourquoi.
+    // ⚠️ CE CONTRÔLE COMPARE AU CONTRAT, PLUS À UN PRODUIT PRÉFÉRÉ. Il exigeait « poppler » —
+    //    une préférence héritée de l'époque où le corpus certifié avait été lu avec lui. Le
+    //    03/09/2026, la mesure a établi que les deux extracteurs lisent identiquement en
+    //    `-layout`, que la vraie différence était le MODE, et le contrat a été porté sur
+    //    Xpdf. L'avertissement continuait pourtant à réclamer poppler : il annonçait une
+    //    « lecture dégradée » sur le lecteur officiel, et envoyait chercher un défaut qui
+    //    n'existe pas. Un avertissement faux use plus vite qu'il n'alerte.
+    $attendu = crgi_lecteur_contrat();
     $degrades = array_filter(
         array_keys($bilan['lecteurs']),
-        static fn($l) => stripos($l, 'poppler') === false
+        static fn($l) => stripos($l, (string)$attendu['produit']) === false
     );
     if ($degrades) {
         $bilan['lecture_degradee'] =
-            'LECTURE DÉGRADÉE — ' . implode(', ', $degrades) . '. Ce serveur n’expose pas '
-            . '`pdftotext` de poppler : le lecteur employé ne restitue pas les colonnes de la '
-            . 'même façon et ignore le mode `-table`. Le découpage, les périodes et les '
-            . 'comptes restent justes ; l’IDENTIFICATION (nom du propriétaire) et les '
-            . 'RATTACHEMENTS de la phase 3 sont dégradés. Installer poppler, ou désigner le '
-            . 'binaire par la variable `CRG_PDFTOTEXT`, puis relancer la phase 0.';
+            'LECTEUR HORS CONTRAT — ' . implode(', ', $degrades) . '. Le contrat de lecture '
+            . 'exige « ' . $attendu['produit'] . ' » en mode « ' . $attendu['mode'] . ' ». Un '
+            . 'autre extracteur ne rend pas les mêmes colonnes : l’IDENTIFICATION (nom du '
+            . 'propriétaire) et les RATTACHEMENTS peuvent en dépendre. Installer le lecteur '
+            . 'déclaré, ou désigner son binaire par `CRG_PDFTOTEXT`, puis relancer la phase 0.';
     }
 
     if ($bilan['pieces'] === 0) {
@@ -515,6 +553,33 @@ function crgi_import_courant(PDO $pdo): int
     return (int)$pdo->query(
         "SELECT id FROM crgi_import WHERE statut <> 'ANNULE' ORDER BY id DESC LIMIT 1"
     )->fetchColumn();
+}
+
+/**
+ * L'IMPORT DE RÉFÉRENCE POUR LES CONTRÔLES — le plus AVANCÉ, pas le plus RÉCENT.
+ *
+ * ⚠️ LE HARNAIS SUIVAIT « L'IMPORT COURANT », C'EST-À-DIRE LE DERNIER DÉPOSÉ. Tant qu'un seul
+ *    dépôt vivait à la fois, cela revenait au même. Dès qu'une passe d'apprentissage a créé un
+ *    nouvel import — analysé jusqu'à la phase 0 et pas au-delà —, huit contrôles ont viré au
+ *    rouge : ils cherchaient des mouvements, des arbitrages et des sceaux dans un dépôt qui
+ *    n'en a pas encore. Le moteur n'avait rien fait de mal ; l'instrument regardait ailleurs.
+ *
+ * ⚠️ « AVANCÉ » SE MESURE, IL NE SE SUPPOSE PAS : c'est le nombre de phases validées, puis, à
+ *    égalité, l'import le plus récent. Un contrôle a besoin d'un dépôt COMPLET pour dire quoi
+ *    que ce soit ; déposer n'est pas analyser.
+ */
+function crgi_import_reference(PDO $pdo): int
+{
+    $id = (int)$pdo->query(
+        "SELECT i.id
+           FROM crgi_import i
+           LEFT JOIN crgi_phase p ON p.import_id = i.id AND p.statut = 'VALIDEE'
+          WHERE i.statut <> 'ANNULE'
+          GROUP BY i.id
+          ORDER BY COUNT(p.id) DESC, i.id DESC
+          LIMIT 1"
+    )->fetchColumn();
+    return $id ?: crgi_import_courant($pdo);
 }
 
 /**

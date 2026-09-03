@@ -18,7 +18,7 @@ require_once __DIR__ . '/../../inc/crg_integration.php';
 $pdo = $GLOBALS['pdo'];
 // ⚠️ PAS D'IMPORT ÉCRIT EN DUR. « ?? 5 » a survécu à l'annulation de l'import 5 : la suite
 //    continuait à tourner, sur un staging vide, et rendait du vert sans rien contrôler.
-$importId = (int)($argv[1] ?? crgi_import_courant($pdo));
+$importId = (int)($argv[1] ?? crgi_import_reference($pdo));
 $ok = 0;
 $ko = [];
 

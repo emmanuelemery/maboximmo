@@ -27,7 +27,7 @@ require_once __DIR__ . '/../../inc/crg_integration.php';
 require_once __DIR__ . '/../../inc/crgi_arbitrage.php';
 
 $pdo = $GLOBALS['pdo'];
-$importId = (int)($argv[1] ?? crgi_import_courant($pdo));
+$importId = (int)($argv[1] ?? crgi_import_reference($pdo));
 $ok = 0;
 $ko = [];
 
@@ -263,26 +263,36 @@ controle(
     . 'posait aucune question : Emmanuel voyait un défaut sans porte de sortie. Et l’autre '
     . 'issue — rapprocher deux noms voisins — aurait créé une identité par approximation.',
     function () use ($pdo) {
-        $bac = (int)$pdo->query('SELECT COALESCE(MAX(id), 0) + 9000 FROM crgi_import')
-                        ->fetchColumn();
+        // ⚠️ UNE FIXTURE NE FORCE JAMAIS UN IDENTIFIANT. La première version posait ses lignes
+        //    à « MAX(import) + 9000 » — un espace qu'elle croyait libre. L'AUTO_INCREMENT réel
+        //    de `crgi_piece` l'a rattrapé au 235e fichier d'une passe d'apprentissage, et le
+        //    test est tombé sur une collision de clé primaire : le harnais accusait le moteur
+        //    d'un défaut qui n'appartenait qu'à son propre échafaudage. Seul `import_id` reste
+        //    choisi — c'est la clé de purge —, et il est pris HORS de la plage des imports.
+        $bac = (int)$pdo->query('SELECT COALESCE(MAX(import_id), 0) + 1 FROM crgi_piece')
+                        ->fetchColumn()
+             + (int)$pdo->query('SELECT COALESCE(MAX(id), 0) + 1 FROM crgi_import')->fetchColumn();
         try {
-            $pdo->prepare('INSERT INTO crgi_piece (id, import_id, nom_original, chemin, sha256,
+            $pdo->prepare('INSERT INTO crgi_piece (import_id, nom_original, chemin, sha256,
                                                    nb_pages, etat)
-                           VALUES (?, ?, "fixture.pdf", "", REPEAT("0", 64), 2, "LU")')
-                ->execute([$bac, $bac]);
+                           VALUES (?, "fixture.pdf", "", REPEAT("0", 64), 2, "LU")')
+                ->execute([$bac]);
+            $pieceId = (int)$pdo->lastInsertId();
             $ins = $pdo->prepare(
-                'INSERT INTO crgi_crg (id, import_id, piece_id, compte, proprietaire, agence,
+                'INSERT INTO crgi_crg (import_id, piece_id, compte, proprietaire, agence,
                                        format, periode_cle, date_arrete, page_debut, page_fin)
-                 VALUES (?, ?, ?, "9999999999", "PROPRIO FIXTURE", "AF - FIXTURE", "fixture",
+                 VALUES (?, ?, "9999999999", "PROPRIO FIXTURE", "AF - FIXTURE", "fixture",
                          "2026-T2", "2026-06-30", ?, ?)');
-            $ins->execute([$bac, $bac, $bac, 1, 1]);
-            $ins->execute([$bac + 1, $bac, $bac, 2, 2]);
+            $ins->execute([$bac, $pieceId, 1, 1]);
+            $crgA = (int)$pdo->lastInsertId();
+            $ins->execute([$bac, $pieceId, 2, 2]);
+            $crgB = (int)$pdo->lastInsertId();
             $occ = $pdo->prepare(
                 'INSERT INTO crgi_occupation (import_id, crg_id, lot_reference, locataire, rang,
                                               date_arrete, periode_cle, page, statut)
                  VALUES (?, ?, "FIXT-01", ?, 0, "2026-06-30", "2026-T2", ?, "LU")');
-            $occ->execute([$bac, $bac, 'ALPHA Camille', 1]);
-            $occ->execute([$bac, $bac + 1, 'ALPMA Camille', 2]);
+            $occ->execute([$bac, $crgA, 'ALPHA Camille', 1]);
+            $occ->execute([$bac, $crgB, 'ALPMA Camille', 2]);
 
             $conflits = crgi_conflits_identite($pdo, $bac);
             exiger(count($conflits) === 1, count($conflits) . ' conflits au lieu d’un');

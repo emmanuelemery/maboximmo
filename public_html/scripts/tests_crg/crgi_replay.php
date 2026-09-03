@@ -24,7 +24,7 @@ require_once __DIR__ . '/../../inc/crg_integration.php';
 
 $pdo = $GLOBALS['pdo'];
 // ⚠️ PAS D'IMPORT ÉCRIT EN DUR — voir `crgi_coherence.php`.
-$importId = (int)($argv[1] ?? crgi_import_courant($pdo));
+$importId = (int)($argv[1] ?? crgi_import_reference($pdo));
 $ok = 0;
 $ko = [];
 

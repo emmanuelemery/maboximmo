@@ -114,7 +114,7 @@ controle(
 // ── L'import jetable : on le crée, on le sème dans TOUTES les tables, on l'annule. ────────
 // ⚠️ LE TÉMOIN SE PREND AVANT LA CRÉATION, sans quoi `crgi_import_courant` désigne le jetable
 //    lui-même et le contrôle « on ne touche pas aux autres » se compare à sa propre victime.
-$temoin  = crgi_import_courant($pdo);
+$temoin  = crgi_import_reference($pdo);
 $jetable = crgi_creer_import($pdo, 'TEST ANNULATION — jetable, à supprimer', 0);
 
 try {

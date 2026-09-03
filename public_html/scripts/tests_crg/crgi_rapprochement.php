@@ -25,7 +25,7 @@ require_once __DIR__ . '/../../inc/crg_integration.php';
 //    l'import 5 a été annulé, trois contrôles ont échoué sur « aucun groupe d'arbitrage » —
 //    ils cherchaient les décisions d'un import qui n'existait plus.
 $pdo = $GLOBALS['pdo'];
-$IMPORT = (int)($argv[1] ?? crgi_import_courant($pdo));
+$IMPORT = (int)($argv[1] ?? crgi_import_reference($pdo));
 
 $ok = 0;
 $ko = [];
