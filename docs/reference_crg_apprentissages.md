@@ -179,9 +179,60 @@ commit          le hash
 
 ---
 
+## APP-0010 · Une position de capture n'est pas une position d'impression
+
+| | |
+|---|---|
+| **phénomène** | Un motif dont la classe de caractères admet l'espace commence sa capture le plus à gauche possible : le texte capturé reste juste, mais sa **colonne** est celle du premier espace avalé, pas celle de la première lettre imprimée. |
+| **preuve** | 03/09/2026 — un lecteur alignant un bloc adresse sous un repère de mise en page rejetait **tous** les noms d'un corpus entier, l'écart mesuré étant celui des espaces, pas celui des colonnes. |
+| **abstraction** | Quand une position sert de repère géométrique, elle doit être celle du **texte visible**. Une capture qui commence par une espace est un repère faux qui a l'air vrai — et le défaut est invisible sous un extracteur plus avare en espaces. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | L'ancrage se calcule sur la première lettre du groupe (`m.start(1)` recalé), et un nom de lieu ne peut pas commencer par une espace. |
+| **composant** | `crg_integration_phase0.py` — `RE_VILLE_DATE`, `_proprietaire_lyon()` |
+| **tests** | `crgi_robustesse` — « la ville ancre la colonne, quel que soit le nombre d'espaces devant elle », « un nom de ville ne commence jamais par une espace » ; épreuve associée : « l'ancrage pris au début de la CAPTURE » |
+| **corpus** | ICS, sous les deux extracteurs disponibles |
+| **limites** | Ne couvre pas les gabarits où le bloc adresse est séparé du repère par plus de cinq lignes : l'ancrage y est juste, mais la fenêtre de recherche s'arrête avant. |
+| **commit** | `—` |
+
+---
+
+## APP-0011 · Un lecteur est un composant du résultat, pas un détail d'installation
+
+| | |
+|---|---|
+| **phénomène** | Deux programmes différents répondent au même nom d'exécutable, avec des options et des sorties différentes. Choisir « le premier venu du PATH » fait dépendre le résultat métier de l'environnement. |
+| **preuve** | 02/09 → 03/09/2026 — la même analyse produisait deux empreintes selon le point de lancement ; un mode inconnu du binaire présent provoquait un repli silencieux vers un autre mode. |
+| **abstraction** | L'outil de lecture se **déclare** (produit, version, mode, capacités) et se **vérifie** au démarrage. Son absence est une panne, jamais une occasion de substituer. Une capacité se probe auprès de l'outil ; elle ne se déduit d'aucun nom. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `CRG_LECTEUR_CONTRAT` + `lecteur_resolu()` : produit et mode exigés, sinon `LecteurIndisponible`. Plus aucun repli implicite vers un autre extracteur. |
+| **composant** | `crg_integration_phase0.py` |
+| **tests** | `crgi_robustesse` — « le lecteur exigé est absent : panne explicite », « un mode que le binaire ne connaît pas est une panne », « le contrat de lecture est déclaré » ; épreuve associée : « le repli muet vers un autre lecteur » |
+| **corpus** | tous |
+| **limites** | Le contrat épingle un produit ; il ne garantit pas qu'une future version du même produit lira à l'identique. Renseigner `version` pour l'exiger. |
+| **commit** | `—` |
+
+---
+
+## APP-0012 · Un conflit d'identité détecté sans question est une perte, pas un contrôle
+
+| | |
+|---|---|
+| **phénomène** | Une même clé d'identité — démontrée par le document — porte deux valeurs différentes dans un même dépôt. Le moteur ne peut pas trancher : une ressemblance ne prouve pas une identité, et une différence ne prouve pas deux objets. |
+| **preuve** | 03/09/2026 — un contrôle de cohérence virait au rouge sur un phénomène que rien ne permettait de résoudre, et l'écran d'arbitrage ne posait aucune question correspondante. Le moteur savait qu'il ne savait pas ; l'humain n'avait nulle part où trancher. |
+| **abstraction** | `CONFLITS DÉTECTÉS = RÉSOLUS AVEC PREUVE + ARBITRABLES`. Un doute que le moteur ne peut pas lever doit **toujours** ouvrir une question portant les deux lectures et leurs preuves respectives. Un rouge permanent que personne ne peut résoudre n'est pas un garde-fou : c'est un bruit qu'on finit par ignorer. Corollaire : une mesure de proximité a le droit d'**ouvrir** la question, jamais de la fermer. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `CRGI_IDENTITES` déclare les populations d'identité ; `crgi_conflits_identite()` les balaie génériquement et rend chaque lecture avec son CRG et sa page ; `crgi_arbitrages()` en fait une famille de questions à trois issues. |
+| **composant** | `crg_integration.php` |
+| **tests** | `crgi_file_arbitrage` — « un conflit d'identité fabriqué devient une question, jamais une fusion » (**fixture synthétique**) ; `crgi_coherence` — « un conflit détecté mais invisible », « aucune identité n'est fusionnée sur une ressemblance » |
+| **corpus** | rejoué sans régression sur les deux corpus en base |
+| **limites** | Ne détecte que les conflits dont la clé est **démontrée par le document**. Deux objets que rien ne relie ne font pas conflit — et c'est voulu : les rapprocher serait une identité par approximation. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Neuf apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Douze apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

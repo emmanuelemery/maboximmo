@@ -316,7 +316,11 @@ controle(
     . 'et celui de MARTINEZ (occupant CHAYNARD) : deux chronologies stables entrelacées, d’où '
     . 'un départ et deux changements ENTIÈREMENT FABRIQUÉS.',
     function () use ($pdo, $importId) {
-        // aucune identité `compte × lot` ne doit porter deux occupants au même arrêté
+        // ⚠️ ON N'EXIGE PLUS ZÉRO CONFLIT — ON EXIGE ZÉRO CONFLIT MUET. Exiger zéro rendait ce
+        //    contrôle rouge sur un phénomène que le moteur ne PEUT pas trancher : une même
+        //    personne lue de deux façons par la couche texte. Un rouge permanent que personne
+        //    ne peut résoudre n'est pas un garde-fou, c'est un bruit qu'on finit par ignorer.
+        //    La fusion reste interdite ; ce qui change, c'est que le doute devient une QUESTION.
         $st = $pdo->prepare(
             'SELECT COUNT(*) FROM (
                 SELECT c.compte, o.lot_reference, o.date_arrete
@@ -326,8 +330,66 @@ controle(
                 HAVING COUNT(DISTINCT o.locataire) > 1) t'
         );
         $st->execute([$importId]);
+        $detectes = (int)$st->fetchColumn();
+        $arbitrables = 0;
+        foreach (crgi_conflits_identite($pdo, $importId, 'CONFLIT_OCCUPANT') as $x) {
+            $arbitrables++;
+        }
+        exiger($detectes === $arbitrables,
+               $detectes . ' conflits d’occupant détectés, ' . $arbitrables
+               . ' arbitrables : la différence est invisible pour Emmanuel');
+    }
+);
+
+// ── L'INVARIANT DES IDENTITÉS ────────────────────────────────────────────────────────────
+controle(
+    'REFUS — un conflit d’identité détecté mais invisible',
+    'Le harnais voyait « FaULARSEN Swan » et « FOU LARSEN Swan » et virait au rouge ; l’écran '
+    . 'd’arbitrage, lui, ne posait aucune question. Le moteur savait qu’il ne savait pas, et '
+    . 'Emmanuel n’avait nulle part où trancher. Un défaut détecté sans porte de sortie est un '
+    . 'échec de couverture, pas un contrôle.',
+    function () use ($pdo, $importId) {
+        $conflits = crgi_conflits_identite($pdo, $importId);
+        $dansLaFile = [];
+        foreach (crgi_arbitrages($pdo, $importId) as $g) {
+            if (!str_starts_with((string)$g['groupe'], 'IDENTITE-')) {
+                continue;
+            }
+            foreach ($g['lignes'] as $l) {
+                $dansLaFile[$g['cible'] . ':' . (int)$l['cible_id']] = true;
+            }
+        }
+        $muets = [];
+        foreach ($conflits as $c) {
+            if (empty($dansLaFile[$c['type'] . ':' . $c['cible_id']])) {
+                $muets[] = $c['type'] . ' ' . $c['cle'];
+            }
+            // Et chaque côté du conflit doit être atteignable, sinon la question est aveugle.
+            foreach ($c['lectures'] as $l) {
+                exiger((int)$l['crg_id'] > 0 && (int)$l['page'] > 0,
+                       'une lecture de « ' . $c['cle'] . ' » n’a pas de preuve atteignable');
+            }
+        }
+        exiger($muets === [],
+               count($muets) . ' conflit(s) détecté(s) hors de la file : '
+               . implode(' ; ', array_slice($muets, 0, 3)));
+    }
+);
+
+controle(
+    'REFUS — aucune identité n’est fusionnée sur une ressemblance',
+    'Rapprocher deux noms voisins créerait une identité par approximation. La mesure de '
+    . 'proximité a le droit d’ouvrir une question ; jamais de la fermer.',
+    function () use ($pdo, $importId) {
+        // Le moteur n'écrit jamais de décision de sa propre initiative : toute décision
+        // d'identité présente en base doit porter un auteur humain.
+        $st = $pdo->prepare(
+            'SELECT COUNT(*) FROM crgi_arbitrage
+              WHERE import_id = ? AND cible_type LIKE "CONFLIT\_%" AND decide_par IS NULL'
+        );
+        $st->execute([$importId]);
         exiger((int)$st->fetchColumn() === 0,
-               'une identité compte × lot porte deux occupants au même arrêté et au même rang');
+               'une décision d’identité existe sans auteur humain');
     }
 );
 

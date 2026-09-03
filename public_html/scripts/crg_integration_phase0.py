@@ -70,7 +70,13 @@ RE_PERIODE = re.compile(r'P[ée]riode\s+du\s+(\d{2}/\d{2}/\d{4})\s+au\s+(\d{2}/\
 #    orphelines sur le document réel — un défaut d'une seule espace, invisible à la lecture.
 RE_BANDEAU = re.compile(r'Compte\s+rendu\s+de\s+gestion\s+.*\bPage\s*\d+', re.I)
 RE_CARTE = re.compile(r'Carte\s+professionnelle|Garantie\s+Financi[èe]re', re.I)
-RE_VILLE_DATE = re.compile(r'([A-Za-zÉÈÀÂÎÔÛéèàâîôû\'\- ]{3,30}),\s*le\s+(\d{2}/\d{2}/\d{4})')
+# ⚠️ UN NOM DE VILLE NE COMMENCE PAS PAR UNE ESPACE. La classe autorisait l'espace en tête et
+#    le moteur, cherchant au plus à gauche, avalait jusqu'à trente espaces AVANT « Lyon ». La
+#    capture restait juste, mais sa POSITION mentait de vingt-six colonnes — et c'est sur cette
+#    position que la lecture du propriétaire s'aligne. Le premier caractère doit être une
+#    lettre : la position redevient alors celle du texte imprimé.
+RE_VILLE_DATE = re.compile(
+    r'([A-Za-zÉÈÀÂÎÔÛéèàâîôû][A-Za-zÉÈÀÂÎÔÛéèàâîôû\'\- ]{2,29}),\s*le\s+(\d{2}/\d{2}/\d{4})')
 # ⚠️ RELEVÉ SUR LE DOCUMENT, PAS DEVINÉ. `-layout` fait apparaître, sur la ligne du titre,
 #    « COMPTE PERSONNEL 01040000 » : c'est le compte mandant de la famille lyon.
 RE_COMPTE_LYON = re.compile(r'COMPTE\s+PERSONNEL\s+(\d{6,10})', re.I)
@@ -139,6 +145,23 @@ def periode_cle(debut, fin):
     return '%s_%s' % (debut, fin)
 
 
+# ═══ LE CONTRAT DE LECTURE — DÉCLARÉ ICI, VÉRIFIÉ À CHAQUE DÉMARRAGE ════════════════════════
+#
+# ⚠️ LE LECTEUR EST UN COMPOSANT DU RÉSULTAT, PAS UN DÉTAIL D'INSTALLATION. Deux programmes
+#    répondent au nom `pdftotext` — poppler et Xpdf (Glyph & Cog) — et ils ne lisent pas la
+#    même page. Mesuré le 03/09/2026 sur le corpus LYON : même nombre de CRG et de montants,
+#    mais 306 649 caractères contre 279 215, et surtout 0 propriétaire lu contre 12. Laisser
+#    l'ordre du PATH décider revenait à laisser l'environnement modifier le résultat métier.
+#
+# ⚠️ CHANGER CETTE DÉCLARATION CHANGE CE QUE MBI LIT. C'est une décision d'Emmanuel, prise
+#    sur mesure, jamais un ajustement d'opportunité. `version` peut rester vide pour n'exiger
+#    qu'un produit ; la renseigner épingle aussi la version.
+CRG_LECTEUR_CONTRAT = {
+    'produit': 'xpdf',       # décidé par Emmanuel le 03/09/2026, après mesure
+    'version': '4.',         # préfixe : la 4.x, pas une 3.x qui lirait autrement
+    'mode':    '-layout',    # ⚠️ PAS `-table` : le mode reste celui du corpus certifié
+}
+
 _PDFTOTEXT = []          # [(chemin, étiquette, sait_table)] — résolu une fois par processus.
 
 
@@ -164,50 +187,107 @@ def pdftotext_exe():
     """
     if _PDFTOTEXT:
         return _PDFTOTEXT[0]
-
-    impose = os.environ.get('CRG_PDFTOTEXT')
-    candidats = []
-    if impose and os.path.isfile(impose):
-        candidats.append(impose)
-    else:
-        vus = set()
-        for dossier in os.environ.get('PATH', '').split(os.pathsep):
-            for nom in ('pdftotext.exe', 'pdftotext'):
-                p = os.path.join(dossier, nom)
-                if os.path.isfile(p) and p.lower() not in vus:
-                    vus.add(p.lower())
-                    candidats.append(p)
-
-    replis = []
-    for exe in candidats:
-        try:
-            v = subprocess.run([exe, '-v'], stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT).stdout.decode('utf-8', 'replace')
-        except OSError:
-            continue
-        etiquette = ' '.join(v.split('\n')[0].replace('pdftotext version', '').split())
-        etiquette = ('poppler ' if 'poppler' in v.lower() else
-                     'xpdf ' if 'glyph' in v.lower() else '') + etiquette
-        # ⚠️ ON DEMANDE AU BINAIRE CE QU'IL SAIT FAIRE, ON NE LE DÉDUIT PAS DE SON NOM.
-        #    La première version écrivait `'poppler' in v` — et c'était l'INVERSE de la
-        #    vérité : `-table` est une option **Xpdf**, que poppler 25.07 n'a pas. Le moteur
-        #    lançait donc `-table` sur poppler, échouait, et retombait EN SILENCE sur
-        #    `-layout` — le repli que la doctrine chiffre à 307 rattachements au lieu de
-        #    1 022. Une capacité se probe : on lit la liste d'options que l'outil imprime.
-        try:
-            aide = subprocess.run([exe, '-h'], stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT).stdout.decode('utf-8', 'replace')
-        except OSError:
-            aide = ''
-        sait = bool(re.search(r'^\s+-table\b', aide, re.M))
-        if 'poppler' in v.lower():
-            # Le binaire du corpus certifié : il gagne, quelles que soient ses options.
-            _PDFTOTEXT.append((exe, etiquette.strip(), sait))
-            return _PDFTOTEXT[0]
-        replis.append((exe, etiquette.strip(), sait))
-
-    _PDFTOTEXT.append(replis[0] if replis else (None, None, False))
+    _PDFTOTEXT.append(lecteur_resolu())
     return _PDFTOTEXT[0]
+
+
+def _inspecter(exe):
+    """Ce qu'un binaire EST, demandé à lui-même : produit, version, capacités.
+
+    ⚠️ ON DEMANDE AU BINAIRE CE QU'IL SAIT FAIRE, ON NE LE DÉDUIT PAS DE SON NOM. La première
+       version écrivait `sait_table = 'poppler' in version` — et c'était l'INVERSE de la
+       vérité : `-table` est une option **Xpdf**, que poppler n'a pas. Le moteur lançait donc
+       `-table` sur poppler, échouait, et retombait EN SILENCE sur `-layout`.
+    """
+    try:
+        v = subprocess.run([exe, '-v'], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT).stdout.decode('utf-8', 'replace')
+    except OSError:
+        return None
+    produit = ('poppler' if 'poppler' in v.lower() else
+               'xpdf' if 'glyph' in v.lower() else 'inconnu')
+    m = re.search(r'version\s+([0-9][0-9.]*)', v)
+    try:
+        aide = subprocess.run([exe, '-h'], stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT).stdout.decode('utf-8', 'replace')
+    except OSError:
+        aide = ''
+    return {
+        'chemin':  exe,
+        'produit': produit,
+        'version': m.group(1) if m else '',
+        'table':   bool(re.search(r'^\s+-table\b', aide, re.M)),
+        'layout':  bool(re.search(r'^\s+-layout\b', aide, re.M)),
+    }
+
+
+def lecteurs_disponibles():
+    """Tous les `pdftotext` atteignables, inspectés. Sert au contrôle et au diagnostic."""
+    vus, trouves = set(), []
+    impose = os.environ.get('CRG_PDFTOTEXT')
+    chemins = [impose] if impose else []
+    for dossier in os.environ.get('PATH', '').split(os.pathsep):
+        for nom in ('pdftotext.exe', 'pdftotext'):
+            chemins.append(os.path.join(dossier, nom))
+    for p in chemins:
+        if not p or not os.path.isfile(p) or p.lower() in vus:
+            continue
+        vus.add(p.lower())
+        fiche = _inspecter(p)
+        if fiche:
+            trouves.append(fiche)
+    return trouves
+
+
+class LecteurIndisponible(RuntimeError):
+    """Le lecteur exigé par le contrat n'est pas là — et rien d'autre ne le remplace."""
+
+
+def lecteur_resolu(contrat=None):
+    """Le lecteur du CONTRAT, ou une erreur explicite. Jamais un remplaçant choisi tout seul.
+
+    ⚠️ AUCUNE BASCULE SILENCIEUSE. L'ancienne version prenait « le premier venu » du PATH, en
+       épinglant poppler s'il passait par là. Deux postes, deux PATH, deux lectures — et la
+       même analyse produisait deux empreintes, le sceau accusant le moteur. Un lecteur n'est
+       pas un détail d'environnement : c'est un composant du résultat, au même titre qu'une
+       règle métier. Il se DÉCLARE, et son absence est une panne, pas une occasion de bricoler.
+
+    ⚠️ LE MODE FAIT PARTIE DU CONTRAT. `-table` et `-layout` ne lisent pas la même page. Exiger
+       un mode que le binaire présent ne connaît pas est une panne, pas un repli.
+
+    ⚠️ `CRG_LECTEUR` PERMET DE MESURER UN AUTRE PRODUIT, DÉLIBÉRÉMENT — un banc d'essai doit
+       pouvoir comparer. Mais pendant un examen, le contrat est figé et le runner le vérifie :
+       cette porte sert à mesurer, jamais à dépanner en silence.
+    """
+    c = dict(contrat or CRG_LECTEUR_CONTRAT)
+    voulu = os.environ.get('CRG_LECTEUR')
+    if voulu:
+        # ⚠️ CHANGER DE PRODUIT LIBÈRE L'ÉPINGLAGE DE VERSION. Le contrat épingle « xpdf 4.x » ;
+        #    garder ce « 4. » en demandant poppler exigeait un poppler 4, qui n'existe pas — la
+        #    porte de mesure échouait en annonçant une absence de lecteur. Une version épinglée
+        #    n'a de sens que pour le produit qu'elle accompagne.
+        c['produit'] = voulu.strip().lower()
+        c['version'] = ''
+    trouves = lecteurs_disponibles()
+    for f in trouves:
+        if f['produit'] != c['produit']:
+            continue
+        if c.get('version') and not f['version'].startswith(c['version']):
+            continue
+        if c['mode'] == '-table' and not f['table']:
+            raise LecteurIndisponible(
+                'LECTEUR INCOMPLET — %s %s (%s) ne connaît pas l’option « -table » exigée par '
+                'le contrat de lecture.' % (f['produit'], f['version'], f['chemin']))
+        return (f['chemin'], '%s %s' % (f['produit'], f['version']), f['table'])
+
+    raise LecteurIndisponible(
+        'LECTEUR INTROUVABLE — le contrat exige « %s%s » en mode « %s ». Trouvés : %s. '
+        'Aucune substitution n’est faite : un autre binaire ne lit pas la même page, et une '
+        'bascule muette rendrait les empreintes incomparables. Installez le lecteur attendu, '
+        'ou imposez son chemin par CRG_PDFTOTEXT.'
+        % (c['produit'], (' ' + c['version']) if c.get('version') else '', c['mode'],
+           ', '.join('%s %s (%s)' % (f['produit'], f['version'], f['chemin'])
+                     for f in trouves) or 'aucun'))
 
 
 def lire_pages(chemin):
@@ -224,23 +304,24 @@ def lire_pages(chemin):
        pas toujours le binaire — mais il est vingt-huit fois plus lent : le taire ferait passer
        une installation incomplète pour une lenteur inexplicable.
     """
+    # ⚠️ PLUS DE REPLI MUET. Ici vivait un `if exe:` suivi d'un `import pdfplumber` : lecteur
+    #    absent, le moteur changeait d'outil sans le dire et rendait un texte différent, vingt-
+    #    huit fois plus lentement. Le contrat échoue désormais à voix haute — voir
+    #    `lecteur_resolu()`. Une panne d'installation doit ressembler à une panne.
     exe, etiquette, _table = pdftotext_exe()
-    if exe:
-        r = subprocess.run([exe, '-layout', '-enc', 'UTF-8', chemin, '-'],
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if r.returncode != 0:
-            raise ValueError('pdftotext a échoué (code %d) : %s'
-                             % (r.returncode, r.stderr.decode('utf-8', 'replace')[:200]))
-        pages = r.stdout.decode('utf-8', 'replace').split('\x0c')
-        if pages and not pages[-1].strip():
-            pages.pop()
-        # ⚠️ L'ÉTIQUETTE PORTE LE PRODUIT ET SA VERSION, PAS « pdftotext ». Deux lectures d'un
-        #    même document par deux binaires homonymes ne sont pas la même lecture, et c'est
-        #    la seule ligne qui permette de s'en apercevoir.
-        return pages, 'pdftotext (%s)' % (etiquette or 'version inconnue')
-    import pdfplumber
-    with pdfplumber.open(chemin) as pdf:
-        return [p.extract_text() or '' for p in pdf.pages], 'pdfplumber (repli lent)'
+    mode = CRG_LECTEUR_CONTRAT['mode']
+    r = subprocess.run([exe, mode, '-enc', 'UTF-8', chemin, '-'],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise ValueError('pdftotext a échoué (code %d) : %s'
+                         % (r.returncode, r.stderr.decode('utf-8', 'replace')[:200]))
+    pages = r.stdout.decode('utf-8', 'replace').split('\x0c')
+    if pages and not pages[-1].strip():
+        pages.pop()
+    # ⚠️ L'ÉTIQUETTE PORTE LE PRODUIT, SA VERSION ET LE MODE, PAS « pdftotext ». Deux lectures
+    #    d'un même document par deux binaires homonymes ne sont pas la même lecture, et c'est
+    #    la seule ligne qui permette de s'en apercevoir.
+    return pages, 'pdftotext (%s %s)' % (etiquette or 'version inconnue', mode)
 
 
 def qualifier(texte):
@@ -392,13 +473,20 @@ def _proprietaire_lyon(texte):
     ⚠️ ON SE SERT DE LA COLONNE, PARCE QUE `-layout` LA PRÉSERVE. Le bloc adresse est aligné
        sous « Ville, le … » : on ne retient qu'une ligne commençant à la même abscisse, à
        quelques espaces près. C'est une propriété de la mise en page, pas une devinette.
+
+    ⚠️ LA COLONNE EST CELLE DU TEXTE IMPRIMÉ, JAMAIS CELLE DU DÉBUT DE LA CAPTURE. Le
+       03/09/2026, ce lecteur rendait **0 propriétaire sur tout le corpus LYON** : la capture
+       commençait vingt-six colonnes trop à gauche, l'écart au bloc adresse dépassait la
+       tolérance, et chaque nom était rejeté en silence. Un banc d'essai de lecteurs l'a
+       révélé — un autre binaire, plus avare en espaces, masquait le défaut. On prend donc la
+       position du GROUPE, et on la recale sur sa première lettre : ce que la page montre.
     """
     lignes = texte.split('\n')
     for i, ligne in enumerate(lignes):
         m = RE_VILLE_DATE.search(ligne)
         if not m:
             continue
-        colonne = m.start()
+        colonne = m.start(1) + (len(m.group(1)) - len(m.group(1).lstrip()))
         for suivante in lignes[i + 1:i + 6]:
             if not suivante.strip():
                 continue

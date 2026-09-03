@@ -214,11 +214,14 @@
   border-radius:7px;padding:8px 13px}
 .crgi-arb-voir:hover{background:var(--crgi-navy);color:#fff}
 /* Le contexte : des paires, pas un tableau — on les lit d'un œil. */
-.crgi-arb-ctx{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
-  gap:4px 18px;margin:0 0 6px}
+/* ⚠️ DES COLONNES, PAS UNE GRILLE. En grille, `dt` et `dd` sont deux cellules indépendantes :
+      la mise en page les répartissait chacune de son côté et l'écran affichait « AGENCE » au-
+      dessus du compte, « COMPTE » à côté du propriétaire. Un libellé séparé de sa valeur ne
+      dit pas seulement rien : il dit faux. Le flux multi-colonnes garde l'ordre du document. */
+.crgi-arb-ctx{columns:4 200px;column-gap:22px;margin:0 0 6px}
 .crgi-arb-ctx dt{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
-  color:var(--crgi-gris);margin-top:7px}
-.crgi-arb-ctx dd{margin:0;font-size:13px;line-height:1.4}
+  color:var(--crgi-gris);margin-top:9px;break-after:avoid;break-inside:avoid}
+.crgi-arb-ctx dd{margin:0;font-size:13px;line-height:1.4;break-inside:avoid}
 .crgi-arb-h3{font-size:13px;text-transform:uppercase;letter-spacing:.6px;
   color:var(--crgi-gris);margin:18px 0 8px}
 /* Les propositions : la jauge dit la part comptée, jamais une impression. */
@@ -256,3 +259,80 @@
 .crgi-arb-groupe p{margin:6px 0 0 26px;line-height:1.5}
 .crgi-arb-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 12px}
 .crgi-arb-fiche .crgi-arb-etat{font-size:12.5px;color:var(--crgi-gris);min-height:0}
+/* Un conflit d'identité se lit à deux colonnes : chaque lecture avec SA preuve. */
+.crgi-arb-face-a-face{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:12px;margin:14px 0 4px}
+.crgi-arb-face{position:relative;background:var(--crgi-doux);border:1px solid var(--crgi-trait);
+  border-radius:8px;padding:14px 16px 13px;display:flex;flex-direction:column;gap:9px;
+  align-items:flex-start}
+.crgi-arb-face b{font-size:17px;line-height:1.35;word-break:break-word}
+.crgi-arb-face-n{position:absolute;top:10px;right:12px;font-size:11px;font-weight:700;
+  letter-spacing:.8px;color:var(--crgi-gris)}
+.crgi-arb-face .crgi-arb-voir{margin-left:0}
+
+/* ═══ TABLEAU DE BORD D'INTÉGRATION — `crgi_pilotage_vue.php` ═════════════════════════════
+   ⚠️ IL S'AFFICHE AU-DESSUS DE LA FRISE, ET IL DOIT SE LIRE PLUS VITE QU'ELLE. D'où des
+      chiffres plus gros que partout ailleurs dans le module : ce bloc se PARCOURT, il ne se
+      lit pas. Les tuiles techniques `.crgi-bilan` restent, plus bas, pour qui veut creuser. */
+.crgi-bord{border-color:var(--crgi-navy);border-top:3px solid var(--crgi-or)}
+.crgi-bord-tete{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.crgi-bord-tete h2{font-size:18px;margin:0 0 3px}
+.crgi-bord-tete code{background:var(--crgi-doux);border-radius:4px;padding:1px 5px;font-size:11px}
+.crgi-bord-statut{margin-left:auto;align-self:center;font-size:13px;font-weight:700;
+  letter-spacing:.7px;padding:7px 15px;border-radius:22px;white-space:nowrap;
+  background:#eef1f5;color:var(--crgi-gris)}
+.crgi-st-ENCOURS{background:#e8f0fb;color:#1e4f8f}
+.crgi-st-ENATTENTEDARBITRAGE{background:#fdf3e0;color:var(--crgi-ambre)}
+.crgi-st-PRTE{background:#e7f4ee;color:var(--crgi-vert)}
+.crgi-st-CHEC{background:#fdeceb;color:var(--crgi-rouge)}
+.crgi-st-ANNULE{text-decoration:line-through}
+/* Les KPI de premier niveau : ce qui change la conduite, rien d'autre. */
+/* ⚠️ CINQ COLONNES, PAS `auto-fit`. Les dix indicateurs tombaient en 8 + 2, et la place
+      restante s'affichait comme un grand rectangle gris — le fond du conteneur, qui sert de
+      trait de séparation. Dix se divisent par cinq : deux rangées pleines, aucune zone morte. */
+.crgi-bord-kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+  background:var(--crgi-trait);border:1px solid var(--crgi-trait);border-radius:9px;
+  overflow:hidden;margin:0 0 14px}
+@media (max-width:1100px){.crgi-bord-kpi{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:640px){.crgi-bord-kpi{grid-template-columns:repeat(2,1fr)}}
+.crgi-bord-kpi > div{background:#fff;padding:11px 13px 10px}
+.crgi-bord-kpi span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--crgi-gris);line-height:1.3;min-height:26px}
+.crgi-bord-kpi b{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+.crgi-bord-kpi i{font-style:normal;font-size:13px;font-weight:600;color:var(--crgi-gris)}
+/* ⚠️ LA COULEUR SE POSE AU MÊME NIVEAU QUE CELLE QU'ELLE REMPLACE. `.crgi-bord-ok b` perdait
+      contre `.crgi-bord-kpi b` sur le chiffre des pertes : l'encadré annonçait « tout va bien »
+      en bleu d'encre. Une règle d'état doit être au moins aussi spécifique que la règle de base. */
+.crgi-bord-kpi .crgi-bord-ok b{color:var(--crgi-vert)}
+.crgi-bord-kpi .crgi-bord-att b{color:var(--crgi-ambre)}
+.crgi-bord-mal,.crgi-bord-kpi .crgi-bord-mal b{color:var(--crgi-rouge)}
+.crgi-bord-kpi .crgi-bord-perte.crgi-bord-ok{box-shadow:inset 0 0 0 2px var(--crgi-vert)}
+.crgi-bord-kpi .crgi-bord-perte.crgi-bord-mal{box-shadow:inset 0 0 0 2px var(--crgi-rouge);
+  background:#fffafa}
+/* Le parcours : neuf pas, un signe chacun — jamais la couleur seule. */
+.crgi-bord-parcours{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.crgi-bord-pas{flex:1 1 96px;display:flex;align-items:center;gap:7px;padding:8px 10px;
+  border:1px solid var(--crgi-trait);border-radius:7px;background:var(--crgi-doux);
+  font-size:11.5px;font-weight:600;letter-spacing:.3px}
+.crgi-bord-signe{font-size:13px;font-weight:700}
+.crgi-pas-fini{background:#e7f4ee;border-color:#c9e6d8;color:var(--crgi-vert)}
+.crgi-pas-encours{background:#e8f0fb;border-color:#cadcf3;color:#1e4f8f}
+.crgi-pas-arbitrage{background:#fdf3e0;border-color:#f0dcb4;color:var(--crgi-ambre)}
+.crgi-pas-erreur{background:#fdeceb;border-color:#f3c9c6;color:var(--crgi-rouge)}
+.crgi-pas-attente{color:var(--crgi-gris)}
+/* L'action : un seul bouton, et ce qu'il y a derrière. */
+.crgi-bord-action{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 10px}
+.crgi-bord-prio{font-size:12.5px;color:var(--crgi-gris)}
+.crgi-bord-prio b{font-variant-numeric:tabular-nums;margin-left:8px}
+.crgi-prio-bloquant{color:var(--crgi-rouge)}
+.crgi-prio-important{color:var(--crgi-ambre)}
+.crgi-prio-nonbloquant{color:var(--crgi-gris)}
+.crgi-bord-groupes{list-style:none;margin:0 0 12px;padding:0;display:flex;gap:8px;flex-wrap:wrap}
+.crgi-bord-groupes li{border:1px solid var(--crgi-trait);border-radius:7px;padding:7px 11px;
+  font-size:12.5px;background:#fff}
+.crgi-bord-groupes a{color:var(--crgi-navy);text-decoration:none}
+.crgi-bord-groupes a:hover{text-decoration:underline}
+.crgi-bord-groupes b{font-variant-numeric:tabular-nums}
+.crgi-bord-appris{font-size:12.5px;color:var(--crgi-gris);line-height:1.6;margin:0 0 4px;
+  border-top:1px solid var(--crgi-trait);padding-top:11px}
+.crgi-bord-appris b{color:var(--crgi-navy);font-variant-numeric:tabular-nums}

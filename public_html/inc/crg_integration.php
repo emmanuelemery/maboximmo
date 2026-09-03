@@ -318,15 +318,36 @@ function crgi_lancer_phase0(string $pdf): array
     return $json;
 }
 
-/** Écrit l'état d'une phase. Le message dit toujours pourquoi, quand il y a un pourquoi. */
-function crgi_marquer_phase(PDO $pdo, int $importId, int $phase, string $statut, ?string $msg): void
+/**
+ * Écrit l'état d'une phase. Le message dit toujours pourquoi, quand il y a un pourquoi.
+ *
+ * ⚠️ LA DURÉE EST CELLE DU CALCUL, PAS CELLE DE LA JOURNÉE. Le tableau de bord déduisait le
+ *    « temps machine » de l'écart entre le dépôt et la dernière validation : il annonçait
+ *    9 h 21 pour quelques minutes d'analyse et des heures de relecture humaine. On mesure donc
+ *    ici, et `NULL` reste `NULL` quand personne n'a mesuré — `ABSENCE ≠ ZÉRO`.
+ */
+function crgi_marquer_phase(PDO $pdo, int $importId, int $phase, string $statut, ?string $msg,
+                            ?int $secondes = null): void
 {
+    // ⚠️ LE CHRONOMÈTRE VIT ICI, PAS DANS QUATORZE APPELANTS. Chaque phase passe par « EN
+    //    ANALYSE » puis par son verdict, dans le même processus : c'est le seul endroit qui
+    //    voit les deux bouts. Le mesurer aux appelants aurait demandé quatorze modifications
+    //    et en aurait oublié une — celle-là précisément n'aurait jamais eu de durée.
+    static $depart = [];
+    $cle = $importId . ':' . $phase;
+    if ($statut === 'EN ANALYSE') {
+        $depart[$cle] = microtime(true);
+    } elseif ($secondes === null && isset($depart[$cle])) {
+        $secondes = (int)round(microtime(true) - $depart[$cle]);
+        unset($depart[$cle]);
+    }
     $pdo->prepare(
-        'INSERT INTO crgi_phase (import_id, phase, statut, message, analyse_le)
-         VALUES (:i,:p,:s,:m,NOW())
-         ON DUPLICATE KEY UPDATE statut = :s2, message = :m2, analyse_le = NOW()'
+        'INSERT INTO crgi_phase (import_id, phase, statut, message, analyse_le, secondes_machine)
+         VALUES (:i,:p,:s,:m,NOW(),:sec)
+         ON DUPLICATE KEY UPDATE statut = :s2, message = :m2, analyse_le = NOW(),
+                                 secondes_machine = COALESCE(:sec2, secondes_machine)'
     )->execute([':i' => $importId, ':p' => $phase, ':s' => $statut, ':m' => $msg,
-                ':s2' => $statut, ':m2' => $msg]);
+                ':s2' => $statut, ':m2' => $msg, ':sec' => $secondes, ':sec2' => $secondes]);
 }
 
 /**
@@ -2978,6 +2999,123 @@ function crgi_compatibilite(string $chemin): array
  * ⚠️ ET AUCUN CHOIX NE S'APPLIQUE TOUT SEUL. Cette fonction DÉCRIT ce qu'il y a à décider ;
  *    elle n'écrit rien et ne présélectionne rien.
  */
+/**
+ * LES POPULATIONS D'IDENTITÉ, ET CE QUI FAIT CONFLIT DANS CHACUNE.
+ *
+ * ⚠️ UNE TABLE, PAS UNE CASCADE DE `if`. Le jour où le dépôt apportera une identité de plus —
+ *    un tiers, un mandataire —, elle s'AJOUTE ici : la détection, l'arbitrage, l'écran et le
+ *    contrôle d'invariant la prennent en charge sans une ligne de code supplémentaire.
+ *
+ * ⚠️ LA CLÉ EST CE QUE LE DOCUMENT DÉMONTRE, LA VALEUR EST CE QU'IL IMPRIME. Deux valeurs pour
+ *    une même clé, dans un même dépôt, c'est un conflit — jamais une occasion de choisir.
+ */
+const CRGI_IDENTITES = [
+    'CONFLIT_OCCUPANT' => [
+        'libelle' => 'l’occupant d’un lot, à une même date d’arrêté',
+        'table'   => 'crgi_occupation o',
+        'valeur'  => 'o.locataire',
+        'cle'     => "CONCAT(c.compte, ' · lot ', o.lot_reference, ' · ', o.date_arrete)",
+        'groupe'  => 'c.compte, o.lot_reference, o.date_arrete, o.rang',
+    ],
+    'CONFLIT_PROPRIO' => [
+        'libelle' => 'le propriétaire d’un compte mandant',
+        'table'   => 'crgi_crg o',
+        'valeur'  => 'o.proprietaire',
+        'cle'     => "CONCAT('compte ', c.compte)",
+        'groupe'  => 'c.compte',
+        // Le CRG n'a pas de colonne `page` : sa preuve est sa page de début.
+        'page'    => 'o.page_debut',
+    ],
+    'CONFLIT_IMMEUBLE' => [
+        'libelle' => 'le nom d’un immeuble, sous un même code',
+        'table'   => 'crgi_immeuble o',
+        'valeur'  => 'o.nom',
+        'cle'     => "CONCAT(c.compte, ' · immeuble ', o.code)",
+        'groupe'  => 'c.compte, o.code',
+    ],
+    'CONFLIT_LOT' => [
+        'libelle' => 'le libellé d’un lot, sous une même référence',
+        'table'   => 'crgi_lot o',
+        'valeur'  => 'o.libelle',
+        'cle'     => "CONCAT(c.compte, ' · lot ', o.reference)",
+        'groupe'  => 'c.compte, o.reference',
+    ],
+];
+
+/**
+ * LES CONFLITS D'IDENTITÉ DU DÉPÔT — DÉTECTÉS, JAMAIS TRANCHÉS.
+ *
+ * ⚠️ UNE RESSEMBLANCE NE PROUVE JAMAIS UNE IDENTITÉ. Deux lectures proches d'un même nom
+ *    peuvent être une personne lue deux fois, ou deux personnes réellement distinctes. Le
+ *    moteur n'a aucun moyen de le démontrer : rapprocher par ressemblance créerait une
+ *    identité par approximation, ce que la doctrine refuse depuis P2.
+ *
+ * ⚠️ MAIS UN CONFLIT DÉTECTÉ ET INVISIBLE EST PIRE QUE PAS DE DÉTECTION. Un contrôle qui vire
+ *    au rouge sans ouvrir de question laisse Emmanuel devant un défaut qu'il ne peut pas
+ *    trancher. `CONFLITS DÉTECTÉS = RÉSOLUS AVEC PREUVE + ARBITRABLES` : c'est l'invariant, et
+ *    `crgi_coherence` le vérifie.
+ *
+ * ⚠️ CHAQUE VALEUR PORTE SA PREUVE. On rend, pour chacune, son CRG et sa page : l'écran peut
+ *    ouvrir les deux côtés du conflit sans que personne n'ait à chercher.
+ */
+function crgi_conflits_identite(PDO $pdo, int $importId, ?string $type = null): array
+{
+    $sortie = [];
+    foreach (CRGI_IDENTITES as $cle => $p) {
+        if ($type !== null && $type !== $cle) {
+            continue;
+        }
+        $jointure = str_starts_with($p['table'], 'crgi_crg ')
+            ? 'crgi_crg o'                       // le CRG est son propre contexte
+            : $p['table'] . ' JOIN crgi_crg c ON c.id = o.crg_id';
+        $alias = str_starts_with($p['table'], 'crgi_crg ') ? 'o' : 'c';
+        $jointure .= ' JOIN crgi_piece pi ON pi.id = ' . $alias . '.piece_id';
+        $sql = sprintf(
+            'SELECT MIN(o.id) cible_id, %s cle, COUNT(DISTINCT %s) valeurs,
+                    GROUP_CONCAT(DISTINCT CONCAT(%s, CHAR(31), %s.id, CHAR(31), COALESCE(%s, 0))
+                                 ORDER BY %s SEPARATOR "\n") lectures,
+                    MIN(%s.compte) compte, MIN(%s.agence) agence, MIN(%s.proprietaire) proprietaire,
+                    MIN(pi.nom_original) nom_original, MIN(pi.sha256) sha256
+               FROM %s
+              WHERE o.import_id = ? AND %s IS NOT NULL AND %s <> ""
+              GROUP BY %s
+             HAVING valeurs > 1
+              ORDER BY cle',
+            str_replace('c.', $alias . '.', $p['cle']), $p['valeur'],
+            $p['valeur'], $alias, $p['page'] ?? 'o.page', $p['valeur'],
+            $alias, $alias, $alias,
+            $jointure, $p['valeur'], $p['valeur'],
+            str_replace('c.', $alias . '.', $p['groupe'])
+        );
+        // ⚠️ CHAR(31) POUR LES CHAMPS, UN SAUT DE LIGNE POUR LES LECTURES. MySQL ne connaît pas
+        //    l'échappée « \037 » : il y lit `\0` (NUL) suivi de « 37 », et les valeurs
+        //    revenaient soudées par des chiffres parasites. Et `SEPARATOR` n'accepte qu'un
+        //    littéral, jamais un appel de fonction. Un séparateur se nomme, il ne se devine pas.
+        $st = $pdo->prepare($sql);
+        $st->execute([$importId]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $lectures = [];
+            foreach (explode("\n", (string)$r['lectures']) as $bloc) {
+                [$valeur, $crgId, $page] = array_pad(explode("\x1f", $bloc), 3, null);
+                $lectures[] = ['valeur' => $valeur, 'crg_id' => (int)$crgId, 'page' => (int)$page];
+            }
+            $sortie[] = [
+                'type'     => $cle,
+                'libelle'  => $p['libelle'],
+                'cible_id' => (int)$r['cible_id'],
+                'cle'      => (string)$r['cle'],
+                'compte'   => (string)$r['compte'],
+                'agence'   => (string)$r['agence'],
+                'proprietaire' => (string)$r['proprietaire'],
+                'nom_original' => (string)$r['nom_original'],
+                'sha256'   => (string)$r['sha256'],
+                'lectures' => $lectures,
+            ];
+        }
+    }
+    return $sortie;
+}
+
 function crgi_arbitrages(PDO $pdo, int $importId): array
 {
     $groupes = [];
@@ -2986,6 +3124,36 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
         $st->execute([$importId]);
         return $st->fetchAll(PDO::FETCH_ASSOC);
     };
+
+    // ── IDENTITÉS : le document nomme deux fois la même chose, de deux façons ─────────────
+    // ⚠️ EN TÊTE DE FILE, ET C'EST VOULU. Une identité mal tranchée contamine tout ce qui s'y
+    //    rattache — occupations, argent, patrimoine. On la pose avant le reste.
+    $conflits = [];
+    foreach (crgi_conflits_identite($pdo, $importId) as $c) {
+        $conflits[$c['type']][] = $c;
+    }
+    foreach ($conflits as $type => $lignes) {
+        $libelle = CRGI_IDENTITES[$type]['libelle'];
+        $groupes[] = [
+            'groupe'   => str_replace('CONFLIT_', 'IDENTITE-', $type),
+            'cible'    => $type,
+            'famille'  => 'IDENTITÉS',
+            'question' => 'Le dépôt désigne ' . $libelle . ' de deux façons différentes. '
+                        . 'S’agit-il de la même identité ?',
+            'regle'    => '`UNE RESSEMBLANCE NE PROUVE JAMAIS UNE IDENTITÉ` — le moteur détecte '
+                        . 'le conflit, il ne le tranche pas.',
+            'choix'    => [
+                'Même identité'         => 'les deux lectures désignent la même chose ; MBI '
+                                         . 'n’en crée qu’une.',
+                'Identités différentes' => 'MBI en porte deux, distinctes et assumées.',
+                'Indéterminable'        => 'le document ne permet pas de trancher ; rien n’est '
+                                         . 'écrit pour cette identité.',
+            ],
+            'impact'   => 'Bloque l’écriture de CETTE identité et de ce qui en dépend '
+                        . 'directement. N’empêche aucune autre écriture du dépôt.',
+            'lignes'   => $lignes,
+        ];
+    }
 
     // ── PATRIMOINE : plusieurs immeubles MBI portent le même nom ──────────────────────────
     $imm = $q(

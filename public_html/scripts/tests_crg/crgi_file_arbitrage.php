@@ -146,7 +146,11 @@ controle(
                'aucun lien de preuve sur la page');
         exiger((int)$x[1] > 0, 'le lien de preuve ne désigne aucun CRG');
         exiger((int)$x[2] > 0, 'le lien de preuve ne désigne aucune page');
-        exiger(str_contains($page, 'Voir dans le CRG'), 'le bouton de preuve n’est pas nommé');
+        // ⚠️ ON EXIGE UN BOUTON DE PREUVE, PAS UNE FORMULE. Un conflit d'identité en porte
+        //    DEUX — « Voir preuve A » et « Voir preuve B » —, et exiger la formule du cas
+        //    simple aurait fait échouer le test sur l'écran le mieux outillé des deux.
+        exiger(str_contains($page, 'Voir dans le CRG') || str_contains($page, 'Voir preuve'),
+               'le bouton de preuve n’est pas nommé');
     }
 );
 
@@ -245,6 +249,174 @@ controle(
             $vus++;
         }
         echo "       ({$vus} arbitrages porteurs d’un groupe semblable)\n";
+    }
+);
+
+// ── LES CONFLITS D'IDENTITÉ, SUR FIXTURE SYNTHÉTIQUE ─────────────────────────────────────
+// ⚠️ AUCUN NOM DU CORPUS ICI. Un test bâti sur « le cas connu » prouverait qu'on se souvient,
+//    pas qu'on a compris — et il passerait encore le jour où le moteur aurait tout oublié
+//    sauf cette exception-là. La fixture fabrique le PHÉNOMÈNE : une même clé d'identité,
+//    deux valeurs. Elle vit dans un import jetable, purgé quoi qu'il arrive.
+controle(
+    'un conflit d’identité fabriqué devient une question, jamais une fusion',
+    'Le moteur détectait un conflit d’occupant, le harnais virait au rouge, et l’écran ne '
+    . 'posait aucune question : Emmanuel voyait un défaut sans porte de sortie. Et l’autre '
+    . 'issue — rapprocher deux noms voisins — aurait créé une identité par approximation.',
+    function () use ($pdo) {
+        $bac = (int)$pdo->query('SELECT COALESCE(MAX(id), 0) + 9000 FROM crgi_import')
+                        ->fetchColumn();
+        try {
+            $pdo->prepare('INSERT INTO crgi_piece (id, import_id, nom_original, chemin, sha256,
+                                                   nb_pages, etat)
+                           VALUES (?, ?, "fixture.pdf", "", REPEAT("0", 64), 2, "LU")')
+                ->execute([$bac, $bac]);
+            $ins = $pdo->prepare(
+                'INSERT INTO crgi_crg (id, import_id, piece_id, compte, proprietaire, agence,
+                                       format, periode_cle, date_arrete, page_debut, page_fin)
+                 VALUES (?, ?, ?, "9999999999", "PROPRIO FIXTURE", "AF - FIXTURE", "fixture",
+                         "2026-T2", "2026-06-30", ?, ?)');
+            $ins->execute([$bac, $bac, $bac, 1, 1]);
+            $ins->execute([$bac + 1, $bac, $bac, 2, 2]);
+            $occ = $pdo->prepare(
+                'INSERT INTO crgi_occupation (import_id, crg_id, lot_reference, locataire, rang,
+                                              date_arrete, periode_cle, page, statut)
+                 VALUES (?, ?, "FIXT-01", ?, 0, "2026-06-30", "2026-T2", ?, "LU")');
+            $occ->execute([$bac, $bac, 'ALPHA Camille', 1]);
+            $occ->execute([$bac, $bac + 1, 'ALPMA Camille', 2]);
+
+            $conflits = crgi_conflits_identite($pdo, $bac);
+            exiger(count($conflits) === 1, count($conflits) . ' conflits au lieu d’un');
+            $c = $conflits[0];
+            exiger($c['type'] === 'CONFLIT_OCCUPANT', $c['type']);
+            exiger(count($c['lectures']) === 2, 'les deux lectures ne sont pas rendues');
+            foreach ($c['lectures'] as $l) {
+                exiger((int)$l['crg_id'] > 0 && (int)$l['page'] > 0,
+                       'une lecture sans preuve atteignable');
+            }
+            $pages = array_column($c['lectures'], 'page');
+            exiger(count(array_unique($pages)) === 2,
+                   'les deux côtés pointent la même page : la preuve ne distingue rien');
+
+            // La question doit exister, et porter les deux issues sans en imposer aucune.
+            $file = crgi_file_arbitrages($pdo, $bac, ['groupe' => 'IDENTITE-OCCUPANT']);
+            exiger(count($file) === 1, count($file) . ' questions au lieu d’une');
+            $choix = array_keys($file[0]['choix']);
+            exiger(in_array('Même identité', $choix, true)
+                   && in_array('Identités différentes', $choix, true), implode(' / ', $choix));
+
+            // La proximité MESURE, elle ne conclut pas : les deux issues restent proposées.
+            $props = crgi_propositions($pdo, $bac, $file[0]);
+            $intitules = array_column($props, 'choix');
+            exiger(in_array('Même identité', $intitules, true), implode(' / ', $intitules));
+            exiger(in_array('Identités différentes', $intitules, true), implode(' / ', $intitules));
+            foreach ($props as $p) {
+                exiger($p['confiance'] < 100,
+                       'une proposition à 100 % ferme la question au lieu de l’ouvrir');
+            }
+            exiger(count($intitules) === count(array_unique($intitules)),
+                   'deux pistes portent le même intitulé : la décision serait indiscernable');
+        } finally {
+            // ⚠️ LE BALAYAGE SE DÉDUIT DU SCHÉMA. Une liste écrite à la main laisserait un jour
+            //    la fixture derrière elle, et le prochain import compterait des lignes fantômes.
+            foreach (crgi_tables_de_staging($pdo) as $t) {
+                $pdo->prepare('DELETE FROM `' . $t . '` WHERE import_id = ?')->execute([$bac]);
+            }
+        }
+        $reste = 0;
+        foreach (crgi_tables_de_staging($pdo) as $t) {
+            $st = $pdo->prepare('SELECT COUNT(*) FROM `' . $t . '` WHERE import_id = ?');
+            $st->execute([$bac]);
+            $reste += (int)$st->fetchColumn();
+        }
+        exiger($reste === 0, $reste . ' lignes de fixture ont survécu au nettoyage');
+    }
+);
+
+// ── LE TABLEAU DE BORD ───────────────────────────────────────────────────────────────────
+controle(
+    'le tableau de bord répond aux six questions, sans en inventer aucune',
+    'L’avancement était lisible mais pas visible : la frise disait où on en était, il fallait '
+    . 'ouvrir le diagnostic pour savoir si ça allait bien et la file pour savoir s’il fallait '
+    . 'intervenir. Trois écrans pour une seule question : « dois-je m’en occuper ? ».',
+    function () use ($pdo, $importId) {
+        require_once __DIR__ . '/../../inc/crgi_pilotage.php';
+        $p = crgi_pilotage($pdo, $importId);
+        foreach (['crg', 'pages', 'pages_lues', 'mouvements'] as $k) {
+            exiger(isset($p['volumes'][$k]), 'volume manquant : ' . $k);
+        }
+        foreach (['pages', 'compris', 'relies', 'qualifies'] as $k) {
+            exiger(isset($p['taux'][$k]) && $p['taux'][$k] >= 0 && $p['taux'][$k] <= 100,
+                   'taux hors bornes : ' . $k . ' = ' . var_export($p['taux'][$k] ?? null, true));
+        }
+        exiger(in_array($p['statut'], ['EN COURS', 'EN ATTENTE D’ARBITRAGE', 'PRÊTE',
+                                       'ÉCHEC', 'ANNULÉE'], true), $p['statut']);
+        exiger(count($p['parcours']) === count(CRGI_PARCOURS), 'parcours incomplet');
+        // ⚠️ `isset()` MENT SUR UN NULL VOULU. Le temps machine vaut NULL quand personne ne
+        //    l'a mesuré — c'est une information, pas une absence de clé. Confondre les deux
+        //    ferait remplacer « non mesuré » par « zéro », et un zéro s'optimise.
+        exiger(array_key_exists('machine', $p['temps']), 'clé « machine » absente');
+        exiger(array_key_exists('humain', $p['temps']), 'clé « humain » absente');
+        exiger($p['temps']['machine'] === null || $p['temps']['machine'] >= 0,
+               'temps machine incohérent');
+    }
+);
+
+controle(
+    'aucun taux ne se calcule sur un dénominateur absent',
+    'Un pourcentage bâti sur une population vide vaut soit 0 %, soit une division par zéro : '
+    . 'les deux mentent. Un écran de pilotage qui affiche « 0 % compris » sur un import vide '
+    . 'ferait chercher une panne du moteur.',
+    function () use ($pdo, $importId) {
+        $p = crgi_pilotage($pdo, $importId);
+        foreach ($p['familles'] as $f) {
+            exiger($f['detectes'] >= 0, $f['famille']);
+            if ($f['detectes'] === 0) {
+                exiger($f['taux'] === 100.0,
+                       'population vide affichée à ' . $f['taux'] . ' % : ' . $f['famille']);
+            }
+            // ⚠️ ATTENDU = AUTOMATIQUES + EN ARBITRAGE. Le reste serait inexpliqué.
+            exiger($f['detectes'] - $f['auto'] - $f['attente'] === 0,
+                   $f['famille'] . ' : ' . ($f['detectes'] - $f['auto'] - $f['attente'])
+                   . ' objets inexpliqués');
+        }
+    }
+);
+
+controle(
+    'une perte silencieuse est un objet SANS question, pas un objet en attente',
+    'Compter les objets en attente comme des pertes aurait affiché 302 pertes sur un dépôt '
+    . 'parfaitement sain : le KPI serait devenu du bruit dès le premier import, et personne '
+    . 'ne l’aurait plus regardé.',
+    function () use ($pdo, $importId) {
+        $p = crgi_pilotage($pdo, $importId);
+        $enAttente = 0;
+        foreach ($p['familles'] as $f) {
+            $enAttente += $f['attente'];
+        }
+        exiger($enAttente > 0, 'aucun objet en attente : le contrôle ne prouve rien ici');
+        $pertes = array_sum(array_column($p['pertes'], 'n'));
+        exiger($pertes < $enAttente,
+               $pertes . ' pertes pour ' . $enAttente . ' objets en attente : le KPI compte '
+               . 'du travail en cours');
+    }
+);
+
+controle(
+    'le tableau de bord mène à la file, et la file ramène au tableau de bord',
+    'Un écran de pilotage sans porte de sortie oblige à retenir une URL ; une file sans retour '
+    . 'laisse Emmanuel devant une page vide après le dernier arbitrage.',
+    function () use ($importId) {
+        $bord = (string)file_get_contents(__DIR__ . '/../../inc/crgi_pilotage_vue.php');
+        exiger(str_contains($bord, 'admin_crgi_arbitrage.php'),
+               'le tableau de bord n’ouvre pas la file');
+        exiger(str_contains($bord, 'Traiter les'), 'le bouton principal est absent');
+        exiger(str_contains($bord, 'Aucun arbitrage'),
+               'aucun message quand il n’y a rien à arbitrer');
+        $file = (string)file_get_contents(__DIR__ . '/../../admin/admin_crgi_arbitrage.php');
+        exiger(str_contains($file, 'admin_crg_integration.php'),
+               'la file ne ramène pas au tableau de bord');
+        exiger(str_contains($file, 'j.reste === 0'),
+               'le dernier arbitrage ne déclenche aucun retour');
     }
 );
 

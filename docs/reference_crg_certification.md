@@ -89,6 +89,19 @@ chaque information extraite sache de quel PDF et de quelle page elle vient.
 
 **Partagé** — `crg_periode.py` (contrat de période : recopié trois fois, il aurait dérivé trois fois).
 
+**Contrat de lecture — le lecteur PDF est un composant du résultat.** *Décidé le 03/09/2026, après mesure.* Deux programmes répondent au nom `pdftotext` et ne lisent pas la même page. `crg_integration_phase0.CRG_LECTEUR_CONTRAT` **déclare** celui qu'on exige — produit, version, mode — et `lecteur_resolu()` le **vérifie au démarrage**. S'il manque, ou si le mode exigé lui est inconnu : **panne explicite**, jamais de substitution ni de repli. La variable `CRG_LECTEUR` sert à **mesurer** un autre produit délibérément (banc d'essai) ; pendant un examen le contrat est figé et le runner le vérifie.
+
+| | |
+|---|---|
+| **produit** | `xpdf` (Glyph & Cog) |
+| **version** | `4.` — préfixe exigé |
+| **mode** | `-layout` — **pas** `-table`, qui lirait autrement le corpus certifié |
+| **provenance** | ⚠️ le binaire disponible sur le poste est celui **livré avec Git for Windows** (`C:\Program Files\Git\clangarm64\bin\pdftotext.exe`), pas une installation autonome. Une mise à jour de Git peut le déplacer : le contrat échouera alors **bruyamment**, ce qui est le comportement voulu, mais une installation dédiée reste préférable. |
+
+**Ce que la bascule a changé, mesuré et non supposé** — corpus CHAPONOST (197 CRG, 674 pages), à règles métier constantes : les empreintes des **phases 3 et 4 sont identiques au bit près**. Seules changent la **phase 2** (`7daf86b26995` → `228aa821cabf`) et la **phase 5** qui la totalise. La différence est de **+9 immeubles lus, 0 perdu** — et la suite de certification métier rend **0 ligne de différence** entre les deux lecteurs.
+
+⚠️ **Ces 9 immeubles ne sont pas une capacité de Xpdf : ils sont un défaut d'analyse que Xpdf masque.** Les deux binaires impriment la même ligne source (`Immeuble LE MARIUS BERLIET - 69008 LYON 08`) ; c'est la règle de lecture qui la manque quand l'extracteur laisse davantage d'espaces — **même famille de défaut que APP-0010**, où une position de capture faussée par des espaces faisait perdre *tous* les propriétaires d'un corpus. Le chantier reste ouvert : tant qu'il n'est pas traité, changer d'extracteur change silencieusement le dénombrement du patrimoine.
+
 | Réf. | Règle technique | Statut |
 |---|---|---|
 | **P1-TEC-01** | Tout lecteur appelé en sous-processus écrit son JSON en **`ensure_ascii=True`**, branche d'erreur comprise. Sous Windows la sortie d'un fils est en cp1252 : « ANDRÉ » y revenait `ANDR\ufffd`. Côté appelant : décoder en UTF-8 `errors='replace'`, se rabattre sur cp1252. | CERTIFIÉE |

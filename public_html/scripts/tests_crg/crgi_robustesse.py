@@ -551,6 +551,94 @@ def _table_probee():
             sait_table, 'le propose' if reellement else 'ne le propose PAS'))
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════
+#  LE CONTRAT DE LECTURE, ET LA COLONNE QUI PORTE LE PROPRIÉTAIRE
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+def _page_ics(espaces_avant_ville, lignes_vides_avant_adresse=1):
+    """Une page ICS synthétique : en-tête à gauche, « Ville, le … » et bloc adresse à droite.
+
+    ⚠️ AUCUN DOCUMENT RÉEL ICI. La fixture reproduit la seule propriété qui compte — le bloc
+       adresse est aligné sous la ville — en laissant varier ce qui a masqué le défaut : le
+       nombre d'espaces qu'un lecteur laisse traîner devant « Lyon ». Un test bâti sur un PDF
+       du corpus n'aurait rien prouvé : il aurait mesuré ce lecteur-là, ce jour-là.
+    """
+    colonne = 17 + len('- Compte de Gestion 1er Trimestre 2026 -') + espaces_avant_ville
+    return '\n'.join([
+        ' ' * 17 + 'COMPTE PERSONNEL 01220000',
+        ' ' * 17 + '- Compte de Gestion 1er Trimestre 2026 -'
+                 + ' ' * espaces_avant_ville + 'Lyon, le 31/03/2026',
+    ] + [''] * lignes_vides_avant_adresse + [
+        ' ' * colonne + 'M. et Mme DEMDOUM LAID',
+        ' ' * colonne + 'RIYADH ARABIE SAOUDIENNE',
+    ])
+
+
+@cas('la ville ancre la colonne, quel que soit le nombre d’espaces devant elle',
+     'Le 03/09/2026, le moteur lisait 0 propriétaire sur TOUT le corpus LYON. La classe de '
+     'caractères de `RE_VILLE_DATE` acceptait l’espace en tête : la capture commençait 26 '
+     'colonnes trop à gauche, l’écart au bloc adresse dépassait la tolérance, et chaque nom '
+     'était rejeté en silence. Un autre binaire, plus avare en espaces, masquait le défaut — '
+     'on a d’abord cru à un choix de lecteur.')
+def _():
+    for espaces in (1, 5, 26, 40):
+        lu = P0._proprietaire_lyon(_page_ics(espaces))
+        assert lu == 'M. et Mme DEMDOUM LAID', (espaces, lu)
+
+
+@cas('un nom de ville ne commence jamais par une espace',
+     'La capture restait juste, mais sa POSITION mentait — et c’est la position qui sert à '
+     'aligner le bloc adresse. Une capture dont le premier caractère est une espace est un '
+     'repère faux qui a l’air vrai.')
+def _():
+    m = P0.RE_VILLE_DATE.search(' ' * 26 + 'Lyon, le 31/03/2026')
+    assert m, 'la ville n’est plus reconnue'
+    assert m.group(1) == 'Lyon', repr(m.group(1))
+    assert m.start(1) == 26, m.start(1)
+
+
+@cas('le lecteur exigé est absent : panne explicite, jamais de remplaçant',
+     'Un `if exe:` suivi d’un `import pdfplumber` faisait changer d’outil en silence : autre '
+     'texte, autres empreintes, vingt-huit fois plus lent — et rien à l’écran. Un lecteur est '
+     'un composant du résultat : son absence doit ressembler à une panne.')
+def _():
+    try:
+        P0.lecteur_resolu({'produit': 'lecteur-qui-nexiste-pas', 'version': '', 'mode': '-layout'})
+    except P0.LecteurIndisponible as e:
+        assert 'INTROUVABLE' in str(e), str(e)
+        return
+    assert False, 'aucune erreur levée : la substitution muette est de retour'
+
+
+@cas('un mode que le binaire ne connaît pas est une panne, pas un repli',
+     'Le moteur lançait `-table` sur poppler — qui ne l’a pas —, échouait, et retombait sur '
+     '`-layout` sans le dire : le repli que la doctrine chiffre à 307 rattachements au lieu '
+     'de 1 022, invisible dans le résultat.')
+def _():
+    sans_table = [f for f in P0.lecteurs_disponibles() if not f['table']]
+    if not sans_table:
+        return                      # aucun binaire dépourvu de `-table` sur ce poste
+    try:
+        P0.lecteur_resolu({'produit': sans_table[0]['produit'], 'version': '', 'mode': '-table'})
+    except P0.LecteurIndisponible as e:
+        assert 'INCOMPLET' in str(e), str(e)
+        return
+    assert False, 'un mode absent a été accepté'
+
+
+@cas('le contrat de lecture est déclaré, pas déduit de l’environnement',
+     'Deux binaires répondent au nom `pdftotext` et ne lisent pas la même page. Laisser '
+     'l’ordre du PATH trancher faisait produire deux empreintes différentes à la même '
+     'analyse, et le sceau accusait le moteur.',)
+def _():
+    c = P0.CRG_LECTEUR_CONTRAT
+    assert set(c) >= {'produit', 'mode'}, c
+    assert c['produit'] in ('poppler', 'xpdf'), c['produit']
+    assert c['mode'] in ('-layout', '-table'), c['mode']
+    exe, etiquette, _t = P0.lecteur_resolu()
+    assert c['produit'] in etiquette, (etiquette, c['produit'])
+
+
 def principal():
     sys.stdout.reconfigure(encoding='utf-8') if hasattr(sys.stdout, 'reconfigure') else None
     ok = ko = 0

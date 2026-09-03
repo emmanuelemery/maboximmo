@@ -89,6 +89,19 @@ function crgi_file_arbitrages(PDO $pdo, int $importId, array $filtres = []): arr
 
     // ── LE CONTEXTE ET LA PREUVE, EN UNE SEULE REQUÊTE PAR TYPE DE CIBLE ─────────────────
     $ctx = ['MOUVEMENT' => [], 'IMMEUBLE' => [], 'OCCUPATION' => []];
+    // ⚠️ UN CONFLIT D'IDENTITÉ N'A PAS DE LIGNE À LUI : il EST la comparaison de deux lectures.
+    //    Son contexte se recalcule donc à la source, avec la preuve de CHAQUE côté — sinon
+    //    l'écran ne pourrait montrer qu'une moitié du désaccord, et demanderait de trancher à
+    //    l'aveugle ce qu'il prétend éclairer.
+    foreach (array_keys(CRGI_IDENTITES) as $t) {
+        $ctx[$t] = [];
+        foreach (crgi_conflits_identite($pdo, $importId, $t) as $c) {
+            $ctx[$t][$c['cible_id']] = $c + [
+                'page'   => $c['lectures'][0]['page'] ?? 0,
+                'crg_id' => $c['lectures'][0]['crg_id'] ?? 0,
+            ];
+        }
+    }
     $st = $pdo->prepare(
         'SELECT m.id, m.page, m.section, m.libelle, m.colonne, m.montant, m.maille,
                 m.lot_reference, m.locataire, m.immeuble, m.categorie, m.motif,
@@ -235,6 +248,38 @@ function crgi_propositions(PDO $pdo, int $importId, array $a): array
         if (!$cands) {
             $props[] = ['choix' => 'Créer un immeuble distinct', 'confiance' => 60,
                         'raison' => 'Aucun immeuble MBI ne porte cette adresse et ce code postal.'];
+        }
+    }
+
+    // ── CONFLIT D'IDENTITÉ : une proximité fait un CANDIDAT, jamais une fusion ────────────
+    // ⚠️ ICI, LA CONFIANCE EST UNE DISTANCE, ET ON LE DIT. Deux lectures d'un même nom se
+    //    comparent caractère à caractère : c'est une mesure, reproductible et vérifiable. Ce
+    //    qu'elle ne fait PAS, c'est conclure — 94 % de ressemblance entre deux noms de famille
+    //    voisins est exactement la situation où deux personnes réelles se ressemblent. La
+    //    mesure ouvre la question ; elle ne la ferme pas.
+    if (isset(CRGI_IDENTITES[$a['cible']])) {
+        $lect = $c['lectures'] ?? [];
+        $valeurs = array_values(array_unique(array_column($lect, 'valeur')));
+        if (count($valeurs) >= 2) {
+            $a1 = mb_strtoupper($valeurs[0]);
+            $b1 = mb_strtoupper($valeurs[1]);
+            $d = levenshtein(substr($a1, 0, 255), substr($b1, 0, 255));
+            $long = max(mb_strlen($a1), mb_strlen($b1)) ?: 1;
+            $proche = (int)round(100 * max(0, 1 - $d / $long));
+            $props[] = [
+                'choix'     => 'Même identité',
+                'confiance' => $proche,
+                'raison'    => sprintf('%d %% des caractères coïncident (%d correction%s '
+                                     . 'sépare%s les deux lectures) — une mesure, pas une preuve.',
+                                       $proche, $d, $d > 1 ? 's' : '', $d > 1 ? 'nt' : ''),
+            ];
+            $props[] = [
+                'choix'     => 'Identités différentes',
+                'confiance' => 100 - $proche,
+                'raison'    => sprintf('%d %% des caractères diffèrent ; le document ne dit '
+                                     . 'nulle part que ces deux lectures se rapportent au '
+                                     . 'même objet.', 100 - $proche),
+            ];
         }
     }
 

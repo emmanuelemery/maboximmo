@@ -196,6 +196,51 @@ def _(remettre):
     poser_partout('RE_PARAMETRE', re.compile(r'^JAMAIS$'), remettre)
 
 
+@epreuve('la ville ancre la colonne', 'l’ancrage pris au début de la CAPTURE, espaces comprises')
+def _(remettre):
+    # ⚠️ REMETTRE L'ÉTAT RÉEL D'AVANT LE 03/09/2026, PAS UNE MOITIÉ. La première version de
+    #    cette épreuve ne réintroduisait que la classe permissive — et le test restait vert,
+    #    donc muet. C'est que la classe n'était pas la cause DÉCISIVE : le recalage sur la
+    #    première lettre suffit à tenir même avec l'ancien motif. La cause était l'ancrage
+    #    pris à `m.start()`. Une épreuve qui ne remet pas le vrai défaut ne prouve rien.
+    ancien_motif = re.compile(
+        r'([A-Za-zÉÈÀÂÎÔÛéèàâîôû\'\- ]{3,30}),\s*le\s+(\d{2}/\d{2}/\d{4})')
+
+    def ancre_sur_la_capture(texte):
+        lignes = texte.split('\n')
+        for i, ligne in enumerate(lignes):
+            m = ancien_motif.search(ligne)
+            if not m:
+                continue
+            colonne = m.start()                       # ← le défaut : espaces comprises
+            for suivante in lignes[i + 1:i + 6]:
+                if not suivante.strip():
+                    continue
+                indent = len(suivante) - len(suivante.lstrip())
+                if abs(indent - colonne) > 6:
+                    continue
+                candidat = suivante.strip()
+                if candidat.startswith('*') or P0.RE_COMPTE_LYON.search(candidat):
+                    continue
+                return ' '.join(candidat.split())
+            return None
+        return None
+
+    poser_partout('RE_VILLE_DATE', ancien_motif, remettre)
+    poser_partout('_proprietaire_lyon', ancre_sur_la_capture, remettre)
+
+
+@epreuve('panne explicite, jamais de remplaçant', 'le repli muet vers un autre lecteur')
+def _(remettre):
+    def repli_muet(contrat=None):
+        """L'implémentation d'avant : le premier venu, et pdfplumber si rien ne vient."""
+        trouves = P0.lecteurs_disponibles()
+        return (trouves[0]['chemin'], trouves[0]['produit'], trouves[0]['table']) \
+            if trouves else (None, None, False)
+
+    poser_partout('lecteur_resolu', repli_muet, remettre)
+
+
 def principal():
     ok = 0
     muets = []

@@ -238,6 +238,16 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     </div>
   </div>
 
+  <?php
+  // ⚠️ LE TABLEAU DE BORD D'ABORD, LA MÉCANIQUE ENSUITE. Cette page était la console
+  //    d'exécution : six phases, six validations, des bilans techniques. Elle répondait à
+  //    « que fait le moteur ? », jamais à « dois-je m'en occuper ? ». Le bloc ci-dessous
+  //    répond à la seconde question en cinq secondes ; tout ce qui suit sert à comprendre.
+  require_once __DIR__ . '/../inc/crgi_pilotage.php';
+  $pilote = crgi_pilotage($pdo, $importId);
+  require __DIR__ . '/../inc/crgi_pilotage_vue.php';
+  ?>
+
   <div class="crgi-frise">
     <?php foreach (CRGI_PHASES as $n => $titre):
         $p = $phases[$n] ?? ['statut' => 'EN ATTENTE']; ?>

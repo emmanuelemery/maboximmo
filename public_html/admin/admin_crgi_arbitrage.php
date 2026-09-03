@@ -112,7 +112,17 @@ $lien = fn(array $q) => h(app_url('/admin/admin_crgi_arbitrage.php') . '?' . htt
 
 <?php if (!$courant): ?>
   <div class="crgi-carte">
-    <p class="crgi-note crgi-diag-ok">Rien à arbitrer avec ce filtre — la file est vide.</p>
+    <?php if ($filtreStatut === 'A TRAITER' && !$filtreGroupe && (int)$kpi['a_traiter'] === 0): ?>
+      <p class="crgi-note" style="border-left-color:var(--crgi-vert);background:#f6fbf8">
+        <b>✓ Arbitrages terminés.</b> Plus rien n’attend de décision humaine sur cet import.
+      </p>
+      <a class="crgi-b or" href="<?= h(app_url('/admin/admin_crg_integration.php')) ?>?import=<?= $importId ?>">
+        ← Retour au tableau de bord</a>
+    <?php else: ?>
+      <p class="crgi-note crgi-diag-ok">Rien à arbitrer avec ce filtre — la file est vide.</p>
+      <a class="crgi-b creux" href="<?= $lien(['statut' => 'A TRAITER', 'groupe' => '', 'n' => 0]) ?>">
+        Voir tout ce qui reste à traiter</a>
+    <?php endif; ?>
   </div>
 <?php else:
   $c = $courant['contexte'];
@@ -141,6 +151,32 @@ $lien = fn(array $q) => h(app_url('/admin/admin_crgi_arbitrage.php') . '?' . htt
   <h2 class="crgi-arb-question"><?= h($courant['question']) ?></h2>
   <p class="crgi-sous"><?= h($courant['regle']) ?></p>
 
+  <?php if (!empty($c['lectures'])): ?>
+  <!-- ── UN CONFLIT SE MONTRE À DEUX COLONNES ────────────────────────────────
+       ⚠️ CHAQUE CÔTÉ PORTE SA PROPRE PREUVE. Montrer une seule des deux lectures reviendrait
+          à demander de trancher à l'aveugle ce que l'écran prétend éclairer. -->
+  <div class="crgi-arb-face-a-face">
+    <?php foreach (array_slice($c['lectures'], 0, 4) as $k => $l): ?>
+      <div class="crgi-arb-face">
+        <span class="crgi-arb-face-n"><?= chr(65 + $k) ?></span>
+        <b><?= h($l['valeur']) ?></b>
+        <a class="crgi-arb-voir"
+           href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)$l['crg_id'] ?>#page=<?= (int)$l['page'] ?>"
+           target="_blank" rel="noopener">📄 Voir preuve <?= chr(65 + $k) ?> — page <?= (int)$l['page'] ?></a>
+      </div>
+    <?php endforeach; ?>
+  </div>
+  <p class="crgi-note">
+    Ce que les deux lectures ont en commun : <b><?= h($c['cle']) ?></b>.
+    C’est cette clé, et elle seule, qui fait le conflit — pas la ressemblance des mots.
+  </p>
+  <?php endif; ?>
+
+  <?php // ⚠️ ON NE REND PAS LE BLOC SIMPLE, ON NE LE CACHE PAS. Un `hidden` posé sur un
+        //    élément dont la règle CSS dit `display:flex` ne cache RIEN : l'attribut a la
+        //    spécificité d'une règle d'agent utilisateur, la classe gagne. Le conflit
+        //    affichait ses deux faces ET un bloc de preuve unique, en dessous. ?>
+  <?php if (empty($c['lectures'])): ?>
   <!-- ── LA PREUVE, ET LE BOUTON QUI Y MÈNE ─────────────────────────────────── -->
   <div class="crgi-arb-preuve">
     <div class="crgi-arb-montant">
@@ -159,15 +195,21 @@ $lien = fn(array $q) => h(app_url('/admin/admin_crgi_arbitrage.php') . '?' . htt
        href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)($c['crg_id'] ?? 0) ?>#page=<?= (int)($c['page'] ?? 1) ?>"
        target="_blank" rel="noopener">📄 Voir dans le CRG — page <?= (int)($c['page'] ?? 0) ?></a>
   </div>
+  <?php endif; ?>
 
   <!-- ── LE CONTEXTE : juste ce qu'il faut pour décider ──────────────────────── -->
   <dl class="crgi-arb-ctx">
     <?php
+    // ⚠️ UN LIBELLÉ SANS VALEUR EST PIRE QUE PAS DE LIBELLÉ. « période : arrêté » — le mot
+    //    seul, la donnée absente — laisse croire à une lecture ratée là où il n'y a
+    //    simplement rien à lire pour ce type d'arbitrage. On assemble, puis on jette le vide.
+    $joindre = fn(array $bouts) => implode(' · ', array_filter(array_map('trim', $bouts)));
     $ctxAff = [
-      'agence'       => ($c['agence'] ?? '') . ' · ' . ($c['format'] ?? ''),
+      'agence'       => $joindre([$c['agence'] ?? '', $c['format'] ?? '']),
       'propriétaire' => $c['proprietaire'] ?? '',
       'compte'       => $c['compte'] ?? '',
-      'période'      => ($c['periode_cle'] ?? '') . ' · arrêté ' . ($c['date_arrete'] ?? ''),
+      'période'      => $joindre([$c['periode_cle'] ?? '',
+                                  ($c['date_arrete'] ?? '') ? 'arrêté ' . $c['date_arrete'] : '']),
       'immeuble'     => $c['immeuble'] ?? $c['nom'] ?? '',
       'lot'          => $c['lot_reference'] ?? '',
       'locataire'    => $c['locataire'] ?? $c['precedent'] ?? '',
@@ -276,6 +318,7 @@ $lien = fn(array $q) => h(app_url('/admin/admin_crgi_arbitrage.php') . '?' . htt
   const API  = <?= json_encode(app_url('/api/crg_integration_action.php')) ?>;
   const CSRF = <?= json_encode($csrf) ?>;
   const PAGE = <?= json_encode(app_url('/admin/admin_crgi_arbitrage.php')) ?>;
+  const BORD = <?= json_encode(app_url('/admin/admin_crg_integration.php')) ?>;
   const IMPORT = fiche.dataset.import;
   const STATUT = <?= json_encode($filtreStatut) ?>;
   const GROUPE = <?= json_encode($filtreGroupe) ?>;
@@ -343,6 +386,13 @@ $lien = fn(array $q) => h(app_url('/admin/admin_crgi_arbitrage.php') . '?' . htt
         ? j.faits + ' décisions enregistrées · ' + j.reste + ' restent'
         : 'enregistré · ' + j.reste + ' restent';
       if (suivant) {
+        // ⚠️ LE DERNIER ARBITRAGE RAMÈNE AU TABLEAU DE BORD, PAS À UNE PAGE VIDE. Rester sur
+        //    l'écran d'arbitrage après avoir tout traité laisserait Emmanuel devant un « rien
+        //    à arbitrer » sans lui dire ce que ça change pour l'import.
+        if (j.reste === 0 && STATUT === 'A TRAITER') {
+          location.href = BORD + '?import=' + IMPORT + '&fini=1';
+          return;
+        }
         // ⚠️ ON NE REVIENT PAS À UNE LISTE. Le filtre « à traiter » fait remonter le suivant
         //    à la même position : c'est ce qui permet d'en passer cinquante d'affilée.
         const q = new URLSearchParams({import: IMPORT, statut: STATUT, groupe: GROUPE,
