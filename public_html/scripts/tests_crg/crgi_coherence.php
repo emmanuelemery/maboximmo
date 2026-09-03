@@ -460,11 +460,18 @@ controle(
         $st->execute([$importId]);
         exiger((int)$st->fetchColumn() === 0,
                'des lignes réimprimées entrent dans les totaux');
+        // ⚠️ UN CONTRÔLE DU MOTEUR N'EXIGE PAS LA PRÉSENCE DU PHÉNOMÈNE. Cette ligne
+        //    demandait « au moins une réimpression », pour s'assurer que la règle restait
+        //    éprouvée. L'intention était juste, le moyen non : sur un corpus qui n'en contient
+        //    aucune — ce qui est parfaitement légitime —, elle accusait le moteur d'un défaut
+        //    qui n'existait pas. C'est un contrôle du CORPUS déguisé en contrôle du moteur.
+        //    La preuve que la règle sait mordre appartient à l'ÉPREUVE DES TESTS, qui
+        //    réintroduit le défaut et exige le rouge ; ici on ne vérifie que l'invariant.
         $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
                               WHERE import_id = ? AND reimpression = 1');
         $st->execute([$importId]);
-        exiger((int)$st->fetchColumn() > 0,
-               'aucune réimpression détectée — la règle ne serait plus éprouvée');
+        $vues = (int)$st->fetchColumn();
+        echo '       (' . $vues . " ligne(s) réimprimée(s) dans ce dépôt)\n";
     }
 );
 

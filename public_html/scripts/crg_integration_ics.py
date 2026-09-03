@@ -33,6 +33,10 @@ from crg_texte import normaliser                            # noqa: E402
 # La variante à employer selon la famille reconnue par l'autorité unique.
 VARIANTE = {'lyon': 'lyon', 'emery_immo': 'emery_immo'}
 
+# Ce qui, dans une ligne de mois, décrit la LIGNE et non un montant : tout le reste est une
+# colonne du tableau, quel que soit son nom — voir `mouvements()`.
+STRUCTURE_MOIS = {'du', 'au', 'page', 'y', 'colle_a_l_intitule'}
+
 
 def lecture(chemin, famille):
     """Le document, lu UNE fois par le moteur certifié de sa variante."""
@@ -130,8 +134,16 @@ def mouvements(doc, debut=1, fin=None):
                 if not _dans(page, debut, fin):
                     continue
                 libelle = 'Du %s Au %s' % (m.get('du') or '?', m.get('au') or '?')
-                for colonne in ('loyers', 'taxes', 'provisions'):
-                    montant = m.get(colonne) or 0.0
+                # ⚠️ LES COLONNES SE DÉDUISENT, ELLES NE S'ÉNUMÈRENT PAS. La première version
+                #    listait « loyers, taxes, provisions » : la colonne « Divers » du même
+                #    tableau était perdue, et avec elle treize lots dont TOUT l'argent était
+                #    là — 79,23 €, 36,36 €, 100,14 €… Le lot existait en phase 2 et en phase 3,
+                #    et disparaissait en phase 4 sans qu'aucun contrôle ne puisse le voir
+                #    autrement que par un écart de dénombrement. Le document décide de ses
+                #    colonnes ; une liste écrite à la main perd toujours la suivante.
+                for colonne, montant in sorted(m.items()):
+                    if colonne in STRUCTURE_MOIS or not isinstance(montant, (int, float)):
+                        continue
                     if not montant:
                         continue
                     out.append(_mvt(page, 'SITUATION DES LOCATAIRES', nom_im,
