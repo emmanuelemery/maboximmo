@@ -152,9 +152,15 @@ def pdftotext_exe():
        lieu de 307. Résultat : la MÊME analyse, lancée depuis la page ou depuis le harnais,
        produisait deux empreintes différentes, et le sceau accusait le moteur.
 
-    ⚠️ ON NE CHOISIT DONC PAS LE PREMIER VENU. On retient le premier candidat du PATH qui
-       sait faire `-table` ; à défaut, le premier tout court, en le DISANT. `CRG_PDFTOTEXT`
-       impose un chemin quand l'exploitant veut trancher lui-même.
+    ⚠️ ON NE CHOISIT DONC PAS LE PREMIER VENU, ET PAS NON PLUS LE PLUS CAPABLE. Le corpus
+       certifié a été lu avec **poppler** : changer de binaire changerait ses sorties. Le
+       choix est donc PINGLÉ sur poppler tant qu'Emmanuel n'en décide pas autrement, et
+       `CRG_PDFTOTEXT` impose un chemin quand l'exploitant veut trancher lui-même.
+
+    ⚠️ CONSÉQUENCE ASSUMÉE ET À ARBITRER : `-table` est une option **Xpdf**, que poppler n'a
+       pas. Le mode tableau de la phase 3 — celui que la doctrine chiffre à 1 022
+       rattachements contre 307 — n'est donc PAS actif. Il l'était encore moins avant, quand
+       le code lançait `-table` sur poppler et retombait sur `-layout` sans le dire.
     """
     if _PDFTOTEXT:
         return _PDFTOTEXT[0]
@@ -182,12 +188,23 @@ def pdftotext_exe():
         etiquette = ' '.join(v.split('\n')[0].replace('pdftotext version', '').split())
         etiquette = ('poppler ' if 'poppler' in v.lower() else
                      'xpdf ' if 'glyph' in v.lower() else '') + etiquette
-        # `-table` n'existe que chez poppler ≥ 22 : on le vérifie, on ne le suppose pas.
-        sait = '-table' in v or 'poppler' in v.lower()
-        if sait:
-            _PDFTOTEXT.append((exe, etiquette.strip(), True))
+        # ⚠️ ON DEMANDE AU BINAIRE CE QU'IL SAIT FAIRE, ON NE LE DÉDUIT PAS DE SON NOM.
+        #    La première version écrivait `'poppler' in v` — et c'était l'INVERSE de la
+        #    vérité : `-table` est une option **Xpdf**, que poppler 25.07 n'a pas. Le moteur
+        #    lançait donc `-table` sur poppler, échouait, et retombait EN SILENCE sur
+        #    `-layout` — le repli que la doctrine chiffre à 307 rattachements au lieu de
+        #    1 022. Une capacité se probe : on lit la liste d'options que l'outil imprime.
+        try:
+            aide = subprocess.run([exe, '-h'], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT).stdout.decode('utf-8', 'replace')
+        except OSError:
+            aide = ''
+        sait = bool(re.search(r'^\s+-table\b', aide, re.M))
+        if 'poppler' in v.lower():
+            # Le binaire du corpus certifié : il gagne, quelles que soient ses options.
+            _PDFTOTEXT.append((exe, etiquette.strip(), sait))
             return _PDFTOTEXT[0]
-        replis.append((exe, etiquette.strip(), False))
+        replis.append((exe, etiquette.strip(), sait))
 
     _PDFTOTEXT.append(replis[0] if replis else (None, None, False))
     return _PDFTOTEXT[0]

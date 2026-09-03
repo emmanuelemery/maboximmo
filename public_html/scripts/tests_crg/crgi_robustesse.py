@@ -530,15 +530,25 @@ def _un_seul_lecteur():
         'le lecteur ne dit pas quel produit il est : %r' % etiquette
 
 
-@cas('REFUS — le mode `-table` n’est jamais supposé',
-     'Xpdf 4.00 ne connaît pas `-table`. La phase 3 le lançait quand même et retombait en '
-     'silence sur `-layout` — 307 rattachements au lieu de 1 022, sans un mot à l’écran.')
-def _table_verifie():
-    exe, etiquette, sait_table = P0.pdftotext_exe()
+@cas('REFUS — la capacité `-table` se PROBE, elle ne se déduit d’aucun nom de produit',
+     'La première version de ce test écrivait `sait_table == ("poppler" in étiquette)` — et '
+     'c’était l’INVERSE de la vérité : `-table` est une option **Xpdf**, absente de poppler '
+     '25.07. Le moteur lançait donc `-table` sur poppler, échouait, et retombait EN SILENCE '
+     'sur `-layout` — le repli que la doctrine chiffre à 307 rattachements au lieu de 1 022. '
+     'Un test qui encode la croyance du développeur valide la croyance, pas le monde.')
+def _table_probee():
+    import re as _re
+    import subprocess as _sp
+    exe, _etiquette, sait_table = P0.pdftotext_exe()
     if exe is None:
         return
-    assert sait_table == ('poppler' in (etiquette or '').lower()), \
-        'la capacité `-table` est annoncée sans rapport avec le produit : %r' % etiquette
+    # La seule autorité : la liste d'options que le binaire imprime lui-même.
+    aide = _sp.run([exe, '-h'], stdout=_sp.PIPE, stderr=_sp.STDOUT).stdout.decode('utf-8',
+                                                                                  'replace')
+    reellement = bool(_re.search(r'^\s+-table\b', aide, _re.M))
+    assert sait_table == reellement, (
+        'le moteur annonce `-table`=%s alors que le binaire %s' % (
+            sait_table, 'le propose' if reellement else 'ne le propose PAS'))
 
 
 def principal():

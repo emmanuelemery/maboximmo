@@ -105,6 +105,27 @@ def observer(textes, page_base):
                             precedente['solde'] = (ms.group(1).replace(' ', '')
                                                    .replace(' ', '').replace(',', '.'))
                             precedente['solde_source'] = 'LUE'
+                        # ⚠️ ET L'OCCUPANT AUSSI SE LIT SUR LA CONTINUATION. Quand le bloc
+                        #    d'un lot commence au BAS d'une page, sa ligne « Locataire: » ne
+                        #    tient pas dessus : elle est imprimée sur la page suivante, sous
+                        #    l'en-tête « Suite ». Cette branche ne complétait que le solde :
+                        #    l'observation restait sans occupant alors que le document le
+                        #    NOMME, et la phase 4 le lisait — d'où un occupant connu en aval
+                        #    et inconnu en amont, ce que la frontière inter-phases interdit.
+                        #    Constaté sur CHAPONOST (BALDYGA Axel p325→326, LECOEUVRE Arnaud
+                        #    p326→327) ET sur VIENNE (MONCHANIN Francoise, lot 09 du compte
+                        #    1105404307, dans deux CRG) : ce n'est pas un défaut de format,
+                        #    c'est une page qui se termine.
+                        # ⚠️ ON NE COMPLÈTE QUE CE QUI EST VIDE. Une observation déjà nommée
+                        #    n'est jamais réécrite par sa continuation : le premier nom lu
+                        #    reste celui du lot, et une succession demeure une observation à
+                        #    part entière — jamais un écrasement silencieux.
+                        if not precedente.get('locataire') and seg.get('locataire'):
+                            precedente['locataire'] = seg['locataire']
+                            if precedente.get('bail_du') is None:
+                                precedente['bail_du'] = jour(seg.get('bail_du'))
+                            if precedente.get('bail_au') is None:
+                                precedente['bail_au'] = jour(seg.get('bail_au'))
                         break
                 continue
             ms = RE_SOLDE_COLLE.search(seg['texte'])

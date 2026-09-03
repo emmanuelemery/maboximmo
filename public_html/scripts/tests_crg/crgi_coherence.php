@@ -163,6 +163,41 @@ controle(
 );
 
 controle(
+    'REFUS — aucun lot ne perd son occupant parce qu’une page se termine',
+    'Quand le bloc d’un lot commence au BAS d’une page, sa ligne « Locataire: » est imprimée '
+    . 'sur la suivante, sous l’en-tête « Suite ». La phase 3 ne complétait que le solde : '
+    . 'l’observation restait SANS occupant alors que le document le nomme, et la phase 4 le '
+    . 'lisait. Un objet démontré en aval et inconnu en amont, c’est ainsi que 26 lots ont '
+    . 'disparu du patrimoine sans que rien ne le signale. Constaté sur CHAPONOST (BALDYGA '
+    . 'Axel, LECOEUVRE Arnaud) ET sur VIENNE (MONCHANIN Francoise, lot 09 du compte '
+    . '1105404307, dans deux CRG).',
+    function () use ($pdo, $importId) {
+        // ⚠️ LE CONTRÔLE EST GÉNÉRIQUE, PAS NOMINATIF : tout lot dont la phase 4 nomme
+        //    l’occupant et dont la phase 3 n’en nomme aucun est un échec, quel que soit le
+        //    corpus, l’éditeur ou l’agence.
+        $st = $pdo->prepare(
+            'SELECT c.compte, o.lot_reference, MIN(m.page) page,
+                    MIN(m.locataire) nomme_par_p4
+               FROM crgi_occupation o
+               JOIN crgi_crg c ON c.id = o.crg_id
+               JOIN crgi_mouvement m ON m.import_id = o.import_id AND m.crg_id = o.crg_id
+                                    AND m.lot_reference = o.lot_reference
+                                    AND m.locataire IS NOT NULL AND m.locataire <> ""
+              WHERE o.import_id = ? AND (o.locataire IS NULL OR o.locataire = "")
+              GROUP BY c.compte, o.lot_reference'
+        );
+        $st->execute([$importId]);
+        $perdus = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $perdus[] = sprintf('%s / lot %s → « %s » (p.%d)',
+                $r['compte'], $r['lot_reference'], $r['nomme_par_p4'], (int)$r['page']);
+        }
+        exiger(!$perdus, count($perdus) . ' lot(s) dont la phase 4 nomme l’occupant et la '
+                       . 'phase 3 non : ' . implode(' · ', array_slice($perdus, 0, 4)));
+    }
+);
+
+controle(
     'REFUS — un code de compte ne se rapproche jamais hors de son système',
     '`01600000` est SCI JOURNET chez `loca_immo_lyon` ; le CRG EMERY IMMO qui porte ce même '
     . 'code appartient à Madame GERMAIN. Chercher par le code seul rattachait silencieusement '
