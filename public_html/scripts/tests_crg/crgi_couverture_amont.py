@@ -32,7 +32,7 @@ sys.path.insert(0, RACINE)
 import crg_integration_phase0 as P0                        # noqa: E402
 from crg_integration_lots import couverture_immeubles      # noqa: E402
 
-HOLDOUT = 'CRG HOLDOUT'
+from crg_quarantaine import est_en_quarantaine   # noqa: E402
 
 # Les corpus de contrôle — jamais le HOLDOUT, qui doit rester non lu jusqu'à son examen.
 CORPUS = [
@@ -61,7 +61,7 @@ def principal():
     ok = ko = 0
     echecs = []
     for nom, chemin in CORPUS:
-        if HOLDOUT in chemin:
+        if est_en_quarantaine(chemin):
             continue
         if not os.path.exists(chemin):
             print('  ABSENT %s — %s' % (nom, chemin))

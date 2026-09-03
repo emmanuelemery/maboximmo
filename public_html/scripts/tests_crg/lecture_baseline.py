@@ -28,8 +28,7 @@ import crg_integration_phase0 as P0                     # noqa: E402
 from crg_format import famille_du_texte                 # noqa: E402
 from crg_integration_lots import (immeubles_de,         # noqa: E402
                                   locataires_de, segments_de_lot)
-
-HOLDOUT = 'CRG HOLDOUT'
+from crg_quarantaine import pdfs_lisibles               # noqa: E402
 
 # (nom, chemin, nb de fichiers max, plage de pages ou None)
 CORPUS = [
@@ -57,11 +56,9 @@ def pages_de(exe, mode, chemin, plage):
 
 
 def fichiers_de(chemin, maxi):
-    if os.path.isfile(chemin):
-        return [chemin]
-    tout = sorted(os.path.join(chemin, x) for x in os.listdir(chemin)
-                  if x.lower().endswith('.pdf') and HOLDOUT not in x)
-    return tout[:maxi]
+    # ⚠️ UNE SEULE AUTORITÉ SUR CE QUI EST LISIBLE. La garde locale d'avant ne regardait que
+    #    le NOM du fichier : un document mis de côté dans un dossier réservé passait à travers.
+    return pdfs_lisibles(chemin, maxi)
 
 
 def mesurer(exe, mode, nom, chemin, maxi, plage):

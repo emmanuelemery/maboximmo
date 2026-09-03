@@ -807,6 +807,34 @@ def _():
     assert a == b, (a, b)
 
 
+@cas('la quarantaine tient sur le CHEMIN, pas sur le nom du fichier',
+     'Trois outils protégeaient le HOLDOUT chacun de son côté, tous en cherchant une chaîne '
+     'dans le NOM DU FICHIER. Des documents mis de côté dans un dossier réservé, sous leur '
+     'nom d’origine, passaient à travers — et un HOLDOUT lu une seule fois est brûlé pour '
+     'toujours : aucune façon de désapprendre, et rien à l’écran ne le dirait.')
+def _():
+    import tempfile
+    from crg_quarantaine import est_en_quarantaine, pdfs_lisibles
+
+    # Un fichier au nom parfaitement ordinaire, rangé dans un dossier réservé.
+    assert est_en_quarantaine(r'D:/CRG HOLDOUT/rapport.pdf')
+    assert est_en_quarantaine(r'D:/CRG A NE PAS LIRE/rapport.pdf')
+    assert est_en_quarantaine(r'D:/corpus/quarantaine/2026/x.pdf')
+    assert est_en_quarantaine(r'D:/corpus/CRG holdout mars.pdf')
+    assert not est_en_quarantaine(r'D:/CRG AGENCE/rapport.pdf')
+
+    with tempfile.TemporaryDirectory() as racine:
+        os.makedirs(os.path.join(racine, 'ouvert'))
+        os.makedirs(os.path.join(racine, 'CRG HOLDOUT'))
+        for chemin in (os.path.join(racine, 'ouvert', 'a.pdf'),
+                       os.path.join(racine, 'CRG HOLDOUT', 'b.pdf'),
+                       os.path.join(racine, 'ouvert', 'c holdout.pdf')):
+            with open(chemin, 'wb') as fh:
+                fh.write(b'%PDF-1.4\n')
+        lisibles = pdfs_lisibles(racine)
+        assert [os.path.basename(f) for f in lisibles] == ['a.pdf'], lisibles
+
+
 def principal():
     sys.stdout.reconfigure(encoding='utf-8') if hasattr(sys.stdout, 'reconfigure') else None
     ok = ko = 0

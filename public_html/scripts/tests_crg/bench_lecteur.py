@@ -41,7 +41,7 @@ CANDIDATS = [
 
 # ⚠️ LE HOLDOUT N'ENTRE JAMAIS DANS UN BANC D'ESSAI. Mesurer un lecteur sur les documents
 #    réservés à l'examen de généralisation les brûlerait avant l'heure.
-HOLDOUT = 'CRG HOLDOUT'
+from crg_quarantaine import pdfs_lisibles   # noqa: E402
 
 ECHANTILLON = [
     # (nom, dossier ou fichier, nb de fichiers max, plage de pages ou None)
@@ -129,10 +129,8 @@ def mesurer(pages):
 def fichiers_de(chemin, maxi):
     if os.path.isfile(chemin):
         return [chemin]
-    tout = sorted(f for f in
-                  (os.path.join(chemin, x) for x in os.listdir(chemin))
-                  if f.lower().endswith('.pdf') and HOLDOUT not in f)
-    return tout[:maxi]
+    # ⚠️ MÊME AUTORITÉ QUE PARTOUT AILLEURS — voir `crg_quarantaine`.
+    return pdfs_lisibles(chemin, maxi)
 
 
 def principal():
