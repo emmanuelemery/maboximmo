@@ -332,9 +332,43 @@ commit          le hash
 
 ---
 
+## APP-0019 · Une phase d'intégration lit par le moteur certifié de la famille, pas par le sien
+
+| | |
+|---|---|
+| **phénomène** | Les phases 2, 3 et 4 ne connaissaient qu'une seule grammaire documentaire. Devant un document d'une autre famille, elles ne se trompaient pas : elles ne voyaient **rien**. |
+| **preuve** | 03/09/2026, première passe d'apprentissage sur un corpus complet d'une famille jamais intégrée : la phase 0 identifiait 235 comptes rendus, 226 comptes mandants et 199 propriétaires, puis les phases suivantes rendaient **0 immeuble, 0 lot, 0 occupation** et 106 mouvements. L'empreinte de la phase 3 était celle de la **chaîne vide**. Aucune alerte : un zéro n'est pas une erreur. |
+| **abstraction** | `ÉDITEUR → MOTEUR → VARIANTE` vaut pour l'INTÉGRATION comme pour la certification. Une phase ne possède pas de grammaire propre : elle route vers le moteur certifié de la famille, et se contente d'en traduire la sortie dans son contrat. Recopier les motifs du lecteur dans la phase créerait une seconde autorité — le défaut qui a fait voir 98 lots à une phase et 124 à une autre. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `crgi_commande_lecture()` route sur `crgi_crg.format` ; `crg_integration_ics.py` traduit la sortie de `crg_ics_core` vers les contrats des phases 2, 3 et 4. Aucune règle de lecture n'y est réécrite. |
+| **composant** | `crg_integration.php`, `crg_integration_ics.py` |
+| **tests** | à écrire — voir « limites » |
+| **corpus** | corpus ICS complet : immeubles 0 → 236, lots 0 → 396, occupations 0 → 396, mouvements 106 → 3 221 |
+| **limites** | ⚠️ Pas encore porté par un test sur fixture. ⚠️ Et la **qualification** ICS n'est pas faite : les 3 221 montants sortent `INDETERMINABLE` et remontent en arbitrage — c'est voulu (`NE JAMAIS DÉDUIRE UNE NATURE D'UN LIBELLÉ`), mais cela laisse 143 groupes à trancher, dont **5 couvrent 87 %** des montants. |
+| **commit** | `—` |
+
+---
+
+## APP-0020 · Une clé de regroupement d'arbitrage doit avoir un sens
+
+| | |
+|---|---|
+| **phénomène** | Un lecteur rattache une ligne d'argent à l'intitulé qui la précède. Cet intitulé n'est pas toujours une section : c'est parfois une date de règlement. |
+| **preuve** | 03/09/2026 — la file d'arbitrage demandait la nature de « la section *Du 15.03.2026* », puis de « *Du 15.01.2026* », puis de trois autres dates : cinq questions vides pour un seul et même phénomène, et 143 groupes là où il y en avait 138 de réels. |
+| **abstraction** | Un regroupement ne vaut que par sa clé. Quand l'intitulé qui sert de clé n'a manifestement pas la forme d'une section — une date, une référence de pièce, rien du tout —, on ne le propage pas : on rassemble ces lignes sous un **aveu unique** (« section non imprimée »). Fragmenter une question en cinq copies datées coûte cinq décisions humaines pour une seule connaissance. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `_section_lisible()` : un intitulé vide ou de forme date devient « (section non imprimée) ». |
+| **composant** | `crg_integration_ics.py` |
+| **tests** | à écrire — voir « limites » |
+| **corpus** | corpus ICS : 149 → 143 groupes, 491 lignes rassemblées sous une seule question au lieu de six |
+| **limites** | ⚠️ Pas encore porté par un test sur fixture. Ne reconnaît que la forme date ; d'autres intitulés sans valeur de section restent à observer. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Dix-huit apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Vingt apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

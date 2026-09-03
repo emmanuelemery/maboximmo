@@ -18,7 +18,64 @@ require_once __DIR__ . '/../../inc/crg_integration.php';
 $pdo = $GLOBALS['pdo'];
 // ⚠️ PAS D'IMPORT ÉCRIT EN DUR. « ?? 5 » a survécu à l'annulation de l'import 5 : la suite
 //    continuait à tourner, sur un staging vide, et rendait du vert sans rien contrôler.
-$importId = (int)($argv[1] ?? crgi_import_reference($pdo));
+//
+// ⚠️ ET PAS UN SEUL DÉPÔT NON PLUS. Choisir « le plus avancé » suffisait tant qu'un corpus
+//    vivait à la fois ; dès qu'une passe d'apprentissage en a ouvert un second, la suite a
+//    quitté le dépôt certifié pour le nouveau — et l'ancien n'était plus contrôlé du tout.
+//    Un instrument qui ne regarde qu'un sujet à la fois ne prouve pas la non-régression :
+//    il déplace simplement son angle mort. On contrôle DONC TOUS les dépôts complets.
+if (isset($argv[1])) {
+    $aControler = [(int)$argv[1]];
+} else {
+    $aControler = $pdo->query(
+        "SELECT i.id FROM crgi_import i
+           JOIN crgi_phase p ON p.import_id = i.id AND p.statut = 'VALIDEE'
+          WHERE i.statut <> 'ANNULE'
+          GROUP BY i.id HAVING COUNT(p.id) >= 6 ORDER BY i.id"
+    )->fetchAll(PDO::FETCH_COLUMN);
+    if (!$aControler) {
+        $aControler = [crgi_import_reference($pdo)];
+    }
+}
+if (count($aControler) > 1) {
+    // ⚠️ CHAQUE DÉPÔT DANS SON PROPRE PROCESSUS : la suite est écrite pour un import, et
+    //    mélanger deux états en mémoire ferait un rapport que personne ne saurait relire.
+    $total = $verts = 0;
+    $rouges = [];
+    foreach ($aControler as $id) {
+        $sortie = [];
+        exec(escapeshellarg(PHP_BINARY) . ' -d max_execution_time=0 '
+             . escapeshellarg(__FILE__) . ' ' . (int)$id . ' 2>&1', $sortie, $code);
+        $txt = implode("
+", $sortie);
+        if (preg_match('~COHÉRENCE\s*:\s*(\d+)/(\d+)~u', $txt, $m)) {
+            $verts += (int)$m[1];
+            $total += (int)$m[2];
+        }
+        echo "── import {$id} : " . ($code === 0 ? 'VERT' : 'ROUGE') . "
+";
+        if ($code !== 0) {
+            $rouges[$id] = $txt;
+        }
+    }
+    echo "
+COHÉRENCE : {$verts}/{$total}
+";
+    foreach ($rouges as $id => $txt) {
+        echo "
+──── import {$id} ────
+";
+        foreach (explode("
+", $txt) as $l) {
+            if (str_contains($l, 'ÉCHEC')) {
+                echo '  ' . trim($l) . "
+";
+            }
+        }
+    }
+    exit($rouges ? 1 : 0);
+}
+$importId = (int)$aControler[0];
 $ok = 0;
 $ko = [];
 

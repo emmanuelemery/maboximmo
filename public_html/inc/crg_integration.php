@@ -1212,6 +1212,37 @@ function crgi_qualifier_comptes(PDO $pdo, int $importId): void
 }
 
 /** Lit les immeubles et les lots de chaque CRG — une seule lecture du PDF par pièce. */
+/**
+ * LA COMMANDE DE LECTURE D'UNE PIÈCE — le moteur dépend de la FAMILLE, jamais de l'agence.
+ *
+ * ⚠️ `ÉDITEUR → MOTEUR → VARIANTE`. Les phases 2, 3 et 4 lisaient toutes par le même
+ *    extracteur, taillé pour la grammaire SPI. Un document ICS n'y était pas « mal lu » : il
+ *    n'était pas lu du tout, et le bilan affichait de vrais zéros sans le moindre signal. La
+ *    famille ICS passe donc par son moteur certifié, `crg_integration_ics.py`, qui appelle
+ *    `crg_ics_core` — le lecteur des variantes `lyon` et `emery_immo`. On ne recopie aucune
+ *    de ses règles ici : une seconde autorité divergerait à la première correction.
+ */
+// ⚠️ UN SÉPARATEUR SE NOMME. Écrit en caractère brut dans le source, il devenait invisible :
+//    on lisait `. "" .` et personne ne pouvait deviner ce qui séparait le chemin de la famille.
+const CRGI_SEP_FAMILLE = "";
+
+function crgi_commande_lecture(string $python, string $scriptSpi, string $chemin,
+                               ?string $format, string $plages, string $quoi): string
+{
+    $ics = ['lyon', 'emery_immo'];
+    if (in_array((string)$format, $ics, true)) {
+        $pont = realpath(__DIR__ . '/../scripts/crg_integration_ics.py');
+        if (!$pont) {
+            throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_ics.py');
+        }
+        return escapeshellarg($python) . ' ' . escapeshellarg($pont) . ' '
+             . escapeshellarg($chemin) . ' ' . escapeshellarg((string)$format) . ' '
+             . escapeshellarg($plages) . ' ' . escapeshellarg($quoi);
+    }
+    return escapeshellarg($python) . ' ' . escapeshellarg($scriptSpi) . ' '
+         . escapeshellarg($chemin) . ' ' . escapeshellarg($plages);
+}
+
 function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
 {
     $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
@@ -1219,8 +1250,14 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
     if (!$script) {
         throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_phase2.py');
     }
+    // ⚠️ LE FORMAT DÉCIDE DU MOTEUR. Les primitives d'intégration ne connaissent qu'une seule
+    //    grammaire — celle de SPI. Mesuré le 03/09/2026 sur un corpus ICS complet : la phase 0
+    //    identifiait 235 comptes rendus, et les phases 2 et 3 rendaient **0 immeuble, 0 lot,
+    //    0 occupation**, l'empreinte de la phase 3 étant celle de la chaîne vide. Rien n'était
+    //    en panne : personne n'avait jamais lu ce document. Chaque famille passe donc par SON
+    //    moteur certifié — voir `crg_integration_ics.py`.
     $st = $pdo->prepare(
-        'SELECT c.id, c.page_debut, c.page_fin, p.chemin
+        'SELECT c.id, c.page_debut, c.page_fin, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
           WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
     );
@@ -1239,15 +1276,16 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
     //    et l'analyse ne finissait jamais. On envoie toutes les plages d'un coup.
     $parPiece = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $crg) {
-        $parPiece[(string)$crg['chemin']][] = ['id' => (int)$crg['id'],
-                                               'debut' => (int)$crg['page_debut'],
-                                               'fin' => (int)$crg['page_fin']];
+        // La famille voyage avec la plage : une pièce ne mélange pas deux éditeurs.
+        $parPiece[(string)$crg['chemin'] . CRGI_SEP_FAMILLE . (string)$crg['format']][] =
+            ['id' => (int)$crg['id'], 'debut' => (int)$crg['page_debut'],
+             'fin' => (int)$crg['page_fin']];
     }
-    foreach ($parPiece as $chemin => $plages) {
+    foreach ($parPiece as $clef => $plages) {
+        [$chemin, $format] = explode(CRGI_SEP_FAMILLE, $clef, 2);
         $fichier = tempnam(sys_get_temp_dir(), 'crgi_');
         file_put_contents($fichier, json_encode($plages));
-        $cmd = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
-             . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier);
+        $cmd = crgi_commande_lecture($python, $script, $chemin, $format, $fichier, 'patrimoine');
         $sortie = trim((string)@shell_exec($cmd . ' 2>&1'));
         @unlink($fichier);
         $r = json_decode($sortie, true);
@@ -1557,7 +1595,7 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
         throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_phase3.py');
     }
     $st = $pdo->prepare(
-        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, p.chemin
+        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
           WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
     );
@@ -1565,9 +1603,10 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
     $meta = $parPiece = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) {
         $meta[(int)$c['id']] = $c;
-        $parPiece[(string)$c['chemin']][] = ['id' => (int)$c['id'],
-                                             'debut' => (int)$c['page_debut'],
-                                             'fin' => (int)$c['page_fin']];
+        // La famille voyage avec la plage — voir `crgi_commande_lecture`.
+        $parPiece[(string)$c['chemin'] . CRGI_SEP_FAMILLE . (string)$c['format']][] =
+            ['id' => (int)$c['id'], 'debut' => (int)$c['page_debut'],
+             'fin' => (int)$c['page_fin']];
     }
     $ins = $pdo->prepare(
         'INSERT INTO crgi_occupation
@@ -1575,12 +1614,12 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
              locataire, bail_du, bail_au, rang, solde, solde_source, page)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
-    foreach ($parPiece as $chemin => $plages) {
+    foreach ($parPiece as $clef => $plages) {
+        [$chemin, $format] = explode(CRGI_SEP_FAMILLE, $clef, 2);
         $fichier = tempnam(sys_get_temp_dir(), 'crgi3_');
         file_put_contents($fichier, json_encode($plages));
-        $sortie = trim((string)@shell_exec(
-            escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
-            . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier) . ' 2>&1'));
+        $cmd = crgi_commande_lecture($python, $script, $chemin, $format, $fichier, 'occupations');
+        $sortie = trim((string)@shell_exec($cmd . ' 2>&1'));
         @unlink($fichier);
         $r = json_decode($sortie, true);
         if (!is_array($r)) {
@@ -2009,7 +2048,7 @@ function crgi_lire_finances(PDO $pdo, int $importId): void
         throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_phase4.py');
     }
     $st = $pdo->prepare(
-        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, p.chemin
+        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
           WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
     );
@@ -2017,9 +2056,10 @@ function crgi_lire_finances(PDO $pdo, int $importId): void
     $meta = $parPiece = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) {
         $meta[(int)$c['id']] = $c;
-        $parPiece[(string)$c['chemin']][] = ['id' => (int)$c['id'],
-                                             'debut' => (int)$c['page_debut'],
-                                             'fin' => (int)$c['page_fin']];
+        // La famille voyage avec la plage — voir `crgi_commande_lecture`.
+        $parPiece[(string)$c['chemin'] . CRGI_SEP_FAMILLE . (string)$c['format']][] =
+            ['id' => (int)$c['id'], 'debut' => (int)$c['page_debut'],
+             'fin' => (int)$c['page_fin']];
     }
     $ins = $pdo->prepare(
         'INSERT INTO crgi_mouvement
@@ -2032,13 +2072,12 @@ function crgi_lire_finances(PDO $pdo, int $importId): void
     $stocks = ['ENCOURS' => 1, 'SOLDE' => 1];
     $jamaisSommees = ['AGREGAT (NON ADDITIONNABLE)' => 1, 'DETAIL (NON ADDITIONNABLE)' => 1,
                       'INDETERMINABLE' => 1];
-    foreach ($parPiece as $chemin => $plages) {
+    foreach ($parPiece as $clef => $plages) {
+        [$chemin, $format] = explode(CRGI_SEP_FAMILLE, $clef, 2);
         $fichier = tempnam(sys_get_temp_dir(), 'crgi4_');
         file_put_contents($fichier, json_encode($plages));
-        $sortie = trim((string)@shell_exec(
-            escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
-            . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier) . ' 2>&1'
-        ));
+        $cmd = crgi_commande_lecture($python, $script, $chemin, $format, $fichier, 'mouvements');
+        $sortie = trim((string)@shell_exec($cmd . ' 2>&1'));
         @unlink($fichier);
         $r = json_decode($sortie, true);
         if (!is_array($r)) {
