@@ -22,7 +22,8 @@ RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RACINE)
 
 from crg_integration_lots import (RE_SUITE, code_immeuble,        # noqa: E402
-                                  locataires_de, normaliser_reference, segments_de_lot)
+                                  couverture_immeubles, immeubles_de, locataires_de,
+                                  normaliser_reference, segments_de_lot)
 import crg_integration_phase0 as P0                               # noqa: E402
 import crg_integration_phase4 as P4                               # noqa: E402
 
@@ -637,6 +638,173 @@ def _():
     assert c['mode'] in ('-layout', '-table'), c['mode']
     exe, etiquette, _t = P0.lecteur_resolu()
     assert c['produit'] in etiquette, (etiquette, c['produit'])
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════
+#  ROBUSTESSE STRUCTURELLE — la lecture ne doit pas dépendre de l'espacement
+# ═════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ TOUTES LES FIXTURES SONT FABRIQUÉES. Aucun nom, aucun compte, aucune page d'un corpus
+#    réel. Ce qu'on reproduit est le PHÉNOMÈNE — une colonne aérée, un bloc décalé, une ligne
+#    parasite — pas le cas. Un test bâti sur un document prouverait qu'on s'en souvient.
+
+def _entete_spi(gouttiere=6, nom='Madame MARTIN Camille', parasite=None):
+    """Un en-tête SPI fabriqué : titre, agence à gauche, bloc adresse à droite."""
+    g = ' ' * gouttiere
+    lignes = ['       COMPTE RENDU DE GESTION',
+              '       Agence: A9 - AGENCE FICTIVE' + g + nom,
+              '       Période du 01/04/2026 au 30/06/2026' + g + '12 rue des Essais']
+    if parasite:
+        lignes.insert(2, '            ' + parasite)
+    lignes.append('       Identifiant extratnet : 9999999999' + g + '00000 VILLEFICTIVE')
+    return '\n'.join(lignes)
+
+
+def _entete_ics(decalage=1, colonne=60, parasite=None):
+    """Un en-tête ICS fabriqué : deux colonnes, bloc adresse à `colonne`, `decalage` lignes plus bas."""
+    lignes = ['                 SOCIETE FICTIVE - Carte professionnelle 00000',
+              '                 COMPTE PERSONNEL 09990000',
+              '                 - Compte de Gestion 1er Trimestre 2026 -'
+              + ' ' * (colonne - 55) + 'Villefictive, le 31/03/2026']
+    for _ in range(decalage):
+        lignes.append('')
+    if parasite:
+        lignes.append('                 ' + parasite)
+    lignes.append(' ' * colonne + 'M. et Mme DUPOND Camille')
+    lignes.append(' ' * colonne + '3 allée des Tests')
+    lignes.append('        Madame, Monsieur,')
+    return '\n'.join(lignes)
+
+
+@cas('espaces multiples : un nom aéré n’est pas un nom tronqué',
+     'Le lecteur découpait sur « deux espaces ou plus » et gardait le premier morceau. Dès '
+     'qu’un mode d’extraction aérait l’intérieur d’une cellule, « Madame CAISSE Corinne » '
+     'devenait « Madame CAISSE » : un champ d’identité amputé n’est pas une lecture '
+     'partielle, c’est une autre personne.')
+def _():
+    for aere in ('Madame MARTIN Camille', 'Madame  MARTIN    Camille',
+                 'Madame\tMARTIN\t\tCamille'):
+        lu = P0._proprietaire_septeo(_entete_spi(nom=aere))
+        assert lu == 'Madame MARTIN Camille', (aere, lu)
+
+
+@cas('tabulations : une tabulation vaut une gouttière',
+     'Un extracteur peut séparer deux colonnes par des tabulations. Une règle qui ne connaît '
+     'que l’espace lit alors la ligne entière comme une seule colonne.')
+def _():
+    lu = P0._proprietaire_septeo(_entete_spi(gouttiere=1).replace(
+        ' Madame MARTIN Camille', '\t\tMadame MARTIN Camille'))
+    assert lu == 'Madame MARTIN Camille', lu
+
+
+@cas('alignement différent : la gouttière peut varier du simple au décuple',
+     'Deux extracteurs ne placent pas les colonnes aux mêmes abscisses. Une règle calée sur '
+     'une largeur de gouttière lit sur l’un et rend zéro sur l’autre.')
+def _():
+    for g in (4, 12, 40, 80):
+        lu = P0._proprietaire_septeo(_entete_spi(gouttiere=g))
+        assert lu == 'Madame MARTIN Camille', (g, lu)
+
+
+@cas('bloc utile décalé : cinq lignes n’est pas une propriété du document',
+     'Le bloc adresse est à quatre lignes du repère sur un gabarit et à SIX sur un autre. La '
+     'fenêtre fixe de cinq lisait le premier et rendait **zéro** sur le second — quatorze '
+     'propriétaires perdus sur quatorze documents, sans un signal.')
+def _():
+    for decalage in (0, 1, 4, 6):
+        lu = P0._proprietaire_lyon(_entete_ics(decalage=decalage))
+        assert lu == 'M. et Mme DUPOND Camille', (decalage, lu)
+
+
+@cas('ligne parasite intermédiaire : elle s’ignore, elle n’arrête pas',
+     'Un CRG de décembre intercale un vœu de fin d’année ; un autre laisse remonter une ligne '
+     'de compte. Traiter ces lignes comme une frontière arrêtait le parcours juste avant le '
+     'bloc cherché — le défaut que la correction devait supprimer.')
+def _():
+    for parasite in ('******** MEILLEURS VOEUX *********', 'COMPTE PERSONNEL 09990000',
+                     'Report antérieur 1 234,56'):
+        lu = P0._proprietaire_lyon(_entete_ics(decalage=1, parasite=parasite))
+        assert lu == 'M. et Mme DUPOND Camille', (parasite, lu)
+
+
+@cas('frontière structurelle : le corps de la lettre ferme l’en-tête',
+     'Sans frontière, un parcours élargi finirait par happer une ligne du corps de la lettre '
+     'et la rendre comme nom de propriétaire. On élargit la fenêtre, on ne supprime pas la '
+     'borne : `NE PAS CHERCHER JUSQU’À TROUVER QUELQUE CHOSE`.')
+def _():
+    texte = _entete_ics(decalage=1).replace(' ' * 60 + 'M. et Mme DUPOND Camille',
+                                            '        Madame, Monsieur,')
+    lu = P0._proprietaire_lyon(texte)
+    assert lu is None, lu
+
+
+@cas('absence réelle : on ne nomme pas ce que le document ne porte pas',
+     '`ABSENCE DE LECTURE ≠ LECTURE APPROXIMATIVE`. Une règle tolérante qui finit toujours par '
+     'rendre quelque chose est pire qu’une règle stricte : elle fabrique des identités.')
+def _():
+    nu = '\n'.join(['       COMPTE RENDU DE GESTION',
+                    '       Agence: A9 - AGENCE FICTIVE',
+                    '       Période du 01/04/2026 au 30/06/2026'])
+    assert P0._proprietaire_septeo(nu) is None, P0._proprietaire_septeo(nu)
+    assert P0._proprietaire_lyon('rien du tout') is None
+
+
+@cas('immeuble SPI : même structure métier, même objet, quel que soit l’espacement',
+     'Un nom de ville privé de chiffres et borné par « deux espaces » : « LYON 08 » ne pouvait '
+     'pas être une ville, et l’immeuble entier disparaissait — 23 immeubles annoncés par un '
+     'document, jamais lus, jamais comptés, jamais signalés.')
+def _():
+    attendu = ('LE FICTIF', '69008', 'LYON 08')
+    for ligne in ('Immeuble LE FICTIF - 69008 LYON 08',
+                  'Immeuble LE  FICTIF -  69008  LYON  08',
+                  'Immeuble LE FICTIF - 69008 LYON 08          ... Suite   Débit   Crédit',
+                  'Immeuble LE  FICTIF -   69008  LYON  08       ... Suite  Débit'):
+        objets = immeubles_de(ligne, 1)
+        assert len(objets) == 1, (ligne, objets)
+        o = objets[0]
+        assert (o['nom'], o['code_postal'], o['ville']) == attendu, (ligne, o)
+
+
+@cas('une ville n’avale jamais un débris de tableau',
+     'Élargir la ville sans borne faisait entrer « VIENNE Solde », « CHAPONOST 000255-04 » et '
+     '« MESSIMY ____ » dans un champ d’identité de lieu.')
+def _():
+    for queue, attendu in (('Solde', ''), ('1 022, 13', ''), ('000255-04', ''), ('____', '')):
+        o = immeubles_de('Immeuble LE FICTIF - 69008 VILLEFICTIVE  %s' % queue, 1)[0]
+        assert o['ville'] in ('VILLEFICTIVE', attendu), (queue, o['ville'])
+        assert 'Solde' not in o['ville'] and '_' not in o['ville'], (queue, o['ville'])
+
+
+@cas('couverture amont : un signal reconnu n’est jamais perdu sans trace',
+     'Tant que « ce que la page annonce » et « ce que le moteur sait lire » sont le même '
+     'motif, une ligne inanalysable n’existe pas : aucun compteur ne bouge et la perte est '
+     'invisible par construction.')
+def _():
+    page = '\n'.join(['Immeuble LE FICTIF - 69008 LYON 08',
+                      'Immeuble AUTRE FICTIF - 38200 VILLEFICTIVE'])
+    signaux, objets, muets = couverture_immeubles(page)
+    assert len(signaux) == 2, signaux
+    assert len(objets) == 2, objets
+    assert muets == [], muets
+    # Et le contrôle doit VOIR une ligne annoncée mais non lue.
+    boiteux = page + '\nImmeuble SANS SEPARATEUR 75001 PARIS'
+    signaux, objets, muets = couverture_immeubles(boiteux)
+    assert len(signaux) == 3 and len(muets) == 1, (signaux, muets)
+
+
+@cas('deux espacements du MÊME contenu rendent le MÊME objet métier',
+     'C’est l’invariant que tout le chantier vise : un extracteur ou un mode qui aère une '
+     'colonne ne doit pas changer la population reconstruite. Sinon, changer d’outil change '
+     'silencieusement le patrimoine.')
+def _():
+    serre = _entete_spi(gouttiere=3) + '\nImmeuble LE FICTIF - 69008 LYON 08'
+    aere = _entete_spi(gouttiere=25, nom='Madame  MARTIN   Camille') \
+        + '\nImmeuble LE  FICTIF  -  69008   LYON  08     ... Suite  Débit'
+    assert P0._proprietaire_septeo(serre) == P0._proprietaire_septeo(aere), (
+        P0._proprietaire_septeo(serre), P0._proprietaire_septeo(aere))
+    a = [(o['nom'], o['code_postal'], o['ville']) for o in immeubles_de(serre, 1)]
+    b = [(o['nom'], o['code_postal'], o['ville']) for o in immeubles_de(aere, 1)]
+    assert a == b, (a, b)
 
 
 def principal():

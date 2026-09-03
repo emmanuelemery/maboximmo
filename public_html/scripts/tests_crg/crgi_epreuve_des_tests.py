@@ -27,6 +27,8 @@ import crg_integration_doublons as DBL    # noqa: E402
 import crg_integration_lots as LOTS       # noqa: E402
 import crg_integration_phase0 as P0       # noqa: E402
 import crg_integration_phase4 as P4       # noqa: E402
+import crg_texte as TXT                   # noqa: E402
+import crg_integration_lots as LOTS2      # noqa: E402
 import crgi_robustesse as R               # noqa: E402
 
 
@@ -53,7 +55,7 @@ def vire_au_rouge(fragment):
 #    qui a importé `y` directement : la mutation restait sans effet et l'épreuve concluait à
 #    tort que le test était MUET. On remplace donc le symbole PARTOUT où il est lié.
 def poser_partout(nom, valeur, remettre):
-    for module in (DBL, FMT, LOTS, P0, P4, R):
+    for module in (DBL, FMT, LOTS, LOTS2, P0, P4, R, TXT):
         if hasattr(module, nom):
             ancien = getattr(module, nom)
             remettre((lambda m, n, a: lambda: setattr(m, n, a))(module, nom, ancien))
@@ -239,6 +241,43 @@ def _(remettre):
             if trouves else (None, None, False)
 
     poser_partout('lecteur_resolu', repli_muet, remettre)
+
+
+@epreuve('espaces multiples', 'le découpage du nom sur « deux espaces ou plus »')
+def _(remettre):
+    # L'implémentation d'avant le 03/09/2026 : on gardait la PREMIÈRE cellule. Juste tant que
+    # l'extracteur n'aère pas l'intérieur d'un champ ; faux dès qu'il l'aère.
+    def premiere_cellule(ligne, colonne, tolerance=6):
+        col = 0
+        for frag in re.split(r'([ \t]{2,})', (ligne or '').rstrip()):
+            if frag.strip() == '':
+                col += len(frag)
+                continue
+            if col >= colonne - tolerance:
+                return ' '.join(frag.split())
+            col += len(frag)
+        return ''
+
+    poser_partout('depuis_la_colonne', premiere_cellule, remettre)
+
+
+@epreuve('bloc utile décalé', 'la fenêtre fixe de cinq lignes')
+def _(remettre):
+    def fenetre_de_cinq(lignes, depart, frontiere, plafond=15):
+        for i in range(depart + 1, min(depart + 6, len(lignes))):
+            if frontiere(lignes[i]):
+                return
+            yield i, lignes[i]
+
+    poser_partout('bloc_borne', fenetre_de_cinq, remettre)
+
+
+@epreuve('immeuble SPI', 'la ville en lettres seules, bornée par deux espaces')
+def _(remettre):
+    poser_partout('RE_IMMEUBLE',
+                  re.compile(r'^\s*Immeuble\s+(.+?)\s*[-–]\s*(\d{5})\s+'
+                             r'([A-ZÉÈÀÂÎÔÛa-zéèàâîôû\'\- ]+?)(?:\s{2,}.*)?$', re.M),
+                  remettre)
 
 
 def principal():

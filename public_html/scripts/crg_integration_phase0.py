@@ -33,6 +33,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crg_format import famille_du_texte   # noqa: E402  — l'autorité unique de reconnaissance
+from crg_texte import (ECART_COLONNE_DROITE, RE_DEBUT_CELLULE, bloc_borne,   # noqa: E402
+                       colonne_du_texte, contient_montant, depuis_la_colonne,
+                       en_colonnes, est_champ_entete, est_ligne_de_tableau,
+                       marge_gauche, normaliser)
 
 # ── Les seules erreurs qu'un DOCUMENT peut provoquer ──────────────────────────────────────
 try:
@@ -450,16 +454,44 @@ def _proprietaire_septeo(texte):
     if marge is None:
         marge = len(lignes[depart]) - len(lignes[depart].lstrip())
 
-    for ligne in lignes[depart:depart + 14]:
-        colonne = 0
-        for fragment in re.split(r'([ \t]{2,})', ligne.rstrip()):
-            if fragment.strip() == '' :
-                colonne += len(fragment)
+    # ⚠️ ON PREND TOUT CE QUI EST À DROITE DE LA COLONNE, PAS « LA PREMIÈRE CELLULE ». La
+    #    version précédente découpait la ligne sur « deux espaces ou plus » et gardait le
+    #    premier fragment. Cela suppose que l'extracteur n'aère jamais l'intérieur d'une
+    #    cellule — il l'aère : mesuré le 03/09/2026, « Madame CAISSE  Corinne » se coupait en
+    #    deux et le prénom disparaissait. Seize noms tronqués sur un corpus, dix-neuf sur un
+    #    autre, sans un signal. Un champ d'identité amputé n'est pas une lecture partielle :
+    #    c'est une autre personne.
+    # ⚠️ UN BLOC ADRESSE EST PLUSIEURS LIGNES ALIGNÉES — c'est ce qui le distingue d'un résidu.
+    #    Deux essais ont échoué avant celui-ci, et chacun disait quelque chose :
+    #      · « le premier fragment au-delà du seuil » prenait, sur une page dont l'extracteur
+    #        avait éclaté l'en-tête en trois morceaux, le débris du milieu (« DUII nn ») ;
+    #      · « le fragment le plus à droite » prenait une colonne de montants du tableau
+    #        (« 108, 18 », « 611, 12 ») — car la colonne la plus à droite d'un en-tête n'est
+    #        pas toujours l'adresse.
+    #    Ce qui identifie le bloc adresse n'est ni sa position ni son rang : c'est qu'il tient
+    #    sur PLUSIEURS lignes à la même abscisse. Un débris est seul sur la sienne.
+    colonnes = {}
+    for brute in lignes[depart:depart + 14]:
+        # ⚠️ UNE LIGNE DU TABLEAU N'EST PAS UN BLOC ADRESSE — SAUF CELLE DU TITRE. La ligne
+        #    « COMPTE RENDU DE GESTION » porte le nom du propriétaire à sa droite sur une
+        #    partie des gabarits ; l'écarter parce qu'elle contient un mot du vocabulaire de
+        #    tableau faisait remonter la LIGNE SUIVANTE du bloc adresse — donc la rue au lieu
+        #    du nom. Dix-huit « propriétaires » qui étaient des adresses.
+        if est_ligne_de_tableau(brute) and not RE_TITRE.search(brute):
+            continue
+        ligne = en_colonnes(brute)
+        for m in RE_DEBUT_CELLULE.finditer(ligne):
+            if m.start() < marge + ECART_COLONNE_DROITE:
                 continue
-            if colonne >= marge + 30 and not RE_ENTETE_CHAMPS.search(fragment):
-                return ' '.join(fragment.split())
-            colonne += len(fragment)
-    return None
+            fragment = depuis_la_colonne(ligne, m.start())
+            if fragment and not RE_ENTETE_CHAMPS.search(fragment):
+                colonnes.setdefault(m.start(), []).append(fragment)
+            break
+    if not colonnes:
+        return None
+    # Le plus de lignes l'emporte ; à égalité, la plus à gauche — l'adresse précède le tableau.
+    colonne = min(colonnes, key=lambda c: (-len(colonnes[c]), c))
+    return colonnes[colonne][0]
 
 
 def _proprietaire_lyon(texte):
@@ -486,19 +518,52 @@ def _proprietaire_lyon(texte):
         m = RE_VILLE_DATE.search(ligne)
         if not m:
             continue
-        colonne = m.start(1) + (len(m.group(1)) - len(m.group(1).lstrip()))
-        for suivante in lignes[i + 1:i + 6]:
-            if not suivante.strip():
+        # ⚠️ « NETTEMENT À DROITE DE LA MARGE », PAS « ALIGNÉ SUR L'ANCRE ». Aligner le bloc
+        #    adresse sur la colonne du repère supposait que deux LIGNES gardent leurs positions
+        #    relatives d'un extracteur à l'autre. Elles ne les gardent pas : mesuré le
+        #    03/09/2026, le même repère est colonne 140 sous un rendu et colonne 43 sous
+        #    l'autre, tandis que le bloc reste, lui, colonne 140 puis 87. Le seuil se mesure
+        #    donc sur la marge du document — la seule chose qui ne bouge pas.
+        seuil = marge_gauche(lignes[:i + 12]) + ECART_COLONNE_DROITE
+        for _j, suivante in bloc_borne(lignes, i, _fin_entete_ics):
+            if not suivante.strip() or est_ligne_de_tableau(suivante):
                 continue
-            indent = len(suivante) - len(suivante.lstrip())
-            if abs(indent - colonne) > 6:
+            # ⚠️ UNE LIGNE DE L'AUTRE COLONNE N'EST PAS UNE FRONTIÈRE. L'en-tête ICS est sur
+            #    DEUX colonnes : mentions légales et « COMPTE PERSONNEL » à gauche, date et
+            #    bloc adresse à droite. On ignore la colonne de gauche et on continue — la
+            #    fenêtre de cinq lignes, elle, s'arrêtait dessus et rendait zéro.
+            if colonne_du_texte(suivante) < seuil:
                 continue
-            candidat = suivante.strip()
+            candidat = normaliser(suivante)
             if candidat.startswith('*') or RE_COMPTE_LYON.search(candidat):
                 continue
-            return ' '.join(candidat.split())
+            if est_champ_entete(candidat) or contient_montant(candidat):
+                continue
+            return candidat
         return None
     return None
+
+
+def _fin_entete_ics(ligne):
+    """La frontière basse de l'en-tête ICS : là où le corps de la lettre commence.
+
+    ⚠️ C'EST LA STRUCTURE QUI BORNE, PAS UN NOMBRE DE LIGNES. Le bloc adresse se trouve à
+       quatre lignes du repère sur un gabarit, à SIX sur un autre : une fenêtre fixe de cinq
+       lisait l'un et rendait **zéro** sur l'autre — 14 propriétaires perdus sur un corpus de
+       14 documents, sans un signal.
+
+    ⚠️ ARRÊTER ET IGNORER NE SONT PAS LA MÊME CHOSE. L'en-tête ICS tient sur DEUX colonnes :
+       mentions légales et « COMPTE PERSONNEL » à gauche, date et bloc adresse à droite. Ma
+       première version faisait de « COMPTE PERSONNEL » une frontière — elle arrêtait donc le
+       parcours sur une ligne de l'AUTRE colonne, une ligne avant le bloc cherché, et
+       reproduisait exactement le défaut qu'elle devait corriger. Seule la formule d'appel
+       ferme l'en-tête ; tout le reste s'ignore et on continue.
+    """
+    return bool(RE_CIVILITE_CORPS.match(normaliser(ligne)))
+
+
+# La formule d'appel qui ouvre le corps de la lettre : elle clôt le bloc d'en-tête.
+RE_CIVILITE_CORPS = re.compile(r'(Madame|Monsieur|Messieurs|Mesdames)\s*,', re.I)
 
 
 def _couper_agence(brut):

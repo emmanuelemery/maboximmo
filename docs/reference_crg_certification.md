@@ -100,7 +100,21 @@ chaque information extraite sache de quel PDF et de quelle page elle vient.
 
 **Ce que la bascule a changé, mesuré et non supposé** — corpus CHAPONOST (197 CRG, 674 pages), à règles métier constantes : les empreintes des **phases 3 et 4 sont identiques au bit près**. Seules changent la **phase 2** (`7daf86b26995` → `228aa821cabf`) et la **phase 5** qui la totalise. La différence est de **+9 immeubles lus, 0 perdu** — et la suite de certification métier rend **0 ligne de différence** entre les deux lecteurs.
 
-⚠️ **Ces 9 immeubles ne sont pas une capacité de Xpdf : ils sont un défaut d'analyse que Xpdf masque.** Les deux binaires impriment la même ligne source (`Immeuble LE MARIUS BERLIET - 69008 LYON 08`) ; c'est la règle de lecture qui la manque quand l'extracteur laisse davantage d'espaces — **même famille de défaut que APP-0010**, où une position de capture faussée par des espaces faisait perdre *tous* les propriétaires d'un corpus. Le chantier reste ouvert : tant qu'il n'est pas traité, changer d'extracteur change silencieusement le dénombrement du patrimoine.
+⚠️ **Correction du 03/09/2026 — mon diagnostic initial de ces 9 immeubles était faux, et il faut le dire.** J'avais écrit qu'ils venaient d'une fragilité aux espaces que Xpdf masquait. La mesure a établi autre chose : **`poppler -layout` et `xpdf -layout` lisent exactement la même chose** sur les quatre corpus, à une altération de source près. Ce qui changeait était le **MODE** : les phases 2, 3 et 4 demandent `-table`, que seul Xpdf propose, et le moteur retombait **en silence** sur `-layout` quand il n'était pas disponible. Les deux causes réelles sont donc : un repli muet de mode (`APP-0016`), et des règles de lecture qui dépendaient de l'espacement (`APP-0013`, `APP-0014`).
+
+**Chantier « robustesse de lecture structurelle » — 03/09/2026.** Fermé avant la mission longue, à la demande d'Emmanuel, parce qu'une perte survenue à la LECTURE est invisible pour tous les contrôles aval : ils comparent des populations qui n'ont jamais reçu les objets perdus.
+
+| Ce qui a été corrigé | Avant | Après |
+|---|---|---|
+| Propriétaire ICS — fenêtre fixe de 5 lignes | **0 / 14** sur un corpus entier | **14 / 14**, sous les deux extracteurs et les deux modes |
+| Propriétaire SPI — champ coupé sur « 2 espaces » | noms tronqués (`Madame DEBRAY`, `M. et Mme DE GASPERI$`) | noms complets, identiques dans les trois combinaisons |
+| Ville d'immeuble — lettres seules, bornée par 2 espaces | `LYON 08` illisible → **immeuble perdu** | `LYON 08` lu ; villes identiques dans les trois combinaisons |
+| Immeubles SPI lus (corpus CHAPONOST) | 167 en `-layout`, 175 en `-table` | **190**, quel que soit le mode |
+| Immeubles SPI lus (corpus VIENNE) | 77 | **79** |
+| Mode `-table` indisponible | repli silencieux vers `-layout` | **panne explicite** |
+| Couverture documentaire amont | non mesurée | **signaux = objets + 0 non transformé**, sur les deux corpus et les deux modes |
+
+**Toutes les différences sont des CORRECTIONS DE LECTURE : aucune perte, sur aucun corpus, dans aucun mode.** Trois écarts résiduels subsistent entre combinaisons, tous des **artefacts d'extracteur ou de mode**, aucun imputable à une règle : un nom d'immeuble où poppler insère une espace au milieu d'un mot ; un occupant que seul `-table` fait apparaître ; une adresse que seul `-table` propose comme nom. Le mode en service pour l'identité (`-layout`, phase 0) est celui qui ne présente aucun des trois.
 
 | Réf. | Règle technique | Statut |
 |---|---|---|

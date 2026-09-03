@@ -15,7 +15,13 @@ LA SEULE AUTORITÉ SUR « OÙ COMMENCE UN LOT » DANS UN CRG.
 Toute phase qui a besoin de savoir quels lots porte un CRG passe par ici. Aucune ne redéfinit
 son propre motif.
 """
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from crg_texte import (normaliser, sans_queue_tableau,   # noqa: E402
+                       ville_de)
 
 # ⚠️ L'OCR COUPE LES RÉFÉRENCES EN DEUX. « Lot 01 G01-5052-000115 » porte une espace au milieu
 #    de sa référence : une classe sans espace s'arrêtait sur « 01 » et fusionnait deux
@@ -60,8 +66,45 @@ def locataires_de(segment):
 
 
 # « Immeuble 45, rue Druge - 38200 VIENNE » · « Immeuble LE PERPIGNAN - 38200 VIENNE »
-RE_IMMEUBLE = re.compile(r'^\s*Immeuble\s+(.+?)\s*[-–]\s*(\d{5})\s+'
-                         r'([A-ZÉÈÀÂÎÔÛa-zéèàâîôû\'\- ]+?)(?:\s{2,}.*)?$', re.M)
+#
+# ⚠️ LA VILLE N'EST PLUS DÉCOUPÉE PAR UN NOMBRE D'ESPACES, NI PRIVÉE DE CHIFFRES. Le motif
+#    précédent exigeait une ville en lettres seules, terminée par « deux espaces ou plus ».
+#    Deux conséquences mesurées le 03/09/2026, à contenu métier identique :
+#      · « LYON 08 » — un arrondissement, pas une faute — ne pouvait pas être une ville, donc
+#        la ligne entière ne matchait pas et **l'immeuble disparaissait** ;
+#      · dans le mode où l'extracteur aère (« LYON  08 »), le motif s'arrêtait sur les deux
+#        espaces et rendait la ville « LYON », voire une ville VIDE.
+#    Huit immeubles présents dans un mode, absents dans l'autre — sur le même document.
+#    On capture donc la fin de ligne, et c'est le VOCABULAIRE DU DOCUMENT qui la borne.
+RE_IMMEUBLE = re.compile(r'^\s*Immeuble\s+(.+?)\s*[-–]\s*(\d{5})\s+(.+?)\s*$', re.M)
+
+
+# ⚠️ LE SIGNAL EST PLUS LARGE QUE LA RÈGLE, ET C'EST TOUT L'INTÉRÊT. Ce motif reconnaît qu'une
+#    ligne ANNONCE un immeuble ; `RE_IMMEUBLE` décide s'il sait le LIRE. Tant que les deux sont
+#    confondus, une ligne que le moteur ne sait pas analyser n'existe pas — elle ne manque à
+#    personne, aucun compteur ne bouge, et la perte est invisible par construction. C'est
+#    exactement ce qui s'est produit : 23 immeubles annoncés par le document, jamais lus,
+#    jamais comptés, jamais signalés.
+RE_SIGNAL_IMMEUBLE = re.compile(r'^\s*Immeuble\b.*?\b\d{5}\b.*$', re.M)
+
+
+def couverture_immeubles(texte):
+    """Ce que la page ANNONCE, ce qu'on en a LU, et ce qui n'a pas été transformé.
+
+    Rend `(signaux, objets, non_transformes)` — `non_transformes` porte les lignes brutes.
+
+    ⚠️ `SIGNAUX = OBJETS + NON TRANSFORMÉS`, et la troisième colonne doit rester visible. Un
+       signal non transformé n'est pas forcément un défaut — le document peut annoncer autre
+       chose qu'un immeuble lisible. Mais il doit être COMPTÉ : c'est la seule façon de voir
+       une perte qui a lieu avant que les populations n'existent.
+    """
+    signaux = [m.group(0) for m in RE_SIGNAL_IMMEUBLE.finditer(texte)]
+    objets = immeubles_de(texte, 0)
+    lus = set()
+    for m in RE_IMMEUBLE.finditer(texte):
+        lus.add(normaliser(m.group(0)))
+    non_transformes = [s for s in signaux if normaliser(s) not in lus]
+    return signaux, objets, non_transformes
 
 
 def normaliser_reference(brute):
@@ -127,13 +170,23 @@ def segments_de_lot(texte, page):
 
 
 def immeubles_de(texte, page):
-    """Les immeubles annoncés sur une page, avec leur page d'apparition."""
+    """Les immeubles annoncés sur une page, avec leur page d'apparition.
+
+    ⚠️ LA VILLE EST BORNÉE PAR LE VOCABULAIRE DU DOCUMENT, PAS PAR UN NOMBRE D'ESPACES. Le
+       bandeau porte à sa droite la queue du tableau — « ...Suite », « Débit », « Crédit ». On
+       la retire par son NOM ; ce qui reste est la ville, arrondissement compris.
+
+    ⚠️ ET UNE VILLE QUI CONTIENT UN MONTANT N'EST PAS UNE VILLE. Si le retrait de la queue
+       laisse passer un chiffre de tableau, on préfère ne rien nommer plutôt que nommer faux :
+       l'immeuble existe quand même, avec sa ville vide — `ABSENCE DE LECTURE ≠ LECTURE
+       APPROXIMATIVE`.
+    """
     sortie = []
     for m in RE_IMMEUBLE.finditer(texte):
         sortie.append({
-            'nom': ' '.join(m.group(1).split()),
+            'nom': normaliser(sans_queue_tableau(m.group(1))),
             'code_postal': m.group(2),
-            'ville': ' '.join(m.group(3).split()),
+            'ville': ville_de(m.group(3)),
             'page': page,
             'code': None,
         })

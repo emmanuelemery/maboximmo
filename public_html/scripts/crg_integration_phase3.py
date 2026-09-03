@@ -27,7 +27,10 @@ import re
 import sys
 
 sys.path.insert(0, __file__.rsplit('\\', 1)[0] if '\\' in __file__ else '.')
-from crg_integration_phase0 import lire_pages as _lire_layout   # noqa: E402
+# ⚠️ ON N'IMPORTE PLUS `lire_pages` COMME REPLI. Le garder sous le nom `_lire_layout` faisait
+#    de la dégradation silencieuse une porte toujours ouverte : le prochain `except` l'aurait
+#    reprise. Ce qui reste importé, c'est le CONTRAT de lecteur, pas une issue de secours.
+from crg_integration_phase0 import LecteurIndisponible   # noqa: E402
 from crg_integration_phase0 import pdftotext_exe                # noqa: E402
 
 
@@ -47,16 +50,31 @@ def lire_pages(chemin):
     #    premier `pdftotext` du PATH : sous le harnais c'était Xpdf 4.00, qui ne connaît pas
     #    `-table` — le repli `-layout` se déclenchait EN SILENCE et la phase 2 rendait une
     #    autre empreinte que depuis la page. Le sceau le voyait ; personne ne savait pourquoi.
-    exe, _etiquette, sait_table = pdftotext_exe()
-    if exe and sait_table:
-        r = subprocess.run([exe, '-table', '-enc', 'UTF-8', chemin, '-'],
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if r.returncode == 0:
-            pages = r.stdout.decode('utf-8', 'replace').split('')
-            if pages and not pages[-1].strip():
-                pages.pop()
-            return pages, 'pdftotext -table'
-    return _lire_layout(chemin)
+    # ⚠️ PLUS DE REPLI MUET VERS `-layout`. Ce `if … : … return _lire_layout(chemin)` était la
+    #    plus coûteuse des dégradations silencieuses du module : quand le binaire ne connaissait
+    #    pas `-table`, la phase lisait quand même — autrement — et personne ne le savait.
+    #    Mesuré le 03/09/2026 sur un seul dépôt : **huit immeubles** et un occupant présents dans
+    #    un mode, absents dans l'autre. Aucun contrôle aval ne pouvait le voir : la perte a lieu
+    #    AVANT que les populations n'existent. Un mode de lecture fait partie du résultat ;
+    #    son absence est une panne, pas une occasion de lire autrement.
+    exe, etiquette, sait_table = pdftotext_exe()
+    if not sait_table:
+        raise LectureIndisponible(
+            'MODE « -table » INDISPONIBLE — le lecteur en service est %s, qui ne le propose '
+            'pas. Les phases 2, 3 et 4 lisent en mode tableau : lire autrement changerait le '
+            'patrimoine et les occupations sans que rien ne le signale. Installez le lecteur '
+            'déclaré par CRG_LECTEUR_CONTRAT, ou changez ce contrat en connaissance de cause.'
+            % (etiquette or 'inconnu'))
+    r = subprocess.run([exe, '-table', '-enc', 'UTF-8', chemin, '-'],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise LectureIndisponible(
+            'pdftotext -table a échoué (code %d) : %s'
+            % (r.returncode, r.stderr.decode('utf-8', 'replace')[:200]))
+    pages = r.stdout.decode('utf-8', 'replace').split('')
+    if pages and not pages[-1].strip():
+        pages.pop()
+    return pages, 'pdftotext (%s -table)' % (etiquette or 'version inconnue')
 
 # ⚠️ LA SEGMENTATION DES LOTS N'APPARTIENT PLUS À CETTE PHASE. Elle vit dans
 #    `crg_integration_lots.py`, partagée par les phases 2, 3 et 4 : c'est parce que chacune

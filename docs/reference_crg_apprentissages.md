@@ -230,9 +230,77 @@ commit          le hash
 
 ---
 
+## APP-0013 · Une règle structurelle ne dépend jamais du nombre d'espaces produit par l'extracteur
+
+| | |
+|---|---|
+| **phénomène** | Le texte extrait d'un PDF ne conserve pas un espacement stable : selon l'outil et le mode, une même colonne est serrée ou aérée, à l'extérieur **comme à l'intérieur** d'un champ. Une règle qui compte les espaces lit donc autre chose selon l'outil. |
+| **preuve** | 03/09/2026 — mesuré sur quatre corpus, à contenu métier rigoureusement identique : un champ d'identité découpé sur « deux espaces ou plus » perdait son second mot dès que l'extracteur aérait la ligne ; un champ de lieu borné de la même façon perdait son complément, ou l'objet entier. |
+| **abstraction** | La convention « deux espaces séparent deux colonnes » dit **où un champ commence**, jamais **où il finit** : la fin se lit dans le vocabulaire du document. Une tabulation vaut huit colonnes et non une. Et une abscisse ne se compare qu'à une **marge mesurée sur la même page**, jamais entre deux lignes rendues par des outils différents. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `crg_texte` : `normaliser`, `en_colonnes`, `RE_DEBUT_CELLULE`, `depuis_la_colonne`, `sans_queue_tableau`, `ville_de`, `marge_gauche` + `ECART_COLONNE_DROITE`. Le texte brut, sa page et sa provenance restent la preuve : la normalisation sert à reconnaître, jamais à stocker. |
+| **composant** | `crg_texte.py`, `crg_integration_phase0.py`, `crg_integration_lots.py` |
+| **tests** | `crgi_robustesse` — « espaces multiples », « tabulations », « alignement différent », « immeuble SPI », « une ville n'avale jamais un débris de tableau », « deux espacements du MÊME contenu rendent le MÊME objet métier » (**fixtures synthétiques**) ; épreuves associées : « le découpage du nom sur deux espaces ou plus », « la ville en lettres seules, bornée par deux espaces » |
+| **corpus** | quatre corpus, deux extracteurs, deux modes — écarts ramenés à trois artefacts d'extracteur documentés |
+| **limites** | Ne corrige pas un extracteur qui insère une espace **au milieu d'un mot** : c'est une altération de la source, pas une question de mise en page. |
+| **commit** | `—` |
+
+---
+
+## APP-0014 · Un bloc documentaire se parcourt jusqu'à une frontière, pas sur une fenêtre fixe
+
+| | |
+|---|---|
+| **phénomène** | Le bloc utile se trouve à quatre lignes du repère sur un gabarit, à six sur un autre, et l'intervalle contient des lignes d'une **autre colonne** qu'il faut traverser sans s'y arrêter. |
+| **preuve** | 03/09/2026 — une fenêtre de cinq lignes lisait un gabarit et rendait **zéro sur un corpus entier** pour l'autre. Le nombre cinq n'était pas une propriété du document : c'était celui qui marchait sur le premier gabarit examiné. |
+| **abstraction** | `ARRÊTER` et `IGNORER` ne sont pas la même chose. On parcourt jusqu'à une **frontière démontrée** — la formule d'appel qui ouvre le corps, un champ d'en-tête, une ligne de tableau — en ignorant ce qui n'appartient pas au bloc. Un plafond de sécurité borne le parcours ; il n'est pas la règle, il empêche une page dégradée de faire remonter n'importe quoi. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `crg_texte.bloc_borne(lignes, depart, frontiere, plafond)` ; les lecteurs déclarent leur frontière. |
+| **composant** | `crg_texte.py`, `crg_integration_phase0.py` |
+| **tests** | `crgi_robustesse` — « bloc utile décalé », « ligne parasite intermédiaire », « frontière structurelle », « absence réelle » ; épreuve associée : « la fenêtre fixe de cinq lignes » |
+| **corpus** | les deux familles ICS, deux extracteurs, deux modes |
+| **limites** | Suppose que le bloc est **aligné** : un bloc éclaté en trois fragments à trois abscisses reste arbitrable, pas devinable. |
+| **commit** | `—` |
+
+---
+
+## APP-0015 · Le signal documentaire est plus large que la règle de lecture
+
+| | |
+|---|---|
+| **phénomène** | Tant que « ce que la page annonce » et « ce que le moteur sait lire » sont le même motif, une ligne inanalysable **n'existe pas** : aucun compteur ne bouge, aucun arbitrage ne s'ouvre, et tous les contrôles de couverture restent verts. |
+| **preuve** | 03/09/2026 — 23 immeubles annoncés par un seul document n'ont jamais été lus. Le dépôt a été intégré, contrôlé et validé sans qu'un seul indicateur ne bronche : les contrôles comparaient des populations qui, elles, n'avaient jamais reçu ces objets. |
+| **abstraction** | Toute famille structurante a besoin de **deux** motifs : un motif de SIGNAL, volontairement large, qui dit qu'une ligne annonce l'objet ; et le motif de LECTURE, qui dit qu'on sait le construire. L'invariant est `SIGNAUX = OBJETS + NON TRANSFORMÉS`, et le troisième terme doit rester visible. Un contrôle bâti sur le seul motif de lecture est tautologique — vert par construction. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `RE_SIGNAL_IMMEUBLE` + `couverture_immeubles()` ; suite de harnais dédiée, exécutée sur les corpus réels **dans les deux modes**. |
+| **composant** | `crg_integration_lots.py`, `tests_crg/crgi_couverture_amont.py` |
+| **tests** | `crgi_robustesse` — « couverture amont : un signal reconnu n'est jamais perdu sans trace » (fixture synthétique, y compris un signal volontairement illisible) ; `crgi_couverture_amont` — 4 contrôles sur corpus réels |
+| **corpus** | les deux corpus SPI, deux modes : 707 et 456 signaux, **0 non transformé** |
+| **limites** | Un seul motif de signal existe à ce jour, pour les immeubles. Les autres familles structurantes restent à outiller de la même façon. |
+| **commit** | `—` |
+
+---
+
+## APP-0016 · Un mode de lecture fait partie du résultat, au même titre que l'outil
+
+| | |
+|---|---|
+| **phénomène** | Une phase demandait un mode d'extraction particulier et, quand le binaire ne le proposait pas, lisait **quand même** — dans un autre mode, sans le dire. |
+| **preuve** | 03/09/2026 — huit immeubles et un occupant présents dans un mode, absents dans l'autre, sur le même document. Aucun contrôle aval ne pouvait le voir : la perte a lieu avant que les populations n'existent. |
+| **abstraction** | Le mode se déclare avec le lecteur et se vérifie au démarrage. Son absence est une **panne**, jamais une occasion de lire autrement. Corollaire : ne pas garder l'ancienne fonction sous un nom de repli — une issue de secours conservée finit toujours par être reprise. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `crg_integration_phase3.lire_pages()` lève `LecteurIndisponible` si `-table` n'est pas proposé ; l'import du lecteur `-layout` comme repli est supprimé. |
+| **composant** | `crg_integration_phase3.py` |
+| **tests** | `crgi_robustesse` — « un mode que le binaire ne connaît pas est une panne, pas un repli », « le lecteur exigé est absent : panne explicite » ; épreuve associée : « le repli muet vers un autre lecteur » |
+| **corpus** | tous |
+| **limites** | Le contrat n'exprime qu'un mode par phase ; une phase qui aurait besoin de deux lectures devrait les déclarer toutes deux. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Douze apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Seize apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le
