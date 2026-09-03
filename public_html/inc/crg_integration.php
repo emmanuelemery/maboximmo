@@ -1152,12 +1152,10 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
     //    document de 587 Mo et 266 comptes rendus, cela faisait 266 lectures complètes du PDF
     //    et l'analyse ne finissait jamais. On envoie toutes les plages d'un coup.
     $parPiece = [];
-    $debuts = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $crg) {
         $parPiece[(string)$crg['chemin']][] = ['id' => (int)$crg['id'],
                                                'debut' => (int)$crg['page_debut'],
                                                'fin' => (int)$crg['page_fin']];
-        $debuts[(int)$crg['id']] = (int)$crg['page_debut'];
     }
     foreach ($parPiece as $chemin => $plages) {
         $fichier = tempnam(sys_get_temp_dir(), 'crgi_');
@@ -1171,17 +1169,27 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
             throw new RuntimeException('MOTEUR PATRIMOINE MUET OU ILLISIBLE : '
                                      . mb_substr($sortie, 0, 300));
         }
+        // ⚠️ LA PAGE RENDUE EST DÉJÀ ABSOLUE — ON NE RAJOUTE PAS L'OFFSET. Le lecteur reçoit
+        //    la plage du CRG et sa page de départ (`extraire(textes[debut-1:fin], debut)`) :
+        //    il rend donc la page du DOCUMENT, pas un rang dans le bloc. Ce code ajoutait
+        //    `page_debut - 1` par-dessus, et la page doublait : sur un dépôt de 906 pages,
+        //    `crgi_immeuble.page` montait à 1809 — soit 905 + 905 - 1. Mesuré le 03/09/2026 :
+        //    117 immeubles et 172 lots hors bornes sur VIENNE, 122 et 184 sur CHAPONOST.
+        //
+        // ⚠️ CE N'EST PAS UN DÉTAIL D'AFFICHAGE. Toute la promesse « 1 CLIC = PREUVE » repose
+        //    sur ce numéro : un arbitrage d'immeuble sur deux renvoyait vers une page qui
+        //    n'existe pas. `crgi_occupation` et `crgi_mouvement`, eux, étaient justes — d'où
+        //    l'incohérence entre deux phases lisant le même document.
         foreach ($r as $bloc) {
             $crgId = (int)$bloc['id'];
-            $base = $debuts[$crgId] ?? 1;
             foreach ($bloc['immeubles'] ?? [] as $i) {
                 $insImm->execute([$importId, $crgId, $i['code'], $i['nom'],
-                                  $i['code_postal'], $i['ville'], $base + (int)$i['page'] - 1]);
+                                  $i['code_postal'], $i['ville'], (int)$i['page']]);
             }
             foreach ($bloc['lots'] ?? [] as $l) {
                 $insLot->execute([$importId, $crgId, $l['reference'], $l['code_immeuble'],
                                   $l['numero'], $l['libelle'], $l['locataire'],
-                                  $base + (int)$l['page'] - 1]);
+                                  (int)$l['page']]);
             }
         }
     }

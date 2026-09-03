@@ -197,6 +197,80 @@ try {
             crgi_valider_phase($pdo, $importId, $phase, $user);
             repondre(['ok' => true]);
 
+        // ── LA FILE D'ARBITRAGE : une décision, sa preuve, sa portée. ───────────────────
+        // ⚠️ DÉCIDER N'EST PAS INTÉGRER, et cette action ne touche aucune donnée métier.
+        //    Elle enregistre ce qu'Emmanuel tranche — avec le document et la page sur
+        //    lesquels il l'a tranché, la proposition que l'agent faisait, et la version du
+        //    moteur qui posait la question.
+        // ⚠️ ET UNE EXTENSION À UN GROUPE N'EST JAMAIS IMPLICITE : elle n'a lieu que si
+        //    l'écran a envoyé `groupe_appliquer=1`, et elle inscrit son critère et son
+        //    nombre de lignes dans chaque décision produite.
+        case 'decider':
+            require_once __DIR__ . '/../inc/crgi_arbitrage.php';
+            if ($importId <= 0) {
+                repondre(['ok' => false, 'erreur' => 'import_id manquant.'], 400);
+            }
+            $d = [
+                'groupe'     => (string)($_POST['groupe'] ?? ''),
+                'cible_type' => (string)($_POST['cible_type'] ?? ''),
+                'cible_id'   => (int)($_POST['cible_id'] ?? 0),
+                'choix'      => trim((string)($_POST['choix'] ?? '')),
+                'statut'     => (string)($_POST['statut'] ?? 'VALIDE'),
+                'portee'     => (string)($_POST['portee'] ?? 'CAS'),
+                'precision'  => trim((string)($_POST['precision'] ?? '')),
+                'agent_proposition' => (string)($_POST['agent_proposition'] ?? '') ?: null,
+                'agent_confiance'   => $_POST['agent_confiance'] ?? null,
+                'agent_suivi'       => !empty($_POST['agent_suivi']),
+                'preuve_page' => $_POST['preuve_page'] ?? null,
+                'preuve_pdf'  => (string)($_POST['preuve_pdf'] ?? '') ?: null,
+                'preuve_sha'  => (string)($_POST['preuve_sha'] ?? '') ?: null,
+                'secondes_humain' => $_POST['secondes'] ?? null,
+                'user'        => (int)$user,
+            ];
+            if ($d['cible_type'] === '' || $d['cible_id'] <= 0) {
+                repondre(['ok' => false, 'erreur' => 'Cible manquante.'], 400);
+            }
+            if ($d['choix'] === '' && $d['statut'] === 'VALIDE') {
+                repondre(['ok' => false, 'erreur' => 'Aucun choix : rien à enregistrer.'], 400);
+            }
+            $faits = 1;
+            crgi_decider($pdo, $importId, $d);
+
+            if (!empty($_POST['groupe_appliquer'])) {
+                // ⚠️ ON RE-CALCULE L'ENSEMBLE ICI, on ne fait pas confiance à une liste
+                //    d'identifiants venue du navigateur : le critère est la vérité, pas la
+                //    sélection affichée il y a trente secondes.
+                $sec = (string)($_POST['g_section'] ?? '');
+                $col = (string)($_POST['g_colonne'] ?? '');
+                $mai = (string)($_POST['g_maille'] ?? '');
+                $st = $pdo->prepare(
+                    'SELECT id, page FROM crgi_mouvement
+                      WHERE import_id = ? AND categorie = "INDETERMINABLE"
+                        AND section = ? AND colonne = ? AND maille = ? AND id <> ?'
+                );
+                $st->execute([$importId, $sec, $col, $mai, $d['cible_id']]);
+                $lignes = $st->fetchAll(PDO::FETCH_ASSOC);
+                $critere = (string)($_POST['groupe_critere'] ?? '');
+                foreach ($lignes as $l) {
+                    $g = $d;
+                    $g['cible_id'] = (int)$l['id'];
+                    $g['portee'] = 'GROUPE';
+                    $g['preuve_page'] = (int)$l['page'];
+                    $g['groupe_applique'] = $critere;
+                    $g['groupe_taille'] = count($lignes) + 1;
+                    $g['secondes_humain'] = null;   // le temps humain n'est compté qu'une fois
+                    crgi_decider($pdo, $importId, $g);
+                }
+                $faits += count($lignes);
+            }
+
+            // La file suivante, pour que l'écran enchaîne sans recharger.
+            $reste = 0;
+            foreach (crgi_file_arbitrages($pdo, $importId, ['statut' => 'A TRAITER']) as $x) {
+                $reste++;
+            }
+            repondre(['ok' => true, 'faits' => $faits, 'reste' => $reste]);
+
         case 'annuler':
             crgi_annuler($pdo, $importId, $user, (string)($_POST['motif'] ?? ''));
             repondre(['ok' => true]);

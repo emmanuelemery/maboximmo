@@ -163,6 +163,36 @@ controle(
 );
 
 controle(
+    'REFUS — aucune page citée n’est hors du document',
+    'Toute la promesse « 1 CLIC = PREUVE » repose sur ce numéro. La phase 2 ajoutait l’offset '
+    . 'du CRG à une page que le lecteur rendait DÉJÀ absolue : sur un dépôt de 906 pages, '
+    . '`crgi_immeuble.page` montait à 1809 — 905 + 905 - 1. Un arbitrage d’immeuble sur deux '
+    . 'renvoyait vers une page inexistante, et personne ne le voyait puisque `crgi_occupation` '
+    . 'et `crgi_mouvement`, eux, étaient justes.',
+    function () use ($pdo, $importId) {
+        // ⚠️ CONTRÔLE GÉNÉRIQUE : toute table de staging qui cite une page doit la citer
+        //    DANS les bornes de sa pièce. Il vaut pour la table ajoutée demain.
+        $pages = (int)$pdo->query('SELECT COALESCE(MAX(nb_pages), 0) FROM crgi_piece
+                                    WHERE import_id = ' . $importId)->fetchColumn();
+        exiger($pages > 0, 'aucune pièce : le contrôle ne prouverait rien');
+        $fautes = [];
+        foreach (['crgi_immeuble', 'crgi_lot', 'crgi_occupation', 'crgi_mouvement',
+                  'crgi_page'] as $t) {
+            $col = $t === 'crgi_page' ? 'page_no' : 'page';
+            $st = $pdo->prepare("SELECT COUNT(*) n, MAX(`$col`) m FROM `$t`
+                                  WHERE import_id = ? AND `$col` > ?");
+            $st->execute([$importId, $pages]);
+            $r = $st->fetch(PDO::FETCH_ASSOC);
+            if ((int)$r['n'] > 0) {
+                $fautes[] = sprintf('%s : %d lignes, jusqu’à la page %d (le document en a %d)',
+                                    $t, (int)$r['n'], (int)$r['m'], $pages);
+            }
+        }
+        exiger(!$fautes, implode(' · ', $fautes));
+    }
+);
+
+controle(
     'REFUS — aucun lot ne perd son occupant parce qu’une page se termine',
     'Quand le bloc d’un lot commence au BAS d’une page, sa ligne « Locataire: » est imprimée '
     . 'sur la suivante, sous l’en-tête « Suite ». La phase 3 ne complétait que le solde : '

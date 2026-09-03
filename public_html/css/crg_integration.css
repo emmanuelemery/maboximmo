@@ -186,3 +186,73 @@
 .crgi-diag-rouge .crgi-diag-n b{color:#b3261e}
 .crgi-diag-ok{color:#2f7d5d}
 .crgi-diag-h3{font-size:14px;margin:18px 0 0}
+
+/* ═══ FILE D'ARBITRAGE — `admin_crgi_arbitrage.php` ═══════════════════════════════════════
+   ⚠️ UN ARBITRAGE OCCUPE TOUT L'ÉCRAN. Ce n'est pas une ligne de tableau : c'est une
+      question posée à un homme, avec sa preuve à portée de clic. Les densités du diagnostic
+      (12 px, lignes serrées) seraient ici une faute — on lit pour décider, pas pour scanner. */
+.crgi-arb-fiche{padding:20px 22px 18px}
+.crgi-arb-tete{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.crgi-arb-rang{font-weight:700;color:var(--crgi-gris);font-size:12px;letter-spacing:.6px}
+.crgi-arb-nav{margin-left:auto;display:flex;gap:14px}
+.crgi-arb-nav a{color:var(--crgi-gris);font-size:12.5px;text-decoration:none}
+.crgi-arb-nav a:hover{color:var(--crgi-navy);text-decoration:underline}
+.crgi-arb-nav a[aria-disabled]{opacity:.35;pointer-events:none}
+.crgi-arb-question{font-size:19px;line-height:1.4;margin:0 0 6px;font-weight:700}
+/* La preuve : le montant, son sens, son libellé, et le bouton qui ouvre la page. */
+.crgi-arb-preuve{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  background:var(--crgi-doux);border:1px solid var(--crgi-trait);border-left:3px solid var(--crgi-or);
+  border-radius:8px;padding:12px 14px;margin:14px 0}
+.crgi-arb-montant b{font-size:22px;font-variant-numeric:tabular-nums}
+.crgi-arb-sens{margin-left:8px;font-size:11px;font-weight:700;letter-spacing:.7px;
+  padding:2px 7px;border-radius:20px;background:#eef1f5;color:var(--crgi-gris)}
+.crgi-arb-debit{background:#fdeceb;color:var(--crgi-rouge)}
+.crgi-arb-credit{background:#e7f4ee;color:var(--crgi-vert)}
+.crgi-arb-libelle{flex:1 1 240px;font-size:13.5px;line-height:1.5}
+.crgi-arb-voir{margin-left:auto;white-space:nowrap;text-decoration:none;font-weight:600;
+  font-size:13px;background:#fff;border:1px solid var(--crgi-navy);color:var(--crgi-navy);
+  border-radius:7px;padding:8px 13px}
+.crgi-arb-voir:hover{background:var(--crgi-navy);color:#fff}
+/* Le contexte : des paires, pas un tableau — on les lit d'un œil. */
+.crgi-arb-ctx{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:4px 18px;margin:0 0 6px}
+.crgi-arb-ctx dt{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--crgi-gris);margin-top:7px}
+.crgi-arb-ctx dd{margin:0;font-size:13px;line-height:1.4}
+.crgi-arb-h3{font-size:13px;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--crgi-gris);margin:18px 0 8px}
+/* Les propositions : la jauge dit la part comptée, jamais une impression. */
+.crgi-arb-props{display:flex;flex-direction:column;gap:8px}
+.crgi-arb-prop{display:flex;align-items:flex-start;gap:12px;cursor:pointer;
+  border:1px solid var(--crgi-trait);border-radius:8px;padding:10px 13px;background:#fff}
+.crgi-arb-prop:hover{border-color:var(--crgi-or);background:#fffdf6}
+.crgi-arb-prop:has(input:checked){border-color:var(--crgi-navy);background:var(--crgi-doux);
+  box-shadow:inset 3px 0 0 var(--crgi-navy)}
+.crgi-arb-prop input{margin-top:3px}
+.crgi-arb-jauge{position:relative;flex:0 0 86px;height:20px;border-radius:4px;
+  background:#eef1f5;overflow:hidden;font-size:11px;font-weight:700}
+.crgi-arb-jauge i{position:absolute;inset:0 auto 0 0;background:#cfe0d8;display:block}
+.crgi-arb-jauge b{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;color:var(--crgi-navy);font-variant-numeric:tabular-nums}
+.crgi-arb-jauge-vide{display:flex;align-items:center;justify-content:center;
+  color:var(--crgi-gris);background:transparent;border:1px dashed var(--crgi-trait)}
+.crgi-arb-prop-txt{flex:1;font-size:13.5px;line-height:1.45}
+.crgi-arb-prop-regle .crgi-arb-jauge-vide{font-weight:600}
+.crgi-arb-prop-libre{border-style:dashed}
+.crgi-arb-libre{width:100%;max-width:520px;margin-top:5px;border:1px solid var(--crgi-trait);
+  border-radius:6px;padding:7px 9px;font:inherit;font-size:13px}
+/* ⚠️ BORNÉES À LA FICHE, PARCE QUE L'ÉCRAN D'INTÉGRATION PORTE DÉJÀ CES DEUX NOMS. Là-bas
+      `.crgi-arb-precision` est un `<input>` de tableau et `.crgi-arb-etat` un avis de 11 px :
+      des règles nues, posées plus bas dans le fichier, les auraient réécrits en silence. */
+.crgi-arb-fiche .crgi-arb-precision{display:block;margin:14px 0 0;font-size:12px;
+  color:var(--crgi-gris)}
+.crgi-arb-fiche .crgi-arb-precision textarea{display:block;width:100%;margin-top:5px;
+  font:inherit;font-size:13px;border:1px solid var(--crgi-trait);border-radius:7px;
+  padding:8px 10px;resize:vertical}
+/* L'extension à un groupe : jamais implicite, toujours chiffrée avant le clic. */
+.crgi-arb-groupe{margin:16px 0 0;border:1px solid var(--crgi-trait);border-left:3px solid var(--crgi-ambre);
+  background:#fffdf6;border-radius:8px;padding:11px 14px}
+.crgi-arb-groupe label{display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:13.5px}
+.crgi-arb-groupe p{margin:6px 0 0 26px;line-height:1.5}
+.crgi-arb-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 12px}
+.crgi-arb-fiche .crgi-arb-etat{font-size:12.5px;color:var(--crgi-gris);min-height:0}
