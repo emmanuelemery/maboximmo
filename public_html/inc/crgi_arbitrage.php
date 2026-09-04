@@ -166,7 +166,65 @@ function crgi_file_arbitrages(PDO $pdo, int $importId, array $filtres = []): arr
         }
         $sortie[] = $a;
     }
-    return $sortie;
+    return empty($filtres['detail']) ? crgi_regrouper_file($sortie) : $sortie;
+}
+
+/**
+ * LES FAMILLES QUI SE DÉCIDENT EN BLOC, ET CE QUI FAIT LEUR PHÉNOMÈNE.
+ *
+ * ⚠️ UNE FILE EST UNE SUITE DE QUESTIONS, PAS UNE SUITE DE LIGNES. Sur un dépôt réel elle en
+ *    affichait **397**, dont 337 posaient rigoureusement la même : « quelle est la nature des
+ *    montants de cette colonne ? ». Emmanuel, 04/09/2026 : « les arbitrages doivent se limiter
+ *    à une trentaine environ à chaque fois ». Une question répétée trois cent fois n'est pas
+ *    trois cents questions — c'est une question et un défaut de présentation.
+ *
+ * ⚠️ ON NE REGROUPE QUE CE QUI A LA MÊME RÉPONSE. Un homonyme d'immeuble et un conflit
+ *    d'identité sont des décisions INDIVIDUELLES : chacune désigne un objet différent, et les
+ *    fondre dans un lot ferait exactement l'erreur des « quatre homonymes sous un seul
+ *    intitulé ». Ces familles restent ligne par ligne, et c'est délibéré.
+ */
+const CRGI_REGROUPEMENT = [
+    // famille de cible => les champs du contexte qui font le phénomène
+    'MOUVEMENT'  => ['section', 'colonne', 'maille'],
+    'OCCUPATION' => [],          // le motif suffit : la réponse est la même pour tout le groupe
+];
+
+/**
+ * Replie la file : une entrée par PHÉNOMÈNE, avec ce qu'elle couvre.
+ *
+ * ⚠️ LA REPRÉSENTANTE GARDE SA PREUVE. On ne fabrique pas une ligne synthétique : on prend la
+ *    première du phénomène, avec sa page et son document, pour que « voir dans le CRG » reste
+ *    vrai. Le nombre et le total, eux, disent l'ampleur de ce qu'on décide.
+ */
+function crgi_regrouper_file(array $file): array
+{
+    $vues = [];
+    foreach ($file as $a) {
+        $champs = CRGI_REGROUPEMENT[$a['cible']] ?? null;
+        if ($champs === null) {
+            $vues[] = $a;                       // décision individuelle : rien à replier
+            continue;
+        }
+        $cle = $a['groupe'];
+        foreach ($champs as $c) {
+            $cle .= '|' . (string)($a['contexte'][$c] ?? '');
+        }
+        if (!isset($vues[$cle])) {
+            $a['couvre_ids'] = [];
+            $a['nombre'] = 0;
+            $a['total'] = 0.0;
+            $vues[$cle] = $a;
+        }
+        $vues[$cle]['couvre_ids'][] = (int)$a['cible_id'];
+        $vues[$cle]['nombre']++;
+        $vues[$cle]['total'] += (float)($a['contexte']['montant'] ?? 0);
+        // ⚠️ UNE QUESTION DÉJÀ TRANCHÉE POUR UNE PARTIE DU GROUPE RESTE À TRAITER TANT QU'IL
+        //    EN RESTE. Sinon une décision partielle ferait disparaître le reste de l'écran.
+        if (($a['statut'] ?? 'A TRAITER') === 'A TRAITER') {
+            $vues[$cle]['statut'] = 'A TRAITER';
+        }
+    }
+    return array_values($vues);
 }
 
 /**
@@ -368,6 +426,61 @@ function crgi_groupe_semblable(PDO $pdo, int $importId, array $a): ?array
  * ⚠️ ELLE N'ÉCRIT RIEN DANS LES DONNÉES MÉTIER. Décider n'est pas intégrer : la décision vit
  *    en staging, datée et signée, et c'est la phase d'intégration qui l'exécutera.
  */
+/**
+ * UNE DÉCISION D'IDENTITÉ SE GRAVE, LES AUTRES NON.
+ *
+ * ⚠️ POURQUOI CELLES-LÀ SEULEMENT. « Cet immeuble du document est le n°563 de MBI » est une
+ *    identité : elle reste vraie au dépôt suivant, et la reposer serait absurde. « Ce montant
+ *    est une charge » est une qualification de LIGNE : elle appartient à sa ligne, et la
+ *    gaver dans une mémoire durable ferait appliquer une réponse à des faits qu'on n'a pas lus.
+ *    La règle, elle, s'apprend autrement — par la table des sections, qui est additive.
+ *
+ * ⚠️ ET ELLE PORTE SA PREUVE. Date, auteur, page, document, commit du moteur : une décision
+ *    qu'on ne peut pas relire est un souvenir, pas une identité.
+ */
+function crgi_graver_identite(PDO $pdo, int $importId, array $d): void
+{
+    $types = ['IMMEUBLE' => 'IMMEUBLE', 'CONFLIT_IMMEUBLE' => 'IMMEUBLE',
+              'CONFLIT_OCCUPANT' => 'OCCUPANT', 'CONFLIT_PROPRIO' => 'PROPRIETAIRE'];
+    $type = $types[(string)$d['cible_type']] ?? null;
+    if (!$type || ($d['statut'] ?? 'VALIDE') !== 'VALIDE') {
+        return;
+    }
+    $ctx = crgi_contexte_identite($pdo, (string)$d['cible_type'], (int)$d['cible_id']);
+    if (!$ctx) {
+        return;
+    }
+    $v = crgi_version_moteur();
+    // Le numéro MBI, quand la décision en désigne un : « Désigner l’immeuble MBI #563 ».
+    $mbi = preg_match('~#(\d+)~', (string)$d['choix'], $m) ? (int)$m[1] : null;
+    $pdo->prepare(
+        'INSERT INTO crgi_identite
+            (type, agence, cle, choix, mbi_id, precision_h, preuve_pdf, preuve_page,
+             import_origine, moteur_commit, decide_par)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE choix = VALUES(choix), mbi_id = VALUES(mbi_id),
+             precision_h = VALUES(precision_h), decide_par = VALUES(decide_par),
+             decide_le = NOW()'
+    )->execute([$type, $ctx['agence'], $ctx['cle'], mb_substr((string)$d['choix'], 0, 120),
+                $mbi, $d['precision'] ?? null, $d['preuve_pdf'] ?? null,
+                isset($d['preuve_page']) ? (int)$d['preuve_page'] : null,
+                $importId, $v['commit'], (int)($d['user'] ?? 0) ?: null]);
+}
+
+/** L'agence et la clé métier d'une cible d'arbitrage — ce qui fait son identité durable. */
+function crgi_contexte_identite(PDO $pdo, string $type, int $cibleId): ?array
+{
+    if ($type === 'IMMEUBLE' || $type === 'CONFLIT_IMMEUBLE') {
+        $st = $pdo->prepare('SELECT i.code, i.nom, i.code_postal, c.agence
+                               FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
+                              WHERE i.id = ?');
+        $st->execute([$cibleId]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        return $r ? ['agence' => (string)$r['agence'], 'cle' => crgi_cle_immeuble($r)] : null;
+    }
+    return null;
+}
+
 function crgi_decider(PDO $pdo, int $importId, array $d): int
 {
     $v = crgi_version_moteur();
@@ -405,6 +518,7 @@ function crgi_decider(PDO $pdo, int $importId, array $d): int
                  ? mb_substr((string)$d['precision'], 0, 1000) : null,
         ':u' => (int)($d['user'] ?? 0) ?: null,
     ]);
+    crgi_graver_identite($pdo, $importId, $d);
     return (int)$pdo->lastInsertId();
 }
 

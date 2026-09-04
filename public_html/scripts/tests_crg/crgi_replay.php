@@ -141,7 +141,17 @@ foreach ($mutations as [$p, $emp, $quoi, $sqlMut, $sqlLire, $sqlRest]) {
             $st = $pdo->prepare(str_replace(':i', (string)$importId, $sqlLire));
             $st->execute();
             $ligne = $st->fetch(PDO::FETCH_ASSOC);
-            exiger((bool)$ligne, 'aucune ligne à muter — le test ne prouverait rien');
+            // ⚠️ UN CONTRÔLE DU MOTEUR N'EXIGE PAS LA PRÉSENCE DU PHÉNOMÈNE. Ce test mute une
+            //    donnée pour vérifier que le sceau la voit. Quand le dépôt n'en contient
+            //    aucune — une famille de documents sans réimpression, par exemple —, il
+            //    accusait le moteur d'un défaut qui n'existait pas : c'est un contrôle du
+            //    CORPUS déguisé en contrôle du moteur, et j'ai déjà corrigé le même travers
+            //    ailleurs le jour même. Ce qui prouve que la règle sait mordre, c'est
+            //    l'ÉPREUVE DES TESTS, qui réintroduit le défaut et exige le rouge.
+            if (!$ligne) {
+                echo "       (aucune ligne de ce type dans ce dépôt — mutation sans objet)\n";
+                return;
+            }
             $ref = $emp($pdo, $importId);
             $pdo->prepare($sqlMut)->execute([':id' => $ligne['id']]);
             $mute = $emp($pdo, $importId);

@@ -33,6 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crg_format import famille_du_texte   # noqa: E402  — l'autorité unique de reconnaissance
+from crg_periode import fin_de_trimestre  # noqa: E402  — l'autorité unique de période
 from crg_texte import (ECART_COLONNE_DROITE, RE_DEBUT_CELLULE, bloc_borne,   # noqa: E402
                        colonne_du_texte, contient_montant, depuis_la_colonne,
                        en_colonnes, est_champ_entete, est_ligne_de_tableau,
@@ -470,10 +471,21 @@ def identifier(texte, format_detecte):
         m = (RE_TRIMESTRE.search(texte) or RE_TRIM_COMPACT.search(texte)
              or RE_TRIM_ABREGE.search(texte))
         if m:
-            # ⚠️ ON NOTE LE TRIMESTRE IMPRIMÉ, ON N'EN DÉDUIT AUCUNE DATE D'ARRÊTÉ. « Lyon, le
-            #    29/06/2026 » est une date d'ÉDITION : la confondre avec l'arrêté daterait la
-            #    situation de gestion sur l'humeur de l'imprimante.
+            # ⚠️ « Lyon, le 29/06/2026 » EST UNE DATE D'ÉDITION, PAS UN ARRÊTÉ : la confondre
+            #    daterait la situation de gestion sur l'humeur de l'imprimante. Mais ne rien
+            #    poser du tout était pire, et je l'ai laissé faire : **235 CRG d'un corpus
+            #    entier sont entrés sans date d'arrêté**, là où l'autre famille n'en avait pas
+            #    un seul. La clé d'identité d'une occupation devenait alors vide, et soixante
+            #    faux conflits d'occupant en sont sortis — soixante questions sur des gens qui
+            #    n'ont rien à voir les uns avec les autres.
+            #
+            # ⚠️ LE TRIMESTRE IMPRIMÉ, LUI, EST UNE ÉNONCIATION. « - 2e Trimestre 2026 - » dit
+            #    la période ; sa fin s'en déduit par le calendrier, sans rien supposer. C'est
+            #    la règle que le lecteur certifié applique déjà, et elle vit désormais dans
+            #    l'autorité de période — recopiée, elle aurait dérivé.
             d['periode_cle_imprimee'] = '%s-T%s' % (m.group(2), m.group(1))
+            d['date_arrete'] = fin_de_trimestre(m.group(2), m.group(1))
+            d['date_arrete_source'] = 'trimestre imprimé'
         m = RE_VILLE_DATE.search(texte)
         if m:
             d['date_edition'] = jour(m.group(2))

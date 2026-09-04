@@ -62,7 +62,16 @@ def patrimoine(doc, debut=1, fin=None):
             'page': page,
             'code': im.get('code') or None,
         })
+        # ⚠️ UN LOT IMPRIMÉ DEUX FOIS RESTE UN LOT. Le document réimprime son bloc pour
+        #    chaque occupant successif ; le patrimoine, lui, n'en compte qu'un — sinon les
+        #    phases ne s'accordent plus sur la population, et c'est ainsi que 26 lots ont
+        #    disparu autrefois. Le premier imprimé porte le patrimoine ; la succession est
+        #    l'affaire de la phase 3.
+        vus_lot = set()
         for lot in im.get('lots') or []:
+            if (lot.get('reference') or '') in vus_lot:
+                continue
+            vus_lot.add(lot.get('reference') or '')
             lots.append({
                 'reference': lot.get('reference') or '',
                 'code_immeuble': im.get('code') or None,
@@ -84,26 +93,41 @@ def occupations(doc, debut=1, fin=None):
 
     ⚠️ LE `statut` DU LECTEUR N'EST PAS REPRIS. Il est déduit d'un montant de loyer appelé :
        `P4B-OCCUPATION-16` le déclare non certifié et non opposable.
+
+    ⚠️ UN LOT IMPRIMÉ DEUX FOIS DANS LE MÊME CRG EST UNE SUCCESSION, PAS UN CONFLIT. Le
+       document réimprime le bloc du lot pour chaque occupant : « ZOURDOS Nathalie » sur
+       quatre mois, puis « VANNAIRE Danièle » sur deux, à la même page et plus bas. Sans rang,
+       les deux arrivaient au même endroit de l'identité (compte × lot × arrêté) et le
+       détecteur de conflits y voyait **soixante désaccords** entre des gens qui n'ont rien à
+       voir. C'est le même phénomène que le SPI traite depuis toujours par son `rang` : l'ORDRE
+       D'IMPRESSION EST L'ORDRE DE LA SUCCESSION, et il se lit sur la page puis la hauteur.
     """
     obs = []
     for im in doc.get('immeubles') or []:
-        for lot in im.get('lots') or []:
+        rangs = {}
+        for lot in sorted(im.get('lots') or [],
+                          key=lambda l: (int(l.get('page') or 0), float(l.get('y') or 0))):
             page = int(lot.get('page') or im.get('page_debut') or 0)
             if not _dans(page, debut, fin):
                 continue
             nom = normaliser(lot.get('locataire_nom') or '') or None
             if not nom:
                 continue
+            ref = lot.get('reference') or ''
+            rang = rangs.get(ref, 0)
+            rangs[ref] = rang + 1
             obs.append({
-                'lot': lot.get('reference') or '',
+                'lot': ref,
                 'locataire': nom,
                 'bail_du': None,
                 'bail_au': None,
-                'rang': 0,
+                'rang': rang,
                 # ⚠️ L'IMPAYÉ EST UN STOCK IMPRIMÉ, pas un solde reconstruit : on le rend tel
-                #    quel quand le lecteur l'a lu, et on dit d'où il vient.
-                'solde': lot.get('total_impaye') if lot.get('totaux_lus') else None,
-                'solde_source': 'LUE' if lot.get('totaux_lus') else 'NON DEMONTRABLE',
+                #    quel quand le lecteur l'a lu, et on dit d'où il vient. Il appartient au
+                #    bloc, donc au premier occupant : le donner à chacun le compterait deux fois.
+                'solde': lot.get('total_impaye') if (lot.get('totaux_lus') and rang == 0) else None,
+                'solde_source': ('LUE' if (lot.get('totaux_lus') and rang == 0)
+                                 else 'NON DEMONTRABLE'),
                 'page': page,
             })
     return obs

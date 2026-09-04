@@ -1243,6 +1243,42 @@ function crgi_commande_lecture(string $python, string $scriptSpi, string $chemin
          . escapeshellarg($chemin) . ' ' . escapeshellarg($plages);
 }
 
+/**
+ * LA CLÉ D'IDENTITÉ D'UN IMMEUBLE, telle que le document la donne.
+ *
+ * ⚠️ LE CODE D'ABORD, L'ADRESSE ENSUITE — et jamais les deux mélangés. C'est la même clé qui
+ *    sert à grouper les questions et à retrouver une décision : si les deux divergeaient, une
+ *    réponse enregistrée ne serait jamais relue.
+ */
+function crgi_cle_immeuble(array $imm): string
+{
+    return (string)($imm['code'] ?: (crgi_plat((string)$imm['nom']) . '|' . (string)$imm['code_postal']));
+}
+
+/**
+ * CE QU'EMMANUEL A DÉJÀ TRANCHÉ POUR CETTE IDENTITÉ — ou rien.
+ *
+ * ⚠️ BORNÉE PAR L'AGENCE. `UN CODE DE COMPTE N'EST JAMAIS GLOBAL` vaut aussi pour un code
+ *    d'immeuble : « 0081 » chez une régie n'est pas « 0081 » chez une autre. Une mémoire non
+ *    bornée ferait pire que pas de mémoire — elle rattacherait des immeubles étrangers.
+ */
+function crgi_identite_apprise(PDO $pdo, string $type, string $agence, string $cle): ?array
+{
+    static $cache = [];
+    $k = $type . '|' . $agence . '|' . $cle;
+    if (array_key_exists($k, $cache)) {
+        return $cache[$k];
+    }
+    $st = $pdo->prepare('SELECT * FROM crgi_identite WHERE type = ? AND agence = ? AND cle = ?');
+    $st->execute([$type, $agence, $cle]);
+    $r = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($r) {
+        $pdo->prepare('UPDATE crgi_identite SET reutilisations = reutilisations + 1 WHERE id = ?')
+            ->execute([(int)$r['id']]);
+    }
+    return $cache[$k] = $r;
+}
+
 function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
 {
     $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
@@ -1338,13 +1374,28 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
         $parAdresse[$cle2][] = $i;
     }
 
-    $st = $pdo->prepare('SELECT * FROM crgi_immeuble WHERE import_id = ?');
+    $st = $pdo->prepare('SELECT i.*, c.agence FROM crgi_immeuble i
+                           JOIN crgi_crg c ON c.id = i.crg_id WHERE i.import_id = ?');
     $st->execute([$importId]);
     $maj = $pdo->prepare(
         'UPDATE crgi_immeuble SET statut = ?, mbi_immeuble_id = ?, avant_apres = ?, motif = ?
           WHERE id = ?'
     );
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $imm) {
+        // ⚠️ ON DEMANDE À LA MÉMOIRE AVANT DE POSER LA QUESTION. Sans cela, le même homonyme
+        //    revient à chaque trimestre : 33 questions sur un dépôt, et 33 de plus au suivant,
+        //    indéfiniment. Une décision d'identité vaut jusqu'à ce qu'on la retire.
+        $appris = crgi_identite_apprise($pdo, 'IMMEUBLE', (string)$imm['agence'],
+                                        crgi_cle_immeuble($imm));
+        if ($appris) {
+            $maj->execute([$appris['mbi_id'] ? 'IDENTIQUE' : 'NOUVEAU',
+                           $appris['mbi_id'] ?: null, null,
+                           'Identité déjà tranchée le ' . substr((string)$appris['decide_le'], 0, 10)
+                           . ' : « ' . $appris['choix'] . ' ». Décision réutilisée, la question '
+                           . 'n’est pas reposée.',
+                           (int)$imm['id']]);
+            continue;
+        }
         $cands = $imm['code'] ? ($parRef[ltrim((string)$imm['code'], '0')] ?? []) : [];
         $par = 'sa référence ' . $imm['code'];
         if (!$cands) {
@@ -3280,6 +3331,12 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
     }
 
     // ── PATRIMOINE : plusieurs immeubles MBI portent le même nom ──────────────────────────
+    // ⚠️ ON GROUPE PAR AGENCE, PAS PAR COMPTE MANDANT. Le code d'immeuble est celui du syndic :
+    //    le même code sous trois mandats désigne LE MÊME immeuble, et posait trois fois la
+    //    même question — 37 là où il y en avait 33, 14 là où il y en avait 9. Mais
+    //    `UN CODE DE COMPTE N'EST JAMAIS GLOBAL` vaut aussi pour un code d'immeuble : il est
+    //    borné par l'agence qui l'attribue, jamais par le dépôt. C'est donc l'agence qui borne
+    //    le groupe — on réunit ce qui est le même, sans confondre deux référentiels.
     $imm = $q(
         // ⚠️ UNE QUESTION GROUPÉE DOIT DIRE QUI ELLE COUVRE. Sans `couvre`, le tableau de
         //    bord comptait comme PERTE SILENCIEUSE chaque ligne du groupe sauf la première :
@@ -3289,10 +3346,10 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
         'SELECT MIN(i.id) cible_id, GROUP_CONCAT(i.id) couvre,
                 COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal)) cle,
                 i.nom, i.code_postal, i.ville, MIN(i.page) page, LEFT(MIN(i.motif), 220) motif,
-                c.compte
+                c.agence, MIN(c.compte) compte, COUNT(DISTINCT c.compte) comptes
            FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
           WHERE i.import_id = ? AND i.statut = "A ARBITRER"
-          GROUP BY cle, i.nom, i.code_postal, i.ville, c.compte'
+          GROUP BY c.agence, cle, i.nom, i.code_postal, i.ville'
     );
     if ($imm) {
         $groupes[] = [

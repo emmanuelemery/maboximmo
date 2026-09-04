@@ -417,9 +417,77 @@ commit          le hash
 
 ---
 
+## APP-0024 · Une file est une suite de QUESTIONS, pas une suite de lignes
+
+| | |
+|---|---|
+| **phénomène** | La file affichait une entrée par ligne à décider. Quand trois cents lignes posent rigoureusement la même question, elle en affichait trois cents. |
+| **preuve** | 04/09/2026 — **397 entrées** sur un dépôt, dont 337 demandaient « quelle est la nature des montants de cette colonne ? ». Emmanuel : « les arbitrages doivent se limiter à une trentaine environ à chaque fois ». |
+| **abstraction** | Une question répétée trois cents fois n'est pas trois cents questions : c'est une question et un défaut de présentation. On replie sur le **phénomène** — ce qui a la même réponse —, la représentante gardant sa preuve pour que « voir dans le CRG » reste vrai. **Mais on ne replie que ce qui a la même réponse** : un homonyme d'immeuble et un conflit d'identité désignent chacun un objet différent, et les fondre referait l'erreur des « quatre homonymes sous un seul intitulé ». |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `CRGI_REGROUPEMENT` déclare les familles repliables et ce qui fait leur phénomène ; `crgi_regrouper_file()` replie, en portant `couvre_ids`, `nombre` et `total`. Le filtre `detail` rend la vue ligne à ligne. |
+| **composant** | `crgi_arbitrage.php` |
+| **tests** | à écrire sur fixture |
+| **corpus** | trois dépôts : 397 → 63, 37 → 17, 87 → 49 questions |
+| **limites** | Les familles individuelles ne se replient pas, et c'est voulu — elles resteront le gros du reste. |
+| **commit** | `—` |
+
+---
+
+## APP-0025 · Une décision d'identité ne se redemande jamais
+
+| | |
+|---|---|
+| **phénomène** | Les arbitrages vivaient dans une table indexée par dépôt. Une réponse donnée sur un trimestre ne servait à rien au trimestre suivant. |
+| **preuve** | 04/09/2026 — 33 homonymes d'immeuble sur un dépôt, et les 33 mêmes questions au dépôt d'après, indéfiniment. Or ces homonymes ne viennent pas d'un défaut de lecture : **MBI porte lui-même les doublons**. La question est donc structurellement permanente, et la réponse aussi. |
+| **abstraction** | Distinguer ce qui est une **identité** de ce qui est une **qualification de ligne**. « Cet immeuble du document est le n°563 de MBI » reste vrai au dépôt suivant : le regraver serait absurde. « Ce montant est une charge » appartient à sa ligne : le graver appliquerait une réponse à des faits qu'on n'a pas lus. Seules les identités entrent en mémoire durable, avec leur auteur, leur date et leur preuve. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Table `crgi_identite`, clé `(type, agence, clé métier)` — **bornée par l'agence**, car `UN CODE N'EST JAMAIS GLOBAL`. Le rapprochement la consulte AVANT de poser la question ; `crgi_graver_identite()` l'alimente à chaque décision d'identité validée. |
+| **composant** | `crg_integration.php`, `crgi_arbitrage.php`, migration `20260904a` |
+| **tests** | vérifié de bout en bout : question posée → décidée → gravée → **absente au rejeu**, l'immeuble étant rattaché par la mémoire |
+| **corpus** | un dépôt : 9 → 8 homonymes après une seule décision |
+| **limites** | Seule la famille des immeubles est câblée ; occupants et propriétaires ont leur place dans la table mais pas encore leur contexte. |
+| **commit** | `—` |
+
+---
+
+## APP-0026 · Une clé d'identité incomplète fabrique des conflits, elle n'en révèle pas
+
+| | |
+|---|---|
+| **phénomène** | La clé d'identité d'une occupation est `compte × lot × arrêté × rang`. Quand l'un de ces termes manque, la clé s'effondre et des objets étrangers se retrouvent au même endroit — le détecteur de conflits les compare alors deux à deux. |
+| **preuve** | 04/09/2026 — **235 CRG d'une famille entière sans date d'arrêté**, là où l'autre famille n'en avait pas un seul : la clé devenait vide, et **soixante « conflits d'occupant »** opposaient des locataires qui n'ont rien à voir. Puis, l'arrêté posé, les soixante subsistaient — pour une autre raison : le rang manquait. |
+| **abstraction** | Un détecteur de conflits ne vaut que ce que vaut sa clé. Avant de croire un conflit, **vérifier que la clé est complète** : une clé partielle ne révèle pas un désaccord, elle en fabrique. Corollaire : un terme d'identité absent sur toute une famille est un défaut de lecture, jamais une propriété du document. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `fin_de_trimestre()` dans l'autorité de période : un document qui imprime « - 2e Trimestre 2026 - » énonce sa fin, et la phase 0 la pose pour les deux familles. |
+| **composant** | `crg_periode.py`, `crg_integration_phase0.py` |
+| **tests** | à écrire sur fixture |
+| **corpus** | un dépôt : 235 CRG sans arrêté → 0 |
+| **limites** | Ne couvre que le trimestre imprimé ; un document qui ne nomme ni période ni trimestre reste sans arrêté, et c'est honnête. |
+| **commit** | `—` |
+
+---
+
+## APP-0027 · Un lot imprimé deux fois dans le même compte rendu est une succession
+
+| | |
+|---|---|
+| **phénomène** | Quand deux occupants se succèdent dans la période, le document réimprime le bloc du lot — une fois par occupant, l'un sous l'autre sur la même page. |
+| **preuve** | 04/09/2026 — « ZOURDOS Nathalie » sur quatre mois puis « VANNAIRE Danièle » sur deux, même lot, même page, hauteurs différentes. Sans rang, les deux occupaient la même identité et le détecteur y voyait **soixante conflits** entre inconnus. |
+| **abstraction** | `L'ORDRE D'IMPRESSION EST L'ORDRE DE LA SUCCESSION` — il se lit sur la page puis la hauteur, et c'est une propriété de l'impression, pas une hypothèse. C'est exactement ce que l'autre famille de documents traite depuis toujours par son `rang` : un phénomène connu ne change pas de nature en changeant d'éditeur. Et le patrimoine, lui, ne compte qu'UN lot : la succession appartient à l'occupation. |
+| **portée** | `ÉDITEUR` |
+| **règle** | Le pont ICS trie les blocs d'un lot par (page, hauteur) et leur attribue un rang croissant ; le patrimoine déduplique sur la référence. |
+| **composant** | `crg_integration_ics.py` |
+| **tests** | à écrire sur fixture |
+| **corpus** | un dépôt : 60 conflits d'identité → 0, lots 396 → 332 (les doublons d'impression cessent d'être comptés) |
+| **limites** | Suppose que le document imprime les occupants dans l'ordre chronologique. Deux blocs à la même hauteur exacte resteraient indépartageables. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Vingt-trois apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Vingt-sept apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

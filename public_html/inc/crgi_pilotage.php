@@ -142,6 +142,13 @@ function crgi_pilotage(PDO $pdo, int $importId): array
                 $cibles[$a['cible'] . ':' . (int)$id] = true;
             }
         }
+        // ⚠️ ET LE REPLI DE LA FILE COUVRE AUSSI. Quand une question a été repliée sur son
+        //    phénomène, elle porte `couvre_ids` : les oublier faisait réapparaître 331 pertes
+        //    silencieuses le jour même où le repli a divisé la file par six. Un indicateur doit
+        //    suivre la présentation qu'on lui donne, sinon il mesure l'écran, pas le moteur.
+        foreach ($a['couvre_ids'] ?? [] as $id) {
+            $cibles[$a['cible'] . ':' . (int)$id] = true;
+        }
     }
     $pertes = [];
     foreach ([['IMMEUBLE', 'crgi_immeuble'], ['OCCUPATION', 'crgi_occupation'],
