@@ -366,9 +366,60 @@ commit          le hash
 
 ---
 
+## APP-0021 · La prudence qui fait re-décider une doctrine déjà écrite n'est pas de la prudence
+
+| | |
+|---|---|
+| **phénomène** | Devant le vocabulaire d'un éditeur nouveau, tout marquer `INDETERMINABLE` paraît la position sûre. Elle ne l'est pas quand une partie de ce vocabulaire est **structurelle** et déjà tranchée. |
+| **preuve** | 04/09/2026 — 1 775 lignes envoyées en arbitrage alors que leur nature était certifiée depuis P5A : le tableau d'appels d'un lot porte ses colonnes en en-tête, et « Loyers » y est un loyer appelé, « Provisions » une provision appelée au locataire. Emmanuel : « 3 886 écritures à valider ? c'est moi qui dois tout faire ? ». |
+| **abstraction** | `NE JAMAIS DÉDUIRE UNE NATURE D'UN LIBELLÉ` interdit de lire le **texte** d'une ligne. La **colonne** d'un tableau est l'inverse : une structure imprimée, déjà arbitrée. Confondre les deux transforme une doctrine protectrice en machine à produire du travail humain. Avant de poser une question, vérifier qu'elle n'a pas déjà sa réponse ailleurs dans le référentiel. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `NATURE_DE_COLONNE` dans le pont ICS reprend la table certifiée `BLOC_LOT` de la phase 4. « Divers » reste indéterminable — `P5A-APPEL-02` : son intitulé ne nomme rien. |
+| **composant** | `crg_integration_ics.py` |
+| **tests** | à écrire sur fixture |
+| **corpus** | corpus ICS : mouvements qualifiés 0 → 1 778 (49,8 %) |
+| **limites** | Ne vaut que pour les colonnes dont l'en-tête annonce une nature. |
+| **commit** | `—` |
+
+---
+
+## APP-0022 · Une même preuve ne peut pas recevoir deux traitements selon son voisinage
+
+| | |
+|---|---|
+| **phénomène** | Deux branches successives du même code traitaient différemment une preuve identique : un lot vu à **plusieurs** périodes voyait sa première période acceptée d'office — « l'occupant y est déjà en place » ; le même lot vu à **une seule** période devenait un arbitrage. |
+| **preuve** | 04/09/2026 — **254 questions** sur un dépôt, **302** sur un autre : la plus grosse famille d'arbitrage du projet, pour une information que le document donne en clair. Le nombre de périodes qui SUIVENT ne change rien à ce que la première énonce. |
+| **abstraction** | Ce qu'un document démontre ne dépend pas de ce qui l'entoure. Quand deux situations portent la même preuve, elles reçoivent le même traitement — sinon l'une des deux branches est fausse, et c'est presque toujours la plus bavarde. Corollaire : `ABSENCE ≠ DÉPART DÉMONTRÉ` interdit de conclure à une entrée ou à un départ ; il n'interdit pas d'écrire l'occupation **à sa date d'arrêté**, qui est imprimée. Ne rien écrire n'est pas plus prudent que d'écrire ce qui est lu. |
+| **portée** | `MÉTIER` |
+| **règle** | Une occupation vue à une seule période est écrite `IDENTIQUE`, avec un motif qui dit explicitement que la chronologie reste indéterminée. |
+| **composant** | `crg_integration.php` — `crgi_qualifier_occupation()` |
+| **tests** | à écrire sur fixture |
+| **corpus** | trois dépôts : occupations en arbitrage 254 → 0, 302 → 6, 5 → 5 |
+| **limites** | La chronologie inter-périodes reste indéterminée, et doit le rester : cette règle écrit une occupation, jamais une entrée ni un départ. |
+| **commit** | `—` |
+
+---
+
+## APP-0023 · Un indicateur qui compte une question groupée comme des pertes se fait ignorer
+
+| | |
+|---|---|
+| **phénomène** | Le KPI des pertes silencieuses marquait chaque objet en attente absent de la file. Une question qui en couvre plusieurs ne référence qu'une cible : tous les autres membres du groupe passaient pour perdus. |
+| **preuve** | 04/09/2026 — **89 pertes silencieuses** annoncées sur un dépôt où les 126 objets étaient tous posés, sous 37 questions. |
+| **abstraction** | Un regroupement doit déclarer sa **couverture**, sinon tout indicateur qui compte à l'unité le lira comme une perte. Et un indicateur central qui crie au loup se fait ignorer aussi sûrement qu'un indicateur muet — c'est le pire des deux, parce qu'on croit le surveiller. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Chaque ligne d'arbitrage groupée porte `couvre` — la liste des objets qu'elle représente ; le pilotage les marque tous visibles. |
+| **composant** | `crg_integration.php`, `crgi_pilotage.php` |
+| **tests** | à écrire sur fixture |
+| **corpus** | trois dépôts : **0 perte silencieuse** partout |
+| **limites** | Seule la famille des immeubles déclare aujourd'hui sa couverture ; les autres ne groupent pas encore. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Vingt apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Vingt-trois apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

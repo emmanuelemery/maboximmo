@@ -134,6 +134,14 @@ function crgi_pilotage(PDO $pdo, int $importId): array
     $cibles = [];
     foreach ($file as $a) {
         $cibles[$a['cible'] . ':' . (int)$a['cible_id']] = true;
+        // ⚠️ UNE QUESTION EN COUVRE PARFOIS PLUSIEURS. Ne compter que la cible principale
+        //    faisait passer pour perdues les autres lignes du même groupe : 89 « pertes
+        //    silencieuses » sur un dépôt où tout était posé, en 37 questions.
+        foreach (explode(',', (string)($a['ligne']['couvre'] ?? '')) as $id) {
+            if ($id !== '') {
+                $cibles[$a['cible'] . ':' . (int)$id] = true;
+            }
+        }
     }
     $pertes = [];
     foreach ([['IMMEUBLE', 'crgi_immeuble'], ['OCCUPATION', 'crgi_occupation'],

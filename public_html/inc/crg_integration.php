@@ -1752,9 +1752,29 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
                        . ' L’observation est CONSERVÉE.';
             } elseif ($prec === null) {
                 if ($i === 0 && $n === 1) {
-                    $statut = 'A ARBITRER';
-                    $motif = 'Le lot n’apparaît qu’à une seule période du dépôt : la suite ne '
-                           . 'démontre ni maintien, ni entrée, ni départ.';
+                    // ⚠️ CETTE BRANCHE POSAIT UNE QUESTION QUE LA SUIVANTE NE POSE PAS, SUR LA
+                    //    MÊME PREUVE. Un lot vu à plusieurs périodes voyait sa PREMIÈRE période
+                    //    acceptée d'office — « l'occupant y est déjà en place ». Le même lot vu
+                    //    à une seule période devenait un arbitrage. Or le document démontre
+                    //    exactement la même chose dans les deux cas : cette personne est
+                    //    l'occupant de ce lot à cet arrêté. Le nombre de périodes qui SUIVENT
+                    //    ne change rien à ce que la première énonce.
+                    //
+                    // ⚠️ ET LA DOCTRINE EST RESPECTÉE, PAS ASSOUPLIE. `ABSENCE ≠ DÉPART
+                    //    DÉMONTRÉ` interdit de conclure à un départ ou à une entrée : on n'en
+                    //    écrit aucun. On écrit l'occupation à sa date d'arrêté, qui est
+                    //    imprimée. La chronologie, elle, reste indéterminée — et le motif le
+                    //    dit, pour que personne ne lise « maintien démontré ».
+                    //
+                    // ⚠️ CE QUE CELA COÛTAIT : 254 questions sur un dépôt, 302 sur un autre —
+                    //    la plus grosse famille d'arbitrage du projet, pour une information
+                    //    que le document donne en clair. Emmanuel, 04/09/2026 : « tu ne
+                    //    reconnais même pas un locataire parti d'un présent ? »
+                    $statut = 'IDENTIQUE';
+                    $motif = 'Seule période où ce lot apparaît dans ce dépôt : l’occupant y est '
+                           . 'nommé et son occupation est écrite à cet arrêté. Ni entrée ni '
+                           . 'départ ne sont démontrés — la chronologie reste indéterminée, '
+                           . 'elle n’est pas déduite.';
                 } elseif ($i === 0) {
                     $statut = 'IDENTIQUE';
                     $motif = 'Première période où ce lot apparaît : l’occupant y est déjà en '
@@ -3261,7 +3281,13 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
 
     // ── PATRIMOINE : plusieurs immeubles MBI portent le même nom ──────────────────────────
     $imm = $q(
-        'SELECT MIN(i.id) cible_id, COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal)) cle,
+        // ⚠️ UNE QUESTION GROUPÉE DOIT DIRE QUI ELLE COUVRE. Sans `couvre`, le tableau de
+        //    bord comptait comme PERTE SILENCIEUSE chaque ligne du groupe sauf la première :
+        //    89 immeubles annoncés perdus sur un dépôt où ils étaient tous dans la file, sous
+        //    37 questions. Un indicateur qui crie au loup se fait ignorer aussi sûrement qu'un
+        //    indicateur muet — et celui-là est le KPI central du pilotage.
+        'SELECT MIN(i.id) cible_id, GROUP_CONCAT(i.id) couvre,
+                COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal)) cle,
                 i.nom, i.code_postal, i.ville, MIN(i.page) page, LEFT(MIN(i.motif), 220) motif,
                 c.compte
            FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
