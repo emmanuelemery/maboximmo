@@ -43,4 +43,22 @@ header('Content-Disposition: inline; filename="' . rawurlencode($affichage) . '"
 header('Content-Length: ' . filesize((string)$crg['chemin']));
 // ⚠️ LE NUMÉRO DE PAGE VIT DANS LE FRAGMENT D'URL, que le lecteur PDF du navigateur
 //    interprète. Il ne peut pas être posé ici : c'est la page appelante qui l'ajoute.
-readfile((string)$crg['chemin']);
+//
+// ⚠️ ON DIFFUSE PAR TRANCHES, ON NE CHARGE PAS LE FICHIER EN MÉMOIRE. `readfile()` paraît
+//    diffuser, mais avec `output_buffering` actif — 4096 par défaut sous XAMPP — le tampon
+//    grossit jusqu'à contenir TOUT le document. Un dépôt trimestriel est un seul PDF de
+//    plusieurs centaines de pages : celui de 587,6 Mo réclamait 616 198 144 octets et
+//    heurtait la limite de 512 Mo. Le navigateur recevait alors l'erreur fatale à la place
+//    du PDF et affichait « échec de chargement » — sur le SEUL dépôt dont le découpage
+//    méritait le plus d'être vérifié. Les petits fichiers, eux, passaient : le défaut
+//    grandissait avec le document, donc avec l'enjeu.
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+$fh = fopen((string)$crg['chemin'], 'rb');
+if ($fh === false) {
+    http_response_code(500);
+    exit;
+}
+fpassthru($fh);
+fclose($fh);

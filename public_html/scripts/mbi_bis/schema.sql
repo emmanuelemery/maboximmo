@@ -14,12 +14,26 @@ CREATE TABLE `crgi_arbitrage` (
   `cible_type` varchar(20) NOT NULL COMMENT 'IMMEUBLE | OCCUPATION | MOUVEMENT',
   `cible_id` int(10) unsigned NOT NULL COMMENT 'id de la ligne de staging concernee',
   `choix` varchar(120) NOT NULL DEFAULT '' COMMENT 'Le choix retenu parmi ceux proposes.',
+  `statut` varchar(20) NOT NULL DEFAULT 'VALIDE' COMMENT 'VALIDE | REPORTE | INDETERMINABLE',
+  `portee` varchar(16) NOT NULL DEFAULT 'CAS' COMMENT 'CAS | GROUPE | APPRENTISSAGE',
+  `agent_proposition` varchar(120) DEFAULT NULL COMMENT 'La qualification que l agent proposait en premier.',
+  `agent_confiance` tinyint(3) unsigned DEFAULT NULL COMMENT 'Sa confiance en pourcent. NULL = il ne proposait rien.',
+  `agent_suivi` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 si Emmanuel a retenu la proposition de l agent.',
+  `preuve_page` int(10) unsigned DEFAULT NULL COMMENT 'La page du PDF sur laquelle la decision a ete prise.',
+  `preuve_pdf` varchar(255) DEFAULT NULL COMMENT 'Le nom d origine du document.',
+  `preuve_sha` char(64) DEFAULT NULL COMMENT 'L empreinte du document : la preuve survit au staging.',
+  `moteur_commit` char(40) DEFAULT NULL COMMENT 'Le commit du moteur au moment de la decision.',
+  `registre_sha` char(64) DEFAULT NULL COMMENT 'L empreinte du registre d apprentissage a ce moment.',
+  `groupe_applique` varchar(400) DEFAULT NULL COMMENT 'La definition exacte de l ensemble auquel la decision a ete etendue.',
+  `groupe_taille` int(10) unsigned DEFAULT NULL COMMENT 'Le nombre de lignes couvertes par cette extension.',
+  `secondes_humain` int(10) unsigned DEFAULT NULL COMMENT 'Secondes passees sur cet arbitrage, mesurees par l ecran.',
   `precision_h` varchar(1000) DEFAULT NULL COMMENT 'Ce qu Emmanuel ajoute en clair.',
   `decide_par` int(10) unsigned DEFAULT NULL,
   `decide_le` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_cible` (`import_id`,`cible_type`,`cible_id`),
-  KEY `idx_groupe` (`import_id`,`groupe`)
+  KEY `idx_groupe` (`import_id`,`groupe`),
+  KEY `idx_statut` (`import_id`,`statut`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Les decisions humaines sur les arbitrages. Decider n est pas integrer.';
 
 -- crgi_crg — staging du module d’intégration
@@ -70,6 +84,27 @@ CREATE TABLE `crgi_crg` (
   KEY `idx_inventaire` (`inventaire_statut`),
   KEY `idx_compte_qualif` (`compte_qualification`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Un CRG LOGIQUE reconstruit depuis les pages. Porte son niveau de certitude.';
+
+-- crgi_identite — staging du module d’intégration
+CREATE TABLE `crgi_identite` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `type` varchar(24) NOT NULL COMMENT 'IMMEUBLE | OCCUPANT | PROPRIETAIRE',
+  `agence` varchar(120) NOT NULL DEFAULT '' COMMENT 'Le referentiel qui borne la cle.',
+  `cle` varchar(190) NOT NULL COMMENT 'Code, ou nom|code postal — ce que le document imprime.',
+  `choix` varchar(120) NOT NULL COMMENT 'La decision, telle qu Emmanuel l a formulee.',
+  `mbi_id` int(10) unsigned DEFAULT NULL COMMENT 'L objet MBI designe, quand la decision en designe un.',
+  `precision_h` varchar(1000) DEFAULT NULL,
+  `preuve_pdf` varchar(255) DEFAULT NULL,
+  `preuve_page` int(10) unsigned DEFAULT NULL,
+  `import_origine` int(10) unsigned DEFAULT NULL COMMENT 'Le depot ou la question a ete posee la premiere fois.',
+  `moteur_commit` char(40) DEFAULT NULL,
+  `decide_par` int(10) unsigned DEFAULT NULL,
+  `decide_le` datetime NOT NULL DEFAULT current_timestamp(),
+  `reutilisations` int(10) unsigned NOT NULL DEFAULT 0 COMMENT 'Combien de fois elle a evite une question.',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_identite` (`type`,`agence`,`cle`),
+  KEY `idx_type` (`type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Decisions d identite durables : ce qu Emmanuel a tranche une fois pour toutes.';
 
 -- crgi_immeuble — staging du module d’intégration
 CREATE TABLE `crgi_immeuble` (
@@ -218,6 +253,7 @@ CREATE TABLE `crgi_phase` (
   `resultat_sha` char(64) DEFAULT NULL COMMENT 'Empreinte du resultat VALIDE. Si l analyse rejoue et change, la validation ne vaut plus.',
   `message` varchar(500) DEFAULT NULL,
   `analyse_le` datetime DEFAULT NULL,
+  `secondes_machine` int(10) unsigned DEFAULT NULL COMMENT 'Duree reelle de l analyse. NULL = non mesuree, jamais 0.',
   `valide_le` datetime DEFAULT NULL,
   `valide_par` int(10) unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -279,5 +315,8 @@ CREATE OR REPLACE SQL SECURITY INVOKER VIEW `bien_baux` AS SELECT * FROM `maboxi
 
 -- tiers — VUE en lecture seule sur maboximmo, pour la confrontation
 CREATE OR REPLACE SQL SECURITY INVOKER VIEW `tiers` AS SELECT * FROM `maboximmo`.`tiers`;
+
+-- crg_trimestres — VUE en lecture seule sur maboximmo, pour la confrontation
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW `crg_trimestres` AS SELECT * FROM `maboximmo`.`crg_trimestres`;
 
 SET FOREIGN_KEY_CHECKS = 1;

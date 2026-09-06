@@ -174,7 +174,43 @@ def mouvements(doc, debut=1, fin=None):
                     'Ligne « Solde Antérieur » du bloc du lot : la dette REPORTÉE à l’ouverture '
                     'de la période. `STOCK ≠ FLUX` — jamais additionnée à un total de période, '
                     'ni au « Reste dû » de l’arrêté, qui mesure la même dette plus tard.'))
-            for m in lot.get('mois') or []:
+            # ⚠️ LE MÊME ÉDITEUR IMPRIME « RÉGLÉS » ET « IMPAYÉS » À DEUX MAILLES SELON
+            #    L'AGENCE. Chez l'une, mois par mois ; chez l'autre, UNIQUEMENT sur la ligne
+            #    de total du lot. Le pont ne parcourait que les lignes mensuelles : sur le
+            #    second gabarit, **545 725,15 € de règlements sur 331 lots** et
+            #    **147 082,72 € d'impayés sur 119 lots** étaient lus par le parseur et
+            #    n'atteignaient jamais la phase 4. Rien n'était illisible — la valeur n'était
+            #    jamais demandée, et aucun contrôle aval ne peut regretter ce qu'il n'a pas
+            #    reçu. C'est l'invariant d'Emmanuel — « les versements ne dépassent jamais
+            #    les encaissements » — qui l'a fait apparaître : 304 247 € reversés pour
+            #    4 116 € encaissés, soit 7 392 %.
+            #
+            # ⚠️ ET ON NE L'ÉMET QUE SI LE DOCUMENT NE DÉTAILLE RIEN. Quand les mois portent
+            #    déjà leurs règlements, ce total EST leur somme : l'ajouter compterait
+            #    l'argent deux fois. `AGRÉGAT ≠ MOUVEMENT` n'est pas suspendu ici — il est
+            #    respecté : quand le total est la SEULE énonciation, il n'agrège rien, il
+            #    est l'observation la plus fine que le document consente à donner.
+            mois = lot.get('mois') or []
+            for colonne, categorie, motif in (
+                ('total_regle', 'ENCAISSEMENT',
+                 'Colonne « Réglés » du bloc du lot. Ce gabarit ne l’imprime QU’au total du '
+                 'lot : aucune ligne mensuelle ne la porte, ce total est donc la seule '
+                 'énonciation du règlement et n’agrège rien.'),
+                ('total_impaye', 'ENCOURS',
+                 'Colonne « Impayés » du bloc du lot, seule énonciation de l’arriéré. '
+                 '`STOCK ≠ FLUX` — jamais additionnée à un total de période.'),
+            ):
+                detail = colonne.replace('total_', '') + 's'      # regles / impayes
+                if any(m.get(detail) for m in mois):
+                    continue                                       # le document détaille : on se tait
+                v = lot.get(colonne)
+                if isinstance(v, (int, float)) and round(float(v), 2) \
+                        and _dans(page_lot, debut, fin):
+                    out.append(_mvt(
+                        page_lot, 'SITUATION DES LOCATAIRES', nom_im, lot.get('reference'),
+                        occupant, None, 'Total du lot', detail, v, 'LOT', categorie, motif))
+
+            for m in mois:
                 page = int(m.get('page') or page_lot)
                 if not _dans(page, debut, fin):
                     continue

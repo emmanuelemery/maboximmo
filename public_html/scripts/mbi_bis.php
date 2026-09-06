@@ -59,6 +59,14 @@ const BIS_LISTE_BLANCHE = [
     'biens',
     'bien_baux',
     'tiers',
+    // ⚠️ `crg_trimestres` EST UN INVENTAIRE, PAS UNE RÉPONSE — et l'exclure bloquait la
+    //    phase 1 entière. Le filtre portait sur le préfixe `crg_*` parce que DEUX de ces
+    //    tables sont l'oracle : `crg_extractions` et `crg_situations_locataires`, qui
+    //    contiennent le CONTENU extrait des documents. `crg_trimestres`, elle, ne porte que
+    //    des périodes par compte mandant : c'est la réponse à « MBI connaît-il déjà ce
+    //    trimestre ? », qui est précisément la question de l'inventaire. Un préfixe n'est pas
+    //    un critère de confidentialité ; la liste blanche se raisonne table par table.
+    'crg_trimestres',
 ];
 
 /** Le staging du module d'intégration, répliqué à l'identique dans le bac à sable. */

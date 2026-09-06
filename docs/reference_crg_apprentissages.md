@@ -836,9 +836,111 @@ commit          le hash
 
 ---
 
+## APP-0049 · Deux lecteurs de période coexistaient, et c'est le plus pauvre qui décidait
+
+| | |
+|---|---|
+| **phénomène** | L'autorité de période et le lecteur d'éditeur connaissaient quatre formes de datation ; le DÉCOUPEUR de la phase 0, qui s'exécute en premier et décide, n'en cherchait qu'une — le trimestre nommé. Un même document était donc daté par l'un et rejeté par l'autre. |
+| **preuve** | 06/09/2026 — **11 comptes rendus sur 947 sortaient sans période**, et la phase 0 refusait de se sceller : **435 CRG bloqués derrière eux**, sur deux dépôts entiers. Les onze imprimaient pourtant leur période : « CRG au 15.02.2026 », « Compte de Gestion au 30.06.2026 », « CRG du 13.05.26 au 30.06.26 », « 2e Trimestre **ex** 2026 ». Le lecteur d'éditeur les relevait toutes correctement — vérifié document par document. |
+| **abstraction** | `DEUX LECTEURS DE LA MÊME CHOSE, C'EST UN LECTEUR DE TROP.` Le plus complet ne rattrape pas le plus pauvre : c'est celui qui parle en premier qui décide, et l'autre ne fait que confirmer ce qui a déjà été perdu. Le symptôme trompe — il ressemble à « le document ne dit pas sa période », alors que le document la dit et que personne ne la lui demande à cet endroit-là. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Une notation de période est déclarée UNE fois. L'ordre est celui de la CERTITUDE, jamais de la commodité : trimestre nommé, puis période imprimée en toutes lettres, puis clôture seule — qui date le document sans rien dire de sa granularité. Et la clôture s'ancre sur « CRG » ou « Compte de Gestion », jamais sur « au JJ.MM.AAAA » seul : « Report au 31.03.2026 » daterait la pièce sur le trimestre précédent. |
+| **composant** | `crg_integration_phase0.py`, `crg_periode.py`, `crg_ics_core.py` |
+| **tests** | À COUVRIR — fixture : les quatre notations, plus une ligne « Report au … » qui ne doit RIEN dater. |
+| **corpus** | 11 documents bloquant 435 CRG |
+| **limites** | Une clôture seule ne dit pas la granularité : le document est daté, sa couverture reste inconnue. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0050 · Un numéro de compte mandant est unique PAR AGENCE, pas dans la base
+
+| | |
+|---|---|
+| **phénomène** | Le moteur déduisait l'agence d'un compte rendu à partir du compte mandant qu'il imprime, en cherchant ce code dans le référentiel. Or le même code est attribué indépendamment par chaque agence : deux propriétaires sans rapport peuvent porter le même numéro. |
+| **preuve** | 07/09/2026 — trois codes du référentiel désignent DEUX propriétaires chacun : `02200000` est KIBLEPI à Lyon **et** CREMER à Riom ; `02320000` est DUMONT à Lyon **et** BLAUDY à Riom. Le moteur retenait celui qui portait une agence, et **quatre comptes rendus imprimant « 69007 LYON » sont partis à Riom**. Sur `01510000`, le concurrent du vrai propriétaire s'appelait **« - 1er Trimestre 2026 - »** — un libellé de période enregistré comme nom de personne par une extraction ratée, et seul des deux à porter une agence. |
+| **abstraction** | `UNE DONNÉE FAUSSE PÈSE PLUS LOURD QU'UNE DONNÉE ABSENTE.` Entre deux candidats, tout algorithme qui préfère « celui qui est renseigné » choisit systématiquement l'erreur quand l'erreur est la seule renseignée. Et plus profondément : `UN IDENTIFIANT N'EST UNIQUE QUE DANS SON ESPACE DE NOMMAGE` — le supposer global est une hypothèse qu'aucune contrainte de base ne défend. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | L'agence se lit sur le DOCUMENT avant de se déduire du référentiel. Le compte mandant ne sert qu'en dernier recours, quand le document ne dit ni son nom ni son adresse — et il ne tranche que si un seul candidat existe. |
+| **composant** | `crg_integration.php` (`crgi_rapprocher_agences`) |
+| **tests** | À COUVRIR — fixture : un code porté par deux propriétaires dans deux agences, dont un seul renseigné. |
+| **corpus** | 3 codes en collision, 1 fiche fantôme, 4 comptes rendus détournés |
+| **limites** | Ne détecte pas une collision à l'intérieur d'une même agence. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0051 · L'enseigne n'est pas la société, et le pied de page le dit
+
+| | |
+|---|---|
+| **phénomène** | Un document ne porte pas toujours le nom de sa société en tête : il y met son **enseigne commerciale**, et relègue son identité légale — raison sociale, RCS, siège — en **pied de page**. Un moteur qui ne lit que l'en-tête voit un tiers inconnu là où il a affaire à sa propre maison. |
+| **preuve** | 07/09/2026 — 194 comptes rendus imprimant « A1 - DE GASPERIS IMMOBILIER » ont été déclarés NON RATTACHÉS, et j'ai conclu à un « professionnel externe ». Leur pied de page disait : « Agence **DE GASPERIS**, 10 place Maréchal Foch, **69630 CHAPONOST** — **SARL REGIE EMERY**, siège social 10 place Maréchal Foch — RCS **398912766** ». Même RCS et même siège que le dépôt voisin, dont l'en-tête, lui, était reconnu. C'est Emmanuel qui l'a redressé : « il faut quand même que tu regardes l'en-tête OU LE PIED DE PAGE ». |
+| **abstraction** | `L'IDENTITÉ LÉGALE ET LE NOM COMMERCIAL SONT DEUX CHOSES, ET ILS NE VIVENT PAS AU MÊME ENDROIT DE LA PAGE.` Une enseigne change, se cède, disparaît — « LOCA IMMO » est un nom abandonné qui figure encore sur les documents. Le RCS, lui, ne change pas. Et l'identification se fait à DEUX niveaux : le RCS ou le SIRET désigne la **société**, le code postal désigne l'**agence** à l'intérieur de cette société. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Chercher l'émetteur en **tête ET en pied** — l'un des éditeurs le met en haut, l'autre en bas. Résoudre la société par son RCS/SIRET, puis l'agence par le code postal dans cette société. Ne jamais conclure « externe » de la seule absence du nom commercial dans le référentiel. |
+| **composant** | `crg_integration.php` (`crgi_agence_par_entete`) |
+| **tests** | À COUVRIR — fixture : une enseigne inconnue en tête, l'identité légale en pied. |
+| **corpus** | 194 comptes rendus déclarés étrangers à tort |
+| **limites** | Un SIREN à 9 chiffres désigne la société, pas l'agence : il en faut le code postal pour trancher. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0052 · Les versements aux propriétaires ne dépassent jamais les encaissements
+
+| | |
+|---|---|
+| **phénomène** | Une régie encaisse les loyers, prélève ses honoraires et les charges, puis reverse le solde au propriétaire. Le reversement ne peut donc jamais excéder l'encaissement de la même période. Aucun contrôle du moteur ne portait cette évidence. |
+| **preuve** | 07/09/2026 — règle donnée par Emmanuel, appliquée telle quelle : **quatre périodes en violation immédiate**. Un dépôt à **7 392 %** (304 247 € reversés pour 4 116 € encaissés) — le défaut de lecture d'`APP-0047`, qui attendait depuis des heures et qu'aucun test vert n'avait signalé. Trois autres entre 113 % et 253 %, causées par des compensations comptées comme versements (`APP-0053`). |
+| **abstraction** | `UN INVARIANT MÉTIER TROUVE CE QU'AUCUN TEST TECHNIQUE NE CHERCHE.` Les contrôles du moteur vérifiaient la cohérence interne — populations, empreintes, couverture — tous verts. Il manquait la question que le métier pose en premier : est-ce que ces deux nombres peuvent coexister ? Un ratio impossible se voit en une ligne de SQL ; il demande de connaître le métier, pas le code. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Sur chaque période et chaque compte : `versements propriétaire ≤ encaissements`. Au-delà de 100 %, alerte — pas correction : la cause peut être une lecture incomplète, une qualification fausse ou un décalage de période, et ce sont trois remèdes différents. |
+| **composant** | à brancher — contrôle du bilan de la phase 4 |
+| **tests** | À COUVRIR |
+| **corpus** | 4 périodes en violation sur 4 dépôts |
+| **limites** | Un reversement peut légitimement suivre l'encaissement d'une période antérieure : le contrôle doit dire « à examiner », jamais « faux ». |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0053 · Une compensation entre mandats n'est pas un versement
+
+| | |
+|---|---|
+| **phénomène** | Une régie solde parfois des comptes entre eux : le mandat A est crédité de ce que le mandat B est débité, sans qu'un euro ne quitte l'agence. Ces écritures apparaissent en colonne CRÉDIT dans la section des soldes, exactement comme un vrai reversement. |
+| **preuve** | 07/09/2026 — **534 847,60 € sur 2 790 132,12 €**, soit **19,2 % des « versements »** d'un dépôt. Toutes portent le même libellé en crédit sur un compte et en débit sur un autre, dans le même document : « COMPENSATION VERS GPE SIR STE » 245 000 / 130 000, « COMPENSATION GPE SIR STE par GPE IMMO » 100 000 / 100 000. |
+| **abstraction** | `UNE COMPENSATION SE PROUVE PAR SA STRUCTURE, PAS PAR SON LIBELLÉ.` Le mot « compensation » est écrit « COMPENDSATION » sur trois de ces lignes — et de toute façon `NE JAMAIS DÉDUIRE UNE NATURE D'UN LIBELLÉ`. Ce qui la démontre est l'appariement : **le même libellé, en crédit ici et en débit là, dans le même dépôt**. C'est un fait de structure, insensible à l'orthographe. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Une ligne de crédit dont le libellé existe aussi en débit dans le même dépôt n'est pas un flux vers l'extérieur. Elle reste enregistrée, avec sa nature propre — jamais additionnée aux versements. |
+| **composant** | à brancher — qualification de la phase 4 |
+| **tests** | À COUVRIR — fixture : une paire crédit/débit de même libellé, un vrai versement isolé. |
+| **corpus** | 534 847,60 € sur un dépôt, 2 018 € sur un autre, aucun sur les deux derniers |
+| **limites** | Deux opérations réelles de même libellé et de sens opposés seraient prises pour une compensation : l'appariement doit exiger le même montant. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0054 · Un total de dépôt additionne des périodes qui se recouvrent
+
+| | |
+|---|---|
+| **phénomène** | Un dépôt contient des comptes rendus de périodes différentes, et ces périodes **se chevauchent** : un relevé d'avril, et un relevé d'avril-mai qui réénonce le même avril. Additionner l'argent de tout le dépôt compte donc avril deux fois. |
+| **preuve** | 07/09/2026 — j'ai produit une colonne « encaissements » par dépôt. Emmanuel : « les encaissements de Chaponost sont trop élevés ». Il avait raison : 2 235 175 € additionnaient **huit tranches** dont quatre à cheval ; le trimestre réel est **2 000 315 €**. Sur un autre dépôt, le total couvrait **six trimestres**, de 2025-T1 à 2026-T2. Sur un troisième, mensuel, quatre cycles dont deux recouverts. Le bilan du moteur REFUSE de produire ce total, et son code le dit ; je l'ai produit dans une agrégation à côté. |
+| **abstraction** | `UNE INTERDICTION DANS LE MOTEUR NE PROTÈGE PAS CE QUI SE CALCULE À CÔTÉ.` La règle était connue, écrite, respectée par le code métier — et contournée par un `SUM()` d'analyse en trois lignes. Une doctrine qui ne vit que dans une fonction ne défend que cette fonction. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Aucun total d'argent n'est rendu à la maille du dépôt. Toute somme se rend PAR PÉRIODE, et deux dépôts ne se comparent qu'à granularité identique — un mensuel ne se met pas en face d'un trimestriel sans le dire. |
+| **composant** | `crg_integration.php` (`crgi_bilan_phase4`), et toute lecture d'analyse |
+| **tests** | À COUVRIR — fixture : deux CRG d'un même compte dont les périodes se recouvrent. |
+| **corpus** | quatre dépôts, quatre structures de période différentes |
+| **limites** | Le chevauchement se voit sur les bornes déclarées ; deux périodes disjointes qui réénoncent le même mois passeraient inaperçues. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Quarante-huit apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

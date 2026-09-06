@@ -864,6 +864,35 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
             </tr>
           <?php endforeach; ?>
         </table></div>
+        <?php
+        // ⚠️ ON NE REVERSE PAS PLUS QU'ON N'A ENCAISSÉ. La règle est d'Emmanuel, et elle a
+        //    trouvé en une passe ce qu'un harnais entièrement vert laissait passer : un dépôt
+        //    reversant 7 392 % de ce qu'il encaissait, faute d'avoir lu la colonne « Réglés ».
+        //    Elle ALERTE et ne corrige pas : un dépassement peut aussi être un reversement qui
+        //    solde légitimement une période antérieure.
+        $impossibles = $bilan4['versements_impossibles'] ?? [];
+        $euro = static fn($v) => number_format((float)$v, 2, ',', ' ') . ' €';
+        if ($impossibles): ?>
+          <div class="crgi-note rouge">
+            <b>⚠️ <?= count($impossibles) ?> période(s) reversent plus qu’elles n’encaissent.</b>
+            Un reversement au propriétaire ne peut pas excéder l’encaissement — sauf s’il solde
+            une période antérieure. À examiner, dans l’ordre du plus gros écart :
+            <ul style="margin:6px 0 0">
+              <?php foreach (array_slice($impossibles, 0, 8) as $x): ?>
+                <li>compte <code><?= h((string)$x['compte']) ?></code>
+                    · <?= h((string)$x['periode_cle']) ?> —
+                    encaissé <b><?= $euro($x['enc'] ?? 0) ?></b>,
+                    reversé <b><?= $euro($x['vers']) ?></b>
+                    <?= $x['part'] !== null ? '(' . $x['part'] . ' %)' : '' ?>
+                    · écart <b><?= $euro($x['ecart']) ?></b></li>
+              <?php endforeach; ?>
+            </ul>
+            <?php if (count($impossibles) > 8): ?>
+              <p style="margin:6px 0 0">et <?= count($impossibles) - 8 ?> autre(s).</p>
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
+
         <div class="crgi-note">
           <b>APPEL ≠ ENCAISSEMENT.</b> Un encaissement peut solder une période <b>antérieure</b> :
           sur le premier CRG lu, 104,00 € et 474,49 € portent sur décembre et janvier, hors de la

@@ -85,7 +85,36 @@ RE_VILLE_DATE = re.compile(
 # ⚠️ RELEVÉ SUR LE DOCUMENT, PAS DEVINÉ. `-layout` fait apparaître, sur la ligne du titre,
 #    « COMPTE PERSONNEL 01040000 » : c'est le compte mandant de la famille lyon.
 RE_COMPTE_LYON = re.compile(r'COMPTE\s+PERSONNEL\s+(\d{6,10})', re.I)
-RE_TRIMESTRE = re.compile(r'-\s*(\d)\s*(?:er|ère|e|ème)?\s+Trimestre\s+(\d{4})\s*-', re.I)
+# ⚠️ « 2e Trimestre ex 2026 » — « ex » POUR EXERCICE. Le lecteur ICS admettait déjà ce mot ;
+#    le découpeur, non. Un même document était donc daté par l'un et refusé par l'autre.
+RE_TRIMESTRE = re.compile(
+    r'-\s*(\d)\s*(?:er|ère|e|ème)?\s+Trimestre\s+(?:ex\s+)?(\d{4})\s*-', re.I)
+# ⚠️ ET UNE QUATRIÈME GRAPHIE, OÙ LE CHIFFRE NE SUIT PAS LE TIRET : « - Compte de Gestion
+#    2e Trimestre ex 2026 - ». On vise ce libellé précisément plutôt que d'élargir le motif
+#    ci-dessus — un motif large attraperait « report du 1er trimestre 2026 » dans le corps
+#    du document et daterait la pièce sur le trimestre PRÉCÉDENT. C'est le même motif que
+#    celui du lecteur ICS, qui l'avait déjà appris.
+RE_TRIM_GESTION = re.compile(r'Compte\s+de\s+Gestion\s+(\d)\s*(?:er|ère|e|ème|eme)?\s+'
+                             r'Trimestre\s+(?:ex\s+)?(\d{4})', re.I)
+# ⚠️ TOUS LES CRG NE TOMBENT PAS SUR UN TRIMESTRE ROND, ET C'EST LA VIE NORMALE D'UN MANDAT.
+#    Une fin de gestion, une prise de gestion en cours de trimestre, un solde intermédiaire :
+#    le document est alors daté par sa seule CLÔTURE — « CRG au 15.02.2026 », « Compte de
+#    Gestion au 30.06.2026 ». L'autorité de période connaît cette forme depuis toujours
+#    (`periode_source = 'cloture imprimee'`) et le lecteur ICS la relève ; le découpeur, lui,
+#    ne cherchait qu'un trimestre. **11 comptes rendus sur 947 — 435 CRG bloqués derrière
+#    eux** — sortaient donc sans période, et la phase 0 refusait de se sceller.
+#
+# ⚠️ ON S'ANCRE SUR « CRG » OU « COMPTE DE GESTION », JAMAIS SUR « au JJ.MM.AAAA » SEUL.
+#    Le même document imprime « Report au 31.03.2026 » — la clôture du trimestre PRÉCÉDENT —
+#    et des lignes d'opération « Solde débiteur Mdt au 02.04.2026 ». Un motif large daterait
+#    le document sur la première de ces dates, avec un trimestre entier de décalage.
+RE_CLOTURE = re.compile(
+    r'(?:CRG|Compte\s+de\s+Gestion)\s+au\s+(\d{2})[./](\d{2})[./](\d{4})', re.I)
+# ⚠️ ET LA PÉRIODE PROPRE, QUAND ELLE EST IMPRIMÉE EN TOUTES LETTRES : « CRG du 13.05.26 au
+#    30.06.26 ». L'année y tient sur DEUX chiffres — l'exiger sur quatre rendait le motif
+#    aveugle à la seule forme qui dit exactement ce que le document couvre.
+RE_CRG_PERIODE = re.compile(
+    r'CRG\s+du\s+(\d{2})[./](\d{2})[./](\d{2,4})\s+au\s+(\d{2})[./](\d{2})[./](\d{2,4})', re.I)
 # ⚠️ LE MÊME DOCUMENT ÉCRIT AUSSI « 1T2025 » SUR SA PROPRE LIGNE. Ne chercher que la forme
 #    longue laissait huit CRG sans période — donc non validables — pour un défaut de lecture,
 #    pas une lacune du document.
@@ -490,8 +519,8 @@ def identifier(texte, format_detecte):
     if format_detecte == 'septeo_spi':
         d['proprietaire'] = _proprietaire_septeo(texte) or d['proprietaire']
     else:
-        m = (RE_TRIMESTRE.search(texte) or RE_TRIM_COMPACT.search(texte)
-             or RE_TRIM_ABREGE.search(texte))
+        m = (RE_TRIMESTRE.search(texte) or RE_TRIM_GESTION.search(texte)
+             or RE_TRIM_COMPACT.search(texte) or RE_TRIM_ABREGE.search(texte))
         if m:
             # ⚠️ « Lyon, le 29/06/2026 » EST UNE DATE D'ÉDITION, PAS UN ARRÊTÉ : la confondre
             #    daterait la situation de gestion sur l'humeur de l'imprimante. Mais ne rien
@@ -508,6 +537,29 @@ def identifier(texte, format_detecte):
             d['periode_cle_imprimee'] = '%s-T%s' % (m.group(2), m.group(1))
             d['date_arrete'] = fin_de_trimestre(m.group(2), m.group(1))
             d['date_arrete_source'] = 'trimestre imprimé'
+        else:
+            # ⚠️ L'ORDRE EST CELUI DE LA CERTITUDE, PAS CELUI DE LA COMMODITÉ — le même que
+            #    celui de l'autorité de période. Le trimestre nommé l'emporte (ci-dessus) ;
+            #    vient ensuite la période imprimée en toutes lettres, qui dit exactement ce
+            #    que le document couvre ; la clôture seule ne sert qu'en dernier, parce
+            #    qu'elle date le document sans rien dire de sa granularité.
+            mp = RE_CRG_PERIODE.search(texte)
+            if mp:
+                an_d = mp.group(3) if len(mp.group(3)) == 4 else '20' + mp.group(3)
+                an_f = mp.group(6) if len(mp.group(6)) == 4 else '20' + mp.group(6)
+                d['periode_debut'] = '%s-%s-%s' % (an_d, mp.group(2), mp.group(1))
+                d['periode_fin'] = '%s-%s-%s' % (an_f, mp.group(5), mp.group(4))
+                d['periode_cle_imprimee'] = '%s_%s' % (d['periode_debut'], d['periode_fin'])
+                d['date_arrete'] = d['periode_fin']
+                d['date_arrete_source'] = 'période du CRG imprimée'
+            else:
+                mc = RE_CLOTURE.search(texte)
+                if mc:
+                    # La clôture EST l'identité du document : deux arrêtés successifs d'un
+                    # même compte sont deux documents distincts, pas une réénonciation.
+                    d['date_arrete'] = '%s-%s-%s' % (mc.group(3), mc.group(2), mc.group(1))
+                    d['date_arrete_source'] = 'clôture imprimée'
+                    d['periode_cle_imprimee'] = d['date_arrete']
         m = RE_VILLE_DATE.search(texte)
         if m:
             d['date_edition'] = jour(m.group(2))

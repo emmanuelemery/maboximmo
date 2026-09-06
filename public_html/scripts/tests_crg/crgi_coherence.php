@@ -640,6 +640,44 @@ controle(
 );
 
 controle(
+    'une même preuve reçoit le même traitement, quel que soit son voisinage',
+    'Deux branches successives du même code traitaient différemment une preuve identique : un '
+    . 'lot vu à UNE seule période était accepté, le PREMIER relevé d’un lot vu à plusieurs '
+    . 'périodes ne l’était pas — alors que les deux portent exactement la même preuve, celle '
+    . 'd’une première observation. 254 questions sur un dépôt, 302 sur un autre : la plus '
+    . 'grosse famille d’arbitrage du projet, pour une information que le document donne en clair.',
+    function () use ($pdo, $importId) {
+        // ⚠️ L'ORACLE EST LE MOTIF, PAS LE NOMBRE DE PÉRIODES. Deux tentatives précédentes ont
+        //    comparé les STATUTS de deux populations — et accusé le moteur à tort : un lot vu
+        //    une seule fois peut légitimement être « à arbitrer » parce que son compte continue
+        //    d'être rendu sans lui, ou « ancien locataire avec dette » parce que le document
+        //    démontre son départ. Ces différences viennent de la PREUVE, pas du voisinage.
+        //    Ce qu'il faut vérifier est plus étroit et plus exact : une observation reconnue
+        //    comme PREMIÈRE est écrite `IDENTIQUE`, et jamais mise en attente pour cette
+        //    raison-là. C'est la règle, mot pour mot.
+        $st = $pdo->prepare(
+            'SELECT o.statut, COUNT(*) n, LEFT(MIN(o.statut_motif), 120) motif
+               FROM crgi_occupation o
+              WHERE o.import_id = ? AND o.statut_motif LIKE "Première période%"
+              GROUP BY o.statut'
+        );
+        $st->execute([$importId]);
+        $lignes = $st->fetchAll(PDO::FETCH_ASSOC);
+        if (!$lignes) {
+            echo "       (aucune première observation reconnue dans ce dépôt)\n";
+            return;
+        }
+        $mauvais = array_values(array_filter($lignes, fn($r) => $r['statut'] !== 'IDENTIQUE'));
+        exiger(!$mauvais,
+               'une première observation reçoit « ' . implode(', ', array_column($mauvais, 'statut'))
+               . ' » alors qu’elle porte le motif de première période : la même preuve, deux '
+               . 'traitements');
+        echo '       (' . array_sum(array_column($lignes, 'n'))
+           . ' première(s) observation(s), toutes écrites IDENTIQUE)' . "\n";
+    }
+);
+
+controle(
     'chaque question déclare SA CAUSE — document ou base',
     'Une ambiguïté née des doublons de MBI comptée comme une difficulté de lecture fait '
     . 'baisser le taux de compréhension du lecteur pour une faute qui n’est pas la sienne — et '
@@ -911,6 +949,108 @@ controle(
         $restaure = crgi_empreinte_phase5($pdo, $importId);
         exiger($mute !== $ref, 'changer une action ne change pas l’empreinte');
         exiger($restaure === $ref, 'l’empreinte ne revient pas après restauration');
+    }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//  LES QUATRE RÈGLES APPRISES LE 07/09/2026 — chacune tenue par un test qui rougit.
+//  ⚠️ ELLES SONT ÉPROUVÉES SUR DES FIXTURES, JAMAIS SUR LE CORPUS. Une règle qui a besoin du
+//     document pour fonctionner n'a rien appris : elle a mémorisé.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+controle(
+    'INTEG-AGENCE-01 — le SIRET désigne l’agence, le SIREN seulement la société',
+    'quatre CRG imprimant « 69007 LYON » rattachés à Riom : le compte mandant, déduit de MBI, '
+    . 'avait tranché à la place du document',
+    function () {
+        // Deux agences d'une même société, une agence d'une autre société.
+        $ref = [
+            ['id' => 3, 'code_postal' => '69007', 'siret' => '39891276600100',
+             'siren_siret' => '398912766', 'id_societe' => 1],
+            ['id' => 4, 'code_postal' => '69630', 'siret' => '39891276600050',
+             'siren_siret' => '398912766', 'id_societe' => 1],
+            ['id' => 5, 'code_postal' => '63200', 'siret' => '30375420400020',
+             'siren_siret' => '303754204', 'id_societe' => 2],
+        ];
+        exiger(crgi_agence_par_entete($ref, "EMERY IMMOBILIER\nSIRET 30375420400020\n") === 5,
+               'le SIRET complet ne désigne pas son établissement');
+        // Le SIREN seul couvre deux agences : c'est le code postal qui doit trancher.
+        exiger(crgi_agence_par_entete($ref, "LOCA IMMO\n69007 LYON\nSiret : 398912766\n") === 3,
+               'le SIREN + code postal ne désigne pas la bonne agence');
+        // ⚠️ ET LE PIED DE PAGE COMPTE AUTANT QUE L'EN-TÊTE : l'enseigne « DE GASPERIS » n'est
+        //    nulle part dans MBI, mais l'identité légale est imprimée en bas de la page.
+        $pied = "A1 - DE GASPERIS IMMOBILIER\n" . str_repeat("ligne de corps\n", 60)
+              . "Agence DE GASPERIS 10 place Foch 69630 CHAPONOST\n"
+              . "SARL REGIE EMERY siege social - RCS 398912766\n";
+        exiger(crgi_agence_par_entete($ref, $pied) === 4,
+               'l’identité légale imprimée en PIED de page n’est pas lue');
+        // Un code postal du CORPS ne doit jamais servir : c'est l'adresse du propriétaire.
+        $corps = "EN-TETE SANS IDENTITE\n" . str_repeat("x\n", 60) . "63200 quelque part\n"
+               . str_repeat("y\n", 60) . "PIED SANS IDENTITE\n";
+        exiger(crgi_agence_par_entete($ref, $corps) === null,
+               'un code postal du corps de la lettre a été pris pour celui de l’agence');
+    }
+);
+
+controle(
+    'INTEG-P5A-COMPENSATION — une compensation n’est pas un versement',
+    '534 847,60 € de compensations internes comptées comme reversements au propriétaire, '
+    . 'soit 19,2 % des versements d’un dépôt',
+    function () use ($pdo, $aControler) {
+        foreach ($aControler as $i) {
+            $reste = (int)$pdo->query(
+                'SELECT COUNT(*) FROM crgi_mouvement m
+                   WHERE m.import_id = ' . (int)$i . ' AND m.colonne = "credit"
+                     AND m.categorie = "VERSEMENT PROPRIETAIRE"
+                     AND EXISTS (SELECT 1 FROM crgi_mouvement d
+                                  WHERE d.import_id = m.import_id AND d.colonne = "debit"
+                                    AND d.libelle = m.libelle
+                                    AND ROUND(d.montant, 2) = ROUND(m.montant, 2))'
+            )->fetchColumn();
+            exiger($reste === 0, "import $i : $reste ligne(s) appariées à un débit de même "
+                 . 'libellé ET de même montant sont encore comptées comme versement');
+        }
+    }
+);
+
+controle(
+    'INTEG-CONTROLE-01 — le contrôle « on ne reverse pas plus qu’on n’encaisse » existe',
+    'un dépôt reversant 7 392 % de ce qu’il encaissait est passé sous un harnais entièrement '
+    . 'vert : aucun contrôle ne posait la question du métier',
+    function () use ($pdo, $aControler) {
+        // ⚠️ ON ÉPROUVE L'INSTRUMENT, PAS LE CORPUS. Un dépassement peut être légitime — un
+        //    reversement soldant une période antérieure. Ce qui doit être vrai, c'est que le
+        //    contrôle EXISTE, qu'il rend une liste, et qu'il la rend PAR PÉRIODE.
+        $vu = crgi_controle_versements($pdo, (int)$aControler[0]);
+        exiger(is_array($vu), 'le contrôle des versements ne rend pas de liste');
+        foreach ($vu as $l) {
+            exiger(array_key_exists('periode_cle', $l) && array_key_exists('compte', $l),
+                   'le contrôle ne rend pas sa maille : période ET compte');
+            exiger((float)$l['vers'] > (float)($l['enc'] ?? 0),
+                   'une ligne rendue ne dépasse pas son encaissement');
+        }
+    }
+);
+
+controle(
+    'INTEG-MESURE-02 — aucun total d’argent à la maille du dépôt',
+    '2 235 175 € annoncés pour un trimestre qui en valait 2 000 315 : huit tranches de période '
+    . 'dont quatre se recouvraient, additionnées en un seul nombre',
+    function () use ($pdo, $aControler) {
+        foreach ($aControler as $i) {
+            // Un dépôt dont les périodes se chevauchent ne peut pas rendre un total unique :
+            // le bilan doit toujours porter la ventilation par arrêté.
+            $b = crgi_bilan_phase4($pdo, (int)$i);
+            exiger(isset($b['par_arrete']) && is_array($b['par_arrete']),
+                   "import $i : le bilan ne rend pas la ventilation par date d’arrêté");
+            $periodes = (int)$pdo->query(
+                'SELECT COUNT(DISTINCT periode_cle) FROM crgi_crg WHERE import_id = ' . (int)$i
+            )->fetchColumn();
+            if ($periodes > 1) {
+                exiger(!isset($b['total_encaissements']) && !isset($b['total_versements']),
+                       "import $i : $periodes périodes, et le bilan expose un total de dépôt");
+            }
+        }
     }
 );
 

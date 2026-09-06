@@ -108,6 +108,10 @@ const CRGI_VOCABULAIRE = [
                                    'AUTRE APPELE AU LOCATAIRE', 'ENCAISSEMENT', 'ENCOURS',
                                    'CHARGE', 'FRAIS ET ASSURANCES', 'IMPOTS ET TAXES',
                                    'VERSEMENT PROPRIETAIRE', 'SOLDE',
+                                   // Un mouvement de trésorerie INTERNE : un mandat crédité de
+                                   // ce qu'un autre est débité, sans qu'un euro sorte de
+                                   // l'agence. Ce n'est pas un versement au propriétaire.
+                                   'COMPENSATION ENTRE MANDATS',
                                    'AGREGAT (NON ADDITIONNABLE)', 'DETAIL (NON ADDITIONNABLE)',
                                    'INDETERMINABLE'],
     // ⚠️ `NON RAPPROCHABLE` N'EST PAS `CANDIDAT NON DEMONTRABLE`. Le premier dit « aucune
@@ -858,6 +862,34 @@ function crgi_rapprocher_agences(PDO $pdo, int $importId): void
         $parCode[(string)$r['code_compte']][] = $r;
     }
 
+    // L'identité légale de chaque agence : SIRET (l'établissement), SIREN (la société),
+    // code postal (l'implantation). Les trois servent, dans cet ordre de certitude.
+    $refAgences = $pdo->query(
+        'SELECT id, code_postal, siret, siren_siret, id_societe FROM agences WHERE actif = 1'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $entete = $pdo->prepare(
+        'SELECT pc.chemin, c.page_debut FROM crgi_crg c
+           JOIN crgi_page pg ON pg.crg_id = c.id AND pg.page_no = c.page_debut
+           JOIN crgi_piece pc ON pc.id = pg.piece_id
+          WHERE c.id = ? LIMIT 1'
+    );
+    $lecteur = crgi_binaire('pdftotext');
+    // L'en-tête d'un CRG, lu une seule fois, et seulement si on en a besoin.
+    $enTete = $lecteur === null ? null : function (array $c) use ($entete, $lecteur, $refAgences) {
+        $entete->execute([(int)$c['id']]);
+        $p = $entete->fetch(PDO::FETCH_ASSOC);
+        if (!$p) {
+            return null;
+        }
+        $page = (int)$p['page_debut'];
+        $txt = (string)shell_exec(
+            escapeshellarg($lecteur) . ' -layout -f ' . $page . ' -l ' . $page . ' '
+            . escapeshellarg((string)$p['chemin']) . ' - 2>'
+            . (DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null')
+        );
+        return crgi_agence_par_entete($refAgences, $txt);
+    };
+
     $crgs = $pdo->prepare('SELECT id, agence, compte, format, periode_cle FROM crgi_crg
                             WHERE import_id = ?');
     $crgs->execute([$importId]);
@@ -881,6 +913,38 @@ function crgi_rapprocher_agences(PDO $pdo, int $importId): void
                 ? 'Imprimée dans le CRG et reconnue dans MBI.'
                 : 'Imprimée dans le CRG (« ' . $c['agence'] . ' ») mais aucune agence MBI '
                 . 'ne porte ce nom : le rattachement reste à faire.';
+        }
+        // ⚠️ UN NOM COMMERCIAL INCONNU N'EST PAS UNE FIN DE NON-RECEVOIR. « A1 - DE GASPERIS
+        //    IMMOBILIER » ne figure dans aucune agence MBI — et c'est pourtant une enseigne
+        //    de la maison, ce que son PIED DE PAGE dit en toutes lettres. J'avais fermé cette
+        //    voie parce que le recours d'alors se contentait du PREMIER code postal venu et
+        //    dispersait 56 comptes rendus sur cinq agences. Ce n'est plus le même recours :
+        //    il exige désormais le SIRET ou le RCS de la société, et n'accepte un code postal
+        //    que parmi les agences de CETTE société. La voie se rouvre parce que la preuve
+        //    exigée a changé, pas parce qu'on a relâché le contrôle.
+        if ($id === null && $enTete !== null && ($trouve = $enTete($c)) !== null) {
+            // ── LE DOCUMENT AVANT LA DÉDUCTION ────────────────────────────────────────────
+            // ⚠️ UN NUMÉRO DE COMPTE MANDANT N'EST PAS UNIQUE : IL L'EST PAR AGENCE. Trois
+            //    codes de ce référentiel désignent DEUX propriétaires chacun, dans deux
+            //    agences différentes — `02200000` est KIBLEPI à Lyon ET CREMER à Riom,
+            //    `02320000` est DUMONT à Lyon ET BLAUDY à Riom. Déduire l'agence du compte
+            //    revient donc à tirer à pile ou face, et le moteur a perdu : quatre comptes
+            //    rendus imprimant « LOCA IMMO, 69007 LYON » sont partis à Riom.
+            //
+            // ⚠️ ET LA DÉDUCTION PEUT ÊTRE EMPOISONNÉE PAR UNE SEULE FICHE. Sur `01510000`,
+            //    le concurrent du vrai propriétaire s'appelle « - 1er Trimestre 2026 - » :
+            //    un libellé de période enregistré comme nom de personne par une extraction
+            //    ratée. Il est le seul des deux à porter une agence — c'est donc lui qui
+            //    gagnait. Une donnée fausse pèse toujours plus lourd qu'une donnée absente.
+            //
+            // ⚠️ L'EN-TÊTE, LUI, EST ÉNONCÉ PAR CELUI QUI A ÉMIS LE DOCUMENT. On le croit
+            //    donc AVANT toute déduction faite sur MBI. Le compte mandant ne sert plus
+            //    qu'en dernier recours, quand le document ne dit ni son nom ni son adresse.
+            $id = $trouve;
+            $source = 'EN-TETE';
+            $motif = 'Agence établie par l’identité légale imprimée en tête ou en pied du '
+                   . 'document (SIRET, RCS, puis code postal de la société) — le document '
+                   . 'nomme son émetteur, on ne le déduit pas de MBI.';
         } elseif ($c['compte']) {
             $candidats = $parCode[(string)$c['compte']] ?? [];
             // ⚠️ LE FORMAT NE DÉSIGNE PAS UN SYSTÈME UNIQUE : `lyon` couvre `loca_immo_lyon`
@@ -910,6 +974,11 @@ function crgi_rapprocher_agences(PDO $pdo, int $importId): void
         } else {
             $motif = 'Ni agence imprimée, ni compte mandant lu : rien à rapprocher.';
         }
+
+        // ⚠️ AUCUN RECOURS APRÈS COUP. Un nom imprimé que MBI ne connaît pas reste un
+        //    rattachement À FAIRE — « MBI ne connaît pas cette agence » n'est PAS « le
+        //    document ne la dit pas ». Confondre les deux a rattaché 56 comptes rendus de
+        //    « A1 - DE GASPERIS IMMOBILIER », un professionnel EXTERNE, à cinq agences Emery.
         $maj->execute([$id, $source, mb_substr((string)$motif, 0, 300), $periodeSource,
                        (int)$c['id']]);
     }
@@ -933,6 +1002,103 @@ function crgi_agence_par_nom(array $agences, string $imprime): ?int
             return (int)$id;
         }
     }
+    return null;
+}
+
+/**
+ * L'AGENCE PAR LE CODE POSTAL DE SON EN-TÊTE — le dernier recours, et le plus solide.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ DÉDUIRE L'AGENCE D'UN CRG DES IMMEUBLES DE SON PROPRIÉTAIRE EST FAUX PAR CONSTRUCTION.
+ *    Un mandant peut être géré par DEUX agences à la fois — Emmanuel, 06/09/2026, à propos
+ *    d'un groupe présent à Lyon et à Chaponost. Aucune donnée, si propre soit-elle, ne
+ *    permettra alors de trancher : la question « de quelle agence relève CE compte rendu »
+ *    n'a pas de réponse dans le portefeuille du propriétaire. Elle en a une, imprimée, dans
+ *    l'en-tête du document.
+ *
+ * ⚠️ MESURE : **103 CRG sur 947** restaient sans agence après le rapprochement par les
+ *    immeubles — 86 pour un mandant présent dans trois agences, 13 pour un propriétaire sans
+ *    aucun immeuble en base, 4 pour un compte absent de MBI. Le code postal de l'en-tête les
+ *    résout **103 sur 103**, sans exception.
+ *
+ * ⚠️ LE CODE POSTAL, PAS LE NOM COMMERCIAL. Les documents portent encore « LOCA IMMO », une
+ *    enseigne abandonnée depuis. Un nom change ; l'adresse de l'agence, non. C'est la règle
+ *    que `crg_detect_agence()` applique déjà dans l'ancien module — elle est reprise ici, et
+ *    non appelée, pour que le module d'intégration ne dépende pas du module qu'il remplace.
+ *
+ * ⚠️ ET C'EST UN DERNIER RECOURS, JAMAIS UNE PRIORITÉ. Il ne s'ouvre que si le nom imprimé
+ *    n'a rien donné ET que le compte mandant n'a pas tranché : un document qui nomme son
+ *    agence reste cru sur parole. On borne la recherche à l'en-tête, sinon le premier code
+ *    postal rencontré serait celui du PROPRIÉTAIRE, à qui le courrier est adressé.
+ */
+// ⚠️ LES ZONES D'ÉMETTEUR SE COMPTENT EN LIGNES, JAMAIS EN CARACTÈRES. Une extraction qui
+//    préserve les colonnes remplit chaque ligne d'espaces jusqu'à la marge : un en-tête de
+//    dix lignes pèse 2 000 caractères. Bornée à 900 caractères, la zone s'arrêtait avant le
+//    SIRET — imprimé en neuvième ligne — et **17 comptes rendus ont perdu leur agence** en
+//    passant d'un recours faible à un recours fort. La longueur d'une ligne dépend de la mise
+//    en page ; le nombre de lignes de l'en-tête, non.
+const CRGI_ENTETE_LIGNES = 18;
+
+/**
+ * ⚠️ L'IDENTITÉ LÉGALE ET LE NOM COMMERCIAL SONT DEUX CHOSES, ET ILS NE VIVENT PAS AU MÊME
+ *    ENDROIT DE LA PAGE. Un éditeur imprime son émetteur en TÊTE, l'autre en PIED. 194
+ *    comptes rendus portant l'enseigne « A1 - DE GASPERIS IMMOBILIER » ont été déclarés
+ *    étrangers à la maison — alors que leur PIED DE PAGE disait « SARL REGIE EMERY, siège
+ *    social 10 place Maréchal Foch, RCS 398912766 », le même RCS et le même siège que le
+ *    dépôt voisin dont l'en-tête, lui, était reconnu. On lit donc les deux bouts.
+ *
+ * ⚠️ ET L'IDENTIFICATION SE FAIT À DEUX NIVEAUX, PARCE QUE LE DOCUMENT PARLE À DEUX NIVEAUX.
+ *      ❶ le SIRET complet — 14 chiffres — désigne UN établissement : c'est l'agence, exactement.
+ *      ❷ le SIREN — 9 chiffres — ne désigne que la SOCIÉTÉ. Ici il en couvre quatre agences.
+ *        Le code postal tranche alors À L'INTÉRIEUR de cette société, et nulle part ailleurs.
+ *    Cette restriction est ce qui rend le code postal sûr : on n'accepte que celui d'une
+ *    agence de la société déjà identifiée, jamais un code postal trouvé au hasard de la page.
+ *
+ * ⚠️ LE CODE POSTAL SEUL RESTE LE DERNIER RECOURS, et il est le plus faible : la page porte
+ *    aussi l'adresse du PROPRIÉTAIRE, à qui le courrier est adressé. On le borne donc aux
+ *    zones d'en-tête et de pied, où l'émetteur s'imprime, jamais au corps de la lettre.
+ */
+function crgi_agence_par_entete(array $refAgences, string $texte): ?int
+{
+    $lignes = preg_split('/\R/', $texte) ?: [];
+    $zones  = implode("\n", array_merge(
+        array_slice($lignes, 0, CRGI_ENTETE_LIGNES),
+        array_slice($lignes, -CRGI_ENTETE_LIGNES)
+    ));
+    $nu = preg_replace('/[^0-9A-Za-z]+/', ' ', $zones) ?? $zones;
+    $chiffres = preg_replace('/\D+/', ' ', $nu) ?? '';
+
+    // ❶ Le SIRET complet désigne l'établissement, donc l'agence — sans ambiguïté possible.
+    foreach ($refAgences as $a) {
+        $s = preg_replace('/\D+/', '', (string)($a['siret'] ?? ''));
+        if (strlen((string)$s) === 14 && str_contains($chiffres, (string)$s)) {
+            return (int)$a['id'];
+        }
+    }
+    // ❷ Le SIREN désigne la société ; le code postal choisit l'agence DANS cette société.
+    $societes = [];
+    foreach ($refAgences as $a) {
+        $n = preg_replace('/\D+/', '', (string)($a['siren_siret'] ?? ''));
+        if (strlen((string)$n) === 9 && str_contains($chiffres, (string)$n)) {
+            $societes[(string)$a['id_societe']] = true;
+        }
+    }
+    if ($societes) {
+        foreach ($refAgences as $a) {
+            $cp = trim((string)($a['code_postal'] ?? ''));
+            if ($cp !== '' && isset($societes[(string)$a['id_societe']])
+                && preg_match('/\b' . preg_quote($cp, '/') . '\b/', $zones)) {
+                return (int)$a['id'];
+            }
+        }
+    }
+    // ⚠️ PAS DE TROISIÈME RECOURS SUR LE SEUL CODE POSTAL. Il a existé une journée, et une
+    //    fixture l'a mis à terre : sur un document sans identité légale, il rattachait
+    //    l'agence à l'adresse du PROPRIÉTAIRE, imprimée elle aussi dans la zone d'en-tête —
+    //    c'est un courrier, le destinataire y figure. Il ne tenait que par l'ordre
+    //    d'impression, l'émetteur venant avant le destinataire : une convention de mise en
+    //    page, pas une preuve. Les deux voies ci-dessus suffisent, tous les gabarits du
+    //    corpus imprimant leur SIRET ou leur RCS. Sans identité légale, on ne devine pas.
     return null;
 }
 
@@ -1203,9 +1369,48 @@ function crgi_phase1(PDO $pdo, int $importId): array
         }
         $trimestres->execute([(int)$cands[0]['id']]);
         $connues = $trimestres->fetchAll(PDO::FETCH_ASSOC);
-        $exactes = array_values(array_filter($connues, fn($t) =>
-            (string)$t['periode_debut'] === (string)$s['periode_debut']
-            && (string)$t['periode_fin'] === (string)$s['periode_fin']));
+
+        // ⚠️ UN CRG TRIMESTRIEL N'IMPRIME PAS SES BORNES, ET LA COMPARAISON LES EXIGEAIT.
+        //    Le document écrit « - 2e Trimestre 2026 - », jamais « du 01/04 au 30/06 » : ses
+        //    colonnes `periode_debut` et `periode_fin` restent vides. La comparaison portait
+        //    donc `NULL = "2026-04-01"` — jamais vraie. Mesuré : **235 CRG sur 235 et 199 sur
+        //    200 sans bornes** sur les deux dépôts trimestriels, face à **444 situations
+        //    trimestrielles présentes dans MBI**. Aucune n'était atteignable : tout ressortait
+        //    « NOUVELLE », et réintégrer un trimestre déjà intégré l'aurait recréé.
+        //
+        // ⚠️ QUAND LE DOCUMENT NOMME SON TRIMESTRE, ON LE CROIT — Emmanuel, 07/09/2026 :
+        //    « pour les périodes non données mais avec un nom clair, on dit que c'est le
+        //    trimestre ». Le trimestre nommé vaut alors identité, et se compare au trimestre
+        //    de la situation MBI.
+        //
+        // ⚠️ ET CE TRIMESTRE SE PREND SUR LA CLÔTURE, JAMAIS SUR LE DÉBUT. Une situation qui
+        //    court du 25/06 au 30/09 est un T3 : c'est sa fin qui la date. La règle existe
+        //    déjà pour la lecture des documents ; elle vaut aussi pour les comparer.
+        $trimestreDe = static function (?string $fin): ?string {
+            if (!$fin || !preg_match('/^(\d{4})-(\d{2})/', $fin, $m)) {
+                return null;
+            }
+            return $m[1] . '-T' . intdiv((int)$m[2] + 2, 3);
+        };
+        $cleTrim = preg_match('/^\d{4}-T[1-4]$/', (string)$s['periode_cle'])
+            ? (string)$s['periode_cle']
+            : $trimestreDe($s['date_arrete'] ?? null);
+
+        if ($s['periode_debut'] && $s['periode_fin']) {
+            // Le document borne sa période : on compare les bornes, à l'identique.
+            $exactes = array_values(array_filter($connues, fn($t) =>
+                (string)$t['periode_debut'] === (string)$s['periode_debut']
+                && (string)$t['periode_fin'] === (string)$s['periode_fin']));
+        } elseif ($cleTrim !== null) {
+            // ⚠️ ON NE COMPARE QU'À DES SITUATIONS DE MÊME GRANULARITÉ. Trois relevés
+            //    mensuels couvrent le même trimestre sans être ce trimestre : les confondre
+            //    ferait passer un trimestre pour « déjà connu » sur la foi d'un mois.
+            $exactes = array_values(array_filter($connues, fn($t) =>
+                (string)($t['periode_type'] ?? '') === 'trimestre'
+                && $trimestreDe($t['periode_fin']) === $cleTrim));
+        } else {
+            $exactes = [];
+        }
 
         if (count($exactes) === 1) {
             $maj->execute(['DEJA CONNUE',
@@ -2606,8 +2811,55 @@ function crgi_phase4(PDO $pdo, int $importId): array
     crgi_marquer_phase($pdo, $importId, 4, 'EN ANALYSE', null);
     $pdo->prepare('DELETE FROM crgi_mouvement WHERE import_id = ?')->execute([$importId]);
     crgi_lire_finances($pdo, $importId);
+    crgi_qualifier_compensations($pdo, $importId);
     crgi_marquer_phase($pdo, $importId, 4, 'A VALIDER', null);
     return crgi_bilan_phase4($pdo, $importId)['categories'];
+}
+
+/**
+ * LES COMPENSATIONS ENTRE MANDATS NE SORTENT PAS DE L'AGENCE.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ UNE RÉGIE SOLDE PARFOIS DES MANDATS ENTRE EUX. Le compte A est crédité de ce que le
+ *    compte B est débité, et pas un euro ne quitte la maison. Ces écritures s'impriment en
+ *    colonne CRÉDIT dans la section des soldes, exactement comme un vrai reversement — et
+ *    elles étaient comptées comme tel : **534 847,60 € sur 2 790 132,12 €**, soit 19,2 % des
+ *    « versements » d'un dépôt. C'est ce qui faisait reverser 253 % de ce qui était encaissé.
+ *
+ * ⚠️ ELLE SE PROUVE PAR SA STRUCTURE, JAMAIS PAR SON LIBELLÉ. Le mot est d'ailleurs écrit
+ *    « COMPENDSATION » sur trois de ces lignes, et `NE JAMAIS DÉDUIRE UNE NATURE D'UN
+ *    LIBELLÉ` l'interdirait de toute façon. Ce qui la démontre est l'APPARIEMENT : le même
+ *    libellé, le même montant, en crédit ici et en débit là, dans le même dépôt. Un fait de
+ *    structure, insensible à l'orthographe.
+ *
+ * ⚠️ ON EXIGE LE MÊME MONTANT, ET C'EST LA CONDITION QUI ÉVITE LE FAUX POSITIF. Deux
+ *    opérations réelles de sens opposés peuvent partager un libellé ; elles partagent
+ *    rarement le centime. Sans cette exigence, un versement légitime disparaîtrait.
+ *
+ * ⚠️ ON NE SUPPRIME RIEN. La ligne reste, avec sa page et sa preuve ; seule sa NATURE change,
+ *    et son motif dit pourquoi. Un mouvement de trésorerie interne reste un mouvement.
+ */
+function crgi_qualifier_compensations(PDO $pdo, int $importId): void
+{
+    // ⚠️ DEUX MARQUEURS DISTINCTS POUR LA MÊME VALEUR. Un placeholder nommé réutilisé dans
+    //    une requête PDO lève « Invalid parameter number » — piège déjà consigné, et dans
+    //    lequel cette fonction est tombée à sa première exécution.
+    $st = $pdo->prepare(
+        'UPDATE crgi_mouvement m
+            JOIN (SELECT libelle, ROUND(montant, 2) v FROM crgi_mouvement
+                   WHERE import_id = :i1 AND colonne = "debit" AND montant <> 0
+                   GROUP BY libelle, v) d
+              ON d.libelle = m.libelle AND d.v = ROUND(m.montant, 2)
+            SET m.categorie = "COMPENSATION ENTRE MANDATS",
+                m.motif = CONCAT("Compensation démontrée par appariement : le même libellé "
+                                 "et le même montant figurent en DÉBIT sur un autre compte "
+                                 "du dépôt. L’argent ne sort pas de l’agence — ce n’est pas "
+                                 "un versement au propriétaire. Nature précédente : ",
+                                 COALESCE(m.categorie, "?"))
+          WHERE m.import_id = :i2 AND m.colonne = "credit"
+            AND m.categorie = "VERSEMENT PROPRIETAIRE"'
+    );
+    $st->execute([':i1' => $importId, ':i2' => $importId]);
 }
 
 /**
@@ -2821,7 +3073,62 @@ function crgi_bilan_phase4(PDO $pdo, int $importId): array
             ->fetchColumn(),
         'reimpressions' => (int)$q('SELECT COUNT(*) FROM crgi_mouvement
                                      WHERE import_id = ? AND reimpression = 1')->fetchColumn(),
+        'versements_impossibles' => crgi_controle_versements($pdo, $importId),
     ];
+}
+
+/**
+ * ON NE REVERSE PAS PLUS QU'ON N'A ENCAISSÉ.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ RÈGLE D'EMMANUEL, 07/09/2026 — et elle a trouvé en une passe ce qu'un harnais
+ *    entièrement vert ne voyait pas. Une régie encaisse les loyers, prélève ses honoraires et
+ *    les charges, puis reverse le solde : le reversement ne peut pas excéder l'encaissement.
+ *    Appliquée telle quelle : **quatre périodes en violation**, dont une à **7 392 %** —
+ *    304 247 € reversés pour 4 116 € encaissés. Ce chiffre dénonçait un défaut de lecture
+ *    vieux de plusieurs heures, que tous les contrôles techniques avaient laissé passer.
+ *
+ * ⚠️ `UN INVARIANT MÉTIER TROUVE CE QU'AUCUN TEST TECHNIQUE NE CHERCHE.` Les contrôles du
+ *    moteur vérifiaient la cohérence interne — populations, empreintes, couverture, plan —
+ *    tous verts. Il manquait la question que le métier pose en premier : ces deux nombres
+ *    peuvent-ils coexister ? Elle ne demande pas de connaître le code, mais le métier.
+ *
+ * ⚠️ ALERTE, JAMAIS CORRECTION. Un dépassement a trois causes possibles — une lecture
+ *    incomplète, une qualification fausse, ou un reversement qui suit légitimement
+ *    l'encaissement d'une période ANTÉRIEURE — et ce sont trois remèdes différents. Le
+ *    contrôle nomme, il ne tranche pas.
+ *
+ * ⚠️ ET IL SE PREND PAR PÉRIODE, JAMAIS SUR LE DÉPÔT. Les périodes d'un dépôt se
+ *    chevauchent : un total de dépôt compterait deux fois le même mois et rendrait le ratio
+ *    insignifiant — `INTEG-MESURE-02`.
+ */
+function crgi_controle_versements(PDO $pdo, int $importId): array
+{
+    $st = $pdo->prepare(
+        'SELECT c.periode_cle, c.compte,
+                ROUND(SUM(CASE WHEN m.categorie = "ENCAISSEMENT" THEN m.montant END), 2) enc,
+                ROUND(SUM(CASE WHEN m.categorie = "VERSEMENT PROPRIETAIRE"
+                               THEN m.montant END), 2) vers
+           FROM crgi_mouvement m
+           JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND m.additionnable = 1 AND m.flux = 1 AND m.reimpression = 0
+          GROUP BY c.periode_cle, c.compte
+         -- ⚠️ ON RÉPÈTE LES AGRÉGATS DANS `HAVING`. MariaDB refuse d’y référencer l’alias
+         --    d’une fonction de groupe — « Reference not supported » — et la passe s’arrête.
+         HAVING SUM(CASE WHEN m.categorie = "VERSEMENT PROPRIETAIRE" THEN m.montant END)
+                > COALESCE(SUM(CASE WHEN m.categorie = "ENCAISSEMENT" THEN m.montant END), 0)
+            AND SUM(CASE WHEN m.categorie = "VERSEMENT PROPRIETAIRE" THEN m.montant END) > 0
+          ORDER BY SUM(CASE WHEN m.categorie = "VERSEMENT PROPRIETAIRE" THEN m.montant END)
+                 - COALESCE(SUM(CASE WHEN m.categorie = "ENCAISSEMENT" THEN m.montant END), 0)
+                 DESC'
+    );
+    $st->execute([$importId]);
+    $lignes = $st->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($lignes as &$l) {
+        $l['ecart'] = round((float)$l['vers'] - (float)($l['enc'] ?? 0), 2);
+        $l['part']  = $l['enc'] ? round(100 * (float)$l['vers'] / (float)$l['enc'], 1) : null;
+    }
+    return $lignes;
 }
 
 /**
