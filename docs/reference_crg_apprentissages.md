@@ -938,6 +938,23 @@ commit          le hash
 
 ---
 
+## APP-0055 · « Compte inconnu » nommait à la fois un fait normal et une question
+
+| | |
+|---|---|
+| **phénomène** | L'inventaire range sous une SEULE étiquette deux situations opposées : le compte qui n'existe dans aucun système de MBI — un **mandant nouveau**, fait normal et démontré — et le compte dont le code existe dans un AUTRE système — un **homonyme**, sur lequel le moteur ne sait pas trancher. Le nom choisi, « COMPTE INCONNU », suggère une anomalie là où il n'y en a le plus souvent aucune. |
+| **preuve** | 07/09/2026 — j'ai présenté « 239 comptes inconnus » comme autant de questions à arbitrer, dont « 194 sur 194 » pour un dépôt entier. Emmanuel : « **un compte non connu dans MBI n'est pas une erreur, c'est un nouveau !** ». Mesure : **233 mandants nouveaux** et **6 homonymes**. Les 194 d'un dépôt sont simplement une agence jamais intégrée. La file d'arbitrage de la phase 1 passe de 239 à **6**. |
+| **abstraction** | `UNE ÉTIQUETTE QUI COUVRE DEUX SITUATIONS OPPOSÉES EN FABRIQUE UNE TROISIÈME, QUI N'EXISTE PAS.` Le moteur distinguait pourtant les deux cas — le motif le disait en toutes lettres — mais le STATUT, lui, les fondait ; et c'est le statut que lisent les écrans, les compteurs et les files. Une nuance qui ne vit que dans un texte libre n'existe pour aucun automatisme. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un vocabulaire de statut ne contient que des états MUTUELLEMENT EXCLUSIFS et de même nature. `NOUVEAU MANDANT` est un RÉSULTAT — reconnu à 100 %, reconnu comme nouveau, il ne va pas en arbitrage (`INTEG-ARBITRAGE-00`). `HOMONYME` est une QUESTION. Les fondre revenait à envoyer 233 faits normaux dans une file de décisions. |
+| **composant** | `crg_integration.php` (`crgi_phase1`), `CRGI_VOCABULAIRE['crgi_crg.inventaire_statut']` |
+| **tests** | À COUVRIR — fixture : un compte absent de tout système, un code présent dans un autre système. |
+| **corpus** | 239 « comptes inconnus » = 233 nouveaux mandants + 6 homonymes |
+| **limites** | La distinction repose sur le couple `(code, système)` : deux mandants réellement distincts dans le MÊME système resteraient indiscernables. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
