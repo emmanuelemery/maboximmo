@@ -275,6 +275,90 @@ function crgi_regrouper_file(array $file): array
 }
 
 /**
+ * LA SÉANCE — les questions de TOUS les dépôts, groupées, dans l'ordre où on les traite.
+ *
+ * ⚠️ UNE LISTE PLATE DE 38 LIGNES NE SE TRAITE PAS, ELLE SE CONTEMPLE. Et la file par dépôt
+ *    oblige à ouvrir quatre écrans pour une seule séance. Ici, un GROUPE = un phénomène = une
+ *    décision, quel que soit le dépôt où il se manifeste.
+ *
+ * ⚠️ L'ORDRE N'EST PAS ESTHÉTIQUE, IL EST ÉCONOMIQUE. D'abord ce qui libère le plus d'objets
+ *    d'un seul geste — la ligne qui couvre 83 enregistrements passe avant celle qui en couvre
+ *    un. Puis ce qui bloque. Puis le reste. Traiter dans l'ordre inverse, c'est passer une
+ *    heure sur des cas uniques pendant que 800 objets attendent.
+ *
+ * ⚠️ DOCUMENT ET BASE NE SE MÉLANGENT JAMAIS, MÊME ICI. Ce ne sont pas les mêmes questions, et
+ *    la réponse ne se cherche pas au même endroit : l'une demande de rouvrir un PDF, l'autre
+ *    de regarder MBI. Les mêler ferait chercher au mauvais endroit une décision sur deux.
+ */
+function crgi_seance_groupes(PDO $pdo, array $imports): array
+{
+    $groupes = [];
+    foreach ($imports as $importId) {
+        foreach (crgi_file_arbitrages($pdo, (int)$importId) as $a) {
+            if (($a['statut'] ?? 'A TRAITER') !== 'A TRAITER') {
+                continue;
+            }
+            $cle = $a['cause'] . '§' . $a['groupe'];
+            $groupes[$cle] ??= [
+                'cle'       => $cle,
+                'cause'     => (string)$a['cause'],
+                'groupe'    => (string)$a['groupe'],
+                'cible'     => (string)$a['cible'],
+                'famille'   => (string)$a['famille'],
+                'question'  => (string)$a['question'],
+                'regle'     => (string)$a['regle'],
+                'impact'    => (string)($a['impact'] ?? ''),
+                'choix'     => $a['choix'],
+                'questions' => 0,
+                'objets'    => 0,
+                'depots'    => [],
+                'lignes'    => [],
+            ];
+            $g = &$groupes[$cle];
+            $g['questions']++;
+            $g['objets'] += 1 + count($a['couvre_ids'] ?? []);
+            $g['depots'][(int)$importId] = true;
+            $g['lignes'][] = $a + ['import_id' => (int)$importId];
+            unset($g);
+        }
+    }
+    // ⚠️ LE RAYON D'IMPACT EST AUSSI UN RAYON D'ERREUR. Le groupe qui libère 837 objets d'un
+    //    geste est le meilleur pour le temps humain ET le plus coûteux si la réponse est
+    //    fausse. La taille d'un groupe ne prouve JAMAIS que la réponse y est homogène : elle
+    //    dit seulement combien d'objets porteront la même décision. Chaque groupe affiche donc
+    //    ce qu'une erreur coûterait, et comment la défaire.
+    foreach ($groupes as &$g) {
+        $g['risque'] = $g['objets'] >= 100 ? 'FORT' : ($g['objets'] >= 10 ? 'MOYEN' : 'FAIBLE');
+        $g['risque_pourquoi'] = $g['objets'] >= 100
+            ? 'une réponse fausse porterait sur ' . $g['objets'] . ' objets à la fois'
+            : ($g['objets'] >= 10
+                ? 'une réponse fausse porterait sur ' . $g['objets'] . ' objets'
+                : 'le rayon est limité à ' . $g['objets'] . ' objet(s)');
+        // ⚠️ RÉVOCABLE PARCE QUE RIEN N'EST EXÉCUTÉ. Une décision ne touche aucune donnée
+        //    métier : elle crée un fait technique daté. La révoquer n'efface pas ce fait —
+        //    elle en ajoute un autre, et l'objet retourne en arbitrage.
+        $g['revocable'] = true;
+        $g['revocation'] = 'La décision n’écrit rien dans MBI : elle est enregistrée comme un '
+                         . 'fait daté. La révoquer ajoute un événement « décision révoquée » — '
+                         . 'l’ancienne reste lisible — et les ' . $g['objets'] . ' objet(s) '
+                         . 'retournent en arbitrage.';
+    }
+    unset($g);
+    // ⚠️ LE TRI PORTE LA STRATÉGIE. Document avant base ; puis le gain de volume ; puis ce qui
+    //    bloque ; et les décisions individuelles en dernier, parce qu'elles ne libèrent qu'elles.
+    uasort($groupes, function ($a, $b) {
+        $rang = fn($g) => [
+            $g['cause'] === 'DOCUMENT' ? 0 : 1,
+            -$g['objets'],
+            crgi_priorite_arbitrage($g) === 'BLOQUANT' ? 0 : 1,
+            $g['groupe'],
+        ];
+        return $rang($a) <=> $rang($b);
+    });
+    return array_values($groupes);
+}
+
+/**
  * CE QUE L'AGENT PROPOSE, ET POURQUOI — DEUX À QUATRE PISTES, JAMAIS PLUS.
  *
  * ⚠️ LA CONFIANCE EST UNE PART, PAS UNE IMPRESSION. Pour un montant sans nature, on compte
@@ -599,21 +683,41 @@ function crgi_kpi_arbitrage(PDO $pdo, int $importId): array
         return (int)$st->fetchColumn();
     };
     $crg   = $un('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?');
-    $mvt   = $un('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?');
+    $pages = $un('SELECT COUNT(*) FROM crgi_page WHERE import_id = ?');
+    // ⚠️ DEUX DÉNOMINATEURS, ET ILS NE MESURENT PAS LA MÊME CHOSE. `lignes` juge le LECTEUR
+    //    (une ligne muette est un défaut de lecture, réimpression comprise) ; `mouvements`
+    //    juge la CHARGE D'ARBITRAGE par événement comptable réel. Confondre les deux flattait
+    //    le second ratio de 27 % — voir `crgi_population_mouvements()`.
+    $pop    = crgi_population_mouvements($pdo, $importId);
+    $lignes = $pop['lignes'];
+    $mvt    = $pop['mouvements'];
     $muets = $un('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ? '
                . 'AND categorie = "INDETERMINABLE"');
     $file  = crgi_file_arbitrages($pdo, $importId);
     $par = ['A TRAITER' => 0, 'VALIDE' => 0, 'REPORTE' => 0, 'INDETERMINABLE' => 0];
     $secondes = 0;
+    $causesDoc = $causesMbi = 0;
     foreach ($file as $a) {
         $par[$a['statut']] = ($par[$a['statut']] ?? 0) + 1;
         $secondes += (int)($a['prise']['secondes_humain'] ?? 0);
+        if (($a['statut'] ?? 'A TRAITER') === 'A TRAITER') {
+            if (($a['cause'] ?? 'DOCUMENT') === 'MBI') {
+                $causesMbi++;
+            } else {
+                $causesDoc++;
+            }
+        }
     }
     $traites = $par['VALIDE'] + $par['INDETERMINABLE'];
     return [
         'crg'            => $crg,
         'mouvements'     => $mvt,
-        'auto'           => $mvt ? round(100 * ($mvt - $muets) / $mvt, 1) : 0.0,
+        'lignes_argent'  => $lignes,
+        'population'     => $pop,
+        // ⚠️ LE TAUX DE QUALIFICATION SE MESURE SUR TOUT CE QUI A ÉTÉ LU, pas sur les seuls
+        //    mouvements : une ligne muette est un défaut de lecture même quand c'est un
+        //    agrégat ou une réimpression.
+        'auto'           => $lignes ? round(100 * ($lignes - $muets) / $lignes, 1) : 0.0,
         'total'          => count($file),
         'a_traiter'      => $par['A TRAITER'],
         'valides'        => $par['VALIDE'],
@@ -621,6 +725,26 @@ function crgi_kpi_arbitrage(PDO $pdo, int $importId): array
         'indeterminable' => $par['INDETERMINABLE'],
         'arb_100crg'     => $crg ? round(100 * count($file) / $crg, 2) : 0.0,
         'interv_100crg'  => $crg ? round(100 * $traites / $crg, 2) : 0.0,
+        // ⚠️ CE RATIO MESURAIT LA PERFORMANCE DU LECTEUR AVEC LES FAUTES DE LA BASE. Sur quatre
+        //    corpus, 38 questions donnaient « 3,97 interventions / 100 CRG » — mais 13 de ces
+        //    questions ne venaient pas des documents : elles venaient des doublons de MBI. Le
+        //    lecteur portait la note d'un défaut qui n'était pas le sien. Deux ratios, deux
+        //    dénominateurs identiques, deux numérateurs séparés — et jamais leur somme comme
+        //    score de compréhension.
+        'interv_doc_100crg' => $crg ? round(100 * $causesDoc / $crg, 2) : 0.0,
+        'ambig_mbi_100crg'  => $crg ? round(100 * $causesMbi / $crg, 2) : 0.0,
+        'questions_doc'     => $causesDoc,
+        'questions_mbi'     => $causesMbi,
+        // ⚠️ « / 100 CRG » MESURE LA CHARGE PAR DOSSIER, PAS LA DENSITÉ DU CORPUS. Un compte
+        //    rendu de 2 pages et un de 54 pages y pèsent pareil : le ratio dit combien de
+        //    décisions coûte un lot de dossiers — ce qui est la bonne question pour organiser
+        //    une séance — mais il ne dit rien de la difficulté réelle des documents. Les trois
+        //    mailles répondent à trois questions différentes, et ne s'additionnent jamais.
+        'pages'                => $pages,
+        'interv_doc_1000pages' => $pages ? round(1000 * $causesDoc / $pages, 2) : 0.0,
+        'ambig_mbi_1000pages'  => $pages ? round(1000 * $causesMbi / $pages, 2) : 0.0,
+        'interv_doc_10000mvt'  => $mvt ? round(10000 * $causesDoc / $mvt, 2) : 0.0,
+        'ambig_mbi_10000mvt'   => $mvt ? round(10000 * $causesMbi / $mvt, 2) : 0.0,
         'secondes'       => $secondes,
         'sec_moyen'      => $traites ? (int)round($secondes / $traites) : 0,
     ];

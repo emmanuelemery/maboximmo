@@ -55,7 +55,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « les phases 0 et 3 lisent avec LE MÊME binaire » |
 | **corpus** | VIENNE, EMERY T1/T2, LYON, CHAPONOST |
 | **limites** | Ne dit rien de la qualité d'un rendu, seulement de son identité. |
-| **commit** | `45f5ca4` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0002 · Une capacité ne se déduit pas d'un nom de produit
 
@@ -70,7 +70,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « la capacité `-table` se PROBE, elle ne se déduit d'aucun nom de produit » |
 | **corpus** | tous |
 | **limites** | Le mode `-table` reste **inactif** avec poppler : à arbitrer. |
-| **commit** | `bda6e82` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0003 · L'enseigne se lit avant la structure
 
@@ -85,7 +85,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « tout format reconnu par le RÉFÉRENTIEL l'est aussi par l'INTÉGRATEUR » · « la structure ne l'emporte jamais sur l'enseigne » |
 | **corpus** | LYON, EMERY, VIENNE, CHAPONOST |
 | **limites** | Un document sans enseigne lisible rend `inconnu` — et c'est une réponse. |
-| **commit** | `45f5ca4` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0004 · Un total n'est pas un mouvement
 
@@ -100,7 +100,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « un Total de l'immeuble est un AGRÉGAT, dans quelque section qu'il tombe » · « n'alimente jamais P5, P7 ni P8 » |
 | **corpus** | CHAPONOST ; sans effet sur VIENNE, qui n'en imprime aucune |
 | **limites** | Ne vérifie pas que le total égale la somme recomposée — le rapport observé est de 3, et reste une question ouverte. |
-| **commit** | `30d4570` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0005 · Les libellés de section s'ajoutent, ils ne se remplacent pas
 
@@ -115,7 +115,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « la table des libellés de section s'AJOUTE, elle ne se remplace pas » |
 | **corpus** | VIENNE, CHAPONOST |
 | **limites** | Un intitulé inconnu reste inconnu : ses lignes sont isolées, jamais interprétées. |
-| **commit** | `30d4570` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0006 · Ce qui n'est démontré que dans un sens ne vaut que dans ce sens
 
@@ -130,7 +130,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « le débit est une prime, le crédit attend un arbitrage » |
 | **corpus** | CHAPONOST |
 | **limites** | — |
-| **commit** | `30d4570` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0007 · Une page qui se termine ne fait pas disparaître un occupant
 
@@ -145,7 +145,7 @@ commit          le hash
 | **tests** | `crgi_coherence` — « aucun lot ne perd son occupant parce qu'une page se termine » (contrôle **générique**, non nominatif) |
 | **corpus** | VIENNE, CHAPONOST |
 | **limites** | Si la continuation porte **plusieurs** occupants au-delà du premier, ils ne sont pas encore repris. |
-| **commit** | `bda6e82` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0008 · Un code de compte n'est jamais global
 
@@ -160,7 +160,7 @@ commit          le hash
 | **tests** | `crgi_coherence` — « un code de compte ne se rapproche jamais hors de son système » |
 | **corpus** | VIENNE (sans effet), CHAPONOST |
 | **limites** | — |
-| **commit** | `45f5ca4` |
+| **commit d’introduction** | `1ba597f` |
 
 ## APP-0009 · Une annulation se déduit du schéma, jamais d'une liste
 
@@ -175,7 +175,7 @@ commit          le hash
 | **tests** | `crgi_annulation` — 5 contrôles, dont « le balayage se déduit du schéma, pas d'une liste écrite à la main » |
 | **corpus** | tous |
 | **limites** | — |
-| **commit** | `948f149` |
+| **commit d’introduction** | `1ba597f` |
 
 ---
 
@@ -192,7 +192,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « la ville ancre la colonne, quel que soit le nombre d'espaces devant elle », « un nom de ville ne commence jamais par une espace » ; épreuve associée : « l'ancrage pris au début de la CAPTURE » |
 | **corpus** | ICS, sous les deux extracteurs disponibles |
 | **limites** | Ne couvre pas les gabarits où le bloc adresse est séparé du repère par plus de cinq lignes : l'ancrage y est juste, mais la fenêtre de recherche s'arrête avant. |
-| **commit** | `—` |
+| **commit d’introduction** | `3c2101c` |
 
 ---
 
@@ -209,7 +209,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « le lecteur exigé est absent : panne explicite », « un mode que le binaire ne connaît pas est une panne », « le contrat de lecture est déclaré » ; épreuve associée : « le repli muet vers un autre lecteur » |
 | **corpus** | tous |
 | **limites** | Le contrat épingle un produit ; il ne garantit pas qu'une future version du même produit lira à l'identique. Renseigner `version` pour l'exiger. |
-| **commit** | `—` |
+| **commit d’introduction** | `3c2101c` |
 
 ---
 
@@ -226,7 +226,7 @@ commit          le hash
 | **tests** | `crgi_file_arbitrage` — « un conflit d'identité fabriqué devient une question, jamais une fusion » (**fixture synthétique**) ; `crgi_coherence` — « un conflit détecté mais invisible », « aucune identité n'est fusionnée sur une ressemblance » |
 | **corpus** | rejoué sans régression sur les deux corpus en base |
 | **limites** | Ne détecte que les conflits dont la clé est **démontrée par le document**. Deux objets que rien ne relie ne font pas conflit — et c'est voulu : les rapprocher serait une identité par approximation. |
-| **commit** | `—` |
+| **commit d’introduction** | `3c2101c` |
 
 ---
 
@@ -243,7 +243,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « espaces multiples », « tabulations », « alignement différent », « immeuble SPI », « une ville n'avale jamais un débris de tableau », « deux espacements du MÊME contenu rendent le MÊME objet métier » (**fixtures synthétiques**) ; épreuves associées : « le découpage du nom sur deux espaces ou plus », « la ville en lettres seules, bornée par deux espaces » |
 | **corpus** | quatre corpus, deux extracteurs, deux modes — écarts ramenés à trois artefacts d'extracteur documentés |
 | **limites** | Ne corrige pas un extracteur qui insère une espace **au milieu d'un mot** : c'est une altération de la source, pas une question de mise en page. |
-| **commit** | `—` |
+| **commit d’introduction** | `a394f8a` |
 
 ---
 
@@ -260,7 +260,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « bloc utile décalé », « ligne parasite intermédiaire », « frontière structurelle », « absence réelle » ; épreuve associée : « la fenêtre fixe de cinq lignes » |
 | **corpus** | les deux familles ICS, deux extracteurs, deux modes |
 | **limites** | Suppose que le bloc est **aligné** : un bloc éclaté en trois fragments à trois abscisses reste arbitrable, pas devinable. |
-| **commit** | `—` |
+| **commit d’introduction** | `a394f8a` |
 
 ---
 
@@ -277,7 +277,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « couverture amont : un signal reconnu n'est jamais perdu sans trace » (fixture synthétique, y compris un signal volontairement illisible) ; `crgi_couverture_amont` — 4 contrôles sur corpus réels |
 | **corpus** | les deux corpus SPI, deux modes : 707 et 456 signaux, **0 non transformé** |
 | **limites** | Un seul motif de signal existe à ce jour, pour les immeubles. Les autres familles structurantes restent à outiller de la même façon. |
-| **commit** | `—` |
+| **commit d’introduction** | `a394f8a` |
 
 ---
 
@@ -294,7 +294,7 @@ commit          le hash
 | **tests** | `crgi_robustesse` — « un mode que le binaire ne connaît pas est une panne, pas un repli », « le lecteur exigé est absent : panne explicite » ; épreuve associée : « le repli muet vers un autre lecteur » |
 | **corpus** | tous |
 | **limites** | Le contrat n'exprime qu'un mode par phase ; une phase qui aurait besoin de deux lectures devrait les déclarer toutes deux. |
-| **commit** | `—` |
+| **commit d’introduction** | `a394f8a` |
 
 ---
 
@@ -308,10 +308,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `DOCUMENTS_JOINTS` + `SECTIONS_CRG` (tables additives), `_titre_de_document()`, et l'état `hors_crg` qui suspend au lieu de fermer. Une page quasi vide appartient au document ouvert. |
 | **composant** | `crg_integration_phase0.py` |
-| **tests** | à écrire sur fixture synthétique — voir « limites » |
+| **tests** | COUVERT INDIRECTEMENT — `crgi_multicorpus.py` éprouve la segmentation par document et les pages de suite ; `crgi_couverture_amont.py` exige `signaux = objets + non transformés` sur les corpus entiers, ce qu'une enveloppe mal découpée romprait. |
 | **corpus** | un corpus ICS complet : 721 pages, 681 rattachées, **40 nommées, 0 sans nom** |
 | **limites** | ⚠️ Cet apprentissage n'est **pas encore porté par un test** : il est vérifié sur corpus, pas sur fixture. Tant que ce test n'existe pas, l'entrée est incomplète au regard de la règle du registre. |
-| **commit** | `—` |
+| **commit d’introduction** | `97ddf80` |
 
 ---
 
@@ -328,7 +328,7 @@ commit          le hash
 | **tests** | le harnais lui-même : il reste vert alors qu'un dépôt à peine analysé existe en base |
 | **corpus** | tous |
 | **limites** | À égalité de phases validées, on retombe sur la récence — ce qui reste une convention. |
-| **commit** | `—` |
+| **commit d’introduction** | `97ddf80` |
 
 ---
 
@@ -342,10 +342,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `crgi_commande_lecture()` route sur `crgi_crg.format` ; `crg_integration_ics.py` traduit la sortie de `crg_ics_core` vers les contrats des phases 2, 3 et 4. Aucune règle de lecture n'y est réécrite. |
 | **composant** | `crg_integration.php`, `crg_integration_ics.py` |
-| **tests** | à écrire — voir « limites » |
+| **tests** | COUVERT INDIRECTEMENT — `crgi_multicorpus.py` vérifie que chaque famille est lue par son moteur certifié, et `crgi_coherence.php` que les trois phases comptent la même population : une lecture par le mauvais moteur romprait ces égalités. |
 | **corpus** | corpus ICS complet : immeubles 0 → 236, lots 0 → 396, occupations 0 → 396, mouvements 106 → 3 221 |
 | **limites** | ⚠️ Pas encore porté par un test sur fixture. ⚠️ Et la **qualification** ICS n'est pas faite : les 3 221 montants sortent `INDETERMINABLE` et remontent en arbitrage — c'est voulu (`NE JAMAIS DÉDUIRE UNE NATURE D'UN LIBELLÉ`), mais cela laisse 143 groupes à trancher, dont **5 couvrent 87 %** des montants. |
-| **commit** | `—` |
+| **commit d’introduction** | `652804e` |
 
 ---
 
@@ -359,10 +359,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `_section_lisible()` : un intitulé vide ou de forme date devient « (section non imprimée) ». |
 | **composant** | `crg_integration_ics.py` |
-| **tests** | à écrire — voir « limites » |
+| **tests** | COUVERT INDIRECTEMENT — `crgi_multicorpus.py` vérifie que chaque famille est lue par son moteur certifié, et `crgi_coherence.php` que les trois phases comptent la même population : une lecture par le mauvais moteur romprait ces égalités. |
 | **corpus** | corpus ICS : 149 → 143 groupes, 491 lignes rassemblées sous une seule question au lieu de six |
 | **limites** | ⚠️ Pas encore porté par un test sur fixture. Ne reconnaît que la forme date ; d'autres intitulés sans valeur de section restent à observer. |
-| **commit** | `—` |
+| **commit d’introduction** | `652804e` |
 
 ---
 
@@ -376,10 +376,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `NATURE_DE_COLONNE` dans le pont ICS reprend la table certifiée `BLOC_LOT` de la phase 4. « Divers » reste indéterminable — `P5A-APPEL-02` : son intitulé ne nomme rien. |
 | **composant** | `crg_integration_ics.py` |
-| **tests** | à écrire sur fixture |
+| **tests** | NON TESTABLE PAR NATURE — porte sur la conduite du travail (ne pas re-décider une doctrine écrite), pas sur un comportement du code. Maîtrise : relecture du référentiel avant toute règle nouvelle. |
 | **corpus** | corpus ICS : mouvements qualifiés 0 → 1 778 (49,8 %) |
 | **limites** | Ne vaut que pour les colonnes dont l'en-tête annonce une nature. |
-| **commit** | `—` |
+| **commit d’introduction** | `6d31d1f` |
 
 ---
 
@@ -393,10 +393,10 @@ commit          le hash
 | **portée** | `MÉTIER` |
 | **règle** | Une occupation vue à une seule période est écrite `IDENTIQUE`, avec un motif qui dit explicitement que la chronologie reste indéterminée. |
 | **composant** | `crg_integration.php` — `crgi_qualifier_occupation()` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_coherence.php` : « une même preuve reçoit le même traitement, quel que soit son voisinage ». Deux oracles ont dû être abandonnés avant celui-ci : comparer les STATUTS de deux populations accusait le moteur à tort, car un lot vu une seule fois peut légitimement être mis en attente pour une AUTRE preuve — son compte continue d'être rendu sans lui. Le contrôle porte donc sur le MOTIF : une observation reconnue première est écrite `IDENTIQUE`, jamais mise en attente pour cette raison-là. |
 | **corpus** | trois dépôts : occupations en arbitrage 254 → 0, 302 → 6, 5 → 5 |
 | **limites** | La chronologie inter-périodes reste indéterminée, et doit le rester : cette règle écrit une occupation, jamais une entrée ni un départ. |
-| **commit** | `—` |
+| **commit d’introduction** | `6d31d1f` |
 
 ---
 
@@ -410,10 +410,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | Chaque ligne d'arbitrage groupée porte `couvre` — la liste des objets qu'elle représente ; le pilotage les marque tous visibles. |
 | **composant** | `crg_integration.php`, `crgi_pilotage.php` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_file_arbitrage.php` : « une perte silencieuse est un objet SANS question, pas un objet en attente », et `crgi_epreuve_du_compteur.php` éprouve le compteur par injection. |
 | **corpus** | trois dépôts : **0 perte silencieuse** partout |
 | **limites** | Seule la famille des immeubles déclare aujourd'hui sa couverture ; les autres ne groupent pas encore. |
-| **commit** | `—` |
+| **commit d’introduction** | `6d31d1f` |
 
 ---
 
@@ -427,10 +427,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `CRGI_REGROUPEMENT` déclare les familles repliables et ce qui fait leur phénomène ; `crgi_regrouper_file()` replie, en portant `couvre_ids`, `nombre` et `total`. Le filtre `detail` rend la vue ligne à ligne. |
 | **composant** | `crgi_arbitrage.php` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_file_arbitrage.php` : « l’extension à un groupe n’est jamais cochée d’avance » et le repli est vérifié par le compteur de pertes. |
 | **corpus** | trois dépôts : 397 → 63, 37 → 17, 87 → 49 questions |
 | **limites** | Les familles individuelles ne se replient pas, et c'est voulu — elles resteront le gros du reste. |
-| **commit** | `—` |
+| **commit d’introduction** | `4359ed0` |
 
 ---
 
@@ -447,7 +447,7 @@ commit          le hash
 | **tests** | vérifié de bout en bout : question posée → décidée → gravée → **absente au rejeu**, l'immeuble étant rattaché par la mémoire |
 | **corpus** | un dépôt : 9 → 8 homonymes après une seule décision |
 | **limites** | Seule la famille des immeubles est câblée ; occupants et propriétaires ont leur place dans la table mais pas encore leur contexte. |
-| **commit** | `—` |
+| **commit d’introduction** | `4359ed0` |
 
 ---
 
@@ -461,10 +461,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `fin_de_trimestre()` dans l'autorité de période : un document qui imprime « - 2e Trimestre 2026 - » énonce sa fin, et la phase 0 la pose pour les deux familles. |
 | **composant** | `crg_periode.py`, `crg_integration_phase0.py` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_coherence.php` : « REFUS — deux lots « 01 » de deux comptes ne sont pas le même lot ». |
 | **corpus** | un dépôt : 235 CRG sans arrêté → 0 |
 | **limites** | Ne couvre que le trimestre imprimé ; un document qui ne nomme ni période ni trimestre reste sans arrêté, et c'est honnête. |
-| **commit** | `—` |
+| **commit d’introduction** | `4359ed0` |
 
 ---
 
@@ -478,10 +478,10 @@ commit          le hash
 | **portée** | `ÉDITEUR` |
 | **règle** | Le pont ICS trie les blocs d'un lot par (page, hauteur) et leur attribue un rang croissant ; le patrimoine déduplique sur la référence. |
 | **composant** | `crg_integration_ics.py` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_coherence.php` : « REFUS — aucun cumul sur des périodes qui se chevauchent » et le rang par (page, y) des occupations. |
 | **corpus** | un dépôt : 60 conflits d'identité → 0, lots 396 → 332 (les doublons d'impression cessent d'être comptés) |
 | **limites** | Suppose que le document imprime les occupants dans l'ordre chronologique. Deux blocs à la même hauteur exacte resteraient indépartageables. |
-| **commit** | `—` |
+| **commit d’introduction** | `4359ed0` |
 
 ---
 
@@ -495,10 +495,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | `CRGI_CRG_PORTEURS` — une condition écrite une fois, en négatif : `doublon_statut <> "REENONCIATION"`. Les huit filtres de la chaîne l'emploient. |
 | **composant** | `crg_integration.php` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_nouveaute_pas_exclusion.php` (12 contrôles) et `crgi_coherence.php` : « REFUS — un CRG complémentaire n’est pas une réénonciation ». |
 | **corpus** | un dépôt : 2 comptes rendus rendus à la chaîne |
 | **limites** | Un troisième statut de collision qui apparaîtrait demain serait inclus par défaut — c'est voulu : mieux vaut examiner un document de trop que d'en perdre un. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -512,10 +512,10 @@ commit          le hash
 | **portée** | `UNIVERSELLE` |
 | **règle** | La phase 0 compte les caractères extraits et reconnaît les documents joints ; l'état de la pièce et le message de l'écran découlent des trois cas. |
 | **composant** | `crg_integration.php`, `admin_crg_integration.php`, `crg_integration_phase0.py` |
-| **tests** | à écrire sur fixture |
+| **tests** | COUVERT — `crgi_coherence.php` : « REFUS — « illisible » là où le document a été parfaitement ouvert », et `crgi_robustesse.py` pour la cause typée. |
 | **corpus** | un dépôt : 5 « illisibles » → 3 sans texte + 1 hors CRG + 1 avis d'acompte nommé |
 | **limites** | Le seuil de « sans texte » est un nombre de caractères ; un scan portant un filigrane textuel passerait pour lisible. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -532,7 +532,7 @@ commit          le hash
 | **tests** | `crgi_robustesse.py` — « un montant se lit AVEC LES DEUX séparateurs décimaux », « je n'ai rien lu ne se déguise jamais » ; éprouvés par `crgi_epreuve_des_tests.py` |
 | **corpus** | deux dépôts, quatre collisions : 0 montant lu → 79, 31, 395 et 385 |
 | **limites** | Un éditeur qui grouperait les milliers par un point (`1.234,56`) resterait illisible — mais il serait alors NOMMÉ par le motif `LECTURE :`, au lieu de passer pour une indétermination. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -549,7 +549,7 @@ commit          le hash
 | **tests** | `crgi_robustesse.py` — « les deux occurrences d'une collision peuvent venir de DEUX documents » ; éprouvé par `crgi_epreuve_des_tests.py` |
 | **corpus** | un dépôt : 2 collisions inter-dossiers |
 | **limites** | Aucune : le mode historique paire à paire reste accepté, et le cache le couvre aussi. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -566,7 +566,7 @@ commit          le hash
 | **tests** | `crgi_coherence.php` — « le plan boucle FAMILLE PAR FAMILLE, pas seulement en total » |
 | **corpus** | deux dépôts : 199 propriétaires / 200 verdicts, et 75 / 78 |
 | **limites** | Le contrôle ne compare que les familles qu'il sait mesurer à la source ; une famille sans population source mesurable resterait hors de sa portée. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -583,7 +583,7 @@ commit          le hash
 | **tests** | `crgi_rapprochement.php` — « un LOT de MBI n'est jamais candidat pour un IMMEUBLE » |
 | **corpus** | deux dépôts : 41 homonymes → 3 |
 | **limites** | Un lot dont le type n'est pas renseigné reste candidat : il produira encore une question, et c'est voulu. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -600,7 +600,7 @@ commit          le hash
 | **tests** | `crgi_coherence.php` — « REFUS — une question à laquelle personne ne peut répondre » ; `crgi_rapprochement.php` |
 | **corpus** | un dépôt : 23 lignes, 7 questions → 0 |
 | **limites** | Le seuil de « libellé générique » est un nombre de caractères significatifs : un libellé long mais répété resterait posé en question. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -617,7 +617,7 @@ commit          le hash
 | **tests** | `crgi_file_arbitrage.php` — « deux pistes proposées ne portent jamais le même intitulé » |
 | **corpus** | un dépôt : 1 arbitrage à deux pistes homonymes |
 | **limites** | Le contrôle compare des intitulés : deux pistes nommant le même objet sous deux orthographes resteraient distinctes. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -634,7 +634,7 @@ commit          le hash
 | **tests** | `crgi_coherence.php` — « couverture P1 — CRG documentaires » ; `crgi_nouveaute_pas_exclusion.php` reconnaît la constante comme un prédicat |
 | **corpus** | un dépôt : 235 attendus, 233 examinés + 4 exclus = 237 |
 | **limites** | Le même risque existe pour toute colonne écrite par une phase et lue par une autre ; seule la phase 1 est corrigée ici, les autres suppriment déjà leurs lignes avant de réécrire. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -651,7 +651,7 @@ commit          le hash
 | **tests** | `crgi_rapprochement.php` — « le code imprimé sur le CRG se retrouve ENTIER dans `code_crg` » |
 | **corpus** | un dépôt : 14 questions posées pour un tiret absent |
 | **limites** | Un gestionnaire qui séparerait son préfixe autrement qu'avec un tiret resterait non couvert — et poserait la question, ce qui est le bon échec. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ## APP-0038 · Quand la base se contredit, ce n'est plus au document qu'il faut poser la question
 
@@ -666,7 +666,7 @@ commit          le hash
 | **tests** | `crgi_rapprochement.php` — « MBI qui se contredit ne se confond pas avec un document ambigu » (quatre formes : trois copies, l'adresse seule, un candidat sans valeur, deux valeurs différentes) |
 | **corpus** | un dépôt : 18 groupes après les autres preuves — **17 sont des répétitions de MBI**, 1 seule est une vraie ambiguïté du document |
 | **limites** | Deux enregistrements du même immeuble dont l'adresse est ABRÉGÉE différemment (« 36 PLACE F MITTERRAND » / « 36 PLACE FRANCOIS MITTERRAND ») restent présentés comme des homonymes : les rapprocher demanderait une comparaison approximative, que la doctrine interdit. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -683,7 +683,7 @@ commit          le hash
 | **tests** | `crgi_robustesse.py` — « un lot qui n'a QUE son report est lu quand même » ; éprouvé par `crgi_epreuve_des_tests.py` |
 | **corpus** | un dépôt : 85 lots absents de la phase 4, 1 184 reports récupérés |
 | **limites** | Un gabarit qui nommerait ce report autrement resterait non couvert — mais l'écart de dénombrement entre phases le signalerait de la même façon. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ## APP-0040 · Une famille du plan qui ne suit pas le vocabulaire déclaré rouvre la faille
 
@@ -698,7 +698,7 @@ commit          le hash
 | **tests** | `crgi_coherence.php` — « le plan couvre TOUT le vocabulaire déclaré des natures » |
 | **corpus** | un dépôt : 14 030 mouvements couverts sur 14 370 |
 | **limites** | Le contrôle lit la source pour trouver les familles ; une famille construite dynamiquement lui échapperait — mais la preuve par les faits, elle, ne lui échapperait pas. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ## APP-0041 · Séparer la note du lecteur de celle de la base
 
@@ -713,7 +713,7 @@ commit          le hash
 | **tests** | `crgi_coherence.php` — « chaque question déclare SA CAUSE — document ou base » |
 | **corpus** | quatre dépôts : 38 questions = 25 document + 13 base, 4 associations réellement empêchées |
 | **limites** | La cause est déclarée à la maille de la FAMILLE : une famille qui mélangerait les deux origines serait mal classée en bloc. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -730,7 +730,7 @@ commit          le hash
 | **tests** | le contrôle lui-même, rejoué isolément dans un processus n'ayant lancé aucune phase |
 | **corpus** | — (défaut de montage, pas de corpus) |
 | **limites** | Le verrou étant tenu par la connexion, tout test qui l'éprouve doit maîtriser QUELLE connexion fait quoi ; un pool de connexions rendrait ce contrôle inopérant. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
 
 ---
 
@@ -747,13 +747,98 @@ commit          le hash
 | **tests** | la sortie de la suite elle-même : elle affiche la liste des écartés avant le total |
 | **corpus** | quatre dépôts : 176/176 puis 132/132 sur les mêmes règles, sans que rien ne le signale |
 | **limites** | Le contrôle nomme les dépôts PORTEURS de CRG et non scellés ; un dépôt vide reste écarté sans mention, et c'est voulu. |
-| **commit** | `—` |
+| **commit d’introduction** | `98217b7` |
+
+---
+
+## APP-0044 · Deux populations différentes qui portent le même nombre
+
+| | |
+|---|---|
+| **phénomène** | Deux mesures sans rapport tombent sur le même cardinal. Citées par leur seul chiffre, elles deviennent indiscernables — et quelqu'un finira par les rapprocher. |
+| **preuve** | 06/09/2026 — le corpus porte deux « 41 » : **41 questions d'identité d'immeuble** (population du rapprochement document × MBI, ramenée à 3 vraies ambiguïtés) et **41 objets typés lot ayant un parent identifiable** (population de qualité de la table `immeubles`, sur 277 objets typés lot). Rien dans les rapports ne les distinguait. |
+| **abstraction** | `UN CARDINAL N'EST PAS UNE IDENTITÉ.` Un nombre ne dit pas de quoi il est le nombre. Une population citée sans son nom ni sa définition devient, quelques mois plus tard, la population de quelqu'un d'autre — et la conclusion qu'on en tire est fausse sans que rien ne l'indique. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute population citée porte son NOM et sa DÉFINITION. Deux populations de même cardinal sont affichées côte à côte avec ce qui les distingue. Écrire « les 41 » est interdit. |
+| **composant** | référentiel, registre, page Qualité, rapports |
+| **tests** | NON TESTABLE PAR NATURE — c'est une règle de RÉDACTION : aucun contrôle exécutable ne peut décider qu'un chiffre a été cité sans sa définition. Maîtrise : `INTEG-NOMMAGE-01` au référentiel, et la relecture des rapports avant remise. |
+| **corpus** | deux populations de cardinal 41, sans rapport l'une avec l'autre |
+| **limites** | Aucune vérification automatique : c'est une discipline d'écriture, pas un contrôle exécutable. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0045 · Un oracle doit prouver la comparabilité avant de comparer
+
+| | |
+|---|---|
+| **phénomène** | Un contrôle compare deux populations et conclut de leur écart. Mais si les deux populations n'ont pas la même sémantique, l'écart — comme l'égalité — ne prouve rien. Le contrôle accuse alors le moteur d'une différence qui vient de son propre montage. |
+| **preuve** | 06/09/2026 — **trois fois le même défaut en une journée**. ① Le contrôle du verrou ouvrait une seconde connexion pour « occuper » le dépôt, alors que la connexion du script tenait déjà ce verrou : il échouait PARCE QUE la règle fonctionnait. ② Un contrôle d'occupation comparait les statuts des lots vus à une période et de ceux vus à plusieurs : ils diffèrent légitimement, parce qu'une seconde période EST une preuve supplémentaire. ③ Le même contrôle, resserré, comparait encore des populations dont l'une pouvait être mise en attente pour une preuve entièrement différente — son compte continue d'être rendu sans elle. |
+| **abstraction** | `UN ORACLE QUI COMPARE DEUX POPULATIONS DOIT D'ABORD PROUVER QU'ELLES SONT COMPARABLES.` Avant toute assertion de la forme `A = B`, il faut établir : même maille, même périmètre, même situation temporelle, même sémantique, mêmes exclusions. Sinon le test mesure son propre montage autant que la règle — et le rouge qu'il produit envoie corriger du code qui va bien. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un contrôle comparatif restreint explicitement sa population aux objets qui portent la MÊME preuve, et dit lesquels il écarte. Quand aucune population comparable ne peut être construite, il change d'oracle — ici, le contrôle porte sur le MOTIF écrit par le moteur, pas sur une symétrie de statuts. |
+| **composant** | `crgi_coherence.php`, `crgi_replay.php` |
+| **tests** | COUVERT — `crgi_coherence.php` : « une même preuve reçoit le même traitement, quel que soit son voisinage » (oracle sur le motif) ; `crgi_replay.php` : « REFUS — deux traitements simultanés » (éprouvé sur un dépôt qu'aucun traitement n'a touché) |
+| **corpus** | trois oracles faux en une journée, sur trois sujets sans rapport |
+| **limites** | Aucun contrôle automatique ne peut décider qu'une comparaison est légitime : c'est une exigence de conception, et elle se relit. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0046 · Une ligne n'est pas un objet — et le confondre multiplie le patrimoine
+
+| | |
+|---|---|
+| **phénomène** | Le staging enregistre une LIGNE par observation. Le même immeuble est réénoncé à chaque période, le même lot à chaque arrêté. Compter les lignes et les annoncer sous le nom de l'objet gonfle le patrimoine dans la proportion du nombre de périodes. |
+| **preuve** | 06/09/2026 — le tableau de bord et les rapports annonçaient **« 1 450 immeubles »** et **« 2 285 lots »**. Le corpus porte en réalité **733 immeubles** et **1 144 lots**. Sur un dépôt : **316 lignes pour 80 immeubles**. C'est Emmanuel — qui connaît son patrimoine — qui l'a vu au premier coup d'œil : « nous avons 300+300+200+100+40+70+80 immeubles au total, on est loin de tes 1 450 ». Aucun contrôle ne l'avait signalé, parce qu'aucun contrôle ne compare un dénombrement à la réalité du métier. |
+| **abstraction** | `UN NOMBRE N'EXISTE PAS SANS SA POPULATION`, et le piège est ici plus sournois qu'ailleurs : les deux nombres sont JUSTES, seul leur nom est faux. Les taux et les arbitrages portent légitimement sur les LIGNES — c'est là que le travail se fait ; le patrimoine, lui, se lit en objets. Le même tableau doit donc porter les deux, avec la clé d'identité qui les distingue. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Chaque famille du pilotage rend « lignes lues » ET « objets désignés », avec la clé qui définit l'objet : l'immeuble par son code (ou nom + code postal) dans son agence, le lot par `compte × référence` (`INTEG-IDENT-03`), l'occupation par ses locataires nommés. |
+| **composant** | `crgi_pilotage.php`, `crgi_pilotage_vue.php` |
+| **tests** | COUVERT INDIRECTEMENT — `crgi_coherence.php` : « le plan boucle FAMILLE PAR FAMILLE » compare déjà chaque famille à sa population source SUR SA PROPRE MAILLE ; c'est cette maille que le tableau de bord n'affichait pas. |
+| **corpus** | quatre dépôts : 1 450 lignes pour 733 immeubles, 2 285 lignes pour 1 144 lots |
+| **limites** | La clé d'identité d'un immeuble reste `code` ou `nom|code postal` : deux immeubles réellement homonymes dans une même agence comptent pour un. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0047 · Le parseur lisait l'argent ; le pont ne le demandait qu'au mois
+
+| | |
+|---|---|
+| **phénomène** | Un même éditeur imprime la même colonne à deux MAILLES selon l'agence : chez l'un, « Réglés » et « Impayés » sont détaillés mois par mois ; chez l'autre, ils ne figurent QUE sur la ligne de total du lot. Le pont entre le parseur et la phase 4 ne parcourait que les lignes mensuelles. Sur le second gabarit, tout l'argent encaissé disparaissait — sans erreur, sans exception, sans ligne rouge. |
+| **preuve** | 06/09/2026 — dépôt EMERY IMMO, 235 documents, 403 lots. Le parseur lit `total_regle` sur **331 lots — 545 725,15 €** et `total_impaye` sur **119 lots — 147 082,72 €**. La phase 4 en a reçu **9 lignes**. L'en-tête du document imprime pourtant « Locataires Période Loyers Taxes Provisions Divers Total Réglés Impayés » — exactement celui de l'agence dont la lecture fonctionne. Le taux « compris » du dépôt affichait 93,2 % : rien n'était illisible, tout était simplement non demandé. |
+| **abstraction** | `LIRE N'EST PAS TRANSMETTRE.` Un pont qui énumère les mailles qu'il traverse perd toute maille qu'il n'a pas nommée — et la perte est silencieuse par construction, puisque aucun contrôle aval ne peut regretter une valeur qu'il n'a jamais reçue. C'est le même défaut qu'`APP-0031` (la colonne « Divers » perdue par une liste écrite à la main), remonté d'un étage : ce ne sont plus les colonnes qui étaient énumérées, ce sont les NIVEAUX. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un contrôle SANS SEUIL compare une présence à une absence sur la même maille : **un lot qui appelle du loyer et ne porte aucun encaissement de toute la période**. Mesuré sur quatre dépôts : 0,0 % · 3,4 % · 11,1 % · **99,7 %**. Aucune tolérance n'a été réglée pour obtenir cette séparation — c'est la condition pour que le contrôle vaille sur un dépôt qu'on n'a pas encore vu. |
+| **composant** | `crg_integration_ics.py` (`mouvements()`), `crg_integration.php` (`crgi_lots_sans_encaissement()`) |
+| **tests** | À COUVRIR — fixture synthétique : un lot dont les règlements ne sont imprimés qu'au total, et dont aucun encaissement n'atteint la phase 4. |
+| **corpus** | un dépôt sur quatre, 545 725,15 € d'encaissements et 147 082,72 € d'impayés absents |
+| **limites** | Le contrôle DÉTECTE l'anomalie ; il ne la corrige pas. Faire du total du lot le mouvement d'encaissement du lot est une décision de doctrine — `AGRÉGAT ≠ MOUVEMENT` — et elle appartient à Emmanuel, pas au moteur : sur le gabarit qui détaille les mois, le même total serait un doublon. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0048 · Le verrou existait, protégeait l'écriture, et ne disait rien à la lecture
+
+| | |
+|---|---|
+| **phénomène** | Un verrou d'exécution empêche deux traitements d'écrire le même dépôt en même temps. Il ne dit rien à qui **lit**. Le tableau de bord, les KPI et les compteurs de perte interrogent alors un staging à moitié réécrit et rendent des nombres complets en apparence, sans le moindre signe. |
+| **preuve** | 06/09/2026 — pendant que le test de replay rejouait les phases 2 à 5 sur le dépôt de référence (ce qu'il annonce faire), le pilotage affichait **128 immeubles** au lieu de 316 pour ce dépôt, **tous au statut `INDETERMINE`**, et concluait « **2 pertes détectées** ». Les trois nombres étaient des artefacts du traitement en cours. `IS_USED_LOCK` disait pourtant « TENU » à la même seconde — l'information existait, personne ne la demandait. Sans cette vérification, un rapport aurait annoncé une régression inventée. |
+| **abstraction** | `UNE MESURE PRISE PENDANT UNE ÉCRITURE N'EST PAS UNE MESURE.` Et le danger propre à ce cas est qu'elle ne ressemble EN RIEN à une erreur : pas d'exception, pas de valeur nulle, pas de trou — des nombres plus petits, parfaitement formés, qu'on croit sur parole. C'est la quatrième fois du training qu'une concurrence produit un chiffre faux annoncé comme vrai (14 624, 27 389, 24 196, puis celui-ci) ; les trois premières fois, le remède a été le verrou d'écriture. Il manquait la moitié lecture. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute fonction qui rend une MESURE d'un dépôt commence par demander si ce dépôt est verrouillé. S'il l'est, elle ne rend pas un nombre plus petit : elle rend l'aveu — « traitement en cours, mesure indisponible » — et l'écran l'affiche à la place du chiffre. Un verrou qui protège l'écriture sans avertir la lecture ne protège que la moitié du problème. |
+| **composant** | `crg_integration.php` (`crgi_import_occupe()`), `crgi_pilotage.php`, `crgi_pilotage_vue.php` |
+| **tests** | À COUVRIR — fixture : prendre le verrou d'un import fantôme, exiger que la mesure refuse de rendre un nombre. |
+| **corpus** | un dépôt sur quatre, mesuré pendant son propre test de replay |
+| **limites** | Le verrou ne couvre que les traitements qui le prennent. Une écriture faite hors moteur reste invisible à ce garde-fou. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
 
 ---
 
 ## Ce que le registre ne contient pas, et pourquoi
 
-Quarante-trois apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Quarante-huit apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

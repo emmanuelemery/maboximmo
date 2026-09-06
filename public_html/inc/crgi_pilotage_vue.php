@@ -74,7 +74,14 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
       <span>Questions évitées par apprentissage</span>
       <b><?= $nb($P['apprentissages']['evitees']) ?></b></div>
     <div><span>Objets reliés</span><b><?= $pc($P['taux']['relies']) ?><i> %</i></b></div>
-    <div><span>Mouvements qualifiés</span><b><?= $pc($P['taux']['qualifies']) ?><i> %</i></b></div>
+    <!-- ⚠️ « LIGNES D'ARGENT », PAS « MOUVEMENTS » — la table porte 38 461 lignes pour 28 056
+         mouvements, et l'ancienne étiquette annonçait le premier nombre sous le nom du second.
+         L'assiette est la bonne : une ligne muette est un défaut de LECTURE, agrégat, stock ou
+         réimpression compris. Seul le nom était faux. -->
+    <div><span>Lignes d’argent qualifiées</span>
+         <b><?= $pc($P['taux']['qualifies']) ?><i> %</i></b>
+         <small><?= $nb($P['volumes']['lignes_argent']) ?> lues ·
+                <?= $nb($P['volumes']['mouvements']) ?> mouvements</small></div>
     <!-- ⚠️ TROIS CAUSES, TROIS COMPTEURS — JAMAIS UNE SOMME. « ARBITRAGES = X + Y + Z »
          mélangerait trois problèmes qui ne se règlent ni au même endroit ni par la même
          personne : relire un PDF, faire le ménage dans MBI, régler un serveur. -->
@@ -82,11 +89,20 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
       <span>Arbitrages CRG</span><b><?= $nb($P['causes']['DOCUMENT']) ?></b></div>
     <div class="<?= $P['causes']['MBI'] ? 'crgi-bord-att' : 'crgi-bord-ok' ?>">
       <span>Ambiguïtés dues à MBI</span><b><?= $nb($P['causes']['MBI']) ?></b></div>
-    <!-- ⚠️ LE CHIFFRE QUI DOIT SAUTER AUX YEUX. -->
+    <!-- ⚠️ LE CHIFFRE QUI DOIT SAUTER AUX YEUX — ET QUI DIT CE QU'IL EST.
+         « Pertes silencieuses : 0 » se lisait comme « il n'y en a aucune ». C'est trop fort :
+         ce compteur dépend d'un instrument qui a lui-même été repris quatre fois pendant le
+         training — il a successivement annoncé 89, 331, 30 puis 43 pertes, à chaque fois parce
+         qu'il comptait mal, jamais parce que le moteur avait changé. Zéro veut donc dire
+         « aucune perte DÉTECTÉE par le dispositif actuel », pas « preuve qu'il n'en existe
+         aucune ». Une mesure forte porte sa méthode et sa limite. -->
     <div class="crgi-bord-perte <?= $P['pertes'] ? 'crgi-bord-mal' : 'crgi-bord-ok' ?>">
-      <span>Pertes silencieuses</span>
+      <span>Pertes détectées</span>
       <b><?= $nb(array_sum(array_column($P['pertes'], 'n'))) ?></b></div>
-    <div><span>Interventions / 100 CRG</span><b><?= $pc($P['kpi']['interv_100crg']) ?></b></div>
+    <div><span>Interventions doc. / 100 CRG</span>
+      <b><?= $pc($P['kpi']['interv_doc_100crg']) ?></b></div>
+    <div><span>Ambiguïtés base / 100 CRG</span>
+      <b><?= $pc($P['kpi']['ambig_mbi_100crg']) ?></b></div>
     <div class="<?= $P['apprentissages']['contredites'] ? 'crgi-bord-mal' : '' ?>">
       <span>Décisions contredites</span>
       <b><?= $nb($P['apprentissages']['contredites']) ?></b></div>
@@ -250,12 +266,19 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
     <summary>Le détail par famille — détectés, automatiques, en attente</summary>
     <div class="crgi-defile">
       <table>
-        <tr><th>Famille</th><th class="num">Détectés</th><th class="num">Automatiques</th>
+        <!-- ⚠️ UNE LIGNE N'EST PAS UN OBJET. Le même immeuble est réénoncé à CHAQUE période :
+             316 lignes pour 80 immeubles sur un dépôt. Annoncer le nombre de lignes sous le nom
+             de l'objet multiplie le patrimoine par quatre — et c'est Emmanuel, qui connaît le
+             sien, qui l'a vu au premier coup d'œil. Les deux colonnes coexistent désormais. -->
+        <tr><th>Famille</th><th class="num">Lignes lues</th><th class="num">Objets désignés</th>
+            <th class="num">Automatiques</th>
             <th class="num">En arbitrage</th><th class="num">Inexpliqués</th><th class="num">%</th></tr>
         <?php foreach ($P['familles'] as $f): ?>
           <tr>
             <td><?= h($f['famille']) ?></td>
             <td class="num"><?= $nb($f['detectes']) ?></td>
+            <td class="num" title="<?= h((string)($f['objets_quoi'] ?? '')) ?>">
+              <?= $f['objets'] === null ? '—' : $nb($f['objets']) ?></td>
             <td class="num"><?= $nb($f['auto']) ?></td>
             <td class="num"><?= $f['attente'] ? $nb($f['attente']) : '—' ?></td>
             <!-- ⚠️ INEXPLIQUÉ = DÉTECTÉ − AUTOMATIQUE − EN ARBITRAGE. Doit valoir 0 : tout ce
@@ -271,6 +294,12 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
       <b>Attendu = examiné + explicitement exclu</b>, et <b>inexpliqué = 0</b>. Un taux inférieur
       à 100 % n’est pas un défaut : un document ne démontre pas tout. Une colonne « inexpliqués »
       non nulle, si.
+      <br><b>« Lignes lues » n’est pas « objets désignés ».</b> Le même immeuble est réénoncé à
+      chaque période, le même lot à chaque arrêté : l’identité d’un immeuble est son code (ou
+      son nom et son code postal) dans son agence, celle d’un lot est <code>compte × référence</code>,
+      et une occupation compte ses locataires nommés. Les taux et les arbitrages portent sur les
+      LIGNES — c’est là que le travail se fait ; le patrimoine, lui, se lit dans la colonne des
+      objets.
     </p>
   </details>
 </div>

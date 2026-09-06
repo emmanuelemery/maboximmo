@@ -78,12 +78,40 @@ function crgi_pilotage(PDO $pdo, int $importId): array
     $pagesHors = (int)$un('SELECT COUNT(*) FROM crgi_page
                             WHERE import_id = ? AND crg_id IS NULL AND signal_page IS NOT NULL');
     $crg     = (int)$un('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?');
-    $mvt     = (int)$un('SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?');
+    // ⚠️ CE TAUX PORTE SUR LES LIGNES D'ARGENT, PAS SUR LES MOUVEMENTS — et l'assiette est la
+    //    bonne : une ligne muette est un défaut de LECTURE, même quand c'est un agrégat, un
+    //    stock ou une réimpression. Ce qu'il fallait corriger n'était pas le calcul, c'était
+    //    l'étiquette : la table porte 38 461 lignes pour 28 056 mouvements, et « mouvements
+    //    qualifiés » annonçait le premier nombre sous le nom du second — `UNE LIGNE N'EST PAS
+    //    UN OBJET`, appliqué à l'argent. Voir `crgi_population_mouvements()`.
+    $popMvt  = crgi_population_mouvements($pdo, $importId);
+    $mvt     = $popMvt['lignes'];
     $mvtMuet = (int)$un('SELECT COUNT(*) FROM crgi_mouvement
                           WHERE import_id = ? AND (categorie IS NULL
                                                    OR categorie = "INDETERMINABLE")');
 
     // ── LES OBJETS, ET CEUX QUI ATTENDENT UNE DÉCISION ───────────────────────────────────
+    // ⚠️ UNE LIGNE N'EST PAS UN OBJET, ET LES CONFONDRE MULTIPLIE LE PATRIMOINE PAR QUATRE.
+    //    Le même immeuble est réénoncé à CHAQUE période : 316 lignes pour 80 immeubles sur un
+    //    dépôt. Le tableau annonçait « 1 450 immeubles » là où le corpus en porte 733 — et
+    //    Emmanuel, qui connaît son patrimoine, a vu l'erreur au premier coup d'œil. Chaque
+    //    famille porte donc SES DEUX NOMBRES : ce que le document imprime (les observations)
+    //    et ce qu'il désigne (les objets), avec la clé d'identité qui les distingue.
+    $objetsDe = [
+        'immeubles'   => 'SELECT COUNT(*) FROM (SELECT COALESCE(NULLIF(TRIM(i.code), ""),
+                                CONCAT(i.nom, "|", COALESCE(i.code_postal, ""))) k
+                            FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
+                           WHERE i.import_id = ? GROUP BY c.agence, k) t',
+        // `INTEG-IDENT-03` : l'identité d'un lot est `compte × référence`, jamais la référence seule.
+        'lots'        => 'SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, l.reference
+                            FROM crgi_lot l JOIN crgi_crg c ON c.id = l.crg_id
+                           WHERE l.import_id = ?) t',
+        'occupations' => 'SELECT COUNT(DISTINCT locataire) FROM crgi_occupation
+                           WHERE import_id = ? AND locataire IS NOT NULL AND locataire <> ""',
+    ];
+    $nomObjet = ['immeubles' => 'immeubles distincts', 'lots' => 'lots (compte × référence)',
+                 'occupations' => 'locataires nommés'];
+
     $familles = [];
     foreach ([
         ['propriétaires', 'SELECT COUNT(DISTINCT proprietaire) FROM crgi_crg
@@ -103,6 +131,9 @@ function crgi_pilotage(PDO $pdo, int $importId): array
             : ($nom === 'mouvements' ? $mvtMuet : 0);
         $familles[] = ['famille' => $nom, 'detectes' => $n, 'attente' => $attente,
                        'auto' => $n - $attente,
+                       // Ce que le document DÉSIGNE, quand ce n'est pas ce qu'il IMPRIME.
+                       'objets' => isset($objetsDe[$nom]) ? (int)$un($objetsDe[$nom]) : null,
+                       'objets_quoi' => $nomObjet[$nom] ?? null,
                        'taux' => $n ? round(100 * ($n - $attente) / $n, 1) : 100.0];
     }
     // La population totale du dépôt, toutes familles confondues — la seule assiette qui ne
@@ -287,7 +318,10 @@ function crgi_pilotage(PDO $pdo, int $importId): array
                                FROM crgi_crg WHERE import_id = ? GROUP BY a ORDER BY n DESC'),
         'volumes'  => [
             'crg' => $crg, 'pages' => $pages, 'pages_lues' => $pagesOk + $pagesHors,
-            'mouvements' => $mvt,
+            // Les deux nombres côte à côte, pour qu'aucune vue ne puisse les confondre.
+            'lignes_argent' => $popMvt['lignes'],
+            'mouvements'    => $popMvt['mouvements'],
+            'population'    => $popMvt,
         ],
         // ── COMPRENDRE N'EST PAS DÉCIDER SEUL ────────────────────────────────────────────
         // ⚠️ UN SEUL CHIFFRE DISAIT LES DEUX, ET IL DISAIT FAUX. « Compris automatiquement »
@@ -324,6 +358,25 @@ function crgi_pilotage(PDO $pdo, int $importId): array
         //    que la qualité de MBI a réellement empêchées, qui est le seul chiffre disant ce
         //    que la saleté de la base coûte VRAIMENT.
         'causes' => $causes + ['bloquees_par_mbi' => $bloqueesParMbi],
+        // ⚠️ CE COMPTEUR DÉPEND D'UN INSTRUMENT, ET L'INSTRUMENT A ÉTÉ REPRIS QUATRE FOIS.
+        //    Il a successivement annoncé 89, 331, 30 puis 43 pertes — à chaque fois parce qu'il
+        //    comptait mal, jamais parce que le moteur avait changé. « 0 » signifie donc AUCUNE
+        //    PERTE DÉTECTÉE PAR LE DISPOSITIF ACTUEL, et non « preuve qu'il n'en existe
+        //    aucune ». La limite voyage avec la mesure : un chiffre fort sans sa méthode se
+        //    retourne contre celui qui l'annonce.
+        //
+        // ⚠️ ET LA PHRASE SUIT LE NOMBRE. Elle était écrite en dur : un dépôt affichait
+        //    « 1 perte » avec, juste à côté, « Aucune perte DÉTECTÉE ». Une limite qui
+        //    contredit la mesure qu'elle accompagne détruit la confiance dans les deux.
+        'pertes_limite' => (!$pertes
+                ? 'Aucune perte DÉTECTÉE par le dispositif actuel — ce n’est PAS la preuve '
+                . 'qu’il n’en existe aucune. '
+                : count($pertes) . ' perte(s) DÉTECTÉE(S) : '
+                . implode(' ; ', array_map(
+                    fn($p) => (int)$p['n'] . ' ' . $p['quoi'], $pertes)) . '. ')
+            . 'Ce compteur a été corrigé quatre fois pendant le training '
+            . '(89 → 331 → 30 → 43) : il mesure ce qu’il sait regarder, et son épreuve '
+            . 'dédiée dit sur quelles classes de perte il a été vu rougir.',
         'familles'  => $familles,
         'arbitrages' => ['total' => $aTraiter, 'priorites' => $priorites,
                          'groupes' => $parGroupe],

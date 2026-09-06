@@ -1472,12 +1472,76 @@ const CRGI_TYPES_DE_LOT = ['APPARTEMENT', 'LOCAL COMMERCIAL', 'GARAGE', 'PARKING
  */
 const CRGI_MOTIF_MBI_REPETE = 'MBI porte ';
 
-/** Les candidats qui peuvent être le bâtiment cherché — les autres sont des lots. */
+/**
+ * LE TYPE DÉCLARÉ EST-IL CONTREDIT PAR LA STRUCTURE ?
+ *
+ * ⚠️ `TYPE STOCKÉ ≠ NATURE DÉMONTRÉE.` Emmanuel, 06/09/2026. Exclure un candidat sur le seul
+ *    champ `type_immeuble` dans une base qui contient justement des typages faux, c'est
+ *    refaire la faute qu'on prétend éviter — en pire, puisque la disparition est silencieuse.
+ *    Mesure sur le corpus : **18 objets typés « Appartement » ou « Local commercial » portent
+ *    PLUSIEURS biens**. Un lot ne contient pas de lots : leur type est faux, et les écarter
+ *    aurait perdu 18 candidats sans une trace.
+ *
+ * ⚠️ LA PREUVE EST STRUCTURELLE, PAS DÉCLARATIVE. Elle ne lit aucun libellé : elle compte ce
+ *    que l'objet PORTE. Plusieurs biens rattachés, ou plusieurs lots nommés, ou un nombre de
+ *    lots déclaré supérieur à un — l'objet se comporte comme un bâtiment, quoi qu'annonce son
+ *    étiquette.
+ */
+function crgi_type_contredit(array $c): bool
+{
+    return (int)($c['biens_portes'] ?? 0) > 1
+        || (int)($c['lots_nommes'] ?? 0) > 1
+        || (int)($c['nb_lots'] ?? 0) > 1;
+}
+
+/**
+ * LA NATURE DE LOT EST-ELLE DÉMONTRÉE PAR UN CORROBORANT INDÉPENDANT ?
+ *
+ * ⚠️ DEUX VERSIONS DE CETTE FONCTION ONT ÉTÉ FAUSSES, ET DE LA MÊME FAÇON.
+ *    ① « rien ne contredit le type » — une certitude obtenue par DÉFAUT : 259 objets
+ *      « confirmés » sans qu'on ait rien démontré.
+ *    ② « l'objet porte UN bien avec un numéro de lot » — une cardinalité, pas une nature :
+ *      un immeuble réel composé d'un seul lot présente exactement cette structure. Elle
+ *      prouve « pas de structure multi-lots observée », rien de plus. 256 « confirmés ».
+ *
+ * ⚠️ ET LE CORROBORANT DOIT ÊTRE INDÉPENDANT DE LA SOURCE QU'IL CORROBORE. Emmanuel,
+ *    06/09/2026. `type_immeuble` et `biens.numero_lot` viennent vraisemblablement de la MÊME
+ *    reprise ancienne : deux manifestations d'une seule donnée ne font pas deux preuves, elles
+ *    reproduisent la même erreur deux fois.
+ *
+ * ⚠️ DEUX CORROBORANTS RÉELLEMENT INDÉPENDANTS SONT ADMIS :
+ *      ❶ un BÂTIMENT DÉMONTRÉ — qui porte plusieurs biens, donc dont la nature ne repose sur
+ *        aucun champ déclaratif — existe à la même adresse. C'est l'existence d'un AUTRE objet
+ *        qui parle, pas une étiquette du nôtre.
+ *      ❷ un BAIL attaché au bien : une source métier distincte de la reprise du patrimoine.
+ *    Mesure sur le corpus : **4 objets sur 277** ont un corroborant. 18 sont contredits.
+ *    **255 n'ont aucune preuve structurelle suffisante — et restent candidats.**
+ *    Le nombre s'effondre, et c'est le résultat juste : il n'a jamais été démontré.
+ */
+function crgi_type_confirme(array $c): bool
+{
+    return (int)($c['parent_demontre'] ?? 0) > 0 || (int)($c['baux_portes'] ?? 0) > 0;
+}
+
+/**
+ * Les candidats qui peuvent être le bâtiment cherché.
+ *
+ * ⚠️ TROIS ÉTATS, ET UN SEUL ÉCARTE :
+ *      CONFIRMÉ  — type de lot ET preuve positive de la nature de lot → écarté.
+ *      CONTREDIT — type de lot mais structure de bâtiment → reste candidat, et le contredit
+ *                  devient une anomalie de qualité de la base.
+ *      SANS STRUCTURE EXPLOITABLE — ni preuve, ni contradiction → RESTE CANDIDAT.
+ *    Un type inconnu reste candidat lui aussi (`NOUVEAUTÉ ≠ EXCLUSION`). Aucune exclusion ne
+ *    se fait sur une absence : c'est le seul moyen de ne pas perdre un candidat en silence.
+ */
 function crgi_candidats_batiments(array $cands): array
 {
     // Une liste vide EST une réponse : MBI porte des lots à cette adresse, pas de bâtiment.
-    return array_values(array_filter($cands, fn($c) => !in_array(
-        mb_strtoupper(trim((string)($c['type_immeuble'] ?? ''))), CRGI_TYPES_DE_LOT, true)));
+    return array_values(array_filter($cands, function ($c) {
+        $typeDeLot = in_array(mb_strtoupper(trim((string)($c['type_immeuble'] ?? ''))),
+                              CRGI_TYPES_DE_LOT, true);
+        return !$typeDeLot || crgi_type_contredit($c) || !crgi_type_confirme($c);
+    }));
 }
 
 /**
@@ -1718,10 +1782,28 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
 {
     // Les immeubles de MBI, par référence et par adresse normalisée.
     $parRef = $parAdresse = [];
+    // ⚠️ LE CANDIDAT PORTE SA STRUCTURE, PAS SEULEMENT SON ÉTIQUETTE. Sans ces deux comptes,
+    //    l'exclusion par type serait aveugle aux 18 objets dont le type est démontré faux.
     foreach ($pdo->query(
-        'SELECT id, reference_immeuble, code_crg, nom_immeuble, adresse_1, code_postal, ville,
-                type_immeuble
-           FROM immeubles', PDO::FETCH_ASSOC) as $i) {
+        'SELECT i.id, i.reference_immeuble, i.code_crg, i.nom_immeuble, i.adresse_1,
+                i.code_postal, i.ville, i.type_immeuble, COALESCE(i.nb_lots, 0) AS nb_lots,
+                (SELECT COUNT(*) FROM biens b WHERE b.id_immeuble = i.id) AS biens_portes,
+                (SELECT COUNT(DISTINCT b.numero_lot) FROM biens b
+                  WHERE b.id_immeuble = i.id AND TRIM(COALESCE(b.numero_lot, "")) <> "")
+                  AS lots_nommes,
+                -- ⚠️ LES DEUX CORROBORANTS INDÉPENDANTS DU CHAMP `type`. L existence d un
+                --    bâtiment DÉMONTRÉ (plusieurs biens) à la même adresse, et un bail — une
+                --    source métier distincte de la reprise du patrimoine. Sans eux, la nature
+                --    de lot n est pas démontrée, et l objet reste candidat.
+                (SELECT COUNT(*) FROM immeubles p
+                  WHERE p.id <> i.id AND TRIM(COALESCE(i.adresse_1, "")) <> ""
+                    AND UPPER(TRIM(p.adresse_1)) = UPPER(TRIM(i.adresse_1))
+                    AND p.code_postal = i.code_postal
+                    AND (SELECT COUNT(*) FROM biens b2 WHERE b2.id_immeuble = p.id) > 1)
+                  AS parent_demontre,
+                (SELECT COUNT(*) FROM bien_baux bb JOIN biens b3 ON b3.id = bb.id_bien
+                  WHERE b3.id_immeuble = i.id) AS baux_portes
+           FROM immeubles i', PDO::FETCH_ASSOC) as $i) {
         foreach ([$i['reference_immeuble'], $i['code_crg']] as $ref) {
             if ($ref !== null && $ref !== '') {
                 $parRef[ltrim((string)$ref, '0')][] = $i;
@@ -1798,8 +1880,17 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
         if (count($cands) > 1) {
             $batiments = crgi_candidats_batiments($cands);
             if (count($batiments) < count($cands)) {
+                // ⚠️ ON DIT AUSSI CE QU'ON A GARDÉ MALGRÉ SON TYPE. Un candidat typé lot mais
+                //    qui porte plusieurs biens reste en lice : son étiquette est démentie par
+                //    sa structure, et la taire ferait disparaître un candidat en silence.
+                $malgre = array_filter($batiments, fn($c) => in_array(
+                    mb_strtoupper(trim((string)($c['type_immeuble'] ?? ''))),
+                    CRGI_TYPES_DE_LOT, true));
                 $preuve = 'les autres candidats sont des LOTS de MBI (appartement, local, '
-                        . 'garage), pas des bâtiments';
+                        . 'garage), pas des bâtiments'
+                        . ($malgre ? ' — n°' . implode(', n°', array_column($malgre, 'id'))
+                                   . ' porte un type de lot mais PLUSIEURS biens : son type est '
+                                   . 'démenti par sa structure, il reste candidat' : '');
                 $cands = $batiments;
             }
         }
@@ -2607,6 +2698,50 @@ function crgi_jour(string $fr): ?string
 {
     return preg_match('~^(\d{2})/(\d{2})/(\d{4})$~', trim($fr), $m)
         ? $m[3] . '-' . $m[2] . '-' . $m[1] : null;
+}
+
+/**
+ * LES QUATRE POPULATIONS DE LA TABLE `crgi_mouvement` — parce qu'un `COUNT(*)` n'en nomme
+ * aucune.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ « MOUVEMENT » DÉSIGNAIT QUATRE CHOSES À LA FOIS, ET LE KPI DIVISAIT PAR LA PLUS GRANDE.
+ *    Emmanuel, 06/09/2026 : nommer les populations AVANT de corriger le ratio. La table porte
+ *    38 461 lignes sur les quatre dépôts, et seules 28 056 sont des mouvements au sens
+ *    comptable. Diviser par 38 461 flattait le score de 27 % — sans qu'aucune ligne ne soit
+ *    fausse : elles ne répondaient simplement pas à la même question.
+ *
+ * ⚠️ LES QUATRE, DU PLUS LARGE AU PLUS ÉTROIT, ET CE QUE CHACUNE SERT :
+ *      ❶ `lignes`      — TOUT ce qui a été lu. Sert à mesurer le LECTEUR : une ligne muette
+ *                        est un défaut de lecture, même si c'est une réimpression.
+ *      ❷ `uniques`     — sans les réimpressions. `RÉIMPRESSION ≠ NOUVEL ÉVÉNEMENT` : un CRG
+ *                        réédité réimprime des écritures déjà connues.
+ *      ❸ `additionnables` — sans les agrégats ni les détails. `AGRÉGAT ≠ MOUVEMENT` : un
+ *                        total de colonne n'est pas une écriture de plus.
+ *      ❹ `mouvements`  — et sans les stocks. `STOCK ≠ FLUX` : un encours est une photographie
+ *                        au dernier arrêté, pas un événement de la période. C'est CELLE-CI
+ *                        que dénombre un ratio « par mouvement ».
+ *
+ * ⚠️ AUCUNE NE SE DÉDUIT D'UNE AUTRE PAR RÈGLE DE TROIS. Le rapport varie d'un dépôt à
+ *    l'autre — LYON réimprime, EMERY non — et une population estimée serait un chiffre
+ *    inventé. On les compte, toutes les quatre, sur la même requête.
+ */
+function crgi_population_mouvements(PDO $pdo, ?int $importId = null): array
+{
+    $ou = $importId === null ? '1' : 'import_id = ' . (int)$importId;
+    $r  = $pdo->query(
+        "SELECT COUNT(*) lignes,
+                SUM(reimpression = 0) uniques,
+                SUM(reimpression = 0 AND additionnable = 1) additionnables,
+                SUM(reimpression = 0 AND additionnable = 1 AND flux = 1) mouvements
+           FROM crgi_mouvement WHERE $ou"
+    )->fetch(PDO::FETCH_ASSOC) ?: [];
+    return array_map('intval', [
+        'lignes'         => $r['lignes']         ?? 0,
+        'uniques'        => $r['uniques']        ?? 0,
+        'additionnables' => $r['additionnables'] ?? 0,
+        'mouvements'     => $r['mouvements']     ?? 0,
+    ]);
 }
 
 /**
