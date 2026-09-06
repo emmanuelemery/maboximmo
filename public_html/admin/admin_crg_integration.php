@@ -1289,8 +1289,31 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
     // ⚠️ NE PAS DIRE « LANCEZ L'ANALYSE » QUAND ELLE A DÉJÀ ÉCHOUÉ. Sur le document réel de
     //    906 pages, la page invitait à relancer une analyse qui venait de buter sur un PDF
     //    sans couche texte : l'écran cachait la panne derrière une invitation.
+    // ⚠️ TROIS ÉTATS, TROIS MESSAGES. « ILLISIBLE » les confondait : sur un dépôt réel, cinq
+    //    pièces le portaient — trois scans sans couche texte, une lettre d'acompte lue mot à
+    //    mot, et aucune vraiment illisible. Le rouge envoyait chercher une panne du moteur là
+    //    où il fallait lancer un OCR ou simplement ranger un document. Un écran qui alarme à
+    //    tort finit par ne plus alarmer du tout.
+    // ⚠️ ET L'ÉCRAN NE NOMME PLUS LES ÉTATS À LA MAIN. Ce bloc filtrait sur « SANS TEXTE »,
+    //    un état renommé « OCR REQUIS » depuis : il ne trouvait plus rien, et personne ne le
+    //    voyait puisque l'absence de message ressemble à l'absence de problème. Les états
+    //    viennent désormais du VOCABULAIRE DÉCLARÉ — celui qui les renomme les renomme ici
+    //    aussi, et un état ajouté demain s'affichera sans qu'on touche cette page.
     $bloquee = ($phases[0]['statut'] ?? '') === 'BLOQUEE';
-    $illisibles = array_filter($pieces, fn($p) => $p['etat'] === 'ILLISIBLE'); ?>
+    $parEtat = [];
+    foreach ($pieces as $p) {
+        $parEtat[(string)$p['etat']][] = (string)$p['nom_original'];
+    }
+    $illisibles = $parEtat['ILLISIBLE'] ?? [];
+    $aSignaler = array_diff_key($parEtat, ['ANALYSEE' => 1, 'DEPOSEE' => 1, 'ILLISIBLE' => 1]);
+    $direEtat = [
+        'OCR REQUIS'         => 'sans couche texte — ce sont des numérisations. Elles demandent '
+                              . 'un OCR, pas une correction du moteur',
+        'HORS CRG'           => 'lues entièrement, mais ce ne sont pas des comptes rendus de '
+                              . 'gestion',
+        'STRUCTURE INCONNUE' => 'techniquement lisibles, mais leur grammaire n’est pas encore '
+                              . 'connue du moteur : c’est un travail d’analyse',
+    ]; ?>
     <?php if ($bloquee || $illisibles): ?>
       <div class="crgi-note rouge">
         <b>Phase 0 bloquée — la lecture a échoué, il n'y a rien à valider.</b>
@@ -1303,6 +1326,15 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
           Zéro CRG sur un document non vide est une <b>panne de lecture</b>, jamais un constat :
           la phase reste bloquée tant que la cause n'est pas levée.
         </div>
+      </div>
+    <?php endif; ?>
+    <?php if ($aSignaler): ?>
+      <div class="crgi-note">
+        <?php foreach ($aSignaler as $etat => $noms): ?>
+          <b><?= count($noms) ?> pièce(s) <?= h(mb_strtolower($etat)) ?></b>
+          <?php if (isset($direEtat[$etat])): ?>— <?= h($direEtat[$etat]) ?><?php endif; ?> :
+          <?= h(implode(', ', $noms)) ?>.<br>
+        <?php endforeach; ?>
       </div>
     <?php else: ?>
       <div class="crgi-note">

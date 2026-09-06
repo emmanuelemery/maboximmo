@@ -105,6 +105,10 @@ function crgi_pilotage(PDO $pdo, int $importId): array
                        'auto' => $n - $attente,
                        'taux' => $n ? round(100 * ($n - $attente) / $n, 1) : 100.0];
     }
+    // La population totale du dépôt, toutes familles confondues — la seule assiette qui ne
+    // laisse aucune famille hors du compte.
+    $objets    = array_sum(array_column($familles, 'detectes'));
+    $enAttente = array_sum(array_column($familles, 'attente'));
 
     // ── LA FILE, ET SA PRIORITÉ ──────────────────────────────────────────────────────────
     // ⚠️ « BLOQUANT » SE LIT DANS L'IMPACT DÉCLARÉ, PAS DANS UNE LISTE À PART. Chaque famille
@@ -112,6 +116,13 @@ function crgi_pilotage(PDO $pdo, int $importId): array
     //    divergé de la première au premier ajout.
     $file = crgi_file_arbitrages($pdo, $importId);
     $priorites = ['BLOQUANT' => 0, 'IMPORTANT' => 0, 'NON BLOQUANT' => 0];
+    // ⚠️ TROIS CAUSES, TROIS COMPTEURS, JAMAIS UNE SOMME. Emmanuel, 06/09/2026 : « ne jamais
+    //    présenter ARBITRAGES = X + Y + Z, ce serait mélanger trois causes différentes ».
+    //    Une question née d'un doublon de MBI ne mesure pas la capacité du lecteur à
+    //    comprendre un document — et l'additionner aux vraies ambiguïtés documentaires
+    //    faisait exactement cela.
+    $causes = ['DOCUMENT' => 0, 'MBI' => 0];
+    $bloqueesParMbi = 0;
     $parGroupe = [];
     foreach ($file as $a) {
         if (($a['statut'] ?? 'A TRAITER') !== 'A TRAITER') {
@@ -119,6 +130,13 @@ function crgi_pilotage(PDO $pdo, int $importId): array
         }
         $p = crgi_priorite_arbitrage($a);
         $priorites[$p]++;
+        $cause = (string)($a['cause'] ?? 'DOCUMENT');
+        $causes[$cause] = ($causes[$cause] ?? 0) + 1;
+        // Ce que la qualité de MBI a réellement EMPÊCHÉ : une association bloquée, pas une
+        // question de plus.
+        if ($cause === 'MBI' && $p === 'BLOQUANT') {
+            $bloqueesParMbi++;
+        }
         $g = $a['groupe'];
         $parGroupe[$g] = ($parGroupe[$g] ?? ['n' => 0, 'famille' => $a['famille'],
                                              'priorite' => $p]);
@@ -153,15 +171,28 @@ function crgi_pilotage(PDO $pdo, int $importId): array
     $pertes = [];
     foreach ([['IMMEUBLE', 'crgi_immeuble'], ['OCCUPATION', 'crgi_occupation'],
               ['LOT', 'crgi_lot']] as [$type, $table]) {
+        // ⚠️ « A ARBITRER » N'EST PAS LE SEUL ÉTAT SANS VERDICT. Les colonnes `statut` portent
+        //    la valeur par défaut `INDETERMINE` tant qu'aucune phase ne les a tranchées : un
+        //    objet resté dessus n'a NI verdict NI question — la définition même d'une perte
+        //    silencieuse — et il échappait au compteur, qui ne regardait que « A ARBITRER ».
+        //    L'assiette se prend donc sur le VOCABULAIRE DÉCLARÉ : est en attente tout ce qui
+        //    demande une décision, plus tout ce que personne n'a déclaré.
+        $decides = array_values(array_diff(
+            CRGI_VOCABULAIRE[$table . '.statut'] ?? [], ['A ARBITRER']
+        ));
         $muets = 0;
-        foreach ($tous('SELECT id FROM `' . $table . '`
-                         WHERE import_id = ? AND statut = "A ARBITRER"') as $r) {
+        $sql = 'SELECT id FROM `' . $table . '` WHERE import_id = ?';
+        if ($decides) {
+            $sql .= ' AND (statut IS NULL OR statut NOT IN ("'
+                  . implode('","', array_map(fn($v) => str_replace('"', '', $v), $decides)) . '"))';
+        }
+        foreach ($tous($sql) as $r) {
             if (empty($cibles[$type . ':' . (int)$r['id']])) {
                 $muets++;
             }
         }
         if ($muets) {
-            $pertes[] = ['quoi' => $table . ' en attente sans question', 'n' => $muets];
+            $pertes[] = ['quoi' => $table . ' sans verdict et sans question', 'n' => $muets];
         }
     }
     $mvtMuetsHorsFile = 0;
@@ -222,6 +253,31 @@ function crgi_pilotage(PDO $pdo, int $importId): array
         $statut = 'PRÊTE';
     }
 
+    // ── LES DOCUMENTS REÇUS, ET CE QU'ILS DEMANDENT ──────────────────────────────────────
+    // ⚠️ « 3 ERREURS » ET « 3 DOCUMENTS ATTENDENT UN OCR » NE DEMANDENT PAS LE MÊME GESTE.
+    //    Tant que les états sont confondus, l'écran fait chercher une panne du moteur là où il
+    //    faut lancer une numérisation ou simplement ranger une lettre. Chaque état porte donc
+    //    son nom, et le total doit retomber sur le nombre de pièces déposées — sinon un
+    //    document a disparu avant même d'entrer dans les phases métier.
+    $documents = [];
+    foreach (CRGI_ETATS_PIECE as $etat => $_cle) {
+        $documents[$etat] = (int)$un('SELECT COUNT(*) FROM crgi_piece
+                                       WHERE import_id = ? AND etat = ?', [$etat]);
+    }
+    $documents['(sans état)'] = (int)$un('SELECT COUNT(*) FROM crgi_piece
+                                          WHERE import_id = ? AND (etat IS NULL OR etat = "")');
+    $documents = array_filter($documents);
+
+    // ── CE QUE L'APPRENTISSAGE A ÉVITÉ ───────────────────────────────────────────────────
+    // ⚠️ « 20 APPRENTISSAGES ENREGISTRÉS » NE DÉMONTRE RIEN. Ce qui démontre, c'est le nombre
+    //    de questions que l'agent N'A PAS POSÉES parce qu'il connaissait déjà la réponse :
+    //    « 33 homonymes connus → 33 décisions appliquées → 0 question humaine ». Emmanuel,
+    //    04/09/2026. Un compteur de savoir ne vaut rien ; un compteur de travail épargné, si.
+    $evitees = (int)$un('SELECT COUNT(*) FROM crgi_immeuble
+                          WHERE import_id = ? AND motif LIKE "Identité déjà tranchée%"');
+    $contredites = (int)$un('SELECT COUNT(*) FROM crgi_immeuble
+                             WHERE import_id = ? AND motif LIKE "CONTRADICTION AVEC UNE%"');
+
     return [
         'import'   => $import,
         'phases'   => $phases,
@@ -233,12 +289,41 @@ function crgi_pilotage(PDO $pdo, int $importId): array
             'crg' => $crg, 'pages' => $pages, 'pages_lues' => $pagesOk + $pagesHors,
             'mouvements' => $mvt,
         ],
+        // ── COMPRENDRE N'EST PAS DÉCIDER SEUL ────────────────────────────────────────────
+        // ⚠️ UN SEUL CHIFFRE DISAIT LES DEUX, ET IL DISAIT FAUX. « Compris automatiquement »
+        //    affichait la part des mouvements qui portent une nature — donc **100 %** sur un
+        //    dépôt où 126 immeubles attendaient une décision d'identité. Emmanuel, 04/09/2026 :
+        //    « Ne confonds jamais TAUX DE COMPRÉHENSION et TAUX D'AUTONOMIE. »
+        //
+        //    COMPRIS   : l'objet a été LU et NOMMÉ. Un immeuble homonyme est parfaitement
+        //                compris — le moteur sait ce que le document dit ; il ne sait pas
+        //                lequel des deux immeubles de MBI il désigne.
+        //    AUTONOMIE : l'objet n'a demandé AUCUNE décision humaine. C'est ce qui mesure le
+        //                travail restant, et c'est toujours le plus bas des deux.
+        // ── DEUX TAUX, DEUX QUESTIONS DIFFÉRENTES ────────────────────────────────────────
+        // ⚠️ UNE AMBIGUÏTÉ CAUSÉE PAR LES DOUBLONS DE MBI NE MESURE PAS LA CAPACITÉ DE
+        //    L'AGENT À COMPRENDRE UN DOCUMENT. Emmanuel, 06/09/2026. Un compte rendu
+        //    parfaitement lu mais impossible à rattacher parce que la base porte trois fois
+        //    le même immeuble ne doit plus dégrader la note du lecteur.
+        //
+        //    COMPRÉHENSION — l'agent a-t-il su LIRE et NOMMER ce que le document dit ?
+        //                    Elle ne dépend que du document. C'est la note du lecteur.
+        //    CONFRONTATION — peut-il raccorder cette lecture à MBI sans ambiguïté ?
+        //                    Elle dépend de la qualité de la base. C'est la note de MBI.
+        //    AUTONOMIE     — combien d'objets n'ont demandé AUCUNE décision humaine ?
+        //                    Toujours le plus bas des trois, parce qu'il les subit tous.
         'taux' => [
-            'pages'      => $pages ? round(100 * ($pagesOk + $pagesHors) / $pages, 1) : 0.0,
-            'compris'    => (float)$kpi['auto'],
-            'qualifies'  => $mvt ? round(100 * ($mvt - $mvtMuet) / $mvt, 1) : 100.0,
-            'relies'     => crgi_taux_relies($familles),
+            'pages'         => $pages ? round(100 * ($pagesOk + $pagesHors) / $pages, 1) : 0.0,
+            'compris'       => $objets ? round(100 * ($objets - $mvtMuet) / $objets, 1) : 100.0,
+            'confrontation' => crgi_taux_relies($familles),
+            'autonomie'     => $objets ? round(100 * ($objets - $enAttente) / $objets, 1) : 100.0,
+            'qualifies'     => $mvt ? round(100 * ($mvt - $mvtMuet) / $mvt, 1) : 100.0,
+            'relies'        => crgi_taux_relies($familles),
         ],
+        // ⚠️ JAMAIS ADDITIONNÉS. Trois causes, trois compteurs — et le nombre d'associations
+        //    que la qualité de MBI a réellement empêchées, qui est le seul chiffre disant ce
+        //    que la saleté de la base coûte VRAIMENT.
+        'causes' => $causes + ['bloquees_par_mbi' => $bloqueesParMbi],
         'familles'  => $familles,
         'arbitrages' => ['total' => $aTraiter, 'priorites' => $priorites,
                          'groupes' => $parGroupe],
@@ -247,7 +332,13 @@ function crgi_pilotage(PDO $pdo, int $importId): array
                         'phases_mesurees' => $mesurees],
         'kpi'       => $kpi,
         'moteur'    => crgi_version_moteur(),
-        'apprentissages' => crgi_apprentissages_du_depot($pdo, $importId, $parGroupe),
+        'documents' => $documents,
+        // Ce qui a été RETIRÉ de la file parce qu'aucune réponse n'existe : compté et montré.
+        'sans_reponse' => (int)$un('SELECT COUNT(*) FROM crgi_mouvement
+                                     WHERE import_id = ? AND rapprochement = "NON RAPPROCHABLE"'),
+        'valeurs_inconnues' => crgi_valeurs_non_declarees($pdo, $importId),
+        'apprentissages' => crgi_apprentissages_du_depot($pdo, $importId, $parGroupe)
+                            + ['evitees' => $evitees, 'contredites' => $contredites],
     ];
 }
 

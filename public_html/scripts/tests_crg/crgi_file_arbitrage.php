@@ -354,10 +354,17 @@ controle(
         foreach (['crg', 'pages', 'pages_lues', 'mouvements'] as $k) {
             exiger(isset($p['volumes'][$k]), 'volume manquant : ' . $k);
         }
-        foreach (['pages', 'compris', 'relies', 'qualifies'] as $k) {
+        foreach (['pages', 'compris', 'autonomie', 'relies', 'qualifies'] as $k) {
             exiger(isset($p['taux'][$k]) && $p['taux'][$k] >= 0 && $p['taux'][$k] <= 100,
                    'taux hors bornes : ' . $k . ' = ' . var_export($p['taux'][$k] ?? null, true));
         }
+        // ⚠️ L'AUTONOMIE NE DÉPASSE JAMAIS LA COMPRÉHENSION. Un objet qu'on n'a pas compris ne
+        //    peut pas avoir été décidé seul ; l'inverse, si — un homonyme est compris et
+        //    attend pourtant une décision. Un dépôt où les deux chiffres seraient égaux alors
+        //    que des objets sont « À ARBITRER » signale qu'un seul taux dit encore les deux.
+        exiger($p['taux']['autonomie'] <= $p['taux']['compris'] + 0.05,
+               'autonomie ' . $p['taux']['autonomie'] . ' % > compréhension '
+               . $p['taux']['compris'] . ' % : les deux taux se confondent à nouveau');
         exiger(in_array($p['statut'], ['EN COURS', 'EN ATTENTE D’ARBITRAGE', 'PRÊTE',
                                        'ÉCHEC', 'ANNULÉE'], true), $p['statut']);
         exiger(count($p['parcours']) === count(CRGI_PARCOURS), 'parcours incomplet');

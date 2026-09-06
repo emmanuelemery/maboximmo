@@ -15,6 +15,13 @@ QUALIFIER LES « MÊME CLÉ, CONTENU DIFFÉRENT » — A, B ou C.
    B — situation complémentaire : les montants diffèrent
    C — impossible à déterminer : trop peu de matière pour trancher
 
+⚠️ « JE N'AI RIEN LU » N'EST PAS « JE NE SAIS PAS TRANCHER ». Le séparateur décimal de
+   l'éditeur ICS est le POINT — `35052.60` — quand celui de SPI est la virgule. Une règle
+   écrite sur le premier éditeur rencontré rendait « trop peu de montants lus (0 et 0) »
+   sur TOUS les documents de l'autre : quatre collisions classées indéterminables alors
+   qu'aucun montant n'avait été regardé. Un cas C doit donc dire LEQUEL des deux il est,
+   sinon un défaut de lecture se déguise en prudence métier.
+
 ⚠️ `DOCUMENT DISTINCT ≠ SITUATION MÉTIER DISTINCTE ≠ ÉVÉNEMENT MÉTIER DISTINCT.`
    `LA RÉÉDITION EST UNE PROPRIÉTÉ DE L'ÉVÉNEMENT MÉTIER, PAS DU PDF.`
 
@@ -29,10 +36,23 @@ import sys
 sys.path.insert(0, __file__.rsplit('\\', 1)[0] if '\\' in __file__ else '.')
 from crg_integration_phase0 import lire_pages   # noqa: E402
 
-RE_MONTANT = re.compile(r'-?\d{1,3}(?:[   ]\d{3})*,\d{2}')
+GROUPEUR = '  \xa0'
+# ⚠️ DEUX ÉCRITURES DU MÊME MONTANT, ET AUCUNE N’EST « LA BONNE ». SPI imprime `1 234,56`,
+#    ICS imprime `1234.56`. On reconnaît les deux — la première branche pour la forme groupée,
+#    la seconde pour la forme continue — et on refuse ce qui touche un autre chiffre, sinon la
+#    date `27.01.26` fournirait le faux montant `01.26`.
+RE_MONTANT = re.compile(
+    r'(?<![\d.,])-?\d{1,3}(?:[' + GROUPEUR + r']\d{3})+[.,]\d{2}(?!\d|[.,]\d)'
+    r'|(?<![\d.,])-?\d+[.,]\d{2}(?!\d|[.,]\d)'
+)
 # ⚠️ L'OCR CONFOND QUELQUES CARACTÈRES, ET TOUJOURS LES MÊMES. « 0 » et « O », « 1 » et « l ».
 #    On ne « corrige » rien : on compare des montants, où seuls les chiffres comptent.
-NETTOYER = str.maketrans({' ': '', ' ': '', ' ': ''})
+NETTOYER = str.maketrans({c: '' for c in GROUPEUR})
+# En dessous, il n'y a pas de quoi affirmer que deux extraits décrivent la même situation.
+SEUIL_MATIERE = 5
+# Un extrait plus long que cela porte forcément des sommes : n'en lire AUCUNE est un défaut de
+# lecture, jamais une propriété du document.
+SEUIL_TEXTE_PORTEUR = 200
 
 
 def montants(textes):
@@ -40,16 +60,37 @@ def montants(textes):
     sac = collections.Counter()
     for t in textes:
         for m in RE_MONTANT.findall(t):
-            sac[m.translate(NETTOYER)] += 1
+            # La clé est canonique : `1 234,56` et `1234.56` désignent la même somme, et deux
+            # éditeurs ne doivent pas produire deux clés pour un seul montant.
+            sac[m.translate(NETTOYER).replace(',', '.')] += 1
     return sac
 
 
+def defaut_de_lecture(textes, cote):
+    """Ce qui manque est-il dans le document, ou dans notre façon de le lire ?"""
+    caracteres = sum(len(t) for t in textes)
+    if not textes:
+        return ('LECTURE : aucune page pour la %s — les pages demandées sont hors du document'
+                % cote)
+    if caracteres >= SEUIL_TEXTE_PORTEUR and not montants(textes):
+        return ('LECTURE : %d caractères lus pour la %s, aucun montant reconnu — format de '
+                'montant non couvert' % (caracteres, cote))
+    return None
+
+
 def qualifier_paire(textes_a, textes_b):
+    # ⚠️ ON DIT D'ABORD SI ON A LU. Un « je ne sais pas trancher » rendu sur un texte qu'on
+    #    n'a pas su lire fait passer un défaut de moteur pour une prudence métier.
+    manque = (defaut_de_lecture(textes_a, 'première occurrence')
+              or defaut_de_lecture(textes_b, 'seconde occurrence'))
+    if manque:
+        return {'verdict': 'C', 'motif': manque + ' : la comparaison n’a pas eu lieu.',
+                'communs': 0, 'seuls_a': 0, 'seuls_b': 0}
     a, b = montants(textes_a), montants(textes_b)
     total = sum(a.values()) + sum(b.values())
     # ⚠️ SANS MATIÈRE, PAS DE VERDICT. Deux extraits de quelques montants ne permettent pas
     #    d'affirmer qu'ils décrivent la même situation : c'est un cas C, pas un cas A.
-    if sum(a.values()) < 5 or sum(b.values()) < 5:
+    if sum(a.values()) < SEUIL_MATIERE or sum(b.values()) < SEUIL_MATIERE:
         return {'verdict': 'C', 'motif': 'Trop peu de montants lus (%d et %d) pour trancher.'
                 % (sum(a.values()), sum(b.values())),
                 'communs': 0, 'seuls_a': sum(a.values()), 'seuls_b': sum(b.values())}
@@ -85,17 +126,32 @@ def main():
        Le mode par lot ouvre le document UNE fois et qualifie toutes les paires. Le verdict
        ne change pas d'un caractère : `qualifier_paire` n'est pas touchée.
 
+    ⚠️ LES DEUX OCCURRENCES NE SONT PAS TOUJOURS DANS LE MÊME PDF. Sur LYON, le même compte
+       rendu est classé dans deux dossiers — `GPE IMMO DR` et `GPE SIR` : une seule lecture
+       découpait alors les pages de la SECONDE occurrence dans le document de la PREMIÈRE,
+       et comparait un extrait avec lui-même. Chaque paire dit donc de quel document vient
+       chaque côté ; le cache garde la promesse d'UNE lecture par document.
+
     Usage : crg_integration_doublons.py <pdf> <paires.json>          (lot)
             crg_integration_doublons.py <pdf> <p1d> <p1f> <p2d> <p2f> (une paire, historique)
     """
     if len(sys.argv) == 3:
         with open(sys.argv[2], encoding='utf-8') as fh:
             paires = json.load(fh)
-        textes, _ = lire_pages(sys.argv[1])
+        lu = {}
+
+        def pages_de(chemin):
+            if chemin not in lu:
+                lu[chemin] = lire_pages(chemin)[0]
+            return lu[chemin]
+
+        defaut = sys.argv[1]
         sortie = []
         for p in paires:
-            r = qualifier_paire(textes[int(p['ad']) - 1:int(p['af'])],
-                                textes[int(p['bd']) - 1:int(p['bf'])])
+            ta = pages_de(p.get('a_pdf') or defaut)
+            tb = pages_de(p.get('b_pdf') or defaut)
+            r = qualifier_paire(ta[int(p['ad']) - 1:int(p['af'])],
+                                tb[int(p['bd']) - 1:int(p['bf'])])
             r['id'] = p['id']
             sortie.append(r)
         sys.stdout.write(json.dumps(sortie, ensure_ascii=False))

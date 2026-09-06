@@ -109,7 +109,10 @@ essai(
             [ecr(1, 'Honoraires Revenus Fonciers 20,00', '', 20.00, 0.0),
              ecr(2, 'Honoraires Revenus Fonciers 20,00', '', 20.00, 0.0)]
         );
-        exiger($v === 'CANDIDAT NON DEMONTRABLE', "verdict {$v}");
+        // ⚠️ `NON RAPPROCHABLE` ET NON `CANDIDAT NON DEMONTRABLE` : deux écritures strictement
+        //    identiques ne se départagent pas — et un humain n'a rien de plus pour le faire.
+        //    Le refus est le même ; ce qui change, c'est qu'on ne le pose plus en question.
+        exiger($v === 'NON RAPPROCHABLE', "verdict {$v}");
         exiger($id === null, 'aucune des deux ne doit être désignée');
     }
 );
@@ -124,7 +127,7 @@ essai(
             mvt('debit', 51.96, 'Solde', ''),
             [ecr(1, 'Solde 51,96', '', 51.96, 0.0), ecr(2, 'Solde 70,86', '', 70.86, 0.0)]
         );
-        exiger($v === 'CANDIDAT NON DEMONTRABLE', "verdict {$v}");
+        exiger($v === 'NON RAPPROCHABLE', "verdict {$v}");
         exiger(str_contains($m, 'générique'), 'le motif ne nomme pas la cause');
     }
 );
@@ -305,6 +308,154 @@ essai(
                    "{$t} a bougé après un arbitrage : {$n} au lieu de {$avant[$t]}");
         }
         crgi_arbitrer($pdo, $IMPORT, $g['cible'], $cible, '', null, 8);
+    }
+);
+
+// ── L'IDENTITÉ D'UN IMMEUBLE : CE QUI N'EST PAS UN BÂTIMENT N'EST PAS CANDIDAT ───────────
+essai(
+    'un LOT de MBI n’est jamais candidat pour un IMMEUBLE',
+    'La table `immeubles` de MBI porte 245 « Appartement », 22 « Local commercial » et 10 '
+    . '« Garage » — des lots rangés là par une reprise ancienne, à la même adresse et sous le '
+    . 'même nom que leur bâtiment. Ils devenaient des homonymes : 33 des 41 questions '
+    . 'd’identité d’un corpus n’opposaient pas deux bâtiments, mais un bâtiment à ses lots.',
+    function () {
+        $cands = [
+            ['id' => 172, 'type_immeuble' => 'Immeuble',         'code_crg' => ''],
+            ['id' => 448, 'type_immeuble' => 'Local commercial', 'code_crg' => ''],
+            ['id' => 468, 'type_immeuble' => 'Appartement',      'code_crg' => ''],
+        ];
+        $gardes = crgi_candidats_batiments($cands);
+        exiger(count($gardes) === 1 && (int)$gardes[0]['id'] === 172,
+               'candidats retenus : ' . implode(', ', array_column($gardes, 'id')));
+        // ⚠️ UNE MAISON EST UN IMMEUBLE. L'exclusion porte sur ce qui est DÉMONTRÉ être un lot,
+        //    jamais sur une liste de ce qu'on accepte.
+        $maison = crgi_candidats_batiments([
+            ['id' => 9, 'type_immeuble' => 'Maison', 'code_crg' => ''],
+            ['id' => 8, 'type_immeuble' => 'Garage', 'code_crg' => ''],
+        ]);
+        exiger(count($maison) === 1 && (int)$maison[0]['id'] === 9, 'une maison a été écartée');
+        // ⚠️ ET UN TYPE INCONNU RESTE CANDIDAT (`NOUVEAUTÉ ≠ EXCLUSION`).
+        $neuf = crgi_candidats_batiments([
+            ['id' => 7, 'type_immeuble' => 'Résidence-services', 'code_crg' => ''],
+            ['id' => 6, 'type_immeuble' => null,                 'code_crg' => ''],
+        ]);
+        exiger(count($neuf) === 2, 'un type jamais vu a été écarté sans preuve');
+    }
+);
+
+essai(
+    'le code imprimé sur le CRG se retrouve ENTIER dans `code_crg`',
+    'MBI écrit « 01S01-0067 », le document n’imprime que « 0067 ». Le segment après le tiret '
+    . 'est le code de l’immeuble ; ce qui précède est le préfixe d’agence et d’activité. Une '
+    . 'inclusion libre confondrait « 67 » et « 0067 » — ce serait le rapprochement approximatif '
+    . 'que la doctrine interdit.',
+    function () {
+        $cands = [
+            ['id' => 2739, 'code_crg' => '01G01-5140', 'type_immeuble' => 'immeuble'],
+            ['id' => 2752, 'code_crg' => '01S01-0067', 'type_immeuble' => 'immeuble'],
+        ];
+        $t = crgi_candidat_par_code_crg($cands, '0067');
+        exiger($t !== null && (int)$t['id'] === 2752, 'le code exact n’a pas désigné n°2752');
+        // ⚠️ ET LE MÊME CODE SANS PRÉFIXE : un autre gestionnaire écrit « 01040087 » des deux
+        //    côtés. Exiger le tiret rendait la preuve AVEUGLE sur tout un corpus — 14
+        //    questions d’identité posées alors que MBI portait le code, à l’identique.
+        $sansTiret = [
+            ['id' => 775, 'code_crg' => '01080134', 'type_immeuble' => 'immeuble'],
+            ['id' => 776, 'code_crg' => '',         'type_immeuble' => 'immeuble'],
+        ];
+        $u = crgi_candidat_par_code_crg($sansTiret, '01080134');
+        exiger($u !== null && (int)$u['id'] === 775, 'le code sans préfixe n’a désigné personne');
+        exiger(crgi_candidat_par_code_crg($sansTiret, '0134') === null,
+               '« 0134 » a été accepté comme fin de « 01080134 » : inclusion libre');
+        // Les zéros de tête ne font pas la différence, le reste du segment si.
+        exiger(crgi_candidat_par_code_crg($cands, '67') !== null, '« 67 » vaut « 0067 »');
+        exiger(crgi_candidat_par_code_crg($cands, '140') === null,
+               '« 140 » a été accepté comme suffixe de « 5140 » : inclusion libre');
+        exiger(crgi_candidat_par_code_crg($cands, '') === null, 'un code vide a désigné quelqu’un');
+        // Deux candidats au même code ne se départagent pas : on ne tranche pas au hasard.
+        exiger(crgi_candidat_par_code_crg([
+            ['id' => 1, 'code_crg' => 'A-0067'], ['id' => 2, 'code_crg' => 'B-0067'],
+        ], '0067') === null, 'deux candidats au même code ont été départagés');
+    }
+);
+
+essai(
+    'MBI qui se contredit ne se confond pas avec un document ambigu',
+    '10 groupes d’« homonymes » d’un dépôt réunissaient des enregistrements portant le MÊME '
+    . 'code de gestion et la MÊME adresse : « 238 Route de Vienne » existe TROIS fois dans MBI '
+    . 'sous le code 01040087. Le document n’était ambigu à aucun moment — la réponse est un '
+    . 'ménage à faire dans MBI, pas une relecture du PDF.',
+    function () {
+        // Trois copies du même immeuble : la base se contredit, et elle dit PAR QUOI.
+        $c = crgi_meme_immeuble_repete([
+            ['id' => 111, 'code_crg' => '01040087'],
+            ['id' => 775, 'code_crg' => '01040087'],
+            ['id' => 879, 'code_crg' => '01040087'],
+        ]);
+        exiger($c !== null && str_contains($c, '01040087') && str_contains($c, 'code'),
+               'trois copies du même code ne sont pas reconnues : ' . var_export($c, true));
+        // ⚠️ ET L'ADRESSE SUFFIT AUSSI, PARCE QUE MBI NE REMPLIT PAS TOUJOURS LES DEUX
+        //    COLONNES. Sur un corpus, 10 groupes se démontrent par le code et 7 par la seule
+        //    adresse ; n'en garder qu'une laissait 7 contradictions de la base passer pour
+        //    des ambiguïtés du document.
+        $a = crgi_meme_immeuble_repete([
+            ['id' => 1, 'code_crg' => '', 'adresse_1' => '238 Route DE VIENNE'],
+            ['id' => 2, 'code_crg' => '', 'adresse_1' => '238 Route de Vienne'],
+        ]);
+        exiger($a !== null && str_contains($a, 'adresse'),
+               'la même adresse écrite deux fois n’est pas reconnue : ' . var_export($a, true));
+        // Deux adresses réellement différentes : le document, lui, est bien ambigu.
+        exiger(crgi_meme_immeuble_repete([
+            ['id' => 1, 'code_crg' => '', 'adresse_1' => '77 Avenue Berthelot'],
+            ['id' => 2, 'code_crg' => '', 'adresse_1' => '77-85 AVENUE BERTHELOT'],
+        ]) === null, 'deux adresses distinctes prises pour une répétition');
+        // ⚠️ LE PIÈGE QUI A TUÉ LA PREMIÈRE VERSION : `array_unique` ramène trois codes
+        //    identiques à UN seul. Comparer ce nombre au nombre de candidats rendait la
+        //    branche inatteignable — un code mort qui avait l’air de fonctionner.
+        exiger(crgi_meme_immeuble_repete([['id' => 1, 'code_crg' => 'X']]) === null,
+               'un candidat seul n’est pas une contradiction');
+        // Un candidat sans code : on ne sait pas, donc on n’affirme pas.
+        exiger(crgi_meme_immeuble_repete([
+            ['id' => 1, 'code_crg' => ''], ['id' => 2, 'code_crg' => '01080134'],
+        ]) === null, 'un candidat sans code a été compté comme une copie');
+        // Deux codes différents : deux bâtiments, le document est bien ambigu.
+        exiger(crgi_meme_immeuble_repete([
+            ['id' => 1, 'code_crg' => 'A'], ['id' => 2, 'code_crg' => 'B'],
+        ]) === null, 'deux codes différents pris pour une contradiction de MBI');
+    }
+);
+
+essai(
+    'REFUS — une question à laquelle personne ne peut répondre n’est pas posée',
+    'Douze écritures « Solde » identiques dans la même situation : demander LAQUELLE '
+    . 'correspond, c’est demander de deviner. `MÊME MONTANT ≠ MÊME ÉCRITURE` vaut aussi pour '
+    . 'l’humain — il voit exactement ce que le moteur voit.',
+    function () {
+        // Libellé générique : indécidable pour tout le monde.
+        [$v] = crgi_verdict_rapprochement(
+            ['libelle' => 'Solde', 'colonne' => 'credit', 'montant' => 10.0],
+            [['id' => 1, 'credit' => 10.0], ['id' => 2, 'credit' => 99.0]]);
+        exiger($v === 'NON RAPPROCHABLE', 'libellé générique → ' . $v);
+        // Deux écritures strictement identiques : indécidable pour tout le monde.
+        [$v2] = crgi_verdict_rapprochement(
+            ['libelle' => 'Assurance propriétaire non occupant', 'colonne' => 'debit',
+             'montant' => 51.96],
+            [['id' => 1, 'debit' => 51.96], ['id' => 2, 'debit' => 51.96]]);
+        exiger($v2 === 'NON RAPPROCHABLE', 'écritures indiscernables → ' . $v2);
+        // ⚠️ MAIS CE QUI SE TRANCHE RESTE UNE QUESTION. Plusieurs candidates, aucune au montant
+        //    du document : la page le dira. Requalifier celle-ci en « limite » ferait
+        //    disparaître du travail réel.
+        [$v3] = crgi_verdict_rapprochement(
+            ['libelle' => 'Assurance propriétaire non occupant', 'colonne' => 'debit',
+             'montant' => 51.96],
+            [['id' => 1, 'debit' => 12.00], ['id' => 2, 'debit' => 33.00]]);
+        exiger($v3 === 'CANDIDAT NON DEMONTRABLE', 'vraie question requalifiée → ' . $v3);
+        // Et une contradiction reste une contradiction.
+        [$v4] = crgi_verdict_rapprochement(
+            ['libelle' => 'Assurance propriétaire non occupant', 'colonne' => 'debit',
+             'montant' => 51.96],
+            [['id' => 1, 'debit' => 12.00]]);
+        exiger($v4 === 'CONTRADICTION', 'contradiction requalifiée → ' . $v4);
     }
 );
 

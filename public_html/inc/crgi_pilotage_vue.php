@@ -58,16 +58,38 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
     <div><span>CRG</span><b><?= $nb($P['volumes']['crg']) ?></b></div>
     <div><span>Pages examinées</span>
          <b><?= $nb($P['volumes']['pages_lues']) ?><i> / <?= $nb($P['volumes']['pages']) ?></i></b></div>
-    <div><span>Compris automatiquement</span><b><?= $pc($P['taux']['compris']) ?><i> %</i></b></div>
+    <!-- ⚠️ COMPRENDRE ET DÉCIDER SEUL SONT DEUX CHOSES, ET UN SEUL CHIFFRE DISAIT LES DEUX.
+         « Compris automatiquement » affichait la part des mouvements portant une nature :
+         100 % sur un dépôt où 126 immeubles attendaient une décision d'identité. Les deux
+         taux sont désormais côte à côte, sur la MÊME assiette — toutes les familles — et
+         l'autonomie est toujours le plus bas des deux. -->
+    <div><span>Compris (lu et nommé)</span><b><?= $pc($P['taux']['compris']) ?><i> %</i></b></div>
+    <!-- ⚠️ LA NOTE DU LECTEUR ET CELLE DE LA BASE SONT DEUX NOTES. Un compte rendu
+         parfaitement lu mais impossible à rattacher parce que MBI porte trois fois le même
+         immeuble ne doit pas faire baisser la première. -->
+    <div><span>Raccordé à MBI</span><b><?= $pc($P['taux']['confrontation']) ?><i> %</i></b></div>
+    <div class="<?= $P['taux']['autonomie'] < 100 ? 'crgi-bord-att' : 'crgi-bord-ok' ?>">
+      <span>Décidé sans l’humain</span><b><?= $pc($P['taux']['autonomie']) ?><i> %</i></b></div>
+    <div class="<?= $P['apprentissages']['evitees'] ? 'crgi-bord-ok' : '' ?>">
+      <span>Questions évitées par apprentissage</span>
+      <b><?= $nb($P['apprentissages']['evitees']) ?></b></div>
     <div><span>Objets reliés</span><b><?= $pc($P['taux']['relies']) ?><i> %</i></b></div>
     <div><span>Mouvements qualifiés</span><b><?= $pc($P['taux']['qualifies']) ?><i> %</i></b></div>
-    <div class="<?= $P['arbitrages']['total'] ? 'crgi-bord-att' : 'crgi-bord-ok' ?>">
-      <span>Arbitrages</span><b><?= $nb($P['arbitrages']['total']) ?></b></div>
+    <!-- ⚠️ TROIS CAUSES, TROIS COMPTEURS — JAMAIS UNE SOMME. « ARBITRAGES = X + Y + Z »
+         mélangerait trois problèmes qui ne se règlent ni au même endroit ni par la même
+         personne : relire un PDF, faire le ménage dans MBI, régler un serveur. -->
+    <div class="<?= $P['causes']['DOCUMENT'] ? 'crgi-bord-att' : 'crgi-bord-ok' ?>">
+      <span>Arbitrages CRG</span><b><?= $nb($P['causes']['DOCUMENT']) ?></b></div>
+    <div class="<?= $P['causes']['MBI'] ? 'crgi-bord-att' : 'crgi-bord-ok' ?>">
+      <span>Ambiguïtés dues à MBI</span><b><?= $nb($P['causes']['MBI']) ?></b></div>
     <!-- ⚠️ LE CHIFFRE QUI DOIT SAUTER AUX YEUX. -->
     <div class="crgi-bord-perte <?= $P['pertes'] ? 'crgi-bord-mal' : 'crgi-bord-ok' ?>">
       <span>Pertes silencieuses</span>
       <b><?= $nb(array_sum(array_column($P['pertes'], 'n'))) ?></b></div>
     <div><span>Interventions / 100 CRG</span><b><?= $pc($P['kpi']['interv_100crg']) ?></b></div>
+    <div class="<?= $P['apprentissages']['contredites'] ? 'crgi-bord-mal' : '' ?>">
+      <span>Décisions contredites</span>
+      <b><?= $nb($P['apprentissages']['contredites']) ?></b></div>
     <div><span>Temps machine</span>
          <b><?= $P['temps']['machine'] === null ? '—' : h(crgi_duree((int)$P['temps']['machine'])) ?></b></div>
     <div><span>Temps humain</span><b><?= h(crgi_duree((int)$P['temps']['humain'])) ?></b></div>
@@ -91,6 +113,72 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
       <?php endforeach; ?>
       <br>Un objet en attente qui ouvre une question est du travail en cours ; le même objet
       sans question est une donnée que personne ne cherchera jamais.
+    </p>
+  <?php endif; ?>
+
+  <!-- ═══ LES DOCUMENTS REÇUS, ET CE QU'ILS DEMANDENT ═══════════════════════════ -->
+  <?php $horsAnalyse = array_diff_key($P['documents'], ['ANALYSEE' => 1]);
+        if ($horsAnalyse): ?>
+    <p class="crgi-note">
+      <b>Les pièces qui ne sont pas des comptes rendus</b> — elles sont comptées, jamais perdues :
+      <?php foreach ($horsAnalyse as $etat => $n): ?>
+        <br>· <b><?= $nb($n) ?></b> <?= h(mb_strtolower($etat)) ?><?php
+          echo match ($etat) {
+              'OCR REQUIS' => ' — des numérisations sans couche texte. Elles demandent un OCR, '
+                            . 'pas une correction du moteur.',
+              'HORS CRG' => ' — lues entièrement ; ce ne sont pas des comptes rendus de gestion.',
+              'STRUCTURE INCONNUE' => ' — techniquement lisibles, mais leur grammaire n’est pas '
+                                    . 'encore connue du moteur : c’est un travail d’analyse.',
+              'ILLISIBLE' => ' — la source elle-même ne se lit pas.',
+              '(sans état)' => ' — ⚠️ aucune de ces pièces ne devrait exister : un document sans '
+                             . 'état a disparu avant les phases métier.',
+              default => '',
+          }; ?>
+      <?php endforeach; ?>
+    </p>
+  <?php endif; ?>
+
+  <!-- ═══ CE QUE MBI COÛTE À CE DÉPÔT, ET OÙ ALLER LE RÉGLER ════════════════════ -->
+  <?php if ($P['causes']['MBI']): ?>
+    <p class="crgi-note">
+      <b><?= $nb($P['causes']['MBI']) ?> question<?= $P['causes']['MBI'] > 1 ? 's' : '' ?>
+      ne vien<?= $P['causes']['MBI'] > 1 ? 'nent' : 't' ?> pas des documents</b> — ils sont
+      compris. C’est MBI qui ne sait pas répondre : plusieurs enregistrements y prétendent
+      être le même immeuble, ou portent la même écriture avec un autre montant.
+      <?php if ($P['causes']['bloquees_par_mbi']): ?>
+        <?= $nb($P['causes']['bloquees_par_mbi']) ?> d’entre elles empêchent réellement une
+        association.
+      <?php endif; ?>
+      <br>La réponse n’est pas dans le PDF :
+      <a href="<?= h(app_url('/admin/admin_qualite_donnees.php')) ?>">voir la qualité des
+      données</a>.
+    </p>
+  <?php endif; ?>
+
+  <!-- ═══ CE QUI NE SE DEMANDE À PERSONNE ═══════════════════════════════════════
+       ⚠️ CE BLOC EST LA CONTREPARTIE DE LA FILE COURTE. On a retiré des questions ;
+          il faut donc dire lesquelles, et pourquoi — sans quoi « 12 arbitrages » ne
+          voudrait rien dire de plus que « 49 » : on ne saurait pas ce qu'on ne voit
+          plus. Ces lignes existent, elles sont comptées, elles ne sont pas écrites. -->
+  <?php if (!empty($P['sans_reponse'])): ?>
+    <p class="crgi-note">
+      <b><?= $nb($P['sans_reponse']) ?> ligne<?= $P['sans_reponse'] > 1 ? 's' : '' ?> que
+      personne ne peut trancher</b> — ni le moteur, ni vous. Un libellé générique (« Solde »)
+      face à plusieurs écritures MBI homonymes, ou des écritures strictement indiscernables :
+      même libellé <i>et</i> même montant. <code>MÊME MONTANT ≠ MÊME ÉCRITURE</code>.
+      Elles sont lues, conservées et comptées au plan en « non intégrable » — jamais écrites,
+      et jamais posées en question, faute de réponse possible.
+    </p>
+  <?php endif; ?>
+
+  <?php if (!empty($P['valeurs_inconnues'])): ?>
+    <p class="crgi-note rouge">
+      <b>Des valeurs que personne n’a déclarées.</b> Une valeur nouvelle n’est pas une erreur —
+      qu’elle passe inaperçue en est une : un filtre écrit en positif exclut en silence tout ce
+      qui n’existait pas quand on l’a écrit.
+      <?php foreach (array_slice($P['valeurs_inconnues'], 0, 6) as $v): ?>
+        <br>· <code><?= h($v['ou']) ?></code> = « <?= h($v['valeur']) ?> »
+      <?php endforeach; ?>
     </p>
   <?php endif; ?>
 
@@ -146,6 +234,15 @@ $etatSigne = ['FINI' => '✓', 'ENCOURS' => '●', 'ARBITRAGE' => '!', 'ERREUR' 
     <?php endif; ?>
     · <b><?= (int)$P['apprentissages']['proposes'] ?></b> proposé<?= $P['apprentissages']['proposes'] > 1 ? 's' : '' ?>
     comme règle
+    <?php if ($P['apprentissages']['evitees']): ?>
+      · <b><?= (int)$P['apprentissages']['evitees'] ?></b> question<?= $P['apprentissages']['evitees'] > 1 ? 's' : '' ?>
+      qu’Emmanuel n’a pas eu à reprendre, parce qu’il y avait déjà répondu
+    <?php endif; ?>
+    <?php if ($P['apprentissages']['contredites']): ?>
+      · <b class="crgi-bord-mal"><?= (int)$P['apprentissages']['contredites'] ?></b>
+      décision<?= $P['apprentissages']['contredites'] > 1 ? 's' : '' ?> mémorisée<?= $P['apprentissages']['contredites'] > 1 ? 's' : '' ?>
+      que le document contredit — remise<?= $P['apprentissages']['contredites'] > 1 ? 's' : '' ?> en arbitrage
+    <?php endif; ?>
   </p>
 
   <!-- ═══ LE DÉTAIL MÉTIER, REPLIÉ : IL SERT À COMPRENDRE, PAS À DÉCIDER ════════ -->

@@ -153,6 +153,27 @@ def mouvements(doc, debut=1, fin=None):
         for lot in im.get('lots') or []:
             page_lot = int(lot.get('page') or im.get('page_debut') or 0)
             occupant = normaliser(lot.get('locataire_nom') or '') or None
+            # ⚠️ UN LOT PEUT N'AVOIR QUE SON REPORT, ET IL COMPTE. Le bloc d'un lot sans
+            #    mouvement de la période ne porte qu'une ligne « Solde Antérieur » : pas de
+            #    « Du … Au … », donc aucun mois, donc RIEN n'était émis. Sur un corpus,
+            #    85 lots occupés — locataires nommés, chronologie complète en phase 3 —
+            #    disparaissaient de la phase 4, dont un portant 48 371,47 € d'arriéré. Le
+            #    parseur avait la valeur depuis toujours ; c'est le pont qui ne la demandait
+            #    jamais. Seul l'écart de dénombrement entre les phases 3 et 4 l'a révélé.
+            #
+            # ⚠️ C'EST UN STOCK, PAS UN FLUX. `ENCOURS` — un report ne s'additionne à aucun
+            #    total de période, et surtout pas au « Reste dû » de fin d'arrêté, qui mesure
+            #    la même dette à une AUTRE date.
+            report = lot.get('solde_anterieur')
+            if isinstance(report, (int, float)) and round(float(report), 2) \
+                    and _dans(page_lot, debut, fin):
+                out.append(_mvt(
+                    page_lot, 'SITUATION DES LOCATAIRES', nom_im, lot.get('reference'),
+                    occupant, None, 'Solde antérieur', 'solde_anterieur', report, 'LOT',
+                    'ENCOURS',
+                    'Ligne « Solde Antérieur » du bloc du lot : la dette REPORTÉE à l’ouverture '
+                    'de la période. `STOCK ≠ FLUX` — jamais additionnée à un total de période, '
+                    'ni au « Reste dû » de l’arrêté, qui mesure la même dette plus tard.'))
             for m in lot.get('mois') or []:
                 page = int(m.get('page') or page_lot)
                 if not _dans(page, debut, fin):
@@ -223,6 +244,14 @@ def _section_lisible(entete):
 #    l'en-tête nomme Loyers, Taxes et Provisions — « Divers » ne nomme rien. Une colonne dont
 #    l'intitulé n'annonce aucune nature ne peut pas en donner une.
 NATURE_DE_COLONNE = {
+    # ⚠️ « IMPAYÉS » EST LA COLONNE « RESTE DÛ », ET C'EST UN STOCK. La doctrine la qualifie
+    #    depuis P5A : `ENCOURS`, jamais additionné à un flux. Ne pas la reconnaître a envoyé
+    #    688 lignes — 1 230 525,32 € — en arbitrage sur un seul corpus, pour une nature que le
+    #    référentiel pose depuis toujours. Le nom de la colonne change d'un éditeur à l'autre ;
+    #    ce qu'elle mesure, non.
+    'impayes':    ('ENCOURS',
+                   'Colonne « Impayés » du tableau d’appels du lot : un STOCK à la date '
+                   'd’arrêté, jamais additionné à un flux.'),
     # Les colonnes structurelles du tableau du lot, quand le gabarit les imprime.
     'total':      ('AGREGAT (NON ADDITIONNABLE)',
                    'Colonne « Total » : elle récapitule les lignes du lot. Lue et conservée '
@@ -288,8 +317,11 @@ FAMILLES = [
      r'|\bconso\b|compteur',                       'CHARGE',              'fluides'),
     (r'appels?\s+de\s+fonds?|syndic|copropri'
      r'|charges?\s+courant|charges?\s+locative',    'CHARGE',              'charges de copropriété'),
-    (r'solde\s+mandat|r[èe]glement\s+virement'
-     r'|versement\s+propri',                       'VERSEMENT PROPRIETAIRE',
+    # ⚠️ LE PLURIEL COMPTE. Le document imprime « Soldes mandats » ; le motif exigeait
+    #    « solde mandat » au singulier et ne reconnaissait rien — 25 lignes et 838 750 € en
+    #    arbitrage pour un « s ». Un motif de vocabulaire doit accepter les formes du mot.
+    (r'soldes?\s+mandats?|r[èe]glements?\s+virements?'
+     r'|versements?\s+propri',                     'VERSEMENT PROPRIETAIRE',
                                                   'versement au propriétaire'),
 ]
 _FAMILLES = [(re.compile(m, re.I), cat, nom) for m, cat, nom in FAMILLES]

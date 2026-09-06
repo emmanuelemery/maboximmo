@@ -36,6 +36,116 @@ const CRGI_PHASES = [
 const CRGI_STATUTS_VIVANTS = ['ANALYSE EN COURS', 'A VALIDER', 'VALIDE PARTIELLEMENT',
                               'PRET A INTEGRER'];
 
+/**
+ * LES CRG QUI PORTENT L'INFORMATION — condition SQL, écrite une seule fois.
+ *
+ * ⚠️ TOUTES LES PHASES FILTRAIENT SUR `= "UNIQUE"`, ET C'ÉTAIT UNE PERTE MUETTE. Un compte
+ *    rendu marqué « MEME CLE CONTENU DIFFERENT » n'est PAS un doublon : c'est le cas
+ *    FOCH/SABY, deux documents de même clé qui ne partagent qu'une page de contenu sur trois —
+ *    donc COMPLÉMENTAIRES. Le filtre les écartait de l'inventaire, du patrimoine, des
+ *    occupations et de l'argent : le CRG entier disparaissait, et seul un écart de couverture
+ *    de deux unités le signalait, tout au bout de la chaîne.
+ *
+ * ⚠️ SEULE LA RÉÉNONCIATION S'EXCLUT. `RÉIMPRESSION ≠ NOUVEL ÉVÉNEMENT` : celle-là énonce deux
+ *    fois le même fait, et la compter doublerait l'argent. Les autres portent de l'information
+ *    que personne d'autre ne porte.
+ */
+const CRGI_CRG_PORTEURS = 'doublon_statut <> "REENONCIATION"';
+
+/**
+ * L'ÉTAT D'UNE PIÈCE DÉPOSÉE — quatre états, parce qu'ils appellent quatre ACTIONS.
+ *
+ * ⚠️ « ILLISIBLE » LES CONFONDAIT TOUS, ET ALARMAIT À TORT. Sur un corpus réel, cinq pièces
+ *    l'ont porté : trois numérisations sans couche texte, une lettre parfaitement lue, et
+ *    aucune vraiment illisible. Le mot envoyait chercher une panne du moteur là où il fallait
+ *    lancer un OCR ou simplement ranger un document. Ce qu'un état doit dire, c'est QUOI FAIRE.
+ */
+const CRGI_ETATS_PIECE = [
+    'ANALYSEE'           => 'pieces',              // texte exploitable, CRG reconstruits
+    'OCR REQUIS'         => 'ocr_requis',          // lisible par l'œil, pas par la machine
+    'HORS CRG'           => 'hors_crg',            // lu et nommé — ce n'est pas un CRG
+    'STRUCTURE INCONNUE' => 'structure_inconnue',  // lisible, grammaire inconnue : à analyser
+    'ILLISIBLE'          => 'illisibles',          // la source elle-même ne se lit pas
+];
+
+/**
+ * CE QUE LE MOTEUR DIT QUAND IL N'A PAS PU LIRE — traduit en état, donc en ACTION.
+ *
+ * ⚠️ UNE CAUSE ABSENTE OU INCONNUE RETOMBE SUR `ILLISIBLE`, le plus alarmant. On ne minimise
+ *    jamais ce qu'on ne comprend pas : `NOUVEAUTÉ ≠ EXCLUSION` vaut aussi dans ce sens-là.
+ */
+const CRGI_CAUSES_LECTURE = [
+    'SANS COUCHE TEXTE' => 'OCR REQUIS',   // le fichier s'ouvre, ses pages sont des images
+];
+
+/** En deçà, la page ne porte pas de texte exploitable : c'est une image. */
+const CRGI_SEUIL_TEXTE = 40;
+
+/**
+ * LE VOCABULAIRE DÉCLARÉ DU STAGING — `NOUVEAUTÉ ≠ EXCLUSION`.
+ *
+ * ⚠️ CETTE TABLE EXISTE PARCE QU'UN FILTRE ÉCRIT EN POSITIF DÉFINIT, SANS LE DIRE, TOUT
+ *    L'UNIVERS AUTORISÉ. `doublon_statut = "UNIQUE"` a fait disparaître des comptes rendus
+ *    entiers le jour où un troisième statut est apparu : ils n'étaient ni traités, ni exclus,
+ *    ni arbitrés — ils n'étaient nulle part. Le défaut ne vient pas du filtre lui-même, mais
+ *    de ce que personne ne remarque une valeur qu'aucun code ne nomme.
+ *
+ * ⚠️ CE N'EST PAS UNE CONTRAINTE, C'EST UN RÉVÉLATEUR. On n'interdit pas une valeur nouvelle :
+ *    on exige qu'elle SE VOIE. Une valeur hors de cette table fait rougir le contrôle de
+ *    cohérence, et c'est tout ce qu'on lui demande — être remarquée avant d'avoir coûté un
+ *    document. La table s'AJOUTE, comme toutes les autres du module.
+ */
+const CRGI_VOCABULAIRE = [
+    'crgi_piece.etat' => ['ANALYSEE', 'OCR REQUIS', 'HORS CRG', 'STRUCTURE INCONNUE',
+                          'ILLISIBLE', 'DEPOSEE'],
+    'crgi_crg.doublon_statut' => ['UNIQUE', 'REENONCIATION', 'MEME CLE CONTENU DIFFERENT'],
+    'crgi_crg.inventaire_statut' => ['DEJA CONNUE', 'NOUVELLE', 'COMPTE INCONNU', 'A VERIFIER'],
+    'crgi_immeuble.statut' => ['IDENTIQUE', 'MODIFIE', 'NOUVEAU', 'A ARBITRER'],
+    'crgi_lot.statut' => ['IDENTIQUE', 'MODIFIE', 'NOUVEAU', 'A ARBITRER'],
+    'crgi_occupation.statut' => ['IDENTIQUE', 'NOUVEL ENTRANT', 'CHANGEMENT DE LOCATAIRE',
+                                 'PARTI DEMONTRE', 'ANCIEN LOCATAIRE AVEC DETTE', 'A ARBITRER'],
+    'crgi_mouvement.categorie' => ['LOYER APPELE', 'CHARGE APPELEE AU LOCATAIRE',
+                                   'AUTRE APPELE AU LOCATAIRE', 'ENCAISSEMENT', 'ENCOURS',
+                                   'CHARGE', 'FRAIS ET ASSURANCES', 'IMPOTS ET TAXES',
+                                   'VERSEMENT PROPRIETAIRE', 'SOLDE',
+                                   'AGREGAT (NON ADDITIONNABLE)', 'DETAIL (NON ADDITIONNABLE)',
+                                   'INDETERMINABLE'],
+    // ⚠️ `NON RAPPROCHABLE` N'EST PAS `CANDIDAT NON DEMONTRABLE`. Le premier dit « aucune
+    //    information n'existe, ni ici ni ailleurs » — une limite, qu'on nomme et qu'on ne pose
+    //    à personne. Le second dit « il faut regarder la page pour trancher » — une question,
+    //    qui va dans la file. Les confondre, c'était demander à Emmanuel de deviner.
+    'crgi_mouvement.rapprochement' => ['DEJA PRESENT', 'NOUVEAU', 'CONTRADICTION',
+                                       'CANDIDAT NON DEMONTRABLE', 'NON RAPPROCHABLE',
+                                       'HORS PERIMETRE'],
+    'crgi_plan.action' => ['CREER', 'METTRE A JOUR', 'ARCHIVER', 'INCHANGE', 'A ARBITRER',
+                           'NON INTEGRABLE'],
+];
+
+/**
+ * LES VALEURS QUE LE STAGING PORTE ET QUE PERSONNE N'A DÉCLARÉES.
+ *
+ * ⚠️ ON LES CHERCHE PARTOUT, PAS SEULEMENT LÀ OÙ ON LES ATTEND. Une valeur inconnue n'est pas
+ *    forcément une erreur — c'est peut-être un phénomène nouveau, et c'est bien. Ce qui est
+ *    inacceptable, c'est qu'elle passe inaperçue.
+ */
+function crgi_valeurs_non_declarees(PDO $pdo, int $importId): array
+{
+    $trouve = [];
+    foreach (CRGI_VOCABULAIRE as $ou => $connues) {
+        [$table, $colonne] = explode('.', $ou);
+        $st = $pdo->prepare('SELECT DISTINCT `' . $colonne . '` FROM `' . $table . '`
+                              WHERE import_id = ? AND `' . $colonne . '` IS NOT NULL
+                                AND `' . $colonne . '` <> ""');
+        $st->execute([$importId]);
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $v) {
+            if (!in_array($v, $connues, true)) {
+                $trouve[] = ['ou' => $ou, 'valeur' => (string)$v];
+            }
+        }
+    }
+    return $trouve;
+}
+
 /** Le dossier de staging d'un import. Hors GED, hors arborescence métier. */
 function crgi_dossier(int $importId): string
 {
@@ -185,6 +295,7 @@ function crgi_recompter(PDO $pdo, int $importId): void
  */
 function crgi_phase0(PDO $pdo, int $importId): array
 {
+    crgi_verrouiller_import($pdo, $importId, 0);
     crgi_marquer_phase($pdo, $importId, 0, 'EN ANALYSE', null);
     $pdo->prepare('DELETE FROM crgi_page WHERE import_id = ?')->execute([$importId]);
     $pdo->prepare('DELETE FROM crgi_crg  WHERE import_id = ?')->execute([$importId]);
@@ -217,13 +328,22 @@ function crgi_phase0(PDO $pdo, int $importId): array
     //    l'agence pour un nom, et l'écran affichait « ANALYSÉE · à valider » sans un mot.
     //    Une lecture dégradée qui ne se voit pas est pire qu'une lecture impossible.
     $bilan = ['pieces' => 0, 'pages' => 0, 'affectees' => 0, 'crgs' => 0, 'illisibles' => [],
+              'ocr_requis' => [], 'hors_crg' => [], 'structure_inconnue' => [],
               'lecteurs' => [], 'lecture_degradee' => null];
     foreach ($pieces as $p) {
         $res = crgi_lancer_phase0((string)$p['chemin']);
         if (isset($res['erreur'])) {
+            // ⚠️ LA CAUSE COMMANDE L'ÉTAT, ET DONC L'ACTION. Quatre numérisations d'un dépôt
+            //    portaient « ILLISIBLE — la source elle-même ne se lit pas » alors que le
+            //    moteur avait parfaitement ouvert le fichier et compté ses pages : elles
+            //    n'ont simplement pas de couche texte. Le mot envoyait chercher une panne du
+            //    moteur là où il fallait lancer un OCR. Une cause inconnue retombe sur
+            //    `ILLISIBLE` — le plus alarmant — parce qu'on ne minimise jamais ce qu'on ne
+            //    comprend pas.
+            $etat = CRGI_CAUSES_LECTURE[(string)($res['cause'] ?? '')] ?? 'ILLISIBLE';
             $pdo->prepare('UPDATE crgi_piece SET etat = ?, message = ? WHERE id = ?')
-                ->execute(['ILLISIBLE', mb_substr($res['erreur'], 0, 500), (int)$p['id']]);
-            $bilan['illisibles'][] = $p['nom_original'];
+                ->execute([$etat, mb_substr($res['erreur'], 0, 500), (int)$p['id']]);
+            $bilan[CRGI_ETATS_PIECE[$etat] ?? 'illisibles'][] = $p['nom_original'];
             continue;
         }
         $idsCrg = [];
@@ -253,14 +373,43 @@ function crgi_phase0(PDO $pdo, int $importId): array
         //    de 906 pages a été présenté « ANALYSÉE · à valider » avec zéro CRG détecté :
         //    l'écran montrait un import sain là où la lecture avait totalement échoué. C'est
         //    la faute que la doctrine FAIL CLOSED interdit depuis P7, et je l'ai commise ici.
+        // ⚠️ ET « ILLISIBLE » CONFONDAIT TROIS ÉTATS SOUS UN SEUL MOT ALARMANT. Sur le corpus
+        //    LYON, cinq pièces l'ont porté : trois n'ont AUCUNE COUCHE TEXTE (des scans, à
+        //    océriser), une était une lettre d'acompte parfaitement lue, et aucune n'était
+        //    illisible au sens propre. Le mot envoyait chercher une panne là où il fallait
+        //    lancer un OCR ou simplement classer un document. Trois états, trois noms.
         if ((int)$res['stats']['crg_detectes'] === 0 && (int)$res['nb_pages'] > 0) {
+            $caracteres = (int)($res['stats']['caracteres'] ?? 0);
+            $joints = [];
+            foreach ($res['pages'] as $pg) {
+                if (str_contains((string)($pg['signal'] ?? ''), '—')) {
+                    $joints[explode(' —', (string)$pg['signal'])[0]] = true;
+                }
+            }
+            // ⚠️ QUATRE ÉTATS, PARCE QU'ILS APPELLENT QUATRE ACTIONS DIFFÉRENTES : océriser,
+            //    classer, analyser une structure neuve, ou réparer une source. Les confondre
+            //    sous le mot le plus alarmant fait perdre le seul qui devait alarmer.
+            if ($caracteres < CRGI_SEUIL_TEXTE) {
+                $etat = 'OCR REQUIS';
+                $msg = 'AUCUNE COUCHE TEXTE — ' . (int)$res['nb_pages'] . ' page(s) parcourue(s), '
+                     . $caracteres . ' caractère(s) extractible(s). Ce n’est pas un document '
+                     . 'illisible : c’est une NUMÉRISATION. Elle demande un OCR, pas une '
+                     . 'correction du moteur. Le document reste compté, jamais perdu.';
+            } elseif ($joints) {
+                $etat = 'HORS CRG';
+                $msg = 'DOCUMENT HORS CRG — ' . implode(', ', array_keys($joints)) . '. Le document '
+                     . 'a été lu entièrement ; il n’est simplement pas un compte rendu de gestion. '
+                     . '`LISIBLE ≠ CRG`, et un document joint n’est pas un document à ignorer.';
+            } else {
+                $etat = 'STRUCTURE INCONNUE';
+                $msg = 'STRUCTURE NON RECONNUE — ' . $caracteres . ' caractères lus sur '
+                     . (int)$res['nb_pages'] . ' page(s), et aucun signal connu. Le document est '
+                     . 'techniquement lisible : c’est sa GRAMMAIRE que le moteur ne connaît pas '
+                     . 'encore. Cela relève de l’analyse d’une structure neuve, pas d’une panne.';
+            }
             $pdo->prepare('UPDATE crgi_piece SET etat = ?, nb_pages = ?, message = ? WHERE id = ?')
-                ->execute(['ILLISIBLE', (int)$res['nb_pages'],
-                           'AUCUN CRG RECONNU sur ' . (int)$res['nb_pages'] . ' pages lues. '
-                         . 'Le document a bien été parcouru : ce sont ses signaux qui n’ont pas '
-                         . 'été reconnus. Ouvrir quelques pages avant de conclure.',
-                           (int)$p['id']]);
-            $bilan['illisibles'][] = $p['nom_original'];
+                ->execute([$etat, (int)$res['nb_pages'], $msg, (int)$p['id']]);
+            $bilan[CRGI_ETATS_PIECE[$etat]][] = $p['nom_original'];
             continue;
         }
         $pdo->prepare('UPDATE crgi_piece SET etat = ?, nb_pages = ?, message = NULL WHERE id = ?')
@@ -305,9 +454,18 @@ function crgi_phase0(PDO $pdo, int $importId): array
     }
 
     if ($bilan['pieces'] === 0) {
+        // ⚠️ ON DIT CE QUI MANQUE, ÉTAT PAR ÉTAT. « Aucune pièce lisible » sur un dépôt de
+        //    scans envoyait chercher un défaut du moteur ; il fallait lancer un OCR.
+        $detail = array_filter([
+            $bilan['illisibles'] ? 'illisibles : ' . implode(', ', $bilan['illisibles']) : '',
+            $bilan['ocr_requis'] ? 'OCR requis : ' . implode(', ', $bilan['ocr_requis']) : '',
+            $bilan['hors_crg'] ? 'hors CRG : ' . implode(', ', $bilan['hors_crg']) : '',
+            $bilan['structure_inconnue'] ? 'structure inconnue : '
+                                           . implode(', ', $bilan['structure_inconnue']) : '',
+        ]);
         crgi_marquer_phase($pdo, $importId, 0, 'BLOQUEE',
-            'Aucune pièce lisible : ' . implode(', ', $bilan['illisibles']));
-        throw new RuntimeException('AUCUNE PIÈCE LISIBLE / ANALYSE IMPOSSIBLE');
+            'Aucun compte rendu de gestion dans ce dépôt — ' . implode(' · ', $detail));
+        throw new RuntimeException('AUCUN CRG DANS LE DÉPÔT / ANALYSE IMPOSSIBLE');
     }
     // ⚠️ LA PHASE 0 DOIT RÉPONDRE ENTIÈREMENT : quel CRG, quelle agence, quelle période, quel
     //    compte, quelles pages. Renvoyer l'agence à la phase 1 reviendrait à valider un
@@ -386,6 +544,36 @@ function crgi_marquer_phase(PDO $pdo, int $importId, int $phase, string $statut,
                                  secondes_machine = COALESCE(:sec2, secondes_machine)'
     )->execute([':i' => $importId, ':p' => $phase, ':s' => $statut, ':m' => $msg,
                 ':s2' => $statut, ':m2' => $msg, ':sec' => $secondes, ':sec2' => $secondes]);
+}
+
+/**
+ * UN SEUL TRAITEMENT À LA FOIS SUR UN IMPORT.
+ *
+ * ⚠️ CE VERROU EXISTE À CAUSE D'UNE MESURE FAUSSE. Le 04/09/2026, deux exécutions ont travaillé
+ *    sur le même dépôt : la seconde a purgé et recommencé la phase 4 pendant qu'on lisait le
+ *    résultat de la première. **14 624 mouvements sont devenus 1 917** — et la phase affichait
+ *    toujours « VALIDÉE », avec une empreinte calculée sur l'état complet. Rien, nulle part, ne
+ *    disait que le chiffre lu n'était pas le chiffre produit.
+ *
+ * ⚠️ CE N'EST PAS UN ACCIDENT D'OUTILLAGE : deux administrateurs qui relancent la même phase
+ *    depuis l'écran produisent exactement cela. Une phase efface avant d'écrire ; deux phases
+ *    qui s'entrelacent laissent un état qu'aucune des deux n'a produit, et que le sceau
+ *    couvre sans le savoir.
+ *
+ * Le verrou est tenu par la CONNEXION : il se relâche seul si le processus meurt, et il est
+ * réentrant — les cinq phases d'un même processus le reprennent sans se bloquer elles-mêmes.
+ */
+function crgi_verrouiller_import(PDO $pdo, int $importId, int $phase): void
+{
+    $st = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+    $st->execute(['crgi_import_' . $importId]);
+    if ((int)$st->fetchColumn() !== 1) {
+        throw new RuntimeException(
+            "IMPORT {$importId} DÉJÀ EN TRAITEMENT — la phase {$phase} n'a pas été lancée. "
+            . "Un autre traitement écrit en ce moment sur ce dépôt ; deux exécutions "
+            . "simultanées produisent un état qu'aucune des deux n'a voulu."
+        );
+    }
 }
 
 /**
@@ -813,10 +1001,11 @@ function crgi_qualifier_collisions(PDO $pdo, int $importId): array
 {
     $st = $pdo->prepare(
         'SELECT c.id, c.doublon_de, c.page_debut, c.page_fin,
-                r.page_debut AS rd, r.page_fin AS rf, p.chemin
+                r.page_debut AS rd, r.page_fin AS rf, p.chemin, q.chemin AS chemin_ref
            FROM crgi_crg c
            JOIN crgi_crg r ON r.id = c.doublon_de
            JOIN crgi_piece p ON p.id = c.piece_id
+           JOIN crgi_piece q ON q.id = r.piece_id
           WHERE c.import_id = ? AND c.doublon_statut = "MEME CLE CONTENU DIFFERENT"
           ORDER BY c.page_debut'
     );
@@ -835,40 +1024,46 @@ function crgi_qualifier_collisions(PDO $pdo, int $importId): array
         'UPDATE crgi_crg SET doublon_qualification = ?, doublon_qualif_motif = ?,
                 doublon_statut = ?, doublon_de = ? WHERE id = ?'
     );
-    // ⚠️ UNE SEULE LECTURE DU DOCUMENT PAR PIÈCE (`INTEG-PERF-01`, comme la phase 4). Un
-    //    processus Python par paire relisait les 906 pages du PDF de 616 Mo pour n'en
-    //    découper que deux extraits : 18 paires × 5,7 s = 103 s des 118 s de la phase 0,
-    //    pour 6 s de lecture utile. La règle de qualification, elle, n'a pas changé — c'est
-    //    le même `qualifier_paire`, sur les mêmes pages, dans le même ordre.
+    // ⚠️ UNE SEULE LECTURE PAR DOCUMENT (`INTEG-PERF-01`, comme la phase 4). Un processus
+    //    Python par paire relisait les 906 pages du PDF de 616 Mo pour n'en découper que deux
+    //    extraits : 18 paires × 5,7 s = 103 s des 118 s de la phase 0, pour 6 s de lecture
+    //    utile. La règle de qualification, elle, n'a pas changé — c'est le même
+    //    `qualifier_paire`, sur les mêmes pages, dans le même ordre.
+    //
+    // ⚠️ MAIS CHAQUE CÔTÉ DIT DE QUEL DOCUMENT IL VIENT. Grouper par la pièce de la SECONDE
+    //    occurrence supposait que la première était dans le même PDF. Sur LYON, le même CRG
+    //    est classé dans deux dossiers (`GPE IMMO DR` et `GPE SIR`) : on découpait alors les
+    //    pages 1-10 de la première occurrence dans le document de la seconde, et on comparait
+    //    un extrait avec lui-même. Le cache Python garde l'unicité de lecture ; le chemin,
+    //    lui, redevient une donnée de la paire.
     $bilan = ['A' => 0, 'B' => 0, 'C' => 0];
     $verdicts = [];
-    $parPiece = [];
+    $lot = [];
     foreach ($paires as $p) {
-        $parPiece[(string)$p['chemin']][] = [
+        $lot[] = [
             'id' => (int)$p['id'],
             'ad' => (int)$p['page_debut'], 'af' => (int)$p['page_fin'],
             'bd' => (int)$p['rd'], 'bf' => (int)$p['rf'],
+            'a_pdf' => (string)$p['chemin'], 'b_pdf' => (string)$p['chemin_ref'],
         ];
     }
-    foreach ($parPiece as $chemin => $lot) {
-        $fichier = tempnam(sys_get_temp_dir(), 'crgid_');
-        file_put_contents($fichier, json_encode($lot));
-        $sortie = @shell_exec(
-            escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
-            . escapeshellarg($chemin) . ' ' . escapeshellarg($fichier) . ' 2>&1'
-        );
-        @unlink($fichier);
-        foreach ((array)json_decode(trim((string)$sortie), true) as $v) {
-            if (is_array($v) && isset($v['id'], $v['verdict'])) {
-                $verdicts[(int)$v['id']] = $v;
-            }
+    $fichier = tempnam(sys_get_temp_dir(), 'crgid_');
+    file_put_contents($fichier, json_encode($lot));
+    $sortie = @shell_exec(
+        escapeshellarg($python) . ' ' . escapeshellarg($script) . ' '
+        . escapeshellarg((string)$paires[0]['chemin']) . ' ' . escapeshellarg($fichier) . ' 2>&1'
+    );
+    @unlink($fichier);
+    foreach ((array)json_decode(trim((string)$sortie), true) as $v) {
+        if (is_array($v) && isset($v['id'], $v['verdict'])) {
+            $verdicts[(int)$v['id']] = $v;
         }
-        // ⚠️ ON GARDE LA SORTIE BRUTE POUR LES PAIRES SANS VERDICT. Un moteur muet doit dire
-        //    pourquoi il l'est, sinon le cas C devient un cul-de-sac de diagnostic.
-        foreach ($lot as $l) {
-            if (!isset($verdicts[$l['id']])) {
-                $verdicts[$l['id']] = ['muet' => mb_substr(trim((string)$sortie), 0, 200)];
-            }
+    }
+    // ⚠️ ON GARDE LA SORTIE BRUTE POUR LES PAIRES SANS VERDICT. Un moteur muet doit dire
+    //    pourquoi il l'est, sinon le cas C devient un cul-de-sac de diagnostic.
+    foreach ($lot as $l) {
+        if (!isset($verdicts[$l['id']])) {
+            $verdicts[$l['id']] = ['muet' => mb_substr(trim((string)$sortie), 0, 200)];
         }
     }
     foreach ($paires as $p) {
@@ -914,6 +1109,7 @@ function crgi_qualifier_collisions(PDO $pdo, int $importId): array
  */
 function crgi_phase1(PDO $pdo, int $importId): array
 {
+    crgi_verrouiller_import($pdo, $importId, 1);
     $etat0 = crgi_phase_validee($pdo, $importId, 0);
     if (!$etat0['validee'] || $etat0['perimee']) {
         throw new RuntimeException(
@@ -923,10 +1119,20 @@ function crgi_phase1(PDO $pdo, int $importId): array
     }
     crgi_marquer_phase($pdo, $importId, 1, 'EN ANALYSE', null);
 
+    // ⚠️ UNE PHASE EFFACE CE QU'ELLE NE COUVRE PLUS. Deux CRG stampés « NOUVELLE » lors d'un
+    //    premier passage sont devenus des réénonciations quand la qualification des collisions
+    //    a su les lire : la phase 1 ne les regarde plus, mais leur inventaire d'avant est
+    //    resté collé. Le contrôle de couverture les comptait alors DEUX FOIS — examinés ET
+    //    exclus — et annonçait « -2 objets inexpliqués » sur une chaîne pourtant complète.
+    //    Une trace qui survit à la règle qui l'a produite est un mensonge, pas un souvenir.
+    $pdo->prepare('UPDATE crgi_crg SET inventaire_statut = NULL, inventaire_motif = NULL,
+                          mbi_trimestre_id = NULL
+                    WHERE import_id = ?')->execute([$importId]);
+
     $st = $pdo->prepare(
         'SELECT id, compte, format, periode_debut, periode_fin, date_arrete, periode_cle
            FROM crgi_crg
-          WHERE import_id = ? AND doublon_statut = "UNIQUE"
+          WHERE import_id = ? AND ' . CRGI_CRG_PORTEURS . '
           ORDER BY page_debut'
     );
     $st->execute([$importId]);
@@ -1069,7 +1275,7 @@ function crgi_bilan_phase1(PDO $pdo, int $importId): array
                 SUM(g.inventaire_statut = "A VERIFIER")     AS a_verifier,
                 SUM(g.doublon_qualification = "B")          AS complementaires
            FROM crgi_crg g LEFT JOIN agences a ON a.id = g.agence_id
-          WHERE g.import_id = ? AND g.doublon_statut = "UNIQUE"
+          WHERE g.import_id = ? AND g.doublon_statut <> "REENONCIATION"
           GROUP BY COALESCE(a.nom_agence, g.agence, "(agence indéterminable)"),
                    COALESCE(g.periode_cle, "(période indéterminable)")
           ORDER BY agence_vue, periode'
@@ -1079,7 +1285,7 @@ function crgi_bilan_phase1(PDO $pdo, int $importId): array
 
     $tot = $pdo->prepare(
         'SELECT inventaire_statut, COUNT(*) n FROM crgi_crg
-          WHERE import_id = ? AND doublon_statut = "UNIQUE" GROUP BY inventaire_statut'
+          WHERE import_id = ? AND doublon_statut <> "REENONCIATION" GROUP BY inventaire_statut'
     );
     $tot->execute([$importId]);
     $reed = $pdo->prepare('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?
@@ -1123,6 +1329,7 @@ function crgi_plat(?string $s): string
  */
 function crgi_phase2(PDO $pdo, int $importId): array
 {
+    crgi_verrouiller_import($pdo, $importId, 2);
     $etat1 = crgi_phase_validee($pdo, $importId, 1);
     if (!$etat1['validee'] || $etat1['perimee']) {
         throw new RuntimeException(
@@ -1243,6 +1450,118 @@ function crgi_commande_lecture(string $python, string $scriptSpi, string $chemin
          . escapeshellarg($chemin) . ' ' . escapeshellarg($plages);
 }
 
+// ⚠️ CE QUI N'EST PAS UN BÂTIMENT NE PEUT PAS ÊTRE LE BÂTIMENT QU'ON CHERCHE. La table
+//    `immeubles` de MBI porte 245 « Appartement », 22 « Local commercial » et 10 « Garage » —
+//    des LOTS rangés là par une reprise ancienne, à la même adresse et sous le même nom que
+//    leur immeuble. Ils devenaient des « homonymes » : 33 des 41 questions d'identité d'un
+//    corpus n'opposaient pas deux bâtiments, elles opposaient un bâtiment à ses propres lots.
+//
+// ⚠️ ON EXCLUT, ON N'ÉNUMÈRE PAS. La liste dit ce qui est DÉMONTRÉ non contributif ; un type
+//    inconnu — ou absent — reste candidat (`NOUVEAUTÉ ≠ EXCLUSION`). « Maison » n'y figure
+//    pas : une maison EST un immeuble au sens du compte rendu.
+const CRGI_TYPES_DE_LOT = ['APPARTEMENT', 'LOCAL COMMERCIAL', 'GARAGE', 'PARKING', 'CAVE',
+                           'BUREAU', 'BOX', 'STUDIO'];
+
+/**
+ * LE MOTIF QUI DIT « CE N'EST PAS LE DOCUMENT QUI EST AMBIGU, C'EST MBI QUI SE RÉPÈTE ».
+ *
+ * ⚠️ UNE CONSTANTE, PARCE QUE DEUX ENDROITS S'EN SERVENT. La confrontation l'écrit, la file
+ *    d'arbitrage le lit pour séparer les deux questions. Recopier la phrase des deux côtés
+ *    aurait produit, au premier mot changé, une famille d'arbitrage vide sans que rien ne le
+ *    dise — le genre de panne qui a l'air d'une amélioration.
+ */
+const CRGI_MOTIF_MBI_REPETE = 'MBI porte ';
+
+/** Les candidats qui peuvent être le bâtiment cherché — les autres sont des lots. */
+function crgi_candidats_batiments(array $cands): array
+{
+    // Une liste vide EST une réponse : MBI porte des lots à cette adresse, pas de bâtiment.
+    return array_values(array_filter($cands, fn($c) => !in_array(
+        mb_strtoupper(trim((string)($c['type_immeuble'] ?? ''))), CRGI_TYPES_DE_LOT, true)));
+}
+
+/**
+ * LE CODE IMPRIMÉ SUR LE CRG, RETROUVÉ DANS `code_crg` — une preuve, pas une ressemblance.
+ *
+ * ⚠️ MBI ÉCRIT PARFOIS LE CODE COMPLET, LE CRG N'EN IMPRIME QUE LA FIN. « 01S01-0067 » côté
+ *    MBI, « 0067 » côté document : le segment final est le code de l'immeuble chez le
+ *    gestionnaire, ce qui précède est le préfixe d'agence et d'activité. On exige donc le
+ *    segment ENTIER après le tiret — jamais une inclusion libre, qui confondrait « 67 » et
+ *    « 0067 ».
+ *
+ * ⚠️ ET PARFOIS IL L'ÉCRIT SANS PRÉFIXE : « 01040087 » des deux côtés. Exiger le tiret rendait
+ *    la preuve AVEUGLE sur tout un corpus — 14 questions d'identité posées alors que MBI
+ *    portait le code, à l'identique, dans la colonne faite pour lui. La forme du code
+ *    appartient au gestionnaire ; l'égalité, elle, ne change pas.
+ *
+ * ⚠️ `code_crg` PRIME SUR `reference_immeuble`, ET C'EST DÉLIBÉRÉ. Les deux colonnes indexent
+ *    les candidats, mais une seule est faite pour porter le code du gestionnaire. Quand un
+ *    seul candidat porte le code LÀ, c'est MBI lui-même qui désigne — pas une ressemblance.
+ *    Le motif le dit, pour que la décision reste auditable.
+ */
+function crgi_candidat_par_code_crg(array $cands, string $code): ?array
+{
+    $code = ltrim(trim($code), '0');
+    if ($code === '') {
+        return null;
+    }
+    $trouves = [];
+    foreach ($cands as $c) {
+        $plein = trim((string)($c['code_crg'] ?? ''));
+        if ($plein === '') {
+            continue;
+        }
+        $segment = str_contains($plein, '-') ? substr($plein, strrpos($plein, '-') + 1) : $plein;
+        if (ltrim($segment, '0') === $code) {
+            $trouves[] = $c;
+        }
+    }
+    return count($trouves) === 1 ? $trouves[0] : null;
+}
+
+/**
+ * TOUS CES CANDIDATS SONT-ILS LE MÊME IMMEUBLE, ENREGISTRÉ PLUSIEURS FOIS ?
+ *
+ * ⚠️ « PLUSIEURS CANDIDATS » RECOUVRE DEUX SITUATIONS OPPOSÉES. Ou bien MBI porte deux
+ *    BÂTIMENTS DIFFÉRENTS de même nom — seul un humain sait lequel le document désigne. Ou
+ *    bien MBI porte le MÊME immeuble plusieurs fois, sous le même code de gestion : ce n'est
+ *    plus le document qui est ambigu, c'est la base qui se contredit, et la réponse est un
+ *    ménage à faire dans MBI, pas une relecture du PDF. `238 Route de Vienne` y existe TROIS
+ *    fois sous le code `01040087`, créé par trois reprises successives.
+ *
+ * ⚠️ ET LA CONDITION SE TESTE, PARCE QU'ELLE EST FACILE À ÉCRIRE FAUSSE. La première version
+ *    comparait le nombre de codes DISTINCTS au nombre de candidats : `array_unique` ramenant
+ *    trois codes identiques à un seul, la branche n'a jamais pu se déclencher — un code mort
+ *    qui avait l'air de fonctionner. On exige donc DEUX choses, séparément : tous les
+ *    candidats portent un code, et ce code est le même.
+ */
+function crgi_meme_immeuble_repete(array $cands): ?string
+{
+    if (count($cands) < 2) {
+        return null;
+    }
+    // ⚠️ DEUX PREUVES, ET CHACUNE SUFFIT — parce que MBI ne remplit pas toujours les deux
+    //    colonnes. Le code de gestion est sa clé propre ; l'adresse est ce que le bâtiment
+    //    EST. Sur un corpus, 10 groupes se démontrent par le code et 7 par l'adresse seule ;
+    //    n'en garder qu'une laissait 7 contradictions de la base passer pour des ambiguïtés
+    //    du document. On exige que TOUS les candidats portent la valeur, et la même.
+    foreach ([
+        ['code de gestion', fn($c) => trim((string)($c['code_crg'] ?? ''))],
+        ['adresse',         fn($c) => crgi_plat((string)($c['adresse_1'] ?? ''))],
+    ] as [$quoi, $lire]) {
+        $vals = array_map($lire, $cands);
+        $portees = array_filter($vals, fn($v) => $v !== '');
+        if (count($portees) !== count($cands)) {
+            continue;                   // au moins un candidat ne porte pas cette valeur
+        }
+        $distincts = array_unique($portees);
+        if (count($distincts) === 1) {
+            return $quoi . ' « ' . (string)reset($distincts) . ' »';
+        }
+    }
+    return null;
+}
+
 /**
  * LA CLÉ D'IDENTITÉ D'UN IMMEUBLE, telle que le document la donne.
  *
@@ -1279,6 +1598,45 @@ function crgi_identite_apprise(PDO $pdo, string $type, string $agence, string $c
     return $cache[$k] = $r;
 }
 
+/**
+ * UNE PREUVE NOUVELLE CONTREDIT-ELLE LA DÉCISION MÉMORISÉE ?
+ *
+ * ⚠️ UNE MÉMOIRE QUI NE SAIT PAS SE TAIRE EST PIRE QU'UNE ABSENCE DE MÉMOIRE. Elle donne
+ *    l'apparence de l'apprentissage tout en écrasant, en silence, une information que le
+ *    document apporte pour la première fois. On compare donc ce que la décision affirme à ce
+ *    que le document imprime AUJOURD'HUI ; à la moindre divergence, la question se rouvre —
+ *    avec l'ancienne décision citée, pour qu'Emmanuel arbitre en connaissance de cause.
+ *
+ * ⚠️ ON NE COMPARE QUE CE QUI EST COMPARABLE. Le nom et le code postal sont imprimés par le
+ *    document ; la ville, elle, est souvent tronquée ou absente selon le gabarit. Comparer un
+ *    champ que le document ne donne pas toujours ferait rouvrir des questions déjà réglées —
+ *    et l'agent redeviendrait bavard pour de mauvaises raisons.
+ */
+function crgi_contredit_la_memoire(PDO $pdo, array $appris, array $imm): ?string
+{
+    if (!$appris['mbi_id']) {
+        return null;                          // « créer un immeuble distinct » : rien à confronter
+    }
+    $st = $pdo->prepare('SELECT nom_immeuble, adresse_1, code_postal FROM immeubles WHERE id = ?');
+    $st->execute([(int)$appris['mbi_id']]);
+    $mbi = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$mbi) {
+        return 'La décision du ' . substr((string)$appris['decide_le'], 0, 10) . ' désignait '
+             . 'l’immeuble MBI n°' . (int)$appris['mbi_id'] . ', qui n’existe plus. La question '
+             . 'est rouverte : une décision mémorisée ne s’applique pas à un objet disparu.';
+    }
+    $cpDoc = (string)($imm['code_postal'] ?? '');
+    $cpMbi = (string)($mbi['code_postal'] ?? '');
+    if ($cpDoc !== '' && $cpMbi !== '' && $cpDoc !== $cpMbi) {
+        return 'CONTRADICTION AVEC UNE DÉCISION MÉMORISÉE — le '
+             . substr((string)$appris['decide_le'], 0, 10) . ' cette identité a été rattachée à '
+             . 'l’immeuble MBI n°' . (int)$appris['mbi_id'] . ' (' . $cpMbi . '), mais le '
+             . 'document imprime aujourd’hui le code postal ' . $cpDoc . '. La décision n’est '
+             . 'pas appliquée en silence : elle est remise en arbitrage avec sa preuve.';
+    }
+    return null;
+}
+
 function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
 {
     $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
@@ -1295,7 +1653,7 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
     $st = $pdo->prepare(
         'SELECT c.id, c.page_debut, c.page_fin, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
-          WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
+          WHERE c.import_id = ? AND c.doublon_statut <> "REENONCIATION" ORDER BY c.page_debut'
     );
     $st->execute([$importId]);
     $insImm = $pdo->prepare(
@@ -1361,7 +1719,8 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
     // Les immeubles de MBI, par référence et par adresse normalisée.
     $parRef = $parAdresse = [];
     foreach ($pdo->query(
-        'SELECT id, reference_immeuble, code_crg, nom_immeuble, adresse_1, code_postal, ville
+        'SELECT id, reference_immeuble, code_crg, nom_immeuble, adresse_1, code_postal, ville,
+                type_immeuble
            FROM immeubles', PDO::FETCH_ASSOC) as $i) {
         foreach ([$i['reference_immeuble'], $i['code_crg']] as $ref) {
             if ($ref !== null && $ref !== '') {
@@ -1388,6 +1747,16 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
         $appris = crgi_identite_apprise($pdo, 'IMMEUBLE', (string)$imm['agence'],
                                         crgi_cle_immeuble($imm));
         if ($appris) {
+            // ⚠️ UNE MÉMOIRE N'EST PAS UNE VÉRITÉ ÉTERNELLE. Si le document désigne aujourd'hui
+            //    un objet MBI que la décision d'hier écartait, appliquer l'ancienne réponse en
+            //    silence serait le pire des deux mondes : on aurait l'air d'avoir appris tout
+            //    en écrasant une preuve nouvelle. `MÊME SITUATION → RÉUTILISER ; PREUVE NOUVELLE
+            //    CONTRADICTOIRE → RÉARBITRER` — Emmanuel, 04/09/2026.
+            $contredit = crgi_contredit_la_memoire($pdo, $appris, $imm);
+            if ($contredit) {
+                $maj->execute(['A ARBITRER', null, null, $contredit, (int)$imm['id']]);
+                continue;
+            }
             $maj->execute([$appris['mbi_id'] ? 'IDENTIQUE' : 'NOUVEAU',
                            $appris['mbi_id'] ?: null, null,
                            'Identité déjà tranchée le ' . substr((string)$appris['decide_le'], 0, 10)
@@ -1419,11 +1788,55 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
                 (int)$imm['id']]);
             continue;
         }
+        // ⚠️ AVANT DE POSER LA QUESTION, ON REGARDE CE QU'ON SAIT DÉJÀ. Deux preuves, dans cet
+        //    ordre, et l'une n'a JAMAIS contredit l'autre sur les 41 homonymes mesurés :
+        //    ❶ les candidats qui ne sont pas des bâtiments ne peuvent pas être ce bâtiment ;
+        //    ❷ le code imprimé sur le CRG se retrouve tel quel dans `code_crg`.
+        //    Sans elles, 41 questions ; avec elles, 3 — les trois où deux vrais bâtiments
+        //    portent le même nom à la même adresse, et là seul un humain peut trancher.
+        $preuve = '';
         if (count($cands) > 1) {
-            $maj->execute(['A ARBITRER', null, null,
-                count($cands) . ' immeubles de MBI correspondent par ' . $par
-                . ' : n°' . implode(', n°', array_column($cands, 'id'))
-                . '. Aucune identité n’est retenue d’office.', (int)$imm['id']]);
+            $batiments = crgi_candidats_batiments($cands);
+            if (count($batiments) < count($cands)) {
+                $preuve = 'les autres candidats sont des LOTS de MBI (appartement, local, '
+                        . 'garage), pas des bâtiments';
+                $cands = $batiments;
+            }
+        }
+        if (!$cands) {
+            // Tous les homonymes étaient des lots : ce bâtiment-là, MBI ne le porte pas.
+            $maj->execute(['NOUVEAU', null, null,
+                'Les seuls objets de MBI portant ce nom et ce code postal sont des LOTS '
+                . '(appartement, local, garage) — aucun bâtiment. L’immeuble serait créé.',
+                (int)$imm['id']]);
+            continue;
+        }
+        if (count($cands) > 1) {
+            $exact = crgi_candidat_par_code_crg($cands, (string)$imm['code']);
+            if ($exact) {
+                $preuve = 'son code « ' . $imm['code'] .' » est celui de `code_crg` n°'
+                        . $exact['id'] . ' (« ' . $exact['code_crg'] . ' »)';
+                $cands = [$exact];
+            }
+        }
+        if (count($cands) > 1) {
+            // ⚠️ « PLUSIEURS CANDIDATS » RECOUVRE DEUX SITUATIONS OPPOSÉES, ET LA QUESTION
+            //    N'EST PAS LA MÊME. Ou bien MBI porte deux BÂTIMENTS DIFFÉRENTS de même nom —
+            //    seul un humain sait lequel le document désigne. Ou bien MBI porte le MÊME
+            //    immeuble PLUSIEURS FOIS, sous le même code de gestion : ce n'est plus le
+            //    document qui est ambigu, c'est MBI qui se contredit, et la décision porte sur
+            //    le ménage à faire dans MBI. Dire « 3 immeubles correspondent » dans les deux
+            //    cas envoie chercher une réponse dans le mauvais document.
+            $repete = crgi_meme_immeuble_repete($cands);
+            $motif = $repete !== null
+                ? CRGI_MOTIF_MBI_REPETE . count($cands) . ' FOIS le même immeuble — même '
+                  . $repete . ' : n°' . implode(', n°', array_column($cands, 'id'))
+                  . '. Le document n’est pas ambigu ; c’est MBI qui se répète. Auquel '
+                  . 'rattacher, et lequel dédoublonner ?'
+                : count($cands) . ' immeubles de MBI correspondent par ' . $par
+                  . ' : n°' . implode(', n°', array_column($cands, 'id'))
+                  . '. Aucune identité n’est retenue d’office.';
+            $maj->execute(['A ARBITRER', null, null, $motif, (int)$imm['id']]);
             continue;
         }
         $m = $cands[0];
@@ -1437,7 +1850,8 @@ function crgi_confronter_patrimoine(PDO $pdo, int $importId): void
         }
         $maj->execute([$ecarts ? 'MODIFIE' : 'IDENTIQUE', (int)$m['id'],
                        $ecarts ? implode("\n", $ecarts) : null,
-                       'Rapproché de l’immeuble MBI n°' . $m['id'] . ' par ' . $par . '.',
+                       'Rapproché de l’immeuble MBI n°' . $m['id'] . ' par ' . $par
+                       . ($preuve ? ' — ' . $preuve . '.' : '.'),
                        (int)$imm['id']]);
     }
 
@@ -1580,11 +1994,11 @@ function crgi_bilan_phase2(PDO $pdo, int $importId): array
                 WHERE import_id = ? AND compte_qualification IS NOT NULL
                 GROUP BY compte_qualification')->fetchAll(PDO::FETCH_KEY_PAIR);
     $inv = $q('SELECT inventaire_statut, COUNT(*) n FROM crgi_crg
-                WHERE import_id = ? AND doublon_statut = "UNIQUE"
+                WHERE import_id = ? AND doublon_statut <> "REENONCIATION"
                 GROUP BY inventaire_statut')->fetchAll(PDO::FETCH_KEY_PAIR);
 
     $proprios = $q('SELECT COUNT(DISTINCT compte) FROM crgi_crg
-                     WHERE import_id = ? AND doublon_statut = "UNIQUE"')->fetchColumn();
+                     WHERE import_id = ? AND doublon_statut <> "REENONCIATION"')->fetchColumn();
     return [
         'totaux' => ['immeubles' => $imm, 'lots' => $lot, 'comptes' => $cpt,
                      'inventaire' => $inv, 'comptes_distincts' => (int)$proprios],
@@ -1622,6 +2036,7 @@ function crgi_bilan_phase2(PDO $pdo, int $importId): array
  */
 function crgi_phase3(PDO $pdo, int $importId): array
 {
+    crgi_verrouiller_import($pdo, $importId, 3);
     $etat2 = crgi_phase_validee($pdo, $importId, 2);
     if (!$etat2['validee'] || $etat2['perimee']) {
         throw new RuntimeException(
@@ -1648,7 +2063,7 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
     $st = $pdo->prepare(
         'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
-          WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
+          WHERE c.import_id = ? AND c.doublon_statut <> "REENONCIATION" ORDER BY c.page_debut'
     );
     $st->execute([$importId]);
     $meta = $parPiece = [];
@@ -2088,6 +2503,7 @@ function crgi_bilan_phase0(PDO $pdo, int $importId): array
  */
 function crgi_phase4(PDO $pdo, int $importId): array
 {
+    crgi_verrouiller_import($pdo, $importId, 4);
     $etat3 = crgi_phase_validee($pdo, $importId, 3);
     if (!$etat3['validee'] || $etat3['perimee']) {
         throw new RuntimeException(
@@ -2121,7 +2537,7 @@ function crgi_lire_finances(PDO $pdo, int $importId): void
     $st = $pdo->prepare(
         'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
-          WHERE c.import_id = ? AND c.doublon_statut = "UNIQUE" ORDER BY c.page_debut'
+          WHERE c.import_id = ? AND c.doublon_statut <> "REENONCIATION" ORDER BY c.page_debut'
     );
     $st->execute([$importId]);
     $meta = $parPiece = [];
@@ -2322,6 +2738,7 @@ function crgi_empreinte_phase4(PDO $pdo, int $importId): string
  */
 function crgi_phase5(PDO $pdo, int $importId): array
 {
+    crgi_verrouiller_import($pdo, $importId, 5);
     $etat4 = crgi_phase_validee($pdo, $importId, 4);
     if (!$etat4['validee'] || $etat4['perimee']) {
         throw new RuntimeException(
@@ -2406,11 +2823,17 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
         'Nom lu sur les CRG qu’aucun propriétaire de MBI ne porte : une identité serait créée. '
         . '`OBSERVÉ DANS LE CORPUS ≠ NOUVEAU DANS MBI` — seuls ceux-ci sont réellement absents.',
         'phase 0 · noms lus × proprietaires');
-    $poser('PROPRIETAIRES', 'A ARBITRER', $pAmbigu + ($q['C'] ?? 0) + ($q['D'] ?? 0),
-        'propriétaire',
-        'Plusieurs propriétaires de MBI portent ce nom, ou le compte y existe sous une autre '
-        . 'écriture. `AUCUN RAPPROCHEMENT APPROXIMATIF NE CRÉE UNE IDENTITÉ`.',
-        'phase 0 × proprietaires · phase 2 qualification C/D',
+    // ⚠️ UN COMPTE AMBIGU N'EST PAS UN PROPRIÉTAIRE AMBIGU. Les qualifications C et D de la
+    //    phase 2 portent sur des COMPTES MANDANTS — « ce compte existe dans MBI sous une autre
+    //    écriture », « plusieurs candidats ». Les additionner ici mêlait deux mailles dans une
+    //    seule famille : 199 propriétaires lus, 200 verdicts rendus. L'écart d'un seul objet
+    //    est passé sous le total général pendant tout le corpus EMERY ; il n'apparaît qu'au
+    //    contrôle famille par famille. Chaque qualification est désormais comptée là où son
+    //    objet existe — et une seule fois.
+    $poser('PROPRIETAIRES', 'A ARBITRER', $pAmbigu, 'propriétaire',
+        'Plusieurs propriétaires de MBI portent ce nom. `AUCUN RAPPROCHEMENT APPROXIMATIF NE '
+        . 'CRÉE UNE IDENTITÉ`.',
+        'phase 0 × proprietaires',
         'Bloque la création ou le rattachement de CE propriétaire. N’empêche aucune autre '
         . 'famille.');
     $poser('PROPRIETAIRES', 'ARCHIVER', 0, 'propriétaire',
@@ -2421,11 +2844,19 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
     $comptes = $un('SELECT COUNT(DISTINCT compte) FROM crgi_crg WHERE import_id = ?');
     $connus = $un('SELECT COUNT(DISTINCT compte) FROM crgi_crg
                     WHERE import_id = ? AND mbi_trimestre_id IS NOT NULL');
+    // Les qualifications C et D de la phase 2 sont des comptes, et c'est ici qu'elles comptent.
+    $cptAmbigus = min($comptes - $connus, ($q['C'] ?? 0) + ($q['D'] ?? 0));
     $poser('COMPTES MANDANTS', 'INCHANGE', $connus, 'compte',
         'Comptes que MBI rapproche déjà d’une situation connue.', 'phase 1 · inventaire');
-    $poser('COMPTES MANDANTS', 'CREER', $comptes - $connus, 'compte',
+    $poser('COMPTES MANDANTS', 'CREER', $comptes - $connus - $cptAmbigus, 'compte',
         'Comptes lus sur les CRG et qu’aucune situation de MBI ne porte encore.',
         'phase 1 · inventaire');
+    $poser('COMPTES MANDANTS', 'A ARBITRER', $cptAmbigus, 'compte',
+        'Le compte existe dans MBI sous une autre écriture, ou plusieurs situations y '
+        . 'répondent. `AUCUN RAPPROCHEMENT APPROXIMATIF NE CRÉE UNE IDENTITÉ`.',
+        'phase 2 · qualification C/D',
+        'Bloque le rattachement de CE compte à une situation de MBI. N’empêche ni les '
+        . 'occupations ni l’argent, démontrés au lot.');
     $poser('COMPTES MANDANTS', 'ARCHIVER', 0, 'compte',
         'AUCUN. Les situations que MBI connaît et que ce dépôt ne rapporte pas restent '
         . 'intactes : elles ne sont pas supprimées, elles ne sont pas dans ce dépôt.',
@@ -2621,6 +3052,17 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
          'Sections « Factures dues », « Charges de syndic », « Charges Propriétaire ».'],
         ['FRAIS ET ASSURANCES', ['FRAIS ET ASSURANCES'],
          'Sections « Honoraires de Gestion », « GLI » et « GU Assurance ».'],
+        // ⚠️ AJOUTÉE APRÈS COUP, ET C'EST BIEN LE PROBLÈME. La catégorie était déclarée au
+        //    vocabulaire et produite par le moteur ICS, mais aucune famille du plan ne la
+        //    reprenait : 340 mouvements — une taxe foncière entière — n'étaient ni intégrés,
+        //    ni exclus, ni arbitrés. Ils n'étaient nulle part. Seul le contrôle « le plan rend
+        //    compte de TOUS les mouvements » l'a vu, et il a fallu un corpus de 14 370 lignes
+        //    pour que l'écart devienne visible. Une famille de plan qui ne suit pas le
+        //    vocabulaire déclaré rouvre exactement la faille de `NOUVEAUTÉ ≠ EXCLUSION`.
+        ['IMPOTS ET TAXES', ['IMPOTS ET TAXES'],
+         'Taxe foncière, taxe d’ordures ménagères et contributions assimilées, refacturées ou '
+         . 'supportées. `IMPÔT ≠ CHARGE COURANTE` : leur périodicité et leur redevable ne sont '
+         . 'pas les mêmes.'],
         ['FLUX PROPRIETAIRE', ['VERSEMENT PROPRIETAIRE'],
          'Lignes « Virement : … € », écrites en clair hors de toute colonne.'],
         ['SOLDES', ['SOLDE'],
@@ -2645,6 +3087,7 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
         $ok = $f('HORS PERIMETRE') + $f('NOUVEAU');
         $deja = $f('DEJA PRESENT');
         $dejaMbi = $f('CANDIDAT NON DEMONTRABLE') + $f('CONTRADICTION');
+        $muet = $f('NON RAPPROCHABLE');
         $ko = $un("SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
                     AND categorie IN ({$in}) AND additionnable = 0");
         $sansLot = $un("SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?
@@ -2670,6 +3113,17 @@ function crgi_batir_plan(PDO $pdo, int $importId): void
                 . 'rapprochement n’a été forcé.', 'rapprochement × crg_ecritures',
                 'Bloque l’écriture de ces seuls mouvements. N’empêche ni les objets, ni les '
                 . 'mouvements démontrés nouveaux.');
+        }
+        if ($muet > 0) {
+            // ⚠️ COMPTÉ, NOMMÉ, JAMAIS POSÉ EN QUESTION. Ces lignes existent et se voient ;
+            //    simplement, aucune information au monde ne dit à quelle écriture de MBI elles
+            //    correspondent. Les faire remonter en arbitrage gonflait la file de questions
+            //    auxquelles personne — pas même le moteur — ne pouvait répondre.
+            $poser($nom, 'NON INTEGRABLE', $muet, 'mouvement',
+                'Rapprochement impossible pour tout le monde : libellé générique (« Solde ») '
+                . 'ou plusieurs écritures MBI strictement indiscernables. `MÊME MONTANT ≠ MÊME '
+                . 'ÉCRITURE`. Lignes lues et conservées, jamais écrites — et AUCUNE question '
+                . 'posée, faute de réponse possible.', 'rapprochement × crg_ecritures');
         }
         if ($ko > 0) {
             $poser($nom, 'NON INTEGRABLE', $ko, 'mouvement',
@@ -2874,10 +3328,17 @@ function crgi_verdict_rapprochement(array $m, array $cands): array
     $lib = preg_replace('~[^A-Z0-9]~', '', crgi_plat((string)$m['libelle']));
     $appel = !in_array($m['colonne'], ['debit', 'credit'], true);
     if (!$appel && $cands && mb_strlen($lib) < 8) {
-        return ['CANDIDAT NON DEMONTRABLE', null,
+        // ⚠️ CE N'EST PAS UN ARBITRAGE : PERSONNE NE PEUT RÉPONDRE. Emmanuel voit exactement
+        //    ce que le moteur voit — douze lignes « Solde » identiques dans la même situation.
+        //    Lui demander LAQUELLE, c'est lui demander de deviner. Une question sans réponse
+        //    possible n'est pas une question, c'est une limite : on la NOMME, on la compte, on
+        //    ne l'écrit pas, et on ne la met pas dans la file. Emmanuel, 04/09/2026 : « je ne
+        //    veux décider que sur 20 à 30 points au total ».
+        return ['NON RAPPROCHABLE', null,
             'Le libellé « ' . $m['libelle'] . ' » est trop générique pour désigner une '
-            . 'écriture : ' . count($cands) . ' candidates dans cette situation. Le '
-            . 'rapprochement demande une décision.'];
+            . 'écriture : ' . count($cands) . ' candidates dans cette situation. Aucune '
+            . 'information, ni dans le document ni dans MBI, ne permet de trancher — '
+            . 'l’humain n’en a pas plus que le moteur. Ligne lue, conservée, non écrite.'];
     }
     if ($appel) {
         // ⚠️ CE N'EST PAS UN ÉCHEC DE RAPPROCHEMENT, C'EST UNE LIMITE DU MODÈLE DE MBI.
@@ -2900,11 +3361,13 @@ function crgi_verdict_rapprochement(array $m, array $cands): array
     }
     if (count($exacts) > 1) {
         // ⚠️ PLUSIEURS ÉCRITURES IDENTIQUES : les départager au montant serait exactement le
-        //    rapprochement forcé qu'on s'interdit.
-        return ['CANDIDAT NON DEMONTRABLE', null,
-            count($exacts) . ' écritures de MBI portent le même libellé et le même montant '
-            . 'dans cette situation. Rien ne dit LAQUELLE correspond : `MÊME MONTANT ≠ MÊME '
-            . 'ÉCRITURE`.'];
+        //    rapprochement forcé qu'on s'interdit — et un humain n'a rien de plus pour choisir,
+        //    puisque les candidates sont indiscernables. Limite nommée, pas question posée.
+        return ['NON RAPPROCHABLE', null,
+            count($exacts) . ' écritures de MBI portent le même libellé ET le même montant '
+            . 'dans cette situation : elles sont indiscernables. Rien ne dit LAQUELLE '
+            . 'correspond (`MÊME MONTANT ≠ MÊME ÉCRITURE`), et rien ne le dira. Ligne lue, '
+            . 'conservée, non écrite.'];
     }
     if (count($cands) === 1 && (float)$cands[0][$m['colonne']] == 0.0) {
         return ['CANDIDAT NON DEMONTRABLE', (int)$cands[0]['id'],
@@ -2967,16 +3430,36 @@ function crgi_couverture(PDO $pdo, int $importId): array
             'motif_exclusion' => 'pages hors périmètre CRG (appels de fonds) et versos, '
                                . 'chacune portant son signal'];
 
+    // ── PHASE 0 bis : LES PIÈCES DÉPOSÉES ─────────────────────────────────────────────────
+    // ⚠️ AUCUN DOCUMENT NE PEUT RESTER DANS UNE CINQUIÈME CATÉGORIE INVISIBLE. Un fichier
+    //    déposé est soit analysé, soit écarté AVEC SON MOTIF — OCR requis, hors CRG, structure
+    //    inconnue, illisible. S'il n'est ni l'un ni l'autre, il a disparu avant même d'entrer
+    //    dans les phases métier, et aucun contrôle aval ne peut le voir : les contrôles aval
+    //    comparent des populations qui, elles, ne l'ont jamais reçu.
+    $pieces = $q('SELECT COUNT(*) FROM crgi_piece WHERE import_id = ?');
+    $etats = implode(',', array_map(fn($e) => '"' . $e . '"', array_keys(CRGI_ETATS_PIECE)));
+    $nommees = $q('SELECT COUNT(*) FROM crgi_piece WHERE import_id = ?
+                    AND etat IN (' . $etats . ')');
+    $ecartees = $q('SELECT COUNT(*) FROM crgi_piece WHERE import_id = ?
+                     AND etat IN (' . $etats . ') AND etat <> "ANALYSEE"');
+    $c[] = ['phase' => 0, 'population' => 'pièces déposées', 'attendue' => $pieces,
+            'examinee' => $nommees - $ecartees, 'exclue' => $ecartees,
+            'motif_exclusion' => 'OCR requis, hors CRG, structure inconnue ou illisible — '
+                               . 'chacune portant son état et son message'];
+
     // ── PHASE 1 : les CRG documentaires ───────────────────────────────────────────────────
     $crg = $q('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?');
     $inv = $q('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?
                 AND inventaire_statut IS NOT NULL AND inventaire_statut <> ""');
     $reen = $q('SELECT COUNT(*) FROM crgi_crg WHERE import_id = ?
                  AND doublon_statut = "REENONCIATION"');
+    // ⚠️ `ATTENDUE = EXAMINÉE + EXCLUE`, ET RIEN D'AUTRE. Un document de même clé mais de
+    //    contenu différent n'était ni examiné ni exclu : il tombait dans une quatrième
+    //    catégorie que personne ne regardait. C'est la définition même d'une perte silencieuse.
     $c[] = ['phase' => 1, 'population' => 'CRG documentaires', 'attendue' => $crg,
             'examinee' => $inv, 'exclue' => $reen,
             'motif_exclusion' => 'réénonciations démontrées : le même événement, énoncé deux '
-                               . 'fois'];
+                               . 'fois. Un document COMPLÉMENTAIRE, lui, est contributif.'];
 
     // ── PHASE 2 : les lots du patrimoine ──────────────────────────────────────────────────
     // ⚠️ L'ATTENDU N'EST PAS CE QUE LA PHASE 2 A LU. C'est ce que le document imprime, mesuré
@@ -3088,12 +3571,23 @@ function crgi_frontieres(PDO $pdo, int $importId): array
            JOIN crgi_crg c ON c.id = m.crg_id
           WHERE m.import_id = ? AND m.lot_reference IS NOT NULL AND m.lot_reference <> ""'
     );
+    // ⚠️ UN COMPTE RENDU PEUT N'AVOIR AUCUN TABLEAU, ET CE N'EST PAS UNE PERTE. Neuf comptes
+    //    de ce dépôt tiennent sur UNE page : une lettre qui énonce le solde EN TOUTES LETTRES
+    //    — « votre relevé présentant un solde débiteur d'un montant de … que nous portons au
+    //    débit du prochain relevé » — sans le moindre tableau. La doctrine interdit de lire un
+    //    montant dans la prose (`la prose ment par hasard`) : ne rien lire est donc la bonne
+    //    réponse, et exiger l'égalité accusait le moteur de la sobriété du document.
+    //    La frontière devient une INCLUSION : la phase 4 ne peut pas connaître un compte que
+    //    la phase 0 ignore, mais elle peut légitimement en connaître moins.
     $comparer(
         'comptes', 'phase 0',
         'SELECT DISTINCT compte FROM crgi_crg WHERE import_id = ? AND compte IS NOT NULL',
         'phase 4',
         'SELECT DISTINCT c.compte FROM crgi_mouvement m JOIN crgi_crg c ON c.id = m.crg_id
-          WHERE m.import_id = ? AND c.compte IS NOT NULL'
+          WHERE m.import_id = ? AND c.compte IS NOT NULL',
+        'inclusion',
+        'Un compte rendu sans tableau — le solde énoncé en toutes lettres — ne produit aucun '
+        . 'mouvement. Le lire dans la prose serait pire que ne pas le lire.'
     );
     // ⚠️ SEULES LES SITUATIONS QUI PORTENT UN LOT PEUVENT PORTER UNE OCCUPATION. Dix CRG de
     //    ce dépôt n'impriment aucun bloc de lot — que des honoraires, des factures ou un
@@ -3274,6 +3768,19 @@ function crgi_conflits_identite(PDO $pdo, int $importId, ?string $type = null): 
                 [$valeur, $crgId, $page] = array_pad(explode("\x1f", $bloc), 3, null);
                 $lectures[] = ['valeur' => $valeur, 'crg_id' => (int)$crgId, 'page' => (int)$page];
             }
+            // ⚠️ UNE VIRGULE ET UNE MAJUSCULE NE FONT PAS DEUX IDENTITÉS. « 15 rue Siméon
+            //    Gouet » et « 15, Rue Siméon Gouet » sont le MÊME immeuble : le document
+            //    l'imprime deux fois, avec deux typographies. Le SQL compte les valeurs
+            //    brutes — c'est un filet grossier, et c'est bien : il ne doit rien rater.
+            //    Mais poser la question sur un écart purement typographique, c'est demander à
+            //    Emmanuel de trancher ce que la doctrine tranche déjà (`INTEG-RAPPRO-02` :
+            //    on ignore accents, casse et séparateurs, RIEN d'autre). La confirmation se
+            //    fait donc APRÈS lecture, sur les valeurs normalisées.
+            $distinctes = array_unique(array_map(
+                fn($l) => crgi_plat((string)$l['valeur']), $lectures));
+            if (count($distinctes) < 2) {
+                continue;
+            }
             $sortie[] = [
                 'type'     => $cle,
                 'libelle'  => $p['libelle'],
@@ -3311,6 +3818,7 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
         $libelle = CRGI_IDENTITES[$type]['libelle'];
         $groupes[] = [
             'groupe'   => str_replace('CONFLIT_', 'IDENTITE-', $type),
+            'cause'    => 'DOCUMENT',
             'cible'    => $type,
             'famille'  => 'IDENTITÉS',
             'question' => 'Le dépôt désigne ' . $libelle . ' de deux façons différentes. '
@@ -3349,11 +3857,13 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
                 c.agence, MIN(c.compte) compte, COUNT(DISTINCT c.compte) comptes
            FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
           WHERE i.import_id = ? AND i.statut = "A ARBITRER"
+            AND i.motif NOT LIKE ' . $pdo->quote(CRGI_MOTIF_MBI_REPETE . '%') . '
           GROUP BY c.agence, cle, i.nom, i.code_postal, i.ville'
     );
     if ($imm) {
         $groupes[] = [
             'groupe'   => 'IMMEUBLE-HOMONYME',
+            'cause'    => 'MBI',
             'cible'    => 'IMMEUBLE',
             'famille'  => 'IMMEUBLES',
             'question' => 'Plusieurs immeubles de MBI portent le même nom et le même code '
@@ -3371,6 +3881,83 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
             'impact'   => 'Bloque la création ou la mise à jour de CET immeuble et le '
                         . 'rattachement de ses lots. N’empêche ni les occupations ni l’argent.',
             'lignes'   => $imm,
+        ];
+    }
+
+    // ── PATRIMOINE : plusieurs BIENS de MBI portent la même référence ─────────────────────
+    // ⚠️ IL MANQUAIT LA MÊME QUESTION POUR LES LOTS. Les immeubles homonymes ouvraient une
+    //    question ; les lots homonymes, non — trente d'entre eux attendaient un arbitrage que
+    //    personne ne pouvait rendre, et le KPI des pertes silencieuses les a signalés. Un
+    //    objet en attente sans question est une donnée perdue : c'est la définition même.
+    // ── PATRIMOINE : MBI porte PLUSIEURS FOIS le même immeuble ───────────────────────────
+    // ⚠️ CE N'EST PAS LA MÊME QUESTION, DONC PAS LA MÊME FAMILLE. Sur un corpus, 17 des 18
+    //    « homonymes » réunissaient des enregistrements que MBI lui-même déclare identiques —
+    //    même code de gestion, ou même adresse. Le document n'a jamais été ambigu ; c'est la
+    //    base qui se répète, et la réponse est la MÊME pour les 17 : quelle règle appliquer
+    //    quand MBI porte le même immeuble deux ou trois fois. Une réponse commune fait une
+    //    question commune — c'est la seule condition du repli, et elle est remplie ici, alors
+    //    qu'elle ne l'est jamais entre deux bâtiments réellement différents.
+    $repetes = $q(
+        'SELECT MIN(i.id) cible_id, GROUP_CONCAT(i.id) couvre, i.code, i.nom, i.code_postal,
+                i.ville, MIN(i.page) page, LEFT(MIN(i.motif), 240) motif, c.agence,
+                MIN(c.compte) compte
+           FROM crgi_immeuble i JOIN crgi_crg c ON c.id = i.crg_id
+          WHERE i.import_id = ? AND i.statut = "A ARBITRER"
+            AND i.motif LIKE ' . $pdo->quote(CRGI_MOTIF_MBI_REPETE . '%') . '
+          GROUP BY c.agence, COALESCE(i.code, CONCAT(i.nom, "|", i.code_postal))'
+    );
+    if ($repetes) {
+        $groupes[] = [
+            'groupe'   => 'IMMEUBLE-REPETE-DANS-MBI',
+            'cause'    => 'MBI',
+            'cible'    => 'IMMEUBLE',
+            'famille'  => 'IMMEUBLES',
+            'question' => 'MBI porte plusieurs fois le même immeuble, sous le même code de '
+                        . 'gestion ou à la même adresse. Auquel rattacher les comptes rendus ?',
+            'regle'    => '`AMBIGUÏTÉ DU DOCUMENT ≠ CONTRADICTION DE LA BASE` — le document '
+                        . 'désigne un immeuble et un seul ; c’est MBI qui l’enregistre '
+                        . 'plusieurs fois. La réponse est un ménage à faire dans MBI.',
+            'choix'    => [
+                'Rattacher à l’enregistrement le plus complet' => 'celui qui porte déjà des '
+                    . 'lots ; les autres restent à dédoublonner, hors de ce dépôt.',
+                'Rattacher au plus ancien enregistrement' => 'le premier créé fait référence ; '
+                    . 'les suivants sont des reprises à nettoyer.',
+                'Laisser en attente'  => 'aucun rattachement au patrimoine MBI. Les '
+                    . 'occupations et les montants restent lus et intégrables.',
+            ],
+            'impact'   => 'Bloque le rattachement de CES immeubles à MBI et celui de leurs '
+                        . 'lots. N’empêche ni les occupations ni l’argent, démontrés au lot.',
+            'lignes'   => $repetes,
+        ];
+    }
+
+    $lots = $q(
+        'SELECT MIN(l.id) cible_id, GROUP_CONCAT(l.id) couvre,
+                l.reference, l.libelle, l.locataire, MIN(l.page) page,
+                LEFT(MIN(l.motif), 220) motif, c.agence, MIN(c.compte) compte
+           FROM crgi_lot l JOIN crgi_crg c ON c.id = l.crg_id
+          WHERE l.import_id = ? AND l.statut = "A ARBITRER"
+          GROUP BY c.agence, l.reference'
+    );
+    if ($lots) {
+        $groupes[] = [
+            'groupe'   => 'LOT-HOMONYME',
+            'cause'    => 'MBI',
+            'cible'    => 'LOT',
+            'famille'  => 'LOTS',
+            'question' => 'Plusieurs biens de MBI portent la même référence de lot. Lequel le '
+                        . 'CRG désigne-t-il ?',
+            'regle'    => '`AUCUN RAPPROCHEMENT APPROXIMATIF NE CRÉE UNE IDENTITÉ` — le moteur '
+                        . 'ne tranche pas entre deux biens de même référence.',
+            'choix'    => [
+                'Désigner le bien MBI existant' => 'le lot s’y rattache ; aucun bien créé.',
+                'Créer un bien distinct'        => 'MBI porte alors un homonyme de plus, assumé.',
+                'Laisser en attente'            => 'ses occupations et ses montants restent lus, '
+                                                 . 'sans rattachement au patrimoine MBI.',
+            ],
+            'impact'   => 'Bloque le rattachement de CE lot à un bien de MBI. N’empêche ni ses '
+                        . 'occupations ni son argent, démontrés au lot sans dépendre du bien.',
+            'lignes'   => $lots,
         ];
     }
 
@@ -3410,6 +3997,8 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
             $groupes[] = [
                 'groupe'   => 'OCCUPATION-' . strtoupper(preg_replace('~[^A-Za-z]~', '',
                                                                      $motifCle)),
+                // C'est le DOCUMENT qui ne démontre pas la chronologie : MBI n'y est pour rien.
+                'cause'    => 'DOCUMENT',
                 'cible'    => 'OCCUPATION',
                 'famille'  => 'OCCUPATIONS',
                 'question' => $question,
@@ -3453,6 +4042,10 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
         if ($lignes) {
             $groupes[] = [
                 'groupe'   => 'MOUVEMENT-' . str_replace(' ', '-', $verdict),
+                // ⚠️ CE N'EST PAS LE DOCUMENT QUI HÉSITE. Le montant est lu, sa nature est
+                //    connue : c'est la confrontation à `crg_ecritures` qui n'aboutit pas —
+                //    MBI porte un autre montant, ou plusieurs lignes indiscernables.
+                'cause'    => 'MBI',
                 'cible'    => 'MOUVEMENT',
                 'famille'  => 'MOUVEMENTS FINANCIERS',
                 'question' => $question,
@@ -3475,6 +4068,7 @@ function crgi_arbitrages(PDO $pdo, int $importId): array
     if ($ind) {
         $groupes[] = [
             'groupe'   => 'MOUVEMENT-INDETERMINABLE',
+            'cause'    => 'DOCUMENT',
             'cible'    => 'MOUVEMENT',
             'famille'  => 'MOUVEMENTS FINANCIERS',
             'question' => 'Le document imprime un montant qu’il n’attribue à aucune colonne ni '

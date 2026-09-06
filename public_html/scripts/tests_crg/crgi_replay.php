@@ -188,6 +188,52 @@ essai(
     }
 );
 
+// ── DEUX TRAITEMENTS SUR LE MÊME DÉPÔT ───────────────────────────────────────────────────
+essai(
+    'REFUS — deux traitements simultanés sur le même import',
+    'Le 04/09/2026, deux exécutions ont travaillé sur le même dépôt : la seconde a purgé et '
+    . 'recommencé la phase 4 pendant qu’on lisait le résultat de la première. 14 624 '
+    . 'mouvements sont devenus 1 917, et la phase affichait toujours « VALIDÉE » avec une '
+    . 'empreinte calculée sur l’état complet. Deux administrateurs qui relancent la même '
+    . 'phase depuis l’écran produisent exactement cela.',
+    function () {
+        // ⚠️ ON N'ÉPROUVE PAS LE VERROU SUR LE DÉPÔT QUE CE SCRIPT VIENT DE REJOUER.
+        //    `GET_LOCK` est réentrant DANS une session — et c'est voulu, les cinq phases d'un
+        //    même processus doivent s'enchaîner. Or ce fichier vient JUSTEMENT de rejouer les
+        //    phases 2 à 5 : sa propre connexion tient déjà ce verrou-là, et aucun « concurrent »
+        //    ne peut le prendre. Deux montages successifs ont échoué sur ce piège, et à chaque
+        //    fois le test accusait le verrou de ne pas fonctionner ALORS QU'IL FONCTIONNAIT.
+        //
+        // ⚠️ LE MÉCANISME NE DÉPEND D'AUCUN DÉPÔT, ON L'ÉPROUVE DONC SUR UN NUMÉRO QUE PERSONNE
+        //    N'A JAMAIS TRAITÉ. Le verrou est pris AVANT toute vérification de phase : si la
+        //    garde tombe, l'erreur est celle du verrou, et pas une autre. Un test isolé de
+        //    l'état du script mesure la règle, pas son propre montage.
+        $fantome = 999999;
+        $cle = 'crgi_import_' . $fantome;
+        $occupant = db(true);
+        $entrant  = db(true);      // $occupant reste vivante : on garde sa référence
+        $st = $occupant->prepare('SELECT GET_LOCK(?, 0)');
+        $st->execute([$cle]);
+        exiger((int)$st->fetchColumn() === 1,
+               'la connexion occupante n’a pas pu prendre un verrou que personne ne tient — '
+               . 'le montage du test est faux, pas la règle');
+        try {
+            $refuse = false;
+            try {
+                crgi_phase4($entrant, $fantome);
+            } catch (Throwable $e) {
+                $refuse = str_contains($e->getMessage(), 'DÉJÀ EN TRAITEMENT');
+                if (!$refuse) {
+                    throw $e;
+                }
+            }
+            exiger($refuse, 'une phase a démarré alors qu’un autre traitement tenait le dépôt');
+        } finally {
+            $occupant->prepare('SELECT RELEASE_LOCK(?)')->execute([$cle]);
+        }
+    }
+);
+
 echo "\nREPLAY : " . $ok . '/' . ($ok + count($ko)) . "\n";
 foreach ($ko as [$titre, $incident, $msg]) {
     echo "\n  ÉCHEC — {$titre}\n    incident défendu : {$incident}\n    {$msg}\n";

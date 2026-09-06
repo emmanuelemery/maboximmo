@@ -152,6 +152,13 @@ DOCUMENTS_JOINTS = [
      'APPEL DE FONDS — document de syndic, hors CRG', 'un appel de fonds'),
     ('facture', re.compile(r'\bFacture\s*(?:N°|n°|no\b|N\b)', re.I),
      'FACTURE — pièce d’un prestataire jointe au dépôt, hors CRG', 'une facture'),
+    # ⚠️ AJOUTÉ le 04/09/2026 — la table s'AJOUTE, elle ne se réécrit pas. Une lettre d'acompte
+    #    annonce un virement au propriétaire entre deux comptes rendus. Elle était déclarée
+    #    « ILLISIBLE » alors que le document avait été parfaitement lu, ligne à ligne : il
+    #    n'était simplement pas un CRG. Le mot accusait le moteur d'une panne inexistante.
+    ('avis_acompte',
+     re.compile(r'Information\s+Acompte|Avis\s+d.?acompte|Virement\s+acompte', re.I),
+     'AVIS D’ACOMPTE — lettre de versement au propriétaire, hors CRG', 'un avis d’acompte'),
 ]
 LIBELLE_JOINT = {cle: libelle for cle, _m, _msg, libelle in DOCUMENTS_JOINTS}
 
@@ -300,6 +307,21 @@ def lecteurs_disponibles():
 
 class LecteurIndisponible(RuntimeError):
     """Le lecteur exigé par le contrat n'est pas là — et rien d'autre ne le remplace."""
+
+
+class LectureImpossible(ValueError):
+    """Le document n'a pas pu être lu — AVEC LA CAUSE, parce qu'elle commande l'action.
+
+    ⚠️ « ILLISIBLE » CONFONDAIT TROIS ÉTATS ET ALARMAIT À TORT. Un PDF corrompu se répare,
+       une numérisation s'océrise, un document étranger se range : trois actions, un seul
+       mot. La cause voyage donc avec l'erreur, et l'appelant la traduit en état. Une cause
+       qu'il ne connaît pas retombe sur `ILLISIBLE` — le plus alarmant, et c'est voulu :
+       on ne minimise jamais ce qu'on ne comprend pas.
+    """
+
+    def __init__(self, message, cause=None):
+        super().__init__(message)
+        self.cause = cause
 
 
 def lecteur_resolu(contrat=None):
@@ -716,11 +738,16 @@ def analyser(chemin):
     # exactement ce que la doctrine FAIL CLOSED interdit depuis P7.
     caracteres = sum(len(x.strip()) for x in textes)
     if textes and caracteres == 0:
-        raise ValueError(
+        # ⚠️ ET LA CAUSE SE NOMME, ELLE NE SE DEVINE PAS DANS LE MESSAGE. « Illisible » et
+        #    « lisible par l'oeil mais pas par la machine » appellent deux actions
+        #    differentes — reparer, ou lancer un OCR. Sans cause typee, l'appelant les
+        #    confondait sous le mot le plus alarmant, et quatre numerisations passaient pour
+        #    une panne du moteur.
+        raise LectureImpossible(
             'AUCUNE COUCHE TEXTE / LECTURE IMPOSSIBLE — les %d pages de ce PDF sont des '
             'images (document scanne ou imprime en PDF). Aucun signal ne peut y etre lu sans '
             'OCR. Ce n est pas un document sans CRG : c est un document illisible en l etat.'
-            % len(textes))
+            % len(textes), cause='SANS COUCHE TEXTE')
 
     pages, crgs, courant = [], [], None
     precedent_entete = False
@@ -884,6 +911,7 @@ def analyser(chemin):
             'pages_affectees': affectees,
             'pages_hors_crg': hors,
             'pages_non_affectees': len(pages) - affectees - hors,
+            'caracteres': sum(len(t.strip()) for t in textes),
             'crg_detectes': len(crgs),
             'crg_certains': sum(1 for c in crgs if c['certitude'] == 'CERTAIN'),
             'crg_probables': sum(1 for c in crgs if c['certitude'] == 'PROBABLE'),
@@ -911,8 +939,12 @@ def main():
     try:
         resultat = analyser(sys.argv[1])
     except ValueError as e:
-        # Une lecture impossible se declare ; elle ne se deguise pas en resultat vide.
-        sys.stdout.write(json.dumps({'erreur': str(e)}, ensure_ascii=False))
+        # Une lecture impossible se declare ; elle ne se deguise pas en resultat vide — et
+        # elle dit POURQUOI, parce que la cause commande l'action a mener.
+        sortie = {'erreur': str(e)}
+        if getattr(e, 'cause', None):
+            sortie['cause'] = e.cause
+        sys.stdout.write(json.dumps(sortie, ensure_ascii=False))
         return 1
     except ERREURS_PDF as e:
         sys.stdout.write(json.dumps({'erreur': 'PDF ILLISIBLE / ANALYSE IMPOSSIBLE : %s' % e},

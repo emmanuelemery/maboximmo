@@ -74,6 +74,11 @@ function crgi_file_arbitrages(PDO $pdo, int $importId, array $filtres = []): arr
         foreach ($g['lignes'] as $l) {
             $file[] = [
                 'groupe'   => $g['groupe'],
+                // ⚠️ LA CAUSE VOYAGE AVEC LA QUESTION. Sans elle, une ambiguïté née des
+                //    doublons de MBI se compte comme une difficulté de lecture, et le taux de
+                //    compréhension du lecteur baisse pour une faute qui n'est pas la sienne.
+                //    Elle est DÉCLARÉE par la famille, jamais devinée d'après son nom.
+                'cause'    => $g['cause'] ?? 'DOCUMENT',
                 'cible'    => $g['cible'],
                 'famille'  => $g['famille'],
                 'question' => $g['question'],
@@ -88,7 +93,7 @@ function crgi_file_arbitrages(PDO $pdo, int $importId, array $filtres = []): arr
     }
 
     // ── LE CONTEXTE ET LA PREUVE, EN UNE SEULE REQUÊTE PAR TYPE DE CIBLE ─────────────────
-    $ctx = ['MOUVEMENT' => [], 'IMMEUBLE' => [], 'OCCUPATION' => []];
+    $ctx = ['MOUVEMENT' => [], 'IMMEUBLE' => [], 'OCCUPATION' => [], 'LOT' => []];
     // ⚠️ UN CONFLIT D'IDENTITÉ N'A PAS DE LIGNE À LUI : il EST la comparaison de deux lectures.
     //    Son contexte se recalcule donc à la source, avec la preuve de CHAQUE côté — sinon
     //    l'écran ne pourrait montrer qu'une moitié du désaccord, et demanderait de trancher à
@@ -128,6 +133,19 @@ function crgi_file_arbitrages(PDO $pdo, int $importId, array $filtres = []): arr
     $st->execute([$importId]);
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $ctx['IMMEUBLE'][(int)$r['id']] = $r;
+    }
+    $st = $pdo->prepare(
+        'SELECT l.id, l.page, l.reference AS lot_reference, l.libelle, l.locataire, l.motif,
+                c.compte, c.proprietaire, c.agence, c.format, c.periode_cle, c.date_arrete,
+                c.id AS crg_id, p.nom_original, p.sha256
+           FROM crgi_lot l
+           JOIN crgi_crg c ON c.id = l.crg_id
+           JOIN crgi_piece p ON p.id = c.piece_id
+          WHERE l.import_id = ?'
+    );
+    $st->execute([$importId]);
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $ctx['LOT'][(int)$r['id']] = $r;
     }
     $st = $pdo->prepare(
         'SELECT o.id, o.page, o.lot_reference, o.locataire, o.precedent, o.statut,
@@ -183,7 +201,13 @@ function crgi_file_arbitrages(PDO $pdo, int $importId, array $filtres = []): arr
  *    fondre dans un lot ferait exactement l'erreur des « quatre homonymes sous un seul
  *    intitulé ». Ces familles restent ligne par ligne, et c'est délibéré.
  */
+// ⚠️ UNE RÈGLE SUR LE PHÉNOMÈNE L'EMPORTE SUR UNE RÈGLE SUR L'OBJET. Deux immeubles
+//    réellement homonymes sont deux décisions INDIVIDUELLES — chacune désigne un bâtiment
+//    différent. Mais dix-sept enregistrements que MBI lui-même déclare identiques posent UNE
+//    seule question, et elle a UNE seule réponse : quelle règle appliquer quand la base se
+//    répète. Le repli se déclare donc par famille de phénomène, pas par type d'objet.
 const CRGI_REGROUPEMENT = [
+    'IMMEUBLE-REPETE-DANS-MBI' => [],   // même question, même réponse : une seule ligne
     // famille de cible => les champs du contexte qui font le phénomène
     'MOUVEMENT'  => ['section', 'colonne', 'maille'],
     'OCCUPATION' => [],          // le motif suffit : la réponse est la même pour tout le groupe
@@ -200,14 +224,26 @@ function crgi_regrouper_file(array $file): array
 {
     $vues = [];
     foreach ($file as $a) {
-        $champs = CRGI_REGROUPEMENT[$a['cible']] ?? null;
+        $champs = CRGI_REGROUPEMENT[$a['groupe']] ?? CRGI_REGROUPEMENT[$a['cible']] ?? null;
         if ($champs === null) {
             $vues[] = $a;                       // décision individuelle : rien à replier
             continue;
         }
         $cle = $a['groupe'];
         foreach ($champs as $c) {
-            $cle .= '|' . (string)($a['contexte'][$c] ?? '');
+            $v = (string)($a['contexte'][$c] ?? '');
+            // ⚠️ UNE SECTION NON RECONNUE EST UN PHÉNOMÈNE, PAS UN INTITULÉ. Le moteur préfixe
+            //    « INCONNUE: » le titre qu'il n'a pas su classer — et ce titre est différent à
+            //    chaque fois, par construction. Grouper dessus revenait à ne jamais grouper :
+            //    quatre crédits sous quatre intitulés inconnus faisaient quatre questions là
+            //    où il n'y en a qu'une — « quelle est la nature d'un crédit dont le document
+            //    ne nomme pas la section ? ». Le repli tient sur ce qui EST commun : la
+            //    colonne et la maille. Et comme aucun repli n'est jamais coché d'avance,
+            //    Emmanuel garde la main pour répondre ligne à ligne si les natures diffèrent.
+            if ($c === 'section' && str_starts_with($v, 'INCONNUE:')) {
+                $v = 'INCONNUE';
+            }
+            $cle .= '|' . $v;
         }
         if (!isset($vues[$cle])) {
             $a['couvre_ids'] = [];
@@ -216,6 +252,17 @@ function crgi_regrouper_file(array $file): array
             $vues[$cle] = $a;
         }
         $vues[$cle]['couvre_ids'][] = (int)$a['cible_id'];
+        // ⚠️ UNE LIGNE REPLIÉE PEUT DÉJÀ EN COUVRIR D'AUTRES, ET ON PERDAIT CELLES-LÀ. Les
+        //    familles d'identité groupent déjà leurs objets à la source (`GROUP_CONCAT(id)`) :
+        //    ne retenir que la cible principale de chaque ligne repliée laissait 43 immeubles
+        //    en attente SANS question — la définition même d'une perte silencieuse, et le
+        //    troisième défaut de ce genre que ce KPI attrape. Le repli additionne donc les
+        //    couvertures, il ne les remplace pas.
+        foreach (explode(',', (string)($a['ligne']['couvre'] ?? '')) as $id) {
+            if ($id !== '') {
+                $vues[$cle]['couvre_ids'][] = (int)$id;
+            }
+        }
         $vues[$cle]['nombre']++;
         $vues[$cle]['total'] += (float)($a['contexte']['montant'] ?? 0);
         // ⚠️ UNE QUESTION DÉJÀ TRANCHÉE POUR UNE PARTIE DU GROUPE RESTE À TRAITER TANT QU'IL
@@ -344,10 +391,15 @@ function crgi_propositions(PDO $pdo, int $importId, array $a): array
     if ($a['cible'] === 'OCCUPATION') {
         // ⚠️ LE PRÉCÉDENT OCCUPANT EST UNE PREUVE, PAS UNE SUPPOSITION : il vient de la
         //    période antérieure du même lot, lue sur le document.
+        // ⚠️ LE CHOIX PORTE LE NOM, PAS L'INTENTION — exactement comme pour les immeubles
+        //    homonymes. Deux pistes intitulées « Considérer l'occupant en place » désignent
+        //    deux personnes différentes : la période précédente en nomme une, les mouvements du
+        //    lot en nomment une autre. Enregistrées sous le même libellé, les deux décisions
+        //    seraient indiscernables en base — on saurait qu'Emmanuel a tranché, jamais POUR QUI.
+        $proposes = [];
         if (!empty($c['precedent'])) {
-            $props[] = ['choix' => 'Considérer l’occupant en place', 'confiance' => 65,
-                        'raison' => 'La période précédente du même lot porte « '
-                                  . $c['precedent'] .' ».'];
+            $proposes[(string)$c['precedent']] = [65,
+                'La période précédente du même lot porte « ' . $c['precedent'] . ' ».'];
         }
         $st = $pdo->prepare(
             'SELECT DISTINCT locataire FROM crgi_mouvement
@@ -356,8 +408,19 @@ function crgi_propositions(PDO $pdo, int $importId, array $a): array
         );
         $st->execute([$importId, $c['lot_reference'] ?? '']);
         foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $nom) {
-            $props[] = ['choix' => 'Considérer l’occupant en place', 'confiance' => 75,
-                        'raison' => 'Les mouvements de ce lot nomment « ' . $nom . ' ».'];
+            // Deux sources qui nomment la MÊME personne ne font pas deux pistes : elles se
+            // renforcent. La plus démontrée l'emporte, et le motif dit les deux.
+            $vu = $proposes[(string)$nom] ?? null;
+            $proposes[(string)$nom] = [max(75, $vu[0] ?? 0),
+                ($vu ? $vu[1] . ' ' : '') . 'Les mouvements de ce lot nomment « ' . $nom . ' ».'];
+        }
+        foreach ($proposes as $nom => [$confiance, $raison]) {
+            $props[] = [
+                'choix'     => 'Considérer « ' . $nom . ' » en place',
+                'regle'     => 'Considérer l’occupant en place',
+                'confiance' => $confiance,
+                'raison'    => $raison,
+            ];
         }
     }
 

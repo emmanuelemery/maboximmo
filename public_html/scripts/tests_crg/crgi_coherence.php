@@ -14,6 +14,8 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../../inc/crg_integration.php';
+require_once __DIR__ . '/../../inc/crgi_arbitrage.php';
+require_once __DIR__ . '/../../inc/crgi_pilotage.php';
 
 $pdo = $GLOBALS['pdo'];
 // ⚠️ PAS D'IMPORT ÉCRIT EN DUR. « ?? 5 » a survécu à l'annulation de l'import 5 : la suite
@@ -35,6 +37,31 @@ if (isset($argv[1])) {
     )->fetchAll(PDO::FETCH_COLUMN);
     if (!$aControler) {
         $aControler = [crgi_import_reference($pdo)];
+    }
+    // ⚠️ UN DÉPÔT ÉCARTÉ EN SILENCE EST PIRE QU'UN DÉPÔT ROUGE. La suite a affiché
+    //    « COHÉRENCE : 132/132 » — parfaitement vert — alors qu'elle ne couvrait que TROIS
+    //    dépôts sur quatre : le quatrième avait une phase interrompue, il n'entrait donc pas
+    //    dans la liste des « complets » et disparaissait du compte sans un mot. Un instrument
+    //    qui rétrécit son sujet sans le dire annonce une réussite sur ce qu'il a bien voulu
+    //    regarder. On nomme donc TOUJOURS ceux qu'on laisse dehors, et pourquoi.
+    $ecartes = $pdo->query(
+        "SELECT i.id, COUNT(c.id) crg,
+                GROUP_CONCAT(DISTINCT CONCAT(p.phase, ':', p.statut) ORDER BY p.phase) phases
+           FROM crgi_import i
+           LEFT JOIN crgi_crg c ON c.import_id = i.id
+           LEFT JOIN crgi_phase p ON p.import_id = i.id
+          WHERE i.statut <> 'ANNULE'
+          GROUP BY i.id
+         HAVING crg > 0 AND SUM(p.statut = 'VALIDEE') < 6
+          ORDER BY i.id"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($ecartes as $e) {
+        printf("⚠️  import %d ÉCARTÉ du contrôle — %d CRG déposés, mais une phase n’est pas "
+             . "scellée : %s\n", $e['id'], $e['crg'], $e['phases']);
+    }
+    if ($ecartes) {
+        echo "    Un dépôt interrompu n’est pas un dépôt sans intérêt : rejouez ses phases, "
+           . "sinon le vert ci-dessous ne parle pas de lui.\n\n";
     }
 }
 if (count($aControler) > 1) {
@@ -138,6 +165,57 @@ foreach (crgi_frontieres($pdo, $importId) as $f) {
         }
     );
 }
+
+// ── NOUVEAUTÉ ≠ EXCLUSION ─────────────────────────────────────────────────────────────────
+controle(
+    'REFUS — une valeur que personne n’a déclarée',
+    'Un filtre écrit en positif définit sans le dire tout l’univers autorisé. '
+    . '`doublon_statut = "UNIQUE"` a fait disparaître des comptes rendus ENTIERS le jour où un '
+    . 'troisième statut est apparu : ils n’étaient ni traités, ni exclus, ni arbitrés — ils '
+    . 'n’étaient nulle part, et seul un écart de couverture de deux unités le signalait, tout '
+    . 'au bout de la chaîne. Une valeur nouvelle n’est pas une erreur ; qu’elle passe '
+    . 'inaperçue en est une.',
+    function () use ($pdo, $importId) {
+        $inconnues = crgi_valeurs_non_declarees($pdo, $importId);
+        $dit = array_map(fn($x) => $x['ou'] . ' = « ' . $x['valeur'] . ' »', $inconnues);
+        exiger($inconnues === [],
+               count($inconnues) . ' valeur(s) hors du vocabulaire déclaré : '
+               . implode(' ; ', array_slice($dit, 0, 5))
+               . ' — à déclarer dans `CRGI_VOCABULAIRE`, ou à traiter.');
+    }
+);
+
+controle(
+    'REFUS — « illisible » là où le document a été parfaitement ouvert',
+    'Quatre numérisations d’un dépôt portaient « ILLISIBLE — la source elle-même ne se lit '
+    . 'pas » alors que le moteur avait ouvert le fichier et compté ses pages : elles n’ont '
+    . 'simplement pas de couche texte. Le mot le plus alarmant envoyait chercher une panne du '
+    . 'moteur là où il fallait lancer un OCR. `OCR REQUIS` existait déjà — rien n’y menait.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT nom_original, LEFT(message, 60) m FROM crgi_piece
+                              WHERE import_id = ? AND etat = "ILLISIBLE"
+                                AND message LIKE "%AUCUNE COUCHE TEXTE%"');
+        $st->execute([$importId]);
+        $mal = $st->fetchAll(PDO::FETCH_ASSOC);
+        exiger(!$mal,
+               count($mal) . ' pièce(s) déclarées illisibles alors que le moteur dit qu’elles '
+               . "n’ont pas de couche texte (état attendu : OCR REQUIS) :\n      · "
+               . implode("\n      · ", array_column($mal, 'nom_original')));
+    }
+);
+
+controle(
+    'REFUS — une pièce déposée sans état',
+    'Un fichier déposé est soit analysé, soit écarté AVEC SON MOTIF. S’il n’est ni l’un ni '
+    . 'l’autre, il a disparu avant même d’entrer dans les phases métier, et aucun contrôle '
+    . 'aval ne peut le voir : ils comparent des populations qui ne l’ont jamais reçu.',
+    function () use ($pdo, $importId) {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_piece
+                              WHERE import_id = ? AND (etat IS NULL OR etat = "")');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0, 'des pièces déposées n’ont aucun état');
+    }
+);
 
 // ── LES SCEAUX ────────────────────────────────────────────────────────────────────────────
 controle(
@@ -400,6 +478,29 @@ controle(
 
 // ── L'INVARIANT DES IDENTITÉS ────────────────────────────────────────────────────────────
 controle(
+    'REFUS — un conflit d’identité qui n’est qu’une virgule',
+    '« 15 rue Siméon Gouet » et « 15, Rue Siméon Gouet » : le document imprime le MÊME '
+    . 'immeuble avec deux typographies, et le moteur en faisait une question d’identité. '
+    . '`NORMALISATION N’EST PAS RAPPROCHEMENT APPROXIMATIF` (INTEG-RAPPRO-02) — on ignore '
+    . 'accents, casse et séparateurs, RIEN d’autre ; ce qui reste identique après cela n’est '
+    . 'pas un désaccord à trancher.',
+    function () use ($pdo, $importId) {
+        $faux = [];
+        foreach (crgi_conflits_identite($pdo, $importId) as $c) {
+            $distinctes = array_unique(array_map(
+                fn($l) => crgi_plat((string)$l['valeur']), $c['lectures']));
+            if (count($distinctes) < 2) {
+                $faux[] = $c['type'] . ' « ' . mb_substr((string)$c['cle'], 0, 40) . ' » : '
+                        . implode(' / ', array_map(fn($l) => $l['valeur'],
+                                                   array_slice($c['lectures'], 0, 2)));
+            }
+        }
+        exiger(!$faux, count($faux) . ' conflit(s) purement typographique(s) posés en '
+                       . "question :\n      · " . implode("\n      · ", $faux));
+    }
+);
+
+controle(
     'REFUS — un conflit d’identité détecté mais invisible',
     'Le harnais voyait « FaULARSEN Swan » et « FOU LARSEN Swan » et virait au rouge ; l’écran '
     . 'd’arbitrage, lui, ne posait aucune question. Le moteur savait qu’il ne savait pas, et '
@@ -492,6 +593,122 @@ controle(
         $st->execute([$importId]);
         exiger((int)$st->fetchColumn() === 0,
                'des collisions restent non qualifiées : elles seraient invisibles pour la suite');
+        // ⚠️ « JE NE SAIS PAS TRANCHER » PEUT CACHER « JE N'AI RIEN LU ». Quatre collisions
+        //    étaient classées indéterminables sur le motif « trop peu de montants lus (0 et
+        //    0) » : le moteur ne reconnaissait tout simplement pas le séparateur décimal de
+        //    l'éditeur ICS. Une prudence de façade sur un défaut de lecture est pire qu'une
+        //    erreur franche — elle a l'air d'une décision.
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_crg
+                              WHERE import_id = ? AND doublon_qualif_motif LIKE "LECTURE :%"');
+        $st->execute([$importId]);
+        exiger((int)$st->fetchColumn() === 0,
+               'une collision est restée sans verdict parce que le document n’a pas été LU — '
+               . 'ce n’est pas une indétermination métier, c’est un défaut de moteur');
+    }
+);
+
+controle(
+    'le plan couvre TOUT le vocabulaire déclaré des natures',
+    'La catégorie « IMPOTS ET TAXES » était déclarée au vocabulaire et produite par le moteur, '
+    . 'mais aucune famille du plan ne la reprenait : 340 mouvements — une taxe foncière '
+    . 'entière — n’étaient ni intégrés, ni exclus, ni arbitrés. Ils n’étaient nulle part. Il a '
+    . 'fallu un corpus de 14 370 lignes pour que l’écart devienne visible ; sur un petit dépôt '
+    . 'il serait passé inaperçu pendant des mois.',
+    function () use ($pdo, $importId) {
+        // ⚠️ L'ORACLE EST LE VOCABULAIRE, PAS UNE LISTE À CÔTÉ. Une nature déclarée demain
+        //    devra trouver sa famille, sans qu'on ait pensé à allonger ce contrôle.
+        $declarees = CRGI_VOCABULAIRE['crgi_mouvement.categorie'] ?? [];
+        exiger($declarees !== [], 'le vocabulaire des natures n’est pas déclaré');
+        $source = (string)file_get_contents(dirname(__DIR__, 2) . '/inc/crg_integration.php');
+        // Le bloc des familles du plan, tel que la phase 5 l'écrit.
+        $orphelines = [];
+        foreach ($declarees as $cat) {
+            if (!preg_match('~\[\s*\'[A-ZÉ \'’]+\'\s*,\s*\[[^\]]*' . preg_quote($cat, '~')
+                            . '[^\]]*\]~u', $source)
+                && !str_contains($cat, 'NON ADDITIONNABLE') && $cat !== 'INDETERMINABLE') {
+                $orphelines[] = $cat;
+            }
+        }
+        exiger(!$orphelines,
+               "nature(s) déclarée(s) qu’aucune famille du plan ne reprend :\n      · "
+               . implode("\n      · ", $orphelines));
+        // Et la preuve par les faits : le plan doit refermer sur TOUS les mouvements du dépôt.
+        $b = crgi_bilan_phase5($pdo, $importId);
+        exiger($b['boucle'],
+               $b['couverts'] . ' mouvements couverts sur ' . $b['mouvements']);
+    }
+);
+
+controle(
+    'chaque question déclare SA CAUSE — document ou base',
+    'Une ambiguïté née des doublons de MBI comptée comme une difficulté de lecture fait '
+    . 'baisser le taux de compréhension du lecteur pour une faute qui n’est pas la sienne — et '
+    . 'envoie chercher la réponse dans le mauvais document. La cause est DÉCLARÉE par la '
+    . 'famille d’arbitrage, jamais devinée d’après son nom.',
+    function () use ($pdo, $importId) {
+        $sans = [];
+        foreach (crgi_arbitrages($pdo, $importId) as $g) {
+            $c = $g['cause'] ?? null;
+            if (!in_array($c, ['DOCUMENT', 'MBI'], true)) {
+                $sans[] = (string)$g['groupe'] . ' → ' . var_export($c, true);
+            }
+        }
+        exiger(!$sans, "famille(s) sans cause déclarée :\n      · " . implode("\n      · ", $sans));
+        // ⚠️ ET LES DEUX COMPTEURS NE SE SOMMENT PAS EN CACHETTE : leur total doit retomber
+        //    exactement sur la file, sinon une question serait comptée deux fois ou nulle part.
+        $p = crgi_pilotage($pdo, $importId);
+        exiger($p['causes']['DOCUMENT'] + $p['causes']['MBI'] === $p['arbitrages']['total'],
+               'les causes ne totalisent pas la file : '
+               . $p['causes']['DOCUMENT'] . ' + ' . $p['causes']['MBI'] . ' ≠ '
+               . $p['arbitrages']['total']);
+    }
+);
+
+controle(
+    'REFUS — une question à laquelle personne ne peut répondre',
+    'Douze écritures « Solde » identiques dans la même situation : le moteur demandait à '
+    . 'Emmanuel LAQUELLE correspond. Il voit exactement ce que le moteur voit — rien de plus. '
+    . 'Une question sans réponse possible n’est pas un arbitrage, c’est une limite : elle se '
+    . 'nomme, se compte et ne se pose pas. Emmanuel, 04/09/2026 : « je ne veux décider que sur '
+    . '20 à 30 points au total ».',
+    function () use ($pdo, $importId) {
+        // Ce qui est indécidable pour tout le monde ne doit JAMAIS entrer dans la file.
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND rapprochement = "NON RAPPROCHABLE"');
+        $st->execute([$importId]);
+        $muets = (int)$st->fetchColumn();
+        $dansLaFile = 0;
+        foreach (crgi_file_arbitrages($pdo, $importId) as $a) {
+            if (($a['contexte']['id'] ?? null) === null || $a['cible'] !== 'MOUVEMENT') {
+                continue;
+            }
+            $q = $pdo->prepare('SELECT rapprochement FROM crgi_mouvement WHERE id = ?');
+            $q->execute([(int)$a['cible_id']]);
+            if ((string)$q->fetchColumn() === 'NON RAPPROCHABLE') {
+                $dansLaFile++;
+            }
+        }
+        exiger($dansLaFile === 0,
+               $dansLaFile . ' mouvement(s) indécidables pour tout le monde sont pourtant posés '
+               . 'en question');
+        // ⚠️ ET L'INVERSE EST TOUT AUSSI INTERDIT : requalifier une VRAIE question en limite
+        //    ferait disparaître du travail réel. Ce qui est décidable reste dans la file.
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_mouvement
+                              WHERE import_id = ? AND rapprochement = "CANDIDAT NON DEMONTRABLE"');
+        $st->execute([$importId]);
+        $vraies = (int)$st->fetchColumn();
+        if ($vraies > 0) {
+            $vues = 0;
+            foreach (crgi_file_arbitrages($pdo, $importId, ['detail' => 1]) as $a) {
+                if ($a['groupe'] === 'MOUVEMENT-CANDIDAT-NON-DEMONTRABLE') {
+                    $vues++;
+                }
+            }
+            exiger($vues === $vraies,
+                   $vraies . ' mouvement(s) réellement à trancher, ' . $vues . ' dans la file');
+        }
+        echo '       (' . $muets . ' ligne(s) sans réponse possible, nommées et hors file ; '
+           . $vraies . " à trancher)\n";
     }
 );
 

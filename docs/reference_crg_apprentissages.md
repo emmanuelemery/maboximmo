@@ -485,9 +485,275 @@ commit          le hash
 
 ---
 
+## APP-0028 · Un document de même clé mais de contenu différent est COMPLÉMENTAIRE
+
+| | |
+|---|---|
+| **phénomène** | Deux comptes rendus portent la même clé — compte, période, arrêté — mais ne partagent qu'une partie de leur contenu. Ce ne sont pas des doublons : chacun porte de l'information que l'autre n'a pas. |
+| **preuve** | 04/09/2026 — toutes les phases filtraient sur `doublon_statut = "UNIQUE"`. Un document marqué « même clé, contenu différent » était donc écarté de l'inventaire, du patrimoine, des occupations ET de l'argent : **le compte rendu entier disparaissait**, et seul un écart de couverture de deux unités le signalait, tout au bout de la chaîne. |
+| **abstraction** | Un filtre écrit en positif — « je ne garde que X » — exclut en silence tout ce qui n'est pas X, y compris ce qui n'existait pas encore quand on l'a écrit. Il faut écrire ce qu'on EXCLUT, et le justifier : ici, seule la réénonciation s'exclut, parce que `RÉIMPRESSION ≠ NOUVEL ÉVÉNEMENT` et que la compter doublerait l'argent. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | `CRGI_CRG_PORTEURS` — une condition écrite une fois, en négatif : `doublon_statut <> "REENONCIATION"`. Les huit filtres de la chaîne l'emploient. |
+| **composant** | `crg_integration.php` |
+| **tests** | à écrire sur fixture |
+| **corpus** | un dépôt : 2 comptes rendus rendus à la chaîne |
+| **limites** | Un troisième statut de collision qui apparaîtrait demain serait inclus par défaut — c'est voulu : mieux vaut examiner un document de trop que d'en perdre un. |
+| **commit** | `—` |
+
+---
+
+## APP-0029 · « Illisible » confondait trois états, et alarmait à tort
+
+| | |
+|---|---|
+| **phénomène** | Un dépôt contient des documents que le moteur ne transforme pas en CRG. Trois raisons très différentes, un seul mot pour les dire. |
+| **preuve** | 04/09/2026 — cinq pièces déclarées « ILLISIBLES » sur un corpus : **trois n'avaient aucune couche texte** (des numérisations, qui demandent un OCR), **une était une lettre d'acompte** lue mot à mot, et **aucune n'était illisible** au sens propre. Le rouge envoyait chercher une panne du moteur là où il fallait lancer un OCR ou simplement ranger un document. |
+| **abstraction** | `ILLISIBLE` (le fichier ne s'ouvre pas), `SANS TEXTE` (lu, mais aucun caractère : une image) et `HORS CRG` (lu entièrement, ce n'est pas un compte rendu) appellent trois actions différentes — réparer, océriser, classer. Les confondre sous le mot le plus alarmant fait perdre le seul qui devait alarmer. Un écran qui alarme à tort finit par ne plus alarmer du tout. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | La phase 0 compte les caractères extraits et reconnaît les documents joints ; l'état de la pièce et le message de l'écran découlent des trois cas. |
+| **composant** | `crg_integration.php`, `admin_crg_integration.php`, `crg_integration_phase0.py` |
+| **tests** | à écrire sur fixture |
+| **corpus** | un dépôt : 5 « illisibles » → 3 sans texte + 1 hors CRG + 1 avis d'acompte nommé |
+| **limites** | Le seuil de « sans texte » est un nombre de caractères ; un scan portant un filigrane textuel passerait pour lisible. |
+| **commit** | `—` |
+
+---
+
+## APP-0030 · Le séparateur décimal appartient à l'éditeur, pas au moteur
+
+| | |
+|---|---|
+| **phénomène** | Deux éditeurs écrivent la même somme de deux façons : `1 234,56` d'un côté, `1234.56` de l'autre. Un moteur écrit sur le premier éditeur rencontré ne lit AUCUN montant chez le second. |
+| **preuve** | 04/09/2026 — le qualificateur de collisions rendait « trop peu de montants lus (0 et 0) pour trancher » sur QUATRE collisions de deux corpus différents. Mesure directe : 79, 31, 395 et 385 montants étaient imprimés sur les pages concernées. Le moteur n'en avait pas vu un seul, et rendait un verdict de prudence métier là où il n'avait rien regardé. |
+| **abstraction** | `« JE N'AI RIEN LU » N'EST PAS « JE NE SAIS PAS TRANCHER ».` Un état d'indétermination qui ne dit pas de quel genre il est laisse un défaut de lecture se déguiser en décision. Un moteur doit distinguer *le document ne permet pas de conclure* de *je n'ai pas su lire le document* — la première appelle un arbitrage humain, la seconde appelle une correction. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Le motif de reconnaissance admet les deux séparateurs et refuse ce qui touche un autre chiffre (une date n'est pas un montant) ; la clé du multiensemble est canonique. Un extrait porteur de texte mais sans aucun montant reconnu rend un motif préfixé `LECTURE :`, et le contrôle de cohérence refuse ce préfixe. |
+| **composant** | `crg_integration_doublons.py`, `crgi_coherence.php` |
+| **tests** | `crgi_robustesse.py` — « un montant se lit AVEC LES DEUX séparateurs décimaux », « je n'ai rien lu ne se déguise jamais » ; éprouvés par `crgi_epreuve_des_tests.py` |
+| **corpus** | deux dépôts, quatre collisions : 0 montant lu → 79, 31, 395 et 385 |
+| **limites** | Un éditeur qui grouperait les milliers par un point (`1.234,56`) resterait illisible — mais il serait alors NOMMÉ par le motif `LECTURE :`, au lieu de passer pour une indétermination. |
+| **commit** | `—` |
+
+---
+
+## APP-0031 · Les deux occurrences d'un même compte rendu ne sont pas dans le même fichier
+
+| | |
+|---|---|
+| **phénomène** | Le même compte rendu est déposé deux fois, dans deux fichiers distincts — souvent parce qu'il est classé dans deux dossiers. La collision de clé se constate ; la comparaison, elle, doit ouvrir DEUX documents. |
+| **preuve** | 04/09/2026 — la qualification groupait les paires par la pièce de la SECONDE occurrence et y découpait les deux extraits. Sur un corpus, les deux occurrences vivaient dans deux dossiers différents : le moteur comparait donc les pages 1-10 d'un document avec les pages 1-10 **du même document**. Le verdict aurait été « identiques » quel que soit le contenu réel de la seconde. |
+| **abstraction** | Une optimisation de lecture ne doit jamais fixer l'identité de ce qu'on lit. Grouper par document pour ne lire qu'une fois est juste ; en déduire que les deux côtés d'une comparaison viennent du même document est un raccourci que rien ne démontre. La promesse de performance se tient par un CACHE, pas par une hypothèse. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Chaque paire porte le chemin de chacun de ses deux côtés ; le moteur garde un cache par document, donc une lecture par document et non par paire. |
+| **composant** | `crg_integration_doublons.py`, `crg_integration.php` |
+| **tests** | `crgi_robustesse.py` — « les deux occurrences d'une collision peuvent venir de DEUX documents » ; éprouvé par `crgi_epreuve_des_tests.py` |
+| **corpus** | un dépôt : 2 collisions inter-dossiers |
+| **limites** | Aucune : le mode historique paire à paire reste accepté, et le cache le couvre aussi. |
+| **commit** | `—` |
+
+---
+
+## APP-0032 · Deux mailles additionnées dans une même famille se cachent sous le total
+
+| | |
+|---|---|
+| **phénomène** | Un plan de travail compte, dans une famille d'objets, des verdicts qui portent sur une AUTRE maille. Les deux populations s'additionnent, et le total général reste plausible. |
+| **preuve** | 04/09/2026 — la famille PROPRIÉTAIRES annonçait 200 verdicts pour 199 noms lus. Le verdict de trop était une qualification de COMPTE MANDANT — « ce compte existe dans MBI sous une autre écriture » — ajoutée à une famille de propriétaires. Un compte n'est pas un propriétaire (`TIERS ≠ PROPRIÉTAIRE ≠ COMPTE MANDANT`). L'écart d'UNE unité ne se voyait pas au total général ; il n'est apparu qu'au contrôle famille par famille. |
+| **abstraction** | `UN COMPTEUR GLOBAL MASQUE UNE POPULATION.` Deux grands totaux peuvent se refermer alors qu'une famille en perd — ou en gagne — la moitié. Chaque verdict doit être compté là où son OBJET existe, et une seule fois ; le contrôle doit boucler famille par famille, jamais en somme. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Les qualifications de compte alimentent la famille COMPTES MANDANTS (`A ARBITRER`), retranchées de son `CRÉER` ; la famille PROPRIÉTAIRES ne compte plus que des propriétaires. |
+| **composant** | `crg_integration.php` |
+| **tests** | `crgi_coherence.php` — « le plan boucle FAMILLE PAR FAMILLE, pas seulement en total » |
+| **corpus** | deux dépôts : 199 propriétaires / 200 verdicts, et 75 / 78 |
+| **limites** | Le contrôle ne compare que les familles qu'il sait mesurer à la source ; une famille sans population source mesurable resterait hors de sa portée. |
+| **commit** | `—` |
+
+---
+
+## APP-0033 · Un lot rangé dans la table des immeubles fabrique un faux homonyme
+
+| | |
+|---|---|
+| **phénomène** | La table des immeubles de MBI contient des LOTS — appartements, locaux commerciaux, garages — rangés là par une reprise ancienne, à la même adresse et sous le même nom que leur bâtiment. Le rapprochement les compte comme candidats, et l'identité devient « ambiguë ». |
+| **preuve** | 04/09/2026 — 41 questions d'identité d'immeuble sur deux corpus. **33 n'opposaient pas deux bâtiments** : elles opposaient un bâtiment à ses propres lots (245 « Appartement », 22 « Local commercial », 10 « Garage » dans la table). 3 autres n'avaient AUCUN bâtiment candidat — seulement des lots — donc l'immeuble était simplement absent de MBI. Restaient **3 vraies ambiguïtés**. |
+| **abstraction** | `CE QUI N'EST PAS DE L'ESPÈCE CHERCHÉE N'EST PAS UN CANDIDAT.` Réduire l'ensemble des candidats à l'espèce recherchée n'est pas un rapprochement approximatif — c'est l'inverse : c'est refuser de comparer des objets de natures différentes. Une ambiguïté fabriquée par la façon d'indexer coûte autant à l'humain qu'une vraie, et elle est plus dangereuse, car elle décrédibilise les vraies. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | On EXCLUT les types démontrés être des lots ; un type inconnu ou absent reste candidat (`NOUVEAUTÉ ≠ EXCLUSION`), et « Maison » n'est pas exclue — une maison est un immeuble. Si tous les candidats sont des lots, l'immeuble est NOUVEAU. |
+| **composant** | `crg_integration.php` — `crgi_candidats_batiments()` |
+| **tests** | `crgi_rapprochement.php` — « un LOT de MBI n'est jamais candidat pour un IMMEUBLE » |
+| **corpus** | deux dépôts : 41 homonymes → 3 |
+| **limites** | Un lot dont le type n'est pas renseigné reste candidat : il produira encore une question, et c'est voulu. |
+| **commit** | `—` |
+
+---
+
+## APP-0034 · Une question à laquelle personne ne peut répondre n'est pas un arbitrage
+
+| | |
+|---|---|
+| **phénomène** | Le rapprochement ne parvient pas à désigner l'écriture correspondante, et remonte la ligne « à trancher ». Mais dans certains cas, l'information qui permettrait de trancher n'existe nulle part — ni dans le document, ni dans MBI. |
+| **preuve** | 04/09/2026 — 23 lignes d'un corpus attendaient une décision humaine : **14 portaient le libellé « Solde »**, imprimé à chaque bloc, face à 12 écritures MBI homonymes ; **9 faisaient face à des écritures de MBI strictement identiques — même libellé ET même montant**. Emmanuel voit exactement ce que le moteur voit. Lui demander LAQUELLE, c'est lui demander de deviner. |
+| **abstraction** | `INDÉTERMINABLE POUR LE MOTEUR ≠ INDÉTERMINABLE POUR TOUT LE MONDE.` La première situation est une question — un humain rouvre la page et tranche. La seconde est une LIMITE : elle se nomme, se compte, se conserve, et ne se pose à personne. Les confondre remplit la file de questions sans réponse, et fait perdre confiance dans celles qui en ont une. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Deux verdicts distincts et déclarés : `NON RAPPROCHABLE` (aucune information n'existe — hors file, compté au plan en `NON INTEGRABLE`) et `CANDIDAT NON DEMONTRABLE` (la page tranchera — dans la file). Un contrôle refuse qu'un `NON RAPPROCHABLE` entre dans la file, ET qu'un `CANDIDAT NON DEMONTRABLE` en sorte. |
+| **composant** | `crg_integration.php` — `crgi_verdict_rapprochement()` |
+| **tests** | `crgi_coherence.php` — « REFUS — une question à laquelle personne ne peut répondre » ; `crgi_rapprochement.php` |
+| **corpus** | un dépôt : 23 lignes, 7 questions → 0 |
+| **limites** | Le seuil de « libellé générique » est un nombre de caractères significatifs : un libellé long mais répété resterait posé en question. |
+| **commit** | `—` |
+
+---
+
+## APP-0035 · Une piste proposée doit nommer son objet, sinon la décision est illisible
+
+| | |
+|---|---|
+| **phénomène** | L'écran propose plusieurs pistes pour un même arbitrage. Quand deux pistes instancient la même règle générique sur des objets différents, elles portent le même intitulé. |
+| **preuve** | 04/09/2026 — deux pistes « Considérer l'occupant en place » sur le même lot désignaient DEUX PERSONNES : la période précédente en nommait une, les mouvements du lot une autre. La décision enregistrée aurait dit qu'on avait tranché, jamais POUR QUI. C'est le même défaut que les quatre immeubles homonymes proposés sous « Désigner l'immeuble MBI existant ». |
+| **abstraction** | `UNE DÉCISION VAUT CE QUE VAUT LA PRÉCISION DE CE QU'ELLE ENREGISTRE.` Un arbitrage indiscernable en base n'est pas un arbitrage : c'est la trace d'un clic. La piste porte donc l'identité de l'objet ; la règle générique qu'elle instancie se déclare à côté, pour que l'écran n'ait pas à réafficher l'option ambiguë. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute piste dont plusieurs instances peuvent coexister nomme son objet. Deux sources qui désignent le MÊME objet se renforcent — la confiance la plus haute l'emporte, le motif dit les deux — au lieu de produire deux pistes jumelles. |
+| **composant** | `crgi_arbitrage.php` — `crgi_propositions()` |
+| **tests** | `crgi_file_arbitrage.php` — « deux pistes proposées ne portent jamais le même intitulé » |
+| **corpus** | un dépôt : 1 arbitrage à deux pistes homonymes |
+| **limites** | Le contrôle compare des intitulés : deux pistes nommant le même objet sous deux orthographes resteraient distinctes. |
+| **commit** | `—` |
+
+---
+
+## APP-0036 · Une phase doit effacer ce qu'elle ne couvre plus
+
+| | |
+|---|---|
+| **phénomène** | Une phase marque les objets qu'elle traite. Quand une règle amont change et lui en retire, la marque d'avant reste collée — et plus rien ne dit qu'elle est périmée. |
+| **preuve** | 04/09/2026 — deux comptes rendus marqués « NOUVELLE » par l'inventaire sont devenus des RÉÉNONCIATIONS quand la qualification des collisions a su lire leurs montants. L'inventaire ne les regarde plus, mais leur marque est restée : le contrôle de couverture les comptait **DEUX FOIS** — examinés ET exclus — et annonçait « −2 objets inexpliqués » sur une chaîne pourtant complète. |
+| **abstraction** | `UNE TRACE QUI SURVIT À LA RÈGLE QUI L'A PRODUITE EST UN MENSONGE, PAS UN SOUVENIR.` Une phase qui écrit doit d'abord effacer sa propre écriture sur TOUTE la population, puis la reposer sur celle qu'elle couvre aujourd'hui. Sinon `ATTENDUE = EXAMINÉE + EXCLUE` se met à compter des objets dans les deux colonnes, et l'écart qu'il signale est faux dans les deux sens : il peut aussi bien masquer une vraie perte. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | La phase 1 remet à NULL `inventaire_statut`, `inventaire_motif` et `mbi_trimestre_id` sur tout l'import avant de marquer les porteurs. Le filtre de population devient la constante `CRGI_CRG_PORTEURS` — une seule autorité, éprouvée comme prédicat par la fixture négative. |
+| **composant** | `crg_integration.php` — `crgi_phase1()` |
+| **tests** | `crgi_coherence.php` — « couverture P1 — CRG documentaires » ; `crgi_nouveaute_pas_exclusion.php` reconnaît la constante comme un prédicat |
+| **corpus** | un dépôt : 235 attendus, 233 examinés + 4 exclus = 237 |
+| **limites** | Le même risque existe pour toute colonne écrite par une phase et lue par une autre ; seule la phase 1 est corrigée ici, les autres suppriment déjà leurs lignes avant de réécrire. |
+| **commit** | `—` |
+
+---
+
+## APP-0037 · La forme d'un code appartient au gestionnaire ; l'égalité, non
+
+| | |
+|---|---|
+| **phénomène** | MBI porte le code du gestionnaire dans une colonne dédiée. Un éditeur l'écrit préfixé — `01S01-0067` — un autre le rend nu — `01040087`. Une preuve écrite sur la première forme est AVEUGLE sur la seconde. |
+| **preuve** | 04/09/2026 — la règle exigeait un tiret pour isoler le segment final. Sur un corpus entier, aucun code n'en portait : **14 questions d'identité posées** alors que MBI portait le code, à l'identique, dans la colonne faite pour lui. |
+| **abstraction** | Une preuve d'égalité ne doit pas dépendre de la MISE EN FORME de ce qu'elle compare. On normalise ce qui est démontré variable — ici le préfixe d'agence et d'activité, séparé par un tiret — et on exige l'égalité ENTIÈRE du reste. Jamais une inclusion libre : « 0134 » n'est pas la fin de « 01080134 ». |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Le segment comparé est ce qui suit le dernier tiret, ou la valeur entière s'il n'y a pas de tiret ; l'égalité se fait après retrait des zéros de tête, et deux candidats au même code ne se départagent pas. `code_crg` prime sur `reference_immeuble` : une seule des deux colonnes est faite pour porter le code du gestionnaire, et le motif le dit pour que la décision reste auditable. |
+| **composant** | `crg_integration.php` — `crgi_candidat_par_code_crg()` |
+| **tests** | `crgi_rapprochement.php` — « le code imprimé sur le CRG se retrouve ENTIER dans `code_crg` » |
+| **corpus** | un dépôt : 14 questions posées pour un tiret absent |
+| **limites** | Un gestionnaire qui séparerait son préfixe autrement qu'avec un tiret resterait non couvert — et poserait la question, ce qui est le bon échec. |
+| **commit** | `—` |
+
+## APP-0038 · Quand la base se contredit, ce n'est plus au document qu'il faut poser la question
+
+| | |
+|---|---|
+| **phénomène** | Plusieurs enregistrements de MBI répondent à l'identité lue sur le compte rendu. Le moteur annonce « N candidats » et demande lequel — comme s'il s'agissait de bâtiments différents. |
+| **preuve** | 04/09/2026 — sur un dépôt, **10 groupes d'« homonymes » réunissaient des enregistrements portant le MÊME code de gestion et la MÊME adresse** : `238 Route de Vienne` existait TROIS fois dans MBI, sous le code `01040087`, créé par trois reprises successives. Le document n'était pas ambigu une seconde ; c'est la base qui se contredit. |
+| **abstraction** | `AMBIGUÏTÉ DU DOCUMENT ≠ CONTRADICTION DE LA BASE.` Les deux produisent « plusieurs candidats », mais la question n'est pas la même et la réponse ne se cherche pas au même endroit : dans un cas on rouvre le PDF, dans l'autre on fait le ménage dans MBI. Poser les deux avec la même phrase envoie chercher la réponse dans le mauvais document — et fait passer un problème d'hygiène de données pour une difficulté de lecture. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | DEUX preuves, chacune suffisante, parce que MBI ne remplit pas toujours les deux colonnes : tous les candidats portent le même code de gestion, OU tous portent la même adresse normalisée. Sur le corpus, 10 groupes se démontrent par le code et **7 par la seule adresse** — n'en garder qu'une laissait 7 contradictions de la base passer pour des ambiguïtés du document. Le phénomène devient une famille d'arbitrage à part, et comme la réponse est la MÊME pour tous (quelle règle appliquer quand la base se répète), les 17 se replient en UNE question. Le repli se déclare par famille de phénomène, jamais par type d'objet : deux immeubles réellement homonymes restent deux décisions individuelles. |
+| **composant** | `crg_integration.php` — `crgi_confronter_patrimoine()` |
+| **tests** | `crgi_rapprochement.php` — « MBI qui se contredit ne se confond pas avec un document ambigu » (quatre formes : trois copies, l'adresse seule, un candidat sans valeur, deux valeurs différentes) |
+| **corpus** | un dépôt : 18 groupes après les autres preuves — **17 sont des répétitions de MBI**, 1 seule est une vraie ambiguïté du document |
+| **limites** | Deux enregistrements du même immeuble dont l'adresse est ABRÉGÉE différemment (« 36 PLACE F MITTERRAND » / « 36 PLACE FRANCOIS MITTERRAND ») restent présentés comme des homonymes : les rapprocher demanderait une comparaison approximative, que la doctrine interdit. |
+| **commit** | `—` |
+
+---
+
+## APP-0039 · Un lot réduit à son report n'a pas de période — et disparaissait pour cela
+
+| | |
+|---|---|
+| **phénomène** | Le bloc d'un lot qui n'a eu aucun mouvement dans la période ne porte qu'une ligne « Solde Antérieur » : un montant, sans « Du … Au … ». |
+| **preuve** | 06/09/2026 — le pont n'émettait un mouvement que pour les MOIS du lot. **85 lots occupés** — locataires nommés, chronologie complète en phase 3 — disparaissaient de la phase 4, dont un portant **48 371,47 €** d'arriéré. Sur le corpus entier : **1 184 lignes, 8 958 947,32 €**. Le parseur avait la valeur depuis toujours, dans `lot['solde_anterieur']` ; c'est le pont qui ne la demandait jamais. Seul l'écart de dénombrement entre les phases 3 et 4 l'a révélé — aucun total ne bougeait, puisque ces montants n'entraient nulle part. |
+| **abstraction** | `L'ABSENCE D'UN ATTRIBUT N'EST PAS L'ABSENCE DE L'OBJET.` Une boucle qui itère sur une sous-structure — les mois, les lignes, les pages — perd silencieusement tout ce qui vit à côté d'elle. Le montant existait, il était même déjà extrait ; il n'avait simplement pas de place dans la forme que le pont attendait. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Le report du lot est émis comme un mouvement à part entière, au LOT, catégorie `ENCOURS` : c'est un STOCK à l'ouverture de la période. Jamais additionné à un total de période, ni au « Reste dû » de l'arrêté — qui mesure la même dette à une AUTRE date. |
+| **composant** | `crg_integration_ics.py` — `mouvements()` |
+| **tests** | `crgi_robustesse.py` — « un lot qui n'a QUE son report est lu quand même » ; éprouvé par `crgi_epreuve_des_tests.py` |
+| **corpus** | un dépôt : 85 lots absents de la phase 4, 1 184 reports récupérés |
+| **limites** | Un gabarit qui nommerait ce report autrement resterait non couvert — mais l'écart de dénombrement entre phases le signalerait de la même façon. |
+| **commit** | `—` |
+
+## APP-0040 · Une famille du plan qui ne suit pas le vocabulaire déclaré rouvre la faille
+
+| | |
+|---|---|
+| **phénomène** | Le plan d'intégration range les mouvements par famille. Une nature déclarée au vocabulaire mais qu'aucune famille ne reprend n'est ni intégrée, ni exclue, ni arbitrée. |
+| **preuve** | 06/09/2026 — la catégorie `IMPOTS ET TAXES` était déclarée et produite par le moteur ICS depuis des semaines. Aucune famille du plan ne la reprenait : **340 mouvements — une taxe foncière entière — n'étaient nulle part**. Il a fallu un corpus de 14 370 lignes pour que l'écart devienne visible ; sur un petit dépôt il serait passé inaperçu pendant des mois. |
+| **abstraction** | C'est exactement `NOUVEAUTÉ ≠ EXCLUSION`, mais d'un cran plus haut : on avait corrigé les FILTRES écrits en positif, pas les RÉPARTITIONS écrites en positif. Une liste de familles est une liste blanche comme une autre — elle définit sans le dire tout l'univers autorisé, et ce qui n'y figure pas tombe hors du monde. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un contrôle confronte le vocabulaire déclaré des natures aux familles du plan : toute nature qu'aucune famille ne reprend fait rougir, sauf celles qui sont explicitement non intégrables. Et la preuve par les faits reste exigée : le plan doit refermer sur TOUS les mouvements. |
+| **composant** | `crg_integration.php` — familles de la phase 5 |
+| **tests** | `crgi_coherence.php` — « le plan couvre TOUT le vocabulaire déclaré des natures » |
+| **corpus** | un dépôt : 14 030 mouvements couverts sur 14 370 |
+| **limites** | Le contrôle lit la source pour trouver les familles ; une famille construite dynamiquement lui échapperait — mais la preuve par les faits, elle, ne lui échapperait pas. |
+| **commit** | `—` |
+
+## APP-0041 · Séparer la note du lecteur de celle de la base
+
+| | |
+|---|---|
+| **phénomène** | Une question posée à l'humain peut venir du document (il est ambigu) ou de la base (elle se contredit). Comptées ensemble, les deux dégradent le même indicateur. |
+| **preuve** | 06/09/2026 — sur 38 questions des quatre corpus, **13 ne venaient pas des documents** : ils étaient parfaitement compris. Un compte rendu impossible à rattacher parce que MBI porte trois fois le même immeuble faisait baisser le « taux de compréhension » du lecteur. Et 17 des 18 « homonymes » d'un dépôt étaient de ce genre. |
+| **abstraction** | `AMBIGUÏTÉ DU DOCUMENT ≠ CONTRADICTION DE LA BASE ≠ PANNE D'INFRASTRUCTURE.` Trois causes, trois responsables, trois gestes — relire un PDF, faire le ménage dans la base, régler un serveur. Un indicateur qui les additionne ne dit plus où est le problème, et fait porter à l'agent la faute des données qu'on lui donne à lire. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Chaque famille d'arbitrage DÉCLARE sa cause — jamais devinée d'après son nom. Le pilotage rend deux taux distincts (compréhension documentaire, raccordement à MBI) et trois compteurs qui ne s'additionnent jamais. Un contrôle exige que toute famille déclare sa cause et que les compteurs totalisent exactement la file. |
+| **composant** | `crg_integration.php`, `crgi_arbitrage.php`, `crgi_pilotage.php` |
+| **tests** | `crgi_coherence.php` — « chaque question déclare SA CAUSE — document ou base » |
+| **corpus** | quatre dépôts : 38 questions = 25 document + 13 base, 4 associations réellement empêchées |
+| **limites** | La cause est déclarée à la maille de la FAMILLE : une famille qui mélangerait les deux origines serait mal classée en bloc. |
+| **commit** | `—` |
+
+---
+
+## APP-0042 · Un test peut échouer PARCE QUE la règle marche
+
+| | |
+|---|---|
+| **phénomène** | Un contrôle vire au rouge. La tentation est de corriger le code qu'il accuse — alors que c'est le MONTAGE du test qui est faux. |
+| **preuve** | 06/09/2026 — le contrôle « REFUS — deux traitements simultanés » ouvrait une seconde connexion, lui faisait prendre le verrou du dépôt, puis lançait une phase sur la connexion du script. Or ce script venait JUSTEMENT de rejouer les phases 2 à 5 : sa connexion tenait déjà le verrou. Le « concurrent » ne pouvait donc pas le prendre, et le test échouait — **parce que le verrou fonctionnait exactement comme prévu**. |
+| **abstraction** | `UN ROUGE DIT QU'UNE ATTENTE N'EST PAS SATISFAITE, PAS QUE LE CODE EST FAUX.` Avant de toucher au code accusé, il faut vérifier que le test décrit le monde dans lequel il s'exécute. Un test qui partage un état global avec ce qu'il éprouve — ici la connexion, et donc le verrou — mesure autant son propre montage que la règle. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Le contrôle ouvre DEUX connexions neuves : l'une occupe le dépôt, l'autre essaie d'y entrer. Aucune n'est celle du script, dont l'état est imprévisible à cet endroit du fichier. |
+| **composant** | `crgi_replay.php` |
+| **tests** | le contrôle lui-même, rejoué isolément dans un processus n'ayant lancé aucune phase |
+| **corpus** | — (défaut de montage, pas de corpus) |
+| **limites** | Le verrou étant tenu par la connexion, tout test qui l'éprouve doit maîtriser QUELLE connexion fait quoi ; un pool de connexions rendrait ce contrôle inopérant. |
+| **commit** | `—` |
+
+---
+
+## APP-0043 · Un instrument qui rétrécit son sujet sans le dire annonce un faux vert
+
+| | |
+|---|---|
+| **phénomène** | Une suite de contrôles choisit les objets qu'elle peut examiner. Ceux qu'elle ne peut pas examiner disparaissent du compte — et le compte, lui, reste parfait. |
+| **preuve** | 06/09/2026 — le harnais a affiché **« COHÉRENCE : 132/132 »**, entièrement vert. Il couvrait TROIS dépôts sur quatre : le quatrième avait une phase interrompue, il ne figurait donc pas parmi les « complets » et sortait du dénombrement sans une ligne. Le vert précédent, sur les mêmes règles, valait 176/176 — mais rien dans la sortie ne disait que l'assiette avait changé. |
+| **abstraction** | `UN SUJET ÉCARTÉ EN SILENCE EST PIRE QU'UN SUJET ROUGE.` Un rouge appelle une action ; un sujet absent n'appelle rien, et le rapport annonce une réussite sur ce qu'il a bien voulu regarder. C'est la même faute que les filtres écrits en positif, transposée à l'instrument de mesure lui-même — et elle est plus dangereuse, parce que c'est justement l'instrument qui devait détecter ce genre de chose. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | La suite NOMME toujours les dépôts qu'elle laisse dehors, avec leur volume et l'état exact qui les en exclut, avant d'annoncer son score. Un dépôt interrompu n'est pas un dépôt sans intérêt. |
+| **composant** | `crgi_coherence.php` |
+| **tests** | la sortie de la suite elle-même : elle affiche la liste des écartés avant le total |
+| **corpus** | quatre dépôts : 176/176 puis 132/132 sur les mêmes règles, sans que rien ne le signale |
+| **limites** | Le contrôle nomme les dépôts PORTEURS de CRG et non scellés ; un dépôt vide reste écarté sans mention, et c'est voulu. |
+| **commit** | `—` |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
-Vingt-sept apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
+Quarante-trois apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
 la condition pour que l'examen mesure quelque chose : si une règle a besoin du cas pour
 fonctionner, elle n'a rien appris — elle a mémorisé. Chaque test ci-dessus s'exécute sur une
 **fixture synthétique** (un en-tête, un bloc, une ligne fabriqués) précisément pour que le

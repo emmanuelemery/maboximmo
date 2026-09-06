@@ -14,6 +14,8 @@ revenu, c'est LE TEST qui est en cause, et il est signalé comme tel.
 
 Usage : python crgi_epreuve_des_tests.py
 """
+import io
+import json
 import os
 import re
 import sys
@@ -25,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crg_format as FMT                  # noqa: E402
 import crg_integration_doublons as DBL    # noqa: E402
 import crg_integration_lots as LOTS       # noqa: E402
+import crg_integration_ics as ICS         # noqa: E402
 import crg_integration_phase0 as P0       # noqa: E402
 import crg_integration_phase4 as P4       # noqa: E402
 import crg_texte as TXT                   # noqa: E402
@@ -55,7 +58,7 @@ def vire_au_rouge(fragment):
 #    qui a importé `y` directement : la mutation restait sans effet et l'épreuve concluait à
 #    tort que le test était MUET. On remplace donc le symbole PARTOUT où il est lié.
 def poser_partout(nom, valeur, remettre):
-    for module in (DBL, FMT, LOTS, LOTS2, P0, P4, R, TXT):
+    for module in (DBL, FMT, ICS, LOTS, LOTS2, P0, P4, R, TXT):
         if hasattr(module, nom):
             ancien = getattr(module, nom)
             remettre((lambda m, n, a: lambda: setattr(m, n, a))(module, nom, ancien))
@@ -278,6 +281,66 @@ def _(remettre):
                   re.compile(r'^\s*Immeuble\s+(.+?)\s*[-–]\s*(\d{5})\s+'
                              r'([A-ZÉÈÀÂÎÔÛa-zéèàâîôû\'\- ]+?)(?:\s{2,}.*)?$', re.M),
                   remettre)
+
+
+@epreuve('deux séparateurs décimaux', 'le montant à la virgule seule, écrit sur le premier '
+                                      'éditeur rencontré')
+def _(remettre):
+    poser_partout('RE_MONTANT', re.compile(r'-?\d{1,3}(?:[   ]\d{3})*,\d{2}'),
+                  remettre)
+
+
+@epreuve('DEUX documents', 'le lot qui ne lit qu’un document et y découpe les deux extraits')
+def _(remettre):
+    def lot_un_seul_document():
+        if len(sys.argv) != 3:
+            return 2
+        with io.open(sys.argv[2], encoding='utf-8') as fh:
+            paires = json.load(fh)
+        textes, _ = DBL.lire_pages(sys.argv[1])
+        sortie = []
+        for p in paires:
+            r = DBL.qualifier_paire(textes[int(p['ad']) - 1:int(p['af'])],
+                                    textes[int(p['bd']) - 1:int(p['bf'])])
+            r['id'] = p['id']
+            sortie.append(r)
+        sys.stdout.write(json.dumps(sortie, ensure_ascii=False))
+        return 0
+
+    poser_partout('main', lot_un_seul_document, remettre)
+
+
+@epreuve('je n’ai rien lu', 'le cas C indistinct, qui présentait un défaut de lecture comme '
+                            'une prudence métier')
+def _(remettre):
+    poser_partout('defaut_de_lecture', lambda textes, cote: None, remettre)
+
+
+@epreuve('QUE son report', 'le pont qui n’émettait un mouvement que pour les mois, et perdait '
+                           'les lots réduits à leur seul solde antérieur')
+def _(remettre):
+    import crg_integration_ics as ICS
+
+    vraie = ICS.mouvements
+
+    def sans_report(doc, debut=1, fin=None):
+        pour = {'immeubles': [dict(im, lots=[dict(l, solde_anterieur=0.0)
+                                             for l in (im.get('lots') or [])])
+                              for im in (doc.get('immeubles') or [])]}
+        pour['mandat'] = doc.get('mandat')
+        return vraie(pour, debut, fin)
+
+    poser_partout('mouvements', sans_report, remettre)
+
+
+@epreuve('la cause commande l’action', 'l’erreur de lecture sans cause typée, qui faisait '
+                                       'passer une numérisation pour une panne du moteur')
+def _(remettre):
+    class SansCause(ValueError):
+        def __init__(self, message, cause=None):
+            super().__init__(message)      # la cause est reçue… et jetée
+
+    poser_partout('LectureImpossible', SansCause, remettre)
 
 
 def principal():

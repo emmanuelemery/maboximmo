@@ -516,6 +516,169 @@ def _collisions_par_lot():
         D.lire_pages = ancien
 
 
+@cas('un montant se lit AVEC LES DEUX séparateurs décimaux',
+     'SPI imprime `1 234,56`, ICS imprime `1234.56`. La règle n’avait été écrite que sur le '
+     'premier éditeur rencontré : sur les 235 CRG EMERY et les 200 CRG LYON, elle lisait ZÉRO '
+     'montant et rendait « trop peu de matière pour trancher ». Quatre collisions ont porté '
+     'une prudence de façade là où rien n’avait été regardé.')
+def _montant_deux_separateurs():
+    import crg_integration_doublons as D
+
+    lus = D.montants(['Loyer 1 234,56  Charges 35052.60  Solde 0.00'])
+    assert lus.get('1234.56') == 1, 'forme groupée à la virgule perdue : %s' % dict(lus)
+    assert lus.get('35052.60') == 1, 'forme continue au point perdue : %s' % dict(lus)
+    assert lus.get('0.00') == 1, 'un zéro reste un montant : %s' % dict(lus)
+    # ⚠️ ET UNE DATE N'EST PAS UN MONTANT. `27.01.26` fournirait le faux montant `01.26`.
+    dates = D.montants(['du 01.01.25 au 31.12.25 émis le 27.01.26'])
+    assert not dates, 'une date a été lue comme un montant : %s' % dict(dates)
+    # La clé est canonique : les deux écritures d'une même somme ne font qu'une entrée.
+    memes = D.montants(['1 234,56', '1234.56'])
+    assert memes.get('1234.56') == 2, 'deux clés pour une seule somme : %s' % dict(memes)
+
+
+@cas('les deux occurrences d’une collision peuvent venir de DEUX documents',
+     'Sur LYON, le même compte rendu est classé dans `GPE IMMO DR` ET dans `GPE SIR`. Le lot '
+     'ne lisait qu’un document et y découpait LES DEUX extraits : il comparait la première '
+     'occurrence avec elle-même. Le verdict aurait été « identiques » quoi que porte la '
+     'seconde — y compris des montants entièrement différents.')
+def _collision_deux_documents():
+    import json
+    import tempfile
+    import crg_integration_doublons as D
+
+    docs = {
+        'a.pdf': ['Loyer 1 000,00 Charges 100,00 Total 1 100,00 Solde 250,00 Report 12,00'],
+        'b.pdf': ['Loyer 9 999,00 Charges 777,00 Total 10 776,00 Solde 3,00 Report 88,00'],
+    }
+    ancien = D.lire_pages
+    lectures = []
+
+    def _fausse(chemin):
+        lectures.append(chemin)
+        return (docs[chemin], 'fixture')
+
+    D.lire_pages = _fausse
+    try:
+        paires = [{'id': 303, 'ad': 1, 'af': 1, 'bd': 1, 'bf': 1,
+                   'a_pdf': 'a.pdf', 'b_pdf': 'b.pdf'}]
+        fichier = tempfile.mktemp(suffix='.json')
+        with io.open(fichier, 'w', encoding='utf-8') as fh:
+            json.dump(paires, fh)
+        sortie = []
+        vrai_write = sys.stdout.write
+        sys.stdout.write = sortie.append
+        try:
+            D.main.__globals__['sys'].argv = ['x', 'a.pdf', fichier]
+            D.main()
+        finally:
+            sys.stdout.write = vrai_write
+        rendu = json.loads(''.join(sortie))[0]
+        assert rendu['verdict'] == 'B', \
+            'deux documents aux montants opposés jugés « %s » : %s' % (rendu['verdict'],
+                                                                       rendu['motif'])
+        # et la promesse de performance tient : UNE lecture par document, pas par paire.
+        assert sorted(lectures) == ['a.pdf', 'b.pdf'], 'lectures : %s' % lectures
+    finally:
+        D.lire_pages = ancien
+
+
+@cas('« je n’ai rien lu » ne se déguise jamais en « je ne sais pas trancher »',
+     'Le verdict C couvrait deux situations que rien ne distinguait : un extrait trop court '
+     'pour conclure, et un document dont AUCUN montant n’avait été reconnu. La seconde est un '
+     'défaut de moteur ; présentée comme la première, elle avait l’air d’une décision.')
+def _lecture_muette_se_nomme():
+    import crg_integration_doublons as D
+
+    porteur = 'Compte rendu de gestion du premier trimestre. ' * 12    # > 200 car., 0 montant
+    r = D.qualifier_paire([porteur], [porteur])
+    assert r['verdict'] == 'C', 'un texte sans montant ne peut pas être tranché'
+    assert r['motif'].startswith('LECTURE :'), \
+        'un défaut de lecture reste indiscernable d’une indétermination : %s' % r['motif']
+    # Des pages absentes du document se nomment, elles aussi.
+    vide = D.qualifier_paire([], [porteur])
+    assert vide['motif'].startswith('LECTURE :'), vide['motif']
+    # Et une VRAIE indétermination garde son motif à elle.
+    court = D.qualifier_paire(['Solde 12,00'], ['Solde 13,00'])
+    assert court['verdict'] == 'C' and not court['motif'].startswith('LECTURE :'), court['motif']
+
+
+@cas('un lot qui n’a QUE son report est lu quand même',
+     'Le bloc d’un lot sans mouvement de la période ne porte qu’une ligne « Solde Antérieur » : '
+     'pas de « Du … Au … », donc aucun mois, donc RIEN n’était émis. Sur un corpus, 85 lots '
+     'occupés — locataires nommés, chronologie complète en phase 3 — disparaissaient de la '
+     'phase 4, dont un portant 48 371,47 € d’arriéré. Le parseur avait la valeur depuis '
+     'toujours ; c’est le pont qui ne la demandait jamais.')
+def _report_sans_mois():
+    import crg_integration_ics as ICS
+
+    doc = {'immeubles': [{'nom': 'IMM', 'page_debut': 5, 'lots': [
+        # Un lot qui n'a QUE son report : c'est le cas perdu.
+        {'reference': 'IM-0001', 'page': 5, 'locataire_nom': 'DUPONT',
+         'solde_anterieur': 48371.47, 'mois': []},
+        # Un lot sans report ET sans mois : rien à émettre, et surtout pas un zéro.
+        {'reference': 'IM-0002', 'page': 5, 'locataire_nom': 'MARTIN',
+         'solde_anterieur': 0.0, 'mois': []},
+    ]}]}
+    m = ICS.mouvements(doc, 1, 9)
+    reports = [x for x in m if x['colonne'] == 'solde_anterieur']
+    assert len(reports) == 1, 'reports émis : %d' % len(reports)
+    r = reports[0]
+    assert r['lot'] == 'IM-0001', 'le report n’est pas rattaché à son lot : %s' % r['lot']
+    assert r['maille'] == 'LOT', 'un report se démontre au LOT : %s' % r['maille']
+    assert abs(r['montant'] - 48371.47) < 0.005, 'montant : %s' % r['montant']
+    # ⚠️ C'EST UN STOCK. Le ranger en flux le ferait entrer dans un total de période, et
+    #    l'arriéré serait compté comme une recette.
+    assert r['categorie'] == 'ENCOURS', 'nature : %s' % r['categorie']
+    assert 'STOCK' in r['motif'], 'le motif ne dit pas que c’est un stock'
+
+
+@cas('une lecture impossible dit POURQUOI, et la cause commande l’action',
+     'Quatre numérisations d’un dépôt portaient « ILLISIBLE — la source elle-même ne se lit '
+     'pas » alors que le moteur avait parfaitement ouvert le fichier et compté ses pages : '
+     'elles n’ont simplement pas de couche texte. Le mot envoyait chercher une panne du moteur '
+     'là où il fallait lancer un OCR.')
+def _cause_de_lecture():
+    import json
+
+    e = P0.LectureImpossible('pas de texte', cause='SANS COUCHE TEXTE')
+    assert isinstance(e, ValueError), 'la cause ne doit pas changer le type d’erreur'
+    # ⚠️ `getattr`, ET NON `e.cause` : l'état FAUTIF est une erreur SANS cause du tout. Écrire
+    #    l'accès direct ferait lever une AttributeError — le harnais y verrait un test cassé,
+    #    pas un test qui détecte. Un test doit échouer par son assertion, jamais par accident.
+    assert getattr(e, 'cause', None) == 'SANS COUCHE TEXTE', \
+        'la cause ne voyage pas avec l’erreur'
+
+    # Le contrat de sortie : l'appelant lit `cause`, pas le message.
+    ancien = P0.analyser
+    P0.analyser = lambda chemin: (_ for _ in ()).throw(
+        P0.LectureImpossible('pages images', cause='SANS COUCHE TEXTE'))
+    sortie = []
+    vrai = sys.stdout.write
+    sys.stdout.write = sortie.append
+    try:
+        P0.main.__globals__['sys'].argv = ['x', 'faux.pdf']
+        P0.main()
+    finally:
+        sys.stdout.write = vrai
+        P0.analyser = ancien
+    rendu = json.loads(''.join(sortie))
+    assert rendu.get('cause') == 'SANS COUCHE TEXTE', \
+        'la sortie ne porte pas la cause : %s' % rendu
+    assert 'erreur' in rendu, 'la cause ne remplace pas le message'
+
+    # ⚠️ ET UNE ERREUR SANS CAUSE N'EN INVENTE PAS. Elle retombera sur l'état le plus
+    #    alarmant côté appelant, et c'est voulu.
+    P0.analyser = lambda chemin: (_ for _ in ()).throw(ValueError('fichier corrompu'))
+    sortie = []
+    sys.stdout.write = sortie.append
+    try:
+        P0.main()
+    finally:
+        sys.stdout.write = vrai
+        P0.analyser = ancien
+    assert 'cause' not in json.loads(''.join(sortie)), 'une cause a été inventée'
+
+
 @cas('les phases 0 et 3 lisent avec LE MÊME binaire',
      'Chacune appelait `shutil.which(\'pdftotext\')`, qui rend le premier du PATH. Selon '
      'qu’on partait de la page ou du harnais, ce n’était pas le même programme : la phase 2 '
