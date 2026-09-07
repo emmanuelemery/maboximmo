@@ -99,7 +99,21 @@ const CRGI_VOCABULAIRE = [
     'crgi_piece.etat' => ['ANALYSEE', 'OCR REQUIS', 'HORS CRG', 'STRUCTURE INCONNUE',
                           'ILLISIBLE', 'DEPOSEE'],
     'crgi_crg.doublon_statut' => ['UNIQUE', 'REENONCIATION', 'MEME CLE CONTENU DIFFERENT'],
-    'crgi_crg.inventaire_statut' => ['DEJA CONNUE', 'NOUVELLE', 'COMPTE INCONNU', 'A VERIFIER'],
+    // ⚠️ « COMPTE INCONNU » NOMMAIT À LA FOIS UN FAIT NORMAL ET UNE QUESTION. Emmanuel,
+    //    07/09/2026 : « un compte non connu dans MBI n'est pas une erreur, c'est un
+    //    nouveau ». Mesuré : 233 mandants nouveaux pour 6 homonymes — et je présentais les
+    //    239 comme autant de questions. Le motif distinguait les deux ; le STATUT les
+    //    fondait, et c'est le statut que lisent les écrans, les compteurs et les files.
+    //    `NOUVEAU MANDANT` est un RÉSULTAT — reconnu à 100 %, reconnu comme nouveau, il ne
+    //    va pas en arbitrage. `CODE PARTAGE` est une QUESTION.
+    //
+    // ⚠️ ET CE N'EST PAS UN « HOMONYME » — Emmanuel, 07/09/2026 : « c'est le N° de compte
+    //    qui est identique, pas le nom ». Un homonyme partage un NOM ; ici deux mandants
+    //    sans rapport portent le même NUMÉRO, chacun dans son espace de nommage, et dans
+    //    son agence il est parfaitement connu. Nommer le phénomène par le nom faisait
+    //    chercher une ressemblance de libellé là où il n'y a qu'une collision de code.
+    'crgi_crg.inventaire_statut' => ['DEJA CONNUE', 'NOUVELLE', 'NOUVEAU MANDANT',
+                                     'CODE PARTAGE', 'A VERIFIER'],
     'crgi_immeuble.statut' => ['IDENTIQUE', 'MODIFIE', 'NOUVEAU', 'A ARBITRER'],
     'crgi_lot.statut' => ['IDENTIQUE', 'MODIFIE', 'NOUVEAU', 'A ARBITRER'],
     'crgi_occupation.statut' => ['IDENTIQUE', 'NOUVEL ENTRANT', 'CHANGEMENT DE LOCATAIRE',
@@ -1038,6 +1052,8 @@ function crgi_agence_par_nom(array $agences, string $imprime): ?int
 //    passant d'un recours faible à un recours fort. La longueur d'une ligne dépend de la mise
 //    en page ; le nombre de lignes de l'en-tête, non.
 const CRGI_ENTETE_LIGNES = 18;
+// Le papier à en-tête proprement dit : le bloc de l'émetteur, AVANT l'adresse du destinataire.
+const CRGI_ENTETE_HAUT = 8;
 
 /**
  * ⚠️ L'IDENTITÉ LÉGALE ET LE NOM COMMERCIAL SONT DEUX CHOSES, ET ILS NE VIVENT PAS AU MÊME
@@ -1084,11 +1100,27 @@ function crgi_agence_par_entete(array $refAgences, string $texte): ?int
         }
     }
     if ($societes) {
-        foreach ($refAgences as $a) {
-            $cp = trim((string)($a['code_postal'] ?? ''));
-            if ($cp !== '' && isset($societes[(string)$a['id_societe']])
-                && preg_match('/\b' . preg_quote($cp, '/') . '\b/', $zones)) {
-                return (int)$a['id'];
+        // ⚠️ LE CODE POSTAL NE SE CHERCHE PAS N'IMPORTE OÙ DANS LA ZONE — L'ADRESSE DU
+        //    DESTINATAIRE Y EST AUSSI. Un compte rendu est un COURRIER : le propriétaire y
+        //    figure, et une mise en page en colonnes le pose sur la MÊME LIGNE que l'agence.
+        //    Mesuré : « Agence: A1 - DE GASPERIS IMMOBILIER    69780 TOUSSIEU » — 69780 est
+        //    le code postal du propriétaire, et c'est celui d'une autre agence de la même
+        //    société. Un CRG de Chaponost est parti à Mions.
+        //
+        // ⚠️ ON REGARDE DONC LE PIED D'ABORD, PUIS LE HAUT DE L'EN-TÊTE — jamais le milieu.
+        //    Les deux éditeurs impriment leur bloc légal à des endroits opposés : l'un en
+        //    pied (« Agence … 69630 CHAPONOST — SARL REGIE EMERY … RCS »), l'autre dans les
+        //    toutes premières lignes du papier à en-tête. Le bloc du DESTINATAIRE, lui, vit
+        //    entre les deux. Chercher dans l'ordre pied → tête haute le laisse dehors.
+        $pied = implode("\n", array_slice($lignes, -CRGI_ENTETE_LIGNES));
+        $haut = implode("\n", array_slice($lignes, 0, CRGI_ENTETE_HAUT));
+        foreach ([$pied, $haut] as $zone) {
+            foreach ($refAgences as $a) {
+                $cp = trim((string)($a['code_postal'] ?? ''));
+                if ($cp !== '' && isset($societes[(string)$a['id_societe']])
+                    && preg_match('/\b' . preg_quote($cp, '/') . '\b/', $zone)) {
+                    return (int)$a['id'];
+                }
             }
         }
     }
@@ -1296,7 +1328,8 @@ function crgi_phase1(PDO $pdo, int $importId): array
                     WHERE import_id = ?')->execute([$importId]);
 
     $st = $pdo->prepare(
-        'SELECT id, compte, format, periode_debut, periode_fin, date_arrete, periode_cle
+        'SELECT id, compte, format, agence_id, proprietaire, periode_debut, periode_fin,
+                date_arrete, periode_cle
            FROM crgi_crg
           WHERE import_id = ? AND ' . CRGI_CRG_PORTEURS . '
           ORDER BY page_debut'
@@ -1307,9 +1340,28 @@ function crgi_phase1(PDO $pdo, int $importId): array
     // Les comptes que MBI connaît, par code. ⚠️ Un même code peut exister dans deux systèmes :
     // on garde TOUS les identifiants, et l'ambiguïté devient un « à vérifier », pas un choix.
     $comptes = [];
-    foreach ($pdo->query('SELECT id, code_compte, systeme FROM proprietaire_comptes_crg',
+    foreach ($pdo->query('SELECT c.id, c.code_compte, c.systeme, c.id_proprietaire,
+                                 p.nom AS nom_proprietaire
+                            FROM proprietaire_comptes_crg c
+                            LEFT JOIN proprietaires p ON p.id = c.id_proprietaire',
                          PDO::FETCH_ASSOC) as $c) {
         $comptes[(string)$c['code_compte']][] = $c;
+    }
+
+    // ⚠️ QUEL ESPACE DE NOMMAGE POUR QUELLE AGENCE ? ON LE CONSTATE, ON NE L'ÉCRIT PAS À LA
+    //    MAIN. Une correspondance codée en dur serait fausse dès la prochaine agence, et
+    //    surtout elle porterait MON hypothèse sur le progiciel de chacune — hypothèse que je
+    //    me suis déjà faite, et qui était fausse. On lit donc dans MBI où vivent réellement
+    //    les comptes des propriétaires de chaque agence, et l'espace majoritaire l'emporte.
+    $systemeDeLAgence = [];
+    foreach ($pdo->query(
+        'SELECT i.id_agence, c.systeme, COUNT(*) n
+           FROM proprietaire_comptes_crg c
+           JOIN immeubles i ON i.id_proprietaire = c.id_proprietaire
+          WHERE i.id_agence IS NOT NULL AND c.systeme IS NOT NULL AND c.systeme <> ""
+          GROUP BY i.id_agence, c.systeme
+          ORDER BY n DESC', PDO::FETCH_ASSOC) as $r) {
+        $systemeDeLAgence[(int)$r['id_agence']] ??= (string)$r['systeme'];
     }
 
     $trimestres = $pdo->prepare(
@@ -1321,7 +1373,8 @@ function crgi_phase1(PDO $pdo, int $importId): array
           WHERE id = ?'
     );
 
-    $bilan = ['DEJA CONNUE' => 0, 'NOUVELLE' => 0, 'COMPTE INCONNU' => 0, 'A VERIFIER' => 0];
+    $bilan = ['DEJA CONNUE' => 0, 'NOUVELLE' => 0, 'NOUVEAU MANDANT' => 0,
+              'CODE PARTAGE' => 0, 'A VERIFIER' => 0];
     foreach ($situations as $s) {
         $cands = $comptes[(string)$s['compte']] ?? [];
 
@@ -1331,32 +1384,95 @@ function crgi_phase1(PDO $pdo, int $importId): array
         //    silencieusement un CRG de RIOM au mandant lyonnais — un rapprochement faux se
         //    propage ensuite à tout ce que les phases suivantes construisent dessus.
         //    L'identité est le couple `(code, système)`, jamais le code (`P3A-COMPTE-03`).
-        $systeme = CRGI_SYSTEME_DU_FORMAT[(string)$s['format']] ?? null;
+        // ⚠️ LE SYSTÈME SE PREND SUR L'AGENCE ÉTABLIE, PAS SUR LE FORMAT LU. Emmanuel,
+        //    07/09/2026 : « tu veux toujours comparer le n° de compte des propriétaires alors
+        //    que nous avons plusieurs sociétés et que les codes peuvent être identiques :
+        //    dans ce cas il faut regarder l'en-tête ou le pied de page pour voir l'agence ou
+        //    la société qui donne le CRG ». Le format ne désigne qu'un LOGICIEL, et un même
+        //    logiciel sert PLUSIEURS SOCIÉTÉS : ICS édite pour Lyon comme pour Riom, SPI pour
+        //    Vienne comme pour Chaponost. Le `systeme` de MBI n'est donc pas le progiciel,
+        //    c'est l'ESPACE DE NOMMAGE des comptes — et un code n'est unique que dedans.
+        //    La phase 0, elle, établit l'agence sur l'identité légale imprimée : c'est elle
+        //    qui sait de quelle maison vient le document.
+        //    Mesuré : **6 homonymes sur 6** venaient d'un format mal reconnu ; l'agence, elle,
+        //    était juste dans les six cas.
+        $systeme = $systemeDeLAgence[(int)($s['agence_id'] ?? 0)] ?? null;
+        if ($systeme === null) {
+            $systeme = CRGI_SYSTEME_DU_FORMAT[(string)$s['format']] ?? null;
+        }
         if ($systeme !== null && $cands) {
             $memeSysteme = array_values(array_filter(
                 $cands, fn($c) => (string)$c['systeme'] === $systeme
             ));
+            // ⚠️ ET SI L'AGENCE NE SUFFIT PAS, ON VA VOIR L'IMMEUBLE. Emmanuel, 07/09/2026 :
+            //    « et si cela ne suffit pas, il faut aller voir l'immeuble ». Un candidat d'un
+            //    autre espace de nommage dont le propriétaire possède des immeubles DANS
+            //    L'AGENCE QUI A ÉMIS LE DOCUMENT n'est pas un homonyme : c'est le même
+            //    mandant, enregistré sous un autre espace lors d'une reprise ancienne. Le
+            //    départage se fait sur un fait — la possession d'un immeuble dans cette
+            //    agence — jamais sur une ressemblance de nom.
+            if (!$memeSysteme && $s['agence_id']) {
+                $ici = $pdo->prepare(
+                    'SELECT COUNT(*) FROM immeubles WHERE id_proprietaire = ? AND id_agence = ?'
+                );
+                $memeSysteme = array_values(array_filter($cands, function ($c) use ($ici, $s) {
+                    $ici->execute([(int)$c['id_proprietaire'], (int)$s['agence_id']]);
+                    return (int)$ici->fetchColumn() > 0;
+                }));
+            }
+            // ⚠️ TROISIÈME ET DERNIER CRITÈRE : LE NOM. Emmanuel, 07/09/2026 — « dans une
+            //    agence, un nouveau n° de compte ET un nouveau nom de propriétaire = nouveau
+            //    mandat ». Si le numéro est absent de l'espace de l'agence, qu'aucun candidat
+            //    n'y possède d'immeuble, ET que le nom imprimé ne ressemble à aucun d'eux,
+            //    alors plus rien ne relie ce compte rendu au candidat d'à côté : c'est un
+            //    mandat nouveau, DÉMONTRÉ, et il ne se décide pas.
+            //
+            // ⚠️ LE NOM NE SERT QU'À DISQUALIFIER, JAMAIS À RAPPROCHER. Un nom qui diffère
+            //    prouve qu'on n'a pas affaire au même mandant ; un nom qui se ressemble ne
+            //    prouve rien — deux SCI peuvent porter le même patronyme. C'est pourquoi il
+            //    vient APRÈS l'agence et l'immeuble, et pourquoi une ressemblance laisse la
+            //    question ouverte au lieu de la fermer.
+            if (!$memeSysteme && $cands) {
+                $nomLu = crgi_cle_nom((string)($s['proprietaire'] ?? ''));
+                $memeNom = $nomLu !== '' && array_filter(
+                    $cands,
+                    fn($c) => crgi_cle_nom((string)($c['nom_proprietaire'] ?? '')) === $nomLu
+                );
+                if (!$memeNom) {
+                    $ailleurs = implode(', ', array_unique(array_map(
+                        fn($c) => (string)$c['systeme'], $cands)));
+                    $maj->execute(['NOUVEAU MANDANT',
+                        'Mandat nouveau pour cette agence : le compte ' . $s['compte']
+                        . ' n’existe pas dans l’espace ' . $systeme . ', aucun candidat n’y '
+                        . 'possède d’immeuble, et le nom imprimé ne correspond à aucun d’eux. '
+                        . 'Le même NUMÉRO vit dans ' . $ailleurs . ' — un code n’est unique '
+                        . 'que dans son espace de nommage, et rien d’autre ne les relie.',
+                        null, (int)$s['id']]);
+                    $bilan['NOUVEAU MANDANT']++;
+                    continue;
+                }
+            }
             if (!$memeSysteme) {
-                // ⚠️ ET UN HOMONYME N'EST PAS UNE ABSENCE ANODINE : on le NOMME. Sans cela,
+                // ⚠️ UN CODE PARTAGÉ N'EST PAS UNE ABSENCE ANODINE : on le NOMME. Sans cela,
                 //    « compte inconnu » laisserait croire à un simple manque, alors qu'un
-                //    code identique vit à côté, dans un autre système, prêt à être confondu.
+                //    code identique vit à côté, dans un autre espace, prêt à être confondu.
                 $ailleurs = implode(', ', array_map(fn($c) => $c['systeme'], $cands));
-                $maj->execute(['COMPTE INCONNU',
+                $maj->execute(['CODE PARTAGE',
                     'Le compte ' . $s['compte'] . ' n’existe pas dans le système ' . $systeme
-                    . '. ATTENTION : ce code existe dans ' . $ailleurs . ' — c’est un '
-                    . 'HOMONYME, pas le même mandant. `UN CODE DE COMPTE N’EST JAMAIS '
-                    . 'GLOBAL`.', null, (int)$s['id']]);
-                $bilan['COMPTE INCONNU']++;
+                    . '. Le MÊME NUMÉRO existe dans ' . $ailleurs . ' — ce '
+                    . 'n’est pas le même mandant, c’est le même CODE réutilisé dans un '
+                    . 'autre espace de nommage. `UN CODE DE COMPTE N’EST JAMAIS GLOBAL`.', null, (int)$s['id']]);
+                $bilan['CODE PARTAGE']++;
                 continue;
             }
             $cands = $memeSysteme;
         }
 
         if (!$cands) {
-            $maj->execute(['COMPTE INCONNU',
+            $maj->execute(['NOUVEAU MANDANT',
                 'Le compte ' . $s['compte'] . ' n’existe dans aucun système de MBI : la '
                 . 'situation est nouvelle, et son mandant aussi.', null, (int)$s['id']]);
-            $bilan['COMPTE INCONNU']++;
+            $bilan['NOUVEAU MANDANT']++;
             continue;
         }
         if (count($cands) > 1) {
@@ -1476,7 +1592,8 @@ function crgi_bilan_phase1(PDO $pdo, int $importId): array
                 COUNT(*) AS situations,
                 SUM(g.inventaire_statut = "DEJA CONNUE")    AS connues,
                 SUM(g.inventaire_statut = "NOUVELLE")       AS nouvelles,
-                SUM(g.inventaire_statut = "COMPTE INCONNU") AS comptes_inconnus,
+                SUM(g.inventaire_statut = "NOUVEAU MANDANT") AS mandants_nouveaux,
+                SUM(g.inventaire_statut = "CODE PARTAGE")    AS codes_partages,
                 SUM(g.inventaire_statut = "A VERIFIER")     AS a_verifier,
                 SUM(g.doublon_qualification = "B")          AS complementaires
            FROM crgi_crg g LEFT JOIN agences a ON a.id = g.agence_id
@@ -1569,7 +1686,7 @@ function crgi_qualifier_comptes(PDO $pdo, int $importId): void
 {
     $st = $pdo->prepare(
         'SELECT id, compte, proprietaire FROM crgi_crg
-          WHERE import_id = ? AND inventaire_statut = "COMPTE INCONNU"'
+          WHERE import_id = ? AND inventaire_statut IN ("NOUVEAU MANDANT", "CODE PARTAGE")'
     );
     $st->execute([$importId]);
     $inconnus = $st->fetchAll(PDO::FETCH_ASSOC);

@@ -483,8 +483,15 @@ require_once __DIR__ . '/../inc/agency_layout_top.php';
         $cartes1 = [
             ['v' => (int)($t1['DEJA CONNUE'] ?? 0), 'l' => 'déjà connues de MBI', 'c' => 'ok'],
             ['v' => (int)($t1['NOUVELLE'] ?? 0), 'l' => 'nouvelles — compte connu', 'c' => 'ok'],
-            ['v' => (int)($t1['COMPTE INCONNU'] ?? 0), 'l' => 'compte inconnu de MBI',
-             'c' => 'ok'],
+            // ⚠️ UN MANDANT NOUVEAU EST UN RÉSULTAT, PAS UNE ALERTE. Il n'existe dans aucun
+            //    système de MBI : c'est démontré, et c'est la vie normale d'un portefeuille
+            //    qui s'ouvre. Le CODE PARTAGÉ, lui, est une question : le même NUMÉRO de
+            //    compte vit dans un autre espace de nommage, et le moteur ne sait pas s'il a
+            //    affaire au même mandant. Ce n'est pas un homonyme — c'est le code qui se
+            //    répète, jamais le nom.
+            ['v' => (int)($t1['NOUVEAU MANDANT'] ?? 0), 'l' => 'mandants nouveaux', 'c' => 'ok'],
+            ['v' => (int)($t1['CODE PARTAGE'] ?? 0), 'l' => 'codes partagés — à arbitrer',
+             'c' => $ok1((int)($t1['CODE PARTAGE'] ?? 0) === 0)],
             ['v' => (int)($t1['A VERIFIER'] ?? 0), 'l' => 'à vérifier',
              'c' => $ok1((int)($t1['A VERIFIER'] ?? 0) === 0)],
             ['v' => $bilan1['reenonciations'], 'l' => 'réénonciations (phase 0)', 'c' => 'ok'],
