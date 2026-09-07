@@ -76,6 +76,10 @@ _RE_ESPACES = re.compile(r'[\s   ]+')
 #    largeur de caractère. Aligner deux LIGNES entre elles est donc faux hors d'un seul rendu ;
 #    « nettement à droite de la marge » reste vrai partout.
 ECART_COLONNE_DROITE = 30
+# Un nom CENTRE, sans bloc adresse : il n'atteint pas la colonne de droite mais quitte
+# nettement la marge. Mesure : marge 17, nom d'indivision colonne 44, seuil droit 47 —
+# rejete pour trois colonnes. Ce seuil-ci ne sert QU'EN DERNIER RECOURS.
+ECART_COLONNE_CENTREE = 15
 
 
 def marge_gauche(lignes):

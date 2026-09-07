@@ -955,6 +955,125 @@ commit          le hash
 
 ---
 
+## APP-0056 · Un compte rendu qui ne produit aucun objet n'est pas un résultat vide
+
+| | |
+|---|---|
+| **phénomène** | Un CRG parfaitement lu — compte, propriétaire, trimestre, agence — peut ne rendre NI immeuble NI lot. Le moteur produisait alors zéro objet et **se taisait** : aucun contrôle ne comparait « comptes rendus porteurs » à « comptes rendus ayant produit un objet ». Le document disparaissait dans un résultat nul. |
+| **preuve** | 07/09/2026 — **19 CRG sur 947**, dont 10 sur un dépôt et 8 sur un autre. Cas type : un compte rendu d'une page, « Report au 31.12.2025 : 33,60 € », solde créditeur 33,60 €, rien d'autre. Emmanuel : « pas d'appel de loyer, alors il n'y a plus de locataire actif : soit appartement vacant, soit perte de gestion, et tu ne peux pas le voir, **il faut poser la question** ». |
+| **abstraction** | `UNE ABSENCE D'OBJET EST UNE QUESTION, PAS UN RÉSULTAT.` Un moteur qui rend « rien » sans le dire fait disparaître le document aussi sûrement qu'une erreur de lecture — mais sans laisser de trace, donc sans que personne puisse le voir. Et les causes possibles ne se départagent PAS depuis le document : ce sont des événements commerciaux que seul le gestionnaire connaît. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Tout CRG porteur sans aucun objet de patrimoine part en question, avec ses réponses possibles : **BIEN VENDU**, **BIEN VACANT**, **GESTION TERMINÉE**, **COMPTE TECHNIQUE** (coquille servant à payer hors gestion) et **QUOTE-PART D'INDIVISION** (`APP-0057`). Les trois premières sont des ÉVÉNEMENTS ; les deux dernières des NATURES DE COMPTE, permanentes. |
+| **composant** | `crg_integration.php` (`crgi_crg_sans_patrimoine`, `crgi_decider_crg`), `admin_crgi_phase.php` |
+| **tests** | À COUVRIR — fixture : un CRG ne portant qu'un report. |
+| **corpus** | 19 sur 947 ; réponses d'Emmanuel : 7 gestion terminée, 4 vendus, 2 comptes techniques, 1 vacant, 5 quotes-parts |
+| **limites** | Le moteur détecte l'absence ; il ne saura jamais la cause. La réponse est humaine par nature. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0057 · L'indivisaire n'a ni lot ni immeuble — il a une quote-part, et le document l'imprime
+
+| | |
+|---|---|
+| **phénomène** | Dans une indivision, le bien et le locataire sont portés par le compte de L'INDIVISION. Chaque indivisaire a son propre compte mandant, **sans aucun patrimoine**, qui ne reçoit qu'une part du résultat. Ce compte ressemble donc trait pour trait à une coquille vide — et n'en est pas une : son titulaire est payé par virement, le document donne son IBAN. |
+| **preuve** | 07/09/2026 — j'ai proposé « COMPTE TECHNIQUE » pour 15 des 19 CRG sans patrimoine, sur le seul fait qu'ils n'avaient jamais porté d'immeuble. Emmanuel n'en a retenu que **2**. Cinq étaient des indivisaires, et le document le disait en toutes lettres : « **50/100 de Indivision LAMUGNIERE** », « **54/100 de Indivision GUINARD** », « **50/100 de Indivision KIBLEPI** ». Les indivisions correspondantes existent comme mandants porteurs dans le MÊME dépôt — `04110000` et `06470000` pour LAMUGNIERE, `02190000` pour KIBLEPI. Et les deux quotes-parts LAMUGNIERE font **50 + 50 = 100**. |
+| **abstraction** | `UN FAIT NÉGATIF NE DISTINGUE PAS DEUX CAUSES.` « Ce compte n'a jamais porté d'immeuble » est vrai d'une coquille comptable ET d'un indivisaire ET d'un mandat qui vient de partir : il ne sépare rien. Le fait qui sépare était POSITIF et imprimé — la ligne de quote-part. Une proposition fondée sur une absence se trompe autant de fois qu'il existe de causes à cette absence. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | La quote-part se démontre par DEUX conditions, jamais une : la ligne imprimée « *N/100 de …* » **et** l'existence de l'indivision nommée comme compte porteur d'immeubles dans le corpus. Elle donne alors un LIEN et un TAUX — pas seulement une nature — et les quotes-parts d'une même indivision doivent totaliser 100. |
+| **composant** | `crg_integration.php` — cinquième réponse et sa détection |
+| **tests** | À COUVRIR — fixture : un CRG sans patrimoine portant « 50/100 de Indivision X », avec et sans l'indivision présente. |
+| **corpus** | 5 indivisaires sur 3 indivisions, dans 2 dépôts et 2 sociétés différentes |
+| **limites** | Une indivision absente du dépôt rend la quote-part indémontrable : elle reste une question. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0058 · Un solde reporté n'est pas un événement de la période
+
+| | |
+|---|---|
+| **phénomène** | Un compte rendu continue d'être édité tant qu'un solde n'est pas apuré, longtemps après la fin de la gestion. Sa seule ligne est alors un REPORT, reconduit à l'identique de trimestre en trimestre. La date du document ne dit donc rien de la date de l'événement qui l'a causé. |
+| **preuve** | 07/09/2026 — j'allais annoncer « **7 mandats perdus au T1 2026** » comme signal commercial, sur la foi de sept réponses « gestion terminée » portant toutes ce trimestre. Emmanuel : « **non, ils ne sont pas tous perdus à cette époque, c'est les soldes qui restent de trimestre en trimestre** ». Mesuré : un compte porte **22,00 € au T1 et 22,00 € au T2** — le même solde, sans un seul mouvement. Six des sept portent un report : 31,03 € · 55,57 € · 24,47 € · 55,00 € · 33,60 €. |
+| **abstraction** | `LA DATE D'UN DOCUMENT N'EST PAS LA DATE DE CE QU'IL RACONTE.` Compter les documents d'un trimestre pour mesurer les événements de ce trimestre transforme une **traîne comptable** en pic d'activité. L'erreur est d'autant plus tentante que le nombre est juste — sept documents existent bien — et que seul son NOM est faux. C'est `APP-0046` transposé au temps. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Aucune lecture commerciale ne se prend sur la date d'un compte rendu dont la seule opération est un report. Et surtout : une décision portant sur un compte de ce type est **PERMANENTE et porte sur le COMPTE MANDANT, jamais sur le document** — sinon la même question revient à chaque trimestre. Le cas mesuré a déjà dû être tranché deux fois, une par trimestre. |
+| **composant** | `crg_integration.php` (`crgi_decider_crg` — cible à porter sur le compte), `admin_crgi_phase.php` |
+| **tests** | À COUVRIR — fixture : deux CRG successifs d'un même compte portant le même report. |
+| **corpus** | 1 compte tranché deux fois, 6 reports sur 7 « gestion terminée » |
+| **limites** | Un report identique ne prouve pas l'absence totale de mouvement : il prouve que le solde n'a pas bougé. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0059 · Une question sans guichet est une perte, et un écran peut perdre une réponse en silence
+
+| | |
+|---|---|
+| **phénomène** | Trois défauts d'écran, tous de la même famille : le moteur pose une question, l'humain veut répondre, et la réponse n'arrive nulle part — sans que rien ne le signale. |
+| **preuve** | 07/09/2026, dans l'ordre où ils sont apparus. ① L'écran de suivi affichait les questions **en lecture seule**, les décisions étant censées se prendre « dans la file » — sauf que la file ne connaît que quatre cibles, toutes nées des phases 2 à 5. Les questions portant sur le COMPTE RENDU n'avaient aucun guichet. Emmanuel : « **je ne vois pas où mettre mes réponses** ». ② Le formulaire créé pour y répondre postait vers l'ACCUEIL : le gabarit pose un `<base href>`, et une action écrite « ?phase=2 » se résout contre la racine, pas contre la page. Emmanuel : « **quand je valide je suis déconnecté** » — et sa décision était perdue sans un mot. ③ Le lien « voir la preuve » répondait « CRG INTROUVABLE » sur un document parfaitement présent : l'identifiant venait du bac à sable, la page le cherchait dans la base réelle. |
+| **abstraction** | `UNE QUESTION SANS GUICHET N'EST PAS UNE QUESTION, C'EST UNE PERTE.` Et le corollaire, plus grave : **un guichet qui avale la réponse sans le dire est pire que pas de guichet**. Dans les trois cas l'écran répondait « HTTP 200 » — rien n'était en erreur, tout était perdu. Un lien de preuve qui ne prouve rien fait douter du DOCUMENT au lieu de faire douter du lien. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute question affichée porte son moyen de réponse sur le même écran. Toute URL d'une page sous `<base href>` est ABSOLUE, via `app_url()` — jamais « ?param= » seul. Et tout lien de preuve transporte la base qui a produit l'identifiant. |
+| **composant** | `admin_crgi_phase.php`, `admin/crgi_page.php` |
+| **tests** | À COUVRIR — un POST réel doit revenir sur la page et laisser une trace en base. |
+| **corpus** | 3 défauts, 19 questions concernées, 1 décision perdue avant correction |
+| **limites** | Le `<base href>` vit dans le gabarit commun : tout nouvel écran hérite du piège. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0060 · Les arbitrages de patrimoine venaient de la base d'essai, pas des documents
+
+| | |
+|---|---|
+| **phénomène** | La phase 2 sortait 190 objets « à arbitrer » — 160 immeubles et 30 lots. Présentés tels quels, ils ressemblent à un défaut de lecture. Ils ne viennent pas des documents : ils viennent de **doublons dans la base de confrontation**. |
+| **preuve** | 07/09/2026 — les motifs le disaient déjà : « MBI porte 2 FOIS le même immeuble », « 2 biens de MBI portent cette référence ». Mesuré : **190 occurrences pour 46 causes distinctes** — 23 adresses en double, 10 codes de gestion, 7 couples nom+code postal, 6 références de biens ; un même doublon revient 6 fois parce que 6 comptes rendus le mentionnent. Un cas type : la même référence de lot sur deux biens du même propriétaire, rattachés à deux immeubles différents. Emmanuel : « **je te rappelle que nous partons sur une base vierge, et que le local a de nombreux doublons de test** ». Vérifié en rejouant les quatre corpus contre un référentiel vide : **159 → 0** et **30 → 0**. |
+| **abstraction** | `UN NOMBRE D'ARBITRAGES NE MESURE PAS LE MOTEUR TANT QU'ON N'A PAS NOMMÉ CE QUI LES CAUSE.` Compter les occurrences au lieu des causes multiplie l'ampleur perçue par six ; et attribuer au lecteur ce qui vient de la base à laquelle on le confronte lui fait porter une faute qui n'est pas la sienne. Le moteur ne se trompait pas : il refusait correctement de deviner entre deux fiches identiques. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un arbitrage se compte en CAUSES, pas en occurrences, et se rattache toujours à sa source : document ou base. Ceux qui viennent de la base ne mesurent pas le moteur — et disparaissent sur une base vierge, ce qui doit être vérifié plutôt qu'affirmé. |
+| **composant** | mesure, `crgi_pilotage.php` |
+| **tests** | COUVERT INDIRECTEMENT — la séparation DOCUMENT / MBI existe déjà dans la file. |
+| **corpus** | 190 occurrences, 46 causes, 0 sur base vierge |
+| **limites** | La preuve « 0 sur base vierge » vaut pour ce corpus ; un doublon PORTÉ PAR LE DOCUMENT resterait. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0061 · Trois colonnes ont suffi à perdre le nom d'une indivision
+
+| | |
+|---|---|
+| **phénomène** | Le nom du propriétaire se lit dans le BLOC ADRESSE, calé à droite. Une indivision n'a pas d'adresse : le document n'imprime que sa raison sociale, **seule et centrée**. Elle tombe donc entre la colonne de gauche — qu'on écarte — et le bloc de droite — qu'on exige. |
+| **preuve** | 07/09/2026 — marge du document colonne 17, seuil du bloc adresse colonne 47, nom de l'indivision colonne **44**. **Rejeté pour trois colonnes**, en silence. Mesuré : **3 comptes rendus sur 947** entrés sans nom de propriétaire, dont un portant **NEUF immeubles**. C'est Emmanuel qui l'a mis au jour en montrant les fiches de son logiciel : l'indivision GUINARD existe, porte son immeuble et son locataire — le moteur la voyait anonyme. |
+| **abstraction** | `UN DÉFAUT DE LECTURE EN AMONT FABRIQUE UNE QUESTION EN AVAL.` L'absence de nom n'a produit aucune alerte à la phase 0 ; elle a produit, deux phases plus loin, une question d'arbitrage insoluble — la quote-part de l'indivisaire ne pouvait pas être démontrée, faute d'indivision nommée à laquelle la rattacher. On cherchait la cause dans la phase 2 ; elle était dans la phase 0. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | **On ne baisse pas le seuil, on en ajoute un second.** Descendre le seuil de droite ferait rentrer la colonne de GAUCHE — mentions légales, « COMPTE PERSONNEL » — dans la fenêtre du bloc adresse, sur TOUS les documents. Le seuil « centré » ne s'ouvre que si le premier n'a rien rendu : un nom centré est un dernier recours, jamais un concurrent du bloc adresse. |
+| **composant** | `crg_integration_phase0.py` (`_proprietaire_lyon`), `crg_texte.py` (`ECART_COLONNE_CENTREE`) |
+| **tests** | ÉPROUVÉ sur 4 gabarits — l'indivision centrée, un propriétaire ordinaire à droite, et deux variantes lyonnaises : 4/4 sans régression. |
+| **corpus** | 3 CRG sur 947, 11 immeubles concernés |
+| **limites** | Un nom centré ET une ligne parasite centrée dans la même fenêtre : la première gagne. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0062 · L'indivisaire peut aussi détenir en propre dans le même immeuble
+
+| | |
+|---|---|
+| **phénomène** | Une indivision n'est pas une simple étiquette sur un propriétaire : c'est un **mandant à part entière**, avec son compte, ses mandats et ses locataires. Chaque indivisaire a en plus son propre compte, sans patrimoine, qui ne reçoit qu'une quote-part. Et rien n'empêche un indivisaire de détenir, **en son nom propre**, d'autres lots dans le **même immeuble**. |
+| **preuve** | 07/09/2026, vérifié sur les fiches du logiciel source et retrouvé dans le corpus. L'indivision porte son compte, deux mandats sur « 17 avenue de la République » et un locataire depuis le 30/06/2015. Un des deux indivisaires porte son compte personnel **et** un mandat propre sur le MÊME immeuble, avec un autre locataire depuis le 01/02/2018. La seconde indivisaire n'a que son compte personnel et sa quote-part de 54/100. |
+| **abstraction** | `TROIS LIGNES SUR LE MÊME IMMEUBLE NE SONT PAS TROIS DOUBLONS.` L'indivision, l'indivisaire qui détient en propre, et l'indivisaire qui ne détient rien sont **trois mandants distincts** — et la ressemblance de leurs noms est précisément ce qui pousse à les confondre. C'est la règle du nouveau lot poussée à son cas limite : la nouveauté se juge **lot par lot**, jamais par héritage du propriétaire ni de l'immeuble. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Ne jamais fondre un indivisaire dans son indivision, ni un lot détenu en propre dans un lot de l'indivision. Le rattachement de l'argent suit le COMPTE MANDANT du compte rendu, jamais la ressemblance des noms. |
+| **composant** | doctrine — s'applique aux phases 1, 2 et 3 |
+| **tests** | À COUVRIR — fixture : un immeuble portant un lot d'indivision et un lot d'indivisaire, avec deux occupants. |
+| **corpus** | 1 immeuble, 3 mandants, 2 locataires |
+| **limites** | La structure ne se lit pas sur le CRG seul : c'est le rapprochement des comptes qui la révèle. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est

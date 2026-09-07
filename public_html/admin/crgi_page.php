@@ -15,7 +15,27 @@ declare(strict_types=1);
 require_once __DIR__ . '/../inc/bootstrap.php';
 require_admin_or_super_admin();
 
+// ⚠️ LA PREUVE DOIT ÊTRE CHERCHÉE DANS LA BASE QUI A PRODUIT L'IDENTIFIANT. Cet écran lisait
+//    toujours la base par défaut ; les identifiants venant du bac à sable y étaient
+//    introuvables, et le bouton « voir la preuve » répondait « CRG INTROUVABLE » sur un
+//    document parfaitement présent. Un lien de preuve qui ne prouve rien est pire que pas de
+//    lien : il fait douter du document au lieu de douter du lien.
+//
+// ⚠️ LA LISTE DES BASES EST FERMÉE, ET LE CHEMIN NE VIENT TOUJOURS PAS DE L'URL. On choisit
+//    parmi deux noms écrits ici ; le chemin du fichier, lui, reste relu en base.
+const CRGIPG_BASES = ['maboximmo', 'mbi_bis'];
 $pdo = $GLOBALS['pdo'];
+$base = (string)($_GET['base'] ?? '');
+if ($base !== '' && $base !== 'maboximmo' && in_array($base, CRGIPG_BASES, true)) {
+    $secret = 'C:/Users/emery/.mbi/mbi_agent.pass';
+    try {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=' . $base . ';charset=utf8mb4',
+            'mbi_agent', is_file($secret) ? trim((string)file_get_contents($secret)) : '',
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    } catch (Throwable $e) {
+        $pdo = $GLOBALS['pdo'];
+    }
+}
 $crgId = (int)($_GET['crg'] ?? 0);
 
 $st = $pdo->prepare(

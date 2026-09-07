@@ -3114,6 +3114,231 @@ function crgi_population_mouvements(PDO $pdo, ?int $importId = null): array
 }
 
 /**
+ * UN COMPTE RENDU QUI NE PRODUIT AUCUN PATRIMOINE — ET QU'ON NE DEVINE PAS.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ LE SILENCE EST LA FAUTE. Un CRG qui ne rend ni immeuble ni lot n'est pas un résultat
+ *    vide : c'est une QUESTION. Aujourd'hui il disparaissait sans trace — aucun contrôle ne
+ *    comparait « comptes rendus porteurs » à « comptes rendus ayant produit un objet ».
+ *    Mesuré : **19 sur 947**, dont 10 chez une agence et 8 chez une autre.
+ *
+ * ⚠️ ET LE DOCUMENT NE PERMET PAS DE CHOISIR — Emmanuel, 07/09/2026 : « pas d'appel de loyer,
+ *    alors il n'y a plus de locataire actif : soit appartement vacant, soit perte de gestion,
+ *    et tu ne peux pas le voir, il faut poser la question ». Le cas réel qu'il a tranché —
+ *    Indivision MARTIN, un trimestre entier tenant dans un report de 33,60 € — était un
+ *    **BIEN VENDU**. Quatre causes possibles, et le CRG n'en désigne aucune :
+ *      · BIEN VENDU          — le propriétaire ne le possède plus ;
+ *      · BIEN VACANT         — il le possède, personne ne l'occupe, rien n'est appelé ;
+ *      · GESTION TERMINEE    — il le possède et l'occupe, mais confie la gestion ailleurs ;
+ *      · COMPTE TECHNIQUE    — une COQUILLE VIDE, sans patrimoine par construction, qui sert
+ *        à payer des factures HORS GESTION (Emmanuel, 07/09/2026, à propos de « GPE SIR STE »).
+ *    Les trois premières sont des ÉVÉNEMENTS COMMERCIAUX que seul Emmanuel connaît. La
+ *    quatrième n'est pas un événement du tout : c'est une NATURE DE COMPTE, permanente, et
+ *    elle ne devrait jamais être reposée une fois dite. Elle se reconnaît à ce que le compte
+ *    n'a JAMAIS porté d'immeuble — mais seul Emmanuel peut confirmer qu'elle est voulue.
+ *
+ * ⚠️ ON DONNE DONC LE SEUL FAIT QUI ORIENTE : CE COMPTE A-T-IL DÉJÀ PORTÉ DU PATRIMOINE ?
+ *    S'il en portait avant et n'en porte plus, quelque chose s'est terminé — vente, congé,
+ *    mandat perdu. S'il n'en a jamais porté, ce n'est pas une fin, c'est une autre nature de
+ *    compte. Le moteur ne conclut pas : il pose la question avec ce qu'il sait.
+ */
+// ⚠️ LES QUATRE RÉPONSES, DÉCLARÉES ICI ET NULLE PART AILLEURS. Une liste écrite dans l'écran
+//    dériverait du jour où un second écran la recopierait. Les trois premières sont des
+//    ÉVÉNEMENTS — elles reviendront à chaque trimestre ; la quatrième est une NATURE DE
+//    COMPTE, permanente : dite une fois, elle ne se redemande plus.
+// Le type sous lequel la mémoire du moteur range ces décisions, dans `crgi_identite`.
+const CRGI_IDENTITE_COMPTE_SANS_PATRIMOINE = 'COMPTE-SANS-PATRIMOINE';
+
+const CRGI_CHOIX_SANS_PATRIMOINE = [
+    'BIEN VENDU'       => 'Le propriétaire ne le possède plus.',
+    'BIEN VACANT'      => 'Il le possède, personne ne l’occupe, rien n’est appelé.',
+    'GESTION TERMINEE' => 'Il le possède et il est occupé, mais la gestion est ailleurs.',
+    'COMPTE TECHNIQUE' => 'Coquille sans patrimoine, qui sert à payer hors gestion.',
+];
+
+/**
+ * ENREGISTRER UNE DÉCISION PORTANT SUR UN COMPTE RENDU ENTIER.
+ *
+ * ⚠️ LA FILE D'ARBITRAGE NE CONNAISSAIT QUE QUATRE CIBLES — immeuble, lot, occupation,
+ *    mouvement — toutes nées des phases 2 à 5. Les questions des phases 0 et 1 portent sur le
+ *    COMPTE RENDU lui-même et n'avaient donc aucun guichet : le moteur posait des questions
+ *    sans avoir prévu où l'on répond. Une question sans guichet n'est pas une question, c'est
+ *    une perte.
+ *
+ * ⚠️ ÉCRITURE TECHNIQUE, JAMAIS MÉTIER. La décision vit dans `crgi_arbitrage` ; rien n'est
+ *    créé, modifié ni supprimé dans MBI. Décider n'est pas intégrer.
+ *
+ * ⚠️ ET UN CHOIX VIDE EFFACE, il ne stocke pas du vide : retirer sa décision est une décision.
+ */
+function crgi_decider_crg(PDO $pdo, int $importId, int $crgId, string $groupe,
+                          array $choixPossibles, string $choix, int $userId): void
+{
+    if ($choix !== '' && !isset($choixPossibles[$choix])) {
+        throw new RuntimeException(
+            'CHOIX INCONNU POUR CETTE QUESTION : « ' . $choix . ' ». Les réponses possibles '
+            . 'sont : ' . implode(' · ', array_keys($choixPossibles))
+        );
+    }
+    // ⚠️ LA DÉCISION PORTE SUR LE COMPTE MANDANT, PAS SUR LE DOCUMENT. Un compte rendu
+    //    continue d'être édité tant qu'un solde n'est pas apuré : le même compte revient
+    //    trimestre après trimestre avec le même report — 22,00 € au T1, 22,00 € au T2, sans
+    //    un mouvement. Stockée par document, la réponse « vendu » a déjà dû être donnée DEUX
+    //    FOIS pour un seul bien, et l'aurait été à chaque trimestre suivant, indéfiniment.
+    //
+    // ⚠️ ET LA CLÉ EST (AGENCE, COMPTE), JAMAIS LE COMPTE SEUL. Un numéro n'est unique que
+    //    dans son espace de nommage — `INTEG-P1-ESPACE-DE-NOMMAGE`. Mémoriser « 02200000 =
+    //    vendu » sans l'agence classerait vendu un mandant de l'autre société.
+    $ctx = $pdo->prepare('SELECT c.compte, COALESCE(a.nom_agence, c.agence, "") agence
+                            FROM crgi_crg c LEFT JOIN agences a ON a.id = c.agence_id
+                           WHERE c.id = ?');
+    $ctx->execute([$crgId]);
+    $ou = $ctx->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    if ($choix === '') {
+        $pdo->prepare('DELETE FROM crgi_arbitrage
+                        WHERE import_id = ? AND cible_type = "CRG" AND cible_id = ?')
+            ->execute([$importId, $crgId]);
+        if ($ou && $ou['compte'] !== null) {
+            $pdo->prepare('DELETE FROM crgi_identite
+                            WHERE type = ? AND agence = ? AND cle = ?')
+                ->execute([CRGI_IDENTITE_COMPTE_SANS_PATRIMOINE,
+                           (string)$ou['agence'], (string)$ou['compte']]);
+        }
+        return;
+    }
+    $pdo->prepare(
+        'INSERT INTO crgi_arbitrage (import_id, groupe, cible_type, cible_id, choix, decide_par)
+         VALUES (?,?,"CRG",?,?,?)
+         ON DUPLICATE KEY UPDATE groupe = VALUES(groupe), choix = VALUES(choix),
+                                 decide_par = VALUES(decide_par)'
+    )->execute([$importId, $groupe, $crgId, $choix, $userId ?: null]);
+
+    // ⚠️ ET ELLE DEVIENT UNE MÉMOIRE. `crgi_identite` est déjà le registre des décisions
+    //    durables : une réponse donnée une fois vaut pour tous les comptes rendus du même
+    //    compte, dans ce dépôt comme dans les suivants. C'est ce qui fait qu'une question
+    //    posée une fois ne se repose pas.
+    if ($ou && (string)$ou['compte'] !== '') {
+        $pdo->prepare(
+            'INSERT INTO crgi_identite (type, agence, cle, choix, import_origine, decide_par)
+             VALUES (?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE choix = VALUES(choix), decide_par = VALUES(decide_par),
+                                     decide_le = NOW()'
+        )->execute([CRGI_IDENTITE_COMPTE_SANS_PATRIMOINE, (string)$ou['agence'],
+                    (string)$ou['compte'], $choix, $importId, $userId ?: null]);
+    }
+}
+
+function crgi_crg_sans_patrimoine(PDO $pdo, int $importId): array
+{
+    $st = $pdo->prepare(
+        'SELECT c.id, c.compte, c.proprietaire, c.periode_cle, c.date_arrete, c.page_debut,
+                (SELECT COUNT(*) FROM crgi_crg a
+                   JOIN crgi_immeuble m ON m.crg_id = a.id
+                  WHERE a.import_id = c.import_id AND a.compte = c.compte
+                    AND a.date_arrete < c.date_arrete) AS patrimoine_avant,
+                (SELECT COUNT(*) FROM crgi_crg a
+                   JOIN crgi_immeuble m ON m.crg_id = a.id
+                  WHERE a.import_id = c.import_id AND a.compte = c.compte) AS patrimoine_jamais
+           FROM crgi_crg c
+          WHERE c.import_id = ? AND ' . CRGI_CRG_PORTEURS . '
+            AND NOT EXISTS (SELECT 1 FROM crgi_immeuble m WHERE m.crg_id = c.id)
+          ORDER BY c.compte, c.date_arrete'
+    );
+    $st->execute([$importId]);
+    $lignes = $st->fetchAll(PDO::FETCH_ASSOC);
+    // Ce qui a DÉJÀ été décidé sur CE document.
+    $dejaDit = $pdo->prepare('SELECT cible_id, choix FROM crgi_arbitrage
+                               WHERE import_id = ? AND cible_type = "CRG"');
+    $dejaDit->execute([$importId]);
+    $decisions = $dejaDit->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    // ⚠️ ET CE QUI A ÉTÉ APPRIS SUR LE COMPTE — la réponse donnée un trimestre vaut pour
+    //    tous les suivants. C'est la différence entre un moteur qui retient et un moteur qui
+    //    repose la même question indéfiniment.
+    $agenceDe = $pdo->prepare('SELECT COALESCE(a.nom_agence, c.agence, "")
+                                 FROM crgi_crg c LEFT JOIN agences a ON a.id = c.agence_id
+                                WHERE c.id = ?');
+    $lecteur = crgi_binaire('pdftotext');
+    $page = $pdo->prepare('SELECT pc.chemin, c.page_debut FROM crgi_crg c
+                             JOIN crgi_page pg ON pg.crg_id = c.id AND pg.page_no = c.page_debut
+                             JOIN crgi_piece pc ON pc.id = pg.piece_id
+                            WHERE c.id = ? LIMIT 1');
+    // Les indivisions du dépôt qui portent RÉELLEMENT du patrimoine — la seconde condition
+    // de la quote-part, celle qui empêche de croire une ligne sur parole.
+    $porteurs = $pdo->prepare(
+        'SELECT DISTINCT c.proprietaire FROM crgi_crg c
+           JOIN crgi_immeuble m ON m.crg_id = c.id
+          WHERE c.import_id = ? AND c.proprietaire <> ""'
+    );
+    $porteurs->execute([$importId]);
+    $indivisions = [];
+    foreach ($porteurs->fetchAll(PDO::FETCH_COLUMN) as $nom) {
+        $indivisions[crgi_cle_nom((string)$nom)] = (string)$nom;
+    }
+
+    foreach ($lignes as &$l) {
+        $l['decision'] = $decisions[(int)$l['id']] ?? null;
+        $l['apprise']  = null;
+        if ($l['decision'] === null && (string)$l['compte'] !== '') {
+            $agenceDe->execute([(int)$l['id']]);
+            $appris = crgi_identite_apprise($pdo, CRGI_IDENTITE_COMPTE_SANS_PATRIMOINE,
+                (string)$agenceDe->fetchColumn(), (string)$l['compte']);
+            if ($appris) {
+                $l['decision'] = (string)$appris['choix'];
+                $l['apprise']  = 'Réponse déjà donnée sur ce compte — elle ne se redemande pas.';
+            }
+        }
+        // ⚠️ LA QUOTE-PART SE DÉMONTRE, ELLE NE SE DEMANDE PAS. Deux conditions, jamais une :
+        //    la ligne imprimée « N/100 de … » ET l'existence de l'indivision nommée comme
+        //    mandant PORTEUR d'immeubles dans le même dépôt. Une ligne seule pourrait citer
+        //    une indivision qui n'existe pas ; une indivision seule ne dit rien du taux.
+        if ($l['decision'] === null && $lecteur) {
+            $page->execute([(int)$l['id']]);
+            if ($p = $page->fetch(PDO::FETCH_ASSOC)) {
+                $n = (int)$p['page_debut'];
+                $txt = (string)shell_exec(escapeshellarg($lecteur) . ' -layout -f ' . $n
+                     . ' -l ' . $n . ' ' . escapeshellarg((string)$p['chemin']) . ' - 2>'
+                     . (DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null'));
+                if (preg_match('~(\d{1,3})\s*/\s*(\d{1,4})\s+(?:de|du)\s+(.{3,60})~i', $txt, $m)) {
+                    $cible = crgi_cle_nom($m[3]);
+                    foreach ($indivisions as $cle => $nom) {
+                        if ($cle !== '' && str_starts_with($cible, $cle)) {
+                            $l['decision'] = 'QUOTE-PART D’INDIVISION';
+                            $l['apprise'] = 'Démontré par le document : « ' . trim($m[1])
+                                . '/' . trim($m[2]) . ' de ' . $nom . ' », et cette indivision '
+                                . 'porte réellement du patrimoine dans ce dépôt.';
+                            break 1;
+                        }
+                    }
+                }
+            }
+        }
+        // ⚠️ « JAMAIS » N'EST PAS « PLUS » — et c'est toute la différence entre une nature de
+        //    compte et un événement commercial.
+        // ⚠️ UNE PROPOSITION N'EST PAS UNE DÉCISION, MAIS ELLE FAIT GAGNER LE TEMPS. Elle dit
+        //    ce que le FAIT observé rend le plus probable, et le fait est écrit à côté pour
+        //    qu'on puisse la refuser en un coup d'œil. Sans elle, il faut tout reconstruire
+        //    de tête, ligne après ligne.
+        if ((int)$l['patrimoine_jamais'] === 0) {
+            $l['proposition'] = 'COMPTE TECHNIQUE';
+            $l['parce_que']   = 'n’a JAMAIS porté d’immeuble dans ce dépôt — coquille servant '
+                              . 'à payer hors gestion. Nature de compte, pas fin de gestion : '
+                              . 'dite une fois, elle ne se redemande plus.';
+        } elseif ((int)$l['patrimoine_avant'] > 0) {
+            $l['proposition'] = 'VENDU ou GESTION TERMINÉE';
+            $l['parce_que']   = 'portait du patrimoine sur une période ANTÉRIEURE et n’en '
+                              . 'porte plus : quelque chose s’est terminé. Le document ne dit '
+                              . 'pas quoi — vous seul le savez.';
+        } else {
+            $l['proposition'] = 'BIEN VACANT';
+            $l['parce_que']   = 'porte du patrimoine sur une AUTRE période du dépôt, mais pas '
+                              . 'sur celle-ci : l’interruption est temporaire, pas une fin.';
+        }
+    }
+    return $lignes;
+}
+
+/**
  * Le bilan de la phase 4 : agence → période → compte, avec les catégories financières.
  *
  * ⚠️ LES STOCKS NE SONT JAMAIS SOMMÉS AVEC LES FLUX, NI ENTRE EUX. Pour l'encours, on ne rend

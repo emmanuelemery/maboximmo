@@ -34,7 +34,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crg_format import famille_du_texte   # noqa: E402  — l'autorité unique de reconnaissance
 from crg_periode import fin_de_trimestre  # noqa: E402  — l'autorité unique de période
-from crg_texte import (ECART_COLONNE_DROITE, RE_DEBUT_CELLULE, bloc_borne,   # noqa: E402
+from crg_texte import (ECART_COLONNE_CENTREE, ECART_COLONNE_DROITE,          # noqa: E402
+                       RE_DEBUT_CELLULE, bloc_borne,
                        colonne_du_texte, contient_montant, depuis_la_colonne,
                        en_colonnes, est_champ_entete, est_ligne_de_tableau,
                        marge_gauche, normaliser)
@@ -671,23 +672,43 @@ def _proprietaire_lyon(texte):
         #    03/09/2026, le même repère est colonne 140 sous un rendu et colonne 43 sous
         #    l'autre, tandis que le bloc reste, lui, colonne 140 puis 87. Le seuil se mesure
         #    donc sur la marge du document — la seule chose qui ne bouge pas.
-        seuil = marge_gauche(lignes[:i + 12]) + ECART_COLONNE_DROITE
+        marge = marge_gauche(lignes[:i + 12])
+        seuil = marge + ECART_COLONNE_DROITE
+        # ⚠️ UNE INDIVISION N'A PAS D'ADRESSE, ET SON NOM EST CENTRÉ. Le bloc adresse d'un
+        #    propriétaire ordinaire est calé à droite — colonne 87 sur ce gabarit. Celui d'une
+        #    indivision n'existe pas : le document n'imprime que sa raison, SEULE et CENTRÉE,
+        #    colonne 44, pour un seuil à 47. **Rejeté pour trois colonnes**, et le compte
+        #    rendu entrait sans nom de propriétaire. Mesuré : 3 CRG sur 947, dont un portant
+        #    NEUF immeubles — et l'un d'eux était l'indivision GUINARD, dont l'absence de nom
+        #    empêchait de démontrer la quote-part de son indivisaire.
+        #
+        # ⚠️ ON NE BAISSE PAS LE SEUIL, ON EN AJOUTE UN SECOND. Descendre `seuil` ferait
+        #    rentrer la colonne de GAUCHE — mentions légales, « COMPTE PERSONNEL » — dans la
+        #    fenêtre du bloc adresse, sur TOUS les documents. Le second seuil ne sert que si
+        #    le premier n'a rien rendu : un nom centré est un dernier recours, jamais une
+        #    concurrence du bloc adresse.
+        centre = marge + ECART_COLONNE_CENTREE
+        replis = None
         for _j, suivante in bloc_borne(lignes, i, _fin_entete_ics):
             if not suivante.strip() or est_ligne_de_tableau(suivante):
                 continue
-            # ⚠️ UNE LIGNE DE L'AUTRE COLONNE N'EST PAS UNE FRONTIÈRE. L'en-tête ICS est sur
-            #    DEUX colonnes : mentions légales et « COMPTE PERSONNEL » à gauche, date et
-            #    bloc adresse à droite. On ignore la colonne de gauche et on continue — la
-            #    fenêtre de cinq lignes, elle, s'arrêtait dessus et rendait zéro.
-            if colonne_du_texte(suivante) < seuil:
+            col = colonne_du_texte(suivante)
+            if col < centre:
+                # ⚠️ UNE LIGNE DE L'AUTRE COLONNE N'EST PAS UNE FRONTIÈRE. L'en-tête ICS est
+                #    sur DEUX colonnes : mentions légales et « COMPTE PERSONNEL » à gauche,
+                #    date et bloc adresse à droite. On ignore la colonne de gauche et on
+                #    continue — la fenêtre de cinq lignes, elle, s'arrêtait dessus.
                 continue
             candidat = normaliser(suivante)
             if candidat.startswith('*') or RE_COMPTE_LYON.search(candidat):
                 continue
             if est_champ_entete(candidat) or contient_montant(candidat):
                 continue
-            return candidat
-        return None
+            if col >= seuil:
+                return candidat
+            if replis is None:
+                replis = candidat
+        return replis
     return None
 
 
