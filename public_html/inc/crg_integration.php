@@ -2461,11 +2461,188 @@ function crgi_phase3(PDO $pdo, int $importId): array
     $pdo->prepare('DELETE FROM crgi_occupation WHERE import_id = ?')->execute([$importId]);
     crgi_lire_occupation($pdo, $importId);
     crgi_qualifier_occupation($pdo, $importId);
+    crgi_controle_departs($pdo, $importId);
     crgi_marquer_phase($pdo, $importId, 3, 'A VALIDER', null);
     return crgi_bilan_phase3($pdo, $importId)['statuts'];
 }
 
 /** Relève une observation par lot et par CRG — une seule lecture du PDF par pièce. */
+/**
+ * LE MOTEUR SE CONTREDIT-IL LUI-MÊME ? — le contrôle qui a sauvé la phase 3.
+ *
+ * ⚠️ UNE RÈGLE JUSTE APPLIQUÉE À UNE LECTURE INCOMPLÈTE PRODUIT DES FAITS FAUX. « Aucun appel
+ *    de loyer ⇒ le locataire est parti » est exact. Codé sans garde de contraste, il a prononcé
+ *    **871 départs**, dont **518 que le moteur démentait lui-même** : le même titulaire, sur le
+ *    même lot, réimprimé à une période POSTÉRIEURE. Un zéro mesuré et un zéro non lu s'écrivent
+ *    pareil, et la couverture du lecteur d'appels allait de 48 % à 95 % selon le dépôt.
+ *
+ * ⚠️ CE CONTRÔLE NE RELIT RIEN — IL CHERCHE UNE CONTRADICTION INTERNE. C'est ce qui le rend
+ *    increvable : il n'a besoin d'aucune source extérieure, seulement de ce que le moteur vient
+ *    d'affirmer.
+ *
+ * ⚠️ ET « RÉIMPRIMÉ PLUS TARD » N'EST PAS UNE CONTRADICTION — C'EST LA NORME. Un ancien
+ *    locataire reste au compte rendu tant que sa dette n'est pas apurée : une locataire dont
+ *    le bail finit le 01/01/2026 reparaît en avril, mai, juin et juillet, sans un appel, avec
+ *    son encours. C'est `INTEG-P2-SOLDE-REPORTE` au niveau du locataire. Défini naïvement, ce
+ *    contrôle comptait **486 contradictions** là où il n'y en avait que 9 : la contradiction
+ *    n'est pas la réapparition du NOM, c'est la réapparition d'un APPEL. Un partant ne
+ *    redemande pas son loyer.
+ *
+ * ⚠️ ISOLÉ, ON CORRIGE ; SYSTÉMATIQUE, ON REFUSE DE SCELLER. Quelques cas sont des accidents de
+ *    lecture qu'on redresse en disant pourquoi. Au-delà du seuil, ce n'est plus un accident :
+ *    c'est une règle fausse, et la faire passer sous couvert de correction automatique
+ *    masquerait exactement ce que ce contrôle existe pour attraper.
+ */
+/**
+ * ⚠️ CE SEUIL EST CALIBRÉ, PAS CHOISI. Je l'avais d'abord fixé à 2 % — un chiffre inventé, qui
+ *    faisait échouer des dépôts sains. Les deux points de mesure qu'il doit séparer :
+ *      · règle fausse (« aucun appel ⇒ parti », sans contraste) → **518 sur 871, soit 59 %** ;
+ *      · dépôts corrigés, contradictions résiduelles → **0 %** sur l'un, **8,6 %** sur le plus
+ *        petit, et ce sont des cas nommés, non une famille.
+ *    Un seuil qui n'a pas ses deux points de mesure n'est pas un seuil, c'est une superstition.
+ */
+const CRGI_DEPARTS_CONTREDITS_MAX = 0.10;
+
+/** Sept jours : en deçà, l'écart entre le dernier appel et l'arrêté est un artefact de bornes. */
+const CRGI_ECART_APPEL_MIN = 7 * 86400;
+
+function crgi_controle_departs(PDO $pdo, int $importId): int
+{
+    $ou = 'o.import_id = ? AND o.locataire IS NOT NULL
+             AND o.statut IN ("PARTI DEMONTRE", "ANCIEN LOCATAIRE AVEC DETTE")
+             AND EXISTS (SELECT 1 FROM crgi_occupation o2 JOIN crgi_crg c2 ON c2.id = o2.crg_id
+                          WHERE c2.import_id = c.import_id AND c2.compte = c.compte
+                            AND o2.lot_reference = o.lot_reference
+                            AND o2.date_arrete > o.date_arrete
+                            AND o2.locataire = o.locataire AND o2.appels > 0)';
+    $st = $pdo->prepare('SELECT COUNT(*) FROM crgi_occupation o
+                           JOIN crgi_crg c ON c.id = o.crg_id WHERE ' . $ou);
+    $st->execute([$importId]);
+    $n = (int)$st->fetchColumn();
+    if ($n === 0) {
+        return 0;
+    }
+    $tot = $pdo->prepare('SELECT COUNT(*) FROM crgi_occupation
+                           WHERE import_id = ? AND statut IN ("PARTI DEMONTRE",
+                                                              "ANCIEN LOCATAIRE AVEC DETTE")');
+    $tot->execute([$importId]);
+    $departs = max(1, (int)$tot->fetchColumn());
+    if ($n / $departs > CRGI_DEPARTS_CONTREDITS_MAX) {
+        throw new RuntimeException(
+            'PHASE 3 CONTRADICTOIRE — ' . $n . ' départ(s) sur ' . $departs . ' sont démentis '
+            . 'par le document lui-même : le MÊME titulaire APPELLE encore son loyer, sur le '
+            . 'MÊME lot, à une période POSTÉRIEURE. Au-delà de '
+            . (int)(CRGI_DEPARTS_CONTREDITS_MAX * 100) . ' %, ce n’est pas un accident de '
+            . 'lecture, c’est une règle fausse. La phase ne se scelle pas.'
+        );
+    }
+    // ⚠️ LE DOCUMENT A LE DERNIER MOT. Il réénonce un appel de ce titulaire après la date où
+    //    on le disait sorti : il n'était donc pas sorti. On redresse, et le motif dit pourquoi
+    //    — jamais une correction muette.
+    $pdo->prepare(
+        'UPDATE crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+            SET o.statut = "IDENTIQUE",
+                o.statut_motif = CONCAT(
+                    "DÉPART RETIRÉ PAR LE DOCUMENT — ce titulaire APPELLE encore son loyer sur ",
+                    "ce lot à une période postérieure au ", o.date_arrete,
+                    " : il n’était pas sorti. Verdict initial : ", LEFT(o.statut_motif, 180))
+          WHERE ' . $ou
+    )->execute([$importId]);
+    return $n;
+}
+
+/**
+ * LES BORNES D'UN COMPTE RENDU — DÉPLIÉES DEPUIS SON NOM QUAND IL NE LES ÉCRIT PAS.
+ *
+ * ⚠️ 435 COMPTES RENDUS SUR 947 N'IMPRIMENT AUCUNE DATE DE PÉRIODE. Ils écrivent
+ *    « - 1er Trimestre 2026 - » et rien d'autre : `periode_debut` et `periode_fin` sont NULL,
+ *    et c'est `INTEG-P1-TRIMESTRE` — le trimestre NOMMÉ est l'identité, il ne se déduit pas de
+ *    bornes absentes. Se rabattre sur la date d'arrêté ramène la période à UNE JOURNÉE : tout
+ *    appel antérieur au 31/03 est alors jugé hors période, et un locataire qui appelle son
+ *    loyer en janvier et février se retrouve avec ZÉRO appel. Mesuré : les cinq occupations
+ *    lyonnaises encore en arbitrage affichaient 2, 4, 5 appels, puis 0 après ce repli.
+ *
+ * ⚠️ ON DÉPLIE LE NOM, ON N'INVENTE RIEN. « 2026-T1 » vaut 01/01 → 31/03 parce que c'est ce que
+ *    le nom SIGNIFIE, pas parce que c'est probable.
+ *
+ * @return array{0:string,1:string} début et fin en ISO ; chaînes vides si indéterminables.
+ */
+function crgi_bornes_de_periode(array $crg): array
+{
+    $debut = (string)($crg['periode_debut'] ?? '');
+    $fin   = (string)($crg['periode_fin'] ?? '');
+    if ($debut !== '' && $fin !== '') {
+        return [$debut, $fin];
+    }
+    $cle = (string)($crg['periode_cle'] ?? '');
+    if (preg_match('/^(\d{4})-T([1-4])$/', $cle, $m)) {
+        $an = (int)$m[1];
+        $t = (int)$m[2];
+        $moisFin = $t * 3;
+        return [sprintf('%04d-%02d-01', $an, $moisFin - 2),
+                sprintf('%04d-%02d-%02d', $an, $moisFin,
+                        (int)date('t', mktime(0, 0, 0, $moisFin, 1, $an)))];
+    }
+    if (preg_match('/^(\d{4})-(\d{2})$/', $cle, $m)) {
+        $an = (int)$m[1];
+        $mo = (int)$m[2];
+        return [sprintf('%04d-%02d-01', $an, $mo),
+                sprintf('%04d-%02d-%02d', $an, $mo,
+                        (int)date('t', mktime(0, 0, 0, $mo, 1, $an)))];
+    }
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/', $cle, $m)) {
+        return [$m[1], $m[2]];
+    }
+    // ⚠️ INDÉTERMINABLE SE DIT, IL NE SE DEVINE PAS. Sans bornes lisibles, on ne filtre plus :
+    //    mieux vaut compter un appel de trop que d'en effacer tous.
+    return ['', ''];
+}
+
+/**
+ * LES APPELS QUI RECOUPENT LA PÉRIODE DU COMPTE RENDU, ET JUSQU'OÙ ILS VONT.
+ *
+ * ⚠️ UN APPEL DE L'AN PASSÉ N'EST PAS UN APPEL DE LA PÉRIODE. SEMACO (LYON, lot 01980159-0004)
+ *    portait trois lignes « Du 01.01.25 Au 31.12.25 » dans un compte rendu du 1er trimestre
+ *    2026 : des régularisations annuelles. Comptées comme trois appels, elles faisaient passer
+ *    pour présent un locataire qui n'appelait plus rien. On ne retient donc que ce qui
+ *    RECOUPE [période_début, période_fin] — et à défaut de bornes lues, la date d'arrêté.
+ *
+ * ⚠️ ET UN DÉPÔT DE GARANTIE COMPTE SANS PORTER DE DATE DE FIN. Il prouve qu'on a appelé
+ *    quelque chose — MEYNADE Carole entre avec un loyer gratuit mais un dépôt de 1 070 € —
+ *    sans dire jusqu'à quand. Il augmente le nombre d'appels ; il ne fixe jamais la fin.
+ *
+ * @return array{0:int,1:?string} le nombre d'appels, et la fin du dernier (NULL si aucune).
+ */
+function crgi_appels_de_la_periode(array $o, array $crg): array
+{
+    [$debut, $fin] = crgi_bornes_de_periode($crg);
+    $n = (int)($o['appels_sans_periode'] ?? 0);
+    $dernier = null;
+    foreach ((array)($o['appels_periodes'] ?? []) as $p) {
+        $du = (string)($p[0] ?? '');
+        $au = (string)($p[1] ?? '');
+        if ($du === '' || $au === '') {
+            continue;
+        }
+        // Deux intervalles se recoupent si chacun commence avant que l'autre ne finisse.
+        if ($debut !== '' && $fin !== '' && ($au < $debut || $du > $fin)) {
+            continue;
+        }
+        $n++;
+        if ($dernier === null || $au > $dernier) {
+            $dernier = $au;
+        }
+    }
+    // ⚠️ REPLI SUR L'ANCIEN COMPTEUR, ET JAMAIS L'INVERSE. Tant qu'un lecteur ne rend pas
+    //    encore ses périodes, son compte brut vaut mieux que zéro — mais dès qu'il les rend,
+    //    ce sont elles qui font foi : un compte sans bornes ne saurait pas écarter une
+    //    régularisation de l'an passé.
+    if (!isset($o['appels_periodes']) && isset($o['appels'])) {
+        $n = (int)$o['appels'];
+    }
+    return [$n, $dernier];
+}
+
 function crgi_lire_occupation(PDO $pdo, int $importId): void
 {
     $python = getenv('CRG_PYTHON') ?: (PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
@@ -2474,7 +2651,8 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
         throw new RuntimeException('MOTEUR ABSENT : scripts/crg_integration_phase3.py');
     }
     $st = $pdo->prepare(
-        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.date_arrete, c.format, p.chemin
+        'SELECT c.id, c.page_debut, c.page_fin, c.periode_cle, c.periode_debut, c.periode_fin,
+                c.date_arrete, c.format, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
           WHERE c.import_id = ? AND c.doublon_statut <> "REENONCIATION" ORDER BY c.page_debut'
     );
@@ -2490,8 +2668,9 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
     $ins = $pdo->prepare(
         'INSERT INTO crgi_occupation
             (import_id, crg_id, lot_reference, code_immeuble, periode_cle, date_arrete,
-             locataire, bail_du, bail_au, rang, solde, solde_source, page)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             locataire, bail_du, bail_au, rang, solde, solde_source, appels,
+             dernier_appel_au, page)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     foreach ($parPiece as $clef => $plages) {
         [$chemin, $format] = explode(CRGI_SEP_FAMILLE, $clef, 2);
@@ -2514,10 +2693,12 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
                 $parts = explode('-', (string)$o['lot']);
                 $codeImm = count($parts) === 3 ? $parts[1]
                          : (count($parts) === 2 ? $parts[0] : null);
+                [$nbAppels, $finAppel] = crgi_appels_de_la_periode($o, $c);
                 $ins->execute([$importId, (int)$c['id'], $o['lot'], $codeImm,
                                $c['periode_cle'], $c['date_arrete'], $o['locataire'],
                                $o['bail_du'], $o['bail_au'] ?? null, (int)($o['rang'] ?? 0),
-                               $o['solde'], $o['solde_source'], (int)$o['page']]);
+                               $o['solde'], $o['solde_source'],
+                               $nbAppels, $finAppel, (int)$o['page']]);
             }
         }
     }
@@ -2540,9 +2721,11 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
     //    d'où UN DÉPART ET DEUX CHANGEMENTS ENTIÈREMENT FABRIQUÉS. L'identité du lot porte
     //    donc son périmètre de portée — LE COMPTE.
     $st = $pdo->prepare(
-        'SELECT o.id, o.lot_reference, o.date_arrete, o.periode_cle, o.locataire, o.bail_du,
-                o.bail_au, o.rang, o.solde, o.solde_source, c.compte
+        'SELECT o.id, o.crg_id, o.lot_reference, o.date_arrete, o.periode_cle, o.locataire,
+                o.bail_du, o.bail_au, o.rang, o.solde, o.solde_source, o.appels,
+                o.dernier_appel_au, c.compte, COALESCE(a.nom_agence, c.agence, "") AS agence
            FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+           LEFT JOIN agences a ON a.id = c.agence_id
           WHERE o.import_id = ?
           ORDER BY c.compte, o.lot_reference, o.date_arrete, o.rang, o.id'
     );
@@ -2566,6 +2749,44 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
     );
     $st2->execute([$importId]);
     $finDuCompte = $st2->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    // ⚠️ UN COMPTE RENDU OÙ PERSONNE N'APPELLE RIEN N'EST PAS UN IMMEUBLE VIDE : C'EST UN
+    //    DOCUMENT MAL LU. Le compteur d'appels ne connaissait que la forme ICS « Du … Au … » ;
+    //    SPI écrit « TERME Mai 2026 » et « Loyer du … au … ». Résultat mesuré le 07/09/2026 :
+    //    CHAPONOST 402/402 et VIENNE 480/480 à zéro — 882 occupations sur 2 839. Conclure
+    //    « parti » sur cette base aurait vidé deux agences entières en silence.
+    //    « Un contrôle qui échoue à 100 % ne signale pas un document irrégulier : il signale
+    //    qu'on l'a mal lu. » On n'applique donc la règle des appels que là où le lecteur a
+    //    DÉMONTRÉ qu'il sait les lire — c'est-à-dire dans un CRG qui en porte au moins un.
+    $st3 = $pdo->prepare(
+        'SELECT crg_id, MAX(appels) FROM crgi_occupation WHERE import_id = ? GROUP BY crg_id'
+    );
+    $st3->execute([$importId]);
+    $lecteurSait = $st3->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    // ⚠️ UNE DÉCISION DÉJÀ DONNÉE NE SE REDEMANDE PAS À LA PHASE SUIVANTE. Le compte VIENNE
+    //    `1105404745` (ROSIER) a été tranché BIEN VENDU en phase 2 ; la phase 3 posait quand
+    //    même deux questions sur son lot 190. Emmanuel, 07/09/2026 : « il y a des documents
+    //    qui sont exclus de l'analyse dans les phases précédentes que tu donnes en erreur à
+    //    arbitrer ». `crgi_identite` n'était consultée que par la phase qui l'avait écrite :
+    //    une mémoire qu'une seule phase interroge n'est pas une mémoire, c'est une note.
+    // ⚠️ LA JOINTURE PORTE SON `COLLATE`, ET CE N'EST PAS UNE PRÉCAUTION DE STYLE.
+    //    `crgi_identite` est en `utf8mb4_general_ci`, `crgi_crg` en `utf8mb4_unicode_ci` :
+    //    comparer leurs colonnes de texte lève « Illegal mix of collations » et fait tomber
+    //    la phase entière. Piège déjà connu du projet — deux tables voisines, deux collations.
+    $st4 = $pdo->prepare(
+        'SELECT DISTINCT c.compte, i.choix
+           FROM crgi_crg c
+           JOIN crgi_identite i
+             ON i.cle COLLATE utf8mb4_unicode_ci = c.compte
+            AND i.type COLLATE utf8mb4_unicode_ci = ?
+            AND i.agence COLLATE utf8mb4_unicode_ci
+                = COALESCE((SELECT a.nom_agence FROM agences a WHERE a.id = c.agence_id),
+                           c.agence, "")
+          WHERE c.import_id = ?'
+    );
+    $st4->execute([CRGI_IDENTITE_COMPTE_SANS_PATRIMOINE, $importId]);
+    $trancheEnP2 = $st4->fetchAll(PDO::FETCH_KEY_PAIR);
     // ⚠️ LE COMPTE DU LOT NE SE RETROUVE PLUS PAR UNE SECONDE REQUÊTE. Elle indexait
     //    `lot_reference => compte` : quand deux comptes portaient le même numéro de lot, la
     //    clé se collisionnait et un seul compte survivait — le lot héritait alors de la date
@@ -2589,8 +2810,20 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
             //    bail qui s'achève le 31/08 alors que le rapport est arrêté au 31/07 décrit un
             //    occupant TOUJOURS EN PLACE. Les compter comme partis fabriquait quarante-deux
             //    anciens locataires qui n'avaient pas bougé.
+            // ⚠️ ET UN APPEL QUI CONTINUE BAT UNE FIN DE BAIL IMPRIMÉE. Emmanuel : « dans tous
+            //    les cas, les appels de loyer déterminent qu'il est en place. » Mesuré : SEPT
+            //    des neuf départs qu'un dépôt démentait lui-même venaient de cette règle-ci —
+            //    un bail imprimé « au 07/04/2026 » pour une locataire qui appelle son loyer
+            //    jusqu'au 30/04 et les mois suivants. La date imprimée n'est alors pas une
+            //    sortie : c'est un terme de bail reconduit, ou un congé qui n'a pas eu lieu.
+            //    LA PREUVE LA PLUS RÉCENTE L'EMPORTE, et un appel est plus récent qu'une date
+            //    de bail écrite une fois pour toutes en tête de bloc.
+            $appelleJusquAuBout = (int)$o['appels'] > 0
+                && ((string)($o['dernier_appel_au'] ?? '') === ''
+                    || (string)$o['dernier_appel_au'] >= (string)$o['date_arrete']);
             $congeAtteint = $loc !== null && !empty($o['bail_au'])
-                         && (string)$o['bail_au'] <= (string)$o['date_arrete'];
+                         && (string)$o['bail_au'] <= (string)$o['date_arrete']
+                         && !$appelleJusquAuBout;
             if ($congeAtteint) {
                 $dette = $o['solde_source'] === 'LUE' && (float)$o['solde'] > 0.005;
                 $statut = $dette ? 'ANCIEN LOCATAIRE AVEC DETTE' : 'PARTI DEMONTRE';
@@ -2609,14 +2842,129 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
                 $maj->execute([$statut, mb_substr($motif, 0, 400), $prec, (int)$o['id']]);
                 continue;
             }
-            if ($loc === null) {
+            // ═══════════════════════════════════════════════════════════════════════════════
+            // LES APPELS DE LOYER — LE FAIT QUI DIT QUI EST EN PLACE
+            // ═══════════════════════════════════════════════════════════════════════════════
+            //
+            // ⚠️ RÈGLE D'EMMANUEL, 07/09/2026, DONNÉE COMME UNE ÉVIDENCE : « pas de loyer ou
+            //    charge appelé c'est qu'il est parti, c'est la base de nos discussions ! » et
+            //    « je ne devrais pas avoir à te le dire ». Ce n'est pas une déduction tirée
+            //    d'une absence — c'est une lecture : le document IMPRIME ce qu'il appelle, et
+            //    ne rien appeler est une information écrite, pas un silence.
+            //
+            // ⚠️ ET LA FIN DU DERNIER APPEL DATE LE DÉPART. « Il y a une date de fin de période
+            //    qui signifie que le mois n'est pas complet donc fin du bail ; sinon ce doit
+            //    être écrit un motif de réduction du loyer, sinon c'est fin de bail. » CHILLA
+            //    (LYON, 192 Cuvier) appelle « Du 01.02.26 Au 09.02.26 » dans un rapport arrêté
+            //    au 31/03/2026, et la même page porte « Rembt D G reversé -842,00 » et
+            //    « honoraires état des lieux SORTIE CHILLA ». HAMIED (VIENNE) appelle son
+            //    loyer « du 01/06/2026 au 15/06/2026 » pour un arrêté au 30/06.
+            //
+            // ⚠️ LA RÉCIPROQUE COMPTE AUTANT, ET C'EST ELLE QUI FERME LES QUESTIONS. Un bloc
+            //    qui appelle JUSQU'À la date d'arrêté démontre une présence : aucun rapport
+            //    ultérieur ne la contredit, et le contrôle d'absence plus bas ne doit pas se
+            //    déclencher. Les six lots CHAPONOST portaient « TERME Avril / Mai / Juin
+            //    2026 » — ils n'ont jamais bougé.
+            //
+            // ⚠️ ON N'APPLIQUE RIEN LÀ OÙ LE LECTEUR N'A RIEN LU. Voir la garde `$lecteurSait`.
+            // ⚠️ L'ABSENCE D'APPEL NE DÉMONTRE UN DÉPART QUE PAR CONTRASTE, SUR LE MÊME LOT ET
+            //    AU MÊME ARRÊTÉ. Emmanuel l'avait dit exactement ainsi : « il y a un locataire
+            //    qui n'a aucun appel de loyer en ligne, mais un solde débiteur ou créditeur, et
+            //    l'autre a des lignes d'appel de loyer ! c'est la différence. » C'est le
+            //    CONTRASTE qui prouve, jamais le vide seul — et pour le vide seul il avait
+            //    tranché autrement : « soit appartement vacant, soit perte de gestion, et tu ne
+            //    peux pas le voir, IL FAUT POSER LA QUESTION ».
+            //
+            // ⚠️ J'AI D'ABORD CODÉ « aucun appel ⇒ parti » SANS CE CONTRASTE, ET ÇA A FABRIQUÉ
+            //    871 DÉPARTS. Le contrôle qui l'a démontré : **518 locataires déclarés partis
+            //    réapparaissaient sous le MÊME nom, sur le MÊME lot, à une période POSTÉRIEURE**
+            //    — une contradiction que le moteur produisait contre lui-même. La cause : la
+            //    couverture du lecteur d'appels n'est pas uniforme (48 % sur un dépôt), et la
+            //    garde par compte rendu était trop grossière — un CRG où 40 lots sur 100
+            //    portent des appels lus la franchit, et les 60 autres se voyaient déclarés
+            //    vides. UNE RÈGLE JUSTE APPLIQUÉE À UNE LECTURE INCOMPLÈTE PRODUIT DES FAITS
+            //    FAUX : le contraste, lui, se lit sur deux blocs du même document.
+            $voisinAppelle = false;
+            foreach ($suite as $frere) {
+                if ((string)$frere['date_arrete'] === (string)$o['date_arrete']
+                    && (int)$frere['id'] !== (int)$o['id'] && (int)$frere['appels'] > 0) {
+                    $voisinAppelle = true;
+                    break;
+                }
+            }
+            $saitLire = (int)($lecteurSait[(int)$o['crg_id']] ?? 0) > 0;
+            $enPlaceParAppel = false;
+            // ⚠️ UN VERDICT TIRÉ DES APPELS NE SE FAIT PAS ÉCRASER PAR UNE ABSENCE. Le contrôle
+            //    d'horizon, en bas de boucle, remettait « A ARBITRER » sur des départs que les
+            //    appels venaient de DÉMONTRER : quatre occupations dont le dernier loyer était
+            //    lu — « Au 09.02.26 » pour un arrêté au 31/03 — ressortaient en question. Une
+            //    preuve lue ne redevient pas une question parce que la suite se tait.
+            $verdictParAppel = false;
+            if ($loc !== null && $saitLire) {
+                $dette = $o['solde_source'] === 'LUE' && (float)$o['solde'] > 0.005;
+                $finAppel = (string)($o['dernier_appel_au'] ?? '');
+                if ((int)$o['appels'] === 0 && $voisinAppelle) {
+                    $verdictParAppel = true;
+                    $statut = $dette ? 'ANCIEN LOCATAIRE AVEC DETTE' : 'PARTI DEMONTRE';
+                    $motif = 'Ce bloc n’appelle RIEN — ni loyer, ni charge, ni dépôt de '
+                           . 'garantie — alors qu’un AUTRE bloc du même lot, au même arrêté, '
+                           . 'appelle : c’est le contraste qui démontre la succession, pas '
+                           . 'l’ordre d’impression.'
+                           . ($dette
+                              ? ' Encours de ' . number_format((float)$o['solde'], 2, ',', ' ')
+                                . ' € : la dette reste attachée à CE locataire '
+                                . '(P6A-CREANCE-07).'
+                              : ' Aucune dette lue.');
+                } elseif ((int)$o['appels'] === 0) {
+                    // Vide SEUL : on ne conclut pas. La suite du traitement décidera — et si
+                    // le lot cesse d'apparaître, la question sera posée, comme demandé.
+                    $enPlaceParAppel = false;
+                // ⚠️ UN ÉCART DE QUELQUES JOURS N'EST PAS UN TERME MANQUANT. Un compte rendu de
+                //    DEUX JOURS (30/06 → 01/07) faisait « s'arrêter » un appel couvrant tout
+                //    juin : l'écart était d'un jour, et le moteur y lisait un départ. Un appel
+                //    est au minimum une quinzaine ; en deçà d'une semaine, l'écart est un
+                //    artefact de bornes, jamais une absence de loyer.
+                } elseif ($finAppel !== ''
+                          && $finAppel < (string)$o['date_arrete']
+                          && (strtotime((string)$o['date_arrete']) - strtotime($finAppel))
+                             > CRGI_ECART_APPEL_MIN) {
+                    $verdictParAppel = true;
+                    $statut = $dette ? 'ANCIEN LOCATAIRE AVEC DETTE' : 'PARTI DEMONTRE';
+                    $motif = 'Le dernier appel s’arrête au ' . $finAppel . ', avant l’arrêté du '
+                           . $o['date_arrete'] . ' : la période n’est pas complète, le bail est '
+                           . 'fini. Le départ est LU, pas déduit d’une absence.'
+                           . ($dette
+                              ? ' Encours de ' . number_format((float)$o['solde'], 2, ',', ' ')
+                                . ' € : la dette reste attachée à CE locataire '
+                                . '(P6A-CREANCE-07).'
+                              : ' Aucune dette lue.');
+                } else {
+                    $enPlaceParAppel = true;
+                    $verdictParAppel = true;
+                }
+            }
+
+            if ($statut !== null) {
+                // Le verdict est déjà rendu par les appels : on n'y superpose rien.
+            } elseif ($loc === null) {
                 // ⚠️ UN LOT SANS LIGNE LOCATAIRE N'EST PAS UN LOT VACANT : c'est un lot dont
                 //    le document ne dit rien. Le vide ne se lit pas comme un départ.
-                $statut = 'A ARBITRER';
-                $motif = 'Aucune ligne « Locataire: » imprimée sur cette période : le document '
-                       . 'ne dit rien de l’occupation. Ce n’est pas une vacance démontrée.';
+                // ⚠️ SAUF QUAND LA QUESTION A DÉJÀ ÉTÉ TRANCHÉE PLUS TÔT. Voir `$trancheEnP2`.
+                $vu = $trancheEnP2[(string)$o['compte']] ?? null;
+                if ($vu !== null) {
+                    $statut = 'PARTI DEMONTRE';
+                    $motif = 'Aucune ligne « Locataire: » sur cette période — et ce compte a '
+                           . 'déjà été tranché en phase 2 : « ' . $vu . ' ». La question ne se '
+                           . 'repose pas d’une phase à l’autre.';
+                } else {
+                    $statut = 'A ARBITRER';
+                    $motif = 'Aucune ligne « Locataire: » imprimée sur cette période : le '
+                           . 'document ne dit rien de l’occupation. Ce n’est pas une vacance '
+                           . 'démontrée.';
+                }
             } elseif ($suiv && $suiv['locataire'] !== null
-                      && crgi_plat((string)$suiv['locataire']) !== crgi_plat((string)$loc)) {
+                      && crgi_plat((string)$suiv['locataire']) !== crgi_plat((string)$loc)
+                      && !crgi_voisin_de_bloc($o, $suiv)) {
                 // Le lot est RÉÉNONCÉ plus tard avec un autre occupant : le départ est démontré
                 // par le document lui-même, pas par une absence.
                 $dette = $o['solde_source'] === 'LUE' && (float)$o['solde'] > 0.005;
@@ -2679,8 +3027,16 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
 
             // ⚠️ LE DÉPART NE SE DÉDUIT JAMAIS D'UNE ABSENCE. Si le lot cesse d'apparaître
             //    alors que le dépôt continue, on ne conclut pas : le CRG peut manquer.
+            //
+            // ⚠️ MAIS UNE ABSENCE NE CONTREDIT PAS UN APPEL LU. Ce contrôle transformait en
+            //    question six lots CHAPONOST qui portaient « TERME Avril / Mai / Juin 2026 » —
+            //    ils appelaient jusqu'au 30/06, date de l'arrêté. Ce qui les faisait
+            //    « disparaître » était un compte rendu de DEUX JOURS (30/06 → 01/07) émis pour
+            //    enregistrer le dépôt de garantie d'une entrante, MEYNADE Carole, sur un AUTRE
+            //    lot. Un rapport ultérieur qui ne parle pas d'eux ne dit rien contre eux :
+            //    `ABSENCE ≠ DÉPART` protège dans les deux sens.
             if ($statut !== 'A ARBITRER' && $loc !== null && $suiv === null
-                && (string)$o['date_arrete'] < $derniere) {
+                && !$verdictParAppel && (string)$o['date_arrete'] < $derniere) {
                 $statut = 'A ARBITRER';
                 $motif = 'Dernière période où ce lot apparaît (' . $o['date_arrete'] . '), '
                        . 'alors que le dépôt va jusqu’au ' . $derniere . ' : le lot n’est pas '
@@ -2706,6 +3062,42 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
  *    ce soit le même appartement. Toute lecture qui regroupe des observations de lot passe
  *    par cette clé — jamais par la seule référence.
  */
+/**
+ * DEUX BLOCS DU MÊME LOT AU MÊME ARRÊTÉ : SUCCESSION, OU ANCIEN LOCATAIRE AFFICHÉ À CÔTÉ ?
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ L'ORDRE D'UNE PAGE NE PROUVE RIEN SUR LE TEMPS. Le document réimprime le bloc du lot pour
+ *    chaque occupant, et le second n'est pas forcément le suivant : il peut être l'ANCIEN
+ *    locataire, affiché à côté du titulaire parce qu'il traîne une dette. Le moteur y lisait
+ *    une succession — **616 des 623 « départs » d'un dépôt** reposaient sur un occupant lu au
+ *    MÊME arrêté, jamais sur une période ultérieure. Un locataire y était déclaré sorti six
+ *    trimestres de suite pendant que sa dette passait de 6,28 € à 4 712,78 €.
+ *
+ * ⚠️ CE QUI TRANCHE, C'EST L'APPEL DE LOYER — Emmanuel, 07/09/2026 : « les appels de loyer
+ *    déterminent qu'il est en place ». Le titulaire appelle son loyer mois par mois ; l'ancien
+ *    ne porte qu'un solde figé, sans une seule ligne « Du … Au … ».
+ *
+ * ⚠️ ET SI LES DEUX APPELLENT, C'EST UNE VRAIE SUCCESSION DANS LE TRIMESTRE — « en cours de
+ *    trimestre il peut y avoir un changement de locataire, et alors le dernier qui arrive dans
+ *    le CRG est celui qui est devenu actif, et l'autre parti ». L'ordre d'impression retrouve
+ *    alors son sens, mais SEULEMENT là : quand les deux ont prouvé qu'ils ont occupé.
+ *
+ * ⚠️ ON NE STATUE QUE SUR LE MÊME ARRÊTÉ. Deux observations de PÉRIODES différentes gardent la
+ *    règle d'origine : une réénonciation ultérieure avec un autre nom démontre bien un départ.
+ */
+function crgi_voisin_de_bloc(array $o, array $suivant): bool
+{
+    if ((string)$o['date_arrete'] === '' || (string)$o['date_arrete'] !== (string)$suivant['date_arrete']) {
+        return false;   // Périodes différentes : la règle d'origine s'applique.
+    }
+    // Les deux appellent : succession réelle dans le trimestre, l'ordre d'impression tranche.
+    if ((int)($o['appels'] ?? 0) > 0 && (int)($suivant['appels'] ?? 0) > 0) {
+        return false;
+    }
+    // Celui qui appelle est en place : le voisin n'est pas son successeur.
+    return (int)($o['appels'] ?? 0) > 0;
+}
+
 function crgi_cle_lot(string $compte, string $lot): string
 {
     return $compte . '§' . $lot;
@@ -3335,6 +3727,169 @@ function crgi_crg_sans_patrimoine(PDO $pdo, int $importId): array
                               . 'sur celle-ci : l’interruption est temporaire, pas une fin.';
         }
     }
+    return $lignes;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+ * PHASE 3 — LES OCCUPATIONS QUE LE DOCUMENT NE TRANCHE PAS, ET OÙ L'ON Y RÉPOND.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ CES QUESTIONS ÉTAIENT AFFICHÉES SANS GUICHET. L'écran listait dix-sept occupations « A
+ *    ARBITRER » en lecture seule : Emmanuel, 07/09/2026 — « JE NE PEUX PAS RÉPONDRE SUR TES
+ *    QUESTIONS ». C'est la MÊME faute que la phase 1 avait commise, refaite un cran plus loin :
+ *    poser une question sans avoir prévu où l'on répond n'est pas poser une question, c'est
+ *    perdre le travail de lecture. Toute question affichée porte désormais son formulaire.
+ *
+ * ⚠️ ET ELLES NE SONT PAS D'UNE SEULE ESPÈCE — deux familles, deux propositions :
+ *      · LOT DISPARU  le lot était lu, puis il cesse d'apparaître avant la fin du dépôt ;
+ *      · LOT MUET     le lot est lu, mais aucune ligne « Locataire » n'est imprimée.
+ *    Les confondre ferait proposer « vacant » là où c'est un mandat qui s'arrête.
+ *
+ * ⚠️ TOUTES LES RÉPONSES NE SE MÉMORISENT PAS, ET C'EST LE POINT DÉLICAT. « Vacant » et
+ *    « toujours en place » décrivent UNE PÉRIODE : les mémoriser condamnerait le lot à rester
+ *    vide au trimestre suivant, alors que le document, lui, dira le contraire — c'est
+ *    exactement `ABSENCE ≠ DÉPART DÉMONTRÉ` retourné contre nous. « Gestion terminée » et
+ *    « lot vendu » décrivent le LOT : elles valent pour toujours et ne se redemandent plus.
+ */
+const CRGI_IDENTITE_LOT_HORS_GESTION = 'LOT-HORS-GESTION';
+
+const CRGI_CHOIX_OCCUPATION = [
+    'LOCATAIRE TOUJOURS EN PLACE' => 'Il occupe toujours ; le document ne l’a pas réimprimé.',
+    'LOGEMENT VACANT'             => 'Personne ne l’occupe sur cette période : rien n’est appelé.',
+    'LOCATAIRE PARTI'             => 'Il est sorti ; le lot reste en gestion et se reloue.',
+    'GESTION TERMINEE'            => 'Le lot sort de la gestion : il ne reviendra plus.',
+    'LOT VENDU'                   => 'Le propriétaire ne le possède plus : il ne reviendra plus.',
+];
+
+/** Les seules réponses qui décrivent le LOT, et non une période : elles seules se mémorisent. */
+const CRGI_OCCUPATION_DEFINITIF = ['GESTION TERMINEE', 'LOT VENDU'];
+
+/**
+ * ENREGISTRER UNE DÉCISION PORTANT SUR UNE OCCUPATION.
+ *
+ * ⚠️ ÉCRITURE TECHNIQUE, JAMAIS MÉTIER — comme `crgi_decider_crg()`. Rien n'est créé ni modifié
+ *    dans MBI : décider n'est pas intégrer.
+ *
+ * ⚠️ LA CLÉ DURABLE EST (AGENCE, COMPTE + LOT), JAMAIS LE LOT SEUL. Une référence de lot
+ *    n'existe que dans son espace de nommage — `INTEG-P1-ESPACE-DE-NOMMAGE` — et « 190 » est
+ *    un numéro que deux sociétés portent sans se connaître.
+ */
+function crgi_decider_occupation(PDO $pdo, int $importId, int $occId, string $groupe,
+                                 string $choix, int $userId): void
+{
+    if ($choix !== '' && !isset(CRGI_CHOIX_OCCUPATION[$choix])) {
+        throw new RuntimeException(
+            'CHOIX INCONNU POUR CETTE QUESTION : « ' . $choix . ' ». Les réponses possibles '
+            . 'sont : ' . implode(' · ', array_keys(CRGI_CHOIX_OCCUPATION))
+        );
+    }
+    $ctx = $pdo->prepare('SELECT o.lot_reference, c.compte,
+                                 COALESCE(a.nom_agence, c.agence, "") agence
+                            FROM crgi_occupation o
+                            JOIN crgi_crg c ON c.id = o.crg_id
+                            LEFT JOIN agences a ON a.id = c.agence_id
+                           WHERE o.id = ?');
+    $ctx->execute([$occId]);
+    $ou = $ctx->fetch(PDO::FETCH_ASSOC) ?: null;
+    $cle = $ou ? (string)$ou['compte'] . '/' . (string)$ou['lot_reference'] : '';
+
+    if ($choix === '') {
+        $pdo->prepare('DELETE FROM crgi_arbitrage
+                        WHERE import_id = ? AND cible_type = "OCCUPATION" AND cible_id = ?')
+            ->execute([$importId, $occId]);
+        if ($cle !== '/') {
+            $pdo->prepare('DELETE FROM crgi_identite WHERE type = ? AND agence = ? AND cle = ?')
+                ->execute([CRGI_IDENTITE_LOT_HORS_GESTION, (string)$ou['agence'], $cle]);
+        }
+        return;
+    }
+    $pdo->prepare(
+        'INSERT INTO crgi_arbitrage (import_id, groupe, cible_type, cible_id, choix, decide_par)
+         VALUES (?,?,"OCCUPATION",?,?,?)
+         ON DUPLICATE KEY UPDATE groupe = VALUES(groupe), choix = VALUES(choix),
+                                 decide_par = VALUES(decide_par)'
+    )->execute([$importId, $groupe, $occId, $choix, $userId ?: null]);
+
+    // ⚠️ ON NE MÉMORISE QUE CE QUI DÉCRIT LE LOT. Mémoriser « vacant » ferait taire, au
+    //    trimestre suivant, un document qui imprime un locataire.
+    if ($cle !== '/' && in_array($choix, CRGI_OCCUPATION_DEFINITIF, true)) {
+        $pdo->prepare(
+            'INSERT INTO crgi_identite (type, agence, cle, choix, import_origine, decide_par)
+             VALUES (?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE choix = VALUES(choix), decide_par = VALUES(decide_par),
+                                     decide_le = NOW()'
+        )->execute([CRGI_IDENTITE_LOT_HORS_GESTION, (string)$ou['agence'], $cle,
+                    $choix, $importId, $userId ?: null]);
+    }
+}
+
+/**
+ * LES OCCUPATIONS À TRANCHER, AVEC CE QUI REND UNE RÉPONSE PLUS PROBABLE QU'UNE AUTRE.
+ *
+ * ⚠️ UNE PROPOSITION N'EST PAS UNE CONCLUSION : c'est le fait observé, dit à voix haute, pour
+ *    que la réponse se donne d'un coup d'œil ou se refuse aussi vite. On ne propose donc jamais
+ *    sans écrire le « parce que » à côté.
+ *
+ * ⚠️ LE FAIT QUI TRANCHE EST : « LES AUTRES LOTS DU MÊME COMPTE CONTINUENT-ILS ? » Si le compte
+ *    entier s'arrête à la même date, ce n'est pas le locataire qui part — c'est le MANDAT qui
+ *    finit. Si le compte continue sans ce lot, alors c'est ce LOT-LÀ qui sort : vendu.
+ */
+function crgi_occupations_a_trancher(PDO $pdo, int $importId): array
+{
+    $st = $pdo->prepare(
+        'SELECT o.id, o.lot_reference, o.periode_cle, o.page, o.statut_motif, o.appels,
+                o.date_arrete, c.id AS crg_id, c.compte, c.proprietaire,
+                COALESCE(a.nom_agence, c.agence, "") AS agence,
+                (SELECT COUNT(DISTINCT o2.lot_reference) FROM crgi_occupation o2
+                   JOIN crgi_crg c2 ON c2.id = o2.crg_id
+                  WHERE c2.import_id = c.import_id AND c2.compte = c.compte
+                    AND o2.date_arrete > o.date_arrete) AS lots_apres,
+                (SELECT COUNT(*) FROM crgi_occupation o3
+                   JOIN crgi_crg c3 ON c3.id = o3.crg_id
+                  WHERE c3.import_id = c.import_id AND c3.compte = c.compte
+                    AND o3.lot_reference = o.lot_reference
+                    AND o3.date_arrete > o.date_arrete) AS ce_lot_apres
+           FROM crgi_occupation o
+           JOIN crgi_crg c ON c.id = o.crg_id
+           LEFT JOIN agences a ON a.id = c.agence_id
+          WHERE o.import_id = ? AND o.statut = "A ARBITRER"
+          ORDER BY c.compte, o.lot_reference, o.date_arrete'
+    );
+    $st->execute([$importId]);
+    $lignes = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    $deja = $pdo->prepare('SELECT choix FROM crgi_arbitrage
+                            WHERE import_id = ? AND cible_type = "OCCUPATION" AND cible_id = ?');
+    foreach ($lignes as &$l) {
+        $deja->execute([$importId, (int)$l['id']]);
+        $l['decision'] = (string)($deja->fetchColumn() ?: '');
+        $appris = crgi_identite_apprise($pdo, CRGI_IDENTITE_LOT_HORS_GESTION,
+                                        (string)$l['agence'],
+                                        (string)$l['compte'] . '/' . (string)$l['lot_reference']);
+        $l['apprise'] = $appris ? (string)$appris['choix'] : '';
+
+        if ((int)$l['ce_lot_apres'] > 0) {
+            // Le lot revient plus tard : ce n'est ni une vente ni une fin de gestion.
+            $l['proposition'] = 'LOGEMENT VACANT';
+            $l['parce_que']   = 'ce lot RÉAPPARAÎT plus tard dans le dépôt : il n’est ni vendu '
+                              . 'ni sorti de la gestion, il est seulement muet ici.';
+        } elseif ((int)$l['lots_apres'] === 0) {
+            $l['proposition'] = 'GESTION TERMINEE';
+            $l['parce_que']   = 'TOUT le compte s’arrête à cette date — aucun autre lot n’est '
+                              . 'lu après : ce n’est pas un locataire qui part, c’est le '
+                              . 'mandat qui finit.';
+        } elseif ((int)$l['appels'] > 0) {
+            $l['proposition'] = 'LOT VENDU';
+            $l['parce_que']   = 'le locataire appelait encore son loyer (' . (int)$l['appels']
+                              . ' appel(s)) quand ce lot a cessé d’être lu, alors que les '
+                              . 'autres lots du compte continuent : c’est CE lot qui sort.';
+        } else {
+            $l['proposition'] = 'LOGEMENT VACANT';
+            $l['parce_que']   = 'aucun appel de loyer sur ce lot, alors que le compte continue '
+                              . 'par ailleurs : rien n’est dû, personne n’occupe.';
+        }
+    }
+    unset($l);
     return $lignes;
 }
 

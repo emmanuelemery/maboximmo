@@ -128,6 +128,32 @@ def occupations(doc, debut=1, fin=None):
                 'solde': lot.get('total_impaye') if (lot.get('totaux_lus') and rang == 0) else None,
                 'solde_source': ('LUE' if (lot.get('totaux_lus') and rang == 0)
                                  else 'NON DEMONTRABLE'),
+                # ⚠️ CE BLOC APPELLE-T-IL UN LOYER ? C'EST LUI QUI DIT QUI EST EN PLACE.
+                #    Emmanuel, 07/09/2026 : « les appels de loyer déterminent qu'il est en
+                #    place ». Un lot imprimé deux fois au MÊME arrêté porte souvent un occupant
+                #    qui appelle — trois mois de loyer — et un ancien qui ne porte qu'un solde
+                #    figé. Sans ce fait, la phase 3 tranchait sur l'ORDRE D'IMPRESSION, et
+                #    l'ordre d'une page ne prouve rien sur le temps : **616 des 623 « départs »
+                #    d'un dépôt** reposaient dessus, dont un locataire toujours en place dont
+                #    la dette grossissait de 6,28 € à 4 712,78 € sous nos yeux.
+                'appels': sum(1 for m in (lot.get('mois') or [])
+                              if m.get('du') and m.get('au')),
+                # ⚠️ COMPTER NE SUFFIT PAS : IL FAUT SAVOIR JUSQU'OÙ ILS VONT. Un bloc qui
+                #    appelle « Du 01.02.26 Au 09.02.26 » dans un rapport arrêté au 31/03/2026
+                #    n'appelle pas un mois complet — le bail est fini, et le document le
+                #    démontre sans qu'on déduise rien d'une absence. CHILLA (LYON, 192 Cuvier)
+                #    le dit trois fois sur la même page : la période tronquée, un « Rembt D G
+                #    reversé -842,00 » et « honoraires état des lieux SORTIE CHILLA ».
+                #    Emmanuel, 07/09/2026 : « il y a une date de fin de période qui signifie
+                #    que le mois n'est pas complet donc fin du bail ».
+                # ⚠️ ET ON REND LES PÉRIODES, PAS UN VERDICT. Une régularisation annuelle
+                #    « Du 01.01.25 Au 31.12.25 » imprimée dans un rapport du 1er trimestre
+                #    2026 n'appelle rien pour ce trimestre : c'est PHP, qui connaît la période
+                #    du compte rendu, qui écarte celles qui ne la recoupent pas. SEMACO n'avait
+                #    que ces trois lignes-là, et passait pour un locataire présent.
+                'appels_periodes': [[m['du'], m['au']] for m in (lot.get('mois') or [])
+                                    if m.get('du') and m.get('au')],
+                'appels_sans_periode': 0,
                 'page': page,
             })
     return obs

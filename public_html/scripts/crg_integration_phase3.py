@@ -95,6 +95,117 @@ def jour(fr):
     return '%s-%s-%s' % (m.group(3), m.group(2), m.group(1)) if m else None
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+# LES APPELS DU BLOC — CE QUI DIT QU'UN LOCATAIRE EST EN PLACE
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ L'APPEL DE LOYER A DEUX ÉCRITURES, ET ON N'EN LISAIT QU'UNE. Le compteur cherchait
+#    « Du 01.01.26 Au 31.01.26 », la forme ICS. SPI n'écrit jamais cela : il écrit « TERME
+#    Avril 2026 », « TERME du 17/04/2026 au 30/04/2026 », « Loyer du 01/06/2026 au
+#    15/06/2026 ». Résultat mesuré le 07/09/2026 sur `mbi_bis` : `appels` à zéro pour
+#    **CHAPONOST 402/402 et VIENNE 480/480**, soit 882 occupations sur 2 839 — 31 % du corpus
+#    dont le fait qui tranche n'était jamais lu. Emmanuel : « il est indiqué TERME = Loyer !
+#    il faut donc vérifier tous les termes qui peuvent être utilisés sur d'autres types de
+#    bail que l'habitation ».
+#
+# ⚠️ ET UN APPEL N'EST PAS FORCÉMENT UN LOYER. MEYNADE Carole (CHAPONOST, lot 000255-01) :
+#    « Gratuité de loyer jusqu au 31.05.2026 », donc aucun terme — mais « Dépôt de garantie
+#    MEYNADE Carole 25/06/2026 ». Emmanuel : « il y a un loyer gratuit, mais nous lui avons au
+#    moins demandé le dépôt de garantie, donc l'appel n'est pas vide ». Un bloc qui appelle un
+#    dépôt de garantie appelle quelque chose : le locataire entre, il n'est pas absent.
+#
+# ⚠️ LA LIGNE « Locataire: … Bail du … au … » N'EST PAS UN APPEL. Elle porte les dates du BAIL,
+#    et les prendre pour un appel ferait dire au bloc qu'il appelle jusqu'à la fin du bail —
+#    soit exactement l'inverse de ce qu'on cherche à démontrer. Elle est retirée du texte
+#    avant toute recherche.
+
+# ⚠️ C'EST LA NATURE QUI FAIT L'APPEL, PAS LA DATE. Un bloc est plein de dates qui n'appellent
+#    rien : « Bail du 05/08/2024 », « Budget prévisionnel 2026 - 3ème trimestre », « Gratuité
+#    de loyer jusqu au 31.05.2026 », « Remise sur Loyer ». On ne cherche donc une période QUE
+#    sur une ligne qui COMMENCE par une nature d'appel — et cette liste est la seule chose à
+#    rouvrir quand un nouvel éditeur entre dans le corpus.
+RE_NATURE_APPEL = re.compile(
+    r'^\s*(TERME|Loyers?|Provisions?|Charges?\s+locatives|Taxes?\s+|TEOM'
+    r'|Ordures\s+m[ée]nag[èe]res|Redevance|Indemnit[ée]\s+d.occupation)', re.I)
+
+# « du 01/06/2026 au 15/06/2026 » — la forme à dates explicites.
+# ⚠️ `\s` TRAVERSE LES SAUTS DE LIGNE, ET C'EST VOULU : `pdftotext` coupe régulièrement entre
+#    « au » et sa date (« Provisions pour charges du 01/06/2026 au \n 15/06/2026 »).
+RE_APPEL_PERIODE = re.compile(
+    r'\bdu\s+(\d{2})/(\d{2})/(\d{4})\s+au\s+(\d{2})/(\d{2})/(\d{4})', re.I)
+
+MOIS_FR = {'janvier': 1, 'fevrier': 2, 'février': 2, 'mars': 3, 'avril': 4, 'mai': 5,
+           'juin': 6, 'juillet': 7, 'aout': 8, 'août': 8, 'septembre': 9, 'octobre': 10,
+           'novembre': 11, 'decembre': 12, 'décembre': 12}
+FIN_DE_MOIS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+# ⚠️ « Loyer Juillet 2026 » EST UN APPEL AUTANT QUE « TERME Mai 2026 ». Le mois nommé n'est pas
+#    réservé au terme commercial : un CRG mensuel d'habitation écrit « Loyer Juillet 2026 »,
+#    « Provisions Ordures ménagères Juillet 2026 », « Provisions pour charges Juillet 2026 ».
+#    N'avoir cherché le mois que derrière « TERME » laissait **418 occupations sur 480** d'un
+#    dépôt sans un seul appel lu — le même aveuglement que la forme ICS, un cran plus loin.
+RE_MOIS_NOMME = re.compile(r'\b(' + '|'.join(MOIS_FR) + r')\s+(\d{4})\b', re.I)
+
+# ⚠️ UN DÉPÔT DE GARANTIE APPELÉ EST UN APPEL, UN DÉPÔT REMBOURSÉ EN EST L'INVERSE.
+#    « Rembt D G reversé » accompagne un départ ; le confondre avec l'appel d'entrée
+#    retiendrait en place un locataire qui vient de partir.
+RE_DEPOT_GARANTIE = re.compile(r'D[ée]p[ôo]t\s+de\s+garantie', re.I)
+# ⚠️ « Reversement dépôt de garantie » CONTIENT « dépôt de garantie » — et c'est son contraire.
+#    Une locataire sortante a été comptée « en place » sur cette seule ligne : le mot qui compte
+#    est celui qui PRÉCÈDE. Les éditeurs écrivent « Rembt D G reversé », « Reversement dépôt de
+#    garantie », « Restitution du dépôt de garantie », « Solde dépôt de garantie ».
+RE_DG_REVERSE = re.compile(
+    r'(Rembt|Rembours\w*|Restitution|Reversement|Solde)\s+(du\s+|de\s+)?'
+    r'(D\.?\s?G\.?|d[ée]p[ôo]t\s+de\s+garantie)|D\.?\s?G\.?\s+revers', re.I)
+# La ligne qui porte les dates DU BAIL, jamais un appel.
+RE_LIGNE_LOCATAIRE = re.compile(r'^.*Locataire\s*:.*$', re.M | re.I)
+
+
+def _fin_de_mois(an, mois):
+    if mois == 2 and (an % 4 == 0 and (an % 100 != 0 or an % 400 == 0)):
+        return 29
+    return FIN_DE_MOIS[mois - 1]
+
+
+def appels_du_bloc(texte):
+    """Les périodes appelées par un bloc de lot, en dates ISO — jamais celles du bail.
+
+    Rend une liste de couples ``[du, au]``. PHP décidera lesquels RECOUPENT la période du
+    compte rendu : une régularisation « du 01/01/2025 au 31/12/2025 » imprimée dans un
+    rapport du 1er trimestre 2026 n'appelle rien pour ce trimestre-là.
+    """
+    t = RE_LIGNE_LOCATAIRE.sub(' ', texte or '')
+    lignes = t.split('\n')
+    periodes = []
+    for i, ligne in enumerate(lignes):
+        if not RE_NATURE_APPEL.match(ligne):
+            continue
+        # ⚠️ LA FENÊTRE DÉBORDE D'UNE LIGNE, PARCE QUE LA DATE DÉBORDE. `pdftotext` renvoie
+        #    « … du 01/06/2026 au » et laisse « 15/06/2026 » sur la ligne suivante. La ligne
+        #    suivante ne sera pas relue pour elle-même : elle ne commence par aucune nature.
+        fenetre = ligne + ' ' + (lignes[i + 1] if i + 1 < len(lignes) else '')
+        m = RE_APPEL_PERIODE.search(fenetre)
+        if m:
+            periodes.append(['%s-%s-%s' % (m.group(3), m.group(2), m.group(1)),
+                             '%s-%s-%s' % (m.group(6), m.group(5), m.group(4))])
+            continue
+        # ⚠️ LE MOIS SE CHERCHE SUR LA LIGNE SEULE, JAMAIS SUR LA FENÊTRE : sinon un
+        #    « Loyer Juillet 2026 » sans montant s'approprierait l'août de la ligne d'après.
+        m = RE_MOIS_NOMME.search(ligne)
+        if m:
+            mois = MOIS_FR[m.group(1).lower()]
+            an = int(m.group(2))
+            periodes.append(['%04d-%02d-01' % (an, mois),
+                             '%04d-%02d-%02d' % (an, mois, _fin_de_mois(an, mois))])
+    # ⚠️ LE DÉPÔT DE GARANTIE N'A PAS DE PÉRIODE : il vaut à la date de l'appel, qu'on ne
+    #    connaît pas toujours. On le rend comme une période NULLE — un appel dont on sait
+    #    qu'il existe sans savoir jusqu'où il porte. PHP le comptera comme présence sur la
+    #    période lue, sans jamais en faire une date de fin.
+    depots = (len(RE_DEPOT_GARANTIE.findall(t))
+              - len(RE_DG_REVERSE.findall(t)))
+    return periodes, max(depots, 0)
+
+
 def observer(textes, page_base):
     """Les observations d'occupation d'une plage de pages.
 
@@ -149,10 +260,31 @@ def observer(textes, page_base):
             ms = RE_SOLDE_COLLE.search(seg['texte'])
             solde = (ms.group(1).replace(' ', '').replace(' ', '').replace(',', '.')
                      if ms else None)
+            # ⚠️ CE QUE LE BLOC APPELLE, ET JUSQU'OÙ. C'est le seul fait qui dise si un
+            #    locataire est en place : « pas de loyer ou charge appelé c'est qu'il est
+            #    parti » (Emmanuel, 07/09/2026).
+            #
+            # ⚠️ MAIS LES APPELS APPARTIENNENT AU BLOC, PAS À UN OCCUPANT — ET QUAND LE BLOC EN
+            #    PORTE PLUSIEURS, ILS NE SONT ATTRIBUABLES À PERSONNE. J'ai d'abord donné le
+            #    tout au premier imprimé, par analogie avec le solde. La preuve que c'est faux
+            #    tient en une chronologie : sur un lot, le premier bloc nomme une locataire
+            #    dont le BAIL S'EST ACHEVÉ EN JUIN 2025 et reçoit 3 puis 6 appels en avril et
+            #    mai 2026 ; le second nomme la locataire entrée en NOVEMBRE 2025 et n'en reçoit
+            #    aucun — puis, dès que la première cesse d'être imprimée, la seconde en reçoit
+            #    3. Les appels étaient les siens depuis le début. Attribuer par rang, c'est
+            #    faire dire au document l'inverse de ce qu'il dit.
+            #
+            # ⚠️ ON PRÉFÈRE NE RIEN SAVOIR À SAVOIR FAUX. Sans attribution, aucun contraste ne
+            #    se forme et la chronologie décide comme avant : on perd une preuve, on n'en
+            #    fabrique pas une fausse.
+            periodes, depots = appels_du_bloc(seg['texte'])
             occupants = seg['occupants'] or [{'locataire': None, 'bail_du': None,
                                               'bail_au': None}]
+            partageable = len(occupants) <= 1
             for rang, o in enumerate(occupants):
                 obs.append({
+                    'appels_periodes': periodes if partageable else [],
+                    'appels_sans_periode': depots if partageable else 0,
                     'lot': ref,
                     'locataire': o['locataire'],
                     'bail_du': jour(o['bail_du']),

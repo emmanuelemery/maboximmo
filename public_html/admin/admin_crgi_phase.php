@@ -77,24 +77,39 @@ if ($phase < 0 || $phase > 5) {
 $messageDecision = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf('default');
-    $choix = (string)($_POST['choix'] ?? '');
-    $cibles = array_map('intval', (array)($_POST['crg'] ?? []));
-    $importsDe = $pdo->prepare('SELECT import_id FROM crgi_crg WHERE id = ?');
+    // ⚠️ DEUX GUICHETS, PAS UN. La phase 2 tranche des COMPTES RENDUS, la phase 3 des
+    //    OCCUPATIONS : deux tables, deux mémoires, deux jeux de réponses. Un seul traitement
+    //    aurait enregistré une décision d'occupation sur un identifiant de compte rendu —
+    //    silencieusement, sur le mauvais objet.
+    $choix  = (string)($_POST['choix'] ?? '');
+    $cible  = (string)($_POST['cible'] ?? 'CRG');
+    $cibles = array_map('intval', (array)($_POST['id'] ?? $_POST['crg'] ?? []));
+    $occ    = $cible === 'OCCUPATION';
+    $importsDe = $pdo->prepare($occ
+        ? 'SELECT import_id FROM crgi_occupation WHERE id = ?'
+        : 'SELECT import_id FROM crgi_crg WHERE id = ?');
     $n = 0;
     try {
-        foreach ($cibles as $crgId) {
-            $importsDe->execute([$crgId]);
+        foreach ($cibles as $cibleId) {
+            $importsDe->execute([$cibleId]);
             $imp = (int)$importsDe->fetchColumn();
             if (!$imp) {
                 continue;
             }
-            crgi_decider_crg($pdo, $imp, $crgId, 'CRG-SANS-PATRIMOINE',
-                             CRGI_CHOIX_SANS_PATRIMOINE, $choix, (int)($_SESSION['user_id'] ?? 0));
+            if ($occ) {
+                crgi_decider_occupation($pdo, $imp, $cibleId, 'OCCUPATION-NON-TRANCHEE',
+                                        $choix, (int)($_SESSION['user_id'] ?? 0));
+            } else {
+                crgi_decider_crg($pdo, $imp, $cibleId, 'CRG-SANS-PATRIMOINE',
+                                 CRGI_CHOIX_SANS_PATRIMOINE, $choix,
+                                 (int)($_SESSION['user_id'] ?? 0));
+            }
             $n++;
         }
+        $quoi = $occ ? ' occupation(s)' : ' compte(s) rendu(s)';
         $messageDecision = $choix === ''
             ? $n . ' décision(s) retirée(s).'
-            : $n . ' compte(s) rendu(s) classé(s) « ' . $choix . ' ».';
+            : $n . $quoi . ' classée(s) « ' . $choix . ' ».';
     } catch (Throwable $e) {
         $messageDecision = 'REFUSÉ — ' . $e->getMessage();
     }
@@ -151,11 +166,30 @@ $colonnes = [
                                       WHERE import_id = ? AND statut = "A ARBITRER"',
           'lots à arbitrer' => 'SELECT COUNT(*) FROM crgi_lot
                                  WHERE import_id = ? AND statut = "A ARBITRER"'],
-    3 => ['occupations' => 'SELECT COUNT(*) FROM crgi_occupation WHERE import_id = ?',
-          'locataires nommés' => 'SELECT COUNT(DISTINCT locataire) FROM crgi_occupation
-                                   WHERE import_id = ? AND locataire <> ""',
-          'départs démontrés' => 'SELECT COUNT(*) FROM crgi_occupation
-                                   WHERE import_id = ? AND statut = "PARTI DEMONTRE"',
+    // ⚠️ UNE LIGNE N'EST PAS UNE OCCUPATION. `crgi_occupation` enregistre une OBSERVATION par
+    //    compte rendu : le même locataire est réénoncé à chaque période, 3,7 fois en moyenne
+    //    sur un dépôt mensuel. Compter les lignes et les appeler « occupations » gonflait
+    //    VIENNE de 131 à 480. Une occupation est un couple `lot × locataire` ; son état est
+    //    celui de sa DERNIÈRE observation, jamais la somme des précédentes.
+    3 => ['locataires' => 'SELECT COUNT(DISTINCT locataire) FROM crgi_occupation
+                            WHERE import_id = ? AND locataire <> ""',
+          'lots occupés' => 'SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference
+                FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+               WHERE o.import_id = ?) t',
+          'occupations' => 'SELECT COUNT(*) FROM (SELECT DISTINCT c.compte, o.lot_reference,
+                o.locataire FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+               WHERE o.import_id = ?) t',
+          'en place' => 'SELECT COUNT(*) FROM (SELECT SUBSTRING_INDEX(GROUP_CONCAT(o.statut
+                ORDER BY o.date_arrete DESC, o.rang ASC), ",", 1) s
+                FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+               WHERE o.import_id = ? GROUP BY c.compte, o.lot_reference, o.locataire) t
+              WHERE s IN ("IDENTIQUE", "CHANGEMENT DE LOCATAIRE", "NOUVEL ENTRANT")',
+          'partis' => 'SELECT COUNT(*) FROM (SELECT SUBSTRING_INDEX(GROUP_CONCAT(o.statut
+                ORDER BY o.date_arrete DESC, o.rang ASC), ",", 1) s
+                FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+               WHERE o.import_id = ? GROUP BY c.compte, o.lot_reference, o.locataire) t
+              WHERE s IN ("PARTI DEMONTRE", "ANCIEN LOCATAIRE AVEC DETTE")',
+          'observations lues' => 'SELECT COUNT(*) FROM crgi_occupation WHERE import_id = ?',
           'à arbitrer' => 'SELECT COUNT(*) FROM crgi_occupation
                             WHERE import_id = ? AND statut = "A ARBITRER"'],
     4 => ['lignes d’argent' => 'SELECT COUNT(*) FROM crgi_mouvement WHERE import_id = ?',
@@ -216,6 +250,20 @@ if ($phase === 2) {
     }
 }
 
+// ── PHASE 3 : LES OCCUPATIONS QUE LE DOCUMENT NE TRANCHE PAS ────────────────────────────────
+// ⚠️ « AUCUNE LIGNE LOCATAIRE » N'EST PAS UNE VACANCE. Le lot existe, le document n'en dit
+//    rien pour cette période — et le vide ne se lit pas comme un départ (`ABSENCE ≠ DÉPART
+//    DÉMONTRÉ`). C'est une question, et elle a désormais son guichet ici comme les autres.
+$occupations = [];
+if ($phase === 3) {
+    foreach ($imports as $id => $nom) {
+        foreach (crgi_occupations_a_trancher($pdo, (int)$id) as $x) {
+            $x['depot'] = $nom;
+            $occupations[] = $x;
+        }
+    }
+}
+
 $mandats = [];
 if ($phase === 1) {
     foreach ($imports as $id => $nom) {
@@ -234,7 +282,9 @@ if ($phase === 1) {
     }
 }
 
-$pageTitle = 'Intégration CRG — phase ' . $phase;
+// ⚠️ LE TITRE NOMME LA PHASE, PAS LE MODULE. Un onglet « Intégration CRG » sur six écrans
+//    différents ne dit pas lequel on regarde.
+$pageTitle = 'PHASE ' . $phase . ' — ' . (CRGI_PHASES[$phase] ?? '?');
 $extraCss  = '<link rel="stylesheet" href="' . asset_url('/css/crg_integration.css') . '">';
 require_once __DIR__ . '/../inc/agency_layout_top.php';
 $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
@@ -259,13 +309,25 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
 
   <div class="crgi-bord-parcours">
     <?php foreach (CRGI_PHASES as $p => $titre): ?>
-      <a class="crgi-bord-pas <?= $p === $phase ? 'crgi-pas-encours' : 'crgi-pas-attente' ?>"
+      <?php
+      $scellees = (int)$pdo->query('SELECT COUNT(*) FROM crgi_phase
+                                     WHERE phase = ' . (int)$p . ' AND statut = "VALIDEE"')
+                           ->fetchColumn();
+      $total = count($imports);
+      $classe = $p === $phase ? 'crgi-pas-encours'
+              : ($total && $scellees >= $total ? 'crgi-pas-fini' : 'crgi-pas-attente'); ?>
+      <a class="crgi-bord-pas <?= $classe ?>"
          href="<?= h(app_url('/admin/admin_crgi_phase.php')) ?>?phase=<?= $p ?>&amp;base=<?= h($base) ?>">
-        <span class="crgi-bord-signe"><?= $p ?></span> <?= h($titre) ?></a>
+        <span class="crgi-bord-signe"><?= $p ?></span> <?= h($titre) ?>
+        <?= $total && $scellees >= $total ? ' ✔' : ' ' . $scellees . '/' . $total ?></a>
     <?php endforeach; ?>
   </div>
 
-  <h2>Phase <?= $phase ?> — <?= h(CRGI_PHASES[$phase] ?? '?') ?></h2>
+  <h1 style="font-size:24px;margin:16px 0 4px">
+    PHASE <?= $phase ?> — <?= h(CRGI_PHASES[$phase] ?? '?') ?></h1>
+  <p class="crgi-sous" style="margin-bottom:14px">
+    Cet écran ne montre <b>que cette phase</b>. Les cinq autres sont dans la barre ci-dessus.
+  </p>
 
   <?php if (!$imports): ?>
     <p class="crgi-note rouge">Aucun import dans cette base.</p>
@@ -386,25 +448,92 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
       </p>
     <?php endif; ?>
 
-    <h2 style="margin-top:20px">Ce que cette phase demande à trancher</h2>
-    <?php if ($phase !== 1): ?>
-      <p class="crgi-note">
-        Les questions des phases 2 à 5 vivent dans la file d'arbitrage, où la preuve est à un
-        clic : <a href="<?= h(app_url('/admin/admin_crgi_seance.php')) ?>">séance d'arbitrage</a>.
-        <br>Cet écran ne rend, pour l'instant, que les questions propres à la phase 1 —
-        celles qui n'avaient aucun guichet.
-      </p>
-    <?php elseif (!$questions): ?>
-      <p class="crgi-note">
-        <b>Aucune.</b> Tout ce que la phase 1 a rencontré est démontré — déjà connu, nouveau,
-        ou nouveau mandant. Un mandant absent de MBI n'est pas une erreur : c'est un nouveau,
-        et il ne se décide pas.
-      </p>
-    <?php else: ?>
+    <?php if ($occupations): ?>
+      <h2 style="margin-top:20px">Occupations que le document ne tranche pas —
+        <?= $nb(count($occupations)) ?></h2>
       <p class="crgi-sous">
-        <b><?= $nb(count($questions)) ?> question(s).</b> Un code de compte n'est jamais global :
-        il n'existe que dans son espace de nommage. Le MÊME NUMÉRO vit ailleurs — même mandant,
-        ou deux mandants sans rapport ?
+        Le lot existe, mais le document <b>ne dit pas</b> qui l’occupe sur cette période — ou
+        cesse d’en parler. Le vide ne se lit pas comme un départ : ce n’est pas une vacance
+        démontrée. <b>La proposition dit ce que le fait observé rend le plus probable</b> : elle
+        se refuse d’un coup d’œil, puisque le fait est écrit à côté.
+      </p>
+      <?php
+      // ⚠️ GROUPÉ PAR PROPOSITION, COMME EN PHASE 2. Dix-sept lignes en vrac se traitent une
+      //    par une ; groupées, trois gestes suffisent. Chaque ligne garde sa case : le groupe
+      //    est un raccourci, jamais une contrainte.
+      $parDepotOcc = [];
+      foreach ($occupations as $x) { $parDepotOcc[$x['depot']][$x['proposition']][] = $x; }
+      foreach ($parDepotOcc as $depot => $groupes): ?>
+        <h3 style="margin:14px 0 4px"><?= h((string)$depot) ?></h3>
+        <?php foreach ($groupes as $prop => $lignes): ?>
+          <form method="post" class="crgi-defile"
+                action="<?= h(app_url('/admin/admin_crgi_phase.php')) ?>?phase=<?= $phase ?>&amp;base=<?= h($base) ?>">
+            <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
+            <input type="hidden" name="cible" value="OCCUPATION">
+            <table>
+              <tr><th colspan="6">
+                Proposition : <b><?= h((string)$prop) ?></b> —
+                <?= $nb(count($lignes)) ?> occupation(s), parce que
+                <?= h((string)$lignes[0]['parce_que']) ?></th></tr>
+              <tr><th>✓</th><th>Compte</th><th>Lot</th><th>Période</th>
+                  <th class="num">Appels</th><th>Preuve</th></tr>
+              <?php foreach ($lignes as $x): ?>
+                <tr>
+                  <td><input type="checkbox" name="id[]" value="<?= (int)$x['id'] ?>" checked></td>
+                  <td><code><?= h((string)$x['compte']) ?></code><br>
+                    <small><?= h(mb_substr((string)($x['proprietaire'] ?: '—'), 0, 28)) ?></small></td>
+                  <td><code><?= h((string)$x['lot_reference']) ?></code>
+                    <?php if (!empty($x['decision'])): ?>
+                      <br><small style="color:var(--crgi-vert)">✔ déjà classée
+                        « <?= h((string)$x['decision']) ?> »</small>
+                    <?php elseif (!empty($x['apprise'])): ?>
+                      <br><small style="color:var(--crgi-vert)">✔ mémoire :
+                        « <?= h((string)$x['apprise']) ?> »</small>
+                    <?php endif; ?></td>
+                  <td><?= h((string)($x['periode_cle'] ?? '—')) ?></td>
+                  <td class="num"><?= $nb($x['appels']) ?></td>
+                  <td><a href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)$x['crg_id'] ?>&amp;base=<?= h($base) ?>#page=<?= (int)$x['page'] ?>"
+                         target="_blank">page <?= (int)$x['page'] ?></a></td>
+                </tr>
+              <?php endforeach; ?>
+              <tr><td colspan="6" style="padding:10px 8px">
+                Ma réponse pour les lignes cochées :
+                <select name="choix" style="padding:5px 8px;font-size:13px">
+                  <?php foreach (CRGI_CHOIX_OCCUPATION as $c => $quoi): ?>
+                    <option value="<?= h($c) ?>"<?= $c === (string)$prop ? ' selected' : '' ?>>
+                      <?= h($c) ?> — <?= h($quoi) ?></option>
+                  <?php endforeach; ?>
+                  <option value="">(retirer ma décision)</option>
+                </select>
+                <button type="submit" style="margin-left:8px;padding:6px 16px;font-weight:600">
+                  Enregistrer</button>
+              </td></tr>
+            </table>
+          </form>
+        <?php endforeach; ?>
+      <?php endforeach; ?>
+      <p class="crgi-note">
+        <b>Appels</b> = les lignes « Du … Au … » du bloc : <b>qui appelle un loyer est en
+        place</b>. Un lot qui cesse d’être lu avec des appels en cours n’a pas perdu son
+        locataire — c’est le lot qui sort.
+        <br><b>LOCATAIRE TOUJOURS EN PLACE</b> et <b>LOGEMENT VACANT</b> ne valent que pour
+        cette période, et se redemanderont au trimestre suivant : c’est voulu, le document peut
+        dire le contraire. <b>GESTION TERMINÉE</b> et <b>LOT VENDU</b> décrivent le lot :
+        dites-les une fois, elles ne se redemandent plus.
+      </p>
+    <?php endif; ?>
+
+    <?php
+    // ⚠️ UNE PHASE À LA FOIS, ET RIEN D'AUTRE. Cet écran affichait le bloc de la phase en
+    //    cours PUIS un bloc générique renvoyant à la file — on lisait donc, sur la phase 3,
+    //    ses propres questions suivies d'une phrase sur la phase 1. Emmanuel : « j'ai
+    //    l'impression que c'est tout mélangé ». Un écran qui montre deux phases à la fois ne
+    //    montre aucune des deux.
+    if ($phase === 1 && $questions): ?>
+      <h2 style="margin-top:20px">Codes de compte partagés — <?= $nb(count($questions)) ?></h2>
+      <p class="crgi-sous">
+        Un code de compte n'est jamais global : il n'existe que dans son espace de nommage.
+        Le MÊME NUMÉRO vit ailleurs — même mandant, ou deux mandants sans rapport ?
       </p>
       <div class="crgi-defile"><table>
         <tr><th>Agence</th><th>Compte</th><th>Propriétaire</th><th>Période</th>
@@ -421,6 +550,20 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
           </tr>
         <?php endforeach; ?>
       </table></div>
+    <?php endif; ?>
+
+    <?php if (!$questions && !$mandats && !$sansPatrimoine && !$occupations): ?>
+      <h2 style="margin-top:20px">Rien à trancher sur cette phase</h2>
+      <p class="crgi-note">
+        <?php if (in_array($phase, [4, 5], true)): ?>
+          Les questions des phases 4 et 5 vivent dans la file d'arbitrage, où la preuve est à
+          un clic : <a href="<?= h(app_url('/admin/admin_crgi_seance.php')) ?>">séance
+          d'arbitrage</a>.
+        <?php else: ?>
+          <b>Aucune question.</b> Tout ce que cette phase a rencontré est démontré par le
+          document ou déjà tranché.
+        <?php endif; ?>
+      </p>
     <?php endif; ?>
   <?php endif; ?>
 </div>

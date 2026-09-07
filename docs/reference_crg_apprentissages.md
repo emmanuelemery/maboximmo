@@ -1074,6 +1074,176 @@ commit          le hash
 
 ---
 
+## APP-0063 · L'appel de loyer a deux écritures, et on n'en lisait qu'une
+
+| | |
+|---|---|
+| **phénomène** | Le compteur d'appels ne cherchait que la forme ICS `Du 01.01.26 Au 31.01.26`. Les éditeurs SPI n'écrivent jamais cela : ils écrivent `TERME Mai 2026`, `TERME du 17/04/2026 au 30/04/2026`, `Loyer du 01/06/2026 au 15/06/2026`, `Provisions pour charges du … au …`. Le fait qui tranche l'occupation n'était donc **jamais lu** sur ces documents. |
+| **preuve** | 07/09/2026, mesuré sur les quatre dépôts : `appels` à zéro pour **402/402** occupations d'une agence et **480/480** d'une autre — **882 sur 2 839, soit 31 % du corpus**. Un taux d'échec de 100 % sur deux dépôts entiers et de 0 % sur les deux autres : ce n'est pas une propriété des immeubles, c'est une graphie non lue. |
+| **abstraction** | `UN CONTRÔLE QUI ÉCHOUE À 100 % NE DÉCRIT PAS LE MONDE, IL DÉCRIT SA PROPRE CÉCITÉ.` Une valeur nulle uniformément répartie sur un éditeur et jamais sur l'autre est un défaut de lecture, pas un fait métier. Corollaire codé : on n'applique aucune règle fondée sur les appels dans un compte rendu qui n'en porte **aucun**. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Tout fait qui décide d'un statut doit être lu dans **toutes** les graphies du corpus avant d'être opposé. Vérifier la couverture par éditeur AVANT de conclure : un fait absent partout chez l'un et présent partout chez l'autre n'est pas un fait. **Et c'est la NATURE qui fait l'appel, pas la date** : un bloc est plein de dates qui n'appellent rien (`Bail du …`, `Budget prévisionnel …`, `Gratuité de loyer jusqu au …`, `Remb LOYER TROP VERSÉ`). On ne cherche une période que sur une ligne qui COMMENCE par une nature d'appel. |
+| **composant** | `crg_integration_phase3.py::appels_du_bloc()`, `crg_integration_ics.py::occupations()` |
+| **tests** | Fixture : les six graphies (`TERME <mois>`, `TERME du…au…`, `Loyer <mois> <année>`, `Loyer du…au…`, `Du…Au…`, `Dépôt de garantie`) doivent produire un appel ; les quatre pièges ci-dessus doivent en produire zéro. |
+| **corpus** | 882 occupations sur 2 839 au premier constat, puis **418 sur 480** d'un dépôt au second |
+| **limites** | La correction s'est faite **en deux fois**, et c'est l'enseignement dans l'enseignement : après avoir ajouté `TERME <mois>`, un dépôt restait à 13 % de couverture — le mois nommé n'appartient pas au terme commercial, un CRG mensuel d'habitation écrit `Loyer Juillet 2026`. Mesurer la couverture APRÈS correction est ce qui a rattrapé la seconde cécité ; s'arrêter au premier correctif l'aurait laissée passer. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0064 · Un appel n'est pas forcément un loyer, ni forcément de la période
+
+| | |
+|---|---|
+| **phénomène** | Deux erreurs symétriques. **(a)** Un bloc sans loyer peut appeler un **dépôt de garantie** : loyer gratuit à l'entrée, mais la garantie est bien demandée — l'appel n'est pas vide. **(b)** Un bloc peut porter des lignes `Du 01.01.25 Au 31.12.25` dans un rapport du 1er trimestre 2026 : ce sont des **régularisations de l'exercice passé**, comptées à tort comme des appels de la période. |
+| **preuve** | 07/09/2026. (a) Une entrante au bail du 25/06/2026 : `Gratuité de loyer jusqu au 31.05.2026`, aucun terme, mais `Dépôt de garantie 1 070,00`. (b) Un locataire dont les **trois** seules lignes datent de l'exercice précédent passait pour présent au trimestre courant. |
+| **abstraction** | `UN APPEL COMPTE SI SA PÉRIODE RECOUPE CELLE DU COMPTE RENDU.` Le rattachement d'un fait à une période ne se lit ni sur sa présence dans le document, ni sur sa nature — seulement sur l'intersection des deux intervalles. Et un appel sans période (le dépôt de garantie) prouve une présence sans jamais fixer une fin. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Filtrer tout fait daté sur l'intersection avec la période du document avant de le compter. Un dépôt de garantie **remboursé** (`Rembt D G reversé`) annule l'appel d'entrée : il accompagne un départ. |
+| **composant** | `crg_integration.php::crgi_appels_de_la_periode()` |
+| **tests** | Fixture : un bloc dont tous les appels précèdent la période doit rendre 0 ; un bloc au seul dépôt de garantie doit rendre 1 sans date de fin. |
+| **corpus** | 1 entrante en gratuité, 1 locataire à régularisations seules — mesuré sur les 17 arbitrages ouverts |
+| **limites** | Un appel annuel `Du 01.01.26 Au 31.12.26` recoupe tout trimestre de 2026 et prolonge donc la fin lue. Choix assumé : il penche vers `en place`, du côté que `ABSENCE ≠ DÉPART` protège. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0065 · La fin du dernier appel date le départ ; l'absence ne le contredit jamais
+
+| | |
+|---|---|
+| **phénomène** | Un bail qui s'achève en cours de trimestre se lit sur la **période tronquée du dernier appel**, pas sur une absence ultérieure. Symétriquement, un bloc qui appelle **jusqu'à la date d'arrêté** démontre une présence qu'aucun rapport suivant ne contredit — et le contrôle d'absence ne doit pas se déclencher. |
+| **preuve** | 07/09/2026. Un locataire appelle `Du 01.02.26 Au 09.02.26` dans un rapport arrêté au 31/03/2026 : la même page porte `Rembt D G reversé` et des honoraires d'état des lieux de **sortie** — trois preuves concordantes. Un autre appelle son loyer `du 01/06/2026 au 15/06/2026` pour un arrêté au 30/06. À l'inverse, **six lots** portaient `TERME Avril / Mai / Juin 2026` et étaient mis en arbitrage parce qu'un compte rendu de **deux jours** (30/06 → 01/07), émis pour enregistrer le dépôt de garantie d'une entrante sur un **autre lot**, portait à lui seul l'horizon du compte. |
+| **abstraction** | `LA PÉRIODE APPELÉE EST UNE PREUVE ; L'ABSENCE N'EN EST PAS UNE.` `ABSENCE ≠ DÉPART DÉMONTRÉ` protège dans les deux sens : elle interdit de conclure au départ sur un silence, et elle interdit tout autant à un silence de démentir un appel lu. Un rapport ultérieur qui ne parle pas d'un lot ne dit rien contre ce lot. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Trois lectures, une seule règle : les appels couvrent jusqu'à l'arrêté → **en place**, aucune question ; ils s'arrêtent avant → **parti**, à la date du dernier appel ; aucun appel sur la période → **parti**, démontré. Un horizon porté par un compte rendu partiel ne met jamais en question un lot qu'il ne couvre pas. |
+| **composant** | `crg_integration.php::crgi_qualifier_occupation()` |
+| **tests** | Fixture : trois blocs (appel jusqu'à l'arrêté, appel tronqué, aucun appel) sur un lot dont un rapport ultérieur ne parle pas — trois verdicts distincts, zéro arbitrage. |
+| **corpus** | 17 arbitrages ouverts, dont 12 réglés sur preuve lue |
+| **limites** | Un motif écrit de réduction du loyer (`Gratuité`, `Remise sur Loyer`) accompagne une période tronquée sans qu'il y ait départ : la nuance n'est pas encore codée, elle reste un arbitrage. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0066 · Une décision prise à une phase doit fermer la question aux suivantes
+
+| | |
+|---|---|
+| **phénomène** | Un compte mandant tranché en phase 2 (« bien vendu ») voyait la phase 3 reposer des questions sur ses lots. La mémoire durable n'était consultée que par la phase qui l'avait écrite. |
+| **preuve** | 07/09/2026 : un compte classé `BIEN VENDU` en phase 2 produisait encore **deux** arbitrages d'occupation en phase 3. Emmanuel : « il y a des documents qui sont exclus de l'analyse dans les phases précédentes que tu donnes en erreur à arbitrer ». |
+| **abstraction** | `UNE MÉMOIRE QU'UNE SEULE PHASE INTERROGE N'EST PAS UNE MÉMOIRE, C'EST UNE NOTE.` Le coût d'une décision non propagée n'est pas la question elle-même : c'est la perte de confiance dans le fait d'avoir répondu. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute phase consulte `crgi_identite` sur les clés que les phases antérieures ont pu écrire, avant de poser sa propre question. |
+| **composant** | `crg_integration.php::crgi_qualifier_occupation()` |
+| **tests** | Fixture : une décision de phase 2 sur un compte, puis une phase 3 sur un lot de ce compte — zéro question. |
+| **corpus** | 2 arbitrages sur 17 |
+| **limites** | Seules les décisions de type `COMPTE-SANS-PATRIMOINE` sont propagées ; les autres familles restent à câbler. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0067 · Une règle juste appliquée à une lecture incomplète produit des faits faux
+
+| | |
+|---|---|
+| **phénomène** | La règle « aucun appel de loyer ⇒ le locataire est parti » est **exacte**, et elle a pourtant fabriqué des centaines de faux départs. Parce qu'elle repose sur une lecture dont la couverture n'est **pas uniforme** : là où le lecteur ne sait pas lire les appels, il rend zéro — et zéro se lit comme une preuve alors que c'est une ignorance. |
+| **preuve** | 07/09/2026. Appliquée telle quelle, elle a prononcé **871 départs sur « aucun appel »**. Le contrôle qui l'a démasquée : **518 locataires déclarés partis réapparaissaient sous le MÊME nom, sur le MÊME lot, à une période POSTÉRIEURE** — une contradiction que le moteur produisait contre lui-même. La couverture du lecteur variait de 48 % à 95 % selon le dépôt ; sur le dépôt à 48 %, **251 blocs sans appel étaient le SEUL occupant de leur lot** — donc sans rien à quoi se comparer. |
+| **abstraction** | `UN ZÉRO MESURÉ ET UN ZÉRO NON LU S'ÉCRIVENT PAREIL.` Toute règle bâtie sur une absence doit d'abord démontrer que la présence, elle, aurait été VUE. La garde par document ne suffit pas : un compte rendu où 40 lots sur 100 portent des appels lus la franchit, et les 60 autres passent pour vides. **Et le contrôle qui sauve n'est pas une relecture : c'est la recherche d'une CONTRADICTION INTERNE** — un fait que le moteur affirme et qu'il dément lui-même ailleurs. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | L'absence ne démontre que **par CONTRASTE, à granularité égale** : un bloc muet à côté d'un bloc qui appelle, sur le même lot et au même arrêté. Un vide SEUL ne conclut pas — il pose la question, comme demandé : « soit appartement vacant, soit perte de gestion, et tu ne peux pas le voir, IL FAUT POSER LA QUESTION ». |
+| **composant** | `crg_integration.php::crgi_qualifier_occupation()` |
+| **tests** | Contrôle permanent, désormais CODÉ dans `crgi_phase3()` : compter les observations déclarées `PARTI` dont le titulaire **APPELLE encore** plus tard sur le même lot. Isolé → on redresse en disant pourquoi ; au-delà de **2 % des départs** → la phase refuse de se sceller. |
+| **corpus** | 871 départs prononcés, 518 réapparitions, dont **19 vraies contradictions** |
+| **limites** | ⚠️ **Le contrôle lui-même s'est trompé d'abord, et c'est le second enseignement.** Défini comme « le NOM réapparaît », il comptait **486 contradictions** là où il n'y en avait que 9 : un ancien locataire reste au compte rendu tant que sa dette n'est pas apurée — une locataire dont le bail finit le 01/01/2026 reparaît en avril, mai, juin, juillet, sans un appel, avec son encours (`INTEG-P2-SOLDE-REPORTE` au niveau du locataire). **La contradiction n'est pas la réapparition du NOM, c'est la réapparition d'un APPEL** : un partant ne redemande pas son loyer. Un contrôle mal défini crie aussi fort qu'un vrai défaut. Enfin, il ne voit que les contradictions internes au dépôt : un faux départ en toute dernière période reste invisible. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0068 · Ce qui appartient au bloc ne s'attribue pas au premier nom imprimé
+
+| | |
+|---|---|
+| **phénomène** | Un bloc de lot peut nommer plusieurs occupants successifs. Ses appels de loyer appartiennent **au bloc**, pas à l'un d'eux — et les donner au premier imprimé, par analogie avec le solde, fait dire au document l'inverse de ce qu'il dit. |
+| **preuve** | 07/09/2026. Sur un lot : le premier bloc nomme une locataire dont le **bail s'est achevé en juin 2025** et reçoit 3 puis 6 appels en avril et mai 2026 ; le second nomme la locataire entrée en **novembre 2025** et n'en reçoit aucun. Dès que la première cesse d'être imprimée, la seconde reçoit 3 appels. Les appels étaient les siens depuis le début, et la règle du contraste déclarait partie la seule qui fût présente. |
+| **abstraction** | `ON PRÉFÈRE NE RIEN SAVOIR À SAVOIR FAUX.` Une donnée de bloc n'est attribuable à un occupant que si le bloc n'en porte qu'un. Sans attribution, aucun contraste ne se forme et la chronologie décide comme avant : on perd une preuve, on n'en fabrique pas une fausse. C'est la même faute que « le rang vaut chronologie », déplacée du temps vers l'argent. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute donnée lue au niveau du bloc (appels, solde, totaux) n'est portée par un occupant que si le bloc en compte exactement un. Sinon elle reste au bloc, et aucune règle ne s'en sert pour départager ses occupants. |
+| **composant** | `crg_integration_phase3.py::observer()` |
+| **tests** | Fixture : un bloc à deux occupants et trois appels — aucun des deux ne doit porter d'appel. |
+| **corpus** | 3 faux départs sur un dépôt |
+| **limites** | La chronologie reste construite par RANG quand un lot porte deux occupants au même arrêté : l'observation de rang 1 de la période N se compare au rang 0 de la période N+1. Défaut connu, non corrigé — le contrôle de contradiction le rattrape et le dit. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0069 · Un seuil sans ses deux points de mesure est une superstition
+
+| | |
+|---|---|
+| **phénomène** | J'ai fixé à **2 %** le taux de contradictions au-delà duquel une phase refuse de se sceller. Ce chiffre n'était appuyé sur rien : il faisait échouer des dépôts sains et aurait fini par être désarmé pour cette raison — c'est ainsi que meurent les contrôles. |
+| **preuve** | 07/09/2026. Les deux points que le seuil doit séparer, tous deux mesurés : une **règle fausse** produit **518 contradictions sur 871 départs, soit 59 %** ; les mêmes dépôts, une fois les quatre défauts réels corrigés, retombent à **0 %** sur l'un et **8,6 %** sur le plus petit — et ces cas-là sont nommés un par un, pas une famille. |
+| **abstraction** | `UN SEUIL SE CALIBRE ENTRE DEUX MESURES, IL NE SE CHOISIT PAS.` Un contrôle trop strict n'est pas un contrôle prudent : c'est un contrôle qu'on finira par débrancher. Le nombre doit être encadré par un cas connu qui doit passer et un cas connu qui doit échouer, et les deux doivent être écrits à côté de lui. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Aucun seuil numérique n'entre dans le moteur sans ses deux points de mesure consignés au point d'emploi. Un seuil sans eux est à supprimer, pas à ajuster. |
+| **composant** | `crg_integration.php::CRGI_DEPARTS_CONTREDITS_MAX` |
+| **tests** | Rejouer les deux points : le corpus « règle fausse » doit refuser de sceller, le corpus corrigé doit sceller. |
+| **corpus** | 59 % contre 8,6 % |
+| **limites** | Le seuil ne protège que d'une défaillance MASSIVE ; une règle fausse qui ne toucherait que quelques cas passe, et c'est assumé — ces cas-là sont redressés et comptés. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0070 · Un repli mal choisi efface exactement ce qu'il devait protéger
+
+| | |
+|---|---|
+| **phénomène** | Filtrer les appels sur la période du compte rendu suppose de connaître ses bornes. **435 comptes rendus sur 947 n'en impriment aucune** : ils écrivent « - 1er Trimestre 2026 - » et rien d'autre. Se rabattre sur la date d'arrêté ramène la période à **une seule journée** — et tout appel antérieur devient « hors période ». |
+| **preuve** | 07/09/2026. Cinq occupations affichaient 2, 4 et 5 appels ; après ce repli, **zéro**. Un locataire qui appelle son loyer en janvier et février se retrouvait sans un seul appel dans un rapport arrêté au 31 mars — le filtre censé écarter les régularisations de l'an passé effaçait aussi les loyers du trimestre en cours. |
+| **abstraction** | `UN REPLI N'EST PAS UNE VALEUR PAR DÉFAUT : C'EST UNE AFFIRMATION.` « À défaut de bornes, la période vaut un jour » est un énoncé faux, écrit sans y penser parce qu'il tenait sur une ligne. Le bon repli **déplie le NOM** — « 2026-T1 » vaut 01/01 → 31/03 parce que c'est ce que le nom SIGNIFIE — et quand rien ne se déplie, il **ne filtre plus du tout** : mieux vaut compter un appel de trop que les effacer tous. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Tout repli sur une valeur manquante s'écrit comme une affirmation et se relit comme telle. En cas d'indétermination réelle, le filtre se DÉSARME au lieu de se resserrer — un filtre qui se resserre sur l'inconnu supprime des faits vrais. |
+| **composant** | `crg_integration.php::crgi_bornes_de_periode()` |
+| **tests** | Fixture : un compte rendu sans bornes nommé « 2026-T1 » doit rendre 01/01 → 31/03 ; un intitulé non reconnu doit désarmer le filtre, pas le réduire à un jour. |
+| **corpus** | 435 comptes rendus sur 947 |
+| **limites** | Le dépliage ne connaît que trimestre, mois et couple de dates ; toute autre notation désarme le filtre — et c'est le comportement voulu. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0071 · Un contrôle de dernier recours a le dernier mot, y compris sur mieux prouvé que lui
+
+| | |
+|---|---|
+| **phénomène** | Le contrôle « ce lot cesse d'apparaître alors que le compte continue » s'exécutait EN DERNIER et remettait « à arbitrer » sur des observations dont le verdict venait d'être **démontré par une lecture**. Sa place dans le code lui donnait autorité sur des faits mieux établis que lui. |
+| **preuve** | 07/09/2026. Quatre occupations dont le dernier appel de loyer était LU — « Au 09.02.26 » dans un rapport arrêté au 31/03, « Au 31.01.25 » pour un arrêté au 31/03 — ressortaient en question après avoir été qualifiées « parti démontré » douze lignes plus haut. Le symptôme était trompeur : elles affichaient les bons appels et le bon verdict intermédiaire, et sortaient quand même en arbitrage. |
+| **abstraction** | `L'ORDRE D'EXÉCUTION EST UNE HIÉRARCHIE DE PREUVES, QU'ON LE VEUILLE OU NON.` Un contrôle écrit en dernier prime sur tout ce qui précède, sans que personne l'ait décidé. `ABSENCE ≠ DÉPART DÉMONTRÉ` interdit de conclure sur un silence ; il n'autorise pas un silence à DÉFAIRE une lecture. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Tout contrôle de dernier recours teste explicitement qu'aucune preuve n'a déjà parlé avant de s'appliquer. Une règle de repli qui ne sait pas se taire n'est pas un repli : c'est la règle principale, déguisée. |
+| **composant** | `crg_integration.php::crgi_qualifier_occupation()` — `$verdictParAppel` |
+| **tests** | Fixture : une occupation dont le dernier appel s'arrête avant l'arrêté, sur un lot qui ne reparaît plus — verdict `PARTI DEMONTRE`, jamais `A ARBITRER`. |
+| **corpus** | 4 arbitrages sur 8 |
+| **limites** | Le drapeau ne couvre que les verdicts tirés des appels ; les autres familles de preuve restent soumises au contrôle d'horizon. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0072 · La granularité de la question n'est pas celle de l'observation
+
+| | |
+|---|---|
+| **phénomène** | Un lot qui ne porte plus qu'un solde — « Solde Antérieur », aucun appel de loyer — n'est plus en gestion : le compte rendu continue de l'imprimer tant que le montant n'est pas apuré. Posée au LOT, cette question sortait **99 fois** sur un seul dépôt. Or ce n'est jamais un lot qu'on vend : c'est un immeuble, ou un mandat. |
+| **preuve** | 07/09/2026. Sur 332 lots au dernier arrêté, **99 n'appellent rien** — ce qui explique l'écart entre les 332 lus et les ~220 attendus par Emmanuel : **233 appellent un loyer**. Regroupés : **8 mandants** dont plus aucun lot n'appelle, **31 immeubles** entièrement muets couvrant **64 lots**, et **35 lots isolés** dans des immeubles encore actifs. Deux cas confirmés vendus sur-le-champ : un mandant entier (6 lots, 21 654 €) et un immeuble entier (3 lots, 32 263 €). |
+| **abstraction** | `ON POSE LA QUESTION À L'ÉCHELLE OÙ LA RÉPONSE SE DONNE.` L'observation est au lot ; la décision est à l'immeuble ou au mandat. Une file d'arbitrage dont la granularité copie celle de la lecture multiplie les questions par le nombre d'objets observés, alors qu'une seule réponse les couvre toutes. C'est la règle des 20-30 arbitrages appliquée à sa vraie cause : **une file trop longue ne signale pas un corpus difficile, elle signale qu'on interroge au mauvais niveau.** |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Avant d'émettre une question, chercher le plus grand ensemble homogène qui la porte : mandant entier → immeuble entier → objet isolé. On n'interroge à l'unité que ce qui reste après. |
+| **composant** | phase 3 — file d'arbitrage `LOT-SANS-APPEL` |
+| **tests** | Fixture : un mandant dont aucun lot n'appelle doit produire UNE question, pas une par lot. |
+| **corpus** | 99 lots → 8 + 31 + 35 questions, dont 20 lots couverts par 8 décisions |
+| **limites** | ⚠️ **Un lot vendu et un lot en contentieux s'impriment à l'identique** — le document ne les départage pas. Le regroupement réduit le nombre de questions, il ne les supprime pas. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
