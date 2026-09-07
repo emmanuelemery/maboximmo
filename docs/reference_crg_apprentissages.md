@@ -1244,6 +1244,40 @@ commit          le hash
 
 ---
 
+## APP-0073 · Un piège consigné mais non gardé se reproduit — trois fois
+
+| | |
+|---|---|
+| **phénomène** | Compter les lignes d'observation et les présenter comme des locataires multiplie tout par le nombre de PÉRIODES du dépôt. La règle « une ligne n'est pas un objet » était **écrite en mémoire depuis des semaines**, et Emmanuel avait déjà dû la rappeler une fois. Elle n'a pas tenu : **rien dans le code ne l'appliquait**, et j'ai republié les mêmes chiffres faux deux fois de plus. |
+| **preuve** | 08/09/2026. Un dépôt MENSUEL observe chaque lot **4 fois** ; ses 108 lots occupés ressortaient à **440 « en place »**. Emmanuel : « pour Vienne tu as encore triplé les chiffres car il y a 3 CRG par trimestre !!!!! » — après avoir déjà écrit : « il y a 122 biens et 480 d'occupation ». Sur un autre dépôt, **93 « partis » pour 23 départs réels**. |
+| **abstraction** | `UN PIÈGE CONSIGNÉ MAIS NON GARDÉ SE REPRODUIT.` Un registre n'empêche rien : il documente. Seule une FONCTION qui rend l'erreur impossible protège — et tant que le chiffre se calcule à la main au moment de le dire, il se recalcule faux. La cadence des dépôts n'est même pas uniforme : mensuel contre trimestriel, le facteur de gonflement diffère d'un dépôt à l'autre, ce qui rend les colonnes **incomparables entre elles** en plus d'être fausses. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Aucun chiffre métier ne se calcule au moment de le publier. Il sort d'une fonction unique — `crgi_bilan_metier()` — dont chaque unité est un OBJET : un lot, un bail, un occupant. Un lot se compte **à sa dernière période**, jamais en additionnant ses observations. |
+| **composant** | `crg_integration.php::crgi_bilan_metier()` |
+| **tests** | Fixture : un lot observé 4 fois doit rendre 1 lot et 1 occupant, jamais 4. |
+| **corpus** | 4 dépôts, cadences de 5 à 7 arrêtés |
+| **limites** | La fonction ne protège que ce qu'elle rend ; tout comptage ad hoc reste exposé. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0074 · Un nom porté n'est pas un départ
+
+| | |
+|---|---|
+| **phénomène** | Un compte rendu réimprime un locataire sorti tant que son solde n'est pas apuré — parfois des années. Comptés comme des départs, ces noms gonflaient un dépôt de **23 à 93**. |
+| **preuve** | 08/09/2026. Sur un lot, l'occupant courant appelle ses trois mois de 2026 ; juste en dessous, une locataire lue « **Du 01.01.09 Au 24.01.09** », montants à 0,00 — partie en janvier 2009, **toujours imprimée seize ans après**, et sans dette. Emmanuel : « il n'y a pas 88 partis, ce n'est pas vrai ». Total du corpus : **62 départs réels contre 234 noms anciens portés**. |
+| **abstraction** | `LA PRÉSENCE D'UN NOM DANS UN DOCUMENT NE DATE PAS L'ÉVÉNEMENT QU'IL RACONTE.` C'est `INTEG-P2-SOLDE-REPORTE` appliqué au locataire : la date du document n'est pas la date de ce qu'il porte. Un départ appartient à la période lue seulement si le dernier appel de ce bail y tombe. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Séparer toujours **départs de la période** (dernier appel ≥ début du dépôt) et **noms anciens portés** (dernier appel antérieur, ou aucun). Ne jamais publier le total des deux sous le mot « partis ». |
+| **composant** | `crg_integration.php::crgi_bilan_metier()` — clés `partis` et `noms_anciens` |
+| **tests** | Fixture : un bail dont le dernier appel précède le dépôt ne compte pas comme départ. |
+| **corpus** | 296 baux terminés = 62 départs + 234 noms portés |
+| **limites** | Un bail sans aucun appel lisible tombe en « nom ancien » par défaut — prudent, mais il peut masquer un départ récent mal lu. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est

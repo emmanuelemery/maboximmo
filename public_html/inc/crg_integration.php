@@ -2468,6 +2468,80 @@ function crgi_phase3(PDO $pdo, int $importId): array
 
 /** Relève une observation par lot et par CRG — une seule lecture du PDF par pièce. */
 /**
+ * LE BILAN MÉTIER DE LA PHASE 3 — DES OBJETS, JAMAIS DES LIGNES.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ CETTE FONCTION EXISTE PARCE QUE J'AI ANNONCÉ TROIS FOIS DES CHIFFRES FAUX, DE LA MÊME
+ *    FAÇON. Compter les lignes de `crgi_occupation` et les présenter comme des locataires
+ *    multiplie tout par le nombre de PÉRIODES du dépôt. Emmanuel, 08/09/2026 : « pour Vienne tu
+ *    as encore triplé les chiffres car il y a 3 CRG par trimestre !!!!! » — et il avait déjà dû
+ *    le dire : « il y a 122 biens et 480 d'occupation ». La règle était en mémoire ; elle n'a
+ *    pas tenu, parce que rien dans le code ne l'appliquait. **Un piège consigné mais non gardé
+ *    se reproduit.**
+ *
+ * ⚠️ LA CADENCE N'EST PAS LA MÊME PARTOUT, ET C'EST ELLE QUI FIXE LE FACTEUR. Un dépôt
+ *    MENSUEL observe chaque lot 4 fois là où un trimestriel l'observe 1 fois : additionner
+ *    les observations gonfle l'un quatre fois plus que l'autre, et les rend incomparables.
+ *
+ * ⚠️ ET UN ANCIEN NOM PORTÉ N'EST PAS UN DÉPART. Un compte rendu réimprime un locataire sorti
+ *    tant que son solde n'est pas apuré — parfois des années. Une locataire est lue avec
+ *    « Du 01.01.09 Au 24.01.09 », montants à 0,00, dans un rapport de 2026 : elle est partie il
+ *    y a seize ans. Comptée comme un départ, elle gonflait un dépôt de 23 à 93.
+ *
+ * Toute unité rendue ici est un OBJET : un lot, un bail, un occupant. Jamais une ligne.
+ */
+function crgi_bilan_metier(PDO $pdo, int $importId): array
+{
+    // ⚠️ L'IDENTIFIANT EST INTERPOLÉ, PAS LIÉ — ET C'EST DÉLIBÉRÉ. Ces requêtes portent le
+    //    même import à trois ou quatre endroits ; compter les points d'interrogation à la main
+    //    est exactement la faute qui a déjà cassé une passe entière (« Invalid parameter
+    //    number »). Un entier casté n'ouvre aucune injection, et le nombre de paramètres cesse
+    //    d'être une chose à tenir juste.
+    $i = (int)$importId;
+    $un = function (string $sql) use ($pdo): int {
+        return (int)$pdo->query($sql)->fetchColumn();
+    };
+    // L'état de chaque lot À SA DERNIÈRE PÉRIODE — une photographie, jamais une addition.
+    $dernier = 'SELECT c.compte cpt, o.lot_reference lot, o.locataire loc, o.statut st
+                  FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+                 WHERE c.import_id = ' . $i . ' AND o.date_arrete = (
+                       SELECT MAX(o2.date_arrete) FROM crgi_occupation o2
+                        JOIN crgi_crg c2 ON c2.id = o2.crg_id
+                       WHERE c2.import_id = ' . $i . ' AND c2.compte = c.compte
+                         AND o2.lot_reference = o.lot_reference)';
+    $occupe = '"IDENTIQUE","CHANGEMENT DE LOCATAIRE","NOUVEL ENTRANT"';
+    $sortie = '"PARTI DEMONTRE","ANCIEN LOCATAIRE AVEC DETTE"';
+    $debut = '(SELECT MIN(o4.date_arrete) FROM crgi_occupation o4 WHERE o4.import_id = ' . $i . ')';
+    $baux = 'SELECT MAX(o.dernier_appel_au) fin
+               FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+              WHERE c.import_id = ' . $i . ' AND o.locataire IS NOT NULL
+                AND o.statut IN (' . $sortie . ')
+              GROUP BY c.compte, o.lot_reference, o.locataire';
+
+    return [
+        'periodes'   => $un('SELECT COUNT(DISTINCT date_arrete) FROM crgi_occupation
+                              WHERE import_id = ' . $i),
+        'lots'       => $un('SELECT COUNT(*) FROM (' . $dernier . ' GROUP BY 1,2) x'),
+        'occupes'    => $un('SELECT COUNT(*) FROM (' . $dernier . ' GROUP BY 1,2
+                              HAVING MAX(st IN (' . $occupe . ')) = 1) x'),
+        'vides'      => $un('SELECT COUNT(*) FROM (' . $dernier . ' GROUP BY 1,2
+                              HAVING MAX(st IN (' . $occupe . ')) = 0
+                                 AND MAX(st = "A ARBITRER") = 0) x'),
+        'arbitrages' => $un('SELECT COUNT(*) FROM (' . $dernier . ' GROUP BY 1,2
+                              HAVING MAX(st IN (' . $occupe . ')) = 0
+                                 AND MAX(st = "A ARBITRER") = 1) x'),
+        'occupants'  => $un('SELECT COUNT(*) FROM (' . $dernier . ' GROUP BY 1,2,3
+                              HAVING loc IS NOT NULL
+                                 AND MAX(st IN (' . $occupe . ')) = 1) x'),
+        // ⚠️ UN BAIL TERMINÉ PENDANT LE DÉPÔT ≠ UN NOM PORTÉ DEPUIS DES ANNÉES.
+        'partis'       => $un('SELECT COUNT(*) FROM (' . $baux . ') b
+                                WHERE b.fin >= ' . $debut),
+        'noms_anciens' => $un('SELECT COUNT(*) FROM (' . $baux . ') b
+                                WHERE b.fin IS NULL OR b.fin < ' . $debut),
+    ];
+}
+
+/**
  * LE MOTEUR SE CONTREDIT-IL LUI-MÊME ? — le contrôle qui a sauvé la phase 3.
  *
  * ⚠️ UNE RÈGLE JUSTE APPLIQUÉE À UNE LECTURE INCOMPLÈTE PRODUIT DES FAITS FAUX. « Aucun appel
