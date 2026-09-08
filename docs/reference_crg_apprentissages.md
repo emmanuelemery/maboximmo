@@ -1346,6 +1346,23 @@ commit          le hash
 
 ---
 
+## APP-0079 · Les règlements s'imputent sur les loyers les plus anciens — le silence des appels ne dit rien des encaissements
+
+| | |
+|---|---|
+| **phénomène** | Un lot qui n'appelle plus aucun loyer peut **encaisser malgré tout**. Les règlements d'un locataire en retard s'imputent sur les loyers **LES PLUS ANCIENS**, et non sur le terme courant — pour éviter la **forclusion**, qui éteindrait les créances les plus vieilles. Le tableau des appels ne montre donc rien, alors que l'argent rentre. |
+| **preuve** | 08/09/2026. Emmanuel, sur un local commercial sans aucun appel de loyer : « il se produit que les encaissements s'imputent sur les loyers les plus anciens pour éviter la forclusion des loyers… donc nous avons bien des encaissements même s'ils sont imputés sur les anciens loyers ». Mesuré sur les quatre dépôts : **10 périmètres muets dont l'encours BAISSE** — ils encaissent — contre 9 dont il augmente. |
+| **abstraction** | `UN ENCOURS QUI BAISSE EST UN ENCAISSEMENT.` C'est la seule trace du règlement quand l'imputation le fait disparaître du tableau des appels. Conséquence de doctrine : **l'absence d'appel ne prouve ni l'absence d'occupant, ni l'absence d'argent** — elle prouve seulement qu'aucun terme nouveau n'est réclamé. Un occupant qui rembourse une dette ancienne est actif, et le confondre avec un parti fausse à la fois l'occupation et la trésorerie. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Comparer l'encours du PREMIER et du DERNIER arrêté lus. S'il baisse : le dire — « il y a eu des encaissements, imputés sur les loyers les plus anciens ». S'il monte : le dire aussi — « aucun règlement ne le résorbe ». Ne jamais conclure au départ ni à l'inactivité sur la seule absence d'appel. |
+| **composant** | `crg_integration.php::crgi_perimetres_sans_appel()`, `crgi_analyse_perimetre()` |
+| **tests** | Fixture : un lot sans appel dont l'encours passe de 900 € à 300 € doit rendre « encaissements », jamais « inactif ». |
+| **corpus** | 10 périmètres encaissent, 9 s'aggravent, 65 stables |
+| **limites** | La variation d'encours ne se lit que là où le solde est LU (`solde_source = LUE`) ; ailleurs elle est muette. Et elle mesure un NET : un encaissement compensé par un appel nouveau reste invisible — c'est la phase 4 qui séparera les deux. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est

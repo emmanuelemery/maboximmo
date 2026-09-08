@@ -3976,6 +3976,25 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
              GROUP BY c.compte, o.code_immeuble, o.lot_reference';
     $lots = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
+    // ⚠️ UN ENCOURS QUI BAISSE EST UN ENCAISSEMENT, MÊME SANS LOYER APPELÉ. Les règlements
+    //    s'imputent sur les loyers LES PLUS ANCIENS — pour éviter la forclusion, qui éteindrait
+    //    les créances les plus vieilles. Emmanuel, 08/09/2026 : « nous avons bien des
+    //    encaissements même s'ils sont imputés sur les anciens loyers ». Conséquence : un lot
+    //    qui n'appelle plus rien PEUT tout de même encaisser, et son occupant n'est ni parti
+    //    ni inactif — il rembourse. Le silence des appels ne dit rien des règlements.
+    $var = $pdo->query(
+        'SELECT c.compte AS cpt, o.lot_reference AS lot,
+                SUBSTRING_INDEX(GROUP_CONCAT(o.solde ORDER BY o.date_arrete),  ",", 1) AS premier,
+                SUBSTRING_INDEX(GROUP_CONCAT(o.solde ORDER BY o.date_arrete), ",", -1) AS dernier
+           FROM crgi_occupation o JOIN crgi_crg c ON c.id = o.crg_id
+          WHERE c.import_id = ' . $i . ' AND o.solde_source = "LUE"
+          GROUP BY c.compte, o.lot_reference'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $variation = [];
+    foreach ($var as $v) {
+        $variation[$v['cpt'] . '/' . $v['lot']] = (float)$v['dernier'] - (float)$v['premier'];
+    }
+
     // Qui appelle encore, par mandant et par immeuble : c'est ce qui décide de l'échelle.
     $appelleMandant = $appelleImmeuble = [];
     foreach ($lots as $l) {
@@ -4025,6 +4044,8 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         }
         $groupes[$k]['lots']++;
         $groupes[$k]['honoraires'] += (int)$l['honoraires'];
+        $groupes[$k]['variation'] = ($groupes[$k]['variation'] ?? 0.0)
+                                  + (float)($variation[$cm . '/' . (string)$l['lot']] ?? 0.0);
         // ⚠️ CE QUI SERVIRA À DÉCIDER, GARDÉ LIGNE PAR LIGNE. Voir `crgi_analyse_perimetre()`.
         $groupes[$k]['faits'][] = [
             'lot'        => (string)$l['lot'],
@@ -4033,6 +4054,7 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
             'arrete'     => (string)$l['arrete'],
             'solde'      => $l['solde'] !== null ? (float)$l['solde'] : null,
             'explique'   => (bool)$l['explique'],
+            'variation'  => $variation[$cm . '/' . (string)$l['lot']] ?? null,
         ];
         if ($l['explique']) {
             $groupes[$k]['expliques']++;
@@ -4158,6 +4180,21 @@ function crgi_analyse_perimetre(array $g): array
         ? 'Encours porté : ' . number_format($encours, 2, ',', ' ') . ' € — c’est ce qui fait '
           . 'rééditer le compte rendu tant qu’il n’est pas apuré.'
         : 'Aucun encours lu : rien ne reste à apurer.';
+
+    // ⚠️ LES RÈGLEMENTS S'IMPUTENT SUR LES LOYERS LES PLUS ANCIENS, POUR ÉVITER LA
+    //    FORCLUSION. Un encours qui BAISSE prouve donc des encaissements — même quand plus
+    //    aucun loyer n'est appelé. Ne pas le dire ferait passer pour inactif un occupant qui
+    //    rembourse, et pour vide un lot dont le locataire paie encore.
+    $v = (float)($g['variation'] ?? 0.0);
+    if ($v < -0.005) {
+        $lignes[] = 'L’encours a BAISSÉ de ' . number_format(abs($v), 2, ',', ' ') . ' € sur la '
+                  . 'période lue : il y a donc eu des ENCAISSEMENTS, imputés sur les loyers les '
+                  . 'plus anciens (règle anti-forclusion). Le silence des appels ne dit rien des '
+                  . 'règlements.';
+    } elseif ($v > 0.005) {
+        $lignes[] = 'L’encours a AUGMENTÉ de ' . number_format($v, 2, ',', ' ') . ' € sur la '
+                  . 'période lue : aucun règlement ne le résorbe.';
+    }
 
     $honoLisibles = in_array((string)($g['format'] ?? ''), ['septeo_spi'], true);
     if (!$honoLisibles) {
