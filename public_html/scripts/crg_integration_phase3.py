@@ -274,6 +274,25 @@ def observer(textes, page_base):
                             precedente['solde'] = (ms.group(1).replace(' ', '')
                                                    .replace(' ', '').replace(',', '.'))
                             precedente['solde_source'] = 'LUE'
+                        # ⚠️ ET LES APPELS AUSSI SONT SUR LA CONTINUATION — ILS Y SONT MÊME
+                        #    PRESQUE TOUJOURS. Quand un lot est coupé par une page, l'en-tête
+                        #    se réimprime avec « ...Suite » et TOUT le tableau des appels part
+                        #    sur la seconde page : « Loyer Juillet 2026 », « Provisions pour
+                        #    charges Juillet 2026 », « Provisions TEOM Juillet 2026 ». Cette
+                        #    branche ne reprenait que le nom et le solde : les appels étaient
+                        #    JETÉS, et le lot ressortait muet alors que le document appelle son
+                        #    loyer en toutes lettres — d'où une question d'arbitrage sur une
+                        #    occupation parfaitement lisible. Emmanuel, 08/09/2026 : « nous
+                        #    avons le nom, la date de début du bail, l'appel de loyer et des
+                        #    charges pour juillet — tu ne sais pas lire un CRG de VIENNE ? ».
+                        #    C'est la même faute que l'occupant perdu sur un lot coupé, sur une
+                        #    autre colonne du même tableau.
+                        pers, deps = appels_du_bloc(seg['texte'])
+                        if pers or deps:
+                            precedente['appels_periodes'] = (
+                                list(precedente.get('appels_periodes') or []) + pers)
+                            precedente['appels_sans_periode'] = (
+                                int(precedente.get('appels_sans_periode') or 0) + deps)
                         # ⚠️ ET L'OCCUPANT AUSSI SE LIT SUR LA CONTINUATION. Quand le bloc
                         #    d'un lot commence au BAS d'une page, sa ligne « Locataire: » ne
                         #    tient pas dessus : elle est imprimée sur la page suivante, sous

@@ -1363,6 +1363,74 @@ commit          le hash
 
 ---
 
+## APP-0080 · La pagination est indépendante de la structure métier — on délimite AVANT et APRÈS
+
+| | |
+|---|---|
+| **phénomène** | Quand le bloc d'un lot ne tient pas sur une page, l'éditeur réimprime son en-tête suivi de « **...Suite** » et poursuit sur la page d'après. La lecture ouvre l'observation sur la PREMIÈRE page — souvent vide, l'en-tête tenant seul en bas de page — et la branche « continuation » ne reprenait que le **nom** et le **solde**. Tout le reste était jeté. |
+| **preuve** | 08/09/2026. Un lot dont le tableau d'appels est ENTIÈREMENT sur la seconde page : « Loyer Juillet 2026 · 694,89 », « Provisions pour charges Juillet 2026 · 28,00 », « Provisions TEOM Juillet 2026 · 8,00 ». Le moteur rendait **appels = 0** et posait une question d'arbitrage sur une occupation parfaitement lisible. Emmanuel : « nous avons le nom, la date de début du bail, l'appel de loyer et des charges pour juillet… **tu ne sais pas lire un CRG de VIENNE ?** ». |
+| **abstraction** | `LA PAGINATION EST INDÉPENDANTE DE LA STRUCTURE MÉTIER.` **Il n'y a pas de saut de page après chaque immeuble, ni après chaque locataire** : la coupure tombe où la place manque, au milieu d'un tableau, entre un en-tête et ses lignes, entre un nom et ses montants. Un objet ne se délimite donc JAMAIS par la page : il faut regarder **avant et après** pour trouver ses bornes réelles. Corollaire : `UNE CONTINUATION N'EST PAS UN RÉSIDU, C'EST LA SUITE DU MÊME OBJET` — et chaque fois qu'on complète une observation depuis la page suivante, il faut se demander **quoi d'autre** s'y trouve. Le défaut a déjà frappé sur l'occupant, corrigé alors sans regarder les colonnes voisines : corriger un symptôme sur une continuation sans inventorier ce qu'elle porte garantit de revenir. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | **Tout lecteur de ce corpus délimite ses objets sur PLUSIEURS pages, jamais sur une seule** — en regardant ce qui précède et ce qui suit. La branche de continuation reprend **tout** ce que la première page pouvait ne pas porter : occupant, dates de bail, solde, **appels**. Toute donnée nouvelle attachée au bloc y est ajoutée le jour où on la lit. |
+| **composant** | `crg_integration_phase3.py::observer()` — branche `seg['suite']` |
+| **tests** | Fixture : un lot dont l'en-tête est en bas de page et le tableau d'appels sur la suivante doit rendre ses appels. |
+| **corpus** | mesuré sur les dépôts SPI |
+| **limites** | ⚠️ Seule la phase 3 est corrigée. Les phases 2 et 4 lisent le MÊME segment et n'ont PAS été inventoriées : elles perdent probablement, elles aussi, ce qui tombe après une coupure. À vérifier. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0081 · Les colonnes d'un CRG ont un sens fixe, et il faut le connaître avant de nommer un montant
+
+| | |
+|---|---|
+| **phénomène** | J'annonçais « **Encours porté : 730,89 €** » sur un lot dont le locataire venait de PAYER 730,89 €. Le montant était lu, mais nommé à l'envers : il était en **crédit**. |
+| **preuve** | 08/09/2026, doctrine donnée par Emmanuel : « les loyers et charges sont appelés **à gauche sous le nom du locataire**, et la colonne **débit = les dépenses du lot**, les **crédits = les encaissements du locataire** ». |
+| **abstraction** | `UN MONTANT SANS SA COLONNE N'EST PAS UNE DONNÉE.` Lire un chiffre et ignorer où il se trouve produit une valeur juste portant un nom faux — la pire des erreurs, parce qu'elle passe tous les contrôles de cohérence : le total est bon, le signe est bon, seule la SIGNIFICATION est inversée. Une dette et un règlement du même montant sont indiscernables si l'on ne regarde que le nombre. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Trois zones dans le tableau d'un lot : **à gauche sous le locataire**, les appels (loyers, charges, TEOM, terme, dépôt de garantie) ; **colonne Débit**, les dépenses du lot ; **colonne Crédit**, les encaissements du locataire. Aucun montant n'est nommé sans que sa zone soit établie ; à défaut, on le dit « montant porté au bloc » plutôt que de l'appeler encours. |
+| **composant** | doctrine de lecture — `crgi_analyse_perimetre()` |
+| **tests** | À COUVRIR — fixture : un solde en crédit ne doit jamais être annoncé comme un encours. |
+| **corpus** | 1 cas nommé, portée générale |
+| **limites** | La distinction des colonnes demande la géométrie du tableau ; tant qu'elle n'est pas lue, l'analyse doit rester prudente sur le NOM du montant. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0082 · Être dans un compte rendu de gestion EST la preuve du mandat
+
+| | |
+|---|---|
+| **phénomène** | Je cherchais le numéro de mandat dans le document pour rattacher chaque lot à sa gestion. Il n'y est pas : un éditeur imprime littéralement « **Mandat N/A** » — 6 fois sur 6 sur l'échantillon lu — et l'autre n'imprime **pas le mot**. J'allais donc en faire une lacune, voire une question. |
+| **preuve** | 08/09/2026. Emmanuel, en une phrase : « **quand c'est dans un CRG c'est une gestion avec mandat** ». Le compte rendu de gestion est, par définition, le rapport que le mandataire rend à son mandant : sa seule existence atteste le mandat. |
+| **abstraction** | `LA NATURE D'UN DOCUMENT EST ELLE-MÊME UNE DONNÉE.` Chercher dans le contenu ce que le TYPE du document démontre déjà produit une lacune imaginaire — et, pire, une question posée à l'utilisateur sur un fait acquis. Avant d'aller extraire un attribut, se demander si le document ne l'atteste pas par ce qu'il EST. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Tout lot présent dans un compte rendu de gestion est **en gestion**, et porte donc un mandat — que le document en imprime le numéro ou non. Le mandat ne se LIT pas : il se CRÉE à l'intégration, sur le compte mandant qui porte le lot. Aucune question ne se pose là-dessus. |
+| **composant** | doctrine — s'applique à la phase 2 (patrimoine) et à l'écriture vers MBI |
+| **tests** | Fixture : un lot dont le document écrit « Mandat N/A » doit être réputé en gestion, sans arbitrage. |
+| **corpus** | les deux éditeurs du corpus, aucun ne porte de numéro de mandat |
+| **limites** | La règle atteste l'EXISTENCE du mandat, pas ses termes — ni sa date, ni son taux, ni son périmètre. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0083 · « Local » n'est pas un silence, c'est un commerce
+
+| | |
+|---|---|
+| **phénomène** | Le type de bien est lu sur **2 291 lots, aucun manquant** — mais en libellé BRUT : « Appartement 1 Pièce », « Appart. T3 », « Local », « Local commercial », « Maison », « Entrepot », « Garage ». Sans normalisation, « Local » (283 lots) restait indéterminé, et j'allais en faire un arbitrage. |
+| **preuve** | 08/09/2026. Emmanuel : « **local = commerce** ». Ce n'est pas une abréviation ambiguë : dans le vocabulaire de ces documents, un « Local » est un local commercial. |
+| **abstraction** | `UN MOT DU MÉTIER N'EST PAS UN MOT INCOMPLET.` J'ai pris un terme professionnel pour une donnée tronquée, et j'allais faire arbitrer ce que tout le métier lit sans hésiter. Le silence, lui, est autre chose — et il a sa propre règle : **rien d'écrit ⇒ HABITATION**. Confondre « pas écrit » et « écrit brièvement » fabrique des questions. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Normaliser le libellé brut vers les catégories métier — `LOCAL COMMERCIAL` (dont « Local », « Entrepot »), `BUREAU`, `APPARTEMENT` (dont « Appart. T… », « Studio »), `MAISON`, `GARAGE` — et **`HABITATION` en cas de SILENCE seulement**. Le libellé brut est CONSERVÉ à côté : on ne perd jamais ce que le document dit. |
+| **composant** | phase 2 — `crgi_lot.libelle` (brut) + type normalisé À CODER |
+| **tests** | Fixture : « Local » → `LOCAL COMMERCIAL` ; libellé vide → `HABITATION` ; « Appart. T3 » → `APPARTEMENT`. |
+| **corpus** | 2 291 lots, dont 283 « Local » |
+| **limites** | ⚠️ Deux défauts de lecture à corriger au passage : le libellé est **doublé** sur certains lots — « Local commercial Local commercial », « Garage Garage ». Et `BUREAU` n'apparaît pas encore dans le corpus lu : la catégorie existe, sa détection reste à éprouver. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
