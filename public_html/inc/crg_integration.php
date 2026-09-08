@@ -3908,6 +3908,183 @@ function crgi_decider_occupation(PDO $pdo, int $importId, int $occId, string $gr
  *    entier s'arrête à la même date, ce n'est pas le locataire qui part — c'est le MANDAT qui
  *    finit. Si le compte continue sans ce lot, alors c'est ce LOT-LÀ qui sort : vendu.
  */
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUI N'APPELLE PLUS RIEN — ET LA QUESTION POSÉE À L'ÉCHELLE OÙ LA RÉPONSE SE DONNE.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ UN LOT QUI NE PORTE PLUS QU'UN SOLDE N'EST PLUS EN GESTION. Le compte rendu continue de
+ *    l'imprimer tant que le montant n'est pas apuré : ligne « Solde Antérieur », aucun appel de
+ *    loyer, un chiffre qui ne bouge plus. Mesuré : **99 lots sur 332** au dernier arrêté d'un
+ *    dépôt — ce qui expliquait l'écart entre les 332 lots lus et les ~220 attendus. Il en
+ *    appelle 233 ; les 99 autres sont de l'histoire portée.
+ *
+ * ⚠️ ON NE VEND PAS UN LOT — ON VEND UN IMMEUBLE, OU ON PERD UN MANDAT. Posée au lot, la
+ *    question sortait 99 fois. Emmanuel, 07/09/2026, en deux phrases : « la SCI FAVRE est
+ *    vendue intégralement, Oyonnax aussi ». Une réponse, six lots ; une autre, trois lots.
+ *    Regroupée par périmètre : **8 mandants** entièrement muets, **31 immeubles** couvrant
+ *    64 lots, **35 lots** isolés. `UNE FILE TROP LONGUE NE SIGNALE PAS UN CORPUS DIFFICILE,
+ *    ELLE SIGNALE QU'ON INTERROGE AU MAUVAIS NIVEAU.`
+ *
+ * ⚠️ ET LE DOCUMENT NE DIT JAMAIS « VENDU ». Il dit « plus rien n'est appelé ». Un lot vendu et
+ *    un lot en contentieux s'impriment à l'identique — RONAX GIE porte 9 017,12 € d'impayés,
+ *    ça peut être l'un ou l'autre. C'est un arbitrage, jamais une déduction.
+ */
+const CRGI_IDENTITE_PERIMETRE = 'PERIMETRE-SANS-APPEL';
+
+const CRGI_CHOIX_SANS_APPEL = [
+    'VENDU'            => 'Le propriétaire ne le possède plus.',
+    'GESTION TERMINEE' => 'Il le possède encore, la gestion est ailleurs.',
+    'VACANT'           => 'Personne ne l’occupe ; il reste en gestion.',
+    'CONTENTIEUX'      => 'Occupé, mais on ne quittance plus : dossier chez l’huissier.',
+];
+
+/** Les trois échelles, de la plus large à la plus fine. L'ordre est celui de la lecture. */
+const CRGI_NIVEAUX_PERIMETRE = ['MANDANT', 'IMMEUBLE', 'LOT'];
+
+/**
+ * LES PÉRIMÈTRES QUI N'APPELLENT PLUS RIEN, du mandat entier au lot isolé.
+ *
+ * ⚠️ CHAQUE LOT N'APPARAÎT QU'UNE FOIS, AU NIVEAU LE PLUS LARGE QUI LE COUVRE. Un lot d'un
+ *    mandat entièrement muet ne se redemande pas au niveau de son immeuble : ce serait poser
+ *    trois fois la même question et compter trois fois la même réponse.
+ */
+function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
+{
+    $i = (int)$importId;
+    // Le dernier arrêté de CHAQUE lot, et ce que son bloc appelle à cette date.
+    $sql = 'SELECT c.compte, o.code_immeuble AS imm, o.lot_reference AS lot,
+                   COALESCE(a.nom_agence, c.agence, "") AS agence,
+                   MIN(c.proprietaire) AS proprietaire,
+                   MAX(o.appels) AS appelle,
+                   MAX(CASE WHEN o.solde_source = "LUE" THEN o.solde END) AS solde,
+                   MIN(o.locataire) AS locataire, MIN(o.page) AS page, MIN(c.id) AS crg_id
+              FROM crgi_occupation o
+              JOIN crgi_crg c ON c.id = o.crg_id
+              LEFT JOIN agences a ON a.id = c.agence_id
+             WHERE c.import_id = ' . $i . ' AND o.date_arrete = (
+                   SELECT MAX(o2.date_arrete) FROM crgi_occupation o2
+                    JOIN crgi_crg c2 ON c2.id = o2.crg_id
+                   WHERE c2.import_id = ' . $i . ' AND c2.compte = c.compte
+                     AND o2.lot_reference = o.lot_reference)
+             GROUP BY c.compte, o.code_immeuble, o.lot_reference';
+    $lots = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+
+    // Qui appelle encore, par mandant et par immeuble : c'est ce qui décide de l'échelle.
+    $appelleMandant = $appelleImmeuble = [];
+    foreach ($lots as $l) {
+        $cm = (string)$l['compte'];
+        $ci = $cm . '/' . (string)$l['imm'];
+        $appelleMandant[$cm] = ($appelleMandant[$cm] ?? 0) + (int)$l['appelle'];
+        $appelleImmeuble[$ci] = ($appelleImmeuble[$ci] ?? 0) + (int)$l['appelle'];
+    }
+
+    $groupes = [];
+    foreach ($lots as $l) {
+        if ((int)$l['appelle'] > 0) {
+            continue;   // il appelle : rien à trancher.
+        }
+        $cm = (string)$l['compte'];
+        $ci = $cm . '/' . (string)$l['imm'];
+        if (($appelleMandant[$cm] ?? 0) === 0) {
+            $niveau = 'MANDANT';
+            $cle = $cm;
+            $quoi = (string)$l['proprietaire'];
+        } elseif (($appelleImmeuble[$ci] ?? 0) === 0) {
+            $niveau = 'IMMEUBLE';
+            $cle = $ci;
+            $quoi = 'Immeuble ' . (string)$l['imm'];
+        } else {
+            $niveau = 'LOT';
+            $cle = $cm . '/' . (string)$l['lot'];
+            $quoi = 'Lot ' . (string)$l['lot'];
+        }
+        $k = $niveau . '|' . $cle;
+        if (!isset($groupes[$k])) {
+            $groupes[$k] = ['niveau' => $niveau, 'cle' => $cle, 'quoi' => $quoi,
+                            'agence' => (string)$l['agence'], 'compte' => $cm,
+                            'proprietaire' => (string)$l['proprietaire'], 'lots' => 0,
+                            'solde' => 0.0, 'exemples' => [], 'crg_id' => (int)$l['crg_id'],
+                            'page' => (int)$l['page']];
+        }
+        $groupes[$k]['lots']++;
+        $groupes[$k]['solde'] += (float)($l['solde'] ?? 0);
+        if (count($groupes[$k]['exemples']) < 4 && $l['locataire'] !== null) {
+            $groupes[$k]['exemples'][] = (string)$l['locataire'];
+        }
+    }
+
+    // Ce qui a déjà été tranché, ici ou dans un dépôt précédent.
+    $deja = $pdo->prepare('SELECT choix FROM crgi_identite
+                            WHERE type = ? AND agence = ? AND cle = ?');
+    foreach ($groupes as &$g) {
+        $deja->execute([CRGI_IDENTITE_PERIMETRE, $g['agence'], $g['niveau'] . '|' . $g['cle']]);
+        $g['decision'] = (string)($deja->fetchColumn() ?: '');
+
+        // ⚠️ LA PROPOSITION SE PREND SUR L'ÉCHELLE, PARCE QUE C'EST LE SEUL FAIT DISPONIBLE.
+        //    Le document ne dit jamais « vendu » ; il dit « plus rien n'est appelé ». Mais
+        //    l'ÉTENDUE du silence, elle, est lue : un mandat qui s'éteint en entier n'a pas la
+        //    même cause qu'un immeuble qui s'éteint pendant que son mandant continue. On dit
+        //    donc ce que le fait rend le plus probable, avec le « parce que » à côté — et ça
+        //    se refuse d'un coup d'œil, puisque le fait est écrit.
+        if ($g['niveau'] === 'MANDANT') {
+            $g['proposition'] = 'GESTION TERMINEE';
+            $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
+                            . 'rien : c’est le mandat entier qui s’éteint, pas un bien.';
+        } elseif ($g['niveau'] === 'IMMEUBLE') {
+            $g['proposition'] = 'VENDU';
+            $g['parce_que'] = 'aucun des ' . $g['lots'] . ' lot(s) de cet immeuble n’appelle, '
+                            . 'ALORS QUE le mandant continue d’en appeler ailleurs : c’est cet '
+                            . 'immeuble-là qui sort.';
+        } else {
+            $g['proposition'] = 'VENDU';
+            $g['parce_que'] = 'ce lot n’appelle plus rien, alors que les autres lots de son '
+                            . 'immeuble appellent : c’est ce lot-là qui sort.';
+        }
+    }
+    unset($g);
+
+    // Du plus large au plus fin, et du plus lourd au plus léger : on tranche ce qui couvre.
+    uasort($groupes, function ($a, $b) {
+        $o = array_flip(CRGI_NIVEAUX_PERIMETRE);
+        return [$o[$a['niveau']], -$a['lots']] <=> [$o[$b['niveau']], -$b['lots']];
+    });
+    return array_values($groupes);
+}
+
+/**
+ * ENREGISTRER UNE DÉCISION DE PÉRIMÈTRE — mandat, immeuble ou lot.
+ *
+ * ⚠️ ELLE EST DURABLE PAR NATURE. « Vendu » et « gestion terminée » ne se redemandent pas au
+ *    trimestre suivant : le bien ne revient pas. « Vacant » et « contentieux » décrivent une
+ *    situation qui peut changer — mais à l'échelle d'un immeuble entier, elles sont assez
+ *    lourdes pour qu'on les garde et qu'on les corrige plutôt que de les reposer chaque fois.
+ */
+function crgi_decider_perimetre(PDO $pdo, int $importId, string $agence, string $niveau,
+                                string $cle, string $choix, int $userId): void
+{
+    if (!in_array($niveau, CRGI_NIVEAUX_PERIMETRE, true)) {
+        throw new RuntimeException('NIVEAU INCONNU : « ' . $niveau . ' ».');
+    }
+    if ($choix !== '' && !isset(CRGI_CHOIX_SANS_APPEL[$choix])) {
+        throw new RuntimeException(
+            'CHOIX INCONNU : « ' . $choix . ' ». Réponses possibles : '
+            . implode(' · ', array_keys(CRGI_CHOIX_SANS_APPEL))
+        );
+    }
+    $k = $niveau . '|' . $cle;
+    if ($choix === '') {
+        $pdo->prepare('DELETE FROM crgi_identite WHERE type = ? AND agence = ? AND cle = ?')
+            ->execute([CRGI_IDENTITE_PERIMETRE, $agence, $k]);
+        return;
+    }
+    $pdo->prepare(
+        'INSERT INTO crgi_identite (type, agence, cle, choix, import_origine, decide_par)
+         VALUES (?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE choix = VALUES(choix), decide_par = VALUES(decide_par),
+                                 decide_le = NOW()'
+    )->execute([CRGI_IDENTITE_PERIMETRE, $agence, $k, $choix, $importId, $userId ?: null]);
+}
+
 function crgi_occupations_a_trancher(PDO $pdo, int $importId): array
 {
     $st = $pdo->prepare(

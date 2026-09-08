@@ -85,35 +85,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $cible  = (string)($_POST['cible'] ?? 'CRG');
     $cibles = array_map('intval', (array)($_POST['id'] ?? $_POST['crg'] ?? []));
     $occ    = $cible === 'OCCUPATION';
-    $importsDe = $pdo->prepare($occ
-        ? 'SELECT import_id FROM crgi_occupation WHERE id = ?'
-        : 'SELECT import_id FROM crgi_crg WHERE id = ?');
-    $n = 0;
-    try {
-        foreach ($cibles as $cibleId) {
-            $importsDe->execute([$cibleId]);
-            $imp = (int)$importsDe->fetchColumn();
-            if (!$imp) {
-                continue;
+    // ⚠️ TROISIÈME GUICHET : LE PÉRIMÈTRE. Il ne porte sur aucune ligne de staging — il porte
+    //    sur un MANDAT, un IMMEUBLE ou un LOT, désignés en clair. Sa cible n'est donc pas un
+    //    identifiant mais un couple (niveau, clé), et sa décision vit directement dans la
+    //    mémoire durable : « la SCI FAVRE est vendue » ne se redemande jamais.
+    if ($cible === 'PERIMETRE') {
+        $n = 0;
+        try {
+            foreach ((array)($_POST['perim'] ?? []) as $p) {
+                [$imp, $agence, $niveau, $cle] = array_pad(explode('|', (string)$p, 4), 4, '');
+                if ($niveau === '' || $cle === '') {
+                    continue;
+                }
+                crgi_decider_perimetre($pdo, (int)$imp, $agence, $niveau, $cle, $choix,
+                                       (int)($_SESSION['user_id'] ?? 0));
+                $n++;
             }
-            if ($occ) {
-                crgi_decider_occupation($pdo, $imp, $cibleId, 'OCCUPATION-NON-TRANCHEE',
-                                        $choix, (int)($_SESSION['user_id'] ?? 0));
-            } else {
-                crgi_decider_crg($pdo, $imp, $cibleId, 'CRG-SANS-PATRIMOINE',
-                                 CRGI_CHOIX_SANS_PATRIMOINE, $choix,
-                                 (int)($_SESSION['user_id'] ?? 0));
-            }
-            $n++;
+            $messageDecision = $choix === ''
+                ? $n . ' décision(s) retirée(s).'
+                : $n . ' périmètre(s) classé(s) « ' . $choix . ' ».';
+        } catch (Throwable $e) {
+            $messageDecision = 'REFUSÉ — ' . $e->getMessage();
         }
-        $quoi = $occ ? ' occupation(s)' : ' compte(s) rendu(s)';
-        $messageDecision = $choix === ''
-            ? $n . ' décision(s) retirée(s).'
-            : $n . $quoi . ' classée(s) « ' . $choix . ' ».';
-    } catch (Throwable $e) {
-        $messageDecision = 'REFUSÉ — ' . $e->getMessage();
+        $cibles = [];
     }
-}
+    // ⚠️ ET LE GUICHET GÉNÉRIQUE SE TAIT QUAND UN AUTRE A RÉPONDU : sans cette garde, il
+    //    écrasait le message par « 0 compte(s) rendu(s) classé(s) » — l'utilisateur voyait
+    //    zéro alors que sa décision venait d'être enregistrée.
+    if ($cible !== 'PERIMETRE') {
+        $importsDe = $pdo->prepare($occ
+            ? 'SELECT import_id FROM crgi_occupation WHERE id = ?'
+            : 'SELECT import_id FROM crgi_crg WHERE id = ?');
+        $n = 0;
+        try {
+            foreach ($cibles as $cibleId) {
+                $importsDe->execute([$cibleId]);
+                $imp = (int)$importsDe->fetchColumn();
+                if (!$imp) {
+                    continue;
+                }
+                if ($occ) {
+                    crgi_decider_occupation($pdo, $imp, $cibleId, 'OCCUPATION-NON-TRANCHEE',
+                                            $choix, (int)($_SESSION['user_id'] ?? 0));
+                } else {
+                    crgi_decider_crg($pdo, $imp, $cibleId, 'CRG-SANS-PATRIMOINE',
+                                     CRGI_CHOIX_SANS_PATRIMOINE, $choix,
+                                     (int)($_SESSION['user_id'] ?? 0));
+                }
+                $n++;
+            }
+            $quoi = $occ ? ' occupation(s)' : ' compte(s) rendu(s)';
+            $messageDecision = $choix === ''
+                ? $n . ' décision(s) retirée(s).'
+                : $n . $quoi . ' classée(s) « ' . $choix . ' ».';
+        } catch (Throwable $e) {
+            $messageDecision = 'REFUSÉ — ' . $e->getMessage();
+        }
+        }
+    }
 $csrf = csrf_token('default');
 
 $imports = $pdo->query('SELECT id, libelle FROM crgi_import ORDER BY id')
@@ -254,6 +283,20 @@ if ($phase === 2) {
 // ⚠️ « AUCUNE LIGNE LOCATAIRE » N'EST PAS UNE VACANCE. Le lot existe, le document n'en dit
 //    rien pour cette période — et le vide ne se lit pas comme un départ (`ABSENCE ≠ DÉPART
 //    DÉMONTRÉ`). C'est une question, et elle a désormais son guichet ici comme les autres.
+// ⚠️ CE QUI N'APPELLE PLUS RIEN — la question posée à l'échelle où la réponse se donne.
+//    99 lots d'un dépôt ne portent qu'un solde ; posée au lot, la question sort 99 fois.
+//    « La SCI FAVRE est vendue intégralement, Oyonnax aussi » : une réponse, six lots.
+$perimetres = [];
+if ($phase === 3) {
+    foreach ($imports as $id => $nom) {
+        foreach (crgi_perimetres_sans_appel($pdo, (int)$id) as $g) {
+            $g['depot'] = $nom;
+            $g['import_id'] = (int)$id;
+            $perimetres[] = $g;
+        }
+    }
+}
+
 $occupations = [];
 if ($phase === 3) {
     foreach ($imports as $id => $nom) {
@@ -448,6 +491,86 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
       </p>
     <?php endif; ?>
 
+    <?php if ($perimetres): ?>
+      <h2 style="margin-top:20px">Ce qui n’appelle plus rien —
+        <?= $nb(count($perimetres)) ?> périmètre(s)</h2>
+      <p class="crgi-sous">
+        Ces lots portent un <b>solde</b> et <b>aucun appel</b> : ni loyer, ni charge, ni dépôt
+        de garantie. Le compte rendu continue de les imprimer tant que le montant n’est pas
+        apuré — <b>un bien vendu y figure des années après la vente</b>. Le document ne dit
+        jamais « vendu » : il dit « plus rien n’est appelé ».
+        <br>⚠️ <b>La question est posée à l’échelle où la réponse se donne</b> : un mandat
+        entier, un immeuble entier, puis seulement les lots isolés. Chaque lot n’apparaît
+        qu’une fois, au niveau le plus large qui le couvre.
+      </p>
+      <?php
+      // ⚠️ GROUPÉ PAR DÉPÔT PUIS PAR PROPOSITION. Posées une par une, ces questions se
+      //    comptent par centaines ; groupées, quelques gestes suffisent.
+      $parDepotPer = [];
+      foreach ($perimetres as $g) { $parDepotPer[$g['depot']][$g['proposition']][] = $g; }
+      foreach ($parDepotPer as $depot => $groupes): ?>
+        <h3 style="margin:14px 0 4px"><?= h((string)$depot) ?></h3>
+        <?php foreach ($groupes as $prop => $lignes): ?>
+          <form method="post" class="crgi-defile"
+                action="<?= h(app_url('/admin/admin_crgi_phase.php')) ?>?phase=<?= $phase ?>&amp;base=<?= h($base) ?>">
+            <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
+            <input type="hidden" name="cible" value="PERIMETRE">
+            <table>
+              <tr><th colspan="6">
+                Proposition : <b><?= h((string)$prop) ?></b> —
+                <?= $nb(count($lignes)) ?> périmètre(s),
+                <?= $nb(array_sum(array_column($lignes, 'lots'))) ?> lot(s), parce que
+                <?= h((string)$lignes[0]['parce_que']) ?></th></tr>
+              <tr><th>✓</th><th>Échelle</th><th>Mandant</th><th>Ce qui est concerné</th>
+                  <th class="num">Lots</th><th class="num">Solde porté</th></tr>
+              <?php foreach ($lignes as $g): ?>
+                <tr>
+                  <td><input type="checkbox" name="perim[]" checked
+                        value="<?= h($g['import_id'] . '|' . $g['agence'] . '|'
+                                     . $g['niveau'] . '|' . $g['cle']) ?>"></td>
+                  <td><b><?= h((string)$g['niveau']) ?></b></td>
+                  <td><code><?= h((string)$g['compte']) ?></code><br>
+                    <small><?= h(mb_substr((string)($g['proprietaire'] ?: '—'), 0, 26)) ?></small></td>
+                  <td><?= h((string)$g['quoi']) ?>
+                    <?php if ($g['exemples']): ?>
+                      <br><small style="color:#666"><?= h(implode(' · ',
+                            array_map(fn($e) => mb_substr($e, 0, 20), $g['exemples']))) ?></small>
+                    <?php endif; ?>
+                    <?php if (!empty($g['decision'])): ?>
+                      <br><small style="color:var(--crgi-vert)">✔ déjà classé
+                        « <?= h((string)$g['decision']) ?> »</small>
+                    <?php endif; ?></td>
+                  <td class="num"><?= $nb($g['lots']) ?></td>
+                  <td class="num"><?= number_format((float)$g['solde'], 2, ',', ' ') ?> €</td>
+                </tr>
+              <?php endforeach; ?>
+              <tr><td colspan="6" style="padding:10px 8px">
+                Ma réponse pour les lignes cochées :
+                <select name="choix" style="padding:5px 8px;font-size:13px">
+                  <?php foreach (CRGI_CHOIX_SANS_APPEL as $c => $quoi): ?>
+                    <option value="<?= h($c) ?>"<?= $c === (string)$prop ? ' selected' : '' ?>>
+                      <?= h($c) ?> — <?= h($quoi) ?></option>
+                  <?php endforeach; ?>
+                  <option value="">(retirer ma décision)</option>
+                </select>
+                <button type="submit" style="margin-left:8px;padding:6px 16px;font-weight:600">
+                  Enregistrer</button>
+              </td></tr>
+            </table>
+          </form>
+        <?php endforeach; ?>
+      <?php endforeach; ?>
+      <p class="crgi-note">
+        <b>VENDU</b> le propriétaire ne le possède plus ·
+        <b>GESTION TERMINÉE</b> il le possède encore, la gestion est ailleurs ·
+        <b>VACANT</b> personne ne l’occupe, il reste en gestion ·
+        <b>CONTENTIEUX</b> occupé, mais on ne quittance plus.
+        <br>⚠️ <b>Un lot vendu et un lot en contentieux s’impriment à l’identique.</b> Le
+        document ne les départage pas — seul vous le pouvez. Dite une fois, la réponse ne se
+        redemande plus, ici comme dans les dépôts suivants.
+      </p>
+    <?php endif; ?>
+
     <?php if ($occupations): ?>
       <h2 style="margin-top:20px">Occupations que le document ne tranche pas —
         <?= $nb(count($occupations)) ?></h2>
@@ -552,7 +675,7 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
       </table></div>
     <?php endif; ?>
 
-    <?php if (!$questions && !$mandats && !$sansPatrimoine && !$occupations): ?>
+    <?php if (!$questions && !$mandats && !$sansPatrimoine && !$occupations && !$perimetres): ?>
       <h2 style="margin-top:20px">Rien à trancher sur cette phase</h2>
       <p class="crgi-note">
         <?php if (in_array($phase, [4, 5], true)): ?>

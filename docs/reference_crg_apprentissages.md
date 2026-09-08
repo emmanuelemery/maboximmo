@@ -1278,6 +1278,23 @@ commit          le hash
 
 ---
 
+## APP-0075 · Le guichet du périmètre — la décision ne porte pas sur une ligne
+
+| | |
+|---|---|
+| **phénomène** | Les trois guichets d'arbitrage existants visaient tous une LIGNE de staging : un compte rendu, une occupation, un mouvement. Or « la SCI FAVRE est vendue » ne porte sur aucune ligne : elle porte sur un **mandat**. Faute de pouvoir désigner autre chose qu'un identifiant, la question sortait 99 fois — une par lot. |
+| **preuve** | 08/09/2026. Sur les quatre dépôts : **112 périmètres muets couvrant 149 lots** — 20 mandants entiers, 30 immeubles entiers, 62 lots isolés. Groupés par proposition à l'écran : **8 gestes**. Emmanuel avait donné la réponse en une phrase : « la SCI FAVRE est vendue intégralement, Oyonnax aussi ». |
+| **abstraction** | `LA CIBLE D'UNE DÉCISION N'EST PAS TOUJOURS UN OBJET DE LA BASE.` Un guichet dont la clé est un identifiant de ligne ne sait poser que des questions de ligne. Celui-ci prend un couple **(niveau, clé)** — `MANDANT\|01110000`, `IMMEUBLE\|01040000/01040247` — et écrit directement dans la mémoire durable, sans passer par `crgi_arbitrage` : ce qui est décidé ne concerne aucun document en particulier, mais tous ceux qui suivront. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Avant d'écrire un guichet, chercher l'objet MÉTIER que la réponse désigne, pas la ligne qui a fait naître la question. Chaque lot n'apparaît qu'une fois, au niveau le plus large qui le couvre — sinon on pose trois fois la même question. |
+| **composant** | `crg_integration.php::crgi_perimetres_sans_appel()`, `crgi_decider_perimetre()` |
+| **tests** | Fixture : un mandant dont aucun lot n'appelle produit UNE ligne de niveau MANDANT, et ses lots n'apparaissent ni en IMMEUBLE ni en LOT. |
+| **corpus** | 112 périmètres, 149 lots, 8 gestes |
+| **limites** | La proposition se prend sur l'ÉCHELLE du silence — mandat entier → gestion terminée, immeuble ou lot isolé → vendu. C'est le seul fait disponible : **un lot vendu et un lot en contentieux s'impriment à l'identique.** |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
