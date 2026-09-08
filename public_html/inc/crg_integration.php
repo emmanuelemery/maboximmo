@@ -2743,8 +2743,8 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
         'INSERT INTO crgi_occupation
             (import_id, crg_id, lot_reference, code_immeuble, periode_cle, date_arrete,
              locataire, bail_du, bail_au, rang, solde, solde_source, appels,
-             dernier_appel_au, page)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             dernier_appel_au, honoraires, page)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     foreach ($parPiece as $clef => $plages) {
         [$chemin, $format] = explode(CRGI_SEP_FAMILLE, $clef, 2);
@@ -2768,11 +2768,16 @@ function crgi_lire_occupation(PDO $pdo, int $importId): void
                 $codeImm = count($parts) === 3 ? $parts[1]
                          : (count($parts) === 2 ? $parts[0] : null);
                 [$nbAppels, $finAppel] = crgi_appels_de_la_periode($o, $c);
+                // ⚠️ LES HONORAIRES APPARTIENNENT AU COMPTE RENDU, PAS AU LOT. Ils vivent
+                //    dans une section à part ; on les porte sur chaque occupation du même
+                //    document, parce que c'est là que la question se posera.
                 $ins->execute([$importId, (int)$c['id'], $o['lot'], $codeImm,
                                $c['periode_cle'], $c['date_arrete'], $o['locataire'],
                                $o['bail_du'], $o['bail_au'] ?? null, (int)($o['rang'] ?? 0),
                                $o['solde'], $o['solde_source'],
-                               $nbAppels, $finAppel, (int)$o['page']]);
+                               $nbAppels, $finAppel,
+                               max(0, (int)($bloc['honoraires'] ?? 0)),
+                               (int)$o['page']]);
             }
         }
     }
@@ -3955,7 +3960,8 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
     $sql = 'SELECT c.compte, o.code_immeuble AS imm, o.lot_reference AS lot,
                    COALESCE(a.nom_agence, c.agence, "") AS agence,
                    MIN(c.proprietaire) AS proprietaire,
-                   MAX(o.appels) AS appelle,
+                   MAX(o.appels) AS appelle, MAX(o.honoraires) AS honoraires,
+                   MIN(c.format) AS format,
                    MAX(o.bail_au) AS bail_au, MAX(o.date_arrete) AS arrete,
                    MAX(CASE WHEN o.solde_source = "LUE" THEN o.solde END) AS solde,
                    MIN(o.locataire) AS locataire, MIN(o.page) AS page, MIN(c.id) AS crg_id
@@ -4012,11 +4018,22 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
             $groupes[$k] = ['niveau' => $niveau, 'cle' => $cle, 'quoi' => $quoi,
                             'agence' => (string)$l['agence'], 'compte' => $cm,
                             'proprietaire' => (string)$l['proprietaire'], 'lots' => 0,
-                            'expliques' => 0, 'fin_bail' => null,
+                            'expliques' => 0, 'fin_bail' => null, 'honoraires' => 0,
+                            'format' => (string)$l['format'], 'faits' => [],
                             'solde' => 0.0, 'exemples' => [], 'crg_id' => (int)$l['crg_id'],
                             'page' => (int)$l['page']];
         }
         $groupes[$k]['lots']++;
+        $groupes[$k]['honoraires'] += (int)$l['honoraires'];
+        // ⚠️ CE QUI SERVIRA À DÉCIDER, GARDÉ LIGNE PAR LIGNE. Voir `crgi_analyse_perimetre()`.
+        $groupes[$k]['faits'][] = [
+            'lot'        => (string)$l['lot'],
+            'locataire'  => $l['locataire'] !== null ? (string)$l['locataire'] : null,
+            'bail_au'    => $l['bail_au'] ? (string)$l['bail_au'] : null,
+            'arrete'     => (string)$l['arrete'],
+            'solde'      => $l['solde'] !== null ? (float)$l['solde'] : null,
+            'explique'   => (bool)$l['explique'],
+        ];
         if ($l['explique']) {
             $groupes[$k]['expliques']++;
             $groupes[$k]['fin_bail'] = max((string)$groupes[$k]['fin_bail'],
@@ -4047,10 +4064,32 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         //    même cause qu'un immeuble qui s'éteint pendant que son mandant continue. On dit
         //    donc ce que le fait rend le plus probable, avec le « parce que » à côté — et ça
         //    se refuse d'un coup d'œil, puisque le fait est écrit.
-        if ($g['niveau'] === 'MANDANT') {
+        // ⚠️ LES HONORAIRES DE GESTION TRANCHENT ENTRE UN BIEN VIDE ET UN MANDAT PERDU.
+        //    Les deux cessent d'appeler un loyer ; seule la facturation les distingue. Tant
+        //    que la régie prélève ses honoraires sur ce compte, le mandat VIT — on gère un
+        //    bien vide, on n'a rien perdu. Proposer « gestion terminée » sur un compte qui
+        //    paie encore ses honoraires, c'est ignorer une ligne imprimée du document.
+        // Les honoraires sortent-ils du lecteur de ce format ?
+        $honoLisibles = in_array((string)$g['format'], ['septeo_spi'], true);
+        if ((int)$g['honoraires'] > 0) {
+            $g['proposition'] = 'VACANT';
+            $g['parce_que'] = 'plus aucun loyer n’est appelé, MAIS la régie facture encore ses '
+                            . 'HONORAIRES DE GESTION sur ce compte rendu (' . (int)$g['honoraires']
+                            . ' ligne(s)) : le mandat n’est pas perdu, le bien est vide.';
+        } elseif ($g['niveau'] === 'MANDANT' && !$honoLisibles) {
+            // ⚠️ ON NE CONCLUT PAS SUR UN FAIT QU'ON NE LIT PAS. Sur ce format, les honoraires
+            //    ne sortent pas du lecteur : leur absence ne prouve rien.
             $g['proposition'] = 'GESTION TERMINEE';
             $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
-                            . 'rien : c’est le mandat entier qui s’éteint, pas un bien.';
+                            . 'rien : c’est le mandat entier qui s’éteint, pas un bien. '
+                            . '⚠️ Les honoraires de gestion — qui diraient si le mandat vit '
+                            . 'encore — ne sont pas lisibles sur ce format : à vérifier sur la '
+                            . 'page.';
+        } elseif ($g['niveau'] === 'MANDANT') {
+            $g['proposition'] = 'GESTION TERMINEE';
+            $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
+                            . 'rien, et le compte rendu ne facture AUCUN honoraire de gestion : '
+                            . 'c’est le mandat entier qui s’éteint, pas un bien.';
         } elseif ($g['niveau'] === 'IMMEUBLE') {
             $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'aucun des ' . $g['lots'] . ' lot(s) de cet immeuble n’appelle, '
@@ -4061,6 +4100,8 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
             $g['parce_que'] = 'ce lot n’appelle plus rien, alors que les autres lots de son '
                             . 'immeuble appellent : c’est ce lot-là qui sort.';
         }
+        $g['analyse'] = crgi_analyse_perimetre($g);
+
         // ⚠️ ET QUAND UNE PARTIE SEULEMENT EST EXPLIQUÉE, ON LE DIT. Le reste garde la
         //    question, mais on ne fait pas semblant d'ignorer ce que la page imprime.
         if ($g['expliques'] > 0) {
@@ -4077,6 +4118,59 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         return [$o[$a['niveau']], -$a['lots']] <=> [$o[$b['niveau']], -$b['lots']];
     });
     return array_values($groupes);
+}
+
+/**
+ * L'ANALYSE FINE D'UN PÉRIMÈTRE — CE QUE LE DOCUMENT DONNE À LIRE POUR DÉCIDER.
+ *
+ * ⚠️ QUAND LA RÉPONSE N'EST PAS CERTAINE, ON NE POSE PAS LA QUESTION TOUTE NUE. Emmanuel,
+ *    08/09/2026 : « si tu n'as pas la réponse certaine, alors tu dois nous donner une analyse
+ *    fine du CRG pour nous permettre de décider ». Une question sans les faits oblige à rouvrir
+ *    le PDF — et une file qui coûte un aller-retour par ligne ne se traite pas.
+ *
+ * ⚠️ ON N'ÉCRIT QUE CE QUI EST LU. Pas de déduction, pas de vraisemblance : le dernier
+ *    locataire nommé, la fin de bail imprimée, l'encours porté, les honoraires facturés. Ce
+ *    sont ces quatre faits qui séparent un bien vide d'un mandat perdu, et ils tiennent en
+ *    trois lignes.
+ */
+function crgi_analyse_perimetre(array $g): array
+{
+    $faits = $g['faits'] ?? [];
+    $lignes = [];
+
+    $nommes = array_values(array_filter($faits, fn($f) => $f['locataire'] !== null));
+    $lignes[] = count($nommes) . ' des ' . count($faits) . ' lot(s) portent un occupant nommé'
+              . ($nommes ? ' — dernier lu : « '
+                 . mb_substr((string)$nommes[0]['locataire'], 0, 34) . ' ».' : '.');
+
+    $congés = array_values(array_filter($faits, fn($f) => $f['bail_au'] !== null));
+    if ($congés) {
+        $d = max(array_column($congés, 'bail_au'));
+        $lignes[] = count($congés) . ' bail(s) portent une FIN imprimée, la plus récente au '
+                  . $d . ' — arrêté du compte rendu : ' . (string)$faits[0]['arrete'] . '.';
+    } else {
+        $lignes[] = 'AUCUNE fin de bail n’est imprimée : le document ne dit pas pourquoi le '
+                  . 'loyer cesse.';
+    }
+
+    $encours = array_sum(array_map(fn($f) => (float)($f['solde'] ?? 0), $faits));
+    $lignes[] = abs($encours) > 0.005
+        ? 'Encours porté : ' . number_format($encours, 2, ',', ' ') . ' € — c’est ce qui fait '
+          . 'rééditer le compte rendu tant qu’il n’est pas apuré.'
+        : 'Aucun encours lu : rien ne reste à apurer.';
+
+    $honoLisibles = in_array((string)($g['format'] ?? ''), ['septeo_spi'], true);
+    if (!$honoLisibles) {
+        $lignes[] = '⚠️ Honoraires de gestion NON LISIBLES sur ce format — c’est pourtant eux '
+                  . 'qui diraient si le mandat vit encore. À vérifier sur la page.';
+    } elseif ((int)($g['honoraires'] ?? 0) > 0) {
+        $lignes[] = 'La régie facture encore ' . (int)$g['honoraires'] . ' ligne(s) d’HONORAIRES '
+                  . 'DE GESTION sur ce compte rendu : le mandat n’est pas perdu.';
+    } else {
+        $lignes[] = 'AUCUN honoraire de gestion sur ce compte rendu : plus rien n’est facturé à '
+                  . 'ce mandant.';
+    }
+    return $lignes;
 }
 
 /**

@@ -206,6 +206,46 @@ def appels_du_bloc(texte):
     return periodes, max(depots, 0)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+# LES HONORAIRES DE GESTION — LA PREUVE QUE LE MANDAT VIT ENCORE
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ UN BIEN VIDE ET UN MANDAT PERDU SE RESSEMBLENT — SAUF SUR CE POINT. Les deux cessent
+#    d'appeler un loyer. Mais tant que la régie facture ses HONORAIRES DE GESTION sur ce
+#    compte, le mandat n'est pas perdu : on gère un bien vide. Emmanuel, 08/09/2026 : « on voit
+#    qu'il n'y a plus de loyer appelé donc le bien est vide, et que nous continuons à lui
+#    prendre des honoraires de gestion : donc gestion NON perdue, bien vide ».
+#
+# ⚠️ ET LA LIGNE NOMME SOUVENT LE LOT. « 31/07/2026 Honoraires Gestion TTC (taux:5,50 %
+#    HT,base:283,00 €) … 01G01-5028-000030 » : la colonne « Logement » porte la référence. Quand
+#    elle est là, la preuve vaut pour CE lot ; sinon elle vaut pour le compte rendu entier.
+RE_HONORAIRES = re.compile(r'Honoraires?\s+(de\s+)?Gestion', re.I)
+RE_REF_LOT_LIBRE = re.compile(r'\b(\d{2,5}[A-Z]?\d{0,3}-\d{2,5}-\d{3,6}|\d{4,6}-\d{2,4})\b')
+
+
+def honoraires_de_gestion(textes):
+    """Les honoraires de gestion lus dans une plage : (combien, sur quels lots).
+
+    ⚠️ ON NE CHERCHE PAS DANS LES BLOCS DE LOT. Ces lignes vivent dans la section
+       « - Honoraires de Gestion - » du compte rendu, hors des tableaux d'occupation : les
+       chercher au niveau du lot ne les aurait jamais trouvées.
+    """
+    n = 0
+    lots = set()
+    for texte in textes:
+        lignes = (texte or '').splitlines()
+        for i, ligne in enumerate(lignes):
+            if not RE_HONORAIRES.search(ligne):
+                continue
+            n += 1
+            # La référence peut déborder sur les deux lignes suivantes : le PDF empile
+            # « 01G01- / 5028- / 000030 » dans une colonne étroite.
+            fenetre = ' '.join(lignes[i:i + 3]).replace('- ', '-').replace(' -', '-')
+            for m in RE_REF_LOT_LIBRE.finditer(fenetre):
+                lots.add(m.group(1))
+    return n, sorted(lots)
+
+
 def observer(textes, page_base):
     """Les observations d'occupation d'une plage de pages.
 
@@ -311,7 +351,9 @@ def main():
     sortie = []
     for p in plages:
         a, b = int(p['debut']), int(p['fin'])
-        sortie.append({'id': p['id'], 'observations': observer(textes[a - 1:b], a)})
+        nh, lh = honoraires_de_gestion(textes[a - 1:b])
+        sortie.append({'id': p['id'], 'observations': observer(textes[a - 1:b], a),
+                       'honoraires': nh, 'honoraires_lots': lh})
     sys.stdout.write(json.dumps(sortie, ensure_ascii=False))
     return 0
 

@@ -1312,6 +1312,40 @@ commit          le hash
 
 ---
 
+## APP-0077 · Les honoraires de gestion séparent le bien vide du mandat perdu
+
+| | |
+|---|---|
+| **phénomène** | Un bien vide et un mandat perdu **cessent tous deux d'appeler un loyer**. Rien, dans le tableau d'occupation, ne les distingue — et la file demandait donc de trancher « vendu / gestion terminée / vacant » sur un silence. |
+| **preuve** | 08/09/2026. Sur un compte rendu de juillet, plus aucun loyer n'est appelé — mais la page porte « 31/07/2026 **Honoraires Gestion TTC** (taux:5,50 % HT, base:283,00 €) … 18,67 ». Emmanuel : « on voit qu'il n'y a plus de loyer appelé donc le bien est vide, et que nous continuons à lui prendre des honoraires de gestion — donc gestion **non perdue**, bien vide ». |
+| **abstraction** | `QUAND DEUX SITUATIONS PRODUISENT LE MÊME SILENCE, LA PREUVE EST AILLEURS SUR LA PAGE.` Le tableau d'occupation ne pouvait pas les départager parce que la différence ne s'y trouve pas : elle est dans la section des honoraires. Chercher plus fort au même endroit n'aurait rien donné — il fallait changer d'endroit. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Tant que le compte rendu facture des honoraires de gestion, **le mandat vit** : la proposition est `VACANT`, jamais `GESTION TERMINÉE`. L'absence d'honoraires ouvre la question — mais seulement là où le lecteur sait les voir. |
+| **composant** | `crg_integration_phase3.py::honoraires_de_gestion()`, `crg_integration.php::crgi_perimetres_sans_appel()` |
+| **tests** | Fixture : un compte muet qui facture des honoraires doit proposer `VACANT` ; le même sans honoraires, `GESTION TERMINÉE`. |
+| **corpus** | mesuré sur les dépôts SPI |
+| **limites** | ⚠️ **Le lecteur ICS n'expose pas les dépenses** : les honoraires y sont NON LUS, et la fonction rend **-1, jamais 0** — zéro signifierait « plus rien n'est facturé », donc « mandat perdu », une affirmation qu'aucune lecture ne soutient. La file s'abstient alors de conclure et le dit dans le motif. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0078 · Une question sans les faits oblige à rouvrir le document
+
+| | |
+|---|---|
+| **phénomène** | La file d'arbitrage posait ses questions **toutes nues** : un périmètre, un nombre de lots, un solde. Pour répondre, il fallait rouvrir le PDF, retrouver la page, relire le bloc. Une file qui coûte un aller-retour par ligne ne se traite pas — elle s'abandonne. |
+| **preuve** | 08/09/2026. Emmanuel, après avoir dû relire lui-même deux pages pour me corriger : « si tu n'as pas la réponse certaine, alors tu dois nous donner une **analyse fine du CRG** pour nous permettre de décider… intègre-le pour que ce soit automatique ». |
+| **abstraction** | `POSER UNE QUESTION, C'EST AUSSI FOURNIR DE QUOI Y RÉPONDRE.` Le moteur a déjà lu tout ce qu'il faut pour décider ; ne pas le restituer fait refaire à la main le travail qu'il vient de faire. Et l'analyse n'écrit QUE ce qui est lu — pas de déduction, pas de vraisemblance : le dernier occupant nommé, la fin de bail imprimée, l'encours porté, les honoraires facturés. Ces quatre faits séparent un bien vide d'un mandat perdu, et ils tiennent en trois lignes. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute question d'arbitrage porte, sous elle, les faits lus qui permettent d'y répondre — et dit explicitement lesquels **ne sont pas lisibles** sur ce format. |
+| **composant** | `crg_integration.php::crgi_analyse_perimetre()` |
+| **tests** | Fixture : un périmètre sans fin de bail imprimée doit l'annoncer, pas se taire. |
+| **corpus** | 96 périmètres |
+| **limites** | L'analyse ne restitue que ce que la phase 3 a lu ; les mouvements financiers (phase 4) n'y figurent pas encore. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est

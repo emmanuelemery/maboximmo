@@ -463,6 +463,23 @@ def _dans(page, debut, fin):
     return page >= (debut or 1) and (fin is None or page <= fin)
 
 
+# ⚠️ LES HONORAIRES DE GESTION NE SONT PAS LISIBLES SUR CE FORMAT, ET ON LE DIT.
+#    Ils distinguent un bien VIDE d'un mandat PERDU : les deux cessent d'appeler un loyer, seule
+#    la facturation les sépare. L'autre éditeur les imprime dans une section « - Honoraires de
+#    Gestion - » que son lecteur rend ; ici, `ICS.parse` ne rend que `meta` et `immeubles` — les
+#    dépenses ne sortent pas du moteur.
+#
+# ⚠️ ON REND -1, PAS 0. Zéro signifierait « la régie ne facture plus rien », donc « mandat
+#    perdu » — une affirmation qu'aucune lecture ne soutient. -1 dit « non lu », et la file
+#    d'arbitrage s'abstient alors de conclure. C'est la même garde que pour les appels : on
+#    n'applique pas une règle là où le lecteur ne voit pas le fait.
+HONORAIRES_NON_LUS = -1
+
+
+def honoraires_de_gestion(doc, debut=1, fin=None):
+    """Non lisible sur ce format : -1, jamais 0."""
+    return HONORAIRES_NON_LUS
+
 def main():
     """Usage : crg_integration_ics.py <pdf> <famille> <plages.json> <patrimoine|occupations>"""
     if len(sys.argv) < 5:
@@ -482,7 +499,8 @@ def main():
             sortie.append({'id': p['id'], 'mouvements': mouvements(doc, debut, fin),
                            'anomalies': []})
         else:
-            sortie.append({'id': p['id'], 'observations': occupations(doc, debut, fin)})
+            sortie.append({'id': p['id'], 'observations': occupations(doc, debut, fin),
+                           'honoraires': honoraires_de_gestion(doc, debut, fin)})
     # ⚠️ `ensure_ascii=True` — voir `P1-TEC-01`. Sous Windows la sortie d'un sous-processus
     #    est en cp1252 : « ANDRÉ » revenait `ANDR�` chez l'appelant.
     sys.stdout.write(json.dumps(sortie, ensure_ascii=True))

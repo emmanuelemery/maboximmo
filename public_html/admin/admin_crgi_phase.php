@@ -569,7 +569,15 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
                     <?php if (!empty($g['decision'])): ?>
                       <br><small style="color:var(--crgi-vert)">✔ déjà classé
                         « <?= h((string)$g['decision']) ?> »</small>
-                    <?php endif; ?></td>
+                    <?php endif; ?>
+                    <?php // ⚠️ L'ANALYSE FINE, SOUS LA QUESTION. « Si tu n'as pas la réponse
+                          //    certaine, tu dois nous donner une analyse fine du CRG pour nous
+                          //    permettre de décider » — une question sans les faits oblige à
+                          //    rouvrir le PDF, et une file qui coûte un aller-retour par ligne
+                          //    ne se traite pas. ?>
+                    <?php foreach ((array)($g['analyse'] ?? []) as $a): ?>
+                      <br><small style="color:#444">· <?= h((string)$a) ?></small>
+                    <?php endforeach; ?></td>
                   <td class="num"><?= $nb($g['lots']) ?></td>
                   <td class="num"><?= number_format((float)$g['solde'], 2, ',', ' ') ?> €</td>
                   <td><select name="reponse[<?= h($val) ?>]" class="crgi-rep"
