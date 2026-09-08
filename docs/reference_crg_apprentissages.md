@@ -1295,6 +1295,23 @@ commit          le hash
 
 ---
 
+## APP-0076 · Un silence expliqué n'est pas une question
+
+| | |
+|---|---|
+| **phénomène** | La file « ce qui n'appelle plus rien » demandait d'arbitrer des lots dont le document **imprime la raison du silence**. Sur la ligne du locataire : « Bail du 10/05/2023 **au 22/03/2026** » — l'occupant est parti à une date lue, le lot est vacant depuis. Demander « vendu ou gestion terminée ? » là-dessus, c'est faire trancher ce que la page dit en toutes lettres. |
+| **preuve** | 08/09/2026. Emmanuel, sur une capture : « on voit très bien une date de départ dans l'appel de loyer ! ». Le moteur avait pourtant **bien lu** la date — l'occupation était classée « ancien locataire avec dette ». Le défaut n'était pas dans la lecture : il était dans la file, qui ne consultait pas ce qui avait déjà été lu. **16 lots sur 149** étaient dans ce cas ; la file passe de **112 périmètres à 96**, de **149 lots à 133**. |
+| **abstraction** | `UNE FILE D'ARBITRAGE DOIT D'ABORD RELIRE CE QUE LE MOTEUR SAIT DÉJÀ.` Un fait établi par une phase — ici une fin de bail imprimée et atteinte — doit fermer la question avant qu'elle ne soit posée. C'est la même faute que la décision de phase 2 non propagée en phase 3, déplacée d'une phase à l'autre vers un même écran : **poser une question dont la réponse est dans le document use la file et fait douter du moteur**. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Avant d'émettre une question, chercher si un fait déjà lu l'explique. Un périmètre dont TOUS les lots portent une fin de bail imprimée et atteinte sort de la file ; expliqué en partie, il y reste mais le motif dit combien de lots le sont et depuis quelle date. |
+| **composant** | `crg_integration.php::crgi_perimetres_sans_appel()` |
+| **tests** | Fixture : un lot muet dont le bail est imprimé fini avant l'arrêté ne doit produire aucune question. |
+| **corpus** | 16 lots sur 149 — 112 périmètres → 96 |
+| **limites** | Le document n'explique que le DÉPART ; il ne dit pas si le bien a ensuite été vendu. On cesse d'interroger sur un silence expliqué, pas sur le devenir du bien. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est

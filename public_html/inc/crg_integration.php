@@ -3956,6 +3956,7 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
                    COALESCE(a.nom_agence, c.agence, "") AS agence,
                    MIN(c.proprietaire) AS proprietaire,
                    MAX(o.appels) AS appelle,
+                   MAX(o.bail_au) AS bail_au, MAX(o.date_arrete) AS arrete,
                    MAX(CASE WHEN o.solde_source = "LUE" THEN o.solde END) AS solde,
                    MIN(o.locataire) AS locataire, MIN(o.page) AS page, MIN(c.id) AS crg_id
               FROM crgi_occupation o
@@ -3983,6 +3984,14 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         if ((int)$l['appelle'] > 0) {
             continue;   // il appelle : rien à trancher.
         }
+        // ⚠️ UN SILENCE EXPLIQUÉ N'EST PAS UNE QUESTION. Quand le document imprime la fin du
+        //    bail — « Locataire: AGOSTINO David …, Bail du 10/05/2023 AU 22/03/2026 » — et
+        //    qu'elle est atteinte, on SAIT pourquoi ce lot n'appelle plus : l'occupant est
+        //    parti, le lot est vacant. Demander « vendu ou gestion terminée ? » là-dessus,
+        //    c'est faire arbitrer ce que la page dit en toutes lettres. Emmanuel, 08/09/2026 :
+        //    « on voit très bien une date de départ dans l'appel de loyer ! ».
+        $l['explique'] = !empty($l['bail_au'])
+                      && (string)$l['bail_au'] <= (string)$l['arrete'];
         $cm = (string)$l['compte'];
         $ci = $cm . '/' . (string)$l['imm'];
         if (($appelleMandant[$cm] ?? 0) === 0) {
@@ -4003,15 +4012,27 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
             $groupes[$k] = ['niveau' => $niveau, 'cle' => $cle, 'quoi' => $quoi,
                             'agence' => (string)$l['agence'], 'compte' => $cm,
                             'proprietaire' => (string)$l['proprietaire'], 'lots' => 0,
+                            'expliques' => 0, 'fin_bail' => null,
                             'solde' => 0.0, 'exemples' => [], 'crg_id' => (int)$l['crg_id'],
                             'page' => (int)$l['page']];
         }
         $groupes[$k]['lots']++;
+        if ($l['explique']) {
+            $groupes[$k]['expliques']++;
+            $groupes[$k]['fin_bail'] = max((string)$groupes[$k]['fin_bail'],
+                                           (string)$l['bail_au']);
+        }
         $groupes[$k]['solde'] += (float)($l['solde'] ?? 0);
         if (count($groupes[$k]['exemples']) < 4 && $l['locataire'] !== null) {
             $groupes[$k]['exemples'][] = (string)$l['locataire'];
         }
     }
+
+    // ⚠️ ON RETIRE DE LA FILE CE QUE LE DOCUMENT EXPLIQUE ENTIÈREMENT. Un périmètre dont TOUS
+    //    les lots portent une fin de bail imprimée et atteinte n'a rien d'indéterminé : il est
+    //    vacant depuis une date lue. Le laisser dans la file ferait passer une lecture pour
+    //    une lacune — et userait la file avec des questions dont la réponse est sur la page.
+    $groupes = array_filter($groupes, fn($g) => $g['expliques'] < $g['lots']);
 
     // Ce qui a déjà été tranché, ici ou dans un dépôt précédent.
     $deja = $pdo->prepare('SELECT choix FROM crgi_identite
@@ -4039,6 +4060,13 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
             $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'ce lot n’appelle plus rien, alors que les autres lots de son '
                             . 'immeuble appellent : c’est ce lot-là qui sort.';
+        }
+        // ⚠️ ET QUAND UNE PARTIE SEULEMENT EST EXPLIQUÉE, ON LE DIT. Le reste garde la
+        //    question, mais on ne fait pas semblant d'ignorer ce que la page imprime.
+        if ($g['expliques'] > 0) {
+            $g['parce_que'] .= ' ⚠️ ' . $g['expliques'] . ' de ces lots portent une FIN DE BAIL '
+                             . 'imprimée (au ' . $g['fin_bail'] . ') : leur silence est déjà '
+                             . 'expliqué, ils sont vacants depuis cette date.';
         }
     }
     unset($g);
