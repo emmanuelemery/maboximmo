@@ -92,12 +92,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($cible === 'PERIMETRE') {
         $n = 0;
         try {
+            // ⚠️ CHAQUE LIGNE PORTE SA RÉPONSE, ET C'EST ELLE QUI FAIT FOI. Le choix du
+            //    bas de tableau n'est qu'un raccourci qui préremplit les lignes cochées ; sans
+            //    réponse par ligne, un immeuble vendu et un immeuble en contentieux — même
+            //    proposition — auraient exigé deux envois.
+            $reponses = (array)($_POST['reponse'] ?? []);
             foreach ((array)($_POST['perim'] ?? []) as $p) {
                 [$imp, $agence, $niveau, $cle] = array_pad(explode('|', (string)$p, 4), 4, '');
                 if ($niveau === '' || $cle === '') {
                     continue;
                 }
-                crgi_decider_perimetre($pdo, (int)$imp, $agence, $niveau, $cle, $choix,
+                $r = array_key_exists((string)$p, $reponses)
+                   ? (string)$reponses[(string)$p] : $choix;
+                crgi_decider_perimetre($pdo, (int)$imp, $agence, $niveau, $cle, $r,
                                        (int)($_SESSION['user_id'] ?? 0));
                 $n++;
             }
@@ -144,6 +151,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 $csrf = csrf_token('default');
+
+// ⚠️ LA PREUVE EST SERVIE EN EXTRAIT, DONC LA PAGE EST RELATIVE. `crgi_page.php` ne rend plus
+//    le dépôt entier — 616 Mo pour lire une ligne — mais les seules pages du compte rendu
+//    concerné. La page 93 du dépôt devient donc la page 1 de l'extrait : garder le numéro
+//    absolu dans le fragment ouvrirait le lecteur sur une page qui n'existe pas.
+$pageDebutDe = $pdo->query('SELECT id, page_debut FROM crgi_crg')->fetchAll(PDO::FETCH_KEY_PAIR);
+$preuve = function (int $crgId, int $pageAbs) use ($pageDebutDe, $base): string {
+    $d = (int)($pageDebutDe[$crgId] ?? 1);
+    $rel = max(1, $pageAbs - $d + 1);
+    return app_url('/admin/crgi_page.php') . '?crg=' . $crgId . '&base=' . $base
+         . '#page=' . $rel;
+};
 
 $imports = $pdo->query('SELECT id, libelle FROM crgi_import ORDER BY id')
                ->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -416,7 +435,7 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
               <td><b><?= h(mb_substr((string)($m['proprietaire'] ?: '—'), 0, 40)) ?></b></td>
               <td class="num"><?= $nb($m['crg']) ?></td>
               <td><?= h((string)($m['depuis'] ?? '—')) ?></td>
-              <td><a href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)$m['crg_id'] ?>&amp;base=<?= h($base) ?>#page=<?= (int)$m['page'] ?>"
+              <td><a href="<?= h($preuve((int)$m['crg_id'], (int)$m['page'])) ?>"
                      target="_blank">page <?= (int)$m['page'] ?></a></td>
             </tr>
           <?php endforeach; ?>
@@ -460,7 +479,7 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
                         « <?= h((string)$x['decision']) ?> »</small>
                     <?php endif; ?></td>
                   <td><?= h((string)($x['periode_cle'] ?? '—')) ?></td>
-                  <td><a href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)$x['id'] ?>&amp;base=<?= h($base) ?>#page=<?= (int)$x['page_debut'] ?>"
+                  <td><a href="<?= h($preuve((int)$x['id'], (int)$x['page_debut'])) ?>"
                          target="_blank">page <?= (int)$x['page_debut'] ?></a></td>
                 </tr>
               <?php endforeach; ?>
@@ -504,8 +523,11 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
         qu’une fois, au niveau le plus large qui le couvre.
       </p>
       <?php
-      // ⚠️ GROUPÉ PAR DÉPÔT PUIS PAR PROPOSITION. Posées une par une, ces questions se
-      //    comptent par centaines ; groupées, quelques gestes suffisent.
+      // ⚠️ GROUPÉ PAR DÉPÔT PUIS PAR PROPOSITION, MAIS RÉPONDABLE LIGNE PAR LIGNE. Le groupe
+      //    n'est qu'un raccourci — « appliquer à tout ce qui est coché » — jamais une
+      //    contrainte : chaque ligne garde SA réponse, et une seule validation les enregistre
+      //    toutes. Sans cela, un immeuble vendu et un immeuble en contentieux, qui tombent
+      //    dans la MÊME proposition, auraient exigé deux envois.
       $parDepotPer = [];
       foreach ($perimetres as $g) { $parDepotPer[$g['depot']][$g['proposition']][] = $g; }
       foreach ($parDepotPer as $depot => $groupes): ?>
@@ -516,18 +538,26 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
             <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
             <input type="hidden" name="cible" value="PERIMETRE">
             <table>
-              <tr><th colspan="6">
+              <tr><th colspan="8">
                 Proposition : <b><?= h((string)$prop) ?></b> —
                 <?= $nb(count($lignes)) ?> périmètre(s),
                 <?= $nb(array_sum(array_column($lignes, 'lots'))) ?> lot(s), parce que
                 <?= h((string)$lignes[0]['parce_que']) ?></th></tr>
-              <tr><th>✓</th><th>Échelle</th><th>Mandant</th><th>Ce qui est concerné</th>
-                  <th class="num">Lots</th><th class="num">Solde porté</th></tr>
-              <?php foreach ($lignes as $g): ?>
+              <tr>
+                <th style="white-space:nowrap"><input type="checkbox" class="crgi-tout"
+                       title="Tout cocher / tout décocher"
+                       <?= array_filter($lignes, fn($x) => empty($x['decision'])) ? ' checked' : '' ?>></th>
+                <th>Échelle</th><th>Mandant</th><th>Ce qui est concerné</th>
+                <th class="num">Lots</th><th class="num">Solde porté</th>
+                <th>Ma réponse</th><th>Preuve</th></tr>
+              <?php foreach ($lignes as $g):
+                  $val = $g['import_id'] . '|' . $g['agence'] . '|' . $g['niveau'] . '|' . $g['cle']; ?>
                 <tr>
-                  <td><input type="checkbox" name="perim[]" checked
-                        value="<?= h($g['import_id'] . '|' . $g['agence'] . '|'
-                                     . $g['niveau'] . '|' . $g['cle']) ?>"></td>
+                  <?php // ⚠️ CE QUI EST DÉJÀ TRANCHÉ N'EST PLUS COCHÉ. Une ligne déjà répondue, cochée
+                        //    par défaut, se ferait RÉÉCRIRE au premier « Enregistrer » du groupe —
+                        //    une décision effacée par un geste qui ne la visait pas. ?>
+                  <td><input type="checkbox" name="perim[]" value="<?= h($val) ?>"
+                        <?= empty($g['decision']) ? ' checked' : '' ?>></td>
                   <td><b><?= h((string)$g['niveau']) ?></b></td>
                   <td><code><?= h((string)$g['compte']) ?></code><br>
                     <small><?= h(mb_substr((string)($g['proprietaire'] ?: '—'), 0, 26)) ?></small></td>
@@ -542,19 +572,28 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
                     <?php endif; ?></td>
                   <td class="num"><?= $nb($g['lots']) ?></td>
                   <td class="num"><?= number_format((float)$g['solde'], 2, ',', ' ') ?> €</td>
+                  <td><select name="reponse[<?= h($val) ?>]" class="crgi-rep"
+                              style="padding:3px 5px;font-size:12px">
+                      <?php foreach (CRGI_CHOIX_SANS_APPEL as $c => $quoi): ?>
+                        <option value="<?= h($c) ?>"<?= $c === (string)($g['decision'] ?: $prop) ? ' selected' : '' ?>>
+                          <?= h($c) ?></option>
+                      <?php endforeach; ?>
+                      <option value="">(retirer)</option>
+                    </select></td>
+                  <td><a href="<?= h($preuve((int)$g['crg_id'], (int)$g['page'])) ?>"
+                         target="_blank">page <?= (int)$g['page'] ?></a></td>
                 </tr>
               <?php endforeach; ?>
-              <tr><td colspan="6" style="padding:10px 8px">
-                Ma réponse pour les lignes cochées :
-                <select name="choix" style="padding:5px 8px;font-size:13px">
+              <tr><td colspan="8" style="padding:10px 8px">
+                Appliquer à tout ce qui est coché :
+                <select class="crgi-appliquer" style="padding:5px 8px;font-size:13px">
+                  <option value="">— choisir —</option>
                   <?php foreach (CRGI_CHOIX_SANS_APPEL as $c => $quoi): ?>
-                    <option value="<?= h($c) ?>"<?= $c === (string)$prop ? ' selected' : '' ?>>
-                      <?= h($c) ?> — <?= h($quoi) ?></option>
+                    <option value="<?= h($c) ?>"><?= h($c) ?> — <?= h($quoi) ?></option>
                   <?php endforeach; ?>
-                  <option value="">(retirer ma décision)</option>
                 </select>
                 <button type="submit" style="margin-left:8px;padding:6px 16px;font-weight:600">
-                  Enregistrer</button>
+                  Enregistrer les lignes cochées</button>
               </td></tr>
             </table>
           </form>
@@ -569,6 +608,27 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
         document ne les départage pas — seul vous le pouvez. Dite une fois, la réponse ne se
         redemande plus, ici comme dans les dépôts suivants.
       </p>
+      <script>
+      /* ⚠️ AUCUN GESTIONNAIRE DANS L'ATTRIBUT HTML. Le gabarit passe par du PHP qui échappe
+         les guillemets ; un `onclick` contenant des quotes se retrouve tronqué et le bouton
+         meurt en silence — piège déjà rencontré sur ce projet. Le câblage se fait ici. */
+      document.querySelectorAll('.crgi-tout').forEach(function (t) {
+        t.addEventListener('click', function () {
+          this.closest('form').querySelectorAll('input[name="perim[]"]')
+              .forEach(function (c) { c.checked = t.checked; });
+        });
+      });
+      document.querySelectorAll('.crgi-appliquer').forEach(function (s) {
+        s.addEventListener('change', function () {
+          if (!s.value) { return; }
+          s.closest('form').querySelectorAll('input[name="perim[]"]:checked')
+              .forEach(function (c) {
+                var r = c.closest('tr').querySelector('.crgi-rep');
+                if (r) { r.value = s.value; }
+              });
+        });
+      });
+      </script>
     <?php endif; ?>
 
     <?php if ($occupations): ?>
@@ -615,7 +675,7 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
                     <?php endif; ?></td>
                   <td><?= h((string)($x['periode_cle'] ?? '—')) ?></td>
                   <td class="num"><?= $nb($x['appels']) ?></td>
-                  <td><a href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)$x['crg_id'] ?>&amp;base=<?= h($base) ?>#page=<?= (int)$x['page'] ?>"
+                  <td><a href="<?= h($preuve((int)$x['crg_id'], (int)$x['page'])) ?>"
                          target="_blank">page <?= (int)$x['page'] ?></a></td>
                 </tr>
               <?php endforeach; ?>
@@ -668,7 +728,7 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
             <td><?= h(mb_substr((string)($q['proprietaire'] ?? '—'), 0, 30)) ?></td>
             <td><?= h((string)($q['periode_cle'] ?? '—')) ?></td>
             <td style="font-size:12px"><?= h((string)$q['inventaire_motif']) ?></td>
-            <td><a href="<?= h(app_url('/admin/crgi_page.php')) ?>?crg=<?= (int)$q['id'] ?>&amp;base=<?= h($base) ?>#page=<?= (int)$q['page_debut'] ?>"
+            <td><a href="<?= h($preuve((int)$q['id'], (int)$q['page_debut'])) ?>"
                    target="_blank">page <?= (int)$q['page_debut'] ?></a></td>
           </tr>
         <?php endforeach; ?>

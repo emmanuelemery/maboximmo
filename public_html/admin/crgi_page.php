@@ -57,10 +57,40 @@ if (!$crg || !is_file((string)$crg['chemin'])) {
         : "CRG INTROUVABLE — identifiant " . $crgId . "\n");
 }
 
+// ⚠️ ON NE FAIT PAS TÉLÉCHARGER 616 Mo POUR LIRE UNE PAGE. Un dépôt trimestriel est UN seul
+//    PDF de plusieurs centaines de pages ; servir le fichier entier pour vérifier une ligne
+//    est une preuve qu'on renonce à consulter — donc pas une preuve. On n'extrait que les
+//    pages DU compte rendu concerné, ce qui ramène le plus gros cas à quelques dizaines de
+//    kilo-octets, et le numéro de page redevient relatif à cet extrait.
+//
+// ⚠️ ET SI L'EXTRACTION ÉCHOUE, ON SERT LE FICHIER ENTIER. Mieux vaut lent que muet : un
+//    lien de preuve qui ne répond rien fait douter du document au lieu de douter du lien.
+$chemin  = (string)$crg['chemin'];
+$decalage = 0;
+$exe = null;
+foreach (['C:\\poppler\\Library\\bin\\pdftocairo.exe', '/usr/bin/pdftocairo',
+          '/usr/local/bin/pdftocairo'] as $c) {
+    if (@is_file($c)) { $exe = $c; break; }
+}
+if ($exe !== null && filesize($chemin) > 2 * 1024 * 1024) {
+    $d = (int)$crg['page_debut'];
+    $f = max($d, (int)$crg['page_fin']);
+    $tmp = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'crgipg_' . bin2hex(random_bytes(6)) . '.pdf';
+    @exec('"' . $exe . '" -pdf -f ' . $d . ' -l ' . $f . ' '
+          . escapeshellarg($chemin) . ' ' . escapeshellarg($tmp)
+          . ' 2>' . (PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null'));
+    if (is_file($tmp) && filesize($tmp) > 0) {
+        $chemin = $tmp;
+        $decalage = $d - 1;   // la page 93 du dépôt est la page 1 de l'extrait
+        register_shutdown_function(static function () use ($tmp) { @unlink($tmp); });
+    }
+}
+
 $affichage = 'CRG ' . ($crg['compte'] ?: '') . ' p.' . (int)$crg['page_debut'] . '.pdf';
 header('Content-Type: application/pdf');
 header('Content-Disposition: inline; filename="' . rawurlencode($affichage) . '"');
-header('Content-Length: ' . filesize((string)$crg['chemin']));
+header('Content-Length: ' . filesize($chemin));
+header('X-CRGI-Decalage-Page: ' . $decalage);
 // ⚠️ LE NUMÉRO DE PAGE VIT DANS LE FRAGMENT D'URL, que le lecteur PDF du navigateur
 //    interprète. Il ne peut pas être posé ici : c'est la page appelante qui l'ajoute.
 //
@@ -75,7 +105,7 @@ header('Content-Length: ' . filesize((string)$crg['chemin']));
 while (ob_get_level() > 0) {
     ob_end_clean();
 }
-$fh = fopen((string)$crg['chemin'], 'rb');
+$fh = fopen($chemin, 'rb');
 if ($fh === false) {
     http_response_code(500);
     exit;
