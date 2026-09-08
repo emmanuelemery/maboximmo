@@ -1423,10 +1423,10 @@ commit          le hash
 | **abstraction** | `UN MOT DU MÉTIER N'EST PAS UN MOT INCOMPLET.` J'ai pris un terme professionnel pour une donnée tronquée, et j'allais faire arbitrer ce que tout le métier lit sans hésiter. Le silence, lui, est autre chose — et il a sa propre règle : **rien d'écrit ⇒ HABITATION**. Confondre « pas écrit » et « écrit brièvement » fabrique des questions. |
 | **portée** | `UNIVERSELLE` |
 | **règle** | Normaliser le libellé brut vers les catégories métier — `LOCAL COMMERCIAL` (dont « Local », « Entrepot »), `BUREAU`, `APPARTEMENT` (dont « Appart. T… », « Studio »), `MAISON`, `GARAGE` — et **`HABITATION` en cas de SILENCE seulement**. Le libellé brut est CONSERVÉ à côté : on ne perd jamais ce que le document dit. |
-| **composant** | phase 2 — `crgi_lot.libelle` (brut) + type normalisé À CODER |
-| **tests** | Fixture : « Local » → `LOCAL COMMERCIAL` ; libellé vide → `HABITATION` ; « Appart. T3 » → `APPARTEMENT`. |
-| **corpus** | 2 291 lots, dont 283 « Local » |
-| **limites** | ⚠️ Deux défauts de lecture à corriger au passage : le libellé est **doublé** sur certains lots — « Local commercial Local commercial », « Garage Garage ». Et `BUREAU` n'apparaît pas encore dans le corpus lu : la catégorie existe, sa détection reste à éprouver. |
+| **composant** | `crg_integration.php::crgi_type_de_bien()` → `crgi_lot.type_bien` et `crgi_lot.vendu`, migration `20260908b` |
+| **tests** | Fixture : « Local » → `LOCAL COMMERCIAL` ; libellé vide → `HABITATION` ; « Appart. T3 » → `APPARTEMENT` ; « Local commercial 1 Pièce » → `LOCAL COMMERCIAL` et **jamais** `APPARTEMENT` ; « VENDU » → `vendu = true`. |
+| **corpus** | ⚠️ **1 144 lots — PAS 2 291.** J'avais annoncé « ~400 locaux commerciaux » en comptant les LIGNES de `crgi_lot`, qui en porte une par compte rendu : un lot vu six fois comptait six fois. Emmanuel : « je ne pense pas qu'il y ait 400 locaux commerciaux ». Compté en OBJETS : **762 appartements, 158 locaux commerciaux, 126 maisons, 81 garages, 7 bureaux, 4 parties communes, 2 terrains, 2 panneaux** — zéro indéterminé. C'est la **TROISIÈME fois de la journée** que je compte des lignes pour des objets, sur une table différente à chaque fois. |
+| **limites** | Le libellé **doublé** (« Local commercial Local commercial », « Garage Garage ») est dédoublé à la lecture, sans toucher à ce qui est conservé. `BUREAU` existe bien : **7 lots** — je l'avais dit absent en ne regardant que les libellés les plus fréquents. ⚠️ Et **`crgi_plat()` rend des MAJUSCULES** : écrits en minuscules, les repères du référentiel ne trouvaient RIEN et les 1 144 lots sortaient « indéterminé » — sans planter, donc sans alerte. Un référentiel qui ne reconnaît rien a l'air de fonctionner. |
 | **commit d’introduction** | PAS ENCORE COMMITÉ |
 
 ---
