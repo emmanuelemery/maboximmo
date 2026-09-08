@@ -104,8 +104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $r = array_key_exists((string)$p, $reponses)
                    ? (string)$reponses[(string)$p] : $choix;
+                $com = (string)(((array)($_POST['commentaire'] ?? []))[(string)$p] ?? '');
                 crgi_decider_perimetre($pdo, (int)$imp, $agence, $niveau, $cle, $r,
-                                       (int)($_SESSION['user_id'] ?? 0));
+                                       (int)($_SESSION['user_id'] ?? 0), $com);
                 $n++;
             }
             $messageDecision = $choix === ''
@@ -577,7 +578,36 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
                           //    ne se traite pas. ?>
                     <?php foreach ((array)($g['analyse'] ?? []) as $a): ?>
                       <br><small style="color:#444">· <?= h((string)$a) ?></small>
-                    <?php endforeach; ?></td>
+                    <?php endforeach; ?>
+                    <?php // ⚠️ UNE LIGNE RECOUVRE PLUSIEURS LOTS « QUI N'ONT PAS LA MÊME
+                          //    HISTOIRE » (Emmanuel). Grouper allège la file mais masque le
+                          //    détail : on le rouvre à la demande, sans quitter la page ni
+                          //    perdre ce qui est déjà saisi.
+                    if (count((array)$g['faits']) > 1): ?>
+                      <details style="margin-top:4px">
+                        <summary style="cursor:pointer;font-size:12px;color:#2563eb">
+                          voir les <?= $nb(count($g['faits'])) ?> lots</summary>
+                        <table style="margin:4px 0 0;font-size:12px">
+                          <?php foreach ($g['faits'] as $f): ?>
+                            <tr>
+                              <td><code><?= h((string)$f['lot']) ?></code></td>
+                              <td><?= h(mb_substr((string)($f['immeuble'] ?? ''), 0, 38)) ?></td>
+                              <td><?= h(mb_substr((string)($f['locataire'] ?: '— aucun occupant nommé'), 0, 28)) ?></td>
+                              <td><?= $f['bail_au'] ? 'bail fini le ' . h((string)$f['bail_au']) : '' ?></td>
+                              <td class="num"><?= $f['solde'] !== null
+                                    ? number_format((float)$f['solde'], 2, ',', ' ') . ' €' : '' ?></td>
+                            </tr>
+                          <?php endforeach; ?>
+                        </table>
+                      </details>
+                    <?php endif; ?>
+                    <?php // ⚠️ LE COMMENTAIRE EST UNE DONNÉE : le choix dit la nature commune,
+                          //    le commentaire dit ce qui ne s'y range pas. Sans lui, il faudrait
+                          //    éclater la ligne — et retrouver les 99 questions. ?>
+                    <input type="text" name="commentaire[<?= h($val) ?>]"
+                           value="<?= h((string)($g['commentaire'] ?? '')) ?>"
+                           placeholder="ce que le document ne dit pas…"
+                           style="width:97%;margin-top:5px;padding:3px 5px;font-size:12px"></td>
                   <td class="num"><?= $nb($g['lots']) ?></td>
                   <td class="num"><?= number_format((float)$g['solde'], 2, ',', ' ') ?> €</td>
                   <td><select name="reponse[<?= h($val) ?>]" class="crgi-rep"

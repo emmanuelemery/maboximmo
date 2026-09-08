@@ -4056,6 +4056,19 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
              GROUP BY c.compte, o.code_immeuble, o.lot_reference';
     $lots = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
+    // ⚠️ UN CODE D'IMMEUBLE NE SE RECONNAÎT PAS, UNE ADRESSE SI. « Immeuble 01040247 » ne dit
+    //    rien à personne ; « RUE PAUL CHEVRET — 01100 OYONNAX » se reconnaît d'un coup d'œil.
+    //    Emmanuel, 08/09/2026 : « il faut indiquer l'immeuble ! ». Faire trancher sur un code
+    //    oblige à aller chercher à quoi il correspond — exactement ce que la file doit éviter.
+    $imm = [];
+    foreach ($pdo->query(
+        'SELECT o.code, MIN(o.nom) AS nom, MIN(o.code_postal) AS cp, MIN(o.ville) AS ville
+           FROM crgi_immeuble o WHERE o.import_id = ' . $i . ' AND o.code IS NOT NULL
+          GROUP BY o.code')->fetchAll(PDO::FETCH_ASSOC) as $x) {
+        $imm[(string)$x['code']] = trim((string)$x['nom'])
+            . (($x['cp'] || $x['ville']) ? ' — ' . trim(($x['cp'] ?? '') . ' ' . ($x['ville'] ?? '')) : '');
+    }
+
     // ⚠️ UN ENCOURS QUI BAISSE EST UN ENCAISSEMENT, MÊME SANS LOYER APPELÉ. Les règlements
     //    s'imputent sur les loyers LES PLUS ANCIENS — pour éviter la forclusion, qui éteindrait
     //    les créances les plus vieilles. Emmanuel, 08/09/2026 : « nous avons bien des
@@ -4106,11 +4119,12 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         } elseif (($appelleImmeuble[$ci] ?? 0) === 0) {
             $niveau = 'IMMEUBLE';
             $cle = $ci;
-            $quoi = 'Immeuble ' . (string)$l['imm'];
+            $quoi = $imm[(string)$l['imm']] ?? ('Immeuble ' . (string)$l['imm']);
         } else {
             $niveau = 'LOT';
             $cle = $cm . '/' . (string)$l['lot'];
-            $quoi = 'Lot ' . (string)$l['lot'];
+            $quoi = 'Lot ' . (string)$l['lot']
+                  . (isset($imm[(string)$l['imm']]) ? ' — ' . $imm[(string)$l['imm']] : '');
         }
         $k = $niveau . '|' . $cle;
         if (!isset($groupes[$k])) {
@@ -4129,6 +4143,7 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         // ⚠️ CE QUI SERVIRA À DÉCIDER, GARDÉ LIGNE PAR LIGNE. Voir `crgi_analyse_perimetre()`.
         $groupes[$k]['faits'][] = [
             'lot'        => (string)$l['lot'],
+            'immeuble'   => $imm[(string)$l['imm']] ?? (string)$l['imm'],
             'locataire'  => $l['locataire'] !== null ? (string)$l['locataire'] : null,
             'bail_au'    => $l['bail_au'] ? (string)$l['bail_au'] : null,
             'arrete'     => (string)$l['arrete'],
@@ -4154,11 +4169,13 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
     $groupes = array_filter($groupes, fn($g) => $g['expliques'] < $g['lots']);
 
     // Ce qui a déjà été tranché, ici ou dans un dépôt précédent.
-    $deja = $pdo->prepare('SELECT choix FROM crgi_identite
+    $deja = $pdo->prepare('SELECT choix, precision_h FROM crgi_identite
                             WHERE type = ? AND agence = ? AND cle = ?');
     foreach ($groupes as &$g) {
         $deja->execute([CRGI_IDENTITE_PERIMETRE, $g['agence'], $g['niveau'] . '|' . $g['cle']]);
-        $g['decision'] = (string)($deja->fetchColumn() ?: '');
+        $vu = $deja->fetch(PDO::FETCH_ASSOC) ?: [];
+        $g['decision'] = (string)($vu['choix'] ?? '');
+        $g['commentaire'] = (string)($vu['precision_h'] ?? '');
 
         // ⚠️ LA PROPOSITION SE PREND SUR L'ÉCHELLE, PARCE QUE C'EST LE SEUL FAIT DISPONIBLE.
         //    Le document ne dit jamais « vendu » ; il dit « plus rien n'est appelé ». Mais
@@ -4299,7 +4316,8 @@ function crgi_analyse_perimetre(array $g): array
  *    lourdes pour qu'on les garde et qu'on les corrige plutôt que de les reposer chaque fois.
  */
 function crgi_decider_perimetre(PDO $pdo, int $importId, string $agence, string $niveau,
-                                string $cle, string $choix, int $userId): void
+                                string $cle, string $choix, int $userId,
+                                string $commentaire = ''): void
 {
     if (!in_array($niveau, CRGI_NIVEAUX_PERIMETRE, true)) {
         throw new RuntimeException('NIVEAU INCONNU : « ' . $niveau . ' ».');
@@ -4316,12 +4334,18 @@ function crgi_decider_perimetre(PDO $pdo, int $importId, string $agence, string 
             ->execute([CRGI_IDENTITE_PERIMETRE, $agence, $k]);
         return;
     }
+    // ⚠️ LE COMMENTAIRE EST UNE DONNÉE, PAS UN ORNEMENT. Une ligne de périmètre couvre
+    //    plusieurs lots et plusieurs locataires « qui n'ont pas la même histoire » (Emmanuel,
+    //    08/09/2026) : le choix ne dit que la nature commune, le reste doit pouvoir s'écrire.
+    //    Sans lui, il faudrait éclater la ligne — et l'on retrouverait les 99 questions.
     $pdo->prepare(
-        'INSERT INTO crgi_identite (type, agence, cle, choix, import_origine, decide_par)
-         VALUES (?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE choix = VALUES(choix), decide_par = VALUES(decide_par),
-                                 decide_le = NOW()'
-    )->execute([CRGI_IDENTITE_PERIMETRE, $agence, $k, $choix, $importId, $userId ?: null]);
+        'INSERT INTO crgi_identite (type, agence, cle, choix, precision_h, import_origine,
+                                    decide_par)
+         VALUES (?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE choix = VALUES(choix), precision_h = VALUES(precision_h),
+                                 decide_par = VALUES(decide_par), decide_le = NOW()'
+    )->execute([CRGI_IDENTITE_PERIMETRE, $agence, $k, $choix,
+                mb_substr(trim($commentaire), 0, 1000) ?: null, $importId, $userId ?: null]);
 }
 
 function crgi_occupations_a_trancher(PDO $pdo, int $importId): array
