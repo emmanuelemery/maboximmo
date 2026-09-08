@@ -1431,6 +1431,40 @@ commit          le hash
 
 ---
 
+## APP-0084 · Un fait qu'on ne retient pas n'est pas un fait illisible : c'est un fait jeté
+
+| | |
+|---|---|
+| **phénomène** | J'annonçais « **honoraires de gestion NON LISIBLES sur ce format** » sur les deux plus gros dépôts, et la file d'arbitrage demandait donc de trancher un fait **imprimé**. Or le lecteur PARCOURAIT déjà ces lignes — « Honoraires de gestion HT », « Honoraires H.T. JANVIER 2026 », « TVA sur hono. de gestion » — sans les retenir. |
+| **preuve** | 08/09/2026. Emmanuel demande si tout est lu, et ajoute la règle qui tranche : « **pour une perte de gestion, nous n'avons plus du tout d'honoraires** ». Je vais vérifier : **56 lignes d'honoraires sur un seul compte rendu** que je jetais. Une fois captées au passage de la lecture existante — sans seconde ouverture du PDF — la couverture passe de **0 % à 96-100 % sur les quatre dépôts**, et les **67 périmètres opaques** d'une agence se répartissent en **56 vacants** (la régie facture encore) et **11 sorties**. |
+| **abstraction** | `UN FAIT QU'ON NE RETIENT PAS N'EST PAS UN FAIT ILLISIBLE : C'EST UN FAIT JETÉ.` J'avais correctement appliqué la doctrine — ne pas conclure là où le lecteur ne voit rien — mais sur un diagnostic FAUX. Dire « non lisible » est une affirmation sur le document ; elle exige d'avoir regardé le document, pas seulement la sortie du lecteur. **Une lacune de sortie n'est pas une lacune de source.** |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Avant d'écrire « non lisible sur ce format », ouvrir la page et chercher le fait à la main. S'il y est, c'est le lecteur qu'il faut corriger — et le capter au passage d'une lecture déjà faite ne coûte rien. |
+| **composant** | `crg_ics_core.py::parse()` — `doc['honoraires']`, `crg_integration_ics.py::honoraires_de_gestion()` |
+| **tests** | Fixture : un compte rendu portant une ligne d'honoraires doit rendre un compte non nul, quel que soit l'éditeur. |
+| **corpus** | 96 à 100 % de couverture sur les 4 dépôts, contre 0 % sur deux d'entre eux |
+| **limites** | La couverture des APPELS, elle, reste basse sur un dépôt — c'est un autre fait, et il n'est pas résolu. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0085 · Un nom sans appel est un parti débiteur — et il ne reste que deux réponses
+
+| | |
+|---|---|
+| **phénomène** | J'exigeais un CONTRASTE — un bloc muet à côté d'un bloc qui appelle — pour conclure au départ. Trop prudent : un lot dont le seul bloc ne porte qu'un « Solde Antérieur 1 198,74 » n'avait rien d'ambigu, et partait en arbitrage. Et j'offrais quatre réponses là où deux suffisent. |
+| **preuve** | 08/09/2026, sur une page où trois cas coexistent. Emmanuel : « quand il n'y a pas de loyer appelé comme BOUGUESSA c'est qu'il est **parti débiteur** ; quand il y a des loyers comme AOUANE et sur le même n° de lot des noms sans loyers, alors ce sont des **locataires partis débiteurs** ; et si le lot disparaît et que le dernier nom n'a pas de loyer, alors c'est soit vendu soit vacant, et je dois **uniquement arbitrer entre vendu et vacant** ». Effet : **342 partis débiteurs** qualifiés par le moteur, et la liste des réponses tombe de 4 à 2. |
+| **abstraction** | `UNE FILE D'ARBITRAGE NE DOIT OFFRIR QUE LES RÉPONSES QUE CELUI QUI RÉPOND PEUT DÉPARTAGER.` `GESTION TERMINÉE` et `CONTENTIEUX` ont disparu : le contentieux se lit comme ce qu'il est — un parti débiteur — et la fin de gestion ne se distingue pas d'une vente sur le document. Offrir un choix indécidable, c'est demander de deviner. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un nom sans aucun appel est PARTI ; s'il porte un solde, il est parti DÉBITEUR. Le voisinage aide à comprendre, il ne conditionne rien. Et le seul arbitrage restant est **VENDU ou VACANT**, tranché par les honoraires : la régie facture encore ⇒ vacant. |
+| **composant** | `crg_integration.php::crgi_qualifier_occupation()`, `CRGI_CHOIX_SANS_APPEL` |
+| **tests** | Fixture : un bloc à solde seul, unique sur son lot, doit rendre `ANCIEN LOCATAIRE AVEC DETTE` sans arbitrage. |
+| **corpus** | 342 partis débiteurs, 83 périmètres → 68 vacants + 15 sorties |
+| **limites** | ⚠️ **J'ai déjà posé cette règle sans garde, et elle avait fabriqué 871 départs dont 518 auto-démentis.** Ce qui a changé n'est pas la règle mais la LECTURE — six graphies d'appel, blocs coupés recollés, honoraires captés. La garde `$saitLire` et le contrôle de contradiction restent armés : ils rendent 0 sur ce passage. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est

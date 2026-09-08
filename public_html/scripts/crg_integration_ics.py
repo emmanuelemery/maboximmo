@@ -463,22 +463,20 @@ def _dans(page, debut, fin):
     return page >= (debut or 1) and (fin is None or page <= fin)
 
 
-# ⚠️ LES HONORAIRES DE GESTION NE SONT PAS LISIBLES SUR CE FORMAT, ET ON LE DIT.
-#    Ils distinguent un bien VIDE d'un mandat PERDU : les deux cessent d'appeler un loyer, seule
-#    la facturation les sépare. L'autre éditeur les imprime dans une section « - Honoraires de
-#    Gestion - » que son lecteur rend ; ici, `ICS.parse` ne rend que `meta` et `immeubles` — les
-#    dépenses ne sortent pas du moteur.
+# ⚠️ LES HONORAIRES DE GESTION SÉPARENT LE BIEN VIDE DU MANDAT PERDU — et ils sont enfin LUS.
+#    Emmanuel, 08/09/2026 : « pour une perte de gestion, nous n avons plus du tout
+#    d honoraires ». Tant que la régie facture, le mandat vit : le bien est seulement VACANT.
 #
-# ⚠️ ON REND -1, PAS 0. Zéro signifierait « la régie ne facture plus rien », donc « mandat
-#    perdu » — une affirmation qu'aucune lecture ne soutient. -1 dit « non lu », et la file
-#    d'arbitrage s'abstient alors de conclure. C'est la même garde que pour les appels : on
-#    n'applique pas une règle là où le lecteur ne voit pas le fait.
-HONORAIRES_NON_LUS = -1
+# ⚠️ ILS L ÉTAIENT DÉJÀ, EN FAIT — le moteur parcourait ces lignes sans les retenir. Je rendais
+#    « non lisible sur ce format » sur les deux plus gros dépôts, et la file d arbitrage
+#    demandait de trancher un fait imprimé. Un fait qu on ne retient pas n est pas un fait
+#    illisible : c est un fait jeté.
 
 
 def honoraires_de_gestion(doc, debut=1, fin=None):
-    """Non lisible sur ce format : -1, jamais 0."""
-    return HONORAIRES_NON_LUS
+    """Combien de lignes d honoraires de gestion, dans cette plage de pages."""
+    return sum(1 for p in (doc.get('honoraires') or []) if _dans(int(p), debut, fin))
+
 
 def main():
     """Usage : crg_integration_ics.py <pdf> <famille> <plages.json> <patrimoine|occupations>"""

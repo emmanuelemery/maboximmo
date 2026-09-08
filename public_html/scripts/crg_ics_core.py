@@ -517,6 +517,14 @@ def categorie(libelle):
     return 'autre'
 
 
+# ⚠️ LES DEUX ECRITURES DE L HONORAIRE DE GESTION CHEZ CET EDITEUR : « Honoraires de
+#    gestion HT », « Honoraires H.T. JANVIER 2026 », et la TVA qui les accompagne
+#    (« TVA sur hono. de gestion »). Une seule de ces lignes suffit à prouver que la régie
+#    facture encore.
+RE_HONORAIRES_ICS = re.compile(r'Honoraires?\s+(de\s+gestion|H\.?\s?T\.?)|hono\.?\s+de\s+gestion',
+                               re.I)
+
+
 def parse(chemin, variante='lyon'):
     """Lit un CRG du gabarit ICS. `variante` nomme l'agence, et ne change QUE ce que son
        document imprime différemment — voir `VARIANTES`."""
@@ -539,6 +547,17 @@ def parse(chemin, variante='lyon'):
         for no_page, page in enumerate(pdf.pages, start=1):
             lignes = lignes_de(page)
             textes = [l['texte'] for l in lignes]
+
+            # ⚠️ LES HONORAIRES DE GESTION SONT LA PREUVE QUE LE MANDAT VIT. Un bien vide
+            #    et un mandat perdu cessent tous deux d appeler un loyer ; seule la
+            #    facturation les separe — « pour une perte de gestion, nous n avons plus du
+            #    tout d honoraires » (Emmanuel, 08/09/2026). Ce lecteur parcourait deja ces
+            #    lignes sans les retenir, et la file d arbitrage devait alors dire « non
+            #    lisible sur ce format » sur les deux plus gros depots.
+            #    On les compte AU PASSAGE : aucune seconde lecture du PDF.
+            for _t in textes:
+                if RE_HONORAIRES_ICS.search(_t or ''):
+                    doc.setdefault('honoraires', []).append(no_page)
 
             # ── En-tête du document, page 1 ────────────────────────────────
             if no_page == 1:

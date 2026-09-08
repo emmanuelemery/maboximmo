@@ -2986,22 +2986,32 @@ function crgi_qualifier_occupation(PDO $pdo, int $importId): void
             if ($loc !== null && $saitLire) {
                 $dette = $o['solde_source'] === 'LUE' && (float)$o['solde'] > 0.005;
                 $finAppel = (string)($o['dernier_appel_au'] ?? '');
-                if ((int)$o['appels'] === 0 && $voisinAppelle) {
+                if ((int)$o['appels'] === 0) {
+                    // ⚠️ UN NOM SANS APPEL EST UN PARTI DÉBITEUR — le contraste n'est plus exigé.
+                    //    Emmanuel, 08/09/2026, sur un bloc qui ne porte qu'un « Solde Antérieur
+                    //    1 198,74 » : « quand il n'y a pas de loyer appelé c'est qu'il est parti
+                    //    débiteur ». Et sur un lot portant à la fois un occupant qui appelle ses
+                    //    trois mois et d'autres noms sans loyer : « ce sont des locataires partis
+                    //    débiteurs ». Le voisinage aide à COMPRENDRE, il ne conditionne rien :
+                    //    c'est l'ABSENCE D'APPEL SOUS UN NOM qui démontre le départ.
+                    //
+                    // ⚠️ J'AI DÉJÀ POSÉ CETTE RÈGLE SANS GARDE, ET ELLE A FABRIQUÉ 871 DÉPARTS,
+                    //    dont 518 que le moteur démentait lui-même. Ce qui a changé depuis n'est
+                    //    pas la règle : c'est la LECTURE — six graphies d'appel au lieu d'une, et
+                    //    les blocs coupés par une page enfin recollés. La garde `$saitLire`
+                    //    reste, et le contrôle de contradiction juge le résultat.
                     $verdictParAppel = true;
                     $statut = $dette ? 'ANCIEN LOCATAIRE AVEC DETTE' : 'PARTI DEMONTRE';
-                    $motif = 'Ce bloc n’appelle RIEN — ni loyer, ni charge, ni dépôt de '
-                           . 'garantie — alors qu’un AUTRE bloc du même lot, au même arrêté, '
-                           . 'appelle : c’est le contraste qui démontre la succession, pas '
-                           . 'l’ordre d’impression.'
+                    $motif = 'Ce bloc n’appelle RIEN sous un nom d’occupant — ni loyer, ni '
+                           . 'charge, ni dépôt de garantie : il est PARTI.'
+                           . ($voisinAppelle
+                              ? ' Un AUTRE bloc du même lot, au même arrêté, appelle : la '
+                                . 'succession se voit sur la page.' : '')
                            . ($dette
-                              ? ' Encours de ' . number_format((float)$o['solde'], 2, ',', ' ')
-                                . ' € : la dette reste attachée à CE locataire '
-                                . '(P6A-CREANCE-07).'
+                              ? ' Il reste DÉBITEUR de '
+                                . number_format((float)$o['solde'], 2, ',', ' ') . ' € : la '
+                                . 'dette reste attachée à CE locataire (P6A-CREANCE-07).'
                               : ' Aucune dette lue.');
-                } elseif ((int)$o['appels'] === 0) {
-                    // Vide SEUL : on ne conclut pas. La suite du traitement décidera — et si
-                    // le lot cesse d'apparaître, la question sera posée, comme demandé.
-                    $enPlaceParAppel = false;
                 // ⚠️ UN ÉCART DE QUELQUES JOURS N'EST PAS UN TERME MANQUANT. Un compte rendu de
                 //    DEUX JOURS (30/06 → 01/07) faisait « s'arrêter » un appel couvrant tout
                 //    juin : l'écart était d'un jour, et le moteur y lisait un départ. Un appel
@@ -4016,11 +4026,20 @@ function crgi_type_de_bien(?string $libelle): array
 
 const CRGI_IDENTITE_PERIMETRE = 'PERIMETRE-SANS-APPEL';
 
+/**
+ * ⚠️ DEUX RÉPONSES, ET DEUX SEULEMENT. Emmanuel, 08/09/2026 : « si le lot disparaît et que le
+ *    dernier nom n'a pas de loyer, alors c'est soit un lot vendu soit un vacant, et je dois
+ *    UNIQUEMENT arbitrer entre vendu et vacant ».
+ *
+ * ⚠️ `GESTION TERMINEE` ET `CONTENTIEUX` ONT DISPARU DE LA LISTE, ET C'EST VOULU. Le
+ *    contentieux se lit désormais comme ce qu'il est — un PARTI DÉBITEUR, qualifié par le
+ *    moteur, plus une question. Et la fin de gestion ne se distingue pas d'une vente sur le
+ *    document : l'offrir revenait à demander de deviner. **Une file d'arbitrage ne doit offrir
+ *    que les réponses que celui qui répond peut réellement départager.**
+ */
 const CRGI_CHOIX_SANS_APPEL = [
-    'VENDU'            => 'Le propriétaire ne le possède plus.',
-    'GESTION TERMINEE' => 'Il le possède encore, la gestion est ailleurs.',
-    'VACANT'           => 'Personne ne l’occupe ; il reste en gestion.',
-    'CONTENTIEUX'      => 'Occupé, mais on ne quittance plus : dossier chez l’huissier.',
+    'VENDU'  => 'Le propriétaire ne le possède plus.',
+    'VACANT' => 'Il le possède encore ; personne ne l’occupe.',
 ];
 
 /** Les trois échelles, de la plus large à la plus fine. L'ordre est celui de la lecture. */
@@ -4189,7 +4208,12 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         //    bien vide, on n'a rien perdu. Proposer « gestion terminée » sur un compte qui
         //    paie encore ses honoraires, c'est ignorer une ligne imprimée du document.
         // Les honoraires sortent-ils du lecteur de ce format ?
-        $honoLisibles = in_array((string)$g['format'], ['septeo_spi'], true);
+        // ⚠️ LES HONORAIRES SONT DÉSORMAIS LUS SUR LES DEUX ÉDITEURS. Ils l'étaient déjà chez
+        //    l'un ; chez l'autre, le moteur PARCOURAIT ces lignes sans les retenir, et je
+        //    rendais « non lisible sur ce format » sur les deux plus gros dépôts — en faisant
+        //    trancher un fait imprimé. Un fait qu'on ne retient pas n'est pas un fait
+        //    illisible : c'est un fait JETÉ.
+        $honoLisibles = true;
         if ((int)$g['honoraires'] > 0) {
             $g['proposition'] = 'VACANT';
             $g['parce_que'] = 'plus aucun loyer n’est appelé, MAIS la régie facture encore ses '
@@ -4198,14 +4222,14 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         } elseif ($g['niveau'] === 'MANDANT' && !$honoLisibles) {
             // ⚠️ ON NE CONCLUT PAS SUR UN FAIT QU'ON NE LIT PAS. Sur ce format, les honoraires
             //    ne sortent pas du lecteur : leur absence ne prouve rien.
-            $g['proposition'] = 'GESTION TERMINEE';
+            $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
                             . 'rien : c’est le mandat entier qui s’éteint, pas un bien. '
                             . '⚠️ Les honoraires de gestion — qui diraient si le mandat vit '
                             . 'encore — ne sont pas lisibles sur ce format : à vérifier sur la '
                             . 'page.';
         } elseif ($g['niveau'] === 'MANDANT') {
-            $g['proposition'] = 'GESTION TERMINEE';
+            $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
                             . 'rien, et le compte rendu ne facture AUCUN honoraire de gestion : '
                             . 'c’est le mandat entier qui s’éteint, pas un bien.';
@@ -4293,7 +4317,7 @@ function crgi_analyse_perimetre(array $g): array
                   . 'période lue : aucun règlement ne le résorbe.';
     }
 
-    $honoLisibles = in_array((string)($g['format'] ?? ''), ['septeo_spi'], true);
+    $honoLisibles = true;   // lus sur les deux editeurs desormais
     if (!$honoLisibles) {
         $lignes[] = '⚠️ Honoraires de gestion NON LISIBLES sur ce format — c’est pourtant eux '
                   . 'qui diraient si le mandat vit encore. À vérifier sur la page.';
