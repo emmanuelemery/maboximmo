@@ -4214,20 +4214,24 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
         //    trancher un fait imprimé. Un fait qu'on ne retient pas n'est pas un fait
         //    illisible : c'est un fait JETÉ.
         $honoLisibles = true;
-        if ((int)$g['honoraires'] > 0) {
+        // ⚠️ LES HONORAIRES SE COMPTENT SUR LE COMPTE RENDU, DONC ILS NE DISENT RIEN D'UN LOT.
+        //    Un mandant de vingt lots dont UN est vendu facture toujours ses honoraires sur les
+        //    dix-neuf autres : en tirer « le bien est vide » pour le vingtième, c'est faire dire
+        //    au document ce qu'il n'énonce pas. L'argument ne vaut donc QUE si le silence
+        //    couvre le MANDANT ENTIER — là, plus rien n'est appelé nulle part, et la
+        //    facturation prouve que la régie gère encore un portefeuille vide.
+        //
+        // ⚠️ ET POUR UN IMMEUBLE OU UN LOT ISOLÉ, C'EST VENDU DANS 90 % DES CAS. Emmanuel,
+        //    08/09/2026 : « si un autre locataire n'est pas actif sur le même bien, alors c'est
+        //    effectivement soit vendu (90 % des cas) soit vacant ». La proposition suit la
+        //    fréquence RÉELLE, pas la prudence : proposer le cas rare oblige à corriger neuf
+        //    fois sur dix.
+        if ($g['niveau'] === 'MANDANT' && (int)$g['honoraires'] > 0) {
             $g['proposition'] = 'VACANT';
-            $g['parce_que'] = 'plus aucun loyer n’est appelé, MAIS la régie facture encore ses '
-                            . 'HONORAIRES DE GESTION sur ce compte rendu (' . (int)$g['honoraires']
-                            . ' ligne(s)) : le mandat n’est pas perdu, le bien est vide.';
-        } elseif ($g['niveau'] === 'MANDANT' && !$honoLisibles) {
-            // ⚠️ ON NE CONCLUT PAS SUR UN FAIT QU'ON NE LIT PAS. Sur ce format, les honoraires
-            //    ne sortent pas du lecteur : leur absence ne prouve rien.
-            $g['proposition'] = 'VENDU';
-            $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
-                            . 'rien : c’est le mandat entier qui s’éteint, pas un bien. '
-                            . '⚠️ Les honoraires de gestion — qui diraient si le mandat vit '
-                            . 'encore — ne sont pas lisibles sur ce format : à vérifier sur la '
-                            . 'page.';
+            $g['parce_que'] = 'plus AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle '
+                            . 'de loyer, MAIS la régie facture encore ses HONORAIRES DE GESTION '
+                            . '(' . (int)$g['honoraires'] . ' ligne(s)) : le mandat n’est pas '
+                            . 'perdu, c’est le portefeuille qui est vide.';
         } elseif ($g['niveau'] === 'MANDANT') {
             $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'AUCUN des ' . $g['lots'] . ' lot(s) de ce mandant n’appelle plus '
@@ -4237,11 +4241,13 @@ function crgi_perimetres_sans_appel(PDO $pdo, int $importId): array
             $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'aucun des ' . $g['lots'] . ' lot(s) de cet immeuble n’appelle, '
                             . 'ALORS QUE le mandant continue d’en appeler ailleurs : c’est cet '
-                            . 'immeuble-là qui sort.';
+                            . 'immeuble-là qui sort — VENDU dans 9 cas sur 10, la vacance '
+                            . 'restant possible mais rare.';
         } else {
             $g['proposition'] = 'VENDU';
             $g['parce_que'] = 'ce lot n’appelle plus rien, alors que les autres lots de son '
-                            . 'immeuble appellent : c’est ce lot-là qui sort.';
+                            . 'immeuble appellent : c’est ce lot-là qui sort — VENDU dans 9 cas '
+                            . 'sur 10, la vacance restant possible mais rare.';
         }
         $g['analyse'] = crgi_analyse_perimetre($g);
 
