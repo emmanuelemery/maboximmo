@@ -2048,8 +2048,8 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
     );
     $insLot = $pdo->prepare(
         'INSERT INTO crgi_lot (import_id, crg_id, reference, code_immeuble, numero, libelle,
-                               locataire, page)
-         VALUES (?,?,?,?,?,?,?,?)'
+                               type_bien, vendu, locataire, page)
+         VALUES (?,?,?,?,?,?,?,?,?,?)'
     );
     // ⚠️ UNE PIÈCE, UNE LECTURE. La première version appelait le moteur CRG par CRG : sur un
     //    document de 587 Mo et 266 comptes rendus, cela faisait 266 lectures complètes du PDF
@@ -2091,9 +2091,13 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
                                   $i['code_postal'], $i['ville'], (int)$i['page']]);
             }
             foreach ($bloc['lots'] ?? [] as $l) {
+                // ⚠️ LA CATÉGORIE S'AJOUTE, LE LIBELLÉ BRUT RESTE. Voir crgi_type_de_bien() :
+                //    plus de cinquante graphies pour huit natures, et « VENDU » qui est un
+                //    ÉTAT écrit à la place du type.
+                $tb = crgi_type_de_bien($l['libelle'] ?? null);
                 $insLot->execute([$importId, $crgId, $l['reference'], $l['code_immeuble'],
-                                  $l['numero'], $l['libelle'], $l['locataire'],
-                                  (int)$l['page']]);
+                                  $l['numero'], $l['libelle'], $tb['type'], $tb['vendu'] ? 1 : 0,
+                                  $l['locataire'], (int)$l['page']]);
             }
         }
     }
@@ -3934,6 +3938,82 @@ function crgi_decider_occupation(PDO $pdo, int $importId, int $occId, string $gr
  *    un lot en contentieux s'impriment à l'identique — RONAX GIE porte 9 017,12 € d'impayés,
  *    ça peut être l'un ou l'autre. C'est un arbitrage, jamais une déduction.
  */
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+ * LE TYPE DE BIEN — LE LIBELLÉ BRUT RESTE, LA CATÉGORIE S'AJOUTE.
+ * ═════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ « LOCAL » N'EST PAS UN SILENCE, C'EST UN COMMERCE. Emmanuel, 08/09/2026 : « local =
+ *    commerce ». J'allais faire arbitrer comme indéterminés des lots que le métier lit sans
+ *    hésiter. `UN MOT DU MÉTIER N'EST PAS UN MOT INCOMPLET` — confondre « pas écrit » et
+ *    « écrit brièvement » fabrique des questions. Seul le SILENCE vaut `HABITATION`.
+ *
+ * ⚠️ L'ORDRE DES RÈGLES EST LE RÉFÉRENTIEL. « Local commercial 1 Pièce » contient à la fois
+ *    « local » et « pièce » : testé dans le mauvais ordre, un commerce devient un appartement.
+ *    Le commerce est donc cherché AVANT l'habitation, toujours.
+ *
+ * ⚠️ ET LE DOCUMENT ÉCRIT PARFOIS « VENDU » À LA PLACE DU TYPE. Ce n'est pas une nature de
+ *    bien, c'est un ÉTAT — et il est LU, pas déduit : ces lots-là n'ont pas à passer par la
+ *    file d'arbitrage « vendu ou gestion terminée ? », la réponse est imprimée.
+ */
+const CRGI_TYPES_BIEN = [
+    // Le commerce D'ABORD — voir l'avertissement sur l'ordre.
+    'LOCAL COMMERCIAL' => ['LOCAL', 'COMMERC', 'BOUTIQUE', 'MAGASIN', 'ENTREPOT', 'RESERVE'],
+    'BUREAU'           => ['BUREAU'],
+    'MAISON'           => ['MAISON', 'VILLA', 'PAVILLON'],
+    'GARAGE'           => ['GARAGE', 'PARKING', 'BOX', 'CAVE', 'CELLIER', 'REMISE'],
+    'TERRAIN'          => ['TERRAIN', 'JARDIN'],
+    'PANNEAU'          => ['PANNEAU', 'PUBLICIT', 'ANTENNE'],
+    'PARTIES COMMUNES' => ['COMMUN'],
+    'APPARTEMENT'      => ['APPART', 'STUDIO', 'PIECE', 'DUPLEX', 'LOFT', 'T1', 'T2', 'T3',
+                           'T4', 'T5', 'T6', 'F1', 'F2', 'F3', 'F4', 'F5'],
+];
+
+/**
+ * LA CATÉGORIE D'UN LOT, ET CE QUE SON LIBELLÉ RÉVÈLE D'AUTRE.
+ *
+ * ⚠️ LE LIBELLÉ BRUT N'EST JAMAIS REMPLACÉ. On ajoute une catégorie à côté : le jour où la
+ *    normalisation se trompe, ce que le document dit est encore là pour le prouver.
+ *
+ * @return array{type:string, vendu:bool, libelle:string}
+ */
+function crgi_type_de_bien(?string $libelle): array
+{
+    // ⚠️ LE LECTEUR DOUBLE PARFOIS LE LIBELLÉ — « Local commercial Local commercial »,
+    //    « Garage Garage », « Terrain Terrain ». On dédoublonne pour la lecture, sans toucher
+    //    à ce qui est conservé en base.
+    $brut = trim((string)$libelle);
+    $mots = preg_split('/\s+/u', $brut) ?: [];
+    $n = count($mots);
+    if ($n >= 2 && $n % 2 === 0) {
+        $moitie = (int)($n / 2);
+        if (implode(' ', array_slice($mots, 0, $moitie))
+            === implode(' ', array_slice($mots, $moitie))) {
+            $brut = implode(' ', array_slice($mots, 0, $moitie));
+        }
+    }
+    // ⚠️  REND DES MAJUSCULES — les repères du référentiel sont donc comparés en
+    //    majuscules. Écrits en minuscules, ils ne trouvaient RIEN : les 1 144 lots sortaient
+    //    « indéterminé », et le référentiel avait l air de fonctionner puisqu il ne plantait pas.
+    $plat = crgi_plat($brut);
+
+    // ⚠️ « VENDU » EST UN ÉTAT, PAS UNE NATURE — et il est LU.
+    $vendu = $plat !== '' && str_contains($plat, 'VENDU');
+
+    $type = 'HABITATION';           // le SILENCE, et lui seul
+    if ($plat !== '' && !$vendu) {
+        $type = 'INDETERMINE';
+        foreach (CRGI_TYPES_BIEN as $categorie => $indices) {
+            foreach ($indices as $mot) {
+                if (str_contains($plat, $mot)) {
+                    $type = $categorie;
+                    break 2;
+                }
+            }
+        }
+    }
+    return ['type' => $type, 'vendu' => $vendu, 'libelle' => $brut];
+}
+
 const CRGI_IDENTITE_PERIMETRE = 'PERIMETRE-SANS-APPEL';
 
 const CRGI_CHOIX_SANS_APPEL = [
