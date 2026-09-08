@@ -317,6 +317,34 @@ if ($phase === 3) {
     }
 }
 
+// ⚠️ CE QUI MANQUE SE RÉCLAME. Un immeuble sans rue n'est pas un défaut de lecture quand le
+//    document ne la porte pas — mais le laisser vide en silence livre un patrimoine incomplet
+//    sans que personne ne le sache. « Il faudra nous signaler cette anomalie pour que nous
+//    complétions » (Emmanuel, 08/09/2026).
+$sansAdresse = [];
+if ($phase === 2) {
+    foreach ($imports as $id => $nom) {
+        foreach (crgi_immeubles_sans_adresse($pdo, (int)$id) as $x) {
+            $x['depot'] = $nom;
+            $sansAdresse[] = $x;
+        }
+    }
+}
+
+// ⚠️ UN LOT SANS IMMEUBLE RESTE UN LOT SANS IMMEUBLE — mais il se réclame. Le code se
+//    déduit de la référence ; quand elle est courte (« 048 », « 190 ») elle ne le porte pas.
+//    Le rattacher au dernier immeuble de la page serait la faute type. Le rapprochement se
+//    fera avec les taxes foncières et les propriétaires.
+$sansImmeuble = [];
+if ($phase === 2) {
+    foreach ($imports as $id => $nom) {
+        foreach (crgi_lots_sans_immeuble($pdo, (int)$id) as $x) {
+            $x['depot'] = $nom;
+            $sansImmeuble[] = $x;
+        }
+    }
+}
+
 $occupations = [];
 if ($phase === 3) {
     foreach ($imports as $id => $nom) {
@@ -509,6 +537,69 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
         pas les connaître. La quatrième est une <b>nature de compte</b>, permanente — dite une
         fois, elle ne se redemande plus.
       </p>
+    <?php endif; ?>
+
+    <?php if ($sansImmeuble): ?>
+      <h2 style="margin-top:20px">Lots sans immeuble rattaché —
+        <?= $nb(count($sansImmeuble)) ?> à rapprocher</h2>
+      <p class="crgi-sous">
+        Le code d’immeuble se lit dans la référence du lot. Quand elle est courte —
+        « 048 », « 190 », « 276-04 » — <b>elle ne le porte pas</b>, et une page contient
+        plusieurs immeubles : rattacher au dernier rencontré serait une faute qui ne se
+        verrait plus jamais.
+        <br><b>Ces lots entreront en base sans parent</b>, et le rapprochement se fera avec les
+        taxes foncières et les propriétaires. La liste est ici pour que rien ne parte
+        incomplet sans qu’on le sache.
+      </p>
+      <div class="crgi-defile"><table>
+        <tr><th>Agence</th><th>Compte</th><th>Mandant</th><th>Lot</th><th>Type</th>
+            <th>Occupant</th><th class="num">CRG</th><th>Preuve</th></tr>
+        <?php foreach (array_slice($sansImmeuble, 0, 60) as $x): ?>
+          <tr>
+            <td><?= h((string)$x['depot']) ?></td>
+            <td><code><?= h((string)$x['compte']) ?></code></td>
+            <td><?= h(mb_substr((string)($x['proprietaire'] ?? ''), 0, 24)) ?></td>
+            <td><code><?= h((string)$x['reference']) ?></code></td>
+            <td><?= h((string)($x['type_bien'] ?? '')) ?></td>
+            <td><?= h(mb_substr((string)($x['locataire'] ?: '—'), 0, 24)) ?></td>
+            <td class="num"><?= $nb($x['crg']) ?></td>
+            <td><a href="<?= h($preuve((int)$x['crg_id'], (int)$x['page'])) ?>"
+                   target="_blank">page <?= (int)$x['page'] ?></a></td>
+          </tr>
+        <?php endforeach; ?>
+      </table></div>
+      <?php if (count($sansImmeuble) > 60): ?>
+        <p class="crgi-note"><?= $nb(count($sansImmeuble) - 60) ?> autres non affichés.</p>
+      <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if ($sansAdresse): ?>
+      <h2 style="margin-top:20px">Immeubles sans adresse de rue —
+        <?= $nb(count($sansAdresse)) ?> à compléter</h2>
+      <p class="crgi-sous">
+        Le compte rendu nomme ces immeubles — « LES BALCONS DU CARDINAL » — et donne leur
+        <b>code postal et leur ville</b>, mais <b>pas la rue</b> : elle n’est nulle part sur la
+        page. Ce n’est pas un défaut de lecture, et on ne la devine pas.
+        <br><b>Ce n’est pas un arbitrage</b> : c’est une donnée à compléter dans MBI. La liste
+        est ici pour que rien ne parte incomplet sans qu’on le sache.
+      </p>
+      <div class="crgi-defile"><table>
+        <tr><th>Agence</th><th>Immeuble</th><th>Code</th><th>Code postal</th><th>Ville</th>
+            <th class="num">CRG</th><th>Mandant</th><th>Preuve</th></tr>
+        <?php foreach ($sansAdresse as $x): ?>
+          <tr>
+            <td><?= h((string)$x['depot']) ?></td>
+            <td><b><?= h(mb_substr((string)$x['nom'], 0, 40)) ?></b></td>
+            <td><code><?= h((string)($x['code'] ?? '—')) ?></code></td>
+            <td><?= h((string)($x['code_postal'] ?? '')) ?></td>
+            <td><?= h(mb_substr((string)($x['ville'] ?? ''), 0, 22)) ?></td>
+            <td class="num"><?= $nb($x['crg']) ?></td>
+            <td><?= h(mb_substr((string)($x['proprietaire'] ?? '—'), 0, 26)) ?></td>
+            <td><a href="<?= h($preuve((int)$x['crg_id'], (int)$x['page'])) ?>"
+                   target="_blank">page <?= (int)$x['page'] ?></a></td>
+          </tr>
+        <?php endforeach; ?>
+      </table></div>
     <?php endif; ?>
 
     <?php if ($perimetres): ?>
@@ -773,7 +864,8 @@ $nb = fn($n) => number_format((int)$n, 0, ',', ' ');
       </table></div>
     <?php endif; ?>
 
-    <?php if (!$questions && !$mandats && !$sansPatrimoine && !$occupations && !$perimetres): ?>
+    <?php if (!$questions && !$mandats && !$sansPatrimoine && !$occupations && !$perimetres
+        && !$sansAdresse && !$sansImmeuble): ?>
       <h2 style="margin-top:20px">Rien à trancher sur cette phase</h2>
       <p class="crgi-note">
         <?php if (in_array($phase, [4, 5], true)): ?>

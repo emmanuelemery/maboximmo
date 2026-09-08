@@ -43,7 +43,20 @@ def extraire(textes, page_base=1):
             # ⚠️ UN EN-TÊTE « SUITE » NE ROUVRE PAS UN LOT : il continue le précédent. Le
             #    compter ajouterait une occurrence sans occupant, et le patrimoine ferait
             #    croire à un lot vacant qui n'existe pas.
+            #
+            # ⚠️ MAIS IL PORTE CE QUE LA PREMIÈRE PAGE N'A PAS EU LA PLACE D'IMPRIMER. Quand
+            #    l'en-tête d'un lot tombe en bas de page, sa ligne « Locataire: » part sur la
+            #    suivante : passer la continuation sans la lire laissait **18 lots sans
+            #    occupant** que la phase 3, elle, retrouvait. Sauter n'est pas ignorer — on ne
+            #    réouvre pas le lot, on COMPLÈTE ce qui manque.
             if seg['suite']:
+                for prec in reversed(lots):
+                    if prec['reference'] == seg['reference']:
+                        if not prec.get('locataire') and seg.get('locataire'):
+                            prec['locataire'] = seg['locataire']
+                        if not prec.get('libelle') and seg.get('libelle'):
+                            prec['libelle'] = seg['libelle']
+                        break
                 continue
             code_imm, num = code_immeuble(seg['reference'])
             lots.append({'reference': seg['reference'], 'code_immeuble': code_imm,

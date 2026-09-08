@@ -2037,14 +2037,17 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
     //    en panne : personne n'avait jamais lu ce document. Chaque famille passe donc par SON
     //    moteur certifié — voir `crg_integration_ics.py`.
     $st = $pdo->prepare(
-        'SELECT c.id, c.page_debut, c.page_fin, c.format, p.chemin
+        'SELECT c.id, c.page_debut, c.page_fin, c.format, c.proprietaire,
+                COALESCE(a.nom_agence, c.agence, "") AS agence, p.chemin
            FROM crgi_crg c JOIN crgi_piece p ON p.id = c.piece_id
+           LEFT JOIN agences a ON a.id = c.agence_id
           WHERE c.import_id = ? AND c.doublon_statut <> "REENONCIATION" ORDER BY c.page_debut'
     );
     $st->execute([$importId]);
     $insImm = $pdo->prepare(
-        'INSERT INTO crgi_immeuble (import_id, crg_id, code, nom, code_postal, ville, page)
-         VALUES (?,?,?,?,?,?,?)'
+        'INSERT INTO crgi_immeuble (import_id, crg_id, code, nom, adresse, adresse_source,
+                                    code_postal, ville, page)
+         VALUES (?,?,?,?,?,?,?,?,?)'
     );
     $insLot = $pdo->prepare(
         'INSERT INTO crgi_lot (import_id, crg_id, reference, code_immeuble, numero, libelle,
@@ -2087,7 +2090,13 @@ function crgi_extraire_patrimoine(PDO $pdo, int $importId): void
         foreach ($r as $bloc) {
             $crgId = (int)$bloc['id'];
             foreach ($bloc['immeubles'] ?? [] as $i) {
-                $insImm->execute([$importId, $crgId, $i['code'], $i['nom'],
+                // ⚠️ L'ADRESSE DE L'IMMEUBLE, ET D'AUCUN AUTRE. Le propriétaire du compte
+                //    rendu et l'agence émettrice sont passés en garde : leurs adresses
+                //    figurent sur la même page, et les confondre a déjà coûté cher.
+                [$adr, $adrSrc] = crgi_adresse_immeuble(
+                    $i['adresse'] ?? null, $i['nom'] ?? null,
+                    $c['proprietaire'] ?? null, $c['agence'] ?? null);
+                $insImm->execute([$importId, $crgId, $i['code'], $i['nom'], $adr, $adrSrc,
                                   $i['code_postal'], $i['ville'], (int)$i['page']]);
             }
             foreach ($bloc['lots'] ?? [] as $l) {
@@ -4022,6 +4031,123 @@ function crgi_type_de_bien(?string $libelle): array
         }
     }
     return ['type' => $type, 'vendu' => $vendu, 'libelle' => $brut];
+}
+
+/**
+ * L'ADRESSE D'UN IMMEUBLE — CELLE DE L'IMMEUBLE, ET D'AUCUN AUTRE.
+ *
+ * ⚠️ TROIS ADRESSES COHABITENT SUR LA MÊME PAGE : celle du MANDANT, en haut à droite ; celle
+ *    de l'AGENCE, en pied ; celle de l'IMMEUBLE, dans le corps. Les confondre a déjà coûté
+ *    **56 attributions d'agence fausses** au moment d'identifier les comptes rendus — un code
+ *    postal de propriétaire lu sur la même ligne visuelle que l'enseigne. La garde est donc
+ *    EXPLICITE : toute adresse égale au propriétaire du CRG ou au nom de l'agence est refusée.
+ *
+ * ⚠️ LES DEUX ÉDITEURS N'ÉCRIVENT PAS PAREIL, ET ON NE FAIT PAS SEMBLANT DU CONTRAIRE.
+ *      · ICS sépare le nom et la rue → `LUE`, la rue est imprimée.
+ *      · SPI n'a qu'un champ, tantôt « 15 rue Siméon Gouet », tantôt « LES BALCONS DU
+ *        CARDINAL » → `NOM EST UNE ADRESSE` quand il commence par un numéro et une voie,
+ *        `ABSENTE` sinon.
+ *    On ne DEVINE jamais une rue à partir d'un nom de résidence : on dit qu'elle manque.
+ *
+ * @return array{0:?string,1:string} l'adresse retenue, et d'où elle vient.
+ */
+const CRGI_VOIES = 'RUE|R\.|AV|AVENUE|BD|BOULEVARD|CHEMIN|CHE|PLACE|PL\.|IMPASSE|IMP|ALLEE|'
+                 . 'ALL|ROUTE|RTE|MONTEE|MTE|QUAI|COURS|GRANDE RUE|LOTISSEMENT|SQUARE|'
+                 . 'PASSAGE|VOIE|TRAVERSE|LE |LA |LES ';
+
+function crgi_adresse_immeuble(?string $adresseLue, ?string $nom,
+                               ?string $proprietaire, ?string $agence): array
+{
+    $interdit = [];
+    foreach ([$proprietaire, $agence] as $x) {
+        $plat = crgi_plat((string)$x);
+        if ($plat !== '') {
+            $interdit[] = $plat;
+        }
+    }
+    $refuse = function (string $v) use ($interdit): bool {
+        $p = crgi_plat($v);
+        if ($p === '') {
+            return true;
+        }
+        foreach ($interdit as $i) {
+            // ⚠️ L'ÉGALITÉ NE SUFFIT PAS : le bloc du mandant peut être lu tronqué ou collé.
+            //    On refuse aussi l'inclusion, dans les deux sens.
+            if ($p === $i || str_contains($p, $i) || str_contains($i, $p)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    $lue = trim((string)$adresseLue);
+    if ($lue !== '' && !$refuse($lue)) {
+        return [$lue, 'LUE'];
+    }
+    // Le nom EST-IL une adresse ? Un numéro suivi d'une voie, et rien de moins.
+    $n = trim((string)$nom);
+    if ($n !== '' && !$refuse($n)
+        && preg_match('/^\d+\s*(BIS|TER|QUATER)?\s*(' . CRGI_VOIES . ')/iu', crgi_plat($n))) {
+        return [$n, 'NOM EST UNE ADRESSE'];
+    }
+    return [null, 'ABSENTE'];
+}
+
+/**
+ * LES IMMEUBLES DONT LA RUE MANQUE — À COMPLÉTER, PAS À DEVINER.
+ *
+ * ⚠️ CE N'EST PAS UN DÉFAUT DE LECTURE, ET C'EST POUR çA QU'IL FAUT LE DIRE. Quand un
+ *    éditeur imprime « Immeuble LES BALCONS DU CARDINAL - 69390 VERNAISON », la rue n'est
+ *    NULLE PART sur la page : la deviner serait inventer. Mais la laisser vide en silence,
+ *    c'est livrer un patrimoine incomplet sans que personne ne le sache. Emmanuel,
+ *    08/09/2026 : « il faudra nous signaler cette anomalie pour que nous complétions ».
+ *
+ * ⚠️ ON DONNE LA VILLE ET LE CODE POSTAL, QUI EUX SONT LUS. Compléter une adresse dont on
+ *    connaît déjà la commune et le nom de résidence prend quelques secondes ; repartir d'une
+ *    ligne vide en prend beaucoup plus.
+ */
+function crgi_immeubles_sans_adresse(PDO $pdo, int $importId): array
+{
+    $st = $pdo->prepare(
+        'SELECT MIN(m.id) AS id, m.nom, MIN(m.code) AS code, m.code_postal, m.ville,
+                COUNT(DISTINCT m.crg_id) AS crg, MIN(m.crg_id) AS crg_id, MIN(m.page) AS page,
+                MIN(c.proprietaire) AS proprietaire
+           FROM crgi_immeuble m JOIN crgi_crg c ON c.id = m.crg_id
+          WHERE m.import_id = ? AND m.adresse_source = "ABSENTE"
+          GROUP BY m.nom, m.code_postal, m.ville
+          ORDER BY m.ville, m.nom'
+    );
+    $st->execute([$importId]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * LES LOTS QUI N'ONT PAS D'IMMEUBLE — À RAPPROCHER, PAS À DEVINER.
+ *
+ * ⚠️ `UN LOT SANS IMMEUBLE RESTE UN LOT SANS IMMEUBLE.` Le code d'immeuble se déduit de la
+ *    référence du lot ; quand elle est courte — « 048 », « 190 », « 276-04 » — elle ne le
+ *    porte pas. Le rattacher au dernier immeuble rencontré sur la page serait la faute type :
+ *    une page en contient plusieurs, et un bien mal rattaché ne se voit plus jamais.
+ *
+ * ⚠️ MESURÉ : **117 lots sur 473 à VIENNE**, 19 à CHAPONOST. Un quart d'un portefeuille
+ *    entrerait en base sans parent. Ce n'est pas un défaut de lecture — le document ne porte
+ *    pas le code — mais c'est une donnée manquante, et elle se réclame plutôt que de partir
+ *    en silence. Le rapprochement se fera avec les taxes foncières et les propriétaires,
+ *    décision d'Emmanuel du 08/09/2026.
+ */
+function crgi_lots_sans_immeuble(PDO $pdo, int $importId): array
+{
+    $st = $pdo->prepare(
+        'SELECT c.compte, l.reference, MIN(l.libelle) AS libelle, MIN(l.type_bien) AS type_bien,
+                MIN(l.locataire) AS locataire, COUNT(DISTINCT l.crg_id) AS crg,
+                MIN(l.crg_id) AS crg_id, MIN(l.page) AS page, MIN(c.proprietaire) AS proprietaire
+           FROM crgi_lot l JOIN crgi_crg c ON c.id = l.crg_id
+          WHERE l.import_id = ? AND l.code_immeuble IS NULL
+          GROUP BY c.compte, l.reference
+          ORDER BY c.compte, l.reference'
+    );
+    $st->execute([$importId]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
 const CRGI_IDENTITE_PERIMETRE = 'PERIMETRE-SANS-APPEL';

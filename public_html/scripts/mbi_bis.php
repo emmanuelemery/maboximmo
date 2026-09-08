@@ -59,6 +59,12 @@ const BIS_LISTE_BLANCHE = [
     'biens',
     'bien_baux',
     'tiers',
+    // ⚠️ AJOUTÉES POUR L'INTÉGRATEUR. Il écrit dans ces tables ; sans elles dans la
+    //    liste, la SIMULATION elle-même échouait — et on ne pouvait pas mesurer ce
+    //    qu'un import ferait AVANT de le faire, ce qui est tout l'objet du bac à sable.
+    'tiers_roles',
+    'locataires_statuts',
+    'types_bien',
     // ⚠️ `crg_trimestres` EST UN INVENTAIRE, PAS UNE RÉPONSE — et l'exclure bloquait la
     //    phase 1 entière. Le filtre portait sur le préfixe `crg_*` parce que DEUX de ces
     //    tables sont l'oracle : `crg_extractions` et `crg_situations_locataires`, qui

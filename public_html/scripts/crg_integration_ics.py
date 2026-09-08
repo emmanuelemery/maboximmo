@@ -57,6 +57,11 @@ def patrimoine(doc, debut=1, fin=None):
             continue
         immeubles.append({
             'nom': normaliser(im.get('nom') or ''),
+            # ⚠️ L'ADRESSE ÉTAIT LUE PUIS JETÉE. Le moteur capte quatre champs, ce pont n'en
+            #    transmettait que trois — la rue n'avait nulle part où atterrir. Sur un dépôt,
+            #    367 immeubles sur 594 portaient un nom de résidence et leur rue était
+            #    disponible. Même faute que les honoraires, sur un autre champ.
+            'adresse': normaliser(im.get('adresse') or ''),
             'code_postal': im.get('code_postal') or '',
             'ville': normaliser(im.get('ville') or ''),
             'page': page,

@@ -1465,6 +1465,57 @@ commit          le hash
 
 ---
 
+## APP-0086 · Une simulation qui ne rend pas d'identifiant ment sur ses propres chiffres
+
+| | |
+|---|---|
+| **phénomène** | En mode simulation, la fonction d'écriture ne rendait rien pour une création — logique en apparence, puisqu'aucune ligne n'est écrite. Sauf que la **carte des identifiants** restait vide : les biens créés n'existaient pour personne, et les baux qui les cherchaient se comptaient « ignorés ». |
+| **preuve** | 09/09/2026. La simulation annonçait **598 baux ignorés faute de bien**, et **9 rôles créés** au lieu de 1 757. Après correction — un identifiant NÉGATIF, reconnaissable et impossible à confondre avec une vraie ligne — les baux ignorés tombent à **7** et les rôles à **1 757**. |
+| **abstraction** | `UNE SIMULATION DOIT COMPTER CE QU'UN IMPORT FERAIT, PAS CE QU'ELLE-MÊME ARRIVE À FAIRE.` Le mode d'essai avait sa propre défaillance, et il l'attribuait aux données. C'est la pire forme de faux négatif : on regarde un chiffre alarmant, on cherche le défaut dans le corpus, et il est dans l'instrument. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Toute simulation rend les mêmes valeurs de retour qu'une exécution réelle — identifiants compris, sous une forme reconnaissable. Et une garde refuse qu'un identifiant fictif atteigne une écriture réelle : le voir là signifierait que les deux modes se sont mélangés. |
+| **composant** | `crg_integrateur.php::crgi_ecrire()` |
+| **tests** | Fixture : une simulation sur deux familles liées doit rendre le même nombre d'objets qu'une exécution réelle. |
+| **corpus** | 598 → 7 baux ignorés · 9 → 1 757 rôles |
+| **limites** | L'identifiant fictif ne vaut que dans la passe ; il ne survit pas d'une simulation à l'autre, ce qui est voulu. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0087 · Un rapprochement qui ne rapproche rien crée des doublons en silence
+
+| | |
+|---|---|
+| **phénomène** | La recherche d'un tiers déjà en base comparait un nom **normalisé** — majuscules, accents et ponctuation retirés — à un simple `UPPER(TRIM())` qui conserve points et apostrophes. Les deux côtés n'étaient pas normalisés pareil : la comparaison ne pouvait pas réussir. |
+| **preuve** | 09/09/2026. `M. ET MME X` ne rejoignait jamais `M ET MME X`. La simulation annonçait **1 808 créations de tiers** sur une base qui en porte 961, sans qu'aucune erreur ne se produise. Second défaut au même endroit : la clé concaténait `raison_sociale` ET `nom`, qui portent la même valeur pour une personne morale — d'où « SCI FAVRESCI FAVRE ». |
+| **abstraction** | `UN RAPPROCHEMENT QUI NE RAPPROCHE RIEN NE SE VOIT PAS.` Il ne lève aucune exception, ne ralentit rien, ne remplit aucun journal d'erreur : il crée simplement des doublons, et on ne s'en aperçoit qu'en comptant les objets créés. **Toute comparaison doit normaliser LES DEUX CÔTÉS avec la même fonction** — une seule suffit à rendre le rapprochement stérile. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Les deux membres d'une comparaison d'identité passent par la MÊME fonction de normalisation, appelée explicitement de part et d'autre. Jamais une normalisation SQL d'un côté et PHP de l'autre. |
+| **composant** | `crg_integrateur.php::crgi_poser_tiers()` |
+| **tests** | Fixture : « M. ET MME DUPONT » et « M ET MME Dupont » doivent rendre le même tiers. |
+| **corpus** | 1 808 → 1 747 créations, dont l'écart est réel (la V1 ne porte que 3 locataires en tant que tiers) |
+| **limites** | La comparaison parcourt les tiers en mémoire : acceptable à 961 lignes, à revoir au-delà de quelques dizaines de milliers. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0088 · Un import n'est annulable que si TOUTE écriture passe par un seul endroit
+
+| | |
+|---|---|
+| **phénomène** | Le moteur d'écriture historique ne savait revenir en arrière que sur **deux tables** — `biens` et `immeubles`, passées en « archive ». Les propriétaires, tiers, mandats, baux et statuts de locataires qu'il créait étaient comptés « sautés » : ils restaient. Un import raté laissait donc des personnes et des baux à retrouver à la main. |
+| **preuve** | 09/09/2026, lecture de `crg_moteur_defaire()` : deux branches seulement, `CORRIGER` avec état d'avant, et `CREER` sur `biens|immeubles`. Tout le reste tombe dans `sautees`. |
+| **abstraction** | `UN IMPORT ANNULABLE N'EST PAS UN IMPORT QU'ON PENSE POUVOIR ANNULER : C'EST UN IMPORT DONT TOUTE ÉCRITURE PASSE PAR UN SEUL ENDROIT QUI LA NOTE.` Dès qu'une écriture s'échappe — une table oubliée, un `INSERT` direct « juste pour cette fois » — l'annulation ment, et elle ment silencieusement : elle rapporte un succès sur ce qu'elle a su défaire. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Un point d'écriture unique, qui journalise table, identifiant, action et **l'état d'avant sur les seules colonnes modifiées** — journaliser la ligne entière ferait revenir, à l'annulation, des champs qu'un humain a changés depuis. L'annulation rejoue à l'envers : une création est supprimée, une modification restaurée, **une ligne jamais touchée n'apparaît pas au journal donc n'est jamais approchée**. |
+| **composant** | `crg_integrateur.php::crgi_ecrire()` et `crgi_defaire()`, table `crgi_journal` |
+| **tests** | Fixture : intégrer puis défaire doit rendre la base identique, y compris sur les familles que le moteur historique ne savait pas défaire. |
+| **corpus** | 5 familles · 6 tables métier |
+| **limites** | Une ligne créée par l'import puis référencée ailleurs par un humain ne peut plus être supprimée : l'échec est nommé, jamais avalé. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
