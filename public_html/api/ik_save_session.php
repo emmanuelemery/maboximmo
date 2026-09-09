@@ -12,6 +12,9 @@ $userId = current_user_id();
 
 if (!$pdo) { echo json_encode(['ok' => false, 'error' => 'DB indisponible']); exit; }
 
+// Délégation IK : l'admin/manager agit sur un collaborateur via ?id_user= (scope contrôlé).
+$userId = rh_ik_resolve_target($pdo, (int)($_GET['id_user'] ?? 0));
+
 $data = json_decode(file_get_contents('php://input'), true) ?: [];
 
 $id              = isset($data['id']) ? (int)$data['id'] : 0;
@@ -32,10 +35,12 @@ if ($id > 0) {
     if (!$row || ($row['id_user'] != $userId && $roleId > 1 === false)) {
         echo json_encode(['ok' => false, 'error' => 'Accès refusé']); exit;
     }
-    if (rh_is_salary_month_closed($pdo, $row['mois_paie'] ?? '')) {
+    // La clôture se juge sur la société du collaborateur — l'ancien mois de
+    // paie comme le nouveau, puisque déplacer une session touche les deux.
+    if (rh_is_salary_month_closed($pdo, $row['mois_paie'] ?? '', $userId)) {
         echo json_encode(['ok' => false, 'error' => 'Mois de paie clôturé']); exit;
     }
-    if (rh_is_salary_month_closed($pdo, $moisPaie)) {
+    if (rh_is_salary_month_closed($pdo, $moisPaie, $userId)) {
         echo json_encode(['ok' => false, 'error' => 'Mois de paie clôturé']); exit;
     }
 
@@ -43,7 +48,9 @@ if ($id > 0) {
     $stmt->execute([$moisPaie, $vehiculeInfo, $id]);
     echo json_encode(['ok' => true, 'id' => $id]);
 } else {
-    if (rh_is_salary_month_closed($pdo, $moisPaie)) {
+    // Création : même règle, sinon on ne peut pas ouvrir un mois pour un
+    // collaborateur dont la société est pourtant ouverte.
+    if (rh_is_salary_month_closed($pdo, $moisPaie, $userId)) {
         echo json_encode(['ok' => false, 'error' => 'Mois de paie clôturé']); exit;
     }
     // Créer ou retrouver la session existante pour ce mois

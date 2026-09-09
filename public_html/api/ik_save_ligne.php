@@ -12,6 +12,9 @@ $userId = current_user_id();
 
 if (!$pdo) { echo json_encode(['ok' => false, 'error' => 'DB indisponible']); exit; }
 
+// Délégation IK : l'admin/manager agit sur un collaborateur via ?id_user= (scope contrôlé).
+$userId = rh_ik_resolve_target($pdo, (int)($_GET['id_user'] ?? 0));
+
 $data = json_decode(file_get_contents('php://input'), true) ?: [];
 
 $idSession = (int)($data['id_session'] ?? 0);
@@ -25,7 +28,8 @@ if (!$session || $session['id_user'] != $userId) {
     echo json_encode(['ok' => false, 'error' => 'Accès refusé']); exit;
 }
 
-if (rh_is_salary_month_closed($pdo, $session['mois_paie'] ?? '')) {
+// La clôture se juge sur la société du collaborateur concerné, jamais globalement.
+if (rh_is_salary_month_closed($pdo, $session['mois_paie'] ?? '', $userId)) {
     echo json_encode(['ok' => false, 'error' => 'Mois de paie clôturé']); exit;
 }
 

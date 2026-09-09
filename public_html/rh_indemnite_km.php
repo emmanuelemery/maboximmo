@@ -15,6 +15,15 @@ if (!$pdo) { http_response_code(500); exit('Erreur DB'); }
 
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
+// ── Utilisateur CIBLE (délégation IK multi-collaborateur) ─────────────────────
+// $userId devient la personne dont on gère les IK ; l'admin/manager peut basculer
+// via ?id_user= (scope contrôlé : super admin = société, manager = son agence).
+$currentUserId  = $userId;                         // l'utilisateur connecté
+$requestedUser  = (int)($_GET['id_user'] ?? $_POST['id_user'] ?? 0);
+$userId         = rh_ik_resolve_target($pdo, $requestedUser);
+$isDelegatedIK  = ($userId !== $currentUserId);    // on gère quelqu'un d'autre
+$ikCollabList   = rh_ik_collab_list($pdo);         // [] pour un simple user
+
 // ── Charger l'utilisateur connecté ───────────────────────────────────────────
 $stmtUser = $pdo->prepare("
     SELECT u.id, u.nom, u.prenom, u.vehicule_nom, u.vehicule_puissance_fiscale,
@@ -51,7 +60,11 @@ $stmtSessions->execute([$userId]);
 $sessions = $stmtSessions->fetchAll(PDO::FETCH_ASSOC);
 if ($sessions) {
     foreach ($sessions as &$s) {
-        $s['mois_paie_bloque'] = rh_is_salary_month_closed($pdo, $s['mois_paie'] ?? '');
+        // ⚠️ LA CLÔTURE SE JUGE SUR LA SOCIÉTÉ DU COLLABORATEUR, pas sur la
+        //    base entière. Sans ce troisième argument, une seule fiche de paie
+        //    close — celle de n'importe qui, dans n'importe quelle société —
+        //    grisait l'écran de tout le monde.
+        $s['mois_paie_bloque'] = rh_is_salary_month_closed($pdo, $s['mois_paie'] ?? '', (int)$s['id_user']);
     }
     unset($s);
 }
@@ -119,10 +132,26 @@ $gKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : ($GLOBALS['GOOGLE
 // ══════════════════════════════════════════════════════════════════════════════
 //  LAYOUT VARIABLES
 // ══════════════════════════════════════════════════════════════════════════════
-$_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? ''));
-$layout_title   = 'Indemnités KM — ' . h($_userName);
+// Nom affiché = utilisateur CIBLE (délégation) et non le connecté.
+$_userName = trim(($user['prenom'] ?? '') . ' ' . ($user['nom'] ?? ''));
+if ($_userName === '') { $_userName = trim(($_SESSION['prenom'] ?? '') . ' ' . ($_SESSION['nom'] ?? '')); }
+$layout_title   = 'Indemnités KM — ' . h($_userName) . ($isDelegatedIK ? ' (délégation)' : '');
 $layout_module  = 'Ma Box RH';
 $layout_sidebar = 'rh_sidebar';
+
+// Sélecteur de collaborateur (super admin = société, manager = son agence).
+$ikSelectorHtml = '';
+if (count($ikCollabList) > 1) {
+    $ikSelectorHtml = '<select class="ph-btn" style="padding:0 10px" title="Gérer les IK d\'un collaborateur" '
+        . 'onchange="if(this.value)location.href=\'rh_indemnite_km.php?id_user=\'+this.value">';
+    foreach ($ikCollabList as $c) {
+        $cid = (int)$c['id'];
+        $sel = ($cid === (int)$userId) ? ' selected' : '';
+        $ikSelectorHtml .= '<option value="' . $cid . '"' . $sel . '>'
+            . h(trim($c['prenom'] . ' ' . $c['nom'])) . '</option>';
+    }
+    $ikSelectorHtml .= '</select>';
+}
 
 $layout_head_kpis = '
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#2f587d">' . count($sessions) . '</div><div class="ph-kpi-lbl">Sessions</div></div>
@@ -133,7 +162,7 @@ $layout_head_kpis = '
     <div class="ph-kpi"><div class="ph-kpi-val" style="color:#2f587d;font-weight:700">' . h($user['prenom'] . ' ' . $user['nom']) . '</div><div class="ph-kpi-lbl">Collaborateur</div></div>
 ';
 
-$layout_head_actions = '
+$layout_head_actions = $ikSelectorHtml . '
     <a href="rh_salaires.php" class="ph-btn" title="Retour salaires">
         <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> Salaires
     </a>
@@ -252,7 +281,27 @@ $layout_extra_css = <<<'EXTRACSS'
         .ik-table tbody tr:nth-child(even):not(.ik-row-empty) td { background: rgba(54,87,125,0.13); }
         .ik-table tbody tr:nth-child(odd):not(.ik-row-empty) td  { background: rgba(54,87,125,0.07); }
         .ik-table tr:hover td { background: rgba(54,87,125,0.22) !important; }
-        .ik-table tr.ik-row-empty td { opacity: .4; background: transparent !important; }
+        /* ⚠️🔥 L'OPACITÉ NE SE MET PAS SUR LA CELLULE — ELLE Y PIÉGEAIT LA LISTE
+           DE PROPOSITIONS. `opacity: .4` sur le `td` faisait deux dégâts d'un
+           coup sur les lignes encore vides :
+             1. la liste d'immeubles, qui vit DANS la cellule, héritait des
+                40 % et s'affichait délavée — « c'est grisé » ;
+             2. une opacité < 1 crée un CONTEXTE D'EMPILEMENT : le
+                `z-index: 9999` de `.ik-imm-results` restait prisonnier de la
+                cellule, la liste passait DERRIÈRE les lignes suivantes, et le
+                clic atterrissait sur le champ qui la recouvrait.
+           D'où le symptôme rapporté le 09/09/2026 : « ça me la propose mais je
+           ne peux pas la mettre ». Et son indice décisif : dès qu'un point de
+           départ était saisi, `markRowActive()` retirait `ik-row-empty` et tout
+           refonctionnait.
+           Même famille que le `position: fixed` neutralisé par un ancêtre
+           transformé, déjà rencontré sur les modales : ce n'est pas le z-index
+           qu'il faut monter, c'est le contexte d'empilement qu'il ne faut pas
+           créer. On atténue donc les CHAMPS, jamais leur conteneur. */
+        .ik-table tr.ik-row-empty td { background: transparent !important; }
+        .ik-table tr.ik-row-empty .ik-input,
+        .ik-table tr.ik-row-empty select,
+        .ik-table tr.ik-row-empty button { opacity: .4; }
 
         /* Cellules de saisie */
         .ik-input {
@@ -688,9 +737,23 @@ ob_start();
         foreach ($sessions as $sA) { $sessionsMap[$sA['mois_deplacements']] = $sA; }
         $nomsCourtsMois = ['Jan','Fév','Mar','Avr','Mai','Jui','Jul','Aoû','Sep','Oct','Nov','Déc'];
         $nomsLongsMois  = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-        // Mois M-1, M, M+1 pour Nouvelle session
+        // Mois M-4 à M+1 pour Nouvelle session.
+        //
+        // ⚠️ LA FENÊTRE ÉTAIT M-1 À M+1, ET C'ÉTAIT LE VRAI BLOCAGE. Un
+        //    collaborateur qui n'avait pas saisi depuis trois mois ne pouvait
+        //    plus créer la session du mois manquant : le mois n'était tout
+        //    simplement pas proposé. Rien ne le disait à l'écran — ni message,
+        //    ni bouton grisé — il n'y avait qu'une absence.
+        //
+        //    Emmanuel, 09/09/2026 : « on doit avoir le choix d'un mois non
+        //    validé jusqu'à mois -4 pour créer la session ». C'est aussi ce qui
+        //    donne son sens aux DEUX menus : on saisit un déplacement d'un mois
+        //    passé, et on le reporte sur la paie en cours.
+        //
+        // Un mois qui porte déjà une session sort en `ik-pill-exists` — il
+        // reste visible, mais il ne se recrée pas.
         $pillsMoisNew = [];
-        for ($delta = -1; $delta <= 1; $delta++) {
+        for ($delta = -4; $delta <= 1; $delta++) {
             $mo = $moisEnCours + $delta;
             $yo = $anneeEnCours;
             if ($mo < 1) { $mo += 12; $yo--; }
@@ -1532,7 +1595,7 @@ async function saveLigne(tr) {
         return;
     }
     try {
-        const r = await fetch('api/ik_save_ligne.php', {
+        const r = await fetch('api/ik_save_ligne.php?id_user=<?=$userId?>', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
@@ -2271,7 +2334,7 @@ async function deleteLigne(btn) {
     const id = parseInt(tr.dataset.ligneId || 0);
     if (!confirm('Supprimer ce déplacement ?')) return;
     if (id > 0) {
-        await fetch('api/ik_delete_ligne.php', {
+        await fetch('api/ik_delete_ligne.php?id_user=<?=$userId?>', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({id})
@@ -2327,7 +2390,7 @@ function toggleSession(sessId, btn) {
 async function clotureSession(sessId) {
     if (!confirm('Envoyer le total des KM de cette session en paie ?')) return;
     try {
-        const r = await fetch('api/ik_cloture_session.php', {
+        const r = await fetch('api/ik_cloture_session.php?id_user=<?=$userId?>', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({id: sessId})
@@ -2351,7 +2414,7 @@ async function deleteSession(sessId) {
     if (isSessionLocked(sessId)) { alert('Mois de paie clôturé : modification impossible.'); return; }
     if (!confirm('Supprimer cette session et toutes ses lignes ?')) return;
     try {
-        const r = await fetch('api/ik_delete_session.php', {
+        const r = await fetch('api/ik_delete_session.php?id_user=<?=$userId?>', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({id: sessId})
@@ -2660,7 +2723,7 @@ async function createSession() {
     }
     msg.style.display = 'none';
 
-    const r = await fetch('api/ik_save_session.php', {
+    const r = await fetch('api/ik_save_session.php?id_user=<?=$userId?>', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({mois_deplacements: moisDep, mois_paie: moisPaie, vehicule_info: '<?=addslashes($user['vehicule_nom'] ?? '')?>'})
@@ -2690,7 +2753,7 @@ async function saveNewMoisPaie() {
     const mois   = document.getElementById('modal-mois-select').value;
     const annee  = document.getElementById('modal-annee-select').value;
     const newMois = annee + '-' + mois;
-    const r = await fetch('api/ik_save_session.php', {
+    const r = await fetch('api/ik_save_session.php?id_user=<?=$userId?>', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id: parseInt(sessId), mois_deplacements: '0000-00', mois_paie: newMois})
@@ -2719,7 +2782,7 @@ async function saveDomicile() {
         if (geo.lat) { lat = geo.lat; lng = geo.lng; }
     } catch(e) {}
 
-    const r = await fetch('api/ik_save_domicile.php', {
+    const r = await fetch('api/ik_save_domicile.php?id_user=<?=$userId?>', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({adresse, code_postal: cp, ville, latitude: lat, longitude: lng})

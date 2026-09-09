@@ -181,30 +181,109 @@ if (!function_exists('rh_is_manager')) {
     }
 }
 if (!function_exists('rh_is_salary_month_closed')) {
-    function rh_is_salary_month_closed(PDO $pdo, string $ym): bool
+    /**
+     * Le mois de paie est-il clôturé ?
+     *
+     * ⚠️🔥 SANS `$idUser`, LA RÉPONSE EST GLOBALE — et « globale » veut dire
+     *    qu'UNE SEULE fiche de paie clôturée, celle de n'importe qui, dans
+     *    n'importe quelle société, ferme le mois pour TOUT LE MONDE. La requête
+     *    d'origine ne portait ni `id_user` ni `id_societe` :
+     *
+     *        SELECT 1 FROM salaires
+     *         WHERE mois_reference LIKE '2026-06-%' AND mois_cloture IS NOT NULL
+     *
+     *    Constaté le 09/09/2026 : une collaboratrice ne pouvait plus saisir ses
+     *    déplacements de juin à septembre — écran entièrement grisé, badge
+     *    « Mois de paie clôturé » — alors qu'aucune de SES fiches n'était close.
+     *
+     * ⚠️ IL EXISTE UN SECOND MAGASIN DE CLÔTURE, `mois_clos` (par société,
+     *    migration `20260811_mois_clos_par_societe`, lu par `inc/rh_cloture.php`).
+     *    On ne l'interroge PAS ici, délibérément : il dit qu'une PAIE est
+     *    arrêtée, pas que les kilomètres d'un salarié y ont été déclarés. Un
+     *    mois arrêté pour la société n'empêche pas de saisir des déplacements
+     *    à reporter sur une paie ultérieure — c'est le cas d'usage même de
+     *    l'écran. Les deux registres répondent à deux questions différentes.
+     *
+     * @param ?int $idUser Le collaborateur concerné. Fourni = « SA fiche de ce
+     *                     mois est-elle clôturée ». Omis = ancienne réponse
+     *                     globale, conservée pour les écrans de paie qui n'ont
+     *                     pas de salarié en main (pilotage, fiches manquantes).
+     */
+    function rh_is_salary_month_closed(PDO $pdo, string $ym, ?int $idUser = null): bool
     {
         static $cache = [];
         $ym = trim($ym);
         if ($ym === '') {
             return false;
         }
-        if (array_key_exists($ym, $cache)) {
-            return (bool)$cache[$ym];
+        // ⚠️ LA CLÉ DE CACHE PORTE L'UTILISATEUR. Sans lui, la réponse du
+        //    premier salarié servait à tous les suivants dans la même page —
+        //    et l'écran des IK en affiche justement plusieurs mois d'affilée.
+        $cle = $ym . '|' . ($idUser ?? 0);
+        if (array_key_exists($cle, $cache)) {
+            return (bool)$cache[$cle];
         }
         if (!preg_match('/^\d{4}-\d{2}$/', $ym)) {
-            $cache[$ym] = false;
+            $cache[$cle] = false;
             return false;
         }
+
+        // ── Réponse SCOPÉE : SA fiche de paie de ce mois-là, et rien d'autre ──
+        //
+        // 🔥 LA RÈGLE MÉTIER, ÉNONCÉE PAR EMMANUEL LE 09/09/2026 :
+        //
+        //    « On doit pouvoir créer des IK sur les mois qui n'ont JAMAIS été
+        //      déclarés dans les salaires, et les mettre sur le mois en cours.
+        //      Il ne faut bloquer que si ces IK ont été déclarées dans un
+        //      salaire d'avant qui est bloqué. »
+        //
+        // C'est tout l'objet des deux menus de l'écran : on choisit le mois du
+        // DÉPLACEMENT, puis le mois de PAIE où on veut le reporter. Un trajet
+        // de juin peut donc parfaitement partir sur la paie de septembre.
+        //
+        // Un mois sans aucune fiche de paie pour ce salarié n'est PAS clos : il
+        // n'a jamais été déclaré. Le refuser interdisait de rattraper un
+        // arriéré, ce qui est exactement le cas d'usage.
+        //
+        // ⚠️ `salaires.id_user` peut porter l'identifiant LEGACY du salarié :
+        //    la reprise a laissé les deux, et `ik_cloture_session.php` résout
+        //    déjà `id_legacy` avant d'écrire. Chercher sur le seul `id` moderne
+        //    ne trouverait pas la fiche, et rendrait « ouvert » un mois clos.
+        if ($idUser !== null && $idUser > 0) {
+            $st = $pdo->prepare("SELECT id_legacy FROM users WHERE id = ? LIMIT 1");
+            $st->execute([$idUser]);
+            $legacy = (int)($st->fetchColumn() ?: 0);
+
+            $st = $pdo->prepare(
+                "SELECT 1 FROM salaires
+                  WHERE mois_reference LIKE :mois
+                    AND mois_cloture IS NOT NULL
+                    AND id_user IN (:u1, :u2)
+                  LIMIT 1"
+            );
+            // ⚠️ Deux marqueurs distincts pour la même valeur quand il n'y a pas
+            //    de legacy : un placeholder nommé ne se réutilise pas avec
+            //    EMULATE_PREPARES à false.
+            $st->execute([
+                'mois' => $ym . '-%',
+                'u1'   => $idUser,
+                'u2'   => $legacy > 0 ? $legacy : $idUser,
+            ]);
+            $cache[$cle] = (bool)$st->fetchColumn();
+            return (bool)$cache[$cle];
+        }
+
+        // ── Réponse GLOBALE, historique — voir l'avertissement en tête ──────
         if (!rh_table_exists($pdo, 'salaires')
             || !rh_column_exists($pdo, 'salaires', 'mois_reference')
             || !rh_column_exists($pdo, 'salaires', 'mois_cloture')) {
-            $cache[$ym] = false;
+            $cache[$cle] = false;
             return false;
         }
         $stmt = $pdo->prepare("SELECT 1 FROM salaires WHERE mois_reference LIKE ? AND mois_cloture IS NOT NULL LIMIT 1");
         $stmt->execute([$ym . '-%']);
-        $cache[$ym] = (bool)$stmt->fetchColumn();
-        return (bool)$cache[$ym];
+        $cache[$cle] = (bool)$stmt->fetchColumn();
+        return (bool)$cache[$cle];
     }
 }
 if (!function_exists('rh_bank_table_name')) {
@@ -355,5 +434,63 @@ if (!function_exists('rh_bank_save')) {
             }
             throw $e;
         }
+    }
+}
+
+/**
+ * ── Indemnités kilométriques : gestion multi-collaborateur ────────────────────
+ * Périmètre de délégation IK :
+ *   - super admin (rôle 1) : n'importe quel collaborateur de sa société ;
+ *   - manager    (rôle 2) : uniquement les collaborateurs de SON agence ;
+ *   - user       (rôle 3) : uniquement lui-même.
+ */
+if (!function_exists('rh_ik_can_manage')) {
+    function rh_ik_can_manage(PDO $pdo, int $targetUserId): bool
+    {
+        $cur = (int) current_user_id();
+        if ($targetUserId <= 0 || $targetUserId === $cur) { return true; }
+        $role = (int) current_role_id();
+        if ($role === 1) { return true; }
+        if ($role === 2) {
+            $st = $pdo->prepare("SELECT COUNT(*) FROM users WHERE id=? AND id_agence=? AND actif=1");
+            $st->execute([$targetUserId, (int) current_agence_id()]);
+            return (int) $st->fetchColumn() > 0;
+        }
+        return false;
+    }
+}
+
+if (!function_exists('rh_ik_resolve_target')) {
+    /** Résout l'utilisateur cible (GET/POST id_user) avec contrôle de périmètre ; retombe sur soi. */
+    function rh_ik_resolve_target(PDO $pdo, int $requested): int
+    {
+        $cur = (int) current_user_id();
+        if ($requested > 0 && $requested !== $cur && rh_ik_can_manage($pdo, $requested)) {
+            return $requested;
+        }
+        return $cur;
+    }
+}
+
+if (!function_exists('rh_ik_collab_list')) {
+    /** Liste des collaborateurs sélectionnables selon le rôle (vide = pas de sélecteur). */
+    function rh_ik_collab_list(PDO $pdo): array
+    {
+        $role = (int) current_role_id();
+        if ($role === 1) {
+            $soc = (int) ($_SESSION['id_societe'] ?? 0);
+            if ($soc > 0) {
+                $st = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE actif=1 AND id_societe=? ORDER BY nom, prenom");
+                $st->execute([$soc]);
+                return $st->fetchAll(PDO::FETCH_ASSOC);
+            }
+            return $pdo->query("SELECT id, prenom, nom FROM users WHERE actif=1 ORDER BY nom, prenom")->fetchAll(PDO::FETCH_ASSOC);
+        }
+        if ($role === 2) {
+            $st = $pdo->prepare("SELECT id, prenom, nom FROM users WHERE actif=1 AND id_agence=? ORDER BY nom, prenom");
+            $st->execute([(int) current_agence_id()]);
+            return $st->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return [];
     }
 }
