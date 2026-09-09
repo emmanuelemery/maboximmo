@@ -1516,6 +1516,108 @@ commit          le hash
 
 ---
 
+## APP-0089 · Une variante de lecteur n'est pas un référentiel d'identifiants
+
+| | |
+|---|---|
+| **phénomène** | La clé d'un objet importé portait le FORMAT lu sur la page. Le moteur ICS a deux variantes — `lyon` et `emery_immo` — qui lisent le **même** référentiel de codes : le même bâtiment entrait donc deux fois, une par variante qui l'avait rencontré. |
+| **preuve** | 09/09/2026. **22 codes d'immeuble et 31 références de lot** de l'agence 3 portaient les deux variantes. Après avoir fait suivre le référentiel à l'AGENCE et non au format, les 372 lots du dépôt de Lyon retombent à 341, et le total du corpus à 1 125 — exactement le nombre de lots distincts mesuré indépendamment. |
+| **abstraction** | `UNE VARIANTE DE LECTEUR N'EST PAS UN RÉFÉRENTIEL D'IDENTIFIANTS.` Le nom du format dit comment on a LU ; il ne dit pas de quel système de numérotation le code provient. Confondre les deux fabrique un doublon par variante. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Le référentiel d'un code se déduit de l'entité qui le frappe — ici l'agence — jamais du lecteur qui l'a déchiffré. Il se déduit du corpus, par majorité, pour qu'une agence qui changerait d'éditeur soit visible au lieu d'être présumée. |
+| **composant** | `crgv2_plan.php::systemesParAgence()` |
+| **tests** | Fixture : deux CRG du même immeuble lus par deux variantes doivent produire UN immeuble. |
+| **corpus** | 22 immeubles · 31 lots · 1 157 → 1 126 biens |
+| **limites** | Une agence ayant réellement migré d'éditeur porterait deux référentiels ; la majorité en cacherait un. `objet_codes` sait déjà représenter ce cas, la déduction non. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0090 · On filtre une adresse par la structure du document, pas par la forme d'une rue
+
+| | |
+|---|---|
+| **phénomène** | Des en-têtes de page — « SITUATION DES LOCATAIRES - 2e Trimestre 2026 », « RECAPITULATIF DES OPERATIONS » — et un nom d'agence étaient entrés dans la colonne adresse de l'immeuble. Ma première parade exigeait qu'une adresse commence par un numéro ou un type de voie. |
+| **preuve** | 09/09/2026. Cette parade rejetait `Chabrepine`, `LIEUDIT LE MONINSABLE`, `ZAC DU TISSOT`, `MAIL DE ROCHELONGUE` — 8 adresses parfaitement valides sur 21 signalées. La règle inverse — nommer les en-têtes et les raisons sociales des agences — n'écarte que les 13 vrais en-têtes et le nom d'agence, et fait passer les adresses renseignées de **512 à 558**. |
+| **abstraction** | `UNE RÈGLE QUI DÉCRIT CE QU'UNE DONNÉE DOIT ÊTRE ÉCARTE LES CAS RARES ; UNE RÈGLE QUI NOMME LE BRUIT N'ÉCARTE QUE LE BRUIT.` Les lieux-dits, les résidences et les ZAC sont des adresses ; ce sont les en-têtes du document qui n'en sont pas, et eux forment une liste finie. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Le filtre s'applique **avant** que la valeur ne serve de clé de repliement : deux immeubles partageant le même en-tête de page auraient fusionné en un seul objet. |
+| **composant** | `crgv2_plan.php::adresseSuspecte()` |
+| **tests** | Fixture : « SITUATION DES LOCATAIRES - 2e Trimestre 2026 » ne doit pas être une adresse ; « LIEUDIT LE MONINSABLE » doit en être une. |
+| **corpus** | 14 rejetées sur 512 · 46 adresses gagnées |
+| **limites** | La liste des en-têtes est celle des trois éditeurs lus ; un quatrième format demandera de l'étendre. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0091 · Un chiffre écrit dans la doctrine se remesure avant de servir de spécification
+
+| | |
+|---|---|
+| **phénomène** | La migration `0019` du schéma V2 justifie la table des occupants multiples par « **121 noms de locataire sur 1 268 portent deux personnes** ». Mon découpage n'en trouvait qu'un seul, et j'ai d'abord cru mon code trop prudent. |
+| **preuve** | 09/09/2026, comptage sur les 1 268 noms distincts : **90 contiennent une barre oblique, et 88 sont de la forme « NOM/// Prénom » — une seule personne** (`SY/// Adama`, `BURDULEA//// GABRIELA`). Deux seulement en portent réellement deux (`BILLARD Justine// SCHULTZ Célia`). Les 3 occurrences de « ET » sont des noms composés ou des enseignes. Le 121 comptait les SÉPARATEURS, pas les personnes. |
+| **abstraction** | `UN CHIFFRE ÉCRIT DANS LA DOCTRINE SE REMESURE AVANT DE SERVIR DE SPÉCIFICATION.` Un nombre consigné devient une cible : on ajuste le code jusqu'à l'atteindre. S'il a été obtenu en comptant un proxy — ici un caractère — on ajuste le code sur le proxy. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Deux parts qui portent CHACUNE au moins deux mots ressemblent à deux identités ; une part d'un seul mot est une colonne de l'export. Et le libellé brut reste dans `nom_lu` : si le découpage se trompe, la preuve de ce qu'on a lu permet de le corriger. |
+| **composant** | `crgv2_plan.php::occupants()` |
+| **tests** | Fixture : `SY/// Adama` rend UN occupant, `BILLARD Justine// SCHULTZ Célia` en rend DEUX. |
+| **corpus** | 90 noms à barres · 2 colocations réelles |
+| **limites** | `MERCIER/BERTHIER` reste indécidable — nom composé ou deux personnes ; on retient une personne, et `nom_lu` garde tout. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0092 · Le rang dans une liste ne dit rien de ce que la base porte déjà
+
+| | |
+|---|---|
+| **phénomène** | Un index UNIQUE n'autorise qu'un code **principal** par objet et par référentiel. Je posais « le premier de la liste » comme principal. Trois dépôts sur quatre ont été refusés à l'écriture. |
+| **preuve** | 09/09/2026, `Duplicate entry 'IMMEUBLE:32:septeo_spi'`. La cause n'était pas l'index : deux groupes du plan se rejoignent parfois sur le **même** immeuble — repliés après coup par leur adresse — et chacun posait son premier code en principal. L'index avait raison. |
+| **abstraction** | `LE RANG DANS UNE LISTE EST UNE PROPRIÉTÉ DE LA LISTE, PAS DE L'OBJET.` Dès que plusieurs listes peuvent désigner le même objet, « le premier » ne veut plus rien dire. On demande à l'état, on ne déduit pas de l'ordre. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | L'unicité d'un attribut distingué se vérifie sur ce qui est **déjà posé** — dans la base et dans la passe en cours — jamais sur l'indice d'itération. |
+| **composant** | `crgv2_ecrire.php::poserCode()` |
+| **tests** | Fixture : deux groupes repliés sur un même immeuble ne doivent produire qu'un seul code principal par référentiel. |
+| **corpus** | 3 dépôts sur 4 refusés · 49 immeubles à codes multiples |
+| **limites** | La garde vaut par référentiel : un objet peut légitimement porter un principal par système. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0093 · Sur une base partagée, le schéma se relit au moment d'écrire
+
+| | |
+|---|---|
+| **phénomène** | J'ai lu le schéma de la base V2, conçu l'import dessus, puis écrit. Entre les deux, une autre session avait appliqué une migration ajoutant deux contraintes — dont celle qui a fait échouer l'écriture. |
+| **preuve** | 09/09/2026 : la migration `0021` porte l'horodatage **22:57:14**, entre ma lecture du schéma (22:42) et mon import (22:59). Le même phénomène s'était produit une heure plus tôt sur `occupations`, dont j'avais lu la forme d'avant la migration `0019`. Deux fois dans la séance, un état lu s'est révélé périmé au moment d'agir. |
+| **abstraction** | `SUR UNE BASE PARTAGÉE, UN SCHÉMA LU EST UNE PHOTOGRAPHIE, PAS UN CONTRAT.` Ce n'est pas une erreur de lecture : c'est une hypothèse d'exclusivité, jamais formulée et donc jamais vérifiée. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | Une base doit pouvoir dire **où elle en est** sans qu'on l'ausculte : un registre des migrations, que cette base n'avait pas. Et l'écriture se fait en transaction, pour qu'un schéma qui a bougé fasse échouer la passe entière au lieu de la laisser à moitié écrite. |
+| **composant** | `schema_migrations` (migration 0020) · `crgv2_ecrire.php` (transaction) |
+| **tests** | Fixture : une migration appliquée hors registre doit être détectée par l'écran de schéma. |
+| **corpus** | 2 états périmés en une séance · 3 dépôts refusés |
+| **limites** | Le registre dit ce qui a été appliqué, pas ce qui est en train de l'être. Deux passes simultanées restent à sérialiser autrement. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
+## APP-0094 · Une clé de rapprochement se calcule sur la forme STOCKÉE, pas sur la forme LUE
+
+| | |
+|---|---|
+| **phénomène** | La clé d'un tiers était calculée sur la chaîne imprimée — « Monsieur XERRI Florent ». La base, elle, stocke `nom=XERRI` et `prenoms=Florent` : l'écrivain relisant la base ne pouvait **jamais** reconstruire cette clé, et aurait recréé chaque personne à chaque dépôt. |
+| **preuve** | 09/09/2026. En calculant la clé sur l'identité **analysée**, 7 tiers du corpus se replient immédiatement — « M. XERRI Florent » et « XERRI Florent » cessent d'être deux personnes. Et le rapprochement inter-dépôts fonctionne : le quatrième dépôt ne crée que 501 tiers au lieu de 506, 340 biens au lieu de 341. |
+| **abstraction** | `UNE CLÉ DE RAPPROCHEMENT SE CALCULE SUR LA FORME STOCKÉE, PAS SUR LA FORME LUE.` La normalisation ne suffit pas : il faut qu'elle s'applique à la même REPRÉSENTATION des deux côtés. Une clé qu'un seul des deux côtés sait produire n'est pas une clé. |
+| **portée** | `UNIVERSELLE` |
+| **règle** | La fonction de normalisation vit dans **un seul fichier**, requis par le lecteur et par l'écrivain. Deux copies du même code sont deux normalisations qui vont diverger — et un rapprochement qui diverge ne rapproche rien, en silence. |
+| **composant** | `crgv2_norm.php::cleTiers()` |
+| **tests** | Fixture : « Monsieur XERRI Florent » lu, puis relu depuis la base, doit rendre la même clé. |
+| **corpus** | 1 794 → 1 787 tiers · repliement inter-dépôts effectif |
+| **limites** | Deux homonymes réels se replient en un seul tiers ; les comptes mandants, eux, restent distincts, donc rien n'est perdu. |
+| **commit d’introduction** | PAS ENCORE COMMITÉ |
+
+---
+
 ## Ce que le registre ne contient pas, et pourquoi
 
 Cinquante-quatre apprentissages, et **aucun ne nomme un lot, un occupant, un compte ou un fichier**. C'est
